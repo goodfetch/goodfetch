@@ -11,9 +11,9 @@ mod model;
 use std::path::Path;
 
 use goodfetch_protocol::catalog::Product;
-use goodfetch_protocol::checkpoint::RunBinding;
+use goodfetch_protocol::checkpoint::{RunBinding, RunStatePosition};
 use goodfetch_protocol::formats::Compatibility;
-use goodfetch_protocol::run::Lifecycle;
+use goodfetch_protocol::run::{Lifecycle, RunKind};
 use goodfetch_test_support::TestEnv;
 use rusqlite::Connection;
 use sha2::{Digest as _, Sha256};
@@ -155,12 +155,16 @@ fn reading_a_checkpoint_gives_its_run_its_product_lifecycle_and_binding() {
         held.unwrap(),
         Held {
             run_id: "kept".to_owned(),
+            kind: RunKind::Collie,
             needs: Product::Collie,
             lifecycle: Lifecycle::Running,
             binding: Some(RunBinding::Machine {
                 machine: "m-1".to_owned()
             }),
-            run_epoch: 2,
+            position: RunStatePosition {
+                run_epoch: 2,
+                journal_position: 1,
+            },
             key: None,
             fixed_settings: "{}".to_owned(),
         }

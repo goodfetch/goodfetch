@@ -15,6 +15,9 @@
 //!   failure it knows (`RequestFailed`). A request a site's service worker
 //!   sent itself, which belongs to no page, is recorded as
 //!   `service_worker.request` whether it went on or was refused (ADR 0121).
+//!   A note of the engine's own on a response, which no event reports,
+//!   such as a crawl's `crawl.retry_after_unparsable` (ADR 0118), is a
+//!   line of the same shape.
 //! - **The CDP command log** (spec #577), `trace/cdp-commands.jsonl`, while
 //!   the Run's `browser.cdp_command_log` is on: one JSON line per command the
 //!   engine sends a browser, its method only.
@@ -23,10 +26,14 @@
 //!   whose `_meta` carries `raw: true`, marked raw, with its operation,
 //!   when it arrived and how it ended. A generated member's call writes
 //!   nothing here.
+//! - **The settings log** (ADR 0102), `trace/settings.jsonl`: one JSON line
+//!   per setting a resume changed, with its key, the layer that sets it
+//!   from the resume on and the run epoch the resume began, never its
+//!   value.
 //!
-//! Every Provenance and request-log line passes through the Run's `Mask` as
-//! a kept output (spec #564): no value a Run resolved is written, unless the
-//! Run's `security.redaction` is off.
+//! Every Provenance, request-log and settings-log line passes through the
+//! Run's `Mask` as a kept output (spec #564): no value a Run resolved is
+//! written, unless the Run's `security.redaction` is off.
 //!
 //! The writer is an actor of the Run's owner, started at the Run's first
 //! entry, the Run's work, once, counted on `E5.run_spawns`. It holds one
@@ -56,6 +63,7 @@ use goodfetch_counted_work::{CountedWork, Row};
 use goodfetch_protocol::catalog::Event;
 use goodfetch_protocol::home::{
     RUN_TRACE_CALLS, RUN_TRACE_CDP_COMMANDS, RUN_TRACE_PROVENANCE, RUN_TRACE_REQUESTS,
+    RUN_TRACE_SETTINGS,
 };
 use goodfetch_protocol::page::events::PAGE_REQUEST_FAILED;
 use goodfetch_protocol::page::{RequestFailed, SERVICE_WORKER_REQUEST, ServiceWorkerRequest};
@@ -115,14 +123,16 @@ enum Log {
     Requests,
     CdpCommands,
     Calls,
+    Settings,
 }
 
 impl Log {
-    const ALL: [Self; 4] = [
+    const ALL: [Self; 5] = [
         Self::Provenance,
         Self::Requests,
         Self::CdpCommands,
         Self::Calls,
+        Self::Settings,
     ];
 
     /// How many files the writer holds.
@@ -135,6 +145,7 @@ impl Log {
             Self::Requests => 1,
             Self::CdpCommands => 2,
             Self::Calls => 3,
+            Self::Settings => 4,
         }
     }
 
@@ -145,6 +156,7 @@ impl Log {
             Self::Requests => RUN_TRACE_REQUESTS,
             Self::CdpCommands => RUN_TRACE_CDP_COMMANDS,
             Self::Calls => RUN_TRACE_CALLS,
+            Self::Settings => RUN_TRACE_SETTINGS,
         }
     }
 }
@@ -230,13 +242,34 @@ impl RunTrace {
         if !self.0.logs_provenance {
             return Ok(());
         }
-        self.0
-            .mask
-            .masks()
-            .apply_value(&mut entry, Scope::KeptOutput);
-        let mut line = serde_json::to_vec(&entry)?;
+        self.written_masked(Log::Provenance, &mut entry).await
+    }
+
+    /// Appends `change`, a setting a resume changed (ADR 0102), as a line of
+    /// the settings log, masked by the Run's `Mask` as a kept output, and
+    /// returns once it is written.
+    ///
+    /// # Errors
+    ///
+    /// When the line cannot be encoded, the writer cannot start, or the
+    /// file cannot be opened or written; the next entry opens it again.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future never stops a line being written once it was
+    /// sent to the writer.
+    pub async fn setting_changed(&self, change: &impl Serialize) -> io::Result<()> {
+        let mut entry = serde_json::to_value(change)?;
+        self.written_masked(Log::Settings, &mut entry).await
+    }
+
+    /// Writes `entry`, masked by the Run's `Mask` as a kept output, as one
+    /// line of `log`.
+    async fn written_masked(&self, log: Log, entry: &mut serde_json::Value) -> io::Result<()> {
+        self.0.mask.masks().apply_value(entry, Scope::KeptOutput);
+        let mut line = serde_json::to_vec(entry)?;
         line.push(b'\n');
-        self.written(Log::Provenance, line).await
+        self.written(log, line).await
     }
 
     /// Records that a command whose method is `method` is being sent to one
@@ -455,6 +488,23 @@ impl RequestLog {
     /// sent to the writer.
     pub async fn record(&self, event: &Event, data: &impl Serialize) -> io::Result<()> {
         self.record_line(event.name, data).await
+    }
+
+    /// Records a note of the engine's own named `name`, with its `data`,
+    /// on a response no event reports, such as a crawl's
+    /// `crawl.retry_after_unparsable` (ADR 0118). It counts on
+    /// `C5.entries` as every line of the log does.
+    ///
+    /// # Errors
+    ///
+    /// When the file cannot be written.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future never stops a line being written once it was
+    /// sent to the writer.
+    pub async fn note(&self, name: &str, data: &impl Serialize) -> io::Result<()> {
+        self.record_line(name, data).await
     }
 
     /// Records a request a site's service worker sent itself, which no

@@ -1359,3 +1359,43 @@ milestone = "M1 Core"
 journey = false
 not_journey = "part"
 status = "active"
+
+[[story]]
+id = 173
+title = "As a user, I want a start from any Client that carries a Schedule's reserved tag, `goodfetch.schedule`, `occurrence`, `trigger`, `creator` or `role`, refused with `invalid_params` naming the tag before any Run begins, so that the Runs list never shows a Schedule that did not start the Run (ADR 0036)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 174
+title = "As a developer, I want a `detached` start on an Attached or linked engine, or of a Run the program serves by a handler or a Hook, refused with `detach_unsupported` whose `fix` names `engine: daemon` or the key that gives the Run its handler, and a code-free crawl started detached on the Daemon to go on after my Connection ends, so that work meant to outlive my program never dies with it, nor waits on a program gone (ADRs 0078 and 0102)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 175
+title = "As a developer, I want a resume that changes a setting the Run ran with, set to another value or left out to fall back to a lower layer, to apply it from the resume on and record it in the Run trace with its key, layer and the resume's run epoch, and with no value a credential could hide in, so that the trace says which settings each part of a resumed Run ran under (ADR 0102)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 176
+title = "As a developer, I want a resume to count each attempt its committed state shows in flight as `handler_lost` against `crawl.retry.max`, and none that my program's own stop returned to pending, at whichever Durability level the Run uses: every attempt in flight at `full`, `fast` and `periodic`, only those a written batch holds at `batch`, and none at `off`, where a crash discards the run file and the Run starts again, so that a crash costs a request a retry only for an attempt it lost (ADRs 0093, 0102 and 0142)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 177
+title = "As a developer, I want a start under a Run's ID to answer as the start table says whatever came before it: `new` for a Run with no state, `run_conflict` for other inputs, `setting_not_applicable` for another value of a key its run file keeps fixed, then `run_in_use`, `resumed` or `ended` for a live, interrupted or finished Run, and `run_state_unavailable` for state it cannot read, through pauses, finishes, clean stops, crashes and power cuts, so that a crash never turns a Run into another one or starts it twice (ADRs 0060, 0102 and 0138)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"

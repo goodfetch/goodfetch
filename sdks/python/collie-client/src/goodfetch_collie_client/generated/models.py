@@ -2385,6 +2385,22 @@ class RunLimit(BaseModel):
     """The Usage kind it caps."""
 
 
+class RunMigrateParams(BaseModel):
+    """What `run.migrate` takes."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    location: str | None = None
+    """
+    Where to write the Checkpoint the Run is resumed from, a path on the
+    engine's machine; by default where the engine keeps the Run's
+    Checkpoints, its own folder.
+    """
+    run_id: RunId
+    """The Run's ID."""
+
+
 class RunMigrating(BaseModel):
     """What `run.migrating` carries."""
 
@@ -2485,6 +2501,14 @@ class RunResumeParams(BaseModel):
     """
     project: ProjectSettings | None = None
     """The project configuration the Client found, layer 3 (ADR 0083)."""
+    rollback: bool | None = None
+    """
+    Whether a `checkpoint` behind the Run's run file on this machine, or
+    given where that file cannot be read, replaces it all the same,
+    rolling the Run back to the Checkpoint, as the Audit log records; by
+    default such a Checkpoint is refused, with `checkpoint_behind` or the
+    error the file's read gave. Without `checkpoint` it changes nothing.
+    """
     run_id: RunId
     """The Run's ID."""
     settings: dict[str, Any] | None = None
@@ -3227,6 +3251,11 @@ class StoppedBy(StrEnum):
     call the stop cancels names it as its `by` (ADR 0113).
     """
 
+    person = "person"
+    """
+    A person, through `run.abort` from a Client that acts for them
+    (ADR 0031).
+    """
     client = "client"
     """A Client, through `run.abort`."""
     program = "program"
@@ -4546,6 +4575,15 @@ class HelloParams(BaseModel):
     The form its user writes names in (ADR 0099), which every SDK
     declares; without one, the engine takes its surface's.
     """
+    handlers: dict[str, list[str]] | None = None
+    """
+    The program's SDK handlers, their names by Plugin kind, as
+    `connect()` registers them (ADR 0104). The only handler of a kind
+    that one setting chooses becomes that setting's value at the
+    connection scope, with the origin `registered`, beneath every
+    other run-layer value. A kind the engine's Product lacks refuses
+    the `hello`.
+    """
     keep_daemon_alive: bool | None = None
     """
     On a Kennel's `hello` (surface `kennel`), asks a Daemon to count the
@@ -4580,40 +4618,6 @@ class HelloParams(BaseModel):
     """The surface it comes from."""
     token: str | None = None
     """The Daemon's token; an Attached engine needs none."""
-
-
-class HelloResult(BaseModel):
-    """What an engine answers to a `hello` it accepts."""
-
-    model_config = ConfigDict(
-        extra="allow",
-    )
-    engine_instance: EngineInstance
-    """
-    The engine process, new each time an engine starts: the positions
-    of its events count within it, so a Client that meets a new one
-    resyncs (ADR 0031).
-    """
-    max_calls_in_flight: Annotated[int | None, Field(ge=1)] = None
-    """
-    How many calls the engine keeps in flight on this Connection: one
-    more is refused with `too_many_calls`, so a Client sends at most
-    this many at once and queues the rest in the order they were made
-    (ADR 0038; issue 2529). Absent from an engine that sets no cap, such
-    as the Scripted engine.
-    """
-    private_endpoint: PrivateEndpoint | None = None
-    """
-    An Attached engine's private endpoint, reported to the Client of its
-    stdio alone: where that Client's `workers=N` handler processes, and a
-    Daemon forwarding a live action, connect (ADRs 0024 and 0031).
-    """
-    product: Product
-    """The engine's Product."""
-    product_version: ProductVersion
-    """The engine's Product version."""
-    protocol_version: ProtocolVersion
-    """The protocol version the engine speaks."""
 
 
 class HtmlFormat(RootModel[Asked | HtmlOptions]):
@@ -4803,7 +4807,9 @@ class Locator(BaseModel):
     """
     A locator (ADR 0085): what an action looks for on a page, resolved
     again at each use, never a handle on an element. This tracer's locators
-    are CSS selectors.
+    are CSS selectors. Whether it reaches inside a closed shadow root
+    depends on the browser (ADR 0121): a CSS selector reaches open roots
+    only today.
     """
 
     model_config = ConfigDict(
@@ -5677,6 +5683,9 @@ class RunCheckpointParams(BaseModel):
     """
     Where to write the Checkpoint, a path on the engine's machine; by
     default where the engine keeps the Run's Checkpoints, its own folder.
+    The catalog's caller alone gives it, such as Goodfetch Cloud: an
+    SDK's `checkpoint()` takes no path, which would break on a Daemon or
+    Goodfetch Cloud (ADR 0102).
     """
     run_id: RunId
     """The Run's ID."""
@@ -5992,6 +6001,11 @@ class StopReason1(BaseModel):
     by: StoppedBy
     """Who stopped it."""
     kind: Literal["abort"]
+    person: str | None = None
+    """
+    Whom the aborting Client acts for (ADR 0031), set when `by` is
+    `person`.
+    """
 
 
 class StopReason6(BaseModel):
@@ -6502,6 +6516,51 @@ class FormatsRequest(BaseModel):
     """The page's tables, as rows of cells."""
     text: Asked | None = None
     """The text of the page's main content, a paragraph per block."""
+
+
+class HelloResult(BaseModel):
+    """What an engine answers to a `hello` it accepts."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    engine_instance: EngineInstance
+    """
+    The engine process, new each time an engine starts: the positions
+    of its events count within it, so a Client that meets a new one
+    resyncs (ADR 0031).
+    """
+    max_calls_in_flight: Annotated[int | None, Field(ge=1)] = None
+    """
+    How many calls the engine keeps in flight on this Connection: one
+    more is refused with `too_many_calls`, so a Client sends at most
+    this many at once and queues the rest in the order they were made
+    (ADR 0038; issue 2529). Absent from an engine that sets no cap, such
+    as the Scripted engine.
+    """
+    private_endpoint: PrivateEndpoint | None = None
+    """
+    An Attached engine's private endpoint, reported to the Client of its
+    stdio alone: where that Client's `workers=N` handler processes, and a
+    Daemon forwarding a live action, connect (ADRs 0024 and 0031).
+    """
+    product: Product
+    """The engine's Product."""
+    product_version: ProductVersion
+    """The engine's Product version."""
+    protocol_version: ProtocolVersion
+    """The protocol version the engine speaks."""
+    timeouts: list[SettingLimit] | None = None
+    """
+    Each `timeout.*` setting the engine's Product honours, as it
+    resolved at the Connection's layers (the engine's, beneath the
+    `hello`'s own `settings`), in milliseconds: a call the Client queues
+    past `max_calls_in_flight` with no timeout of its own fails at its
+    setting's value with `deadline_exceeded`, `waited_for`
+    `calls_in_flight` (ADR 0038's note of 2026-11-21; issue 3193). A
+    setting that resolves no timeout is left out; empty from an engine
+    that resolves none, such as the Scripted engine.
+    """
 
 
 class Limit(BaseModel):

@@ -209,10 +209,15 @@ fn is_codegen_test_input(path: &RepoPath) -> bool {
         || path.as_str().starts_with(CODEGEN_TEST_SNAPSHOTS)
 }
 
-/// What TLC's job reads besides the models: the pinned tools and the
-/// command that fetches them and runs TLC. A change to one selects every
-/// model.
-const TLC_INPUTS: [&str; 3] = [tlc::TOOLS_FILE, "xtask/src/tlc.rs", "xtask/src/tlc"];
+/// What TLC's job reads besides the models: the pinned tools, the
+/// trace-validation spec template and the command that fetches the tools
+/// and runs TLC. A change to one selects every model.
+const TLC_INPUTS: [&str; 4] = [
+    tlc::TOOLS_FILE,
+    tlc::TEMPLATE_FOLDER,
+    "xtask/src/tlc.rs",
+    "xtask/src/tlc",
+];
 
 /// Whether a change to the path reaches the model: a file of its folder, or
 /// of a module it traces.

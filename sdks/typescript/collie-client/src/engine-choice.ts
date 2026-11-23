@@ -34,7 +34,7 @@ const URL_VARIABLE = "GOODFETCH_URL";
 /** The variable holding the remote Daemon's token. */
 const TOKEN_VARIABLE = "GOODFETCH_TOKEN";
 /** The variable naming the Goodfetch home. */
-const HOME_VARIABLE = "GOODFETCH_HOME";
+export const HOME_VARIABLE = "GOODFETCH_HOME";
 
 /** A remote Daemon: an Exposed Daemon or Goodfetch Cloud, and the token its `hello` takes. */
 export interface RemoteDaemon {
@@ -600,9 +600,10 @@ function transportOf(socket: Socket): Transport {
 /**
  * The Goodfetch home: `GOODFETCH_HOME` when it is set, else the `goodfetch`
  * folder of the OS's usual data folder, as the engine finds it (`dirs`'s
- * `data_dir`); `null` when the environment names no home folder.
+ * `data_dir`); `null` when the environment names no home folder. The
+ * testing kit finds the caller's home with it, as `connect()` does.
  */
-function homeOf(env: Readonly<Record<string, string>>): string | null {
+export function homeOf(env: Readonly<Record<string, string>>): string | null {
   const named = variable(env, HOME_VARIABLE);
   if (named !== undefined) {
     return named;

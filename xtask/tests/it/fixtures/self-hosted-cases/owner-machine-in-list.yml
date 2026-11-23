@@ -1,8 +1,0 @@
-name: off the list
-on: push
-permissions: {}
-jobs:
-  build:
-    runs-on: [linux, owner-machine]
-    steps:
-      - run: echo off the list

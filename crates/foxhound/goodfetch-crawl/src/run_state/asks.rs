@@ -36,12 +36,20 @@
 //! of the run-state writer. It costs its attempt one round trip, counted
 //! as `F3.actor_round_trips`; an attempt that does not escalate across
 //! clients asks nothing.
+//!
+//! In a crawl with a before-request Hook, each attempt also asks the loop
+//! for its request's Permit once those Hooks returned (#2905): the loop
+//! answers from the crawl's admission, with no job of the run-state
+//! writer, at one more round trip counted as `F3.actor_round_trips`. A
+//! crawl with no such Hook takes each Permit as it leases and asks
+//! nothing.
 
 use std::pin::Pin;
 use std::time::SystemTime;
 
 use goodfetch_counted_work::{CountedWork, Row};
 use goodfetch_engine::CallError;
+use goodfetch_engine::admission::PermitAnswer;
 use goodfetch_engine::run_state::RunStateError;
 use goodfetch_fetch_tier::{ChainHop, HopAnswer, HopChecks};
 use goodfetch_frontier::Hop;
@@ -81,11 +89,30 @@ pub(crate) enum HopAsk {
     Reached,
 }
 
-/// One message to the loop: a question the run file answers, or an
-/// escalated attempt's draw, which memory answers.
+/// One message to the loop: a question its Run state answers, or a
+/// request's Permit, which its admission answers.
+pub(crate) enum Message {
+    /// A question its Run state answers.
+    Question(Question),
+    /// The Permit of a request admitted with none, asked for once its
+    /// before-request Hooks returned (#2905).
+    Permit(PermitAsk),
+}
+
+/// The Permit of the request `id` of `key`, which the loop answers from
+/// the crawl's admission ([`goodfetch_engine::admission::Admission::permit`]).
+pub(crate) struct PermitAsk {
+    pub(crate) id: String,
+    pub(crate) key: String,
+    pub(crate) answer: oneshot::Sender<PermitAnswer>,
+}
+
+/// A question the crawl's Run state answers: one the run file answers, or
+/// an escalated attempt's draw, which memory answers. A stored question is
+/// boxed: it is the larger variant, more than twice the other on Windows.
 pub(crate) enum Question {
     /// A question the run file answers.
-    Stored(Ask),
+    Stored(Box<Ask>),
     /// The draw of a Session for an escalated attempt.
     Escalated {
         escalated: Escalated,
@@ -158,11 +185,11 @@ pub(crate) enum Ask {
 #[derive(Clone)]
 pub(crate) struct Asking {
     work: CountedWork,
-    mailbox: mpsc::Sender<Box<Question>>,
+    mailbox: mpsc::Sender<Message>,
 }
 
 /// The loop's side of the mailbox.
-pub(crate) struct Asked(mpsc::Receiver<Box<Question>>);
+pub(crate) struct Asked(mpsc::Receiver<Message>);
 
 /// The mailbox of a crawl whose counted work `work` counts: the handle
 /// other tasks ask through, and the loop's side.
@@ -177,7 +204,7 @@ impl Asked {
     /// # Cancel safety
     ///
     /// Dropping the future takes no question out of the mailbox.
-    pub(crate) async fn next(&mut self) -> Option<Box<Question>> {
+    pub(crate) async fn next(&mut self) -> Option<Message> {
         self.0.recv().await
     }
 }
@@ -186,7 +213,7 @@ impl Asking {
     /// Sends the loop the question `ask`; `Closed` once the loop ended.
     async fn send(&self, ask: Ask) -> Result<(), StateError> {
         self.mailbox
-            .send(Box::new(Question::Stored(ask)))
+            .send(Message::Question(Question::Stored(Box::new(ask))))
             .await
             .map_err(|_| StateError::Closed)
     }
@@ -308,7 +335,25 @@ impl Asking {
         self.work.count(Row::ActorRoundTrips);
         let (answer, answered) = oneshot::channel();
         self.mailbox
-            .send(Box::new(Question::Escalated { escalated, answer }))
+            .send(Message::Question(Question::Escalated { escalated, answer }))
+            .await
+            .map_err(|_| StateError::Closed)?;
+        answered.await.map_err(|_| StateError::Closed)
+    }
+
+    /// Asks the loop for the Permit of the request `id` of `key`, admitted
+    /// with none, once its before-request Hooks returned, and waits for its
+    /// answer: one round trip (#2905). `Closed` once the loop ended.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future before the loop answers may leave a Permit
+    /// taken, which the request's end gives back.
+    pub(crate) async fn permit(&self, id: String, key: String) -> Result<PermitAnswer, StateError> {
+        self.work.count(Row::ActorRoundTrips);
+        let (answer, answered) = oneshot::channel();
+        self.mailbox
+            .send(Message::Permit(PermitAsk { id, key, answer }))
             .await
             .map_err(|_| StateError::Closed)?;
         answered.await.map_err(|_| StateError::Closed)

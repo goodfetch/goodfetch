@@ -769,6 +769,23 @@ class AsyncRun(AsyncRunMembers):
         """Its Run ID."""
         return self._scope.id
 
+    def _read(
+        self,
+        operation: str,
+        params: Mapping[str, object],
+        item_of: Callable[[str, object], _Item | None],
+    ) -> AsyncSequence[_Item]:
+        """Sends the Sequence `operation` on the Run, read with `async for`.
+
+        For a Product's own Run, such as Foxhound's crawl Run, whose reads,
+        such as `run.records`, the Collie client package does not generate.
+
+        Raises:
+            ClosedError: The Run is closed; nothing is sent.
+            RuntimeError: No asyncio or Trio loop runs on this thread.
+        """
+        return _held[self][0].read(operation, params, item_of)
+
     async def explain_settings(
         self, keys: Iterable[str] | None = None
     ) -> SettingsExplanation:
@@ -835,7 +852,9 @@ class AsyncRun(AsyncRunMembers):
         return AsyncSequence(reading)
 
     async def close(self) -> None:
-        """Closes the Run; idempotent.
+        """Leaving the scope or `close()` stops the Run with a Checkpoint.
+
+        `finish()` ends it. Closing is idempotent.
 
         A Run still running is stopped with `run.abort`, resumable by its Run
         ID, and the Run report it answers is not returned; one no longer
@@ -984,7 +1003,9 @@ class Run(RunMembers):
         )
 
     def close(self) -> None:
-        """Closes the Run; idempotent.
+        """Leaving the scope or `close()` stops the Run with a Checkpoint.
+
+        `finish()` ends it. Closing is idempotent.
 
         A Run still running is stopped with `run.abort`, resumable by its Run
         ID, unless it was started `detached`, as `AsyncRun.close` says.

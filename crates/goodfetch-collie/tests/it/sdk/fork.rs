@@ -46,7 +46,7 @@ const FIX: &str = "Connect in the child process: a Connection and every Run, Ses
 /// fail with `connection_forked` at once, while a Connection the child
 /// opens to its own linked engine starts and finishes a Run; the parent's
 /// Run and Connection still work after.
-/// Covers: story:11-23, error:connection_forked
+/// Covers: story:11-23
 #[test]
 fn a_connection_used_after_fork_fails_in_the_child_which_connects_on_its_own_linked() {
     let _case = ClientCaseRun::start(

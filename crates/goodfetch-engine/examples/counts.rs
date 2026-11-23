@@ -11,8 +11,9 @@
 //! happen, or if a feature off did not take its work away.
 //!
 //! Its Usage charge scenario (`support/charge_counts.rs`) charges requests,
-//! and proxy bytes as a provider Session's relay reserves them ahead, under
-//! a Limit on each in every cell but `no_limit`, whose run no Limit holds and
+//! proxy bytes as a provider Session's relay reserves them ahead, and paid
+//! calls, each a paid solve's worst case reserved and then settled, under a
+//! Limit on each in every cell but `no_limit`, whose run no Limit holds and
 //! which takes the Slice's work away. What no wrapper sees of a charge comes from
 //! outside the process: `E3.prepares` is Callgrind's call count of
 //! `sqlite3_prepare_v3` inside the charges that took a Slice, run again under
@@ -71,7 +72,7 @@ use goodfetch_engine::audit::AuditLog;
 use goodfetch_engine::metrics::Metrics;
 use goodfetch_protocol::catalog::Product;
 use goodfetch_test_support::CountingVfs;
-use messages::{Logs, Plant, Traffic};
+use messages::{BODY_CHUNKS, Carriage, Logs, Plant, Traffic};
 use serde_json::{Map, Value, json};
 
 /// The fixture's traffic: every outcome of the message path, the small
@@ -80,6 +81,7 @@ const TRAFFIC: Traffic = Traffic {
     small: 20,
     large: 10,
     plugin: 10,
+    bodies: 1,
 };
 
 /// The Audit rows Callgrind reads: the log's, of its first entry, and the
@@ -191,20 +193,33 @@ fn prepare_one() {
         .expect("invariant: a literal statement");
 }
 
-/// One cell: a name, how it runs, whether a Limit holds its charges, how its
-/// Audit log runs, and the rows it must count fewer of than the default cell:
-/// a feature's work goes with the feature (ADR 0140).
+/// One cell: a name, the carriage and log level its messages run with,
+/// whether a Limit holds its charges, how its Audit log runs, and the rows
+/// it must count fewer of than the default cell: a feature's work goes with
+/// the feature (ADR 0140).
 struct Cell {
     name: &'static str,
+    carriage: Carriage,
     logs: Logs,
     limited: bool,
     audit: Audit,
     removes: &'static [Row],
 }
 
-const CELLS: [Cell; 5] = [
+const CELLS: [Cell; 6] = [
     Cell {
         name: "default",
+        carriage: Carriage::Stdio,
+        logs: Logs::On,
+        limited: true,
+        audit: Audit::Chained,
+        removes: &[],
+    },
+    // The messages over an Exposed Daemon's WebSocket, held to the rows
+    // stdio is (ADR 0049): a feature off takes nothing away here.
+    Cell {
+        name: "websocket",
+        carriage: Carriage::WebSocket,
         logs: Logs::On,
         limited: true,
         audit: Audit::Chained,
@@ -212,6 +227,7 @@ const CELLS: [Cell; 5] = [
     },
     Cell {
         name: "log_off",
+        carriage: Carriage::Stdio,
         logs: Logs::Off,
         limited: true,
         audit: Audit::Chained,
@@ -222,6 +238,7 @@ const CELLS: [Cell; 5] = [
     // open is left for this cell to take away.
     Cell {
         name: "no_limit",
+        carriage: Carriage::Stdio,
         logs: Logs::On,
         limited: false,
         audit: Audit::Chained,
@@ -231,6 +248,7 @@ const CELLS: [Cell; 5] = [
     // no row's work away.
     Cell {
         name: "audit_chain_off",
+        carriage: Carriage::Stdio,
         logs: Logs::On,
         limited: true,
         audit: Audit::Unchained,
@@ -240,6 +258,7 @@ const CELLS: [Cell; 5] = [
     // pruning as it starts and once a day (#1887).
     Cell {
         name: "audit_retention",
+        carriage: Carriage::Stdio,
         logs: Logs::On,
         limited: true,
         audit: Audit::Retained,
@@ -293,6 +312,33 @@ impl<'a> Planted<'a> {
     }
 }
 
+/// Runs the message scenario on `cell`'s carriage and log level, and fails
+/// unless each of its outcomes left the engine.
+fn run_messages(
+    cell: &Cell,
+    metrics: Metrics,
+    plant: Option<Plant>,
+    home: &Path,
+) -> messages::Sent {
+    let sent = messages::run(TRAFFIC, cell.logs, cell.carriage, metrics, plant, home);
+    assert!(sent.event_batches > 0, "the Plugin's events went out");
+    assert_eq!(
+        sent.handler_requests, TRAFFIC.plugin,
+        "the Plugin's handler requests went out"
+    );
+    assert_eq!(
+        sent.chunks,
+        TRAFFIC.bodies * BODY_CHUNKS,
+        "the stored bodies' chunks went out"
+    );
+    assert_eq!(
+        sent.log_lines > 0,
+        cell.logs == Logs::On,
+        "the log lines follow the Connection's level"
+    );
+    sent
+}
+
 /// Runs `cell`'s scenarios.
 fn run(cell: &'static Cell, planted: Option<&str>) -> Counted {
     let home = tempfile::tempdir().expect("invariant: the OS gives a temporary folder");
@@ -308,9 +354,8 @@ fn run(cell: &'static Cell, planted: Option<&str>) -> Counted {
     };
     let audit_prepares = audit_prepares(cell.name, audit_planted);
     let audit_planted = audit_planted.filter(|name| ![LOG_PREPARES, PREPARES].contains(name));
-    let sent = messages::run(
-        TRAFFIC,
-        cell.logs,
+    let sent = run_messages(
+        cell,
         metrics,
         message_plant.map(|name| plant(name, &work)),
         home.path(),
@@ -324,16 +369,6 @@ fn run(cell: &'static Cell, planted: Option<&str>) -> Counted {
         sampled.samples,
         governor::SAMPLES,
         "the governor took its samples"
-    );
-    assert!(sent.event_batches > 0, "the Plugin's events went out");
-    assert_eq!(
-        sent.handler_requests, TRAFFIC.plugin,
-        "the Plugin's handler requests went out"
-    );
-    assert_eq!(
-        sent.log_lines > 0,
-        cell.logs == Logs::On,
-        "the log lines follow the Connection's level"
     );
     let folder = tempfile::tempdir().expect("invariant: the OS gives a temporary folder");
     let charged = charges(folder.path(), cell.limited, charge_plant, None);

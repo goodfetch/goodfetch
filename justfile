@@ -124,6 +124,8 @@ lint-drift:
     step --after xtask xtask-sdk-manifests 'cargo run --quiet --bin xtask -- sdk-manifests'
     step --after xtask xtask-sdk-exports 'cargo run --quiet --bin xtask -- sdk-exports'
     step --after xtask xtask-compat 'cargo run --quiet --bin xtask -- compat check'
+    step --after xtask xtask-api-check 'cargo run --quiet --bin xtask -- api-check'
+    step --after xtask xtask-sdk-api 'cargo run --quiet --bin xtask -- sdk-api'
     steps_end
 
 # The type checks of the TypeScript and Python code, over the workspace: the
@@ -173,7 +175,7 @@ lint:
     step zizmor 'ci/tool.sh zizmor zizmor --config zizmor.yml --persona=regular .github/workflows .github/actions'
     step actionlint 'ci/tool.sh actionlint actionlint'
     step gitleaks 'ci/tool.sh gitleaks ci/canary-rule.sh'
-    step shellcheck 'ci/tool.sh shellcheck shellcheck ci/*.sh ci/compiler-cache/sccache ci/deny/*.sh ci/egress/*.sh ci/host/*.sh ci/hosted/*.sh ci/musl/*.sh ci/musl/cargo ci/musl/link-cc ci/musl/stable-metadata/sccache ci/release/*.sh ci/results/*.sh ci/runner/*.sh ci/test-health/*.sh ci/vm/*.sh ci/visual/*.sh ci/proofs/run.sh ci/proofs/live.sh kennel/scripts/*.sh .githooks/pre-commit .githooks/pre-push'
+    step shellcheck 'ci/tool.sh shellcheck shellcheck ci/*.sh ci/compiler-cache/sccache ci/deny/*.sh ci/egress/*.sh ci/host/*.sh ci/hosted/*.sh ci/musl/*.sh ci/musl/cargo ci/musl/link-cc ci/musl/stable-metadata/sccache ci/release/*.sh ci/results/*.sh ci/runner/*.sh ci/source-build/*.sh ci/test-health/*.sh ci/vm/*.sh ci/visual/*.sh ci/proofs/run.sh ci/proofs/live.sh kennel/scripts/*.sh .githooks/pre-commit .githooks/pre-push'
     step cargo-deny 'ci/tool.sh cargo-deny cargo deny check -A unused-wrapper -A license-not-encountered bans licenses sources'
     step cargo-deny-products 'ci/tool.sh cargo-deny ci/deny/products.sh'
     # The Collie client crate, which takes no OpenTelemetry crate: the
@@ -212,7 +214,7 @@ lint:
     step cargo-deny-kennel 'ci/tool.sh cargo-deny cargo deny --manifest-path kennel/Cargo.toml --config kennel/deny.toml check bans sources'
     step --after xtask xtask-kennel-manifest 'cargo run --quiet --bin xtask -- kennel-manifest'
     step cargo-shear 'ci/tool.sh cargo-shear cargo shear'
-    step --after xtask xtask-self-hosted 'cargo run --quiet --bin xtask -- self-hosted check'
+    step --after xtask xtask-workflow-policy 'cargo run --quiet --bin xtask -- workflow-policy'
     step --after xtask xtask-egress 'cargo run --quiet --bin xtask -- egress check'
     step --after xtask xtask-os-services 'cargo run --quiet --bin xtask -- os-services workflows'
     step --after xtask xtask-fixture-size 'cargo run --quiet --bin xtask -- fixture-size'
@@ -534,7 +536,11 @@ fetch:
     uv sync --frozen --all-extras
     ci/lightpanda-fetch.sh
     ci/chrome-for-testing-fetch.sh
+    ci/claude-code-fetch.sh
+    ci/toxiproxy-fetch.sh
     ci/alpine/fetch.sh
+    ci/source-build/fetch.sh
+    ci/valkey/fetch.sh
 
 # Builds Rust (with the given Cargo profile), TypeScript and Python.
 build profile="dev":
@@ -1149,7 +1155,10 @@ batch-check base="origin/main":
 # Miri and loom run beside them too, on the host, in folders of their own. The suite waits for
 # them and fails when one fails (ci/pre-merge.sh). A red step ends no form:
 # every other step still runs, and the end names each red step. `quick` runs only the
-# checks every change needs, for a change no test reads (ADR 0135). `all`
+# checks every change needs, for a change no test reads (ADR 0135), and
+# `batch` those and the Pre-merge suite, the hosted tier's form for a
+# batch's pull request, each member's Pre-merge unit covering its Quick unit
+# (#3378). `all`
 # on a head descending from a head whose gate ran reruns only the steps and
 # members' tests the change since then reaches, with every whole-change
 # check, and reuses the other green results (ADR 0135, `xtask gate`).
@@ -1182,9 +1191,9 @@ release:
 # it; the exit code is the run's verdict (ADRs 0061 and 0108). `cells` is
 # `all` or cell names separated by commas: linux-x64-gnu, linux-x64-musl,
 # linux-arm64-gnu, linux-arm64-musl, windows-x64, macos-arm64, macos-x64. On
-# `main`, `commit` is a commit of `main` to test, its head by default, and the
-# macOS cells run on the owner's machine; off `main` the run tests the
-# branch's pushed head with the hosted cells alone. The commit's verdict
+# `main`, `commit` is a commit of `main` to test, its head by default, and
+# every cell runs on a standard hosted runner; off `main` the run tests the
+# branch's pushed head without the macOS cells. The commit's verdict
 # across all its dispatches follows the run's, naming each cell not green on
 # it, the skipped ones included.
 release-ci cells="all" commit="":
@@ -1216,9 +1225,7 @@ release-ci cells="all" commit="":
       exit 2
     fi
     echo "Release run $run on $branch, cells {{ cells }}."
-    if [[ "$branch" == main ]]; then
-      echo "The macOS cells wait for the owner's machine (owner-machine); while it is off, they stay queued and fail after 24 hours."
-    else
+    if [[ "$branch" != main ]]; then
       echo "Off main, the macOS cells do not run (ADR 0108)."
     fi
     status=0
@@ -1612,13 +1619,25 @@ tlc *arguments:
     {{ just_executable() }} tlc-fetch
     cargo run --quiet --bin xtask -- tlc run {{ arguments }}
 
-# A job that passes the models is so shown able to fail, and run fencing's
-# model to reach the zombie copy its destinations fence (`zombie.cfg`).
-# The TLC job's self-test: the sample's broken variant and run fencing's zombie variant must fail their invariants.
+# Each model's trace spec (`trace_spec` in its model.toml) checks the
+# committed traces of real runs it names, built on the template of
+# test-support/models/trace-validation/ (ADR 0060); a model with no trace
+# spec is skipped. `--trace <file>` validates one other trace, and
+# `--expect unmatched` expects it to fail. Needs Java 11 or later.
+# Validates traces of real runs against TLA+ models: `just tlc-validate <model>…` or `--all`.
+tlc-validate *arguments:
+    {{ just_executable() }} tlc-fetch
+    cargo run --quiet --bin xtask -- tlc validate {{ arguments }}
+
+# A job that passes the models is so shown able to fail, run fencing's
+# model to reach the zombie copy its destinations fence (`zombie.cfg`), and
+# the trace validation to refuse a trace altered by hand.
+# The TLC job's self-test: the sample's broken variant and run fencing's zombie variant must fail their invariants, and a slices trace with a Slice past the Limit must fail its validation.
 tlc-self-test:
     {{ just_executable() }} tlc-fetch
     cargo run --quiet --bin xtask -- tlc run sample --config broken --expect invariant-violated
     cargo run --quiet --bin xtask -- tlc run run-fencing --config zombie --expect invariant-violated
+    cargo run --quiet --bin xtask -- tlc validate slices --trace test-support/models/slices/slice-past-the-limit.ndjson --expect unmatched
 
 # Keeps each archive of test-support/lazyfs/sources.toml in
 # target/lazyfs/sources/, downloading only a file that lacks its pinned
@@ -1857,6 +1876,14 @@ feature-combinations:
     RUSTFLAGS="${RUSTFLAGS:-} --cfg goodfetch_without_opentelemetry" CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-$PWD/target}/without-opentelemetry" \
       cargo nextest run --locked --package goodfetch-collie --test it -E 'test(/^sdk::without_opentelemetry::/)'
 
+# cargo-semver-checks on `goodfetch-collie-client`, `goodfetch-collie` and
+# `goodfetch-foxhound`, their testing kits included, against the previous
+# release's commit `compat/api.toml` names (ADRs 0030, 0069, issue 148).
+# It builds both trees' rustdoc, minutes, so the full gate runs it and the
+# Quick suite's `xtask api-check` does not.
+semver-checks:
+    ci/tool.sh cargo-semver-checks cargo run --quiet --bin xtask -- semver-checks
+
 # Miri over the pure-Rust `unsafe` modules that opt in through ci/miri.toml
 # (STYLE.md, `unsafe`).
 miri:
@@ -1896,6 +1923,44 @@ loom:
         LOOM_MAX_PREEMPTIONS="$preemptions" \
         cargo test --locked --package "${module%%$'\t'*}" --lib -- "${module#*$'\t'}"
     done
+
+# The Simulation's scenario `scenario` (ADR 0060): the tests of each
+# crate's `tests/it/simulation/<scenario>.rs`, built with `--cfg
+# tokio_unstable` in a folder of their own, `target/simulation/`, in the
+# suite GOODFETCH_TEST_SUITE names (Quick unless it names another).
+# `--plan <file>`, the command a failing scenario prints, runs only the
+# scenario's Fault plan tests, those named `…fault_plans`, each replaying
+# that plan alone (GOODFETCH_FAULT_PLAN).
+# Runs a Simulation scenario: `just simulate <scenario> [--plan <file>]`.
+[positional-arguments]
+simulate scenario *plan:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    shift
+    filter="test(/^simulation::{{ scenario }}::/)"
+    if [[ $# -gt 0 ]]; then
+      if [[ $# -ne 2 || "$1" != --plan ]]; then
+        echo "usage: just simulate <scenario> [--plan <file>]" >&2
+        exit 2
+      fi
+      GOODFETCH_FAULT_PLAN=$(realpath -- "$2")
+      export GOODFETCH_FAULT_PLAN
+      filter="test(/^simulation::{{ scenario }}::.*fault_plans$/)"
+    fi
+    packages=()
+    while IFS= read -r file; do
+      manifest="$PWD/${file%/tests/it/simulation/*}/Cargo.toml"
+      packages+=(-p "$(cargo metadata --no-deps --format-version 1 --manifest-path "$manifest" \
+        | jq -r --arg manifest "$manifest" '.packages[] | select(.manifest_path == $manifest) | .name')")
+    done < <(find crates -path '*/tests/it/simulation/{{ scenario }}.rs' -not -path '*/target/*')
+    if [[ ${#packages[@]} -eq 0 ]]; then
+      echo "error: no crate has the Simulation scenario {{ scenario }} (tests/it/simulation/{{ scenario }}.rs)" >&2
+      exit 2
+    fi
+    {{ just_executable() }} _test-tools
+    GOODFETCH_TEST_SUITE="${GOODFETCH_TEST_SUITE:-quick}" GOODFETCH_TEST_TOOLS="$PWD/target/test-tools.json" \
+      RUSTFLAGS="${RUSTFLAGS:-} --cfg tokio_unstable" CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-$PWD/target}/simulation" \
+      cargo nextest run --locked "${packages[@]}" --test it --cargo-profile {{ test_profile }} -E "$filter"
 
 # Builds Miri's sysroot, which fetches the standard library's dependencies,
 # so CI runs it before the egress deny; nothing while no module opts in.
@@ -2021,12 +2086,6 @@ merge number *override:
 sweep-target *args:
     cargo run --quiet --bin xtask -- sweep-target {{ args }}
 
-# Installs the owner's copy of the self-hosted allowlist and the runner's
-# pre-job and post-job scripts into a folder the runner user can read but not
-# write (ADRs 0108 and 0135). Run by the owner on the runner's machine.
-runner-install folder:
-    ci/runner/install.sh "{{ folder }}"
-
 # Runs ADR 0135's Rosetta trial in a throwaway Lima VM: Callgrind, the pinned
 # Playwright image and `cargo fuzz check` under Rosetta for Linux.
 rosetta-trial:
@@ -2060,8 +2119,9 @@ _suite suite all="":
       *) echo "error: the only argument is \`all\`, not {{ all }}" >&2; exit 2 ;;
     esac
 
-# TLC on the models the change reaches (`all`: every model), then the job's
-# self-test, as CI's `tlc` job runs them; listed as skipped without Java.
+# TLC on the models the change reaches (`all`: every model), their trace
+# validation, then the job's self-test, as CI's `tlc` job runs them; listed
+# as skipped without Java.
 _tlc all="":
     #!/usr/bin/env bash
     set -euo pipefail
@@ -2081,6 +2141,7 @@ _tlc all="":
       *) echo "error: the only argument is \`all\`, not {{ all }}" >&2; exit 2 ;;
     esac
     ci/tool.sh java "$just" tlc "${models[@]}"
+    ci/tool.sh java "$just" tlc-validate "${models[@]}"
     ci/tool.sh java "$just" tlc-self-test
 
 # The gate's `kennel` step: the Kennel's checks when the change reaches
@@ -2112,8 +2173,8 @@ _visual-elsewhere:
     @mkdir -p target
     @echo "visual projects: skipped, they run only in the pinned Playwright image (CI's visual job, ADR 0073)" >>target/skipped.txt
 
-# The steps a form of `just pre-merge` runs (`all`, `changed`, `quick` or
-# `docs`), in their order, with each one's `just` command, which
+# The steps a form of `just pre-merge` runs (`all`, `changed`, `quick`,
+# `batch`, `docs` or `preflight`), in their order, with each one's `just` command, which
 # ci/pre-merge.sh follows (`xtask gate steps`, ADR 0135).
 _gate-steps form:
     cargo run --quiet --bin xtask -- gate steps --form {{ form }}
@@ -2253,8 +2314,13 @@ _gate-compare full runs since="":
 # The duplicate-run check (ADR 0135's amendment of 2026-11-22): fails, naming
 # both layers, on each unit a run in the gate's records (ci/gate-records.sh)
 # ran, not reused, on a tree where an earlier run had recorded it green.
-duplicate-runs:
-    cargo run --quiet --locked --bin xtask -- gate duplicates --records "$(ci/gate-records.sh)"
+# `hosted`, a folder of hosted runs' records that `ci/hosted-records.sh`
+# downloaded (`just merge` keeps them in its gate worktree's
+# `target/hosted-records`), adds their runs, so a unit the gate ran after a
+# hosted job had run it green is found too (spec #3373).
+duplicate-runs hosted="":
+    cargo run --quiet --locked --bin xtask -- gate duplicates --records "$(ci/gate-records.sh)" \
+      {{ if hosted == "" { "" } else { "--hosted-records " + quote(hosted) } }}
 
 # Starts and checks the real OS services the tests use (ci/os-services.sh),
 # which `just pre-merge` runs first on a Linux host.

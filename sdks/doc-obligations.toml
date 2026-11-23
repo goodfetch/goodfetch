@@ -1,0 +1,87 @@
+# The rules users missed, each stated where they read first (ADRs 0117,
+# 0119, 0121). `xtask sdk-exports`, in the Quick suite, fails a text that
+# lacks its obligation's `text`, however the text wraps its lines, or, with
+# `opens`, one that does not start with it.
+#
+# An obligation binds:
+# - `members`: the hand-written members each SDK's manifest lists, chosen
+#   by their `entry`, their `receiver` as every SDK names it (`Run` for
+#   Rust's `blocking::Run` and Python's `AsyncRun`) and their `member`, its
+#   words joined by `_`;
+# - `operations` and `settings`: the catalog's description, the one text
+#   the generator copies into each SDK's doc text, an MCP tool's
+#   description and the reference page (ADR 0038);
+# - `schemas`: a protocol type's description, which the generator copies
+#   the same way;
+# - `pages`: a docs page.
+#
+# A `pending` obligation names the operations and settings that state it
+# once they exist, with the reason they do not yet; the check fails once
+# one does, so that the obligation binds it.
+
+[[obligation]]
+text = "Leaving the scope or `close()` stops the Run with a Checkpoint. `finish()` ends it."
+opens = true
+members = [
+  { entry = "run.start" },
+  { entry = "run.abort", member = "close" },
+]
+
+[[obligation]]
+text = "In a service, close the Run on `SIGINT` and `SIGTERM`: the SDK installs no signal handler, and a signal the program does not handle ends it as a crash would (ADRs 0078, 0093)."
+members = [{ entry = "run.start" }]
+pages = ["docs/runs.md"]
+
+[[obligation]]
+text = "Already navigated. The handler runs once the request's navigation has happened, so a route set on this page applies from its next navigation."
+opens = true
+members = [{ receiver = "CrawlContext", member = "page" }]
+
+[[obligation]]
+text = "decoded with the response's own encoding (ADR 0119)"
+members = [{ receiver = "Response", member = "text" }]
+
+[[obligation]]
+text = "`response_truncated`"
+members = [
+  { receiver = "Response", member = "text" },
+  { receiver = "Response", member = "json" },
+]
+
+[[obligation]]
+text = "Whether it reaches inside a closed shadow root depends on the browser (ADR 0121)"
+schemas = ["Locator"]
+
+[[obligation]]
+text = "When a site's service worker answers a request the route must act on, set `browser.service_workers` to `block` (ADR 0121)."
+operations = ["page.route", "session.route"]
+
+[[obligation]]
+text = "It answers none only when no document loads: for a same-document entry"
+operations = ["page.go_back", "page.go_forward"]
+
+[[obligation]]
+text = "Needs a model unless its Plan entry replays: pass `model` or set `ai.model`."
+opens = true
+operations = ["page.act", "page.observe", "page.extract", "page.agent"]
+pending = "Area 9 builds the AI verbs (ADR 0091)."
+
+[[obligation]]
+text = "A read never scrolls (ADR 0121)"
+operations = [
+  "page.observe",
+  "page.extract",
+  "page.aria_snapshot",
+  "locator.aria_snapshot",
+]
+pending = "Area 9 builds the AI verbs and the aria snapshot (ADR 0091)."
+
+[[obligation]]
+text = "In `ai` mode, a list that declares more rows than it renders says so on a count line (ADR 0121)."
+operations = ["page.aria_snapshot", "locator.aria_snapshot"]
+pending = "Area 9 builds the aria snapshot and its count line (ADR 0121)."
+
+[[obligation]]
+text = "When a site's service worker answers a request the Response cache must serve, set `browser.service_workers` to `block` (ADR 0121)."
+settings = ["cache.mode"]
+pending = "Area 5 builds the Response cache (ADR 0046)."

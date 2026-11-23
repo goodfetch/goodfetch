@@ -46,6 +46,8 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 3
     permissions:
+      # This run, whose repository's visibility the ceiling reads.
+      actions: read
       contents: read
     outputs:
       admitted: ${{ steps.ceiling.outputs.admitted }}
@@ -65,9 +67,13 @@ jobs:
         uses: ./.github/actions/xtask # zizmor: ignore[self-repository] actionlint lacks the $/ form
       - name: Check the month's minutes against the coverage job's threshold
         id: ceiling
+        # This run's repository visibility decides which minutes bill.
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
         run: >-
           cargo run --quiet --locked --bin xtask -- results ceiling --store test-results
           --run coverage --today "$(date -u +%F)" --summary "$GITHUB_STEP_SUMMARY"
+          --repository "$GITHUB_REPOSITORY" --run-id "$GITHUB_RUN_ID"
           | tee -a "$GITHUB_OUTPUT"
 
   coverage:

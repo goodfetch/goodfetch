@@ -24,7 +24,7 @@ const RUN_ATTEMPT: &str = r#"{
 const ATTEMPT_JOBS: &str = r#"{ "total_count": 2, "jobs": [
   { "name": "quarantined", "labels": ["ubuntu-24.04"], "conclusion": "failure",
     "started_at": "2026-10-18T03:00:05Z", "completed_at": "2026-10-18T03:02:10Z" },
-  { "name": "rerun (macOS)", "labels": ["self-hosted", "owner-machine"], "conclusion": "success",
+  { "name": "rerun (macOS)", "labels": ["self-hosted", "macOS"], "conclusion": "success",
     "started_at": "2026-10-18T03:00:05Z", "completed_at": "2026-10-18T03:00:35Z" }
 ] }"#;
 
@@ -408,6 +408,8 @@ fn test_that_failed_in_one_attempt_and_passed_in_another_is_found_flaky_after_in
     ]);
     assert_eq!(ingest(&workspace, &github).code, 0);
     ingest_a_passing_third_attempt(&workspace);
+    // The scan reads the history for the commit that added the test.
+    workspace.commit_all();
     let issues = GitHub::serving(&[
         (
             "/repos/goodfetch/goodfetch/issues?labels=flaky-test&state=all&per_page=100&page=1",
@@ -416,10 +418,6 @@ fn test_that_failed_in_one_attempt_and_passed_in_another_is_found_flaky_after_in
         (
             "/repos/goodfetch/goodfetch/issues?labels=live-check&state=all&per_page=100&page=1",
             "[]",
-        ),
-        (
-            "/repos/goodfetch/goodfetch/milestones?state=open&per_page=100&page=1",
-            r#"[{ "number": 1, "title": "M1 Core", "open_issues": 5, "due_on": null }]"#,
         ),
         (
             "POST /repos/goodfetch/goodfetch/issues",
@@ -522,7 +520,7 @@ fn attempt_becomes_one_store_file_with_a_record_per_test_run_and_job() {
             }),
             json!({
                 "job": "rerun (macOS)",
-                "labels": ["self-hosted", "owner-machine"],
+                "labels": ["self-hosted", "macOS"],
                 "runner_os": "macos",
                 "self_hosted": true,
                 "started_at": "2026-10-18T03:00:05Z",

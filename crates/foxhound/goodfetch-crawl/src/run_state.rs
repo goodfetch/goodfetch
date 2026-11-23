@@ -60,6 +60,7 @@ use goodfetch_session_pool::{
 };
 use rusqlite::Connection;
 
+use crate::hooks::Hooks;
 use crate::labels;
 use crate::tier_choice::{AttemptPlan, Sampled, TierChoices, Unit, Weighed};
 use crate::tier_race::Latencies;
@@ -73,7 +74,7 @@ mod stored;
 mod tally;
 pub(crate) mod teacher;
 
-pub(crate) use asks::{Asked, Asking, Escalated, Question, mailbox};
+pub(crate) use asks::{Asked, Asking, Escalated, Message, PermitAsk, Question, mailbox};
 pub(crate) use stored::{Opening, QueuedEnd, Ran, Stored, Unkeyed, Within};
 pub(crate) use tally::Tally;
 
@@ -153,6 +154,9 @@ pub(crate) struct Drawing<'a> {
     /// The Run's `fetch.http_from`, which a Label's own setting overrides.
     pub(crate) http_from: HttpFrom,
     pub(crate) races: bool,
+    /// The Run's Hooks in code: a Label a navigation or after-response Hook
+    /// reaches never races ([`Hooks::lets_race`]).
+    pub(crate) hooks: &'a Hooks,
     /// Whether the Run's crawl requests read site files, robots.txt or the
     /// AI-use signal files, and the Run has a transport to read them with.
     pub(crate) reads_site_files: bool,
@@ -512,9 +516,9 @@ impl RunState {
     /// ([`Stored::answer`]), counting what its write changed: the work
     /// items it added, each keyed, for the loop to offer their domains'
     /// queues, when the loop waited for the write itself.
-    pub(crate) async fn answer(&mut self, question: Box<Question>) -> Option<Vec<Waiting>> {
-        let ask = match *question {
-            Question::Stored(ask) => ask,
+    pub(crate) async fn answer(&mut self, question: Question) -> Option<Vec<Waiting>> {
+        let ask = match question {
+            Question::Stored(ask) => *ask,
             Question::Escalated { escalated, answer } => {
                 let drawn = self.escalated(&escalated);
                 // The attempt no longer waits for it: it served nothing.
@@ -781,7 +785,11 @@ impl RunState {
         let chosen = match choosing {
             None => Chosen::Planned(AttemptPlan::Sitemap),
             Some(Choosing::Engine) if keeps_fragment => Chosen::Planned(browser),
-            Some(Choosing::Engine) if drawing.races && !to_browser => Chosen::Racing(learned()),
+            Some(Choosing::Engine)
+                if drawing.races && !to_browser && drawing.hooks.lets_race(&request.label) =>
+            {
+                Chosen::Racing(learned())
+            }
             Some(Choosing::Forced(choice)) => Chosen::Planned(AttemptPlan::On(choice)),
             Some(Choosing::Engine) if to_browser => Chosen::Planned(browser),
             Some(Choosing::Engine) => Chosen::Planned(learned()),

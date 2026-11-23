@@ -174,7 +174,9 @@ pub(crate) fn crawl_declaring(
 }
 
 /// [`crawl`] from the `crawl.start` params `params`, its settings beside
-/// the handler's concurrency of 1.
+/// the handler's concurrency of 1. A crawl that declares Hooks in code has
+/// `handler` answer each `crawl_hook.handle` too, whose params name the
+/// `hook` and its `stage`.
 pub(crate) fn crawl_from(
     engine: &mut Attached,
     params: &Value,
@@ -191,7 +193,7 @@ pub(crate) fn crawl_from(
         let message = engine
             .next()
             .expect("the engine closed before the Run ended");
-        if message["method"] == "crawl_request.handle" {
+        if message["method"] == "crawl_request.handle" || message["method"] == "crawl_hook.handle" {
             let mut inside = Inside {
                 engine,
                 calls: &mut calls,

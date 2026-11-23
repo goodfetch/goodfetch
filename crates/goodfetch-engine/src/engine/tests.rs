@@ -26,6 +26,7 @@ mod effect;
 mod events;
 mod following;
 mod governor;
+mod handler_requests;
 mod in_flight_cap;
 mod key_value_bytes;
 mod key_value_store;
@@ -46,12 +47,14 @@ mod raw_calls;
 mod refetch_stops;
 mod refusals;
 mod report;
+mod resumed_settings;
 mod run;
 mod run_files;
 mod run_key;
 mod run_limits;
 mod settings;
 mod settings_edits;
+mod starts;
 mod storage;
 mod takeover;
 mod trace;
@@ -175,9 +178,23 @@ fn per_major(env: &TestEnv) -> std::path::PathBuf {
 /// An engine of `product` with the engine's own operations, the tests' and
 /// `more`.
 fn engine_with(product: Product, more: Option<Contribution>) -> Engine {
+    engine_as(product, version(), more)
+}
+
+/// An engine of `product` that runs as Product version `version`, with
+/// the engine's own operations and the tests'.
+fn engine_at(product: Product, version: &str) -> Engine {
+    engine_as(product, ProductVersion::parse(version).unwrap(), None)
+}
+
+fn engine_as(
+    product: Product,
+    product_version: ProductVersion,
+    more: Option<Contribution>,
+) -> Engine {
     let identity = Identity {
         product,
-        product_version: version(),
+        product_version,
         channel: Channel::CratesIo,
     };
     let mut composition = Composition::default()
@@ -364,14 +381,7 @@ where
     runtime.block_on(async {
         let dependencies = dependencies();
         let clock = dependencies.clock;
-        let unset = tracing::dispatcher::get_default(
-            tracing::Dispatch::is::<tracing::subscriber::NoSubscriber>,
-        );
-        let _subscriber = unset.then(|| {
-            tracing::subscriber::set_default(goodfetch_test_support::subscriber(move || {
-                clock.wall()
-            }))
-        });
+        let _subscriber = goodfetch_test_support::subscriber_unless_own(move || clock.wall());
         let (network, dialer) = transport::in_memory();
         let talk = async {
             let (reader, writer) = dialer.connect().await.unwrap().split();
@@ -420,6 +430,16 @@ fn takes_engine_instance(reply: &mut Value) -> bool {
         })
 }
 
+/// Takes the resolved timeouts out of an accepted `hello`'s `reply`,
+/// answering whether it names some: what they hold is
+/// `connection_settings`' to check.
+fn takes_timeouts(reply: &mut Value) -> bool {
+    reply["result"]
+        .as_object_mut()
+        .and_then(|result| result.remove("timeouts"))
+        .is_some_and(|timeouts| timeouts.as_array().is_some_and(|it| !it.is_empty()))
+}
+
 fn pretty(value: &Value) -> String {
     serde_json::to_string_pretty(value).unwrap()
 }
@@ -429,9 +449,10 @@ fn pretty(value: &Value) -> String {
 fn an_accepted_hello_answers_the_engines_product_and_versions_and_instance() {
     let mut received = exchange(&engine(Product::Collie), &[hello("collie", "0.1")]);
     let named = takes_engine_instance(&mut received[0]);
+    let timed = takes_timeouts(&mut received[0]);
 
     assert_eq!(
-        (received, named),
+        (received, named, timed),
         (
             vec![json!({
                 "jsonrpc": "2.0",
@@ -441,6 +462,7 @@ fn an_accepted_hello_answers_the_engines_product_and_versions_and_instance() {
                     "max_calls_in_flight": IN_FLIGHT_CAP,
                 },
             })],
+            true,
             true
         )
     );

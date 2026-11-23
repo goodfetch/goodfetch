@@ -58,8 +58,8 @@ pub use goodfetch_collie::{
 };
 pub use goodfetch_collie_client::{
     Answer, BoxError, Call, Connection, Error, ErrorCode, ErrorDetails, EventStream, Exchange,
-    FieldValues, Limits, Locator, Money, MoneyError, Page, Query, RawCall, Response, Run, Schema,
-    SchemaError, Session, Start, UsageKind, events, schemars,
+    FieldValues, HandlerlessStart, Limits, Locator, Money, MoneyError, Page, Query, RawCall,
+    Response, Run, RunView, Schema, SchemaError, Session, Start, UsageKind, events, schemars,
 };
 pub use goodfetch_protocol::foxhound::dataset::DatasetRecord;
 /// Foxhound's Error codes, each a value of [`ErrorCode`] (ADR 0099):
@@ -75,7 +75,9 @@ pub use goodfetch_protocol::page::read::{
     FieldLocator, FieldMatch, FieldTransform, ListField, PageField, PageRead, RowsField,
     UnreadField, UnreadReason, ValueField,
 };
-pub use goodfetch_protocol::run::{RunId, RunReport, StartedAs};
+pub use goodfetch_protocol::run::{
+    CatalogTarget, Recording, RecordingMode, RunId, RunReport, StartedAs,
+};
 pub use goodfetch_protocol::settings::{
     ExplainedSetting, RunOrigin, SettingsExplanation, SettingsLayer,
 };

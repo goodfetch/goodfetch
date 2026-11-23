@@ -360,6 +360,9 @@ psl = { version = "2.1.244", default-features = false, features = ["helpers"] }
 proc-macro2 = { version = "1.0.107", default-features = false, features = ["span-locations"] }
 quick-xml = { version = "0.41", default-features = false }
 quote = { version = "1.0.47", default-features = false }
+# The Politeness store's client, Valkey or Redis (ADR 0053): async on Tokio,
+# its Lua scripts loaded once and called by `EVALSHA`.
+redis = { version = "1.8.3", default-features = false }
 regex = { version = "1.13.1", default-features = false, features = ["std", "unicode"] }
 # The parser behind `regex`, read for the construct a refused URL pattern
 # uses (ADR 0081).
@@ -394,6 +397,9 @@ thiserror = { version = "2.0.21", default-features = false, features = ["std"] }
 time = { version = "0.3.55", default-features = false, features = ["std"] }
 tokio = { version = "1.53.3", default-features = false }
 tokio-util = { version = "0.7.20", default-features = false }
+# The Simulation's hosts and network (ADR 0060), pinned to one version: its
+# main branch is splitting into crates and warns that its API will change.
+turmoil = { version = "=0.7.2", default-features = false }
 # The HTTP fetch tier's mark on each connection reqwest opens, which tells
 # a reused connection from a new one (ADR 0118): tower's two traits alone.
 tower-layer = { version = "0.3.3", default-features = false }

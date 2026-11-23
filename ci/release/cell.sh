@@ -13,7 +13,8 @@
 #               static-PIE with packed relocations (`xtask static-pie`, ADR
 #               0024);
 #   rust        one shard of the archive (`--partition hash:<k>/<n>`, never
-#               by timings), then the doctests;
+#               by timings), then the doctests, of every crate but those
+#               GOODFETCH_RELEASE_REUSED names;
 #   typescript  Vitest and Playwright, `--shard <k>/<n>`, on each Node line
 #               host-tools recorded; the Bun and Deno 2 of the cell's set of
 #               ci/runtimes.toml are on PATH for the SDK smoke scripts Vitest
@@ -35,8 +36,10 @@
 # It keeps to bash 3.2, which stock macOS runs on the owner's machine.
 #
 # Environment: CELL (the cell's name), TARGET (its Rust target), SHARD
-# (`<k>/<n>`, 1/1 while one job holds the cell), and host-tools'
-# GOODFETCH_NODE_LINES and GOODFETCH_PYTHONS.
+# (`<k>/<n>`, 1/1 while one job holds the cell), host-tools'
+# GOODFETCH_NODE_LINES and GOODFETCH_PYTHONS, and on linux-x64-gnu
+# GOODFETCH_RELEASE_REUSED, the crates ci/release/reuse.sh found a hosted
+# run passed on this tree, separated by spaces (#3384).
 set -euo pipefail
 
 part=${1:?usage: ci/release/cell.sh build|size|rust|lazyfs|typescript|python|rss}
@@ -126,12 +129,27 @@ case "$part" in
     status=0
     skipped=()
     while IFS= read -r argument; do skipped+=("$argument"); done < <(skip nextest)
+    # The crates whose Pre-merge unit a hosted run passed on this tree
+    # (ci/release/reuse.sh, #3384) run neither their tests nor their
+    # doctests again.
+    reused=()
+    filter=()
+    excluded=()
+    for krate in ${GOODFETCH_RELEASE_REUSED:-}; do
+      reused+=("package($krate)")
+      excluded+=(--exclude "$krate")
+    done
+    if [[ ${#reused[@]} -gt 0 ]]; then
+      joined=$(printf ' | %s' "${reused[@]}")
+      filter=(-E "not (${joined:3})")
+      echo "Release: skipping the tests of the crates a hosted run passed on this tree: ${GOODFETCH_RELEASE_REUSED}"
+    fi
     cargo nextest run --archive-file "$archive" --workspace-remap . \
-      --profile ci --partition "hash:$shard" ${skipped[@]+"${skipped[@]}"} || status=$?
+      --profile ci --partition "hash:$shard" ${filter[@]+"${filter[@]}"} ${skipped[@]+"${skipped[@]}"} || status=$?
     [[ -f target/nextest/ci/junit.xml ]] && cp target/nextest/ci/junit.xml "target/junit/nextest-$cell.xml"
     # nextest's archive holds no doctests; the first shard runs them.
     if [[ "$shard" == 1/* ]]; then
-      cargo test --workspace --locked --doc --target "$target" --profile ci-test || status=$?
+      cargo test --workspace ${excluded[@]+"${excluded[@]}"} --locked --doc --target "$target" --profile ci-test || status=$?
     fi
     exit "$status"
     ;;

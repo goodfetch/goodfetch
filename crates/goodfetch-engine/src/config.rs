@@ -83,6 +83,7 @@ async fn explain(
             recipe: None,
             settings: given,
             origin: Some(params.origin.unwrap_or(RunOrigin::Settings)),
+            registered: context.registered_settings().clone(),
             acting_for_model: context.surface().acts_for_model(),
             exposed: context.exposed(),
         })

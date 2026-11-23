@@ -58,6 +58,16 @@ class ConnectionBrowserSettings(TypedDict):
     """
 
 
+class ConnectionBrowserCacheSettings(TypedDict):
+    """The `browser_cache` settings of `Settings`."""
+
+    read_only: NotRequired[bool]
+    """Whether a Run's Chromium launches only read the Browser cache: `false` by default. When on, a build with its pinned digest is launched with no use recorded, a build of the wrong digest is refused with `browser_not_installed` and left in place, and a missing build is never downloaded: `artifact_unavailable_offline` under `egress.offline`, `browser_not_installed` otherwise. The engine then writes no file of its own in the cache, its write check's included; the browser still writes in its build's files as it does at every launch. Each Product's testing kit turns it on, so a test leaves the caller's cache as it found it.
+
+    `browser_cache.read_only`.
+    """
+
+
 class ConnectionCheckpointSettings(TypedDict):
     """The `checkpoint` settings of `Settings`."""
 
@@ -884,7 +894,7 @@ class ConnectionTimeoutSettings(TypedDict):
     """
 
     close: NotRequired[timedelta]
-    """How long a stop of a Run, `run.stop` or a scope's close, waits for its next safe point before it fails with `deadline_exceeded`, the Run still stopping there: 30 s.
+    """One bound for a stop of a Run: how long `run.stop` or a scope's close waits for its next safe point before it fails with `deadline_exceeded`, the Run still stopping there, and how long that safe point then waits for each running Effect body's `effect.close` before it cuts the body short, in a drain no later than half of `daemon.drain_grace` from the drain's start: 30 s.
 
     `timeout.close`.
     """
@@ -1003,6 +1013,8 @@ class Settings(TypedDict):
 
     browser: NotRequired[ConnectionBrowserSettings]
 
+    browser_cache: NotRequired[ConnectionBrowserCacheSettings]
+
     checkpoint: NotRequired[ConnectionCheckpointSettings]
 
     clean_up: NotRequired[ConnectionCleanUpSettings]
@@ -1103,6 +1115,16 @@ class RunBrowserSettings(TypedDict):
     """Whether a site's service workers run in the Session's pages: `allow` (the default on Chromium) runs them under the Session's interception, each worker's own requests passing the domain policy, the Filter lists and the Session's routes, never a page's routes; `block` makes `navigator.serviceWorker.register()` reject as on a failed fetch of the worker's script, `register` staying the browser's own function, so that every request of a page reaches its routes.
 
     `browser.service_workers`.
+    """
+
+
+class RunBrowserCacheSettings(TypedDict):
+    """The `browser_cache` settings of `RunSettings`."""
+
+    read_only: NotRequired[bool]
+    """Whether a Run's Chromium launches only read the Browser cache: `false` by default. When on, a build with its pinned digest is launched with no use recorded, a build of the wrong digest is refused with `browser_not_installed` and left in place, and a missing build is never downloaded: `artifact_unavailable_offline` under `egress.offline`, `browser_not_installed` otherwise. The engine then writes no file of its own in the cache, its write check's included; the browser still writes in its build's files as it does at every launch. Each Product's testing kit turns it on, so a test leaves the caller's cache as it found it.
+
+    `browser_cache.read_only`.
     """
 
 
@@ -1740,7 +1762,7 @@ class RunTimeoutSettings(TypedDict):
     """
 
     close: NotRequired[timedelta]
-    """How long a stop of a Run, `run.stop` or a scope's close, waits for its next safe point before it fails with `deadline_exceeded`, the Run still stopping there: 30 s.
+    """One bound for a stop of a Run: how long `run.stop` or a scope's close waits for its next safe point before it fails with `deadline_exceeded`, the Run still stopping there, and how long that safe point then waits for each running Effect body's `effect.close` before it cuts the body short, in a drain no later than half of `daemon.drain_grace` from the drain's start: 30 s.
 
     `timeout.close`.
     """
@@ -1842,6 +1864,8 @@ class RunSettings(TypedDict):
     admission: NotRequired[RunAdmissionSettings]
 
     browser: NotRequired[RunBrowserSettings]
+
+    browser_cache: NotRequired[RunBrowserCacheSettings]
 
     checkpoint: NotRequired[RunCheckpointSettings]
 

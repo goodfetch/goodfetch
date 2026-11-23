@@ -79,6 +79,7 @@ pub mod run_state;
 pub mod run_trace;
 pub mod runs;
 pub mod sandbox_probe;
+mod sdk_handlers;
 pub mod secret_endpoint;
 pub mod secrets;
 pub mod settings;
@@ -105,7 +106,7 @@ pub use composition::{
 };
 pub use engine::{AttachedFailure, Dependencies, Engine};
 pub use engine_context::{CALLER, EngineContext};
-pub use info::{contribution, contribution_sharing};
+pub use info::contribution;
 pub use product::{Channel, Identity, Requested};
 pub use run_index::RunIndex;
 pub use stored_time::StoredTime;

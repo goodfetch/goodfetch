@@ -954,6 +954,17 @@
       ]
     },
     {
+      "id": "command:skill.install",
+      "kind": "command",
+      "area": 11,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "command:upgrade-files",
       "kind": "command",
       "area": 3,
@@ -1249,6 +1260,17 @@
       ]
     },
     {
+      "id": "error:checkpoint_behind",
+      "kind": "error",
+      "area": 3,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "error:client_gone",
       "kind": "error",
       "area": 3,
@@ -1367,6 +1389,17 @@
     },
     {
       "id": "error:deadline_exceeded",
+      "kind": "error",
+      "area": 3,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "error:detach_unsupported",
       "kind": "error",
       "area": 3,
       "milestone": null,
@@ -1508,6 +1541,17 @@
       ]
     },
     {
+      "id": "error:event_loop_mismatch",
+      "kind": "error",
+      "area": 11,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "error:executable_blocked_by_smart_app_control",
       "kind": "error",
       "area": 3,
@@ -1594,6 +1638,16 @@
     },
     {
       "id": "error:hook_ineffective",
+      "kind": "error",
+      "area": 7,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "foxhound"
+      ]
+    },
+    {
+      "id": "error:hook_undeclared",
       "kind": "error",
       "area": 7,
       "milestone": null,
@@ -1876,6 +1930,17 @@
       "id": "error:page_memory_exceeded",
       "kind": "error",
       "area": 3,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "error:page_navigated_during_call",
+      "kind": "error",
+      "area": 11,
       "milestone": null,
       "status": "active",
       "products": [
@@ -2281,6 +2346,17 @@
       ]
     },
     {
+      "id": "error:run_state_filesystem_unsupported",
+      "kind": "error",
+      "area": 3,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "error:run_state_unavailable",
       "kind": "error",
       "area": 3,
@@ -2426,6 +2502,17 @@
       "id": "error:site_preferences_refused",
       "kind": "error",
       "area": 6,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "error:skill_install_refused",
+      "kind": "error",
+      "area": 11,
       "milestone": null,
       "status": "active",
       "products": [
@@ -8384,6 +8471,17 @@
       ]
     },
     {
+      "id": "setting:browser_cache.read_only",
+      "kind": "setting",
+      "area": 3,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "setting:checkpoint.interval",
       "kind": "setting",
       "area": 3,
@@ -9922,6 +10020,17 @@
       ]
     },
     {
+      "id": "setting:politeness.store",
+      "kind": "setting",
+      "area": 3,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "setting:provenance.log",
       "kind": "setting",
       "area": 6,
@@ -10464,6 +10573,16 @@
       ]
     },
     {
+      "id": "setting:sinks",
+      "kind": "setting",
+      "area": 6,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "foxhound"
+      ]
+    },
+    {
       "id": "setting:site_preferences.mark_robots_txt_ignored",
       "kind": "setting",
       "area": 6,
@@ -10923,6 +11042,28 @@
       "id": "setting:webhook.signing",
       "kind": "setting",
       "area": 6,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "skill:goodfetch-collie",
+      "kind": "skill",
+      "area": 11,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "skill:goodfetch-collie-cli",
+      "kind": "skill",
+      "area": 11,
       "milestone": null,
       "status": "active",
       "products": [
@@ -18606,6 +18747,61 @@
       ]
     },
     {
+      "id": "story:3-173",
+      "kind": "story",
+      "area": 3,
+      "milestone": "M1 Core",
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "story:3-174",
+      "kind": "story",
+      "area": 3,
+      "milestone": "M1 Core",
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "story:3-175",
+      "kind": "story",
+      "area": 3,
+      "milestone": "M1 Core",
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "story:3-176",
+      "kind": "story",
+      "area": 3,
+      "milestone": "M1 Core",
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "story:3-177",
+      "kind": "story",
+      "area": 3,
+      "milestone": "M1 Core",
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "story:3-18",
       "kind": "story",
       "area": 3,
@@ -23457,6 +23653,16 @@
       "kind": "story",
       "area": 6,
       "milestone": "M1 Core",
+      "status": "active",
+      "products": [
+        "foxhound"
+      ]
+    },
+    {
+      "id": "story:6-285",
+      "kind": "story",
+      "area": 6,
+      "milestone": "M4 Everything else",
       "status": "active",
       "products": [
         "foxhound"

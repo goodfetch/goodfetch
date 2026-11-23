@@ -3,6 +3,8 @@ use rstest::rstest;
 use super::{GuaranteeClass, Violation, ViolationKind, fencing, limits};
 use crate::observation::{Epoch, ObservationLog, Operation, Record, ValueDigest};
 
+mod group;
+
 fn fence(epoch: Epoch) -> Record<()> {
     Record::new("engine", Operation::Fence { epoch })
 }

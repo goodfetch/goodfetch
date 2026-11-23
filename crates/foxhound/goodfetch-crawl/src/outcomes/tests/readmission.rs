@@ -134,7 +134,7 @@ fn end_each(connection: &Connection, end: impl Fn(usize) -> First) {
                         fetched: &work_items::Fetched::default(),
                         fields: &work_items::FieldsRead::default(),
                         masks: &goodfetch_engine::mask::Masks::new(),
-                        ended_at: &ended_at,
+                        ended_at,
                         not_added: &[],
                         work: &goodfetch_counted_work::CountedWork::default(),
                         keeps_records: true,
@@ -148,7 +148,7 @@ fn end_each(connection: &Connection, end: impl Fn(usize) -> First) {
                 id,
                 epoch,
                 Unsuccessful::Failed(failure()),
-                &ended_at(),
+                ended_at(),
                 &mut Changed::default(),
             ),
             First::Skipped => work_items::end(
@@ -159,7 +159,7 @@ fn end_each(connection: &Connection, end: impl Fn(usize) -> First) {
                     reason: SkipReason::Handler,
                     message: Some("no".to_owned()),
                 },
-                &ended_at(),
+                ended_at(),
                 &mut Changed::default(),
             ),
             First::Blocked => work_items::end(
@@ -167,7 +167,7 @@ fn end_each(connection: &Connection, end: impl Fn(usize) -> First) {
                 id,
                 epoch,
                 Unsuccessful::Blocked(goodfetch_protocol::foxhound::block::BlockCause::RateLimit),
-                &ended_at(),
+                ended_at(),
                 &mut Changed::default(),
             ),
             First::Retried => work_items::end(
@@ -175,7 +175,7 @@ fn end_each(connection: &Connection, end: impl Fn(usize) -> First) {
                 id,
                 epoch,
                 Unsuccessful::Retried(failure()),
-                &ended_at(),
+                ended_at(),
                 &mut Changed::default(),
             ),
         };
@@ -210,14 +210,8 @@ fn a_lease_a_resume_fails_ends_with_its_handler_lost_outcome() {
     let connection = crawl_of(2);
     work_items::lease(&connection, &pending(&connection)).unwrap();
 
-    work_items::recover_leases(
-        &connection,
-        &lost(),
-        0,
-        &ended_at(),
-        &mut Changed::default(),
-    )
-    .unwrap();
+    work_items::recover_leases(&connection, &lost(), 0, ended_at(), &mut Changed::default())
+        .unwrap();
 
     let (counts, _) = crate::report::ended(&connection).unwrap();
     let errors: Vec<Vec<(u32, String)>> = latest_of_readmitted(&connection, false)
@@ -265,14 +259,8 @@ fn a_lease_a_resume_retries_keeps_its_handler_lost_error_for_its_next_outcome() 
     let connection = crawl_of(1);
     work_items::lease(&connection, &pending(&connection)).unwrap();
 
-    work_items::recover_leases(
-        &connection,
-        &lost(),
-        1,
-        &ended_at(),
-        &mut Changed::default(),
-    )
-    .unwrap();
+    work_items::recover_leases(&connection, &lost(), 1, ended_at(), &mut Changed::default())
+        .unwrap();
     end_each(&connection, |_| First::Fails);
 
     let errors: Vec<(u32, String)> = latest_of_readmitted(&connection, false)
@@ -430,14 +418,8 @@ fn a_work_item_still_leased_holds_the_intake_open_until_it_is_given_back() {
     let intake = crate::intake::Intake::default();
 
     let closed_over_a_lease = intake.close_if_drained(&connection).unwrap();
-    work_items::recover_leases(
-        &connection,
-        &lost(),
-        2,
-        &ended_at(),
-        &mut Changed::default(),
-    )
-    .unwrap();
+    work_items::recover_leases(&connection, &lost(), 2, ended_at(), &mut Changed::default())
+        .unwrap();
     let given_back = pending(&connection);
     let closed_over_a_retry = intake.close_if_drained(&connection).unwrap();
 

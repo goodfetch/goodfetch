@@ -327,7 +327,7 @@ pub const ROUTE_ALREADY_HANDLED: ErrorCodeDefinition = ErrorCodeDefinition {
 /// `page.route`.
 pub const PAGE_ROUTE: Operation = Operation {
     name: "page.route",
-    description: "Routes the page's requests whose URL matches to the program, armed when the call arrives: the call stays in flight, and for each such request the engine sends `route.handle`, which the handler answers with `route.continue`, `route.fulfill`, `route.abort`, `route.fallback`, or `route.fetch` then `route.fulfill`. Page routes come before Session routes, later routes first, and the first answer wins; a handler that ends without one falls back, and past the last route the request goes on to the network, so an unanswered route never stalls a request. What a route sends on still passes the domain policy. Cancelling the call removes the route; a handler that fails ends it with `page_handler_failed`.",
+    description: "Routes the page's requests whose URL matches to the program, armed when the call arrives: the call stays in flight, and for each such request the engine sends `route.handle`, which the handler answers with `route.continue`, `route.fulfill`, `route.abort`, `route.fallback`, or `route.fetch` then `route.fulfill`. Page routes come before Session routes, later routes first, and the first answer wins; a handler that ends without one falls back, and past the last route the request goes on to the network, so an unanswered route never stalls a request. What a route sends on still passes the domain policy. Cancelling the call removes the route; a handler that fails ends it with `page_handler_failed`. A request a site's service worker answers from its own cache never reaches the route. When a site's service worker answers a request the route must act on, set `browser.service_workers` to `block` (ADR 0121).",
     class: OperationClass::IdempotentWrite,
     kind: OperationKind::Sequence,
     reach: Reach::SdkOnly,
@@ -345,7 +345,7 @@ pub const PAGE_ROUTE: Operation = Operation {
 /// `session.route`.
 pub const SESSION_ROUTE: Operation = Operation {
     name: "session.route",
-    description: "Routes the requests of every page of the Session whose URL matches to the program, as `page.route` does, after the page's own routes.",
+    description: "Routes the requests of every page of the Session whose URL matches to the program, as `page.route` does, after the page's own routes. When a site's service worker answers a request the route must act on, set `browser.service_workers` to `block` (ADR 0121).",
     class: OperationClass::IdempotentWrite,
     kind: OperationKind::Sequence,
     reach: Reach::SdkOnly,

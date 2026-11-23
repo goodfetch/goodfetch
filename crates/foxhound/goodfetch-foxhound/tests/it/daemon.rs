@@ -4,8 +4,9 @@
 //! Daemon that is idle hands over to it when a Foxhound Client meets it; a
 //! busy one fails the Client with a `fix` whose `daemon restart` makes
 //! Foxhound the pick; and Clients of the two Products alternating restart
-//! the Daemon at most once (ADR 0098). Collie's executable comes from the
-//! test tool manifest.
+//! the Daemon at most once (ADR 0098); and a Collie program on the Daemon
+//! Foxhound started shares its Runs with both. Collie's executable comes
+//! from the test tool manifest.
 #![expect(
     clippy::doc_markdown,
     reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
@@ -14,12 +15,13 @@
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 
+use goodfetch_collie::{Collie, ConnectOptions, EngineChoice, EngineKind, RunId};
 use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::connection::Surface;
 use goodfetch_test_client::{DaemonClient, Hello};
 use goodfetch_test_support::{
-    RuntimeFile, SnapshotValues, TestEnv, Tool, cli, engine_script, reported_address,
-    snapshot_settings, tools,
+    RuntimeFile, SnapshotValues, TestEnv, Tool, cli, engine_script, real_time_runtime,
+    reported_address, snapshot_settings, tools,
 };
 use serde_json::{Value, json};
 
@@ -147,6 +149,59 @@ fn clients_of_the_two_products_alternating_restart_the_daemon_at_most_once() {
 
     let changes = pids.windows(2).filter(|pair| pair[0] != pair[1]).count();
     assert_eq!((changes, running(&env).0), (1, json!("foxhound")));
+}
+
+/// The Run IDs `run list --daemon` answers through `executable`'s Client.
+fn listed_on_the_daemon(executable: &Path, env: &TestEnv) -> Vec<Value> {
+    let listed = json_of(executable, env, &["run", "list", "--daemon", "--json"]);
+    listed["runs"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|run| run["run_id"].clone())
+        .collect()
+}
+
+/// A Collie program reaches the Daemon Foxhound's executable started, with
+/// nothing in it changed for Foxhound, and the Run it starts there is in
+/// the one Run index both Products' executables list (ADR 0098).
+///
+/// Covers: story:11-289
+#[test]
+fn a_collie_program_runs_on_the_daemon_foxhound_started_and_both_products_list_its_run() {
+    let env = TestEnv::new();
+    short_idle(&env);
+    let _stops = StopsTheDaemon(&env);
+    json_of(FOXHOUND.as_ref(), &env, &["daemon", "start", "--json"]);
+    let shared = RunId::parse("shared").unwrap();
+
+    let engine = real_time_runtime().block_on(async {
+        let options = ConnectOptions::default()
+            .environment(env.env_os())
+            .engine(EngineChoice::Daemon);
+        let collie = Collie::connect(options).await.unwrap();
+        let engine = collie.engine().clone();
+        collie.start().run_id(&shared).await.unwrap();
+        collie.close().await.unwrap();
+        engine
+    });
+
+    assert_eq!(
+        (engine.kind, engine.product),
+        (EngineKind::Daemon, Product::Foxhound)
+    );
+    assert_eq!(
+        (
+            listed_on_the_daemon(&collie(), &env),
+            listed_on_the_daemon(FOXHOUND.as_ref(), &env),
+            running(&env).0
+        ),
+        (
+            vec![json!("shared")],
+            vec![json!("shared")],
+            json!("foxhound")
+        )
+    );
 }
 
 /// A Collie Client a Daemon refuses by version is told to install Foxhound

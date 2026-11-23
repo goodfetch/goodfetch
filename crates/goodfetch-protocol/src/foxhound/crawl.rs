@@ -207,6 +207,29 @@ pub const CODE_FREE_LABEL: &str = "page";
 /// The one Dataset a code-free crawl declares, keyed by `url` (ADR 0103).
 pub const CODE_FREE_DATASET: &str = "pages";
 
+/// The name the Run trace's request log notes a `Retry-After` that does
+/// not parse under (ADR 0118): no page's event reports it.
+pub const RETRY_AFTER_UNPARSABLE: &str = "crawl.retry_after_unparsable";
+
+/// What the Run trace notes of a `Retry-After` the engine read and could
+/// not parse, which adds no wait beyond its domain's backoff (ADR 0118).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct UnparsableRetryAfter {
+    /// The crawl request whose response carried it.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub crawl_request_id: String,
+    /// The URL that answered with it.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub url: String,
+    /// The answer's status: a redirect's or a refresh stub's the chain
+    /// follows, or a 429, 502, 503 or 504 of the request's own document.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub status: u16,
+    /// The value, as the site sent it.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub retry_after: String,
+}
+
 /// What a crawl with no handler reads from each page it fetches (spec
 /// #582's code-free crawls; ADR 0103): the engine declares the Label
 /// [`CODE_FREE_LABEL`] and the Dataset [`CODE_FREE_DATASET`], keyed by
@@ -316,6 +339,13 @@ pub struct CrawlStartParams {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     #[schemars(extend("arrived_in" = "0.1"))]
     pub limits: Vec<RunLimit>,
+    /// Whether the Run outlives the Connection that started it (ADR 0102),
+    /// as a Recipe's run does: only a code-free crawl with no Hook, started
+    /// on a Daemon, detaches, and any other such start fails with
+    /// `detach_unsupported`.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub detached: bool,
 }
 
 /// One work item of a crawl as its handler receives it (ADR 0093).
@@ -888,11 +918,11 @@ pub const WORK_ITEM_LEASED: Metric = Metric {
     arrived_in: ARRIVED_IN,
 };
 
-/// `goodfetch.work_item.queued`: the crawls' work items waiting in their
-/// per-domain queues (ADR 0050).
+/// `goodfetch.work_item.queued`: the crawls' work items waiting to be
+/// leased, the Frontier's whole depth (ADR 0050).
 pub const WORK_ITEM_QUEUED: Metric = Metric {
     name: "goodfetch.work_item.queued",
-    description: "The crawls' work items waiting in their per-domain queues to be admitted, each queue holding at most 64; those still in the Frontier past that bound are not counted.",
+    description: "The crawls' work items waiting to be leased: the Frontier's whole depth, in their per-domain queues and past them.",
     instrument: Instrument::UpDownCounter,
     unit: "{work_item}",
     labels: &[],

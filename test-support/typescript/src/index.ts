@@ -12,7 +12,7 @@ export {
 export { ClientCaseRecord } from "./case-log.ts";
 export { TestSupportError, type TestSupportErrorCode } from "./errors.ts";
 export { failure, goodfetchFailure } from "./failure.ts";
-export { recordingLogger } from "./recording-logger.ts";
+export { recordingLogger, startRecordingLogger, type StartLogged } from "./recording-logger.ts";
 export { test, type TestSupportFixtures } from "./fixtures.ts";
 export { locales, timeZones, type TimeZoneCase } from "./locales.ts";
 export {
@@ -68,10 +68,13 @@ export {
 export { redact, type SnapshotValues } from "./snapshot.ts";
 export {
   judgeTask,
+  provingGroundObservations,
   provingGroundOf,
   provingGroundRoutes,
   provingGroundUrl,
   taskStartUrl,
+  type ObservedRequest,
+  type ProvingGroundObservations,
   type TaskResult,
   type ProvingGroundDescription,
   type ProvingGroundFixtures,

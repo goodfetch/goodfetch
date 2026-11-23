@@ -846,6 +846,26 @@ describe("Collie.connect() and the Daemon of the same commit", () => {
       ]);
     },
   );
+
+  test(
+    "takes an environment whose only engine-path variable is Foxhound's, and reaches the Daemon",
+    { tags: ["story:11-299"] },
+    async ({ env, daemon }) => {
+      const foxhoundsOnly = {
+        ...Object.fromEntries(
+          Object.entries(env).filter(([name]) => name !== "GOODFETCH_COLLIE_ENGINE_PATH"),
+        ),
+        GOODFETCH_FOXHOUND_ENGINE_PATH: "/nonexistent/goodfetch-foxhound",
+      };
+
+      // oxlint-disable-next-line no-restricted-properties -- `Collie.connect` is the SDK's own factory (ADR 0078), not a browser's.
+      const collie = await Collie.connect({ env: foxhoundsOnly });
+      const engine = collie.engine();
+      await collie.close();
+
+      expect(engine).toMatchObject({ kind: "daemon", enginePath: null, url: daemon.socket });
+    },
+  );
 });
 
 describe("Collie.connect() with engine daemon", () => {

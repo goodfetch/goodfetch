@@ -6,7 +6,10 @@
 //! `timeout.connect` bounds `hello`. A remote Daemon, the Scripted engine,
 //! refuses a value the project file has no authority for there, and the
 //! connection raises that `setting_locked`. Each test runs in its own
-//! process under nextest, so it may move its working directory.
+//! process under nextest, so it may move its working directory. These are
+//! the `connect-reads-the-project-file` Client conformance case: linked
+//! where the engine explains what it was given, against a remote Daemon
+//! where `hello` and the Daemon's refusal are.
 
 use std::path::{Path, PathBuf};
 use std::time::Duration;
@@ -14,9 +17,10 @@ use std::time::Duration;
 use goodfetch_collie::{
     Collie, ConnectOptions, EngineChoice, ErrorCode, ExplainedSetting, RemoteDaemon,
 };
+use goodfetch_conformance::{ClientCaseRun, RustMode};
 use goodfetch_protocol::checkpoint::FormatVersionUnsupportedDetails;
 use goodfetch_protocol::settings::{SettingInvalidDetails, SettingLockedDetails, SettingsLayer};
-use goodfetch_test_support::{TestEnv, real_time_runtime};
+use goodfetch_test_support::{TestEnv, case_logs, real_time_runtime};
 use rstest::rstest;
 use serde_json::{Value, json};
 use tracing::Level;
@@ -81,13 +85,26 @@ async fn explained_navigation(collie: &Collie) -> (Value, Value) {
 /// Covers: story:11-75, operation:config.explain, operation:run.start
 #[test]
 fn connect_reads_the_project_file_found_upward_from_the_working_directory() {
+    let _case = ClientCaseRun::start(
+        case_logs().as_deref(),
+        "connect-reads-the-project-file",
+        RustMode::Linked,
+    )
+    .unwrap();
     let env = TestEnv::new();
-    let project = write(
+    write(
         &env.folder().join("project"),
         "goodfetch.toml",
         &navigation(45_000),
     );
-    work_in(&env.folder().join("project").join("src").join("deeper"));
+    let deeper = work_in(&env.folder().join("project").join("src").join("deeper"));
+    // The working directory as the OS gives it, with no `\\?\` prefix on
+    // Windows, which canonicalizing adds.
+    let project = deeper
+        .ancestors()
+        .nth(2)
+        .expect("two folders above")
+        .join("goodfetch.toml");
     let (subscriber, log) = goodfetch_test_support::capturing(&[("goodfetch", Level::INFO)]);
 
     let (engine, explained) = with_default(subscriber, || {
@@ -102,10 +119,7 @@ fn connect_reads_the_project_file_found_upward_from_the_working_directory() {
     let at_project = json!([45_000, "project_configuration"]);
     assert_eq!(
         (engine.project_file, explained),
-        (
-            Some(project.canonicalize().unwrap()),
-            (at_project.clone(), at_project)
-        )
+        (Some(project.clone()), (at_project.clone(), at_project))
     );
     let written = text(&log);
     let reached = written
@@ -113,10 +127,7 @@ fn connect_reads_the_project_file_found_upward_from_the_working_directory() {
         .find(|line| line.contains("INFO") && line.contains("reached its engine"))
         .unwrap_or_default();
     assert!(
-        reached.contains(&format!(
-            "project_file={:?}",
-            project.canonicalize().unwrap().display().to_string()
-        )),
+        reached.contains(&format!("project_file={:?}", project.display().to_string())),
         "{written}"
     );
 }
@@ -147,6 +158,12 @@ fn project_names_another_file_and_no_project_reads_none(
     #[case] asked: Asked,
     #[case] expected: Value,
 ) {
+    let _case = ClientCaseRun::start(
+        case_logs().as_deref(),
+        "connect-reads-the-project-file",
+        RustMode::Linked,
+    )
+    .unwrap();
     let env = TestEnv::new();
     write(
         &env.folder().join("work"),
@@ -160,9 +177,22 @@ fn project_names_another_file_and_no_project_reads_none(
     );
     let work = work_in(&env.folder().join("work"));
     let relative = Path::new("..").join("elsewhere").join("other.toml");
+    // Made absolute against the working directory as the OS makes a path
+    // absolute: Unix keeps the `..`, Windows resolves it.
+    let from_the_working_directory = if cfg!(windows) {
+        work.parent()
+            .expect("the working directory's parent")
+            .join("elsewhere")
+            .join("other.toml")
+    } else {
+        work.join(&relative)
+    };
     let (options, reported) = match asked {
         Asked::Absolute => (options(&env).project(&elsewhere), Some(elsewhere)),
-        Asked::Relative => (options(&env).project(&relative), Some(work.join(&relative))),
+        Asked::Relative => (
+            options(&env).project(&relative),
+            Some(from_the_working_directory),
+        ),
         Asked::None => (options(&env).no_project(), None),
     };
 
@@ -272,6 +302,12 @@ fn a_project_files_connect_timeout_bounds_hello(
     #[case] own: Option<Duration>,
     #[case] limit: Value,
 ) {
+    let _case = ClientCaseRun::start(
+        case_logs().as_deref(),
+        "connect-reads-the-project-file",
+        RustMode::Daemon,
+    )
+    .unwrap();
     let env = TestEnv::new();
     #[expect(
         clippy::disallowed_types,
@@ -350,6 +386,12 @@ fn a_project_files_connect_timeout_that_is_no_duration_fails_the_connect(#[case]
     reason = "the test writes the Scripted engine's script before any async worker runs"
 )]
 fn a_remote_daemon_refuses_a_project_value_that_widens_trusted_cas() {
+    let _case = ClientCaseRun::start(
+        case_logs().as_deref(),
+        "connect-reads-the-project-file",
+        RustMode::Daemon,
+    )
+    .unwrap();
     let env = TestEnv::new();
     let project = write(
         &env.folder().join("work"),

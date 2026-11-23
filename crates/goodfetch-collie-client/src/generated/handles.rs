@@ -48,7 +48,7 @@ impl Run {
         )
     }
 
-    /// Writes a Checkpoint of a live Run now, through SQLite's online backup, where `location` says or where the engine keeps the Run's Checkpoints, and answers it once its file is complete, with its size, digest, run epoch and journal position. A Checkpoint the engine cannot write fails with `file_write_failed` and leaves no file.
+    /// Writes a Checkpoint of a live Run now, through SQLite's online backup, where the engine keeps the Run's Checkpoints, or where `location` says, a path on the engine's machine that only the catalog's caller gives, an SDK's `checkpoint()` taking none, and answers it once its file is complete, with its size, digest, run epoch and journal position. A Checkpoint the engine cannot write fails with `file_write_failed` and leaves no file.
     ///
     /// Experimental: outside semver until it is promoted (ADR 0030).
     ///
@@ -130,12 +130,12 @@ impl Run {
         &self,
     ) -> crate::Call<
         crate::Answer<::goodfetch_protocol::run::RunReport>,
-        ::goodfetch_protocol::checkpoint::RunCheckpointParams,
+        ::goodfetch_protocol::checkpoint::RunMigrateParams,
     > {
         crate::markers::warn("run.migrate", true, None);
         self.host.call(
             "run.migrate",
-            ::goodfetch_protocol::checkpoint::RunCheckpointParams {
+            ::goodfetch_protocol::checkpoint::RunMigrateParams {
                 run_id: self.host.id().clone(),
                 location: None,
             },
@@ -534,7 +534,7 @@ impl Page {
         )
     }
 
-    /// Goes back one entry in the page's history and waits for its `load` event, answering the document's response, or none when there is no entry to go back to. The back/forward cache is off, so the document always loads again (ADR 0121).
+    /// Goes back one entry in the page's history and waits for its `load` event, answering the document's response. It answers none only when no document loads: for a same-document entry, or when there is no entry to go back to. The back/forward cache is off, so a document always loads again (ADR 0121).
     ///
     /// Experimental: outside semver until it is promoted (ADR 0030).
     ///
@@ -562,7 +562,7 @@ impl Page {
         })
     }
 
-    /// Goes forward one entry in the page's history and waits for its `load` event, answering the document's response, or none when there is no entry to go forward to. The back/forward cache is off, so the document always loads again (ADR 0121).
+    /// Goes forward one entry in the page's history and waits for its `load` event, answering the document's response. It answers none only when no document loads: for a same-document entry, or when there is no entry to go forward to. The back/forward cache is off, so a document always loads again (ADR 0121).
     ///
     /// Experimental: outside semver until it is promoted (ADR 0030).
     ///
@@ -897,7 +897,9 @@ impl Page {
 
     /// A locator (ADR 0085): what an action looks for on a page, resolved
     /// again at each use, never a handle on an element. This tracer's locators
-    /// are CSS selectors.
+    /// are CSS selectors. Whether it reaches inside a closed shadow root
+    /// depends on the browser (ADR 0121): a CSS selector reaches open roots
+    /// only today.
     ///
     /// Built without a call (ADR 0099).
     #[must_use]
@@ -1157,9 +1159,10 @@ impl Locator {
     }
 }
 
-impl<T> crate::Call<T, ::goodfetch_protocol::checkpoint::RunCheckpointParams> {
-    /// Where to write the Checkpoint, a path on the engine's machine; by
-    /// default where the engine keeps the Run's Checkpoints, its own folder.
+impl<T> crate::Call<T, ::goodfetch_protocol::checkpoint::RunMigrateParams> {
+    /// Where to write the Checkpoint the Run is resumed from, a path on the
+    /// engine's machine; by default where the engine keeps the Run's
+    /// Checkpoints, its own folder.
     pub fn location(self, location: impl Into<String>) -> Self {
         self.edit(move |params| params.location = Some(location.into()))
     }

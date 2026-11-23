@@ -33,17 +33,22 @@
 //! On Linux, `dns-namespace` runs a program in a network and mount
 //! namespace whose resolver is the DNS fixture (`DnsNamespace`), and exits
 //! with its status; it exits 125 when the namespace cannot be made.
+//! `daemon-client --runtime-file <path>` is a Client process of the Daemon
+//! that runtime file names, for a test that kills one (ADR 0060): it relays
+//! its stdin to the Daemon's socket and the socket to its stdout, and exits
+//! once either ends.
 
 use std::io::{self, Read as _, Write as _};
 use std::process::ExitCode;
+use std::sync::mpsc;
 
 use clap::Parser;
 #[cfg(unix)]
 use goodfetch_test_support::ReadOnlyBrowserCache;
 use goodfetch_test_support::{
-    DAEMON_DEADLINE, Daemon, Description, PROVING_GROUND_DEADLINE, Product, ProvingGround,
-    SecretKind, TestEnv, Tool, Variables, browser_builds, browser_cache_in_home,
-    empty_browser_cache, gitleaks_rule, schemas, tools,
+    DAEMON_DEADLINE, Daemon, DaemonEndpoint, Description, PROVING_GROUND_DEADLINE, Product,
+    ProvingGround, RuntimeFile, SecretKind, TestEnv, Tool, Variables, browser_builds,
+    browser_cache_in_home, empty_browser_cache, gitleaks_rule, schemas, tools,
 };
 
 #[derive(Parser)]
@@ -57,7 +62,6 @@ use goodfetch_test_support::{
     reason = "each is a switch of the command line, which clap reads as a bool"
 )]
 struct Arguments {
-    #[cfg(target_os = "linux")]
     #[command(subcommand)]
     command: Option<Subcommand>,
     /// The locale tag whose `LANG` the environment takes, such as `tr-TR`.
@@ -128,12 +132,22 @@ enum BrowserDownload {
     ReadOnlyCache,
 }
 
-#[cfg(target_os = "linux")]
 #[derive(clap::Subcommand)]
 enum Subcommand {
     /// Runs a program in a network and mount namespace of its own, whose
     /// resolver relays to the DNS fixture.
+    #[cfg(target_os = "linux")]
     DnsNamespace(DnsNamespaceArguments),
+    /// Relays stdin to the socket of a Daemon and the socket to stdout, as
+    /// a Client process a test kills.
+    DaemonClient(DaemonClientArguments),
+}
+
+#[derive(clap::Args)]
+struct DaemonClientArguments {
+    /// The Daemon's runtime file, which names its socket.
+    #[arg(long)]
+    runtime_file: std::path::PathBuf,
 }
 
 #[cfg(target_os = "linux")]
@@ -188,14 +202,12 @@ fn dns_namespace(arguments: DnsNamespaceArguments) -> ExitCode {
 }
 
 fn main() -> ExitCode {
-    #[cfg_attr(
-        not(target_os = "linux"),
-        expect(unused_mut, reason = "only Linux takes the subcommand out")
-    )]
     let mut arguments = Arguments::parse();
-    #[cfg(target_os = "linux")]
-    if let Some(Subcommand::DnsNamespace(namespace)) = arguments.command.take() {
-        return dns_namespace(namespace);
+    match arguments.command.take() {
+        #[cfg(target_os = "linux")]
+        Some(Subcommand::DnsNamespace(namespace)) => return dns_namespace(namespace),
+        Some(Subcommand::DaemonClient(client)) => return reported(daemon_client(&client)),
+        None => {}
     }
     let result = if arguments.print_schemas {
         print_schemas()
@@ -208,6 +220,11 @@ fn main() -> ExitCode {
     } else {
         serve(&arguments)
     };
+    reported(result)
+}
+
+/// The status of `result`, whose failure goes to stderr.
+fn reported(result: Result<(), Failure>) -> ExitCode {
     match result {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {
@@ -224,6 +241,51 @@ fn main() -> ExitCode {
 }
 
 type Failure = Box<dyn std::error::Error>;
+
+/// Relays between the standard streams and the socket of the Daemon whose
+/// runtime file `arguments` names, until either ends.
+#[expect(
+    clippy::disallowed_types,
+    reason = "a test's Client process reaches the Daemon's socket from outside the engine (ADR 0060)"
+)]
+fn daemon_client(arguments: &DaemonClientArguments) -> Result<(), Failure> {
+    match RuntimeFile::read(&arguments.runtime_file)?.endpoint {
+        #[cfg(unix)]
+        DaemonEndpoint::Unix(path) => {
+            let socket = std::os::unix::net::UnixStream::connect(path)?;
+            relay(socket.try_clone()?, socket)
+        }
+        #[cfg(not(unix))]
+        DaemonEndpoint::Unix(_) => Err("a Daemon listens on loopback TCP here".into()),
+        DaemonEndpoint::Tcp(address) => {
+            let socket = std::net::TcpStream::connect(address)?;
+            relay(socket.try_clone()?, socket)
+        }
+    }
+}
+
+/// Copies `from_daemon` to stdout and stdin to `to_daemon`, each on a
+/// thread, until the first copy ends: the Daemon closed the Connection, or
+/// the test closed stdin, whose end the process's exit then closes.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "goodfetch-test-env's Client process relays its own stdin and stdout on threads of its own, which its exit ends (ADR 0062)"
+)]
+fn relay(
+    mut from_daemon: impl io::Read + Send + 'static,
+    mut to_daemon: impl io::Write + Send + 'static,
+) -> Result<(), Failure> {
+    let (ended, first) = mpsc::channel();
+    let stdin_ended = ended.clone();
+    std::thread::spawn(move || {
+        let _ = ended.send(io::copy(&mut from_daemon, &mut io::stdout()));
+    });
+    std::thread::spawn(move || {
+        let _ = stdin_ended.send(io::copy(&mut io::stdin(), &mut to_daemon));
+    });
+    first.recv()??;
+    Ok(())
+}
 
 fn print_schemas() -> Result<(), Failure> {
     let schemas = serde_json::to_string(&schemas())?;
@@ -316,6 +378,13 @@ fn serve(arguments: &Arguments) -> Result<(), Failure> {
     }
     drop(proving_ground);
     // The cache is writable again before its folder is removed.
+    #[cfg_attr(
+        not(unix),
+        expect(
+            dropping_copy_types,
+            reason = "off Unix no read-only cache is made, so it is always `None` of a `Copy` type"
+        )
+    )]
     drop(read_only);
     drop(env);
     Ok(())

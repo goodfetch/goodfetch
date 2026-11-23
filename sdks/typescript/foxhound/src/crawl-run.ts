@@ -151,6 +151,9 @@ export class CrawlRun extends Run {
   }
 
   /**
+   * Leaving the scope or `close()` stops the Run with a Checkpoint.
+   * `finish()` ends it.
+   *
    * Closes the Run; idempotent. Every attempt still running is stopped
    * first: its context's calls fail with `closed` and the handler's page
    * answers no more. A Run still running is then stopped as `close()`

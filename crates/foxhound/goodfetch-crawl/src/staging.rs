@@ -46,10 +46,10 @@
 //! stage an output with it fails with `effect_staging_refused` (ADR 0106).
 #![expect(
     clippy::disallowed_types,
-    reason = "a lease's end discards its attempt's staging as it drops, which cannot wait, the run-state writer's thread stages inside its writes and a push stages from a blocking thread: one Mutex guards the entries for a lookup or a push, with nothing else under it, so there is no lock order for loom to test (ADR 0060)"
+    reason = "a lease's end discards its attempt's staging as it drops, which cannot wait, the run-state writer's thread stages inside its writes and a push stages from a blocking thread: one Mutex guards the entries for a lookup or a push and another the work items that declared an Effect for an insert or a lookup, each with nothing else under it and never both held, so there is no lock order for loom to test (ADR 0060)"
 )]
 
-use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 use goodfetch_dataset::Checked;
@@ -138,10 +138,12 @@ impl AttemptKey {
 
 /// The staging of every attempt of one crawl that holds its lease, by its
 /// work item and lease epoch, each staging at most `max` admissions
-/// (`crawl.max_staged_enqueues`).
+/// (`crawl.max_staged_enqueues`), and the work items that declared an
+/// Effect in this engine, which outlive their attempts.
 #[derive(Clone)]
 pub(crate) struct Staging {
     entries: Arc<Mutex<HashMap<AttemptKey, Entry>>>,
+    declaring: Arc<Mutex<HashSet<String>>>,
     max: u64,
 }
 
@@ -307,12 +309,26 @@ impl Staging {
     pub(crate) fn bounded(max: u64) -> Self {
         Self {
             entries: Arc::default(),
+            declaring: Arc::default(),
             max,
         }
     }
 
     fn entries(&self) -> MutexGuard<'_, HashMap<AttemptKey, Entry>> {
         self.entries.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    fn declaring(&self) -> MutexGuard<'_, HashSet<String>> {
+        self.declaring
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+    }
+
+    /// Whether `work_item` declared an Effect in one of its attempts so
+    /// far: from its first declaration on, none of its requests is hedged
+    /// or coalesced (ADRs 0040 and 0106).
+    pub(crate) fn declares_effect(&self, work_item: &str) -> bool {
+        self.declaring().contains(work_item)
     }
 
     /// Opens the staging of the attempt of `work_item` under `lease_epoch`,
@@ -658,7 +674,9 @@ impl AttemptWrites for Staging {
         self.entries()
             .get_mut(&AttemptKey::of(crawl_request_id, lease_epoch))
             .map(|entry| entry.effects += 1)
-            .ok_or_else(|| ended(crawl_request_id, lease_epoch))
+            .ok_or_else(|| ended(crawl_request_id, lease_epoch))?;
+        self.declaring().insert(crawl_request_id.to_owned());
+        Ok(())
     }
 
     fn end_effect(&self, crawl_request_id: &str, lease_epoch: u64) {

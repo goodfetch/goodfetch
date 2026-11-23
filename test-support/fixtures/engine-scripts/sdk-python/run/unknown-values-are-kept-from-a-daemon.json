@@ -1,0 +1,120 @@
+{
+  "description": "`sdk-python/run/unknown-values-are-kept.json` played by a Collie Daemon: the same steps, the Python Client's hello carrying the Daemon's token. A Run started and a page opened in it, then values no catalog has, each written raw with the request's ID (ADR 0079): a navigation failed with the page code `frame_frozen`, a click's `call_cancelled` by `satellite` under a closed `tab_group`, a click's `file_write_failed` for the reason `crosses_devices`, and the Run's stopped report with the Verdict `verified_by_quorum`, the Stop reason `budget_window`, Foxhound's Usage kind `paid_fetch` and Limit scope `partitioned_crawl`, and the warning code `quorum_slow`. The `unknown-values-are-kept` client conformance case, played as a Daemon; `run/unknown-values-are-kept-from-a-daemon.json` is TypeScript's.",
+  "steps": [
+    {
+      "expect": {
+        "method": "hello",
+        "params": {
+          "protocol_version": "0.1",
+          "surface": "sdk_python",
+          "needs": "collie",
+          "product_version": "0.0.0",
+          "form": "python",
+          "log_level": "debug",
+          "token": "scripted-daemon-token"
+        }
+      }
+    },
+    {
+      "reply": {
+        "result": {
+          "protocol_version": "0.1",
+          "product": "collie",
+          "product_version": "0.0.0",
+          "engine_instance": "0123456789abcdef"
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "run.start",
+        "params": {}
+      }
+    },
+    {
+      "reply": {
+        "result": {
+          "run_id": "01ke6p4ym0j8x3v5wq2rtbn7hc",
+          "lifecycle": "running",
+          "needs": "collie",
+          "started_as": "new"
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "run.new_page",
+        "params": {
+          "run_id": "01ke6p4ym0j8x3v5wq2rtbn7hc"
+        }
+      }
+    },
+    {
+      "reply": {
+        "result": {
+          "page_id": "page-1",
+          "session_id": "session-1"
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "page.goto",
+        "params": {
+          "page_id": "page-1",
+          "url": "https://shop.test/"
+        }
+      }
+    },
+    {
+      "raw": {
+        "text": "{\"jsonrpc\":\"2.0\",\"id\":3,\"error\":{\"code\":-32003,\"message\":\"the page's frame froze before the navigation could start\",\"data\":{\"code\":\"frame_frozen\",\"retryable\":false,\"operation\":\"page.goto\",\"call_id\":\"call-1\",\"run_id\":\"01ke6p4ym0j8x3v5wq2rtbn7hc\",\"url\":\"https://shop.test/\",\"frozen_for\":1200}}}\n"
+      }
+    },
+    {
+      "expect": {
+        "method": "locator.click",
+        "params": {
+          "locator": {
+            "page_id": "page-1",
+            "selector": "#next"
+          }
+        }
+      }
+    },
+    {
+      "raw": {
+        "text": "{\"jsonrpc\":\"2.0\",\"id\":4,\"error\":{\"code\":-32006,\"message\":\"`locator.click` was cancelled: its tab group closed under it\",\"data\":{\"code\":\"call_cancelled\",\"retryable\":false,\"operation\":\"locator.click\",\"call_id\":\"call-2\",\"run_id\":\"01ke6p4ym0j8x3v5wq2rtbn7hc\",\"target\":\"#next\",\"by\":\"satellite\",\"closed\":\"tab_group\"}}}\n"
+      }
+    },
+    {
+      "expect": {
+        "method": "locator.click",
+        "params": {
+          "locator": {
+            "page_id": "page-1",
+            "selector": "#save"
+          }
+        }
+      }
+    },
+    {
+      "raw": {
+        "text": "{\"jsonrpc\":\"2.0\",\"id\":5,\"error\":{\"code\":-32006,\"message\":\"the engine could not write the Run's state: crosses devices\",\"data\":{\"code\":\"file_write_failed\",\"retryable\":false,\"operation\":\"locator.click\",\"call_id\":\"call-3\",\"run_id\":\"01ke6p4ym0j8x3v5wq2rtbn7hc\",\"target\":\"#save\",\"reason\":\"crosses_devices\",\"os_code\":\"EXDEV\",\"path\":\"/srv/goodfetch/runs/01ke6p4ym0j8x3v5wq2rtbn7hc\",\"side\":\"engine\"}}}\n"
+      }
+    },
+    {
+      "expect": {
+        "method": "run.finish",
+        "params": {
+          "run_id": "01ke6p4ym0j8x3v5wq2rtbn7hc"
+        }
+      }
+    },
+    {
+      "raw": {
+        "text": "{\"jsonrpc\":\"2.0\",\"id\":6,\"result\":{\"run_id\":\"01ke6p4ym0j8x3v5wq2rtbn7hc\",\"lifecycle\":\"stopped\",\"verdict\":\"verified_by_quorum\",\"verdict_reasons\":[{\"code\":\"quorum_pending\",\"message\":\"Two of three reviewers agreed.\",\"count\":1}],\"completeness\":\"complete\",\"started_at\":\"2026-01-01T00:00:00Z\",\"ended_at\":\"2026-01-01T00:01:00Z\",\"stop_reason\":{\"kind\":\"budget_window\",\"window\":\"night\"},\"usage\":{\"model\":{\"calls\":0,\"tokens\":0,\"input_tokens\":0,\"cache_read_tokens\":0,\"cache_write_tokens\":0,\"output_tokens\":0,\"reasoning_tokens\":0,\"price\":null},\"browser_time\":0,\"proxy_bytes\":0,\"requests\":3,\"other\":[{\"usage_kind\":\"paid_fetch\",\"amount\":3,\"currency\":null}],\"limits\":[{\"scope\":{\"kind\":\"partitioned_crawl\",\"id\":\"books\"},\"usage_kind\":\"paid_fetch\",\"amount\":10,\"left\":7,\"set_by\":\"person\"}]},\"warnings\":[{\"code\":\"quorum_slow\",\"message\":\"A reviewer took over a minute.\"}]}}\n"
+      }
+    }
+  ]
+}

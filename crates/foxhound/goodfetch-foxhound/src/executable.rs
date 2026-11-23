@@ -9,6 +9,7 @@
 
 use clap::Command;
 use goodfetch_collie::executable::catalog_commands::{self, OwnCommand, OwnCommands};
+use goodfetch_collie::executable::{SkillFile, Skills};
 use goodfetch_protocol::catalog::Product;
 
 mod crawl_start;
@@ -20,6 +21,11 @@ pub const COMMANDS: OwnCommands = OwnCommands {
     commands: OWN,
     members,
 };
+
+/// The agent skills Foxhound's executable carries, its renderings of
+/// `skills/`, which its `main` passes to Collie's executable entry for
+/// `skill install`.
+pub const SKILLS: Skills = Skills::new(&include!("../generated/skills.rs"));
 
 /// The commands Foxhound's executable writes by hand.
 const OWN: &[OwnCommand] = &[crawl_start::COMMAND, run_export::COMMAND];

@@ -4,17 +4,16 @@
 # before any release; a passing run is every cell green on one commit of
 # `main`, from one or more dispatches (`xtask release-suite verdict`).
 #
-# The private-period matrix (ADR 0108):
+# The matrix (ADR 0108), every cell on a standard GitHub-hosted runner
+# under the ceiling of 600 minutes that bill a month, which the `plan` job
+# checks before any of them starts (#3383):
 #   - linux-x64-gnu, linux-x64-musl, linux-arm64-gnu, linux-arm64-musl and
-#     windows-x64 on GitHub-hosted runners, under a ceiling of 600 included
-#     minutes a month that the `plan` job checks before any of them starts;
-#   - macos-arm64, and macos-x64 under Rosetta 2, labelled
-#     `macos-x64 (Rosetta 2)`, on the owner's machine, on `main` only, with
-#     the visual projects in the pinned Playwright image (ADR 0073) beside
-#     them;
-#   - native macOS Intel and Windows arm64 first run once the repository is
-#     public, in the release pipeline's own Release run.
-# A dispatch off `main` runs the hosted cells alone, on the branch's pushed
+#     windows-x64;
+#   - macos-arm64 on `macos-15` and macos-x64 natively on `macos-15-intel`,
+#     on `main` only, with the visual projects in the pinned Playwright image
+#     (ADR 0073) on `ubuntu-24.04` beside them;
+#   - Windows arm64 first runs in the release pipeline's own Release run.
+# A dispatch off `main` runs the other cells alone, on the branch's pushed
 # head. On `main` it tests the commit the `commit` input names, `main`'s
 # head by default, and the `plan` job refuses a commit off `main`'s history
 # before any job checks it out.
@@ -28,6 +27,10 @@
 # would spend setup minutes under the ceiling and pass the archive through
 # the account's Actions storage. A cell that breaches its 45-minute budget
 # is split into a build job and shard jobs named `<cell> shard <k>/<n>`.
+# Before the deny, linux-x64-gnu reads the gate records of the
+# pull-request workflow's runs on the tested tree, and its Rust step skips
+# the crates whose Pre-merge unit one passed there (ci/release/reuse.sh,
+# #3384).
 # Runtimes (ADR 0069): each job installs a set of ci/runtimes.toml, every
 # runtime on linux-x64-gnu (release-linux-x64-gnu), the oldest and newest
 # lines with Bun, Deno 2 and free-threaded CPython on the other Linux cells
@@ -40,10 +43,7 @@
 #
 # A step whose name starts with "Test" is a test step (ADR 0064): a cell
 # with a failed test step in any attempt leaves its commit red. Every job is
-# declared in ci/egress/endpoints.toml, and the owner's machine's jobs are on
-# .github/self-hosted-allowlist.toml with their exact `if:`. Once the
-# repository is public, this workflow runs on `merge_group` with the full
-# native matrix and stops naming `owner-machine` (TESTING.md, Merge queue).
+# declared in ci/egress/endpoints.toml.
 name: release suite
 
 on:
@@ -59,6 +59,11 @@ on:
         default: ""
 
 permissions: {}
+
+# Every cell runs both Products' plugin tests, so `just fetch` downloads the
+# pinned Claude Code they validate with (ci/claude-code-fetch.sh).
+env:
+  GOODFETCH_FETCH_CLAUDE_CODE: "yes"
 
 concurrency:
   group: release-suite-${{ github.ref }}
@@ -109,7 +114,7 @@ jobs:
           NEEDED: ${{ steps.plan.outputs.needed }}
           MONTH_TURNS: ${{ steps.plan.outputs.month-turns }}
         run: |
-          echo "::error::No hosted cell started: the run needs $NEEDED included minutes, past the ceiling of 600; the month turns on $MONTH_TURNS (ADR 0108)."
+          echo "::error::No hosted cell started: the run needs $NEEDED minutes that bill, past the ceiling of 600; the month turns on $MONTH_TURNS (ADR 0108)."
           exit 1
 
   linux-x64:
@@ -126,6 +131,9 @@ jobs:
       # `xtask perf` reads the "Performance change" section of the pull
       # request that merged the commit (ADR 0071).
       pull-requests: read
+      # ci/release/reuse.sh lists the pull-request workflow's runs on the
+      # tested tree and downloads their gate records (#3384).
+      actions: read
     strategy:
       fail-fast: false
       matrix:
@@ -153,11 +161,29 @@ jobs:
       # cell's builds need the room (ci/host/free-disk.sh).
       - name: Free the runner's disk
         run: ci/host/free-disk.sh
+      # The tests' copy of the pinned Chrome for Testing build, which `just
+      # fetch` downloads on a miss; saved below on `main` only, for these
+      # cells and the pull-request tier's Pre-merge jobs (#3380).
+      - name: Read the pinned Chrome for Testing build
+        id: chrome-for-testing
+        run: echo "build=$(jq -r .chrome_for_testing.build crates/goodfetch-collie/src/pins.json)" >>"$GITHUB_OUTPUT"
+      - name: Restore the tests' copy of Chrome for Testing
+        id: chrome-for-testing-cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/goodfetch/chrome-for-testing
+          key: chrome-for-testing-${{ steps.chrome-for-testing.outputs.build }}-linux64
       - name: Install the toolchains, tools and runtimes
         uses: ./.github/actions/host-tools
         with:
           target: ${{ matrix.target }}
           runtimes: ${{ matrix.runtimes }}
+      - name: Save the tests' copy of Chrome for Testing
+        if: github.ref == 'refs/heads/main' && steps.chrome-for-testing-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/goodfetch/chrome-for-testing
+          key: chrome-for-testing-${{ steps.chrome-for-testing.outputs.build }}-linux64
       - name: Restore the build cache
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
@@ -216,19 +242,36 @@ jobs:
       # (goodfetch_test_support.install), pulled by its digest before the deny.
       - name: Pull the install harness's Alpine image
         run: ci/alpine/fetch.sh
+      # The clean container goodfetch-collie's `source_build` builds the
+      # crate in, from Debian's packages, before the deny.
+      - name: Build the source build's clean container
+        if: matrix.cell == 'linux-x64-gnu'
+        run: ci/source-build/fetch.sh
+      # The Pre-merge suite's units a batch's hosted run passed on this
+      # tree, which the Rust step skips (#3384): on linux-x64-gnu, the
+      # target of the hosted Pre-merge jobs.
+      - name: Reuse the units a hosted run passed on this tree
+        id: reuse
+        if: matrix.cell == 'linux-x64-gnu'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: ci/release/reuse.sh "$GITHUB_REPOSITORY"
       - name: Deny outbound traffic
         run: ci/egress/egress.sh deny
       - name: Refuse the Egress canary
         run: ci/egress/egress.sh canary
       - name: "Test: Rust"
+        env:
+          GOODFETCH_RELEASE_REUSED: ${{ steps.reuse.outputs.reused }}
         run: ci/egress/under-deny.sh ci/release/cell.sh rust
       - name: "Test: TypeScript on each Node line"
         run: ci/egress/under-deny.sh ci/release/cell.sh typescript
       - name: "Test: Python on each CPython line"
         run: ci/egress/under-deny.sh ci/release/cell.sh python
       # ADR 0072's exercise audit over the Rust tests the cell ran: every
-      # test but the quarantined ones (ADR 0064) and those that cannot run
-      # on the cell, which leave no record. With the justfile's
+      # test but the quarantined ones (ADR 0064), those that cannot run on
+      # the cell and those of the crates the reuse step skips, which leave
+      # no record. With the justfile's
       # `exercise_audit` at `gate`, a declaring test that never reached its
       # Feature fails it, so it is a test step (ADR 0064).
       - name: "Test: audit what each declaring test reached"
@@ -518,15 +561,15 @@ jobs:
           path: target/release-suite/size-report-*.json
           retention-days: 90
 
-  # The owner's machine's cells run even when the ceiling held the hosted
-  # ones back, for an early signal (ADR 0108), but only on `main`.
+  # The macOS cells, on `main` only (ADR 0108), on explicit labels of one OS
+  # release, so an OS change is a visible commit (#3383).
   macos-arm64:
     name: macos-arm64
     needs: plan
     if: >-
-      !cancelled() && github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
-      && needs.plan.outputs.commit != '' && contains(fromJSON(needs.plan.outputs.cells), 'macos-arm64')
-    runs-on: [self-hosted, owner-machine]
+      github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
+      && contains(fromJSON(needs.plan.outputs.cells), 'macos-arm64')
+    runs-on: macos-15
     timeout-minutes: 90
     permissions:
       contents: read
@@ -534,9 +577,10 @@ jobs:
       CELL: macos-arm64
       TARGET: aarch64-apple-darwin
       SHARD: 1/1
-      # The runner's LaunchAgent has no GUI session, where the full build
-      # cannot start headless: the tests launch the headless shell, and
-      # those that need the full build skip, naming why (issue 3224).
+      # Without a GUI session the full build cannot start headless: the
+      # tests launch the headless shell, and those that need the full build
+      # skip, naming why (issue 3224). It stays set until a hosted run shows
+      # a GUI session and a login keychain, recorded on #3373.
       GOODFETCH_TEST_NO_GUI_SESSION: "1"
     steps:
       - name: Check out the commit
@@ -604,15 +648,14 @@ jobs:
           path: target/release-suite/size-report-*.json
           retention-days: 90
 
-  # The x86-64 macOS build under Rosetta 2: it catches the target's build,
-  # link and most of its failures, and never stands in for native Intel.
+  # The x86-64 macOS build, built and tested natively on Intel.
   macos-x64:
-    name: macos-x64 (Rosetta 2)
+    name: macos-x64
     needs: plan
     if: >-
-      !cancelled() && github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
-      && needs.plan.outputs.commit != '' && contains(fromJSON(needs.plan.outputs.cells), 'macos-x64')
-    runs-on: [self-hosted, owner-machine]
+      github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
+      && contains(fromJSON(needs.plan.outputs.cells), 'macos-x64')
+    runs-on: macos-15-intel
     timeout-minutes: 90
     permissions:
       contents: read
@@ -628,12 +671,11 @@ jobs:
         with:
           ref: ${{ needs.plan.outputs.commit }}
           persist-credentials: false
-      - name: Install the x86-64 toolchains, tools and runtimes
+      - name: Install the toolchains, tools and runtimes
         uses: ./.github/actions/host-tools
         with:
           target: x86_64-apple-darwin
           runtimes: release-other
-          architecture: x64
       - name: Restore the build cache
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
@@ -678,7 +720,7 @@ jobs:
         if: always() && steps.leaks.outcome == 'success'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: junit-release-dispatch-macos-x64-rosetta-1
+          name: junit-release-dispatch-macos-x64-1
           path: target/junit/
           if-no-files-found: ignore
       - name: Save the size report keyed by the tested tree
@@ -690,17 +732,17 @@ jobs:
           retention-days: 90
 
   # The visual projects of the Release suite (ADR 0073): only inside the
-  # Playwright image pinned in ci/visual/image.toml, on Linux x86-64, in the
-  # owner's machine's VM as the pull-request tier runs them. It belongs to the
-  # macos-arm64 cell's dispatch, whose name it carries, so the verdict counts
-  # it there.
+  # Playwright image pinned in ci/visual/image.toml, on Linux x86-64, on a
+  # standard hosted runner beside the hosted tier's job container (#3383).
+  # It belongs to the macos-arm64 cell's dispatch, whose name it carries, so
+  # the verdict counts it there.
   visual:
     name: macos-arm64 visual
     needs: plan
     if: >-
-      !cancelled() && github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
-      && needs.plan.outputs.commit != '' && contains(fromJSON(needs.plan.outputs.cells), 'macos-arm64')
-    runs-on: [self-hosted, owner-machine]
+      github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
+      && contains(fromJSON(needs.plan.outputs.cells), 'macos-arm64')
+    runs-on: ubuntu-24.04
     timeout-minutes: 90
     permissions:
       contents: read
@@ -710,12 +752,19 @@ jobs:
         with:
           ref: ${{ needs.plan.outputs.commit }}
           persist-credentials: false
-      - name: Start the VM with the pinned Playwright image
-        run: ci/vm/start.sh read-only ci playwright
+      # Saved by the `ci-image` job below, which runs beside this one, so a
+      # first run on a new Containerfile builds the image here too (#3480).
+      - name: Restore the CI image of the tree's Containerfile
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/goodfetch/ci-image
+          key: pull-request-ci-image-Linux-${{ hashFiles('ci/image/Containerfile') }}
+      - name: Start the job's container
+        run: ci/hosted/start.sh
       - name: Set up the OS services the tests use
-        run: ci/vm/exec.sh ci/os-services.sh setup
-      - name: Install the visual projects' packages
-        run: ci/vm/visual.sh install
+        run: ci/hosted/exec.sh ci/os-services.sh setup
+      - name: Install the visual projects' packages in the pinned image
+        run: ci/hosted/visual.sh install
       - name: Deny outbound traffic
         run: ci/egress/egress.sh deny
       - name: Refuse the Egress canary
@@ -724,9 +773,9 @@ jobs:
         # Firefox's and WebKit's visual projects run in the Release suite only.
         env:
           GOODFETCH_TEST_SUITE: release
-        run: ci/vm/visual.sh test
+        run: ci/hosted/visual.sh test
       - name: Check that every Reference screenshot was read
-        run: ci/vm/exec.sh cargo run --quiet --locked --bin xtask -- screenshots orphans
+        run: ci/hosted/exec.sh cargo run --quiet --locked --bin xtask -- screenshots orphans
       - name: Check that the deny refused nothing else
         if: always()
         run: ci/egress/egress.sh check
@@ -736,11 +785,11 @@ jobs:
         run: ci/junit-context.sh
       - name: Summarize the failed tests
         if: always()
-        run: ci/junit-summary.sh vm
+        run: ci/junit-summary.sh container
       - name: Scan the job's outputs for secrets before they upload
         id: leaks
         if: always()
-        run: ci/vm/exec.sh ci/leaks.sh target/junit/ target/vitest-attachments/
+        run: ci/hosted/exec.sh ci/leaks.sh target/junit/ target/vitest-attachments/
       - name: Upload the JUnit files
         if: always() && steps.leaks.outcome == 'success'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -757,9 +806,44 @@ jobs:
             target/junit/playwright/
             target/vitest-attachments/
           if-no-files-found: ignore
-      - name: Destroy the VM
-        if: always()
-        run: ci/vm/stop.sh
+
+  # The hosted tier's CI image (#3480): on `main` only, the image of the
+  # commit's ci/image/Containerfile, built and saved compressed into the
+  # Actions cache under a key holding the file's hash, which every hosted
+  # job that starts the job's container restores. A key the cache already
+  # holds is looked up, never downloaded, so the job builds only when the
+  # Containerfile changed. Its `pull-request-…-Linux-…` key keeps it out of
+  # `xtask evict-caches`'s deletions.
+  ci-image:
+    name: ci image
+    needs: plan
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - name: Check out the commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.plan.outputs.commit }}
+          persist-credentials: false
+      - name: Look the CI image up in the cache
+        id: ci-image-cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/goodfetch/ci-image
+          key: pull-request-ci-image-Linux-${{ hashFiles('ci/image/Containerfile') }}
+          lookup-only: true
+      - name: Build the CI image and write its archive
+        if: steps.ci-image-cache.outputs.cache-hit != 'true'
+        run: ci/hosted/image.sh save
+      - name: Save the CI image
+        if: steps.ci-image-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/goodfetch/ci-image
+          key: pull-request-ci-image-Linux-${{ hashFiles('ci/image/Containerfile') }}
 
   # Cache priority within GitHub's 10 GB (ADR 0061): once the repository's
   # caches pass 9 GB, the least recently used ones that are not the
@@ -770,7 +854,7 @@ jobs:
   # cells have saved theirs.
   caches:
     name: caches
-    needs: [plan, linux-x64, linux-arm64, windows-x64, macos-arm64, macos-x64, visual]
+    needs: [plan, linux-x64, linux-arm64, windows-x64, macos-arm64, macos-x64, visual, ci-image]
     if: "!cancelled() && github.ref == 'refs/heads/main'"
     runs-on: ubuntu-24.04
     timeout-minutes: 5

@@ -6,7 +6,9 @@
 //! ended by the test, it records the calls it read answered in the test's
 //! answer record: the killed engine's log loses the dispatch records its
 //! writer's thread had not written yet (ADR 0122), which the exercise audit
-//! reads (#1779). Dropped while it runs, its input ends and the drop waits,
+//! reads (#1779). An engine that writes no JSON log, such as one refusing
+//! its configuration, is ended with [`Attached::finish_unlogged`], which
+//! records them too (#1635). Dropped while it runs, its input ends and the drop waits,
 //! up to the message deadline, for it to exit, so the test's teardown finds
 //! it gone (ADR 0069).
 
@@ -343,6 +345,22 @@ impl Attached {
     pub fn finish_with_stderr(mut self) -> (Vec<Value>, String) {
         let (rest, _) = self.end();
         (rest, self.stdout.stderr_to_end())
+    }
+
+    /// As [`Attached::finish`], for an engine that writes no JSON log, such
+    /// as one that refuses its configuration: the calls it answered also go
+    /// to the test's answer record, which then stands in for the dispatch
+    /// records its log would hold (#1635).
+    ///
+    /// # Panics
+    ///
+    /// When the answer record cannot be written.
+    pub fn finish_unlogged(mut self) -> (Vec<Value>, bool) {
+        let ended = self.end();
+        self.answered
+            .record_in(&self.folder)
+            .expect("the test's answer record is written");
+        ended
     }
 
     fn end(&mut self) -> (Vec<Value>, bool) {

@@ -20,12 +20,19 @@ use anyhow::Result;
 use crate::check::{self, Finding};
 use crate::environment::Environment;
 use crate::github::{self, Api};
+use crate::rate::Visibility;
 
 pub(crate) use plan::{Dispatch, plan};
 
 /// Whether every cell is green on `commit`, across its dispatches.
 pub(crate) fn verdict(api: Api<'_>, repository: &str, commit: &str) -> Result<Vec<Finding>> {
     verdict::verdict(&mut history::History::new(api, repository), commit)
+}
+
+/// `repository`'s visibility, as GitHub gives it on its run `run`: when
+/// read, not when the run started.
+pub(crate) fn visibility(api: Api<'_>, repository: &str, run: u64) -> Result<Visibility> {
+    Ok(history::History::new(api, repository).run(run)?.visibility)
 }
 
 /// `xtask release-suite`'s commands.

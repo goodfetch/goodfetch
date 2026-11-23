@@ -26,7 +26,7 @@
 
 [suite]
 name = "clients"
-version = "54"
+version = "63"
 
 [[capability]]
 name = "lifecycle"
@@ -185,40 +185,49 @@ modes = ["attached", "linked"]
 
 # A program's first pages (issue 2400): opened, navigated, acted on through
 # locators, read and closed, on the Proving ground: attached through
-# Collie's executable in TypeScript, linked in Rust (issue 2803), each
-# surface taking the modes it has. The Python SDK joins with its part of
-# issues 1236 and 1237.
+# Collie's executable in TypeScript and Python (issue 3395, three ways),
+# linked in Rust (issue 2803), each surface taking the modes it has. A
+# program's own `goto` is outside Politeness (ADR 0086): it follows a
+# redirect whose `Retry-After` asks for an hour at once, and one to a file
+# the browser downloads answers no response (ADRs 0118, 0119). Python
+# also plays that case's Client side on the Scripted engine (issue 3395).
 [[capability]]
 name = "page"
 
 [[capability.case]]
 id = "page-form-program"
 covers = ["story:11-77"]
-surfaces = ["sdk-typescript", "sdk-rust"]
+surfaces = ["sdk-typescript", "sdk-python", "sdk-rust"]
 modes = ["attached", "linked"]
 
 [[capability.case]]
 id = "goto-404-returns-the-response"
 covers = ["story:11-84"]
-surfaces = ["sdk-typescript", "sdk-rust"]
+surfaces = ["sdk-typescript", "sdk-python", "sdk-rust"]
 modes = ["attached", "linked"]
 
 [[capability.case]]
 id = "second-new-page-in-the-default-session"
 covers = ["story:11-77"]
-surfaces = ["sdk-typescript", "sdk-rust"]
+surfaces = ["sdk-typescript", "sdk-python", "sdk-rust"]
 modes = ["attached", "linked"]
 
 [[capability.case]]
 id = "page-read-fields"
 covers = ["story:11-77", "operation:page.read"]
-surfaces = ["sdk-typescript", "sdk-rust"]
+surfaces = ["sdk-typescript", "sdk-python", "sdk-rust"]
 modes = ["attached", "linked"]
 
 [[capability.case]]
 id = "closed-page-raises-closed"
 covers = ["story:11-77"]
-surfaces = ["sdk-typescript", "sdk-rust"]
+surfaces = ["sdk-typescript", "sdk-python", "sdk-rust"]
+modes = ["attached", "linked"]
+
+[[capability.case]]
+id = "goto-skips-a-redirects-retry-after-and-answers-none-for-a-file"
+covers = ["story:11-84", "operation:page.goto"]
+surfaces = ["sdk-typescript", "sdk-python", "sdk-rust"]
 modes = ["attached", "linked"]
 
 # A page's listeners (issues 1277, 2932 and 2933, ADR 0081): the TypeScript
@@ -233,19 +242,57 @@ covers = ["story:11-61", "story:11-62", "story:11-63", "error:listener_failed"]
 surfaces = ["sdk-typescript", "sdk-python", "sdk-rust"]
 modes = ["attached", "linked"]
 
+# A program's Sessions (ADRs 0092 and 0078; issue 1310): `run.newSession`
+# sends its `source`, ADR 0056's tagged union, as the call's own argument
+# beside its `settings`, and `source: null` as null for a fresh Session;
+# each Session's pages are its own, and closing one closes its pages, whose
+# later calls raise `closed` without a message, while the other Session and
+# the Run's default Session open pages still. A `domains` entry that is no
+# registrable domain raises `SettingInvalidError` whose `fix` names the
+# registrable one. Played by the Scripted engine: attached in TypeScript
+# and Python (asyncio, Trio and the sync API), and as the Daemon Rust's
+# client crate reaches.
+[[capability.case]]
+id = "sessions-open-from-their-source"
+covers = ["story:11-92"]
+surfaces = ["sdk-typescript", "sdk-python", "sdk-rust"]
+modes = { sdk-typescript = ["attached"], sdk-python = ["attached"], sdk-rust = ["daemon"] }
+
+# `page.request` through the page's Session (issue 1303, ADRs 0085 and
+# 0118), on the Proving ground: the request carries the cookie a page of
+# the Session got and leaves through the Run's proxy, as the Proving
+# ground's record shows; `max_redirects` follows its count, 0 answering
+# the 3xx, past it `too_many_redirects` naming the option and its count,
+# and above 19 `setting_invalid`. Each surface takes the modes it has.
+[[capability]]
+name = "page.request"
+
+[[capability.case]]
+id = "page-request-sends-the-sessions-cookie-through-its-proxy"
+covers = ["story:11-87", "operation:page.request"]
+surfaces = ["sdk-typescript", "sdk-python", "sdk-rust"]
+modes = ["attached", "linked"]
+
+[[capability.case]]
+id = "page-request-follows-its-max-redirects-and-refuses-a-count-above-19"
+covers = ["story:11-87", "operation:page.request", "error:too_many_redirects", "error:setting_invalid"]
+surfaces = ["sdk-typescript", "sdk-python", "sdk-rust"]
+modes = ["attached", "linked"]
+
 # A program's crawl (issue 1467): declared on a `Crawl` value, started on
 # Foxhound's executable, its handler served on the event loop, and its
-# Records judged by the Proving ground's oracle. TypeScript leads; the
-# Python SDK joins with issue 1468. The Rust SDK runs it `linked`, served
-# by `crawl.serve` (issue 3229).
+# Records judged by the Proving ground's oracle. The Python SDK runs it on
+# `AsyncFoxhound` and on the sync `Foxhound`, whose handler runs on the
+# Connection's thread pool (issue 1468). The Rust SDK runs it `linked`,
+# served by `crawl.serve` (issue 3229).
 [[capability]]
 name = "crawl"
 
 [[capability.case]]
 id = "crawl-catalog-program"
 covers = ["story:11-1013", "story:11-1015"]
-surfaces = ["sdk-typescript", "sdk-rust"]
-modes = { sdk-typescript = ["attached"], sdk-rust = ["linked"] }
+surfaces = ["sdk-typescript", "sdk-python", "sdk-rust"]
+modes = { sdk-typescript = ["attached"], sdk-python = ["attached"], sdk-rust = ["linked"] }
 
 # A handler's attempts (ADRs 0003 and 0093; issue 1467): a Crawl request
 # whose attempt failed is delivered again, and only the Records of the
@@ -297,6 +344,22 @@ name = "product-conformance"
 id = "collie-accepted-by-foxhound"
 covers = ["story:11-8"]
 surfaces = ["sdk-typescript", "sdk-python"]
+modes = ["attached"]
+
+# A five-word edit ports a Collie program to Foxhound (ADRs 0090, 0097;
+# issue 1264): the installed package, the import, the connection type, the
+# executable and the engine-path variable change, and the program, its
+# Collie copy on Collie's executable and its port on Foxhound's, each in a
+# home of its own with both executables on `PATH` and both engine-path
+# variables set, prints the same: its engine, a setting, a Run started and
+# finished, `run report`, `run list` and a refused `run report` with their
+# `--json` output and exit codes. The members a Run its program drives takes
+# without a browser are the shared ones it plays; Python runs it, on the
+# sync API.
+[[capability.case]]
+id = "five-word-port"
+covers = ["story:11-297"]
+surfaces = ["sdk-python"]
 modes = ["attached"]
 
 # What a Collie engine lacks and a browser build it cannot fetch (ADRs 0087,
@@ -394,6 +457,24 @@ covers = ["story:11-35"]
 surfaces = ["sdk-typescript", "sdk-python", "sdk-rust"]
 modes = { sdk-typescript = ["attached"], sdk-python = ["attached"], sdk-rust = ["daemon"] }
 
+# Unknown values from a newer engine (ADR 0079; issue 3011): each value a
+# Client reads that no catalog of its package has is kept as received and
+# raises nothing of its own. A code no catalog has raises its group's class
+# alone, its details kept; `call_cancelled` keeps a canceller and a closed
+# value it does not know; `file_write_failed` keeps a reason no list has; a
+# Run's report keeps its Verdict, never read as `verified`, its Stop reason
+# as the union's `unknown` member with the tag it was sent in, a warning
+# code no table has, and Foxhound's values of the types both Products
+# share, a Usage kind and a Limit scope, as strings.
+# Played by the Scripted engine, each value written raw, attached and as a
+# Daemon in TypeScript and Python (asyncio, Trio and the sync API) and as a
+# Daemon in Rust; Rust's linked engine answers the same values from a test
+# contribution, as a newer contribution's would.
+[[capability.case]]
+id = "unknown-values-are-kept"
+covers = ["story:11-33", "story:11-188"]
+surfaces = ["sdk-typescript", "sdk-python", "sdk-rust"]
+
 # A remote Daemon's dropped link (spec 606; issue 3174): the Client reaches
 # the Daemon again by itself, greets it with the same hello and sends again
 # a call in flight only when the catalog classes it a read or an idempotent
@@ -423,6 +504,27 @@ id = "start-reaches-its-run"
 covers = ["story:11-126", "story:11-127"]
 surfaces = ["sdk-typescript", "sdk-python", "sdk-rust"]
 modes = ["attached", "linked"]
+
+# The handler-less starts (ADRs 0036 and 0102; issues 3396 and 3397):
+# `startRecipe` (`start_recipe`) and `startCatalogRun` (`start_catalog_run`)
+# send every start option they are given, a Run ID resuming an interrupted
+# Run, logged at info, or returning a finished one ended, logged at warning,
+# through the host's logger, and `openRun` (`open_run`) opens a view by its
+# Run ID with no message. On the Scripted engine as a Daemon, each start is
+# `detached` and each target kind is started, and closing a value or the
+# Connection sends no `run.abort`; on it as the Attached engine, a start is
+# not detached, so closing its value aborts it. Rust's linked engine runs no
+# Recipe or code-free target yet (`run_target_unbuilt`), so Rust plays it
+# linked as far as that engine goes: `Tags` refuses more than 16 tags or one
+# over 64 characters before anything is sent, each start reaches the engine
+# carrying them, and `open_run` opens a view. A tag list past its bounds is
+# no message the corpus may hold, so its `invalid_params` plays on the
+# engine of the same commit in TypeScript and Python, as an Attached engine
+# and as the Daemon.
+[[capability.case]]
+id = "handlerless-starts"
+covers = ["story:11-131"]
+surfaces = ["sdk-typescript", "sdk-python", "sdk-rust"]
 
 # How a Run ends and what it does meanwhile (ADRs 0029 and 0102; issue
 # 1282): `finish()` answers the whole Run report and `stop()` the Run
@@ -501,6 +603,24 @@ id = "connect-takes-the-environment-map"
 covers = ["story:11-73"]
 surfaces = ["sdk-typescript", "sdk-python", "sdk-rust"]
 modes = ["attached", "linked"]
+
+# The project file `connect()` reads (ADR 0083; issue 3407).
+# - Which file: by default it is found upward from the working directory, as
+#   the CLI finds it, shown in a child process the test starts there, so no
+#   test moves its own. `project` names another file, and `null` (Python's
+#   `None`, Rust's `no_project()`) reads none.
+# - Its values reach the engine as the `project_configuration` layer on
+#   `config.explain` and `run.start`, and the engine info reports the file.
+# - Its `timeout.connect` bounds `hello`, unless the connection sets its own.
+# - Daemon mode: against the Scripted engine as a remote Daemon, a project
+#   value that widens `tls.trusted_cas` makes the Run's start raise
+#   `setting_locked` at `project_configuration`.
+# Rust plays the attached lines linked, where the engine itself explains the
+# value and its layer.
+[[capability.case]]
+id = "connect-reads-the-project-file"
+covers = ["story:11-75"]
+surfaces = ["sdk-typescript", "sdk-python", "sdk-rust"]
 
 [[capability]]
 name = "time"
@@ -727,3 +847,66 @@ id = "trace-context"
 covers = ["story:11-138"]
 surfaces = ["sdk-typescript", "sdk-python", "sdk-rust"]
 modes = { sdk-rust = ["daemon", "linked"] }
+
+# Each SDK on its language's concurrency model (ADR 0081; issue 1275).
+[[capability]]
+name = "concurrency"
+
+# An async value belongs to the event loop that opened its Connection: a
+# call on an `AsyncCollie` or a Run under it from another loop, on another
+# thread, asyncio's or Trio's, fails at once with `event_loop_mismatch`,
+# whose fix names the sync `Collie`, and sends nothing, while the same call
+# from the opening loop works; a sync `Collie`'s values answer the same
+# calls from those loops. Python plays it three ways (asyncio, Trio and the
+# sync API), attached and as a Daemon. No other SDK has an event loop a
+# value belongs to: TypeScript's realm opens its own Connection and Rust's
+# futures run on any executor (ADR 0081), so only Python raises the code.
+[[capability.case]]
+id = "async-values-belong-to-their-loop"
+covers = ["story:11-55", "error:event_loop_mismatch"]
+surfaces = ["sdk-python"]
+
+# A sync call blocked in its wait ends at once on a Ctrl+C that lands on
+# another thread, as Windows's console delivers it: the wait is timed on
+# every OS, so the blocked thread runs the signal's handler, sends
+# `$/cancel` without waiting and raises `KeyboardInterrupt` unchanged, then
+# the next calls go as usual (ADR 0081). The host raises the signal itself,
+# so the case plays on every OS. Python alone, the only SDK with a sync API
+# whose calls block a thread on another's loop; attached only, since the
+# wait is the same whatever the transport.
+[[capability.case]]
+id = "sync-calls-interrupt-from-any-thread"
+covers = ["story:11-56"]
+surfaces = ["sdk-python"]
+modes = { sdk-python = ["attached"] }
+
+# Under asyncio's selector loop, which cannot start a subprocess, as on
+# Windows, the async client starts the Attached engine with
+# `subprocess.Popen` on a worker thread of its own, its pipes bridged to the
+# loop through threads, and the Run plays as on any loop; the event-loop
+# policy read after is the one read before (ADR 0081). Off Windows the
+# loop's base class stands in, so the case plays on every OS. Python alone,
+# whose async runtime may run on a loop that cannot start a process;
+# attached only, the mode whose engine is the client's own subprocess.
+[[capability.case]]
+id = "selector-loop-starts-the-engine"
+covers = ["story:11-58"]
+surfaces = ["sdk-python"]
+modes = { sdk-python = ["attached"] }
+
+[[capability]]
+name = "testing-kit"
+
+# The testing kit's `TestEngine` (ADRs 0069 and 0105; issue 3399), on the
+# executable of the same commit: an Attached engine in TypeScript and Python,
+# the engine linked in Rust. Its `connection` is the Product's own connection
+# type, on which the code under test finishes a Run; the engine runs in a
+# temporary Goodfetch home of its own, removed on close. In the `daemon`
+# mode a Daemon runs in the caller's home: the same code finishes a Run on
+# the Daemon's connection and on the test engine's, which reaches its own
+# engine, never that Daemon. Python plays it three ways (asyncio, Trio and
+# the sync `TestEngine`).
+[[capability.case]]
+id = "test-engine-runs-the-code-under-test"
+covers = ["story:11-156", "story:11-157", "story:11-168"]
+surfaces = ["sdk-typescript", "sdk-python", "sdk-rust"]

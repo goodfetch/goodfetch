@@ -52,7 +52,9 @@ use goodfetch_engine::browser_cache::PinnedArtifact;
 use goodfetch_engine::deadline::Deadline;
 use goodfetch_engine::egress::{self, Navigator};
 use goodfetch_engine::hostile_input::check_headers;
+use goodfetch_engine::ledger::{ChargeError, Refusal as LedgerRefusal};
 use goodfetch_engine::response_limits::Limits;
+use goodfetch_engine::run::{limit_not_understood, limit_reached};
 use goodfetch_engine::runs::Run;
 use goodfetch_engine::settings::RunSettings;
 use goodfetch_engine::{CallContext, CallError, Contribution, Enclose, Guard, Handler, named};
@@ -94,6 +96,7 @@ use goodfetch_protocol::page::{
 };
 use goodfetch_protocol::run::RunId;
 use goodfetch_protocol::settings::{SETTING_INVALID, SettingInvalidDetails, SettingsLayer};
+use goodfetch_protocol::usage::REQUESTS;
 use serde_json::Value;
 
 use crate::blocks::{Block, BlockClassifier, NoBlocks};
@@ -103,7 +106,7 @@ use crate::document_request::{DocumentRequest, Unread};
 use crate::driver::{Destination, SerializedDocument};
 use crate::extractor;
 use crate::fields;
-use crate::guard::{self, Action, Request, Window};
+use crate::guard::{self, Action, Request, SentMark, Window};
 use crate::hiding::Hidden;
 use crate::interception::{
     Answer, ConsentHandling, Fulfillment, Interception, Overrides, Reply, Scope,
@@ -731,9 +734,10 @@ fn with_page_handlers(contribution: Contribution, pages: &Pages) -> Contribution
                     pages
                         .navigate(
                             &params.page_id,
-                            Destination::Url(&params.url),
+                            (Destination::Url(&params.url), Navigating::Program),
                             params.wait_until.unwrap_or_default(),
                             params.timeout,
+                            Charge::OneRequest,
                             &context,
                         )
                         .await
@@ -748,9 +752,10 @@ fn with_page_handlers(contribution: Contribution, pages: &Pages) -> Contribution
                     pages
                         .navigate(
                             &params.page_id,
-                            Destination::Reload,
+                            (Destination::Reload, Navigating::Program),
                             WaitUntil::Load,
                             None,
+                            Charge::Nothing,
                             &context,
                         )
                         .await
@@ -765,9 +770,10 @@ fn with_page_handlers(contribution: Contribution, pages: &Pages) -> Contribution
                     pages
                         .navigate(
                             &params.page_id,
-                            Destination::Back,
+                            (Destination::Back, Navigating::Program),
                             WaitUntil::Load,
                             None,
+                            Charge::Nothing,
                             &context,
                         )
                         .await
@@ -782,9 +788,10 @@ fn with_page_handlers(contribution: Contribution, pages: &Pages) -> Contribution
                     pages
                         .navigate(
                             &params.page_id,
-                            Destination::Forward,
+                            (Destination::Forward, Navigating::Program),
                             WaitUntil::Load,
                             None,
+                            Charge::Nothing,
                             &context,
                         )
                         .await
@@ -881,6 +888,18 @@ struct Opener {
     pages: Pages,
 }
 
+/// Whose navigation [`Pages::navigate`] sends, which says whether it opens
+/// ADR 0106's send window.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Navigating {
+    /// A program's command, which may change a site: it marks the window's
+    /// bodies sent before it goes out.
+    Program,
+    /// A crawl request's own document, a read whatever its method (ADR
+    /// 0104's amendment): it marks nothing.
+    OwnDocument,
+}
+
 /// A page [`Opener`] opened whose navigation has not answered yet: dropped
 /// so, as when its opening is cancelled, it closes on a task of its Run,
 /// its navigation with it.
@@ -920,11 +939,11 @@ impl BrowserPages for Opener {
         context: &'a CallContext,
     ) -> Opening<'a, Result<(PageId, Navigated), CallError>> {
         Box::pin(async move {
-            let opened = self
-                .pages
-                .sessions
-                .new_pool_page(run_id, pooled, context)
-                .await?;
+            // Boxed: opening holds a live Run's lookup and a browser
+            // context's opening (clippy's `large_futures`, reached on
+            // Windows too).
+            let opened =
+                Box::pin(self.pages.sessions.new_pool_page(run_id, pooled, context)).await?;
             let page_id = opened.page_id;
             let page = self.pages.sessions.page(&page_id).await?;
             // The document its navigation reaches is its crawl request's
@@ -939,15 +958,17 @@ impl BrowserPages for Opener {
                 page_id: Some(page_id.clone()),
             };
             // Its document is fetched with the crawl request's method and
-            // body for as long as the navigation goes on.
+            // body for as long as the navigation goes on, its request charged
+            // at its admission already.
             let sent = self.pages.interception.send_own(&page_id, own);
             let navigated = self
                 .pages
                 .navigate(
                     &page_id,
-                    Destination::Url(own.url),
+                    (Destination::Url(own.url), Navigating::OwnDocument),
                     WaitUntil::Load,
                     None,
+                    Charge::Nothing,
                     context,
                 )
                 .await;
@@ -1128,6 +1149,28 @@ impl BrowserPages for Opener {
     }
 }
 
+/// What a navigation charges its page's Run before it is sent (issue 3416).
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Charge {
+    /// One `requests` Usage for a URL the network serves: a program's
+    /// `page.goto`, charged as a crawl's request is.
+    OneRequest,
+    /// Nothing: a crawl's navigation, whose request its admission charged,
+    /// or a reload or a move in the page's history.
+    Nothing,
+}
+
+/// Charges `run` the one `requests` Usage of a navigation: a Limit with
+/// too little left refuses it `limit_reached` and stops the Run at its next
+/// safe point, as a crawl's request is refused.
+async fn charge_request(run: &Run, context: &CallContext) -> Result<(), CallError> {
+    run.charge(REQUESTS, 1).await.map_err(|error| match error {
+        ChargeError::Refused(LedgerRefusal::Reached(reached)) => limit_reached(&reached),
+        ChargeError::Refused(LedgerRefusal::NotUnderstood(limit)) => limit_not_understood(*limit),
+        error => sessions::unavailable(run, &error, context),
+    })
+}
+
 /// The engine's pages, which every call of every Connection shares.
 #[derive(Clone)]
 struct Pages {
@@ -1158,7 +1201,10 @@ impl Pages {
     /// otherwise, and a `javascript:` URL runs only in a main frame whose
     /// document's origin the domain policy allows. The navigation waits
     /// under the call's own `timeout` when it gives one, else under the
-    /// Run's `timeout.navigation` (ADR 0080).
+    /// Run's `timeout.navigation` (ADR 0080). Under `charge`, a URL the
+    /// network serves is charged as one `requests` Usage to the page's Run
+    /// before the navigation is sent (issue 3416). A program's navigation
+    /// marks the page's send window before it goes out (ADR 0106).
     #[tracing::instrument(name = "page", level = "debug", skip_all, fields(page_id = %page_id.0, operation = destination.operation(), run_id = tracing::field::Empty, url.origin = tracing::field::Empty))]
     #[expect(
         clippy::option_option,
@@ -1167,9 +1213,10 @@ impl Pages {
     async fn navigate(
         &self,
         page_id: &PageId,
-        destination: Destination<'_>,
+        (destination, navigating): (Destination<'_>, Navigating),
         wait_until: WaitUntil,
         timeout: Option<Option<u64>>,
+        charge: Charge,
         context: &CallContext,
     ) -> Result<Navigated, CallError> {
         let span = tracing::Span::current();
@@ -1190,13 +1237,20 @@ impl Pages {
             // engine serves the program's own code alone (`engine_context::CALLER`).
             accounts: false,
         };
-        if let Destination::Url(url) = destination
-            && egress::navigation(url, navigator).map_err(|refused| refused.error())?
-                == egress::Destination::JavaScript
-        {
-            let document = page.driver.document_url().await?;
-            self.interception
-                .judge_javascript(page_id, url, &document)?;
+        if let Destination::Url(url) = destination {
+            match egress::navigation(url, navigator).map_err(|refused| refused.error())? {
+                egress::Destination::JavaScript => {
+                    let document = page.driver.document_url().await?;
+                    self.interception
+                        .judge_javascript(page_id, url, &document)?;
+                }
+                egress::Destination::Network if charge == Charge::OneRequest => {
+                    charge_request(&page.run, context).await?;
+                }
+                egress::Destination::Network
+                | egress::Destination::Blank
+                | egress::Destination::Local => {}
+            }
         }
         let _files = navigator
             .reads_files()
@@ -1204,6 +1258,9 @@ impl Pages {
         let events = context.events();
         let deadline = page.driver.navigation_deadline(timeout)?;
         let blocked_before = self.interception.lists_blocked(page_id);
+        if navigating == Navigating::Program {
+            page.sending(destination.operation()).await?;
+        }
         let navigated = page
             .life
             .call(
@@ -1306,6 +1363,10 @@ impl Pages {
                 session_id: &page.session,
             },
             owner: &page.owner,
+            sent: SentMark {
+                run: &page.run,
+                lease: page.lease(),
+            },
         };
         let acted = page
             .life
@@ -1350,6 +1411,7 @@ impl Pages {
             limits,
             read: browser_fetch::BodyRead::Whole,
         };
+        page.sending(PAGE_REQUEST.name).await?;
         // A cancelled call closes the engine's page as it drops.
         // A command its lease check withheld ends the page (P31).
         let engine_page = self
@@ -1417,6 +1479,7 @@ impl Pages {
                 .mark(&page.run, &page.session, page_id, injection)
                 .await;
         }
+        page.sending(operation).await?;
         let returns = page
             .life
             .call(
@@ -1439,6 +1502,7 @@ impl Pages {
         let source = page_functions::init_script(&params.function, params.arg.as_ref())?;
         let page = self.opened(&params.page_id).await?;
         tracing::Span::current().record("run_id", page.run.id().as_str());
+        page.sending(PAGE_ADD_INIT_SCRIPT.name).await?;
         // Registered on a task of the Run's, so a call dropped meanwhile
         // never leaves the script registered: its registration, answered to
         // no one, is removed there, counted before `pending` goes.

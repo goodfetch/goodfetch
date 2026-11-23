@@ -235,6 +235,16 @@
     },
     {
       "arrived_in": "0.1",
+      "description": "The Checkpoint a resume names is behind the Run's run file on this machine: a later run epoch, or the same one at a later journal position, wrote that file, so replacing it would throw away the work done since the Checkpoint and could perform its Effects again. Nothing is changed. Resume without `checkpoint` to go on from the run file, or pass `rollback` to replace it with the Checkpoint, as the Audit log records.",
+      "exit_code": null,
+      "group": "refused",
+      "json_rpc_class": -32002,
+      "name": "checkpoint_behind",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
       "description": "The Connection the attempt's request went on ended before its handler answered: the program or one of its `workers=N` handler processes ended, or its Connection dropped. Not the handler's own failure (`handler_failed`): the attempt committed nothing and is retried, on another Connection that serves the crawl, under `crawl.retry.max`.",
       "exit_code": null,
       "group": "unavailable",
@@ -352,6 +362,16 @@
       "name": "deadline_exceeded",
       "product": "collie",
       "retryable": true
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "A `detached` start of a Run that would die with its Connection, so no Run started: an Attached or linked engine ends with its Connection, and a Run whose handler is in the program waits on it. The details name what keeps the Run from detaching, `engine` or the key that gives it a handler in the program, and the fix.",
+      "exit_code": null,
+      "group": "program",
+      "json_rpc_class": -32001,
+      "name": "detach_unsupported",
+      "product": "collie",
+      "retryable": false
     },
     {
       "arrived_in": "0.1",
@@ -475,6 +495,16 @@
     },
     {
       "arrived_in": "0.1",
+      "description": "The call was made on an async value from another event loop or thread than the loop that opened its Connection: an async Connection and every Run, Session or Page under it belong to that loop, and nothing was sent. Call it from that loop, or use the sync client, whose values any thread may call.",
+      "exit_code": null,
+      "group": "program",
+      "json_rpc_class": -32001,
+      "name": "event_loop_mismatch",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
       "description": "Windows refused to start the file: Smart App Control, or another App Control policy, blocks executables without a signature or reputation it trusts. Goodfetch never re-signs a file it did not build. For a browser, use the Goodfetch Chromium or an installed Chrome by channel; otherwise turn Smart App Control off, or ask the device's administrator to allow the file.",
       "exit_code": null,
       "group": "refused",
@@ -560,6 +590,16 @@
       "group": "program",
       "json_rpc_class": -32001,
       "name": "hook_ineffective",
+      "product": "foxhound",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "`run.resume` or `run.retry_failed` would reopen a Run whose crawl declared Hooks in code, which run in its program and which no start under its ID declared again, so the Run was not reopened and nothing was done: its Hooks would be skipped. The details name the Run and the Hooks its run file records. Resume the Run with `crawl.start` and its Run ID from the program that declares them; to retry an ended Run's failures, call `crawl.start` with its Run ID first, then `run.retry_failed`. `crawl.start` takes no Checkpoint yet, so a Checkpoint of such a Run cannot be resumed.",
+      "exit_code": null,
+      "group": "program",
+      "json_rpc_class": -32001,
+      "name": "hook_undeclared",
       "product": "foxhound",
       "retryable": false
     },
@@ -823,6 +863,16 @@
       "group": "unavailable",
       "json_rpc_class": -32006,
       "name": "page_memory_exceeded",
+      "product": "collie",
+      "retryable": true
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "The page's main frame committed a navigation to a new document while an `act`, `observe` or `extract` ran, between the call's first read of the page and its return (an `act` until its first input), and the call did not start it: the program's own driver, the page's script, a person or an extension may have. Nothing was acted on, and no Plan entry was written. The details name the document the call read, `url`, and the one that replaced it, `navigated_to`; the fix says to await the Collie call before the program's own driver acts on the page. A retry may find the page where the call needs it.",
+      "exit_code": null,
+      "group": "page",
+      "json_rpc_class": -32003,
+      "name": "page_navigated_during_call",
       "product": "collie",
       "retryable": true
     },
@@ -1198,6 +1248,16 @@
     },
     {
       "arrived_in": "0.1",
+      "description": "The Run's folder is on a network filesystem (NFS, which EFS and Filestore are, or SMB, which Azure Files is) or on a FUSE mount of object storage, whose locking SQLite cannot rely on, so the engine keeps no run state there. The details name the Run, its folder, the `filesystem` and the `fix`: a `run_state.location` on a local disk or a block volume.",
+      "exit_code": null,
+      "group": "unavailable",
+      "json_rpc_class": -32006,
+      "name": "run_state_filesystem_unsupported",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
       "description": "The Run's state is missing, damaged or cannot be written at its location; the details give the path. The engine never starts afresh under that Run ID.",
       "exit_code": null,
       "group": "unavailable",
@@ -1258,7 +1318,7 @@
     },
     {
       "arrived_in": "0.1",
-      "description": "A Secret provider gave no value for a reference: a missing variable, a locked keychain, an unreachable vault, the caller's `resolveSecret` missing or throwing, no answer within `timeout.secret`. `failure` says which, and the details name the placeholder or setting, the reference and the provider, never a value.",
+      "description": "A Secret provider gave no value for a reference: a missing variable, a locked keychain, an unreachable vault, no one-time code (a TOTP seed the provider makes none from, or a code source's code that never arrived), the caller's `resolveSecret` missing or throwing, no answer within `timeout.secret`. `failure` says which, and the details name the placeholder or setting, the reference and the provider, never a value.",
       "exit_code": null,
       "group": "unavailable",
       "json_rpc_class": -32006,
@@ -1333,6 +1393,16 @@
       "group": "refused",
       "json_rpc_class": -32002,
       "name": "site_preferences_refused",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "`skill install` found a folder of a skill's name in the skills folder that it did not install, or one it installed that was changed since, and refused to replace it. The message names the folder; no skill is written.",
+      "exit_code": null,
+      "group": "refused",
+      "json_rpc_class": -32002,
+      "name": "skill_install_refused",
       "product": "collie",
       "retryable": false
     },
@@ -2229,6 +2299,16 @@
     },
     {
       "arrived_in": "0.1",
+      "description": "The Daemon's live heap, as `daemon.status`'s `heap` reports it: the bytes its own allocations hold now, as its executable's allocator counts them, without the pages that allocator keeps once they are freed. No series where nothing counts them, as in an engine an SDK links.",
+      "instrument": "gauge",
+      "labels": [],
+      "name": "goodfetch.daemon.heap",
+      "product": "collie",
+      "stability": "experimental",
+      "unit": "By"
+    },
+    {
+      "arrived_in": "0.1",
       "description": "The panics in the engine, each a bug in Goodfetch with a crash report on the machine, by what it ended: a call, an attempt, a Page, a Session, a browser, a Run, a Connection or the engine (ADR 0148).",
       "instrument": "counter",
       "labels": [
@@ -2502,7 +2582,7 @@
     },
     {
       "arrived_in": "0.1",
-      "description": "The crawls' work items waiting in their per-domain queues to be admitted, each queue holding at most 64; those still in the Frontier past that bound are not counted.",
+      "description": "The crawls' work items waiting to be leased: the Frontier's whole depth, in their per-domain queues and past them.",
       "instrument": "up_down_counter",
       "labels": [],
       "name": "goodfetch.work_item.queued",
@@ -3102,7 +3182,7 @@
       "cancellable": true,
       "class": "idempotent_write",
       "deprecated": null,
-      "description": "Saves an Export's file, which the engine keeps in its Run's folder, whole or not at all. An Attached engine given the program's path writes it through a hidden temporary file beside it, synced and renamed over it, creating missing folders and replacing a file there; any other engine writes nothing on its own machine and sends the file in `$/chunk` notifications of at most 64 KiB, one per credit granted with `$/credit`, for the SDK to write. Answers the file's size and SHA-256. A path that cannot be written raises `path_not_writable`, and full or failing storage `file_write_failed`, leaving the path as it was.",
+      "description": "Saves an Export's file, which the engine keeps in its Run's folder, whole or not at all. An Attached engine given the program's path writes it through a hidden temporary file beside it, synced and renamed over it, creating missing folders and replacing a file there; any other engine writes nothing on its own machine and sends the file in `$/chunk` notifications of at most 64 KiB, one per credit granted with `$/credit`, for the SDK to write. Answers the file's size, its SHA-256 and the run epoch the Export was written under. A path that cannot be written raises `path_not_writable`, and full or failing storage `file_write_failed`, leaving the path as it was.",
       "events": [],
       "kind": "round_trip",
       "name": "export.save_as",
@@ -3121,7 +3201,7 @@
       "cancellable": true,
       "class": "read",
       "deprecated": null,
-      "description": "Sends an Export's bytes, which the engine keeps in its Run's folder, in order, in `$/chunk` notifications of at most 64 KiB, one per credit granted with `$/credit`, and answers its size and SHA-256 once every byte is sent. Nothing is written on either machine: a program that writes the bytes itself meets its own language's file errors.",
+      "description": "Sends an Export's bytes, which the engine keeps in its Run's folder, in order, in `$/chunk` notifications of at most 64 KiB, one per credit granted with `$/credit`, and answers its size, its SHA-256 and the run epoch it was written under once every byte is sent. Nothing is written on either machine: a program that writes the bytes itself meets its own language's file errors.",
       "events": [],
       "kind": "sequence",
       "name": "export.stream",
@@ -3585,7 +3665,7 @@
       "cancellable": true,
       "class": "effect",
       "deprecated": null,
-      "description": "Goes back one entry in the page's history and waits for its `load` event, answering the document's response, or none when there is no entry to go back to. The back/forward cache is off, so the document always loads again (ADR 0121).",
+      "description": "Goes back one entry in the page's history and waits for its `load` event, answering the document's response. It answers none only when no document loads: for a same-document entry, or when there is no entry to go back to. The back/forward cache is off, so a document always loads again (ADR 0121).",
       "events": [],
       "kind": "round_trip",
       "name": "page.go_back",
@@ -3604,7 +3684,7 @@
       "cancellable": true,
       "class": "effect",
       "deprecated": null,
-      "description": "Goes forward one entry in the page's history and waits for its `load` event, answering the document's response, or none when there is no entry to go forward to. The back/forward cache is off, so the document always loads again (ADR 0121).",
+      "description": "Goes forward one entry in the page's history and waits for its `load` event, answering the document's response. It answers none only when no document loads: for a same-document entry, or when there is no entry to go forward to. The back/forward cache is off, so a document always loads again (ADR 0121).",
       "events": [],
       "kind": "round_trip",
       "name": "page.go_forward",
@@ -3756,7 +3836,7 @@
       "cancellable": true,
       "class": "idempotent_write",
       "deprecated": null,
-      "description": "Routes the page's requests whose URL matches to the program, armed when the call arrives: the call stays in flight, and for each such request the engine sends `route.handle`, which the handler answers with `route.continue`, `route.fulfill`, `route.abort`, `route.fallback`, or `route.fetch` then `route.fulfill`. Page routes come before Session routes, later routes first, and the first answer wins; a handler that ends without one falls back, and past the last route the request goes on to the network, so an unanswered route never stalls a request. What a route sends on still passes the domain policy. Cancelling the call removes the route; a handler that fails ends it with `page_handler_failed`.",
+      "description": "Routes the page's requests whose URL matches to the program, armed when the call arrives: the call stays in flight, and for each such request the engine sends `route.handle`, which the handler answers with `route.continue`, `route.fulfill`, `route.abort`, `route.fallback`, or `route.fetch` then `route.fulfill`. Page routes come before Session routes, later routes first, and the first answer wins; a handler that ends without one falls back, and past the last route the request goes on to the network, so an unanswered route never stalls a request. What a route sends on still passes the domain policy. Cancelling the call removes the route; a handler that fails ends it with `page_handler_failed`. A request a site's service worker answers from its own cache never reaches the route. When a site's service worker answers a request the route must act on, set `browser.service_workers` to `block` (ADR 0121).",
       "events": [],
       "kind": "sequence",
       "name": "page.route",
@@ -4079,7 +4159,7 @@
       "cancellable": false,
       "class": "effect",
       "deprecated": null,
-      "description": "Writes a Checkpoint of a live Run now, through SQLite's online backup, where `location` says or where the engine keeps the Run's Checkpoints, and answers it once its file is complete, with its size, digest, run epoch and journal position. A Checkpoint the engine cannot write fails with `file_write_failed` and leaves no file.",
+      "description": "Writes a Checkpoint of a live Run now, through SQLite's online backup, where the engine keeps the Run's Checkpoints, or where `location` says, a path on the engine's machine that only the catalog's caller gives, an SDK's `checkpoint()` taking none, and answers it once its file is complete, with its size, digest, run epoch and journal position. A Checkpoint the engine cannot write fails with `file_write_failed` and leaves no file.",
       "events": [
         "run.checkpointing"
       ],
@@ -4119,7 +4199,7 @@
       "cancellable": true,
       "class": "idempotent_write",
       "deprecated": null,
-      "description": "Writes an Export of one Dataset of a crawl's Run: the Records it committed when the call is made, in number order, in the format named: `json`, one array of the Records' values, indented as `export.json.indent` says; `jsonl`, one value per line; `csv`, `xlsx`, `html_table` and `markdown`, a table of one column per field seen in any of its Records, in first-seen order, and one row per Record; `parquet`, `avro` and `arrow_ipc`, the same columns typed: a column whose values are all `true` or `false` is boolean, all whole numbers a 64-bit integer, all numbers a 64-bit float, and any other a string holding each cell's text, every column nullable, an Avro field's name made a valid Avro name with the field's own in its `doc`; `xml`, a root element named by `export.xml.root` holding one element per Record named by `export.xml.record`, each field an element of its name (`field` with a `name` attribute where its name is no XML name), an object's fields as elements, an array's values as `item` elements, and `null` an empty element with `xsi:nil=\"true\"`; `rss` and `atom`, a feed named after the Dataset of one item or entry per Record, its title, link, date and summary taken from the fields the `export.feed.*` settings name. Every text Export is UTF-8 with no BOM unless `export.csv.bom` puts one on CSV, characters written as themselves (a character XML 1.0 cannot hold as U+FFFD in XML and feeds) and each value as it was committed: a table cell holds a string as its text, a number, `true` or `false` as JSON writes it, nothing for `null` or a field its Record lacks, and an object or array as its JSON text, or, in CSV under `export.csv.nested: flatten`, an object's fields in dotted columns. A Record whose page was read past a Wall carries its Wall marker, `{kind, vendor?}` as its Provenance holds it, as a `#wall` field in every format but the feeds, where it is a category of the scheme `urn:goodfetch:wall` naming its kind; `wall` set to `true` writes only those Records, `false` only the others. `compression` `gzip` or `zstd` compresses the whole file. Its `settings` and `project` are the run layer and the project configuration its `export.*` settings resolve under; a value the format cannot take fails with `setting_invalid`. Answers the Export, with its Record count, its last Record's number, its size and its SHA-256, only once its file is whole in the Run's folder, where `export.save_as` and `export.stream` read it. Records committed after the call starts are not in it. A write the engine's storage refuses fails with `file_write_failed`, side `engine`, leaving no unfinished file, as does a call while that storage is at the `critical` level, before any byte is written. A Dataset the crawl does not declare fails with `dataset_unknown`.",
+      "description": "Writes an Export of one Dataset of a crawl's Run: the Records it committed when the call is made, in number order, in the format named, as its `format` value says: a table (`csv`, `xlsx`, `html_table`, `markdown`, and typed, `parquet`, `avro` and `arrow_ipc`) has one column per field seen in any of its Records, in first-seen order, and one row per Record. Every text Export is UTF-8 with no BOM unless `export.csv.bom` puts one on CSV, characters written as themselves (a character XML 1.0 cannot hold as U+FFFD in XML and feeds) and each value as it was committed: a table cell holds a string as its text, a number, `true` or `false` as JSON writes it, nothing for `null` or a field its Record lacks, and an object or array as its JSON text, or, in CSV under `export.csv.nested: flatten`, an object's fields in dotted columns. A Record whose page was read past a Wall carries its Wall marker, `{kind, vendor?}` as its Provenance holds it, as a `#wall` field in every format but the feeds, where it is a category of the scheme `urn:goodfetch:wall` naming its kind; `wall` set to `true` writes only those Records, `false` only the others. `compression` `gzip` or `zstd` compresses the whole file. Its `settings` and `project` are the run layer and the project configuration its `export.*` settings resolve under; a value the format cannot take fails with `setting_invalid`. Answers the Export, with its Record count, its last Record's number, its size, its SHA-256 and the run epoch of the Run's state it was written from, only once its file is whole in the Run's folder, where `export.save_as` and `export.stream` read it. Records committed after the call starts are not in it. A write the engine's storage refuses fails with `file_write_failed`, side `engine`, leaving no unfinished file, as does a call while that storage is at the `critical` level, before any byte is written. A Dataset the crawl does not declare fails with `dataset_unknown`.",
       "events": [],
       "kind": "round_trip",
       "name": "run.export",
@@ -4204,7 +4284,7 @@
       "kind": "round_trip",
       "name": "run.migrate",
       "params": {
-        "$ref": "#/$defs/RunCheckpointParams"
+        "$ref": "#/$defs/RunMigrateParams"
       },
       "product": "collie",
       "reach": "all_surfaces",
@@ -4373,7 +4453,7 @@
       "cancellable": false,
       "class": "idempotent_write",
       "deprecated": null,
-      "description": "Resumes an interrupted Run from its committed state, its run file on this machine or the Checkpoint `checkpoint` names: it takes the Run's writer lock and the next run epoch, so every write of an earlier writer is refused, and redoes the work since that state; its recorded Clean-up rules digest is kept. A Run this engine runs already fails with `run_in_use`, as one another engine writes does; a finished one is answered as it ended, `ended`. A Run bound to another machine fails with `session_bound_to_machine`, and a Checkpoint of a format version this engine cannot read with `format_version_unsupported`.",
+      "description": "Resumes an interrupted Run from its committed state, its run file on this machine or the Checkpoint `checkpoint` names: it takes the Run's writer lock and the next run epoch, so every write of an earlier writer is refused, and redoes the work since that state; its recorded Clean-up rules digest is kept. A Run this engine runs already fails with `run_in_use`, as one another engine writes does; a finished one is answered as it ended, `ended`. A Run bound to another machine fails with `session_bound_to_machine`, a Checkpoint of a format version this engine cannot read with `format_version_unsupported`, and a Checkpoint behind the Run's run file on this machine with `checkpoint_behind`, or with the error that file's read gives when it cannot be read, unless `rollback` replaces that file, as the Audit log records.",
       "events": [],
       "kind": "opener",
       "name": "run.resume",
@@ -4652,7 +4732,7 @@
       "cancellable": true,
       "class": "idempotent_write",
       "deprecated": null,
-      "description": "Routes the requests of every page of the Session whose URL matches to the program, as `page.route` does, after the page's own routes.",
+      "description": "Routes the requests of every page of the Session whose URL matches to the program, as `page.route` does, after the page's own routes. When a site's service worker answers a request the route must act on, set `browser.service_workers` to `block` (ADR 0121).",
       "events": [],
       "kind": "sequence",
       "name": "session.route",
@@ -5132,6 +5212,29 @@
         "description": "A duration in milliseconds.",
         "minimum": 0,
         "type": "integer"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": false,
+      "default": false,
+      "deprecated": null,
+      "description": "Whether a Run's Chromium launches only read the Browser cache: `false` by default. When on, a build with its pinned digest is launched with no use recorded, a build of the wrong digest is refused with `browser_not_installed` and left in place, and a missing build is never downloaded: `artifact_unavailable_offline` under `egress.offline`, `browser_not_installed` otherwise. The engine then writes no file of its own in the cache, its write check's included; the browser still writes in its build's files as it does at every launch. Each Product's testing kit turns it on, so a test leaves the caller's cache as it found it.",
+      "fixed_for_run": false,
+      "name": "browser_cache.read_only",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run"
+      ],
+      "value": {
+        "type": "boolean"
       },
       "weakens": false
     },
@@ -8611,6 +8714,141 @@
     },
     {
       "arrived_in": "0.1",
+      "authority": "machine",
+      "clearable": true,
+      "default": null,
+      "deprecated": null,
+      "description": "The Politeness store: a Valkey or Redis server through which every engine naming the same `namespace` shares Politeness across machines, for Runs at `politeness.sharing: shared`. `addressing` reaches it as one `server` by its `url`, through `sentinel`, by the `service` whose primary the `sentinels` elect, or as a `cluster` discovered from its `nodes`. Every address is `rediss://` (TLS), except a loopback host's `redis://` or a Unix socket's `redis+unix://`, and carries no user or password: `username` names the store's user and `password` is the Secret reference of its password, such as `env:VALKEY_PASSWORD`; a password given in its place is refused with `setting_invalid`. A Sentinel's primary is reached over TLS whenever a `password` is set, and a `cluster`'s nodes are all `rediss://` or all on loopback. Set in user configuration or an Operator policy only. None by default, for Politeness shared on the machine alone.",
+      "fixed_for_run": false,
+      "name": "politeness.store",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "scopes": [],
+      "value": {
+        "additionalProperties": false,
+        "description": "`politeness.store`'s value: the Politeness store and the namespace this\nengine shares Politeness under (ADR 0053).",
+        "properties": {
+          "addressing": {
+            "arrived_in": "0.1",
+            "description": "How the store's servers are reached.",
+            "oneOf": [
+              {
+                "additionalProperties": false,
+                "description": "One server.",
+                "properties": {
+                  "kind": {
+                    "const": "server",
+                    "type": "string"
+                  },
+                  "url": {
+                    "arrived_in": "0.1",
+                    "description": "Its address.",
+                    "pattern": "^(rediss?|redis\\+unix|unix)://[^@?#]*$",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "kind",
+                  "url"
+                ],
+                "type": "object"
+              },
+              {
+                "additionalProperties": false,
+                "description": "The primary that Sentinel elects for a service, asked of the\nsentinels when the engine connects.",
+                "properties": {
+                  "kind": {
+                    "const": "sentinel",
+                    "type": "string"
+                  },
+                  "sentinels": {
+                    "arrived_in": "0.1",
+                    "description": "The sentinels' addresses, at least one; the primary is reached\nover TLS when they are, or when a `password` is set, so that the\npassword never travels in clear.",
+                    "items": {
+                      "pattern": "^(rediss?|redis\\+unix|unix)://[^@?#]*$",
+                      "type": "string"
+                    },
+                    "minItems": 1,
+                    "type": "array"
+                  },
+                  "service": {
+                    "arrived_in": "0.1",
+                    "description": "The service whose primary the sentinels name.",
+                    "minLength": 1,
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "kind",
+                  "service",
+                  "sentinels"
+                ],
+                "type": "object"
+              },
+              {
+                "additionalProperties": false,
+                "description": "A Cluster, discovered from these nodes, at least one, all over TLS\nor all on loopback, and none a Unix socket; the nodes it finds are\nreached as these are, and a Cluster on loopback that announces a\nnode off loopback is refused when the engine connects.",
+                "properties": {
+                  "kind": {
+                    "const": "cluster",
+                    "type": "string"
+                  },
+                  "nodes": {
+                    "arrived_in": "0.1",
+                    "description": "The nodes' addresses.",
+                    "items": {
+                      "pattern": "^(rediss?|redis\\+unix|unix)://[^@?#]*$",
+                      "type": "string"
+                    },
+                    "minItems": 1,
+                    "type": "array"
+                  }
+                },
+                "required": [
+                  "kind",
+                  "nodes"
+                ],
+                "type": "object"
+              }
+            ]
+          },
+          "namespace": {
+            "arrived_in": "0.1",
+            "description": "The namespace: every engine that names it shares Politeness, and\nshares nothing with another namespace on the same store.",
+            "pattern": "^[^{}]+$",
+            "type": "string"
+          },
+          "password": {
+            "arrived_in": "0.1",
+            "description": "The Secret reference of the user's password, resolved when the\nengine connects; none for a store without one.",
+            "pattern": "^(?:(?:env|keychain|secretfile|caller|bw|vault|aws-sm|gcp-sm|azure-kv|plugin):|op://)[^\\s]+$",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "username": {
+            "arrived_in": "0.1",
+            "description": "The user the store's access list names; its default user when left\nout.",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "namespace",
+          "addressing"
+        ],
+        "type": "object"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
       "authority": "every",
       "clearable": false,
       "default": true,
@@ -9387,7 +9625,7 @@
       "clearable": true,
       "default": null,
       "deprecated": null,
-      "description": "The absolute path of the Bitwarden CLI, `bw`, that answers `bw:item/field` Secret references from Bitwarden or, once `bw config server` points it there, a Vaultwarden server: the engine runs `bw get` without interaction and with its own environment, so `BW_SESSION` unlocks the vault. `field` is `password`, `username`, `totp` (the current code, never the seed), `notes`, `uri` or the name of a custom field. Unset, the default, a `bw:` reference fails with `secret_unavailable`, `failure: \"not_configured\"`. Taken only from an Operator policy and user and project configuration.",
+      "description": "The absolute path of the Bitwarden CLI, `bw`, that answers `bw:item/field` Secret references from Bitwarden or, once `bw config server` points it there, a Vaultwarden server: the engine runs `bw get` without interaction and with its own environment, so `BW_SESSION` unlocks the vault. `field` is `password`, `username`, `totp` (the current code, never the seed, or `failure: \"no_code\"` when Bitwarden makes none from it), `notes`, `uri` or the name of a custom field. Unset, the default, a `bw:` reference fails with `secret_unavailable`, `failure: \"not_configured\"`. Taken only from an Operator policy and user and project configuration.",
       "fixed_for_run": false,
       "name": "secret_providers.bw.command",
       "product": "collie",
@@ -10491,6 +10729,809 @@
       "arrived_in": "0.1",
       "authority": "every",
       "clearable": false,
+      "default": {},
+      "deprecated": null,
+      "description": "The Sinks a crawl's Run delivers its Records to, each by its name, as `sinks.<name>.*`: `type`, the catalog destination, left out for a program's own Sink handler of that name; `datasets`, the Datasets it receives; `mode`, `append` (the default), `upsert`, `insert_only`, `replace` or `history`; `key`, the fields a keyed mode uses, each Dataset's own key when left out; `deliver`, `records`, `files` or `both`; `destination`, the Secret reference of its DSN, URL or credentials, a value given in its place being refused with `setting_invalid`; `target`, its table, collection, index, topic, queue, sheet or object prefix; and `files`, `schema`, `rate`, `batch`, `webhook`, `embedding` and `image`, which only some types take. Every delivery carries its delivery ID, the Record's Dataset and number and the run epoch. None by default. Set on a connection or a crawl's Run, from code, the project file, the CLI or a Recipe; a Label refuses it with `setting_not_applicable`.",
+      "fixed_for_run": false,
+      "name": "sinks",
+      "product": "foxhound",
+      "products": [
+        "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run"
+      ],
+      "value": {
+        "additionalProperties": {
+          "additionalProperties": false,
+          "description": "One Sink, the entry of its name in `sinks` (ADRs 0026, 0103 and 0104):\nthe keys every Sink type shares.",
+          "properties": {
+            "batch": {
+              "additionalProperties": false,
+              "arrived_in": "0.1",
+              "description": "Its batch sizing: the destination's preset when left out.",
+              "properties": {
+                "max_bytes": {
+                  "arrived_in": "0.1",
+                  "description": "How many bytes one write holds at most.",
+                  "format": "uint64",
+                  "minimum": 0,
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                },
+                "max_records": {
+                  "arrived_in": "0.1",
+                  "description": "How many Records one write holds at most.",
+                  "format": "uint64",
+                  "minimum": 0,
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                }
+              },
+              "type": [
+                "object",
+                "null"
+              ]
+            },
+            "datasets": {
+              "arrived_in": "0.1",
+              "description": "The names of the Datasets it receives.",
+              "items": {
+                "type": "string"
+              },
+              "minItems": 1,
+              "type": "array"
+            },
+            "deliver": {
+              "anyOf": [
+                {
+                  "description": "What a Sink delivers (ADR 0026).",
+                  "oneOf": [
+                    {
+                      "const": "records",
+                      "description": "Rows or messages, while the Run goes.",
+                      "type": "string"
+                    },
+                    {
+                      "const": "files",
+                      "description": "Numbered Export parts.",
+                      "type": "string"
+                    },
+                    {
+                      "const": "both",
+                      "description": "Both.",
+                      "type": "string"
+                    }
+                  ]
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "arrived_in": "0.1",
+              "description": "What it delivers: Records for a row or message destination, files\nfor a file destination, when left out. Spec #582 spells it `as`,\nwhich Python cannot name a key of a `TypedDict`."
+            },
+            "destination": {
+              "arrived_in": "0.1",
+              "description": "The Secret reference of its DSN, URL or credentials, never the value\nitself; required with a `type`.",
+              "pattern": "^(?:(?:env|keychain|secretfile|caller|bw|vault|aws-sm|gcp-sm|azure-kv|plugin):|op://)[^\\s]+$",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "embedding": {
+              "additionalProperties": false,
+              "arrived_in": "0.1",
+              "description": "A vector store Sink's embedding.",
+              "properties": {
+                "chunk_chars": {
+                  "arrived_in": "0.1",
+                  "description": "How many characters a chunk holds at most: 2,000 when left out.",
+                  "format": "uint64",
+                  "minimum": 0,
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                },
+                "fields": {
+                  "arrived_in": "0.1",
+                  "description": "The Record's fields whose text is embedded.",
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": [
+                    "array",
+                    "null"
+                  ]
+                },
+                "model": {
+                  "arrived_in": "0.1",
+                  "description": "The Model provider's model that embeds the chunks.",
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "type": [
+                "object",
+                "null"
+              ]
+            },
+            "files": {
+              "additionalProperties": false,
+              "arrived_in": "0.1",
+              "description": "Its Files mode.",
+              "properties": {
+                "compression": {
+                  "anyOf": [
+                    {
+                      "description": "How an Export's bytes are compressed: the whole file, once written in\nits format.",
+                      "oneOf": [
+                        {
+                          "const": "none",
+                          "description": "Not compressed.",
+                          "type": "string"
+                        },
+                        {
+                          "const": "gzip",
+                          "description": "One gzip member (RFC 1952).",
+                          "type": "string"
+                        },
+                        {
+                          "const": "zstd",
+                          "description": "One Zstandard frame (RFC 8878).",
+                          "type": "string"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "arrived_in": "0.1",
+                  "description": "The parts' compression: Zstandard when left out."
+                },
+                "format": {
+                  "anyOf": [
+                    {
+                      "description": "An Export's format, named, never inferred from a file name (ADR 0103).",
+                      "oneOf": [
+                        {
+                          "const": "json",
+                          "description": "One JSON array of the Records' values, indented as\n`export.json.indent` says.",
+                          "type": "string"
+                        },
+                        {
+                          "const": "jsonl",
+                          "description": "One Record's value per line, each line ended by a line feed.",
+                          "type": "string"
+                        },
+                        {
+                          "const": "csv",
+                          "description": "RFC 4180 CSV: a header row of the fields seen, then one row per\nRecord, each line ended by CR LF.",
+                          "type": "string"
+                        },
+                        {
+                          "const": "xlsx",
+                          "description": "One XLSX workbook of one sheet: a header row of the fields seen,\nthen one row per Record.",
+                          "type": "string"
+                        },
+                        {
+                          "const": "html_table",
+                          "description": "One HTML document holding one table: a header row of the fields\nseen, then one row per Record.",
+                          "type": "string"
+                        },
+                        {
+                          "const": "markdown",
+                          "description": "One GitHub Flavored Markdown table: a header row of the fields seen,\nthen one row per Record.",
+                          "type": "string"
+                        },
+                        {
+                          "const": "xml",
+                          "description": "One XML document: a root element named by `export.xml.root` holding\none element per Record named by `export.xml.record`, each field an\nelement of its name (`field` with a `name` attribute where its name\nis no XML name), an object's fields as elements, an array's values\nas `item` elements, and `null` an empty element with\n`xsi:nil=\"true\"`.",
+                          "type": "string"
+                        },
+                        {
+                          "const": "parquet",
+                          "description": "One Apache Parquet file of one column per field seen, typed: a\ncolumn whose values are all `true` or `false` is boolean, all whole\nnumbers a 64-bit integer, all numbers a 64-bit float, and any other\na string holding each cell's text, every column nullable.",
+                          "type": "string"
+                        },
+                        {
+                          "const": "avro",
+                          "description": "One Apache Avro object container file of one record per Record,\nwith one field per field seen, typed as Parquet's columns are, each\nfield's name made a valid Avro name with the field's own in its\n`doc`.",
+                          "type": "string"
+                        },
+                        {
+                          "const": "arrow_ipc",
+                          "description": "One Apache Arrow IPC file of one column per field seen, typed as\nParquet's columns are.",
+                          "type": "string"
+                        },
+                        {
+                          "const": "rss",
+                          "description": "One RSS 2.0 feed named after the Dataset, of one item per Record,\nits title, link, date and summary taken from the fields the\n`export.feed.*` settings name.",
+                          "type": "string"
+                        },
+                        {
+                          "const": "atom",
+                          "description": "One Atom feed named after the Dataset, of one entry per Record, its\ntitle, link, date and summary taken from the fields the\n`export.feed.*` settings name.",
+                          "type": "string"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "arrived_in": "0.1",
+                  "description": "The parts' Export format: JSONL when left out."
+                },
+                "part": {
+                  "additionalProperties": false,
+                  "arrived_in": "0.1",
+                  "description": "When a part rolls.",
+                  "properties": {
+                    "max_age": {
+                      "arrived_in": "0.1",
+                      "description": "How long, in milliseconds, a part stays open at most: 5 minutes\nwhen left out.",
+                      "format": "uint64",
+                      "minimum": 0,
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
+                    },
+                    "max_bytes": {
+                      "arrived_in": "0.1",
+                      "description": "How many bytes a part holds at most: 256 MiB when left out.",
+                      "format": "uint64",
+                      "minimum": 0,
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
+                    },
+                    "max_records": {
+                      "arrived_in": "0.1",
+                      "description": "How many Records a part holds at most: 100,000 when left out.",
+                      "format": "uint64",
+                      "minimum": 0,
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
+                    }
+                  },
+                  "type": [
+                    "object",
+                    "null"
+                  ]
+                }
+              },
+              "type": [
+                "object",
+                "null"
+              ]
+            },
+            "image": {
+              "arrived_in": "0.1",
+              "description": "A Bridge Sink's image digest, which an Operator policy must name.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "key": {
+              "arrived_in": "0.1",
+              "description": "The fields a keyed mode uses: each Dataset's own key when left out.",
+              "items": {
+                "type": "string"
+              },
+              "type": [
+                "array",
+                "null"
+              ]
+            },
+            "mode": {
+              "anyOf": [
+                {
+                  "description": "How a Sink writes the Records it receives (ADR 0026), keyed on its own\n`key` or else each Dataset's (ADR 0103).",
+                  "oneOf": [
+                    {
+                      "const": "append",
+                      "description": "Each Record is added.",
+                      "type": "string"
+                    },
+                    {
+                      "const": "upsert",
+                      "description": "A Record replaces the one of its key, or is added.",
+                      "type": "string"
+                    },
+                    {
+                      "const": "insert_only",
+                      "description": "A Record is added unless one of its key is there.",
+                      "type": "string"
+                    },
+                    {
+                      "const": "replace",
+                      "description": "The Records are written apart, then swapped in at once.",
+                      "type": "string"
+                    },
+                    {
+                      "const": "history",
+                      "description": "Each Record of a key is kept as a version, valid from and to.",
+                      "type": "string"
+                    }
+                  ]
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "arrived_in": "0.1",
+              "description": "How it writes them: `append` when left out ([`Self::write_mode`])."
+            },
+            "rate": {
+              "additionalProperties": false,
+              "arrived_in": "0.1",
+              "description": "Its token bucket: the destination's preset when left out.",
+              "properties": {
+                "burst": {
+                  "arrived_in": "0.1",
+                  "description": "How many writes may go at once, the bucket's size.",
+                  "format": "uint64",
+                  "minimum": 0,
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                },
+                "per_second": {
+                  "arrived_in": "0.1",
+                  "description": "How many writes a second.",
+                  "format": "uint64",
+                  "minimum": 0,
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                }
+              },
+              "type": [
+                "object",
+                "null"
+              ]
+            },
+            "schema": {
+              "additionalProperties": false,
+              "arrived_in": "0.1",
+              "description": "How its destination's schema follows the Records.",
+              "properties": {
+                "contract": {
+                  "anyOf": [
+                    {
+                      "description": "What a Sink does with a field its destination's columns do not hold\n(ADR 0026, dlt's contracts).",
+                      "oneOf": [
+                        {
+                          "const": "evolve",
+                          "description": "The columns grow to hold it.",
+                          "type": "string"
+                        },
+                        {
+                          "const": "freeze",
+                          "description": "The Record is refused.",
+                          "type": "string"
+                        },
+                        {
+                          "const": "discard_row",
+                          "description": "The Record is left out.",
+                          "type": "string"
+                        },
+                        {
+                          "const": "discard_value",
+                          "description": "The field is left out.",
+                          "type": "string"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "arrived_in": "0.1",
+                  "description": "Its contract: `evolve` when left out."
+                },
+                "flatten": {
+                  "arrived_in": "0.1",
+                  "description": "Whether nested values are flattened into dotted columns rather than\nkept in the destination's own JSON type: off when left out.",
+                  "type": [
+                    "boolean",
+                    "null"
+                  ]
+                }
+              },
+              "type": [
+                "object",
+                "null"
+              ]
+            },
+            "target": {
+              "arrived_in": "0.1",
+              "description": "Its table, collection, index, topic, queue, sheet or object prefix:\nthe type's own when left out.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "type": {
+              "anyOf": [
+                {
+                  "description": "The catalog destination a Sink delivers to (ADR 0026).",
+                  "oneOf": [
+                    {
+                      "const": "postgres",
+                      "description": "PostgreSQL.",
+                      "type": "string"
+                    },
+                    {
+                      "const": "pgvector",
+                      "description": "PostgreSQL with pgvector.",
+                      "type": "string"
+                    },
+                    {
+                      "const": "supabase",
+                      "description": "Supabase.",
+                      "type": "string"
+                    },
+                    {
+                      "const": "mysql",
+                      "description": "MySQL or MariaDB.",
+                      "type": "string"
+                    },
+                    {
+                      "const": "sqlserver",
+                      "description": "SQL Server.",
+                      "type": "string"
+                    },
+                    {
+                      "const": "sqlite",
+                      "description": "SQLite, in the binary.",
+                      "type": "string"
+                    },
+                    {
+                      "const": "mongodb",
+                      "description": "MongoDB.",
+                      "type": "string"
+                    },
+                    {
+                      "const": "elasticsearch",
+                      "description": "Elasticsearch.",
+                      "type": "string"
+                    },
+                    {
+                      "const": "opensearch",
+                      "description": "OpenSearch.",
+                      "type": "string"
+                    },
+                    {
+                      "const": "redis",
+                      "description": "Redis keys.",
+                      "type": "string"
+                    },
+                    {
+                      "const": "snowflake",
+                      "description": "Snowflake.",
+                      "type": "string"
+                    },
+                    {
+                      "const": "bigquery",
+                      "description": "BigQuery.",
+                      "type": "string"
+                    },
+                    {
+                      "const": "redshift",
+                      "description": "Redshift.",
+                      "type": "string"
+                    },
+                    {
+                      "const": "clickhouse",
+                      "description": "ClickHouse.",
+                      "type": "string"
+                    },
+                    {
+                      "const": "databricks",
+                      "description": "Databricks and Delta.",
+                      "type": "string"
+                    },
+                    {
+                      "const": "iceberg",
+                      "description": "Iceberg, through its REST catalog.",
+                      "type": "string"
+                    },
+                    {
+                      "const": "duckdb",
+                      "description": "DuckDB.",
+                      "type": "string"
+                    },
+                    {
+                      "const": "motherduck",
+                      "description": "MotherDuck.",
+                      "type": "string"
+                    },
+                    {
+                      "const": "qdrant",
+                      "description": "Qdrant.",
+                      "type": "string"
+                    },
+                    {
+                      "const": "pinecone",
+                      "description": "Pinecone.",
+                      "type": "string"
+                    },
+                    {
+                      "const": "weaviate",
+                      "description": "Weaviate.",
+                      "type": "string"
+                    },
+                    {
+                      "const": "milvus",
+                      "description": "Milvus.",
+                      "type": "string"
+                    },
+                    {
+                      "const": "chroma",
+                      "description": "Chroma.",
+                      "type": "string"
+                    },
+                    {
+                      "const": "lancedb",
+                      "description": "LanceDB.",
+                      "type": "string"
+                    },
+                    {
+                      "const": "s3",
+                      "description": "An S3-compatible object store.",
+                      "type": "string"
+                    },
+                    {
+                      "const": "gcs",
+                      "description": "Google Cloud Storage.",
+                      "type": "string"
+                    },
+                    {
+                      "const": "azure_blob",
+                      "description": "Azure Blob Storage.",
+                      "type": "string"
+                    },
+                    {
+                      "const": "sftp",
+                      "description": "SFTP.",
+                      "type": "string"
+                    },
+                    {
+                      "const": "ftp",
+                      "description": "FTP or FTPS.",
+                      "type": "string"
+                    },
+                    {
+                      "const": "google_drive",
+                      "description": "Google Drive.",
+                      "type": "string"
+                    },
+                    {
+                      "const": "google_sheets",
+                      "description": "Google Sheets.",
+                      "type": "string"
+                    },
+                    {
+                      "const": "dropbox",
+                      "description": "Dropbox.",
+                      "type": "string"
+                    },
+                    {
+                      "const": "onedrive",
+                      "description": "OneDrive or SharePoint.",
+                      "type": "string"
+                    },
+                    {
+                      "const": "box",
+                      "description": "Box.",
+                      "type": "string"
+                    },
+                    {
+                      "const": "airtable",
+                      "description": "Airtable.",
+                      "type": "string"
+                    },
+                    {
+                      "const": "notion",
+                      "description": "Notion.",
+                      "type": "string"
+                    },
+                    {
+                      "const": "kafka",
+                      "description": "Kafka or Redpanda.",
+                      "type": "string"
+                    },
+                    {
+                      "const": "sqs",
+                      "description": "Amazon SQS.",
+                      "type": "string"
+                    },
+                    {
+                      "const": "sns",
+                      "description": "Amazon SNS.",
+                      "type": "string"
+                    },
+                    {
+                      "const": "kinesis",
+                      "description": "Amazon Kinesis.",
+                      "type": "string"
+                    },
+                    {
+                      "const": "firehose",
+                      "description": "Amazon Data Firehose.",
+                      "type": "string"
+                    },
+                    {
+                      "const": "pubsub",
+                      "description": "Google Pub/Sub.",
+                      "type": "string"
+                    },
+                    {
+                      "const": "service_bus",
+                      "description": "Azure Service Bus.",
+                      "type": "string"
+                    },
+                    {
+                      "const": "event_hubs",
+                      "description": "Azure Event Hubs.",
+                      "type": "string"
+                    },
+                    {
+                      "const": "rabbitmq",
+                      "description": "RabbitMQ.",
+                      "type": "string"
+                    },
+                    {
+                      "const": "nats",
+                      "description": "NATS JetStream.",
+                      "type": "string"
+                    },
+                    {
+                      "const": "redis_streams",
+                      "description": "Redis Streams.",
+                      "type": "string"
+                    },
+                    {
+                      "const": "smtp",
+                      "description": "SMTP.",
+                      "type": "string"
+                    },
+                    {
+                      "const": "ses",
+                      "description": "Amazon SES.",
+                      "type": "string"
+                    },
+                    {
+                      "const": "resend",
+                      "description": "Resend.",
+                      "type": "string"
+                    },
+                    {
+                      "const": "postmark",
+                      "description": "Postmark.",
+                      "type": "string"
+                    },
+                    {
+                      "const": "sendgrid",
+                      "description": "SendGrid.",
+                      "type": "string"
+                    },
+                    {
+                      "const": "mailgun",
+                      "description": "Mailgun.",
+                      "type": "string"
+                    },
+                    {
+                      "const": "webhook",
+                      "description": "A signed webhook (Standard Webhooks).",
+                      "type": "string"
+                    },
+                    {
+                      "const": "airbyte",
+                      "description": "A Bridge Sink running an Airbyte destination image.",
+                      "type": "string"
+                    },
+                    {
+                      "const": "singer",
+                      "description": "A Bridge Sink running a Singer target.",
+                      "type": "string"
+                    }
+                  ]
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "arrived_in": "0.1",
+              "description": "The catalog destination it delivers to; left out for a program's own\nSink handler of the entry's name."
+            },
+            "webhook": {
+              "additionalProperties": false,
+              "arrived_in": "0.1",
+              "description": "A webhook Sink's keys.",
+              "properties": {
+                "max_batch_bytes": {
+                  "arrived_in": "0.1",
+                  "description": "How many bytes of Records one request carries at most: 256 KB when\nleft out.",
+                  "format": "uint64",
+                  "minimum": 0,
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                },
+                "payload": {
+                  "anyOf": [
+                    {
+                      "description": "What a webhook Sink's request carries (ADR 0026).",
+                      "oneOf": [
+                        {
+                          "const": "batch",
+                          "description": "The Records themselves.",
+                          "type": "string"
+                        },
+                        {
+                          "const": "thin",
+                          "description": "A record range and a URL to fetch it from.",
+                          "type": "string"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "arrived_in": "0.1",
+                  "description": "What a request carries: `batch` when left out."
+                },
+                "signing_secret": {
+                  "arrived_in": "0.1",
+                  "description": "The Secret reference of the key each request is signed with.",
+                  "pattern": "^(?:(?:env|keychain|secretfile|caller|bw|vault|aws-sm|gcp-sm|azure-kv|plugin):|op://)[^\\s]+$",
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "type": [
+                "object",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "datasets"
+          ],
+          "type": "object"
+        },
+        "type": "object"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": false,
       "default": false,
       "deprecated": null,
       "description": "Whether, while `site_preferences.respect_robots_txt` is off, each Record of a crawl request its origin's robots.txt disallows carries `robots_txt: \"ignored\"` in its Provenance, so that what was taken against a site's stated preferences can be found. Off by default, robots.txt is then not read for it. On, each origin's robots.txt is read once from the copy the user's runs share, and each request costs one match against it.",
@@ -10960,7 +12001,7 @@
       "clearable": false,
       "default": 30000,
       "deprecated": null,
-      "description": "How long a stop of a Run, `run.stop` or a scope's close, waits for its next safe point before it fails with `deadline_exceeded`, the Run still stopping there: 30 s.",
+      "description": "One bound for a stop of a Run: how long `run.stop` or a scope's close waits for its next safe point before it fails with `deadline_exceeded`, the Run still stopping there, and how long that safe point then waits for each running Effect body's `effect.close` before it cuts the body short, in a drain no later than half of `daemon.drain_grace` from the drain's start: 30 s.",
       "fixed_for_run": false,
       "name": "timeout.close",
       "product": "collie",
@@ -12176,6 +13217,13 @@
       "name": "run",
       "product": "collie",
       "type": "limit_scope"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "A resume asked to roll back the Run's run file on this machine to a Checkpoint behind it, or one this engine could not read, losing the work done since that Checkpoint: the positions of both, the run file's null when unread. It is written before the run file is replaced, and a replacement that then fails leaves that file as it was (ADR 0002).",
+      "name": "run_rolled_back",
+      "product": "collie",
+      "type": "audit_kind"
     },
     {
       "arrived_in": "0.1",

@@ -17,7 +17,10 @@
 //! Run's event `RetryFailed`, as a resume takes its writer role, the
 //! re-admission commits under that writer, and the crawl's driver starts
 //! again with the calling Connection as its server; with nothing to retry
-//! the Run stays as it is and the answer is 0.
+//! the Run stays as it is and the answer is 0. A Run whose run file
+//! records Hooks in code is reopened only after a start under its ID
+//! declared them again, else the call is refused with `hook_undeclared`
+//! before it reopens (ADR 0104's note of #2912).
 
 use goodfetch_engine::run::{
     checkpoint_interval, run_error, run_layer, settings_error, through_owner,
@@ -37,14 +40,16 @@ use goodfetch_protocol::run::{
 use goodfetch_protocol::settings::{RunOrigin, TIMEOUT_RUN};
 use rusqlite::Connection;
 
+use crate::redeclare::Redeclared;
 use crate::run_state::StateError;
 use crate::serving::{Crawls, LiveCrawl};
 use crate::work_items::{self, Changed};
 
-/// The handler of `run.retry_failed` on the crawls of `crawls`.
-pub(crate) fn handler(crawls: Crawls) -> Handler {
+/// The handler of `run.retry_failed` on the crawls of `crawls`, the
+/// declarations a start kept in `redeclared`.
+pub(crate) fn handler(crawls: Crawls, redeclared: Redeclared) -> Handler {
     Handler::new(&RUN_RETRY_FAILED, move |params, context| {
-        retry_failed(params, context, crawls.clone())
+        retry_failed(params, context, crawls.clone(), redeclared.clone())
     })
 }
 
@@ -52,6 +57,7 @@ async fn retry_failed(
     params: RunRetryFailedParams,
     context: CallContext,
     crawls: Crawls,
+    redeclared: Redeclared,
 ) -> Result<RetriedFailed, CallError> {
     if let Some(LiveCrawl { run, asking, .. }) = crawls.live(&params.run_id).await {
         match asking.readmit(params.blocked).await {
@@ -86,7 +92,7 @@ async fn retry_failed(
     if waiting == 0 {
         return Ok(RetriedFailed { readmitted: 0 });
     }
-    reopened(params, context).await
+    reopened(params, context, &redeclared).await
 }
 
 /// How many work items of the ended Run `connection` reads a retry with
@@ -109,10 +115,13 @@ fn readmittable(
 
 /// Reopens the ended crawl `params` names under the Run's event
 /// `RetryFailed`, re-admits its failures and starts its driver again, with
-/// the calling Connection as its server.
+/// the calling Connection as its server; its Hooks in code are checked as
+/// declared again when `redeclared` holds a start's declarations, read
+/// last, just before the reopen.
 async fn reopened(
     params: RunRetryFailedParams,
     context: CallContext,
+    redeclared: &Redeclared,
 ) -> Result<RetriedFailed, CallError> {
     let RunRetryFailedParams {
         run_id,
@@ -129,6 +138,7 @@ async fn reopened(
             recipe: None,
             settings: run_layer(&settings, &context)?,
             origin: Some(RunOrigin::Settings),
+            registered: context.registered_settings().clone(),
             acting_for_model: context.surface().acts_for_model(),
             exposed: context.exposed(),
         })
@@ -143,6 +153,7 @@ async fn reopened(
             timeout: settings.resolved().get(&TIMEOUT_RUN),
             settings: Some(settings.clone()),
             retry_failed: true,
+            redeclared: redeclared.holds(&run_id).await,
         })
         .await
         .map_err(|error| run_error(error, &context))?;

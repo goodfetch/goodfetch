@@ -12,16 +12,13 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use goodfetch_protocol::catalog::Product;
-use goodfetch_protocol::connection::StoppedBy;
-use goodfetch_protocol::run::{
-    Lifecycle, Presence, RunAxes, RunId, RunIndexRow, RunReport, StopReason,
-};
+use goodfetch_protocol::run::{Lifecycle, Presence, RunAxes, RunId, RunIndexRow, RunReport};
 
 use super::folder::{Recorded, read_recorded, write_end};
 use super::lifecycle::{self, Next, RunEvent};
 use super::report::{self, EndFacts, ReportPart};
 use super::writer::{retried, try_lock};
-use super::{Forwarder, RUN_FILE, RunError};
+use super::{Aborter, Forwarder, RUN_FILE, RunError};
 use crate::clock::Clock;
 use crate::entropy::Entropy;
 use crate::events::Events;
@@ -34,7 +31,7 @@ pub(super) struct TakeOver {
     pub(super) run_id: RunId,
     pub(super) folder: PathBuf,
     pub(super) location: String,
-    pub(super) by: StoppedBy,
+    pub(super) by: Aborter,
     pub(super) product: Product,
     pub(super) run_state: RunStateOptions,
     pub(super) tables: Vec<RunStateTables>,
@@ -210,7 +207,7 @@ impl TakeOver {
             }
         };
         self.forwarder
-            .abort(&owner, &self.run_id, &self.owner)
+            .abort(&owner, &self.run_id, &self.by, &self.owner)
             .await
     }
 
@@ -239,7 +236,7 @@ impl TakeOver {
         let facts = EndFacts {
             run_id: self.run_id.clone(),
             lifecycle,
-            stop_reason: Some(StopReason::Abort { by: self.by }),
+            stop_reason: Some(self.by.reason()),
             started_at: recorded.started_at,
             ended_at: self.clock.point_in_time(),
             policy_version: recorded.policy_version.clone(),

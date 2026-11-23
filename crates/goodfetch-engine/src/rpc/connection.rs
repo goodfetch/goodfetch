@@ -45,7 +45,7 @@
 //! carriage that reaches them, kept whole so each message passes one loop.
 
 use std::borrow::Cow;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::panic::AssertUnwindSafe;
 use std::pin::Pin;
 use std::sync::{Arc, OnceLock};
@@ -63,7 +63,7 @@ use goodfetch_protocol::connection::{
 use goodfetch_protocol::events::{CREDIT, CreditParams};
 use goodfetch_protocol::foxhound_names;
 use goodfetch_protocol::jsonrpc::{ErrorObject, ProtocolFailure, RequestId};
-use goodfetch_protocol::settings::RunOrigin;
+use goodfetch_protocol::settings::{RunOrigin, SettingLimit};
 use serde_json::{Map, Value};
 use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
 use tokio::sync::{mpsc, oneshot};
@@ -85,8 +85,8 @@ use crate::client::{Client, Outgoing};
 use crate::clock::Clock;
 use crate::composition::params::Arrived;
 use crate::composition::{
-    Answered, CallChannels, CallContext, CallInput, CallNotifier, CallStream, ConnectionContext,
-    DaemonSide, Driver, Handler, Handlers, InputSender, RunOfCall,
+    Answered, CallChannels, CallContext, CallInput, CallNotifier, CallStream, Closing,
+    ConnectionContext, DaemonSide, Driver, Handler, Handlers, InputSender, RunOfCall,
 };
 use crate::crash_report;
 use crate::endpoint::{Authorities, same_token};
@@ -98,8 +98,10 @@ use crate::metrics::Metrics;
 use crate::product::{Identity, Requested};
 use crate::run::translated;
 use crate::runs::Runs;
+use crate::sdk_handlers;
 use crate::settings::{
-    Opening as SettingsOpening, SettingsError, check_client_bounds, check_scope, get_or_default,
+    Opening as SettingsOpening, Resolved, SettingsError, check_client_bounds, check_scope,
+    get_or_default,
 };
 use crate::staging::AttemptStaging;
 use crate::tasks::{OwnerKind, TaskOwner};
@@ -483,6 +485,7 @@ async fn serve_carried(
     });
     let (client, requests) = Client::new();
     let daemon = access.daemon();
+    let closing = daemon.as_ref().map(|daemon| daemon.closing().clone());
     let log = dispatch
         .log_events
         .as_ref()
@@ -506,6 +509,7 @@ async fn serve_carried(
         form: OnceLock::new(),
         behind_gateway: OnceLock::new(),
         settings: OnceLock::new(),
+        registered: OnceLock::new(),
         drivers: Arc::clone(&dispatch.drivers),
         attempt_stagings: Arc::clone(&dispatch.attempt_stagings),
         runs,
@@ -531,6 +535,7 @@ async fn serve_carried(
         access,
         listener,
         opening,
+        closing,
     };
     let ended = session.run(&mut reading).await;
     logging.cancel();
@@ -709,12 +714,34 @@ struct Session<'owner> {
     listener: Listener,
     /// The bounds of its opening, on a guarded listener.
     opening: Option<Opening>,
+    /// On a Daemon, how the Daemon closes it while its calls are in
+    /// flight: they are cancelled with the close's error.
+    closing: Option<Closing>,
 }
 
-/// A handler request the engine sent, waiting for its reply.
+/// A handler request the engine sent, waiting for its reply while its
+/// sender waits for it.
 struct Pending {
     method: &'static str,
     reply: oneshot::Sender<Result<Received, ErrorObject>>,
+}
+
+/// Ready once a handler request of `pending` has nobody waiting for its
+/// reply any more: its call was cancelled or ended, or its sender dropped
+/// it. Until then, each request whose sender stops waiting wakes the
+/// Connection.
+fn stopped_waiting(pending: &mut BTreeMap<RequestId, Pending>) -> impl Future<Output = ()> + '_ {
+    std::future::poll_fn(move |context: &mut Context<'_>| {
+        let mut stopped = false;
+        for waiting in pending.values_mut() {
+            stopped |= waiting.reply.poll_closed(context).is_ready();
+        }
+        if stopped {
+            Poll::Ready(())
+        } else {
+            Poll::Pending
+        }
+    })
 }
 
 impl Session<'_> {
@@ -726,6 +753,14 @@ impl Session<'_> {
         let mut pending = Vec::new();
         let mut ended = false;
         let mut lost = false;
+        let closing = self.closing.clone();
+        let closed = async {
+            match &closing {
+                Some(closing) => closing.closed().await,
+                None => std::future::pending().await,
+            }
+        };
+        tokio::pin!(closed);
         loop {
             for frame in std::mem::take(&mut pending) {
                 if let Flow::Close = self.handle(frame).await {
@@ -778,6 +813,12 @@ impl Session<'_> {
                         return ended;
                     }
                 }
+                // After the requests, so a `$/cancel` sent just before its
+                // sender stopped waiting still goes out; before the reading,
+                // so a late reply finds its request gone.
+                () = stopped_waiting(&mut self.pending), if !self.pending.is_empty() => {
+                    self.pending.retain(|_, waiting| !waiting.reply.is_closed());
+                }
                 more = reading.read(&mut pending), if !ended => {
                     ended = !more;
                     // A first line already past its bound is refused now,
@@ -791,6 +832,10 @@ impl Session<'_> {
                     let _ = self.rejected();
                     return ended;
                 }
+                // The Daemon closed it: its calls in flight are then
+                // cancelled with the close's error and answered before it
+                // ends (ADR 0113).
+                () = &mut closed => return ended,
             }
         }
     }
@@ -966,8 +1011,9 @@ impl Session<'_> {
         }
     }
 
-    /// Routes a reply to the handler request it answers; a reply whose
-    /// sender stopped waiting, or that answers no request, is dropped.
+    /// Routes a reply to the handler request it answers; a reply to a
+    /// request nobody waits for any more, which left the pending requests
+    /// as its sender stopped waiting, answers no request and is dropped.
     fn reply(&mut self, id: &RequestId, answer: Result<Received, ErrorObject>) {
         let Some(pending) = self.pending.remove(id) else {
             tracing::debug!(?id, "a reply that answers no handler request is ignored");
@@ -1019,15 +1065,20 @@ impl Session<'_> {
             .map(|accepted| {
                 let surface = accepted.surface;
                 let form = hello.form.unwrap_or(surface.form());
-                (accepted, surface, form, hello.log_level, hello.settings)
+                let own = (hello.settings, hello.handlers);
+                (accepted, surface, form, hello.log_level, own)
             }),
             Err(error) => Err(handshake::Refused::Invalid(error)),
         };
         let answered = match answered {
-            Ok((accepted, surface, form, log_level, settings)) => self
-                .checked_settings(&settings, surface, accepted.behind_gateway)
+            Ok((accepted, surface, form, log_level, (settings, handlers))) => self
+                .checked_own(&settings, &handlers, surface, accepted.behind_gateway)
                 .await
-                .map(|()| (accepted, surface, form, log_level, settings))
+                .map(|(timeouts, registered)| {
+                    let mut accepted = accepted;
+                    accepted.result.timeouts = timeouts;
+                    (accepted, surface, form, log_level, (settings, registered))
+                })
                 // A refused setting reads in the form the `hello` declares.
                 .map_err(|error| (error, form)),
             Err(refusal) => {
@@ -1039,7 +1090,7 @@ impl Session<'_> {
             }
         };
         match answered {
-            Ok((mut accepted, surface, form, log_level, settings)) => {
+            Ok((mut accepted, surface, form, log_level, (settings, registered))) => {
                 record(HELLO, None);
                 self.connection.log.set(log_level.unwrap_or_default());
                 if let Err(refused) = self.transition(ConnectionEvent::Accepted) {
@@ -1050,6 +1101,7 @@ impl Session<'_> {
                 let _ = self.connection.surface.set(surface);
                 let _ = self.connection.form.set(form);
                 let _ = self.connection.settings.set(settings);
+                let _ = self.connection.registered.set(registered);
                 // Each CLI command is a Connection of its own, and the Runs
                 // it starts on the Daemon outlive it (ADRs 0024 and 0088);
                 // so do those a person starts or resumes from the Kennel
@@ -1085,39 +1137,66 @@ impl Session<'_> {
         }
     }
 
+    /// Checks the Connection's own settings and SDK handlers as its `hello`
+    /// gives them, from `surface`: answers the `timeout.*` values they
+    /// resolve and the `registered` values the handlers give (ADR 0104).
+    async fn checked_own(
+        &self,
+        settings: &Map<String, Value>,
+        handlers: &BTreeMap<String, BTreeSet<String>>,
+        surface: Surface,
+        behind_gateway: bool,
+    ) -> Result<(Vec<SettingLimit>, Map<String, Value>), CallError> {
+        let carried = sdk_handlers::carried(self.dispatch.identity.product);
+        let registered = sdk_handlers::registered(handlers, &carried)?;
+        let timeouts = self
+            .checked_settings(settings, &registered, surface, behind_gateway)
+            .await?;
+        Ok((timeouts, registered))
+    }
+
     /// Checks `own`, the Connection's own settings as its `hello` gives
     /// them, from `surface`: each key at the connection scope, each of the
     /// Client's own bounds against what `surface`'s Client applies, then every
     /// layer resolved over them as beneath a Run it starts, so a locked or
     /// capped key is refused at the `hello` rather than at each start (ADR
-    /// 0083).
+    /// 0083). Answers the `timeout.*` values they resolve, which `hello`'s
+    /// result reports (issue 3193). `registered`, the values its SDK
+    /// handlers give, resolves beneath `own` (ADR 0104). A `hello` with no
+    /// settings of its own and none registered reads them from the engine's
+    /// snapshot of the machine's layers, so it reads no file (ADR 0140):
+    /// none when those fail to resolve, which the first Run then refuses.
     async fn checked_settings(
         &self,
         own: &Map<String, Value>,
+        registered: &Map<String, Value>,
         surface: Surface,
         behind_gateway: bool,
-    ) -> Result<(), CallError> {
-        if own.is_empty() {
-            return Ok(());
+    ) -> Result<Vec<SettingLimit>, CallError> {
+        let settings = self.connection.engine.settings();
+        if own.is_empty() && registered.is_empty() {
+            let machine = settings.snapshot().await;
+            return Ok(machine
+                .resolved()
+                .map_or_else(|_| Vec::new(), Resolved::timeouts));
         }
         let identity = &self.dispatch.identity;
         let refused = |error: SettingsError| translated(&error, identity, behind_gateway);
         check_scope(own, SettingScope::Connection, identity.product).map_err(refused)?;
         check_client_bounds(own, surface, identity.product).map_err(refused)?;
-        self.connection
-            .engine
-            .settings()
+        settings
             .open(SettingsOpening {
                 run: None,
                 project: None,
                 recipe: None,
                 settings: own.clone(),
                 origin: Some(RunOrigin::Settings),
+                registered: registered.clone(),
                 acting_for_model: surface.acts_for_model(),
                 exposed: self.connection.exposed,
             })
             .await
-            .map(drop)
+            .map(|(settings, _)| settings.resolved().timeouts())
             .map_err(refused)
     }
 
@@ -1291,6 +1370,7 @@ impl Session<'_> {
             },
         );
         let (outgoing, completed) = (self.outgoing.clone(), self.completed.clone());
+        let closing = self.closing.clone().filter(|_| operation.cancellable);
         let form = self.form();
         // Each call keeps its own task (the audit's E1-4, kept by #1898):
         // the Connection goes on reading while a handler waits, a
@@ -1301,7 +1381,12 @@ impl Session<'_> {
                 tokio::select! {
                     biased;
                     answered = answer => answered,
-                    () = token.cancelled() => Err(cancelled_by_client()),
+                    // Cancelled by its Client's `$/cancel` or end, or by
+                    // the Daemon's close of its Connection.
+                    () = token.cancelled() => Err(closing
+                        .as_ref()
+                        .and_then(Closing::error)
+                        .unwrap_or_else(cancelled_by_client)),
                 }
             } else {
                 answer.await

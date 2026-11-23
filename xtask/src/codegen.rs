@@ -57,6 +57,7 @@ mod python;
 mod refused;
 mod rust;
 mod settings_tree;
+mod skills;
 mod special_purpose;
 mod test_support;
 mod typescript;
@@ -346,6 +347,7 @@ impl Plan {
             PROTOCOL_GENERATED,
             special_purpose::OUTPUT_FOLDER,
             executables::COLLIE_FOLDER,
+            skills::FOXHOUND_FOLDER,
             cdp::FOLDER,
             rust::FOLDER,
             rust::FOXHOUND_FOLDER,
@@ -411,6 +413,7 @@ fn plan(cargo: &OsStr, root: &Path, executables: executables::Files) -> Result<P
     files.extend(special_purpose::generate(root)?);
     files.extend(counted_work::generate(root)?);
     files.extend(executables.into_files());
+    files.extend(skills::files(root, &catalog, command_lines.as_ref())?);
     let sources = features::Sources {
         root,
         catalog: &catalog,
@@ -818,6 +821,12 @@ pub(crate) fn run(arguments: Arguments, environment: &Environment) -> Result<Exi
 /// The Product version the workspace carries: the root manifest's
 /// `[workspace.package] version`, which every crate takes (ADR 0030).
 fn product_version(root: &Path) -> Result<String> {
+    workspace_package(root, "version")
+}
+
+/// The root manifest's `[workspace.package]` string `key`, which every
+/// crate takes.
+fn workspace_package(root: &Path, key: &str) -> Result<String> {
     let path = root.join("Cargo.toml");
     let manifest: toml::Table = toml::from_str(
         &std::fs::read_to_string(&path).with_context(|| format!("reading {}", path.display()))?,
@@ -826,8 +835,8 @@ fn product_version(root: &Path) -> Result<String> {
     manifest
         .get("workspace")
         .and_then(|workspace| workspace.get("package"))
-        .and_then(|package| package.get("version"))
+        .and_then(|package| package.get(key))
         .and_then(toml::Value::as_str)
         .map(str::to_owned)
-        .with_context(|| format!("{} has no `[workspace.package] version`", path.display()))
+        .with_context(|| format!("{} has no `[workspace.package] {key}`", path.display()))
 }

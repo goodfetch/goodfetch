@@ -7,9 +7,9 @@
 //! clean`, `config explain`,
 //! `daemon start|stop|restart|status|health|install|uninstall|rotate-token|http-listener-token|run`,
 //! with the hidden `daemon launched` a start or the installed service
-//! runs, `runs reindex` and `upgrade-files`, beside the commands the
-//! `catalog_commands` module generates from the catalog for every other
-//! namespace, such as `run start` and `engine info`, and `--color
+//! runs, `runs reindex`, `skill install` and `upgrade-files`, beside the
+//! commands the `catalog_commands` module generates from the catalog for
+//! every other namespace, such as `run start` and `engine info`, and `--color
 //! auto|always|never` on every command; the CLI's other commands join with
 //! area 11. Every command but `daemon launched` and `command-line` first records the
 //! executable in the list of installed executables (ADR 0098);
@@ -78,6 +78,7 @@ use output::{ColourChoice, ColourFlag, Human};
 use settings_flags::SettingsFlags;
 
 pub use command_line::printed_command_line;
+pub use skills::{SkillFile, Skills};
 
 use crate::linked::home;
 use crate::runtime;
@@ -105,9 +106,11 @@ pub mod operation;
 mod other_product;
 mod otlp;
 pub mod output;
+mod prompts;
 mod runs;
 mod service;
 mod settings_flags;
+mod skills;
 mod upgrade;
 mod usage;
 mod wire_record;
@@ -208,6 +211,14 @@ enum Command {
         #[command(flatten)]
         _colour: ColourFlag,
     },
+    /// Installs the agent skills this executable carries for a coding
+    /// agent.
+    Skill {
+        #[command(subcommand)]
+        command: skills::SkillCommand,
+        #[command(flatten)]
+        _colour: ColourFlag,
+    },
     /// Shows, sets and raises the Limits of the user's Usage ledger, which
     /// hold every engine of the user.
     Usage {
@@ -248,7 +259,7 @@ enum OwnUsageCommand {
     /// Raises a Limit, in place of the ones of its scope, Usage kind,
     /// currency and period but a managed Operator policy's: a person's
     /// answer, asked at the terminal, and refused with `person_required`
-    /// when stdin is no terminal.
+    /// under `--json` or when stdin is no terminal.
     Raise {
         /// The scope's kind.
         #[arg(long)]
@@ -271,6 +282,9 @@ enum OwnUsageCommand {
         /// Usage kind, or millionths of the currency.
         #[arg(long)]
         amount: u64,
+        /// Refused: a person answers at a terminal, never under `--json`.
+        #[arg(long)]
+        json: bool,
         #[command(flatten)]
         engine: EngineFlags,
     },
@@ -365,6 +379,10 @@ pub struct Start {
     /// Product's catalog: [`OwnCommands::COLLIE`] for Collie's, Foxhound's
     /// own from Foxhound's crate (ADR 0087).
     pub commands: OwnCommands,
+    /// The agent skills it carries, which `skill install` writes:
+    /// [`Skills::COLLIE`] for Collie's, Foxhound's own from Foxhound's
+    /// crate.
+    pub skills: Skills,
     /// Its command line, as the OS gave it.
     pub arguments: Vec<OsString>,
     /// Its environment, which `main` reads once (ADR 0059).
@@ -376,7 +394,7 @@ pub struct Start {
 /// # Examples
 ///
 /// ```no_run
-/// use goodfetch_collie::executable::{OwnCommands, Start, main};
+/// use goodfetch_collie::executable::{OwnCommands, Skills, Start, main};
 /// use goodfetch_protocol::catalog::Product;
 ///
 /// let exit_code = main(&Start {
@@ -385,6 +403,7 @@ pub struct Start {
 ///     release_date: None,
 ///     composition: goodfetch_collie::composition,
 ///     commands: OwnCommands::COLLIE,
+///     skills: Skills::COLLIE,
 ///     arguments: vec!["goodfetch-collie".into(), "--version".into()],
 ///     environment: Default::default(),
 /// });
@@ -481,7 +500,7 @@ pub fn main(start: &Start) -> ExitCode {
         parsed,
         (&engine, dependencies),
         &settings,
-        start.commands,
+        (start.commands, start.skills),
         &environment,
         &human,
     )
@@ -673,12 +692,12 @@ fn records_the_executable(parsed: &Parsed) -> bool {
 }
 
 /// Runs the command `parsed` asks for on `engine`, once the executable is
-/// set up, among `own` commands.
+/// set up, among `own` commands, with the `skills` it carries.
 fn run(
     parsed: Parsed,
     (engine, dependencies): (&Engine, Dependencies),
     settings: &Result<Resolved, SettingsError>,
-    own: OwnCommands,
+    (own, skills): (OwnCommands, Skills),
     environment: &BTreeMap<OsString, OsString>,
     human: &Human,
 ) -> ExitCode {
@@ -761,6 +780,7 @@ fn run(
         Command::Certs { command, .. } => {
             certs::run(command, engine, dependencies, &machine, human)
         }
+        Command::Skill { command, .. } => command.run(skills, environment, human),
         Command::UpgradeFiles { from, json, .. } => {
             upgrade::upgrade(engine.identity(), &home, from.as_deref(), json, human)
         }
@@ -788,6 +808,7 @@ fn usage_command(
         currency,
         period,
         amount,
+        json,
         engine: flags,
     } = command;
     let params = goodfetch_protocol::usage::UsageRaiseParams {
@@ -802,7 +823,7 @@ fn usage_command(
         engine,
         dependencies,
         (machine, flags.choice()),
-        &params,
+        (&params, json),
         human,
     )
 }

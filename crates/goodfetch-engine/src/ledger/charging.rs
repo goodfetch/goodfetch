@@ -22,8 +22,8 @@ use goodfetch_protocol::usage::{LEDGER_READ_INTERVAL_DEFAULT, Limit};
 use jiff::{SignedDuration, Timestamp};
 use rusqlite::Connection;
 
-pub(crate) use self::live::ChargingParts;
 pub use self::live::{Allowance, ChargeError, RunCharging, UnjournaledCharges};
+pub(crate) use self::live::{ChargingParts, StorageFailed};
 use super::{
     Holder, Ledger, LedgerError, LimitId, PeriodBounds, Placement, SliceId, SliceSizing,
     StoredLimit, TARGET, point_in_time,

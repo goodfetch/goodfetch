@@ -219,6 +219,17 @@ pub const DAEMON_DRAINING: Metric = Metric {
     arrived_in: ARRIVED_IN,
 };
 
+/// `goodfetch.daemon.heap`: the Daemon's live heap.
+pub const DAEMON_HEAP: Metric = Metric {
+    name: "goodfetch.daemon.heap",
+    description: "The Daemon's live heap, as `daemon.status`'s `heap` reports it: the bytes its own allocations hold now, as its executable's allocator counts them, without the pages that allocator keeps once they are freed. No series where nothing counts them, as in an engine an SDK links.",
+    instrument: Instrument::Gauge,
+    unit: "By",
+    labels: &[],
+    stability: Stability::Experimental,
+    arrived_in: ARRIVED_IN,
+};
+
 /// `goodfetch.counted_work`'s `shared_path` label: the Shared paths
 /// (ADR 0140) with a counted row so far, each by name, which `xtask codegen`
 /// writes from `goodfetch-counted-work`'s rows.
@@ -323,6 +334,7 @@ pub const ENTRIES: Entries = Entries {
         BROWSER_MEMORY,
         CLIENT_CONNECTED,
         DAEMON_DRAINING,
+        DAEMON_HEAP,
         COUNTED_WORK,
         RUN_STATE_WAL_SIZE,
         RUN_STATE_BLOCKED_CHECKPOINTS,

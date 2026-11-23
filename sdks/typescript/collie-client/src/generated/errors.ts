@@ -362,6 +362,15 @@ export class ChallengeUnsolvedError extends PageError<"challenge_unsolved"> {
 }
 
 /**
+ * The Checkpoint a resume names is behind the Run's run file on this machine: a later run epoch, or the same one at a later journal position, wrote that file, so replacing it would throw away the work done since the Checkpoint and could perform its Effects again. Nothing is changed. Resume without `checkpoint` to go on from the run file, or pass `rollback` to replace it with the Checkpoint, as the Audit log records.
+ */
+export class CheckpointBehindError extends RefusedError<"checkpoint_behind"> {
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, name: "CheckpointBehindError", code: "checkpoint_behind", group: "refused", retryable: false });
+  }
+}
+
+/**
  * The call was made on a value its program had closed: a Connection, or a Run, Session or Page under it. A value never reopens: connect again, or start the Run again by its Run ID.
  */
 export class ClosedError extends ProgramError<"closed"> {
@@ -421,6 +430,15 @@ export class DaemonDrainingError extends UnavailableError<"daemon_draining"> {
 export class DaemonUnreachableError extends UnavailableError<"daemon_unreachable"> {
   constructor(message: string, fields: ErrorFields = {}) {
     super(message, { ...fields, name: "DaemonUnreachableError", code: "daemon_unreachable", group: "unavailable", retryable: true });
+  }
+}
+
+/**
+ * A `detached` start of a Run that would die with its Connection, so no Run started: an Attached or linked engine ends with its Connection, and a Run whose handler is in the program waits on it. The details name what keeps the Run from detaching, `engine` or the key that gives it a handler in the program, and the fix.
+ */
+export class DetachUnsupportedError extends ProgramError<"detach_unsupported"> {
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, name: "DetachUnsupportedError", code: "detach_unsupported", group: "program", retryable: false });
   }
 }
 
@@ -520,6 +538,15 @@ export class EngineOutputInvalidError extends InternalError<"engine_output_inval
 export class EnginePanickedError extends InternalError<"engine_panicked"> {
   constructor(message: string, fields: ErrorFields = {}) {
     super(message, { ...fields, name: "EnginePanickedError", code: "engine_panicked", group: "internal", retryable: false });
+  }
+}
+
+/**
+ * The call was made on an async value from another event loop or thread than the loop that opened its Connection: an async Connection and every Run, Session or Page under it belong to that loop, and nothing was sent. Call it from that loop, or use the sync client, whose values any thread may call.
+ */
+export class EventLoopMismatchError extends ProgramError<"event_loop_mismatch"> {
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, name: "EventLoopMismatchError", code: "event_loop_mismatch", group: "program", retryable: false });
   }
 }
 
@@ -752,6 +779,15 @@ export class PageHandlerFailedError extends ProgramError<"page_handler_failed"> 
 export class PageMemoryExceededError extends UnavailableError<"page_memory_exceeded"> {
   constructor(message: string, fields: ErrorFields = {}) {
     super(message, { ...fields, name: "PageMemoryExceededError", code: "page_memory_exceeded", group: "unavailable", retryable: true });
+  }
+}
+
+/**
+ * The page's main frame committed a navigation to a new document while an `act`, `observe` or `extract` ran, between the call's first read of the page and its return (an `act` until its first input), and the call did not start it: the program's own driver, the page's script, a person or an extension may have. Nothing was acted on, and no Plan entry was written. The details name the document the call read, `url`, and the one that replaced it, `navigated_to`; the fix says to await the Collie call before the program's own driver acts on the page. A retry may find the page where the call needs it.
+ */
+export class PageNavigatedDuringCallError extends PageError<"page_navigated_during_call"> {
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, name: "PageNavigatedDuringCallError", code: "page_navigated_during_call", group: "page", retryable: true });
   }
 }
 
@@ -999,6 +1035,15 @@ export class RunNotOwnedError extends RefusedError<"run_not_owned"> {
 }
 
 /**
+ * The Run's folder is on a network filesystem (NFS, which EFS and Filestore are, or SMB, which Azure Files is) or on a FUSE mount of object storage, whose locking SQLite cannot rely on, so the engine keeps no run state there. The details name the Run, its folder, the `filesystem` and the `fix`: a `run_state.location` on a local disk or a block volume.
+ */
+export class RunStateFilesystemUnsupportedError extends UnavailableError<"run_state_filesystem_unsupported"> {
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, name: "RunStateFilesystemUnsupportedError", code: "run_state_filesystem_unsupported", group: "unavailable", retryable: false });
+  }
+}
+
+/**
  * The Run's state is missing, damaged or cannot be written at its location; the details give the path. The engine never starts afresh under that Run ID.
  */
 export class RunStateUnavailableError extends UnavailableError<"run_state_unavailable"> {
@@ -1044,7 +1089,7 @@ export class SecretInputRefusedError extends RefusedError<"secret_input_refused"
 }
 
 /**
- * A Secret provider gave no value for a reference: a missing variable, a locked keychain, an unreachable vault, the caller's `resolveSecret` missing or throwing, no answer within `timeout.secret`. `failure` says which, and the details name the placeholder or setting, the reference and the provider, never a value.
+ * A Secret provider gave no value for a reference: a missing variable, a locked keychain, an unreachable vault, no one-time code (a TOTP seed the provider makes none from, or a code source's code that never arrived), the caller's `resolveSecret` missing or throwing, no answer within `timeout.secret`. `failure` says which, and the details name the placeholder or setting, the reference and the provider, never a value.
  */
 export class SecretUnavailableError extends UnavailableError<"secret_unavailable"> {
   constructor(message: string, fields: ErrorFields = {}) {
@@ -1116,6 +1161,15 @@ export class SitePreferencesRefusedError extends RefusedError<"site_preferences_
 }
 
 /**
+ * `skill install` found a folder of a skill's name in the skills folder that it did not install, or one it installed that was changed since, and refused to replace it. The message names the folder; no skill is written.
+ */
+export class SkillInstallRefusedError extends RefusedError<"skill_install_refused"> {
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, name: "SkillInstallRefusedError", code: "skill_install_refused", group: "refused", retryable: false });
+  }
+}
+
+/**
  * The locator still matched several elements when the action's timeout passed, so the action did nothing. The details list every match, each with a locator that reaches it alone, and `limit` names the timeout's setting; a longer timeout would not fix the locator.
  */
 export class TargetNotUniqueError extends PageError<"target_not_unique"> {
@@ -1183,6 +1237,7 @@ export const collieErrorClasses: Readonly<Record<string, ErrorClass>> = {
   certificate_changed: CertificateChangedError,
   certificate_invalid: CertificateInvalidError,
   challenge_unsolved: ChallengeUnsolvedError,
+  checkpoint_behind: CheckpointBehindError,
   closed: ClosedError,
   confinement_unavailable: ConfinementUnavailableError,
   connection_forked: ConnectionForkedError,
@@ -1190,6 +1245,7 @@ export const collieErrorClasses: Readonly<Record<string, ErrorClass>> = {
   connection_overloaded: ConnectionOverloadedError,
   daemon_draining: DaemonDrainingError,
   daemon_unreachable: DaemonUnreachableError,
+  detach_unsupported: DetachUnsupportedError,
   dialog_already_handled: DialogAlreadyHandledError,
   edge_handlers_unsupported: EdgeHandlersUnsupportedError,
   effect_key_invalid: EffectKeyInvalidError,
@@ -1201,6 +1257,7 @@ export const collieErrorClasses: Readonly<Record<string, ErrorClass>> = {
   engine_not_found: EngineNotFoundError,
   engine_output_invalid: EngineOutputInvalidError,
   engine_panicked: EnginePanickedError,
+  event_loop_mismatch: EventLoopMismatchError,
   executable_blocked_by_smart_app_control: ExecutableBlockedBySmartAppControlError,
   file_write_failed: FileWriteFailedError,
   format_version_unsupported: FormatVersionUnsupportedError,
@@ -1226,6 +1283,7 @@ export const collieErrorClasses: Readonly<Record<string, ErrorClass>> = {
   page_function_failed: PageFunctionFailedError,
   page_handler_failed: PageHandlerFailedError,
   page_memory_exceeded: PageMemoryExceededError,
+  page_navigated_during_call: PageNavigatedDuringCallError,
   page_value_invalid: PageValueInvalidError,
   path_not_writable: PathNotWritableError,
   path_unsafe: PathUnsafeError,
@@ -1253,6 +1311,7 @@ export const collieErrorClasses: Readonly<Record<string, ErrorClass>> = {
   run_live: RunLiveError,
   run_not_found: RunNotFoundError,
   run_not_owned: RunNotOwnedError,
+  run_state_filesystem_unsupported: RunStateFilesystemUnsupportedError,
   run_state_unavailable: RunStateUnavailableError,
   run_target_unbuilt: RunTargetUnbuiltError,
   sample_refused: SampleRefusedError,
@@ -1266,6 +1325,7 @@ export const collieErrorClasses: Readonly<Record<string, ErrorClass>> = {
   setting_not_applicable: SettingNotApplicableError,
   setting_unknown: SettingUnknownError,
   site_preferences_refused: SitePreferencesRefusedError,
+  skill_install_refused: SkillInstallRefusedError,
   target_not_unique: TargetNotUniqueError,
   too_many_calls: TooManyCallsError,
   too_many_redirects: TooManyRedirectsError,
@@ -1296,6 +1356,7 @@ export type CollieErrorCode =
   | "certificate_changed"
   | "certificate_invalid"
   | "challenge_unsolved"
+  | "checkpoint_behind"
   | "closed"
   | "confinement_unavailable"
   | "connection_forked"
@@ -1304,6 +1365,7 @@ export type CollieErrorCode =
   | "daemon_draining"
   | "daemon_unreachable"
   | "deadline_exceeded"
+  | "detach_unsupported"
   | "dialog_already_handled"
   | "edge_handlers_unsupported"
   | "effect_key_invalid"
@@ -1315,6 +1377,7 @@ export type CollieErrorCode =
   | "engine_not_found"
   | "engine_output_invalid"
   | "engine_panicked"
+  | "event_loop_mismatch"
   | "executable_blocked_by_smart_app_control"
   | "file_write_failed"
   | "format_version_unsupported"
@@ -1341,6 +1404,7 @@ export type CollieErrorCode =
   | "page_function_failed"
   | "page_handler_failed"
   | "page_memory_exceeded"
+  | "page_navigated_during_call"
   | "page_value_invalid"
   | "path_not_writable"
   | "path_unsafe"
@@ -1368,6 +1432,7 @@ export type CollieErrorCode =
   | "run_live"
   | "run_not_found"
   | "run_not_owned"
+  | "run_state_filesystem_unsupported"
   | "run_state_unavailable"
   | "run_target_unbuilt"
   | "sample_refused"
@@ -1381,13 +1446,14 @@ export type CollieErrorCode =
   | "setting_not_applicable"
   | "setting_unknown"
   | "site_preferences_refused"
+  | "skill_install_refused"
   | "target_not_unique"
   | "too_many_calls"
   | "too_many_redirects"
   | "upgrade_source_unsupported"
   | "value_invalid";
 
-const collieErrorCodes: ReadonlySet<string> = new Set<CollieErrorCode>(["address_family_unavailable", "artifact_download_failed", "artifact_unavailable_offline", "blocked", "body_not_found", "body_unavailable", "browser_host_outdated", "browser_host_unreachable", "browser_launch_failed", "browser_needs_gui_session", "browser_not_installed", "browser_sandbox_unavailable", "call_cancelled", "capability_unavailable", "cdp_url_not_allowed", "cdp_url_not_browser", "cdp_url_unauthorized", "cdp_url_unreachable", "certificate_changed", "certificate_invalid", "challenge_unsolved", "closed", "confinement_unavailable", "connection_forked", "connection_lost", "connection_overloaded", "daemon_draining", "daemon_unreachable", "deadline_exceeded", "dialog_already_handled", "edge_handlers_unsupported", "effect_key_invalid", "effect_key_reused", "effect_output_invalid", "effect_uncertain", "egress_refused", "engine_exited", "engine_not_found", "engine_output_invalid", "engine_panicked", "executable_blocked_by_smart_app_control", "file_write_failed", "format_version_unsupported", "header_value_invalid", "hook_failed", "internal", "limit_not_understood", "limit_raise_refused", "limit_reached", "listener_events_lost", "listener_failed", "local_address_unavailable", "logged_out", "name_lookup_failed", "name_not_resolved", "navigation_failed", "navigation_interrupted", "not_a_daemon", "not_in_product", "not_verified", "page_check_failed", "page_crashed", "page_events_lost", "page_function_failed", "page_handler_failed", "page_memory_exceeded", "page_value_invalid", "path_not_writable", "path_unsafe", "pattern_unsupported", "person_required", "plugin_crashed", "policy_conflict", "protocol_version_unsupported", "proxy_auth_failed", "proxy_provider_unavailable", "proxy_relay_unavailable", "proxy_unavailable", "resources_exhausted", "response_limit_exceeded", "response_not_json", "response_truncated", "route_already_handled", "run_busy", "run_conflict", "run_ended", "run_id_invalid", "run_in_use", "run_interrupted", "run_key_mismatch", "run_live", "run_not_found", "run_not_owned", "run_state_unavailable", "run_target_unbuilt", "sample_refused", "secret_domain_not_allowed", "secret_input_refused", "secret_unavailable", "secret_unbound", "session_bound_to_machine", "setting_invalid", "setting_locked", "setting_not_applicable", "setting_unknown", "site_preferences_refused", "target_not_unique", "too_many_calls", "too_many_redirects", "upgrade_source_unsupported", "value_invalid"]);
+const collieErrorCodes: ReadonlySet<string> = new Set<CollieErrorCode>(["address_family_unavailable", "artifact_download_failed", "artifact_unavailable_offline", "blocked", "body_not_found", "body_unavailable", "browser_host_outdated", "browser_host_unreachable", "browser_launch_failed", "browser_needs_gui_session", "browser_not_installed", "browser_sandbox_unavailable", "call_cancelled", "capability_unavailable", "cdp_url_not_allowed", "cdp_url_not_browser", "cdp_url_unauthorized", "cdp_url_unreachable", "certificate_changed", "certificate_invalid", "challenge_unsolved", "checkpoint_behind", "closed", "confinement_unavailable", "connection_forked", "connection_lost", "connection_overloaded", "daemon_draining", "daemon_unreachable", "deadline_exceeded", "detach_unsupported", "dialog_already_handled", "edge_handlers_unsupported", "effect_key_invalid", "effect_key_reused", "effect_output_invalid", "effect_uncertain", "egress_refused", "engine_exited", "engine_not_found", "engine_output_invalid", "engine_panicked", "event_loop_mismatch", "executable_blocked_by_smart_app_control", "file_write_failed", "format_version_unsupported", "header_value_invalid", "hook_failed", "internal", "limit_not_understood", "limit_raise_refused", "limit_reached", "listener_events_lost", "listener_failed", "local_address_unavailable", "logged_out", "name_lookup_failed", "name_not_resolved", "navigation_failed", "navigation_interrupted", "not_a_daemon", "not_in_product", "not_verified", "page_check_failed", "page_crashed", "page_events_lost", "page_function_failed", "page_handler_failed", "page_memory_exceeded", "page_navigated_during_call", "page_value_invalid", "path_not_writable", "path_unsafe", "pattern_unsupported", "person_required", "plugin_crashed", "policy_conflict", "protocol_version_unsupported", "proxy_auth_failed", "proxy_provider_unavailable", "proxy_relay_unavailable", "proxy_unavailable", "resources_exhausted", "response_limit_exceeded", "response_not_json", "response_truncated", "route_already_handled", "run_busy", "run_conflict", "run_ended", "run_id_invalid", "run_in_use", "run_interrupted", "run_key_mismatch", "run_live", "run_not_found", "run_not_owned", "run_state_filesystem_unsupported", "run_state_unavailable", "run_target_unbuilt", "sample_refused", "secret_domain_not_allowed", "secret_input_refused", "secret_unavailable", "secret_unbound", "session_bound_to_machine", "setting_invalid", "setting_locked", "setting_not_applicable", "setting_unknown", "site_preferences_refused", "skill_install_refused", "target_not_unique", "too_many_calls", "too_many_redirects", "upgrade_source_unsupported", "value_invalid"]);
 
 /** An error with one of the Error codes Collie raises, which its `code` narrows to the code's class. */
 export type CollieError =
@@ -1412,6 +1478,7 @@ export type CollieError =
   | CertificateChangedError
   | CertificateInvalidError
   | ChallengeUnsolvedError
+  | CheckpointBehindError
   | ClosedError
   | ConfinementUnavailableError
   | ConnectionForkedError
@@ -1420,6 +1487,7 @@ export type CollieError =
   | DaemonDrainingError
   | DaemonUnreachableError
   | DeadlineExceededError<"deadline_exceeded">
+  | DetachUnsupportedError
   | DialogAlreadyHandledError
   | EdgeHandlersUnsupportedError
   | EffectKeyInvalidError
@@ -1431,6 +1499,7 @@ export type CollieError =
   | EngineNotFoundError
   | EngineOutputInvalidError
   | EnginePanickedError
+  | EventLoopMismatchError
   | ExecutableBlockedBySmartAppControlError
   | FileWriteFailedError
   | FormatVersionUnsupportedError
@@ -1457,6 +1526,7 @@ export type CollieError =
   | PageFunctionFailedError
   | PageHandlerFailedError
   | PageMemoryExceededError
+  | PageNavigatedDuringCallError
   | PageValueInvalidError
   | PathNotWritableError
   | PathUnsafeError
@@ -1484,6 +1554,7 @@ export type CollieError =
   | RunLiveError
   | RunNotFoundError
   | RunNotOwnedError
+  | RunStateFilesystemUnsupportedError
   | RunStateUnavailableError
   | RunTargetUnbuiltError
   | SampleRefusedError
@@ -1497,6 +1568,7 @@ export type CollieError =
   | SettingNotApplicableError
   | SettingUnknownError
   | SitePreferencesRefusedError
+  | SkillInstallRefusedError
   | TargetNotUniqueError
   | TooManyCallsError
   | TooManyRedirectsError

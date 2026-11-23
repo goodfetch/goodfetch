@@ -130,13 +130,30 @@ impl ClientConnection {
         opener: &'static str,
         params: impl Serialize + Send + 'static,
     ) -> impl Future<Output = Result<Run, Error>> + Send + 'static {
+        self.start_held(opener, params, false)
+    }
+
+    /// Starts a Run with `opener` as [`ClientConnection::start_with`]
+    /// does, held `detached` when it outlives the program: closing or
+    /// dropping its value then sends no `run.abort` (ADR 0102).
+    pub(crate) fn start_held(
+        &self,
+        opener: &'static str,
+        params: impl Serialize + Send + 'static,
+        detached: bool,
+    ) -> impl Future<Output = Result<Run, Error>> + Send + 'static {
         let log_level = engine_log_level();
         let connection = self.clone();
         async move {
             connection.follow_log_level(log_level).await?;
             let started: RunStarted = connection.call(opener, &params).no_timeout().await?;
             log_start(&started);
-            let held = HeldRun::new(connection, started.run_id.clone(), started.lifecycle);
+            let held = HeldRun::new(
+                connection,
+                started.run_id.clone(),
+                started.lifecycle,
+                detached,
+            );
             Ok(Run {
                 host: Host::run(held),
                 opened: Arc::new(started),
@@ -168,6 +185,9 @@ fn log_start(started: &RunStarted) {
 }
 
 impl Run {
+    /// Leaving the scope or `close()` stops the Run with a Checkpoint.
+    /// `finish()` ends it.
+    ///
     /// Closes the Run for every clone: a Run that still runs is aborted by
     /// its program (`run.abort`), resumable by its Run ID; an ended one
     /// stays as it is. Any later call on it, or on a handle it opened,
@@ -289,8 +309,12 @@ impl<T> Query<T, ConfigExplainParams> {
 }
 
 impl ClientConnection {
-    /// Leaving the scope or `close()` stops the Run with a Checkpoint;
+    /// Leaving the scope or `close()` stops the Run with a Checkpoint.
     /// `finish()` ends it.
+    ///
+    /// In a service, close the Run on `SIGINT` and `SIGTERM`: the SDK
+    /// installs no signal handler, and a signal the program does not handle
+    /// ends it as a crash would (ADRs 0078, 0093).
     ///
     /// Starts a Run its program drives, and answers once it is started. A
     /// Run ID names the Run for good, and a start under one acts on what

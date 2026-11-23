@@ -1,0 +1,188 @@
+{
+  "description": "A Collie Client's hello accepted, then a Run started and a page opened in it; the page goes to a 302 whose Retry-After asks for an hour, which the engine follows at once and answers with its target's response, goes to a document, goes to a file the browser downloads, which answers no response, and is reloaded, which answers the document it kept (ADRs 0086, 0118, 0119); the Run is finished, and the Client then closes. The Python SDK's client case `goto-skips-a-redirects-retry-after-and-answers-none-for-a-file`.",
+  "steps": [
+    {
+      "expect": {
+        "method": "hello",
+        "params": {
+          "protocol_version": "0.1",
+          "surface": "sdk_python",
+          "needs": "collie",
+          "product_version": "0.0.0",
+          "form": "python",
+          "log_level": "warn"
+        }
+      }
+    },
+    {
+      "reply": {
+        "result": {
+          "protocol_version": "0.1",
+          "product": "collie",
+          "product_version": "0.0.0",
+          "engine_instance": "0123456789abcdef"
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "run.start",
+        "params": {}
+      }
+    },
+    {
+      "reply": {
+        "result": {
+          "run_id": "01ke6p4ym0j8x3v5wq2rtbn7hc",
+          "lifecycle": "running",
+          "needs": "collie",
+          "started_as": "new"
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "run.new_page",
+        "params": {
+          "run_id": "01ke6p4ym0j8x3v5wq2rtbn7hc"
+        }
+      }
+    },
+    {
+      "reply": {
+        "result": {
+          "page_id": "page-1",
+          "session_id": "session-1"
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "page.goto",
+        "params": {
+          "page_id": "page-1",
+          "url": "https://shop.test/retry-after/302"
+        }
+      }
+    },
+    {
+      "reply": {
+        "result": {
+          "response": {
+            "url": "https://shop.test/target",
+            "status": 200,
+            "status_text": "OK",
+            "headers": {
+              "content-type": "text/html; charset=utf-8"
+            },
+            "request_id": "request-2",
+            "from_service_worker": false,
+            "encoding": "UTF-8"
+          }
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "page.goto",
+        "params": {
+          "page_id": "page-1",
+          "url": "https://shop.test/catalog"
+        }
+      }
+    },
+    {
+      "reply": {
+        "result": {
+          "response": {
+            "url": "https://shop.test/catalog",
+            "status": 200,
+            "status_text": "OK",
+            "headers": {
+              "content-type": "text/html; charset=utf-8"
+            },
+            "request_id": "request-3",
+            "from_service_worker": false,
+            "encoding": "UTF-8"
+          }
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "page.goto",
+        "params": {
+          "page_id": "page-1",
+          "url": "https://shop.test/files/report.pdf"
+        }
+      }
+    },
+    {
+      "reply": {
+        "result": {
+          "response": null
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "page.reload",
+        "params": {
+          "page_id": "page-1"
+        }
+      }
+    },
+    {
+      "reply": {
+        "result": {
+          "response": {
+            "url": "https://shop.test/catalog",
+            "status": 200,
+            "status_text": "OK",
+            "headers": {
+              "content-type": "text/html; charset=utf-8"
+            },
+            "request_id": "request-5",
+            "from_service_worker": false,
+            "encoding": "UTF-8"
+          }
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "run.finish",
+        "params": {
+          "run_id": "01ke6p4ym0j8x3v5wq2rtbn7hc"
+        }
+      }
+    },
+    {
+      "reply": {
+        "result": {
+          "run_id": "01ke6p4ym0j8x3v5wq2rtbn7hc",
+          "lifecycle": "finished",
+          "verdict": "verified",
+          "completeness": "complete",
+          "started_at": "2026-01-01T00:00:00Z",
+          "ended_at": "2026-01-01T00:00:00Z",
+          "usage": {
+            "model": {
+              "calls": 0,
+              "tokens": 0,
+              "input_tokens": 0,
+              "cache_read_tokens": 0,
+              "cache_write_tokens": 0,
+              "output_tokens": 0,
+              "reasoning_tokens": 0,
+              "price": null
+            },
+            "browser_time": 0,
+            "proxy_bytes": 0,
+            "requests": 0
+          }
+        }
+      }
+    }
+  ]
+}

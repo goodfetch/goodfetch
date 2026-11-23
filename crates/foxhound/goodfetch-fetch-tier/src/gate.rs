@@ -95,13 +95,17 @@ use goodfetch_engine::politeness::{Politeness, PolitenessError};
 use goodfetch_engine::robots_txt::{self, Fetch};
 use goodfetch_engine::run_identity::RunIdentity;
 use goodfetch_engine::run_state::RunStateError;
-use goodfetch_engine::runs::{self, Run};
+use goodfetch_engine::run_trace::RequestLog;
+use goodfetch_engine::runs::{self, Run, run_trace};
 use goodfetch_frontier::DomainKeys;
 use goodfetch_page::page_value::{
     Admission, DocumentJudgment, DocumentResponse, Navigation, NavigationGate, Permit, Refusal,
     Sending,
 };
-use goodfetch_protocol::foxhound::crawl::RESPONSE_UNAVAILABLE;
+use goodfetch_protocol::effect::EffectAttempt;
+use goodfetch_protocol::foxhound::crawl::{
+    RESPONSE_UNAVAILABLE, RETRY_AFTER_UNPARSABLE, UnparsableRetryAfter,
+};
 use goodfetch_protocol::foxhound::frontier::HttpMethod;
 use goodfetch_protocol::foxhound::outcomes::SkipReason;
 use goodfetch_protocol::settings::page_check::PageCheck;
@@ -153,6 +157,8 @@ pub fn room_taken(room: Room, now: Instant) -> Result<SecondCopy, Instant> {
 pub struct HandOver {
     /// What every attempt of its Run hands over alike.
     pub of_run: Arc<RunHandOver>,
+    /// The ID of its crawl request.
+    pub crawl_request: String,
     /// The domain key of its crawl request, whose Permit its admission
     /// holds.
     pub domain_key: String,
@@ -332,12 +338,14 @@ type ReservedCell = std::sync::atomic::AtomicU64;
 impl ReservedSend {
     /// The send reserved at `at`, none for `None`.
     pub fn at(at: Option<SystemTime>) -> Self {
-        let nanos = at
-            .and_then(|at| at.duration_since(SystemTime::UNIX_EPOCH).ok())
-            .map_or(0, |since| {
-                u64::try_from(since.as_nanos()).unwrap_or(u64::MAX)
-            });
-        Self(Arc::new(ReservedCell::new(nanos)))
+        Self(Arc::new(ReservedCell::new(nanos(at))))
+    }
+
+    /// Reserves the send at `at`, none for `None`, in place of what it
+    /// held: the Permit of a request whose before-request Hooks ran first
+    /// is granted after its attempt began (#2905).
+    pub fn reserve(&self, at: Option<SystemTime>) {
+        self.0.store(nanos(at), Ordering::Release);
     }
 
     /// The reserved moment, taken once: `None` after the first take, or
@@ -348,6 +356,15 @@ impl ReservedSend {
             nanos => Some(SystemTime::UNIX_EPOCH + Duration::from_nanos(nanos)),
         }
     }
+}
+
+/// `at` as the nanoseconds since the epoch a reserved send holds, `0` for
+/// none.
+fn nanos(at: Option<SystemTime>) -> u64 {
+    at.and_then(|at| at.duration_since(SystemTime::UNIX_EPOCH).ok())
+        .map_or(0, |since| {
+            u64::try_from(since.as_nanos()).unwrap_or(u64::MAX)
+        })
 }
 
 impl HandOver {
@@ -364,6 +381,31 @@ impl HandOver {
             None => robots_txt::Answer::Unreachable(
                 "the crawl has no transport to fetch robots.txt with".to_owned(),
             ),
+        }
+    }
+
+    /// Notes in the Run trace's request log a `Retry-After` of `value`
+    /// that does not parse, which `url` answered its crawl request's
+    /// fetch with, with `status` (ADR 0118); a note that cannot be written
+    /// is logged.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future before the note reaches the Run trace's writer
+    /// loses the note; it holds nothing else.
+    pub async fn unparsable_retry_after(&self, url: &str, status: u16, value: &str) {
+        let run = self.run();
+        let note = UnparsableRetryAfter {
+            crawl_request_id: self.crawl_request.clone(),
+            url: url.to_owned(),
+            status,
+            retry_after: value.to_owned(),
+        };
+        if let Err(error) = RequestLog::new(run_trace(run))
+            .note(RETRY_AFTER_UNPARSABLE, &note)
+            .await
+        {
+            tracing::warn!(%error, run_id = %run.id(), "a `Retry-After` that does not parse was not noted in the Run trace");
         }
     }
 
@@ -567,6 +609,10 @@ impl LeaseCheck for Lease {
 
     fn enclosing(&self) -> Option<Enclosing> {
         self.0.lease.enclosing()
+    }
+
+    fn effect_attempt(&self) -> Option<EffectAttempt> {
+        self.0.lease.effect_attempt()
     }
 }
 
@@ -813,8 +859,6 @@ impl Gate {
 /// attempt's navigation gate, after the Frontier's checks of each hop.
 pub(crate) struct ChainGate {
     pub(crate) hand_over: Arc<HandOver>,
-    /// The crawl request's ID.
-    pub(crate) crawl_request: String,
 }
 
 impl ChainGate {
@@ -827,7 +871,7 @@ impl ChainGate {
         self.hand_over
             .of_run
             .hops
-            .check(chain_hop(&self.crawl_request, hop))
+            .check(chain_hop(&self.hand_over.crawl_request, hop))
             .await
             .unwrap_or_else(|error| {
                 tracing::warn!(%error, run_id = %run.id(), "a redirect hop was not checked by the Frontier");
@@ -923,6 +967,18 @@ impl HopGate for ChainGate {
         })
     }
 
+    fn unparsable_retry_after<'a>(
+        &'a self,
+        hop: &'a Hop,
+        status: u16,
+        value: &'a str,
+    ) -> Gating<'a, ()> {
+        Box::pin(
+            self.hand_over
+                .unparsable_retry_after(hop.url.as_str(), status, value),
+        )
+    }
+
     /// Records the hop's send as the last start of its domain key for
     /// every run sharing it, when later than the start its admission took:
     /// what ran between them (robots.txt, the Frontier's checks, the
@@ -952,7 +1008,7 @@ impl HopGate for ChainGate {
                 .hand_over
                 .of_run
                 .hops
-                .reached(chain_hop(&self.crawl_request, hop))
+                .reached(chain_hop(&self.hand_over.crawl_request, hop))
                 .await;
             match recorded {
                 Ok(goodfetch_frontier::Hop::Duplicate) => Err(Stop::Skipped(Skip {

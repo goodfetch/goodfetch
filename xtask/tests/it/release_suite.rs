@@ -1,8 +1,8 @@
 //! The Release suite's private-period run (ADRs 0061 and 0108): which cells a
-//! manual dispatch starts under the 600-minute ceiling of included minutes,
+//! manual dispatch starts under the 600-minute ceiling of minutes that bill,
 //! counted from the month's recorded Release jobs in Linux-equivalent
-//! minutes (Linux 1, Windows 2, macOS 11). GitHub's interface is a local
-//! stand-in.
+//! minutes (Linux 1, Windows 2, macOS 11), with standard runners of a public
+//! repository counting none. GitHub's interface is a local stand-in.
 //! Covers: story:1-54, story:1-98
 
 use std::collections::BTreeMap;
@@ -20,7 +20,10 @@ const OLDER: &str = "2222222222222222222222222222222222222222";
 const ISSUES: &str = "/repos/goodfetch/goodfetch/issues";
 const TRIAGE_ISSUES: &str =
     "/repos/goodfetch/goodfetch/issues?labels=needs-triage&state=all&per_page=100&page=1";
-const MILESTONES: &str = "/repos/goodfetch/goodfetch/milestones?state=open&per_page=100&page=1";
+/// The ticket of spec 130 that added the ceiling, in milestone 1: the
+/// ceiling's issue goes to that spec, in that milestone (ADR 0136).
+const CEILING_TICKET: &str = "/repos/goodfetch/goodfetch/issues/535";
+const SPEC_SUB_ISSUES: &str = "/repos/goodfetch/goodfetch/issues/130/sub_issues";
 /// The marker line of the ceiling's `needs-triage` issue.
 const CEILING_MARKER: &str = "<!-- goodfetch-results: needs-triage release-ceiling -->";
 
@@ -101,7 +104,8 @@ fn plan_job() -> Job {
     }
 }
 
-/// Every hosted cell's job, and the owner's machine's, each `minutes` long.
+/// Every cell's job, each `minutes` long but the macOS cells', a minute each
+/// (11 at their rate).
 fn full_run(date: &str, minutes: u32) -> Vec<Job> {
     vec![
         ran("plan", "ubuntu-24.04", date, 1, "success"),
@@ -122,14 +126,8 @@ fn full_run(date: &str, minutes: u32) -> Vec<Job> {
             "success",
         ),
         ran("windows-x64", "windows-2025", date, minutes, "success"),
-        ran("macos-arm64", "owner-machine", date, minutes, "success"),
-        ran(
-            "macos-x64 (Rosetta 2)",
-            "owner-machine",
-            date,
-            minutes,
-            "success",
-        ),
+        ran("macos-arm64", "macos-15", date, 1, "success"),
+        ran("macos-x64", "macos-15-intel", date, 1, "success"),
     ]
 }
 
@@ -150,24 +148,45 @@ fn run(id: u64, created_at: &str, branch: &str, jobs: Vec<Job>) -> Run {
     }
 }
 
+/// The repository's visibility, which GitHub gives each run's `repository`
+/// as `private`.
+#[derive(Clone, Copy)]
+enum Visibility {
+    Private,
+    Public,
+}
+
 impl Run {
-    fn json(&self) -> String {
+    fn json(&self, visibility: Visibility) -> String {
+        let private = matches!(visibility, Visibility::Private);
         format!(
-            r#"{{"id": {}, "created_at": "{}", "head_branch": "{}", "head_sha": "{HEAD}"}}"#,
+            r#"{{"id": {}, "created_at": "{}", "head_branch": "{}", "head_sha": "{HEAD}", "repository": {{"private": {private}}}}}"#,
             self.id, self.created_at, self.branch
         )
     }
 }
 
-/// This run (ID 7, created 2026-10-18 on `branch`) and the earlier runs,
-/// newest first, served as GitHub's Actions interface lists them, with any
-/// `extra` routes.
+/// This run (ID 7, created 2026-10-18 on `branch`) and the earlier runs of
+/// a private repository, newest first, served as GitHub's Actions interface
+/// lists them, with any `extra` routes.
 fn serve(branch: &str, earlier: Vec<Run>, extra: &[(&str, &str)]) -> GitHub {
+    serve_in(Visibility::Private, branch, earlier, extra)
+}
+
+fn serve_in(
+    visibility: Visibility,
+    branch: &str,
+    earlier: Vec<Run>,
+    extra: &[(&str, &str)],
+) -> GitHub {
     let mut runs = vec![run(7, "2026-10-18T09:00:00Z", branch, vec![plan_job()])];
     runs.extend(earlier);
-    let listed: Vec<String> = runs.iter().map(Run::json).collect();
+    let listed: Vec<String> = runs.iter().map(|run| run.json(visibility)).collect();
     let mut routes = vec![
-        (format!("{REPOSITORY}/actions/runs/7"), runs[0].json()),
+        (
+            format!("{REPOSITORY}/actions/runs/7"),
+            runs[0].json(visibility),
+        ),
         (
             format!("{REPOSITORY}/actions/workflows/release-suite.yml/runs?per_page=100&page=1"),
             format!(
@@ -220,10 +239,12 @@ fn outputs(workspace: &Workspace) -> BTreeMap<String, String> {
         .collect()
 }
 
+/// Every cell runs on a standard hosted runner, which a public repository's
+/// ceiling counts none of (ADR 0108's note of 2026-11-23).
 #[test]
 fn first_run_on_main_starts_every_cell_on_the_commit() {
     let workspace = Workspace::from_fixture("empty");
-    let github = serve("main", vec![], &[]);
+    let github = serve_in(Visibility::Public, "main", vec![], &[]);
 
     let outcome = plan(&workspace, &github, MAIN, &[]);
 
@@ -247,13 +268,14 @@ fn first_run_on_main_starts_every_cell_on_the_commit() {
         )
     );
     assert_eq!(outputs["held"], "false");
-    assert_eq!(outputs["estimate"], "270");
+    assert_eq!(outputs["estimate"], "0");
 }
 
 #[test]
-fn run_on_main_past_the_ceiling_holds_the_hosted_cells_and_starts_the_owners_machines() {
+fn run_on_main_past_the_ceiling_holds_every_cell() {
     let workspace = Workspace::from_fixture("empty");
-    // Earlier this month: 1 + 4 x 80 + 2 x 80 = 481 minutes; this plan job, 1.
+    // Earlier this month: 1 + 4 x 80 + 2 x 80 + 2 x 11 = 503 minutes; this
+    // plan job, 1.
     let earlier = run(
         5,
         "2026-10-05T00:00:00Z",
@@ -267,12 +289,12 @@ fn run_on_main_past_the_ceiling_holds_the_hosted_cells_and_starts_the_owners_mac
     assert_eq!(outcome.code, 0);
     let outputs = outputs(&workspace);
     assert_eq!(outputs["held"], "true");
-    assert_eq!(outputs["cells"], r#"["macos-arm64","macos-x64"]"#);
+    assert_eq!(outputs["cells"], "[]");
     assert_eq!(outputs["linux-x64"], "[]");
     assert_eq!(outputs["linux-arm64"], "[]");
-    assert_eq!(outputs["used"], "482");
-    assert_eq!(outputs["estimate"], "480");
-    assert_eq!(outputs["needed"], "962");
+    assert_eq!(outputs["used"], "504");
+    assert_eq!(outputs["estimate"], "502");
+    assert_eq!(outputs["needed"], "1006");
     assert_eq!(outputs["month-turns"], "2026-11-01");
 }
 
@@ -300,9 +322,10 @@ fn estimate_comes_from_each_cells_latest_recorded_run_at_its_rate() {
 
     assert_eq!(outcome.code, 0);
     let outputs = outputs(&workspace);
-    // Windows' failed run of 30 minutes at 2, and 40 minutes for each Linux
-    // cell from the older run, since the newer one skipped Linux x64.
-    assert_eq!(outputs["estimate"], "220");
+    // Windows' failed run of 30 minutes at 2, 40 minutes for each Linux
+    // cell from the older run, since the newer one skipped Linux x64, and
+    // a minute at 11 for each macOS cell.
+    assert_eq!(outputs["estimate"], "242");
     assert_eq!(outputs["used"], "1");
 }
 
@@ -323,9 +346,10 @@ fn dispatch_off_main_starts_its_hosted_cells_only_when_a_run_on_main_still_fits(
     #[case] cells: &str,
 ) {
     let workspace = Workspace::from_fixture("empty");
-    // Each run: 1 + 4 x 30 + 2 x 30 = 181 minutes. Room left: this run's 180,
-    // then a run on `main` of 180, after 182 used, fits (542); after another
-    // branch run (363 used), it does not (723).
+    // Each run: 1 + 4 x 30 + 2 x 30 + 2 x 11 = 203 minutes. Room left: this
+    // run's 180, its macOS cells being `main`'s only, then a run on `main`
+    // of 202, after 204 used, fits (586); after another branch run (407
+    // used), it does not (789).
     let mut earlier = more;
     earlier.push(run(
         5,
@@ -343,8 +367,9 @@ fn dispatch_off_main_starts_its_hosted_cells_only_when_a_run_on_main_still_fits(
     assert_eq!(outputs["cells"], cells);
 }
 
+/// The macOS cells run on `main` only (ADR 0108).
 #[test]
-fn dispatch_off_main_never_starts_the_owners_machine() {
+fn dispatch_off_main_never_starts_the_macos_cells() {
     let workspace = Workspace::from_fixture("empty");
     let github = serve("topic", vec![], &[]);
 
@@ -375,7 +400,8 @@ fn chosen_cells_alone_start_and_are_estimated() {
     let outputs = outputs(&workspace);
     assert_eq!(outputs["cells"], r#"["windows-x64","macos-arm64"]"#);
     assert_eq!(outputs["linux-x64"], "[]");
-    assert_eq!(outputs["estimate"], "90");
+    // One job budget of 45 minutes each, at 2 and at 11.
+    assert_eq!(outputs["estimate"], "585");
 }
 
 #[test]
@@ -410,10 +436,11 @@ fn months_first_run_on_main_over_the_ceiling_on_its_own_starts_and_opens_an_issu
         &[
             (TRIAGE_ISSUES, "[]"),
             (
-                MILESTONES,
-                r#"[{"number": 1, "open_issues": 3, "due_on": null}]"#,
+                CEILING_TICKET,
+                r#"{"number": 535, "milestone": {"number": 1}, "parent_issue_url": "https://api.github.com/repos/goodfetch/goodfetch/issues/130"}"#,
             ),
-            (ISSUES, r#"{"number": 9}"#),
+            (SPEC_SUB_ISSUES, r#"{"number": 130}"#),
+            (ISSUES, r#"{"number": 9, "id": 77}"#),
         ],
     );
 
@@ -427,9 +454,11 @@ fn months_first_run_on_main_over_the_ceiling_on_its_own_starts_and_opens_an_issu
             .iter()
             .map(|request| (request.method.as_str(), request.path.as_str()))
             .collect::<Vec<_>>(),
-        vec![("POST", ISSUES)]
+        vec![("POST", ISSUES), ("POST", SPEC_SUB_ISSUES)]
     );
     assert_eq!(json(&writes[0].body)["labels"], json(r#"["needs-triage"]"#));
+    assert_eq!(json(&writes[0].body)["milestone"], 1);
+    assert_eq!(json(&writes[1].body), json(r#"{"sub_issue_id": 77}"#));
     assert_eq!(
         json(&writes[0].body)["body"]
             .as_str()
@@ -480,6 +509,63 @@ fn second_run_on_main_over_the_ceiling_on_its_own_is_held() {
     assert_eq!(github.writes(), vec![]);
 }
 
+/// Standard GitHub-hosted runners are free in a public repository and draw
+/// on no included minutes (ADR 0108's note of 2026-11-23), so a run on them
+/// alone starts whatever its estimate.
+#[test]
+fn in_a_public_repository_a_run_on_standard_runners_alone_starts_whatever_its_estimate() {
+    let workspace = Workspace::from_fixture("empty");
+    let this_month = over_the_ceiling(5, "2026-10-02T00:00:00Z", "2026-10-02");
+    let github = serve_in(Visibility::Public, "main", vec![this_month], &[]);
+
+    let outcome = plan(&workspace, &github, MAIN, &["--cells", "windows-x64"]);
+
+    assert_eq!(outcome.code, 0);
+    let outputs = outputs(&workspace);
+    assert_eq!(
+        (
+            outputs["held"].as_str(),
+            outputs["cells"].as_str(),
+            outputs["used"].as_str(),
+            outputs["estimate"].as_str(),
+        ),
+        ("false", r#"["windows-x64"]"#, "0", "0")
+    );
+    assert_eq!(github.writes(), vec![]);
+}
+
+/// A larger runner bills in a public repository too, so its minutes still
+/// count against the ceiling, at its rate.
+#[test]
+fn in_a_public_repository_a_larger_runners_minutes_still_count() {
+    let workspace = Workspace::from_fixture("empty");
+    let mut jobs = full_run("2026-10-05", 80);
+    jobs.push(ran(
+        "bench",
+        "ubuntu-24.04-16core",
+        "2026-10-05",
+        700,
+        "success",
+    ));
+    let this_month = run(5, "2026-10-05T00:00:00Z", "main", jobs);
+    let github = serve_in(Visibility::Public, "main", vec![this_month], &[]);
+
+    let outcome = plan(&workspace, &github, MAIN, &[]);
+
+    assert_eq!(outcome.code, 0);
+    let outputs = outputs(&workspace);
+    // The larger runner's 700 minutes count; the standard runners' 481 and
+    // this plan job's do not. This run's cells bill nothing, so it starts.
+    assert_eq!(
+        (
+            outputs["used"].as_str(),
+            outputs["estimate"].as_str(),
+            outputs["held"].as_str(),
+        ),
+        ("700", "0", "false")
+    );
+}
+
 #[rstest]
 #[case::ahead("ahead", 0)]
 #[case::diverged("diverged", 1)]
@@ -488,7 +574,14 @@ fn commit_off_mains_history_is_refused_before_any_cell(#[case] status: &str, #[c
     let workspace = Workspace::from_fixture("empty");
     let compare = format!("{REPOSITORY}/compare/{OLDER}...{HEAD}");
     let body = format!(r#"{{"status": "{status}"}}"#);
-    let github = serve("main", vec![], &[(compare.as_str(), body.as_str())]);
+    // Public, as the repository is: a private first run's estimate, with the
+    // macOS cells at 11, passes the ceiling and would open an issue.
+    let github = serve_in(
+        Visibility::Public,
+        "main",
+        vec![],
+        &[(compare.as_str(), body.as_str())],
+    );
 
     let outcome = plan(&workspace, &github, MAIN, &["--commit", OLDER]);
 
@@ -538,7 +631,10 @@ fn jobs_routes(runs: &[Run]) -> Vec<(String, String)> {
 }
 
 fn serve_commit(runs: &[Run]) -> GitHub {
-    let listed: Vec<String> = runs.iter().map(Run::json).collect();
+    let listed: Vec<String> = runs
+        .iter()
+        .map(|run| run.json(Visibility::Private))
+        .collect();
     let mut routes = vec![(
         format!(
             "{REPOSITORY}/actions/workflows/release-suite.yml/runs?head_sha={HEAD}&per_page=100&page=1"
@@ -570,8 +666,8 @@ fn verdict(workspace: &Workspace, github: &GitHub) -> Outcome {
     ])
 }
 
-/// The hosted cells' jobs of a dispatch, with the owner's machine's skipped,
-/// as a dispatch that did not reach it lists them.
+/// The Linux and Windows cells' jobs of a dispatch, with the macOS ones
+/// skipped, as a dispatch that asked for no macOS cell lists them.
 fn hosted_cells(date: &str, conclusion: &str) -> Vec<Job> {
     vec![
         ran("linux-x64-gnu", "ubuntu-24.04", date, 30, conclusion),
@@ -579,20 +675,14 @@ fn hosted_cells(date: &str, conclusion: &str) -> Vec<Job> {
         ran("linux-arm64-gnu", "ubuntu-24.04-arm", date, 30, conclusion),
         ran("linux-arm64-musl", "ubuntu-24.04-arm", date, 30, conclusion),
         ran("windows-x64", "windows-2025", date, 30, conclusion),
-        ran("macos-arm64", "owner-machine", date, 0, "skipped"),
+        ran("macos-arm64", "macos-15", date, 0, "skipped"),
     ]
 }
 
-fn owner_machine_cells(date: &str) -> Vec<Job> {
+fn macos_cells(date: &str) -> Vec<Job> {
     vec![
-        ran("macos-arm64", "owner-machine", date, 30, "success"),
-        ran(
-            "macos-x64 (Rosetta 2)",
-            "owner-machine",
-            date,
-            30,
-            "success",
-        ),
+        ran("macos-arm64", "macos-15", date, 30, "success"),
+        ran("macos-x64", "macos-15-intel", date, 30, "success"),
     ]
 }
 
@@ -600,12 +690,7 @@ fn owner_machine_cells(date: &str) -> Vec<Job> {
 fn commit_whose_every_cell_is_green_across_dispatches_passes() {
     let workspace = Workspace::from_fixture("empty");
     let github = serve_commit(&[
-        run(
-            9,
-            "2026-10-19T00:00:00Z",
-            "main",
-            owner_machine_cells("2026-10-19"),
-        ),
+        run(9, "2026-10-19T00:00:00Z", "main", macos_cells("2026-10-19")),
         run(
             8,
             "2026-10-18T00:00:00Z",
@@ -630,7 +715,7 @@ fn cell_with_a_failed_test_step_in_any_attempt_leaves_the_commit_red() {
     jobs.push(
         ran("windows-x64", "windows-2025", "2026-10-18", 30, "failure").with_failed_test_step(),
     );
-    jobs.extend(owner_machine_cells("2026-10-18"));
+    jobs.extend(macos_cells("2026-10-18"));
     let github = serve_commit(&[run(8, "2026-10-18T00:00:00Z", "main", jobs)]);
 
     let outcome = verdict(&workspace, &github);
@@ -653,7 +738,7 @@ fn cell_not_run_or_failed_without_a_failed_test_step_is_not_green_yet() {
         vec![
             finding("cell-failed", "windows-x64"),
             finding("cell-not-run", "macos-arm64"),
-            finding("cell-not-run", "macos-x64 (Rosetta 2)"),
+            finding("cell-not-run", "macos-x64"),
         ]
     );
     assert_eq!(outcome.code, 1);

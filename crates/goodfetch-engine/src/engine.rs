@@ -52,7 +52,9 @@ use crate::product::Identity;
 use crate::rpc::{self, Access, Dispatch};
 use crate::run_state::install::InstallDatabase;
 use crate::run_state::{RunStateOptions, RunStateTables};
-use crate::runs::{CleanUpVersions, Driving, PanicStop, ProgressPart, ReportPart, Runs, RunsSetup};
+use crate::runs::{
+    CleanUpVersions, Driving, PanicStop, ProgressPart, ReportPart, Runs, RunsSetup, SendWindow,
+};
 use crate::sandbox_probe::{self, SandboxProbe};
 use crate::secrets::{self, Carried, Keychain, ProviderFactory, Secrets};
 use crate::settings::{HostDefaults, HostSearch, Settings, SettingsFiles, get_or_default};
@@ -73,6 +75,7 @@ pub struct Engine {
     report_parts: Vec<Arc<dyn ReportPart>>,
     progress_parts: Vec<Arc<dyn ProgressPart>>,
     clean_up: Option<Arc<dyn CleanUpVersions>>,
+    send_window: Option<Arc<dyn SendWindow>>,
     gates: Option<Arc<dyn Gates>>,
     needs_you_sources: Vec<NeedsYouSource>,
     secret_providers: Vec<(Provider, ProviderFactory)>,
@@ -131,6 +134,7 @@ impl Engine {
             report_parts: composition.report_parts(),
             progress_parts: composition.progress_parts(),
             clean_up: composition.clean_up_versions()?,
+            send_window: composition.send_window(),
             gates: composition.admission_gates()?,
             needs_you_sources: composition.needs_you_sources(),
             secret_providers: composition.secret_providers(),
@@ -426,6 +430,7 @@ impl Engine {
                 report_parts: self.report_parts.clone(),
                 progress_parts: self.progress_parts.clone(),
                 clean_up: self.clean_up.clone(),
+                send_window: self.send_window.clone(),
                 gates: self.gates.clone(),
                 politeness: dependencies.politeness,
                 politeness_tables: self.politeness_tables.clone(),

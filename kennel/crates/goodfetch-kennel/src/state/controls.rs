@@ -166,6 +166,7 @@ impl State {
             Control::Resume => Call::Resume(RunResumeParams {
                 run_id: run,
                 checkpoint: None,
+                rollback: false,
                 settings: serde_json::Map::new(),
                 project: None,
             }),

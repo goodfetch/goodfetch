@@ -30,11 +30,12 @@ use std::sync::mpsc;
 use std::time::Duration;
 
 use goodfetch_protocol::home::USAGE_LEDGER;
+use goodfetch_test_client::Attached;
 use goodfetch_test_support::{ProvingGround, TestEnv, browser_cache, skipped_without_gui_session};
 use rusqlite::Connection;
 use serde_json::{Map, Value, json};
 
-use crate::page::{opened, started_with};
+use crate::page::{opened, started_by_a_person, started_with};
 use crate::page_events::Exchange;
 
 /// The Proving ground's own seed for these tests.
@@ -114,6 +115,15 @@ fn on_a_page(
 ) -> (Exchange, String, String) {
     let cache = browser_cache(env).unwrap();
     let engine = started_with(env, &cache, proving_ground, run_id, &Map::new(), |_| {});
+    onto_a_page(engine, proving_ground, run_id)
+}
+
+/// As [`on_a_page`], on `engine`, which started the Run `run_id`.
+fn onto_a_page(
+    engine: Attached,
+    proving_ground: &ProvingGround,
+    run_id: &str,
+) -> (Exchange, String, String) {
     let mut exchange = Exchange::new(engine);
     let page = opened(&exchange.call("run.new_page", &json!({ "run_id": run_id })));
     let url = proving_ground.url("catalog.test", "/catalog/1");
@@ -594,6 +604,39 @@ fn aborting_a_run_under_a_call_raises_call_cancelled_naming_the_client_and_the_r
             (
                 json!("call_cancelled"),
                 json!({ "by": "client", "closed": "run" })
+            )
+        ),
+        "{aborted} {called}"
+    );
+}
+
+/// `run.abort` from a person's Client, the CLI, while a call is in flight:
+/// the call raises `call_cancelled` naming the person the Client acts for,
+/// the OS user of an engine without accounts, and the Run (ADRs 0031 and
+/// 0113).
+///
+/// Covers: story:11-48, operation:run.abort
+#[test]
+fn a_persons_abort_under_a_call_raises_call_cancelled_naming_the_person_and_the_run() {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let cache = browser_cache(&env).unwrap();
+    let engine = started_by_a_person(&env, &cache, &proving_ground, "aborting", &Map::new());
+    let (mut exchange, page, _) = onto_a_page(engine, &proving_ground, "aborting");
+    let calling = call_in_flight(&mut exchange, &page);
+
+    let aborting = exchange.request("run.abort", &json!({ "run_id": "aborting" }));
+    let mut answers = answers(&mut exchange, &[aborting, calling]).into_iter();
+    let (aborted, called) = (answers.next().unwrap(), answers.next().unwrap());
+    let _ = exchange.engine.finish();
+
+    assert_eq!(
+        (aborted.get("result").is_some(), failure(&called)),
+        (
+            true,
+            (
+                json!("call_cancelled"),
+                json!({ "by": "person", "closed": "run", "person": "os_user" })
             )
         ),
         "{aborted} {called}"

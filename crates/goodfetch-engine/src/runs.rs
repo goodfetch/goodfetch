@@ -51,8 +51,9 @@
 //! identity and the value that asks it to stop are `run_identity`'s; its
 //! charging, with what a refusal does to it, the ledger's charging
 //! module's; its Secrets with the making of its data key `keys`', its Run
-//! report's warnings with why it did nothing `report`'s, and its end, with
-//! the signal that it was let finish, `end`'s (ADR 0145). The record that
+//! report's warnings with why it did nothing `report`'s, its send window
+//! `send_window`'s, and its end, with the signal that it was let finish,
+//! `end`'s (ADR 0145). The record that
 //! a Run uses another Product's entry is a command of the registry's
 //! handle, [`Runs::uses`], and the two records a Run leaves in the Run
 //! index for "Needs you" are `run_index`'s, over its identity. The handle's
@@ -72,9 +73,9 @@ use goodfetch_protocol::audit::{Actor, CERTIFICATE_EXCEPTIONS_USED};
 use goodfetch_protocol::catalog::{Product, Setting};
 use goodfetch_protocol::checkpoint::{
     RUN_ABORTING, RUN_CHECKPOINTING, RUN_MIGRATING, RUN_STOPPING, RunAborting, RunBinding,
-    RunCheckpointing, RunMigrating, RunStopping,
+    RunCheckpointing, RunMigrating, RunStatePosition, RunStopping,
 };
-use goodfetch_protocol::connection::{ProductVersion, StoppedBy};
+use goodfetch_protocol::connection::{ProductVersion, StoppedBy, Surface};
 use goodfetch_protocol::formats::Compatibility;
 use goodfetch_protocol::governor::RUN_SHARE;
 use goodfetch_protocol::jsonrpc::ErrorObject;
@@ -98,6 +99,7 @@ use rusqlite::Connection;
 use secrecy::zeroize::Zeroizing;
 use serde_json::{Value, json};
 use tokio::sync::{mpsc, oneshot, watch};
+use tokio::time::Instant;
 use tokio_util::sync::CancellationToken;
 
 pub use self::clean_up::{Answering, Chosen, CleanUpVersions, Fallback, Holding, RulesContext};
@@ -108,11 +110,17 @@ pub use self::progress::{PartValue, PauseHeld, Progress, ProgressPart, TypedPart
 pub use self::reader::{RunFileOpener, RunReader};
 pub use self::reindex::{Reindexed, reindex};
 pub use self::report::{ReportPart, ReportWarnings};
+pub use self::send_window::RunSendWindow;
+pub(crate) use self::send_window::SendWindow;
 pub use self::writer::{Writer, test_writer};
+pub use crate::run_state::UnsupportedFolder;
 
 use self::beside::{Order, Queues, Reach, Reply};
 use self::ended::{EndedHere, EndedRuns};
-use self::folder::{Compared, FixedSettings, RunRow, read_report, text, write_end};
+use self::folder::{
+    ChangeableSettings, ChangedSetting, Compared, FixedSettings, RunRow, read_report, text,
+    write_end,
+};
 use self::keys::KeysParts;
 use self::lifecycle::{InvalidRunTransition, Next, RunEvent};
 use self::progress::Progressing;
@@ -136,7 +144,8 @@ use crate::governor::{
 };
 use crate::home::RunStateLocation;
 use crate::known_certificates::KnownCertificates;
-use crate::ledger::{Allowance, ChargeError, Charged, ChargingParts, RunCharging};
+use crate::lease::LeaseCheck;
+use crate::ledger::{Allowance, ChargeError, Charged, ChargingParts, RunCharging, StorageFailed};
 use crate::local_addresses::{self, Rotation};
 use crate::mask::{Masks, Redaction, Scope};
 use crate::metrics::{FolderStorage, Metrics};
@@ -227,6 +236,8 @@ pub(crate) struct RunsSetup {
     /// The composition's Clean-up rules, which choose the version each new
     /// Run holds to (ADR 0047), if it has any.
     pub(crate) clean_up: Option<Arc<dyn CleanUpVersions>>,
+    /// The send window the composition passes in, if any (ADR 0106).
+    pub(crate) send_window: Option<Arc<dyn SendWindow>>,
     /// The switchable controls the composition registered, which each new
     /// Run reports when its settings switch one off.
     pub(crate) controls: Controls,
@@ -234,13 +245,15 @@ pub(crate) struct RunsSetup {
 
 /// How a live action reaches the engine that owns a Run (ADR 0031).
 pub(crate) trait Forwarder: Send + Sync {
-    /// Asks the engine at `owner` to abort `run_id` as its owner, its
-    /// blocking work under `tasks`, and answers the Run report it answered;
-    /// `None` when it did not answer, answered `run_not_owned`, or failed.
+    /// Asks the engine at `owner` to abort `run_id` as its owner, for `by`,
+    /// its blocking work under `tasks`, and answers the Run report it
+    /// answered; `None` when it did not answer, answered `run_not_owned`,
+    /// or failed.
     fn abort<'a>(
         &'a self,
         owner: &'a RunOwner,
         run_id: &'a RunId,
+        by: &'a Aborter,
         tasks: &'a TaskOwner,
     ) -> Pin<Box<dyn Future<Output = Option<RunReport>> + Send + 'a>>;
 
@@ -297,7 +310,17 @@ pub struct Driving {
     /// that admission's jobs while the Run goes: a Politeness of the Run's
     /// own is then held by its admission rather than by an actor (#2171).
     pub admits: bool,
+    /// What a reopen of its Run that no start under the Run's ID declared
+    /// again checks, `run.resume`'s or `run.retry_failed`'s, before the
+    /// Run reopens; none when such a reopen needs nothing a start declares.
+    pub reopen_check: Option<ReopenCheck>,
 }
+
+/// A kind's check of a reopen no start under the Run's ID declared again,
+/// run on the run file or Checkpoint the Run `RunId` would reopen from:
+/// the error it answers refuses the reopen, before anything is done (ADR
+/// 0104's note of #2912).
+pub type ReopenCheck = fn(&Connection, &RunId) -> rusqlite::Result<Result<(), CallError>>;
 
 impl Default for Driving {
     fn default() -> Self {
@@ -306,6 +329,7 @@ impl Default for Driving {
             defers_charges: false,
             provenance_log: None,
             admits: false,
+            reopen_check: None,
         }
     }
 }
@@ -346,6 +370,9 @@ pub struct Start {
     pub timeout: Option<Duration>,
     /// Its resolved settings, which its pages and Sessions open under.
     pub settings: Option<RunSettings>,
+    /// Whether it outlives the Connection that starts it (ADR 0102): its
+    /// start checked that nothing in the program serves it.
+    pub detached: bool,
 }
 
 /// What a resume asks for.
@@ -353,7 +380,7 @@ pub struct Resume {
     /// The Run's ID.
     pub run_id: RunId,
     /// The Checkpoint it resumes from, or none for its run file.
-    pub checkpoint: Option<PathBuf>,
+    pub checkpoint: Option<FromCheckpoint>,
     /// How often it writes a Checkpoint from now on.
     pub checkpoint_interval: Option<Duration>,
     /// Its `timeout.run` from now on, none when unset, counted from the
@@ -365,6 +392,41 @@ pub struct Resume {
     /// `RetryFailed`, which also returns a `finished` Run to `running`,
     /// rather than a resume (ADR 0102).
     pub retry_failed: bool,
+    /// Whether a start under its ID declared again what its program holds,
+    /// so its kind's [`Driving::reopen_check`] is not run: a start's
+    /// resume, or `run.retry_failed` after one.
+    pub redeclared: bool,
+}
+
+/// The Checkpoint a resume makes the Run's run file here (ADR 0002).
+#[derive(Clone, Debug)]
+pub struct FromCheckpoint {
+    /// Its path on this machine.
+    pub path: PathBuf,
+    /// Who asked to roll back, as the Audit log records them, when the
+    /// Checkpoint may replace a run file here that is past it, or that this
+    /// engine cannot read; none refuses it (ADR 0002's note of #2322).
+    pub rollback: Option<RollbackBy>,
+}
+
+/// A Checkpoint a resume gave, behind the Run's run file here.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Behind {
+    /// The Run ID.
+    pub run_id: RunId,
+    /// Where the Checkpoint stands.
+    pub checkpoint: RunStatePosition,
+    /// Where the run file here stands, past it.
+    pub run_file: RunStatePosition,
+}
+
+/// Who asks a resume to roll back the Run's run file here.
+#[derive(Clone, Debug)]
+pub struct RollbackBy {
+    /// The person or process asking.
+    pub actor: Actor,
+    /// The surface they ask through.
+    pub surface: Surface,
 }
 
 impl Resume {
@@ -468,6 +530,10 @@ pub enum StartError {
         /// The Run's folder.
         folder: PathBuf,
     },
+    /// The Run's folder is on a filesystem the engine keeps no run state
+    /// on (ADR 0049).
+    #[error("the folder of `{0}` is on {found}, which the engine keeps no run state on", found = .1.found)]
+    FilesystemUnsupported(RunId, UnsupportedFolder),
     /// The Run's state cannot be read, created or written.
     #[error("the state of `{run_id}` is unavailable: {error}")]
     Unavailable {
@@ -803,6 +869,10 @@ pub enum RunError {
         /// The Product it needs.
         needs: Product,
     },
+    /// The Run's folder is on a filesystem the engine keeps no run state
+    /// on (ADR 0049).
+    #[error("the folder of `{0}` is on {found}, which the engine keeps no run state on", found = .1.found)]
+    FilesystemUnsupported(RunId, UnsupportedFolder),
     /// The Run's state cannot be read or written.
     #[error("the state of `{run_id}` is unavailable: {error}")]
     Unavailable {
@@ -840,6 +910,15 @@ pub enum RunError {
     /// The Run is bound to another machine (ADR 0056).
     #[error("the Run `{0}` is bound to another machine")]
     BoundToMachine(RunId),
+    /// The Checkpoint a resume gave stands behind the Run's run file here,
+    /// and the resume did not ask to roll back; nothing changed (ADR 0002's
+    /// note of #2322).
+    #[error("the Checkpoint of `{}` is behind its run file here", .0.run_id)]
+    Behind(Behind),
+    /// Its kind's [`Driving::reopen_check`] refused a reopen no start
+    /// under the Run's ID declared again, with the error it carries.
+    #[error("the reopen was refused: {0}")]
+    ReopenRefused(Box<CallError>),
     /// A Checkpoint could not be written (ADR 0116); no file is left.
     #[error("a Checkpoint of `{run_id}` could not be written: {message}")]
     WriteFailed {
@@ -953,6 +1032,9 @@ impl RunError {
                 compatibility,
                 install,
             },
+            RunStateError::FilesystemUnsupported(refused) => {
+                Self::FilesystemUnsupported(run_id.clone(), refused)
+            }
             other => Self::Unavailable {
                 run_id: run_id.clone(),
                 folder: folder.to_owned(),
@@ -1086,6 +1168,17 @@ enum Cause {
     Panic,
 }
 
+/// Why the engine drains.
+#[derive(Clone, Copy, Debug)]
+enum DrainCause {
+    /// A drain was asked for: each Run waits for its declared Effects'
+    /// bodies whose owners still hold, never past `effects_by`.
+    Asked { effects_by: Instant },
+    /// A part every Run shares panicked (ADR 0148): each Run stops at
+    /// once, its report carrying the warning `engine_panicked`.
+    Panic,
+}
+
 /// What the registry is asked. The channel's blocks hold 32 commands
 /// each, of the largest one's size, so the two that carry a Run's whole
 /// start or report box it: each is sent once per Run. A command that ends
@@ -1110,7 +1203,7 @@ enum Command {
     ),
     Abort(
         RunId,
-        StoppedBy,
+        Aborter,
         Forwarded,
         Option<RawMark>,
         oneshot::Sender<Result<Waiting, RunError>>,
@@ -1163,7 +1256,10 @@ enum Command {
     Index(oneshot::Sender<RunIndex>),
     Discard(RunId, oneshot::Sender<Result<(), RunError>>),
     Discarded(Box<Erased>, oneshot::Sender<Result<(), RunError>>),
-    Drain(Cause, oneshot::Sender<Vec<watch::Receiver<Option<Ended>>>>),
+    Drain(
+        DrainCause,
+        oneshot::Sender<Vec<watch::Receiver<Option<Ended>>>>,
+    ),
     Storage(Arc<StorageSample>),
     StorageFailed(PathBuf),
     LastResort(LastResort),
@@ -1259,6 +1355,42 @@ pub enum Forwarded {
     Yes,
 }
 
+/// Who aborts a Run, and whom a person's Client acts for (ADRs 0031 and
+/// 0113): the abort's stop reason, which the calls it cancels name.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Aborter {
+    by: StoppedBy,
+    person: Option<String>,
+}
+
+impl Aborter {
+    /// `by`, naming no person.
+    pub fn by(by: StoppedBy) -> Self {
+        Self { by, person: None }
+    }
+
+    /// A person, through a Client that acts for `person`.
+    pub fn person(person: String) -> Self {
+        Self {
+            by: StoppedBy::Person,
+            person: Some(person),
+        }
+    }
+
+    /// Who aborts.
+    pub fn stopped_by(&self) -> StoppedBy {
+        self.by
+    }
+
+    /// The abort's stop reason.
+    pub fn reason(&self) -> StopReason {
+        StopReason::Abort {
+            by: self.by,
+            person: self.person.clone(),
+        }
+    }
+}
+
 /// The Connection of a Daemon a Run belongs to (ADR 0078): its end stops
 /// the Runs it started.
 pub(crate) type ConnectionId = u64;
@@ -1285,6 +1417,8 @@ pub struct Runs {
     /// The owner of the registry's own task, whose panic stops the engine
     /// at once (ADR 0148).
     registry: Arc<TaskOwner>,
+    /// How many Runs are live, as the registry last said.
+    live: watch::Receiver<usize>,
 }
 
 /// The composition's Clean-up rules, and the engine's Product version, the
@@ -1354,6 +1488,9 @@ struct Shared {
     files: RunFiles,
     /// Its Run trace, whose one writer holds its files (ADR 0140's E5).
     trace: run_trace::RunTrace,
+    /// Its send window, which its commands mark before they go out and
+    /// its safe point waits for (ADRs 0106 and 0145).
+    send_window: RunSendWindow,
 }
 
 /// The Run trace of `run`, whose one writer every entry of the Run goes
@@ -1402,6 +1539,13 @@ pub fn warnings(run: &Run) -> &ReportWarnings {
 /// it.
 pub fn end(run: &Run) -> &RunEnd {
     &run.shared.end
+}
+
+/// The send window of `run`, which a function takes in place of the
+/// handle to mark its declared Effects sent before a command goes out
+/// (ADRs 0106 and 0145): `Run` gains no other method for it.
+pub fn send_window(run: &Run) -> &RunSendWindow {
+    &run.shared.send_window
 }
 
 /// The part of the Resource governor of `run`, its share and the
@@ -1509,6 +1653,33 @@ impl Run {
     /// 0050).
     pub fn metrics(&self) -> &Metrics {
         self.identity.metrics()
+    }
+
+    /// Marks sent, synced, each of its declared Effects' bodies that runs
+    /// in the attempt `lease` names, or outside any attempt when it names
+    /// none or is `None`, before `command`, which may change a page or a
+    /// site, goes out (ADR 0106's window). The attempt is read only when
+    /// the Run has a body running, and nothing is marked when the
+    /// composition passes in no window.
+    ///
+    /// # Errors
+    ///
+    /// `run_state_unavailable` when the mark could not be written:
+    /// `command` must not go out.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping its future before the write began marks nothing, and
+    /// `command` must then not go out. A drop once the write was queued
+    /// may leave the bodies `sent` in the journal while the engine still
+    /// holds them open: the next mark writes only those still `open`
+    /// there, so the first command stays the one recorded.
+    pub async fn sending(
+        &self,
+        lease: Option<&dyn LeaseCheck>,
+        command: &str,
+    ) -> Result<(), CallError> {
+        self.shared.send_window.sending(lease, command).await
     }
 
     /// Its share of the engine's Resource governor (ADR 0040), through
@@ -1890,6 +2061,7 @@ impl Runs {
         owner: &TaskOwner,
     ) -> Self {
         let (commands, mailbox) = mpsc::channel(COMMANDS);
+        let (live_count, live) = watch::channel(0);
         let readers = Arc::clone(setup.engine.owner());
         let limits = Limits {
             owner: Arc::clone(&readers),
@@ -1912,6 +2084,7 @@ impl Runs {
             metrics: setup.metrics.clone(),
             gates: setup.gates.clone(),
             registry: Arc::new(owner.part("Run registry")),
+            live,
         };
         let politeness = Arc::new(SharedPoliteness::new(SharedPolitenessParts {
             path: setup.engine.home().politeness_file(),
@@ -1932,6 +2105,7 @@ impl Runs {
             itself: Arc::clone(&runs.registry),
             readers,
             live: BTreeMap::new(),
+            live_count,
             ended: EndedRuns::new(),
             runs: runs.downgrade(),
             limits: Arc::clone(&runs.limits),
@@ -2269,7 +2443,7 @@ impl Runs {
     pub async fn abort(
         &self,
         run_id: RunId,
-        by: StoppedBy,
+        by: Aborter,
         forwarded: Forwarded,
     ) -> Result<RunReport, RunError> {
         let (answer, answered) = oneshot::channel();
@@ -2432,8 +2606,11 @@ impl Runs {
     /// given, `InUse` when another engine writes it, `Format` for a state
     /// of a version this engine cannot read, `BoundToMachine` for a Run
     /// bound to another machine, `NotInProduct` for a Run that needs a
-    /// Product this engine is not, `WriteFailed` when the Checkpoint cannot
-    /// be made its run file, `Unavailable` when its state cannot be read.
+    /// Product this engine is not, `Behind` for a Checkpoint behind the
+    /// Run's run file here when the resume does not roll back,
+    /// `WriteFailed` when the Checkpoint cannot be made its run file,
+    /// `Unavailable` when its state cannot be read or a roll-back cannot
+    /// be recorded in the Audit log.
     ///
     /// # Cancel safety
     ///
@@ -2520,7 +2697,7 @@ impl Runs {
         self.commands
             .send(Command::StoredKey(
                 resume.run_id.clone(),
-                resume.checkpoint.clone(),
+                resume.checkpoint.as_ref().map(|from| from.path.clone()),
                 answer,
             ))
             .await
@@ -2593,9 +2770,11 @@ impl Runs {
         answered.await.map_err(|_| RunError::Stopped)
     }
 
-    /// Keeps what `source` reads as an Export of the Run `run_id` (ADRs
-    /// 0103, 0116 and 0122): written whole into its folder's `exports/`,
-    /// named by its SHA-256, through a hidden temporary file, synced, then
+    /// Keeps what `source` reads as an Export of the Run `run_id`, written
+    /// from its state under the run epoch `run_epoch` (ADRs 0003, 0103,
+    /// 0116 and 0122): written whole into its folder's
+    /// `exports/<run_epoch>/`, named by its SHA-256, through a hidden
+    /// temporary file, synced, then
     /// renamed, so a failed write leaves no unfinished file. No run state
     /// records it, so a Run that ended keeps one too. While the Run
     /// folder's filesystem is at the `critical` storage level, as read now,
@@ -2610,7 +2789,12 @@ impl Runs {
     ///
     /// Dropping the future may leave a hidden temporary file beside the
     /// Exports, never a partial one.
-    pub async fn keep_export<R>(&self, run_id: RunId, source: R) -> Result<KeptExport, KeepError>
+    pub async fn keep_export<R>(
+        &self,
+        run_id: RunId,
+        run_epoch: u64,
+        source: R,
+    ) -> Result<KeptExport, KeepError>
     where
         R: std::io::Read + Send + 'static,
     {
@@ -2643,7 +2827,7 @@ impl Runs {
         }
         let mut source = source;
         let (sha256, size) = owner
-            .blocking(move || run_files::store_export(&folder, &mut source))
+            .blocking(move || run_files::store_export(&folder, run_epoch, &mut source))
             .await
             .map_err(|error| KeepError::io(&error, "write the Export in the Run's folder"))?;
         Ok(KeptExport { sha256, size })
@@ -2967,6 +3151,18 @@ impl Runs {
         answered.await.unwrap_or(0)
     }
 
+    /// How many Runs are live, told each time the registry answered a
+    /// command that changed it.
+    pub(crate) fn live_changes(&self) -> watch::Receiver<usize> {
+        self.live.clone()
+    }
+
+    /// Whether the engine found the Run index's lowest minor raised past
+    /// itself (ADR 0098), told once it does.
+    pub(crate) fn locked_out_of_the_index(&self) -> watch::Receiver<bool> {
+        self.engine.run_index().locked_out()
+    }
+
     /// Whether the engine drains and where its run folders go, answered by
     /// the registry itself: `None` once it stopped or stopped answering.
     ///
@@ -2983,28 +3179,32 @@ impl Runs {
     /// or resuming, and each live Run stops at its next safe point with a
     /// Checkpoint, `stopped` and resumable by its Run ID; answers once the
     /// engine takes no Run, with the [`Draining`] Runs, whose ends
-    /// [`Draining::ended`] waits for.
+    /// [`Draining::ended`] waits for. Each Run first waits for its declared
+    /// Effects' bodies whose owners still hold, at most its `timeout.close`
+    /// and never past `effects_by` (ADR 0106), on a task of its own, so the
+    /// registry answers meanwhile.
     ///
     /// # Cancel safety
     ///
     /// Dropping the future after it was sent still drains: the Runs stop,
     /// and only the answer is lost.
-    pub(crate) async fn drain(&self) -> Draining {
-        self.drain_for(Cause::Asked).await
+    pub(crate) async fn drain(&self, effects_by: Instant) -> Draining {
+        self.drain_for(DrainCause::Asked { effects_by }).await
     }
 
     /// Drains the engine as [`Runs::drain`] does, because a part every Run
     /// shares panicked (ADR 0148): each Run's report carries the warning
-    /// `engine_panicked`.
+    /// `engine_panicked`, and each Run stops at once, its declared
+    /// Effects' bodies still running cut short.
     ///
     /// # Cancel safety
     ///
     /// As [`Runs::drain`]'s.
     pub(crate) async fn drain_on_panic(&self) -> Draining {
-        self.drain_for(Cause::Panic).await
+        self.drain_for(DrainCause::Panic).await
     }
 
-    async fn drain_for(&self, cause: Cause) -> Draining {
+    async fn drain_for(&self, cause: DrainCause) -> Draining {
         let (answer, answered) = oneshot::channel();
         if self
             .commands
@@ -3389,6 +3589,8 @@ struct Registry {
     /// Where readers of run state run their blocking reads.
     readers: Arc<TaskOwner>,
     live: BTreeMap<RunId, Live>,
+    /// How many Runs `live` holds, told once each command is answered.
+    live_count: watch::Sender<usize>,
     /// What it keeps of the Runs this engine ended: nothing of most
     /// (`runs::ended`).
     ended: EndedRuns,
@@ -3476,6 +3678,43 @@ async fn joined_weakened(
     Ok(weakened)
 }
 
+/// What a resume's `settings` change of the Run whose run file `recorded`
+/// was read and whose state is `state`: what its report lists as
+/// weakened, as [`joined_weakened`] says, and the settings that differ
+/// from those it ran with, recorded in `state` as those it runs with from
+/// the resume on when any differs (ADR 0102).
+async fn applied(
+    recorded: &folder::Recorded,
+    settings: Option<&RunSettings>,
+    state: &RunState,
+) -> Result<(Vec<WeakenedSetting>, Vec<ChangedSetting>), RunStateError> {
+    let weakened = joined_weakened(&recorded.weakened, settings, state).await?;
+    let resumed = ChangeableSettings::of(settings);
+    let changed = resumed.changed(&recorded.setting_digests, state.epoch());
+    if !changed.is_empty() {
+        let kept = resumed.kept();
+        state
+            .write(move |connection| folder::record_setting_digests(connection, &kept))
+            .await?;
+    }
+    Ok((weakened, changed))
+}
+
+/// Records each of `changed`, the settings a resume changed, in `run`'s
+/// Run trace (ADR 0102). A line that cannot be written is logged and the
+/// resume goes on: the run file already runs the Run under the changes.
+async fn trace_changes(run: &Run, changed: &[ChangedSetting]) {
+    for change in changed {
+        if let Err(error) = run.shared.trace.setting_changed(change).await {
+            tracing::warn!(
+                %error,
+                key = change.key,
+                "a changed setting cannot be written to the Run trace"
+            );
+        }
+    }
+}
+
 impl Registry {
     async fn run(
         mut self,
@@ -3488,6 +3727,7 @@ impl Registry {
         // writes are done.
         startup.await;
         self.reclaim().await;
+        self.rebuild_orphaned_rows().await;
         self.follow_governor();
         let mut queues = Queues::new();
         loop {
@@ -3513,6 +3753,9 @@ impl Registry {
             if let Some(command) = self.unless_discarding(command) {
                 self.ending_line(&command);
                 self.answer(command).await;
+                let live = self.live.len();
+                self.live_count
+                    .send_if_modified(|count| std::mem::replace(count, live) != live);
             }
             for run_id in self.turned_busy.drain(..) {
                 queues.busy(&run_id);
@@ -3862,14 +4105,38 @@ impl Registry {
 
     /// Takes no Run from now on, stops each live Run for the drain with a
     /// Checkpoint, warned first when `cause` is a panic, and answers the
-    /// waits for their reports.
-    async fn drain(&mut self, cause: Cause) -> Vec<watch::Receiver<Option<Ended>>> {
+    /// waits for their reports. Asked to drain, each Run is first asked to
+    /// stop at its next safe point, so it admits nothing new, and waits on
+    /// a task of its own for its declared Effects' bodies whose owners
+    /// still hold, never past `effects_by`, then asks its end.
+    async fn drain(&mut self, cause: DrainCause) -> Vec<watch::Receiver<Option<Ended>>> {
         self.draining = true;
         let ids: Vec<RunId> = self.live.keys().cloned().collect();
         let mut reports = Vec::new();
         for run_id in ids {
-            if cause == Cause::Panic {
-                self.warn_engine_panicked(&run_id).await;
+            let effects_by = match cause {
+                DrainCause::Asked { effects_by } => Some(effects_by),
+                DrainCause::Panic => {
+                    self.warn_engine_panicked(&run_id).await;
+                    None
+                }
+            };
+            let waiting = effects_by.and_then(|by| {
+                let live = self.live.get(&run_id)?;
+                Some((live.run.clone()?, live.report.subscribe(), by))
+            });
+            if let Some((run, report, by)) = waiting {
+                let registry = self.runs.clone();
+                stop_at_safe_point(&run, StopReason::Drain);
+                self.for_one_run.spawn(async move {
+                    run.shared.send_window.settle(Some(by)).await;
+                    if let Some(registry) = registry.upgrade() {
+                        let end = End::Stopped(StopReason::Drain);
+                        let _ = registry.send(Command::End(run_id, end)).await;
+                    }
+                });
+                reports.push(report);
+                continue;
             }
             // A live Run's end is decided here, with no disk work beside.
             let stopped = self.stop(&run_id, StopReason::Drain, None).await;
@@ -3885,9 +4152,7 @@ impl Registry {
     async fn stop_by_client(&mut self, ids: Vec<RunId>) -> Vec<watch::Receiver<Option<Ended>>> {
         let mut reports = Vec::new();
         for run_id in ids {
-            let end = End::Stopped(StopReason::Abort {
-                by: StoppedBy::Client,
-            });
+            let end = End::Stopped(Aborter::by(StoppedBy::Client).reason());
             if let Ok(report) = self.end_or_report(&run_id, end).await.resolve().await {
                 reports.push(report);
             }
@@ -3942,6 +4207,31 @@ impl Registry {
             .await;
         if let Err(error) = reclaimed {
             tracing::warn!(%error, "the Usage ledger could not be opened to reclaim the Slices of dead runs");
+        }
+    }
+
+    /// Rebuilds, as a Daemon starts, the Run index rows that an engine
+    /// left owned with no writer holding their Runs, such as those a
+    /// Daemon locked out of the index ended (ADRs 0031 and 0098).
+    async fn rebuild_orphaned_rows(&self) {
+        if !matches!(self.setup.reached_at, Some(RunOwner::Daemon(_))) {
+            return;
+        }
+        let home = self.setup.engine.home().clone();
+        let version = self.setup.version.clone();
+        let rebuilt = self
+            .owner
+            .blocking(move || reindex::orphaned(&home, &version))
+            .await;
+        match rebuilt {
+            Ok(0) => {}
+            Ok(rebuilt) => tracing::info!(
+                rebuilt,
+                "the Run index rows no live engine owns were rebuilt"
+            ),
+            Err(error) => {
+                tracing::warn!(%error, "the Run index rows no live engine owns were not rebuilt; `runs reindex` rebuilds them");
+            }
         }
     }
 
@@ -4251,6 +4541,7 @@ impl Registry {
             }),
             clean_up_digest: start.clean_up_digest.clone(),
             fixed_settings: FixedSettings::of(start.settings.as_ref(), &self.setup.masks).kept(),
+            setting_digests: ChangeableSettings::of(start.settings.as_ref()).kept(),
         }
     }
 
@@ -4470,7 +4761,6 @@ impl Registry {
             span: tracing::info_span!(parent: None, "run", run_id = %run_id),
             owner: Arc::clone(&owner),
         });
-        let registry = self.runs.clone();
         let charging = RunCharging::new(ChargingParts {
             charging: self.limits.charging(
                 run_id,
@@ -4483,14 +4773,7 @@ impl Registry {
             state: state.clone(),
             stop: stop.clone(),
             journal,
-            storage_failed: Box::new(move |folder| {
-                let registry = registry.clone();
-                Box::pin(async move {
-                    if let Some(commands) = registry.upgrade() {
-                        let _ = commands.send(Command::StorageFailed(folder)).await;
-                    }
-                })
-            }),
+            storage_failed: report_storage_failed(self.runs.clone()),
         });
         let runs = self.handle(connection);
         let (let_finish, finish) = watch::channel(false);
@@ -4517,10 +4800,20 @@ impl Registry {
             self.setup.governor.storage(),
             state.clone(),
         );
+        let send_window = RunSendWindow::new(
+            self.setup.send_window.clone(),
+            identity.clone(),
+            state.clone(),
+        );
         let run = Run {
             shared: Arc::new(Shared {
                 stop,
-                end: RunEnd::new(run_id.clone(), runs.commands.clone(), finish),
+                end: RunEnd::new(
+                    run_id.clone(),
+                    runs.commands.clone(),
+                    finish,
+                    send_window.clone(),
+                ),
                 charging,
                 keys,
                 warnings,
@@ -4531,6 +4824,7 @@ impl Registry {
                 files,
                 trace,
                 entropy: RunEntropy::new(self.setup.entropy.fork()),
+                send_window,
             }),
             identity,
             state,
@@ -4568,6 +4862,7 @@ impl Registry {
             metrics: self.setup.metrics.clone(),
             gates: self.setup.gates.clone(),
             registry: Arc::clone(&self.itself),
+            live: self.live_count.subscribe(),
         }
     }
 
@@ -4762,7 +5057,7 @@ impl Registry {
     ) -> Reply<Result<Waiting, RunError>> {
         if let Some(live) = self.live.get(run_id) {
             if let Some(run) = &live.run {
-                stop_at_safe_point(run, StopReason::Abort { by });
+                stop_at_safe_point(run, Aborter::by(by).reason());
             }
             return Reply::Now(Ok(Waiting::Report(live.report.subscribe())));
         }
@@ -4771,7 +5066,8 @@ impl Registry {
                 .ended_report(run_id)
                 .map(|report| report.map(Waiting::Report));
         }
-        self.abort(run_id, by, Forwarded::No, raw).await
+        self.abort(run_id, Aborter::by(by), Forwarded::No, raw)
+            .await
     }
 
     /// Stops a live Run of this engine's, answers the report of one it
@@ -4783,13 +5079,13 @@ impl Registry {
     async fn abort(
         &mut self,
         run_id: &RunId,
-        by: StoppedBy,
+        by: Aborter,
         forwarded: Forwarded,
         raw: Option<RawMark>,
     ) -> Reply<Result<Waiting, RunError>> {
         if self.live.contains_key(run_id) || self.ended.contains(run_id) {
             return self
-                .end_or_report(run_id, End::Stopped(StopReason::Abort { by }))
+                .end_or_report(run_id, End::Stopped(by.reason()))
                 .await
                 .map(|report| report.map(Waiting::Report));
         }
@@ -5063,7 +5359,7 @@ async fn announce_stop(events: &Events, run_id: &RunId, cause: &StopReason) {
             .publish(&RUN_MIGRATING, Some(run_id.as_str()), &migrating)
             .await;
     }
-    if let StopReason::Abort { by } = cause {
+    if let StopReason::Abort { by, .. } = cause {
         let aborting = RunAborting {
             run_id: run_id.clone(),
             by: *by,
@@ -5415,7 +5711,8 @@ struct Closing {
 }
 
 impl Closing {
-    /// Stops the Run's tasks, gives back its Slices, writes its end into
+    /// Stops the Run's tasks, judges each declared Effect's body still
+    /// running as cut short, gives back its Slices, writes its end into
     /// run state with its report, assembled there (ADR 0102), as its
     /// writer's last write, a stop's Checkpoint after it, waits for its
     /// writer and frees its lock. An end whose commit meets a full disk or
@@ -5449,6 +5746,9 @@ impl Closing {
             run.shared.stop.at_once(reason.clone());
         }
         run.owner.stop().await;
+        // Each declared Effect's body still running is cut short now, its
+        // judgement in the report (ADR 0106).
+        run.shared.send_window.settle(Some(clock.now())).await;
         let (stop_reason, error, finished) = match end {
             End::Finished(reasons) => (None, None, reasons),
             End::Failed(error) => (None, Some(error), Vec::new()),
@@ -5548,6 +5848,7 @@ mod progress;
 mod reader;
 mod reindex;
 mod report;
+mod send_window;
 mod slices;
 mod takeover;
 mod writer;
@@ -5579,6 +5880,20 @@ fn stop_on_failures(
     identity
         .owner()
         .spawn(watch.instrument(identity.span().clone()));
+}
+
+/// What a Run's charging does when the Usage ledger in a folder cannot be
+/// stored: it sends [`Command::StorageFailed`] to the registry's loop
+/// through `registry`, while the loop runs.
+fn report_storage_failed(registry: mpsc::WeakSender<Command>) -> StorageFailed {
+    Box::new(move |folder| {
+        let registry = registry.clone();
+        Box::pin(async move {
+            if let Some(commands) = registry.upgrade() {
+                let _ = commands.send(Command::StorageFailed(folder)).await;
+            }
+        })
+    })
 }
 
 /// What the Politeness of the Run of `identity` does as it opens the

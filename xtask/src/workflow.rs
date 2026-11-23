@@ -1,5 +1,6 @@
 //! GitHub Actions workflow files, parsed into the parts the checks read:
-//! each workflow's triggers and each job's runner, condition, matrix and steps.
+//! each workflow's triggers and top-level permissions, and each job's runner,
+//! condition, matrix, reusable workflow and steps.
 #![expect(
     clippy::disallowed_methods,
     reason = "xtask is synchronous; the blocking-fs ban targets async crates (STYLE.md)"
@@ -27,12 +28,29 @@ pub(crate) struct Workflow {
     /// The file name under `.github/workflows/`, such as `pull-request.yml`.
     pub(crate) file: String,
     pub(crate) events: BTreeSet<String>,
+    /// The workflow's top-level `permissions:`.
+    pub(crate) permissions: Permissions,
     pub(crate) jobs: Vec<Job>,
+}
+
+/// A workflow's top-level `permissions:`, which every job's token starts from.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Permissions {
+    /// None written, so the token gets the repository's default permissions.
+    Default,
+    /// `permissions: {}`: no permission, each job granting its own.
+    Empty,
+    /// Any other value, such as a scope's grant or `read-all`.
+    Granted,
 }
 
 pub(crate) struct Job {
     pub(crate) id: String,
+    /// The job's own `if:`, as written.
     pub(crate) condition: Option<String>,
+    /// The reusable workflow a calling job runs, such as
+    /// `./.github/workflows/<file>` or `<owner>/<repo>/<path>@<ref>`.
+    pub(crate) uses: Option<String>,
     pub(crate) runner: Runner,
     /// The images of its job container and its service containers, as written.
     pub(crate) images: Vec<String>,
@@ -57,7 +75,7 @@ pub(crate) enum Runner {
     None,
     /// Every label set the job may run on (one per matrix value).
     Labels(Vec<Vec<String>>),
-    /// A runner group, which may hold self-hosted runners.
+    /// A runner group, which holds self-hosted or larger runners.
     Group,
     /// An expression this check cannot resolve.
     Unresolved,
@@ -104,19 +122,30 @@ fn parse(file: String, document: &Value) -> Result<Workflow> {
         Some(Value::Object(events)) => events.keys().cloned().collect(),
         _ => bail!("the workflow has no `on` triggers"),
     };
+    let permissions = match document.get("permissions") {
+        None => Permissions::Default,
+        Some(Value::Object(scopes)) if scopes.is_empty() => Permissions::Empty,
+        Some(_) => Permissions::Granted,
+    };
     let mut jobs = Vec::new();
     if let Some(Value::Object(entries)) = document.get("jobs") {
         for (id, job) in entries {
             jobs.push(Job {
                 id: id.clone(),
                 condition: job.get("if").map(scalar).transpose()?,
+                uses: job.get("uses").map(scalar).transpose()?,
                 runner: runner(job)?,
                 images: images(job)?,
                 steps: steps(job)?,
             });
         }
     }
-    Ok(Workflow { file, events, jobs })
+    Ok(Workflow {
+        file,
+        events,
+        permissions,
+        jobs,
+    })
 }
 
 fn steps(job: &Value) -> Result<Vec<Step>> {

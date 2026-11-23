@@ -8,8 +8,14 @@
 //! raised as `effect_uncertain` until a person answers, and the Run report
 //! lists it; and a power cut before the sent mark runs the body again,
 //! between the mark and the close leaves it uncertain, and after the close
-//! answers the journal. The window that marks what is sent, and a person's
-//! answer, are the test's operations on the engine's shared [`Effects`].
+//! answers the journal. A Run stopping at its safe point, for its
+//! `timeout.run` or a Daemon's drain, waits for a running body's
+//! `effect.close`, at most its `timeout.close` and within the drain's
+//! grace, and leaves one still running uncertain. The window that marks
+//! what is sent, and a person's answer, are the test's operations on the
+//! engine's shared [`Effects`].
+
+use std::time::Duration;
 
 use goodfetch_protocol::catalog::{
     Operation, OperationClass, OperationKind, PROTOCOL_VERSION, Product, Reach, Stability,
@@ -17,21 +23,25 @@ use goodfetch_protocol::catalog::{
 };
 use goodfetch_protocol::jsonrpc::ProtocolFailure;
 use goodfetch_protocol::run::RunId;
-use goodfetch_test_support::{CrashKind, CrashVfs, TestEnv};
+use goodfetch_test_support::{CrashKind, CrashVfs, IoFault, TestEnv};
 use rstest::rstest;
 use serde_json::{Value, json};
 use tokio::io::{AsyncBufReadExt as _, BufReader};
+use tokio_util::sync::CancellationToken;
 
 use super::consent_walls::audit_entries;
-use super::run::call;
+use super::daemon::{daemon, daemon_within, draining, opened, sdk_hello};
+use super::run::{call, index_row, run_folder, run_row};
 use super::{Client, Dependencies, attached_with, dependencies, hello, version};
 use crate::call_error::CallError;
 use crate::composition::{CallContext, Composition, Contribution, Handler};
+use crate::daemon::{DaemonOptions, Drain};
 use crate::effect::{Effects, Reconciled, Reconciliation};
 use crate::engine::Engine;
 use crate::product::{Channel, Identity};
 use crate::run_state::RunStateOptions;
 use crate::runs;
+use crate::tasks::BlockingPolicy;
 use crate::transport::{self, Network};
 
 /// The window's mark: a command that may change a page or a site goes out
@@ -64,28 +74,20 @@ fn failed(error: impl std::fmt::Display) -> CallError {
     CallError::protocol(ProtocolFailure::InternalError, error.to_string())
 }
 
-/// The test's operations on `effects`.
+/// The test's operations on `effects`: the window's mark through the Run's
+/// own, and a person's answer.
 fn window(effects: &Effects) -> Contribution {
-    let sending = effects.clone();
     let reconciling = effects.clone();
     Contribution::new("test-effect")
         .with_handler(Handler::new(
             &SEND,
-            move |params: Value, context: CallContext| {
-                let effects = sending.clone();
-                async move {
-                    let run_id = RunId::parse(params["run_id"].as_str().unwrap()).unwrap();
-                    let run = context.runs().live(run_id).await.map_err(failed)?;
-                    effects
-                        .sending(
-                            (runs::identity(&run), runs::state(&run)),
-                            None,
-                            params["command"].as_str().unwrap(),
-                        )
-                        .await
-                        .map_err(failed)?;
-                    Ok::<Value, CallError>(json!({ "marked": true }))
-                }
+            |params: Value, context: CallContext| async move {
+                let run_id = RunId::parse(params["run_id"].as_str().unwrap()).unwrap();
+                let run = context.runs().live(run_id).await.map_err(failed)?;
+                runs::send_window(&run)
+                    .sending(None, params["command"].as_str().unwrap())
+                    .await?;
+                Ok::<Value, CallError>(json!({ "marked": true }))
             },
         ))
         .with_handler(Handler::new(
@@ -183,8 +185,19 @@ impl Calls {
 
 /// Opens a Connection with `hello`, then `first` starts or resumes the Run
 /// `run_id` with `params` added.
-async fn begun(mut client: Client, first: &str, run_id: &str, params: Value) -> Calls {
-    client.send(&[hello("collie", "0.1")]).await;
+async fn begun(client: Client, first: &str, run_id: &str, params: Value) -> Calls {
+    begun_with(client, hello("collie", "0.1"), first, run_id, params).await
+}
+
+/// [`begun`], the Connection opened with `opening` as its `hello`.
+async fn begun_with(
+    mut client: Client,
+    opening: Value,
+    first: &str,
+    run_id: &str,
+    params: Value,
+) -> Calls {
+    client.send(&[opening]).await;
     client.next().await.unwrap();
     let mut calls = Calls { client, next: 0 };
     let mut start = json!({ "run_id": run_id });
@@ -258,6 +271,24 @@ where
         &collie(),
         || dependencies(env),
         |client| async move { talk(begun(client, "run.start", &run_id, params).await).await },
+    )
+}
+
+/// [`started`], the Connection's `hello` setting `timeout` (ADR 0083).
+fn started_timed<F, Fut, T>(env: &TestEnv, run_id: &str, timeout: &Value, talk: F) -> T
+where
+    F: FnOnce(Calls) -> Fut,
+    Fut: Future<Output = T>,
+{
+    let run_id = run_id.to_owned();
+    let mut timed = hello("collie", "0.1");
+    timed["params"]["settings"] = json!({ "timeout": timeout });
+    attached_with(
+        &collie(),
+        || dependencies(env),
+        |client| async move {
+            talk(begun_with(client, timed, "run.start", &run_id, json!({})).await).await
+        },
     )
 }
 
@@ -504,12 +535,14 @@ fn a_body_that_failed_after_a_send_leaves_its_effect_uncertain(
 
 /// A value larger than `effect.output.max_size` is `effect_output_invalid`
 /// when nothing was sent, and leaves the Effect uncertain after a send.
-/// Covers: error:effect_output_invalid, setting:effect.output.max_size
+/// Covers: setting:effect.output.max_size
 #[rstest]
+/// Covers: error:effect_output_invalid
 #[case::nothing_sent(
     false,
     json!([null, null, "effect_output_invalid", ["export", 25, 16], "perform", null])
 )]
+/// Covers: error:effect_uncertain
 #[case::after_a_send(
     true,
     json!(["uncertain", "effect_output_invalid", null, [null, null, null], null, "effect_uncertain"])
@@ -548,10 +581,10 @@ fn a_value_too_large_for_the_journal_is_not_kept(#[case] sent: bool, #[case] exp
 /// Audit log, "it happened" answers `reconciled` and "it did not happen"
 /// runs the body again, both off the Run report, while "leave uncertain"
 /// changes nothing.
-/// Covers: error:effect_uncertain
 #[rstest]
 #[case::happened("happened", json!("reconciled"), json!(null), json!("verified"))]
 #[case::did_not_happen("did_not_happen", json!("perform"), json!(null), json!("verified"))]
+/// Covers: error:effect_uncertain
 #[case::leave_uncertain("leave_uncertain", json!(null), json!(1), json!("needs_review"))]
 fn a_persons_answer_reconciles_an_uncertain_effect(
     #[case] answer: &str,
@@ -649,9 +682,10 @@ fn an_answer_about_an_effect_that_is_not_uncertain_does_nothing() {
 /// mark the body runs again, between the mark and the close the Effect is
 /// uncertain, and after the close the journal answers. The mark is synced
 /// before the command goes out, and the close is synced before it answers.
-/// Covers: error:effect_uncertain, operation:effect.open
+/// Covers: operation:effect.open
 #[rstest]
 #[case::before_the_mark(0, json!("perform"), json!(null))]
+/// Covers: error:effect_uncertain
 #[case::between_the_mark_and_the_close(1, json!(null), json!("effect_uncertain"))]
 #[case::after_the_close(2, json!("journal"), json!(null))]
 fn a_power_cut_leaves_each_effect_as_its_last_synced_step(
@@ -684,5 +718,257 @@ fn a_power_cut_leaves_each_effect_as_its_last_synced_step(
         (&again["result"]["answer"], code(&again)),
         (&answer, &refused),
         "{again}"
+    );
+}
+
+/// A sent mark the Run's state cannot write answers `run_state_unavailable`
+/// in place of what the caller does after the mark, which stands for the
+/// command the mark guards.
+/// Covers: error:run_state_unavailable
+#[test]
+fn a_mark_the_run_state_cannot_write_answers_run_state_unavailable_in_its_commands_place() {
+    let env = TestEnv::new();
+    let vfs = CrashVfs::register(&env.unique_name("effect-mark-full"), env.seed()).unwrap();
+    let faulted = vfs.clone();
+    let refused = killed(
+        || on(&env, Some(&vfs)),
+        "full",
+        None,
+        |mut calls| async move {
+            calls.open("full", "order").await;
+            faulted.fail_at(faulted.operations(), IoFault::Full);
+            calls
+                .call(
+                    "test.effect_send",
+                    json!({ "run_id": "full", "command": "locator.click" }),
+                )
+                .await
+        },
+    );
+
+    assert_eq!(
+        (code(&refused), refused.get("result")),
+        (&json!("run_state_unavailable"), None),
+        "{refused}"
+    );
+}
+
+/// A Run its program drives, stopped by its `timeout.run` while an
+/// Effect's body runs, waits at its safe point for the body's
+/// `effect.close`, which is judged, then stops `incomplete` for the
+/// timeout with nothing uncertain.
+/// Covers: story:3-52, setting:timeout.run
+#[test]
+fn a_run_past_its_run_timeout_waits_for_its_running_effect_to_close() {
+    let (closed, report) = started_timed(
+        &TestEnv::new(),
+        "timed",
+        &json!({ "run": 60_000 }),
+        |mut calls| async move {
+            let opened = calls.open("timed", "ship").await;
+            calls.send("timed", "page.goto").await;
+            tokio::time::sleep(Duration::from_secs(61)).await;
+            let closed = calls
+                .close(
+                    "timed",
+                    &opened,
+                    json!({ "ended": "returned", "output": 1 }),
+                )
+                .await;
+            let report = calls.call("run.finish", json!({ "run_id": "timed" })).await;
+            (closed, report)
+        },
+    );
+
+    let report = &report["result"];
+    assert_eq!(
+        (
+            &closed["result"]["judged"],
+            &report["lifecycle"],
+            &report["completeness"],
+            &report["stop_reason"],
+            &report["uncertain_effects"],
+        ),
+        (
+            &json!("done"),
+            &json!("stopped"),
+            &json!("incomplete"),
+            &json!({ "kind": "timeout" }),
+            &Value::Null,
+        ),
+        "{closed} {report}"
+    );
+}
+
+/// A body still running once its Run's `timeout.close` passed at the safe
+/// point is cut short: the Run stops then, its Effect uncertain, listed in
+/// its report and never run again.
+/// Covers: story:3-52, setting:timeout.close, error:effect_uncertain
+#[test]
+fn a_body_still_running_after_timeout_close_at_the_safe_point_is_left_uncertain() {
+    let env = TestEnv::new();
+    let listed = &env;
+    let (waiting, report) = started_timed(
+        &env,
+        "cut",
+        &json!({ "run": 60_000, "close": 5_000 }),
+        |mut calls| async move {
+            calls.open("cut", "ship").await;
+            calls.send("cut", "page.goto").await;
+            tokio::time::sleep(Duration::from_secs(64)).await;
+            let waiting = index_row(listed, "cut")["lifecycle"].clone();
+            tokio::time::sleep(Duration::from_secs(2)).await;
+            let report = calls.call("run.finish", json!({ "run_id": "cut" })).await;
+            (waiting, report)
+        },
+    );
+
+    let again = declared_again(|| on(&env, None), "cut", "ship");
+
+    let report = &report["result"];
+    let effect = &report["uncertain_effects"][0];
+    assert_eq!(
+        (
+            waiting,
+            &report["lifecycle"],
+            &report["stop_reason"],
+            &effect["key"],
+            &effect["reason"],
+            &effect["first_command"],
+            code(&again),
+        ),
+        (
+            json!("running"),
+            &json!("stopped"),
+            &json!({ "kind": "timeout" }),
+            &json!("ship"),
+            &json!("interrupted"),
+            &json!("page.goto"),
+            &json!("effect_uncertain"),
+        ),
+        "{report} {again}"
+    );
+}
+
+/// A drained Daemon's Run waits for its running body's `effect.close`
+/// before it stops for the drain (ADR 0049).
+/// Covers: story:3-52, story:3-99
+#[test]
+fn a_drain_waits_for_a_running_effect_to_close() {
+    let env = TestEnv::new();
+    let asked = CancellationToken::new();
+
+    let (end, closed) = daemon(&collie(), &env, draining(&asked), |dialer| async move {
+        let mut calls = Calls {
+            client: opened(&dialer, sdk_hello()).await,
+            next: 0,
+        };
+        calls
+            .call("run.start", json!({ "run_id": "drained" }))
+            .await;
+        let opened = calls.open("drained", "ship").await;
+        calls.send("drained", "page.goto").await;
+        asked.cancel();
+        tokio::time::sleep(Duration::from_secs(2)).await;
+        let closed = calls
+            .close(
+                "drained",
+                &opened,
+                json!({ "ended": "returned", "output": 1 }),
+            )
+            .await;
+        while calls.client.next().await.is_some() {}
+        closed
+    });
+
+    let stopped = run_row(&run_folder(&env, "drained"));
+    assert_eq!(
+        (
+            format!("{end:?}"),
+            &closed["result"]["judged"],
+            &stopped["lifecycle"],
+            &stopped["stop_reason"],
+        ),
+        (
+            "Drained".to_owned(),
+            &json!("done"),
+            &json!("stopped"),
+            &json!({ "kind": "drain" }),
+        ),
+        "{closed}"
+    );
+}
+
+/// A drain whose grace leaves less than the Run's `timeout.close` waits
+/// for a running body only within the grace, leaving room for the Run's
+/// end: the body is cut short, the Run stops for the drain with its
+/// Effect uncertain, and the Daemon ends by its drain grace.
+/// Covers: story:3-52, story:3-99, error:effect_uncertain
+#[test]
+fn a_drain_waits_for_a_running_effect_only_within_its_grace() {
+    let env = TestEnv::new();
+    let listed = &env;
+    let asked = CancellationToken::new();
+    let grace = Duration::from_secs(10);
+    let options = DaemonOptions {
+        drain: Drain {
+            asked: Some(asked.clone()),
+            grace,
+        },
+        ..draining(&asked)
+    };
+
+    let (end, waiting) = daemon_within(
+        &collie(),
+        &env,
+        BlockingPolicy::Inline,
+        options,
+        grace,
+        |dialer| async move {
+            let mut calls = Calls {
+                client: opened(&dialer, sdk_hello()).await,
+                next: 0,
+            };
+            calls.call("run.start", json!({ "run_id": "graced" })).await;
+            calls.open("graced", "ship").await;
+            calls.send("graced", "page.goto").await;
+            asked.cancel();
+            tokio::time::sleep(Duration::from_secs(4)).await;
+            let waiting = index_row(listed, "graced")["lifecycle"].clone();
+            while calls.client.next().await.is_some() {}
+            waiting
+        },
+    );
+
+    let stopped = run_row(&run_folder(&env, "graced"));
+    let report = attached_with(
+        &collie(),
+        || dependencies(&env),
+        |mut client| async move {
+            client.send(&[hello("collie", "0.1")]).await;
+            client.next().await.unwrap();
+            call(&mut client, 1, "run.report", json!({ "run_id": "graced" })).await
+        },
+    );
+    let again = declared_again(|| on(&env, None), "graced", "ship");
+    let effect = &report["result"]["uncertain_effects"][0];
+    assert_eq!(
+        (
+            end.map(|end| format!("{end:?}")),
+            waiting,
+            &stopped["lifecycle"],
+            &stopped["stop_reason"],
+            (&effect["key"], &effect["reason"]),
+            code(&again),
+        ),
+        (
+            Some("Drained".to_owned()),
+            json!("running"),
+            &json!("stopped"),
+            &json!({ "kind": "drain" }),
+            (&json!("ship"), &json!("interrupted")),
+            &json!("effect_uncertain"),
+        ),
+        "{report} {again}"
     );
 }

@@ -1,0 +1,9 @@
+{
+  "name": "goodfetch-sdk-smoke",
+  "version": "0.0.0",
+  "private": true,
+  "description": "ADR 0069's smoke scripts, of no Product and never published.",
+  "dependencies": {
+    "@goodfetch/collie": "workspace:*"
+  }
+}

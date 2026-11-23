@@ -44,13 +44,13 @@ export class Run extends Handle {
   }
 
   /**
-   * Writes a Checkpoint of a live Run now, through SQLite's online backup, where `location` says or where the engine keeps the Run's Checkpoints, and answers it once its file is complete, with its size, digest, run epoch and journal position. A Checkpoint the engine cannot write fails with `file_write_failed` and leaves no file.
+   * Writes a Checkpoint of a live Run now, through SQLite's online backup, where the engine keeps the Run's Checkpoints, or where `location` says, a path on the engine's machine that only the catalog's caller gives, an SDK's `checkpoint()` taking none, and answers it once its file is complete, with its size, digest, run epoch and journal position. A Checkpoint the engine cannot write fails with `file_write_failed` and leaves no file.
    *
    * @experimental
    */
-  async checkpoint(options: { readonly location?: types.RunCheckpointParams["location"] | undefined } = {}): Promise<types.Checkpoint> {
+  async checkpoint(): Promise<types.Checkpoint> {
     warnExperimental("run.checkpoint");
-    return this.#host.call("run.checkpoint", defined({ runId: this.#host.id, location: options.location }), {});
+    return this.#host.call("run.checkpoint", { runId: this.#host.id }, {});
   }
 
   /**
@@ -78,7 +78,7 @@ export class Run extends Handle {
    *
    * @experimental
    */
-  async migrate(options: { readonly location?: types.RunCheckpointParams["location"] | undefined } = {}): Promise<types.RunReport> {
+  async migrate(options: { readonly location?: types.RunMigrateParams["location"] | undefined } = {}): Promise<types.RunReport> {
     warnExperimental("run.migrate");
     return this.#host.call("run.migrate", defined({ runId: this.#host.id, location: options.location }), {});
   }
@@ -440,7 +440,7 @@ export class Page extends Handle implements AsyncDisposable {
   }
 
   /**
-   * Goes back one entry in the page's history and waits for its `load` event, answering the document's response, or none when there is no entry to go back to. The back/forward cache is off, so the document always loads again (ADR 0121).
+   * Goes back one entry in the page's history and waits for its `load` event, answering the document's response. It answers none only when no document loads: for a same-document entry, or when there is no entry to go back to. The back/forward cache is off, so a document always loads again (ADR 0121).
    *
    * @experimental
    */
@@ -451,7 +451,7 @@ export class Page extends Handle implements AsyncDisposable {
   }
 
   /**
-   * Goes forward one entry in the page's history and waits for its `load` event, answering the document's response, or none when there is no entry to go forward to. The back/forward cache is off, so the document always loads again (ADR 0121).
+   * Goes forward one entry in the page's history and waits for its `load` event, answering the document's response. It answers none only when no document loads: for a same-document entry, or when there is no entry to go forward to. The back/forward cache is off, so a document always loads again (ADR 0121).
    *
    * @experimental
    */
@@ -578,7 +578,9 @@ export class Page extends Handle implements AsyncDisposable {
   /**
    * A locator (ADR 0085): what an action looks for on a page, resolved
    * again at each use, never a handle on an element. This tracer's locators
-   * are CSS selectors.
+   * are CSS selectors. Whether it reaches inside a closed shadow root
+   * depends on the browser (ADR 0121): a CSS selector reaches open roots
+   * only today.
    *
    * Built without a call (ADR 0099).
    */

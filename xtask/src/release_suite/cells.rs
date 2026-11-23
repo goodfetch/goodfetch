@@ -1,6 +1,7 @@
-//! The cells of the Release suite's private-period matrix (ADR 0108): where
-//! each runs, the Rust target it builds, the runtimes it tests (ADR 0069) and
-//! what a minute of its hosted runner counts in Linux-equivalent minutes.
+//! The cells of the Release suite's matrix (ADR 0108): the standard hosted
+//! runner each runs on, the Rust target it builds, the runtimes it tests
+//! (ADR 0069) and what a minute of its runner counts in Linux-equivalent
+//! minutes.
 
 use std::fmt;
 
@@ -8,15 +9,7 @@ use anyhow::{Result, bail};
 
 use crate::runtimes::Set;
 
-pub(crate) use crate::rate::Rate;
-
-/// Where a cell runs while the repository is private (ADR 0108).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum Runner {
-    Hosted(Rate),
-    /// The owner's machine, on `main` only; it uses no included minutes.
-    OwnerMachine,
-}
+use crate::rate::{Hosted, Rate, Size};
 
 /// The Linux jobs of the Release workflow: one per architecture, whose
 /// matrix is that architecture's started cells.
@@ -50,8 +43,8 @@ pub(crate) enum Cell {
 }
 
 impl Cell {
-    /// Every cell of the private-period matrix. Native macOS Intel and
-    /// Windows arm64 first run once the repository is public (ADR 0108).
+    /// Every cell of the matrix. Windows arm64 first runs in the release
+    /// pipeline (ADR 0108).
     pub(crate) const ALL: [Self; 7] = [
         Self::LinuxX64Gnu,
         Self::LinuxX64Musl,
@@ -75,15 +68,6 @@ impl Cell {
         }
     }
 
-    /// The name of the cell's job, the cell's name everywhere it is shown:
-    /// the translated cell says so (ADR 0108).
-    pub(crate) fn label(self) -> &'static str {
-        match self {
-            Self::MacosX64 => "macos-x64 (Rosetta 2)",
-            other => other.key(),
-        }
-    }
-
     pub(crate) fn parse(key: &str) -> Result<Self> {
         match Self::ALL.into_iter().find(|cell| cell.key() == key.trim()) {
             Some(cell) => Ok(cell),
@@ -95,14 +79,25 @@ impl Cell {
         }
     }
 
-    pub(crate) fn runner(self) -> Runner {
-        match self {
+    /// The runner the cell runs on: every cell on a standard hosted runner,
+    /// as `release-suite.yml` names it.
+    pub(crate) fn runner(self) -> Hosted {
+        let rate = match self {
             Self::LinuxX64Gnu | Self::LinuxX64Musl | Self::LinuxArm64Gnu | Self::LinuxArm64Musl => {
-                Runner::Hosted(Rate::Linux)
+                Rate::Linux
             }
-            Self::WindowsX64 => Runner::Hosted(Rate::Windows),
-            Self::MacosArm64 | Self::MacosX64 => Runner::OwnerMachine,
+            Self::WindowsX64 => Rate::Windows,
+            Self::MacosArm64 | Self::MacosX64 => Rate::Macos,
+        };
+        Hosted {
+            rate,
+            size: Size::Standard,
         }
+    }
+
+    /// Whether the cell runs on `main` only: the macOS cells (ADR 0108).
+    pub(crate) fn main_only(self) -> bool {
+        matches!(self, Self::MacosArm64 | Self::MacosX64)
     }
 
     pub(crate) fn target(self) -> &'static str {
@@ -140,9 +135,9 @@ impl Cell {
     /// Whether a job of a run belongs to this cell: its name is the cell's,
     /// or starts with it and a space (a cell split into several jobs).
     pub(crate) fn owns_job(self, name: &str) -> bool {
-        name == self.label()
+        name == self.key()
             || name
-                .strip_prefix(self.label())
+                .strip_prefix(self.key())
                 .is_some_and(|rest| rest.starts_with(' '))
     }
 
@@ -150,10 +145,7 @@ impl Cell {
     /// Sharding, caching and reports), which the results store reads as the
     /// cell's configuration.
     pub(crate) fn junit_artifact(self) -> String {
-        match self {
-            Self::MacosX64 => "junit-release-dispatch-macos-x64-rosetta-1".to_owned(),
-            other => format!("junit-release-dispatch-{}-1", other.key()),
-        }
+        format!("junit-release-dispatch-{}-1", self.key())
     }
 
     /// The cell's entry in its Linux job's matrix.
@@ -168,7 +160,7 @@ impl Cell {
 
 impl fmt::Display for Cell {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.write_str(self.label())
+        formatter.write_str(self.key())
     }
 }
 
@@ -226,8 +218,8 @@ mod tests {
     )]
     #[case::macos_x64(
         Cell::MacosX64,
-        "junit-release-dispatch-macos-x64-rosetta-1",
-        "name: junit-release-dispatch-macos-x64-rosetta-1"
+        "junit-release-dispatch-macos-x64-1",
+        "name: junit-release-dispatch-macos-x64-1"
     )]
     fn each_cells_junit_artifact_is_the_one_its_job_uploads(
         #[case] cell: Cell,
@@ -252,7 +244,7 @@ mod tests {
 
     #[test]
     fn a_split_cells_jobs_belong_to_it_and_a_longer_names_do_not() {
-        assert!(Cell::MacosX64.owns_job("macos-x64 (Rosetta 2) shard 1/2"));
+        assert!(Cell::MacosX64.owns_job("macos-x64 shard 1/2"));
         assert!(!Cell::LinuxX64Gnu.owns_job("linux-x64-gnux"));
     }
 }

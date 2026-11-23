@@ -66,8 +66,12 @@ def result_of(model: type[_Model], result: object) -> _Model:
     raises (ADR 0082): an unknown field stays in its model's `model_extra`,
     a member of an open tagged union the SDK does not know is the union's
     `unknown` member, with the tag it was sent in `tag` (ADR 0079), and any
-    other value no declared type matches stays as the engine sent it.
+    other value no declared type matches stays as the engine sent it. A
+    result that is itself one of several models, such as Foxhound's
+    `Enqueued`, holds the one it carries as its root.
     """
+    if _is_root_model(model):
+        return cast("_Model", _build_root(model, _build(_root(model)), result))
     return model.model_construct(**_fields(model, cast("dict[str, object]", result)))
 
 

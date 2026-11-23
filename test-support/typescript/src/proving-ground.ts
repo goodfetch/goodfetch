@@ -120,6 +120,49 @@ export async function taskStartUrl(
   throw new TestSupportError("task_unknown", `the Proving ground's task list has no ${id}`);
 }
 
+/** A request one of the Proving ground's page hosts received, as its observations list it. */
+export interface ObservedRequest {
+  /** The host name it named, without the port. */
+  readonly host: string;
+  /** Its target: the path and query. */
+  readonly target: string;
+  /** Its cookies, in the order sent, each a name and a value. */
+  readonly cookies: readonly (readonly [string, string])[];
+}
+
+/** What the Proving ground has observed so far, from its connection record. */
+export interface ProvingGroundObservations {
+  /** Every request its page hosts received, in arrival order. */
+  readonly requests: readonly ObservedRequest[];
+  /** The relays its forward proxies made, each as the connection record lists it. */
+  readonly relays?: unknown;
+}
+
+const isProvingGroundObservations: ValidateFunction<ProvingGroundObservations> =
+  ajv.compile<ProvingGroundObservations>(
+    committedSchema("proving-ground-observations.schema.json"),
+  );
+
+/**
+ * What the Proving ground has observed so far: every request its page hosts
+ * received and the connection record, its proxies' relays among it.
+ *
+ * @throws {TestSupportError} `observations_invalid` when they fail their committed schema.
+ */
+export async function provingGroundObservations(
+  provingGround: ProvingGroundDescription,
+): Promise<ProvingGroundObservations> {
+  const answer = await fetch(provingGround.fixtures.connections);
+  const observations: unknown = await answer.json();
+  if (!isProvingGroundObservations(observations)) {
+    throw new TestSupportError(
+      "observations_invalid",
+      `the Proving ground's observations fail their committed schema: ${ajv.errorsText(isProvingGroundObservations.errors)}`,
+    );
+  }
+  return observations;
+}
+
 /** A tool's successful result for one task, as the Proving ground's oracle judges it. */
 export interface TaskResult {
   /** The task's ID. */

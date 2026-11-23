@@ -34,7 +34,11 @@
 //!   event or a sequence, and `get_by_` no operation, since it builds
 //!   without I/O.
 //! - Required parameters are positional in the catalog's order, but a
-//!   boolean, which is named like every optional one.
+//!   boolean, which is named like every optional one. An optional
+//!   parameter marked `catalog_only` is the catalog operation's alone: no
+//!   member takes it, so a program never passes it, as `run.checkpoint()`
+//!   takes no path on the engine's machine (ADR 0102); a required one so
+//!   marked is refused.
 //! - A handle whose ID is a value that holds another handle's ID is built
 //!   by that handle, without a call, from the value's other fields.
 //! - `<handle>.<name>.<member>` is a member of the handle's sub-object
@@ -197,6 +201,11 @@ impl Listened {
 
 /// The schema keyword that marks a result property typed by a parameter.
 const TYPED_BY: &str = "typed_by";
+
+/// The schema keyword that marks an optional parameter the catalog's
+/// operation takes and no handle's member does, such as `run.checkpoint`'s
+/// `location`, a path on the engine's machine (ADR 0102).
+const CATALOG_ONLY: &str = "catalog_only";
 
 /// The schema keyword that names the Duration setting a call's own
 /// `timeout` sets for that call alone (ADR 0080).
@@ -478,11 +487,19 @@ fn check_prefix(operation: &Operation, name: &str) -> Result<()> {
     }
 }
 
-/// The parameters of `schema` but `id`, as a caller passes them.
-fn parameters(schema: &Value, id: &str) -> Parameters {
+/// The parameters of `owner`'s params, `schema`, but `id`, as a caller
+/// passes them: an optional one marked [`CATALOG_ONLY`] is the catalog's
+/// alone, which no handle's member takes; a required one so marked is
+/// refused, since every call passes it.
+fn parameters(owner: &str, schema: &Value, id: &str) -> Result<Parameters> {
     let required = names(schema, "required");
     let mut parameters = Parameters::default();
     for name in required.iter().filter(|name| *name != id) {
+        if schema["properties"][name].get(CATALOG_ONLY).is_some() {
+            bail!(
+                "{owner}: its required parameter `{name}` is marked `{CATALOG_ONLY}`, which only an optional one can be (ADR 0102)"
+            );
+        }
         if schema["properties"][name]["type"] == "boolean" {
             parameters.named.push(name.clone());
         } else {
@@ -492,11 +509,13 @@ fn parameters(schema: &Value, id: &str) -> Parameters {
     parameters.optional = schema["properties"]
         .as_object()
         .into_iter()
-        .flat_map(Map::keys)
-        .filter(|name| *name != id && !required.contains(name))
-        .cloned()
+        .flat_map(Map::iter)
+        .filter(|(name, property)| {
+            *name != id && !required.contains(name) && property.get(CATALOG_ONLY).is_none()
+        })
+        .map(|(name, _)| name.clone())
         .collect();
-    parameters
+    Ok(parameters)
 }
 
 /// The property of `operation`'s result marked `typed_by` one of its
@@ -976,7 +995,8 @@ pub(super) fn handles(layer: &Layer) -> Result<Vec<Handle<'_>>> {
             let Some(form) = form(operation, name, schema)? else {
                 continue;
             };
-            let parameters = parameters(schema, &id.param);
+            let owner = format!("operation `{}`", operation.name);
+            let parameters = parameters(&owner, schema, &id.param)?;
             let typed_by = typed_by(layer, operation, &form, &parameters)?;
             let timeout_setting = timeout_setting(operation, schema)?;
             // A handle's own `close` that takes nothing a caller must pass
@@ -1075,7 +1095,11 @@ fn builders(layer: &Layer, handles: &[Handle<'_>]) -> Result<Vec<(usize, Builder
                     .as_str()
                     .unwrap_or_default()
                     .to_owned(),
-                parameters: parameters(schema, &handles[parent].id.param),
+                parameters: parameters(
+                    &format!("the value `{}`", built.id.type_name),
+                    schema,
+                    &handles[parent].id.param,
+                )?,
             },
         ));
     }

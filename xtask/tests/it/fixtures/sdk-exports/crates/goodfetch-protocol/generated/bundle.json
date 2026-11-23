@@ -1,1 +1,8 @@
-{ "$defs": {} }
+{
+  "$defs": {
+    "Locator": {
+      "description": "A locator: what an action looks for, resolved again at each use.",
+      "type": "object"
+    }
+  }
+}

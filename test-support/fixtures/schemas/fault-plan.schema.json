@@ -1,0 +1,210 @@
+{
+  "$defs": {
+    "FaultPlanAction": {
+      "description": "A fault, or a Client operation, that a step applies to its host.",
+      "oneOf": [
+        {
+          "const": "crash",
+          "description": "The host's process crashes.",
+          "type": "string"
+        },
+        {
+          "const": "restart",
+          "description": "The crashed host starts again.",
+          "type": "string"
+        },
+        {
+          "additionalProperties": false,
+          "description": "The link between the host and `peer` stops carrying messages.",
+          "properties": {
+            "partition": {
+              "additionalProperties": false,
+              "properties": {
+                "peer": {
+                  "description": "The host on the link's other end.",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "peer"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "partition"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "The link between the host and `peer` carries messages again.",
+          "properties": {
+            "heal": {
+              "additionalProperties": false,
+              "properties": {
+                "peer": {
+                  "description": "The host on the link's other end.",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "peer"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "heal"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "The link between the host and `peer` delays each message.",
+          "properties": {
+            "latency": {
+              "additionalProperties": false,
+              "properties": {
+                "milliseconds": {
+                  "description": "The delay, in simulated milliseconds.",
+                  "format": "uint64",
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "peer": {
+                  "description": "The host on the link's other end.",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "peer",
+                "milliseconds"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "latency"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "The messages in flight from the host to `peer` are lost.",
+          "properties": {
+            "drop": {
+              "additionalProperties": false,
+              "properties": {
+                "peer": {
+                  "description": "The host they were sent to.",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "peer"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "drop"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "The host's wall clock jumps, forwards or backwards; its monotonic\nclock does not.",
+          "properties": {
+            "jump_wall": {
+              "additionalProperties": false,
+              "properties": {
+                "milliseconds": {
+                  "description": "The jump, in milliseconds.",
+                  "format": "int64",
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "milliseconds"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "jump_wall"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "A Client operation the host's Client sends, as the scenario reads\nit.",
+          "properties": {
+            "operation": true
+          },
+          "required": [
+            "operation"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "FaultPlanStep": {
+      "additionalProperties": false,
+      "description": "One step of a Fault plan: an action on one host at a simulated moment.",
+      "properties": {
+        "action": {
+          "$ref": "#/$defs/FaultPlanAction",
+          "description": "What it does."
+        },
+        "at": {
+          "description": "When it applies, in simulated milliseconds from the scenario's start.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "host": {
+          "description": "The simulated host it acts on.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "at",
+        "host",
+        "action"
+      ],
+      "type": "object"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "A Fault plan: the seed and generator version it came from, and its steps\nin the order they apply.",
+  "properties": {
+    "generator_version": {
+      "description": "The version of the scenario's generator, raised when its reference\nmachine changes what it generates.",
+      "format": "uint32",
+      "minimum": 0,
+      "type": "integer"
+    },
+    "seed": {
+      "description": "The test seed the plan was generated from.",
+      "format": "uint64",
+      "minimum": 0,
+      "type": "integer"
+    },
+    "steps": {
+      "description": "The steps, in the order they apply.",
+      "items": {
+        "$ref": "#/$defs/FaultPlanStep"
+      },
+      "type": "array"
+    }
+  },
+  "required": [
+    "seed",
+    "generator_version",
+    "steps"
+  ],
+  "title": "FaultPlan",
+  "type": "object"
+}

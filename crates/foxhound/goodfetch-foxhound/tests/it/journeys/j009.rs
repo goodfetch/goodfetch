@@ -13,7 +13,6 @@
 
 use std::fs;
 
-use goodfetch_test_client::HomeLayout;
 use goodfetch_test_support::{TestEnv, command, journey_engine};
 use serde_json::{Value, json};
 
@@ -25,13 +24,7 @@ fn foxhound_cli() {
     let env = TestEnv::new();
     // Set one setting in the user configuration, and set it and a second
     // setting in the project configuration.
-    let layout = HomeLayout::of(env.home());
-    fs::create_dir_all(layout.per_major()).unwrap();
-    fs::write(
-        layout.user_configuration(),
-        "version = \"0.1\"\n\n[settings.timeout]\nnavigation = 45000\n",
-    )
-    .unwrap();
+    env.user_configuration("timeout.navigation = 45000\n");
     fs::write(
         env.folder().join("goodfetch.toml"),
         "version = \"0.1\"\n\n[settings.timeout]\nnavigation = 60000\nfirst_byte = 10000\n",

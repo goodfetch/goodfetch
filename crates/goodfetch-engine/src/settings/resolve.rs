@@ -178,6 +178,12 @@ pub struct Layers {
     pub project_configuration: Values,
     /// The Recipe, when the Run is one's.
     pub recipe: Option<Recipe>,
+    /// The run layer's values with the origin `registered`, the lowest of
+    /// its origins: the setting that alone chooses a Plugin kind, set to
+    /// the Connection's only SDK handler of that kind (ADR 0104's amendment
+    /// of ADR 0083). Every value of `run` replaces one; configuration does
+    /// not, and a lock wins over one with no refusal.
+    pub registered: Values,
     /// The run itself.
     pub run: Values,
 }
@@ -234,6 +240,29 @@ impl Resolved {
     /// Run's Product honours it.
     pub fn effective(&self, setting: &Setting) -> Option<&Effective> {
         self.settings.get(setting.name)
+    }
+
+    /// Each `timeout.*` Duration setting the Product honours that resolves a
+    /// timeout, with its value and the layer that set it, in the catalog's
+    /// order: what `hello`'s result reports, so a Client bounds a call it
+    /// queues with no timeout of its own (issue 3193).
+    pub fn timeouts(&self) -> Vec<SettingLimit> {
+        keys::all()
+            .map(|key| key.setting)
+            .filter(|setting| {
+                setting.kind == ValueKind::Duration && setting.name.starts_with("timeout.")
+            })
+            .filter_map(|setting| {
+                let effective = self.settings.get(setting.name)?;
+                effective.value.as_u64()?;
+                Some(SettingLimit {
+                    key: setting.name.to_owned(),
+                    value: effective.value.clone(),
+                    layer: effective.layer,
+                    origin: effective.origin,
+                })
+            })
+            .collect()
     }
 
     /// `setting`'s value as it is written, its catalog default where the
@@ -364,6 +393,21 @@ impl Resolved {
     /// The version of the Operator policy it resolved under.
     pub fn policy_version(&self) -> Option<&str> {
         self.policy_version.as_deref()
+    }
+
+    /// Each setting the Run's Product honours that is not fixed for its
+    /// life, with its effective value and its catalog default, in
+    /// declaration order: what a resume may change (ADR 0102).
+    pub(crate) fn changeable(
+        &self,
+    ) -> impl Iterator<Item = (&'static str, &Effective, &'static Value)> {
+        keys::all()
+            .map(|key| key.setting)
+            .filter(|setting| !setting.fixed_for_run)
+            .filter_map(|setting| {
+                let effective = self.settings.get(setting.name)?;
+                Some((setting.name, effective, keys::default_of(setting)))
+            })
     }
 
     /// Every setting whose value weakens a guarantee or switches off a
@@ -887,6 +931,13 @@ fn resolve_key(
         from_recipe(&mut state, policy, recipe, key, unfolded)?;
     }
     unfold(&mut state, key, unfolded, SettingsLayer::Run)?;
+    if let Some(value) = layers.registered.get(name) {
+        let registered = Given {
+            origin: Some(RunOrigin::Registered),
+            ..Given::default()
+        };
+        take(&mut state, key, SettingsLayer::Run, value, Some(registered))?;
+    }
     if let Some(value) = layers.run.get(name) {
         take(
             &mut state,

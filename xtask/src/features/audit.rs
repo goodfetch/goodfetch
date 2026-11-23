@@ -32,6 +32,16 @@
 //! unit test with no record) may declare the `error:` or `event:` Feature it
 //! asserts itself, which no record need show. A test whose record shows it
 //! dispatched is judged on every declaration, unit test or not.
+//!
+//! A test that an Attached engine served is no such test either: a command
+//! record of `attached-engine` that exited with 0 shows it reached `rpc`.
+//! When its record still holds no dispatch record, the engine's JSON log
+//! was off, as a `configuration.toml` the test wrote without `log.output =
+//! "file"` turns it off, so its `operation:`, `error:` and `event:`
+//! declarations cannot be judged: one `dispatch-missing` finding names them
+//! (#1635). An engine that exited otherwise may have refused to start, and
+//! a test that declares none of these Features loses nothing the audit
+//! reads.
 
 #![expect(
     clippy::disallowed_methods,
@@ -43,6 +53,7 @@ use std::ops::Bound;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context as _, Result};
+use goodfetch_protocol::cli::ATTACHED_ENGINE;
 use serde_json::Value;
 
 use super::scan::{Declaration, Level, Source};
@@ -91,6 +102,10 @@ struct Reached {
     unmatched: BTreeSet<String>,
     /// Whether any dispatch record shows the test reached `rpc`.
     dispatched: bool,
+    /// Whether a command record shows an Attached engine that exited by
+    /// itself with 0: it served a Connection, and its JSON log, when on,
+    /// was written whole.
+    engine_served: bool,
 }
 
 impl Reached {
@@ -106,6 +121,9 @@ impl Reached {
             }
             Some(OUTCOME_TARGET) => self.error_codes.extend(text("error_code")),
             Some(COMMAND_TARGET) => {
+                if fields["command"] == ATTACHED_ENGINE && fields["exit_code"] == 0 {
+                    self.engine_served = true;
+                }
                 self.commands.extend(text("command"));
                 self.unmatched.extend(text("unmatched"));
                 self.exit_codes.extend(fields["exit_code"].as_u64());
@@ -125,6 +143,19 @@ impl Reached {
                 .is_some_and(|code| self.exit_codes.contains(code)),
         }
     }
+
+    /// Whether an Attached engine served the test while its JSON log was
+    /// off: a user configuration the test wrote without `log.output =
+    /// "file"`, or one the engine refused, leaves no dispatch record of the
+    /// calls the engine answered (#1635).
+    fn lost_dispatch_records(&self) -> bool {
+        self.engine_served && !self.dispatched
+    }
+}
+
+/// Whether a record's dispatch records are what show `kind`.
+fn dispatch_shows(kind: Kind) -> bool {
+    matches!(kind, Kind::Operation | Kind::Error | Kind::Event)
 }
 
 /// The findings of the audit of `declarations` against the records in
@@ -183,11 +214,11 @@ pub(crate) fn audit(
         // own Error code or event through its interface, which only the
         // review sees: one whose record holds no dispatch record, such as a
         // module's test on a loopback stand-in, or a unit test that left no
-        // record. A test whose record shows it dispatched is judged at every
-        // level.
+        // record. A test whose record shows it dispatched, or that an
+        // Attached engine served, is judged at every level.
         let own = matches!(kind, Kind::Error | Kind::Event)
             && record.map_or(declaration.level == Level::Unit, |record| {
-                !record.dispatched
+                !record.dispatched && !record.engine_served
             });
         if !own {
             by_test
@@ -212,6 +243,23 @@ pub(crate) fn audit(
             ));
             continue;
         };
+        let (unshown, audited): (Vec<_>, Vec<_>) = audited
+            .into_iter()
+            .partition(|(_, kind, _)| record.lost_dispatch_records() && dispatch_shows(*kind));
+        if !unshown.is_empty() {
+            let features: Vec<&str> = unshown
+                .iter()
+                .map(|(declaration, ..)| declaration.feature.as_str())
+                .collect();
+            findings.push(Finding::new(
+                "dispatch-missing",
+                test,
+                format!(
+                    "an Attached engine served the test and exited by itself, but its record holds no dispatch record, so it cannot show {}: the engine's JSON log was off. Write settings with `TestEnv::user_configuration`, which keeps `log.output = \"file\"`, and end an engine that refuses its configuration with `Attached::finish_unlogged`",
+                    features.join(", ")
+                ),
+            ));
+        }
         for (declaration, kind, name) in audited {
             if !record.holds(kind, name, &exit_codes) {
                 findings.push(Finding::new(

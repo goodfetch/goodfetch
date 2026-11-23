@@ -350,8 +350,6 @@ mod tests {
 
     /// The answers are tagged by what they are, so an SDK narrows them by
     /// one field (ADR 0106's `source`).
-    ///
-    /// Covers: operation:effect.open, operation:effect.close
     #[test]
     fn the_answers_are_tagged() {
         let at = crate::point_in_time::from_rfc3339("2026-11-17T00:00:00Z").unwrap();

@@ -5,10 +5,11 @@ expression: output.to_string()
 exit: 0
 ----- stdout -----
 compression: none
-export_id: cli-crawl.export-[SHA256]
+export_id: cli-crawl.export-1-[SHA256]
 format: jsonl
 last_number: 1
 records: 1
+run_epoch: 1
 sha256: [SHA256]
 size: [SIZE]
 ----- stderr -----

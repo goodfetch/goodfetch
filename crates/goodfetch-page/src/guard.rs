@@ -35,6 +35,8 @@ use goodfetch_cdp::generated::runtime::ExecutionContextId;
 use goodfetch_counted_work::Row;
 use goodfetch_engine::CallError;
 use goodfetch_engine::clock::Clock;
+use goodfetch_engine::lease::LeaseCheck;
+use goodfetch_engine::runs::Run;
 use goodfetch_protocol::connection::{DEADLINE_EXCEEDED, DeadlineExceededDetails, Form};
 use goodfetch_protocol::jsonrpc::ProtocolFailure;
 use goodfetch_protocol::page::waits::{Count, ElementState};
@@ -141,6 +143,32 @@ pub(crate) struct Request<'a> {
     pub(crate) hiding: Hidden<'a>,
     /// The page's owner, which a click's input passes through (ADR 0146).
     pub(crate) owner: &'a PageOwner,
+    /// The page's send window, which the action's first input marks before
+    /// it goes out (ADR 0106).
+    pub(crate) sent: SentMark<'a>,
+}
+
+/// ADR 0106's send window of one page's commands: its Run, and the lease
+/// naming the attempt when a handler's page, whose bodies the first command
+/// that may change the page marks sent.
+pub(crate) struct SentMark<'a> {
+    /// The page's Run.
+    pub(crate) run: &'a Run,
+    /// The page's lease, when a handler's page.
+    pub(crate) lease: Option<&'a dyn LeaseCheck>,
+}
+
+impl SentMark<'_> {
+    /// Marks sent each body of the window that nothing was sent for yet,
+    /// before `command` goes out.
+    ///
+    /// # Errors
+    ///
+    /// `run_state_unavailable` when the mark could not be written:
+    /// `command` must not go out.
+    pub(crate) async fn mark(&self, command: &str) -> Result<(), CallError> {
+        self.run.sending(self.lease, command).await
+    }
 }
 
 /// Where a gesture landed.
@@ -235,18 +263,13 @@ async fn attempt(page: &PageDriver, request: Request<'_>, clock: &Clock) -> Resu
         match seen {
             Seen::Armed { x, y } => match &request.action {
                 Action::Click => {
+                    request.sent.mark(request.operation).await?;
                     let mut watch = page.watch_gesture();
                     // The disarm is the round trip into the renderer after
                     // the input that a key press makes with `settled`.
                     // Boxed, as the wait below: the action's future stays small.
-                    let landed = Box::pin(watch.during(async {
-                        request
-                            .owner
-                            .pointer_click(CdpPage::of(page), x, y, turn.gesture_call())
-                            .await?;
-                        landed(&mut turn).await
-                    }))
-                    .await?;
+                    let clicked = click(request.owner, page, &mut turn, (x, y));
+                    let landed = Box::pin(watch.during(clicked)).await?;
                     match landed {
                         Landed::Landed => {
                             drop((gesture, turn));
@@ -262,12 +285,17 @@ async fn attempt(page: &PageDriver, request: Request<'_>, clock: &Clock) -> Resu
             },
             Seen::Focused { set_value } => match &request.action {
                 Action::Fill(value) if set_value => {
+                    request.sent.mark(request.operation).await?;
                     if set_picked(&mut turn, value).await? {
                         return Ok(());
                     }
                 }
-                Action::Fill(value) => return fill(&mut turn, value).await,
+                Action::Fill(value) => {
+                    request.sent.mark(request.operation).await?;
+                    return fill(&mut turn, value).await;
+                }
                 Action::Press(events) => {
+                    request.sent.mark(request.operation).await?;
                     let mut watch = page.watch_gesture();
                     Box::pin(watch.during(async {
                         for event in events {
@@ -384,6 +412,20 @@ async fn settled(turn: &mut Turn<'_>) -> Result<(), CallError> {
         Ok(_) | Err(Unanswered::WorldGone) => Ok(()),
         Err(Unanswered::Failed(error)) => Err(error),
     }
+}
+
+/// Clicks at the point `(x, y)` through the page's owner, then reads where
+/// the click landed.
+async fn click(
+    owner: &PageOwner,
+    page: &PageDriver,
+    turn: &mut Turn<'_>,
+    (x, y): (f64, f64),
+) -> Result<Landed, CallError> {
+    owner
+        .pointer_click(CdpPage::of(page), x, y, turn.gesture_call())
+        .await?;
+    landed(turn).await
 }
 
 /// Where the gesture just sent landed; a document gone with it means it

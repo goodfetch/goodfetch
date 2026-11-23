@@ -4,12 +4,13 @@
 //! waits for its end on a channel. Nothing here enters a runtime, so it
 //! works inside one too, where it blocks only the thread that calls it.
 
-use goodfetch_collie_client::blocking;
+use goodfetch_collie_client::{RunView, blocking};
+use goodfetch_protocol::run::{CatalogTarget, RunId};
 use goodfetch_protocol::settings::{ConfigExplainParams, SettingsExplanation};
 
 pub use goodfetch_collie_client::blocking::{
-    Call, Connection, EventIter, Exchange, Locator, Page, Query, RawCall, Response, Run, Session,
-    Start,
+    Call, Connection, EventIter, Exchange, HandlerlessStart, Locator, Page, Query, RawCall,
+    Response, Run, Session, Start,
 };
 
 use crate::linked::{Composed, ConnectOptions, ProductConnection};
@@ -69,8 +70,12 @@ impl Collie {
         self.connection.raw_call(operation)
     }
 
-    /// Leaving the scope or `close()` stops the Run with a Checkpoint;
+    /// Leaving the scope or `close()` stops the Run with a Checkpoint.
     /// `finish()` ends it.
+    ///
+    /// In a service, close the Run on `SIGINT` and `SIGTERM`: the SDK
+    /// installs no signal handler, and a signal the program does not handle
+    /// ends it as a crash would (ADRs 0078, 0093).
     ///
     /// Starts a Run its program drives, and answers once it is started. A
     /// Run ID names the Run for good, and a start under one acts on what
@@ -90,6 +95,47 @@ impl Collie {
     /// sends.
     pub fn start(&self) -> Start {
         self.connection.start()
+    }
+
+    /// Starts a Recipe's run, a Run with no handler in the program, and
+    /// answers once it is started. Its Run ID works as `run.start`'s. With
+    /// `detached`, the Run outlives the program that started it: closing
+    /// its value frees only the value, `run.finish` waits for its end and
+    /// `run.stop` stops it.
+    ///
+    /// Experimental: outside semver until it is promoted (ADR 0030).
+    ///
+    /// The start of a Recipe's run, as [`crate::Collie::start_recipe`]'s,
+    /// which `send()` sends.
+    pub fn start_recipe(&self, recipe: &str) -> HandlerlessStart {
+        self.connection.start_recipe(recipe)
+    }
+
+    /// Starts a code-free catalog run, a Run with no handler in the program
+    /// whose verbs come from the catalog (ADR 0036): an Extraction of a
+    /// page by a schema, `extract`, an Agent task, `agent`, or a Plan
+    /// replayed with no model call, `plan_replay`; and answers once it is
+    /// started. Its Run ID works as `run.start`'s. With `detached`, the Run
+    /// outlives the program that started it: closing its value frees only
+    /// the value, `run.finish` waits for its end and `run.stop` stops it.
+    ///
+    /// Experimental: outside semver until it is promoted (ADR 0030).
+    ///
+    /// The start of a code-free catalog run, as
+    /// [`crate::Collie::start_catalog_run`]'s, which `send()` sends.
+    pub fn start_catalog_run(&self, target: CatalogTarget) -> HandlerlessStart {
+        self.connection.start_catalog_run(target)
+    }
+
+    /// Opens a view of the Run `run_id` names, as
+    /// [`crate::Collie::open_run`] does, with no round trip, so nothing
+    /// blocks.
+    ///
+    /// # Errors
+    ///
+    /// As [`crate::Collie::open_run`].
+    pub fn open_run(&self, run_id: &RunId) -> Result<RunView, Error> {
+        self.connection.open_run(run_id)
     }
 
     /// Shows each setting's effective value, the layer that set it and the
@@ -122,6 +168,18 @@ impl Collie {
 impl blocking::Connection for Collie {
     fn start(&self) -> Start {
         Collie::start(self)
+    }
+
+    fn start_recipe(&self, recipe: &str) -> HandlerlessStart {
+        Collie::start_recipe(self, recipe)
+    }
+
+    fn start_catalog_run(&self, target: CatalogTarget) -> HandlerlessStart {
+        Collie::start_catalog_run(self, target)
+    }
+
+    fn open_run(&self, run_id: &RunId) -> Result<RunView, Error> {
+        Collie::open_run(self, run_id)
     }
 
     fn call(&self, operation: &str) -> RawCall {

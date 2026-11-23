@@ -42,7 +42,8 @@
           "records": 1,
           "last_number": 1,
           "size": 31,
-          "sha256": "84e01a32cfda4c4e7a2549c55e13128c2d19382b1504c26653ae2bc86b9904b9"
+          "sha256": "84e01a32cfda4c4e7a2549c55e13128c2d19382b1504c26653ae2bc86b9904b9",
+          "run_epoch": 1
         }
       }
     },

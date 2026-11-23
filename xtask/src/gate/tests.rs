@@ -10,9 +10,9 @@ use rstest::rstest;
 use super::host::{REMOVED_BY_THE_GATE, step_variables};
 use super::plan::{
     Action, Earlier, EarnedPasses, GateRun, Head, Layer, LintReads, MAX_AGE, Outcome, Pin, Planned,
-    Step, Touched, UNOWNED, gate_input, hosted_fingerprint, narrowed, plan, unit,
+    Touched, UNOWNED, gate_input, hosted_fingerprint, narrowed, plan, unit,
 };
-use super::steps::{self, Form, Kind, Owner, entries};
+use super::steps::{self, Form, Kind, Owner, Step, entries};
 use super::{plan_value, render, runs};
 use crate::affected::{Job, RepoPath};
 
@@ -104,6 +104,7 @@ fn planned_shuffling(
         form: Form::All,
         layer: Layer::Merge,
         pin: PIN,
+        release_differs: &BTreeMap::new(),
     };
     plan(&head, &earlier(record, &[]), touched)
 }
@@ -142,6 +143,7 @@ fn planned_on_earliers_tree(record: &GateRun, lint_holds: Result<(), &str>) -> V
         form: Form::All,
         layer: Layer::Merge,
         pin: PIN,
+        release_differs: &BTreeMap::new(),
     };
     plan(
         &head,
@@ -180,7 +182,7 @@ fn reruns(plan: &[Planned]) -> (BTreeSet<&'static str>, BTreeMap<&'static str, V
 }
 
 /// The checks every run on another tree reruns, whatever the change.
-const ALWAYS: [&str; 12] = [
+const ALWAYS: [&str; 13] = [
     "dco",
     "commit-messages",
     "floor-guard",
@@ -189,6 +191,7 @@ const ALWAYS: [&str; 12] = [
     "notices",
     "lint",
     "feature-combinations",
+    "semver-checks",
     "fuzz-check",
     "proofs",
     "journeys-tasks",
@@ -906,12 +909,14 @@ fn a_result_that_names_no_known_layer_is_an_error(#[case] text: &str) {
 
 /// The checks a run on the tree of their green result reuses (the codegen
 /// tests too, which the full form's Pre-merge suite covers).
-const TREE_ONLY: [Step; 5] = [
+const TREE_ONLY: [Step; 7] = [
     Step::Lint,
     Step::FeatureCombinations,
+    Step::SemverChecks,
     Step::FuzzCheck,
     Step::Proofs,
     Step::JourneysTasks,
+    Step::FeaturesTests,
 ];
 
 #[test]
@@ -938,7 +943,6 @@ fn a_run_on_the_same_tree_reuses_the_checks_that_follow_from_the_tree_and_the_ho
             "commit-leaks",
             "audit",
             "notices",
-            "features-tests",
         ])
     );
     assert!(part.is_empty());
@@ -965,7 +969,7 @@ fn another_tree_reruns_the_checks_that_follow_from_the_tree_and_the_host() {
 
 /// Lint also reads the day and GitHub (its register and quarantine checks):
 /// a result on the same tree holds only while they read as a green lint
-/// found them, and the other three checks read neither.
+/// found them, and the other four checks read neither.
 #[test]
 fn lint_reruns_on_the_same_tree_when_what_it_reads_besides_the_tree_no_longer_holds() {
     let plan = planned_on_earliers_tree(&full_green_run(), Err("issue #1601 is closed"));
@@ -976,7 +980,12 @@ fn lint_reruns_on_the_same_tree_when_what_it_reads_besides_the_tree_no_longer_ho
             why: "issue #1601 is closed".to_owned()
         }
     );
-    for step in [Step::FeatureCombinations, Step::FuzzCheck, Step::Proofs] {
+    for step in [
+        Step::FeatureCombinations,
+        Step::SemverChecks,
+        Step::FuzzCheck,
+        Step::Proofs,
+    ] {
         assert_eq!(
             action(&plan, step),
             &Action::Reuse {
@@ -1167,17 +1176,28 @@ const BESIDE_STEPS: [&str; 8] = [
 
 /// Each entry's owning layer, as the spec's table of owning layers sets it
 /// (spec #3373): `just merge` judges the change in seconds, the gate host
-/// keeps what a noisy runner would move, and the hosted tier owns the rest.
-/// A command of a form's list is part of a hosted step: the documents' lint
-/// is lint's.
+/// keeps what a noisy runner would move, and the hosted tier owns the rest
+/// but the Linux-only tests, which the Pre-merge suite runs on a Linux
+/// runner, and the steps no 4-vCPU hosted job finishes within ADR 0061's
+/// 30-minute cap, which `just merge` keeps (#3382). A command of a form's
+/// list is part of a hosted step: the documents' lint is lint's.
 #[rstest]
 #[case::all(Form::All)]
 #[case::quick(Form::Quick)]
+#[case::batch(Form::Batch)]
 #[case::docs(Form::Docs)]
 #[case::preflight(Form::Preflight)]
 fn each_entry_has_the_owner_the_table_of_owning_layers_names(#[case] form: Form) {
-    const LOCAL: [&str; 6] = WHOLE_CHANGE_STEPS;
     const GATE_HOST: [&str; 3] = ["perf", "counts", "stress"];
+    const TOO_LONG_FOR_A_HOSTED_JOB: [&str; 7] = [
+        "windows",
+        "tlc",
+        "fuzz-check",
+        "feature-combinations",
+        "semver-checks",
+        "loom",
+        "miri",
+    ];
     let owners: Vec<(&str, Owner)> = entries(form)
         .iter()
         .map(|entry| (entry.name, entry.owner))
@@ -1185,7 +1205,10 @@ fn each_entry_has_the_owner_the_table_of_owning_layers_names(#[case] form: Form)
     let expected: Vec<(&str, Owner)> = owners
         .iter()
         .map(|(name, _)| {
-            let owner = if LOCAL.contains(name) {
+            let owner = if WHOLE_CHANGE_STEPS.contains(name)
+                || *name == "linux"
+                || TOO_LONG_FOR_A_HOSTED_JOB.contains(name)
+            {
                 Owner::Local
             } else if GATE_HOST.contains(name) {
                 Owner::GateHost
@@ -1335,8 +1358,9 @@ const HOSTED_QUICK: [Step; 4] = [
 ];
 
 /// A hosted job's record of a run on `EARLIER` whose every unit of a step
-/// the hosted tier owns passed on `tree`, its fingerprint naming `image` and
-/// `repository`.
+/// the hosted tier owns passed on `tree`, but the Pre-merge suite's, which
+/// would cover the Quick suite's ([`hosted_batch_run`] holds some), its
+/// fingerprint naming `image` and `repository`.
 fn hosted_run(image: &str, repository: &str, tree: &str) -> GateRun {
     let outcome = Outcome {
         tree: tree.to_owned(),
@@ -1346,7 +1370,7 @@ fn hosted_run(image: &str, repository: &str, tree: &str) -> GateRun {
     let mut units = BTreeMap::new();
     for step in Step::ALL
         .into_iter()
-        .filter(|step| Owner::of(*step) == Owner::Hosted)
+        .filter(|step| Owner::of(*step) == Owner::Hosted && *step != Step::PreMerge)
     {
         if step.per_member() {
             for member in members() {
@@ -1386,6 +1410,7 @@ fn planned_from_hosted(
         form,
         layer,
         pin: PIN,
+        release_differs: &BTreeMap::new(),
     };
     plan(&head, &earlier(None, hosted), touched)
 }
@@ -1624,13 +1649,15 @@ fn the_hosted_layer_leaves_each_step_to_its_owner() {
     assert_eq!(
         action(&plan, Step::Dco),
         &Action::Left {
-            owner: Owner::Local
+            owner: Owner::Local,
+            by: Layer::Hosted,
         }
     );
     assert_eq!(
         action(&plan, Step::Perf),
         &Action::Left {
-            owner: Owner::GateHost
+            owner: Owner::GateHost,
+            by: Layer::Hosted,
         }
     );
     for step in HOSTED_QUICK {
@@ -1647,6 +1674,7 @@ fn the_hosted_layer_leaves_each_step_to_its_owner() {
 #[case::all(Form::All, true)]
 #[case::preflight(Form::Preflight, true)]
 #[case::quick(Form::Quick, false)]
+#[case::batch(Form::Batch, true)]
 fn the_codegen_tests_are_covered_where_the_pre_merge_suite_runs(
     #[case] form: Form,
     #[case] covered: bool,
@@ -1669,6 +1697,222 @@ fn the_codegen_tests_are_covered_where_the_pre_merge_suite_runs(
         entries(form)
             .iter()
             .any(|entry| entry.name == "codegen-tests"),
-        form == Form::Quick
+        matches!(form, Form::Quick | Form::Batch)
     );
+}
+
+/// A batch's form is the quick form's steps and the Pre-merge suite over
+/// the whole workspace, in the gate's order (ADR 0135's note of 2026-11-21).
+#[test]
+fn the_batch_form_runs_the_quick_forms_steps_and_the_pre_merge_suite() {
+    let quick: Vec<&str> = entries(Form::Quick)
+        .iter()
+        .map(|entry| entry.name)
+        .collect();
+    let batch = entries(Form::Batch);
+    let names: Vec<&str> = batch.iter().map(|entry| entry.name).collect();
+
+    let mut expected = quick.clone();
+    let after_quick = quick.iter().position(|name| *name == "quick").unwrap() + 1;
+    expected.insert(after_quick, "pre-merge");
+    assert_eq!(names, expected);
+    let pre_merge = batch
+        .iter()
+        .find(|entry| entry.name == "pre-merge")
+        .unwrap();
+    assert_eq!(pre_merge.just, ["_suite", "pre-merge", "all"]);
+    assert_eq!(pre_merge.owner, Owner::Hosted);
+}
+
+/// A crate whose Pre-merge unit a hosted run of the case holds.
+const HELD: &str = "goodfetch-protocol";
+/// Another, so a plan of the two names both.
+const HELD_TOO: &str = "goodfetch-crawl";
+/// A crate whose tests launch the browser and use the user's service manager.
+const COLLIE: &str = "goodfetch-collie";
+
+/// The case's members with two more crates and Collie's, and the shuffling
+/// runners' members among them.
+fn batch_members() -> (BTreeSet<String>, BTreeSet<String>) {
+    let mut all = members();
+    all.extend([HELD.to_owned(), HELD_TOO.to_owned(), COLLIE.to_owned()]);
+    let shuffled = BTreeSet::from([
+        "test-support/typescript".to_owned(),
+        "sdks/python/collie-client".to_owned(),
+    ]);
+    (all, shuffled)
+}
+
+/// The plan of `layer` in `form` for a head of [`batch_members`], from
+/// `hosted` runs, the change since them reaching nothing.
+fn planned_for_a_batch((form, layer): (Form, Layer), hosted: &[GateRun]) -> Vec<Planned> {
+    let (members, shuffled) = batch_members();
+    let lint_holds = || Ok(());
+    let head = Head {
+        base: BASE,
+        members: &members,
+        shuffled: &shuffled,
+        tree: HEAD_TREE,
+        host: HOST,
+        now: NOW,
+        lint: LintReads::new(&lint_holds),
+        form,
+        layer,
+        pin: PIN,
+        release_differs: &BTreeMap::new(),
+    };
+    plan(
+        &head,
+        &earlier(None, hosted),
+        &touched_since_earlier(Touched::default()),
+    )
+}
+
+/// A hosted record on the head's tree whose Pre-merge units of `held`
+/// passed, with the quick form's hosted units of the other members.
+fn hosted_batch_run(held: &[&str]) -> GateRun {
+    let (members, _) = batch_members();
+    let mut run = hosted_run(IMAGE, REPOSITORY, HEAD_TREE);
+    let outcome = Outcome {
+        tree: HEAD_TREE.to_owned(),
+        by: Layer::Hosted,
+        ..green(EARLIER)
+    };
+    for member in &members {
+        if held.contains(&member.as_str()) {
+            run.units
+                .insert(unit(Step::PreMerge, Some(member)), outcome.clone());
+        } else {
+            run.units
+                .insert(unit(Step::Quick, Some(member)), outcome.clone());
+        }
+    }
+    run
+}
+
+fn planned_step(plan: &[Planned], step: Step) -> &Planned {
+    plan.iter()
+        .find(|planned| planned.step == step)
+        .expect("every step is planned")
+}
+
+/// A batch's hosted run runs every member's Pre-merge suite, those whose
+/// tests launch the browser or use an OS service too, so the Quick suite
+/// and xtask's codegen tests are covered by it and no hosted job runs them
+/// (spec #3373, issue 3380).
+#[test]
+fn a_batchs_hosted_run_runs_every_members_pre_merge_suite() {
+    let plan = planned_for_a_batch((Form::Batch, Layer::Hosted), &[]);
+
+    assert!(
+        matches!(action(&plan, Step::PreMerge), Action::Run { .. }),
+        "{:?}",
+        action(&plan, Step::PreMerge)
+    );
+    for step in [Step::Quick, Step::CodegenTests] {
+        assert_eq!(
+            action(&plan, step),
+            &Action::Covered { by: Step::PreMerge },
+            "{step:?}"
+        );
+    }
+}
+
+/// A batch's hosted run on a head whose earlier hosted run holds some
+/// members' Pre-merge units runs the suite of the others, browser members
+/// among them, and covers their Quick units.
+#[test]
+fn a_batchs_hosted_run_runs_the_pre_merge_suite_of_each_member_it_does_not_hold() {
+    let hosted = [hosted_batch_run(&[HELD, HELD_TOO])];
+
+    let plan = planned_for_a_batch((Form::Batch, Layer::Hosted), &hosted);
+
+    let (all, _) = batch_members();
+    let held = BTreeSet::from([HELD.to_owned(), HELD_TOO.to_owned()]);
+    let others: BTreeSet<String> = all.difference(&held).cloned().collect();
+    assert!(others.contains(COLLIE), "{others:?}");
+    assert!(
+        matches!(action(&plan, Step::PreMerge), Action::Part { members, .. } if members == &others),
+        "{:?}",
+        action(&plan, Step::PreMerge)
+    );
+    assert_eq!(
+        action(&plan, Step::Quick),
+        &Action::Covered { by: Step::PreMerge }
+    );
+}
+
+/// `just merge` on the quick form takes a member's hosted Pre-merge unit
+/// green on the tree for its Quick unit, and carries it into its record;
+/// the other members reuse their hosted Quick units.
+#[test]
+fn the_merge_covers_each_quick_unit_a_hosted_pre_merge_unit_holds() {
+    let hosted = [hosted_batch_run(&[HELD, HELD_TOO])];
+
+    let plan = planned_for_a_batch((Form::Quick, Layer::Merge), &hosted);
+
+    let quick = planned_step(&plan, Step::Quick);
+    assert!(
+        matches!(&quick.action, Action::Reuse { .. }),
+        "{:?}",
+        quick.action
+    );
+    assert!(
+        !quick.carried.contains_key(&unit(Step::Quick, Some(HELD))),
+        "{:?}",
+        quick.carried
+    );
+    let pre_merge = planned_step(&plan, Step::PreMerge);
+    for member in [HELD, HELD_TOO] {
+        assert_eq!(
+            pre_merge
+                .carried
+                .get(&unit(Step::PreMerge, Some(member)))
+                .map(|outcome| outcome.by),
+            Some(Layer::Hosted),
+            "{member}"
+        );
+    }
+}
+
+/// Once every member's hosted Pre-merge unit holds, the Quick suite and
+/// xtask's codegen tests are covered: xtask's Pre-merge unit runs them.
+#[test]
+fn the_quick_suite_and_the_codegen_tests_are_covered_once_every_pre_merge_unit_holds() {
+    let (members, _) = batch_members();
+    let every: Vec<&str> = members.iter().map(String::as_str).collect();
+    let hosted = [hosted_batch_run(&every)];
+
+    let plan = planned_for_a_batch((Form::Quick, Layer::Merge), &hosted);
+
+    for step in [Step::Quick, Step::CodegenTests] {
+        assert_eq!(
+            action(&plan, step),
+            &Action::Covered { by: Step::PreMerge },
+            "{step:?}"
+        );
+    }
+}
+
+/// A hosted Pre-merge unit red on the head's tree is the gate's verdict
+/// (ADR 0064): the quick form, which runs no Pre-merge suite, is red on its
+/// Quick suite, and runs neither again.
+#[test]
+fn a_red_hosted_pre_merge_unit_makes_the_quick_gate_red() {
+    let mut hosted = hosted_batch_run(&[HELD, HELD_TOO]);
+    hosted
+        .units
+        .get_mut(&unit(Step::PreMerge, Some(HELD)))
+        .unwrap()
+        .green = false;
+
+    let plan = planned_for_a_batch((Form::Quick, Layer::Merge), &[hosted]);
+
+    for step in [Step::PreMerge, Step::Quick] {
+        assert!(
+            matches!(action(&plan, step), Action::Red { why } if why.contains("goodfetch-protocol: red in the hosted run")),
+            "{step:?}: {:?}",
+            action(&plan, step)
+        );
+    }
 }

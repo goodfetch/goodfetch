@@ -106,6 +106,11 @@ impl ErrorCode {
     /// The page met a Challenge that every step of the ladder ended without passing: a timed wait for an invisible challenge, the Challenge solver when `challenge.solve` is on, and a Human pause when a person can answer and `session.recovery.human_pause` is on. Only the Page check declares a Challenge passed. The Session stays open with its cookies; an Agent's page gets it as its action's outcome. The details name the Block cause, `challenge` or `captcha`, the URL, the status and `steps`, each step tried with why it ended.
     pub const CHALLENGE_UNSOLVED: Self = ErrorCode::from_static("challenge_unsolved");
 
+    /// `checkpoint_behind`, in the `refused` group, not retryable.
+    ///
+    /// The Checkpoint a resume names is behind the Run's run file on this machine: a later run epoch, or the same one at a later journal position, wrote that file, so replacing it would throw away the work done since the Checkpoint and could perform its Effects again. Nothing is changed. Resume without `checkpoint` to go on from the run file, or pass `rollback` to replace it with the Checkpoint, as the Audit log records.
+    pub const CHECKPOINT_BEHIND: Self = ErrorCode::from_static("checkpoint_behind");
+
     /// `closed`, in the `program` group, not retryable.
     ///
     /// The call was made on a value its program had closed: a Connection, or a Run, Session or Page under it. A value never reopens: connect again, or start the Run again by its Run ID.
@@ -145,6 +150,11 @@ impl ErrorCode {
     ///
     /// The call's deadline passed before what it waited for came, such as a response's first byte or a navigation. Its `limit` names the timeout's setting, its value and the layer that set it: raise that setting, or wait for the right thing.
     pub const DEADLINE_EXCEEDED: Self = ErrorCode::from_static("deadline_exceeded");
+
+    /// `detach_unsupported`, in the `program` group, not retryable.
+    ///
+    /// A `detached` start of a Run that would die with its Connection, so no Run started: an Attached or linked engine ends with its Connection, and a Run whose handler is in the program waits on it. The details name what keeps the Run from detaching, `engine` or the key that gives it a handler in the program, and the fix.
+    pub const DETACH_UNSUPPORTED: Self = ErrorCode::from_static("detach_unsupported");
 
     /// `dialog_already_handled`, in the `program` group, not retryable.
     ///
@@ -200,6 +210,11 @@ impl ErrorCode {
     ///
     /// A bug in Goodfetch made the engine panic, which ended what `ended` names and only that: for `call`, this call, while its Connection, its Run and its Page go on. Making the same call again is likely to hit the same bug. Report it with the crash report `crash_report` names, a file in the engine's crash-report folder on its machine.
     pub const ENGINE_PANICKED: Self = ErrorCode::from_static("engine_panicked");
+
+    /// `event_loop_mismatch`, in the `program` group, not retryable.
+    ///
+    /// The call was made on an async value from another event loop or thread than the loop that opened its Connection: an async Connection and every Run, Session or Page under it belong to that loop, and nothing was sent. Call it from that loop, or use the sync client, whose values any thread may call.
+    pub const EVENT_LOOP_MISMATCH: Self = ErrorCode::from_static("event_loop_mismatch");
 
     /// `executable_blocked_by_smart_app_control`, in the `refused` group, not retryable.
     ///
@@ -330,6 +345,11 @@ impl ErrorCode {
     ///
     /// Memory was critical and the page held more than `governor.browser.page_memory_cap`, so the Resource governor ended it once no call on it was in flight. The page is gone: open another and try again, which the governor admits once memory frees up.
     pub const PAGE_MEMORY_EXCEEDED: Self = ErrorCode::from_static("page_memory_exceeded");
+
+    /// `page_navigated_during_call`, in the `page` group, retryable.
+    ///
+    /// The page's main frame committed a navigation to a new document while an `act`, `observe` or `extract` ran, between the call's first read of the page and its return (an `act` until its first input), and the call did not start it: the program's own driver, the page's script, a person or an extension may have. Nothing was acted on, and no Plan entry was written. The details name the document the call read, `url`, and the one that replaced it, `navigated_to`; the fix says to await the Collie call before the program's own driver acts on the page. A retry may find the page where the call needs it.
+    pub const PAGE_NAVIGATED_DURING_CALL: Self = ErrorCode::from_static("page_navigated_during_call");
 
     /// `page_value_invalid`, in the `program` group, not retryable.
     ///
@@ -466,6 +486,11 @@ impl ErrorCode {
     /// The action was forwarded to this engine as the Run's owner, and this engine does not own the Run: the Run index named an engine that has since ended or restarted. The engine that forwarded it retries the Run's writer lock.
     pub const RUN_NOT_OWNED: Self = ErrorCode::from_static("run_not_owned");
 
+    /// `run_state_filesystem_unsupported`, in the `unavailable` group, not retryable.
+    ///
+    /// The Run's folder is on a network filesystem (NFS, which EFS and Filestore are, or SMB, which Azure Files is) or on a FUSE mount of object storage, whose locking SQLite cannot rely on, so the engine keeps no run state there. The details name the Run, its folder, the `filesystem` and the `fix`: a `run_state.location` on a local disk or a block volume.
+    pub const RUN_STATE_FILESYSTEM_UNSUPPORTED: Self = ErrorCode::from_static("run_state_filesystem_unsupported");
+
     /// `run_state_unavailable`, in the `unavailable` group, not retryable.
     ///
     /// The Run's state is missing, damaged or cannot be written at its location; the details give the path. The engine never starts afresh under that Run ID.
@@ -493,7 +518,7 @@ impl ErrorCode {
 
     /// `secret_unavailable`, in the `unavailable` group, not retryable.
     ///
-    /// A Secret provider gave no value for a reference: a missing variable, a locked keychain, an unreachable vault, the caller's `resolveSecret` missing or throwing, no answer within `timeout.secret`. `failure` says which, and the details name the placeholder or setting, the reference and the provider, never a value.
+    /// A Secret provider gave no value for a reference: a missing variable, a locked keychain, an unreachable vault, no one-time code (a TOTP seed the provider makes none from, or a code source's code that never arrived), the caller's `resolveSecret` missing or throwing, no answer within `timeout.secret`. `failure` says which, and the details name the placeholder or setting, the reference and the provider, never a value.
     pub const SECRET_UNAVAILABLE: Self = ErrorCode::from_static("secret_unavailable");
 
     /// `secret_unbound`, in the `program` group, not retryable.
@@ -531,6 +556,11 @@ impl ErrorCode {
     /// The site's preferences refused the navigation or the request before it left, or refused the document once its response arrived, leaving the page on a blank document: its robots.txt disallows the URL (`robots_txt`), its `Crawl-delay` asks for more than the crawl allows (`crawl_delay`), or a use signal it sends refuses the crawl's Purpose (`use_signals`). Only a crawl handler's page asks a site's preferences; a page a program opens never raises it. The details name the URL and the reason.
     pub const SITE_PREFERENCES_REFUSED: Self = ErrorCode::from_static("site_preferences_refused");
 
+    /// `skill_install_refused`, in the `refused` group, not retryable.
+    ///
+    /// `skill install` found a folder of a skill's name in the skills folder that it did not install, or one it installed that was changed since, and refused to replace it. The message names the folder; no skill is written.
+    pub const SKILL_INSTALL_REFUSED: Self = ErrorCode::from_static("skill_install_refused");
+
     /// `target_not_unique`, in the `page` group, not retryable.
     ///
     /// The locator still matched several elements when the action's timeout passed, so the action did nothing. The details list every match, each with a locator that reaches it alone, and `limit` names the timeout's setting; a longer timeout would not fix the locator.
@@ -557,5 +587,5 @@ impl ErrorCode {
     pub const VALUE_INVALID: Self = ErrorCode::from_static("value_invalid");
 
     /// Every Error code of Collie's catalog, in the catalog's order.
-    pub const COLLIE: &[Self] = &[Self::ADDRESS_FAMILY_UNAVAILABLE, Self::ARTIFACT_DOWNLOAD_FAILED, Self::ARTIFACT_UNAVAILABLE_OFFLINE, Self::BLOCKED, Self::BODY_NOT_FOUND, Self::BODY_UNAVAILABLE, Self::BROWSER_HOST_OUTDATED, Self::BROWSER_HOST_UNREACHABLE, Self::BROWSER_LAUNCH_FAILED, Self::BROWSER_NEEDS_GUI_SESSION, Self::BROWSER_NOT_INSTALLED, Self::BROWSER_SANDBOX_UNAVAILABLE, Self::CALL_CANCELLED, Self::CAPABILITY_UNAVAILABLE, Self::CDP_URL_NOT_ALLOWED, Self::CDP_URL_NOT_BROWSER, Self::CDP_URL_UNAUTHORIZED, Self::CDP_URL_UNREACHABLE, Self::CERTIFICATE_CHANGED, Self::CERTIFICATE_INVALID, Self::CHALLENGE_UNSOLVED, Self::CLOSED, Self::CONFINEMENT_UNAVAILABLE, Self::CONNECTION_FORKED, Self::CONNECTION_LOST, Self::CONNECTION_OVERLOADED, Self::DAEMON_DRAINING, Self::DAEMON_UNREACHABLE, Self::DEADLINE_EXCEEDED, Self::DIALOG_ALREADY_HANDLED, Self::EDGE_HANDLERS_UNSUPPORTED, Self::EFFECT_KEY_INVALID, Self::EFFECT_KEY_REUSED, Self::EFFECT_OUTPUT_INVALID, Self::EFFECT_UNCERTAIN, Self::EGRESS_REFUSED, Self::ENGINE_EXITED, Self::ENGINE_NOT_FOUND, Self::ENGINE_OUTPUT_INVALID, Self::ENGINE_PANICKED, Self::EXECUTABLE_BLOCKED_BY_SMART_APP_CONTROL, Self::FILE_WRITE_FAILED, Self::FORMAT_VERSION_UNSUPPORTED, Self::HEADER_VALUE_INVALID, Self::HOOK_FAILED, Self::INTERNAL, Self::LIMIT_NOT_UNDERSTOOD, Self::LIMIT_RAISE_REFUSED, Self::LIMIT_REACHED, Self::LISTENER_EVENTS_LOST, Self::LISTENER_FAILED, Self::LOCAL_ADDRESS_UNAVAILABLE, Self::LOGGED_OUT, Self::NAME_LOOKUP_FAILED, Self::NAME_NOT_RESOLVED, Self::NAVIGATION_FAILED, Self::NAVIGATION_INTERRUPTED, Self::NOT_A_DAEMON, Self::NOT_IN_PRODUCT, Self::NOT_VERIFIED, Self::PAGE_CHECK_FAILED, Self::PAGE_CRASHED, Self::PAGE_EVENTS_LOST, Self::PAGE_FUNCTION_FAILED, Self::PAGE_HANDLER_FAILED, Self::PAGE_MEMORY_EXCEEDED, Self::PAGE_VALUE_INVALID, Self::PATH_NOT_WRITABLE, Self::PATH_UNSAFE, Self::PATTERN_UNSUPPORTED, Self::PERSON_REQUIRED, Self::PLUGIN_CRASHED, Self::POLICY_CONFLICT, Self::PROTOCOL_VERSION_UNSUPPORTED, Self::PROXY_AUTH_FAILED, Self::PROXY_PROVIDER_UNAVAILABLE, Self::PROXY_RELAY_UNAVAILABLE, Self::PROXY_UNAVAILABLE, Self::RESOURCES_EXHAUSTED, Self::RESPONSE_LIMIT_EXCEEDED, Self::RESPONSE_NOT_JSON, Self::RESPONSE_TRUNCATED, Self::ROUTE_ALREADY_HANDLED, Self::RUN_BUSY, Self::RUN_CONFLICT, Self::RUN_ENDED, Self::RUN_ID_INVALID, Self::RUN_IN_USE, Self::RUN_INTERRUPTED, Self::RUN_KEY_MISMATCH, Self::RUN_LIVE, Self::RUN_NOT_FOUND, Self::RUN_NOT_OWNED, Self::RUN_STATE_UNAVAILABLE, Self::RUN_TARGET_UNBUILT, Self::SAMPLE_REFUSED, Self::SECRET_DOMAIN_NOT_ALLOWED, Self::SECRET_INPUT_REFUSED, Self::SECRET_UNAVAILABLE, Self::SECRET_UNBOUND, Self::SESSION_BOUND_TO_MACHINE, Self::SETTING_INVALID, Self::SETTING_LOCKED, Self::SETTING_NOT_APPLICABLE, Self::SETTING_UNKNOWN, Self::SITE_PREFERENCES_REFUSED, Self::TARGET_NOT_UNIQUE, Self::TOO_MANY_CALLS, Self::TOO_MANY_REDIRECTS, Self::UPGRADE_SOURCE_UNSUPPORTED, Self::VALUE_INVALID];
+    pub const COLLIE: &[Self] = &[Self::ADDRESS_FAMILY_UNAVAILABLE, Self::ARTIFACT_DOWNLOAD_FAILED, Self::ARTIFACT_UNAVAILABLE_OFFLINE, Self::BLOCKED, Self::BODY_NOT_FOUND, Self::BODY_UNAVAILABLE, Self::BROWSER_HOST_OUTDATED, Self::BROWSER_HOST_UNREACHABLE, Self::BROWSER_LAUNCH_FAILED, Self::BROWSER_NEEDS_GUI_SESSION, Self::BROWSER_NOT_INSTALLED, Self::BROWSER_SANDBOX_UNAVAILABLE, Self::CALL_CANCELLED, Self::CAPABILITY_UNAVAILABLE, Self::CDP_URL_NOT_ALLOWED, Self::CDP_URL_NOT_BROWSER, Self::CDP_URL_UNAUTHORIZED, Self::CDP_URL_UNREACHABLE, Self::CERTIFICATE_CHANGED, Self::CERTIFICATE_INVALID, Self::CHALLENGE_UNSOLVED, Self::CHECKPOINT_BEHIND, Self::CLOSED, Self::CONFINEMENT_UNAVAILABLE, Self::CONNECTION_FORKED, Self::CONNECTION_LOST, Self::CONNECTION_OVERLOADED, Self::DAEMON_DRAINING, Self::DAEMON_UNREACHABLE, Self::DEADLINE_EXCEEDED, Self::DETACH_UNSUPPORTED, Self::DIALOG_ALREADY_HANDLED, Self::EDGE_HANDLERS_UNSUPPORTED, Self::EFFECT_KEY_INVALID, Self::EFFECT_KEY_REUSED, Self::EFFECT_OUTPUT_INVALID, Self::EFFECT_UNCERTAIN, Self::EGRESS_REFUSED, Self::ENGINE_EXITED, Self::ENGINE_NOT_FOUND, Self::ENGINE_OUTPUT_INVALID, Self::ENGINE_PANICKED, Self::EVENT_LOOP_MISMATCH, Self::EXECUTABLE_BLOCKED_BY_SMART_APP_CONTROL, Self::FILE_WRITE_FAILED, Self::FORMAT_VERSION_UNSUPPORTED, Self::HEADER_VALUE_INVALID, Self::HOOK_FAILED, Self::INTERNAL, Self::LIMIT_NOT_UNDERSTOOD, Self::LIMIT_RAISE_REFUSED, Self::LIMIT_REACHED, Self::LISTENER_EVENTS_LOST, Self::LISTENER_FAILED, Self::LOCAL_ADDRESS_UNAVAILABLE, Self::LOGGED_OUT, Self::NAME_LOOKUP_FAILED, Self::NAME_NOT_RESOLVED, Self::NAVIGATION_FAILED, Self::NAVIGATION_INTERRUPTED, Self::NOT_A_DAEMON, Self::NOT_IN_PRODUCT, Self::NOT_VERIFIED, Self::PAGE_CHECK_FAILED, Self::PAGE_CRASHED, Self::PAGE_EVENTS_LOST, Self::PAGE_FUNCTION_FAILED, Self::PAGE_HANDLER_FAILED, Self::PAGE_MEMORY_EXCEEDED, Self::PAGE_NAVIGATED_DURING_CALL, Self::PAGE_VALUE_INVALID, Self::PATH_NOT_WRITABLE, Self::PATH_UNSAFE, Self::PATTERN_UNSUPPORTED, Self::PERSON_REQUIRED, Self::PLUGIN_CRASHED, Self::POLICY_CONFLICT, Self::PROTOCOL_VERSION_UNSUPPORTED, Self::PROXY_AUTH_FAILED, Self::PROXY_PROVIDER_UNAVAILABLE, Self::PROXY_RELAY_UNAVAILABLE, Self::PROXY_UNAVAILABLE, Self::RESOURCES_EXHAUSTED, Self::RESPONSE_LIMIT_EXCEEDED, Self::RESPONSE_NOT_JSON, Self::RESPONSE_TRUNCATED, Self::ROUTE_ALREADY_HANDLED, Self::RUN_BUSY, Self::RUN_CONFLICT, Self::RUN_ENDED, Self::RUN_ID_INVALID, Self::RUN_IN_USE, Self::RUN_INTERRUPTED, Self::RUN_KEY_MISMATCH, Self::RUN_LIVE, Self::RUN_NOT_FOUND, Self::RUN_NOT_OWNED, Self::RUN_STATE_FILESYSTEM_UNSUPPORTED, Self::RUN_STATE_UNAVAILABLE, Self::RUN_TARGET_UNBUILT, Self::SAMPLE_REFUSED, Self::SECRET_DOMAIN_NOT_ALLOWED, Self::SECRET_INPUT_REFUSED, Self::SECRET_UNAVAILABLE, Self::SECRET_UNBOUND, Self::SESSION_BOUND_TO_MACHINE, Self::SETTING_INVALID, Self::SETTING_LOCKED, Self::SETTING_NOT_APPLICABLE, Self::SETTING_UNKNOWN, Self::SITE_PREFERENCES_REFUSED, Self::SKILL_INSTALL_REFUSED, Self::TARGET_NOT_UNIQUE, Self::TOO_MANY_CALLS, Self::TOO_MANY_REDIRECTS, Self::UPGRADE_SOURCE_UNSUPPORTED, Self::VALUE_INVALID];
 }

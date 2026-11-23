@@ -40,7 +40,7 @@ use encoding_rs::Encoding;
 use goodfetch_counted_work::{CountedWork, Row};
 use goodfetch_encoding::Kind;
 use goodfetch_engine::deadline::Enclosing;
-use goodfetch_engine::dns::{HostMapping, ResolverConfiguration};
+use goodfetch_engine::dns::{HostMapping, ResolverSource};
 use goodfetch_engine::egress::Policy;
 use goodfetch_engine::happy_eyeballs::Delays;
 use goodfetch_engine::home::Home;
@@ -1118,7 +1118,7 @@ impl FetchTiers {
             resolve: HostMapping::of(settings),
             egress: egress.clone(),
             clock: identity.clock(),
-            resolver: ResolverConfiguration::system().map_err(|error| error.to_string())?,
+            resolver: ResolverSource::system(),
             local,
             delays: Delays::of(settings),
         };
@@ -1240,7 +1240,6 @@ impl FetchTiers {
         let hop = first_hop(request)?;
         let gate = ChainGate {
             hand_over: Arc::clone(hand_over),
-            crawl_request: request.id.clone(),
         };
         let accepts = Accepts {
             types: hand_over.content_types.clone(),

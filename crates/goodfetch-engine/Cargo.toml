@@ -67,6 +67,11 @@ netdev.workspace = true
 opentelemetry = { workspace = true, features = ["metrics"] }
 opentelemetry_sdk.workspace = true
 tracing-opentelemetry.workspace = true
+# The Politeness store (ADR 0053): `script` loads its Lua scripts once and
+# calls them by `EVALSHA`; `tokio-rustls-comp` speaks TLS through rustls,
+# and `sentinel` and `cluster-async` reach a Sentinel deployment or a
+# Cluster.
+redis = { workspace = true, features = ["tokio-rustls-comp", "script", "sentinel", "cluster-async"] }
 # `hooks`: the commit hook the Usage ledger counts its transactions with (ADR 0140).
 rusqlite = { workspace = true, features = ["hooks"] }
 rustls = { workspace = true, features = ["ring", "std", "tls12"] }
@@ -114,8 +119,9 @@ zip = { workspace = true, features = ["deflate-flate2"] }
 zstd.workspace = true
 goodfetch-workspace-hack.workspace = true
 
-# Frees the buffer launchd answers the Daemon's activated sockets in, and
-# watches an Attached engine's parent (prctl, kqueue).
+# Frees the buffer launchd answers the Daemon's activated sockets in,
+# watches an Attached engine's parent (prctl, kqueue) and names a run
+# folder's filesystem (statfs).
 [target.'cfg(unix)'.dependencies]
 libc.workspace = true
 

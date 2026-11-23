@@ -238,6 +238,8 @@ impl Gateway {
             // Each call goes on to an engine over a Connection of the
             // Client's own, which that engine caps.
             max_calls_in_flight: goodfetch_engine::rpc::max_calls_in_flight(),
+            // The stub resolves no settings of its own.
+            timeouts: Vec::new(),
         };
         let reply = json!({"jsonrpc": "2.0", "id": id, "result": result});
         outgoing.send(reply.to_string()).await.ok()?;

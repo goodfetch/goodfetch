@@ -1515,10 +1515,10 @@ impl On<'_> {
             label: &leased.crawl_request.label,
             domain_key: &leased.waiting.key,
             second_copies: &tiering.second_copies,
-            // No work item declares an Effect before area 9's Effect
-            // journal (ADR 0106), and no crawl request is a Paid fetch
-            // before ADR 0045's.
-            declares_effect: false,
+            // A work item that declared an Effect is never hedged or
+            // coalesced from then on (ADR 0106); no crawl request is a
+            // Paid fetch before ADR 0045's.
+            declares_effect: lease.declares_effect(),
             paid: false,
         };
         let tiers = &tiering.tiers;

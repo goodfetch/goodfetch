@@ -1688,7 +1688,7 @@ pub mod timeout {
             &[::goodfetch_protocol::catalog::SettingScope::Connection],
         );
 
-    /// How long a Secret provider may take to answer one reference before the resolution fails with `secret_unavailable`, `failure: "timed_out"`: 30 s. A provider that answers it is briefly busy, such as a rate limit's, is asked again within it, with exponential backoff and full jitter, after its `Retry-After` when it gave one.
+    /// How long a Secret provider may take to answer one reference before the resolution fails with `secret_unavailable`, `failure: "timed_out"`, or `"resolver_failed"` for the program's own `resolveSecret`, asked for a `caller:` reference: 30 s. A provider that answers it is briefly busy, such as a rate limit's, is asked again within it, with exponential backoff and full jitter, after its `Retry-After` when it gave one.
     ///
     /// `timeout.secret`.
     pub const SECRET: crate::settings::Setting<::std::time::Duration> =

@@ -2679,6 +2679,30 @@ class SampleStorePutResult(BaseModel):
     """Whether a value was already kept under the key."""
 
 
+class SecretResolved(BaseModel):
+    """What `resolveSecret` answers: the value. Its `Debug` leaves it out."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    value: str
+    """The value."""
+
+
+class SecretsResolveParams(BaseModel):
+    """What `secrets.resolve` gives the program's `resolveSecret`."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    domain: str | None = None
+    """The host the value is sent to, where the use has one."""
+    name: str
+    """The reference's name, what follows `caller:`."""
+    run_id: RunId
+    """The Run that uses it, which this Connection opened."""
+
+
 class SeedsKept(BaseModel):
     """How many seeds one reason kept from a handler."""
 

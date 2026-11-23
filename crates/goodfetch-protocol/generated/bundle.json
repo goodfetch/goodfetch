@@ -16067,6 +16067,52 @@
       ],
       "type": "object"
     },
+    "SecretResolved": {
+      "description": "What `resolveSecret` answers: the value. Its `Debug` leaves it out.",
+      "properties": {
+        "value": {
+          "arrived_in": "0.1",
+          "description": "The value.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "value"
+      ],
+      "type": "object"
+    },
+    "SecretsResolveParams": {
+      "description": "What `secrets.resolve` gives the program's `resolveSecret`.",
+      "properties": {
+        "_meta": {
+          "$ref": "#/$defs/RequestMeta",
+          "arrived_in": "0.1"
+        },
+        "domain": {
+          "arrived_in": "0.1",
+          "description": "The host the value is sent to, where the use has one.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "name": {
+          "arrived_in": "0.1",
+          "description": "The reference's name, what follows `caller:`.",
+          "type": "string"
+        },
+        "run_id": {
+          "$ref": "#/$defs/RunId",
+          "arrived_in": "0.1",
+          "description": "The Run that uses it, which this Connection opened."
+        }
+      },
+      "required": [
+        "name",
+        "run_id"
+      ],
+      "type": "object"
+    },
     "Seed": {
       "anyOf": [
         {
@@ -20446,7 +20492,7 @@
                     "description": "How long a Run may go on before it checkpoints and stops at its next safe point, resumable; none by default."
                   },
                   "secret": {
-                    "description": "How long a Secret provider may take to answer one reference before the resolution fails with `secret_unavailable`, `failure: \"timed_out\"`: 30 s. A provider that answers it is briefly busy, such as a rate limit's, is asked again within it, with exponential backoff and full jitter, after its `Retry-After` when it gave one.",
+                    "description": "How long a Secret provider may take to answer one reference before the resolution fails with `secret_unavailable`, `failure: \"timed_out\"`, or `\"resolver_failed\"` for the program's own `resolveSecret`, asked for a `caller:` reference: 30 s. A provider that answers it is briefly busy, such as a rate limit's, is asked again within it, with exponential backoff and full jitter, after its `Retry-After` when it gave one.",
                     "minimum": 0,
                     "type": "integer"
                   },
@@ -24158,7 +24204,7 @@
                     "description": "How long a Run may go on before it checkpoints and stops at its next safe point, resumable; none by default."
                   },
                   "secret": {
-                    "description": "How long a Secret provider may take to answer one reference before the resolution fails with `secret_unavailable`, `failure: \"timed_out\"`: 30 s. A provider that answers it is briefly busy, such as a rate limit's, is asked again within it, with exponential backoff and full jitter, after its `Retry-After` when it gave one.",
+                    "description": "How long a Secret provider may take to answer one reference before the resolution fails with `secret_unavailable`, `failure: \"timed_out\"`, or `\"resolver_failed\"` for the program's own `resolveSecret`, asked for a `caller:` reference: 30 s. A provider that answers it is briefly busy, such as a rate limit's, is asked again within it, with exponential backoff and full jitter, after its `Retry-After` when it gave one.",
                     "minimum": 0,
                     "type": "integer"
                   },
@@ -27986,7 +28032,7 @@
                     "description": "How long a Run may go on before it checkpoints and stops at its next safe point, resumable; none by default."
                   },
                   "secret": {
-                    "description": "How long a Secret provider may take to answer one reference before the resolution fails with `secret_unavailable`, `failure: \"timed_out\"`: 30 s. A provider that answers it is briefly busy, such as a rate limit's, is asked again within it, with exponential backoff and full jitter, after its `Retry-After` when it gave one.",
+                    "description": "How long a Secret provider may take to answer one reference before the resolution fails with `secret_unavailable`, `failure: \"timed_out\"`, or `\"resolver_failed\"` for the program's own `resolveSecret`, asked for a `caller:` reference: 30 s. A provider that answers it is briefly busy, such as a rate limit's, is asked again within it, with exponential backoff and full jitter, after its `Retry-After` when it gave one.",
                     "minimum": 0,
                     "type": "integer"
                   },
@@ -31830,7 +31876,7 @@
                     "description": "How long a Run may go on before it checkpoints and stops at its next safe point, resumable; none by default."
                   },
                   "secret": {
-                    "description": "How long a Secret provider may take to answer one reference before the resolution fails with `secret_unavailable`, `failure: \"timed_out\"`: 30 s. A provider that answers it is briefly busy, such as a rate limit's, is asked again within it, with exponential backoff and full jitter, after its `Retry-After` when it gave one.",
+                    "description": "How long a Secret provider may take to answer one reference before the resolution fails with `secret_unavailable`, `failure: \"timed_out\"`, or `\"resolver_failed\"` for the program's own `resolveSecret`, asked for a `caller:` reference: 30 s. A provider that answers it is briefly busy, such as a rate limit's, is asked again within it, with exponential backoff and full jitter, after its `Retry-After` when it gave one.",
                     "minimum": 0,
                     "type": "integer"
                   },

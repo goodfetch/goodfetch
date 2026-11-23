@@ -2035,6 +2035,20 @@
         "$ref": "#/$defs/RouteHandled"
       },
       "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "deprecated": null,
+      "description": "Asks the program's `resolveSecret` for the value of a `caller:<name>` Secret reference, at its use by a Run this Connection opened; no other Connection is asked. The value goes straight to the engine, which masks it and keeps it nowhere. A failure reply, such as a Client with no `resolveSecret`, or no answer within `timeout.secret`, which cancels the request, fails the use with `secret_unavailable`, `failure: \"resolver_failed\"`.",
+      "name": "secrets.resolve",
+      "params": {
+        "$ref": "#/$defs/SecretsResolveParams"
+      },
+      "product": "collie",
+      "result": {
+        "$ref": "#/$defs/SecretResolved"
+      },
+      "stability": "experimental"
     }
   ],
   "hook_stages": [
@@ -12148,7 +12162,7 @@
       "clearable": false,
       "default": 30000,
       "deprecated": null,
-      "description": "How long a Secret provider may take to answer one reference before the resolution fails with `secret_unavailable`, `failure: \"timed_out\"`: 30 s. A provider that answers it is briefly busy, such as a rate limit's, is asked again within it, with exponential backoff and full jitter, after its `Retry-After` when it gave one.",
+      "description": "How long a Secret provider may take to answer one reference before the resolution fails with `secret_unavailable`, `failure: \"timed_out\"`, or `\"resolver_failed\"` for the program's own `resolveSecret`, asked for a `caller:` reference: 30 s. A provider that answers it is briefly busy, such as a rate limit's, is asked again within it, with exponential backoff and full jitter, after its `Retry-After` when it gave one.",
       "fixed_for_run": false,
       "name": "timeout.secret",
       "product": "collie",

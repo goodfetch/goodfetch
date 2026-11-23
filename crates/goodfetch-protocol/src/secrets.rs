@@ -8,7 +8,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
 use crate::catalog::{
-    Authority, Entries, ErrorCodeDefinition, ErrorGroup, ProtocolVersion, Setting, ValueKind,
+    Authority, Entries, ErrorCodeDefinition, ErrorGroup, HandlerRequest, ProtocolVersion, Setting,
+    Stability, ValueKind, schema_of,
 };
 use crate::run::RunId;
 
@@ -238,7 +239,7 @@ pub const RUN_STATE_KEY_REFERENCE: Setting = Setting {
 /// `timeout.secret` (ADR 0092).
 pub const TIMEOUT_SECRET: Setting = Setting {
     name: "timeout.secret",
-    description: "How long a Secret provider may take to answer one reference before the resolution fails with `secret_unavailable`, `failure: \"timed_out\"`: 30 s. A provider that answers it is briefly busy, such as a rate limit's, is asked again within it, with exponential backoff and full jitter, after its `Retry-After` when it gave one.",
+    description: "How long a Secret provider may take to answer one reference before the resolution fails with `secret_unavailable`, `failure: \"timed_out\"`, or `\"resolver_failed\"` for the program's own `resolveSecret`, asked for a `caller:` reference: 30 s. A provider that answers it is briefly busy, such as a rate limit's, is asked again within it, with exponential backoff and full jitter, after its `Retry-After` when it gave one.",
     kind: ValueKind::Duration,
     default: thirty_seconds,
     clearable: false,
@@ -423,12 +424,54 @@ pub const SECRETS_RESOLVE_EACH_USE: Setting = Setting {
     arrived_in: ARRIVED_IN,
 };
 
+/// `secrets.resolve` (ADR 0092): the caller as a Secret provider.
+pub const SECRETS_RESOLVE: HandlerRequest = HandlerRequest {
+    name: "secrets.resolve",
+    description: "Asks the program's `resolveSecret` for the value of a `caller:<name>` Secret reference, at its use by a Run this Connection opened; no other Connection is asked. The value goes straight to the engine, which masks it and keeps it nowhere. A failure reply, such as a Client with no `resolveSecret`, or no answer within `timeout.secret`, which cancels the request, fails the use with `secret_unavailable`, `failure: \"resolver_failed\"`.",
+    params: schema_of::<SecretsResolveParams>,
+    result: schema_of::<SecretResolved>,
+    stability: Stability::Experimental,
+    deprecated: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// What `secrets.resolve` gives the program's `resolveSecret`.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct SecretsResolveParams {
+    /// The reference's name, what follows `caller:`.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub name: String,
+    /// The Run that uses it, which this Connection opened.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub run_id: RunId,
+    /// The host the value is sent to, where the use has one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub domain: Option<String>,
+}
+
+/// What `resolveSecret` answers: the value. Its `Debug` leaves it out.
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct SecretResolved {
+    /// The value.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub value: String,
+}
+
+impl std::fmt::Debug for SecretResolved {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("SecretResolved")
+            .finish_non_exhaustive()
+    }
+}
+
 /// Every entry this module defines.
 pub const ENTRIES: Entries = Entries {
     defined_in: module_path!(),
     operations: &[],
     events: &[],
-    handler_requests: &[],
+    handler_requests: &[SECRETS_RESOLVE],
     error_codes: &[
         SECRET_UNAVAILABLE,
         SECRET_UNBOUND,

@@ -499,8 +499,8 @@ fn npm_packages(root: &Path) -> Result<Vec<String>> {
 
 fn package_json_name(root: &Path, folder: &str) -> Result<String> {
     let path = format!("sdks/typescript/{folder}/package.json");
-    let package: Named =
-        serde_json::from_str(&Tree::Workspace(root).read(&path)?).with_context(|| format!("parsing {path}"))?;
+    let package: Named = serde_json::from_str(&Tree::Workspace(root).read(&path)?)
+        .with_context(|| format!("parsing {path}"))?;
     Ok(package.name)
 }
 

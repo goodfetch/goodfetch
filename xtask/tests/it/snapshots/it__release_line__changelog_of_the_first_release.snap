@@ -1,0 +1,24 @@
+---
+source: xtask/tests/it/release_line.rs
+expression: "std::fs::read_to_string(workspace.path().join(\"CHANGELOG.md\")).unwrap()"
+---
+# Changelog
+
+## 1.4.0-rc.1 (2026-11-20)
+
+### Both Products
+
+#### Added
+
+- The second Feature
+
+#### Fixed
+
+- The crash
+- Time out shared requests
+
+### Foxhound only
+
+#### Added
+
+- **foxhound:** Crawl to a depth

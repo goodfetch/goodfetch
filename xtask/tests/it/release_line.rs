@@ -1,7 +1,8 @@
 //! `xtask release`'s release line on a fixture repository (ADR 0032): a
 //! minor's cut, the backports its branch lacks, each release's git-cliff
-//! range and the gates a release and a promotion pass (ADRs 0064, 0066,
-//! 0067 and 0072), against local stand-ins of GitHub's interface, the
+//! range and its changelog entries, by the Products each commit reaches
+//! (ADR 0094), and the gates a release and a promotion pass (ADRs 0064,
+//! 0066, 0067 and 0072), against local stand-ins of GitHub's interface, the
 //! private fuzzing repository's included.
 
 use std::ffi::OsStr;
@@ -710,4 +711,107 @@ fn check_refuses_a_patch_while_a_release_gate_is_closed(
 
     assert_eq!(outcome.code, 1, "{}", outcome.stderr);
     assert_eq!(outcome.findings(), [refusal]);
+}
+
+/// Commits `paths`, each written anew, and nothing else, with `message`.
+fn commit_paths(workspace: &Workspace, message: &str, paths: &[&str]) {
+    for path in paths {
+        workspace.write(path, format!("// {message}\n").as_bytes());
+    }
+    workspace.git(&[&["add", "--"], paths].concat());
+    workspace.git(&["commit", "--quiet", "--no-verify", "--message", message]);
+}
+
+/// An earlier release's entries, which the next release's go above.
+const EARLIER: &str = "# Changelog\n\n## 1.3.0 (2026-10-01)\n\n### Both Products\n\n#### Added\n\n- The first Feature\n";
+
+/// `1.4.0-rc.1`'s entries as written before, above [`EARLIER`]'s.
+const FIRST_CANDIDATE: &str = "# Changelog\n\n## 1.4.0-rc.1 (2026-11-19)\n\n### Both Products\n\n#### Fixed\n\n- The crash\n\n## 1.3.0 (2026-10-01)\n\n### Both Products\n\n#### Added\n\n- The first Feature\n";
+
+/// `1.4.0`'s two candidates' entries above [`EARLIER`]'s.
+const CANDIDATES: &str = "# Changelog\n\n## 1.4.0-rc.2 (2026-11-19)\n\n### Foxhound only\n\n#### Added\n\n- **foxhound:** Crawl to a depth\n\n## 1.4.0-rc.1 (2026-11-18)\n\n### Both Products\n\n#### Fixed\n\n- The crash\n\n## 1.3.0 (2026-10-01)\n\n### Both Products\n\n#### Added\n\n- The first Feature\n";
+
+/// `version`'s changelog, from the repository's `cliff.toml`, once
+/// `release/1.4` has merged a branch's commit on Foxhound's side alone,
+/// and has a commit on both sides and a chore, over `main`'s fix and
+/// Feature, with `earlier` as `CHANGELOG.md` before it, snapshotted as
+/// `name`. A merge is left out: its branch's commit is listed.
+///
+/// Covers: story:1-78
+#[rstest]
+#[case::the_first_release("changelog_of_the_first_release", "1.4.0-rc.1", None)]
+#[case::after_an_earlier_release("changelog_after_an_earlier_release", "1.4.0-rc.1", Some(EARLIER))]
+#[case::written_again_over_its_own_section(
+    "changelog_after_an_earlier_release",
+    "1.4.0-rc.1",
+    Some(FIRST_CANDIDATE)
+)]
+#[case::a_stable_minor_over_its_candidates(
+    "changelog_of_a_stable_minor_over_its_candidates",
+    "1.4.0",
+    Some(CANDIDATES)
+)]
+fn changelog_lists_a_foxhound_only_commit_under_foxhound_and_a_commit_on_both_sides_under_both(
+    #[case] name: &str,
+    #[case] version: &str,
+    #[case] earlier: Option<&str>,
+) {
+    let Line { workspace, .. } = line();
+    workspace.git(&["switch", "--quiet", "--create", "depth", "release/1.4"]);
+    commit_paths(
+        &workspace,
+        "feat(foxhound): crawl to a depth",
+        &[
+            "crates/foxhound/goodfetch-foxhound/src/depth.rs",
+            "sdks/python/foxhound/depth.py",
+        ],
+    );
+    workspace.git(&["switch", "--quiet", "release/1.4"]);
+    workspace.git(&[
+        "merge",
+        "--quiet",
+        "--no-ff",
+        "--no-verify",
+        "--message",
+        "feat(foxhound): merge the depth crawl (#9)",
+        "depth",
+    ]);
+    commit_paths(
+        &workspace,
+        "fix: time out shared requests",
+        &[
+            "crates/foxhound/goodfetch-foxhound/src/timeout.rs",
+            "crates/goodfetch-engine/src/timeout.rs",
+        ],
+    );
+    commit_paths(
+        &workspace,
+        "chore(foxhound): tidy the crawl",
+        &["crates/foxhound/goodfetch-foxhound/src/depth.rs"],
+    );
+    let repository = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .unwrap();
+    workspace.write(
+        "cliff.toml",
+        &std::fs::read(repository.join("cliff.toml")).unwrap(),
+    );
+    if let Some(earlier) = earlier {
+        workspace.write("CHANGELOG.md", earlier.as_bytes());
+    }
+
+    let outcome = workspace.xtask(&[
+        "release",
+        "changelog",
+        "--version",
+        version,
+        "--at",
+        "2026-11-20T12:00:00Z",
+    ]);
+
+    assert_eq!(outcome.code, 0, "{}", outcome.stderr);
+    insta::assert_snapshot!(
+        name,
+        std::fs::read_to_string(workspace.path().join("CHANGELOG.md")).unwrap()
+    );
 }

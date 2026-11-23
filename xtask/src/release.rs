@@ -10,13 +10,15 @@
 //!
 //! The release line (ADR 0032): `cut` gives a minor its `release/x.y`
 //! branch, `backports` lists the fixes it lacks, `range` gives a release's
-//! git-cliff range and `check` holds a release, or a promotion to `x.y.0`,
-//! at its gates; `prepare` holds a patch that changes a format (ADR 0066).
+//! git-cliff range, `changelog` writes its entries in `CHANGELOG.md` and
+//! `check` holds a release, or a promotion to `x.y.0`, at its gates;
+//! `prepare` holds a patch that changes a format (ADR 0066).
 #![expect(
     clippy::disallowed_methods,
     reason = "xtask is synchronous; the blocking-fs ban targets async crates (STYLE.md)"
 )]
 
+mod changelog;
 mod gates;
 mod line;
 
@@ -105,6 +107,19 @@ pub(crate) enum Command {
         #[arg(long, default_value = "HEAD")]
         to: String,
     },
+    /// Writes `version`'s entries above the earlier releases' in
+    /// `CHANGELOG.md`, with git-cliff, from the commits of its range up to
+    /// `to`: under Foxhound only a commit whose every changed path is on
+    /// Foxhound's side, under both Products every other (ADR 0094).
+    Changelog {
+        #[arg(long)]
+        version: ProductVersion,
+        #[arg(long, default_value = "HEAD")]
+        to: String,
+        /// The release's date; today when not given.
+        #[arg(long, hide = true)]
+        at: Option<jiff::Timestamp>,
+    },
     /// Holds a release of `version`, built from `commit`, at its gates: an
     /// empty quarantine list and no untested Feature for every release; for
     /// a promotion to `x.y.0`, no unexplained Live-check failure and no open
@@ -174,6 +189,11 @@ pub(crate) fn run(command: Command, environment: &Environment) -> Result<ExitCod
             output::line(&line::range(root, &version, &to)?);
             Ok(ExitCode::SUCCESS)
         }
+        Command::Changelog { version, to, at } => {
+            changelog::write(root, &version, &to, at.unwrap_or_else(now))?;
+            output::line(changelog::CHANGELOG);
+            Ok(ExitCode::SUCCESS)
+        }
         Command::Check {
             version,
             feature_report,
@@ -201,10 +221,11 @@ pub(crate) fn run(command: Command, environment: &Environment) -> Result<ExitCod
     }
 }
 
-/// The time a promotion is checked at, when `--at` does not give it.
+/// The time a promotion is checked at, or a release's changelog dated,
+/// when `--at` does not give it.
 #[expect(
     clippy::disallowed_methods,
-    reason = "ADR 0059: the two business days of ADR 0064 count to the wall clock's now; tests pass --at"
+    reason = "ADR 0059: the two business days of ADR 0064 count to the wall clock's now, and a release is dated today; tests pass --at"
 )]
 fn now() -> jiff::Timestamp {
     jiff::Timestamp::now()

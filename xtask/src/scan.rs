@@ -297,7 +297,7 @@ fn flaky_test_body(test: &TestKey, groups: &BTreeMap<Inputs, Vec<&TestRun>>) -> 
 fn live_check_body(check: &str, area: &str, last: &[&TestRun]) -> String {
     let mut body = format!(
         "The Live check `{check}`, owned by {area} (ADR 0037), failed, or was inconclusive {INCONCLUSIVE_IN_A_ROW} times in a row (ADR 0064).\n\n\
-         State its cause in a comment within two business days. This issue closes once the cause is fixed in Goodfetch, \
+         State its cause in a comment starting `Cause:` within two business days, or `xtask release check` holds the next minor's promotion. This issue closes once the cause is fixed in Goodfetch, \
          or attributed to an external party with a linked upstream report.\n\n\
          | Started | Run | Attempt | Job | Outcome | Commit |\n|---|---|---|---|---|---|\n"
     );

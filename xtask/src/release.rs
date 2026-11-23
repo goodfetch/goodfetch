@@ -9,8 +9,9 @@
 //! which their marketplaces version, are not among them.
 //!
 //! The release line (ADR 0032): `cut` gives a minor its `release/x.y`
-//! branch once every release's gates pass, `backports` lists the fixes it
-//! lacks and `range` gives a release's git-cliff range.
+//! branch, `backports` lists the fixes it lacks, `range` gives a release's
+//! git-cliff range and `check` holds a release, or a promotion to `x.y.0`,
+//! at its gates; `prepare` holds a patch that changes a format (ADR 0066).
 #![expect(
     clippy::disallowed_methods,
     reason = "xtask is synchronous; the blocking-fs ban targets async crates (STYLE.md)"
@@ -62,7 +63,9 @@ const UV_LOCK: &str = "uv.lock";
 pub(crate) enum Command {
     /// Sets the Product version in every released manifest of both
     /// Products and in the lockfiles' entries for them, in each registry's
-    /// form; writes nothing when one cannot take it.
+    /// form; writes nothing when one cannot take it, or, for a patch, when
+    /// a format's version or schema at `HEAD` differs from `x.y.0`'s (ADR
+    /// 0066).
     Prepare {
         /// `x.y.z`; a release candidate `x.y.0-rc.N`, `N` from 1; or a
         /// nightly `x.y.z-dev.N`, published under npm's `nightly` tag.
@@ -102,12 +105,40 @@ pub(crate) enum Command {
         #[arg(long, default_value = "HEAD")]
         to: String,
     },
+    /// Holds a release of `version`, built from `commit`, at its gates: an
+    /// empty quarantine list and no untested Feature for every release; for
+    /// a promotion to `x.y.0`, no unexplained Live-check failure and no open
+    /// fuzz crash, on a version commit over the last candidate; for a patch,
+    /// every format's version and schema as `x.y.0` released them.
+    Check {
+        #[arg(long)]
+        version: ProductVersion,
+        /// The Feature report of the milestone the release ships.
+        #[arg(long)]
+        feature_report: PathBuf,
+        #[arg(long, default_value = "HEAD")]
+        commit: String,
+        /// The private repository whose open `Crash in …` issues are the
+        /// fuzz crashes (ADR 0067).
+        #[arg(long, default_value = "goodfetch/goodfetch-fuzzing")]
+        fuzz_repository: String,
+        /// The time the two business days are counted to; now when not
+        /// given.
+        #[arg(long, hide = true)]
+        at: Option<jiff::Timestamp>,
+        #[command(flatten)]
+        github: github::Arguments,
+    },
 }
 
 pub(crate) fn run(command: Command, environment: &Environment) -> Result<ExitCode> {
     let root = &environment.root;
     match command {
         Command::Prepare { version } => {
+            let findings = gates::patch(root, "HEAD", &version)?;
+            if !findings.is_empty() {
+                return Ok(crate::check::report(&findings));
+            }
             for (path, text) in prepare(Tree::Workspace(root), &version)? {
                 std::fs::write(root.join(&path), text)
                     .with_context(|| format!("writing {path}"))?;
@@ -143,7 +174,40 @@ pub(crate) fn run(command: Command, environment: &Environment) -> Result<ExitCod
             output::line(&line::range(root, &version, &to)?);
             Ok(ExitCode::SUCCESS)
         }
+        Command::Check {
+            version,
+            feature_report,
+            commit,
+            fuzz_repository,
+            at,
+            github,
+        } => {
+            let mut findings = gates::release(root, &feature_report)?;
+            let at = at.unwrap_or_else(now);
+            let api = github.api(environment.token());
+            findings.extend(gates::version(
+                root,
+                &version,
+                &commit,
+                &gates::Issues {
+                    api,
+                    repository: &github.repository,
+                    fuzz_repository: &fuzz_repository,
+                    at,
+                },
+            )?);
+            Ok(crate::check::report(&findings))
+        }
     }
+}
+
+/// The time a promotion is checked at, when `--at` does not give it.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "ADR 0059: the two business days of ADR 0064 count to the wall clock's now; tests pass --at"
+)]
+fn now() -> jiff::Timestamp {
+    jiff::Timestamp::now()
 }
 
 /// Whether the repository at `root` has tag `tag`.
@@ -399,7 +463,9 @@ enum Tree<'a> {
     /// The files in the workspace's folder.
     Workspace(&'a Path),
     /// A commit's, in the repository at `root`: `main`'s commit, which `cut`
-    /// builds the first candidate's version commit over (ADR 0032).
+    /// builds the first candidate's version commit over, and the stable
+    /// version commit's parent, which `check` prepares again to compare
+    /// (ADR 0032).
     Commit { root: &'a Path, commit: &'a str },
 }
 

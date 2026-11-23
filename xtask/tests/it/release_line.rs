@@ -1,7 +1,8 @@
 //! `xtask release`'s release line on a fixture repository (ADR 0032): a
-//! minor's cut, behind every release's gates (ADRs 0064 and 0072), the
-//! backports its branch lacks and each release's git-cliff range, against
-//! local stand-ins of GitHub's interface.
+//! minor's cut, the backports its branch lacks, each release's git-cliff
+//! range and the gates a release and a promotion pass (ADRs 0064, 0066,
+//! 0067 and 0072), against local stand-ins of GitHub's interface, the
+//! private fuzzing repository's included.
 
 use std::ffi::OsStr;
 
@@ -12,6 +13,9 @@ use crate::workspace::{Finding, Outcome, Workspace, finding};
 
 /// A Feature report whose gate is ready on a Release run of `main`.
 const READY: &str = r#"{"release_commit": "abc123", "gate": {"ready": true, "untested": []}}"#;
+
+const FORMAT: &str =
+    r#"{"name": "protocol", "schema": {"type": "object"}, "storage": "jsonl", "version": "0.1"}"#;
 
 /// The history every test starts from, `main` at `feat: the second
 /// Feature`:
@@ -35,6 +39,7 @@ struct Line {
 fn line() -> Line {
     let workspace = Workspace::from_fixture("release");
     workspace.write("quarantine.toml", b"# The test quarantine list.\n");
+    workspace.write("compat/protocol/head/format.json", FORMAT.as_bytes());
     workspace.commit_all_with("feat: the first Feature");
     workspace.git(&["branch", "--move", "main"]);
     for (key, value) in [
@@ -415,4 +420,294 @@ fn cut_refuses_while_a_release_gate_is_closed(
     assert_eq!(outcome.code, 1, "{}", outcome.stderr);
     assert_eq!(outcome.findings(), [refusal]);
     assert_nothing_cut(&workspace, &github);
+}
+
+/// `release/1.4` with its first candidate tagged, then `xtask release
+/// prepare`'s stable version commit, plus whatever `extra` writes.
+fn promoted(extra: &[(&str, &str)]) -> Workspace {
+    let Line { workspace, .. } = line();
+    workspace.git(&["switch", "--quiet", "release/1.4"]);
+    workspace.git(&["tag", "v1.4.0-rc.1"]);
+    let prepared = workspace.xtask(&["release", "prepare", "--version", "1.4.0"]);
+    assert_eq!(prepared.code, 0, "{}", prepared.stderr);
+    for (path, contents) in extra {
+        workspace.write(path, contents.as_bytes());
+    }
+    workspace.git(&["add", "--all", "--", ".", ":!features.json"]);
+    workspace.git(&[
+        "commit",
+        "--quiet",
+        "--no-verify",
+        "--message",
+        "chore(release): 1.4.0",
+    ]);
+    workspace.write("features.json", READY.as_bytes());
+    workspace
+}
+
+/// The issues GitHub and the private fuzzing repository list, none open.
+fn no_issues() -> Vec<(String, String)> {
+    vec![
+        (
+            "/repos/goodfetch/goodfetch/issues?labels=live-check&state=open&per_page=100&page=1"
+                .to_owned(),
+            "[]".to_owned(),
+        ),
+        (
+            "/repos/goodfetch/goodfetch-fuzzing/issues?state=open&per_page=100&page=1".to_owned(),
+            "[]".to_owned(),
+        ),
+    ]
+}
+
+fn check(workspace: &Workspace, github: &GitHub, version: &str, at: &str) -> Outcome {
+    with_token(
+        workspace,
+        &[
+            "release",
+            "check",
+            "--version",
+            version,
+            "--feature-report",
+            "features.json",
+            "--api-url",
+            github.url(),
+            "--at",
+            at,
+        ],
+    )
+}
+
+const MONDAY: &str = "2026-11-23T10:00:00Z";
+
+#[test]
+fn check_passes_a_stable_commit_that_only_sets_versions_and_adds_the_release_files() {
+    let workspace = promoted(&[
+        ("CHANGELOG.md", "# Changelog\n"),
+        ("website/release-notes/1.4.md", "# 1.4\n"),
+        ("bench/results/1.4.0/summary.json", "{}\n"),
+    ]);
+    let github = serving(&no_issues());
+
+    let outcome = check(&workspace, &github, "1.4.0", MONDAY);
+
+    assert_eq!(outcome.code, 0, "{}\n{}", outcome.stdout, outcome.stderr);
+}
+
+#[rstest]
+#[case::code("crates/goodfetch-engine/src/lib.rs", "// changed\n")]
+#[case::test("crates/goodfetch-engine/tests/it.rs", "// a test\n")]
+#[case::build_input("Cargo.toml", "[workspace]\n")]
+#[case::other_results("bench/results/1.3.0/summary.json", "{}\n")]
+fn check_rejects_a_stable_commit_that_changes_a_code_test_or_build_input(
+    #[case] path: &str,
+    #[case] contents: &str,
+) {
+    let workspace = promoted(&[(path, contents)]);
+    let github = serving(&no_issues());
+
+    let outcome = check(&workspace, &github, "1.4.0", MONDAY);
+
+    assert_eq!(outcome.code, 1, "{}", outcome.stderr);
+    assert_eq!(outcome.findings(), [finding("stable-commit-changes", path)]);
+}
+
+#[test]
+fn check_rejects_a_stable_commit_that_adds_more_than_one_site_page() {
+    let workspace = promoted(&[
+        ("website/release-notes/1.4.md", "# 1.4\n"),
+        ("website/other.mdx", "# Other\n"),
+    ]);
+    let github = serving(&no_issues());
+
+    let outcome = check(&workspace, &github, "1.4.0", MONDAY);
+
+    assert_eq!(outcome.code, 1, "{}", outcome.stderr);
+    assert_eq!(
+        outcome.findings(),
+        [
+            finding("stable-commit-changes", "website/other.mdx"),
+            finding("stable-commit-changes", "website/release-notes/1.4.md"),
+        ]
+    );
+}
+
+#[test]
+fn check_rejects_a_stable_commit_not_on_the_last_candidate() {
+    let workspace = promoted(&[]);
+    workspace.git(&["tag", "v1.4.0-rc.2", "HEAD"]);
+    let github = serving(&no_issues());
+
+    let outcome = check(&workspace, &github, "1.4.0", MONDAY);
+
+    assert_eq!(outcome.code, 1, "{}", outcome.stderr);
+    assert_eq!(
+        outcome.findings(),
+        [finding("not-the-last-candidate", "v1.4.0-rc.2")]
+    );
+}
+
+fn live_check(created_at: &str, comments: &str) -> Vec<(String, String)> {
+    let mut routes = no_issues();
+    routes[0].1 = format!(
+        r#"[{{"number": 70, "created_at": "{created_at}"}}, {{"number": 71, "created_at": "2026-11-01T00:00:00Z", "pull_request": {{}}}}]"#
+    );
+    routes.push((
+        "/repos/goodfetch/goodfetch/issues/70/comments?per_page=100&page=1".to_owned(),
+        comments.to_owned(),
+    ));
+    routes
+}
+
+const FUZZ_CRASH: &str = r#"[{"number": 5, "title": "Crash in protocol_frame (2026-11-20)"}, {"number": 6, "title": "Fuzzing runner setup"}]"#;
+
+#[rstest]
+#[case::live_check_unexplained(
+    live_check("2026-11-18T09:00:00Z", r#"[{"body": "Looking."}]"#),
+    finding("live-check-unexplained", "goodfetch/goodfetch#70")
+)]
+#[case::fuzz_crash(
+    {
+        let mut routes = no_issues();
+        routes[1].1 = FUZZ_CRASH.to_owned();
+        routes
+    },
+    finding("fuzz-crash-open", "goodfetch/goodfetch-fuzzing#5")
+)]
+fn check_refuses_promotion_while_a_live_check_is_unexplained_or_a_fuzz_crash_open(
+    #[case] routes: Vec<(String, String)>,
+    #[case] blocker: Finding,
+) {
+    let workspace = promoted(&[]);
+    let github = serving(&routes);
+
+    let outcome = check(&workspace, &github, "1.4.0", MONDAY);
+
+    assert_eq!(outcome.code, 1, "{}", outcome.stderr);
+    assert_eq!(outcome.findings(), [blocker]);
+}
+
+#[rstest]
+#[case::within_two_business_days(live_check("2026-11-20T09:00:00Z", "[]"), MONDAY)]
+#[case::opened_at_the_weekend(live_check("2026-11-21T10:00:00Z", "[]"), "2026-11-24T12:00:00Z")]
+#[case::cause_stated(
+    live_check(
+        "2026-11-18T09:00:00Z",
+        r#"[{"body": "Looking."}, {"body": "Cause: the vendor's outage, upstream report linked."}]"#
+    ),
+    MONDAY
+)]
+fn check_promotes_past_a_live_check_issue_within_its_time_or_with_its_cause(
+    #[case] routes: Vec<(String, String)>,
+    #[case] at: &str,
+) {
+    let workspace = promoted(&[]);
+    let github = serving(&routes);
+
+    let outcome = check(&workspace, &github, "1.4.0", at);
+
+    assert_eq!(outcome.code, 0, "{}\n{}", outcome.stdout, outcome.stderr);
+}
+
+/// `release/1.3`'s tip, whose patch the check judges, after `edit`.
+fn patch(edit: impl FnOnce(&Workspace)) -> Workspace {
+    let Line { workspace, .. } = line();
+    workspace.git(&["switch", "--quiet", "release/1.3"]);
+    edit(&workspace);
+    workspace.git(&["add", "--all", "--", ".", ":!features.json"]);
+    workspace.git(&[
+        "commit",
+        "--quiet",
+        "--no-verify",
+        "--allow-empty",
+        "--message",
+        "fix: on the branch",
+    ]);
+    workspace
+}
+
+#[test]
+fn check_holds_a_patch_by_neither_live_checks_nor_fuzz_crashes() {
+    let workspace = patch(|_| {});
+    let mut routes = live_check("2026-11-02T09:00:00Z", "[]");
+    routes[1].1 = FUZZ_CRASH.to_owned();
+    let github = serving(&routes);
+
+    let outcome = check(&workspace, &github, "1.3.1", MONDAY);
+
+    assert_eq!(outcome.code, 0, "{}\n{}", outcome.stdout, outcome.stderr);
+    assert_eq!(github.requests(), [] as [Request; 0]);
+}
+
+#[rstest]
+#[case::version(
+    r#"{"name": "protocol", "schema": {"type": "object"}, "storage": "jsonl", "version": "0.2"}"#
+)]
+#[case::schema(
+    r#"{"name": "protocol", "schema": {"type": "array"}, "storage": "jsonl", "version": "0.1"}"#
+)]
+fn check_fails_a_patch_that_changes_a_formats_version_or_schema(#[case] format: &str) {
+    let workspace = patch(|workspace| {
+        workspace.write("compat/protocol/head/format.json", format.as_bytes());
+    });
+    let github = serving(&[]);
+
+    let outcome = check(&workspace, &github, "1.3.1", MONDAY);
+
+    assert_eq!(outcome.code, 1, "{}", outcome.stderr);
+    assert_eq!(outcome.findings(), [finding("format-changed", "protocol")]);
+}
+
+#[test]
+fn prepare_writes_nothing_for_a_patch_that_changes_a_format() {
+    let workspace = patch(|workspace| {
+        workspace.write(
+            "compat/protocol/head/format.json",
+            FORMAT.replace("0.1", "0.2").as_bytes(),
+        );
+    });
+
+    let outcome = workspace.xtask(&["release", "prepare", "--version", "1.3.1"]);
+
+    assert_eq!(outcome.code, 1, "{}", outcome.stderr);
+    assert_eq!(outcome.findings(), [finding("format-changed", "protocol")]);
+    assert_eq!(
+        workspace.git(&["status", "--porcelain", "--untracked-files=no"]),
+        ""
+    );
+}
+
+#[test]
+fn check_fails_a_patch_that_adds_a_format() {
+    let workspace = patch(|workspace| {
+        workspace.write("compat/export/head/format.json", FORMAT.as_bytes());
+    });
+    let github = serving(&[]);
+
+    let outcome = check(&workspace, &github, "1.3.1", MONDAY);
+
+    assert_eq!(outcome.code, 1, "{}", outcome.stderr);
+    assert_eq!(outcome.findings(), [finding("format-changed", "export")]);
+}
+
+#[rstest]
+#[case::quarantine(
+    "quarantine.toml",
+    QUARANTINED,
+    finding("quarantine-not-empty", "quarantine.toml")
+)]
+#[case::untested("features.json", UNTESTED, finding("feature-untested", "story:1-7"))]
+fn check_refuses_a_patch_while_a_release_gate_is_closed(
+    #[case] file: &str,
+    #[case] contents: &str,
+    #[case] refusal: Finding,
+) {
+    let workspace = patch(|_| {});
+    workspace.write(file, contents.as_bytes());
+    let github = serving(&[]);
+
+    let outcome = check(&workspace, &github, "1.3.1", MONDAY);
+
+    assert_eq!(outcome.code, 1, "{}", outcome.stderr);
+    assert_eq!(outcome.findings(), [refusal]);
 }

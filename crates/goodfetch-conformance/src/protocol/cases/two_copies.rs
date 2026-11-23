@@ -34,7 +34,7 @@ pub(crate) enum Case {
 impl Case {
     /// The case `id` names, if it is one of these.
     pub(crate) fn from_id(id: &str) -> Option<Self> {
-        (id == "a-fenced-copys-checkpoints-and-exports-are-refused-where-the-destination-compares-and-sets")
+        (id == "the-fenced-copy-has-its-checkpoints-and-exports-refused-where-the-destination-compares-and-sets")
             .then_some(Self::Fenced)
     }
 

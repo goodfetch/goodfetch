@@ -638,7 +638,7 @@ fn the_start_table_of_a_crawl_is_proved_against_foxhound() {
 ///
 /// Covers: story:3-34, story:3-43, operation:run.resume, operation:run.export
 #[test]
-fn a_fenced_copys_writes_are_refused_against_foxhound() {
+fn the_fenced_copy_has_its_writes_refused_against_foxhound() {
     let env = TestEnv::new();
     let copy = LocalCopy::start(&env, env.seed()).unwrap();
     let proving_ground = ProvingGround::local(&copy.address().to_string());
@@ -653,7 +653,7 @@ fn a_fenced_copys_writes_are_refused_against_foxhound() {
         (
             vec![("run.resume", Outcome::Proved)],
             vec![(
-                "a-fenced-copys-checkpoints-and-exports-are-refused-where-the-destination-compares-and-sets",
+                "the-fenced-copy-has-its-checkpoints-and-exports-refused-where-the-destination-compares-and-sets",
                 CaseOutcome::Passed
             )]
         ),

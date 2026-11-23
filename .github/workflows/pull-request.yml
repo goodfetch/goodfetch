@@ -157,12 +157,16 @@ jobs:
           FORM: ${{ needs.plan.outputs.form }}
         run: ci/hosted/exec.sh just pre-merge "$FORM"
       - name: List the parts the job skipped
-        if: always()
+        if: "!cancelled()"
         run: if [[ -s target/skipped.txt ]]; then cat target/skipped.txt; fi
+      # After a cancel too, for the upload below.
       - name: Scan the job's outputs for secrets before they upload
         id: leaks
         if: always()
         run: ci/hosted/exec.sh ci/leaks.sh target/gate-records/
+      # Green or red, the step's record reaches `just merge`, which reuses a
+      # green unit and ends red on a red one (ci/hosted-records.sh). It
+      # uploads after a cancel too: the next run's plan reuses it.
       - name: Upload the gate's records of the step
         if: always() && steps.leaks.outcome == 'success'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -228,27 +232,34 @@ jobs:
       - name: "Test: the visual projects in the pinned image"
         id: test
         run: ci/hosted/visual.sh test
-      # Only a test step that ended records the step: one that never ran
-      # leaves it to `just merge`.
+      # Only a test step that ended records the step, after a cancel too: one
+      # that never ran leaves it to `just merge`.
       - name: Record the step's result
         if: always() && (steps.test.outcome == 'success' || steps.test.outcome == 'failure')
         env:
           FORM: ${{ needs.plan.outputs.form }}
           OUTCOME: ${{ steps.test.outcome }}
         run: ci/hosted/exec.sh ci/hosted/record.sh "$FORM" visual "$OUTCOME"
+      # After a cancel too: a request the deny refused is a finding whatever
+      # ended the run (ADR 0043).
       - name: Check that the deny refused nothing else
         if: always()
         run: ci/egress/egress.sh check
+      # After a cancel too: the results store ingests every run's JUnit files
+      # (ADR 0064).
       - name: Record the job's context beside its JUnit files
         if: always()
         run: ci/junit-context.sh
       - name: Summarize the failed tests
-        if: always()
+        if: "!cancelled()"
         run: ci/junit-summary.sh container
+      # After a cancel too, for the uploads below that run then.
       - name: Scan the job's outputs for secrets before they upload
         id: leaks
         if: always()
         run: ci/hosted/exec.sh ci/leaks.sh target/junit/ target/vitest-attachments/ target/gate-records/
+      # After a cancel too: the results store ingests every run's JUnit files
+      # (ADR 0064).
       - name: Upload the JUnit files
         if: always() && steps.leaks.outcome == 'success'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -266,7 +277,8 @@ jobs:
             target/vitest-attachments/
           if-no-files-found: ignore
       # Green or red, the step's record reaches `just merge`, which reuses a
-      # green unit and ends red on a red one (ci/hosted-records.sh).
+      # green unit and ends red on a red one (ci/hosted-records.sh). It
+      # uploads after a cancel too: the next run's plan reuses it.
       - name: Upload the gate's records of the step
         if: always() && steps.leaks.outcome == 'success'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -333,22 +345,29 @@ jobs:
         env:
           FORM: ${{ needs.plan.outputs.form }}
         run: ci/hosted/exec.sh just pre-merge "$FORM"
+      # After a cancel too: a request the deny refused is a finding whatever
+      # ended the run (ADR 0043).
       - name: Check that the deny refused nothing else
         if: always()
         run: ci/egress/egress.sh check
       - name: List the parts the job skipped
-        if: always()
+        if: "!cancelled()"
         run: if [[ -s target/skipped.txt ]]; then cat target/skipped.txt; fi
+      # After a cancel too: the results store ingests every run's JUnit files
+      # (ADR 0064).
       - name: Record the job's context beside its JUnit files
         if: always()
         run: ci/junit-context.sh
       - name: Summarize the failed tests
-        if: always()
+        if: "!cancelled()"
         run: ci/junit-summary.sh container
+      # After a cancel too, for the uploads below.
       - name: Scan the job's outputs for secrets before they upload
         id: leaks
         if: always()
         run: ci/hosted/exec.sh ci/leaks.sh target/junit/ target/gate-records/
+      # After a cancel too: the results store ingests every run's JUnit files
+      # (ADR 0064).
       - name: Upload the JUnit files
         if: always() && steps.leaks.outcome == 'success'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -357,7 +376,8 @@ jobs:
           path: target/junit/
           if-no-files-found: ignore
       # Green or red, the step's record reaches `just merge`, which reuses a
-      # green unit and ends red on a red one (ci/hosted-records.sh).
+      # green unit and ends red on a red one (ci/hosted-records.sh). It
+      # uploads after a cancel too: the next run's plan reuses it.
       - name: Upload the gate's records of the step
         if: always() && steps.leaks.outcome == 'success'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -435,15 +455,18 @@ jobs:
       - name: "Test: Vitest, Playwright and pytest"
         if: "!cancelled() && steps.canary.outcome == 'success'"
         run: ci/hosted/exec.sh ci/hosted/pre-merge.sh runners
+      # After a cancel too: a request the deny refused is a finding whatever
+      # ended the run (ADR 0043).
       - name: Check that the deny refused nothing else
         if: always()
         run: ci/egress/egress.sh check
+      # Only this run's shards read the upload, and a cancel skips them.
       - name: Scan the job's outputs for secrets before they upload
         id: leaks
-        if: always()
+        if: "!cancelled()"
         run: ci/hosted/exec.sh ci/leaks.sh target/pre-merge/
       - name: Upload the archive, the listing and the doctests' status
-        if: always() && steps.leaks.outcome == 'success'
+        if: "!cancelled() && steps.leaks.outcome == 'success'"
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: pre-merge-build
@@ -514,22 +537,29 @@ jobs:
           SHARD: ${{ matrix.shard }}
           COUNT: ${{ strategy.job-total }}
         run: ci/hosted/exec.sh ci/hosted/pre-merge.sh shard "$SHARD" "$COUNT"
+      # After a cancel too: a request the deny refused is a finding whatever
+      # ended the run (ADR 0043).
       - name: Check that the deny refused nothing else
         if: always()
         run: ci/egress/egress.sh check
       - name: List the parts the job skipped
-        if: always()
+        if: "!cancelled()"
         run: if [[ -s target/skipped.txt ]]; then cat target/skipped.txt; fi
+      # After a cancel too: the results store ingests every run's JUnit files
+      # (ADR 0064).
       - name: Record the job's context beside its JUnit files
         if: always()
         run: ci/junit-context.sh
       - name: Summarize the failed tests
-        if: always()
+        if: "!cancelled()"
         run: ci/junit-summary.sh container
+      # After a cancel too, for the JUnit files' upload.
       - name: Scan the job's outputs for secrets before they upload
         id: leaks
         if: always()
         run: ci/hosted/exec.sh ci/leaks.sh target/junit/ target/pre-merge/shards/ target/test-records/
+      # After a cancel too: the results store ingests every run's JUnit files
+      # (ADR 0064).
       - name: Upload the JUnit files
         if: always() && steps.leaks.outcome == 'success'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -537,8 +567,9 @@ jobs:
           name: junit-pre-merge-pull-request-linux-x64-${{ matrix.shard }}
           path: target/junit/
           if-no-files-found: ignore
+      # Only this run's pre-merge record reads it, and a cancel skips that.
       - name: Upload the shard's results for the record
-        if: always() && steps.leaks.outcome == 'success'
+        if: "!cancelled() && steps.leaks.outcome == 'success'"
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: pre-merge-shard-${{ matrix.shard }}
@@ -610,12 +641,14 @@ jobs:
         env:
           SHARDS: ${{ needs.plan.outputs.pre-merge-shard }}
         run: ci/hosted/exec.sh ci/hosted/pre-merge.sh record "$(jq length <<<"$SHARDS")"
+      # After a cancel too, for the upload below.
       - name: Scan the job's outputs for secrets before they upload
         id: leaks
         if: always()
         run: ci/hosted/exec.sh ci/leaks.sh target/gate-records/
       # Green or red, the step's record reaches `just merge`, which reuses a
-      # green unit and ends red on a red one (ci/hosted-records.sh).
+      # green unit and ends red on a red one (ci/hosted-records.sh). It
+      # uploads after a cancel too: the next run's plan reuses it.
       - name: Upload the gate's records of the step
         if: always() && steps.leaks.outcome == 'success'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1

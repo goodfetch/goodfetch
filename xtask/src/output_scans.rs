@@ -5,8 +5,9 @@
 //! - an earlier step that runs `ci/leaks.sh` over each path the upload takes,
 //!   or over a folder holding it, with no step between them but other
 //!   uploads and scans, since any other step may write what uploads;
-//! - that the scan runs whatever happened before it (`if: always()`), since
-//!   a job's JUnit files upload pass or fail (TESTING.md);
+//! - that the scan runs after a failed step (`if: always()`, or
+//!   `if: "!cancelled()"` when nothing it guards uploads after a cancel),
+//!   since a job's JUnit files upload pass or fail (TESTING.md);
 //! - that the upload's `if:` requires the scan's success
 //!   (`always() && steps.<id>.outcome == 'success'`, a conjunction with no
 //!   `||`), so a found secret never uploads.
@@ -118,12 +119,12 @@ fn upload(before: &[Step], step: &Step, subject: &str) -> Option<Finding> {
         })
         .map(|(scan, _)| *scan)
         .collect();
-    if let Some(scan) = guarding.iter().find(|scan| !runs_always(scan)) {
+    if let Some(scan) = guarding.iter().find(|scan| !runs_after_a_failure(scan)) {
         return Some(Finding::new(
             "scan-skipped-on-failure",
             subject,
             format!(
-                "\"{}\" runs `{SCAN}` without `if: always()`, so a failed step skips it and \"{name}\" never uploads",
+                "\"{}\" runs `{SCAN}` without `if: always()` or `if: \"!cancelled()\"`, so a failed step skips it and \"{name}\" never uploads",
                 scan.name.as_deref().unwrap_or(SCAN)
             ),
         ));
@@ -175,10 +176,10 @@ fn covers(folder: &str, path: &str) -> bool {
             .is_some_and(|rest| rest.starts_with('/'))
 }
 
-fn runs_always(step: &Step) -> bool {
-    step.condition
-        .as_deref()
-        .is_some_and(|condition| condition.contains("always()"))
+fn runs_after_a_failure(step: &Step) -> bool {
+    step.condition.as_deref().is_some_and(|condition| {
+        condition.contains("always()") || condition.contains("!cancelled()")
+    })
 }
 
 /// Whether `condition` requires the step `id`'s success: a conjunction, with

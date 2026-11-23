@@ -38,6 +38,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use goodfetch_protocol::audit::{Actor, SECRET_REFERENCE_USED};
+use goodfetch_protocol::jsonrpc::ProtocolFailure;
 use goodfetch_protocol::page::access_mode::IDENTIFIED_SIGNING_KEY;
 use goodfetch_protocol::run::RunId;
 use goodfetch_protocol::secret_reference::{Provider, SecretReference};
@@ -937,8 +938,9 @@ impl RunSecrets {
     /// The value of the `caller:` reference `reference`, asked now with
     /// `secrets.resolve` of the Client of the Connection that opened the
     /// Run, and of no other, within `timeout.secret`: a request left
-    /// unanswered is cancelled. What the program's resolver said when it
-    /// failed is never repeated, as it may hold the value.
+    /// unanswered is cancelled. Nothing the program sent when its resolver
+    /// failed, its message or its code, is repeated, as it may hold the
+    /// value.
     ///
     /// # Errors
     ///
@@ -981,13 +983,15 @@ impl RunSecrets {
         match answer {
             Ok(SecretResolved { value }) => Ok(SecretString::from(value)),
             Err(ClientRequestError::Gone) => Err(gone()),
-            Err(ClientRequestError::Failed { code, .. }) if code == "method_not_found" => {
+            Err(ClientRequestError::Failed { code, .. })
+                if code == ProtocolFailure::MethodNotFound.name() =>
+            {
                 Err(format!(
                     "The program that opened the Run has no resolver; pass {RESOLVER_OPTION}, answering `{reference}`."
                 ))
             }
-            Err(ClientRequestError::Failed { code, .. }) => Err(format!(
-                "The program's {RESOLVER_OPTION} failed with `{code}` for `{reference}`; make it answer that name."
+            Err(ClientRequestError::Failed { .. }) => Err(format!(
+                "The program's {RESOLVER_OPTION} failed for `{reference}`; make it answer that name."
             )),
             Err(ClientRequestError::Malformed(_)) => Err(format!(
                 "The program's {RESOLVER_OPTION} answered `{reference}` with no text value; make it return the value as a string."

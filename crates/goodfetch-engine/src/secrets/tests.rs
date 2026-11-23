@@ -183,7 +183,7 @@ fn a_reference_the_run_never_uses_reaches_no_provider() {
         &Layers {
             user_configuration: Values::read(
                 SettingsLayer::UserConfiguration,
-                json!({ "secrets": { "resolve_each_use": ["caller:unused"] } })
+                json!({ "secrets": { "resolve_each_use": ["vault:secret/unused#password"] } })
                     .as_object()
                     .unwrap(),
                 Product::Collie,
@@ -199,17 +199,17 @@ fn a_reference_the_run_never_uses_reaches_no_provider() {
         run_under(
             &answering(
                 driver(&env, &[]),
-                Provider::Caller,
+                Provider::Vault,
                 Arc::clone(&counting) as Arc<dyn SecretProvider>,
             ),
             &settings,
         )
     });
-    resolved(&secrets, "caller:used").unwrap();
+    resolved(&secrets, "vault:secret/used#password").unwrap();
 
     assert_eq!(
         goodfetch_test_support::runtime().block_on(async { counting.asked.lock().await.clone() }),
-        vec!["caller:used".to_owned()]
+        vec!["vault:secret/used#password".to_owned()]
     );
 }
 

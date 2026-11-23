@@ -1,0 +1,32 @@
+{
+  "description": "In gate mode, a case that fails with Filter-list blocking on and off is inconclusive, as a vendor's scoring change moves both: the capability is unproved, never failed or proved",
+  "gate": true,
+  "cases": [
+    {
+      "entries": [
+        {
+          "blocking": "on",
+          "checks": [true]
+        },
+        {
+          "blocking": "off",
+          "checks": [true]
+        }
+      ]
+    },
+    {
+      "entries": [
+        {
+          "blocking": "on",
+          "checks": [false]
+        },
+        {
+          "blocking": "off",
+          "checks": [false]
+        }
+      ]
+    }
+  ],
+  "case_outcomes": ["passed", "inconclusive"],
+  "outcome": "unproved"
+}

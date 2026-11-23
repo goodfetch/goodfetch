@@ -28,7 +28,8 @@ use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::connection::{HELLO, HelloParams, HelloResult, Surface};
 use goodfetch_protocol::daemon::STOP;
 use goodfetch_protocol::result_document::{
-    CaseCheck, ConformanceDocument, ConformanceHeader, Evidence, Suite, Target, TargetIdentity,
+    Blocking, CaseCheck, ConformanceDocument, ConformanceHeader, Evidence, Suite, Target,
+    TargetIdentity,
 };
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -43,7 +44,7 @@ pub use self::gateway::{
 pub use self::target::{EngineMode, EngineTarget, StartError};
 use crate::case_list::{CaseList, DeclaredCapability};
 use crate::host::{RUNTIME, platform};
-use crate::proving_ground::{ProvingGround, ProvingGroundError};
+use crate::proving_ground::{ProvingGround, ProvingGroundError, TaskList};
 use crate::writer::{WriteError, write_document};
 
 /// The protocol suite's case list, embedded so the suite runs wherever the
@@ -288,6 +289,13 @@ pub enum ProtocolSuiteError {
     /// The case log did not become a document.
     #[error(transparent)]
     Write(#[from] WriteError),
+    /// The Goodfetch home of gate mode's run with blocking off could not be
+    /// set up.
+    #[error("setting up the home of the run with blocking off: {source}")]
+    BlockingOffHome {
+        /// Why.
+        source: std::io::Error,
+    },
 }
 
 /// The variable of the target's environment that holds the password of the
@@ -314,7 +322,99 @@ pub fn run_protocol_suite(
     proving_ground: &ProvingGround,
 ) -> Result<ConformanceDocument, ProtocolSuiteError> {
     let task_list = proving_ground.task_list()?;
-    let reached = Site::of(&task_list, proving_ground)?;
+    let ran = run_cases(suite, target, &Site::of(&task_list, proving_ground)?)?;
+    let header = header(suite, target, &ran.hello, task_list, proving_ground);
+    Ok(write_document(header, &suite.cases, &ran.log)?)
+}
+
+/// The folder, in the target's, of the Goodfetch home the second run of
+/// gate mode starts the target on.
+const BLOCKING_OFF_HOME: &str = "gate-blocking-off";
+
+/// Runs `suite` as [`run_protocol_suite`] does, in gate mode (ADR 0047):
+/// once on the target as given, with Filter-list blocking on, then once
+/// more on a Goodfetch home of the target's own, configured as the
+/// target's is, with every Run's Filter lists off. The document keeps each
+/// case's entry of each run, marked with its blocking, and says it is a
+/// gate run, so a case that fails only with blocking on fails, and the
+/// document blocks.
+///
+/// # Errors
+///
+/// As [`run_protocol_suite`]'s, for either run, and when the second run's
+/// home cannot be set up.
+pub fn run_protocol_suite_in_gate_mode(
+    suite: &ProtocolSuite,
+    target: &EngineTarget,
+    proving_ground: &ProvingGround,
+) -> Result<ConformanceDocument, ProtocolSuiteError> {
+    let task_list = proving_ground.task_list()?;
+    // The second home is set up first, so it holds the target's
+    // configuration as given, not as the first run's cases left it.
+    let elsewhere = target
+        .on_a_home_of_its_own(BLOCKING_OFF_HOME)
+        .map_err(|source| ProtocolSuiteError::BlockingOffHome { source })?;
+    let on = run_cases(
+        suite,
+        target,
+        &Site::of(&task_list, proving_ground)?.with_blocking(Blocking::On),
+    )?;
+    let off = run_cases(
+        suite,
+        &elsewhere,
+        &Site::of(&task_list, proving_ground)?.with_blocking(Blocking::Off),
+    )?;
+    let mut log = on.log;
+    log.extend(off.log);
+    let header = ConformanceHeader {
+        gate: true,
+        ..header(suite, target, &on.hello, task_list, proving_ground)
+    };
+    Ok(write_document(header, &suite.cases, &log)?)
+}
+
+/// What one run of a suite's cases left: the target's `hello`, and the case
+/// log.
+struct Ran {
+    hello: HelloResult,
+    log: Vec<CaseLogEntry>,
+}
+
+/// The header of `suite`'s document, run on `target`, which answered
+/// `hello`, against `proving_ground`, which served `task_list`.
+fn header(
+    suite: &ProtocolSuite,
+    target: &EngineTarget,
+    hello: &HelloResult,
+    task_list: TaskList,
+    proving_ground: &ProvingGround,
+) -> ConformanceHeader {
+    ConformanceHeader {
+        suite: suite.cases.suite.clone(),
+        target: Target {
+            name: target
+                .executable
+                .file_stem()
+                .map(|name| name.to_string_lossy().into_owned())
+                .unwrap_or_default(),
+            identity: TargetIdentity::Version(hello.product_version.to_string()),
+            product: Some(hello.product),
+        },
+        platform: platform(),
+        runtime: RUNTIME.to_owned(),
+        proving_ground: task_list.proving_ground,
+        online: proving_ground.is_online(),
+        gate: false,
+    }
+}
+
+/// Runs every case of `suite` on `target` over one Connection, against
+/// `reached`, and logs each with the site's Filter-list blocking.
+fn run_cases(
+    suite: &ProtocolSuite,
+    target: &EngineTarget,
+    reached: &Site,
+) -> Result<Ran, ProtocolSuiteError> {
     // The harness gives the target the password of the Proving ground's
     // proxies, which a case's Session reads through the `env:` Secret
     // provider, as a program's own environment would hold it.
@@ -349,7 +449,7 @@ pub fn run_protocol_suite(
             }
             let case = Case::of(&declared.id).expect("invariant: a read suite names known cases");
             let mut checks = Checks::default();
-            let ran = case.run(&mut connection, target, &hello, &reached, &mut checks);
+            let ran = case.run(&mut connection, target, &hello, reached, &mut checks);
             checks.checks.extend(reached.take_unread());
             checks.checks.extend(connection.take_unanswered());
             if let Err(why) = ran {
@@ -367,6 +467,7 @@ pub fn run_protocol_suite(
                 case: declared.id.clone(),
                 capability: capability.name.clone(),
                 mode: Some(target.mode.as_str().to_owned()),
+                blocking: reached.blocking(),
                 platform: platform(),
                 runtime: RUNTIME.to_owned(),
                 checks: checks.checks,
@@ -391,23 +492,7 @@ pub fn run_protocol_suite(
     };
     connection.close();
     stopped.map_err(|reason| ProtocolSuiteError::NotStopped { reason })?;
-    let header = ConformanceHeader {
-        suite: suite.cases.suite.clone(),
-        target: Target {
-            name: target
-                .executable
-                .file_stem()
-                .map(|name| name.to_string_lossy().into_owned())
-                .unwrap_or_default(),
-            identity: TargetIdentity::Version(hello.product_version.to_string()),
-            product: Some(hello.product),
-        },
-        platform: platform(),
-        runtime: RUNTIME.to_owned(),
-        proving_ground: task_list.proving_ground,
-        online: proving_ground.is_online(),
-    };
-    Ok(write_document(header, &suite.cases, &log)?)
+    Ok(Ran { hello, log })
 }
 
 /// Stops a Daemon the harness started, over its open Connection, so it

@@ -7,7 +7,7 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use crate::result_document::{CaseCheck, Evidence, Platform};
+use crate::result_document::{Blocking, CaseCheck, Evidence, Platform};
 
 /// One time a case ran.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -21,6 +21,10 @@ pub struct CaseLogEntry {
     /// runs in several.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub mode: Option<String>,
+    /// Whether Filter-list blocking was on or off, in the harness's gate
+    /// mode (ADR 0047).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub blocking: Option<Blocking>,
     /// Where it ran.
     pub platform: Platform,
     /// The runtime it ran on, such as `node-24` or `cpython-3.14`.

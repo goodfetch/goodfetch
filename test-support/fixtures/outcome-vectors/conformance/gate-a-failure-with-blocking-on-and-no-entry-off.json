@@ -1,0 +1,16 @@
+{
+  "description": "In gate mode, a case that fails with Filter-list blocking on and was not reached with it off cannot be judged: it is inconclusive, not failed",
+  "gate": true,
+  "cases": [
+    {
+      "entries": [
+        {
+          "blocking": "on",
+          "checks": [false]
+        }
+      ]
+    }
+  ],
+  "case_outcomes": ["inconclusive"],
+  "outcome": "unproved"
+}

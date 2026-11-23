@@ -13,6 +13,7 @@
 
 mod case_log;
 mod client_case;
+mod gate;
 mod harness_failures;
 mod journey_document;
 mod journey_run;

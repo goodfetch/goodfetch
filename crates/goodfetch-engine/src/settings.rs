@@ -36,6 +36,7 @@ use serde_json::{Map, Value};
 
 pub use environment::{check_environment, deployment_variable, taken_value};
 pub use error::SettingsError;
+pub(crate) use error::not_registrable;
 pub use files::{
     LOWEST_MINOR_KEY, MachineLayers, SettingsFiles, configuration, find_project,
     fuzz_settings_file, operator_policy, policy_version, project_settings, rewrite, set,
@@ -48,7 +49,7 @@ pub use resolve::{
     catalog_default, catalog_value, get_or_default, resolve, value_as,
 };
 pub use scopes::{beneath_connection, check_client_bounds, check_scope};
-pub use values::Values;
+pub use values::{Values, check_session_source};
 
 use crate::tasks::TaskOwner;
 
@@ -102,7 +103,8 @@ struct Kept {
 
 /// The machine's settings as one read of them found: its Operator policy
 /// and user configuration, and what they resolve to on the engine's
-/// Product before any Run, on the catalog's defaults.
+/// Product before any Run, on the catalog's defaults and those of the
+/// Product version.
 #[derive(Debug)]
 pub struct MachineSettings {
     layers: Result<MachineLayers, SettingsError>,
@@ -478,7 +480,7 @@ impl Settings {
             project = project.with_run_authority();
         }
         let layers = Layers {
-            host,
+            host: machine.defaults_under(host),
             operator_policy: machine.operator_policy.clone(),
             user_configuration: machine.user_configuration.clone(),
             project_configuration: project,

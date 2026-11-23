@@ -1,7 +1,43 @@
 use rstest::rstest;
-use serde_json::json;
+use serde_json::{Value, json};
 
-use super::{Product, ProtocolVersion};
+use super::{Product, ProtocolVersion, ValueKind};
+
+/// Which way a weakening setting's values weaken a guarantee, as the API
+/// breakage check reads it to let a strengthening default pass (issue 148):
+/// the values that weaken for a boolean or a choice, the direction for a
+/// count or a duration whose weakening values lie on one side, and nothing
+/// where the probes find no side.
+#[rstest]
+#[case::boolean_off(ValueKind::Boolean, |value: &Value| *value == json!(false), json!({ "values": [false] }))]
+#[case::choice(
+    ValueKind::Choice(&["strict", "lenient", "off"]),
+    |value: &Value| *value == json!("off"),
+    json!({ "values": ["off"] }),
+)]
+#[case::count_at_zero(ValueKind::Count, |value: &Value| *value == json!(0), json!({ "toward": "lower" }))]
+#[case::count_below(ValueKind::CountUpTo(10), |value: &Value| value.as_u64().is_some_and(|count| count < 3), json!({ "toward": "lower" }))]
+#[case::duration_above(
+    ValueKind::Duration,
+    |value: &Value| value.as_u64().is_some_and(|millis| millis > 60_000),
+    json!({ "toward": "higher" }),
+)]
+#[case::count_from_one_above(ValueKind::CountFromOne, |value: &Value| value.as_u64().is_some_and(|count| count > 1), json!({ "toward": "higher" }))]
+#[case::count_on_both_sides(
+    ValueKind::Count,
+    |value: &Value| value.as_u64().is_some_and(|count| count == 0 || count > 100),
+    Value::Null,
+)]
+#[case::count_inside(ValueKind::Count, |value: &Value| *value == json!(5), Value::Null)]
+#[case::count_always(ValueKind::Count, |_: &Value| true, Value::Null)]
+#[case::text(ValueKind::Text, |value: &Value| value.as_str().is_some_and(|text| !text.is_empty()), Value::Null)]
+fn a_weakening_settings_direction_is_read_from_its_values(
+    #[case] kind: ValueKind,
+    #[case] weakens: fn(&Value) -> bool,
+    #[case] direction: Value,
+) {
+    assert_eq!(kind.weakening(weakens), direction);
+}
 
 #[rstest]
 #[case::collie_contains_collie(Product::Collie, Product::Collie, true)]

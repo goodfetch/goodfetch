@@ -25,6 +25,7 @@ use std::path::{Path, PathBuf};
 
 use goodfetch_protocol::catalog::{Authority, Product, ProtocolVersion};
 use goodfetch_protocol::connection::{ProductVersion, VersionLine};
+use goodfetch_protocol::daemon;
 use goodfetch_protocol::formats::{
     Compatibility, Format, OPERATOR_POLICY, Rule, USER_CONFIGURATION,
 };
@@ -36,7 +37,7 @@ use toml_edit::{DocumentMut, Item};
 
 use super::error::SettingsError;
 use super::keys;
-use super::resolve::{Layers, Policy, Resolved, resolve};
+use super::resolve::{HostDefaults, Layers, Policy, Resolved, resolve};
 use super::values::Values;
 use crate::home::Home;
 use crate::lowest_minor::{Marker, Opener};
@@ -171,12 +172,14 @@ impl SettingsFiles {
                     found: user_text.is_some(),
                 },
             ],
+            version_defaults: version_defaults(&self.version),
         })
     }
 
     /// The machine's settings on an engine of `engine`: both files read as
     /// [`Self::load`] reads them and resolved as the engine resolves them
-    /// before any Run, on the catalog's defaults. Blocking.
+    /// before any Run, on the catalog's defaults and those of the Product
+    /// version. Blocking.
     ///
     /// # Errors
     ///
@@ -231,7 +234,7 @@ impl SettingsFiles {
 }
 
 /// The layers a machine keeps: its Operator policy and user configuration,
-/// and the files they came from.
+/// the files they came from, and the defaults its Product version gives.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct MachineLayers {
     /// The Operator policy.
@@ -240,11 +243,21 @@ pub struct MachineLayers {
     pub user_configuration: Values,
     /// The files read.
     pub files: Vec<SettingsFile>,
+    /// The defaults that follow the Product version of the executable
+    /// reading these files, in place of the catalog's, whose crate keeps
+    /// the internal `0.0.x` (ADR 0030).
+    pub version_defaults: HostDefaults,
 }
 
 impl MachineLayers {
+    /// `host`'s defaults over those of the Product version: the defaults
+    /// every resolution over these layers takes.
+    pub fn defaults_under(&self, host: HostDefaults) -> HostDefaults {
+        self.version_defaults.clone().and(host)
+    }
+
     /// These layers resolved on an engine of `engine` before any Run, on
-    /// the catalog's defaults.
+    /// the catalog's defaults and those of the Product version.
     ///
     /// # Errors
     ///
@@ -252,6 +265,7 @@ impl MachineLayers {
     pub fn resolve(self, engine: Product) -> Result<Resolved, SettingsError> {
         resolve(
             &Layers {
+                host: self.version_defaults,
                 operator_policy: self.operator_policy,
                 user_configuration: self.user_configuration,
                 ..Layers::default()
@@ -260,6 +274,15 @@ impl MachineLayers {
             engine,
         )
     }
+}
+
+/// The defaults of the Product version `version`: where its foreground
+/// Daemon listens, a port of its own major's (ADR 0049).
+fn version_defaults(version: &ProductVersion) -> HostDefaults {
+    HostDefaults::default().with(
+        &daemon::ADDRESS,
+        Value::String(daemon::default_address(version).to_string()),
+    )
 }
 
 /// The project configuration file in `folder` or the nearest folder above

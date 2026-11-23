@@ -188,7 +188,7 @@ describe("a page's listeners", () => {
       const run = await collie.start();
       await run.newPage();
       const attempt = new AbortController();
-      const page = pageOf(run, "page-1", attempt.signal);
+      const page = pageOf(run, "page-1", "session-1", attempt.signal);
       const texts: string[] = [];
 
       page.on("console", (message) => {

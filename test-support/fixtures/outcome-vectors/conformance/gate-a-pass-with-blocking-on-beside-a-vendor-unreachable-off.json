@@ -1,0 +1,21 @@
+{
+  "description": "In gate mode, a case that passes with Filter-list blocking on passes, whatever its vendor did while it ran with blocking off",
+  "gate": true,
+  "cases": [
+    {
+      "entries": [
+        {
+          "blocking": "on",
+          "checks": [true]
+        },
+        {
+          "blocking": "off",
+          "unreachable": ["challenge vendor"],
+          "checks": [false]
+        }
+      ]
+    }
+  ],
+  "case_outcomes": ["passed"],
+  "outcome": "proved"
+}

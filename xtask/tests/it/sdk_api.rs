@@ -18,6 +18,12 @@ const INDEX: &str = "sdks/typescript/collie/src/index.ts";
 const TESTING: &str = "sdks/typescript/collie/src/testing.ts";
 const PY_INIT: &str = "sdks/python/collie/src/goodfetch_collie/__init__.py";
 const PY_TESTING: &str = "sdks/python/collie/src/goodfetch_collie/testing.py";
+/// A generated file of each package, which the packages re-export.
+const TS_SETTINGS: &str = "sdks/typescript/collie/src/generated/settings.ts";
+const PY_SETTINGS: &str = "sdks/python/collie/src/goodfetch_collie/generated/settings.py";
+/// A generated module whose Experimental objects carry only the docstring
+/// line ADR 0099 gives Python, as the Plugins' handlers do.
+const PY_PLUGINS: &str = "sdks/python/collie/src/goodfetch_collie/generated/plugins.py";
 
 /// Collie's TypeScript and Python packages, each with a testing entry,
 /// committed as the previous release `compat/api.toml` names, with
@@ -31,9 +37,33 @@ fn released(announced: &str) -> Workspace {
         br#"{
   "name": "@goodfetch/collie",
   "type": "module",
-  "exports": { ".": "./src/index.ts", "./testing": "./src/testing.ts" }
+  "exports": {
+    ".": "./src/index.ts",
+    "./generated": "./src/generated/index.ts",
+    "./testing": "./src/testing.ts"
+  }
 }
 "#,
+    );
+    workspace.write(
+        TS_SETTINGS,
+        b"/** A page's settings. */\nexport interface PageSettings {\n  /** How long a wait may take. */\n  readonly timeout?: number;\n}\n",
+    );
+    workspace.write(
+        "sdks/typescript/collie/src/generated/index.ts",
+        b"export type { PageSettings } from \"./settings.ts\";\n",
+    );
+    workspace.write(
+        "sdks/python/collie/src/goodfetch_collie/generated/__init__.py",
+        b"\"\"\"The layer `xtask codegen` writes.\"\"\"\n",
+    );
+    workspace.write(
+        PY_SETTINGS,
+        b"\"\"\"The settings.\"\"\"\n\nfrom __future__ import annotations\n\n\nclass PageSettings:\n    \"\"\"A page's settings.\"\"\"\n\n    def with_timeout(self, timeout: float) -> PageSettings:\n        \"\"\"These settings with `timeout`.\"\"\"\n        return self\n",
+    );
+    workspace.write(
+        PY_PLUGINS,
+        b"\"\"\"The Plugins' handlers.\"\"\"\n\n\nclass SampleStoreHandler:\n    \"\"\"Keeps values by key.\n\n    Experimental: outside semver until it is promoted (ADR 0030).\n    \"\"\"\n\n    def put(self, key: str) -> None:\n        \"\"\"Keeps a value under `key`.\"\"\"\n\n\ndef sample_store() -> SampleStoreHandler:\n    \"\"\"The sample store.\n\n    Experimental: outside semver until it is promoted (ADR 0030).\n    \"\"\"\n    return SampleStoreHandler()\n",
     );
     workspace.write(
         "sdks/typescript/collie/tsconfig.json",
@@ -55,7 +85,7 @@ fn released(announced: &str) -> Workspace {
     );
     workspace.write(
         INDEX,
-        b"/** How a page opens. */\nexport interface OpenOptions {\n  /** The page's address. */\n  readonly url: string;\n  /** How long it may take. */\n  readonly timeout?: number;\n}\n\n/** Opens a page. */\nexport function open(options: OpenOptions): string {\n  return options.url;\n}\n\n/**\n * Previews a page.\n *\n * @experimental\n */\nexport function preview(url: string): string {\n  return url;\n}\n",
+        b"/** How a page opens. */\nexport interface OpenOptions {\n  /** The page's address. */\n  readonly url: string;\n  /** How long it may take. */\n  readonly timeout?: number;\n}\n\n/** Opens a page. */\nexport function open(options: OpenOptions): string {\n  return options.url;\n}\n\n/**\n * Previews a page.\n *\n * @experimental\n */\nexport function preview(url: string): string {\n  return url;\n}\n\nexport type { PageSettings } from \"./generated/settings.ts\";\n",
     );
     workspace.write(
         TESTING,
@@ -63,7 +93,7 @@ fn released(announced: &str) -> Workspace {
     );
     workspace.write(
         PY_INIT,
-        b"\"\"\"Collie.\"\"\"\n\n\ndef open_page(url: str) -> str:\n    \"\"\"Opens a page.\"\"\"\n    return url\n\n\ndef preview(url: str) -> str:\n    \"\"\"Previews a page.\"\"\"\n    warn_experimental(\"preview\")\n    return url\n\n\ndef warn_experimental(name: str) -> None:\n    \"\"\"Warns once that `name` is Experimental.\"\"\"\n",
+        b"\"\"\"Collie.\"\"\"\n\nfrom goodfetch_collie.generated.settings import PageSettings\n\n\ndef open_page(url: str) -> str:\n    \"\"\"Opens a page.\"\"\"\n    return url\n\n\ndef preview(url: str) -> str:\n    \"\"\"Previews a page.\"\"\"\n    warn_experimental(\"preview\")\n    return url\n\n\ndef warn_experimental(name: str) -> None:\n    \"\"\"Warns once that `name` is Experimental.\"\"\"\n",
     );
     workspace.write(
         PY_TESTING,
@@ -217,6 +247,81 @@ fn an_experimental_member_changes_and_goes_freely() {
         outcome.stderr
     );
     assert_eq!(outcome.code, 0);
+}
+
+#[test]
+fn a_python_object_whose_docstring_marks_it_experimental_changes_freely() {
+    // The docstring line marks a class and what it holds; the generated
+    // Plugins' handlers call no `warn_experimental(`.
+    let workspace = released("");
+    workspace.edit(
+        PY_PLUGINS,
+        "def put(self, key: str) -> None:",
+        "def put(self, key: str, value: bytes) -> None:",
+    );
+    workspace.edit(
+        PY_PLUGINS,
+        "\n\ndef sample_store() -> SampleStoreHandler:\n    \"\"\"The sample store.\n\n    Experimental: outside semver until it is promoted (ADR 0030).\n    \"\"\"\n    return SampleStoreHandler()\n",
+        "",
+    );
+
+    let outcome = workspace.xtask(&["sdk-api"]);
+
+    assert_eq!(
+        outcome.findings(),
+        vec![],
+        "{}\n{}",
+        outcome.stdout,
+        outcome.stderr
+    );
+    assert_eq!(outcome.code, 0);
+}
+
+#[test]
+fn a_rename_made_in_the_generated_layer_is_an_unannounced_break() {
+    // The generated layer's declarations are public API a program imports,
+    // through the packages' re-exports and their `generated` entries.
+    let workspace = released("");
+    workspace.edit(
+        TS_SETTINGS,
+        "export interface PageSettings {",
+        "export interface PageOptions {",
+    );
+    workspace.edit(
+        "sdks/typescript/collie/src/generated/index.ts",
+        "export type { PageSettings }",
+        "export type { PageOptions }",
+    );
+    workspace.edit(
+        INDEX,
+        "export type { PageSettings }",
+        "export type { PageOptions }",
+    );
+    workspace.edit(PY_SETTINGS, "def with_timeout(", "def timed(");
+
+    let outcome = workspace.xtask(&["sdk-api"]);
+
+    assert_eq!(
+        outcome.findings(),
+        vec![
+            finding(
+                "unannounced-break",
+                "python goodfetch_collie.generated.settings PageSettings"
+            ),
+            finding(
+                "unannounced-break",
+                "typescript @goodfetch/collie PageSettings"
+            ),
+            finding(
+                "unannounced-break",
+                "typescript @goodfetch/collie/generated PageSettings"
+            ),
+        ],
+        "{}\n{}",
+        outcome.stdout,
+        outcome.stderr
+    );
+    assert_eq!(outcome.code, 1);
 }
 
 #[test]

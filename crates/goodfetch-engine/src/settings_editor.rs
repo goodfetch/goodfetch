@@ -385,7 +385,7 @@ impl Draft<'_> {
             let product = self.editor.settings.product();
             let machine = self.machine()?;
             let layers = Layers {
-                host,
+                host: machine.defaults_under(host),
                 operator_policy: policy.unwrap_or_else(|| machine.operator_policy.clone()),
                 user_configuration: user.unwrap_or_else(|| machine.user_configuration.clone()),
                 ..Layers::default()

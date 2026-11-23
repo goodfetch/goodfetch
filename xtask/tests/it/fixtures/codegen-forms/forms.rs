@@ -1,7 +1,8 @@
 //! One entry of each kind an SDK gives a form of its own (ADR 0099), on the
 //! handles a program holds: a round trip with a required text, a required
-//! boolean and an optional parameter, a query, a waiter, a `new_` member
-//! that opens a page, a value built without a call (a locator, whose ID is
+//! boolean and an optional parameter, a query, a waiter, two `new_` members
+//! that open a page, the Run's in its default Session and a Session's, so
+//! the page holds its Session (ADR 0078), a value built without a call (a locator, whose ID is
 //! its own value), a sub-object (`page.keyboard`), a `close`, a query
 //! whose result is typed by the fields its call declares (`page.read`), and
 //! two reads the Run answers from `run.start`'s answer, a value
@@ -86,11 +87,25 @@ pub struct NewPageParams {
     pub viewport: Option<String>,
 }
 
-/// What `run.new_page` answers.
+/// What `run.new_page` and `session.new_page` answer.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct PageOpened {
     /// The page.
     pub page_id: PageId,
+    /// Its Session: the Run's default Session for `run.new_page`.
+    pub session_id: SessionId,
+}
+
+/// A Session of a Run, named by the engine when it opens it.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct SessionId(pub String);
+
+/// The Session an operation with no other parameter names.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct SessionParams {
+    /// The Session.
+    pub session_id: SessionId,
 }
 
 /// What `page.goto` navigates with.
@@ -382,7 +397,17 @@ pub const ENTRIES: Entries = Entries {
             result: schema_of::<PageOpened>,
             ..operation(
                 "run.new_page",
-                "Opens a page in the Run.",
+                "Opens a page in the Run's default Session.",
+                OperationKind::RoundTrip,
+                false,
+            )
+        },
+        Operation {
+            params: schema_of::<SessionParams>,
+            result: schema_of::<PageOpened>,
+            ..operation(
+                "session.new_page",
+                "Opens a page in the Session.",
                 OperationKind::RoundTrip,
                 false,
             )

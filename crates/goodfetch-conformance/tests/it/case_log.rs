@@ -64,6 +64,7 @@ fn header() -> ConformanceHeader {
             seed: 169,
         },
         online: false,
+        gate: false,
     }
 }
 

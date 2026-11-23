@@ -3,3 +3,12 @@ name = "goodfetch-collie"
 version.workspace = true
 edition.workspace = true
 publish.workspace = true
+
+[dependencies]
+goodfetch-collie-client.workspace = true
+goodfetch-engine.workspace = true
+goodfetch-workspace-hack.workspace = true
+
+# Stripped by `cargo publish`, so never published.
+[dev-dependencies]
+goodfetch-test-support = { path = "../goodfetch-test-support" }

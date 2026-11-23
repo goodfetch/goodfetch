@@ -1,11 +1,11 @@
 use serde_json::json;
 
-use super::HookFailedDetails;
+use super::{HookFailedDetails, ReportedHookStage};
 
 #[test]
 fn hook_failed_names_the_hook_its_label_the_exception_and_the_wrapped_code() {
     let details = HookFailedDetails {
-        stage: "after_response".to_owned(),
+        stage: ReportedHookStage::AfterResponse,
         hook: "checkPrice".to_owned(),
         label: Some("product".to_owned()),
         exception_type: "TypeError".to_owned(),
@@ -29,23 +29,23 @@ fn hook_failed_names_the_hook_its_label_the_exception_and_the_wrapped_code() {
 }
 
 #[test]
-fn hook_failed_at_a_lifecycle_stage_for_the_programs_own_exception_writes_both_nulls() {
-    let details = HookFailedDetails {
-        stage: "run_started".to_owned(),
-        hook: "openLog".to_owned(),
-        label: None,
-        exception_type: "BoxError".to_owned(),
-        exception_message: "log folder missing".to_owned(),
-        exception_stack: String::new(),
-        wrapped_code: None,
-    };
+fn hook_failed_at_a_lifecycle_stage_for_the_programs_own_exception_keeps_the_stage_and_both_nulls()
+{
+    let written = json!({
+        "stage": "run_started",
+        "hook": "openLog",
+        "label": null,
+        "exception_type": "BoxError",
+        "exception_message": "log folder missing",
+        "exception_stack": "",
+        "wrapped_code": null,
+    });
 
-    let written = serde_json::to_value(&details).unwrap();
+    let details = serde_json::from_value::<HookFailedDetails>(written.clone()).unwrap();
 
-    assert_eq!(written["label"], json!(null));
-    assert_eq!(written["wrapped_code"], json!(null));
-    assert_eq!(
-        serde_json::from_value::<HookFailedDetails>(written).unwrap(),
-        details
-    );
+    assert!(matches!(details.stage, ReportedHookStage::Unknown(_)));
+    assert_eq!(details.stage.as_str(), "run_started");
+    assert_eq!(details.label, None);
+    assert_eq!(details.wrapped_code, None);
+    assert_eq!(serde_json::to_value(&details).unwrap(), written);
 }

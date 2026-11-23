@@ -137,7 +137,7 @@ fn raised(
     let own = code == HOOK_FAILED.name || code == HANDLER_FAILED.name;
     let exception_message = text("exception_message").unwrap_or_else(|| message.to_owned());
     let failed = HookFailedDetails {
-        stage: stage.as_str().to_owned(),
+        stage: stage.into(),
         hook: hook.to_owned(),
         label: Some(label.to_owned()),
         exception_type: text("exception_type").unwrap_or_else(|| {

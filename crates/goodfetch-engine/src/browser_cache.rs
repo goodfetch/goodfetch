@@ -727,7 +727,7 @@ impl BrowserCache {
             details: Box::new(BrowserNotInstalledDetails {
                 missing: MissingBrowser::Pinned {
                     artifact: artifact.id.clone(),
-                    pinned_by: pinned_by.clone(),
+                    pinned_by: pinned_by.pinners(),
                     cache,
                 },
                 fix,
@@ -790,7 +790,7 @@ impl BrowserCache {
             message,
             details: Box::new(ArtifactUnavailableOfflineDetails {
                 artifact: artifact.id.clone(),
-                pinned_by: pinned_by.clone(),
+                pinned_by: pinned_by.pinners(),
                 cache,
                 limit: SettingLimit {
                     key: EGRESS_OFFLINE.name.to_owned(),
@@ -851,7 +851,7 @@ fn download_failed(
         message,
         details: Box::new(ArtifactDownloadFailedDetails {
             artifact: artifact.id.clone(),
-            pinned_by: pinned_by.clone(),
+            pinned_by: pinned_by.pinners(),
             host: host.to_owned(),
             failure,
             fix: format!(

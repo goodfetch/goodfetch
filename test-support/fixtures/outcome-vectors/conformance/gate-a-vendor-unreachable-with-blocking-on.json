@@ -1,0 +1,21 @@
+{
+  "description": "In gate mode, a case whose vendor was unreachable while it ran with Filter-list blocking on is inconclusive, even when it passes with blocking off: an outage neither passes nor blocks (ADR 0064)",
+  "gate": true,
+  "cases": [
+    {
+      "entries": [
+        {
+          "blocking": "on",
+          "unreachable": ["challenge vendor"],
+          "checks": [false]
+        },
+        {
+          "blocking": "off",
+          "checks": [true]
+        }
+      ]
+    }
+  ],
+  "case_outcomes": ["inconclusive"],
+  "outcome": "unproved"
+}

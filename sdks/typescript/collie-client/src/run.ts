@@ -23,10 +23,11 @@ import {
   type PageId,
   type RunProgress,
   type RunStarted,
+  type SessionId,
   type SettingsExplanation,
 } from "./generated/index.ts";
 import { FOLLOWED_VALUE, followed } from "./followed.ts";
-import { Page } from "./generated/handles.ts";
+import { Page, Session } from "./generated/handles.ts";
 import { runtimeMessage, spelledOperation, type OperationNames } from "./goodfetch-error.ts";
 import { collieWire } from "./generated/wire.ts";
 import type { HandleHost, Listener, Opens, Subscription } from "./handle.ts";
@@ -465,16 +466,18 @@ function signalled<Types extends Record<keyof Types, OperationTypes>>(
   };
 }
 
-let pageIn: (run: Run, pageId: PageId, signal: AbortSignal) => Page;
+let pageIn: (run: Run, pageId: PageId, sessionId: SessionId, signal: AbortSignal) => Page;
 let openIn: (run: Run, operation: string) => void;
 
 /**
  * The page of ID `pageId` the engine lends a handler of `run` for one
- * attempt (ADR 0093): a Collie `Page`, whose calls fail with `closed` once
- * the Run is, and each of which stops when `signal`, the attempt's, aborts.
+ * attempt (ADR 0093), in its Session `sessionId`: a Collie `Page`, whose
+ * calls fail with `closed` once the Run is, and each of which stops when
+ * `signal`, the attempt's, aborts. Its `session()` is that Session, answered
+ * without a call (ADR 0092), whose calls stop with `signal` too.
  */
-export function pageOf(run: Run, pageId: PageId, signal: AbortSignal): Page {
-  return pageIn(run, pageId, signal);
+export function pageOf(run: Run, pageId: PageId, sessionId: SessionId, signal: AbortSignal): Page {
+  return pageIn(run, pageId, sessionId, signal);
 }
 
 /**
@@ -492,26 +495,26 @@ export class Run extends RunMembers implements AsyncDisposable {
     openIn = (run, operation) => {
       ensureOpen(run.#scope, operation);
     };
-    pageIn = (run, pageId, signal) =>
-      new Page(
-        hostIn(
-          {
-            calls: signalled(run.#host.calls, signal),
-            raw: (operation, params, options) =>
-              run.#host.raw(operation, params, { signal: alsoStoppedBy(options.signal, signal) }),
-            stream: (method, params, options) =>
-              run.#host.stream(method, params, {
-                ...options,
-                signal: alsoStoppedBy(options.signal, signal),
-              }),
-            published: run.#host.published,
-            logger: run.#host.logger,
-          },
-          run.#scope,
-          valueIn(undefined),
-          pageId,
-        ),
+    pageIn = (run, pageId, sessionId, signal) => {
+      const sessionHost = hostIn(
+        {
+          calls: signalled(run.#host.calls, signal),
+          raw: (operation, params, options) =>
+            run.#host.raw(operation, params, { signal: alsoStoppedBy(options.signal, signal) }),
+          stream: (method, params, options) =>
+            run.#host.stream(method, params, {
+              ...options,
+              signal: alsoStoppedBy(options.signal, signal),
+            }),
+          published: run.#host.published,
+          logger: run.#host.logger,
+        },
+        run.#scope,
+        valueIn(undefined),
+        sessionId,
       );
+      return new Page(sessionHost.child(pageId), new Session(sessionHost));
+    };
   }
 
   readonly #host: RunHost;

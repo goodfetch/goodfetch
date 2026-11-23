@@ -1,0 +1,32 @@
+{
+  "description": "In gate mode, each mode's entries are judged as their own pair: a mode that fails only with Filter-list blocking on fails the case, beside a mode that failed both ways",
+  "gate": true,
+  "cases": [
+    {
+      "entries": [
+        {
+          "mode": "attached",
+          "blocking": "on",
+          "checks": [false]
+        },
+        {
+          "mode": "attached",
+          "blocking": "off",
+          "checks": [false]
+        },
+        {
+          "mode": "daemon",
+          "blocking": "on",
+          "checks": [false]
+        },
+        {
+          "mode": "daemon",
+          "blocking": "off",
+          "checks": [true]
+        }
+      ]
+    }
+  ],
+  "case_outcomes": ["failed"],
+  "outcome": "failed"
+}

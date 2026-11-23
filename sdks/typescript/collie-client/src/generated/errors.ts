@@ -10,7 +10,7 @@ import {
   type ErrorIdentity,
   type ErrorLimit,
 } from "../goodfetch-error.ts";
-import type { CallCancelledDetails, NotVerifiedDetails } from "./types.ts";
+import type { CallCancelledDetails, HookFailedDetails, NotVerifiedDetails } from "./types.ts";
 import { collieWire } from "./wire.ts";
 
 export {
@@ -590,8 +590,15 @@ export class HeaderValueInvalidError extends ProgramError<"header_value_invalid"
  * A Hook raised, so its work failed: an attempt commits nothing, and one that failed at the Record stage commits none of what it staged. The message always names the exception. The details name the stage, the Hook, the request's Label (`null` at a lifecycle stage or outside a crawl), the exception's type, message and stack, and the Goodfetch code raised inside (`null` for the program's own exception). A wrapped code is retried when its own retryable flag says so; in a crawl, the program's own exception only when `crawl.retry.handler_failed` is on, since a bug fails the same way every time, and either retry draws on `crawl.retry.max`.
  */
 export class HookFailedError extends ProgramError<"hook_failed"> {
+  /**
+   * The code's details, typed; `undefined` when they lack a field the type
+   * requires, as those of an error a program builds without details do.
+   */
+  readonly typedDetails: Readonly<HookFailedDetails> | undefined;
+
   constructor(message: string, fields: ErrorFields = {}) {
     super(message, { ...fields, name: "HookFailedError", code: "hook_failed", group: "program", retryable: true });
+    this.typedDetails = detailsOf<HookFailedDetails>(fields.details, ["stage", "hook", "exceptionType", "exceptionMessage", "exceptionStack"], { path: { type: "HookFailedDetails" }, types: collieWire.types });
   }
 }
 
@@ -1071,6 +1078,15 @@ export class SampleRefusedError extends RefusedError<"sample_refused"> {
 }
 
 /**
+ * A schema's own validation, run by the SDK in the program's process, raised something other than a rejection, so the call stopped at once: only the library's own rejection (Standard Schema issues, Pydantic's `ValidationError`) is one, and a bug is never retried or reported as a value the schema refused. The message always names the exception, and the original is the error's cause. The details name the schema by its JSON Schema `title` (`null` without one), the field path where known (`null` otherwise), and the exception's type and message. Fix the validator so that it rejects with the library's own issue, or never raises.
+ */
+export class SchemaValidatorFailedError extends ProgramError<"schema_validator_failed"> {
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, name: "SchemaValidatorFailedError", code: "schema_validator_failed", group: "program", retryable: false });
+  }
+}
+
+/**
  * A Secret placeholder's value would go to a domain outside its binding's `domains`: the field's frame or the request's URL. The details name the placeholder, the reference and the domain, never a value.
  */
 export class SecretDomainNotAllowedError extends RefusedError<"secret_domain_not_allowed"> {
@@ -1315,6 +1331,7 @@ export const collieErrorClasses: Readonly<Record<string, ErrorClass>> = {
   run_state_unavailable: RunStateUnavailableError,
   run_target_unbuilt: RunTargetUnbuiltError,
   sample_refused: SampleRefusedError,
+  schema_validator_failed: SchemaValidatorFailedError,
   secret_domain_not_allowed: SecretDomainNotAllowedError,
   secret_input_refused: SecretInputRefusedError,
   secret_unavailable: SecretUnavailableError,
@@ -1436,6 +1453,7 @@ export type CollieErrorCode =
   | "run_state_unavailable"
   | "run_target_unbuilt"
   | "sample_refused"
+  | "schema_validator_failed"
   | "secret_domain_not_allowed"
   | "secret_input_refused"
   | "secret_unavailable"
@@ -1453,7 +1471,7 @@ export type CollieErrorCode =
   | "upgrade_source_unsupported"
   | "value_invalid";
 
-const collieErrorCodes: ReadonlySet<string> = new Set<CollieErrorCode>(["address_family_unavailable", "artifact_download_failed", "artifact_unavailable_offline", "blocked", "body_not_found", "body_unavailable", "browser_host_outdated", "browser_host_unreachable", "browser_launch_failed", "browser_needs_gui_session", "browser_not_installed", "browser_sandbox_unavailable", "call_cancelled", "capability_unavailable", "cdp_url_not_allowed", "cdp_url_not_browser", "cdp_url_unauthorized", "cdp_url_unreachable", "certificate_changed", "certificate_invalid", "challenge_unsolved", "checkpoint_behind", "closed", "confinement_unavailable", "connection_forked", "connection_lost", "connection_overloaded", "daemon_draining", "daemon_unreachable", "deadline_exceeded", "detach_unsupported", "dialog_already_handled", "edge_handlers_unsupported", "effect_key_invalid", "effect_key_reused", "effect_output_invalid", "effect_uncertain", "egress_refused", "engine_exited", "engine_not_found", "engine_output_invalid", "engine_panicked", "event_loop_mismatch", "executable_blocked_by_smart_app_control", "file_write_failed", "format_version_unsupported", "header_value_invalid", "hook_failed", "internal", "limit_not_understood", "limit_raise_refused", "limit_reached", "listener_events_lost", "listener_failed", "local_address_unavailable", "logged_out", "name_lookup_failed", "name_not_resolved", "navigation_failed", "navigation_interrupted", "not_a_daemon", "not_in_product", "not_verified", "page_check_failed", "page_crashed", "page_events_lost", "page_function_failed", "page_handler_failed", "page_memory_exceeded", "page_navigated_during_call", "page_value_invalid", "path_not_writable", "path_unsafe", "pattern_unsupported", "person_required", "plugin_crashed", "policy_conflict", "protocol_version_unsupported", "proxy_auth_failed", "proxy_provider_unavailable", "proxy_relay_unavailable", "proxy_unavailable", "resources_exhausted", "response_limit_exceeded", "response_not_json", "response_truncated", "route_already_handled", "run_busy", "run_conflict", "run_ended", "run_id_invalid", "run_in_use", "run_interrupted", "run_key_mismatch", "run_live", "run_not_found", "run_not_owned", "run_state_filesystem_unsupported", "run_state_unavailable", "run_target_unbuilt", "sample_refused", "secret_domain_not_allowed", "secret_input_refused", "secret_unavailable", "secret_unbound", "session_bound_to_machine", "setting_invalid", "setting_locked", "setting_not_applicable", "setting_unknown", "site_preferences_refused", "skill_install_refused", "target_not_unique", "too_many_calls", "too_many_redirects", "upgrade_source_unsupported", "value_invalid"]);
+const collieErrorCodes: ReadonlySet<string> = new Set<CollieErrorCode>(["address_family_unavailable", "artifact_download_failed", "artifact_unavailable_offline", "blocked", "body_not_found", "body_unavailable", "browser_host_outdated", "browser_host_unreachable", "browser_launch_failed", "browser_needs_gui_session", "browser_not_installed", "browser_sandbox_unavailable", "call_cancelled", "capability_unavailable", "cdp_url_not_allowed", "cdp_url_not_browser", "cdp_url_unauthorized", "cdp_url_unreachable", "certificate_changed", "certificate_invalid", "challenge_unsolved", "checkpoint_behind", "closed", "confinement_unavailable", "connection_forked", "connection_lost", "connection_overloaded", "daemon_draining", "daemon_unreachable", "deadline_exceeded", "detach_unsupported", "dialog_already_handled", "edge_handlers_unsupported", "effect_key_invalid", "effect_key_reused", "effect_output_invalid", "effect_uncertain", "egress_refused", "engine_exited", "engine_not_found", "engine_output_invalid", "engine_panicked", "event_loop_mismatch", "executable_blocked_by_smart_app_control", "file_write_failed", "format_version_unsupported", "header_value_invalid", "hook_failed", "internal", "limit_not_understood", "limit_raise_refused", "limit_reached", "listener_events_lost", "listener_failed", "local_address_unavailable", "logged_out", "name_lookup_failed", "name_not_resolved", "navigation_failed", "navigation_interrupted", "not_a_daemon", "not_in_product", "not_verified", "page_check_failed", "page_crashed", "page_events_lost", "page_function_failed", "page_handler_failed", "page_memory_exceeded", "page_navigated_during_call", "page_value_invalid", "path_not_writable", "path_unsafe", "pattern_unsupported", "person_required", "plugin_crashed", "policy_conflict", "protocol_version_unsupported", "proxy_auth_failed", "proxy_provider_unavailable", "proxy_relay_unavailable", "proxy_unavailable", "resources_exhausted", "response_limit_exceeded", "response_not_json", "response_truncated", "route_already_handled", "run_busy", "run_conflict", "run_ended", "run_id_invalid", "run_in_use", "run_interrupted", "run_key_mismatch", "run_live", "run_not_found", "run_not_owned", "run_state_filesystem_unsupported", "run_state_unavailable", "run_target_unbuilt", "sample_refused", "schema_validator_failed", "secret_domain_not_allowed", "secret_input_refused", "secret_unavailable", "secret_unbound", "session_bound_to_machine", "setting_invalid", "setting_locked", "setting_not_applicable", "setting_unknown", "site_preferences_refused", "skill_install_refused", "target_not_unique", "too_many_calls", "too_many_redirects", "upgrade_source_unsupported", "value_invalid"]);
 
 /** An error with one of the Error codes Collie raises, which its `code` narrows to the code's class. */
 export type CollieError =
@@ -1558,6 +1576,7 @@ export type CollieError =
   | RunStateUnavailableError
   | RunTargetUnbuiltError
   | SampleRefusedError
+  | SchemaValidatorFailedError
   | SecretDomainNotAllowedError
   | SecretInputRefusedError
   | SecretUnavailableError

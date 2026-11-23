@@ -366,6 +366,30 @@ impl Shared {
         if !self.nothing_holds_off_a_handover().await {
             return None;
         }
+        self.hand_over_unless_the_pick(state).await
+    }
+
+    /// Hands over when this Daemon, in `state`, found the Run index raised
+    /// past itself and has no live Run, whatever Clients are connected
+    /// (ADR 0098): it takes no new Run, so only its major's pick serves
+    /// them. What the handover began with, as
+    /// [`Self::hand_over_if_not_the_pick`].
+    async fn hand_over_if_locked_out(
+        &self,
+        state: &watch::Sender<EngineState>,
+        lockout: &Lockout,
+    ) -> Option<Box<dyn Send>> {
+        if !lockout.with_no_live_run() {
+            return None;
+        }
+        self.hand_over_unless_the_pick(state).await
+    }
+
+    /// Hands over when this Daemon, in `state`, is not its major's pick.
+    async fn hand_over_unless_the_pick(
+        &self,
+        state: &watch::Sender<EngineState>,
+    ) -> Option<Box<dyn Send>> {
         let succession = Arc::clone(&self.succession);
         if self.blocking.blocking(move || succession.is_pick()).await {
             return None;
@@ -387,6 +411,36 @@ impl Shared {
                 .blocking(move || succession.begin_handover())
                 .await,
         )
+    }
+}
+
+/// What a Daemon locked out of the Run index watches to hand over once it
+/// has no live Run: its count of live Runs and whether it is locked out.
+struct Lockout {
+    live: watch::Receiver<usize>,
+    locked_out: watch::Receiver<bool>,
+}
+
+impl Lockout {
+    fn of(runs: &Runs) -> Self {
+        Self {
+            live: runs.live_changes(),
+            locked_out: runs.locked_out_of_the_index(),
+        }
+    }
+
+    /// Once either changes; never once neither can.
+    async fn changed(&mut self) {
+        tokio::select! {
+            Ok(()) = self.live.changed() => {}
+            Ok(()) = self.locked_out.changed() => {}
+            else => std::future::pending().await,
+        }
+    }
+
+    /// Whether the Daemon is locked out and has no live Run.
+    fn with_no_live_run(&self) -> bool {
+        *self.locked_out.borrow() && *self.live.borrow() == 0
     }
 }
 
@@ -502,17 +556,9 @@ pub(crate) async fn serve(
     mut options: DaemonOptions,
     owner: &TaskOwner,
 ) -> DaemonEnd {
-    let Drain {
-        asked: drain_asked_by,
-        grace,
-    } = options.drain.clone();
+    let Drain { asked, grace } = options.drain.clone();
     let ops = options.ops.listener.take();
-    let asked = async {
-        match &drain_asked_by {
-            Some(asked) => asked.cancelled().await,
-            None => std::future::pending().await,
-        }
-    };
+    let asked = drain_asked(asked);
     tokio::pin!(asked);
     let (asks, mut asked_of_the_loop) = mpsc::channel(ASKS);
     // Where the Daemon is: only this loop changes it, and a handover is
@@ -542,6 +588,7 @@ pub(crate) async fn serve(
     let mut drain_asked = false;
     let mut panicked = std::pin::pin!(owner.panicked());
     let mut panic_told = false;
+    let mut lockout = Lockout::of(&shared.runs);
     let end = loop {
         tokio::select! {
             biased;
@@ -556,6 +603,11 @@ pub(crate) async fn serve(
                 if shared.presence.borrow().holding == 0
                     && let Some(begun) = shared.hand_over_if_not_the_pick(&state).await
                 {
+                    break Ending::HandOver(begun, None);
+                }
+            }
+            () = lockout.changed() => {
+                if let Some(begun) = shared.hand_over_if_locked_out(&state, &lockout).await {
                     break Ending::HandOver(begun, None);
                 }
             }
@@ -605,6 +657,14 @@ pub(crate) async fn serve(
     drop(accepts);
     let end = closed_for(end, &open, &mut endings_of_connections, clock).await;
     finish(end, &connections_owner, &shared).await
+}
+
+/// Once `asked` asks the Daemon to drain; never without it.
+async fn drain_asked(asked: Option<CancellationToken>) {
+    match asked {
+        Some(asked) => asked.cancelled().await,
+        None => std::future::pending().await,
+    }
 }
 
 /// The Daemon's end for `ending`, once the Connections in `open` it closes

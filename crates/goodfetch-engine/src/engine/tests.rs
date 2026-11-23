@@ -175,9 +175,23 @@ fn per_major(env: &TestEnv) -> std::path::PathBuf {
 /// An engine of `product` with the engine's own operations, the tests' and
 /// `more`.
 fn engine_with(product: Product, more: Option<Contribution>) -> Engine {
+    engine_as(product, version(), more)
+}
+
+/// An engine of `product` that runs as Product version `version`, with
+/// the engine's own operations and the tests'.
+fn engine_at(product: Product, version: &str) -> Engine {
+    engine_as(product, ProductVersion::parse(version).unwrap(), None)
+}
+
+fn engine_as(
+    product: Product,
+    product_version: ProductVersion,
+    more: Option<Contribution>,
+) -> Engine {
     let identity = Identity {
         product,
-        product_version: version(),
+        product_version,
         channel: Channel::CratesIo,
     };
     let mut composition = Composition::default()

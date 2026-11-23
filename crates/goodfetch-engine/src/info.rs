@@ -32,8 +32,8 @@ pub fn contribution() -> Contribution {
 }
 
 /// What the engine adds to every composition, its declared Effects kept in
-/// `effects`, which the window that marks what is sent shares.
-pub fn contribution_sharing(effects: &Effects) -> Contribution {
+/// `effects`, the send window its Runs' commands mark (ADR 0106).
+pub(crate) fn contribution_sharing(effects: &Effects) -> Contribution {
     let contribution = run::handlers()
         .into_iter()
         .chain(config::handlers())
@@ -55,6 +55,7 @@ pub fn contribution_sharing(effects: &Effects) -> Contribution {
                 .with_run_state_tables(robots_txt::TABLES)
                 .with_run_state_tables(effect::TABLES)
                 .with_report_part(Arc::new(effect::Report))
+                .with_send_window(Arc::new(effects.clone()))
                 .with_needs_you_source(needs_you::storage::levels())
                 .with_needs_you_source(needs_you::storage::runs_stopped())
                 .with_needs_you_source(needs_you::limits::runs_stopped())

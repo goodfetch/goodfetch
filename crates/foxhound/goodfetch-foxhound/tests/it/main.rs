@@ -156,6 +156,7 @@ mod dataset_pages;
 mod datasets;
 mod decoding;
 mod discovered_api;
+mod effect_window;
 mod enqueue_links;
 mod escalation;
 mod export_formats;

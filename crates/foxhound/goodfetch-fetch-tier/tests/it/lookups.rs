@@ -47,7 +47,7 @@ fn transport(
             .with_private_ranges(&["127.0.0.0/8".to_owned()])
             .unwrap(),
         resolve: HostMapping::default(),
-        resolver: ResolverConfiguration::name_servers([fixture]),
+        resolver: ResolverConfiguration::name_servers([fixture]).into(),
         local: Some(local),
         proxy,
         ..crate::config(proving_ground, None, &[])

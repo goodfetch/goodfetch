@@ -17,7 +17,7 @@ use goodfetch_protocol::catalog::{
 };
 use goodfetch_protocol::jsonrpc::ProtocolFailure;
 use goodfetch_protocol::run::RunId;
-use goodfetch_test_support::{CrashKind, CrashVfs, TestEnv};
+use goodfetch_test_support::{CrashKind, CrashVfs, IoFault, TestEnv};
 use rstest::rstest;
 use serde_json::{Value, json};
 use tokio::io::{AsyncBufReadExt as _, BufReader};
@@ -63,24 +63,19 @@ fn failed(error: impl std::fmt::Display) -> CallError {
     CallError::protocol(ProtocolFailure::InternalError, error.to_string())
 }
 
-/// The test's operations on `effects`.
+/// The test's operations on `effects`: the window's mark through the Run's
+/// own, and a person's answer.
 fn window(effects: &Effects) -> Contribution {
-    let sending = effects.clone();
     let reconciling = effects.clone();
     Contribution::new("test-effect")
         .with_handler(Handler::new(
             &SEND,
-            move |params: Value, context: CallContext| {
-                let effects = sending.clone();
-                async move {
-                    let run_id = RunId::parse(params["run_id"].as_str().unwrap()).unwrap();
-                    let run = context.runs().live(run_id).await.map_err(failed)?;
-                    effects
-                        .sending(&run, None, params["command"].as_str().unwrap())
-                        .await
-                        .map_err(failed)?;
-                    Ok::<Value, CallError>(json!({ "marked": true }))
-                }
+            |params: Value, context: CallContext| async move {
+                let run_id = RunId::parse(params["run_id"].as_str().unwrap()).unwrap();
+                let run = context.runs().live(run_id).await.map_err(failed)?;
+                run.sending(None, params["command"].as_str().unwrap())
+                    .await?;
+                Ok::<Value, CallError>(json!({ "marked": true }))
             },
         ))
         .with_handler(Handler::new(
@@ -677,5 +672,37 @@ fn a_power_cut_leaves_each_effect_as_its_last_synced_step(
         (&again["result"]["answer"], code(&again)),
         (&answer, &refused),
         "{again}"
+    );
+}
+
+/// A sent mark the Run's state cannot write answers `run_state_unavailable`
+/// in place of what the caller does after the mark, which stands for the
+/// command the mark guards.
+/// Covers: error:run_state_unavailable
+#[test]
+fn a_mark_the_run_state_cannot_write_answers_run_state_unavailable_in_its_commands_place() {
+    let env = TestEnv::new();
+    let vfs = CrashVfs::register(&env.unique_name("effect-mark-full"), env.seed()).unwrap();
+    let faulted = vfs.clone();
+    let refused = killed(
+        || on(&env, Some(&vfs)),
+        "full",
+        None,
+        |mut calls| async move {
+            calls.open("full", "order").await;
+            faulted.fail_at(faulted.operations(), IoFault::Full);
+            calls
+                .call(
+                    "test.effect_send",
+                    json!({ "run_id": "full", "command": "locator.click" }),
+                )
+                .await
+        },
+    );
+
+    assert_eq!(
+        (code(&refused), refused.get("result")),
+        (&json!("run_state_unavailable"), None),
+        "{refused}"
     );
 }

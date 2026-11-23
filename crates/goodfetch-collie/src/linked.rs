@@ -679,9 +679,10 @@ struct Opening {
 enum Target {
     /// The linked engine it starts, with what it runs on.
     Linked(Box<Dependencies>),
-    /// A Daemon, the one of `home` unless it is remote.
+    /// A Daemon, the one of `home` unless it is remote: boxed, as its reach
+    /// outweighs the linked variant several times on Windows.
     Daemon {
-        daemon: DaemonReach,
+        daemon: Box<DaemonReach>,
         home: Option<Home>,
         /// At [`EngineChoice::Auto`], the environment of the linked engine
         /// it starts when the Daemon refuses it (ADR 0098).
@@ -732,7 +733,7 @@ impl Opening {
                     _ => runtime::multi_thread(Threads::of(None)),
                 };
                 let target = Target::Daemon {
-                    daemon,
+                    daemon: Box::new(daemon),
                     home: found,
                     auto,
                 };
@@ -775,7 +776,7 @@ impl Opening {
                     asked,
                     clock: Clock::system(),
                 };
-                refusable.open(daemon).await
+                refusable.open(*daemon).await
             }
         }
     }

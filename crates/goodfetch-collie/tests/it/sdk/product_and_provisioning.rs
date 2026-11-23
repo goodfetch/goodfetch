@@ -20,8 +20,10 @@ use std::path::Path;
 use goodfetch_collie::settings::{Settings, egress};
 use goodfetch_collie::{Collie, Error, ErrorCode};
 use goodfetch_conformance::{ClientCaseRun, RustMode};
+#[cfg(unix)]
+use goodfetch_protocol::browser_cache::BrowserNotInstalledDetails;
 use goodfetch_protocol::browser_cache::{
-    ArtifactDownloadFailedDetails, ArtifactUnavailableOfflineDetails, BrowserNotInstalledDetails,
+    ArtifactDownloadFailedDetails, ArtifactUnavailableOfflineDetails,
 };
 use goodfetch_protocol::catalog::ErrorGroup;
 use goodfetch_protocol::connection::NotInProductDetails;

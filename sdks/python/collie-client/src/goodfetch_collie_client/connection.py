@@ -95,7 +95,7 @@ if TYPE_CHECKING:
     from goodfetch_collie_client._attached_engine import AttachedEngine
     from goodfetch_collie_client._project_file import ConnectTimeout, ProjectFile
     from goodfetch_collie_client._relink import Reconnect
-    from goodfetch_collie_client._rpc import TransportEnd
+    from goodfetch_collie_client._rpc import ServedRequest, TransportEnd
     from goodfetch_collie_client.generated.models import (
         ProjectSettings,
         Recording,
@@ -264,6 +264,8 @@ class ClientConnection:
         self._channel = Channel(transport, self, error_classes, bounds)
         self._operations = AsyncCollieOperations(self)
         self._runs: dict[AsyncRun, None] = {}
+        self._served: dict[str, Callable[[ServedRequest], None]] = {}
+        """What serves the engine's requests of each method, by `serve`."""
         self._published = SharedSubscription(self, listener_queue)
         self._info: EngineInfo | None = None
         self._ended = False
@@ -722,6 +724,24 @@ class ClientConnection:
         """Logs each of the engine's `$/log` events; drops any other notification."""
         if method == LOG:
             log_engine_event(params)
+
+    def serve(self, method: str, served: Callable[[ServedRequest], None]) -> None:
+        """Serves the engine's requests of `method` with `served`.
+
+        Such as Foxhound's `crawl_request.handle` (ADR 0093). `served` runs
+        on the reading task, so it must not block: it starts the request's
+        `serve` where its work runs, such as a Run's task group. A method
+        none serves is answered as JSON-RPC's unknown method.
+        """
+        self._served[method] = served
+
+    def serves(self, request: ServedRequest) -> bool:
+        """Hands the engine's `request` to what serves its method, if one does."""
+        served = self._served.get(request.method)
+        if served is None:
+            return False
+        served(request)
+        return True
 
     def reachable(self) -> bool:
         """Whether the Connection can still reach the engine."""

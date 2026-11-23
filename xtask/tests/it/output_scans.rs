@@ -37,3 +37,20 @@ fn upload_not_guarded_by_its_scan_fails(#[case] workflow: &str, #[case] kind: &s
     assert_eq!(outcome.findings(), vec![finding(kind, "extra.yml#upload")]);
     assert_eq!(outcome.code, 1);
 }
+
+#[test]
+fn a_job_that_starts_after_its_run_is_cancelled_fails() {
+    let workspace = Workspace::from_fixture("output-scans");
+    workspace.add_fixture_file(
+        "output-scans-cases/job-runs-when-cancelled.yml",
+        ".github/workflows/extra.yml",
+    );
+
+    let outcome = workspace.xtask(&["output-scans"]);
+
+    assert_eq!(
+        outcome.findings(),
+        vec![finding("job-runs-when-cancelled", "extra.yml#record")]
+    );
+    assert_eq!(outcome.code, 1);
+}

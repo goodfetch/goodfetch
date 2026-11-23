@@ -551,11 +551,13 @@ jobs:
   # Records the Pre-merge suite's result for each member, green only when
   # every shard ran its partition green and together they ran the listing's
   # tests, each once (`xtask gate shards`). It runs none of the product's
-  # tests, so it runs no deny.
+  # tests, so it runs no deny. It runs after a failed shard, to record it
+  # red, but not after a cancel, which would leave it nothing to record and
+  # hold the concurrency group while its container starts (#3526).
   pre-merge-record:
     name: pre-merge record
     needs: [plan, pre-merge-build, pre-merge-shard]
-    if: always() && needs.plan.result == 'success' && needs.plan.outputs.pre-merge-record != '[]'
+    if: "!cancelled() && needs.plan.result == 'success' && needs.plan.outputs.pre-merge-record != '[]'"
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     permissions:
@@ -636,9 +638,11 @@ jobs:
       - name: Pass until the gate's first build lands
         run: echo "No Goodfetch Chromium build exists yet (#445); the gate passes and builds nothing."
 
+  # It judges a run that failed, but not a cancelled one: a newer run
+  # superseded it, or `just merge` runs what it left (#3526).
   all-green:
     name: all green
-    if: always() && needs.plan.result != 'skipped'
+    if: "!cancelled() && needs.plan.result != 'skipped'"
     needs: [plan, lint, visual, quick, pre-merge-build, pre-merge-shard, pre-merge-record]
     runs-on: ubuntu-24.04
     timeout-minutes: 20

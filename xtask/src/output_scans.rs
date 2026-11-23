@@ -14,6 +14,11 @@
 //! A job that uploads nothing has nothing to scan. Its log, which GitHub
 //! receives while each step runs, cannot be scanned before it uploads; the
 //! Secret canary searches of the tests that write it stand there (ADR 0067).
+//!
+//! It also refuses a job whose own `if:` holds `always()`: such a job still
+//! starts after its run is cancelled, and holds the workflow's concurrency
+//! group while it does (#3526). A job that must run after a failure uses
+//! `!cancelled()`.
 
 use std::path::Path;
 
@@ -32,6 +37,17 @@ pub(crate) fn check(root: &Path) -> Result<Vec<Finding>> {
     for workflow in workflow::read_all(root)? {
         for job in &workflow.jobs {
             let subject = format!("{}#{}", workflow.file, job.id);
+            if job
+                .condition
+                .as_deref()
+                .is_some_and(|condition| condition.contains("always()"))
+            {
+                findings.push(Finding::new(
+                    "job-runs-when-cancelled",
+                    &subject,
+                    "the job's `if:` holds `always()`, so it starts after its run is cancelled and holds the concurrency group: use `!cancelled()`",
+                ));
+            }
             for (index, step) in job.steps.iter().enumerate() {
                 if !is_upload(step) {
                     continue;

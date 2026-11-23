@@ -101,11 +101,13 @@ jobs:
           path: target/junit/
           if-no-files-found: ignore
 
+  # It reports after the quarantined tests failed, but not after a cancel,
+  # which would hold the concurrency group (#3526).
   report:
     name: report
     needs: quarantined
     if: >-
-      always()
+      !cancelled()
       && ((github.event_name == 'schedule' && github.event.schedule == '17 3 * * *')
       || (github.event_name == 'workflow_dispatch' && inputs.run == 'daily'))
     runs-on: ubuntu-24.04

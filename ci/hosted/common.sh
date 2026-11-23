@@ -13,7 +13,7 @@ CONTAINER=goodfetch-job
 hosted_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
 CI_IMAGE="goodfetch-ci:$(sha256sum "$hosted_root/ci/image/Containerfile" | cut -c1-16)"
 
-# The image's compressed archive, which the Release suite saves into the
+# The image's compressed archive, which a `ci image` job saves into the
 # Actions cache on `main` and pull-request jobs restore before their
 # container starts (ci/hosted/image.sh, #3480). The workflows' cache steps
 # name its folder, ~/.cache/goodfetch/ci-image.

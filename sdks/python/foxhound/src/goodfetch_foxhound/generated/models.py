@@ -717,6 +717,28 @@ class ForcedBy(StrEnum):
     """The setting of the request's Label."""
 
 
+class GuaranteeClass(StrEnum):
+    """
+    What a Sink's probe proves of its destination (ADR 0026), from the
+    strongest.
+    """
+
+    fenced = "fenced"
+    """A stale run epoch is refused in the same transaction as the write."""
+    record_fenced = "record_fenced"
+    """A stale run epoch cannot overwrite a Record, but can add one."""
+    keyed = "keyed"
+    """
+    A retry lands on the same key, sometimes only within a
+    deduplication window.
+    """
+    at_least_once = "at_least_once"
+    """
+    A Record may arrive more than once; the receiver deduplicates on its
+    delivery ID.
+    """
+
+
 class HandlerSkip(BaseModel):
     """A handler's skip of its request: `ctx.skip(message)` (ADR 0093)."""
 
@@ -2388,7 +2410,7 @@ class SinkReport(BaseModel):
     )
     dead_letters: Annotated[int, Field(ge=0)]
     """How many deliveries are dead letters."""
-    guarantee_class: str
+    guarantee_class: GuaranteeClass
     """Its Guarantee class."""
     name: str
     """Its name."""

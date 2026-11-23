@@ -12,6 +12,7 @@ from goodfetch_collie_client.generated.open_values import (
     CancelledBy,
     Claim,
     ClosedValue,
+    ReportedHookStage,
     Verdict,
 )
 from goodfetch_collie_client.point_in_time import PointInTime
@@ -1040,6 +1041,42 @@ class GovernorLevel(StrEnum):
     """A reading passed `governor.pressure`: concurrency drops."""
     critical = "critical"
     """Memory passed `governor.critical`, or the host's is critical."""
+
+
+class HookFailedDetails(BaseModel):
+    """
+    What `hook_failed` details: the Hook, and the exception as
+    `handler_failed`'s details name a handler's (ADR 0079's notes of
+    2026-10-24 and 2026-10-27).
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        arbitrary_types_allowed=True,
+    )
+    exception_message: str
+    """The exception's message."""
+    exception_stack: str
+    """The frames of the program's code, as one text; empty from Rust."""
+    exception_type: str
+    """
+    The exception's type name: `BoxError` or `panic` from Rust (ADR
+    0109).
+    """
+    hook: str
+    """The Hook that raised."""
+    label: str | None = None
+    """
+    The request's Label, or none at a lifecycle stage, which has no
+    request, and outside a crawl.
+    """
+    stage: ReportedHookStage
+    """The stage the Hook ran at."""
+    wrapped_code: str | None = None
+    """
+    The Goodfetch code raised inside the Hook, such as
+    `header_forbidden`, or none for the program's own exception.
+    """
 
 
 class HtmlKind(StrEnum):
@@ -4574,6 +4611,15 @@ class HelloParams(BaseModel):
     """
     The form its user writes names in (ADR 0099), which every SDK
     declares; without one, the engine takes its surface's.
+    """
+    handlers: dict[str, list[str]] | None = None
+    """
+    The program's SDK handlers, their names by Plugin kind, as
+    `connect()` registers them (ADR 0104). The only handler of a kind
+    that one setting chooses becomes that setting's value at the
+    connection scope, with the origin `registered`, beneath every
+    other run-layer value. A kind the engine's Product lacks refuses
+    the `hello`.
     """
     keep_daemon_alive: bool | None = None
     """

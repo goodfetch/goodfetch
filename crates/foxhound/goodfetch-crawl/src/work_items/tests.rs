@@ -288,7 +288,7 @@ impl Subject {
                         message: "a 503".to_owned(),
                         details: serde_json::Map::new(),
                     }),
-                    &ended_at,
+                    ended_at,
                     &mut Changed::default(),
                 )
             } else {
@@ -301,7 +301,7 @@ impl Subject {
                         fetched: &super::Fetched::default(),
                         fields: &super::FieldsRead::default(),
                         masks: &goodfetch_engine::mask::Masks::new(),
-                        ended_at: &ended_at,
+                        ended_at,
                         not_added: &[],
                         work: &goodfetch_counted_work::CountedWork::default(),
                         keeps_records: true,
@@ -323,7 +323,7 @@ impl Subject {
         let connection = after_crash(&self.vfs, &self.path).unwrap();
         let lost = Failure::new("handler_lost", "the handler was lost");
         let at = point_in_time::from_rfc3339("2026-01-05T09:00:00Z").unwrap();
-        super::recover_leases(&connection, &lost, u32::MAX, &at, &mut Changed::default()).unwrap();
+        super::recover_leases(&connection, &lost, u32::MAX, at, &mut Changed::default()).unwrap();
         let now = tokio::time::Instant::now();
         let mut queues = DomainQueues::new(DomainKeys::default(), BOUND, Entropy::seeded(1));
         for waiting in super::waiting(&connection, None, BOUND).unwrap() {

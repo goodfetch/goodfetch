@@ -104,8 +104,8 @@ pub use crate::run_state::UnsupportedFolder;
 
 use self::ended::{EndedHere, EndedRuns};
 use self::folder::{
-    Compared, FixedSettings, Found, RunRow, canonical_inputs, input_differences, masked_tags,
-    read_found, read_report, text, write_end,
+    ChangeableSettings, ChangedSetting, Compared, FixedSettings, Found, RunRow, canonical_inputs,
+    input_differences, masked_tags, read_found, read_report, text, write_end,
 };
 use self::lifecycle::{InvalidRunTransition, Next, RunEvent};
 use self::progress::{Progress, Progressing};
@@ -4765,6 +4765,43 @@ async fn joined_weakened(
     Ok(weakened)
 }
 
+/// What a resume's `settings` change of the Run whose run file `recorded`
+/// was read and whose state is `state`: what its report lists as
+/// weakened, as [`joined_weakened`] says, and the settings that differ
+/// from those it ran with, recorded in `state` as those it runs with from
+/// the resume on when any differs (ADR 0102).
+async fn applied(
+    recorded: &folder::Recorded,
+    settings: Option<&RunSettings>,
+    state: &RunState,
+) -> Result<(Vec<WeakenedSetting>, Vec<ChangedSetting>), RunStateError> {
+    let weakened = joined_weakened(&recorded.weakened, settings, state).await?;
+    let resumed = ChangeableSettings::of(settings);
+    let changed = resumed.changed(&recorded.setting_digests, state.epoch());
+    if !changed.is_empty() {
+        let kept = resumed.kept();
+        state
+            .write(move |connection| folder::record_setting_digests(connection, &kept))
+            .await?;
+    }
+    Ok((weakened, changed))
+}
+
+/// Records each of `changed`, the settings a resume changed, in `run`'s
+/// Run trace (ADR 0102). A line that cannot be written is logged and the
+/// resume goes on: the run file already runs the Run under the changes.
+async fn trace_changes(run: &Run, changed: &[ChangedSetting]) {
+    for change in changed {
+        if let Err(error) = run.shared.trace.setting_changed(change).await {
+            tracing::warn!(
+                %error,
+                key = change.key,
+                "a changed setting cannot be written to the Run trace"
+            );
+        }
+    }
+}
+
 impl Registry {
     async fn run(
         mut self,
@@ -5876,6 +5913,7 @@ impl Registry {
             }),
             clean_up_digest: start.clean_up_digest.clone(),
             fixed_settings: FixedSettings::of(start.settings.as_ref(), &self.setup.masks).kept(),
+            setting_digests: ChangeableSettings::of(start.settings.as_ref()).kept(),
         }
     }
 
@@ -6727,11 +6765,11 @@ impl Registry {
             .progress_message
             .as_deref()
             .and_then(ProgressMessage::parse);
-        let listed = recorded.weakened;
-        let weakened = joined_weakened(&listed, settings.as_ref(), &state)
+        let (weakened, changed) = applied(&recorded, settings.as_ref(), &state)
             .await
             .map_err(|error| RunError::of_state(&run_id, &folder, error))?;
         let run = self.new_run(&run_id, recorded.kind, state, connection, settings, keys);
+        trace_changes(&run, &changed).await;
         self.read_limits(&run).await;
         if held.lifecycle == Lifecycle::Running {
             warn_over_charged(&run).await;
@@ -6788,7 +6826,7 @@ impl Registry {
             run: Box::new(run),
             kind,
             needs,
-            listed,
+            listed: recorded.weakened,
         })
     }
 

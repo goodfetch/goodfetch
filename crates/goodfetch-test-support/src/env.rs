@@ -417,8 +417,8 @@ impl TestEnv {
     }
 
     /// Starts `command` with the standard streams it sets, and records it,
-    /// for a process whose output goes to a file, such as LazyFS's.
-    #[cfg(target_os = "linux")]
+    /// for a process whose output goes to a file, such as LazyFS's and
+    /// Toxiproxy's.
     pub(crate) fn spawn_with_streams(
         &self,
         command: &mut std::process::Command,

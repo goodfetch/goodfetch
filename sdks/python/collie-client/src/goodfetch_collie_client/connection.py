@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Literal, cast
+from typing import TYPE_CHECKING, Literal, TypeVar, cast
 
 import anyio
 
@@ -95,7 +95,7 @@ if TYPE_CHECKING:
     from goodfetch_collie_client._attached_engine import AttachedEngine
     from goodfetch_collie_client._project_file import ConnectTimeout, ProjectFile
     from goodfetch_collie_client._relink import Reconnect
-    from goodfetch_collie_client._rpc import TransportEnd
+    from goodfetch_collie_client._rpc import ServedRequest, TransportEnd
     from goodfetch_collie_client.generated.models import (
         ProjectSettings,
         Recording,
@@ -108,6 +108,8 @@ if TYPE_CHECKING:
     from goodfetch_collie_client.handlerless import CatalogTarget
 
 __all__ = ["ClientConnection", "EngineFallback", "EngineInfo", "closed_error"]
+
+_StartedRun = TypeVar("_StartedRun", bound=AsyncRun)
 
 CONNECT_TIMEOUT = 30_000
 """How long opening waits for `hello`'s answer, in milliseconds (ADR 0083).
@@ -264,6 +266,8 @@ class ClientConnection:
         self._channel = Channel(transport, self, error_classes, bounds)
         self._operations = AsyncCollieOperations(self)
         self._runs: dict[AsyncRun, None] = {}
+        self._served: dict[str, Callable[[ServedRequest], None]] = {}
+        """What serves the engine's requests of each method, by `serve`."""
         self._published = SharedSubscription(self, listener_queue)
         self._info: EngineInfo | None = None
         self._ended = False
@@ -683,6 +687,40 @@ class ClientConnection:
         self._runs[run] = None
         return run
 
+    @property
+    def project(self) -> ProjectSettings | None:
+        """The project file the Connection read at its opening, if any.
+
+        A Product's own start operation, such as Foxhound's `crawl.start`,
+        carries it as `run.start` does (ADR 0083).
+        """
+        return self._project
+
+    async def start_run(
+        self,
+        operation: str,
+        start: Callable[[], Awaitable[RunStarted]],
+        make: Callable[[RunStarted], _StartedRun],
+    ) -> _StartedRun:
+        """Opens a Run a Product's own start operation answers (ADR 0102).
+
+        Such as Foxhound's `crawl.start`: `start` sends it, as `start()`
+        sends `run.start`, and `make` builds the Run of its answer, which
+        the Connection then closes with itself.
+
+        Raises:
+            ClosedError: The Connection is closed; nothing is sent.
+        """
+        self._ensure_owner(operation)
+        self.ensure_open(operation)
+        await self._follow_log_level()
+        self.ensure_open(operation)
+        started = await start()
+        _log_start(started)
+        run = make(started)
+        self._runs[run] = None
+        return run
+
     async def open_run(self, run_id: str) -> AsyncRunView:
         """Opens a view of the Run `run_id` names, with no round trip (ADR 0102).
 
@@ -722,6 +760,33 @@ class ClientConnection:
         """Logs each of the engine's `$/log` events; drops any other notification."""
         if method == LOG:
             log_engine_event(params)
+
+    def serve(self, method: str, served: Callable[[ServedRequest], None]) -> None:
+        """Serves the engine's requests of `method` with `served`.
+
+        Such as Foxhound's `crawl_request.handle` (ADR 0093). `served` runs
+        on the reading task, so it must not block: it starts the request's
+        `serve` where its work runs, such as a Run's task group. A method
+        none serves is answered as JSON-RPC's unknown method.
+        """
+        self._served[method] = served
+
+    async def keep_reading(self) -> None:
+        """Reads the engine's messages until its side ends.
+
+        A call reads only until its own answer comes, so what serves the
+        engine's requests between two calls, such as a crawl's Run, holds
+        this read while it runs, and cancels it to stop.
+        """
+        await self._channel.wait_ended()
+
+    def serves(self, request: ServedRequest) -> bool:
+        """Hands the engine's `request` to what serves its method, if one does."""
+        served = self._served.get(request.method)
+        if served is None:
+            return False
+        served(request)
+        return True
 
     def reachable(self) -> bool:
         """Whether the Connection can still reach the engine."""

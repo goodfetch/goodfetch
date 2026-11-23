@@ -1,6 +1,6 @@
 //! An Operator policy over a crawl's settings (spec #581's story 314; ADRs
 //! 0028 and 0086): each registered key of `crawl.*`, `fetch.*`,
-//! `politeness.*` and `site_preferences.*` can be locked, and each of them
+//! `politeness.*` and `site_preferences.*`, and `sinks`, can be locked, and each of them
 //! that is a count or a duration capped, and no layer above the policy,
 //! whether a program's code, the project file, a CLI flag or a Recipe,
 //! gets past the lock or the cap. The cases are generated from the keys
@@ -18,16 +18,18 @@ use super::{catalog_key, policy, recipe, refusal, resolve, resolved, values};
 use crate::settings::keys::{self, Key};
 use crate::settings::{Layers, SettingsError};
 
-/// The prefixes whose keys an Operator policy caps or locks for a crawl.
-const PREFIXES: [&str; 4] = ["crawl.", "fetch.", "politeness.", "site_preferences."];
+/// The areas whose keys an Operator policy caps or locks for a crawl.
+const AREAS: [&str; 5] = ["crawl", "fetch", "politeness", "site_preferences", "sinks"];
 
-/// Every registered key of [`PREFIXES`].
+/// Every registered key of [`AREAS`].
 fn crawl_keys() -> Vec<Key> {
     keys::all()
         .filter(|key| {
-            PREFIXES
-                .iter()
-                .any(|prefix| key.setting.name.starts_with(prefix))
+            key.setting
+                .name
+                .split('.')
+                .next()
+                .is_some_and(|area| AREAS.contains(&area))
         })
         .collect()
 }
@@ -159,7 +161,7 @@ fn refused(layers: &Layers, name: &str) -> Result<SettingsError, String> {
 /// locks it sets it, says it locked it, and refuses a different value from
 /// every layer above it with `setting_locked` naming the lock.
 ///
-/// Covers: story:6-314, error:setting_locked
+/// Covers: story:6-314, error:setting_locked, setting:sinks
 #[test]
 fn an_operator_policy_locks_every_crawl_key_against_every_higher_layer() {
     let keys = crawl_keys();
@@ -197,6 +199,10 @@ fn an_operator_policy_locks_every_crawl_key_against_every_higher_layer() {
         keys.iter()
             .any(|key| key.setting.name == "site_preferences.respect_robots_txt"),
         "the generated cases miss robots.txt"
+    );
+    assert!(
+        keys.iter().any(|key| key.setting.name == "sinks"),
+        "the generated cases miss the Sinks"
     );
     assert_eq!(failures, Vec::<String>::new());
 }

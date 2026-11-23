@@ -122,6 +122,7 @@ const SCHEMA: &[&str] = &[
         binding TEXT,
         clean_up_digest TEXT,
         fixed_settings TEXT NOT NULL DEFAULT '{}',
+        setting_digests TEXT NOT NULL DEFAULT '{}',
         uncapped INTEGER NOT NULL DEFAULT 0,
         progress_message TEXT,
         nothing_done TEXT,

@@ -4,7 +4,12 @@
 //! a host `network.resolve` maps to loopback alone is reached live and any
 //! other is refused, and browsers come from the caller's Browser cache,
 //! which the engine reads and never writes: the kit turns
-//! `browser_cache.read_only` on (issue 3458).
+//! `browser_cache.read_only` on (issue 3458). With a Daemon running in the
+//! caller's home, the code under test runs unchanged on the Daemon's
+//! connection and on the test engine's, which links its own engine. These
+//! tests are the kit's sample under `cargo test`'s own harness, with no
+//! plugin (issue 3399). TypeScript's `test-engine.test.ts` and Python's
+//! `test_test_engine.py` are its twins.
 
 use std::collections::BTreeMap;
 use std::ffi::OsString;
@@ -12,13 +17,14 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 
-use goodfetch_collie::ErrorCode;
 use goodfetch_collie::settings::{Settings, network};
 use goodfetch_collie::testing::{TestEngine, TestEngineOptions};
+use goodfetch_collie::{Collie, ConnectOptions, EngineChoice, EngineKind, ErrorCode};
+use goodfetch_conformance::{ClientCaseRun, RustMode};
 use goodfetch_protocol::run::Lifecycle;
 use goodfetch_test_support::{
-    ProvingGround, TestEnv, browser_cache, chrome_for_testing_files, empty_browser_cache,
-    real_time_runtime,
+    Daemon, Product, ProvingGround, TestEnv, browser_cache, case_logs, chrome_for_testing_files,
+    empty_browser_cache, real_time_runtime,
 };
 
 /// The Proving ground's own seed for these tests.
@@ -71,29 +77,39 @@ fn tree(cache: &Path) -> BTreeMap<PathBuf, (bool, u64, SystemTime)> {
     entries
 }
 
+/// The code under test: it starts a Run on `collie` and answers how it
+/// ended.
+async fn finished(collie: &Collie) -> Lifecycle {
+    let run = collie.start().await.unwrap();
+    run.finish().await.unwrap().lifecycle
+}
+
+/// The Testing-kit case, linked: the code under test takes the Product's
+/// own connection, `&Collie`, and the engine's home is its own.
+/// Covers: story:11-156, story:11-157, story:11-168, story:11-171
 #[test]
 fn a_test_runs_its_code_on_the_test_engine_s_connection_and_close_removes_its_home() {
+    let _case = ClientCaseRun::start(
+        case_logs().as_deref(),
+        "test-engine-runs-the-code-under-test",
+        RustMode::Linked,
+    )
+    .unwrap();
     let env = TestEnv::new();
-    let (report, home, existed) = real_time_runtime().block_on(async {
+    let (lifecycle, home, existed) = real_time_runtime().block_on(async {
         let engine = TestEngine::start(TestEngineOptions::new().env(env.env_os()))
             .await
             .unwrap();
-        let home = engine.connection().engine().home.clone().unwrap();
+        let connection: &Collie = engine.connection();
+        let home = connection.engine().home.clone().unwrap();
         let existed = home.is_dir();
 
-        let report = engine
-            .connection()
-            .start()
-            .await
-            .unwrap()
-            .finish()
-            .await
-            .unwrap();
+        let lifecycle = finished(connection).await;
         engine.close().await.unwrap();
-        (report, home, existed)
+        (lifecycle, home, existed)
     });
 
-    assert_eq!(report.lifecycle, Lifecycle::Finished);
+    assert_eq!(lifecycle, Lifecycle::Finished);
     assert_ne!(home, env.home());
     assert_eq!(
         (existed, home.exists()),
@@ -103,9 +119,58 @@ fn a_test_runs_its_code_on_the_test_engine_s_connection_and_close_removes_its_ho
     );
 }
 
+/// The Testing-kit case beside a Daemon: the Daemon of the caller's home
+/// answers `connect()`, and the test engine links its own engine in its
+/// own home, never reaching that Daemon.
+/// Covers: story:11-157, story:11-168
+#[test]
+fn the_code_under_test_runs_unchanged_on_a_daemon_and_on_the_test_engine() {
+    let _case = ClientCaseRun::start(
+        case_logs().as_deref(),
+        "test-engine-runs-the-code-under-test",
+        RustMode::Daemon,
+    )
+    .unwrap();
+    let env = TestEnv::new();
+    let daemon = Daemon::start(&env, Product::Collie).unwrap();
+
+    let (on_the_daemon, on_the_test_engine, daemon_kind, reached) =
+        real_time_runtime().block_on(async {
+            let collie = Collie::connect(
+                ConnectOptions::default()
+                    .environment(env.env_os())
+                    .engine(EngineChoice::Daemon),
+            )
+            .await
+            .unwrap();
+            let on_the_daemon = finished(&collie).await;
+            let daemon_kind = collie.engine().kind;
+            collie.close().await.unwrap();
+            let engine = TestEngine::start(TestEngineOptions::new().env(env.env_os()))
+                .await
+                .unwrap();
+            let on_the_test_engine = finished(engine.connection()).await;
+            let reached = engine.connection().engine().clone();
+            engine.close().await.unwrap();
+            (on_the_daemon, on_the_test_engine, daemon_kind, reached)
+        });
+    daemon.stop(&env).unwrap();
+
+    assert_eq!(
+        (on_the_daemon, on_the_test_engine),
+        (Lifecycle::Finished, Lifecycle::Finished)
+    );
+    assert_eq!(
+        (daemon_kind, reached.kind),
+        (EngineKind::Daemon, EngineKind::Linked)
+    );
+    assert_ne!(reached.home.as_deref(), Some(env.home()));
+}
+
 /// The caller's Browser cache stays writable here: the kit's
 /// `browser_cache.read_only` alone keeps the engine from recording the
 /// build's use in it (ADR 0098).
+/// Covers: story:11-168, story:11-169
 #[test]
 fn a_loopback_resolve_entry_is_reached_live_any_other_host_is_refused_and_the_cache_is_unchanged() {
     let env = TestEnv::new();
@@ -146,6 +211,9 @@ fn a_loopback_resolve_entry_is_reached_live_any_other_host_is_refused_and_the_ca
     assert_eq!(tree(&cache), before);
 }
 
+/// `artifact_unavailable_offline`, its fix naming `browser install`, and
+/// the caller's empty Browser cache left empty.
+/// Covers: story:11-169
 #[test]
 fn with_no_browser_installed_the_first_page_fails_offline_naming_browser_install() {
     let (env, cache) = empty_browser_cache(TestEnv::new()).unwrap();

@@ -43,6 +43,24 @@ A value this package does not know, which a newer engine may send, is kept as re
 - `connection`: Its Connection.
 """
 
+ReportedHookStage: TypeAlias = Literal["before_request", "after_response", "before_navigation", "after_navigation", "page_ready", "before_record_commit", "request_ended"] | str
+"""The stage a Hook that raised ran at, as `hook_failed` reports it, by
+the catalog's name (ADR 0104): a crawl's Hooks in code run at the stages
+whose answer changes the work, and Plugins and Script Hooks also at the
+observe-only `request_ended`. A Run's lifecycle stage reads as a stage
+this reader does not know, its name kept.
+
+A value this package does not know, which a newer engine may send, is kept as received (ADR 0079).
+
+- `before_request`: Before each fetch of a request, its retries included.
+- `after_response`: After the request's final response, redirects followed.
+- `before_navigation`: Before a navigation to the request's URL, on the tiers that navigate.
+- `after_navigation`: After that navigation.
+- `page_ready`: Just before the handler, with its page, on every tier.
+- `before_record_commit`: Before each Record the attempt staged commits.
+- `request_ended`: Once a crawl request ended, with its outcome; observe-only.
+"""
+
 Verdict: TypeAlias = Literal["verified", "rejected", "needs_review"] | str
 """Whether a Run's own checks prove what it committed (ADR 0029).
 

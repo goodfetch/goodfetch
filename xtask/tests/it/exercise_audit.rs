@@ -147,6 +147,71 @@ fn audit_judges_the_error_code_and_event_of_a_unit_test_that_reaches_rpc() {
     );
 }
 
+/// The command record an Attached engine leaves once it exited by itself,
+/// as `Attached::finish` writes it.
+const ENGINE_EXITED: &str = "{\"fields\":{\"command\":\"attached-engine\",\"exit_code\":0},\"target\":\"goodfetch::test::command\"}\n";
+
+/// A test that writes its home's `configuration.toml` itself, without
+/// `log.output = "file"`, turns off the engine's JSON log: its record holds
+/// the engine's command record and no dispatch record (#1635). The audit
+/// names the cause, where it would pass the test's `error:` or `event:`
+/// Feature as one the test asserts itself, or report its `operation:` as
+/// unreached.
+#[rstest]
+#[case::operation(
+    "records/sample-it-calls_echo_then_crawl.jsonl",
+    "sample::it calls_echo_then_crawl"
+)]
+#[case::error_code(
+    "records/sample-it-gets_the_refusal.jsonl",
+    "sample::it gets_the_refusal"
+)]
+#[case::event(
+    "records/sample-it-receives_the_echoed_event.jsonl",
+    "sample::it receives_the_echoed_event"
+)]
+fn audit_reports_a_test_whose_engine_ran_with_its_json_log_off(
+    #[case] record: &str,
+    #[case] test: &str,
+) {
+    let workspace = Workspace::from_fixture("exercise-audit");
+    workspace.write(
+        record,
+        format!("{{\"test\":\"{test}\"}}\n{ENGINE_EXITED}").as_bytes(),
+    );
+
+    let outcome = audit(&workspace, &[]);
+
+    assert_eq!(outcome.code, 1, "{}{}", outcome.stdout, outcome.stderr);
+    assert_eq!(outcome.findings(), vec![finding("dispatch-missing", test)]);
+}
+
+/// An engine that refused to start, its exit code not 0, served no
+/// Connection: the test that asserts the Error code it printed still never
+/// reached `rpc` (ADR 0072). A test that declares no Feature a dispatch
+/// record shows loses nothing the audit reads.
+#[rstest]
+#[case::engine_refused_its_start(
+    "records/sample-it-refuses_a_text_the_stand_in_rejects.jsonl",
+    "{\"fields\":{\"command\":\"attached-engine\",\"exit_code\":1},\"target\":\"goodfetch::test::command\"}\n"
+)]
+#[case::no_feature_a_dispatch_record_shows(
+    "records/sample-it-installs_with_its_exit_code.jsonl",
+    ENGINE_EXITED
+)]
+fn audit_passes_an_engine_without_dispatch_records_that_no_declaration_needs(
+    #[case] record: &str,
+    #[case] engine: &str,
+) {
+    let workspace = Workspace::from_fixture("exercise-audit");
+    workspace.append(record, engine);
+
+    let outcome = audit(&workspace, &[]);
+
+    assert_eq!(outcome.code, 0, "{}{}", outcome.stdout, outcome.stderr);
+    assert_eq!(outcome.findings(), vec![]);
+}
+
 #[test]
 fn audit_counts_an_error_code_the_run_recorded_as_reached() {
     let workspace = Workspace::from_fixture("exercise-audit");

@@ -592,6 +592,12 @@ pub struct PluginKind {
     pub description: &'static str,
     /// The requests the engine sends to an implementation.
     pub methods: &'static [PluginMethod],
+    /// The one setting that chooses its implementation by name, when one
+    /// alone does, as `proxy.provider` chooses a Proxy provider: a
+    /// Connection's only SDK handler of the kind becomes that setting's
+    /// value there, with the origin `registered` (ADR 0104). None for a
+    /// kind another setting or a reference names, such as a Model provider.
+    pub chosen_by: Option<&'static Setting>,
     /// Its semver status.
     pub stability: Stability,
     /// The version that added it.

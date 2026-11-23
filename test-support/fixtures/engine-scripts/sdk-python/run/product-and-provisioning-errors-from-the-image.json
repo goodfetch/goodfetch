@@ -122,10 +122,13 @@
                 "name": "chrome-for-testing",
                 "build": "141.0.7390.54-linux64"
               },
-              "pinned_by": {
-                "product": "collie",
-                "product_version": "0.0.0"
-              },
+              "pinned_by": [
+                {
+                  "kind": "product",
+                  "name": "collie",
+                  "version": "0.0.0"
+                }
+              ],
               "cache": "/srv/goodfetch/browsers"
             },
             "fix": "Run `goodfetch-collie browser install` where the Browser cache is writable, such as in the image's build, or point GOODFETCH_BROWSERS_PATH at a cache that holds it"
@@ -154,10 +157,13 @@
               "name": "chrome-for-testing",
               "build": "141.0.7390.54-linux64"
             },
-            "pinned_by": {
-              "product": "collie",
-              "product_version": "0.0.0"
-            },
+            "pinned_by": [
+              {
+                "kind": "product",
+                "name": "collie",
+                "version": "0.0.0"
+              }
+            ],
             "cache": "/srv/goodfetch/browsers",
             "limit": {
               "key": "egress.offline",
@@ -190,10 +196,13 @@
               "name": "chrome-for-testing",
               "build": "141.0.7390.54-linux64"
             },
-            "pinned_by": {
-              "product": "collie",
-              "product_version": "0.0.0"
-            },
+            "pinned_by": [
+              {
+                "kind": "product",
+                "name": "collie",
+                "version": "0.0.0"
+              }
+            ],
             "host": "storage.googleapis.com",
             "failure": "http_status",
             "status": 404,
@@ -223,10 +232,13 @@
               "name": "chrome-for-testing",
               "build": "141.0.7390.54-linux64"
             },
-            "pinned_by": {
-              "product": "collie",
-              "product_version": "0.0.0"
-            },
+            "pinned_by": [
+              {
+                "kind": "product",
+                "name": "collie",
+                "version": "0.0.0"
+              }
+            ],
             "host": "storage.googleapis.com",
             "failure": "network",
             "fix": "Retry, or run `goodfetch-collie browser install` beforehand, or point GOODFETCH_BROWSERS_PATH at a prepared Browser cache"
@@ -255,10 +267,13 @@
               "name": "chrome-for-testing",
               "build": "141.0.7390.54-linux64"
             },
-            "pinned_by": {
-              "product": "collie",
-              "product_version": "0.0.0"
-            },
+            "pinned_by": [
+              {
+                "kind": "product",
+                "name": "collie",
+                "version": "0.0.0"
+              }
+            ],
             "host": "storage.googleapis.com",
             "failure": "digest_mismatch",
             "fix": "Retry, or run `goodfetch-collie browser install` beforehand, or point GOODFETCH_BROWSERS_PATH at a prepared Browser cache"

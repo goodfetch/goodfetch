@@ -36,8 +36,6 @@ use std::collections::BTreeMap;
 
 use goodfetch_engine::run_state::RunStateOptions;
 use goodfetch_engine::runs::lifecycle::{self, Next, RunEvent};
-use goodfetch_engine::tasks::{BlockingPolicy, TaskOwner};
-use goodfetch_engine::transport::{self, Network};
 use goodfetch_protocol::run::Lifecycle;
 use goodfetch_protocol::run::durability::MEMORY_BUDGET;
 use goodfetch_test_support::{CrashKind, CrashVfs, TestEnv, after_crash};
@@ -45,12 +43,9 @@ use proptest::prelude::*;
 use proptest_state_machine::{ReferenceStateMachine, StateMachineTest, prop_state_machine};
 use rusqlite::Connection;
 use serde_json::{Value, json};
-use tokio::io::{AsyncBufReadExt as _, AsyncWriteExt as _, BufReader, Lines};
-use tokio::runtime::Runtime;
 
-use super::{
-    PANICS, POLICY, as_sent, configure, default_dependencies, dependencies, engine, work_items,
-};
+use super::blocking_client::BlockingClient;
+use super::{PANICS, POLICY, as_sent, configure, default_dependencies, dependencies, work_items};
 use crate::policy::CrawlPolicy;
 
 /// The model's crawls take one work item at a time.
@@ -287,12 +282,9 @@ impl ReferenceStateMachine for Model {
 
 /// The crawl under test: an engine on the crash VFS, and its Client.
 struct Subject {
-    runtime: Runtime,
+    client: BlockingClient,
     env: TestEnv,
     vfs: CrashVfs,
-    owner: TaskOwner,
-    lines: Lines<BufReader<goodfetch_engine::transport::ConnectionReader>>,
-    writer: goodfetch_engine::transport::ConnectionWriter,
     delivered: usize,
     finished: bool,
     /// Whether the Client aborted the Run.
@@ -303,21 +295,6 @@ struct Subject {
 }
 
 impl Subject {
-    fn send(&mut self, message: &Value) {
-        let mut line = serde_json::to_vec(message).unwrap();
-        line.push(b'\n');
-        self.runtime.block_on(self.writer.write_all(&line)).unwrap();
-    }
-
-    fn next(&mut self) -> Value {
-        let line = self
-            .runtime
-            .block_on(self.lines.next_line())
-            .unwrap()
-            .expect("the engine closed early");
-        serde_json::from_str(&line).unwrap()
-    }
-
     fn path(&self) -> String {
         self.env
             .home()
@@ -329,20 +306,11 @@ impl Subject {
             .into_owned()
     }
 
-    /// Says `hello` to the engine.
-    fn hello(&mut self) {
-        self.send(&json!({
-            "jsonrpc": "2.0", "id": "hello", "method": "hello",
-            "params": { "protocol_version": "0.1", "surface": "rust", "needs": "foxhound", "product_version": "1.4.0" },
-        }));
-        assert_eq!(self.next()["result"]["product"], "foxhound");
-    }
-
     /// Calls `method` on the Run under the id `id` and answers its reply;
     /// a handler request on the way is left unanswered, as a request whose
     /// cancel the reply follows.
     fn call(&mut self, id: &str, method: &str) -> Value {
-        self.send(&json!({ "jsonrpc": "2.0", "id": id, "method": method, "params": { "run_id": "model" } }));
+        self.client.send(&json!({ "jsonrpc": "2.0", "id": id, "method": method, "params": { "run_id": "model" } }));
         loop {
             let message = next_from_engine(self);
             if message["id"] == id {
@@ -361,15 +329,9 @@ impl Subject {
             vfs: Some(self.vfs.name().to_owned()),
             ..RunStateOptions::default()
         };
-        self.owner = TaskOwner::root(BlockingPolicy::Inline);
-        let (env, owner) = (&self.env, &self.owner);
-        let (reader, writer) = self
-            .runtime
-            .block_on(async { attach(owner, default_dependencies(env, options)).await });
-        self.lines = BufReader::new(reader).lines();
-        self.writer = writer;
+        let env = &self.env;
+        self.client.reattach(|| default_dependencies(env, options));
         self.silent.clear();
-        self.hello();
     }
 
     /// Has the run file refuse the Records of the `attempt`th attempt of
@@ -399,7 +361,7 @@ impl Subject {
                 Err(rusqlite::Error::SqliteFailure(error, _))
                     if error.code == rusqlite::ErrorCode::DatabaseBusy =>
                 {
-                    self.runtime.block_on(async {
+                    self.client.runtime.block_on(async {
                         tokio::time::sleep(std::time::Duration::from_millis(100)).await;
                     });
                 }
@@ -429,18 +391,6 @@ impl Subject {
         )
         .unwrap();
         work_items(&connection)
-    }
-
-    /// Closes the Connection and waits for the engine to stop.
-    fn stop(&mut self) {
-        self.runtime.block_on(self.writer.shutdown()).unwrap();
-        while self
-            .runtime
-            .block_on(self.lines.next_line())
-            .unwrap()
-            .is_some()
-        {}
-        self.runtime.block_on(self.owner.wait());
     }
 }
 
@@ -527,9 +477,7 @@ impl StateMachineTest for Subject {
             .to_string_lossy()
             .replace(' ', "-");
         let vfs = CrashVfs::register(&format!("delivery-model-{folder}"), env.seed()).unwrap();
-        let runtime = goodfetch_test_support::runtime();
-        let owner = TaskOwner::root(BlockingPolicy::Inline);
-        let (reader, writer) = runtime.block_on(async {
+        let client = BlockingClient::attach(goodfetch_test_support::runtime(), || {
             let dependencies = dependencies(
                 &env,
                 RunStateOptions {
@@ -538,21 +486,17 @@ impl StateMachineTest for Subject {
                 },
             );
             configure(&env, ONE_AT_A_TIME);
-            attach(&owner, dependencies).await
+            dependencies
         });
         let mut subject = Self {
-            runtime,
+            client,
             env,
             vfs,
-            owner,
-            lines: BufReader::new(reader).lines(),
-            writer,
             delivered: 0,
             finished: false,
             aborted: false,
             silent: Vec::new(),
         };
-        subject.hello();
         let seeds: Vec<Value> = (1..=model.items.len())
             .map(|page| {
                 let url = if model.items[page - 1].panics {
@@ -576,10 +520,10 @@ impl StateMachineTest for Subject {
                 },
             }),
         );
-        subject.send(
+        subject.client.send(
             &json!({ "jsonrpc": "2.0", "id": "start", "method": "crawl.start", "params": params }),
         );
-        assert_eq!(subject.next()["result"]["started_as"], "new");
+        assert_eq!(subject.client.next()["result"]["started_as"], "new");
         subject
     }
 
@@ -590,7 +534,7 @@ impl StateMachineTest for Subject {
         match transition {
             Transition::Crash(kind) => {
                 subject.vfs.crash(kind);
-                subject.stop();
+                subject.client.stop();
                 let connection = after_crash(&subject.vfs, &subject.path()).unwrap();
                 check(&stored_records(&connection), model);
                 drop::<Connection>(connection);
@@ -607,7 +551,7 @@ impl StateMachineTest for Subject {
                     "{report}"
                 );
                 check(&subject.records(), model);
-                subject.stop();
+                subject.client.stop();
                 subject.finished = true;
             }
             Transition::Abort => {
@@ -654,13 +598,13 @@ impl StateMachineTest for Subject {
                 match behaviour {
                     Behaviour::Records(count) => {
                         let records = pushed((0..count).map(|number| record(index, attempt, number)));
-                        subject.send(&json!({ "jsonrpc": "2.0", "id": id, "result": { "records": records } }));
+                        subject.client.send(&json!({ "jsonrpc": "2.0", "id": id, "result": { "records": records } }));
                     }
-                    Behaviour::FailsRetryably => subject.send(&json!({
+                    Behaviour::FailsRetryably => subject.client.send(&json!({
                         "jsonrpc": "2.0", "id": id,
                         "error": { "code": -32003, "message": "retry", "data": { "code": "retry_requested", "retryable": true } },
                     })),
-                    Behaviour::FailsItself => subject.send(&json!({
+                    Behaviour::FailsItself => subject.client.send(&json!({
                         "jsonrpc": "2.0", "id": id,
                         "error": { "code": -32001, "message": "a bug", "data": { "code": "handler_failed", "retryable": true } },
                     })),
@@ -672,7 +616,7 @@ impl StateMachineTest for Subject {
                     Behaviour::Unwritten(count) => {
                         subject.refuse_records(index, attempt);
                         let records = pushed((0..count).map(|number| record(index, attempt, number)));
-                        subject.send(&json!({ "jsonrpc": "2.0", "id": id, "result": { "records": records } }));
+                        subject.client.send(&json!({ "jsonrpc": "2.0", "id": id, "result": { "records": records } }));
                     }
                 }
             }
@@ -730,28 +674,8 @@ impl StateMachineTest for Subject {
                 "{panicked:?}"
             );
         }
-        subject.stop();
+        subject.client.stop();
     }
-}
-
-/// Runs an Attached engine on `dependencies` as a task of `owner`, and
-/// connects to it.
-async fn attach(
-    owner: &TaskOwner,
-    dependencies: goodfetch_engine::Dependencies,
-) -> (
-    goodfetch_engine::transport::ConnectionReader,
-    goodfetch_engine::transport::ConnectionWriter,
-) {
-    let (network, dialer) = transport::in_memory();
-    let engine = engine();
-    owner.spawn(async move {
-        engine
-            .run_attached(Network::InMemory(network), dependencies)
-            .await
-            .unwrap();
-    });
-    dialer.connect().await.unwrap().split()
 }
 
 /// The next message, a `crawl_request.handle` request.
@@ -765,7 +689,7 @@ fn next_request(subject: &mut Subject) -> Value {
 /// request left unanswered, and which that request's late answer follows.
 fn next_from_engine(subject: &mut Subject) -> Value {
     loop {
-        let message = subject.next();
+        let message = subject.client.next();
         if message["method"] != "$/cancel" {
             return message;
         }
@@ -779,7 +703,9 @@ fn next_from_engine(subject: &mut Subject) -> Value {
             });
         let (id, records) = subject.silent.remove(position);
         if !records.is_empty() {
-            subject.send(&json!({ "jsonrpc": "2.0", "id": id, "result": { "records": records } }));
+            subject
+                .client
+                .send(&json!({ "jsonrpc": "2.0", "id": id, "result": { "records": records } }));
         }
     }
 }

@@ -16,6 +16,7 @@
 
 use std::borrow::Cow;
 use std::cmp::Ordering;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 use std::net::{Ipv4Addr, SocketAddr};
 use std::num::NonZeroU64;
@@ -511,13 +512,23 @@ pub struct HelloParams {
     #[serde(default, skip_serializing_if = "serde_json::Map::is_empty")]
     #[schemars(extend("arrived_in" = "0.1"))]
     pub settings: serde_json::Map<String, serde_json::Value>,
+    /// The program's SDK handlers, their names by Plugin kind, as
+    /// `connect()` registers them (ADR 0104). The only handler of a kind
+    /// that one setting chooses becomes that setting's value at the
+    /// connection scope, with the origin `registered`, beneath every
+    /// other run-layer value. A kind the engine's Product lacks refuses
+    /// the `hello`.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub handlers: BTreeMap<String, BTreeSet<String>>,
 }
 
 impl HelloParams {
     /// The `hello` every Client builds on: the protocol version this
     /// crate speaks, `surface`, its own `product_version`, and every other
     /// field at its default, no form, token, Product, log level, relayed
-    /// surface, keep-alive or settings, which a caller sets by struct update.
+    /// surface, keep-alive, settings or handlers, which a caller sets by
+    /// struct update.
     pub fn new(surface: Surface, product_version: ProductVersion) -> Self {
         Self {
             protocol_version: PROTOCOL_VERSION,
@@ -530,6 +541,7 @@ impl HelloParams {
             client_surface: None,
             keep_daemon_alive: false,
             settings: serde_json::Map::new(),
+            handlers: BTreeMap::new(),
         }
     }
 }

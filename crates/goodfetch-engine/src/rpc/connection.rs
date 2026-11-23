@@ -45,7 +45,7 @@
 //! carriage that reaches them, kept whole so each message passes one loop.
 
 use std::borrow::Cow;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::panic::AssertUnwindSafe;
 use std::pin::Pin;
 use std::sync::{Arc, OnceLock};
@@ -98,6 +98,7 @@ use crate::metrics::Metrics;
 use crate::product::{Identity, Requested};
 use crate::run::translated;
 use crate::runs::Runs;
+use crate::sdk_handlers;
 use crate::settings::{
     Opening as SettingsOpening, Resolved, SettingsError, check_client_bounds, check_scope,
     get_or_default,
@@ -504,6 +505,7 @@ async fn serve_carried(
         form: OnceLock::new(),
         behind_gateway: OnceLock::new(),
         settings: OnceLock::new(),
+        registered: OnceLock::new(),
         drivers: Arc::clone(&dispatch.drivers),
         runs,
         events,
@@ -1058,18 +1060,19 @@ impl Session<'_> {
             .map(|accepted| {
                 let surface = accepted.surface;
                 let form = hello.form.unwrap_or(surface.form());
-                (accepted, surface, form, hello.log_level, hello.settings)
+                let own = (hello.settings, hello.handlers);
+                (accepted, surface, form, hello.log_level, own)
             }),
             Err(error) => Err(handshake::Refused::Invalid(error)),
         };
         let answered = match answered {
-            Ok((accepted, surface, form, log_level, settings)) => self
-                .checked_settings(&settings, surface, accepted.behind_gateway)
+            Ok((accepted, surface, form, log_level, (settings, handlers))) => self
+                .checked_own(&settings, &handlers, surface, accepted.behind_gateway)
                 .await
-                .map(|timeouts| {
+                .map(|(timeouts, registered)| {
                     let mut accepted = accepted;
                     accepted.result.timeouts = timeouts;
-                    (accepted, surface, form, log_level, settings)
+                    (accepted, surface, form, log_level, (settings, registered))
                 })
                 // A refused setting reads in the form the `hello` declares.
                 .map_err(|error| (error, form)),
@@ -1082,7 +1085,7 @@ impl Session<'_> {
             }
         };
         match answered {
-            Ok((mut accepted, surface, form, log_level, settings)) => {
+            Ok((mut accepted, surface, form, log_level, (settings, registered))) => {
                 record(HELLO, None);
                 self.connection.log.set(log_level.unwrap_or_default());
                 if let Err(refused) = self.transition(ConnectionEvent::Accepted) {
@@ -1093,6 +1096,7 @@ impl Session<'_> {
                 let _ = self.connection.surface.set(surface);
                 let _ = self.connection.form.set(form);
                 let _ = self.connection.settings.set(settings);
+                let _ = self.connection.registered.set(registered);
                 // Each CLI command is a Connection of its own, and the Runs
                 // it starts on the Daemon outlive it (ADRs 0024 and 0088);
                 // so do those a person starts or resumes from the Kennel
@@ -1128,24 +1132,44 @@ impl Session<'_> {
         }
     }
 
+    /// Checks the Connection's own settings and SDK handlers as its `hello`
+    /// gives them, from `surface`: answers the `timeout.*` values they
+    /// resolve and the `registered` values the handlers give (ADR 0104).
+    async fn checked_own(
+        &self,
+        settings: &Map<String, Value>,
+        handlers: &BTreeMap<String, BTreeSet<String>>,
+        surface: Surface,
+        behind_gateway: bool,
+    ) -> Result<(Vec<SettingLimit>, Map<String, Value>), CallError> {
+        let carried = sdk_handlers::carried(self.dispatch.identity.product);
+        let registered = sdk_handlers::registered(handlers, &carried)?;
+        let timeouts = self
+            .checked_settings(settings, &registered, surface, behind_gateway)
+            .await?;
+        Ok((timeouts, registered))
+    }
+
     /// Checks `own`, the Connection's own settings as its `hello` gives
     /// them, from `surface`: each key at the connection scope, each of the
     /// Client's own bounds against what `surface`'s Client applies, then every
     /// layer resolved over them as beneath a Run it starts, so a locked or
     /// capped key is refused at the `hello` rather than at each start (ADR
     /// 0083). Answers the `timeout.*` values they resolve, which `hello`'s
-    /// result reports (issue 3193). A `hello` with no settings of its own
-    /// reads them from the engine's snapshot of the machine's layers, so it
-    /// reads no file (ADR 0140): none when those fail to resolve, which the
-    /// first Run then refuses.
+    /// result reports (issue 3193). `registered`, the values its SDK
+    /// handlers give, resolves beneath `own` (ADR 0104). A `hello` with no
+    /// settings of its own and none registered reads them from the engine's
+    /// snapshot of the machine's layers, so it reads no file (ADR 0140):
+    /// none when those fail to resolve, which the first Run then refuses.
     async fn checked_settings(
         &self,
         own: &Map<String, Value>,
+        registered: &Map<String, Value>,
         surface: Surface,
         behind_gateway: bool,
     ) -> Result<Vec<SettingLimit>, CallError> {
         let settings = self.connection.engine.settings();
-        if own.is_empty() {
+        if own.is_empty() && registered.is_empty() {
             let machine = settings.snapshot().await;
             return Ok(machine
                 .resolved()
@@ -1162,6 +1186,7 @@ impl Session<'_> {
                 recipe: None,
                 settings: own.clone(),
                 origin: Some(RunOrigin::Settings),
+                registered: registered.clone(),
                 acting_for_model: surface.acts_for_model(),
                 exposed: self.connection.exposed,
             })

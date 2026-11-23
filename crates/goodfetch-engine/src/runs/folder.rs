@@ -1,9 +1,10 @@
 //! A Run's folder (ADRs 0002 and 0031): the Run's own row as it begins and
 //! as it ends, with the settings fixed for its life as it began (ADRs 0102
-//! and 0120), and the readers that open its state without a lock to
-//! compare a start's inputs and fixed settings, read its report or read
-//! what it recorded of itself. Its calls block: the registry runs them
-//! under its owner's blocking policy.
+//! and 0120) and the digests of those it runs with past them, compared on
+//! a resume, and the readers that open its state without a lock to compare
+//! a start's inputs and fixed settings, read its report or read what it
+//! recorded of itself. Its calls block: the registry runs them under its owner's
+//! blocking policy.
 
 use std::collections::BTreeMap;
 use std::io::{self, Read as _, Write as _};
@@ -17,6 +18,7 @@ use goodfetch_protocol::run::{
 use goodfetch_protocol::settings::{SettingsLayer, WeakenedSetting};
 use rusqlite::{Connection, OptionalExtension as _};
 use serde_json::{Map, Value};
+use sha2::{Digest as _, Sha256};
 
 use super::FixedSettingChanged;
 use crate::durable;
@@ -42,6 +44,9 @@ pub(super) struct RunRow {
     /// The settings fixed for its life, as [`FixedSettings::kept`] writes
     /// them.
     pub(super) fixed_settings: String,
+    /// The digests of the settings it runs with past those, as
+    /// [`ChangeableSettings::kept`] writes them.
+    pub(super) setting_digests: String,
 }
 
 impl RunRow {
@@ -49,8 +54,9 @@ impl RunRow {
         connection
             .prepare_cached(
                 "INSERT INTO run (run_id, kind, needs, caller, epoch, inputs, lifecycle, started_at, \
-                 policy_version, weakened, binding, clean_up_digest, fixed_settings) \
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
+                 policy_version, weakened, binding, clean_up_digest, fixed_settings, \
+                 setting_digests) \
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
             )?
             .execute((
                 self.run_id.as_str(),
@@ -67,9 +73,19 @@ impl RunRow {
                 self.binding.as_deref(),
                 self.clean_up_digest.as_deref(),
                 &self.fixed_settings,
+                &self.setting_digests,
             ))?;
         Ok(())
     }
+}
+
+/// Records `kept`, as [`ChangeableSettings::kept`] wrote it, as the
+/// digests of the settings the Run runs with from a resume on (ADR 0102).
+pub(super) fn record_setting_digests(connection: &Connection, kept: &str) -> rusqlite::Result<()> {
+    connection
+        .prepare_cached("UPDATE run SET setting_digests = ?1")?
+        .execute([kept])?;
+    Ok(())
 }
 
 /// Records `weakened` as what the Run's report lists as weakened, in place
@@ -135,15 +151,18 @@ pub(super) fn masked_tags(masks: &Masks, tags: &Tags) -> Tags {
         .expect("invariant: as many tags, none longer than a tag holds")
 }
 
+/// The object a JSON column of the run file holds, or an empty one when it
+/// no longer reads as one: what no longer reads differs in nothing.
+fn stored_object(text: &str) -> Map<String, Value> {
+    match serde_json::from_str(text) {
+        Ok(Value::Object(object)) => object,
+        _ => Map::new(),
+    }
+}
+
 /// Each input whose value differs between two canonical inputs.
 pub(super) fn input_differences(found: &str, given: &str) -> Vec<StartInput> {
-    let read = |text: &str| -> Map<String, Value> {
-        match serde_json::from_str(text) {
-            Ok(Value::Object(object)) => object,
-            _ => Map::new(),
-        }
-    };
-    let (found, given) = (read(found), read(given));
+    let (found, given) = (stored_object(found), stored_object(given));
     let mut names: Vec<&String> = found.keys().chain(given.keys()).collect();
     names.sort();
     names.dedup();
@@ -226,10 +245,7 @@ impl FixedSettings {
         began: &str,
         compared: Compared,
     ) -> Result<(), FixedSettingChanged> {
-        let began: Map<String, Value> = match serde_json::from_str(began) {
-            Ok(Value::Object(object)) => object,
-            _ => Map::new(),
-        };
+        let began = stored_object(began);
         match self
             .0
             .iter()
@@ -246,6 +262,101 @@ impl FixedSettings {
             }),
             None => Ok(()),
         }
+    }
+}
+
+/// The settings a Run runs with that a resume may change, those not fixed
+/// for its life (ADR 0102): each key its Product honours, with the digest
+/// of its value, the layer that set it and the digest of its catalog
+/// default. The run file keeps digests, never values: a value such as a
+/// `session.source` endpoint may carry a credential that no Mask holds
+/// (ADR 0067).
+pub(super) struct ChangeableSettings(Vec<ChangeableSetting>);
+
+struct ChangeableSetting {
+    key: &'static str,
+    digest: String,
+    layer: SettingsLayer,
+    default: String,
+}
+
+/// A setting a resume changed, as the Run trace records it: its key, the
+/// layer that sets its value from the resume on, and the run epoch the
+/// resume began, which tells one resume's lines from another's. No value:
+/// the run file keeps none to compare it with, and a value may carry a
+/// credential.
+#[derive(Debug, serde::Serialize)]
+pub(super) struct ChangedSetting {
+    pub(super) key: &'static str,
+    pub(super) layer: SettingsLayer,
+    pub(super) epoch: u64,
+}
+
+/// The SHA-256 of `value`'s canonical JSON (RFC 8785), in lowercase
+/// hexadecimal.
+fn value_digest(value: &Value) -> String {
+    let canonical =
+        serde_json_canonicalizer::to_string(value).expect("invariant: a setting value encodes");
+    data_encoding::HEXLOWER.encode(&Sha256::digest(canonical.as_bytes()))
+}
+
+impl ChangeableSettings {
+    pub(super) fn of(settings: Option<&RunSettings>) -> Self {
+        let Some(resolved) = settings.map(RunSettings::resolved) else {
+            return Self(Vec::new());
+        };
+        Self(
+            resolved
+                .changeable()
+                .map(|(key, effective, default)| ChangeableSetting {
+                    key,
+                    digest: value_digest(&effective.value),
+                    layer: effective.layer,
+                    default: value_digest(default),
+                })
+                .collect(),
+        )
+    }
+
+    /// As the run file keeps them: an object of the digest of each key
+    /// whose value is not its catalog default.
+    pub(super) fn kept(&self) -> String {
+        let object: Map<String, Value> = self
+            .0
+            .iter()
+            .filter(|setting| setting.digest != setting.default)
+            .map(|setting| {
+                (
+                    setting.key.to_owned(),
+                    Value::String(setting.digest.clone()),
+                )
+            })
+            .collect();
+        Value::Object(object).to_string()
+    }
+
+    /// Each key whose value differs from the one the Run ran with, `ran`
+    /// as [`kept`](Self::kept) wrote it, where a key it does not hold ran
+    /// with its catalog default, as a resume that began run epoch `epoch`
+    /// changed it. A `ran` that no longer reads holds no key, as an input
+    /// that no longer reads is none.
+    pub(super) fn changed(&self, ran: &str, epoch: u64) -> Vec<ChangedSetting> {
+        let ran = stored_object(ran);
+        self.0
+            .iter()
+            .filter(|setting| {
+                let was = ran
+                    .get(setting.key)
+                    .and_then(Value::as_str)
+                    .unwrap_or(&setting.default);
+                was != setting.digest
+            })
+            .map(|setting| ChangedSetting {
+                key: setting.key,
+                layer: setting.layer,
+                epoch,
+            })
+            .collect()
     }
 }
 
@@ -319,6 +430,9 @@ pub(super) struct Recorded {
     pub(super) report: Option<RunReport>,
     /// The program's own status line, once it set one.
     pub(super) progress_message: Option<String>,
+    /// The digests of the settings it runs with past those fixed for its
+    /// life, as [`ChangeableSettings::kept`] wrote them.
+    pub(super) setting_digests: String,
 }
 
 /// What the Run's state at `file` records of the Run, or `None` when there
@@ -330,7 +444,7 @@ pub(super) fn read_recorded(file: &Path, vfs: Option<&str>) -> rusqlite::Result<
     let found = connection
         .prepare_cached(
             "SELECT run_id, kind, needs, lifecycle, started_at, policy_version, weakened, inputs, \
-             progress_message FROM run",
+             progress_message, setting_digests FROM run",
         )?
         .query_row([], |row| {
             Ok((
@@ -343,7 +457,7 @@ pub(super) fn read_recorded(file: &Path, vfs: Option<&str>) -> rusqlite::Result<
                 row.get::<_, StoredTime>(4)?.0,
                 row.get::<_, Option<String>>(5)?,
                 (row.get::<_, String>(6)?, row.get::<_, String>(7)?),
-                row.get::<_, Option<String>>(8)?,
+                (row.get::<_, Option<String>>(8)?, row.get::<_, String>(9)?),
             ))
         })
         .optional()?;
@@ -353,7 +467,7 @@ pub(super) fn read_recorded(file: &Path, vfs: Option<&str>) -> rusqlite::Result<
         started_at,
         policy_version,
         (weakened, inputs),
-        progress_message,
+        (progress_message, setting_digests),
     )) = found
     else {
         return Ok(None);
@@ -376,6 +490,7 @@ pub(super) fn read_recorded(file: &Path, vfs: Option<&str>) -> rusqlite::Result<
         inputs,
         report: report(&connection)?,
         progress_message,
+        setting_digests,
     }))
 }
 

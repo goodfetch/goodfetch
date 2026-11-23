@@ -1276,6 +1276,13 @@ number = 11
 kind = "error"
 prefix = "engine_exited"
 
+# The Error code the Python SDK raises for an async value used from another
+# event loop or thread (ADR 0081; issue 1275).
+[[area]]
+number = 11
+kind = "error"
+prefix = "event_loop_mismatch"
+
 # The Error code an SDK raises for handlers asked on an edge runtime (ADR
 # 0049; issue 3175).
 [[area]]

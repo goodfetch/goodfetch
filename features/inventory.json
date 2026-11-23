@@ -1508,6 +1508,17 @@
       ]
     },
     {
+      "id": "error:event_loop_mismatch",
+      "kind": "error",
+      "area": 11,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "error:executable_blocked_by_smart_app_control",
       "kind": "error",
       "area": 3,

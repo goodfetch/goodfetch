@@ -660,6 +660,54 @@ fn a_new_gate_file_or_another_file_is_silent(#[case] path: &str) {
     assert_clean(&guard(&workspace, &base, "feat: extend the gate"));
 }
 
+/// The workspace's own Floor bullet on the gate's own files names what
+/// `just counts` measures with: the harnesses, whose every family
+/// `xtask counts`' own test holds, and the readers of Callgrind's counts and
+/// of SQLite's syncs and opens they share.
+#[rstest]
+#[case::the_b1_harness("crates/foxhound/goodfetch-foxhound/examples/counts.rs")]
+#[case::the_b3_harness_support("crates/goodfetch-engine/examples/support/charge_counts.rs")]
+#[case::the_callgrind_reader("crates/goodfetch-test-support/src/callgrind.rs")]
+#[case::the_callgrind_readers_folder("crates/goodfetch-test-support/src/callgrind/at_once.rs")]
+#[case::the_counting_vfs("crates/goodfetch-test-support/src/counting_vfs.rs")]
+#[case::the_counting_vfs_folder("crates/goodfetch-test-support/src/counting_vfs/tests.rs")]
+fn the_workspaces_floor_holds_what_the_counts_measure_with(#[case] path: &str) {
+    let testing = std::fs::read_to_string(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../TESTING.md"),
+    )
+    .unwrap();
+    let bullet = "- **No edit to the gate's own files**";
+    let workspaces = testing
+        .lines()
+        .find(|line| line.starts_with(bullet))
+        .unwrap();
+    let fixtures = REGISTER
+        .lines()
+        .find(|line| line.starts_with(bullet))
+        .unwrap();
+    let run = |message: &str| {
+        let workspace = Workspace::from_fixture("empty");
+        workspace.write(TESTING, REGISTER.replace(fixtures, workspaces).as_bytes());
+        workspace.write(path, b"fn original() {}\n");
+        let base = workspace.commit_all();
+        workspace.write(path, b"fn loosened() {}\n");
+        guard(&workspace, &base, message)
+    };
+
+    let outcome = run("fix: change a harness");
+    assert_eq!(
+        outcome.findings(),
+        vec![finding("gate-file-edited", path)],
+        "{}",
+        outcome.stdout
+    );
+    assert_eq!(outcome.code, 1);
+
+    assert_clean(&run(&format!(
+        "fix: change a harness\n\nQuality-change: {path}: the family counts one more cell"
+    )));
+}
+
 /// The list the guard obeys is the merge base's, so a change cannot free a file
 /// by taking it off the list; that is flagged as the Floor's own edit.
 #[test]

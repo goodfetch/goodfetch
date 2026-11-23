@@ -11,7 +11,9 @@ has none of it: a call there fails with `connection_forked` (ADR 0078).
 from __future__ import annotations
 
 import concurrent.futures
+import contextlib
 import threading
+from contextvars import ContextVar
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, TypeVar
 
@@ -23,9 +25,9 @@ from goodfetch_collie_client._opening_process import OpeningProcess
 from goodfetch_collie_client.goodfetch_error import BaseGoodfetchError
 
 if TYPE_CHECKING:
-    from collections.abc import Awaitable, Callable
+    from collections.abc import Awaitable, Callable, Generator
 
-__all__ = ["LoopStopped", "PrivateLoop"]
+__all__ = ["CallGroup", "LoopStopped", "PrivateLoop"]
 
 _T = TypeVar("_T")
 
@@ -53,6 +55,61 @@ class _Raised:
     """An error outside `Exception` a call raised, carried back as its result."""
 
     error: BaseGoodfetchError
+
+
+class CallGroup:
+    """The calls a thread makes through a private loop, which one cancel stops.
+
+    Such as a sync crawl handler's, on a worker thread (ADR 0093): each of
+    its calls runs as a task of the loop, outside the cancel scope of the
+    task that started the thread, so closing its Run cancels them through
+    the group. Once cancelled, a call in flight and each later one fail
+    with `stopped`'s error. The calls made in `bound()`, and on the threads
+    started there, which copy its context, join the group.
+    """
+
+    def __init__(self, stopped: Callable[[], Exception]) -> None:
+        """Takes the error each call fails with once the group is cancelled."""
+        self._stopped = stopped
+        self._scopes: set[anyio.CancelScope] = set()
+        self._cancelled = False
+
+    @contextlib.contextmanager
+    def bound(self) -> Generator[None]:
+        """Joins the calls made in the block, and on the threads it starts, to it."""
+        token = _bound_group.set(self)
+        try:
+            yield
+        finally:
+            _bound_group.reset(token)
+
+    def cancel(self) -> None:
+        """Cancels each call in flight, and fails each later one; on the loop."""
+        self._cancelled = True
+        for scope in self._scopes:
+            scope.cancel()
+
+    async def run(self, function: Callable[[], Awaitable[_T]]) -> _T:
+        """Runs one call of the group on the loop, unless the group is cancelled.
+
+        Raises:
+            Exception: `stopped`'s error, once the group is cancelled.
+        """
+        if self._cancelled:
+            raise self._stopped()
+        with anyio.CancelScope() as scope:
+            self._scopes.add(scope)
+            try:
+                return await function()
+            finally:
+                self._scopes.discard(scope)
+        raise self._stopped()
+
+
+_bound_group: ContextVar[CallGroup | None] = ContextVar(
+    "goodfetch_call_group", default=None
+)
+"""The group the calls made in this context join; none outside `CallGroup.bound()`."""
 
 
 class PrivateLoop:
@@ -92,7 +149,8 @@ class PrivateLoop:
         raised here alone (ADR 0093). The portal runs `function` in a copy
         of the calling thread's context, so each request it makes carries
         that thread's Trace context (ADR 0132), as
-        `test_trace_context.py`'s two threads show.
+        `test_trace_context.py`'s two threads show, and joins the
+        `CallGroup` that context is bound to, if any.
 
         Raises:
             LoopStopped: The loop has stopped, so its Connection is closed.
@@ -108,8 +166,9 @@ class PrivateLoop:
 
         async def kept() -> _T | _Raised:
             interruption.govern()
+            group = _bound_group.get()
             try:
-                return await function()
+                return await (function() if group is None else group.run(function))
             except BaseGoodfetchError as error:
                 if isinstance(error, Exception):
                     raise

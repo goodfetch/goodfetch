@@ -178,9 +178,9 @@ pub(crate) fn translate(stderr: String, code: Option<i32>) -> ProviderFailure {
         Some(Meaning::NotAllowed) => refused(
             "The Bitwarden account or its organization's policy does not allow reading this field; ask its administrator.",
         ),
-        Some(Meaning::NoCode) => refused(
-            "Bitwarden could not make a TOTP code from this item's seed; check the seed in the vault.",
-        ),
+        Some(Meaning::NoCode) => ProviderFailure::NoCode {
+            fix: "Bitwarden could not make a TOTP code from this item's seed; check the seed in the vault.".to_owned(),
+        },
         Some(Meaning::Unreachable) => refused(
             "The `bw` CLI cannot reach its Bitwarden or Vaultwarden server from this host; check `bw config server`, the network and the proxy.",
         ),

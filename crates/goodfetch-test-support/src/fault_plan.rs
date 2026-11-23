@@ -24,6 +24,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::env::TestEnv;
 use crate::runtime::proptest_config_for;
+use crate::variables::{FAULT_PLAN_VARIABLE, Variables};
 
 /// The file a failing generator writes its shrunk plan to, in the test's
 /// folder.
@@ -162,11 +163,16 @@ pub struct FaultPlanGenerator {
     seed: u64,
     folder: PathBuf,
     config: Config,
+    /// The plan file to run in place of generating, `just simulate
+    /// <scenario> --plan <file>`'s.
+    replay: Option<PathBuf>,
 }
 
 impl FaultPlanGenerator {
     /// The generator of `scenario`'s plans at `generator_version`, from the
-    /// test's seed, with the case count of the running suite.
+    /// test's seed, with the case count of the running suite; or, when
+    /// `GOODFETCH_FAULT_PLAN` names a plan file, the replay of that plan
+    /// alone ([`FaultPlanGenerator::replaying`]).
     pub fn new(env: &TestEnv, scenario: &str, generator_version: u32) -> Self {
         Self {
             scenario: scenario.to_owned(),
@@ -178,7 +184,18 @@ impl FaultPlanGenerator {
                 failure_persistence: None,
                 ..proptest_config_for(env.suite(), env.seed())
             },
+            replay: Variables::from_process()
+                .get(FAULT_PLAN_VARIABLE)
+                .map(PathBuf::from),
         }
+    }
+
+    /// The same generator, which runs the plan in `file` alone in place of
+    /// generating plans: a committed plan, or one a failure wrote.
+    #[must_use]
+    pub fn replaying(mut self, file: &Path) -> Self {
+        self.replay = Some(file.to_owned());
+        self
     }
 
     /// The same generator with another proptest configuration, for another
@@ -209,6 +226,9 @@ impl FaultPlanGenerator {
         M::State: Clone + fmt::Debug,
         E: fmt::Display,
     {
+        if let Some(file) = &self.replay {
+            return self.replay(file, run);
+        }
         let mut runner = TestRunner::new(self.config.clone());
         let outcome = runner.run(&M::sequential_strategy(steps), |(_, steps, seen)| {
             // The whole plan runs, so every step counts as seen; otherwise
@@ -228,6 +248,22 @@ impl FaultPlanGenerator {
                 Err(self.shrunk(self.plan(steps), reason.to_string()))
             }
         }
+    }
+
+    fn replay<E: fmt::Display>(
+        &self,
+        file: &Path,
+        run: impl Fn(&FaultPlan) -> Result<(), E>,
+    ) -> Result<(), FaultPlanFailure> {
+        let plan = FaultPlan::read(file).map_err(|error| FaultPlanFailure::Unreadable {
+            scenario: self.scenario.clone(),
+            error,
+        })?;
+        run(&plan).map_err(|reason| FaultPlanFailure::Replayed {
+            scenario: self.scenario.clone(),
+            file: file.to_owned(),
+            reason: reason.to_string(),
+        })
     }
 
     fn plan(&self, steps: Vec<FaultPlanStep>) -> FaultPlan {
@@ -325,6 +361,24 @@ pub enum FaultPlanFailure {
         file: PathBuf,
         /// Why.
         error: io::Error,
+    },
+    /// The plan replayed from its file, on which the scenario still fails.
+    #[error("the scenario {scenario} fails on the Fault plan {}: {reason}", file.display())]
+    Replayed {
+        /// The scenario.
+        scenario: String,
+        /// The plan's file.
+        file: PathBuf,
+        /// Why the scenario failed on it.
+        reason: String,
+    },
+    /// The plan to replay cannot be read.
+    #[error("the scenario {scenario} has no Fault plan to replay: {error}")]
+    Unreadable {
+        /// The scenario.
+        scenario: String,
+        /// Why.
+        error: FaultPlanError,
     },
     /// proptest stopped generating plans, its reference machine's
     /// preconditions refusing too many.

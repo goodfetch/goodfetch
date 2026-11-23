@@ -34,6 +34,7 @@ mod reconnect;
 mod results;
 mod scripted_daemon;
 mod session_events;
+mod sessions;
 mod settings;
 mod start;
 mod unknown_values;

@@ -34,6 +34,10 @@ pub(crate) enum Step {
     Windows,
     Lint,
     FeatureCombinations,
+    /// cargo-semver-checks on the Rust crates under semver against the
+    /// previous release (ADR 0030, issue 148): minutes of rustdoc builds of
+    /// both trees, too long for the Quick suite's `just lint`.
+    SemverChecks,
     FuzzCheck,
     Proofs,
     Msrv,
@@ -75,7 +79,7 @@ pub(crate) enum Reach {
 
 impl Step {
     /// Every step, in the order `ci/pre-merge.sh` starts them.
-    pub(crate) const ALL: [Self; 26] = [
+    pub(crate) const ALL: [Self; 27] = [
         Self::Dco,
         Self::CommitMessages,
         Self::FloorGuard,
@@ -92,6 +96,7 @@ impl Step {
         Self::Windows,
         Self::Lint,
         Self::FeatureCombinations,
+        Self::SemverChecks,
         Self::FuzzCheck,
         Self::Proofs,
         Self::Msrv,
@@ -112,6 +117,7 @@ impl Step {
             Self::FloorGuard => "floor-guard",
             Self::Lint => "lint",
             Self::FeatureCombinations => "feature-combinations",
+            Self::SemverChecks => "semver-checks",
             Self::Audit => "audit",
             Self::CommitLeaks => "commit-leaks",
             Self::FuzzCheck => "fuzz-check",
@@ -154,6 +160,7 @@ impl Step {
             Self::Lint
             | Self::FeaturesTests
             | Self::FeatureCombinations
+            | Self::SemverChecks
             | Self::FuzzCheck
             | Self::Proofs
             | Self::JourneysTasks
@@ -312,7 +319,10 @@ pub(crate) enum Owner {
     /// within ADR 0061's 30-minute cap, as the 16-vCPU gate host's full
     /// gates measured them: the Windows build under Wine, TLC, the fuzz
     /// targets' check, the feature combinations, loom and Miri (#3382,
-    /// ADR 0135's note of 2026-11-23 on the full gate's hosted steps).
+    /// ADR 0135's note of 2026-11-23 on the full gate's hosted steps), and
+    /// the semver checks, which build both the tree's and the previous
+    /// release's rustdoc of each Product and install cargo-semver-checks
+    /// (issue 148).
     Local,
     /// The pull-request tier on hosted runners, on a batch, spec or fork
     /// pull request: `just merge` reuses its units, and runs here those no
@@ -342,6 +352,7 @@ impl Owner {
                     | Step::Tlc
                     | Step::FuzzCheck
                     | Step::FeatureCombinations
+                    | Step::SemverChecks
                     | Step::Loom
                     | Step::Miri
             )

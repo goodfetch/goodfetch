@@ -1,0 +1,12 @@
+# A fixture wheel of the lowest-version runs (spec #326, Seam B): the newest
+# version of the framework, which adds `shout`.
+[project]
+name = "fixture-framework"
+version = "1.1.0"
+description = "A fixture of the install harness's tests; never published."
+requires-python = ">=3.11"
+classifiers = ["Private :: Do Not Upload"]
+
+[build-system]
+requires = ["uv_build>=0.9.28,<0.10"]
+build-backend = "uv_build"

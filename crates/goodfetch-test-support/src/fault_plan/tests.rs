@@ -144,6 +144,89 @@ fn a_failing_plan_shrinks_to_a_smaller_one_written_with_its_replay_command() {
     assert_eq!(source["version"].as_integer(), Some(3));
 }
 
+/// A committed plan on which the scenario fails: `a` partitioned from `b`,
+/// then crashed.
+fn committed_plan() -> FaultPlan {
+    FaultPlan {
+        seed: 7,
+        generator_version: 3,
+        steps: vec![
+            FaultPlanStep {
+                at: 10,
+                host: "a".to_owned(),
+                action: FaultPlanAction::Partition {
+                    peer: "b".to_owned(),
+                },
+            },
+            FaultPlanStep {
+                at: 20,
+                host: "a".to_owned(),
+                action: FaultPlanAction::Crash,
+            },
+        ],
+    }
+}
+
+#[test]
+fn a_plan_to_replay_runs_alone_and_its_failure_names_its_file() {
+    let env = TestEnv::new();
+    let file = env.folder().join("crash_while_partitioned.json");
+    committed_plan().write(&file).unwrap();
+    let runs = RefCell::new(Vec::new());
+
+    let failure = FaultPlanGenerator::new(&env, "group_formation", 3)
+        .replaying(&file)
+        .check::<TwoHosts, _>(10..30, |plan| {
+            runs.borrow_mut().push(plan.clone());
+            crashes_while_partitioned(plan)
+        })
+        .expect_err("the committed plan crashes a while partitioned");
+
+    assert_eq!(runs.into_inner(), vec![committed_plan()]);
+    assert_eq!(
+        failure.to_string(),
+        format!(
+            "the scenario group_formation fails on the Fault plan {}: a crashed at 20 while partitioned from b",
+            file.display()
+        )
+    );
+    assert!(
+        !env.folder().join(FAULT_PLAN_FILE).exists(),
+        "a replayed plan is already written"
+    );
+}
+
+#[test]
+fn a_plan_to_replay_that_passes_passes_and_one_unreadable_fails() {
+    let env = TestEnv::new();
+    let file = env.folder().join("healed.json");
+    let mut healed = committed_plan();
+    healed.steps[1].action = FaultPlanAction::Heal {
+        peer: "b".to_owned(),
+    };
+    healed.write(&file).unwrap();
+    let generator = FaultPlanGenerator::new(&env, "group_formation", 3);
+
+    let passed = generator
+        .replaying(&file)
+        .check::<TwoHosts, _>(10..30, crashes_while_partitioned);
+    let missing = FaultPlanGenerator::new(&env, "group_formation", 3)
+        .replaying(&env.folder().join("missing.json"))
+        .check::<TwoHosts, _>(10..30, crashes_while_partitioned);
+
+    assert!(passed.is_ok(), "{passed:?}");
+    assert!(
+        matches!(
+            missing,
+            Err(FaultPlanFailure::Unreadable {
+                error: FaultPlanError::Unreadable { .. },
+                ..
+            })
+        ),
+        "{missing:?}"
+    );
+}
+
 #[test]
 fn a_scenario_no_plan_fails_writes_no_plan() {
     let env = TestEnv::new();

@@ -104,6 +104,12 @@ pub enum ProviderFailure {
         /// What makes it answer, never a value.
         fix: String,
     },
+    /// It holds the reference but made no one-time code from it, such as
+    /// a TOTP seed it cannot read: `no_code`, with what makes it answer.
+    NoCode {
+        /// What makes it answer, never a value.
+        fix: String,
+    },
     /// It is briefly unable to answer, such as a rate limit's 429 or a
     /// 503, and may answer if asked again: the driver asks again within
     /// `timeout.secret`, after `retry_after` when it gave one, and then
@@ -1082,6 +1088,7 @@ fn failure_of(failure: ProviderFailure, reference: &SecretReference) -> (SecretF
         ProviderFailure::Refused { fix } | ProviderFailure::Busy { fix, .. } => {
             (SecretFailure::ProviderFailed, fix)
         }
+        ProviderFailure::NoCode { fix } => (SecretFailure::NoCode, fix),
         ProviderFailure::Unrecognized(_) => (
             SecretFailure::ProviderFailed,
             format!("The `{scheme}` provider failed; its logs say why."),

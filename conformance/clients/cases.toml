@@ -26,7 +26,7 @@
 
 [suite]
 name = "clients"
-version = "62"
+version = "63"
 
 [[capability]]
 name = "lifecycle"
@@ -185,40 +185,49 @@ modes = ["attached", "linked"]
 
 # A program's first pages (issue 2400): opened, navigated, acted on through
 # locators, read and closed, on the Proving ground: attached through
-# Collie's executable in TypeScript, linked in Rust (issue 2803), each
-# surface taking the modes it has. The Python SDK joins with its part of
-# issues 1236 and 1237.
+# Collie's executable in TypeScript and Python (issue 3395, three ways),
+# linked in Rust (issue 2803), each surface taking the modes it has. A
+# program's own `goto` is outside Politeness (ADR 0086): it follows a
+# redirect whose `Retry-After` asks for an hour at once, and one to a file
+# the browser downloads answers no response (ADRs 0118, 0119). Python
+# also plays that case's Client side on the Scripted engine (issue 3395).
 [[capability]]
 name = "page"
 
 [[capability.case]]
 id = "page-form-program"
 covers = ["story:11-77"]
-surfaces = ["sdk-typescript", "sdk-rust"]
+surfaces = ["sdk-typescript", "sdk-python", "sdk-rust"]
 modes = ["attached", "linked"]
 
 [[capability.case]]
 id = "goto-404-returns-the-response"
 covers = ["story:11-84"]
-surfaces = ["sdk-typescript", "sdk-rust"]
+surfaces = ["sdk-typescript", "sdk-python", "sdk-rust"]
 modes = ["attached", "linked"]
 
 [[capability.case]]
 id = "second-new-page-in-the-default-session"
 covers = ["story:11-77"]
-surfaces = ["sdk-typescript", "sdk-rust"]
+surfaces = ["sdk-typescript", "sdk-python", "sdk-rust"]
 modes = ["attached", "linked"]
 
 [[capability.case]]
 id = "page-read-fields"
 covers = ["story:11-77", "operation:page.read"]
-surfaces = ["sdk-typescript", "sdk-rust"]
+surfaces = ["sdk-typescript", "sdk-python", "sdk-rust"]
 modes = ["attached", "linked"]
 
 [[capability.case]]
 id = "closed-page-raises-closed"
 covers = ["story:11-77"]
-surfaces = ["sdk-typescript", "sdk-rust"]
+surfaces = ["sdk-typescript", "sdk-python", "sdk-rust"]
+modes = ["attached", "linked"]
+
+[[capability.case]]
+id = "goto-skips-a-redirects-retry-after-and-answers-none-for-a-file"
+covers = ["story:11-84", "operation:page.goto"]
+surfaces = ["sdk-typescript", "sdk-python", "sdk-rust"]
 modes = ["attached", "linked"]
 
 # A page's listeners (issues 1277, 2932 and 2933, ADR 0081): the TypeScript
@@ -233,19 +242,57 @@ covers = ["story:11-61", "story:11-62", "story:11-63", "error:listener_failed"]
 surfaces = ["sdk-typescript", "sdk-python", "sdk-rust"]
 modes = ["attached", "linked"]
 
+# A program's Sessions (ADRs 0092 and 0078; issue 1310): `run.newSession`
+# sends its `source`, ADR 0056's tagged union, as the call's own argument
+# beside its `settings`, and `source: null` as null for a fresh Session;
+# each Session's pages are its own, and closing one closes its pages, whose
+# later calls raise `closed` without a message, while the other Session and
+# the Run's default Session open pages still. A `domains` entry that is no
+# registrable domain raises `SettingInvalidError` whose `fix` names the
+# registrable one. Played by the Scripted engine: attached in TypeScript
+# and Python (asyncio, Trio and the sync API), and as the Daemon Rust's
+# client crate reaches.
+[[capability.case]]
+id = "sessions-open-from-their-source"
+covers = ["story:11-92"]
+surfaces = ["sdk-typescript", "sdk-python", "sdk-rust"]
+modes = { sdk-typescript = ["attached"], sdk-python = ["attached"], sdk-rust = ["daemon"] }
+
+# `page.request` through the page's Session (issue 1303, ADRs 0085 and
+# 0118), on the Proving ground: the request carries the cookie a page of
+# the Session got and leaves through the Run's proxy, as the Proving
+# ground's record shows; `max_redirects` follows its count, 0 answering
+# the 3xx, past it `too_many_redirects` naming the option and its count,
+# and above 19 `setting_invalid`. Each surface takes the modes it has.
+[[capability]]
+name = "page.request"
+
+[[capability.case]]
+id = "page-request-sends-the-sessions-cookie-through-its-proxy"
+covers = ["story:11-87", "operation:page.request"]
+surfaces = ["sdk-typescript", "sdk-python", "sdk-rust"]
+modes = ["attached", "linked"]
+
+[[capability.case]]
+id = "page-request-follows-its-max-redirects-and-refuses-a-count-above-19"
+covers = ["story:11-87", "operation:page.request", "error:too_many_redirects", "error:setting_invalid"]
+surfaces = ["sdk-typescript", "sdk-python", "sdk-rust"]
+modes = ["attached", "linked"]
+
 # A program's crawl (issue 1467): declared on a `Crawl` value, started on
 # Foxhound's executable, its handler served on the event loop, and its
-# Records judged by the Proving ground's oracle. TypeScript leads; the
-# Python SDK joins with issue 1468. The Rust SDK runs it `linked`, served
-# by `crawl.serve` (issue 3229).
+# Records judged by the Proving ground's oracle. The Python SDK runs it on
+# `AsyncFoxhound` and on the sync `Foxhound`, whose handler runs on the
+# Connection's thread pool (issue 1468). The Rust SDK runs it `linked`,
+# served by `crawl.serve` (issue 3229).
 [[capability]]
 name = "crawl"
 
 [[capability.case]]
 id = "crawl-catalog-program"
 covers = ["story:11-1013", "story:11-1015"]
-surfaces = ["sdk-typescript", "sdk-rust"]
-modes = { sdk-typescript = ["attached"], sdk-rust = ["linked"] }
+surfaces = ["sdk-typescript", "sdk-python", "sdk-rust"]
+modes = { sdk-typescript = ["attached"], sdk-python = ["attached"], sdk-rust = ["linked"] }
 
 # A handler's attempts (ADRs 0003 and 0093; issue 1467): a Crawl request
 # whose attempt failed is delivered again, and only the Records of the

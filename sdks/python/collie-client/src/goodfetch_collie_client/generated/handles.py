@@ -19,7 +19,7 @@ from goodfetch_collie_client.settings import settings_on_wire
 
 from . import models
 from .events import DEPRECATED_EVENTS, EXPERIMENTAL_EVENTS
-from .settings import DEPRECATED_SETTINGS, PageSettings, SessionSettings
+from .settings import DEPRECATED_SETTINGS, PageSettings, SessionSettings, SessionSourceCDPURL, SessionSourceCookieHeader, SessionSourceInstalledBrowser, SessionSourceProfileDirectory, SessionSourceRunningBrowser, SessionSourceSavedIdentity, SessionSourceStateFile
 
 
 class AsyncRun(AsyncHandle):
@@ -95,7 +95,7 @@ class AsyncRun(AsyncHandle):
         opened = result_of(models.PageOpened, await self._host.call("run.new_page", params))
         return AsyncPage(self._host.child(opened.page_id))
 
-    async def new_session(self, *, settings: SessionSettings | NotGiven = not_given, source: models.SessionSource | None | NotGiven = not_given) -> AsyncSession:
+    async def new_session(self, *, settings: SessionSettings | NotGiven = not_given, source: SessionSourceSavedIdentity | SessionSourceStateFile | SessionSourceCookieHeader | SessionSourceProfileDirectory | SessionSourceInstalledBrowser | SessionSourceRunningBrowser | SessionSourceCDPURL | None | NotGiven = not_given) -> AsyncSession:
         """Opens a Session of the Run's own: its own browser context, with its own cookies, storage, identity and proxy, sharing the Run's browser process, so two Sessions of a Run never share a login. It opens from `source`, or else from the Run's `session.source`, or fresh; `session.source` in its own `settings` is refused with `setting_not_applicable`. The Run's first Session launches its browser, so a missing browser build raises its code from this call.
 
         Experimental: outside semver until it is promoted (ADR 0030).
@@ -106,7 +106,7 @@ class AsyncRun(AsyncHandle):
             warn_deprecated_settings(settings, DEPRECATED_SETTINGS)
             params.settings = settings_on_wire(settings)
         if not isinstance(source, NotGiven):
-            params.source = source
+            params.source = None if source is None else models.SessionSource.model_validate(source)
         opened = result_of(models.SessionOpened, await self._host.call("run.new_session", params))
         return AsyncSession(self._host.child(opened.session_id))
 
@@ -675,7 +675,7 @@ class Run(Handle):
         opened = result_of(models.PageOpened, self._host.call("run.new_page", params))
         return Page(self._host.child(opened.page_id))
 
-    def new_session(self, *, settings: SessionSettings | NotGiven = not_given, source: models.SessionSource | None | NotGiven = not_given) -> Session:
+    def new_session(self, *, settings: SessionSettings | NotGiven = not_given, source: SessionSourceSavedIdentity | SessionSourceStateFile | SessionSourceCookieHeader | SessionSourceProfileDirectory | SessionSourceInstalledBrowser | SessionSourceRunningBrowser | SessionSourceCDPURL | None | NotGiven = not_given) -> Session:
         """Opens a Session of the Run's own: its own browser context, with its own cookies, storage, identity and proxy, sharing the Run's browser process, so two Sessions of a Run never share a login. It opens from `source`, or else from the Run's `session.source`, or fresh; `session.source` in its own `settings` is refused with `setting_not_applicable`. The Run's first Session launches its browser, so a missing browser build raises its code from this call.
 
         Experimental: outside semver until it is promoted (ADR 0030).
@@ -686,7 +686,7 @@ class Run(Handle):
             warn_deprecated_settings(settings, DEPRECATED_SETTINGS)
             params.settings = settings_on_wire(settings)
         if not isinstance(source, NotGiven):
-            params.source = source
+            params.source = None if source is None else models.SessionSource.model_validate(source)
         opened = result_of(models.SessionOpened, self._host.call("run.new_session", params))
         return Session(self._host.child(opened.session_id))
 

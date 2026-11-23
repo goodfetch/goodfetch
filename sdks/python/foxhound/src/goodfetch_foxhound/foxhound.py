@@ -56,7 +56,16 @@ from goodfetch_foxhound.generated.errors import (
     ERROR_CLASSES as FOXHOUND_ERROR_CLASSES,
 )
 from goodfetch_foxhound.generated.operations import (
+    DEPRECATED_OPERATIONS as FOXHOUND_DEPRECATED_OPERATIONS,
+)
+from goodfetch_foxhound.generated.operations import (
+    EXPERIMENTAL_OPERATIONS as FOXHOUND_EXPERIMENTAL_OPERATIONS,
+)
+from goodfetch_foxhound.generated.operations import (
     OPERATION_CLASSES as FOXHOUND_OPERATION_CLASSES,
+)
+from goodfetch_foxhound.generated.settings import (
+    DEPRECATED_SETTINGS as FOXHOUND_DEPRECATED_SETTINGS,
 )
 
 if TYPE_CHECKING:
@@ -77,8 +86,8 @@ if TYPE_CHECKING:
     from goodfetch_collie_client.run_view import AsyncRunView
     from pydantic import JsonValue
 
-    from goodfetch_foxhound.crawl import AsyncCrawl
-    from goodfetch_foxhound.crawl_run import AsyncCrawlRun
+    from goodfetch_foxhound.crawl import AsyncCrawl, Crawl
+    from goodfetch_foxhound.crawl_run import AsyncCrawlRun, CrawlRun
     from goodfetch_foxhound.generated.models import RequestSeed
     from goodfetch_foxhound.generated.settings import CrawlSettings, FoxhoundSettings
 
@@ -303,6 +312,12 @@ class AsyncFoxhound(AsyncConnection):
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
+        warn_entry(
+            "crawl.start",
+            FOXHOUND_EXPERIMENTAL_OPERATIONS,
+            FOXHOUND_DEPRECATED_OPERATIONS,
+        )
+        warn_deprecated_settings(settings, FOXHOUND_DEPRECATED_SETTINGS)
         return await self._crawls.start(
             crawl, seeds=seeds, run_id=run_id, tags=tags, settings=settings
         )
@@ -385,6 +400,7 @@ class Foxhound(Connection):
         """Takes the private loop and the open Connection it drives there."""
         self._loop = loop
         self._connection = connection
+        self._crawls = CrawlRuns(connection)
         self._close_lock = threading.Lock()
         self._closed = False
         self._close_failure: Exception | None = None
@@ -554,6 +570,52 @@ class Foxhound(Connection):
         except LoopStopped:
             raise closed_error("catalog_run.start") from None
         return Run(self._loop, run)
+
+    def start_crawl(
+        self,
+        crawl: Crawl,
+        *,
+        seeds: Iterable[RequestSeed],
+        run_id: str | None = None,
+        tags: Iterable[str] | None = None,
+        settings: CrawlSettings | None = None,
+    ) -> CrawlRun:
+        """Starts `crawl` from `seeds`, at least one, and serves its handlers.
+
+        Starts a crawl from its seeds, and answers once its Run is started.
+        The engine then leases each work item to the program's handler as a
+        `crawl_request.handle` request, and the crawl's Run finishes once
+        every work item is done, or, with `crawl.keep_alive`, once
+        `run.finish` lets it and every work item is done. A Run ID works as
+        `run.start`'s.
+
+        As `AsyncFoxhound.start_crawl`, except that each work item's handler,
+        a plain function, runs on the Connection's thread pool, so a handler
+        that blocks holds no other handler back. Closing the Run cancels the
+        call each handler has in flight, which raises `closed`, and waits
+        for every handler to return (ADR 0093).
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        warn_entry(
+            "crawl.start",
+            FOXHOUND_EXPERIMENTAL_OPERATIONS,
+            FOXHOUND_DEPRECATED_OPERATIONS,
+        )
+        warn_deprecated_settings(settings, FOXHOUND_DEPRECATED_SETTINGS)
+        starting = functools.partial(
+            self._crawls.start_threaded,
+            self._loop,
+            crawl,
+            seeds=list(seeds),
+            run_id=run_id,
+            tags=None if tags is None else list(tags),
+            settings=settings,
+        )
+        try:
+            return self._loop.call(starting)
+        except LoopStopped:
+            raise closed_error("crawl.start") from None
 
     def open_run(self, run_id: str) -> RunView:
         """Opens a view of a Run by its ID, as `Collie.open_run`."""

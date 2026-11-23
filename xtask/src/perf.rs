@@ -217,6 +217,7 @@ pub(crate) fn run(command: Command, environment: &Environment) -> Result<ExitCod
             Ok(ExitCode::SUCCESS)
         }
         Command::Drift { store, github } => drift::check(
+            root,
             &github.api(environment.token()),
             &github.repository,
             &root.join(store),

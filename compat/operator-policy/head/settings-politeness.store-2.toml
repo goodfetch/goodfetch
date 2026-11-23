@@ -1,0 +1,5 @@
+version = "0.1"
+lowest_minor = 0
+
+[settings.politeness]
+store = { addressing = { kind = "sentinel", sentinels = ["rediss://sentinel.example:26379"], service = "politeness" }, namespace = "crawl" }

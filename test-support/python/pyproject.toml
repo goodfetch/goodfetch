@@ -8,6 +8,7 @@ classifiers = ["Private :: Do Not Upload"]
 dependencies = [
     "anyio>=4.15.1",
     "jsonschema>=4.26.0",
+    "langchain-core>=1.8.4",
     "packaging>=26.3",
     "pydantic>=2.14.1,<3",
     "pytest>=9.1.1",

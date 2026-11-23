@@ -1,0 +1,11 @@
+{
+  "seed": 7,
+  "generator_version": 1,
+  "steps": [
+    {
+      "at": 20,
+      "host": "server",
+      "action": "crash"
+    }
+  ]
+}

@@ -8,5 +8,8 @@ publish = false
 goodfetch-test-client = { path = "../goodfetch-test-client" }
 goodfetch-test-support = { path = "../goodfetch-test-support" }
 
+[target.'cfg(tokio_unstable)'.dev-dependencies]
+goodfetch-simulation = { path = "../goodfetch-simulation" }
+
 [dependencies]
 goodfetch-workspace-hack = { path = "../goodfetch-workspace-hack" }

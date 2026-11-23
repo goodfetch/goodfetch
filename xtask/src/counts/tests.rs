@@ -6,7 +6,9 @@ use std::collections::BTreeSet;
 use std::ffi::OsStr;
 use std::path::Path;
 
-use super::{B1, CALLGRIND_NAMES_VARIABLE, NOT_RUN_YET, ROWS, UnderValgrind, build_command};
+use super::{
+    B1, CALLGRIND_NAMES_VARIABLE, FAMILIES, NOT_RUN_YET, ROWS, UnderValgrind, build_command,
+};
 
 /// The rows whose figure a benchmark reads outside Counted work: Callgrind's
 /// call counts of SQLite's prepare and of `CountedWork`'s constructor, its
@@ -136,4 +138,53 @@ fn the_optimized_build_gives_the_callgrind_names_to_its_readers_alone() {
         "the optimized build sets the variable"
     );
     assert!(!sets_variable(None), "the dev build does not");
+}
+
+/// Each family's harness, the example Cargo builds for its target, is one of
+/// the gate's own files by the workspace's Floor, so a family cannot be added
+/// outside that list (issue 2606).
+#[test]
+#[expect(
+    clippy::disallowed_methods,
+    reason = "a test of the workspace's own register; the blocking-fs ban targets async crates (STYLE.md)"
+)]
+fn every_family_harness_is_one_of_the_gates_own_files() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .unwrap()
+        .canonicalize()
+        .unwrap();
+    let testing = std::fs::read_to_string(root.join(crate::register::document::FILE)).unwrap();
+    let register = crate::floor_guard::register::read(&testing)
+        .unwrap()
+        .unwrap();
+    let packages = crate::metadata::packages(OsStr::new("cargo"), &root).unwrap();
+
+    let unlisted: Vec<String> = FAMILIES
+        .iter()
+        .map(|family| {
+            let package = packages
+                .iter()
+                .find(|package| package.name == family.package)
+                .unwrap();
+            let harness = package
+                .targets
+                .iter()
+                .find(|target| {
+                    target.name == family.target && target.kind.iter().any(|kind| kind == "example")
+                })
+                .unwrap();
+            harness
+                .src_path
+                .canonicalize()
+                .unwrap()
+                .strip_prefix(&root)
+                .unwrap()
+                .to_string_lossy()
+                .into_owned()
+        })
+        .filter(|harness| !register.is_gate_file(harness))
+        .collect();
+
+    assert_eq!(unlisted, Vec::<String>::new());
 }

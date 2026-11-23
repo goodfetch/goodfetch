@@ -14,7 +14,6 @@ use crate::workspace::{Outcome, Workspace, finding};
 const ISSUES: &str = "/repos/goodfetch/goodfetch/issues";
 const NEEDS_TRIAGE: &str =
     "/repos/goodfetch/goodfetch/issues?labels=needs-triage&state=all&per_page=100&page=1";
-const MILESTONES: &str = "/repos/goodfetch/goodfetch/milestones?state=open&per_page=100&page=1";
 
 const PULL_REQUEST: &str = ".github/workflows/pull-request.yml";
 const RELEASE_SUITE: &str = ".github/workflows/release-suite.yml";
@@ -82,10 +81,6 @@ fn release_runs(count: u64, minutes: impl Fn(u64) -> u64) -> Vec<Attempt> {
 fn github(issues: &str) -> GitHub {
     GitHub::serving(&[
         (NEEDS_TRIAGE, issues),
-        (
-            MILESTONES,
-            r#"[ { "number": 1, "open_issues": 3, "due_on": null } ]"#,
-        ),
         (&format!("POST {ISSUES}"), r#"{ "number": 41 }"#),
         (&format!("PATCH {ISSUES}/7"), r#"{ "number": 7 }"#),
     ])

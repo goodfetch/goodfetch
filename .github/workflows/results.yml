@@ -44,10 +44,14 @@ jobs:
       # The scan opens and reopens flaky-test and live-check issues, and the
       # budget check needs-triage ones.
       issues: write
+      # The scan finds the pull request that added a test (ADR 0136).
+      pull-requests: read
     steps:
       - name: Check out main's head
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          # The scan finds the commit that added a test in the whole history.
+          fetch-depth: 0
           persist-credentials: false
       - name: Check out the results store
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -87,10 +91,14 @@ jobs:
       actions: read
       contents: read
       issues: write
+      # The scan finds the pull request that added a test (ADR 0136).
+      pull-requests: read
     steps:
       - name: Check out main's head
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          # The scan finds the commit that added a test in the whole history.
+          fetch-depth: 0
           persist-credentials: false
       - name: Check out the results store
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

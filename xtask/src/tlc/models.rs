@@ -1,7 +1,10 @@
 //! The TLA+ models: each folder of `test-support/models/` holding a
 //! `model.toml`, which names the model's TLA+ module and the modules whose
 //! behaviour it describes, the ones it traces (ADR 0060). The folder also
-//! holds the model's TLC configurations, `small.cfg` and `large.cfg`.
+//! holds the model's TLC configurations, `small.cfg` and `large.cfg`. A
+//! model that validates traces names its trace spec, a module of its folder
+//! built on the template of [`TEMPLATE_FOLDER`] and checked with its
+//! `trace.cfg`, and the committed traces of real runs it validates.
 #![expect(
     clippy::disallowed_methods,
     reason = "xtask is synchronous; the blocking-fs ban targets async crates (STYLE.md)"
@@ -15,6 +18,10 @@ use serde::Deserialize;
 /// The models' folder, from the repository root.
 pub(crate) const MODELS_FOLDER: &str = "test-support/models";
 
+/// The trace-validation spec template's folder, from the repository root,
+/// which TLC reads as a library.
+pub(crate) const TEMPLATE_FOLDER: &str = "test-support/models/trace-validation";
+
 /// Each model's manifest, in its folder.
 const MANIFEST: &str = "model.toml";
 
@@ -23,6 +30,9 @@ const MANIFEST: &str = "model.toml";
 struct Manifest {
     spec: String,
     traces: Vec<String>,
+    trace_spec: Option<String>,
+    #[serde(default)]
+    trace_files: Vec<String>,
 }
 
 pub(crate) struct Model {
@@ -35,6 +45,20 @@ pub(crate) struct Model {
     /// The files and folders, from the repository root, of the modules it
     /// traces.
     pub(crate) traces: Vec<String>,
+    /// Its trace-validation spec, a file of its folder, when it validates
+    /// traces.
+    pub(crate) trace_spec: Option<String>,
+    /// The committed traces, from the repository root, that its trace spec
+    /// validates.
+    pub(crate) trace_files: Vec<String>,
+}
+
+/// Whether `spec` is a .tla file of the model's folder.
+fn is_module_of_folder(spec: &str) -> bool {
+    Path::new(spec)
+        .extension()
+        .is_some_and(|extension| extension == "tla")
+        && !spec.contains(['/', '\\'])
 }
 
 /// Every model, by name; none when the models' folder does not exist.
@@ -61,15 +85,23 @@ pub(crate) fn read(root: &Path) -> Result<Vec<Model>> {
         let manifest: Manifest = toml::from_str(&text)
             .with_context(|| format!("parsing {}", manifest_path.display()))?;
         let folder = format!("{MODELS_FOLDER}/{name}");
-        if Path::new(&manifest.spec)
-            .extension()
-            .is_none_or(|extension| extension != "tla")
-            || manifest.spec.contains(['/', '\\'])
+        if let Some(spec) = std::iter::once(&manifest.spec)
+            .chain(&manifest.trace_spec)
+            .find(|spec| !is_module_of_folder(spec))
         {
             bail!(
-                "{folder}/{MANIFEST}: the spec `{}` is not a .tla file of the model's folder",
-                manifest.spec
+                "{folder}/{MANIFEST}: the spec `{spec}` is not a .tla file of the model's folder"
             );
+        }
+        if manifest.trace_spec.is_none() && !manifest.trace_files.is_empty() {
+            bail!("{folder}/{MANIFEST}: `trace_files` needs a `trace_spec` to validate them");
+        }
+        if let Some(missing) = manifest
+            .trace_files
+            .iter()
+            .find(|file| !root.join(file).is_file())
+        {
+            bail!("{folder}/{MANIFEST}: the trace file `{missing}` does not exist");
         }
         let traces: Vec<String> = manifest
             .traces
@@ -88,6 +120,8 @@ pub(crate) fn read(root: &Path) -> Result<Vec<Model>> {
             folder,
             spec: manifest.spec,
             traces,
+            trace_spec: manifest.trace_spec,
+            trace_files: manifest.trace_files,
         });
     }
     models.sort_by(|left, right| left.name.cmp(&right.name));

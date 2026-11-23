@@ -2,7 +2,8 @@
 //! one Product version (ADR 0030) in every released manifest of both
 //! Products, in each registry's form, and in the lockfiles' entries for
 //! them: the Rust crates each Product publishes and the Collie client crate
-//! they build on, and the TypeScript and Python packages of each Product and
+//! they build on, which the workspace's manifest pins at exactly that
+//! version for both SDK crates (ADR 0095), and the TypeScript and Python packages of each Product and
 //! of the Collie client (ADRs 0090 and 0095). The internal `goodfetch-*`
 //! crates keep the workspace's `0.0.x` version, and the Zapier and Make apps,
 //! which their marketplaces version, are not among them.
@@ -24,14 +25,20 @@ use crate::environment::Environment;
 use crate::output;
 use crate::products;
 
+/// The Collie client crate's folder.
+const CLIENT_CRATE: &str = "crates/goodfetch-collie-client";
 /// Each released Rust crate's folder: each Product's executable crate,
 /// published as its Rust SDK (ADR 0090), and the Collie client crate both
 /// take (ADR 0095).
 const CRATES: [&str; 3] = [
     products::COLLIE.folder,
     products::FOXHOUND.folder,
-    "crates/goodfetch-collie-client",
+    CLIENT_CRATE,
 ];
+/// The workspace's manifest, whose `[workspace.dependencies]` entry pins
+/// the client crate at exactly the Product version for both SDK crates
+/// (ADR 0095).
+const CARGO_TOML: &str = "Cargo.toml";
 /// Each released package's folder under `sdks/typescript/` and
 /// `sdks/python/`.
 const PACKAGES: [&str; 3] = ["collie", "collie-client", "foxhound"];
@@ -166,14 +173,20 @@ fn prepare(root: &Path, version: &ProductVersion) -> Result<Vec<(String, String)
     let mut written = Vec::new();
 
     let mut crates = BTreeSet::new();
+    let mut client = String::new();
     for folder in CRATES {
         let path = format!("{folder}/Cargo.toml");
         let mut manifest = toml(root, &path)?;
         let package = table(manifest.as_table_mut(), "package", &path)?;
-        crates.insert(name(package, &path)?);
+        let crate_name = name(package, &path)?;
+        if folder == CLIENT_CRATE {
+            client.clone_from(&crate_name);
+        }
+        crates.insert(crate_name);
         set_string(package, "version", &semver);
         written.push((path, manifest.to_string()));
     }
+    written.push(pin_client(root, &client, &semver)?);
     written.push(lock(root, CARGO_LOCK, &crates, &semver, |entry| {
         !entry.contains_key("source")
     })?);
@@ -220,6 +233,28 @@ fn prepare(root: &Path, version: &ProductVersion) -> Result<Vec<(String, String)
     })?);
 
     Ok(written)
+}
+
+/// The workspace's manifest with its dependency on the client crate pinned
+/// at exactly `version`; an error when that dependency pins no version.
+fn pin_client(root: &Path, client: &str, version: &str) -> Result<(String, String)> {
+    let mut manifest = toml(root, CARGO_TOML)?;
+    let pin = manifest
+        .get_mut("workspace")
+        .and_then(Item::as_table_like_mut)
+        .and_then(|workspace| workspace.get_mut("dependencies"))
+        .and_then(Item::as_table_like_mut)
+        .and_then(|dependencies| dependencies.get_mut(client))
+        .and_then(Item::as_table_like_mut)
+        .and_then(|dependency| dependency.get_mut("version"))
+        .and_then(Item::as_value_mut)
+        .with_context(|| {
+            format!(
+                "{CARGO_TOML}'s [workspace.dependencies] pins no version of {client} (ADR 0095)"
+            )
+        })?;
+    replace_string(pin, &format!("={version}"));
+    Ok((CARGO_TOML.to_owned(), manifest.to_string()))
 }
 
 fn read(root: &Path, path: &str) -> Result<String> {

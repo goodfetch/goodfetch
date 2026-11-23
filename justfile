@@ -1131,17 +1131,11 @@ quick-steps:
     echo "just codegen-tests --local --since <base>"
 
 # Before `just merge` of a batch branch (AGENTS.md, Merging), in its
-# worktree: what the batch's combined tree can break that each pull
-# request's own `just quick` did not read (ci/batch-check.sh). The installs
-# of the locked JavaScript and Python dependencies, which the batch's fresh
-# worktree lacks, the checks of the whole change's commits against `base`,
-# the licence allowlist, the checks that read documents and the drift checks
-# (`just lint-drift`), the TypeScript and Python type checks over the
-# workspace (`just lint-types`), then Clippy, with `just lint`'s flags, over
-# the crates and the Quick suite over the members two or more of the batch's
-# branches reach.
-# Every step runs even after one failed, except that a failed install skips
-# the steps that read the installed packages.
+# worktree: the batch's one `just quick` (ci/batch-check.sh). A run's tickets
+# push to `spec/<n>` with no `just quick` of their own (TESTING.md, Checks by
+# role, the owner's decision of 2026-11-23), so the batch runs it once on the
+# combined tree, against `base`, after installing the locked JavaScript and
+# Python dependencies its fresh worktree lacks. A failed install skips it.
 batch-check base="origin/main":
     PATH="$(dirname "{{ just_executable() }}"):$PATH" ci/batch-check.sh {{ quote(base) }}
 
@@ -1855,9 +1849,14 @@ msrv:
     ci/msrv.sh
 
 # cargo-hack over every feature combination of each Product's SDK crate
-# (ADR 0087).
+# (ADR 0087), then the Rust SDK's test of a program without its
+# `opentelemetry` feature (ADR 0132): every other build of the crate's tests
+# takes the feature, so this one sets `--cfg goodfetch_without_opentelemetry`,
+# in a target folder of its own so that the other builds' stay fresh.
 feature-combinations:
     ci/tool.sh cargo-hack ci/feature-combinations.sh
+    RUSTFLAGS="${RUSTFLAGS:-} --cfg goodfetch_without_opentelemetry" CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-$PWD/target}/without-opentelemetry" \
+      cargo nextest run --locked --package goodfetch-collie --test it -E 'test(/^sdk::without_opentelemetry::/)'
 
 # Miri over the pure-Rust `unsafe` modules that opt in through ci/miri.toml
 # (STYLE.md, `unsafe`).

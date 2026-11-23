@@ -2816,10 +2816,19 @@ dependencies = [
  "toml 1.1.8+spec-1.1.0",
  "tower-service",
  "tracing",
- "trybuild",
  "url",
  "zip",
  "zstd",
+]
+
+[[package]]
+name = "goodfetch-foxhound-compile-fail"
+version = "0.0.0"
+dependencies = [
+ "goodfetch-foxhound",
+ "goodfetch-workspace-hack",
+ "serde",
+ "trybuild",
 ]
 
 [[package]]

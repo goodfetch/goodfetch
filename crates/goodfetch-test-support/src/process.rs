@@ -51,6 +51,7 @@ impl ProcessTracker {
 /// teardown before it is killed: one whose stop was asked, such as a Daemon
 /// whose `daemon stop` answered once it released its serving lock, may
 /// still be exiting.
+#[cfg(target_os = "linux")]
 const FROM_HOME_DEADLINE: Duration = Duration::from_secs(5);
 
 /// Kills every process running from `home`, its executable or its working
@@ -58,15 +59,16 @@ const FROM_HOME_DEADLINE: Duration = Duration::from_secs(5);
 /// and returns each one as `<program> (process <pid>, running from the
 /// home)`: a process test support did not start, so not in the record,
 /// such as the Daemon a CLI command starts in a process group of its own
-/// (issue 1797). Linux reads `/proc`; elsewhere it finds none.
+/// (issue 1797). It reads `/proc`, so it runs on Linux only.
+#[cfg(target_os = "linux")]
 #[expect(
     clippy::disallowed_methods,
     reason = "a test helper polls for processes outside any async worker (ADR 0062)"
 )]
 pub(crate) fn stop_running_from(home: &Path) -> Vec<String> {
-    let Ok(home) = home.canonicalize() else {
-        return Vec::new();
-    };
+    // `/proc` names each path resolved; a home that cannot be is searched
+    // as it is.
+    let home = home.canonicalize().unwrap_or_else(|_| home.to_owned());
     let mut running = running_from(&home);
     let mut waited = Duration::ZERO;
     while !running.is_empty() && waited < FROM_HOME_DEADLINE {
@@ -77,12 +79,17 @@ pub(crate) fn stop_running_from(home: &Path) -> Vec<String> {
     running
         .into_iter()
         .map(|(pid, program)| {
-            // Best effort: one that ended meanwhile needs no kill, and the
-            // test fails either way.
-            let _ = kill_by_id(pid);
+            // A failed kill is that of one that ended meanwhile; the test
+            // fails either way.
+            let _ = signal_process(pid, "KILL");
             format!("{program} (process {pid}, running from the home)")
         })
         .collect()
+}
+
+#[cfg(not(target_os = "linux"))]
+pub(crate) fn stop_running_from(_home: &Path) -> Vec<String> {
+    Vec::new()
 }
 
 /// Each live process whose executable or working folder lies in `home`,
@@ -119,27 +126,24 @@ fn running_from(home: &Path) -> Vec<(u32, String)> {
     running
 }
 
-#[cfg(not(target_os = "linux"))]
-fn running_from(_home: &Path) -> Vec<(u32, String)> {
-    Vec::new()
-}
-
-/// Kills the process `pid` through `kill -KILL`.
+/// Sends the process `pid` the signal `name` (`TERM`, `KILL`…) through
+/// `kill`.
 #[cfg(unix)]
 #[expect(
     clippy::disallowed_methods,
     reason = "a test helper's blocking `kill`, run outside any async worker (ADR 0062)"
 )]
-fn kill_by_id(pid: u32) -> io::Result<()> {
-    std::process::Command::new("kill")
-        .args(["-KILL", &pid.to_string()])
-        .status()
-        .map(drop)
-}
-
-#[cfg(not(unix))]
-fn kill_by_id(_pid: u32) -> io::Result<()> {
-    Ok(())
+fn signal_process(pid: u32, name: &str) -> io::Result<()> {
+    let status = std::process::Command::new("kill")
+        .args([format!("-{name}").as_str(), &pid.to_string()])
+        .status()?;
+    if status.success() {
+        Ok(())
+    } else {
+        Err(io::Error::other(format!(
+            "`kill -{name} {pid}` failed: {status}"
+        )))
+    }
 }
 
 /// A process a test started, which its `TestEnv` checks at teardown.
@@ -273,22 +277,9 @@ impl Process {
     }
 
     #[cfg(unix)]
-    #[expect(
-        clippy::disallowed_methods,
-        reason = "a test helper's blocking `kill`, run outside any async worker (ADR 0062)"
-    )]
     fn signal(&self, name: &str) -> io::Result<()> {
-        let pid = self.child().id().to_string();
-        let status = std::process::Command::new("kill")
-            .args([format!("-{name}").as_str(), &pid])
-            .status()?;
-        if status.success() {
-            Ok(())
-        } else {
-            Err(io::Error::other(format!(
-                "`kill -{name} {pid}` failed: {status}"
-            )))
-        }
+        let pid = self.child().id();
+        signal_process(pid, name)
     }
 }
 
@@ -311,7 +302,7 @@ impl fmt::Display for ProcessesAlive {
 }
 
 /// How often [`Process::wait_within`] looks at whether its process has
-/// exited.
+/// exited, and the teardown at whether a process still runs from the home.
 const STOP_POLL: Duration = Duration::from_millis(10);
 
 /// How long `reported_address` waits for the first line.

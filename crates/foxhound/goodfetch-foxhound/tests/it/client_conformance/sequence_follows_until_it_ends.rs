@@ -8,14 +8,14 @@ use goodfetch_test_support::{ProvingGround, TestEnv, cli};
 use serde_json::json;
 
 use crate::client_conformance::FOXHOUND;
-use crate::crawl_commands::{crawl_start, serve_the_home, settings_file, short_idle};
+use crate::crawl_commands::{crawl_start, settings_file, short_idle, start_home_daemon};
 
 /// Covers: story:11-198, story:11-1131, command:run.records
 #[test]
 fn attached() {
     let env = TestEnv::new();
     short_idle(&env);
-    let _daemon = serve_the_home(&env);
+    let _daemon = start_home_daemon(&env);
     let proving_ground = ProvingGround::start(&env, 1512).unwrap();
     let settings = settings_file(&env, &proving_ground);
     let index = proving_ground.start_url("extraction/7").unwrap();

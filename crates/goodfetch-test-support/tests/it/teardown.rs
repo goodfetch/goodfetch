@@ -204,13 +204,17 @@ fn a_process_left_running_from_the_home_is_stopped_and_fails_the_teardown() {
     );
 }
 
-/// A test that asks for the check and leaves nothing running from its home
-/// passes its teardown.
+/// A test that asks for the check, and whose process that ran from its home
+/// ended, passes its teardown.
 #[cfg(target_os = "linux")]
 #[test]
 fn a_home_nothing_runs_from_passes_the_teardown() {
     let env = TestEnv::new();
     env.fail_on_processes_from_home();
+    let mut command = env.process_command("/bin/sh");
+    command.args(["-c", "exit 0"]).current_dir(env.home());
+    let ended = env.spawn(&mut command).unwrap();
+    assert!(ended.close_stdin_and_wait().unwrap().success());
 
     let teardown = catch_unwind(AssertUnwindSafe(|| drop(env)));
 

@@ -6,7 +6,8 @@
 //! in-memory one an engine in the same process serves (ADR 0060). The
 //! Connection takes its runtime as a value, and [`Call`] and [`Query`] are
 //! the builders every call goes through (ADR 0081). A [`Run`] is what a
-//! Connection starts; it and the handles it opens, [`Session`], [`Page`]
+//! Connection starts, or a [`HandlerlessStart`] starts with no handler in
+//! the program; it and the handles it opens, [`Session`], [`Page`]
 //! and [`Locator`], have the members the catalog gives them, one form per
 //! declared kind (ADR 0099), and [`blocking`] repeats the API for a
 //! program that does not use async. [`file_saving`] writes a file to the
@@ -33,6 +34,7 @@ mod field_values;
 pub mod file_saving;
 mod generated;
 mod handler;
+mod handlerless;
 mod host;
 mod limits;
 mod line;
@@ -66,6 +68,7 @@ pub use generated::events;
 pub use generated::handles::{Locator, Page, Run, Session, WebSocket, WebSocketEvent};
 pub use goodfetch_protocol::error_code::{ErrorCode, ErrorDetails};
 pub use handler::{HandlerCall, HandlerRequests};
+pub use handlerless::HandlerlessStart;
 pub use limits::{Limits, Money, MoneyError, UsageKind};
 pub use listener_queue::ListenerQueue;
 pub use raw_call::RawCall;

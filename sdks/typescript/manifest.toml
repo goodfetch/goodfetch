@@ -70,7 +70,6 @@ package = "@goodfetch/collie"
 receiver = "Collie"
 member = "startRecipe"
 entry = "recipe.start"
-only = "Issue 3396's Rust part adds it."
 words = ["start", "recipe"]
 form = "opener"
 
@@ -79,7 +78,6 @@ package = "@goodfetch/collie"
 receiver = "Collie"
 member = "startCatalogRun"
 entry = "catalog_run.start"
-only = "Issue 3396's Rust part adds it."
 words = ["start", "catalog", "run"]
 form = "opener"
 
@@ -150,7 +148,6 @@ package = "@goodfetch/foxhound"
 receiver = "Foxhound"
 member = "startRecipe"
 entry = "recipe.start"
-only = "Issue 3396's Rust part adds it."
 words = ["start", "recipe"]
 form = "opener"
 
@@ -159,7 +156,6 @@ package = "@goodfetch/foxhound"
 receiver = "Foxhound"
 member = "startCatalogRun"
 entry = "catalog_run.start"
-only = "Issue 3396's Rust part adds it."
 words = ["start", "catalog", "run"]
 form = "opener"
 
@@ -346,7 +342,6 @@ package = "@goodfetch/collie-client"
 receiver = "Connection"
 member = "startRecipe"
 entry = "recipe.start"
-only = "Issue 3396's Rust part adds it."
 words = ["start", "recipe"]
 form = "opener"
 
@@ -355,7 +350,6 @@ package = "@goodfetch/collie-client"
 receiver = "Connection"
 member = "startCatalogRun"
 entry = "catalog_run.start"
-only = "Issue 3396's Rust part adds it."
 words = ["start", "catalog", "run"]
 form = "opener"
 
@@ -1223,7 +1217,7 @@ receiver = "(module)"
 member = "HandlerlessStartOptions"
 entry = "none"
 reason = "What starting a handler-less Run takes (ADR 0102), shaped by the SDK around the params `recipe.start` and `catalog_run.start` share."
-only = "Python takes the options as keyword arguments; issue 3396's Rust part adds its own."
+only = "Python takes the options as keyword arguments, and Rust's start is a builder (`HandlerlessStart`)."
 words = ["handlerless", "start", "options"]
 form = "type"
 
@@ -2558,7 +2552,7 @@ receiver = "(module)"
 member = "FoxhoundHandlerlessStartOptions"
 entry = "none"
 reason = "What starting a handler-less Run takes, with Foxhound's Limits."
-only = "Python takes the options as keyword arguments; issue 3396's Rust part adds its own."
+only = "Python takes the options as keyword arguments, and Rust's start is a builder (`HandlerlessStart`)."
 words = ["foxhound", "handlerless", "start", "options"]
 form = "type"
 

@@ -61,22 +61,26 @@
 # calls in flight are sent again, a stream's after the last item read, as
 # the catalog classes them (ADR 0079); `connection` sets it up and `rpc`
 # applies it.
+# `handlerless` builds the starts that take no handler, `start_recipe` and
+# `start_catalog_run`, and the Run it leaves, detached when asked (issue
+# 3396), through `call`'s builder.
 [modules]
 ai_work = ["error"]
 answer = []
-blocking = ["answer", "call", "connection", "error", "event_stream", "field_values", "generated", "limits", "raw_call", "response", "run", "settings"]
+blocking = ["answer", "call", "connection", "error", "event_stream", "field_values", "generated", "handlerless", "limits", "raw_call", "response", "run", "settings"]
 call = ["error", "rpc", "trace_context"]
 call_bounds = ["error"]
 connect_timeout = ["call", "error"]
 connection = ["call", "call_bounds", "connect_timeout", "error", "event_stream", "file_saving", "handler", "listener_queue", "logging", "published", "raw_call", "relink", "rpc", "sync", "trace_context", "transport"]
-connection_type = ["call", "error", "raw_call", "run"]
+connection_type = ["call", "error", "handlerless", "raw_call", "run"]
 error = []
 event_stream = ["error", "published", "rpc", "sync", "trace_context"]
 field_values = ["answer", "call", "error"]
 file_saving = ["error"]
 generated = ["answer", "call", "event_stream", "host", "markers", "response", "settings"]
 handler = ["error", "line", "opening_process", "sync", "write_queue"]
-host = ["call", "connection", "error", "event_stream", "published", "raw_call", "sync"]
+handlerless = ["call", "connection", "error", "generated", "limits", "markers", "settings"]
+host =["call", "connection", "error", "event_stream", "published", "raw_call", "sync"]
 limits = []
 line = []
 listener_queue = ["error"]

@@ -70,6 +70,22 @@ form = "opener"
 [[member]]
 crate = "goodfetch-collie"
 receiver = "Collie"
+member = "start_recipe"
+entry = "recipe.start"
+words = ["start", "recipe"]
+form = "opener"
+
+[[member]]
+crate = "goodfetch-collie"
+receiver = "Collie"
+member = "start_catalog_run"
+entry = "catalog_run.start"
+words = ["start", "catalog", "run"]
+form = "opener"
+
+[[member]]
+crate = "goodfetch-collie"
+receiver = "Collie"
 member = "explain_settings"
 entry = "config.explain"
 words = ["explain", "settings"]
@@ -285,6 +301,22 @@ receiver = "blocking::Collie"
 member = "start"
 entry = "run.start"
 words = ["start"]
+form = "opener"
+
+[[member]]
+crate = "goodfetch-collie"
+receiver = "blocking::Collie"
+member = "start_recipe"
+entry = "recipe.start"
+words = ["start", "recipe"]
+form = "opener"
+
+[[member]]
+crate = "goodfetch-collie"
+receiver = "blocking::Collie"
+member = "start_catalog_run"
+entry = "catalog_run.start"
+words = ["start", "catalog", "run"]
 form = "opener"
 
 [[member]]

@@ -1,5 +1,0 @@
-# actionlint, run on every pull request by `just lint`.
-self-hosted-runner:
-  # The owner's machine (ADR 0108); every job naming it is on
-  # .github/self-hosted-allowlist.toml.
-  labels: [owner-machine]

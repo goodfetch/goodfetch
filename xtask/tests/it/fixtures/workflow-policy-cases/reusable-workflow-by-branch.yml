@@ -1,0 +1,6 @@
+name: extra
+on: push
+permissions: {}
+jobs:
+  build:
+    uses: goodfetch/workflows/.github/workflows/check.yml@main

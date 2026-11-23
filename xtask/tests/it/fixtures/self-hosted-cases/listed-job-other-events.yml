@@ -1,9 +1,0 @@
-name: pull request
-on: [pull_request, workflow_dispatch]
-permissions: {}
-jobs:
-  quick:
-    if: github.event.pull_request.head.repo.full_name == github.repository
-    runs-on: [self-hosted, owner-machine]
-    steps:
-      - run: just quick all

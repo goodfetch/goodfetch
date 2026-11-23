@@ -76,7 +76,7 @@ const fn read_by(path: &'static str, steps: &'static [Step]) -> Narrowed {
 /// recipe or script names such a file with a root-relative path. A step that
 /// reads one any other way, by a sibling's relative path or from xtask's code,
 /// is out of the guard's sight, so naming a folder here rests on what it holds.
-const NARROWED: [Narrowed; 47] = [
+const NARROWED: [Narrowed; 44] = [
     // xtask's own tests, with their fixtures. `just linux` runs some of them
     // on a host that is not Linux (ci/linux.sh).
     Narrowed {
@@ -140,9 +140,6 @@ const NARROWED: [Narrowed; 47] = [
     read_by("ci/quick.sh", &[]),
     read_by("ci/results", &[]),
     read_by("ci/release", &[]),
-    read_by("ci/runner/install.sh", &[]),
-    read_by("ci/runner/pre-job.sh", &[]),
-    read_by("ci/runner/post-job.sh", &[]),
     read_by("ci/stop-format.sh", &[]),
     read_by("ci/v8-corruption.sh", &[]),
     read_by("ci/junit-summary.sh", &[]),

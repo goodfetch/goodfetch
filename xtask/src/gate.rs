@@ -150,6 +150,10 @@ pub(crate) enum Command {
         /// The folder of the gate's records.
         #[arg(long)]
         records: std::path::PathBuf,
+        /// The folder of the hosted runs' records that `ci/hosted-records.sh`
+        /// downloaded for `just merge`, whose units count as run there.
+        #[arg(long)]
+        hosted_records: Option<std::path::PathBuf>,
     },
     /// Fails when a hosted run's Pre-merge shards did not run the archive's
     /// listing of the plan's members, each test once, or left a snapshot of
@@ -243,8 +247,12 @@ pub(crate) fn run(command: Command, environment: &Environment) -> Result<ExitCod
             let runs = runs.map_or_else(|| records.clone(), |runs| environment.path(&runs));
             return compare::compare(root, &records, &runs, &full, since.as_deref());
         }
-        Command::Duplicates { records } => {
-            return duplicates::check(&environment.path(&records));
+        Command::Duplicates {
+            records,
+            hosted_records,
+        } => {
+            let hosted = hosted_records.map(|folder| environment.path(&folder));
+            return duplicates::check(&environment.path(&records), hosted.as_deref());
         }
         Command::Shards(arguments) => return shards::run(&arguments, environment),
         Command::Quick { command } => return quick_runs::run(command, environment),

@@ -2254,8 +2254,13 @@ _gate-compare full runs since="":
 # The duplicate-run check (ADR 0135's amendment of 2026-11-22): fails, naming
 # both layers, on each unit a run in the gate's records (ci/gate-records.sh)
 # ran, not reused, on a tree where an earlier run had recorded it green.
-duplicate-runs:
-    cargo run --quiet --locked --bin xtask -- gate duplicates --records "$(ci/gate-records.sh)"
+# `hosted`, a folder of hosted runs' records that `ci/hosted-records.sh`
+# downloaded (`just merge` keeps them in its gate worktree's
+# `target/hosted-records`), adds their runs, so a unit the gate ran after a
+# hosted job had run it green is found too (spec #3373).
+duplicate-runs hosted="":
+    cargo run --quiet --locked --bin xtask -- gate duplicates --records "$(ci/gate-records.sh)" \
+      {{ if hosted == "" { "" } else { "--hosted-records " + quote(hosted) } }}
 
 # Starts and checks the real OS services the tests use (ci/os-services.sh),
 # which `just pre-merge` runs first on a Linux host.

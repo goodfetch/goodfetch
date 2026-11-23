@@ -906,12 +906,13 @@ fn a_result_that_names_no_known_layer_is_an_error(#[case] text: &str) {
 
 /// The checks a run on the tree of their green result reuses (the codegen
 /// tests too, which the full form's Pre-merge suite covers).
-const TREE_ONLY: [Step; 5] = [
+const TREE_ONLY: [Step; 6] = [
     Step::Lint,
     Step::FeatureCombinations,
     Step::FuzzCheck,
     Step::Proofs,
     Step::JourneysTasks,
+    Step::FeaturesTests,
 ];
 
 #[test]
@@ -938,7 +939,6 @@ fn a_run_on_the_same_tree_reuses_the_checks_that_follow_from_the_tree_and_the_ho
             "commit-leaks",
             "audit",
             "notices",
-            "features-tests",
         ])
     );
     assert!(part.is_empty());
@@ -1167,9 +1167,10 @@ const BESIDE_STEPS: [&str; 8] = [
 
 /// Each entry's owning layer, as the spec's table of owning layers sets it
 /// (spec #3373): `just merge` judges the change in seconds, the gate host
-/// keeps what a noisy runner would move, and the hosted tier owns the rest.
-/// A command of a form's list is part of a hosted step: the documents' lint
-/// is lint's.
+/// keeps what a noisy runner would move, and the hosted tier owns the rest
+/// but the Linux-only tests, which the Pre-merge suite runs on a Linux
+/// runner. A command of a form's list is part of a hosted step: the
+/// documents' lint is lint's.
 #[rstest]
 #[case::all(Form::All)]
 #[case::quick(Form::Quick)]
@@ -1177,7 +1178,6 @@ const BESIDE_STEPS: [&str; 8] = [
 #[case::docs(Form::Docs)]
 #[case::preflight(Form::Preflight)]
 fn each_entry_has_the_owner_the_table_of_owning_layers_names(#[case] form: Form) {
-    const LOCAL: [&str; 6] = WHOLE_CHANGE_STEPS;
     const GATE_HOST: [&str; 3] = ["perf", "counts", "stress"];
     let owners: Vec<(&str, Owner)> = entries(form)
         .iter()
@@ -1186,7 +1186,7 @@ fn each_entry_has_the_owner_the_table_of_owning_layers_names(#[case] form: Form)
     let expected: Vec<(&str, Owner)> = owners
         .iter()
         .map(|(name, _)| {
-            let owner = if LOCAL.contains(name) {
+            let owner = if WHOLE_CHANGE_STEPS.contains(name) || *name == "linux" {
                 Owner::Local
             } else if GATE_HOST.contains(name) {
                 Owner::GateHost

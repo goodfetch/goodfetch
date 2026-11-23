@@ -26,6 +26,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 
+use goodfetch_protocol::catalog::ProtocolVersion;
 use goodfetch_protocol::connection::ProductVersion;
 use goodfetch_protocol::formats::RUN_INDEX;
 use goodfetch_protocol::run::{Completeness, Lifecycle, Presence, RunId, RunIndexRow, Verdict};
@@ -736,15 +737,15 @@ fn row_of(row: &Row<'_>) -> rusqlite::Result<RunIndexRow> {
     })
 }
 
-/// The lowest minor the Run index at `path` records (ADR 0098), read
-/// without opening it for writes; none when it is not there or cannot be
-/// read. It blocks: run it under a blocking policy.
+/// The format version and lowest minor the Run index at `path` records
+/// (ADR 0098), read without opening it for writes; none when it is not
+/// there or cannot be read. It blocks: run it under a blocking policy.
 ///
 /// It opens the file for this one read rather than through a [`RunIndex`]
 /// (#1886): the Daemon's pick of an executable asks it, before any engine
 /// runs or while none is in the process, and it must see a marker another
 /// engine raised since, which no connection kept for later could promise.
-pub(crate) fn lowest_minor(path: &Path) -> Option<u16> {
+pub(crate) fn marker(path: &Path) -> Option<(ProtocolVersion, u16)> {
     if !path.is_file() {
         return None;
     }
@@ -752,7 +753,7 @@ pub(crate) fn lowest_minor(path: &Path) -> Option<u16> {
     lowest_minor::read_sqlite(&connection, RUN_INDEX.name)
         .ok()
         .flatten()
-        .map(|marker| marker.lowest_minor)
+        .map(|marker| (marker.version, marker.lowest_minor))
 }
 
 /// A domain whose consent wall the Runs met, as the Run index keeps it.

@@ -397,6 +397,9 @@ thiserror = { version = "2.0.21", default-features = false, features = ["std"] }
 time = { version = "0.3.55", default-features = false, features = ["std"] }
 tokio = { version = "1.53.3", default-features = false }
 tokio-util = { version = "0.7.20", default-features = false }
+# The Simulation's hosts and network (ADR 0060), pinned to one version: its
+# main branch is splitting into crates and warns that its API will change.
+turmoil = { version = "=0.7.2", default-features = false }
 # The HTTP fetch tier's mark on each connection reqwest opens, which tells
 # a reused connection from a new one (ADR 0118): tower's two traits alone.
 tower-layer = { version = "0.3.3", default-features = false }

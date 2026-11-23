@@ -122,7 +122,7 @@ fn a_test_runs_its_code_on_the_test_engine_s_connection_and_close_removes_its_ho
 /// The Testing-kit case beside a Daemon: the Daemon of the caller's home
 /// answers `connect()`, and the test engine links its own engine in its
 /// own home, never reaching that Daemon.
-/// Covers: story:11-157, story:11-169
+/// Covers: story:11-157, story:11-168
 #[test]
 fn the_code_under_test_runs_unchanged_on_a_daemon_and_on_the_test_engine() {
     let _case = ClientCaseRun::start(

@@ -840,5 +840,5 @@ name = "testing-kit"
 # the sync `TestEngine`).
 [[capability.case]]
 id = "test-engine-runs-the-code-under-test"
-covers = ["story:11-156", "story:11-157", "story:11-168", "story:11-169"]
+covers = ["story:11-156", "story:11-157", "story:11-168"]
 surfaces = ["sdk-typescript", "sdk-python", "sdk-rust"]

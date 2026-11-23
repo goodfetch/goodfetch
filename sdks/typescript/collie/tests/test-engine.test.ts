@@ -164,7 +164,7 @@ describe("a test engine", () => {
           "client_case/test-engine-runs-the-code-under-test",
           "daemon",
           "story:11-157",
-          "story:11-169",
+          "story:11-168",
         ],
       },
       async ({ env, testEnv, daemon, clientCase }) => {

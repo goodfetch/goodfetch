@@ -55,6 +55,13 @@ CASE = "test-engine-runs-the-code-under-test"
 PROGRAMS = Path(__file__).parents[1] / "programs"
 """The folder of the programs the tests run, the kit's sample tests among them."""
 
+OWN_CONNECTION_TYPE: dict[Way, type[AsyncCollie | Collie]] = {
+    Way.ASYNCIO: AsyncCollie,
+    Way.TRIO: AsyncCollie,
+    Way.SYNC: Collie,
+}
+"""The Product's own connection type a test engine's `connection` is, each way."""
+
 SAMPLE_DEADLINE_SECONDS = 120.0
 """How long a runner may take over the kit's sample tests, their engines included."""
 
@@ -142,7 +149,7 @@ async def test_a_test_runs_its_code_on_the_connection_and_close_removes_its_home
     await engine.close()
 
     with client_case.check("engine.connection is the Product's own connection type"):
-        assert own_type is (Collie if way is Way.SYNC else AsyncCollie)
+        assert own_type is OWN_CONNECTION_TYPE[way]
     with client_case.check("the code under test finishes a Run on engine.connection"):
         assert lifecycle == "finished"
     with client_case.check(
@@ -155,9 +162,9 @@ async def test_a_test_runs_its_code_on_the_connection_and_close_removes_its_home
         ), home
 
 
-@pytest.mark.covers("story:11-157", "story:11-169")
+@pytest.mark.covers("story:11-157", "story:11-168")
 @pytest.mark.client_case(id=CASE, mode="daemon")
-@pytest.mark.parametrize("with_daemon", [True])
+@pytest.mark.parametrize("with_daemon", [True], ids=["with-daemon"])
 @three_ways
 async def test_the_code_under_test_runs_unchanged_on_a_daemon_and_on_the_test_engine(
     way: Way, env: Mapping[str, str], client_case: ClientCaseRecord
@@ -165,7 +172,7 @@ async def test_the_code_under_test_runs_unchanged_on_a_daemon_and_on_the_test_en
     """The Daemon in the caller's home answers `connect()`, never the test engine."""
     collie = await open_collie(way, env, engine="daemon")
     on_the_daemon = await finished(collie)
-    daemon = collie.engine
+    reached_daemon = collie.engine
     await collie.close()
     engine = await start(way, env)
     connection = connection_of(way, engine)
@@ -182,7 +189,7 @@ async def test_the_code_under_test_runs_unchanged_on_a_daemon_and_on_the_test_en
         "the test engine reaches its own Attached engine in its own home, never "
         "the Daemon of the caller's"
     ):
-        assert (daemon.kind, reached.kind) == ("daemon", "attached")
+        assert (reached_daemon.kind, reached.kind) == ("daemon", "attached")
         assert reached.home is not None
         assert Path(reached.home) != Path(env["GOODFETCH_HOME"])
 

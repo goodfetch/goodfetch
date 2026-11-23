@@ -587,8 +587,9 @@ async fn deliver(
 
 /// Sets the crawl's live parts of its Run's progress (ADR 0102) as its
 /// `servers` stand, given whether it stops, whether a serving Connection
-/// has room and whether the governor starves it, and its count in
-/// `goodfetch.work_item.queued` as its admission's queues stand.
+/// has room and whether the governor starves it, with its admission's rate
+/// cap, and its count in `goodfetch.work_item.queued` as its admission's
+/// queues stand.
 fn show(
     run: &Run,
     (admission, count): (&mut Admission, &mut Level),
@@ -598,9 +599,10 @@ fn show(
 ) {
     let serving = servers.iter_mut().any(Serving::serves);
     let handlers = servers.iter().map(|server| server.in_flight).sum();
-    let room = progress::room(stopping || !serving, free, starved);
-    let concurrency = policy.handler_concurrency;
     let now = run.clock().now();
+    let rate = admission.rate_held(now);
+    let room = progress::room(stopping || !serving, free, starved, rate);
+    let concurrency = policy.handler_concurrency;
     let queued = admission.queued(now, HELD_DOMAINS);
     count.set(admission.waiting());
     progress::show(run, (&queued, now), resolved, room, (handlers, concurrency));

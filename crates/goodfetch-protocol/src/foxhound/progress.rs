@@ -50,6 +50,10 @@ pub const POLITENESS_FILE: &str = "politeness_file";
 pub const ROBOTS_TXT: &str = "robots_txt";
 /// The reason `crawl.handler.concurrency` handlers already run.
 pub const HANDLER_CONCURRENCY: &str = "handler_concurrency";
+/// The reason `admission.max_requests_per_minute` holds the due requests
+/// no domain holds: the Run's rate cap admits none before its next
+/// admission.
+pub const RATE_CAP: &str = "rate_cap";
 /// The reason the Resource governor admits nothing new (ADR 0040).
 pub const GOVERNOR: &str = "governor";
 /// The reason a request waits for a Session of the pool, such as one

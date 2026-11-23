@@ -26,7 +26,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use goodfetch_counted_work::{CountedWork, Row};
-use goodfetch_engine::admission::{Held, QueuedGroup};
+use goodfetch_engine::admission::{Held, QueuedGroup, RateHeld};
 use goodfetch_engine::run_state::run_row;
 use goodfetch_engine::runs::{PartValue, ProgressPart, Run, TypedPart, TypedParts};
 use goodfetch_engine::settings::Resolved;
@@ -35,8 +35,8 @@ use goodfetch_protocol::foxhound::crawl::CRAWL_HANDLER_CONCURRENCY;
 use goodfetch_protocol::foxhound::outcomes::OutcomeKind;
 use goodfetch_protocol::foxhound::progress::{
     BACKOFF, CrawlConcurrency, DOMAIN_CONCURRENCY, DOMAIN_DELAY, GOVERNOR, HANDLER_CONCURRENCY,
-    HELD_DOMAINS, HeldDomain, InFlightPhase, InFlightRequest, POLITENESS_FILE, RequestProgress,
-    WaitGroup,
+    HELD_DOMAINS, HeldDomain, InFlightPhase, InFlightRequest, POLITENESS_FILE, RATE_CAP,
+    RequestProgress, WaitGroup,
 };
 use goodfetch_protocol::foxhound::report::{CountOf, SitemapReport};
 use goodfetch_protocol::foxhound::settings::{
@@ -44,7 +44,7 @@ use goodfetch_protocol::foxhound::settings::{
     POLITENESS_RETRY_AFTER_MAX,
 };
 use goodfetch_protocol::run::{RunKind, RunProgress};
-use goodfetch_protocol::settings::SettingLimit;
+use goodfetch_protocol::settings::{ADMISSION_MAX_REQUESTS_PER_MINUTE, SettingLimit};
 use rusqlite::Connection;
 use serde_json::Value;
 use tokio::time::Instant;
@@ -76,20 +76,27 @@ pub(crate) enum Room {
     Full,
     /// The Resource governor admits nothing new (ADR 0040).
     Starved,
+    /// The Run's rate cap, `admission.max_requests_per_minute`, admits
+    /// nothing before this moment; none for a cap of 0, which admits
+    /// nothing.
+    RateCapped(Option<Instant>),
     /// Nothing goes: the Run stops, or no Connection serves it.
     None,
 }
 
 /// Whether the due requests no domain holds may go: none while the Run
 /// stops or no Connection serves it (`held`), else as the serving
-/// Connections' room (`free`) and the governor (`starved`) say.
-pub(crate) fn room(held: bool, free: bool, starved: bool) -> Room {
+/// Connections' room (`free`), the governor (`starved`) and the Run's rate
+/// cap (`rate`) say.
+pub(crate) fn room(held: bool, free: bool, starved: bool, rate: Option<RateHeld>) -> Room {
     if held {
         Room::None
     } else if !free {
         Room::Full
     } else if starved {
         Room::Starved
+    } else if let Some(rate) = rate {
+        Room::RateCapped(rate.until)
     } else {
         Room::Free
     }
@@ -125,6 +132,9 @@ pub(crate) fn show_waits(
     let mut groups: BTreeMap<&'static str, WaitGroup> = BTreeMap::new();
     for queued in queued {
         let first_until = queued.sample.first().and_then(|(_, until)| *until);
+        // The rate cap holds every domain the gate would admit until its
+        // one next admission.
+        let mut rate_until = None;
         let (reason, setting) = match queued.held {
             Some(Held::Concurrency) => (
                 DOMAIN_CONCURRENCY,
@@ -139,6 +149,13 @@ pub(crate) fn show_waits(
                     setting(resolved, &CRAWL_HANDLER_CONCURRENCY),
                 ),
                 Room::Starved => (GOVERNOR, None),
+                Room::RateCapped(until) => {
+                    rate_until = Some(until);
+                    (
+                        RATE_CAP,
+                        setting(resolved, &ADMISSION_MAX_REQUESTS_PER_MINUTE),
+                    )
+                }
                 Room::Free | Room::None => continue,
             },
         };
@@ -148,7 +165,8 @@ pub(crate) fn show_waits(
             .take(HELD_DOMAINS)
             .map(|(domain, until)| HeldDomain {
                 domain: domain.clone(),
-                next_admitted_at: until
+                next_admitted_at: rate_until
+                    .unwrap_or(*until)
                     .map(|until| run.point_in_time_after(until.saturating_duration_since(now))),
             })
             .collect();

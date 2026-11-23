@@ -1,4 +1,4 @@
-name: off the list
+name: extra
 on: push
 permissions: {}
 jobs:
@@ -7,7 +7,7 @@ jobs:
       matrix:
         runner: [ubuntu-24.04]
         include:
-          - runner: [self-hosted, ARM64]
+          - runner: macos-15-xlarge
     runs-on: ${{ matrix.runner }}
     steps:
-      - run: echo off the list
+      - run: echo larger

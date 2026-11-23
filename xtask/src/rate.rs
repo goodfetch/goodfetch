@@ -32,10 +32,7 @@ impl Rate {
             .map(|label| label.to_ascii_lowercase())
             .collect();
         let has = |prefix: &str| lowered.iter().any(|label| label.starts_with(prefix));
-        if lowered
-            .iter()
-            .any(|label| label == "self-hosted" || label == "owner-machine")
-        {
+        if lowered.iter().any(|label| label == "self-hosted") {
             None
         } else if has("ubuntu") {
             Some(Self::Linux)
@@ -74,6 +71,12 @@ const STANDARD_LABELS: [&str; 20] = [
     "xcode-27",
 ];
 
+/// Whether `label` names one of GitHub's standard hosted runners, compared
+/// without case as GitHub does.
+pub(crate) fn is_standard_label(label: &str) -> bool {
+    STANDARD_LABELS.contains(&label.to_ascii_lowercase().as_str())
+}
+
 /// Whether a hosted runner is one of GitHub's standard runners or a larger
 /// runner.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -103,10 +106,7 @@ impl Hosted {
     /// standard runner's.
     pub(crate) fn of_labels(labels: &[String]) -> Option<Self> {
         let rate = Rate::of_labels(labels)?;
-        let standard = !labels.is_empty()
-            && labels
-                .iter()
-                .all(|label| STANDARD_LABELS.contains(&label.to_ascii_lowercase().as_str()));
+        let standard = !labels.is_empty() && labels.iter().all(|label| is_standard_label(label));
         Some(Self {
             rate,
             size: if standard {
@@ -156,7 +156,7 @@ mod tests {
     #[case::macos_intel(&["macos-15-intel"], Some((Rate::Macos, Size::Standard)))]
     #[case::named_larger_runner(&["ubuntu-24.04-16core"], Some((Rate::Linux, Size::Larger)))]
     #[case::macos_larger_runner(&["macos-15-xlarge"], Some((Rate::Macos, Size::Larger)))]
-    #[case::self_hosted(&["self-hosted", "owner-machine"], None)]
+    #[case::self_hosted(&["self-hosted", "macOS"], None)]
     fn a_jobs_labels_give_its_runners_rate_and_size(
         #[case] job: &[&str],
         #[case] hosted: Option<(Rate, Size)>,

@@ -17,7 +17,8 @@ use std::path::PathBuf;
 
 use goodfetch_protocol::home::RUNS;
 use goodfetch_test_support::{
-    CliOutput, Mode, SnapshotValues, TestEnv, assert_cli_snapshot, cli, snapshot_settings,
+    CliOutput, Mode, SnapshotValues, TestEnv, assert_cli_snapshot, cli, record_command,
+    snapshot_settings,
 };
 use rstest::rstest;
 use serde_json::{Value, json};
@@ -398,17 +399,18 @@ fn events_subscribe_follow_prints_a_runs_progress_as_one_json_object_per_line() 
 
     let env = TestEnv::new();
     let _stops = crate::daemon::StopsTheDaemon::of(&env, COLLIE);
+    let arguments = [
+        "events",
+        "subscribe",
+        "--after",
+        r#"{"engine_instance":"another-engine","position":100}"#,
+        "--follow",
+        "--json",
+        "--daemon",
+    ];
     let mut command = env.process_command(COLLIE);
     command
-        .args([
-            "events",
-            "subscribe",
-            "--after",
-            r#"{"engine_instance":"another-engine","position":100}"#,
-            "--follow",
-            "--json",
-            "--daemon",
-        ])
+        .args(arguments)
         .stdout(Stdio::piped())
         .stderr(Stdio::null());
     let process = env.spawn(&mut command).unwrap();
@@ -438,7 +440,8 @@ fn events_subscribe_follow_prints_a_runs_progress_as_one_json_object_per_line() 
         }
     }
     process.terminate().unwrap();
-    let _ = process.child().wait();
+    let exit = process.child().wait().ok().and_then(|status| status.code());
+    record_command(&env, &arguments, exit).unwrap();
 
     assert_eq!(
         (&resync["event"], started.exit, finished.exit),
@@ -825,9 +828,9 @@ fn a_key_value_store_write_to_a_run_no_engine_holds_fails_with_run_not_found(
 ///
 /// Covers: error:run_target_unbuilt
 #[rstest]
-/// Covers: command:recipe.start
+/// Covers: command:recipe.start, operation:recipe.start
 #[case::recipe(&["recipe", "start", "--recipe", "shop-prices"], "recipe.start", "recipe")]
-/// Covers: command:catalog-run.start
+/// Covers: command:catalog-run.start, operation:catalog_run.start
 #[case::plan_replay(
     &["catalog-run", "start", "--target", r#"{"kind":"plan_replay","plan":"plans/checkout.json"}"#],
     "catalog_run.start",

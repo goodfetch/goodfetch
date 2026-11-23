@@ -79,9 +79,18 @@ function checks(runtime: string, passed: boolean): string {
   ]);
 }
 
+/** The checks of the remote-Daemon script's entry on `runtime`: it exits 0, and its Daemon fails. */
+function remoteChecks(runtime: string): string {
+  return JSON.stringify([
+    { name: `the script exits 0 on ${runtime}`, passed: true },
+    { name: "the Scripted Daemon played its script through", passed: false },
+    { name: "the test passed", passed: false },
+  ]);
+}
+
 // The stand-ins are POSIX shell scripts, which Windows cannot spawn.
 describe.skipIf(process.platform === "win32")("the smoke-script runner's run", () => {
-  test("writes a case-log entry per script, runtime and mode, each checking the script's exit", async ({
+  test("writes a case-log entry per script, runtime and mode, each checking the script's exit, and its Daemon's for a remote-Daemon script", async ({
     processes,
     testEnv,
   }) => {
@@ -91,31 +100,42 @@ describe.skipIf(process.platform === "win32")("the smoke-script runner's run", (
     const exit = await runSmoke(processes, "release-other", bin, log);
 
     expect(exit).toBe(1);
-    const node = hostRuntime();
+    const runtimes = [hostRuntime(), "bun-1", "deno-2"];
     expect(entries(log)).toEqual(
       [
-        ["cancel-mid-run", false],
-        ["hello-refused", true],
-      ]
-        .flatMap(([id, passed]) =>
-          [node, "bun-1", "deno-2"].flatMap((runtime) =>
+        ...[
+          ["cancel-mid-run", false],
+          ["hello-refused", true],
+        ].flatMap(([id, passed]) =>
+          runtimes.flatMap((runtime) =>
             ["attached", "daemon"].map(
               (mode) => `${String(id)} ${runtime} ${mode} ${checks(runtime, passed === true)}`,
             ),
           ),
-        )
-        .toSorted(),
+        ),
+        ...runtimes.map((runtime) => `credits-released ${runtime} daemon ${remoteChecks(runtime)}`),
+      ].toSorted(),
     );
   });
 });
 
 describe("the smoke-script runner", () => {
-  test("reads each script's declared cases", () => {
-    const scripts = readSmokeScripts(join(FIXTURE, "scripts"));
+  test("reads each script's declared cases and remote Daemon", () => {
+    const scripts = readSmokeScripts(join(FIXTURE, "scripts")).map(
+      ({ name, cases, remoteDaemon }) => ({ name, cases, remoteDaemon }),
+    );
 
-    expect(scripts.map(({ name, cases }) => ({ name, cases }))).toEqual([
-      { name: "fails.mjs", cases: ["cancel-mid-run"] },
-      { name: "passes.mjs", cases: ["hello-refused"] },
+    expect(scripts).toEqual([
+      { name: "fails.mjs", cases: ["cancel-mid-run"], remoteDaemon: undefined },
+      { name: "passes.mjs", cases: ["hello-refused"], remoteDaemon: undefined },
+      {
+        name: "remote.mjs",
+        cases: ["credits-released"],
+        remoteDaemon: {
+          script: "connect/remote-drop-resends-a-read.json",
+          token: "remote-daemon-token",
+        },
+      },
     ]);
   });
 
@@ -123,6 +143,12 @@ describe("the smoke-script runner", () => {
     expect(() =>
       readSmokeScripts(join(import.meta.dirname, "fixtures", "smoke-headerless")),
     ).toThrow(expect.objectContaining({ code: "smoke_cases_missing" }));
+  });
+
+  test("refuses a remote-Daemon line that names no script and token", () => {
+    expect(() =>
+      readSmokeScripts(join(import.meta.dirname, "fixtures", "smoke-remote-unnamed")),
+    ).toThrow(expect.objectContaining({ code: "smoke_remote_daemon_invalid" }));
   });
 
   test("runs the set's Bun and Deno from PATH, and the Node running the tests", ({ testEnv }) => {

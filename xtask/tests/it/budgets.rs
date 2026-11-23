@@ -27,7 +27,7 @@ const BUDGETS_FILE: &str = "docs/testing/suites-commands-and-time-budgets.md";
 const TABLE: &str = include_str!("../../../docs/testing/suites-commands-and-time-budgets.md");
 
 const HOSTED: &[&str] = &["ubuntu-24.04"];
-const OWNER_MACHINE: &[&str] = &["self-hosted", "owner-machine"];
+const SELF_HOSTED: &[&str] = &["self-hosted", "macOS"];
 
 /// A finished, successful job named `name` that ran `minutes` from
 /// `started_at`.
@@ -221,7 +221,7 @@ fn release_cell_on_the_owners_machine_is_kept_out_of_the_budgets() {
                 RELEASE_SUITE,
                 "workflow_dispatch",
                 run,
-                vec![named_job("macos-arm64", OWNER_MACHINE, 80, started_at(run))],
+                vec![named_job("macos-arm64", SELF_HOSTED, 80, started_at(run))],
             )
         })
         .collect();

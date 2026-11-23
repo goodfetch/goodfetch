@@ -19,6 +19,7 @@ use serde_json::{Value, json};
 use tokio::time::Instant;
 
 use super::super::attempt::Answer;
+use super::super::document_answer;
 use super::super::failure::AttemptFailure;
 use super::domain_ending;
 
@@ -166,6 +167,27 @@ fn a_forward_proxy_s_own_answer_backs_no_domain_off(#[case] status: u16) {
         domain_ending(&handled(), Some(&response), true, Instant::now(), wall()),
         Ended::Done
     );
+}
+
+/// The `Retry-After` of a forward proxy's own 503 is the proxy's, not the
+/// site's: the engine reads none, so a value that does not parse is never
+/// noted against the site (ADRs 0053 and 0118).
+///
+/// Covers: story:3-159
+#[test]
+fn a_forward_proxy_s_own_retry_after_is_not_read() {
+    let response = document(
+        "http://shop.test/1",
+        503,
+        &[
+            ("proxy-status", "proving-ground; error=http_request_denied"),
+            ("retry-after", "soon"),
+        ],
+    );
+
+    let asked = document_answer::asked(&response, true, wall());
+
+    assert_eq!(asked.retry_after, None);
 }
 
 /// A fetch that failed backs its domain off when the site refused or

@@ -10,7 +10,9 @@
 //! `integrations/<product>/`. Only what installs with the package is read:
 //! npm's `dependencies`, `peerDependencies` and `optionalDependencies`, and
 //! PyPI's `project.dependencies` and `project.optional-dependencies`, never
-//! development dependencies.
+//! development dependencies. `sdks/<language>/smoke/` holds ADR 0069's smoke
+//! scripts, a package of no Product that is never published: the rule
+//! passes it.
 #![expect(
     clippy::disallowed_methods,
     reason = "xtask is synchronous; the blocking-fs ban targets async crates (STYLE.md)"
@@ -130,6 +132,9 @@ pub(crate) fn check(root: &Path) -> Result<Vec<Finding>> {
     let mut packages = Vec::new();
     for folder in ROOTS {
         for manifest in tree::files(root, folder)? {
+            if smoke_scripts(&manifest) {
+                continue;
+            }
             let Some(declared) = read(root, &manifest)? else {
                 continue;
             };
@@ -225,6 +230,16 @@ fn requirement_name(requirement: &str) -> &str {
 }
 
 /// The Product a manifest's folder gives it.
+/// Whether `manifest` is in `sdks/<language>/smoke/`, ADR 0069's smoke
+/// scripts: a package of no Product, never published, that runs the
+/// installed packages, so nothing installs with it.
+fn smoke_scripts(manifest: &str) -> bool {
+    matches!(
+        manifest.split('/').collect::<Vec<_>>().as_slice(),
+        ["sdks", _language, "smoke", ..]
+    )
+}
+
 fn side(manifest: &str) -> Option<Side> {
     let parts: Vec<&str> = manifest.split('/').collect();
     let product = match parts.as_slice() {

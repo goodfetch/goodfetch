@@ -7,6 +7,9 @@
 # `just screenshots-fetch <run>`, which refuses another image or a commit that
 # is not the branch's head, and commits the screenshots with their own
 # sign-off, naming the run. It is not a suite job and is no required check.
+# It runs on a standard hosted runner, the pinned image beside the hosted
+# tier's job container (ci/hosted/visual.sh), as the Release suite's visual
+# job does (#3385).
 name: update screenshots
 
 on:
@@ -22,7 +25,7 @@ jobs:
   update:
     name: update
     if: github.ref != 'refs/heads/main'
-    runs-on: [self-hosted, owner-machine]
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     permissions:
       contents: read
@@ -31,10 +34,17 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - name: Start the VM with the pinned Playwright image
-        run: ci/vm/start.sh read-only ci playwright
-      - name: Install the visual projects' packages
-        run: ci/vm/visual.sh install
+      - name: Restore the CI image of the tree's Containerfile
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/goodfetch/ci-image
+          key: pull-request-ci-image-Linux-${{ hashFiles('ci/image/Containerfile') }}
+      - name: Start the job's container
+        run: ci/hosted/start.sh
+      - name: Set up the OS services the tests use
+        run: ci/hosted/exec.sh ci/os-services.sh setup
+      - name: Install the visual projects' packages in the pinned image
+        run: ci/hosted/visual.sh install
       - name: Deny outbound traffic
         run: ci/egress/egress.sh deny
       - name: Refuse the Egress canary
@@ -44,7 +54,7 @@ jobs:
         # References are rewritten too.
         env:
           GOODFETCH_TEST_SUITE: release
-        run: ci/vm/visual.sh update
+        run: ci/hosted/visual.sh update
       - name: Check that the deny refused nothing else
         if: always()
         run: ci/egress/egress.sh check
@@ -53,7 +63,7 @@ jobs:
       - name: Scan the job's outputs for secrets before they upload
         id: leaks
         if: always()
-        run: ci/vm/exec.sh ci/leaks.sh target/update-screenshots/
+        run: ci/hosted/exec.sh ci/leaks.sh target/update-screenshots/
       - name: Upload the Reference screenshots
         if: steps.leaks.outcome == 'success'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -62,6 +72,3 @@ jobs:
           path: target/update-screenshots/
           if-no-files-found: error
           retention-days: 7
-      - name: Destroy the VM
-        if: always()
-        run: ci/vm/stop.sh

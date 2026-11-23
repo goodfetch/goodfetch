@@ -31,6 +31,10 @@
 //! room of its own, a Permit of its key under the same shared rule and a
 //! share of the rate cap, so a key that admits one request at a time never
 //! sends one, and one whose delay has not passed holds it until it has.
+//!
+//! Size: one concern, which waiting request a Run admits next and what
+//! holds the rest: its gate, its rate cap and its Politeness, read
+//! together because each admission takes all three in one step.
 #![expect(
     clippy::disallowed_types,
     reason = "the rate cap is read and changed in one step, never across an `.await` or under another lock, so there is no lock order to test under loom (ADR 0060)"
@@ -150,6 +154,15 @@ pub struct QueuedGroup {
     pub sample: Vec<(String, Option<Instant>)>,
 }
 
+/// A Run's rate cap, `admission.max_requests_per_minute`, holding the
+/// requests its gate would admit, as [`Admission::rate_held`] answers it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct RateHeld {
+    /// When the cap next admits; `None` for a cap of 0, which admits
+    /// nothing.
+    pub until: Option<Instant>,
+}
+
 /// How a gate keys its requests' URLs, apart from the gate, so a write of
 /// the run state that adds work items keys each as it adds it, as the gate
 /// would key it ([`Gate::keys`]).
@@ -231,8 +244,7 @@ pub trait Gate: Send {
     }
 
     /// How many requests wait in it, of every key, those of a key at its
-    /// concurrency included: what `goodfetch.work_item.queued` counts (ADR
-    /// 0050), kept as they come and go. None by default.
+    /// concurrency included, kept as they come and go. None by default.
     fn waiting(&self) -> usize {
         0
     }
@@ -518,11 +530,6 @@ impl Admission {
         self.gate.queued(now, sample)
     }
 
-    /// How many requests wait in its gate, as [`Gate::waiting`] says.
-    pub fn waiting(&self) -> usize {
-        self.gate.waiting()
-    }
-
     /// The key a request to `url` waits under.
     pub fn key(&self, url: &str) -> String {
         self.gate.key(url)
@@ -548,6 +555,17 @@ impl Admission {
     /// admitted (see [`Gate::withdraw`]).
     pub fn withdraw(&mut self, key: &str, id: &str) {
         self.gate.withdraw(key, id);
+    }
+
+    /// Whether its rate cap holds at `now` the requests its gate would
+    /// admit, and until when: `None` when it has no rate cap or the cap
+    /// admits now (ADR 0102's `rate_cap` wait).
+    pub fn rate_held(&self, now: Instant) -> Option<RateHeld> {
+        let rate = (*lock(&self.rate))?;
+        match rate.ready_at(now) {
+            Some(ready) if ready <= now => None,
+            until => Some(RateHeld { until }),
+        }
     }
 
     /// When it next admits a request: at or before `now` when one may go

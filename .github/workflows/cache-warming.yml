@@ -1,11 +1,13 @@
-# The cache-warming job (ADRs 0061, 0071 and 0135): after each push to
-# `main`, it builds the pull-request tier's dependencies, tests and benchmark
-# targets with the tier's profiles, without running them, and saves the build
-# cache, the pnpm store, uv's cache, the CI image and the pinned Playwright
-# image (ADR 0073) into the cache folder on the owner's
-# machine. The build cache holds each commit's four test listings too, which
-# the stress run of a pull request whose base it is reads (ADR 0064). It is the only job that mounts that folder writable; pull-request
-# VMs read it. One run at a time: a newer waiting run replaces an older one.
+# The cache-warming job (ADRs 0061 and 0071): after each push to `main`, it
+# builds the pull-request tier's dependencies, tests and benchmark targets
+# with the tier's profiles, without running them, in the hosted tier's job
+# container on a standard hosted runner (ci/hosted/start.sh, #3385). The
+# build cache holds each commit's four test listings too, which the stress
+# run of a pull request whose base it is reads (ADR 0064). It saves nothing
+# yet: what goes into GitHub's 10 GB cache is chosen from the sizes the first
+# hosted Pre-merge run logs (ADR 0061's note of 2026-11-23, #3378), and the
+# save steps land with that choice. The workflow stays disabled until then.
+# One run at a time: a newer waiting run replaces an older one.
 name: cache warming
 
 on:
@@ -22,7 +24,7 @@ jobs:
   warm:
     name: warm
     if: github.ref == 'refs/heads/main'
-    runs-on: [self-hosted, owner-machine]
+    runs-on: ubuntu-24.04
     timeout-minutes: 90
     permissions:
       contents: read
@@ -31,10 +33,12 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - name: Start the VM with the cache folder writable
-        run: ci/vm/start.sh writable ci playwright
-      - name: Build the tier's targets and save the cache
-        run: ci/vm/exec.sh just warm
-      - name: Destroy the VM
-        if: always()
-        run: ci/vm/stop.sh
+      - name: Restore the CI image of the tree's Containerfile
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/goodfetch/ci-image
+          key: pull-request-ci-image-Linux-${{ hashFiles('ci/image/Containerfile') }}
+      - name: Start the job's container
+        run: ci/hosted/start.sh
+      - name: Build the tier's targets
+        run: ci/hosted/exec.sh just warm

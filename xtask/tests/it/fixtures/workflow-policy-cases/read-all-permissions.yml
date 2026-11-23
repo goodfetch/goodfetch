@@ -1,0 +1,8 @@
+name: extra
+on: push
+permissions: read-all
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - run: echo read all

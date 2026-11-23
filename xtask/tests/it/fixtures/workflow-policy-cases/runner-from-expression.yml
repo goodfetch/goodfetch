@@ -1,0 +1,12 @@
+name: extra
+on:
+  workflow_dispatch:
+    inputs:
+      runner:
+        type: string
+permissions: {}
+jobs:
+  build:
+    runs-on: ${{ inputs.runner }}
+    steps:
+      - run: echo somewhere

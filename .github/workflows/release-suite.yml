@@ -109,7 +109,7 @@ jobs:
           NEEDED: ${{ steps.plan.outputs.needed }}
           MONTH_TURNS: ${{ steps.plan.outputs.month-turns }}
         run: |
-          echo "::error::No hosted cell started: the run needs $NEEDED included minutes, past the ceiling of 600; the month turns on $MONTH_TURNS (ADR 0108)."
+          echo "::error::No hosted cell started: the run needs $NEEDED minutes that bill, past the ceiling of 600; the month turns on $MONTH_TURNS (ADR 0108)."
           exit 1
 
   linux-x64:

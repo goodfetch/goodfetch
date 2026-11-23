@@ -12,10 +12,12 @@
 //! the version `cargo publish` needs.
 //!
 //! The release line (ADR 0032): `cut` gives a minor its `release/x.y`
-//! branch, `backports` lists the fixes it lacks, `range` gives a release's
-//! git-cliff range, `changelog` writes its entries in `CHANGELOG.md` and
-//! `check` holds a release, or a promotion to `x.y.0`, at its gates;
-//! `prepare` holds a patch that changes a format (ADR 0066).
+//! branch and opens its first candidate's pull request, `pull-request`
+//! opens every later release's on that branch, `backports` lists the fixes
+//! it lacks, `range` gives a release's git-cliff range, `changelog` writes
+//! its entries in `CHANGELOG.md` and `check` holds a release, or a
+//! promotion to `x.y.0`, at its gates; `prepare` and `pull-request` hold a
+//! patch that changes a format (ADR 0066).
 #![expect(
     clippy::disallowed_methods,
     reason = "xtask is synchronous; the blocking-fs ban targets async crates (STYLE.md)"
@@ -24,6 +26,7 @@
 mod changelog;
 mod gates;
 mod line;
+mod pull_request;
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::num::NonZeroU64;
@@ -91,9 +94,9 @@ pub(crate) enum Command {
     Plan(publish::Arguments),
     /// Cuts minor `x.y` from `origin`'s `main`, once its release gates
     /// pass: pushes the `release/x.y` branch and the `x.y-branch` tag at
-    /// `main`'s commit and the first candidate's version commit on
-    /// `release-pr/x.y.0-rc.1`, then opens that candidate's release pull
-    /// request against the branch. `main` is left as it was.
+    /// `main`'s commit, then opens the first candidate's release pull
+    /// request against the branch, as `pull-request` does. `main` is left
+    /// as it was.
     Cut {
         #[arg(long)]
         minor: Minor,
@@ -101,6 +104,18 @@ pub(crate) enum Command {
         /// (`xtask features report`'s `features.json`).
         #[arg(long)]
         feature_report: PathBuf,
+        #[command(flatten)]
+        github: github::Arguments,
+    },
+    /// Opens `version`'s release pull request against the branch it is
+    /// released from, `release/x.y`, which the workspace must be on, clean:
+    /// on `release-pr/<version>`, one signed-off commit that sets the
+    /// version as `prepare` does, holds what `xtask codegen` then writes and
+    /// adds the version's changelog entries. Holds a patch as `prepare`
+    /// does.
+    PullRequest {
+        #[arg(long)]
+        version: ProductVersion,
         #[command(flatten)]
         github: github::Arguments,
     },
@@ -190,8 +205,27 @@ pub(crate) fn run(command: Command, environment: &Environment) -> Result<ExitCod
             if !findings.is_empty() {
                 return Ok(crate::check::report(&findings));
             }
+            pull_request::require_clean(root)?;
             let api = github.authenticated(environment.token())?;
-            line::cut(root, minor, &github.repository, api)?;
+            let candidate = line::cut(root, minor)?;
+            releaser(environment, &github, api)
+                .open(&candidate)
+                .with_context(|| {
+                    format!(
+                        "minor {minor} is cut; open its first candidate's pull request on {}: xtask release pull-request --version {}",
+                        minor.branch(),
+                        candidate.semver()
+                    )
+                })?;
+            Ok(ExitCode::SUCCESS)
+        }
+        Command::PullRequest { version, github } => {
+            let findings = gates::patch(root, "HEAD", &version)?;
+            if !findings.is_empty() {
+                return Ok(crate::check::report(&findings));
+            }
+            let api = github.authenticated(environment.token())?;
+            releaser(environment, &github, api).open(&version)?;
             Ok(ExitCode::SUCCESS)
         }
         Command::Backports { minor, github } => {
@@ -247,6 +281,19 @@ pub(crate) fn run(command: Command, environment: &Environment) -> Result<ExitCod
     clippy::disallowed_methods,
     reason = "ADR 0059: the two business days of ADR 0064 count to the wall clock's now, and a release is dated today; tests pass --at"
 )]
+fn releaser<'a>(
+    environment: &'a Environment,
+    github: &'a github::Arguments,
+    api: github::Api<'a>,
+) -> pull_request::Releaser<'a> {
+    pull_request::Releaser {
+        root: &environment.root,
+        cargo: environment.cargo.as_os_str(),
+        repository: &github.repository,
+        api,
+    }
+}
+
 fn now() -> jiff::Timestamp {
     jiff::Timestamp::now()
 }

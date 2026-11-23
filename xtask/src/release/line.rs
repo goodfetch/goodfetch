@@ -5,12 +5,12 @@ use std::collections::BTreeSet;
 use std::num::NonZeroU64;
 use std::path::Path;
 
-use anyhow::{Context as _, Result, bail};
+use anyhow::{Result, bail};
 use serde::Deserialize;
 
-use super::{CUT_POINT, Minor, ProductVersion, Stage, Tree, prepare, tagged};
+use super::{CUT_POINT, Minor, ProductVersion, Stage, tagged};
 use crate::git;
-use crate::github::{Api, Write};
+use crate::github::Api;
 use crate::output;
 
 /// The label of a pull request whose fix a release branch takes too.
@@ -138,17 +138,12 @@ pub(super) fn backports(
     Ok(listed)
 }
 
-#[derive(Deserialize)]
-struct Created {
-    html_url: String,
-}
-
-/// Cuts `minor`: pushes its branch and cut point at the remote's `main` and
-/// the first candidate's version commit over it, then opens that
-/// candidate's release pull request against the branch. Nothing is pushed
-/// when the branch, the tag or the pull request's branch exists, here or on
-/// the remote.
-pub(super) fn cut(root: &Path, minor: Minor, repository: &str, api: Api<'_>) -> Result<()> {
+/// Cuts `minor`: pushes its branch and cut point at the remote's `main`,
+/// and switches the workspace to the branch, where its first candidate,
+/// which it returns, is prepared. Nothing is pushed when the branch, the
+/// tag or the candidate's pull request branch exists, here or on the
+/// remote.
+pub(super) fn cut(root: &Path, minor: Minor) -> Result<ProductVersion> {
     let candidate = ProductVersion {
         major: minor.major,
         minor: minor.minor,
@@ -179,8 +174,6 @@ pub(super) fn cut(root: &Path, minor: Minor, repository: &str, api: Api<'_>) -> 
     )?;
     let main = git::commit(root, "FETCH_HEAD")?;
 
-    let title = format!("chore(release): {}", candidate.semver());
-    let version_commit = version_commit(root, &main, &candidate, &title)?;
     git::text(
         root,
         &[
@@ -190,93 +183,11 @@ pub(super) fn cut(root: &Path, minor: Minor, repository: &str, api: Api<'_>) -> 
             REMOTE,
             &format!("{main}:{}", references[0]),
             &format!("{main}:{}", references[1]),
-            &format!("{version_commit}:{}", references[2]),
         ],
     )?;
     git::text(root, &["branch", &branch, &main])?;
     git::text(root, &["tag", &tag, &main])?;
+    git::text(root, &["switch", "--quiet", &branch])?;
     output::line(&format!("{branch} and {tag} at {main}"));
-
-    let body = serde_json::json!({
-        "title": title,
-        "head": head,
-        "base": branch,
-        "body": format!(
-            "The first release candidate of {minor}, cut from `main` at {main} (ADR 0032)."
-        ),
-    });
-    let created: Created = api
-        .send(Write::Post, &format!("/repos/{repository}/pulls"), &body)
-        .with_context(|| {
-            format!(
-                "{branch}, {tag} and {head} are pushed, so the minor is cut; open its release pull request by hand: gh pr create --base {branch} --head {head} --title '{title}'"
-            )
-        })?;
-    output::line(&format!("{head}: {}", created.html_url));
-    Ok(())
-}
-
-/// A commit over `parent` with `version` prepared in its released
-/// manifests, signed off by the committer, written without touching the
-/// workspace's files or index.
-fn version_commit(
-    root: &Path,
-    parent: &str,
-    version: &ProductVersion,
-    title: &str,
-) -> Result<String> {
-    let prepared = prepare(
-        Tree::Commit {
-            root,
-            commit: parent,
-        },
-        version,
-    )?;
-    let folder = tempfile::tempdir().context("making a folder for the version commit's index")?;
-    let index = folder.path().join("index");
-    let indexed = |arguments: &[&str]| -> Result<String> {
-        let output = git::command(root)
-            .env("GIT_INDEX_FILE", &index)
-            .args(arguments)
-            .output()
-            .with_context(|| format!("running git {}", arguments.join(" ")))?;
-        if !output.status.success() {
-            bail!(
-                "git {} failed: {}",
-                arguments.join(" "),
-                String::from_utf8_lossy(&output.stderr).trim()
-            );
-        }
-        Ok(String::from_utf8_lossy(&output.stdout).trim().to_owned())
-    };
-    indexed(&["read-tree", parent])?;
-    for (path, text) in prepared {
-        let file = folder.path().join("blob");
-        std::fs::write(&file, text).with_context(|| format!("writing {path}'s new text"))?;
-        let file = file
-            .to_str()
-            .context("the temporary folder's path is no UTF-8")?;
-        let blob = git::line(root, &["hash-object", "-w", file])?;
-        let entry = git::line(root, &["ls-tree", parent, "--", &path])?;
-        let mode = entry
-            .split_whitespace()
-            .next()
-            .with_context(|| format!("{path} is not in {parent}'s tree"))?;
-        indexed(&[
-            "update-index",
-            "--cacheinfo",
-            &format!("{mode},{blob},{path}"),
-        ])?;
-    }
-    let tree = indexed(&["write-tree"])?;
-    let ident = git::line(root, &["var", "GIT_COMMITTER_IDENT"])?;
-    let signer = ident
-        .rsplitn(3, ' ')
-        .nth(2)
-        .with_context(|| format!("the committer's identity, {ident}, has no time"))?;
-    let message = format!("{title}\n\nSigned-off-by: {signer}\n");
-    Ok(git::line(
-        root,
-        &["commit-tree", &tree, "-p", parent, "-m", &message],
-    )?)
+    Ok(candidate)
 }

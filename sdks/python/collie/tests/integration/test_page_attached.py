@@ -210,7 +210,10 @@ async def test_reads_a_product_pages_fields_in_one_call(
     await run.finish()
     await collie.close()
     record = {name: value for name, value in read.values.items() if name != "missing"}
-    answer = await anyio.to_thread.run_sync(proving_ground.judge, "catalog/2", [record])
+    answer = await anyio.to_thread.run_sync(
+        proving_ground.judge,
+        {"task": "catalog/2", "status": "success", "records": [record]},
+    )
     client_case.oracle_answer(answer)
 
     with client_case.check("the oracle verifies the Record the fields answer"):

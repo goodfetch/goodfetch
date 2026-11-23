@@ -193,7 +193,7 @@ describe("a page's responses on an Attached engine", () => {
   // the browser downloads answers no response and the page keeps its
   // document, which a reload loads again (ADR 0119).
   test(
-    "follows a redirect's Retry-After at once and answers null for a file",
+    "follows a redirect at once past its Retry-After and answers null for a file",
     {
       tags: [
         "client_case/goto-skips-a-redirects-retry-after-and-answers-none-for-a-file",

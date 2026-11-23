@@ -1078,6 +1078,195 @@
       ],
       "type": "object"
     },
+    "CatalogRunStartParams": {
+      "additionalProperties": false,
+      "description": "What `catalog_run.start` takes.",
+      "properties": {
+        "_meta": {
+          "$ref": "#/$defs/RequestMeta",
+          "arrived_in": "0.1"
+        },
+        "detached": {
+          "arrived_in": "0.1",
+          "description": "Whether the Run outlives the program (ADR 0102): closing its value\nthen frees only the value, `run.finish` waits for its end and\n`run.stop` stops it.",
+          "type": "boolean"
+        },
+        "limits": {
+          "arrived_in": "0.1",
+          "description": "The Run's own Limits, as `run.start`'s.",
+          "items": {
+            "$ref": "#/$defs/RunLimit"
+          },
+          "type": "array"
+        },
+        "project": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ProjectSettings"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "The project configuration the Client found, layer 3 (ADR 0083)."
+        },
+        "recording": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Recording"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "The Response recording the Run replays or records (ADR 0105)."
+        },
+        "run_id": {
+          "arrived_in": "0.1",
+          "description": "The Run's ID, as `run.start`'s.",
+          "pattern": "^[a-z0-9]([a-z0-9._-]{0,126}[a-z0-9])?$",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "settings": {
+          "additionalProperties": true,
+          "arrived_in": "0.1",
+          "description": "The Run's settings, nested by key: the run layer (ADR 0083).",
+          "type": "object"
+        },
+        "tags": {
+          "$ref": "#/$defs/Tags",
+          "arrived_in": "0.1",
+          "description": "The Run's opaque tags."
+        },
+        "target": {
+          "$ref": "#/$defs/CatalogTarget",
+          "arrived_in": "0.1",
+          "description": "What the Run does."
+        },
+        "timeout": {
+          "arrived_in": "0.1",
+          "description": "How long the Run may last, in milliseconds, at least 1, as\n`timeout.run` for this Run: absent for the setting's value, `null`\nfor none.",
+          "format": "uint64",
+          "minimum": 0,
+          "setting": "timeout.run",
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "target"
+      ],
+      "type": "object"
+    },
+    "CatalogTarget": {
+      "description": "What a code-free catalog run does (ADR 0036): its verbs come from the\ncatalog, so nothing in the program serves it.",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "description": "An Extraction of one page by a schema.",
+          "properties": {
+            "instruction": {
+              "arrived_in": "0.1",
+              "description": "What to extract, in words, beside the schema.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "kind": {
+              "const": "extract",
+              "type": "string"
+            },
+            "schema": {
+              "arrived_in": "0.1",
+              "description": "The JSON Schema of what it extracts."
+            },
+            "url": {
+              "arrived_in": "0.1",
+              "description": "The page.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "url",
+            "schema"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "An Agent task from a page (ADR 0091).",
+          "properties": {
+            "expect": {
+              "arrived_in": "0.1",
+              "description": "Its Success check, which decides `verified`."
+            },
+            "kind": {
+              "const": "agent",
+              "type": "string"
+            },
+            "max_steps": {
+              "arrived_in": "0.1",
+              "description": "The most steps it takes.",
+              "format": "uint32",
+              "minimum": 0,
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "schema": {
+              "arrived_in": "0.1",
+              "description": "The JSON Schema of what it answers."
+            },
+            "task": {
+              "arrived_in": "0.1",
+              "description": "The goal, in words.",
+              "type": "string"
+            },
+            "url": {
+              "arrived_in": "0.1",
+              "description": "The page it starts from.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "url",
+            "task"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "A Plan replayed with no model call (ADR 0091).",
+          "properties": {
+            "kind": {
+              "const": "plan_replay",
+              "type": "string"
+            },
+            "plan": {
+              "arrived_in": "0.1",
+              "description": "The Plan file, on the program's machine, relative to its working\ndirectory.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "plan"
+          ],
+          "type": "object"
+        }
+      ]
+    },
     "CertificateExceptionKind": {
       "description": "The kind of an invalid-certificate exception (ADR 0042).",
       "oneOf": [
@@ -11879,6 +12068,93 @@
       ],
       "type": "object"
     },
+    "RecipeStartParams": {
+      "additionalProperties": false,
+      "description": "What `recipe.start` takes.",
+      "properties": {
+        "_meta": {
+          "$ref": "#/$defs/RequestMeta",
+          "arrived_in": "0.1"
+        },
+        "detached": {
+          "arrived_in": "0.1",
+          "description": "Whether the Run outlives the program (ADR 0102): closing its value\nthen frees only the value, `run.finish` waits for its end and\n`run.stop` stops it.",
+          "type": "boolean"
+        },
+        "limits": {
+          "arrived_in": "0.1",
+          "description": "The Run's own Limits, as `run.start`'s.",
+          "items": {
+            "$ref": "#/$defs/RunLimit"
+          },
+          "type": "array"
+        },
+        "project": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ProjectSettings"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "The project configuration the Client found, layer 3 (ADR 0083)."
+        },
+        "recipe": {
+          "arrived_in": "0.1",
+          "description": "The Recipe: an installed Recipe's name, or the path to its\nmanifest.",
+          "type": "string"
+        },
+        "recording": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Recording"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "The Response recording the Run replays or records (ADR 0105)."
+        },
+        "run_id": {
+          "arrived_in": "0.1",
+          "description": "The Run's ID, as `run.start`'s.",
+          "pattern": "^[a-z0-9]([a-z0-9._-]{0,126}[a-z0-9])?$",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "settings": {
+          "additionalProperties": true,
+          "arrived_in": "0.1",
+          "description": "The Run's settings, nested by key: the run layer (ADR 0083).",
+          "type": "object"
+        },
+        "tags": {
+          "$ref": "#/$defs/Tags",
+          "arrived_in": "0.1",
+          "description": "The Run's opaque tags."
+        },
+        "timeout": {
+          "arrived_in": "0.1",
+          "description": "How long the Run may last, in milliseconds, at least 1, as\n`timeout.run` for this Run: absent for the setting's value, `null`\nfor none.",
+          "format": "uint64",
+          "minimum": 0,
+          "setting": "timeout.run",
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "recipe"
+      ],
+      "type": "object"
+    },
     "RecordFilter": {
       "additionalProperties": false,
       "description": "Which Records a page takes: those that meet every condition.",
@@ -12090,6 +12366,42 @@
         "direction"
       ],
       "type": "object"
+    },
+    "Recording": {
+      "additionalProperties": false,
+      "description": "A Response recording a start names (ADR 0105): an input of the Run,\nnever a setting.",
+      "properties": {
+        "mode": {
+          "$ref": "#/$defs/RecordingMode",
+          "arrived_in": "0.1",
+          "description": "Whether the Run replays the file or records it."
+        },
+        "path": {
+          "arrived_in": "0.1",
+          "description": "The WARC 1.1 file, on the program's machine, relative to its working\ndirectory.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "mode",
+        "path"
+      ],
+      "type": "object"
+    },
+    "RecordingMode": {
+      "description": "What a Run does with the Response recording its start names (ADR 0105).",
+      "oneOf": [
+        {
+          "const": "replay",
+          "description": "Every request the Run would send to a site is answered from the\nfile, and one it lacks is refused, never sent.",
+          "type": "string"
+        },
+        {
+          "const": "record",
+          "description": "The Run fetches as usual and, when it ends, replaces the file with\nevery response it received.",
+          "type": "string"
+        }
+      ]
     },
     "RecordingReport": {
       "description": "What a Run did with the Response recording its start named (ADR 0105).",

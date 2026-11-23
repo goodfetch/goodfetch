@@ -169,6 +169,7 @@ details! {
     crate::run::RunConflictDetails => ErrorCode::RUN_CONFLICT,
     crate::run::RunIdInvalidDetails => ErrorCode::RUN_ID_INVALID,
     crate::run::RunInterruptedDetails => ErrorCode::RUN_INTERRUPTED,
+    crate::run::RunTargetUnbuiltDetails => ErrorCode::RUN_TARGET_UNBUILT,
     crate::secrets::RunKeyMismatchDetails => ErrorCode::RUN_KEY_MISMATCH,
     crate::secrets::SecretDomainNotAllowedDetails => ErrorCode::SECRET_DOMAIN_NOT_ALLOWED,
     crate::secrets::SecretInputRefusedDetails => ErrorCode::SECRET_INPUT_REFUSED,

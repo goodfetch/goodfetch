@@ -6,8 +6,9 @@
 //! ID and the Run's tags; the setting that places run files; the Error codes
 //! they answer with; the rows of run state and of the Run index (ADR 0031),
 //! the two formats this module's rows describe (ADR 0066); `run.list`,
-//! which answers the Run index's rows filtered and sorted; and what
-//! `runs reindex --json` prints.
+//! which answers the Run index's rows filtered and sorted; `recipe.start`
+//! and `catalog_run.start`, the starts of Runs with no handler in the
+//! program; and what `runs reindex --json` prints.
 //!
 //! Size: the contract of one Run's lifecycle and its rows, kept whole so the
 //! operations, their Error codes and the run-state formats they write change
@@ -36,6 +37,7 @@ pub mod durability;
 mod list;
 mod progress;
 mod report;
+mod starts;
 pub mod warning;
 
 pub use self::durability::{
@@ -58,6 +60,10 @@ pub use self::report::{
     AppliedLimit, AxisReason, EndingError, KindUsage, LimitSetter, ModelAllowance, ModelCounts,
     ModelUsage, NothingDone, PlanReport, PlanStatus, PluginRun, ProxyKindBytes, RecordingReport,
     RunReport, RunUsage, RunWarning, SeedsKept, UncertainEffect, UsageAmount,
+};
+pub use self::starts::{
+    CATALOG_RUN_START, CatalogRunStartParams, CatalogTarget, RECIPE_START, RUN_TARGET_UNBUILT,
+    RecipeStartParams, Recording, RecordingMode, RunTargetUnbuiltDetails,
 };
 
 const ARRIVED_IN: ProtocolVersion = ProtocolVersion { major: 0, minor: 1 };
@@ -1413,6 +1419,8 @@ pub const ENTRIES: Entries = Entries {
         RUN_PROGRESS_READ,
         RUN_REPORT,
         RUN_LIST,
+        RECIPE_START,
+        CATALOG_RUN_START,
     ],
     events: &[RUN_AXES_CHANGED, RUN_PROGRESS],
     handler_requests: &[],
@@ -1428,6 +1436,7 @@ pub const ENTRIES: Entries = Entries {
         RUN_LIVE,
         RESOURCES_EXHAUSTED,
         RUN_INTERRUPTED,
+        RUN_TARGET_UNBUILT,
     ],
     plugin_kinds: &[],
     metrics: &[],

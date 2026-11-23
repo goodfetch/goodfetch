@@ -2010,6 +2010,10 @@ reason = "Issue 1495 adds `outcomes`, `failed_requests` and `retry_failed`."
 entries = ["run.rejected_records"]
 reason = "Issue 1489 adds `rejected_records` to a Run read through `open_crawl_run`."
 
+[[unreached]]
+entries = ["recipe.start", "catalog_run.start"]
+reason = "Issue 3396's Python part adds `start_recipe` and `start_catalog_run`."
+
 [[logger]]
 package = "goodfetch-collie-client"
 name = "goodfetch"

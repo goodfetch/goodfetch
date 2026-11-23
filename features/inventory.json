@@ -132,6 +132,17 @@
       ]
     },
     {
+      "id": "command:catalog-run.start",
+      "kind": "command",
+      "area": 11,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "command:certs.accept",
       "kind": "command",
       "area": 4,
@@ -569,6 +580,17 @@
     },
     {
       "id": "command:page.reload",
+      "kind": "command",
+      "area": 11,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "command:recipe.start",
       "kind": "command",
       "area": 11,
       "milestone": null,
@@ -2259,6 +2281,17 @@
       ]
     },
     {
+      "id": "error:run_target_unbuilt",
+      "kind": "error",
+      "area": 3,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "error:sample_crawl_refused",
       "kind": "error",
       "area": 1,
@@ -3169,6 +3202,17 @@
       ]
     },
     {
+      "id": "operation:catalog_run.start",
+      "kind": "operation",
+      "area": 11,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "operation:certs.accept",
       "kind": "operation",
       "area": 4,
@@ -3887,6 +3931,17 @@
       "id": "operation:page.wait_for_url",
       "kind": "operation",
       "area": 5,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "operation:recipe.start",
+      "kind": "operation",
+      "area": 11,
       "milestone": null,
       "status": "active",
       "products": [

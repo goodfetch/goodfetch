@@ -9,13 +9,14 @@
 //! request for a private name. The Proving ground's connection record is
 //! the oracle, each refusal paired with a positive control.
 //!
-//! The transports resolve through the Proving ground's DNS fixture, in
-//! process on every OS: a case's scripted lookups become the name of the
-//! fixture's zone that answers them (`mixed.dns.test` for one lookup, its
-//! answers at once; `alternating.dns.test` for a name answering each
-//! lookup in turn). The Proving ground serves on loopback, so its watched
-//! target's address stands for a public one, which the Session lists in its
-//! private ranges, except where a case aims at that address itself.
+//! The transports resolve through the Proving ground's DNS fixture with the
+//! engine's own resolver on every OS, their Session holding a local
+//! address: a case's scripted lookups become the name of the fixture's zone
+//! that answers them (`mixed.dns.test` for one lookup, its answers at once;
+//! `alternating.dns.test` for a name answering each lookup in turn). The
+//! Proving ground serves on loopback, so its watched target's address
+//! stands for a public one, which the Session lists in its private ranges,
+//! except where a case aims at that address itself.
 //! Rebinding also runs end to end on Linux, through `DnsNamespace`, with
 //! the system's resolver configuration.
 #![expect(
@@ -23,13 +24,14 @@
     reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
 )]
 
-use std::net::{IpAddr, SocketAddr};
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 use std::time::Duration;
 
 use goodfetch_engine::dns::{HostMapping, ResolverConfiguration};
 use goodfetch_engine::egress::Policy;
 use goodfetch_fetch_tier::{
-    Hop, HttpProfile, Reqwest, Reuse, Transport, TransportConfig, TransportFailure, Wreq,
+    Hop, HttpProfile, LocalSource, Reqwest, Reuse, Transport, TransportConfig, TransportFailure,
+    Wreq,
 };
 use goodfetch_protocol::egress::EgressRule;
 use goodfetch_test_support::{
@@ -85,7 +87,9 @@ fn policy(domains: &CaseDomains, ranges: &[String]) -> Policy {
 
 /// `stack`'s transport resolving through the Proving ground's DNS fixture,
 /// through `proxy` when given, under the domain policy `domains` and the
-/// private `ranges`.
+/// private `ranges`. Its Session holds a loopback address of each family:
+/// one takes the engine's own resolver on every OS (ADR 0044), and both
+/// keep every answer's family for the policy to judge.
 fn transport(
     stack: Stack,
     proving_ground: &ProvingGround,
@@ -100,6 +104,11 @@ fn transport(
             egress: policy(domains, ranges),
             resolve: HostMapping::default(),
             resolver: ResolverConfiguration::name_servers([fixture]).into(),
+            local: Some(LocalSource {
+                ipv4: Some(Ipv4Addr::LOCALHOST),
+                ipv6: Some(Ipv6Addr::LOCALHOST),
+                interface: None,
+            }),
             ..crate::config(proving_ground, proxy, &[])
         },
     )

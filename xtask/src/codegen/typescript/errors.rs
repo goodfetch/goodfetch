@@ -43,9 +43,9 @@ struct DetailsReading<'a> {
 }
 
 /// The typed details of `code`'s class, when the catalog names its details
-/// type.
+/// type and the code has a class of its own.
 fn typed_details<'a>(layer: &'a Layer, code: &'a ErrorCode) -> Result<Option<DetailsReading<'a>>> {
-    let Some(name) = code.details.as_ref().map(|name| name.0.as_str()) else {
+    let Some(name) = code.class_details().map(|name| name.0.as_str()) else {
         return Ok(None);
     };
     let through = if wire::converts(layer, name)? {
@@ -140,12 +140,6 @@ pub(super) fn errors(layer: &Layer) -> Result<String> {
         // A code named like its group is raised as its group's class,
         // which every code the registry lacks falls back to.
         if code.name == code.group {
-            if typed.is_some() {
-                bail!(
-                    "`{}` is raised as its group's class, which cannot read its details typed",
-                    code.name
-                );
-            }
             members.push(format!("{group}<{:?}>", code.name));
             continue;
         }

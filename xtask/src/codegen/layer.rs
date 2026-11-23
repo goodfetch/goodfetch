@@ -14,6 +14,9 @@ use serde_json::{Map, Value};
 
 use super::projection;
 
+mod lifted_fields;
+mod shared_values;
+
 /// The generators' input file name for `product`'s layer.
 pub(super) fn input_name(product: Product) -> &'static str {
     match product {
@@ -181,6 +184,14 @@ impl ErrorCode {
         goodfetch_protocol::error_details::RETRY_AFTER_POINT_IN_TIME
             .iter()
             .any(|code| code.as_str() == self.name)
+    }
+
+    /// The type its own class reads its details as. A code named like its
+    /// group has no class of its own: it is raised as its group's class,
+    /// which every code the SDK does not know falls back to, so its details
+    /// stay a map there, though their type is generated.
+    pub(super) fn class_details(&self) -> Option<&TypeName> {
+        self.details.as_ref().filter(|_| self.name != self.group)
     }
 }
 
@@ -436,6 +447,11 @@ impl Layer {
                     }
                 }
                 without_meta(&mut definitions);
+                lifted_fields::without_lifted_fields(
+                    &mut definitions,
+                    details_types(&collie.error_codes),
+                )?;
+                shared_values::with_own_values(&mut definitions, &collie.shared_type_values);
                 definitions.sort_keys();
                 let shared_types = shared_types(&collie.shared_type_values, |_| true, |_| false);
                 for group in &mut collie.error_groups {
@@ -494,6 +510,7 @@ impl Layer {
             .into_iter()
             .filter(|entry| own(entry.product))
             .collect();
+        lifted_fields::without_lifted_fields(&mut all.definitions, details_types(&error_codes))?;
         let plugin_kinds: Vec<PluginKind> = all
             .plugin_kinds
             .into_iter()
@@ -524,9 +541,22 @@ impl Layer {
             &kind_parts,
         );
         let reached = projection::reached(&roots, &all.definitions)?;
-        let (collie_types, own_types): (BTreeSet<String>, BTreeSet<String>) = reached
-            .into_iter()
-            .partition(|name| collie.definitions.contains_key(name));
+        // A value union both Products share that Foxhound adds values to
+        // stays Foxhound's, with every value, where Collie's names its own.
+        let extended_unions: BTreeSet<String> = shared_types
+            .iter()
+            .filter(|shared| shared.extends_collie)
+            .map(|shared| super::pascal(&shared.name))
+            .filter(|name| {
+                all.definitions
+                    .get(name)
+                    .is_some_and(shared_values::is_value_union)
+            })
+            .collect();
+        let (collie_types, own_types): (BTreeSet<String>, BTreeSet<String>) =
+            reached.into_iter().partition(|name| {
+                collie.definitions.contains_key(name) && !extended_unions.contains(name)
+            });
         Ok(Self {
             product: Product::Foxhound,
             protocol_version: all.protocol_version,
@@ -618,6 +648,14 @@ fn without_meta(definitions: &mut Map<String, Value>) {
             properties.remove(META);
         }
     }
+}
+
+/// The names of the types `codes` read their details as.
+fn details_types(codes: &[ErrorCode]) -> impl Iterator<Item = &str> {
+    codes
+        .iter()
+        .filter_map(|code| code.details.as_ref())
+        .map(|name| name.0.as_str())
 }
 
 /// A value whose `$ref`s are every type the entries name.

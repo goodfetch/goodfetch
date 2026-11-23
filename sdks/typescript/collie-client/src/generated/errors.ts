@@ -10,7 +10,7 @@ import {
   type ErrorIdentity,
   type ErrorLimit,
 } from "../goodfetch-error.ts";
-import type { CallCancelledDetails, HookFailedDetails, NotVerifiedDetails } from "./types.ts";
+import type { AddressFamilyUnavailableDetails, ArtifactDownloadFailedDetails, ArtifactUnavailableOfflineDetails, BlockedDetails, BodyNotFoundDetails, BodyUnavailableDetails, BrowserLaunchFailedDetails, BrowserNeedsGuiSessionDetails, BrowserNotInstalledDetails, BrowserSandboxUnavailableDetails, CallCancelledDetails, CapabilityUnavailableDetails, CdpUrlNotAllowedDetails, CdpUrlNotBrowserDetails, CdpUrlUnauthorizedDetails, CdpUrlUnreachableDetails, CertificateChangedDetails, CertificateInvalidDetails, CheckpointBehindDetails, ConnectionOverloadedDetails, DaemonDrainingDetails, DaemonUnreachableDetails, DetachUnsupportedDetails, DialogAlreadyHandledDetails, EdgeHandlersUnsupportedDetails, EgressRefusedDetails, EngineExitedDetails, EnginePanickedDetails, ExecutableBlockedBySmartAppControlDetails, FileWriteFailedDetails, FormatVersionUnsupportedDetails, HeaderValueInvalidDetails, HookFailedDetails, LimitNotUnderstoodDetails, LimitRaiseRefusedDetails, ListenerEventsLostDetails, LocalAddressUnavailableDetails, LoggedOutDetails, NameLookupFailedDetails, NameNotResolvedDetails, NavigationFailedDetails, NavigationInterruptedDetails, NotADaemonDetails, NotInProductDetails, NotVerifiedDetails, PageCheckFailedDetails, PageCrashedDetails, PageFunctionFailedDetails, PageHandlerFailedDetails, PageMemoryExceededDetails, PageNavigatedDuringCallDetails, PageValueInvalidDetails, PathNotWritableDetails, PathUnsafeDetails, PatternUnsupportedDetails, PolicyConflictDetails, ProtocolVersionUnsupportedDetails, ProxyAuthFailedDetails, ProxyProviderUnavailableDetails, ProxyRelayUnavailableDetails, ProxyUnavailableDetails, ReachedLimit, ResourcesExhaustedDetails, ResponseLimitExceededDetails, ResponseTruncatedDetails, RouteAlreadyHandledDetails, RunConflictDetails, RunDetails, RunIdInvalidDetails, RunInterruptedDetails, RunKeyMismatchDetails, RunStateFilesystemUnsupportedDetails, RunTargetUnbuiltDetails, SecretDomainNotAllowedDetails, SecretInputRefusedDetails, SecretUnavailableDetails, SecretUnboundDetails, SessionBoundToMachineDetails, SettingInvalidDetails, SettingLockedDetails, SettingNotApplicableDetails, SettingUnknownDetails, SitePreferencesRefusedDetails, TargetNotUniqueDetails, TooManyCallsDetails, TooManyRedirectsDetails, ValueInvalidDetails } from "./types.ts";
 import { collieWire } from "./wire.ts";
 
 export {
@@ -161,8 +161,15 @@ export const errorCodeExitCodes: Readonly<Record<string, number>> = {
  * The host has addresses only in an IP family the Session holds no local address of, such as IPv6 addresses for a Session bound to an IPv4 address. Add a local address of that family to the run's local addresses, or reach the host another way.
  */
 export class AddressFamilyUnavailableError extends UnavailableError<"address_family_unavailable"> {
+  /**
+   * The code's details, typed; `undefined` when they lack a field the type
+   * requires, as those of an error a program builds without details do.
+   */
+  readonly typedDetails: Readonly<AddressFamilyUnavailableDetails> | undefined;
+
   constructor(message: string, fields: ErrorFields = {}) {
     super(message, { ...fields, name: "AddressFamilyUnavailableError", code: "address_family_unavailable", group: "unavailable", retryable: false });
+    this.typedDetails = detailsOf<AddressFamilyUnavailableDetails>(fields.details, ["name", "held"]);
   }
 }
 
@@ -170,8 +177,15 @@ export class AddressFamilyUnavailableError extends UnavailableError<"address_fam
  * A pinned download the call needed failed: the network, an HTTP status, or bytes whose digest is not the pinned one. Retry, or install beforehand with the Product's `browser install`, or point `GOODFETCH_BROWSERS_PATH` at a prepared cache.
  */
 export class ArtifactDownloadFailedError extends UnavailableError<"artifact_download_failed"> {
+  /**
+   * The code's details, typed; `undefined` when they lack a field the type
+   * requires, as those of an error a program builds without details do.
+   */
+  readonly typedDetails: Readonly<ArtifactDownloadFailedDetails> | undefined;
+
   constructor(message: string, fields: ErrorFields = {}) {
     super(message, { ...fields, name: "ArtifactDownloadFailedError", code: "artifact_download_failed", group: "unavailable", retryable: true });
+    this.typedDetails = detailsOf<ArtifactDownloadFailedDetails>(fields.details, ["artifact", "pinnedBy", "host"], { path: { type: "ArtifactDownloadFailedDetails" }, types: collieWire.types });
   }
 }
 
@@ -179,8 +193,15 @@ export class ArtifactDownloadFailedError extends UnavailableError<"artifact_down
  * The `offline` setting refused a pinned download the call needed. Run the Product's `browser install` beforehand where the cache is writable, point `GOODFETCH_BROWSERS_PATH` at a prepared cache, or lift `offline` where it was set.
  */
 export class ArtifactUnavailableOfflineError extends RefusedError<"artifact_unavailable_offline"> {
+  /**
+   * The code's details, typed; `undefined` when they lack a field the type
+   * requires, as those of an error a program builds without details do.
+   */
+  readonly typedDetails: Readonly<ArtifactUnavailableOfflineDetails> | undefined;
+
   constructor(message: string, fields: ErrorFields = {}) {
     super(message, { ...fields, name: "ArtifactUnavailableOfflineError", code: "artifact_unavailable_offline", group: "refused", retryable: false });
+    this.typedDetails = detailsOf<ArtifactUnavailableOfflineDetails>(fields.details, ["artifact", "pinnedBy", "cache"], { path: { type: "ArtifactUnavailableOfflineDetails" }, types: collieWire.types });
   }
 }
 
@@ -195,9 +216,16 @@ export class BlockedError extends PageError<"blocked"> {
    */
   readonly retryAfter: Date | null;
 
+  /**
+   * The code's details, typed; `undefined` when they lack a field the type
+   * requires, as those of an error a program builds without details do.
+   */
+  readonly typedDetails: Readonly<BlockedDetails> | undefined;
+
   constructor(message: string, fields: ErrorFields = {}) {
     super(message, { ...fields, name: "BlockedError", code: "blocked", group: "page", retryable: false });
     this.retryAfter = retryAfterOf(fields.details);
+    this.typedDetails = detailsOf<BlockedDetails>(fields.details, ["cause"], { path: { type: "BlockedDetails" }, types: collieWire.types });
   }
 }
 
@@ -205,8 +233,15 @@ export class BlockedError extends PageError<"blocked"> {
  * The Run's folder holds no body of this ID: the Run or the body is unknown, or the ID is not a body's.
  */
 export class BodyNotFoundError extends ProgramError<"body_not_found"> {
+  /**
+   * The code's details, typed; `undefined` when they lack a field the type
+   * requires, as those of an error a program builds without details do.
+   */
+  readonly typedDetails: Readonly<BodyNotFoundDetails> | undefined;
+
   constructor(message: string, fields: ErrorFields = {}) {
     super(message, { ...fields, name: "BodyNotFoundError", code: "body_not_found", group: "program", retryable: false });
+    this.typedDetails = detailsOf<BodyNotFoundDetails>(fields.details, ["body"]);
   }
 }
 
@@ -214,8 +249,15 @@ export class BodyNotFoundError extends ProgramError<"body_not_found"> {
  * The browser no longer holds the response's body, as after the page navigated away or once its buffer evicted it, or the response has none, as a redirect's: the engine keeps a body only for a response obtained through `page.wait_for_request_finished`, `route.fetch` or `page.request`, which the fix names. Where Playwright and Puppeteer say "Request content was evicted from inspector cache". A retry finds the body gone all the same.
  */
 export class BodyUnavailableError extends UnavailableError<"body_unavailable"> {
+  /**
+   * The code's details, typed; `undefined` when they lack a field the type
+   * requires, as those of an error a program builds without details do.
+   */
+  readonly typedDetails: Readonly<BodyUnavailableDetails> | undefined;
+
   constructor(message: string, fields: ErrorFields = {}) {
     super(message, { ...fields, name: "BodyUnavailableError", code: "body_unavailable", group: "unavailable", retryable: false });
+    this.typedDetails = detailsOf<BodyUnavailableDetails>(fields.details, ["requestId"], { path: { type: "BodyUnavailableDetails" }, types: collieWire.types });
   }
 }
 
@@ -241,8 +283,15 @@ export class BrowserHostUnreachableError extends UnavailableError<"browser_host_
  * The browser's build is installed, but it did not start or did not open the page: it exited, or its connection refused or fell silent. The details name its executable and how it ended.
  */
 export class BrowserLaunchFailedError extends UnavailableError<"browser_launch_failed"> {
+  /**
+   * The code's details, typed; `undefined` when they lack a field the type
+   * requires, as those of an error a program builds without details do.
+   */
+  readonly typedDetails: Readonly<BrowserLaunchFailedDetails> | undefined;
+
   constructor(message: string, fields: ErrorFields = {}) {
     super(message, { ...fields, name: "BrowserLaunchFailedError", code: "browser_launch_failed", group: "unavailable", retryable: false });
+    this.typedDetails = detailsOf<BrowserLaunchFailedDetails>(fields.details, ["executable"]);
   }
 }
 
@@ -250,8 +299,15 @@ export class BrowserLaunchFailedError extends UnavailableError<"browser_launch_f
  * The Session would launch the full Chrome for Testing build headless on macOS from a process with no GUI session, such as a `LaunchAgent` in the Background session or an SSH login, where that build cannot start. Nothing was launched. Set `browser.headless_shell: true` to launch the headless shell, or run the engine in a login session.
  */
 export class BrowserNeedsGuiSessionError extends UnavailableError<"browser_needs_gui_session"> {
+  /**
+   * The code's details, typed; `undefined` when they lack a field the type
+   * requires, as those of an error a program builds without details do.
+   */
+  readonly typedDetails: Readonly<BrowserNeedsGuiSessionDetails> | undefined;
+
   constructor(message: string, fields: ErrorFields = {}) {
     super(message, { ...fields, name: "BrowserNeedsGuiSessionError", code: "browser_needs_gui_session", group: "unavailable", retryable: false });
+    this.typedDetails = detailsOf<BrowserNeedsGuiSessionDetails>(fields.details, []);
   }
 }
 
@@ -259,8 +315,15 @@ export class BrowserNeedsGuiSessionError extends UnavailableError<"browser_needs
  * The browser build a launch needs is not in the Browser cache and the engine cannot write that cache, such as an image's read-only `GOODFETCH_BROWSERS_PATH`; or a browser named by channel or path is not there. Run the Product's `browser install` where the cache is writable, install the browser of that channel, or correct the path.
  */
 export class BrowserNotInstalledError extends UnavailableError<"browser_not_installed"> {
+  /**
+   * The code's details, typed; `undefined` when they lack a field the type
+   * requires, as those of an error a program builds without details do.
+   */
+  readonly typedDetails: Readonly<BrowserNotInstalledDetails> | undefined;
+
   constructor(message: string, fields: ErrorFields = {}) {
     super(message, { ...fields, name: "BrowserNotInstalledError", code: "browser_not_installed", group: "unavailable", retryable: false });
+    this.typedDetails = detailsOf<BrowserNotInstalledDetails>(fields.details, ["missing"], { path: { type: "BrowserNotInstalledDetails" }, types: collieWire.types });
   }
 }
 
@@ -268,8 +331,15 @@ export class BrowserNotInstalledError extends UnavailableError<"browser_not_inst
  * Chromium's sandbox cannot start on this host, so the engine launches no browser. `environment` names what refuses it (Docker's or containerd's default seccomp profile, Kubernetes' `RuntimeDefault`, Ubuntu's AppArmor restriction on unprivileged user namespaces, or `unknown` for a refusal the probe does not recognise, which the message names), and `fix` the fix; an Operator policy may instead switch `security.browser_sandbox` off, which the run reports.
  */
 export class BrowserSandboxUnavailableError extends UnavailableError<"browser_sandbox_unavailable"> {
+  /**
+   * The code's details, typed; `undefined` when they lack a field the type
+   * requires, as those of an error a program builds without details do.
+   */
+  readonly typedDetails: Readonly<BrowserSandboxUnavailableDetails> | undefined;
+
   constructor(message: string, fields: ErrorFields = {}) {
     super(message, { ...fields, name: "BrowserSandboxUnavailableError", code: "browser_sandbox_unavailable", group: "unavailable", retryable: false });
+    this.typedDetails = detailsOf<BrowserSandboxUnavailableDetails>(fields.details, ["environment"]);
   }
 }
 
@@ -293,8 +363,15 @@ export class CallCancelledError extends UnavailableError<"call_cancelled"> {
  * A capability this engine cannot provide where a setting asks for it, such as a Session opening from a Session source of a kind this engine does not read: the details name the setting, the layer that set it and what it asked for, and its fix names the value that does without it.
  */
 export class CapabilityUnavailableError extends UnavailableError<"capability_unavailable"> {
+  /**
+   * The code's details, typed; `undefined` when they lack a field the type
+   * requires, as those of an error a program builds without details do.
+   */
+  readonly typedDetails: Readonly<CapabilityUnavailableDetails> | undefined;
+
   constructor(message: string, fields: ErrorFields = {}) {
     super(message, { ...fields, name: "CapabilityUnavailableError", code: "capability_unavailable", group: "unavailable", retryable: false });
+    this.typedDetails = detailsOf<CapabilityUnavailableDetails>(fields.details, ["key", "layer", "kind"]);
   }
 }
 
@@ -302,8 +379,15 @@ export class CapabilityUnavailableError extends UnavailableError<"capability_una
  * A `cdp_url` Session source names an address ADR 0056's rules refuse, before any connection: a private address from a value that is not Operator-configured, loopback from a Client acting for a model (its project configuration included) or a Recipe, or a private address under `egress.no_private_endpoints`. The details name the address without its query or credentials, the settings layer that gave it, the rule, the address it resolved to and the fix: set the address in Operator policy or in user configuration, or give a public address.
  */
 export class CDPURLNotAllowedError extends RefusedError<"cdp_url_not_allowed"> {
+  /**
+   * The code's details, typed; `undefined` when they lack a field the type
+   * requires, as those of an error a program builds without details do.
+   */
+  readonly typedDetails: Readonly<CdpUrlNotAllowedDetails> | undefined;
+
   constructor(message: string, fields: ErrorFields = {}) {
     super(message, { ...fields, name: "CDPURLNotAllowedError", code: "cdp_url_not_allowed", group: "refused", retryable: false });
+    this.typedDetails = detailsOf<CdpUrlNotAllowedDetails>(fields.details, ["layer", "rule", "address"]);
   }
 }
 
@@ -311,8 +395,15 @@ export class CDPURLNotAllowedError extends RefusedError<"cdp_url_not_allowed"> {
  * Something answered at a `cdp_url` Session source's address, but no browser speaks CDP there: an HTTP status and content type, a WebSocket that refused the upgrade, a CDP target that is not a browser (`page`, `node`, `worker`), or a product the engine does not drive, which `observed` says. The details name the address without its query or credentials, the settings layer that gave it and the fix: give the browser's endpoint, `http://host:port` or `ws://…/devtools/browser/<id>`, and when the same host serves `/json/version`, the browser address found there, which `browser_url` holds.
  */
 export class CDPURLNotBrowserError extends ProgramError<"cdp_url_not_browser"> {
+  /**
+   * The code's details, typed; `undefined` when they lack a field the type
+   * requires, as those of an error a program builds without details do.
+   */
+  readonly typedDetails: Readonly<CdpUrlNotBrowserDetails> | undefined;
+
   constructor(message: string, fields: ErrorFields = {}) {
     super(message, { ...fields, name: "CDPURLNotBrowserError", code: "cdp_url_not_browser", group: "program", retryable: false });
+    this.typedDetails = detailsOf<CdpUrlNotBrowserDetails>(fields.details, ["layer"], { path: { type: "CdpUrlNotBrowserDetails" }, types: collieWire.types });
   }
 }
 
@@ -320,8 +411,15 @@ export class CDPURLNotBrowserError extends ProgramError<"cdp_url_not_browser"> {
  * A `cdp_url` Session source's address answered 401 or 403 to the HTTP request or the WebSocket upgrade. The details name the address without its query or credentials, the settings layer that gave it, the status, each header name sent with its Secret reference, never its value, and the fix: check the Secret references in `headers`.
  */
 export class CDPURLUnauthorizedError extends RefusedError<"cdp_url_unauthorized"> {
+  /**
+   * The code's details, typed; `undefined` when they lack a field the type
+   * requires, as those of an error a program builds without details do.
+   */
+  readonly typedDetails: Readonly<CdpUrlUnauthorizedDetails> | undefined;
+
   constructor(message: string, fields: ErrorFields = {}) {
     super(message, { ...fields, name: "CDPURLUnauthorizedError", code: "cdp_url_unauthorized", group: "refused", retryable: false });
+    this.typedDetails = detailsOf<CdpUrlUnauthorizedDetails>(fields.details, ["layer", "status", "headers"]);
   }
 }
 
@@ -329,8 +427,15 @@ export class CDPURLUnauthorizedError extends RefusedError<"cdp_url_unauthorized"
  * Nothing answered at a `cdp_url` Session source's address when the call that opens the Session connected to it: its name did not resolve, the connection was refused or reset, or TLS failed. It fails at once, never waiting for the address. The details name the address without its query or credentials, the settings layer that gave it, the failure and the fix: start the browser with remote debugging on that port, or correct the address.
  */
 export class CDPURLUnreachableError extends UnavailableError<"cdp_url_unreachable"> {
+  /**
+   * The code's details, typed; `undefined` when they lack a field the type
+   * requires, as those of an error a program builds without details do.
+   */
+  readonly typedDetails: Readonly<CdpUrlUnreachableDetails> | undefined;
+
   constructor(message: string, fields: ErrorFields = {}) {
     super(message, { ...fields, name: "CDPURLUnreachableError", code: "cdp_url_unreachable", group: "unavailable", retryable: true });
+    this.typedDetails = detailsOf<CdpUrlUnreachableDetails>(fields.details, ["layer", "failure"]);
   }
 }
 
@@ -338,8 +443,15 @@ export class CDPURLUnreachableError extends UnavailableError<"cdp_url_unreachabl
  * A pinned host presented a certificate whose public key is not its pin, or its pin row cannot be read, so nothing was sent to it, nor is for the rest of the run. The details carry the host, both SHA-256 hashes and the fix: a person accepts the new key with `certs accept` in an interactive prompt, which no agent, Recipe or `--json` command can do.
  */
 export class CertificateChangedError extends RefusedError<"certificate_changed"> {
+  /**
+   * The code's details, typed; `undefined` when they lack a field the type
+   * requires, as those of an error a program builds without details do.
+   */
+  readonly typedDetails: Readonly<CertificateChangedDetails> | undefined;
+
   constructor(message: string, fields: ErrorFields = {}) {
     super(message, { ...fields, name: "CertificateChangedError", code: "certificate_changed", group: "refused", retryable: false });
+    this.typedDetails = detailsOf<CertificateChangedDetails>(fields.details, ["host", "presentedSpkiSha256"], { path: { type: "CertificateChangedDetails" }, types: collieWire.types });
   }
 }
 
@@ -347,8 +459,15 @@ export class CertificateChangedError extends RefusedError<"certificate_changed">
  * A host's certificate failed verification and no exception covers its domain, so nothing was sent to it. The details name the host, the failure (`expired`, `not_yet_valid`, `unknown_issuer`, `name_mismatch`, `self_signed`, `revoked`, or another failure as text) and, in `fix`, the setting that makes an exception for that domain.
  */
 export class CertificateInvalidError extends PageError<"certificate_invalid"> {
+  /**
+   * The code's details, typed; `undefined` when they lack a field the type
+   * requires, as those of an error a program builds without details do.
+   */
+  readonly typedDetails: Readonly<CertificateInvalidDetails> | undefined;
+
   constructor(message: string, fields: ErrorFields = {}) {
     super(message, { ...fields, name: "CertificateInvalidError", code: "certificate_invalid", group: "page", retryable: false });
+    this.typedDetails = detailsOf<CertificateInvalidDetails>(fields.details, ["host", "failure"]);
   }
 }
 
@@ -365,8 +484,15 @@ export class ChallengeUnsolvedError extends PageError<"challenge_unsolved"> {
  * The Checkpoint a resume names is behind the Run's run file on this machine: a later run epoch, or the same one at a later journal position, wrote that file, so replacing it would throw away the work done since the Checkpoint and could perform its Effects again. Nothing is changed. Resume without `checkpoint` to go on from the run file, or pass `rollback` to replace it with the Checkpoint, as the Audit log records.
  */
 export class CheckpointBehindError extends RefusedError<"checkpoint_behind"> {
+  /**
+   * The code's details, typed; `undefined` when they lack a field the type
+   * requires, as those of an error a program builds without details do.
+   */
+  readonly typedDetails: Readonly<CheckpointBehindDetails> | undefined;
+
   constructor(message: string, fields: ErrorFields = {}) {
     super(message, { ...fields, name: "CheckpointBehindError", code: "checkpoint_behind", group: "refused", retryable: false });
+    this.typedDetails = detailsOf<CheckpointBehindDetails>(fields.details, ["checkpoint", "runFile"], { path: { type: "CheckpointBehindDetails" }, types: collieWire.types });
   }
 }
 
@@ -410,8 +536,15 @@ export class ConnectionLostError extends UnavailableError<"connection_lost"> {
  * The Connection already holds as many calls waiting for their answer, or as many bytes waiting to be written to the engine, as its bounds allow, so the call was refused at once and never sent; the calls made before it go on. The details name the bound, `pending_calls` or `queued_write_bytes`, and its value. Wait for earlier calls to end, or raise `connection.max_pending_calls` or `connection.max_queued_write_bytes` in `connect()`'s `settings`.
  */
 export class ConnectionOverloadedError extends RefusedError<"connection_overloaded"> {
+  /**
+   * The code's details, typed; `undefined` when they lack a field the type
+   * requires, as those of an error a program builds without details do.
+   */
+  readonly typedDetails: Readonly<ConnectionOverloadedDetails> | undefined;
+
   constructor(message: string, fields: ErrorFields = {}) {
     super(message, { ...fields, name: "ConnectionOverloadedError", code: "connection_overloaded", group: "refused", retryable: true });
+    this.typedDetails = detailsOf<ConnectionOverloadedDetails>(fields.details, ["bound", "value"]);
   }
 }
 
@@ -419,8 +552,15 @@ export class ConnectionOverloadedError extends RefusedError<"connection_overload
  * The foreground Daemon is draining on `SIGTERM`: it takes no run and checkpoints every live run as resumable, then exits. Start or resume the run on the Daemon that replaces it.
  */
 export class DaemonDrainingError extends UnavailableError<"daemon_draining"> {
+  /**
+   * The code's details, typed; `undefined` when they lack a field the type
+   * requires, as those of an error a program builds without details do.
+   */
+  readonly typedDetails: Readonly<DaemonDrainingDetails> | undefined;
+
   constructor(message: string, fields: ErrorFields = {}) {
     super(message, { ...fields, name: "DaemonDrainingError", code: "daemon_draining", group: "unavailable", retryable: true });
+    this.typedDetails = detailsOf<DaemonDrainingDetails>(fields.details, []);
   }
 }
 
@@ -428,8 +568,15 @@ export class DaemonDrainingError extends UnavailableError<"daemon_draining"> {
  * No Daemon could be reached, so nothing was called: nothing answers where `GOODFETCH_URL` or its runtime file says it listens, it closed the Connection before it answered `hello`, as one does for a wrong `GOODFETCH_TOKEN`, it went away while the command connected, or its files cannot be read or its major's pick cannot be started. The message says which, and the `fix` what to do.
  */
 export class DaemonUnreachableError extends UnavailableError<"daemon_unreachable"> {
+  /**
+   * The code's details, typed; `undefined` when they lack a field the type
+   * requires, as those of an error a program builds without details do.
+   */
+  readonly typedDetails: Readonly<DaemonUnreachableDetails> | undefined;
+
   constructor(message: string, fields: ErrorFields = {}) {
     super(message, { ...fields, name: "DaemonUnreachableError", code: "daemon_unreachable", group: "unavailable", retryable: true });
+    this.typedDetails = detailsOf<DaemonUnreachableDetails>(fields.details, []);
   }
 }
 
@@ -437,8 +584,15 @@ export class DaemonUnreachableError extends UnavailableError<"daemon_unreachable
  * A `detached` start of a Run that would die with its Connection, so no Run started: an Attached or linked engine ends with its Connection, and a Run whose handler is in the program waits on it. The details name what keeps the Run from detaching, `engine` or the key that gives it a handler in the program, and the fix.
  */
 export class DetachUnsupportedError extends ProgramError<"detach_unsupported"> {
+  /**
+   * The code's details, typed; `undefined` when they lack a field the type
+   * requires, as those of an error a program builds without details do.
+   */
+  readonly typedDetails: Readonly<DetachUnsupportedDetails> | undefined;
+
   constructor(message: string, fields: ErrorFields = {}) {
     super(message, { ...fields, name: "DetachUnsupportedError", code: "detach_unsupported", group: "program", retryable: false });
+    this.typedDetails = detailsOf<DetachUnsupportedDetails>(fields.details, ["key"]);
   }
 }
 
@@ -446,8 +600,15 @@ export class DetachUnsupportedError extends ProgramError<"detach_unsupported"> {
  * The dialog was answered already, by an earlier `accept` or `dismiss`, or it closed, its handler having ended or the dialog having got its default: the first answer stands and this one changed nothing.
  */
 export class DialogAlreadyHandledError extends ProgramError<"dialog_already_handled"> {
+  /**
+   * The code's details, typed; `undefined` when they lack a field the type
+   * requires, as those of an error a program builds without details do.
+   */
+  readonly typedDetails: Readonly<DialogAlreadyHandledDetails> | undefined;
+
   constructor(message: string, fields: ErrorFields = {}) {
     super(message, { ...fields, name: "DialogAlreadyHandledError", code: "dialog_already_handled", group: "program", retryable: false });
+    this.typedDetails = detailsOf<DialogAlreadyHandledDetails>(fields.details, ["dialogId"], { path: { type: "DialogAlreadyHandledDetails" }, types: collieWire.types });
   }
 }
 
@@ -455,8 +616,15 @@ export class DialogAlreadyHandledError extends ProgramError<"dialog_already_hand
  * The program runs on an edge runtime, Cloudflare Workers, Vercel's edge runtime or Deno Deploy, which ends what it runs with its request, and asked for code the engine would call after it: a crawl's handlers, an SDK handler, a Hook in code or a lent page. Nothing was sent. Run that code as a Recipe on the Daemon, and start or poll its Run from the edge function.
  */
 export class EdgeHandlersUnsupportedError extends ProgramError<"edge_handlers_unsupported"> {
+  /**
+   * The code's details, typed; `undefined` when they lack a field the type
+   * requires, as those of an error a program builds without details do.
+   */
+  readonly typedDetails: Readonly<EdgeHandlersUnsupportedDetails> | undefined;
+
   constructor(message: string, fields: ErrorFields = {}) {
     super(message, { ...fields, name: "EdgeHandlersUnsupportedError", code: "edge_handlers_unsupported", group: "program", retryable: false });
+    this.typedDetails = detailsOf<EdgeHandlersUnsupportedDetails>(fields.details, ["runtime"]);
   }
 }
 
@@ -500,8 +668,15 @@ export class EffectUncertainError extends PageError<"effect_uncertain"> {
  * The run's egress policy refused a request before it connected: a host the domain policy does not allow, an address that is not globally reachable, or a scheme no request may use. The details name the URL, the rule, the address when there is one and the setting that would allow it.
  */
 export class EgressRefusedError extends RefusedError<"egress_refused"> {
+  /**
+   * The code's details, typed; `undefined` when they lack a field the type
+   * requires, as those of an error a program builds without details do.
+   */
+  readonly typedDetails: Readonly<EgressRefusedDetails> | undefined;
+
   constructor(message: string, fields: ErrorFields = {}) {
     super(message, { ...fields, name: "EgressRefusedError", code: "egress_refused", group: "refused", retryable: false });
+    this.typedDetails = detailsOf<EgressRefusedDetails>(fields.details, ["rule"]);
   }
 }
 
@@ -509,8 +684,15 @@ export class EgressRefusedError extends RefusedError<"egress_refused"> {
  * The engine ended before its Connection was closed, so the call has no answer. An Attached engine's details carry its exit code or signal and the last 64 KiB of its stderr; a linked engine's carry none.
  */
 export class EngineExitedError extends UnavailableError<"engine_exited"> {
+  /**
+   * The code's details, typed; `undefined` when they lack a field the type
+   * requires, as those of an error a program builds without details do.
+   */
+  readonly typedDetails: Readonly<EngineExitedDetails> | undefined;
+
   constructor(message: string, fields: ErrorFields = {}) {
     super(message, { ...fields, name: "EngineExitedError", code: "engine_exited", group: "unavailable", retryable: false });
+    this.typedDetails = detailsOf<EngineExitedDetails>(fields.details, ["stderrTail"], { path: { type: "EngineExitedDetails" }, types: collieWire.types });
   }
 }
 
@@ -536,8 +718,15 @@ export class EngineOutputInvalidError extends InternalError<"engine_output_inval
  * A bug in Goodfetch made the engine panic, which ended what `ended` names and only that: for `call`, this call, while its Connection, its Run and its Page go on. Making the same call again is likely to hit the same bug. Report it with the crash report `crash_report` names, a file in the engine's crash-report folder on its machine.
  */
 export class EnginePanickedError extends InternalError<"engine_panicked"> {
+  /**
+   * The code's details, typed; `undefined` when they lack a field the type
+   * requires, as those of an error a program builds without details do.
+   */
+  readonly typedDetails: Readonly<EnginePanickedDetails> | undefined;
+
   constructor(message: string, fields: ErrorFields = {}) {
     super(message, { ...fields, name: "EnginePanickedError", code: "engine_panicked", group: "internal", retryable: false });
+    this.typedDetails = detailsOf<EnginePanickedDetails>(fields.details, ["ended"], { path: { type: "EnginePanickedDetails" }, types: collieWire.types });
   }
 }
 
@@ -554,8 +743,15 @@ export class EventLoopMismatchError extends ProgramError<"event_loop_mismatch"> 
  * Windows refused to start the file: Smart App Control, or another App Control policy, blocks executables without a signature or reputation it trusts. Goodfetch never re-signs a file it did not build. For a browser, use the Goodfetch Chromium or an installed Chrome by channel; otherwise turn Smart App Control off, or ask the device's administrator to allow the file.
  */
 export class ExecutableBlockedBySmartAppControlError extends RefusedError<"executable_blocked_by_smart_app_control"> {
+  /**
+   * The code's details, typed; `undefined` when they lack a field the type
+   * requires, as those of an error a program builds without details do.
+   */
+  readonly typedDetails: Readonly<ExecutableBlockedBySmartAppControlDetails> | undefined;
+
   constructor(message: string, fields: ErrorFields = {}) {
     super(message, { ...fields, name: "ExecutableBlockedBySmartAppControlError", code: "executable_blocked_by_smart_app_control", group: "refused", retryable: false });
+    this.typedDetails = detailsOf<ExecutableBlockedBySmartAppControlDetails>(fields.details, ["file"]);
   }
 }
 
@@ -563,8 +759,15 @@ export class ExecutableBlockedBySmartAppControlError extends RefusedError<"execu
  * The bytes of a file could not be written: no space or quota left, or an I/O error, or any failure where the engine keeps its files. No partial file is left. Free space where the files go, or ask the Daemon's operator, then make the same call again.
  */
 export class FileWriteFailedError extends UnavailableError<"file_write_failed"> {
+  /**
+   * The code's details, typed; `undefined` when they lack a field the type
+   * requires, as those of an error a program builds without details do.
+   */
+  readonly typedDetails: Readonly<FileWriteFailedDetails> | undefined;
+
   constructor(message: string, fields: ErrorFields = {}) {
     super(message, { ...fields, name: "FileWriteFailedError", code: "file_write_failed", group: "unavailable", retryable: false });
+    this.typedDetails = detailsOf<FileWriteFailedDetails>(fields.details, ["reason", "side"], { path: { type: "FileWriteFailedDetails" }, types: collieWire.types });
   }
 }
 
@@ -572,8 +775,15 @@ export class FileWriteFailedError extends UnavailableError<"file_write_failed"> 
  * A file, such as a run state or a Checkpoint, is of a format version this engine cannot read: a newer minor or major, written by a newer engine, which `fix` says to upgrade to, or an older major, which `upgrade-files` upgrades. The file is left as it is.
  */
 export class FormatVersionUnsupportedError extends UnavailableError<"format_version_unsupported"> {
+  /**
+   * The code's details, typed; `undefined` when they lack a field the type
+   * requires, as those of an error a program builds without details do.
+   */
+  readonly typedDetails: Readonly<FormatVersionUnsupportedDetails> | undefined;
+
   constructor(message: string, fields: ErrorFields = {}) {
     super(message, { ...fields, name: "FormatVersionUnsupportedError", code: "format_version_unsupported", group: "unavailable", retryable: false });
+    this.typedDetails = detailsOf<FormatVersionUnsupportedDetails>(fields.details, ["format", "found", "supported"]);
   }
 }
 
@@ -581,8 +791,15 @@ export class FormatVersionUnsupportedError extends UnavailableError<"format_vers
  * A header value the engine would send holds a CR, an LF or a NUL, which could end the header and start another, so it is refused before it reaches the wire or the browser. The details name the header and the character, never the value. Remove the character from the value.
  */
 export class HeaderValueInvalidError extends ProgramError<"header_value_invalid"> {
+  /**
+   * The code's details, typed; `undefined` when they lack a field the type
+   * requires, as those of an error a program builds without details do.
+   */
+  readonly typedDetails: Readonly<HeaderValueInvalidDetails> | undefined;
+
   constructor(message: string, fields: ErrorFields = {}) {
     super(message, { ...fields, name: "HeaderValueInvalidError", code: "header_value_invalid", group: "program", retryable: false });
+    this.typedDetails = detailsOf<HeaderValueInvalidDetails>(fields.details, ["name", "character"]);
   }
 }
 
@@ -606,8 +823,15 @@ export class HookFailedError extends ProgramError<"hook_failed"> {
  * A newer engine wrote a Limit this engine cannot evaluate, and it may cover the run; the details name it. Upgrade the engine.
  */
 export class LimitNotUnderstoodError extends RefusedError<"limit_not_understood"> {
+  /**
+   * The code's details, typed; `undefined` when they lack a field the type
+   * requires, as those of an error a program builds without details do.
+   */
+  readonly typedDetails: Readonly<LimitNotUnderstoodDetails> | undefined;
+
   constructor(message: string, fields: ErrorFields = {}) {
     super(message, { ...fields, name: "LimitNotUnderstoodError", code: "limit_not_understood", group: "refused", retryable: false });
+    this.typedDetails = detailsOf<LimitNotUnderstoodDetails>(fields.details, ["limit"], { path: { type: "LimitNotUnderstoodDetails" }, types: collieWire.types });
   }
 }
 
@@ -615,8 +839,15 @@ export class LimitNotUnderstoodError extends RefusedError<"limit_not_understood"
  * A start that names an existing Run gave a Limit above the Run's Limit as it stands; the details name its Usage kind, its currency, the amount given and the one standing. A program only lowers a Limit: ask a person to raise it.
  */
 export class LimitRaiseRefusedError extends RefusedError<"limit_raise_refused"> {
+  /**
+   * The code's details, typed; `undefined` when they lack a field the type
+   * requires, as those of an error a program builds without details do.
+   */
+  readonly typedDetails: Readonly<LimitRaiseRefusedDetails> | undefined;
+
   constructor(message: string, fields: ErrorFields = {}) {
     super(message, { ...fields, name: "LimitRaiseRefusedError", code: "limit_raise_refused", group: "refused", retryable: false });
+    this.typedDetails = detailsOf<LimitRaiseRefusedDetails>(fields.details, ["usageKind", "given", "standing"], { path: { type: "LimitRaiseRefusedDetails" }, types: collieWire.types });
   }
 }
 
@@ -624,8 +855,15 @@ export class LimitRaiseRefusedError extends RefusedError<"limit_raise_refused"> 
  * A Limit that covers the run has nothing left in its period; the details name its scope, its Usage kind, its period and when it starts again. Wait for the next period, or ask a person to raise it.
  */
 export class LimitReachedError extends RefusedError<"limit_reached"> {
+  /**
+   * The code's details, typed; `undefined` when they lack a field the type
+   * requires, as those of an error a program builds without details do.
+   */
+  readonly typedDetails: Readonly<ReachedLimit> | undefined;
+
   constructor(message: string, fields: ErrorFields = {}) {
     super(message, { ...fields, name: "LimitReachedError", code: "limit_reached", group: "refused", retryable: false });
+    this.typedDetails = detailsOf<ReachedLimit>(fields.details, ["scope", "usageKind"], { path: { type: "ReachedLimit" }, types: collieWire.types });
   }
 }
 
@@ -633,8 +871,15 @@ export class LimitReachedError extends RefusedError<"limit_reached"> {
  * A listener the program registered with `on` on a value whose events the engine publishes on its event stream, such as a Session's, held more events than its queue takes, the bound set where the Connection opens, 1,024 by default, so the SDK removed it once it got the events it held. Only that listener loses events: the Connection's Subscription and its other listeners go on. Its details name the event and how many events the listener lost: make the listener return sooner, or raise the bound, and listen again.
  */
 export class ListenerEventsLostError extends UnavailableError<"listener_events_lost"> {
+  /**
+   * The code's details, typed; `undefined` when they lack a field the type
+   * requires, as those of an error a program builds without details do.
+   */
+  readonly typedDetails: Readonly<ListenerEventsLostDetails> | undefined;
+
   constructor(message: string, fields: ErrorFields = {}) {
     super(message, { ...fields, name: "ListenerEventsLostError", code: "listener_events_lost", group: "unavailable", retryable: false });
+    this.typedDetails = detailsOf<ListenerEventsLostDetails>(fields.details, ["event", "lost"]);
   }
 }
 
@@ -651,8 +896,15 @@ export class ListenerFailedError extends ProgramError<"listener_failed"> {
  * `egress.local_addresses` yields no address this host can send from: a listed address the host does not hold, an interface it does not have or that holds no address, or an IPv6 prefix with none of the host's addresses in it and, on Linux, not routed locally with `net.ipv6.ip_nonlocal_bind` on; or a Session whose browser this engine does not launch on this machine (a Borrowed browser, a third-party CDP browser, a Browser host's) or whose `https://` proxy the egress relay does not chain through. The binding is never ignored: assign the address, correct the value, route the prefix to the host, or open the Session on a browser the engine launches here.
  */
 export class LocalAddressUnavailableError extends UnavailableError<"local_address_unavailable"> {
+  /**
+   * The code's details, typed; `undefined` when they lack a field the type
+   * requires, as those of an error a program builds without details do.
+   */
+  readonly typedDetails: Readonly<LocalAddressUnavailableDetails> | undefined;
+
   constructor(message: string, fields: ErrorFields = {}) {
     super(message, { ...fields, name: "LocalAddressUnavailableError", code: "local_address_unavailable", group: "unavailable", retryable: false });
+    this.typedDetails = detailsOf<LocalAddressUnavailableDetails>(fields.details, ["entry", "failure", "setting"]);
   }
 }
 
@@ -660,8 +912,15 @@ export class LocalAddressUnavailableError extends UnavailableError<"local_addres
  * The document the navigation reached is a login page, even one answered with a 200: the Session's login is lost, judged by its Page check's `login_page`, or by the built-in detector when it declares none. The page stays on the login page, the Session open with its cookies. The details name the URL, the status and what judged it.
  */
 export class LoggedOutError extends PageError<"logged_out"> {
+  /**
+   * The code's details, typed; `undefined` when they lack a field the type
+   * requires, as those of an error a program builds without details do.
+   */
+  readonly typedDetails: Readonly<LoggedOutDetails> | undefined;
+
   constructor(message: string, fields: ErrorFields = {}) {
     super(message, { ...fields, name: "LoggedOutError", code: "logged_out", group: "page", retryable: false });
+    this.typedDetails = detailsOf<LoggedOutDetails>(fields.details, ["status", "judgedBy"], { path: { type: "LoggedOutDetails" }, types: collieWire.types });
   }
 }
 
@@ -669,8 +928,15 @@ export class LoggedOutError extends PageError<"logged_out"> {
  * The engine's own resolver got no usable answer for the host name: its name servers timed out, refused the query, failed or could not be reached. Check the name servers of the system's resolver configuration, or map the name with the `resolve` setting.
  */
 export class NameLookupFailedError extends UnavailableError<"name_lookup_failed"> {
+  /**
+   * The code's details, typed; `undefined` when they lack a field the type
+   * requires, as those of an error a program builds without details do.
+   */
+  readonly typedDetails: Readonly<NameLookupFailedDetails> | undefined;
+
   constructor(message: string, fields: ErrorFields = {}) {
     super(message, { ...fields, name: "NameLookupFailedError", code: "name_lookup_failed", group: "unavailable", retryable: true });
+    this.typedDetails = detailsOf<NameLookupFailedDetails>(fields.details, ["name", "resolver"]);
   }
 }
 
@@ -678,8 +944,15 @@ export class NameLookupFailedError extends UnavailableError<"name_lookup_failed"
  * The resolver found no address for the host name. The engine's own resolver, used on Linux and for Sessions with a local address, reads the system's resolver configuration and hosts file but asks neither NSS modules (such as a directory service or a VPN client's) nor multicast DNS, so a name only they resolve, such as a `.local` name, fails here. Map such a name to its address with the `resolve` setting, or correct the name.
  */
 export class NameNotResolvedError extends UnavailableError<"name_not_resolved"> {
+  /**
+   * The code's details, typed; `undefined` when they lack a field the type
+   * requires, as those of an error a program builds without details do.
+   */
+  readonly typedDetails: Readonly<NameNotResolvedDetails> | undefined;
+
   constructor(message: string, fields: ErrorFields = {}) {
     super(message, { ...fields, name: "NameNotResolvedError", code: "name_not_resolved", group: "unavailable", retryable: false });
+    this.typedDetails = detailsOf<NameNotResolvedDetails>(fields.details, ["name", "resolver", "multicastDnsName"], { path: { type: "NameNotResolvedDetails" }, types: collieWire.types });
   }
 }
 
@@ -687,8 +960,15 @@ export class NameNotResolvedError extends UnavailableError<"name_not_resolved"> 
  * The navigation reached no document: the browser's network error, such as `net::ERR_NAME_NOT_RESOLVED`, is in the details, or the browser failed it for a reason it did not name.
  */
 export class NavigationFailedError extends PageError<"navigation_failed"> {
+  /**
+   * The code's details, typed; `undefined` when they lack a field the type
+   * requires, as those of an error a program builds without details do.
+   */
+  readonly typedDetails: Readonly<NavigationFailedDetails> | undefined;
+
   constructor(message: string, fields: ErrorFields = {}) {
     super(message, { ...fields, name: "NavigationFailedError", code: "navigation_failed", group: "page", retryable: true });
+    this.typedDetails = detailsOf<NavigationFailedDetails>(fields.details, []);
   }
 }
 
@@ -696,8 +976,15 @@ export class NavigationFailedError extends PageError<"navigation_failed"> {
  * Another navigation of the page started before this one committed, so this one reached no document: the page went where the other took it.
  */
 export class NavigationInterruptedError extends PageError<"navigation_interrupted"> {
+  /**
+   * The code's details, typed; `undefined` when they lack a field the type
+   * requires, as those of an error a program builds without details do.
+   */
+  readonly typedDetails: Readonly<NavigationInterruptedDetails> | undefined;
+
   constructor(message: string, fields: ErrorFields = {}) {
     super(message, { ...fields, name: "NavigationInterruptedError", code: "navigation_interrupted", group: "page", retryable: false });
+    this.typedDetails = detailsOf<NavigationInterruptedDetails>(fields.details, []);
   }
 }
 
@@ -705,8 +992,15 @@ export class NavigationInterruptedError extends PageError<"navigation_interrupte
  * The call asks a Daemon about itself, and this engine is an Attached engine. Ask the Daemon of the major, found through its runtime file, or run `daemon status`.
  */
 export class NotADaemonError extends ProgramError<"not_a_daemon"> {
+  /**
+   * The code's details, typed; `undefined` when they lack a field the type
+   * requires, as those of an error a program builds without details do.
+   */
+  readonly typedDetails: Readonly<NotADaemonDetails> | undefined;
+
   constructor(message: string, fields: ErrorFields = {}) {
     super(message, { ...fields, name: "NotADaemonError", code: "not_a_daemon", group: "program", retryable: false });
+    this.typedDetails = detailsOf<NotADaemonDetails>(fields.details, []);
   }
 }
 
@@ -714,8 +1008,15 @@ export class NotADaemonError extends ProgramError<"not_a_daemon"> {
  * The running engine's Product does not carry what was asked: a Client that needs Foxhound reached a Collie engine, or a call, a setting or a value only Foxhound carries reached one. Run it with Foxhound, which contains everything Collie does, or connect to a Foxhound engine.
  */
 export class NotInProductError extends UnavailableError<"not_in_product"> {
+  /**
+   * The code's details, typed; `undefined` when they lack a field the type
+   * requires, as those of an error a program builds without details do.
+   */
+  readonly typedDetails: Readonly<NotInProductDetails> | undefined;
+
   constructor(message: string, fields: ErrorFields = {}) {
     super(message, { ...fields, name: "NotInProductError", code: "not_in_product", group: "unavailable", retryable: false });
+    this.typedDetails = detailsOf<NotInProductDetails>(fields.details, ["product", "productVersion", "needs"], { path: { type: "NotInProductDetails" }, types: collieWire.types });
   }
 }
 
@@ -739,8 +1040,15 @@ export class NotVerifiedError extends PageError<"not_verified"> {
  * The document the navigation reached is neither the expected page nor the login page of its Session's Page check, `session.page_check`, whatever its HTTP status: a page the program did not mean to reach, such as an error page or a layout the site changed. The page stays on that document. The details name its URL and status.
  */
 export class PageCheckFailedError extends PageError<"page_check_failed"> {
+  /**
+   * The code's details, typed; `undefined` when they lack a field the type
+   * requires, as those of an error a program builds without details do.
+   */
+  readonly typedDetails: Readonly<PageCheckFailedDetails> | undefined;
+
   constructor(message: string, fields: ErrorFields = {}) {
     super(message, { ...fields, name: "PageCheckFailedError", code: "page_check_failed", group: "page", retryable: false });
+    this.typedDetails = detailsOf<PageCheckFailedDetails>(fields.details, ["status", "noindex"]);
   }
 }
 
@@ -748,8 +1056,15 @@ export class PageCheckFailedError extends PageError<"page_check_failed"> {
  * The page's renderer crashed, or its browser process was lost while the call ran; `browser_exit` says how the browser ended when it is what was lost. The page is gone: open another.
  */
 export class PageCrashedError extends UnavailableError<"page_crashed"> {
+  /**
+   * The code's details, typed; `undefined` when they lack a field the type
+   * requires, as those of an error a program builds without details do.
+   */
+  readonly typedDetails: Readonly<PageCrashedDetails> | undefined;
+
   constructor(message: string, fields: ErrorFields = {}) {
     super(message, { ...fields, name: "PageCrashedError", code: "page_crashed", group: "unavailable", retryable: true });
+    this.typedDetails = detailsOf<PageCrashedDetails>(fields.details, [], { path: { type: "PageCrashedDetails" }, types: collieWire.types });
   }
 }
 
@@ -766,8 +1081,15 @@ export class PageEventsLostError extends UnavailableError<"page_events_lost"> {
  * A page function threw in the page, or did not parse, or is an expression given an argument, which only a function takes. The details give the error's name, its message and the page's stack. A page function sees only the page and its one argument, never the program's variables, so a `ReferenceError`'s fix names the argument: pass the value in it.
  */
 export class PageFunctionFailedError extends ProgramError<"page_function_failed"> {
+  /**
+   * The code's details, typed; `undefined` when they lack a field the type
+   * requires, as those of an error a program builds without details do.
+   */
+  readonly typedDetails: Readonly<PageFunctionFailedDetails> | undefined;
+
   constructor(message: string, fields: ErrorFields = {}) {
     super(message, { ...fields, name: "PageFunctionFailedError", code: "page_function_failed", group: "program", retryable: false });
+    this.typedDetails = detailsOf<PageFunctionFailedDetails>(fields.details, ["message"]);
   }
 }
 
@@ -775,8 +1097,15 @@ export class PageFunctionFailedError extends ProgramError<"page_function_failed"
  * A handler the program gave a page failed, such as a route's handler that threw: its request was aborted unless it was answered already, never sent half-changed, and its route was removed; a dialog handler's dialog got its default and the handler was removed. Raised by the call that waited on that request, such as the `goto` whose document it was, or by the call the dialog blocked, or else by the next call on its page. The details name the handler, the URL of the request or of the dialog's document, and what the failure said.
  */
 export class PageHandlerFailedError extends ProgramError<"page_handler_failed"> {
+  /**
+   * The code's details, typed; `undefined` when they lack a field the type
+   * requires, as those of an error a program builds without details do.
+   */
+  readonly typedDetails: Readonly<PageHandlerFailedDetails> | undefined;
+
   constructor(message: string, fields: ErrorFields = {}) {
     super(message, { ...fields, name: "PageHandlerFailedError", code: "page_handler_failed", group: "program", retryable: false });
+    this.typedDetails = detailsOf<PageHandlerFailedDetails>(fields.details, ["handler", "failure"]);
   }
 }
 
@@ -784,8 +1113,15 @@ export class PageHandlerFailedError extends ProgramError<"page_handler_failed"> 
  * Memory was critical and the page held more than `governor.browser.page_memory_cap`, so the Resource governor ended it once no call on it was in flight. The page is gone: open another and try again, which the governor admits once memory frees up.
  */
 export class PageMemoryExceededError extends UnavailableError<"page_memory_exceeded"> {
+  /**
+   * The code's details, typed; `undefined` when they lack a field the type
+   * requires, as those of an error a program builds without details do.
+   */
+  readonly typedDetails: Readonly<PageMemoryExceededDetails> | undefined;
+
   constructor(message: string, fields: ErrorFields = {}) {
     super(message, { ...fields, name: "PageMemoryExceededError", code: "page_memory_exceeded", group: "unavailable", retryable: true });
+    this.typedDetails = detailsOf<PageMemoryExceededDetails>(fields.details, ["pageId", "memory"], { path: { type: "PageMemoryExceededDetails" }, types: collieWire.types });
   }
 }
 
@@ -793,8 +1129,15 @@ export class PageMemoryExceededError extends UnavailableError<"page_memory_excee
  * The page's main frame committed a navigation to a new document while an `act`, `observe` or `extract` ran, between the call's first read of the page and its return (an `act` until its first input), and the call did not start it: the program's own driver, the page's script, a person or an extension may have. Nothing was acted on, and no Plan entry was written. The details name the document the call read, `url`, and the one that replaced it, `navigated_to`; the fix says to await the Collie call before the program's own driver acts on the page. A retry may find the page where the call needs it.
  */
 export class PageNavigatedDuringCallError extends PageError<"page_navigated_during_call"> {
+  /**
+   * The code's details, typed; `undefined` when they lack a field the type
+   * requires, as those of an error a program builds without details do.
+   */
+  readonly typedDetails: Readonly<PageNavigatedDuringCallDetails> | undefined;
+
   constructor(message: string, fields: ErrorFields = {}) {
     super(message, { ...fields, name: "PageNavigatedDuringCallError", code: "page_navigated_during_call", group: "page", retryable: true });
+    this.typedDetails = detailsOf<PageNavigatedDuringCallDetails>(fields.details, ["navigatedTo"], { path: { type: "PageNavigatedDuringCallDetails" }, types: collieWire.types });
   }
 }
 
@@ -802,8 +1145,15 @@ export class PageNavigatedDuringCallError extends PageError<"page_navigated_duri
  * A page function's result, or its argument, holds a value outside JSON, such as a DOM node, `NaN`, `Infinity`, a function, a `Map`, a `BigInt` or a cycle, which Playwright would have turned into `undefined`, silently. The details name the first such value's path from `$`, its kind and the fix: return the JSON the program needs, such as an element's text or attribute instead of the element.
  */
 export class PageValueInvalidError extends ProgramError<"page_value_invalid"> {
+  /**
+   * The code's details, typed; `undefined` when they lack a field the type
+   * requires, as those of an error a program builds without details do.
+   */
+  readonly typedDetails: Readonly<PageValueInvalidDetails> | undefined;
+
   constructor(message: string, fields: ErrorFields = {}) {
     super(message, { ...fields, name: "PageValueInvalidError", code: "page_value_invalid", group: "program", retryable: false });
+    this.typedDetails = detailsOf<PageValueInvalidDetails>(fields.details, ["direction", "path", "kind"]);
   }
 }
 
@@ -811,8 +1161,15 @@ export class PageValueInvalidError extends ProgramError<"page_value_invalid"> {
  * The path the program chose cannot be written for a reason the path causes: permission denied, a read-only filesystem, a folder at the path, a file where a parent folder should be, a name the filesystem refuses, a file too large for that filesystem, or a path not found once its parents are made. No partial file is left. Change the path.
  */
 export class PathNotWritableError extends ProgramError<"path_not_writable"> {
+  /**
+   * The code's details, typed; `undefined` when they lack a field the type
+   * requires, as those of an error a program builds without details do.
+   */
+  readonly typedDetails: Readonly<PathNotWritableDetails> | undefined;
+
   constructor(message: string, fields: ErrorFields = {}) {
     super(message, { ...fields, name: "PathNotWritableError", code: "path_not_writable", group: "program", retryable: false });
+    this.typedDetails = detailsOf<PathNotWritableDetails>(fields.details, ["reason", "path"], { path: { type: "PathNotWritableDetails" }, types: collieWire.types });
   }
 }
 
@@ -820,8 +1177,15 @@ export class PathNotWritableError extends ProgramError<"path_not_writable"> {
  * A name or path from outside input would leave the folder the engine writes it in, or is no safe file name on Linux, macOS or Windows: a `..` or `.` part, an absolute, drive, UNC, verbatim or device path, a name Windows reserves for a device, an alternate data stream, a character Windows forbids or a control character, a trailing dot or space, a part longer than 255 bytes, an empty part or a name that is not in Unicode's composed form. It is refused on every OS alike. The details name it and its hazard.
  */
 export class PathUnsafeError extends ProgramError<"path_unsafe"> {
+  /**
+   * The code's details, typed; `undefined` when they lack a field the type
+   * requires, as those of an error a program builds without details do.
+   */
+  readonly typedDetails: Readonly<PathUnsafeDetails> | undefined;
+
   constructor(message: string, fields: ErrorFields = {}) {
     super(message, { ...fields, name: "PathUnsafeError", code: "path_unsafe", group: "program", retryable: false });
+    this.typedDetails = detailsOf<PathUnsafeDetails>(fields.details, ["name", "hazard"]);
   }
 }
 
@@ -829,8 +1193,15 @@ export class PathUnsafeError extends ProgramError<"path_unsafe"> {
  * A URL pattern the engine cannot match: a regular expression with look-around, a back-reference or another construct outside the `regex` crate's syntax, or a glob with nested or unmatched braces. The details name the construct; match the URL with a predicate instead, which runs in the program.
  */
 export class PatternUnsupportedError extends ProgramError<"pattern_unsupported"> {
+  /**
+   * The code's details, typed; `undefined` when they lack a field the type
+   * requires, as those of an error a program builds without details do.
+   */
+  readonly typedDetails: Readonly<PatternUnsupportedDetails> | undefined;
+
   constructor(message: string, fields: ErrorFields = {}) {
     super(message, { ...fields, name: "PatternUnsupportedError", code: "pattern_unsupported", group: "program", retryable: false });
+    this.typedDetails = detailsOf<PatternUnsupportedDetails>(fields.details, ["pattern", "construct"]);
   }
 }
 
@@ -856,8 +1227,15 @@ export class PluginCrashedError extends UnavailableError<"plugin_crashed"> {
  * The Operator policy's digest changed since it was read, as by a hand edit, so nothing was written; `fix` says to read it again.
  */
 export class PolicyConflictError extends RefusedError<"policy_conflict"> {
+  /**
+   * The code's details, typed; `undefined` when they lack a field the type
+   * requires, as those of an error a program builds without details do.
+   */
+  readonly typedDetails: Readonly<PolicyConflictDetails> | undefined;
+
   constructor(message: string, fields: ErrorFields = {}) {
     super(message, { ...fields, name: "PolicyConflictError", code: "policy_conflict", group: "refused", retryable: false });
+    this.typedDetails = detailsOf<PolicyConflictDetails>(fields.details, ["digest", "current"]);
   }
 }
 
@@ -865,8 +1243,15 @@ export class PolicyConflictError extends RefusedError<"policy_conflict"> {
  * The engine does not speak the protocol version the Client's `hello` names: it accepts its own major with the same or an older minor. Upgrade the older side.
  */
 export class ProtocolVersionUnsupportedError extends UnavailableError<"protocol_version_unsupported"> {
+  /**
+   * The code's details, typed; `undefined` when they lack a field the type
+   * requires, as those of an error a program builds without details do.
+   */
+  readonly typedDetails: Readonly<ProtocolVersionUnsupportedDetails> | undefined;
+
   constructor(message: string, fields: ErrorFields = {}) {
     super(message, { ...fields, name: "ProtocolVersionUnsupportedError", code: "protocol_version_unsupported", group: "unavailable", retryable: false });
+    this.typedDetails = detailsOf<ProtocolVersionUnsupportedDetails>(fields.details, ["engineProtocolVersion", "clientProtocolVersion"], { path: { type: "ProtocolVersionUnsupportedDetails" }, types: collieWire.types });
   }
 }
 
@@ -874,8 +1259,15 @@ export class ProtocolVersionUnsupportedError extends UnavailableError<"protocol_
  * The Session's proxy answered `407 Proxy Authentication Required`: the Session gave it no credentials, or it refused those of `proxy.username` and `proxy.password`. The details name the proxy and the username, never the password. Fix the credentials; retrying with the same ones fails the same way.
  */
 export class ProxyAuthFailedError extends RefusedError<"proxy_auth_failed"> {
+  /**
+   * The code's details, typed; `undefined` when they lack a field the type
+   * requires, as those of an error a program builds without details do.
+   */
+  readonly typedDetails: Readonly<ProxyAuthFailedDetails> | undefined;
+
   constructor(message: string, fields: ErrorFields = {}) {
     super(message, { ...fields, name: "ProxyAuthFailedError", code: "proxy_auth_failed", group: "refused", retryable: false });
+    this.typedDetails = detailsOf<ProxyAuthFailedDetails>(fields.details, ["proxy"]);
   }
 }
 
@@ -883,8 +1275,15 @@ export class ProxyAuthFailedError extends RefusedError<"proxy_auth_failed"> {
  * The Session's Proxy provider answered through its proxy with a failure of its own: its traffic quota or balance is spent (`quota_exhausted`), the Session's sticky exit is gone (`sticky_session_expired`), or a failure Goodfetch does not recognize (`unrecognized`, whose text is logged, never returned). The details name the provider, the proxy and the failure, never the credentials. A provider's refusal of the credentials is `proxy_auth_failed` instead. Retry later, or open a new Session for a new exit.
  */
 export class ProxyProviderUnavailableError extends UnavailableError<"proxy_provider_unavailable"> {
+  /**
+   * The code's details, typed; `undefined` when they lack a field the type
+   * requires, as those of an error a program builds without details do.
+   */
+  readonly typedDetails: Readonly<ProxyProviderUnavailableDetails> | undefined;
+
   constructor(message: string, fields: ErrorFields = {}) {
     super(message, { ...fields, name: "ProxyProviderUnavailableError", code: "proxy_provider_unavailable", group: "unavailable", retryable: true });
+    this.typedDetails = detailsOf<ProxyProviderUnavailableDetails>(fields.details, ["provider", "proxy", "failure"]);
   }
 }
 
@@ -892,8 +1291,15 @@ export class ProxyProviderUnavailableError extends UnavailableError<"proxy_provi
  * The engine could not open the loopback relay a Session's proxy goes through, such as when the machine has no free local port: the proxy itself was never tried. The details name the proxy, never its credentials, and the local error. Retry once the machine frees ports or file descriptors.
  */
 export class ProxyRelayUnavailableError extends UnavailableError<"proxy_relay_unavailable"> {
+  /**
+   * The code's details, typed; `undefined` when they lack a field the type
+   * requires, as those of an error a program builds without details do.
+   */
+  readonly typedDetails: Readonly<ProxyRelayUnavailableDetails> | undefined;
+
   constructor(message: string, fields: ErrorFields = {}) {
     super(message, { ...fields, name: "ProxyRelayUnavailableError", code: "proxy_relay_unavailable", group: "unavailable", retryable: true });
+    this.typedDetails = detailsOf<ProxyRelayUnavailableDetails>(fields.details, ["proxy", "error"]);
   }
 }
 
@@ -901,8 +1307,15 @@ export class ProxyRelayUnavailableError extends UnavailableError<"proxy_relay_un
  * The Session's proxy could not be reached, its TLS failed, or it refused the tunnel or the request with an error of its own: the details name the proxy, never its credentials, and the browser's network error when it named one. It is the proxy's failure, never the site's and never `navigation_failed`: retry later, or through another proxy.
  */
 export class ProxyUnavailableError extends UnavailableError<"proxy_unavailable"> {
+  /**
+   * The code's details, typed; `undefined` when they lack a field the type
+   * requires, as those of an error a program builds without details do.
+   */
+  readonly typedDetails: Readonly<ProxyUnavailableDetails> | undefined;
+
   constructor(message: string, fields: ErrorFields = {}) {
     super(message, { ...fields, name: "ProxyUnavailableError", code: "proxy_unavailable", group: "unavailable", retryable: true });
+    this.typedDetails = detailsOf<ProxyUnavailableDetails>(fields.details, ["proxy"]);
   }
 }
 
@@ -910,8 +1323,15 @@ export class ProxyUnavailableError extends UnavailableError<"proxy_unavailable">
  * The engine ran out of memory or storage for the Run: it checkpointed and stopped it, or refused to start it where its run file would go. The details name the `resource`. Resume it once memory or space frees up, on an engine with a larger allowance, or with lower ceilings.
  */
 export class ResourcesExhaustedError extends UnavailableError<"resources_exhausted"> {
+  /**
+   * The code's details, typed; `undefined` when they lack a field the type
+   * requires, as those of an error a program builds without details do.
+   */
+  readonly typedDetails: Readonly<ResourcesExhaustedDetails> | undefined;
+
   constructor(message: string, fields: ErrorFields = {}) {
     super(message, { ...fields, name: "ResourcesExhaustedError", code: "resources_exhausted", group: "unavailable", retryable: false });
+    this.typedDetails = detailsOf<ResourcesExhaustedDetails>(fields.details, ["resource"], { path: { type: "ResourcesExhaustedDetails" }, types: collieWire.types });
   }
 }
 
@@ -919,8 +1339,15 @@ export class ResourcesExhaustedError extends UnavailableError<"resources_exhaust
  * A body or JSON the engine read from outside passed one of its limits, so the engine stopped reading it: more decoded bytes than `network.max_body_size`, more decoded bytes per received byte than `network.max_decompression_ratio` once past 1 MiB, or JSON nested deeper than `network.max_json_depth`. The details name the URL, the setting and its value; raise the setting for a site you trust.
  */
 export class ResponseLimitExceededError extends PageError<"response_limit_exceeded"> {
+  /**
+   * The code's details, typed; `undefined` when they lack a field the type
+   * requires, as those of an error a program builds without details do.
+   */
+  readonly typedDetails: Readonly<ResponseLimitExceededDetails> | undefined;
+
   constructor(message: string, fields: ErrorFields = {}) {
     super(message, { ...fields, name: "ResponseLimitExceededError", code: "response_limit_exceeded", group: "page", retryable: false });
+    this.typedDetails = detailsOf<ResponseLimitExceededDetails>(fields.details, ["setting", "limit"]);
   }
 }
 
@@ -937,8 +1364,15 @@ export class ResponseNotJSONError extends PageError<"response_not_json"> {
  * The response's body broke off before its end: shorter than its `Content-Length`, a chunked body without its last chunk, or a stream the server or the connection ended. A navigation waiting for `domcontentloaded` or `load` raises it for its main document; one that answered at `commit` leaves it to the body's read. The details name the URL and the bytes received and expected.
  */
 export class ResponseTruncatedError extends PageError<"response_truncated"> {
+  /**
+   * The code's details, typed; `undefined` when they lack a field the type
+   * requires, as those of an error a program builds without details do.
+   */
+  readonly typedDetails: Readonly<ResponseTruncatedDetails> | undefined;
+
   constructor(message: string, fields: ErrorFields = {}) {
     super(message, { ...fields, name: "ResponseTruncatedError", code: "response_truncated", group: "page", retryable: true });
+    this.typedDetails = detailsOf<ResponseTruncatedDetails>(fields.details, ["received"]);
   }
 }
 
@@ -946,8 +1380,15 @@ export class ResponseTruncatedError extends PageError<"response_truncated"> {
  * The route's request was answered already, by an earlier `continue`, `fulfill`, `abort` or `fallback`, or its handler ended: the first answer stands and this one changed nothing.
  */
 export class RouteAlreadyHandledError extends ProgramError<"route_already_handled"> {
+  /**
+   * The code's details, typed; `undefined` when they lack a field the type
+   * requires, as those of an error a program builds without details do.
+   */
+  readonly typedDetails: Readonly<RouteAlreadyHandledDetails> | undefined;
+
   constructor(message: string, fields: ErrorFields = {}) {
     super(message, { ...fields, name: "RouteAlreadyHandledError", code: "route_already_handled", group: "program", retryable: false });
+    this.typedDetails = detailsOf<RouteAlreadyHandledDetails>(fields.details, ["routeId"], { path: { type: "RouteAlreadyHandledDetails" }, types: collieWire.types });
   }
 }
 
@@ -955,8 +1396,15 @@ export class RouteAlreadyHandledError extends ProgramError<"route_already_handle
  * Another engine holds the Run's writer lock, and the owner the Run index names did not say it took the action: it did not answer, and may still be taking it, or does not own the Run. The engine retried the lock 5 times over about a second; the writer may end, so try again later.
  */
 export class RunBusyError extends RefusedError<"run_busy"> {
+  /**
+   * The code's details, typed; `undefined` when they lack a field the type
+   * requires, as those of an error a program builds without details do.
+   */
+  readonly typedDetails: Readonly<RunDetails> | undefined;
+
   constructor(message: string, fields: ErrorFields = {}) {
     super(message, { ...fields, name: "RunBusyError", code: "run_busy", group: "refused", retryable: true });
+    this.typedDetails = detailsOf<RunDetails>(fields.details, []);
   }
 }
 
@@ -964,8 +1412,15 @@ export class RunBusyError extends RefusedError<"run_busy"> {
  * The Run ID names a Run started with other inputs, or by another caller; the details list each difference. Start under another Run ID.
  */
 export class RunConflictError extends ProgramError<"run_conflict"> {
+  /**
+   * The code's details, typed; `undefined` when they lack a field the type
+   * requires, as those of an error a program builds without details do.
+   */
+  readonly typedDetails: Readonly<RunConflictDetails> | undefined;
+
   constructor(message: string, fields: ErrorFields = {}) {
     super(message, { ...fields, name: "RunConflictError", code: "run_conflict", group: "program", retryable: false });
+    this.typedDetails = detailsOf<RunConflictDetails>(fields.details, ["differences"]);
   }
 }
 
@@ -973,8 +1428,15 @@ export class RunConflictError extends ProgramError<"run_conflict"> {
  * The Run ended `finished`, so it takes no new work, such as a page or a Session it would open: start a Run under a new Run ID. The details name the Run.
  */
 export class RunEndedError extends ProgramError<"run_ended"> {
+  /**
+   * The code's details, typed; `undefined` when they lack a field the type
+   * requires, as those of an error a program builds without details do.
+   */
+  readonly typedDetails: Readonly<RunDetails> | undefined;
+
   constructor(message: string, fields: ErrorFields = {}) {
     super(message, { ...fields, name: "RunEndedError", code: "run_ended", group: "program", retryable: false });
+    this.typedDetails = detailsOf<RunDetails>(fields.details, []);
   }
 }
 
@@ -982,8 +1444,15 @@ export class RunEndedError extends ProgramError<"run_ended"> {
  * The Run ID is not one the engine takes: lowercase letters, digits, `.`, `_` and `-`, at most 128, starting and ending with a letter or a digit, never a name Windows reserves for a device.
  */
 export class RunIdInvalidError extends ProgramError<"run_id_invalid"> {
+  /**
+   * The code's details, typed; `undefined` when they lack a field the type
+   * requires, as those of an error a program builds without details do.
+   */
+  readonly typedDetails: Readonly<RunIdInvalidDetails> | undefined;
+
   constructor(message: string, fields: ErrorFields = {}) {
     super(message, { ...fields, name: "RunIdInvalidError", code: "run_id_invalid", group: "program", retryable: false });
+    this.typedDetails = detailsOf<RunIdInvalidDetails>(fields.details, ["pattern"]);
   }
 }
 
@@ -991,8 +1460,15 @@ export class RunIdInvalidError extends ProgramError<"run_id_invalid"> {
  * Another engine holds the Run's writer lock, so this one cannot write the Run; the other may end.
  */
 export class RunInUseError extends RefusedError<"run_in_use"> {
+  /**
+   * The code's details, typed; `undefined` when they lack a field the type
+   * requires, as those of an error a program builds without details do.
+   */
+  readonly typedDetails: Readonly<RunDetails> | undefined;
+
   constructor(message: string, fields: ErrorFields = {}) {
     super(message, { ...fields, name: "RunInUseError", code: "run_in_use", group: "refused", retryable: true });
+    this.typedDetails = detailsOf<RunDetails>(fields.details, []);
   }
 }
 
@@ -1000,8 +1476,15 @@ export class RunInUseError extends RefusedError<"run_in_use"> {
  * The Run has no live writer and has not ended, as after a crash, so it has no report and none comes: a start with its Run ID resumes it. The details name the Run.
  */
 export class RunInterruptedError extends UnavailableError<"run_interrupted"> {
+  /**
+   * The code's details, typed; `undefined` when they lack a field the type
+   * requires, as those of an error a program builds without details do.
+   */
+  readonly typedDetails: Readonly<RunInterruptedDetails> | undefined;
+
   constructor(message: string, fields: ErrorFields = {}) {
     super(message, { ...fields, name: "RunInterruptedError", code: "run_interrupted", group: "unavailable", retryable: false });
+    this.typedDetails = detailsOf<RunInterruptedDetails>(fields.details, []);
   }
 }
 
@@ -1009,8 +1492,15 @@ export class RunInterruptedError extends UnavailableError<"run_interrupted"> {
  * A resumed Run's data key does not open under the key-encryption key `run_state.key_reference` names, such as a Checkpoint moved to a machine whose own key is another: the key that wrapped it never travels with the Checkpoint. The details name the Run, the setting, the reference resolved and the reference that wrapped the key, never a value. Name the key that wrapped it, in project configuration or configuration, and resume again.
  */
 export class RunKeyMismatchError extends UnavailableError<"run_key_mismatch"> {
+  /**
+   * The code's details, typed; `undefined` when they lack a field the type
+   * requires, as those of an error a program builds without details do.
+   */
+  readonly typedDetails: Readonly<RunKeyMismatchDetails> | undefined;
+
   constructor(message: string, fields: ErrorFields = {}) {
     super(message, { ...fields, name: "RunKeyMismatchError", code: "run_key_mismatch", group: "unavailable", retryable: false });
+    this.typedDetails = detailsOf<RunKeyMismatchDetails>(fields.details, ["setting", "reference", "wrappedBy"], { path: { type: "RunKeyMismatchDetails" }, types: collieWire.types });
   }
 }
 
@@ -1018,8 +1508,15 @@ export class RunKeyMismatchError extends UnavailableError<"run_key_mismatch"> {
  * The engine still runs the Run, so it cannot be discarded: stop it first with `run.stop` or `run.abort`, or let it finish, then discard it. The details name the Run.
  */
 export class RunLiveError extends ProgramError<"run_live"> {
+  /**
+   * The code's details, typed; `undefined` when they lack a field the type
+   * requires, as those of an error a program builds without details do.
+   */
+  readonly typedDetails: Readonly<RunDetails> | undefined;
+
   constructor(message: string, fields: ErrorFields = {}) {
     super(message, { ...fields, name: "RunLiveError", code: "run_live", group: "program", retryable: false });
+    this.typedDetails = detailsOf<RunDetails>(fields.details, []);
   }
 }
 
@@ -1027,8 +1524,15 @@ export class RunLiveError extends ProgramError<"run_live"> {
  * No Run has this Run ID: the Run index does not list it.
  */
 export class RunNotFoundError extends ProgramError<"run_not_found"> {
+  /**
+   * The code's details, typed; `undefined` when they lack a field the type
+   * requires, as those of an error a program builds without details do.
+   */
+  readonly typedDetails: Readonly<RunDetails> | undefined;
+
   constructor(message: string, fields: ErrorFields = {}) {
     super(message, { ...fields, name: "RunNotFoundError", code: "run_not_found", group: "program", retryable: false });
+    this.typedDetails = detailsOf<RunDetails>(fields.details, []);
   }
 }
 
@@ -1036,8 +1540,15 @@ export class RunNotFoundError extends ProgramError<"run_not_found"> {
  * The action was forwarded to this engine as the Run's owner, and this engine does not own the Run: the Run index named an engine that has since ended or restarted. The engine that forwarded it retries the Run's writer lock.
  */
 export class RunNotOwnedError extends RefusedError<"run_not_owned"> {
+  /**
+   * The code's details, typed; `undefined` when they lack a field the type
+   * requires, as those of an error a program builds without details do.
+   */
+  readonly typedDetails: Readonly<RunDetails> | undefined;
+
   constructor(message: string, fields: ErrorFields = {}) {
     super(message, { ...fields, name: "RunNotOwnedError", code: "run_not_owned", group: "refused", retryable: false });
+    this.typedDetails = detailsOf<RunDetails>(fields.details, []);
   }
 }
 
@@ -1045,8 +1556,15 @@ export class RunNotOwnedError extends RefusedError<"run_not_owned"> {
  * The Run's folder is on a network filesystem (NFS, which EFS and Filestore are, or SMB, which Azure Files is) or on a FUSE mount of object storage, whose locking SQLite cannot rely on, so the engine keeps no run state there. The details name the Run, its folder, the `filesystem` and the `fix`: a `run_state.location` on a local disk or a block volume.
  */
 export class RunStateFilesystemUnsupportedError extends UnavailableError<"run_state_filesystem_unsupported"> {
+  /**
+   * The code's details, typed; `undefined` when they lack a field the type
+   * requires, as those of an error a program builds without details do.
+   */
+  readonly typedDetails: Readonly<RunStateFilesystemUnsupportedDetails> | undefined;
+
   constructor(message: string, fields: ErrorFields = {}) {
     super(message, { ...fields, name: "RunStateFilesystemUnsupportedError", code: "run_state_filesystem_unsupported", group: "unavailable", retryable: false });
+    this.typedDetails = detailsOf<RunStateFilesystemUnsupportedDetails>(fields.details, ["path", "filesystem"]);
   }
 }
 
@@ -1054,8 +1572,15 @@ export class RunStateFilesystemUnsupportedError extends UnavailableError<"run_st
  * The Run's state is missing, damaged or cannot be written at its location; the details give the path. The engine never starts afresh under that Run ID.
  */
 export class RunStateUnavailableError extends UnavailableError<"run_state_unavailable"> {
+  /**
+   * The code's details, typed; `undefined` when they lack a field the type
+   * requires, as those of an error a program builds without details do.
+   */
+  readonly typedDetails: Readonly<RunDetails> | undefined;
+
   constructor(message: string, fields: ErrorFields = {}) {
     super(message, { ...fields, name: "RunStateUnavailableError", code: "run_state_unavailable", group: "unavailable", retryable: false });
+    this.typedDetails = detailsOf<RunDetails>(fields.details, []);
   }
 }
 
@@ -1063,8 +1588,15 @@ export class RunStateUnavailableError extends UnavailableError<"run_state_unavai
  * This engine does not run what the start names yet, a Recipe's run or a code-free catalog run's target, so it starts no Run: the details name the start and the target's kind.
  */
 export class RunTargetUnbuiltError extends UnavailableError<"run_target_unbuilt"> {
+  /**
+   * The code's details, typed; `undefined` when they lack a field the type
+   * requires, as those of an error a program builds without details do.
+   */
+  readonly typedDetails: Readonly<RunTargetUnbuiltDetails> | undefined;
+
   constructor(message: string, fields: ErrorFields = {}) {
     super(message, { ...fields, name: "RunTargetUnbuiltError", code: "run_target_unbuilt", group: "unavailable", retryable: false });
+    this.typedDetails = detailsOf<RunTargetUnbuiltDetails>(fields.details, []);
   }
 }
 
@@ -1081,8 +1613,15 @@ export class SampleRefusedError extends RefusedError<"sample_refused"> {
  * A Secret placeholder's value would go to a domain outside its binding's `domains`: the field's frame or the request's URL. The details name the placeholder, the reference and the domain, never a value.
  */
 export class SecretDomainNotAllowedError extends RefusedError<"secret_domain_not_allowed"> {
+  /**
+   * The code's details, typed; `undefined` when they lack a field the type
+   * requires, as those of an error a program builds without details do.
+   */
+  readonly typedDetails: Readonly<SecretDomainNotAllowedDetails> | undefined;
+
   constructor(message: string, fields: ErrorFields = {}) {
     super(message, { ...fields, name: "SecretDomainNotAllowedError", code: "secret_domain_not_allowed", group: "refused", retryable: false });
+    this.typedDetails = detailsOf<SecretDomainNotAllowedDetails>(fields.details, ["placeholder", "reference", "domain", "domains"]);
   }
 }
 
@@ -1090,8 +1629,15 @@ export class SecretDomainNotAllowedError extends RefusedError<"secret_domain_not
  * A Secret placeholder's value would be typed or sent where other code may read it, or to a host reached through an invalid-certificate exception, so it was not resolved. The details name the placeholder, the reference, the domain and the `reason`, never a value.
  */
 export class SecretInputRefusedError extends RefusedError<"secret_input_refused"> {
+  /**
+   * The code's details, typed; `undefined` when they lack a field the type
+   * requires, as those of an error a program builds without details do.
+   */
+  readonly typedDetails: Readonly<SecretInputRefusedDetails> | undefined;
+
   constructor(message: string, fields: ErrorFields = {}) {
     super(message, { ...fields, name: "SecretInputRefusedError", code: "secret_input_refused", group: "refused", retryable: false });
+    this.typedDetails = detailsOf<SecretInputRefusedDetails>(fields.details, ["placeholder", "reference", "domain", "reason"]);
   }
 }
 
@@ -1099,8 +1645,15 @@ export class SecretInputRefusedError extends RefusedError<"secret_input_refused"
  * A Secret provider gave no value for a reference: a missing variable, a locked keychain, an unreachable vault, no one-time code (a TOTP seed the provider makes none from, or a code source's code that never arrived), the caller's `resolveSecret` missing or throwing, no answer within `timeout.secret`. `failure` says which, and the details name the placeholder or setting, the reference and the provider, never a value.
  */
 export class SecretUnavailableError extends UnavailableError<"secret_unavailable"> {
+  /**
+   * The code's details, typed; `undefined` when they lack a field the type
+   * requires, as those of an error a program builds without details do.
+   */
+  readonly typedDetails: Readonly<SecretUnavailableDetails> | undefined;
+
   constructor(message: string, fields: ErrorFields = {}) {
     super(message, { ...fields, name: "SecretUnavailableError", code: "secret_unavailable", group: "unavailable", retryable: false });
+    this.typedDetails = detailsOf<SecretUnavailableDetails>(fields.details, ["placeholder", "reference", "provider", "failure"]);
   }
 }
 
@@ -1108,8 +1661,15 @@ export class SecretUnavailableError extends UnavailableError<"secret_unavailable
  * No scope binds the Secret placeholder a call names. `bound` lists the placeholders bound, never a value.
  */
 export class SecretUnboundError extends ProgramError<"secret_unbound"> {
+  /**
+   * The code's details, typed; `undefined` when they lack a field the type
+   * requires, as those of an error a program builds without details do.
+   */
+  readonly typedDetails: Readonly<SecretUnboundDetails> | undefined;
+
   constructor(message: string, fields: ErrorFields = {}) {
     super(message, { ...fields, name: "SecretUnboundError", code: "secret_unbound", group: "program", retryable: false });
+    this.typedDetails = detailsOf<SecretUnboundDetails>(fields.details, ["placeholder", "bound"]);
   }
 }
 
@@ -1117,8 +1677,15 @@ export class SecretUnboundError extends ProgramError<"secret_unbound"> {
  * The Run is bound to the machine its Session source is on, and this is another machine: its login would reach sites from a new IP under the same cookies. Resume it on its own machine, or serve its Session source through a Browser host.
  */
 export class SessionBoundToMachineError extends RefusedError<"session_bound_to_machine"> {
+  /**
+   * The code's details, typed; `undefined` when they lack a field the type
+   * requires, as those of an error a program builds without details do.
+   */
+  readonly typedDetails: Readonly<SessionBoundToMachineDetails> | undefined;
+
   constructor(message: string, fields: ErrorFields = {}) {
     super(message, { ...fields, name: "SessionBoundToMachineError", code: "session_bound_to_machine", group: "refused", retryable: false });
+    this.typedDetails = detailsOf<SessionBoundToMachineDetails>(fields.details, []);
   }
 }
 
@@ -1126,8 +1693,15 @@ export class SessionBoundToMachineError extends RefusedError<"session_bound_to_m
  * A value of the wrong type or out of the setting's own range, an empty or unparsable deployment variable, or a settings file that does not parse.
  */
 export class SettingInvalidError extends ProgramError<"setting_invalid"> {
+  /**
+   * The code's details, typed; `undefined` when they lack a field the type
+   * requires, as those of an error a program builds without details do.
+   */
+  readonly typedDetails: Readonly<SettingInvalidDetails> | undefined;
+
   constructor(message: string, fields: ErrorFields = {}) {
     super(message, { ...fields, name: "SettingInvalidError", code: "setting_invalid", group: "program", retryable: false });
+    this.typedDetails = detailsOf<SettingInvalidDetails>(fields.details, ["key", "reason"]);
   }
 }
 
@@ -1135,8 +1709,15 @@ export class SettingInvalidError extends ProgramError<"setting_invalid"> {
  * A value a lower layer locked or capped, outside a Recipe's exposed bounds, or one only a lower layer may set or widen, such as `tls.trusted_cas` from a run. `limit` names the setting and the layer that holds it.
  */
 export class SettingLockedError extends RefusedError<"setting_locked"> {
+  /**
+   * The code's details, typed; `undefined` when they lack a field the type
+   * requires, as those of an error a program builds without details do.
+   */
+  readonly typedDetails: Readonly<SettingLockedDetails> | undefined;
+
   constructor(message: string, fields: ErrorFields = {}) {
     super(message, { ...fields, name: "SettingLockedError", code: "setting_locked", group: "refused", retryable: false });
+    this.typedDetails = detailsOf<SettingLockedDetails>(fields.details, ["key", "layer"]);
   }
 }
 
@@ -1144,8 +1725,15 @@ export class SettingLockedError extends RefusedError<"setting_locked"> {
  * A setting given where it cannot take effect: in a layer that may not hold it, such as `browser_cache.max_unused_age` outside user configuration and an Operator policy, or on a Run it does not apply to, such as a crawl's setting on a Collie Run.
  */
 export class SettingNotApplicableError extends ProgramError<"setting_not_applicable"> {
+  /**
+   * The code's details, typed; `undefined` when they lack a field the type
+   * requires, as those of an error a program builds without details do.
+   */
+  readonly typedDetails: Readonly<SettingNotApplicableDetails> | undefined;
+
   constructor(message: string, fields: ErrorFields = {}) {
     super(message, { ...fields, name: "SettingNotApplicableError", code: "setting_not_applicable", group: "program", retryable: false });
+    this.typedDetails = detailsOf<SettingNotApplicableDetails>(fields.details, ["key", "layer"]);
   }
 }
 
@@ -1153,8 +1741,15 @@ export class SettingNotApplicableError extends ProgramError<"setting_not_applica
  * A key no Product knows, or an unknown `GOODFETCH_` variable. The message names the closest valid one.
  */
 export class SettingUnknownError extends ProgramError<"setting_unknown"> {
+  /**
+   * The code's details, typed; `undefined` when they lack a field the type
+   * requires, as those of an error a program builds without details do.
+   */
+  readonly typedDetails: Readonly<SettingUnknownDetails> | undefined;
+
   constructor(message: string, fields: ErrorFields = {}) {
     super(message, { ...fields, name: "SettingUnknownError", code: "setting_unknown", group: "program", retryable: false });
+    this.typedDetails = detailsOf<SettingUnknownDetails>(fields.details, ["key"]);
   }
 }
 
@@ -1162,8 +1757,15 @@ export class SettingUnknownError extends ProgramError<"setting_unknown"> {
  * The site's preferences refused the navigation or the request before it left, or refused the document once its response arrived, leaving the page on a blank document: its robots.txt disallows the URL (`robots_txt`), its `Crawl-delay` asks for more than the crawl allows (`crawl_delay`), or a use signal it sends refuses the crawl's Purpose (`use_signals`). Only a crawl handler's page asks a site's preferences; a page a program opens never raises it. The details name the URL and the reason.
  */
 export class SitePreferencesRefusedError extends RefusedError<"site_preferences_refused"> {
+  /**
+   * The code's details, typed; `undefined` when they lack a field the type
+   * requires, as those of an error a program builds without details do.
+   */
+  readonly typedDetails: Readonly<SitePreferencesRefusedDetails> | undefined;
+
   constructor(message: string, fields: ErrorFields = {}) {
     super(message, { ...fields, name: "SitePreferencesRefusedError", code: "site_preferences_refused", group: "refused", retryable: false });
+    this.typedDetails = detailsOf<SitePreferencesRefusedDetails>(fields.details, ["reason"]);
   }
 }
 
@@ -1180,8 +1782,15 @@ export class SkillInstallRefusedError extends RefusedError<"skill_install_refuse
  * The locator still matched several elements when the action's timeout passed, so the action did nothing. The details list every match, each with a locator that reaches it alone, and `limit` names the timeout's setting; a longer timeout would not fix the locator.
  */
 export class TargetNotUniqueError extends PageError<"target_not_unique"> {
+  /**
+   * The code's details, typed; `undefined` when they lack a field the type
+   * requires, as those of an error a program builds without details do.
+   */
+  readonly typedDetails: Readonly<TargetNotUniqueDetails> | undefined;
+
   constructor(message: string, fields: ErrorFields = {}) {
     super(message, { ...fields, name: "TargetNotUniqueError", code: "target_not_unique", group: "page", retryable: false });
+    this.typedDetails = detailsOf<TargetNotUniqueDetails>(fields.details, ["matches", "elapsed"]);
   }
 }
 
@@ -1189,8 +1798,15 @@ export class TargetNotUniqueError extends PageError<"target_not_unique"> {
  * The Connection already has as many calls in flight as the engine serves on one, which `max` gives, so the engine refused this call at once and did nothing for it; the calls in flight go on, and the engine still reads their `$/cancel`, their `$/credit` and the replies to its own requests. Make the call again once an earlier call ended, cancel the calls no longer needed, or open another Connection.
  */
 export class TooManyCallsError extends RefusedError<"too_many_calls"> {
+  /**
+   * The code's details, typed; `undefined` when they lack a field the type
+   * requires, as those of an error a program builds without details do.
+   */
+  readonly typedDetails: Readonly<TooManyCallsDetails> | undefined;
+
   constructor(message: string, fields: ErrorFields = {}) {
     super(message, { ...fields, name: "TooManyCallsError", code: "too_many_calls", group: "refused", retryable: true });
+    this.typedDetails = detailsOf<TooManyCallsDetails>(fields.details, ["max"]);
   }
 }
 
@@ -1198,8 +1814,15 @@ export class TooManyCallsError extends RefusedError<"too_many_calls"> {
  * The navigation followed as many redirects as it may and was redirected again, as a redirect loop is: the browser's count is 20 requests in a navigation's chain, its first included, so Chromium follows 19 redirects. The details name the first URL, the hops followed and the count. A retry meets the same chain.
  */
 export class TooManyRedirectsError extends PageError<"too_many_redirects"> {
+  /**
+   * The code's details, typed; `undefined` when they lack a field the type
+   * requires, as those of an error a program builds without details do.
+   */
+  readonly typedDetails: Readonly<TooManyRedirectsDetails> | undefined;
+
   constructor(message: string, fields: ErrorFields = {}) {
     super(message, { ...fields, name: "TooManyRedirectsError", code: "too_many_redirects", group: "page", retryable: false });
+    this.typedDetails = detailsOf<TooManyRedirectsDetails>(fields.details, ["hops", "limit"]);
   }
 }
 
@@ -1216,8 +1839,15 @@ export class UpgradeSourceUnsupportedError extends RefusedError<"upgrade_source_
  * The Key-value store refused the key or its value: a key must be 1 to 512 Unicode scalar values with no control character, and a value any JSON but null, which `get` answers for an absent key; remove a key with `delete`. Bytes are read with `getBytes` and JSON with `get`, never the other way. The SDK refuses a value that is not JSON before sending it, and a value the call's Standard Schema rejects, sent or read; a JSON Schema written by hand types the value as JSON and checks nothing. The details name the key, say which was refused and, for a value's content, its path as a JSON Pointer.
  */
 export class ValueInvalidError extends ProgramError<"value_invalid"> {
+  /**
+   * The code's details, typed; `undefined` when they lack a field the type
+   * requires, as those of an error a program builds without details do.
+   */
+  readonly typedDetails: Readonly<ValueInvalidDetails> | undefined;
+
   constructor(message: string, fields: ErrorFields = {}) {
     super(message, { ...fields, name: "ValueInvalidError", code: "value_invalid", group: "program", retryable: false });
+    this.typedDetails = detailsOf<ValueInvalidDetails>(fields.details, ["key", "refused", "reason"]);
   }
 }
 

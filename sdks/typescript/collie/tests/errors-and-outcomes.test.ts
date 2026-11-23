@@ -146,7 +146,7 @@ async function checkPlayed(
     panicked,
   ];
   await clientCase.check("a 404 is the navigation's outcome, returned, not raised", () => {
-    expect(missing).toMatchObject({ status: 404, url: "https://shop.test/missing" });
+    expect([missing?.status(), missing?.url()]).toEqual([404, "https://shop.test/missing"]);
   });
   await clientCase.check("each failure carries its operation, call ID and Run ID", () => {
     expect(errors.map(({ operation, callId, runId }) => [operation, callId, runId])).toEqual([

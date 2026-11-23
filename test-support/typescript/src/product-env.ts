@@ -3,8 +3,9 @@
 // engine-path variable of the SDK's Product pointing at that Product's
 // executable from the test tool manifest, or at the Scripted engine playing
 // a script of the shared corpus.
-import { copyFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
-import { join } from "node:path";
+import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { pathToFileURL } from "node:url";
 import { toolPath, type TestEnvDescription } from "./test-env.ts";
 
 /** A Product; a test runs Collie's executable unless it needs Foxhound (ADR 0094). */
@@ -32,6 +33,30 @@ const corpus = new URL("../../fixtures/engine-scripts/", import.meta.url);
 /** The file of the corpus's script `script`, such as `connect/reached-daemon.json`. */
 export function corpusScript(script: string): URL {
   return new URL(script, corpus);
+}
+
+/** The project file's path a corpus script names where a test's Client carries the one it read. */
+const PROJECT_PLACEHOLDER = "/work/goodfetch.toml";
+
+/**
+ * The corpus's script `script` with each `/work/goodfetch.toml` it names
+ * replaced by `project`, the path of the project file the test's Client
+ * reads, written in the test's folder: a script `scriptedEngineEnv` and
+ * `startScriptedDaemon` take, by its file URL.
+ */
+export function projectScript(
+  description: TestEnvDescription,
+  script: string,
+  project: string,
+): string {
+  const text = readFileSync(corpusScript(script), "utf8").replaceAll(
+    JSON.stringify(PROJECT_PLACEHOLDER),
+    JSON.stringify(project),
+  );
+  const file = join(description.folder, "project-scripts", script);
+  mkdirSync(dirname(file), { recursive: true });
+  writeFileSync(file, text);
+  return pathToFileURL(file).href;
 }
 
 /**

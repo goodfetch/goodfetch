@@ -85,6 +85,16 @@ export function provingGroundRoutes(): ProvingGroundRoutes {
   return sharedFixture("proving-ground/routes.json", isProvingGroundRoutes);
 }
 
+/** The HTTP URL of `path` on the Proving ground's page host `host`, such as `fetch-edge.test`. */
+export function provingGroundUrl(
+  provingGround: ProvingGroundDescription,
+  host: string,
+  path: string,
+): string {
+  const port = provingGround.address.slice(provingGround.address.lastIndexOf(":") + 1);
+  return `http://${host}:${port}${path}`;
+}
+
 /** The URL the Proving ground's task `id` starts at, from its task list. */
 export async function taskStartUrl(
   provingGround: ProvingGroundDescription,

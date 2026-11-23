@@ -54,6 +54,7 @@ export { protocolCounts, type ProtocolCounts } from "./protocol-counts.ts";
 export { daemonOf, type DaemonDescription } from "./daemon.ts";
 export {
   productEnv,
+  projectScript,
   scriptedEngineClientMethods,
   scriptedEngineEnv,
   type Product,
@@ -68,6 +69,7 @@ export {
   judgeTask,
   provingGroundOf,
   provingGroundRoutes,
+  provingGroundUrl,
   taskStartUrl,
   type TaskResult,
   type ProvingGroundDescription,

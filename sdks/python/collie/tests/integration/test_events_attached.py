@@ -101,4 +101,4 @@ async def test_hears_the_console_in_order_and_raises_a_thrown_listeners_failure(
         )
         assert refused.__cause__ is failing.bug
     with client_case.check("the page stayed open and answers the call after it"):
-        assert after.value == 2
+        assert after == 2

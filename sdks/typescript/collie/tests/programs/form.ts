@@ -31,7 +31,7 @@ export async function fillTheForm(collie: Collie, url: string): Promise<FormFill
   const report = await run.finish();
   await collie.close();
   return {
-    status: navigated?.status,
+    status: navigated?.status(),
     markdown: formats.markdown,
     lifecycle: report.lifecycle,
   };

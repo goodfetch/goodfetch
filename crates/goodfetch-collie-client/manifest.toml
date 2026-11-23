@@ -289,6 +289,15 @@ form = "runtime"
 [[member]]
 crate = "goodfetch-collie-client"
 receiver = "ClientConnection"
+member = "project"
+entry = "none"
+reason = "The project file it carries (ADR 0083), the one its program read, as layer 3 of each Run it starts and of its own `config.explain`, if it read one."
+words = ["project"]
+form = "runtime"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "ClientConnection"
 member = "start"
 entry = "run.start"
 words = ["start"]
@@ -346,6 +355,15 @@ member = "exceeded_awaiting"
 entry = "none"
 reason = "`ConnectTimeout::exceeded` for a step of an opening that passed it waiting for `awaited` rather than for the engine's answer, such as the Daemon an idle one hands over to (ADR 0098): its message names what it waited for, and its `fix` is `fix`."
 words = ["exceeded", "awaiting"]
+form = "runtime"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "ConnectTimeout"
+member = "with_project"
+entry = "none"
+reason = "It once the project file's `timeout.connect` is taken (ADR 0083): that value in place of the default, while a connection's own `timeout` and no timeout win over it; a value that is no whole number of 1 ms or more is refused with `setting_invalid` at `project_configuration`."
+words = ["with", "project"]
 form = "runtime"
 
 [[member]]
@@ -976,7 +994,6 @@ receiver = "(crate)"
 member = "Response"
 entry = "none"
 reason = "The response a page's request got: a navigation's document, or what `page.request` answered."
-only = "TypeScript's are generated from the catalog's types (ADR 0099)."
 words = ["response"]
 form = "type"
 

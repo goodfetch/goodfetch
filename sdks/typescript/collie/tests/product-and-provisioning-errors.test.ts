@@ -389,7 +389,7 @@ describe(
           await run.finish();
 
           await clientCase.check("the first page opened on the downloaded build", () =>
-            expect(navigated).toMatchObject({ status: 200 }),
+            expect(navigated?.status()).toBe(200),
           );
           await clientCase.check("the build is in the cache GOODFETCH_BROWSERS_PATH names", () =>
             expect(

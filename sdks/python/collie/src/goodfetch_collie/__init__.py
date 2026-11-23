@@ -6,7 +6,8 @@ holds `AsyncCollie` and the sync `Collie`; the Collie client package,
 errors (every group's class and every class of Collie's Error codes), a
 listener's `Subscription`, a sequence's iterators (`AsyncSequence`
 and `Sequence`), a Run's Key-value store (`AsyncKeyValueStore` and
-`KeyValueStore`), each scope's settings types
+`KeyValueStore`), the response a page's request got (`AsyncResponse`
+and `Response`), each scope's settings types
 (`Settings`, `RunSettings`, `SessionSettings`, `PageSettings`) and what
 explaining them answers (`SettingsExplanation`), the
 JSON values and the schema written by hand of ADR 0082 (`JSONValue`,
@@ -177,6 +178,7 @@ from goodfetch_collie_client.json_values import JSONObject, JSONValue
 from goodfetch_collie_client.key_value_store import AsyncKeyValueStore, KeyValueStore
 from goodfetch_collie_client.limits import Limits, Money, Prices
 from goodfetch_collie_client.markers import ExperimentalWarning
+from goodfetch_collie_client.response import AsyncResponse, Response
 from goodfetch_collie_client.run import AsyncRun, Run
 from goodfetch_collie_client.schema import JSONSchema
 from goodfetch_collie_client.sequence import AsyncSequence, Sequence
@@ -191,6 +193,7 @@ __all__ = [
     "AsyncCollie",
     "AsyncConnection",
     "AsyncKeyValueStore",
+    "AsyncResponse",
     "AsyncRun",
     "AsyncSequence",
     "BlockedError",
@@ -296,6 +299,7 @@ __all__ = [
     "RemoteDaemon",
     "Reported",
     "ResourcesExhaustedError",
+    "Response",
     "ResponseLimitExceededError",
     "ResponseNotJSONError",
     "ResponseTruncatedError",

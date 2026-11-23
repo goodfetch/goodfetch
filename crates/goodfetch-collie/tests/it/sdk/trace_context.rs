@@ -8,18 +8,25 @@
 //! expect and on a step left unused, so its clean exit says each call
 //! carried exactly that. The blocking API reads the calling thread's span,
 //! though its call runs on the Connection's runtime, even for `run.start`,
-//! whose request is made there.
+//! whose request is made there. In `linked` mode the engine's own request
+//! spans reach the program's subscriber, so the spans it exports show it:
+//! the engine's span of a call made in the program's span is that span's
+//! child, and that of a call made outside any span a root.
 //! Covers: story:11-138
+
+use std::sync::mpsc;
 
 use goodfetch_collie::{Collie, EngineChoice, blocking};
 use goodfetch_conformance::{ClientCaseRun, RustMode};
 use goodfetch_test_support::{SCRIPTED_DAEMON_TOKEN, TestEnv, case_logs, real_time_runtime};
 use opentelemetry::baggage::BaggageExt as _;
 use opentelemetry::trace::{
-    SpanContext, SpanId, TraceContextExt as _, TraceFlags, TraceId, TraceState, TracerProvider as _,
+    SpanContext, SpanId, SpanKind, TraceContextExt as _, TraceFlags, TraceId, TraceState,
+    TracerProvider as _,
 };
 use opentelemetry::{Context, KeyValue};
-use opentelemetry_sdk::trace::{IdGenerator, SdkTracerProvider};
+use opentelemetry_sdk::error::OTelSdkResult;
+use opentelemetry_sdk::trace::{IdGenerator, SdkTracerProvider, SpanData, SpanExporter};
 use serde_json::json;
 use tracing::Instrument as _;
 use tracing_opentelemetry::OpenTelemetrySpanExt as _;
@@ -145,4 +152,91 @@ fn a_blocking_call_carries_its_threads_trace_context() {
 
         played_whole(&process);
     });
+}
+
+/// The spans the OpenTelemetry SDK exports, each sent on as it ends.
+#[derive(Debug)]
+struct Exported(mpsc::Sender<SpanData>);
+
+impl SpanExporter for Exported {
+    fn export(
+        &self,
+        batch: Vec<SpanData>,
+    ) -> impl std::future::Future<Output = OTelSdkResult> + Send {
+        for span in batch {
+            // The test reads every span once the provider is shut down,
+            // so the receiver outlives each export.
+            self.0.send(span).unwrap();
+        }
+        std::future::ready(Ok(()))
+    }
+}
+
+/// The one exported span named `name`.
+fn the_span<'a>(spans: &'a [SpanData], name: &str) -> &'a SpanData {
+    let found: Vec<&SpanData> = spans.iter().filter(|span| span.name == name).collect();
+    assert_eq!(found.len(), 1, "{name}: {found:#?}");
+    found[0]
+}
+
+/// The case in `linked` mode, on the linked engine itself, whose threads
+/// record their spans through the process's global subscriber: so it runs
+/// in a process of its own, as `just test` runs every test.
+/// Covers: story:11-138
+#[test]
+fn a_call_in_a_span_makes_the_linked_engines_span_its_child_and_one_outside_a_root() {
+    let mut case =
+        ClientCaseRun::start(case_logs().as_deref(), "trace-context", RustMode::Linked).unwrap();
+    let (sender, received) = mpsc::channel();
+    let provider = SdkTracerProvider::builder()
+        .with_simple_exporter(Exported(sender))
+        .build();
+    tracing::subscriber::set_global_default(
+        tracing_subscriber::registry()
+            .with(tracing_opentelemetry::layer().with_tracer(provider.tracer("program"))),
+    )
+    .unwrap();
+    let env = TestEnv::new();
+
+    real_time_runtime().block_on(async {
+        let collie = Collie::connect(options(&env)).await.unwrap();
+        async { collie.explain_settings().await.unwrap() }
+            .instrument(tracing::info_span!("program"))
+            .await;
+        collie
+            .call("run.list")
+            .params(json!({ "lifecycle": "running" }))
+            .await
+            .unwrap();
+        collie.close().await.unwrap();
+    });
+    provider.shutdown().unwrap();
+    let spans: Vec<SpanData> = received.try_iter().collect();
+
+    let program = the_span(&spans, "program").span_context.clone();
+    let inside = the_span(&spans, "config.explain");
+    let outside = the_span(&spans, "run.list");
+    case.check(
+        "the engine's span of the call in the program's span is its child",
+        || {
+            assert_eq!(
+                (
+                    inside.span_kind.clone(),
+                    inside.span_context.trace_id(),
+                    inside.parent_span_id
+                ),
+                (SpanKind::Server, program.trace_id(), program.span_id()),
+            );
+        },
+    );
+    case.check(
+        "the engine's span of the call outside any span is a root",
+        || {
+            assert_eq!(
+                (outside.span_kind.clone(), outside.parent_span_id),
+                (SpanKind::Server, SpanId::INVALID),
+            );
+            assert_ne!(outside.span_context.trace_id(), program.trace_id());
+        },
+    );
 }

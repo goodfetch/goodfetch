@@ -58,7 +58,10 @@ impl Collie {
     /// a zero `max_listener_queue` or a remote Daemon's URL that names no loopback `ws://` address, or
     /// `GOODFETCH_URL` without `GOODFETCH_TOKEN` or a deployment variable
     /// set but empty or not Unicode, `setting_unknown` for a `GOODFETCH_`
-    /// variable off the closed list, naming the closest, `daemon_unreachable` when
+    /// variable off the closed list, naming the closest, `setting_invalid`
+    /// at `project_configuration` or `format_version_unsupported` for a
+    /// project file that cannot be read ([`ConnectOptions::project`]),
+    /// `daemon_unreachable` when
     /// the Daemon chosen cannot be reached, which `Daemon` never starts
     /// (ADR 0098), `deadline_exceeded` naming `timeout.connect` when `hello` is not
     /// answered within it, what `hello` fails with, and what `usage.set`

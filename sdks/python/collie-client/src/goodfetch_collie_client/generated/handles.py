@@ -14,6 +14,7 @@ from goodfetch_collie_client.caller import result_of
 from goodfetch_collie_client.handle import AsyncHandleHost, HandleHost, AsyncListener, Listener, NotGiven, Subscription, not_given, timeout_of
 from goodfetch_collie_client.markers import warn_deprecated_settings, warn_entry, warn_experimental
 from goodfetch_collie_client.raw_call import AsyncHandle, Handle
+from goodfetch_collie_client.response import AsyncResponse, Response
 from goodfetch_collie_client.settings import settings_on_wire
 
 from . import models
@@ -52,13 +53,13 @@ class AsyncRun(AsyncHandle):
             params.location = location
         return result_of(models.Checkpoint, await self._host.call("run.checkpoint", params))
 
-    async def discard(self) -> models.RunDiscarded:
+    async def discard(self) -> models.RunId:
         """Discards a Run that ended or was interrupted, for good, so that nothing of it is left behind (ADRs 0001, 0002, 0015 and 0036): its wrapped data key is overwritten and its run folder removed, with its run file, page bodies, browser profiles and the Checkpoints written there; in the per-install layout its rows are deleted from the install database with `secure_delete` on, then `wal_checkpoint(TRUNCATE)`, so neither the database nor its `-wal` and `-shm` files hold its bytes. Its Run index row stays, marked `erased`, without its tags or status line. A Profile directory it used in place and a Borrowed browser are the person's own and are never touched (ADR 0056), nor are Checkpoints written elsewhere. A later `run.start` under its Run ID starts a new Run; discarding a Run already discarded changes nothing. A Run this engine runs fails with `run_live`, one whose writer lock another engine holds with `run_in_use`, and a Run ID no Run has with `run_not_found`.
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
         warn_experimental("run.discard")
-        return result_of(models.RunDiscarded, await self._host.call("run.discard", models.RunParams(run_id=self._host.id)))
+        return result_of(models.RunDiscarded, await self._host.call("run.discard", models.RunParams(run_id=self._host.id))).run_id
 
     async def finish(self, *, timeout: timedelta | None | NotGiven = not_given) -> models.RunReport:
         """Lets a Run finish and answers its Run report: a Run its program drives ends at once, `finished` and `complete`; a crawl ends once its work items are done, and a keep-alive crawl (`crawl.keep_alive`), which waits for new work while nothing is left, ends once this call lets it and its work items are done. A Run something stopped first answers its report saying `stopped`. A Run that ended `failed` fails the call with the error that failed it, and a write at its end that failed, such as its Plan file's, with that write's error. Cancelling the call, or its `timeout` passing, which fails it with `deadline_exceeded`, ends only the wait.
@@ -196,13 +197,13 @@ class AsyncSession(AsyncHandle):
         opened = result_of(models.PageOpened, await self._host.call("session.new_page", params))
         return AsyncPage(self._host.child(opened.page_id))
 
-    async def pages(self) -> models.SessionPages:
+    async def pages(self) -> list[models.PageId]:
         """Lists the Session's open pages, in the order they opened: those the program opened and the popups its pages opened. Once the Session is closed, it raises `closed`.
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
         warn_experimental("session.pages")
-        return result_of(models.SessionPages, await self._host.call("session.pages", models.SessionParams(session_id=self._host.id)))
+        return result_of(models.SessionPages, await self._host.call("session.pages", models.SessionParams(session_id=self._host.id))).pages
 
     def on(self, event: Literal["page"], listener: AsyncListener[AsyncPage]) -> Subscription:
         """Listens to one of the Session's events, armed when the call arrives: the call stays in flight, and the engine publishes that event of the Session on its event stream, lossless, which `events.subscribe` reads under its credits. Cancelling the call removes the listener; it answers when the Session closes or its Run ends.
@@ -262,7 +263,7 @@ class AsyncPage(AsyncHandle):
             params.run_before_unload = run_before_unload
         await self._host.close("page.close", params)
 
-    async def evaluate(self, function: str, *, arg: Any | NotGiven = not_given, world: Literal["main", "isolated"] | None | NotGiven = not_given) -> models.Evaluated:
+    async def evaluate(self, function: str, *, arg: Any | NotGiven = not_given, world: Literal["main", "isolated"] | None | NotGiven = not_given) -> Any | None:
         """Runs a page function in the page's main frame with its one JSON argument, in the main world, where the page's globals are, or in an isolated world the page neither sees nor hooks, and answers its result, awaited, as JSON; a result of `undefined` answers no value. A value outside JSON in the result raises `page_value_invalid` naming its path and kind, and an exception thrown in the page `page_function_failed`. It is no gesture: it runs beside the page's actions. A main-world call is marked in the Session's Provenance.
 
         Experimental: outside semver until it is promoted (ADR 0030).
@@ -273,7 +274,7 @@ class AsyncPage(AsyncHandle):
             params.arg = arg
         if not isinstance(world, NotGiven):
             params.world = None if world is None else models.World(world)
-        return result_of(models.Evaluated, await self._host.call("page.evaluate", params))
+        return result_of(models.Evaluated, await self._host.call("page.evaluate", params)).value
 
     async def formats(self, formats: models.FormatsRequest) -> models.PageFormats:
         """Reads the formats a request names from the page's current document, each read from one serialization of it, and answers only those, with the document's URL, its base URL and, when a format it names is read from the main content (`markdown` of the main content or fit, `html` of the main content, `text`), whether the document has main content. A document with no main content answers those formats empty and `main_content: "none"`, a value. It needs neither layout nor pixels, so every tier serves it.
@@ -283,23 +284,25 @@ class AsyncPage(AsyncHandle):
         warn_experimental("page.formats")
         return result_of(models.PageFormats, await self._host.call("page.formats", models.FormatsParams(page_id=self._host.id, formats=formats)))
 
-    async def go_back(self) -> models.Navigated:
+    async def go_back(self) -> AsyncResponse | None:
         """Goes back one entry in the page's history and waits for its `load` event, answering the document's response, or none when there is no entry to go back to. The back/forward cache is off, so the document always loads again (ADR 0121).
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
         warn_experimental("page.go_back")
-        return result_of(models.Navigated, await self._host.call("page.go_back", models.PageParams(page_id=self._host.id)))
+        response = result_of(models.Navigated, await self._host.call("page.go_back", models.PageParams(page_id=self._host.id))).response
+        return None if response is None else AsyncResponse(self._host, response)
 
-    async def go_forward(self) -> models.Navigated:
+    async def go_forward(self) -> AsyncResponse | None:
         """Goes forward one entry in the page's history and waits for its `load` event, answering the document's response, or none when there is no entry to go forward to. The back/forward cache is off, so the document always loads again (ADR 0121).
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
         warn_experimental("page.go_forward")
-        return result_of(models.Navigated, await self._host.call("page.go_forward", models.PageParams(page_id=self._host.id)))
+        response = result_of(models.Navigated, await self._host.call("page.go_forward", models.PageParams(page_id=self._host.id))).response
+        return None if response is None else AsyncResponse(self._host, response)
 
-    async def goto(self, url: str, *, timeout: timedelta | None | NotGiven = not_given, wait_until: Literal["commit", "domcontentloaded", "load"] | None | NotGiven = not_given) -> models.Navigated:
+    async def goto(self, url: str, *, timeout: timedelta | None | NotGiven = not_given, wait_until: Literal["commit", "domcontentloaded", "load"] | None | NotGiven = not_given) -> AsyncResponse | None:
         """Navigates the page to a URL and waits for its document's `load` event, or the state `wait_until` names, answering the document's response: a 404 or a 500 is a response, a value. A file the browser downloads, such as a PDF, answers no response and emits `page.download`. A navigation that reaches no document raises `navigation_failed`, one another navigation supersedes before it committed `navigation_interrupted`, a redirect loop `too_many_redirects`, a document whose body broke off `response_truncated`, unless the navigation answered at `commit`, and one past its `timeout`, or `timeout.navigation` without one, `deadline_exceeded`.
 
         Left out, `timeout` takes the Run's `timeout.navigation`, by default `timedelta(seconds=30)`.
@@ -312,7 +315,8 @@ class AsyncPage(AsyncHandle):
             params.timeout = timeout_of(timeout, "timeout.navigation")
         if not isinstance(wait_until, NotGiven):
             params.wait_until = None if wait_until is None else models.WaitUntil(wait_until)
-        return result_of(models.Navigated, await self._host.call("page.goto", params, timeout_setting="timeout.navigation"))
+        response = result_of(models.Navigated, await self._host.call("page.goto", params, timeout_setting="timeout.navigation")).response
+        return None if response is None else AsyncResponse(self._host, response)
 
     async def read(self, fields: dict[str, models.PageField]) -> models.PageRead:
         """Reads the named fields from the page's current document in one call and answers each one's value: a value field's from the first element its CSS or XPath locator finds, its text or one attribute, optionally a `match` group, then its Value transform; a list's from every element its locator finds; rows' from each element a base locator finds, each row one object of its fields read under that element. A value the page does not give is null, and `unread` names it with why: a row lacking a field keeps its other fields. It never waits: an absent element is an answer. It needs neither layout nor pixels, so every tier serves it, and in the browser it is one read of the page whatever the number of fields.
@@ -322,15 +326,16 @@ class AsyncPage(AsyncHandle):
         warn_experimental("page.read")
         return result_of(models.PageRead, await self._host.call("page.read", models.PageReadParams(page_id=self._host.id, fields=fields)))
 
-    async def reload(self) -> models.Navigated:
+    async def reload(self) -> AsyncResponse | None:
         """Loads the page's document again and waits for its `load` event, answering the document's response: a 404 or a 500 is a response, a value. A navigation that reaches no document raises `navigation_failed`, and one another navigation supersedes before it committed `navigation_interrupted`.
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
         warn_experimental("page.reload")
-        return result_of(models.Navigated, await self._host.call("page.reload", models.PageParams(page_id=self._host.id)))
+        response = result_of(models.Navigated, await self._host.call("page.reload", models.PageParams(page_id=self._host.id))).response
+        return None if response is None else AsyncResponse(self._host, response)
 
-    async def request(self, url: str, *, headers: dict[str, str] | None | NotGiven = not_given, max_redirects: int | None | NotGiven = not_given, method: str | None | NotGiven = not_given, post_data: str | None | NotGiven = not_given) -> models.PageResponse:
+    async def request(self, url: str, *, headers: dict[str, str] | None | NotGiven = not_given, max_redirects: int | None | NotGiven = not_given, method: str | None | NotGiven = not_given, post_data: str | None | NotGiven = not_given) -> AsyncResponse:
         """Sends a request from inside the page's Session's browser, with its cookies, through the browser-fetch tier and the page's interception (its domain policy, never its routes), from a context no service worker controls, and answers the response whatever its status, a 429 included; `response.body` reads its kept body, and raises `response_truncated` for one that broke off. A count of redirects above 19 is refused with `setting_invalid`, a chain past its count raises `too_many_redirects`, and a body whose content coding fails to decode `navigation_failed`.
 
         Experimental: outside semver until it is promoted (ADR 0030).
@@ -345,9 +350,9 @@ class AsyncPage(AsyncHandle):
             params.method = method
         if not isinstance(post_data, NotGiven):
             params.post_data = post_data
-        return result_of(models.PageResponse, await self._host.call("page.request", params))
+        return AsyncResponse(self._host, result_of(models.PageResponse, await self._host.call("page.request", params)))
 
-    async def wait_for_function(self, function: str, *, arg: Any | NotGiven = not_given, polling_interval: int | None | NotGiven = not_given, timeout: timedelta | None | NotGiven = not_given, world: Literal["main", "isolated"] | None | NotGiven = not_given) -> models.Evaluated:
+    async def wait_for_function(self, function: str, *, arg: Any | NotGiven = not_given, polling_interval: int | None | NotGiven = not_given, timeout: timedelta | None | NotGiven = not_given, world: Literal["main", "isolated"] | None | NotGiven = not_given) -> Any | None:
         """Runs a page function in the page's main frame, as `page.evaluate` does, again at each polling interval and in each new document, until its result is truthy, and answers that result as JSON. A value outside JSON raises `page_value_invalid`, an exception thrown in the page `page_function_failed`. A main-world call is marked in the Session's Provenance. Past its `timeout`, `timeout.wait` when the call gives none, it fails with `deadline_exceeded`.
 
         Left out, `timeout` takes the Run's `timeout.wait`, by default `timedelta(seconds=30)`.
@@ -364,7 +369,7 @@ class AsyncPage(AsyncHandle):
             params.timeout = timeout_of(timeout, "timeout.wait")
         if not isinstance(world, NotGiven):
             params.world = None if world is None else models.World(world)
-        return result_of(models.Evaluated, await self._host.call("page.wait_for_function", params, timeout_setting="timeout.wait"))
+        return result_of(models.Evaluated, await self._host.call("page.wait_for_function", params, timeout_setting="timeout.wait")).value
 
     async def wait_for_load_state(self, *, state: Literal["domcontentloaded", "load", "networkidle"] | None | NotGiven = not_given, timeout: timedelta | None | NotGiven = not_given) -> models.Reached:
         """Waits until the page's document reached the load state: at once when it already did. `networkidle` is reached once the document fired `load` and no request of the page was in flight for 500 ms since, WebSocket and server-sent-event connections and a service worker's own requests left out. Past its `timeout`, `timeout.wait` when the call gives none, it fails with `deadline_exceeded`.
@@ -521,7 +526,7 @@ class AsyncLocator(AsyncHandle):
         warn_experimental("locator.click")
         return result_of(models.Acted, await self._host.call("locator.click", models.ClickParams(locator=self._host.id)))
 
-    async def evaluate_all(self, function: str, *, arg: Any | NotGiven = not_given, world: Literal["main", "isolated"] | None | NotGiven = not_given) -> models.Evaluated:
+    async def evaluate_all(self, function: str, *, arg: Any | NotGiven = not_given, world: Literal["main", "isolated"] | None | NotGiven = not_given) -> Any | None:
         """Runs a page function, as `page.evaluate` does, with the array of every element the locator matches first, none included, and its one JSON argument second, and answers its result, awaited, as JSON; the elements stay in the page, so a result holding one raises `page_value_invalid`. A selector the page does not parse raises `invalid_params`, and an exception thrown in the page `page_function_failed`. A main-world call is marked in the Session's Provenance.
 
         Experimental: outside semver until it is promoted (ADR 0030).
@@ -532,7 +537,7 @@ class AsyncLocator(AsyncHandle):
             params.arg = arg
         if not isinstance(world, NotGiven):
             params.world = None if world is None else models.World(world)
-        return result_of(models.Evaluated, await self._host.call("locator.evaluate_all", params))
+        return result_of(models.Evaluated, await self._host.call("locator.evaluate_all", params)).value
 
     async def fill(self, value: str) -> models.Acted:
         """Replaces the text of the field the locator matches, once it is unique, visible, enabled and editable, with text the page receives as typed input, until `timeout.action` passes. An input whose value a person picks rather than types (a date, a time, a month, a week, a local date and time, a colour or a range) has its value set, firing `input` and `change`, and a value it does not take fails with `invalid_params`.
@@ -565,7 +570,7 @@ class AsyncLocator(AsyncHandle):
             params.timeout = timeout_of(timeout, "timeout.wait")
         return result_of(models.Reached, await self._host.call("locator.wait_for", params, timeout_setting="timeout.wait"))
 
-    async def wait_for_count(self, count: models.Count, *, timeout: timedelta | None | NotGiven = not_given) -> models.Counted:
+    async def wait_for_count(self, count: models.Count, *, timeout: timedelta | None | NotGiven = not_given) -> int:
         """Waits until the number of elements the locator matches is within the count, and answers it. Past its `timeout`, `timeout.wait` when the call gives none, it fails with `deadline_exceeded`.
 
         Left out, `timeout` takes the Run's `timeout.wait`, by default `timedelta(seconds=30)`.
@@ -576,9 +581,9 @@ class AsyncLocator(AsyncHandle):
         params = models.WaitForCountParams(locator=self._host.id, count=count)
         if not isinstance(timeout, NotGiven):
             params.timeout = timeout_of(timeout, "timeout.wait")
-        return result_of(models.Counted, await self._host.call("locator.wait_for_count", params, timeout_setting="timeout.wait"))
+        return result_of(models.Counted, await self._host.call("locator.wait_for_count", params, timeout_setting="timeout.wait")).count
 
-    async def wait_for_function(self, function: str, *, arg: Any | NotGiven = not_given, polling_interval: int | None | NotGiven = not_given, timeout: timedelta | None | NotGiven = not_given, world: Literal["main", "isolated"] | None | NotGiven = not_given) -> models.Evaluated:
+    async def wait_for_function(self, function: str, *, arg: Any | NotGiven = not_given, polling_interval: int | None | NotGiven = not_given, timeout: timedelta | None | NotGiven = not_given, world: Literal["main", "isolated"] | None | NotGiven = not_given) -> Any | None:
         """Waits, checking from when the call arrives, until a page function called with the one element the locator matches first and its one JSON argument second answers a truthy result, and answers that result as JSON, as `page.wait_for_function` does. The locator is resolved again at each check, so a re-render that replaces its element changes nothing, and a check while none or several elements match counts as falsy. A value outside JSON raises `page_value_invalid`, an exception thrown in the page `page_function_failed`, and a selector the page does not parse `invalid_params`. A main-world call is marked in the Session's Provenance. Past its `timeout`, `timeout.wait` when the call gives none, it fails with `deadline_exceeded`.
 
         Left out, `timeout` takes the Run's `timeout.wait`, by default `timedelta(seconds=30)`.
@@ -595,7 +600,7 @@ class AsyncLocator(AsyncHandle):
             params.timeout = timeout_of(timeout, "timeout.wait")
         if not isinstance(world, NotGiven):
             params.world = None if world is None else models.World(world)
-        return result_of(models.Evaluated, await self._host.call("locator.wait_for_function", params, timeout_setting="timeout.wait"))
+        return result_of(models.Evaluated, await self._host.call("locator.wait_for_function", params, timeout_setting="timeout.wait")).value
 
 
 class Run(Handle):
@@ -629,13 +634,13 @@ class Run(Handle):
             params.location = location
         return result_of(models.Checkpoint, self._host.call("run.checkpoint", params))
 
-    def discard(self) -> models.RunDiscarded:
+    def discard(self) -> models.RunId:
         """Discards a Run that ended or was interrupted, for good, so that nothing of it is left behind (ADRs 0001, 0002, 0015 and 0036): its wrapped data key is overwritten and its run folder removed, with its run file, page bodies, browser profiles and the Checkpoints written there; in the per-install layout its rows are deleted from the install database with `secure_delete` on, then `wal_checkpoint(TRUNCATE)`, so neither the database nor its `-wal` and `-shm` files hold its bytes. Its Run index row stays, marked `erased`, without its tags or status line. A Profile directory it used in place and a Borrowed browser are the person's own and are never touched (ADR 0056), nor are Checkpoints written elsewhere. A later `run.start` under its Run ID starts a new Run; discarding a Run already discarded changes nothing. A Run this engine runs fails with `run_live`, one whose writer lock another engine holds with `run_in_use`, and a Run ID no Run has with `run_not_found`.
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
         warn_experimental("run.discard")
-        return result_of(models.RunDiscarded, self._host.call("run.discard", models.RunParams(run_id=self._host.id)))
+        return result_of(models.RunDiscarded, self._host.call("run.discard", models.RunParams(run_id=self._host.id))).run_id
 
     def finish(self, *, timeout: timedelta | None | NotGiven = not_given) -> models.RunReport:
         """Lets a Run finish and answers its Run report: a Run its program drives ends at once, `finished` and `complete`; a crawl ends once its work items are done, and a keep-alive crawl (`crawl.keep_alive`), which waits for new work while nothing is left, ends once this call lets it and its work items are done. A Run something stopped first answers its report saying `stopped`. A Run that ended `failed` fails the call with the error that failed it, and a write at its end that failed, such as its Plan file's, with that write's error. Cancelling the call, or its `timeout` passing, which fails it with `deadline_exceeded`, ends only the wait.
@@ -773,13 +778,13 @@ class Session(Handle):
         opened = result_of(models.PageOpened, self._host.call("session.new_page", params))
         return Page(self._host.child(opened.page_id))
 
-    def pages(self) -> models.SessionPages:
+    def pages(self) -> list[models.PageId]:
         """Lists the Session's open pages, in the order they opened: those the program opened and the popups its pages opened. Once the Session is closed, it raises `closed`.
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
         warn_experimental("session.pages")
-        return result_of(models.SessionPages, self._host.call("session.pages", models.SessionParams(session_id=self._host.id)))
+        return result_of(models.SessionPages, self._host.call("session.pages", models.SessionParams(session_id=self._host.id))).pages
 
     def on(self, event: Literal["page"], listener: Listener[Page]) -> Subscription:
         """Listens to one of the Session's events, armed when the call arrives: the call stays in flight, and the engine publishes that event of the Session on its event stream, lossless, which `events.subscribe` reads under its credits. Cancelling the call removes the listener; it answers when the Session closes or its Run ends.
@@ -822,7 +827,7 @@ class Page(Handle):
             params.run_before_unload = run_before_unload
         self._host.close("page.close", params)
 
-    def evaluate(self, function: str, *, arg: Any | NotGiven = not_given, world: Literal["main", "isolated"] | None | NotGiven = not_given) -> models.Evaluated:
+    def evaluate(self, function: str, *, arg: Any | NotGiven = not_given, world: Literal["main", "isolated"] | None | NotGiven = not_given) -> Any | None:
         """Runs a page function in the page's main frame with its one JSON argument, in the main world, where the page's globals are, or in an isolated world the page neither sees nor hooks, and answers its result, awaited, as JSON; a result of `undefined` answers no value. A value outside JSON in the result raises `page_value_invalid` naming its path and kind, and an exception thrown in the page `page_function_failed`. It is no gesture: it runs beside the page's actions. A main-world call is marked in the Session's Provenance.
 
         Experimental: outside semver until it is promoted (ADR 0030).
@@ -833,7 +838,7 @@ class Page(Handle):
             params.arg = arg
         if not isinstance(world, NotGiven):
             params.world = None if world is None else models.World(world)
-        return result_of(models.Evaluated, self._host.call("page.evaluate", params))
+        return result_of(models.Evaluated, self._host.call("page.evaluate", params)).value
 
     def formats(self, formats: models.FormatsRequest) -> models.PageFormats:
         """Reads the formats a request names from the page's current document, each read from one serialization of it, and answers only those, with the document's URL, its base URL and, when a format it names is read from the main content (`markdown` of the main content or fit, `html` of the main content, `text`), whether the document has main content. A document with no main content answers those formats empty and `main_content: "none"`, a value. It needs neither layout nor pixels, so every tier serves it.
@@ -843,23 +848,25 @@ class Page(Handle):
         warn_experimental("page.formats")
         return result_of(models.PageFormats, self._host.call("page.formats", models.FormatsParams(page_id=self._host.id, formats=formats)))
 
-    def go_back(self) -> models.Navigated:
+    def go_back(self) -> Response | None:
         """Goes back one entry in the page's history and waits for its `load` event, answering the document's response, or none when there is no entry to go back to. The back/forward cache is off, so the document always loads again (ADR 0121).
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
         warn_experimental("page.go_back")
-        return result_of(models.Navigated, self._host.call("page.go_back", models.PageParams(page_id=self._host.id)))
+        response = result_of(models.Navigated, self._host.call("page.go_back", models.PageParams(page_id=self._host.id))).response
+        return None if response is None else Response(self._host, response)
 
-    def go_forward(self) -> models.Navigated:
+    def go_forward(self) -> Response | None:
         """Goes forward one entry in the page's history and waits for its `load` event, answering the document's response, or none when there is no entry to go forward to. The back/forward cache is off, so the document always loads again (ADR 0121).
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
         warn_experimental("page.go_forward")
-        return result_of(models.Navigated, self._host.call("page.go_forward", models.PageParams(page_id=self._host.id)))
+        response = result_of(models.Navigated, self._host.call("page.go_forward", models.PageParams(page_id=self._host.id))).response
+        return None if response is None else Response(self._host, response)
 
-    def goto(self, url: str, *, timeout: timedelta | None | NotGiven = not_given, wait_until: Literal["commit", "domcontentloaded", "load"] | None | NotGiven = not_given) -> models.Navigated:
+    def goto(self, url: str, *, timeout: timedelta | None | NotGiven = not_given, wait_until: Literal["commit", "domcontentloaded", "load"] | None | NotGiven = not_given) -> Response | None:
         """Navigates the page to a URL and waits for its document's `load` event, or the state `wait_until` names, answering the document's response: a 404 or a 500 is a response, a value. A file the browser downloads, such as a PDF, answers no response and emits `page.download`. A navigation that reaches no document raises `navigation_failed`, one another navigation supersedes before it committed `navigation_interrupted`, a redirect loop `too_many_redirects`, a document whose body broke off `response_truncated`, unless the navigation answered at `commit`, and one past its `timeout`, or `timeout.navigation` without one, `deadline_exceeded`.
 
         Left out, `timeout` takes the Run's `timeout.navigation`, by default `timedelta(seconds=30)`.
@@ -872,7 +879,8 @@ class Page(Handle):
             params.timeout = timeout_of(timeout, "timeout.navigation")
         if not isinstance(wait_until, NotGiven):
             params.wait_until = None if wait_until is None else models.WaitUntil(wait_until)
-        return result_of(models.Navigated, self._host.call("page.goto", params, timeout_setting="timeout.navigation"))
+        response = result_of(models.Navigated, self._host.call("page.goto", params, timeout_setting="timeout.navigation")).response
+        return None if response is None else Response(self._host, response)
 
     def read(self, fields: dict[str, models.PageField]) -> models.PageRead:
         """Reads the named fields from the page's current document in one call and answers each one's value: a value field's from the first element its CSS or XPath locator finds, its text or one attribute, optionally a `match` group, then its Value transform; a list's from every element its locator finds; rows' from each element a base locator finds, each row one object of its fields read under that element. A value the page does not give is null, and `unread` names it with why: a row lacking a field keeps its other fields. It never waits: an absent element is an answer. It needs neither layout nor pixels, so every tier serves it, and in the browser it is one read of the page whatever the number of fields.
@@ -882,15 +890,16 @@ class Page(Handle):
         warn_experimental("page.read")
         return result_of(models.PageRead, self._host.call("page.read", models.PageReadParams(page_id=self._host.id, fields=fields)))
 
-    def reload(self) -> models.Navigated:
+    def reload(self) -> Response | None:
         """Loads the page's document again and waits for its `load` event, answering the document's response: a 404 or a 500 is a response, a value. A navigation that reaches no document raises `navigation_failed`, and one another navigation supersedes before it committed `navigation_interrupted`.
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
         warn_experimental("page.reload")
-        return result_of(models.Navigated, self._host.call("page.reload", models.PageParams(page_id=self._host.id)))
+        response = result_of(models.Navigated, self._host.call("page.reload", models.PageParams(page_id=self._host.id))).response
+        return None if response is None else Response(self._host, response)
 
-    def request(self, url: str, *, headers: dict[str, str] | None | NotGiven = not_given, max_redirects: int | None | NotGiven = not_given, method: str | None | NotGiven = not_given, post_data: str | None | NotGiven = not_given) -> models.PageResponse:
+    def request(self, url: str, *, headers: dict[str, str] | None | NotGiven = not_given, max_redirects: int | None | NotGiven = not_given, method: str | None | NotGiven = not_given, post_data: str | None | NotGiven = not_given) -> Response:
         """Sends a request from inside the page's Session's browser, with its cookies, through the browser-fetch tier and the page's interception (its domain policy, never its routes), from a context no service worker controls, and answers the response whatever its status, a 429 included; `response.body` reads its kept body, and raises `response_truncated` for one that broke off. A count of redirects above 19 is refused with `setting_invalid`, a chain past its count raises `too_many_redirects`, and a body whose content coding fails to decode `navigation_failed`.
 
         Experimental: outside semver until it is promoted (ADR 0030).
@@ -905,9 +914,9 @@ class Page(Handle):
             params.method = method
         if not isinstance(post_data, NotGiven):
             params.post_data = post_data
-        return result_of(models.PageResponse, self._host.call("page.request", params))
+        return Response(self._host, result_of(models.PageResponse, self._host.call("page.request", params)))
 
-    def wait_for_function(self, function: str, *, arg: Any | NotGiven = not_given, polling_interval: int | None | NotGiven = not_given, timeout: timedelta | None | NotGiven = not_given, world: Literal["main", "isolated"] | None | NotGiven = not_given) -> models.Evaluated:
+    def wait_for_function(self, function: str, *, arg: Any | NotGiven = not_given, polling_interval: int | None | NotGiven = not_given, timeout: timedelta | None | NotGiven = not_given, world: Literal["main", "isolated"] | None | NotGiven = not_given) -> Any | None:
         """Runs a page function in the page's main frame, as `page.evaluate` does, again at each polling interval and in each new document, until its result is truthy, and answers that result as JSON. A value outside JSON raises `page_value_invalid`, an exception thrown in the page `page_function_failed`. A main-world call is marked in the Session's Provenance. Past its `timeout`, `timeout.wait` when the call gives none, it fails with `deadline_exceeded`.
 
         Left out, `timeout` takes the Run's `timeout.wait`, by default `timedelta(seconds=30)`.
@@ -924,7 +933,7 @@ class Page(Handle):
             params.timeout = timeout_of(timeout, "timeout.wait")
         if not isinstance(world, NotGiven):
             params.world = None if world is None else models.World(world)
-        return result_of(models.Evaluated, self._host.call("page.wait_for_function", params, timeout_setting="timeout.wait"))
+        return result_of(models.Evaluated, self._host.call("page.wait_for_function", params, timeout_setting="timeout.wait")).value
 
     def wait_for_load_state(self, *, state: Literal["domcontentloaded", "load", "networkidle"] | None | NotGiven = not_given, timeout: timedelta | None | NotGiven = not_given) -> models.Reached:
         """Waits until the page's document reached the load state: at once when it already did. `networkidle` is reached once the document fired `load` and no request of the page was in flight for 500 ms since, WebSocket and server-sent-event connections and a service worker's own requests left out. Past its `timeout`, `timeout.wait` when the call gives none, it fails with `deadline_exceeded`.
@@ -1081,7 +1090,7 @@ class Locator(Handle):
         warn_experimental("locator.click")
         return result_of(models.Acted, self._host.call("locator.click", models.ClickParams(locator=self._host.id)))
 
-    def evaluate_all(self, function: str, *, arg: Any | NotGiven = not_given, world: Literal["main", "isolated"] | None | NotGiven = not_given) -> models.Evaluated:
+    def evaluate_all(self, function: str, *, arg: Any | NotGiven = not_given, world: Literal["main", "isolated"] | None | NotGiven = not_given) -> Any | None:
         """Runs a page function, as `page.evaluate` does, with the array of every element the locator matches first, none included, and its one JSON argument second, and answers its result, awaited, as JSON; the elements stay in the page, so a result holding one raises `page_value_invalid`. A selector the page does not parse raises `invalid_params`, and an exception thrown in the page `page_function_failed`. A main-world call is marked in the Session's Provenance.
 
         Experimental: outside semver until it is promoted (ADR 0030).
@@ -1092,7 +1101,7 @@ class Locator(Handle):
             params.arg = arg
         if not isinstance(world, NotGiven):
             params.world = None if world is None else models.World(world)
-        return result_of(models.Evaluated, self._host.call("locator.evaluate_all", params))
+        return result_of(models.Evaluated, self._host.call("locator.evaluate_all", params)).value
 
     def fill(self, value: str) -> models.Acted:
         """Replaces the text of the field the locator matches, once it is unique, visible, enabled and editable, with text the page receives as typed input, until `timeout.action` passes. An input whose value a person picks rather than types (a date, a time, a month, a week, a local date and time, a colour or a range) has its value set, firing `input` and `change`, and a value it does not take fails with `invalid_params`.
@@ -1125,7 +1134,7 @@ class Locator(Handle):
             params.timeout = timeout_of(timeout, "timeout.wait")
         return result_of(models.Reached, self._host.call("locator.wait_for", params, timeout_setting="timeout.wait"))
 
-    def wait_for_count(self, count: models.Count, *, timeout: timedelta | None | NotGiven = not_given) -> models.Counted:
+    def wait_for_count(self, count: models.Count, *, timeout: timedelta | None | NotGiven = not_given) -> int:
         """Waits until the number of elements the locator matches is within the count, and answers it. Past its `timeout`, `timeout.wait` when the call gives none, it fails with `deadline_exceeded`.
 
         Left out, `timeout` takes the Run's `timeout.wait`, by default `timedelta(seconds=30)`.
@@ -1136,9 +1145,9 @@ class Locator(Handle):
         params = models.WaitForCountParams(locator=self._host.id, count=count)
         if not isinstance(timeout, NotGiven):
             params.timeout = timeout_of(timeout, "timeout.wait")
-        return result_of(models.Counted, self._host.call("locator.wait_for_count", params, timeout_setting="timeout.wait"))
+        return result_of(models.Counted, self._host.call("locator.wait_for_count", params, timeout_setting="timeout.wait")).count
 
-    def wait_for_function(self, function: str, *, arg: Any | NotGiven = not_given, polling_interval: int | None | NotGiven = not_given, timeout: timedelta | None | NotGiven = not_given, world: Literal["main", "isolated"] | None | NotGiven = not_given) -> models.Evaluated:
+    def wait_for_function(self, function: str, *, arg: Any | NotGiven = not_given, polling_interval: int | None | NotGiven = not_given, timeout: timedelta | None | NotGiven = not_given, world: Literal["main", "isolated"] | None | NotGiven = not_given) -> Any | None:
         """Waits, checking from when the call arrives, until a page function called with the one element the locator matches first and its one JSON argument second answers a truthy result, and answers that result as JSON, as `page.wait_for_function` does. The locator is resolved again at each check, so a re-render that replaces its element changes nothing, and a check while none or several elements match counts as falsy. A value outside JSON raises `page_value_invalid`, an exception thrown in the page `page_function_failed`, and a selector the page does not parse `invalid_params`. A main-world call is marked in the Session's Provenance. Past its `timeout`, `timeout.wait` when the call gives none, it fails with `deadline_exceeded`.
 
         Left out, `timeout` takes the Run's `timeout.wait`, by default `timedelta(seconds=30)`.
@@ -1155,4 +1164,4 @@ class Locator(Handle):
             params.timeout = timeout_of(timeout, "timeout.wait")
         if not isinstance(world, NotGiven):
             params.world = None if world is None else models.World(world)
-        return result_of(models.Evaluated, self._host.call("locator.wait_for_function", params, timeout_setting="timeout.wait"))
+        return result_of(models.Evaluated, self._host.call("locator.wait_for_function", params, timeout_setting="timeout.wait")).value

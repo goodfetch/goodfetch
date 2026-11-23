@@ -7,7 +7,8 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use anyhow::{Context as _, Result};
 use goodfetch_protocol::catalog::{Product, ProtocolVersion};
-use goodfetch_protocol::jsonrpc::META;
+use goodfetch_protocol::jsonrpc::{META, RequestMeta};
+use schemars::JsonSchema as _;
 use serde::Deserialize;
 use serde_json::{Map, Value};
 
@@ -605,8 +606,10 @@ impl Layer {
 
 /// `definitions` without `_meta`, the Trace context and raw mark the bundle adds to
 /// every request's params: an envelope field each SDK's runtime fills in,
-/// to which no generator gives a member (ADRs 0099 and 0132).
+/// to which no generator gives a member, nor a type, so that no public
+/// type of any SDK names it (ADRs 0099 and 0132).
 fn without_meta(definitions: &mut Map<String, Value>) {
+    definitions.remove(RequestMeta::schema_name().as_ref());
     for definition in definitions.values_mut() {
         if let Some(properties) = definition
             .get_mut("properties")

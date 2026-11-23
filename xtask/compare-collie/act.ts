@@ -38,7 +38,7 @@ function colliePage(opened: CollieDriverPage): DriverPage {
   return {
     async goto(url) {
       const navigated = await opened.goto(url);
-      return navigated?.status ?? null;
+      return navigated?.status() ?? null;
     },
     async step(step) {
       if (step.action === "read") {

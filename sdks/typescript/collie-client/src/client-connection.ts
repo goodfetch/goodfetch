@@ -32,6 +32,7 @@ import {
   type KeyValueStoreSetParams,
   type LogLevel,
   type Product,
+  type ProjectSettings,
   type RunLimit,
   type RunStartParams,
   type RunStarted,
@@ -39,6 +40,7 @@ import {
   type UsageSetParams,
 } from "./generated/index.ts";
 import type { JSONValue } from "./json.ts";
+import type { ProjectFile } from "./project-file.ts";
 import { limitList, type Limits } from "./limits.ts";
 import { logEngineEvent, logLevelOf, type Logger } from "./logger.ts";
 import { collieWire, type CollieWireType } from "./generated/wire.ts";
@@ -60,6 +62,12 @@ import {
   type TransportEnd,
 } from "./rpc.ts";
 import { resumable } from "./resumed-stream.ts";
+import {
+  carry,
+  traceContextSource,
+  type TraceContext,
+  type TraceContextSource,
+} from "./trace-context.ts";
 import { batchOf, type LastRead } from "./stream.ts";
 import { fromWire, toWire, type Wire } from "./wire.ts";
 
@@ -88,7 +96,7 @@ export interface EngineInfo {
   readonly version: string;
   /** The protocol version `major.minor` it speaks. */
   readonly protocolVersion: string;
-  /** The project file the engine read, or `null` when it read none. */
+  /** The project file `connect()` read and carries to the engine (ADR 0083), by its absolute path, or `null` when it read none. */
   readonly projectFile: string | null;
   /** The Goodfetch home the engine runs in, or `null` for a remote Daemon, or when none is known. */
   readonly home: string | null;
@@ -202,6 +210,12 @@ export interface ClientConnectionOptions {
    */
   readonly connectStartedAt?: number | undefined;
   /**
+   * The project file `connect()` read (ADR 0083), which each Run's start
+   * and `config.explain` carry, and whose `timeout.connect` bounds `hello`
+   * when `timeout` is left out; none when left out.
+   */
+  readonly project?: ProjectFile | undefined;
+  /**
    * The host's logger, which gets a start that resumed a Run at info and
    * one that found it ended at warning, and the engine's log events at the
    * level it records (`logLevelOf`), read at `open` and again when a Run
@@ -233,6 +247,7 @@ export class ClientConnection implements AsyncDisposable {
   /** The level of the engine's logs the engine was last told, by `hello` or `connection.set_log_level`. */
   #logLevel: LogLevel;
   readonly #reached: Reached;
+  readonly #project: ProjectFile | undefined;
   readonly #operationNames: OperationNames;
   #info: EngineInfo | undefined;
   /** The engine instance the last `hello` answered, which the events read since were published by. */
@@ -241,10 +256,13 @@ export class ClientConnection implements AsyncDisposable {
   readonly #closingLink = new AbortController();
   #ended = false;
   #closing: Promise<void> | undefined;
+  /** Reads the Trace context each call the program makes carries (ADR 0132), set before `hello`. */
+  #traceContext: TraceContextSource = () => undefined;
 
   private constructor(options: ClientConnectionOptions) {
     this.#engine = options.engine;
     this.#reached = options.reached ?? { kind: "attached", home: null, url: null };
+    this.#project = options.project;
     this.#logger = options.logger;
     this.#logLevel = logLevelOf(options.logger);
     const { errorClasses, operationNames } = options;
@@ -326,6 +344,7 @@ export class ClientConnection implements AsyncDisposable {
   static async open(options: ClientConnectionOptions): Promise<ClientConnection> {
     const connection = new ClientConnection(options);
     try {
+      connection.#traceContext = await traceContextSource();
       await connection.#hello(options);
       await connection.#setLimits(options.limits ?? [], options.signal);
     } catch (error) {
@@ -353,7 +372,7 @@ export class ClientConnection implements AsyncDisposable {
         const operationClass = operationClasses[method];
         return operationClass === "read" || operationClass === "idempotent_write";
       },
-      within: connectLimit(options.timeout)?.value ?? null,
+      within: connectLimit(options.timeout, options.project)?.value ?? null,
       signal: this.#closingLink.signal,
       reopen,
       greet: async (call) => {
@@ -384,7 +403,8 @@ export class ClientConnection implements AsyncDisposable {
    * had left, so its readers lose no event (spec 606).
    */
   #subscribe(opened: ChannelOpenOptions): Stream {
-    return resumable<LastRead>((options) => this.stream("events.subscribe", {}, options), opened, {
+    // It belongs to no one caller, so it carries no Trace context (ADR 0132).
+    return resumable<LastRead>((options) => this.#open("events.subscribe", {}, options), opened, {
       read: (method, params) => {
         if (method !== "$/events") {
           return undefined;
@@ -413,6 +433,14 @@ export class ClientConnection implements AsyncDisposable {
   }
 
   /**
+   * The project file `connect()` read (ADR 0083), as each Run's start and
+   * `config.explain` carry it; none when it read none.
+   */
+  project(): ProjectSettings | undefined {
+    return this.#project?.carried;
+  }
+
+  /**
    * Starts a Run its program drives, and answers once it is started. A Run
    * ID names the Run for good, and a start under one acts on what the Run
    * index holds (ADR 0102): no such Run begins it, `new`; an interrupted
@@ -434,11 +462,13 @@ export class ClientConnection implements AsyncDisposable {
     warnEntry(collieOperations, "run.start");
     const limits = limitList(options.limits);
     const settings = settingsOnWire(options.settings);
+    const project = this.project();
     const params: RunStartParams = {
       ...(options.runId === undefined ? {} : { runId: options.runId }),
       ...(options.tags === undefined ? {} : { tags: [...options.tags] }),
       ...(limits.length === 0 ? {} : { limits }),
       ...(settings === undefined ? {} : { settings }),
+      ...(project === undefined ? {} : { project }),
     };
     return this.startRun(
       "run.start",
@@ -547,13 +577,14 @@ export class ClientConnection implements AsyncDisposable {
     wire: Wire<keyof Types & string>,
   ): Caller<Types> {
     const channel = this.#channel;
+    const traceContext = (): TraceContext | undefined => this.#traceContext();
     return {
       async call<Name extends keyof Types & string>(
         operation: Name,
         params: Types[Name]["params"],
         options: CallOptions,
       ): Promise<Types[Name]["result"]> {
-        const sent = toWire(params, wire.params[operation], wire.types);
+        const sent = carry(toWire(params, wire.params[operation], wire.types), traceContext());
         const result = await channel.call(operation, sent, options);
         // Engine answers are not validated beyond `hello`'s protocol version (STYLE.md): the result is the operation's as the catalog types it.
         return fromWire(result, wire.results[operation], wire.types);
@@ -572,11 +603,16 @@ export class ClientConnection implements AsyncDisposable {
    * What the Connection runs with (ADR 0083): each setting under `keys`,
    * each a key or a prefix of keys such as `timeout`, every one when left
    * out, with the origin that set it too, as `goodfetch config explain`
-   * shows them. Fails with `closed` once the Connection is closed.
+   * shows them, the project file `connect()` read as the project
+   * configuration. Fails with `closed` once the Connection is closed.
    */
   explainSettings(keys?: readonly string[]): Promise<SettingsExplanation> {
     this.#openOrThrow("config.explain");
-    return this.#operations.configExplain(keys === undefined ? {} : { keys: [...keys] });
+    const project = this.project();
+    return this.#operations.configExplain({
+      ...(keys === undefined ? {} : { keys: [...keys] }),
+      ...(project === undefined ? {} : { project }),
+    });
   }
 
   /**
@@ -603,6 +639,11 @@ export class ClientConnection implements AsyncDisposable {
    * Client granted credits for; `notified` hears each notification.
    */
   stream(method: string, params: unknown, options: ChannelOpenOptions): Stream {
+    return this.#open(method, carry(params, this.#traceContext()), options);
+  }
+
+  /** Sends the streamed call `method` with `params` as they are. */
+  #open(method: string, params: unknown, options: ChannelOpenOptions): Stream {
     this.#openOrThrow(method);
     const channel = this.#channel;
     const { id, result } = channel.open(method, params, options);
@@ -631,7 +672,7 @@ export class ClientConnection implements AsyncDisposable {
   /** Sends `operation` as the main path does, its params and result unconverted. */
   #raw(operation: string, params: unknown, options: CallOptions): Promise<unknown> {
     this.#openOrThrow(operation);
-    return this.#channel.call(operation, params, options);
+    return this.#channel.call(operation, carry(params, this.#traceContext()), options);
   }
 
   #openOrThrow(operation: string): void {
@@ -657,12 +698,12 @@ export class ClientConnection implements AsyncDisposable {
   }
 
   async #hello(options: ClientConnectionOptions): Promise<void> {
-    const { daemon, signal, timeout, connectStartedAt } = options;
+    const { daemon, signal, connectStartedAt } = options;
     let answer: unknown;
     try {
       answer = await this.#answerWithin(
         this.#channel.call("hello", this.#helloParams(options), { signal }),
-        timeout,
+        connectLimit(options.timeout, options.project),
         connectStartedAt ?? Date.now(),
       );
     } catch (error) {
@@ -731,7 +772,7 @@ export class ClientConnection implements AsyncDisposable {
       product: result.product,
       version: result.productVersion,
       protocolVersion: result.protocolVersion,
-      projectFile: null,
+      projectFile: this.#project?.carried.path ?? null,
       home: this.#reached.home,
       enginePath: this.#engine?.path ?? null,
       url: this.#reached.url,
@@ -740,19 +781,17 @@ export class ClientConnection implements AsyncDisposable {
   }
 
   /**
-   * `hello`'s answer, once `called` gives it within `timeout`, its
+   * `hello`'s answer, once `called` gives it within `connect`, its
    * `timeout.connect` (ADR 0083), counted from `startedAt`.
    *
    * @throws {DeadlineExceededError} past it, its `limit` naming
-   * `timeout.connect` at the run layer, given as an argument, or at its
-   * default, and `waited_for` `hello`.
+   * `timeout.connect` and the layer that set it, and `waited_for` `hello`.
    */
   async #answerWithin(
     called: Promise<unknown>,
-    timeout: number | null | undefined,
+    connect: ConnectLimit | null,
     startedAt: number,
   ): Promise<unknown> {
-    const connect = connectLimit(timeout);
     if (connect === null) {
       return called;
     }
@@ -893,25 +932,33 @@ async function within<T>(promise: Promise<T>, timeout: number): Promise<T | "lat
   }
 }
 
+/** How long opening a Connection waits for `hello`'s answer, and the setting that says so. */
+interface ConnectLimit {
+  readonly value: number;
+  readonly limit: ErrorLimit;
+}
+
 /**
  * The `timeout.connect` limit of a `connect()` whose `timeout` is
- * `timeout`, already checked by `timeoutOf`: at the run layer, given as an
- * argument, or its 30 s default when left out; `null` for none.
+ * `timeout`, already checked by `timeoutOf`, and which read `project`: at
+ * the run layer, given as an argument; when left out, the project file's,
+ * or its 30 s default; `null` for none.
  */
 export function connectLimit(
   timeout: number | null | undefined,
-): { readonly value: number; readonly limit: ErrorLimit } | null {
+  project: ProjectFile | undefined,
+): ConnectLimit | null {
+  const key = "timeout.connect";
   if (timeout === null) {
     return null;
   }
-  const value = timeout ?? CONNECT_TIMEOUT;
-  return {
-    value,
-    limit:
-      timeout === undefined
-        ? { key: "timeout.connect", value, layer: "default" }
-        : { key: "timeout.connect", value, layer: "run", origin: "argument" },
-  };
+  if (timeout !== undefined) {
+    return { value: timeout, limit: { key, value: timeout, layer: "run", origin: "argument" } };
+  }
+  const value = project?.connectTimeout;
+  return value === undefined
+    ? { value: CONNECT_TIMEOUT, limit: { key, value: CONNECT_TIMEOUT, layer: "default" } }
+    : { value, limit: { key, value, layer: "project_configuration" } };
 }
 
 /**

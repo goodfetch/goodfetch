@@ -21,6 +21,13 @@
 //!   sends nothing.
 //! - A result typed by the fields its call declares (ADR 0147) is the
 //!   result's model: Python's type system has no mapped types.
+//! - A round trip, a query or a waiter whose result has one property
+//!   answers that property's value in place of the result, `None` for an
+//!   optional one that is absent, as TypeScript's and Rust's do (issue
+//!   2883). One whose answer is a `PageResponse` answers the hand-written
+//!   `AsyncResponse`, `Response` in the twin, built with the page's host,
+//!   which reads its body (issue 3394): `goto` answers a `Response` or
+//!   `None`.
 //!
 //! - A parameter whose model wraps one wire value, a string, number or
 //!   boolean of a type of its own or a choice of strings, takes that value,
@@ -68,7 +75,10 @@ use super::settings::{
 };
 use super::{CALLER_MODULE, deprecated_decorator, docstring, header, markers_import, warnings};
 
+mod answered;
 mod listeners;
+
+use answered::{Returned, answered, returned};
 
 /// The hand-written module of Collie's client package that declares what a
 /// generated handle reaches its engine through.
@@ -76,6 +86,9 @@ const HANDLE_MODULE: &str = "goodfetch_collie_client.handle";
 /// The module of the hand-written base each handle class extends: the raw
 /// call on its value (ADR 0099).
 const RAW_CALL_MODULE: &str = "goodfetch_collie_client.raw_call";
+/// The hand-written module of the `Response` a member answering a page's
+/// response returns, which reads its body through the page (ADR 0085).
+const RESPONSE_MODULE: &str = "goodfetch_collie_client.response";
 
 /// The markers module's function a listener warns of its event's markers
 /// with, read from the events module's registries.
@@ -150,6 +163,10 @@ struct Imports {
     /// The settings types its members take, from the generated settings
     /// module, with [`SETTINGS_ON_WIRE`] when there is one.
     settings: BTreeSet<&'static str>,
+    /// The classes of [`RESPONSE_MODULE`] it imports: both, when a member
+    /// answers a page's response, which it wraps in the hand-written
+    /// `Response`.
+    response: BTreeSet<&'static str>,
 }
 
 impl Imports {
@@ -536,24 +553,28 @@ fn description(layer: &Layer, member: &Member<'_>) -> Result<String> {
         }))
 }
 
-/// The member's call on its host, `awaits` before it, sending `sent`.
-///
-/// A call's own timeout also bounds its wait in the Client's queue under
-/// the engine's cap on calls in flight, failing naming its setting
-/// (ADR 0038; issue 3188).
-fn host_call(member: &Member<'_>, awaits: &str, sent: &str) -> String {
-    let deadline = member
-        .timeout_setting
-        .as_ref()
-        .map(|setting| format!(", timeout_setting={setting:?}"))
-        .unwrap_or_default();
-    format!(
-        "{awaits}self._host.call({:?}, {sent}{deadline})",
-        member.operation.name
-    )
+/// One member, a method of the class that holds `self._host`.
+/// The `Response` class `member` answers, when it answers a page's
+/// response, and what it returns: that class, or `None` beside it for an
+/// optional one, in place of `returns`.
+fn responded(
+    member: &Member<'_>,
+    prefix: &str,
+    returns: String,
+    imports: &mut Imports,
+) -> (Option<String>, String) {
+    if !member.responds {
+        return (None, returns);
+    }
+    imports.response.extend(["AsyncResponse", "Response"]);
+    let class = format!("{prefix}Response");
+    let returns = match &member.unwrapped {
+        Some(unwrapped) if !unwrapped.required => format!("{class} | None"),
+        _ => class.clone(),
+    };
+    (Some(class), returns)
 }
 
-/// One member, a method of the class that holds `self._host`.
 fn member(
     layer: &Layer,
     member: &Member<'_>,
@@ -586,12 +607,16 @@ fn member(
         awaits,
         ..
     } = mode;
+    let answered = answered(layer, member, imports)?;
     let result = imports.model(result);
     let returns = match &member.form {
-        Form::RoundTrip | Form::Query | Form::Waiter => result.clone(),
+        Form::RoundTrip | Form::Query | Form::Waiter => answered
+            .as_ref()
+            .map_or_else(|| result.clone(), |(returns, _)| returns.clone()),
         Form::Opens(opened) => format!("{prefix}{}", pascal(opened)),
         Form::Closes => "None".to_owned(),
     };
+    let (response, returns) = responded(member, prefix, returns, imports);
     let mut text = String::new();
     if let Some(deprecated) = &operation.deprecated {
         imports.deprecated = true;
@@ -640,25 +665,18 @@ fn member(
         &mut imports.markers,
     ));
     let sent = build(&signature, "params", &mut text);
-    let call = host_call(member, awaits, &sent);
-    match &member.form {
-        Form::RoundTrip | Form::Query | Form::Waiter => {
-            let _ = writeln!(text, "        return result_of({result}, {call})");
-        }
-        Form::Opens(opened) => {
-            let _ = writeln!(
-                text,
-                "        opened = result_of({result}, {call})\n        return {returns}(self._host.child(opened.{opened}_id))"
-            );
-        }
-        Form::Closes => {
-            let _ = writeln!(
-                text,
-                "        {awaits}self._host.close({:?}, {sent})",
-                operation.name
-            );
-        }
-    }
+    let property = answered.map(|(_, property)| property);
+    text.push_str(&returned(
+        member,
+        Returned {
+            result: &result,
+            returns: &returns,
+            property: property.as_deref(),
+            response: response.as_deref(),
+        },
+        awaits,
+        &sent,
+    ));
     Ok(text)
 }
 
@@ -913,6 +931,10 @@ pub(super) fn handles_module(layer: &Layer, handles: &[Handle<'_>]) -> Result<St
     );
     text.push_str(&markers_import(&imports.markers));
     let _ = writeln!(text, "from {RAW_CALL_MODULE} import AsyncHandle, Handle");
+    if !imports.response.is_empty() {
+        let classes = imports.response.iter().copied().collect::<Vec<_>>();
+        let _ = writeln!(text, "from {RESPONSE_MODULE} import {}", classes.join(", "));
+    }
     if !imports.settings.is_empty() {
         let _ = writeln!(
             text,

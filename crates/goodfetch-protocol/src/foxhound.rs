@@ -153,6 +153,7 @@ pub const ENTRIES: Entries = Entries {
             params: schema_of::<SamplePageFilterAdmitParams>,
             result: schema_of::<SamplePageFilterAdmitResult>,
         }],
+        chosen_by: None,
         stability: Stability::Experimental,
         arrived_in: ARRIVED_IN,
     }],

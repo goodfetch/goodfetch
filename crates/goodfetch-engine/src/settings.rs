@@ -200,6 +200,10 @@ pub struct Opening {
     pub settings: Map<String, Value>,
     /// Where the run layer's values came from.
     pub origin: Option<RunOrigin>,
+    /// The run layer's values with the origin `registered`, by dotted key,
+    /// which the Connection's SDK handlers give and every value of
+    /// `settings` replaces (ADR 0104).
+    pub registered: Map<String, Value>,
     /// Whether a Client acting for a model gave the run layer's values and
     /// the project configuration, so that a key no model sets is refused
     /// (ADR 0092).
@@ -459,6 +463,7 @@ impl Settings {
             .as_ref()
             .map(|manifest| Recipe::read(manifest, engine))
             .transpose()?;
+        let registered = Values::read(SettingsLayer::Run, &opening.registered, engine)?;
         let mut run = Values::read(SettingsLayer::Run, &opening.settings, engine)?;
         if let Some(origin) = opening.origin {
             run = run.from_origin(origin);
@@ -478,6 +483,7 @@ impl Settings {
             user_configuration: machine.user_configuration.clone(),
             project_configuration: project,
             recipe,
+            registered,
             run,
         };
         let resolved = resolve(&layers, engine, opening.run.unwrap_or(engine))

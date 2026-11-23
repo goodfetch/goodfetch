@@ -178,6 +178,12 @@ pub struct Layers {
     pub project_configuration: Values,
     /// The Recipe, when the Run is one's.
     pub recipe: Option<Recipe>,
+    /// The run layer's values with the origin `registered`, the lowest of
+    /// its origins: the setting that alone chooses a Plugin kind, set to
+    /// the Connection's only SDK handler of that kind (ADR 0104's amendment
+    /// of ADR 0083). Every value of `run` replaces one; configuration does
+    /// not, and a lock wins over one with no refusal.
+    pub registered: Values,
     /// The run itself.
     pub run: Values,
 }
@@ -910,6 +916,13 @@ fn resolve_key(
         from_recipe(&mut state, policy, recipe, key, unfolded)?;
     }
     unfold(&mut state, key, unfolded, SettingsLayer::Run)?;
+    if let Some(value) = layers.registered.get(name) {
+        let registered = Given {
+            origin: Some(RunOrigin::Registered),
+            ..Given::default()
+        };
+        take(&mut state, key, SettingsLayer::Run, value, Some(registered))?;
+    }
     if let Some(value) = layers.run.get(name) {
         take(
             &mut state,

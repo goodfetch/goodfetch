@@ -110,7 +110,7 @@ fn an_attached_engine_has_the_workers_the_setting_says(
 /// caps, one a core by default. A blocking thread outlives its work by Tokio's
 /// keep-alive of 10 seconds, longer than the calls take, so the threads
 /// alive once they are answered are every one they started.
-/// Covers: setting:governor.blocking_threads, command:usage.list
+/// Covers: setting:governor.blocking_threads, operation:usage.list
 #[rstest]
 #[case::by_default("", per_core())]
 #[case::at_a_count("governor.blocking_threads = 2\n", 2)]

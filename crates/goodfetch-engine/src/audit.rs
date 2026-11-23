@@ -608,7 +608,7 @@ impl Store {
             };
             let tail = self.after_last(transaction, cached)?;
             let time = SystemTime::from(now);
-            let anchor = anchor_entry(through, &last_pruned_hash, &time, layer);
+            let anchor = anchor_entry(through, &last_pruned_hash, time, layer);
             let anchor =
                 serde_json_canonicalizer::to_string(&anchor).map_err(|error| failed(&error))?;
             let execute = |statement: &str, parameters: &[&dyn rusqlite::ToSql]| {
@@ -1271,12 +1271,12 @@ fn anchor_of(sequence: i64, entry: &str, hash: &str) -> Option<(u64, Value, [u8;
 fn anchor_entry(
     through: u64,
     last_pruned_hash: &str,
-    time: &SystemTime,
+    time: SystemTime,
     layer: Option<SettingsLayer>,
 ) -> AuditEntry {
     AuditEntry {
         sequence: through,
-        time: *time,
+        time,
         kind: AUDIT_LOG_ANCHOR.name.to_owned(),
         actor: Actor::Engine,
         surface: None,
@@ -1292,7 +1292,7 @@ fn anchor_named_by(pruned: &Value) -> Option<Value> {
     let pruned: AuditEntry = serde_json::from_value(pruned.clone()).ok()?;
     let through = pruned.details["through_sequence"].as_u64()?;
     let hash = pruned.details["last_pruned_hash"].as_str()?;
-    serde_json::to_value(anchor_entry(through, hash, &pruned.time, pruned.layer)).ok()
+    serde_json::to_value(anchor_entry(through, hash, pruned.time, pruned.layer)).ok()
 }
 
 /// A sequence as SQLite stores it.

@@ -20,8 +20,7 @@ use std::path::Path;
 use std::time::{Duration, Instant};
 
 use goodfetch_test_support::{
-    ProvingGround, TestEnv, Variables, browser_cache, browser_cache_with_headless_shell,
-    chrome_headless_shell,
+    ProvingGround, TestEnv, browser_cache_with_headless_shell, chrome_headless_shell,
 };
 use serde_json::{Map, Value, json};
 
@@ -145,12 +144,14 @@ fn a_run_under_the_headless_shell_setting_launches_the_headless_shell() {
 /// whose runner starts in the Background session, a Run that turns the
 /// headless shell off fails its first page at once with
 /// `browser_needs_gui_session`, whose fix names the shell, and launches no
-/// browser (#3224). Elsewhere the full build starts, so the test skips.
+/// browser (#3224). Elsewhere the full build starts, so the test exists on
+/// macOS alone and skips there in a GUI session.
 ///
 /// Covers: error:browser_needs_gui_session
+#[cfg(target_os = "macos")]
 #[test]
 fn with_no_gui_session_on_macos_the_full_build_headless_needs_a_gui_session() {
-    if !(cfg!(target_os = "macos") && Variables::from_process().no_gui_session()) {
+    if !goodfetch_test_support::Variables::from_process().no_gui_session() {
         #[expect(
             clippy::print_stderr,
             reason = "a skipped test says why in its own output, which the test harness keeps"
@@ -161,7 +162,7 @@ fn with_no_gui_session_on_macos_the_full_build_headless_needs_a_gui_session() {
         return;
     }
     let env = TestEnv::new();
-    let cache = browser_cache(&env).unwrap();
+    let cache = goodfetch_test_support::browser_cache(&env).unwrap();
     let proving_ground = ProvingGround::start(&env, SEED).unwrap();
     let mut settings = Map::new();
     settings.insert("browser".to_owned(), json!({ "headless_shell": false }));

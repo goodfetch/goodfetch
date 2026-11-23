@@ -504,12 +504,14 @@ fn a_body_that_failed_after_a_send_leaves_its_effect_uncertain(
 
 /// A value larger than `effect.output.max_size` is `effect_output_invalid`
 /// when nothing was sent, and leaves the Effect uncertain after a send.
-/// Covers: error:effect_output_invalid, setting:effect.output.max_size
+/// Covers: setting:effect.output.max_size
 #[rstest]
+/// Covers: error:effect_output_invalid
 #[case::nothing_sent(
     false,
     json!([null, null, "effect_output_invalid", ["export", 25, 16], "perform", null])
 )]
+/// Covers: error:effect_uncertain
 #[case::after_a_send(
     true,
     json!(["uncertain", "effect_output_invalid", null, [null, null, null], null, "effect_uncertain"])
@@ -548,10 +550,10 @@ fn a_value_too_large_for_the_journal_is_not_kept(#[case] sent: bool, #[case] exp
 /// Audit log, "it happened" answers `reconciled` and "it did not happen"
 /// runs the body again, both off the Run report, while "leave uncertain"
 /// changes nothing.
-/// Covers: error:effect_uncertain
 #[rstest]
 #[case::happened("happened", json!("reconciled"), json!(null), json!("verified"))]
 #[case::did_not_happen("did_not_happen", json!("perform"), json!(null), json!("verified"))]
+/// Covers: error:effect_uncertain
 #[case::leave_uncertain("leave_uncertain", json!(null), json!(1), json!("needs_review"))]
 fn a_persons_answer_reconciles_an_uncertain_effect(
     #[case] answer: &str,
@@ -649,9 +651,10 @@ fn an_answer_about_an_effect_that_is_not_uncertain_does_nothing() {
 /// mark the body runs again, between the mark and the close the Effect is
 /// uncertain, and after the close the journal answers. The mark is synced
 /// before the command goes out, and the close is synced before it answers.
-/// Covers: error:effect_uncertain, operation:effect.open
+/// Covers: operation:effect.open
 #[rstest]
 #[case::before_the_mark(0, json!("perform"), json!(null))]
+/// Covers: error:effect_uncertain
 #[case::between_the_mark_and_the_close(1, json!(null), json!("effect_uncertain"))]
 #[case::after_the_close(2, json!("journal"), json!(null))]
 fn a_power_cut_leaves_each_effect_as_its_last_synced_step(

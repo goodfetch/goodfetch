@@ -10,6 +10,7 @@ has none of it: a call there fails with `connection_forked` (ADR 0078).
 
 from __future__ import annotations
 
+import concurrent.futures
 import threading
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, TypeVar
@@ -21,7 +22,6 @@ from goodfetch_collie_client._opening_process import OpeningProcess
 from goodfetch_collie_client.goodfetch_error import BaseGoodfetchError
 
 if TYPE_CHECKING:
-    import concurrent.futures
     from collections.abc import Awaitable, Callable
 
 __all__ = ["LoopStopped", "PrivateLoop"]
@@ -30,6 +30,17 @@ _T = TypeVar("_T")
 
 THREAD_NAME = "goodfetch-collie"
 """The private thread's name, which a thread dump shows."""
+
+WAIT_STEP_SECONDS = 0.1
+"""How long a sync call's wait blocks before its thread checks for signals.
+
+A signal's handler runs in the main thread, and only between waits: a
+Ctrl+C that lands on another thread, as Windows's console delivers it,
+would never end an untimed wait, which CPython makes interruptible on
+Windows only from 3.14. The step bounds how late `KeyboardInterrupt`
+reaches a blocked call on every OS; a call that ends wakes the wait at
+once, so it adds nothing to the call's own time (ADR 0081).
+"""
 
 
 class LoopStopped(Exception):
@@ -70,7 +81,9 @@ class PrivateLoop:
 
         An exception raised in the waiting thread, such as Ctrl+C's
         `KeyboardInterrupt`, cancels the call, which sends `$/cancel`
-        without waiting, and propagates unchanged (ADR 0081). The portal
+        without waiting, and propagates unchanged (ADR 0081); the wait
+        is timed, in steps of `WAIT_STEP_SECONDS`, so a Ctrl+C that lands
+        on another thread, as on Windows, still ends it. The portal
         would raise an error outside `Exception` in the loop's thread too,
         which ends it, so `attempt_ended`'s comes back as a value and is
         raised here alone (ADR 0093). The portal runs `function` in a copy
@@ -104,6 +117,8 @@ class PrivateLoop:
         except RuntimeError as stopped:
             raise LoopStopped from stopped
         try:
+            while not future.done():
+                concurrent.futures.wait((future,), timeout=WAIT_STEP_SECONDS)
             result = future.result()
         except BaseException:
             future.cancel()

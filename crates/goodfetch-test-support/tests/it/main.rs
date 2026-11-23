@@ -23,6 +23,7 @@ mod cli_json;
 mod dns_namespace;
 mod endpoints;
 mod exercise_record;
+mod extra_loopback;
 mod hostile_tables;
 mod journey_run;
 #[cfg(target_os = "linux")]
@@ -47,6 +48,7 @@ mod teardown;
 mod test_env;
 mod test_env_daemon;
 mod tools;
+mod toxiproxy;
 
 use std::io::{Read as _, Write as _};
 use std::path::{Path, PathBuf};

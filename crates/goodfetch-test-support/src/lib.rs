@@ -9,8 +9,8 @@
 //! test `tracing` subscriber and `logged`, which captures what `tracing`
 //! wrote, the size-capped tmpfs a test fills on Linux, the Observation log with its fencing and
 //! Limits checkers, Fault plans with the generator that shrinks a failing
-//! one and writes it with its replay command, seeded kills of real processes and the crash VFS under
-//! SQLite (ADR 0060), the byte-stable SQL dump of a SQLite store (ADR 0066),
+//! one and writes it with its replay command, seeded kills of real processes, the crash VFS under
+//! SQLite and Toxiproxy's cuts, latency and partitions on loopback (ADR 0060), the byte-stable SQL dump of a SQLite store (ADR 0066),
 //! the lines of a Run trace's raw call log (ADR 0099), the strict reader of a child's JSON-RPC stdout
 //! (ADR 0070), `fuzz_replay!`, the replay of a fuzz target's seeds and past
 //! crashers, `ProtocolFuzz`, the protocol fuzzing generated from the
@@ -107,6 +107,7 @@ mod ssrf;
 mod strict_stdout;
 mod tmpfs;
 mod tools;
+mod toxiproxy;
 mod trace;
 mod transition_tables;
 mod unicode;
@@ -262,6 +263,7 @@ pub use tmpfs::{
     tmpfs_mounted_home,
 };
 pub use tools::{Product, Tool, Tools, ToolsError, tools};
+pub use toxiproxy::{TOXIPROXY_DEADLINE, Toxiproxy, ToxiproxyError, toxiproxy_copy};
 pub use trace::{
     CapturedLog, capturing, exercise_layer, logged, subscriber, subscriber_unless_own,
     subscriber_writing_to,
@@ -279,5 +281,5 @@ pub use variables::{
     CALLGRIND_AT_ONCE_VARIABLE, CASE_LOGS_VARIABLE, CallgrindAtOnceError, DNS_NAMESPACE_VARIABLE,
     ENGINE_VARIABLE, LAZYFS_FOLDER_VARIABLE, LAZYFS_VARIABLE, MAX_SEED, NO_GUI_SESSION_VARIABLE,
     RECORDS_VARIABLE, RESULT_DOCUMENTS_VARIABLE, SEED_VARIABLE, SUITE_VARIABLE, SeedError, Suite,
-    SuiteError, TOOLS_VARIABLE, Variables, case_logs, current_test,
+    SuiteError, TOOLS_VARIABLE, TOXIPROXY_DOWNLOADS_VARIABLE, Variables, case_logs, current_test,
 };

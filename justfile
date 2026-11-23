@@ -173,7 +173,7 @@ lint:
     step zizmor 'ci/tool.sh zizmor zizmor --config zizmor.yml --persona=regular .github/workflows .github/actions'
     step actionlint 'ci/tool.sh actionlint actionlint'
     step gitleaks 'ci/tool.sh gitleaks ci/canary-rule.sh'
-    step shellcheck 'ci/tool.sh shellcheck shellcheck ci/*.sh ci/compiler-cache/sccache ci/deny/*.sh ci/egress/*.sh ci/host/*.sh ci/hosted/*.sh ci/musl/*.sh ci/musl/cargo ci/musl/link-cc ci/musl/stable-metadata/sccache ci/release/*.sh ci/results/*.sh ci/runner/*.sh ci/test-health/*.sh ci/vm/*.sh ci/visual/*.sh ci/proofs/run.sh ci/proofs/live.sh kennel/scripts/*.sh .githooks/pre-commit .githooks/pre-push'
+    step shellcheck 'ci/tool.sh shellcheck shellcheck ci/*.sh ci/compiler-cache/sccache ci/deny/*.sh ci/egress/*.sh ci/host/*.sh ci/hosted/*.sh ci/musl/*.sh ci/musl/cargo ci/musl/link-cc ci/musl/stable-metadata/sccache ci/release/*.sh ci/results/*.sh ci/runner/*.sh ci/source-build/*.sh ci/test-health/*.sh ci/vm/*.sh ci/visual/*.sh ci/proofs/run.sh ci/proofs/live.sh kennel/scripts/*.sh .githooks/pre-commit .githooks/pre-push'
     step cargo-deny 'ci/tool.sh cargo-deny cargo deny check -A unused-wrapper -A license-not-encountered bans licenses sources'
     step cargo-deny-products 'ci/tool.sh cargo-deny ci/deny/products.sh'
     # The Collie client crate, which takes no OpenTelemetry crate: the
@@ -535,6 +535,7 @@ fetch:
     ci/lightpanda-fetch.sh
     ci/chrome-for-testing-fetch.sh
     ci/alpine/fetch.sh
+    ci/source-build/fetch.sh
 
 # Builds Rust (with the given Cargo profile), TypeScript and Python.
 build profile="dev":

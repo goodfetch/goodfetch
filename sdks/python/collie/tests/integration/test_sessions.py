@@ -13,7 +13,6 @@ exactly what the script holds. TypeScript's `sessions.test.ts` is its twin.
 import pytest
 from collie_calls import engine_warnings, failure, open_collie
 from goodfetch_collie import ClosedError, ProgramError, SettingInvalidError
-from goodfetch_collie_client.generated.models import SessionSource
 from goodfetch_test_support import (
     ClientCaseRecord,
     TestEnv,
@@ -43,7 +42,7 @@ async def test_opens_sessions_from_their_source_and_closes_each_with_its_pages(
     collie = await open_collie(way, env)
     run = await collie.start()
     saved = await run.new_session(
-        source=SessionSource.model_validate({"kind": "saved_identity", "name": "shop"}),
+        source={"kind": "saved_identity", "name": "shop"},
         settings={"browser": {"access_mode": "standard"}},
     )
     saved_page = await saved.new_page()
@@ -59,13 +58,11 @@ async def test_opens_sessions_from_their_source_and_closes_each_with_its_pages(
     await run.new_page()
     not_registrable = await failure(
         run.new_session(
-            source=SessionSource.model_validate(
-                {
-                    "kind": "cdp_url",
-                    "url": "http://127.0.0.1:9222",
-                    "domains": ["www.example.com"],
-                }
-            )
+            source={
+                "kind": "cdp_url",
+                "url": "http://127.0.0.1:9222",
+                "domains": ["www.example.com"],
+            }
         )
     )
     await run.finish()

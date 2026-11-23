@@ -8,7 +8,7 @@ use std::path::Path;
 use anyhow::{Result, bail};
 use serde::Deserialize;
 
-use super::{CUT_POINT, Minor, ProductVersion, Stage, tagged};
+use super::{CUT_POINT, Minor, ProductVersion, REMOTE, Stage, tagged};
 use crate::git;
 use crate::github::Api;
 use crate::output;
@@ -18,9 +18,6 @@ const BACKPORT: &str = "backport";
 
 /// The branch a minor is cut from.
 const MAIN: &str = "main";
-
-/// The remote a minor is cut from and pushed to.
-const REMOTE: &str = "origin";
 
 /// The git-cliff range of `version`'s changelog, ending at `to`: `from..to`,
 /// or `to` alone for the whole history.
@@ -152,7 +149,7 @@ pub(super) fn cut(root: &Path, minor: Minor) -> Result<ProductVersion> {
     };
     let branch = minor.branch();
     let tag = minor.cut_point();
-    let head = format!("release-pr/{}", candidate.semver());
+    let head = candidate.pull_request_branch();
     let references = [
         format!("refs/heads/{branch}"),
         format!("refs/tags/{tag}"),

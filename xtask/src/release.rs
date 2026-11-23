@@ -66,6 +66,8 @@ const CARGO_LOCK: &str = "Cargo.lock";
 
 /// The suffix of a minor's cut point tag on `main`, `x.y-branch` (ADR 0032).
 const CUT_POINT: &str = "-branch";
+/// The remote a release's branches and tags are pushed to and read from.
+const REMOTE: &str = "origin";
 const UV_LOCK: &str = "uv.lock";
 /// Each library outside the workspace that takes a released crate by a
 /// range of the Product's line, as its author would publish it (story
@@ -212,9 +214,8 @@ pub(crate) fn run(command: Command, environment: &Environment) -> Result<ExitCod
                 .open(&candidate)
                 .with_context(|| {
                     format!(
-                        "minor {minor} is cut; open its first candidate's pull request on {}: xtask release pull-request --version {}",
-                        minor.branch(),
-                        candidate.semver()
+                        "minor {minor} is cut, and the workspace is on {}",
+                        minor.branch()
                     )
                 })?;
             Ok(ExitCode::SUCCESS)
@@ -275,12 +276,6 @@ pub(crate) fn run(command: Command, environment: &Environment) -> Result<ExitCod
     }
 }
 
-/// The time a promotion is checked at, or a release's changelog dated,
-/// when `--at` does not give it.
-#[expect(
-    clippy::disallowed_methods,
-    reason = "ADR 0059: the two business days of ADR 0064 count to the wall clock's now, and a release is dated today; tests pass --at"
-)]
 fn releaser<'a>(
     environment: &'a Environment,
     github: &'a github::Arguments,
@@ -294,6 +289,12 @@ fn releaser<'a>(
     }
 }
 
+/// The time a promotion is checked at, or a release's changelog dated,
+/// when `--at` does not give it.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "ADR 0059: the two business days of ADR 0064 count to the wall clock's now, and a release is dated today; tests pass --at"
+)]
 fn now() -> jiff::Timestamp {
     jiff::Timestamp::now()
 }
@@ -394,6 +395,12 @@ impl ProductVersion {
             major: self.major,
             minor: self.minor,
         }
+    }
+
+    /// The branch its release pull request is opened from:
+    /// `release-pr/1.4.0-rc.2`.
+    fn pull_request_branch(&self) -> String {
+        format!("release-pr/{}", self.semver())
     }
 
     /// Its release tag: `v1.4.0`, `v1.4.0-rc.2`.
@@ -749,10 +756,8 @@ fn require_versions(
 enum Tree<'a> {
     /// The files in the workspace's folder.
     Workspace(&'a Path),
-    /// A commit's, in the repository at `root`: `main`'s commit, which `cut`
-    /// builds the first candidate's version commit over, and the stable
-    /// version commit's parent, which `check` prepares again to compare
-    /// (ADR 0032).
+    /// A commit's, in the repository at `root`: the stable version
+    /// commit's parent, which `check` prepares again to compare (ADR 0032).
     Commit { root: &'a Path, commit: &'a str },
 }
 

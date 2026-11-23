@@ -98,7 +98,21 @@ pub(super) fn files(
             .collect();
         bail!("the skills do not render:\n{}", lines.join("\n"));
     }
-    Ok(files)
+    Ok(files
+        .into_iter()
+        .filter(|(path, _)| carried(root, path))
+        .collect())
+}
+
+/// Whether the workspace at `root` holds the executable crate the generated
+/// file `path` belongs to: a workspace without one, such as a test's
+/// fixture, gets none of its files.
+fn carried(root: &Path, path: &str) -> bool {
+    products::EXECUTABLES.iter().any(|executable| {
+        path.strip_prefix(executable.folder)
+            .is_some_and(|rest| rest.starts_with('/'))
+            && root.join(executable.folder).is_dir()
+    })
 }
 
 /// Every rendering, and every finding, one per kind and line.

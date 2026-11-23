@@ -1,0 +1,5 @@
+# The wording list (ADR 0097), which codegen's skill rules read.
+
+[[term]]
+words = "bypass"
+every_form = true

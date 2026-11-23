@@ -139,7 +139,6 @@ fn a_skill_renders_for_each_product_that_carries_it_with_its_names() {
     "Text.",
     ("skill-name", 2)
 )]
-#[case::name_not_its_folders("{{executable}}-cli", "Drives a browser.", "Text.", ("skill-name", 2))]
 #[case::description_over_1024_characters(
     "{{executable}}",
     &"a".repeat(1_025),
@@ -179,7 +178,7 @@ fn a_skill_renders_for_each_product_that_carries_it_with_its_names() {
 #[case::persons_answer_as_an_example(
     "{{executable}}",
     "Drives a browser.",
-    "```console\n$ {{executable}} usage raise --amount 10\n```",
+    "```console\n$ {{executable}} usage raise --amount 10  # ask the person first\n```",
     ("skill-person-only", 6)
 )]
 #[case::persons_answer_as_the_agents_action(
@@ -206,16 +205,33 @@ fn the_generator_fails_a_skill_that_breaks_a_rule(
     #[case] body: &str,
     #[case] (kind, line): (&str, usize),
 ) {
+    let source = format!(
+        "skills/{}/SKILL.md",
+        render::with_names(name, Product::Collie)
+    );
+    let root = workspace(&[(&source, &skill(name, description, body))]);
+
+    let (_, findings) = render_at(root.path());
+
+    assert_eq!(findings, vec![(kind, format!("{source}:{line}"))]);
+}
+
+/// Covers: story:11-240
+#[test]
+fn the_generator_fails_a_skill_named_otherwise_than_its_folder() {
     let root = workspace(&[(
         "skills/goodfetch-collie/SKILL.md",
-        &skill(name, description, body),
+        &skill("{{executable}}-cli", "Drives a browser.", "Text."),
     )]);
 
     let (_, findings) = render_at(root.path());
 
     assert_eq!(
         findings,
-        vec![(kind, format!("skills/goodfetch-collie/SKILL.md:{line}"))]
+        vec![(
+            "skill-name",
+            "skills/goodfetch-collie/SKILL.md:2".to_owned()
+        )]
     );
 }
 

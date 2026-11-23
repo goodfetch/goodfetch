@@ -129,7 +129,7 @@ issue = 1590
 
 [[skip]]
 filter = '''
-(binary_id(goodfetch-foxhound::it) & test(/^(pacing::a_domain_rate_holds_two_runs_sharing_its_key_to_it)$/))
+(binary_id(goodfetch-foxhound::it) & test(/^(pacing::a_domain_rate_holds_two_runs_sharing_its_key_to_it|robots_txt::a_crawl_delay_spaces_two_concurrent_runs_on_one_domain_key)$/))
 | (binary_id(goodfetch-test-support) & test(/^(env::tests::a_log_level_set_while_an_engine_reads_the_user_configuration_never_cuts_it)$/))
 '''
 reason = "Wine refuses a rename over a file another process holds open (`Access is denied`, os error 5), where Windows' rename, with POSIX semantics, replaces it: the test renames a file while an engine reads it."

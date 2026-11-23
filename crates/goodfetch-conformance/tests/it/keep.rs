@@ -40,6 +40,7 @@ fn document() -> ConformanceDocument {
                 entries: vec![CaseEntry {
                     mode: None,
                     blocking: None,
+                    unreachable: Vec::new(),
                     checks: vec![CaseCheck {
                         name: "the response is the document's".to_owned(),
                         passed: true,

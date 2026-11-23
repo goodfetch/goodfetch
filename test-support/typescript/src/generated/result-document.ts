@@ -191,6 +191,13 @@ export interface CaseEntry {
    * runs in several.
    */
   mode?: string | null;
+  /**
+   * What it could not reach while it ran, such as a vendor or the
+   * online Proving ground, each as its runner names it. An entry with
+   * any neither passes nor fails, whatever its checks: an outage is
+   * inconclusive (ADR 0064).
+   */
+  unreachable?: string[];
 }
 /**
  * One check of a case.
@@ -290,6 +297,12 @@ export interface CaseLogEntry {
    * The runtime it ran on, such as `node-24` or `cpython-3.14`.
    */
   runtime: string;
+  /**
+   * What it could not reach while it ran, such as a vendor or the
+   * online Proving ground, each as the runner names it; its entry is
+   * then inconclusive (ADR 0064).
+   */
+  unreachable?: string[];
 }
 /**
  * The operating system and architecture a document's tests ran on.

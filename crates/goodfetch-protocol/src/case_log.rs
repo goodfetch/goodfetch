@@ -25,6 +25,11 @@ pub struct CaseLogEntry {
     /// mode (ADR 0047).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub blocking: Option<Blocking>,
+    /// What it could not reach while it ran, such as a vendor or the
+    /// online Proving ground, each as the runner names it; its entry is
+    /// then inconclusive (ADR 0064).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub unreachable: Vec<String>,
     /// Where it ran.
     pub platform: Platform,
     /// The runtime it ran on, such as `node-24` or `cpython-3.14`.

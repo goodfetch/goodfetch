@@ -1,0 +1,30 @@
+{
+  "description": "Outside gate mode, a case whose vendor was unreachable is inconclusive, neither failed nor passed, and a failed case beside it still fails the capability (ADR 0064)",
+  "cases": [
+    {
+      "entries": [
+        {
+          "unreachable": ["challenge vendor"],
+          "checks": [false]
+        }
+      ]
+    },
+    {
+      "entries": [
+        {
+          "unreachable": ["challenge vendor"],
+          "checks": [true]
+        }
+      ]
+    },
+    {
+      "entries": [
+        {
+          "checks": [false]
+        }
+      ]
+    }
+  ],
+  "case_outcomes": ["inconclusive", "inconclusive", "failed"],
+  "outcome": "failed"
+}

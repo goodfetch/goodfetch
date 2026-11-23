@@ -284,6 +284,7 @@ pub fn run_gateway_suite(
                 capability: capability.name.clone(),
                 mode: Some(MODE.to_owned()),
                 blocking: None,
+                unreachable: Vec::new(),
                 platform: platform(),
                 runtime: RUNTIME.to_owned(),
                 checks,

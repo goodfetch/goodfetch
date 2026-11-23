@@ -618,6 +618,12 @@ pub struct CaseEntry {
     /// Whether Filter-list blocking was on or off, in gate mode.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub blocking: Option<Blocking>,
+    /// What it could not reach while it ran, such as a vendor or the
+    /// online Proving ground, each as its runner names it. An entry with
+    /// any neither passes nor fails, whatever its checks: an outage is
+    /// inconclusive (ADR 0064).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub unreachable: Vec<String>,
     /// Each check's result.
     pub checks: Vec<CaseCheck>,
     /// What it saw.
@@ -796,9 +802,11 @@ pub enum CaseOutcome {
     /// A check failed, or an entry holds no check; in gate mode, it failed
     /// with Filter-list blocking on and passed with it off.
     Failed,
-    /// In gate mode, it failed with Filter-list blocking on and did not
-    /// pass with it off, as when a vendor's scoring change moves both: it
-    /// neither passes nor blocks (ADR 0047).
+    /// An entry could not reach something it needed, such as a vendor, and
+    /// no entry that reached everything failed (ADR 0064); or, in gate
+    /// mode, it failed with Filter-list
+    /// blocking on and did not pass with it off, as when a vendor's scoring
+    /// change moves both (ADR 0047). It neither passes nor blocks.
     Inconclusive,
     /// The case log holds no entry for it.
     NotReached,
@@ -820,7 +828,8 @@ impl CaseOutcome {
 }
 
 /// A case's outcome from its entries; outside gate mode, an entry's
-/// blocking makes no pair, so a failure is never judged inconclusive.
+/// blocking makes no pair, so only an entry that could not reach something
+/// is inconclusive.
 fn case_outcome(entries: &[CaseEntry], gate: bool) -> CaseOutcome {
     if entries.is_empty() {
         return CaseOutcome::NotReached;
@@ -830,9 +839,14 @@ fn case_outcome(entries: &[CaseEntry], gate: bool) -> CaseOutcome {
     let mut outcome = CaseOutcome::Passed;
     for entry in entries {
         let Some(blocking) = entry.blocking.filter(|_| gate) else {
-            if !passed(entry) {
-                outcome = CaseOutcome::Failed;
-            }
+            let judged = if !reached_everything(entry) {
+                CaseOutcome::Inconclusive
+            } else if passed(entry) {
+                CaseOutcome::Passed
+            } else {
+                CaseOutcome::Failed
+            };
+            outcome = worse(outcome, judged);
             continue;
         };
         let (on, off) = pairs.entry(entry.mode.as_deref()).or_default();
@@ -845,9 +859,14 @@ fn case_outcome(entries: &[CaseEntry], gate: bool) -> CaseOutcome {
         let all_passed = |entries: &[&CaseEntry]| {
             !entries.is_empty() && entries.iter().all(|entry| passed(entry))
         };
+        // A failure with blocking on is the rules' only when that run
+        // reached everything: an outage then is no evidence either way.
         let judged = if all_passed(on) {
             CaseOutcome::Passed
-        } else if !on.is_empty() && all_passed(off) {
+        } else if !on.is_empty()
+            && on.iter().all(|entry| reached_everything(entry))
+            && all_passed(off)
+        {
             CaseOutcome::Failed
         } else {
             CaseOutcome::Inconclusive
@@ -857,9 +876,17 @@ fn case_outcome(entries: &[CaseEntry], gate: bool) -> CaseOutcome {
     outcome
 }
 
-/// Whether an entry holds checks and every one passed.
+/// Whether an entry reached everything it needed, holds checks and every
+/// one passed: an entry that could not reach something never passes.
 fn passed(entry: &CaseEntry) -> bool {
-    !entry.checks.is_empty() && entry.checks.iter().all(|check| check.passed)
+    reached_everything(entry)
+        && !entry.checks.is_empty()
+        && entry.checks.iter().all(|check| check.passed)
+}
+
+/// Whether an entry reached everything it needed while it ran.
+fn reached_everything(entry: &CaseEntry) -> bool {
+    entry.unreachable.is_empty()
 }
 
 /// The worse of two outcomes of a reached case: failed, then inconclusive,

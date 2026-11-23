@@ -10,14 +10,93 @@ use goodfetch_protocol::settings::SettingsLayer;
 use rstest::rstest;
 use serde_json::{Value, json};
 
-use super::{locked, nested, only, over_layers};
-use crate::settings::{SettingsError, Values};
+use super::{catalog_key, locked, nested, only, over_layers, values};
+use crate::settings::{Layers, SettingsError, Values, beneath_connection, resolve};
 
 const PLACEHOLDERS: &str = "secrets.placeholders";
 
 /// A binding of the placeholder `aws` to the developer's AWS key.
 fn aws_key() -> Value {
     json!({ "aws": { "reference": "env:AWS_SECRET_ACCESS_KEY", "domains": ["amazonaws.com"] } })
+}
+
+/// A binding of `github` to `reference`.
+fn github(reference: &str) -> Value {
+    json!({ "reference": reference, "domains": ["github.com"] })
+}
+
+/// The run layer's values that bind `bound`, by placeholder.
+fn binding(bound: &Value) -> serde_json::Map<String, Value> {
+    nested(json!({ "secrets": { "placeholders": bound } }))
+}
+
+/// Story 4-51: a binding set at the connection, overridden at a Run and
+/// again at a Session, resolves to the nearest, placeholder by
+/// placeholder, so a placeholder only the connection binds stays bound;
+/// two Sessions of one Run each use their own reference.
+/// Covers: story:4-51, setting:secrets.placeholders
+#[test]
+fn each_placeholder_resolves_to_its_nearest_binding() {
+    let connection = binding(&json!({
+        "github": github("env:CONNECTION_GITHUB"),
+        "aws": aws_key()["aws"],
+    }));
+    let own = binding(&json!({ "github": github("env:RUN_GITHUB") }));
+    let layers = Layers {
+        run: Values::read(
+            SettingsLayer::Run,
+            &beneath_connection(&connection, &own, Product::Collie).unwrap(),
+            Product::Collie,
+        )
+        .unwrap(),
+        ..Layers::default()
+    };
+    let run = resolve(&layers, Product::Collie, Product::Collie).unwrap();
+    let session = |reference: &str| {
+        let own = binding(&json!({ "github": github(reference) }));
+        run.beneath(&Values::read(SettingsLayer::Run, &own, Product::Collie).unwrap())
+            .unwrap()
+    };
+
+    let (first, second) = (session("env:FIRST_GITHUB"), session("env:SECOND_GITHUB"));
+
+    let setting = catalog_key(PLACEHOLDERS);
+    let bound = |reference: &str| json!({ "github": github(reference), "aws": aws_key()["aws"] });
+    assert_eq!(
+        (
+            run.value(setting),
+            first.value(setting),
+            second.value(setting)
+        ),
+        (
+            &bound("env:RUN_GITHUB"),
+            &bound("env:FIRST_GITHUB"),
+            &bound("env:SECOND_GITHUB")
+        )
+    );
+}
+
+/// A binding in user configuration stays beneath a project's and a Run's
+/// that bind other placeholders, and yields to the one that binds its own.
+/// Covers: story:4-51, setting:secrets.placeholders
+#[test]
+fn configuration_and_a_run_bind_placeholder_by_placeholder() {
+    let mut layers = only(SettingsLayer::UserConfiguration, PLACEHOLDERS, &aws_key());
+    layers.project_configuration = values(
+        SettingsLayer::ProjectConfiguration,
+        json!({ PLACEHOLDERS: { "github": github("env:PROJECT_GITHUB") } }),
+    );
+    layers.run = values(
+        SettingsLayer::Run,
+        json!({ PLACEHOLDERS: { "aws": github("env:RUN_AWS") } }),
+    );
+
+    let resolved = over_layers(&layers, PLACEHOLDERS);
+
+    assert_eq!(
+        resolved,
+        Ok(json!({ "github": github("env:PROJECT_GITHUB"), "aws": github("env:RUN_AWS") }))
+    );
 }
 
 /// Story 4-55: a Recipe never binds a placeholder and a Client acting for

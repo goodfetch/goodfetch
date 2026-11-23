@@ -34,7 +34,7 @@ use serde_json::Value;
 use super::error::SettingsError;
 use super::hosts;
 use super::keys::{self, Key};
-use super::values::{Given, Values};
+use super::values::{Given, Values, over};
 
 /// An Operator policy: what it sets, locks and caps.
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -1148,7 +1148,7 @@ fn take(
             format!("give `{name}` a value within the Recipe's bounds"),
         ));
     }
-    state.effective.value = value.clone();
+    state.effective.value = over(key.setting, &state.effective.value, value);
     state.effective.layer = layer;
     state.effective.origin = given.origin;
     state.effective.preset = None;

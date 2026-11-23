@@ -2,13 +2,10 @@
 # The Rust toolchain of a job that runs on its runner's own system
 # (.github/actions/host-tools): rustup when the runner's user lacks it,
 # checked against its published SHA-256, then rust-toolchain.toml's channel
-# and the job's target ($TARGET). With ARCHITECTURE=x64 on Apple silicon the
-# toolchain is the x86-64 one, run under Rosetta 2, so the build scripts and
-# the tests run as x86-64 too (ADR 0108's `macos-x64 (Rosetta 2)` cell).
+# and the job's target ($TARGET), on the runner's own architecture.
 set -euo pipefail
 
 target=${TARGET:?the job sets TARGET}
-architecture=${ARCHITECTURE:-native}
 root=$(cd "$(dirname "$0")/../.." && pwd)
 channel=$(sed -n 's/^channel = "\(.*\)"$/\1/p' "$root/rust-toolchain.toml")
 system="$(uname -s)-$(uname -m)"
@@ -41,15 +38,8 @@ if ! command -v rustup >/dev/null; then
   echo "$HOME/.cargo/bin" >>"${GITHUB_PATH:?the runner sets GITHUB_PATH}"
 fi
 
-if [[ "$architecture" == x64 && "$system" == Darwin-arm64 ]]; then
-  toolchain="$channel-x86_64-apple-darwin"
-  rustup toolchain install "$toolchain" --profile minimal --force-non-host
-  echo "RUSTUP_TOOLCHAIN=$toolchain" >>"${GITHUB_ENV:?the runner sets GITHUB_ENV}"
-else
-  toolchain=$channel
-  rustup toolchain install "$toolchain" --profile minimal
-fi
-rustup target add --toolchain "$toolchain" "$target"
+rustup toolchain install "$channel" --profile minimal
+rustup target add --toolchain "$channel" "$target"
 
 # A musl target's C and C++ toolchain is Zig's (ci/musl/install.sh, the
 # action's next step), not musl-tools: it has no C++ compiler, which DuckDB

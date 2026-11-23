@@ -277,6 +277,14 @@ class DaemonUnreachableError(UnavailableError):
         super().__init__(message, code="daemon_unreachable", group="unavailable", retryable=True, **fields)
 
 
+class DetachUnsupportedError(ProgramError):
+    """A `detached` start of a Run that would die with its Connection, so no Run started: an Attached or linked engine ends with its Connection, and a Run whose handler is in the program waits on it. The details name what keeps the Run from detaching, `engine` or the key that gives it a handler in the program, and the fix."""
+
+    def __init__(self, message: str, **fields: Unpack[ErrorFields]) -> None:
+        """Takes the message the engine rendered, and what it carries."""
+        super().__init__(message, code="detach_unsupported", group="program", retryable=False, **fields)
+
+
 class DialogAlreadyHandledError(ProgramError):
     """The dialog was answered already, by an earlier `accept` or `dismiss`, or it closed, its handler having ended or the dialog having got its default: the first answer stands and this one changed nothing."""
 
@@ -363,6 +371,14 @@ class EnginePanickedError(InternalError):
     def __init__(self, message: str, **fields: Unpack[ErrorFields]) -> None:
         """Takes the message the engine rendered, and what it carries."""
         super().__init__(message, code="engine_panicked", group="internal", retryable=False, **fields)
+
+
+class EventLoopMismatchError(ProgramError):
+    """The call was made on an async value from another event loop or thread than the loop that opened its Connection: an async Connection and every Run, Session or Page under it belong to that loop, and nothing was sent. Call it from that loop, or use the sync client, whose values any thread may call."""
+
+    def __init__(self, message: str, **fields: Unpack[ErrorFields]) -> None:
+        """Takes the message the engine rendered, and what it carries."""
+        super().__init__(message, code="event_loop_mismatch", group="program", retryable=False, **fields)
 
 
 class ExecutableBlockedBySmartAppControlError(RefusedError):
@@ -785,6 +801,14 @@ class RunNotOwnedError(RefusedError):
         super().__init__(message, code="run_not_owned", group="refused", retryable=False, **fields)
 
 
+class RunStateFilesystemUnsupportedError(UnavailableError):
+    """The Run's folder is on a network filesystem (NFS, which EFS and Filestore are, or SMB, which Azure Files is) or on a FUSE mount of object storage, whose locking SQLite cannot rely on, so the engine keeps no run state there. The details name the Run, its folder, the `filesystem` and the `fix`: a `run_state.location` on a local disk or a block volume."""
+
+    def __init__(self, message: str, **fields: Unpack[ErrorFields]) -> None:
+        """Takes the message the engine rendered, and what it carries."""
+        super().__init__(message, code="run_state_filesystem_unsupported", group="unavailable", retryable=False, **fields)
+
+
 class RunStateUnavailableError(UnavailableError):
     """The Run's state is missing, damaged or cannot be written at its location; the details give the path. The engine never starts afresh under that Run ID."""
 
@@ -889,6 +913,14 @@ class SitePreferencesRefusedError(RefusedError):
         super().__init__(message, code="site_preferences_refused", group="refused", retryable=False, **fields)
 
 
+class SkillInstallRefusedError(RefusedError):
+    """`skill install` found a folder of a skill's name in the skills folder that it did not install, or one it installed that was changed since, and refused to replace it. The message names the folder; no skill is written."""
+
+    def __init__(self, message: str, **fields: Unpack[ErrorFields]) -> None:
+        """Takes the message the engine rendered, and what it carries."""
+        super().__init__(message, code="skill_install_refused", group="refused", retryable=False, **fields)
+
+
 class TargetNotUniqueError(PageError):
     """The locator still matched several elements when the action's timeout passed, so the action did nothing. The details list every match, each with a locator that reaches it alone, and `limit` names the timeout's setting; a longer timeout would not fix the locator."""
 
@@ -990,6 +1022,7 @@ ERROR_CLASSES: Final[Mapping[str, ErrorClass]] = {
     "connection_overloaded": ConnectionOverloadedError,
     "daemon_draining": DaemonDrainingError,
     "daemon_unreachable": DaemonUnreachableError,
+    "detach_unsupported": DetachUnsupportedError,
     "dialog_already_handled": DialogAlreadyHandledError,
     "edge_handlers_unsupported": EdgeHandlersUnsupportedError,
     "effect_key_invalid": EffectKeyInvalidError,
@@ -1001,6 +1034,7 @@ ERROR_CLASSES: Final[Mapping[str, ErrorClass]] = {
     "engine_not_found": EngineNotFoundError,
     "engine_output_invalid": EngineOutputInvalidError,
     "engine_panicked": EnginePanickedError,
+    "event_loop_mismatch": EventLoopMismatchError,
     "executable_blocked_by_smart_app_control": ExecutableBlockedBySmartAppControlError,
     "file_write_failed": FileWriteFailedError,
     "format_version_unsupported": FormatVersionUnsupportedError,
@@ -1053,6 +1087,7 @@ ERROR_CLASSES: Final[Mapping[str, ErrorClass]] = {
     "run_live": RunLiveError,
     "run_not_found": RunNotFoundError,
     "run_not_owned": RunNotOwnedError,
+    "run_state_filesystem_unsupported": RunStateFilesystemUnsupportedError,
     "run_state_unavailable": RunStateUnavailableError,
     "run_target_unbuilt": RunTargetUnbuiltError,
     "sample_refused": SampleRefusedError,
@@ -1066,6 +1101,7 @@ ERROR_CLASSES: Final[Mapping[str, ErrorClass]] = {
     "setting_not_applicable": SettingNotApplicableError,
     "setting_unknown": SettingUnknownError,
     "site_preferences_refused": SitePreferencesRefusedError,
+    "skill_install_refused": SkillInstallRefusedError,
     "target_not_unique": TargetNotUniqueError,
     "too_many_calls": TooManyCallsError,
     "too_many_redirects": TooManyRedirectsError,

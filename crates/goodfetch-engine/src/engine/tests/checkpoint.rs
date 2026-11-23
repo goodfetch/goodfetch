@@ -117,6 +117,7 @@ fn keeping() -> Contribution {
                             checkpoint_interval: None,
                             timeout: None,
                             settings: None,
+                            detached: false,
                         })
                         .await
                         .unwrap();

@@ -400,6 +400,13 @@ number = 3
 kind = "error"
 prefix = "daemon_draining"
 
+# Area 3's detached starts (ADR 0102, issue 2829): the refusal of a
+# `detached` start on an engine or a Run that cannot outlive its Connection.
+[[area]]
+number = 3
+kind = "error"
+prefix = "detach_unsupported"
+
 [[area]]
 number = 3
 kind = "setting"
@@ -1276,6 +1283,13 @@ number = 11
 kind = "error"
 prefix = "engine_exited"
 
+# The Error code the Python SDK raises for an async value used from another
+# event loop or thread (ADR 0081; issue 1275).
+[[area]]
+number = 11
+kind = "error"
+prefix = "event_loop_mismatch"
+
 # The Error code an SDK raises for handlers asked on an edge runtime (ADR
 # 0049; issue 3175).
 [[area]]
@@ -1698,3 +1712,14 @@ prefix = ""
 number = 11
 kind = "skill"
 prefix = ""
+
+# `skill install` and its refusal.
+[[area]]
+number = 11
+kind = "command"
+prefix = "skill."
+
+[[area]]
+number = 11
+kind = "error"
+prefix = "skill_"

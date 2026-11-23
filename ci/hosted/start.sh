@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
 # Starts a hosted tier job's container on its standard `ubuntu-24.04` runner
-# (ADR 0135's amendment of 2026-11-22): builds the tree's pinned Linux x86-64
-# CI image (ci/image/Containerfile), starts the job's container from it with
-# the workspace at /work, then makes every download the job needs
-# (ci/vm/in-container.sh prepare), all before ADR 0043's deny. No cache is
-# saved or restored here: only `main`'s cache-warming job will save one.
+# (ADR 0135's amendment of 2026-11-22): loads the tree's pinned Linux x86-64
+# CI image from the archive the job restored from the cache `main` saves, or
+# builds it from ci/image/Containerfile (ci/hosted/image.sh, #3480), starts
+# the job's container from it with the workspace at /work, then makes every
+# download the job needs (ci/vm/in-container.sh prepare), all before ADR
+# 0043's deny. Nothing is saved here: pull-request jobs restore only.
 #
 # The container boots systemd as its init, so ci/os-services.sh starts the
 # user's manager there, as on the gate host: `daemon install`'s tests and
@@ -34,9 +35,16 @@ workspace=${GITHUB_WORKSPACE:-$(pwd)}
 chrome_for_testing="$HOME/.cache/goodfetch/chrome-for-testing"
 mkdir -p "$chrome_for_testing"
 
+# A job that runs the Products' plugin tests sets
+# GOODFETCH_FETCH_CLAUDE_CODE=yes, so `just fetch` in the container downloads
+# the pinned Claude Code they validate with (ci/claude-code-fetch.sh).
+environment=()
+if [[ -n "${GOODFETCH_FETCH_CLAUDE_CODE:-}" ]]; then
+  environment+=(--env "GOODFETCH_FETCH_CLAUDE_CODE=$GOODFETCH_FETCH_CLAUDE_CODE")
+fi
+
 rm -f "$EGRESS_STATE"
-docker build --quiet --platform linux/amd64 --tag "$CI_IMAGE" \
-  --file "$hosted_root/ci/image/Containerfile" "$hosted_root/ci/image" >/dev/null
+"$here/image.sh" ready
 docker rm --force "$CONTAINER" >/dev/null 2>&1 || true
 docker run --detach --name "$CONTAINER" --platform linux/amd64 \
   --privileged --cgroupns private --tmpfs /run --tmpfs /run/lock \
@@ -44,6 +52,7 @@ docker run --detach --name "$CONTAINER" --platform linux/amd64 \
   --volume "$chrome_for_testing:/var/cache/chrome-for-testing" \
   --env GOODFETCH_CHROME_FOR_TESTING_DOWNLOADS=/var/cache/chrome-for-testing \
   --env CI=true --env GOODFETCH_TEST_DNS_NAMESPACE=user_namespace \
+  ${environment[@]+"${environment[@]}"} \
   "$CI_IMAGE" /sbin/init >/dev/null
 # systemd's own socket comes first; then the boot ends, `degraded` when a
 # unit a container cannot run (loading kernel modules) failed.

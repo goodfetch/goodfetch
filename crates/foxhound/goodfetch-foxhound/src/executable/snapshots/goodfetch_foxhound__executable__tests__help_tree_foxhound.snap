@@ -15,6 +15,7 @@ Commands:
   doctor           Checks the installation: Goodfetch home, the installed executables, the Daemon, the version it runs and the browser build a Run launches, with a fix for each finding not in order. Exits 0 whatever it finds
   daemon           Starts, stops and shows the Daemon of this executable's major, which both Products share
   runs             Works on the runs of this executable's major, of both Products
+  skill            Installs the agent skills this executable carries for a coding agent
   usage            Shows, sets and raises the Limits of the user's Usage ledger, which hold every engine of the user
   upgrade-files    Gives this executable's major its own copy of an older major's settings, Operator policy, Run index and runs in Goodfetch home, never changing the older major's files
   engine           Calls the catalog's `engine` operations
@@ -384,6 +385,31 @@ Arguments:
   [PATHS]...  Run folders, or folders of run folders, to look in as well
 
 Options:
+      --json          Prints the result as JSON
+      --color <WHEN>  When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+  -h, --help          Print help
+
+$ goodfetch-foxhound skill --help
+Installs the agent skills this executable carries for a coding agent
+
+Usage: goodfetch-foxhound skill [OPTIONS] <COMMAND>
+
+Commands:
+  install  Writes the agent skills this executable carries into a coding agent's skills folder, each in a folder of its name, replacing only one it installed itself that nobody changed since; a skill already there as it carries it is left as it is
+
+Options:
+      --color <WHEN>  When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+  -h, --help          Print help
+
+$ goodfetch-foxhound skill install --help
+Writes the agent skills this executable carries into a coding agent's skills folder, each in a folder of its name, replacing only one it installed itself that nobody changed since; a skill already there as it carries it is left as it is
+
+Usage: goodfetch-foxhound skill install [OPTIONS]
+
+Options:
+      --for <HOST>    The coding agent whose skills folder it writes: `.claude/skills` for Claude Code, `.cursor/skills` for Cursor, and the Agent Skills folder, `.agents/skills`, for Codex and other agents [default: agents] [possible values: claude-code, codex, cursor, agents]
+      --project       Writes the skills folder in the working folder, for the project the agent opens there, as it does unless `--user` is given
+      --user          Writes the skills folder in the user's home folder, for every project
       --json          Prints the result as JSON
       --color <WHEN>  When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
   -h, --help          Print help
@@ -1565,13 +1591,14 @@ Arguments:
   [URL]...  A seed of the crawl, its URL; repeatable
 
 Options:
+      --detached              Whether the Run outlives the Connection that started it (ADR 0102), as a Recipe's run does: only a code-free crawl with no Hook, started on a Daemon, detaches, and any other such start fails with `detach_unsupported`
       --labels <LABELS>       The crawl's Labels, by name, each with its Payload's JSON Schema or none, and its own settings (ADRs 0082 and 0093): a scope between the Run and its requests. A Payload of a declared schema is checked against it at every enqueue. A seed, a sitemap rule or an enqueue naming a Label the crawl does not declare fails with `label_unknown`, and so does a start under the ID of a Run with pending requests of a Label no longer declared, before any work; a code-free crawl declares its own Label
       --limit <KIND=AMOUNT>   Holds the Run to AMOUNT of the Usage kind KIND: a count, such as `requests=500`, or a price with its currency, such as `paid_fetch=0.50USD`; repeatable, and a start that names the Run again only lowers a Limit
       --project <PROJECT>     The project configuration the Client found, layer 3 (ADR 0083)
       --run-id <RUN_ID>       The Run's ID, as `run.start` takes it
       --set <KEY=VALUE>       Sets a setting for this run, as `key=value`, the value read as JSON when it parses as JSON and as text otherwise, a duration as milliseconds or as `45s`, `2m` or `1h`; repeatable
-      --settings <FILE|->     Reads settings for this run from a JSON object, nested by key, in FILE, or from standard input for `-`; `--set` beats it
       --color <WHEN>          When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+      --settings <FILE|->     Reads settings for this run from a JSON object, nested by key, in FILE, or from standard input for `-`; `--set` beats it
       --tags <TAGS>           The Run's opaque tags
       --format <NAME>         A format each page's Record holds, as `page.formats` gives it; repeatable; `markdown` when neither a format nor a field is given [possible values: contacts, html, images, links, markdown, media, metadata, tables, text]
       --field <NAME=LOCATOR>  A named field each page's Record holds: the text of the first element a CSS selector, or an XPath expression after `xpath:`, finds; repeatable

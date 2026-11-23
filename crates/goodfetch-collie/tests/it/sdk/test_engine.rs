@@ -3,38 +3,33 @@
 //! removes on close, with a cleared environment and `egress.offline` on;
 //! a host `network.resolve` maps to loopback alone is reached live and any
 //! other is refused, and browsers come from the caller's Browser cache,
-//! which the engine reads and never writes.
+//! which the engine reads and never writes: the kit turns
+//! `browser_cache.read_only` on (issue 3458).
 
 use std::collections::BTreeMap;
-#[cfg(unix)]
 use std::ffi::OsString;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 
 use goodfetch_collie::ErrorCode;
-#[cfg(unix)]
 use goodfetch_collie::settings::{Settings, network};
 use goodfetch_collie::testing::{TestEngine, TestEngineOptions};
 use goodfetch_protocol::run::Lifecycle;
-#[cfg(unix)]
-use goodfetch_test_support::{ProvingGround, ReadOnlyBrowserCache, browser_cache};
 use goodfetch_test_support::{
-    TestEnv, chrome_for_testing_files, empty_browser_cache, real_time_runtime,
+    ProvingGround, TestEnv, browser_cache, chrome_for_testing_files, empty_browser_cache,
+    real_time_runtime,
 };
 
 /// The Proving ground's own seed for these tests.
-#[cfg(unix)]
 const SEED: u64 = 3398;
 
 /// A host the test's `network.resolve` maps to an address that is not
 /// loopback, TEST-NET-1's, which no Run reaches.
-#[cfg(unix)]
 const PUBLIC_HOST: &str = "public.test";
 
 /// The caller's environment map of `env`, its Goodfetch home and the
 /// variables it sets, with `GOODFETCH_BROWSERS_PATH` naming `cache`.
-#[cfg(unix)]
 fn caller(env: &TestEnv, cache: &Path) -> BTreeMap<OsString, OsString> {
     let mut caller = env.env_os();
     caller.insert("GOODFETCH_BROWSERS_PATH".into(), cache.into());
@@ -108,9 +103,9 @@ fn a_test_runs_its_code_on_the_test_engine_s_connection_and_close_removes_its_ho
     );
 }
 
-/// The caller's Browser cache is read-only here, as a prepared image's is:
-/// an engine records a build's use in a cache it can write (ADR 0098).
-#[cfg(unix)]
+/// The caller's Browser cache stays writable here: the kit's
+/// `browser_cache.read_only` alone keeps the engine from recording the
+/// build's use in it (ADR 0098).
 #[test]
 fn a_loopback_resolve_entry_is_reached_live_any_other_host_is_refused_and_the_cache_is_unchanged() {
     let env = TestEnv::new();
@@ -126,7 +121,6 @@ fn a_loopback_resolve_entry_is_reached_live_any_other_host_is_refused_and_the_ca
     let reached = proving_ground.start_url("statuses/1").unwrap();
     let refused = proving_ground.url(PUBLIC_HOST, "/");
     let before = tree(&cache);
-    let read_only = ReadOnlyBrowserCache::new(&cache).unwrap();
 
     let (status, refusal) = real_time_runtime().block_on(async {
         let options = TestEngineOptions::new()
@@ -147,7 +141,6 @@ fn a_loopback_resolve_entry_is_reached_live_any_other_host_is_refused_and_the_ca
         engine.close().await.unwrap();
         (status, refusal)
     });
-    drop(read_only);
 
     assert_eq!((status, refusal), (Some(200), ErrorCode::EGRESS_REFUSED));
     assert_eq!(tree(&cache), before);

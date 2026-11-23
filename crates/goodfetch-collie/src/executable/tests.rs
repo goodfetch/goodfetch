@@ -13,7 +13,7 @@ use goodfetch_engine::daemon::service::LaunchedCommand;
 use goodfetch_engine::mask::{Masks, Reach, Redaction};
 use goodfetch_protocol::catalog::Product;
 use goodfetch_test_support::{
-    certificate_verification_switches, command_help, command_paths, long_flags,
+    certificate_verification_switches, command_help, command_paths, long_flags, unknown_options,
 };
 use rstest::rstest;
 use secrecy::SecretString;
@@ -23,7 +23,9 @@ use super::catalog_commands::members;
 use super::daemon_command::DaemonCommand;
 use super::log_file::{LogFile, Rotation};
 use super::logs::Masked;
-use super::{COLOR, Command, CommandLine, OwnCommands, attached_engine, command, command_line};
+use super::{
+    COLOR, Command, CommandLine, OwnCommands, Skills, attached_engine, command, command_line,
+};
 
 /// Foxhound's catalog's generated commands, none written by hand: Foxhound's
 /// executable's command line but for its own commands, which Foxhound's
@@ -223,6 +225,42 @@ fn no_flag_switches_certificate_verification_off() {
     assert_eq!(
         certificate_verification_switches(&flags),
         Vec::<String>::new()
+    );
+}
+
+/// Every option a skill Collie's executable carries names, in an example or
+/// in its prose, is an option of the command it names.
+/// Covers: story:11-237
+#[test]
+fn every_option_a_skill_names_is_one_of_its_command() {
+    let command = command(Product::Collie, OwnCommands::COLLIE);
+
+    let unknown: Vec<(&str, Vec<String>)> = Skills::COLLIE
+        .files()
+        .iter()
+        .filter(|file| {
+            std::path::Path::new(file.path)
+                .extension()
+                .is_some_and(|extension| extension.eq_ignore_ascii_case("md"))
+        })
+        .map(|file| {
+            let text = std::str::from_utf8(file.contents).expect("a skill's text is UTF-8");
+            (file.path, unknown_options(&command, text))
+        })
+        .collect();
+
+    assert!(
+        unknown
+            .iter()
+            .any(|(path, _)| *path == "goodfetch-collie-cli/SKILL.md"),
+        "the skills reach the command-line skill: {unknown:?}"
+    );
+    assert_eq!(
+        unknown
+            .into_iter()
+            .filter(|(_, options)| !options.is_empty())
+            .collect::<Vec<_>>(),
+        Vec::new()
     );
 }
 

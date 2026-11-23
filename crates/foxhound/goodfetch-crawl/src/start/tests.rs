@@ -16,6 +16,7 @@
 )]
 
 mod admission;
+mod detached;
 mod finishing;
 mod fixed;
 mod given_back;

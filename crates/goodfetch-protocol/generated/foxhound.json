@@ -2821,6 +2821,11 @@
           },
           "type": "array"
         },
+        "detached": {
+          "arrived_in": "0.1",
+          "description": "Whether the Run outlives the Connection that started it (ADR 0102),\nas a Recipe's run does: only a code-free crawl with no Hook, started\non a Daemon, detaches, and any other such start fails with\n`detach_unsupported`.",
+          "type": "boolean"
+        },
         "extraction": {
           "anyOf": [
             {
@@ -16069,6 +16074,16 @@
     },
     {
       "arrived_in": "0.1",
+      "description": "A `detached` start of a Run that would die with its Connection, so no Run started: an Attached or linked engine ends with its Connection, and a Run whose handler is in the program waits on it. The details name what keeps the Run from detaching, `engine` or the key that gives it a handler in the program, and the fix.",
+      "exit_code": null,
+      "group": "program",
+      "json_rpc_class": -32001,
+      "name": "detach_unsupported",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
       "description": "The dialog was answered already, by an earlier `accept` or `dismiss`, or it closed, its handler having ended or the dialog having got its default: the first answer stands and this one changed nothing.",
       "exit_code": null,
       "group": "program",
@@ -16184,6 +16199,16 @@
       "group": "internal",
       "json_rpc_class": -32007,
       "name": "engine_panicked",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "The call was made on an async value from another event loop or thread than the loop that opened its Connection: an async Connection and every Run, Session or Page under it belong to that loop, and nothing was sent. Call it from that loop, or use the sync client, whose values any thread may call.",
+      "exit_code": null,
+      "group": "program",
+      "json_rpc_class": -32001,
+      "name": "event_loop_mismatch",
       "product": "collie",
       "retryable": false
     },
@@ -16912,6 +16937,16 @@
     },
     {
       "arrived_in": "0.1",
+      "description": "The Run's folder is on a network filesystem (NFS, which EFS and Filestore are, or SMB, which Azure Files is) or on a FUSE mount of object storage, whose locking SQLite cannot rely on, so the engine keeps no run state there. The details name the Run, its folder, the `filesystem` and the `fix`: a `run_state.location` on a local disk or a block volume.",
+      "exit_code": null,
+      "group": "unavailable",
+      "json_rpc_class": -32006,
+      "name": "run_state_filesystem_unsupported",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
       "description": "The Run's state is missing, damaged or cannot be written at its location; the details give the path. The engine never starts afresh under that Run ID.",
       "exit_code": null,
       "group": "unavailable",
@@ -17047,6 +17082,16 @@
       "group": "refused",
       "json_rpc_class": -32002,
       "name": "site_preferences_refused",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "`skill install` found a folder of a skill's name in the skills folder that it did not install, or one it installed that was changed since, and refused to replace it. The message names the folder; no skill is written.",
+      "exit_code": null,
+      "group": "refused",
+      "json_rpc_class": -32002,
+      "name": "skill_install_refused",
       "product": "collie",
       "retryable": false
     },
@@ -20856,6 +20901,29 @@
         "description": "A duration in milliseconds.",
         "minimum": 0,
         "type": "integer"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": false,
+      "default": false,
+      "deprecated": null,
+      "description": "Whether a Run's Chromium launches only read the Browser cache: `false` by default. When on, a build with its pinned digest is launched with no use recorded, a build of the wrong digest is refused with `browser_not_installed` and left in place, and a missing build is never downloaded: `artifact_unavailable_offline` under `egress.offline`, `browser_not_installed` otherwise. The engine then writes no file of its own in the cache, its write check's included; the browser still writes in its build's files as it does at every launch. Each Product's testing kit turns it on, so a test leaves the caller's cache as it found it.",
+      "fixed_for_run": false,
+      "name": "browser_cache.read_only",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run"
+      ],
+      "value": {
+        "type": "boolean"
       },
       "weakens": false
     },

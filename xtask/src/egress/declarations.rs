@@ -20,10 +20,11 @@ const CHECK: &str = "ci/egress/egress.sh check";
 /// runs where the deny applies: the job's VM on the owner's machine, the
 /// hosted tier's container on a standard hosted runner, or, on a runner's own
 /// system, the deny's network namespace.
-const UNDER_DENY: [&str; 4] = [
+const UNDER_DENY: [&str; 5] = [
     "ci/vm/exec.sh ",
     "ci/vm/visual.sh ",
     "ci/hosted/exec.sh ",
+    "ci/hosted/visual.sh ",
     "ci/egress/under-deny.sh ",
 ];
 

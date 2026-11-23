@@ -62,6 +62,14 @@ export interface Settings {
      */
     readonly serviceWorkers?: "allow" | "block";
   };
+  readonly browserCache?: {
+    /**
+     * Whether a Run's Chromium launches only read the Browser cache: `false` by default. When on, a build with its pinned digest is launched with no use recorded, a build of the wrong digest is refused with `browser_not_installed` and left in place, and a missing build is never downloaded: `artifact_unavailable_offline` under `egress.offline`, `browser_not_installed` otherwise. The engine then writes no file of its own in the cache, its write check's included; the browser still writes in its build's files as it does at every launch. Each Product's testing kit turns it on, so a test leaves the caller's cache as it found it.
+     *
+     * `browser_cache.read_only`.
+     */
+    readonly readOnly?: boolean;
+  };
   readonly checkpoint?: {
     /**
      * How often a live Run writes a Checkpoint where the engine keeps its Checkpoints, on the engine's clock; none by default locally.
@@ -791,6 +799,14 @@ export interface RunSettings {
      * `browser.service_workers`.
      */
     readonly serviceWorkers?: "allow" | "block";
+  };
+  readonly browserCache?: {
+    /**
+     * Whether a Run's Chromium launches only read the Browser cache: `false` by default. When on, a build with its pinned digest is launched with no use recorded, a build of the wrong digest is refused with `browser_not_installed` and left in place, and a missing build is never downloaded: `artifact_unavailable_offline` under `egress.offline`, `browser_not_installed` otherwise. The engine then writes no file of its own in the cache, its write check's included; the browser still writes in its build's files as it does at every launch. Each Product's testing kit turns it on, so a test leaves the caller's cache as it found it.
+     *
+     * `browser_cache.read_only`.
+     */
+    readonly readOnly?: boolean;
   };
   readonly checkpoint?: {
     /**
@@ -1674,6 +1690,7 @@ const SPELLING: Spelling = {
   }],
   browserCache: ["browser_cache", {
     maxUnusedAge: "max_unused_age",
+    readOnly: "read_only",
   }],
   checkpoint: ["checkpoint", {
     interval: "interval",

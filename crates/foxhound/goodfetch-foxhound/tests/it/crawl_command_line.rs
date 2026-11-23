@@ -28,7 +28,7 @@ use goodfetch_test_support::{
 use rstest::rstest;
 use serde_json::{Value, json};
 
-use crate::crawl_commands::{StopsTheDaemon, crawl_start, settings_file, short_idle};
+use crate::crawl_commands::{crawl_start, serve_the_home, settings_file, short_idle};
 
 const FOXHOUND: &str = env!("CARGO_BIN_EXE_goodfetch-foxhound");
 
@@ -55,7 +55,7 @@ const SIZE: u64 = 64 * 1024;
 fn crawl_start_crawls_the_catalog_from_its_flags_and_prints_the_run_id() {
     let env = TestEnv::new();
     short_idle(&env);
-    let _stops = StopsTheDaemon(&env);
+    let _daemon = serve_the_home(&env);
     let proving_ground = ProvingGround::start(&env, SEED).unwrap();
     let settings = settings_file(&env, &proving_ground);
     let seeds = env.folder().join("seeds.txt");
@@ -185,7 +185,7 @@ fn a_followed_crawl_exits_by_how_its_run_ended(
 ) {
     let env = TestEnv::new();
     short_idle(&env);
-    let _stops = StopsTheDaemon(&env);
+    let _daemon = serve_the_home(&env);
     let proving_ground = ProvingGround::start(&env, SEED).unwrap();
     let (process, arguments) = followed_keep_alive_crawl(&env, &proving_ground, "followed", more);
     let run_id = printed_run_id(&process);
@@ -215,7 +215,7 @@ fn a_followed_crawl_exits_by_how_its_run_ended(
 fn crawl_start_with_a_limit_stops_the_crawl_and_a_restart_exits_16() {
     let env = TestEnv::new();
     short_idle(&env);
-    let _stops = StopsTheDaemon(&env);
+    let _daemon = serve_the_home(&env);
     let proving_ground = ProvingGround::start(&env, SEED).unwrap();
     let settings = settings_file(&env, &proving_ground);
     let start = |more: &[&str]| {
@@ -268,7 +268,7 @@ fn crawl_start_with_a_limit_stops_the_crawl_and_a_restart_exits_16() {
 fn an_interrupt_checkpoints_a_followed_crawl_and_exits_130() {
     let env = TestEnv::new();
     short_idle(&env);
-    let _stops = StopsTheDaemon(&env);
+    let _daemon = serve_the_home(&env);
     let proving_ground = ProvingGround::start(&env, SEED).unwrap();
     let (process, arguments) = followed_keep_alive_crawl(&env, &proving_ground, "followed", &[]);
     let _ = printed_run_id(&process);
@@ -481,7 +481,7 @@ fn an_error_whose_id_is_null_ends_the_command_with_it() {
 fn run_export_writes_its_file_at_the_path_or_on_standard_output() {
     let env = TestEnv::new();
     short_idle(&env);
-    let _stops = StopsTheDaemon(&env);
+    let _daemon = serve_the_home(&env);
     let proving_ground = ProvingGround::start(&env, SEED).unwrap();
     let settings = settings_file(&env, &proving_ground);
     let index = proving_ground.start_url(MARKDOWN_TASK).unwrap();
@@ -552,7 +552,7 @@ fn run_export_refuses_a_path_it_cannot_write_whole(
 ) {
     let env = TestEnv::new();
     short_idle(&env);
-    let _stops = StopsTheDaemon(&env);
+    let _daemon = serve_the_home(&env);
     let proving_ground = ProvingGround::start(&env, SEED).unwrap();
     let settings = settings_file(&env, &proving_ground);
     let index = proving_ground.start_url(MARKDOWN_TASK).unwrap();
@@ -627,7 +627,7 @@ fn config_explain_politeness_lists_every_politeness_value_with_its_layer(#[case]
     let env = TestEnv::new();
     short_idle(&env);
     env.user_configuration("daemon.idle_timeout = 60000\npoliteness.domain.delay = 2000\n");
-    let _stops = StopsTheDaemon(&env);
+    env.fail_on_processes_from_home();
 
     let explained = cli(&env, FOXHOUND)
         .args(["config", "explain", "politeness"])

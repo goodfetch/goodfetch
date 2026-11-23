@@ -1,5 +1,5 @@
 {
-  "description": "A Rust Client's hello accepted, which the test puts in place of this one, a Run started and a page opened in it (ADRs 0092 and 0114): a fill of the `shop_totp` placeholder fails with `secret_unavailable`, `failure: \"no_code\"`, since Bitwarden made no one-time code from the item's seed, naming the placeholder, the reference and the provider, never a value; then a click fails with `page_navigated_during_call`, retryable, naming the document the call read and the one a navigation it did not start replaced it with, and the fix. Only an AI verb fails with that code, and no call of this protocol has one yet, so the script answers it to a click, which a Client reads by its code alone. The Run then finishes. The `complete-error-details` client conformance case; `run/complete-error-details.json` is TypeScript's.",
+  "description": "A Rust Client's hello accepted, which the test puts in place of this one, a Run started and a page opened in it (ADRs 0092 and 0114): a fill of the `shop_totp` placeholder fails with `secret_unavailable`, `failure: \"no_code\"`, since Bitwarden made no one-time code from the item's seed, naming the placeholder, the reference and the provider, never a value; then a click fails with `page_navigated_during_call`, retryable, naming the document the call read and the one a navigation it did not start replaced it with, and the fix. Only an AI verb fails with that code, and no call of this protocol has one yet, so the script answers it to a click, which a Client reads by its code alone. Then a navigation the site rate-limits fails with `blocked`, its Block cause `rate_limit`, status 429 and `retry_after` the time the site's `Retry-After` asks for, written at UTC+2, and one the site refuses with a cause no catalog names, `geo_block`, asking for no time (ADRs 0035 and 0118). The Run then finishes. The `complete-error-details` client conformance case; `run/complete-error-details.json` is TypeScript's.",
   "steps": [
     {
       "expect": {
@@ -88,6 +88,56 @@
             "url": "https://travel.test/books",
             "navigated_to": "https://travel.test/books/1",
             "fix": "Await the Collie call before your driver acts on the page."
+          }
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "page.goto",
+        "params": { "page_id": "page-1", "url": "https://shop.test/deals" }
+      }
+    },
+    {
+      "reply": {
+        "error": {
+          "code": -32003,
+          "message": "the site refused https://shop.test/deals with the Block cause rate_limit (HTTP 429)",
+          "data": {
+            "code": "blocked",
+            "retryable": false,
+            "operation": "page.goto",
+            "call_id": "call-3",
+            "run_id": "01ke6p4ym0j8x3v5wq2rtbn7hc",
+            "url": "https://shop.test/deals",
+            "cause": "rate_limit",
+            "status": 429,
+            "retry_after": "2026-11-21T10:00:00+02:00"
+          }
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "page.goto",
+        "params": { "page_id": "page-1", "url": "https://shop.test/abroad" }
+      }
+    },
+    {
+      "reply": {
+        "error": {
+          "code": -32003,
+          "message": "the site refused https://shop.test/abroad with the Block cause geo_block (HTTP 451)",
+          "data": {
+            "code": "blocked",
+            "retryable": false,
+            "operation": "page.goto",
+            "call_id": "call-4",
+            "run_id": "01ke6p4ym0j8x3v5wq2rtbn7hc",
+            "url": "https://shop.test/abroad",
+            "cause": "geo_block",
+            "status": 451,
+            "retry_after": null
           }
         }
       }

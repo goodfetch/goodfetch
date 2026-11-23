@@ -1,5 +1,5 @@
 {
-  "description": "`run/complete-error-details.json` played by a Collie Daemon: the same steps, the Client's hello carrying the Daemon's token. A Run started and a page opened in it (ADRs 0092 and 0114): a fill of the `shop_totp` placeholder fails with `secret_unavailable`, `failure: \"no_code\"`, and a click with `page_navigated_during_call`, naming both documents and the fix, which no call of this protocol sends yet, so a click carries it; the Run then finishes. The `complete-error-details` client conformance case, played as a Daemon.",
+  "description": "`run/complete-error-details.json` played by a Collie Daemon: the same steps, the Client's hello carrying the Daemon's token. A Run started and a page opened in it (ADRs 0092 and 0114): a fill of the `shop_totp` placeholder fails with `secret_unavailable`, `failure: \"no_code\"`, and a click with `page_navigated_during_call`, naming both documents and the fix, which no call of this protocol sends yet, so a click carries it; then two navigations fail with `blocked`, one for `rate_limit` with the site's time and one for a cause no catalog names; the Run then finishes. The `complete-error-details` client conformance case, played as a Daemon.",
   "steps": [
     {
       "expect": {
@@ -89,6 +89,56 @@
             "url": "https://travel.test/books",
             "navigated_to": "https://travel.test/books/1",
             "fix": "Await the Collie call before your driver acts on the page."
+          }
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "page.goto",
+        "params": { "page_id": "page-1", "url": "https://shop.test/deals" }
+      }
+    },
+    {
+      "reply": {
+        "error": {
+          "code": -32003,
+          "message": "the site refused https://shop.test/deals with the Block cause rate_limit (HTTP 429)",
+          "data": {
+            "code": "blocked",
+            "retryable": false,
+            "operation": "page.goto",
+            "call_id": "call-3",
+            "run_id": "01ke6p4ym0j8x3v5wq2rtbn7hc",
+            "url": "https://shop.test/deals",
+            "cause": "rate_limit",
+            "status": 429,
+            "retry_after": "2026-11-21T10:00:00+02:00"
+          }
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "page.goto",
+        "params": { "page_id": "page-1", "url": "https://shop.test/abroad" }
+      }
+    },
+    {
+      "reply": {
+        "error": {
+          "code": -32003,
+          "message": "the site refused https://shop.test/abroad with the Block cause geo_block (HTTP 451)",
+          "data": {
+            "code": "blocked",
+            "retryable": false,
+            "operation": "page.goto",
+            "call_id": "call-4",
+            "run_id": "01ke6p4ym0j8x3v5wq2rtbn7hc",
+            "url": "https://shop.test/abroad",
+            "cause": "geo_block",
+            "status": 451,
+            "retry_after": null
           }
         }
       }

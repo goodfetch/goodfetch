@@ -75,7 +75,7 @@ pub(crate) fn verdict(history: &mut History<'_>, commit: &str) -> Result<Vec<Fin
                 "no dispatch ran it on this commit; dispatch it with `just release-ci`",
             ),
         };
-        findings.push(Finding::new(kind, cell.label(), message));
+        findings.push(Finding::new(kind, cell.key(), message));
     }
     Ok(findings)
 }

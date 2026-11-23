@@ -53,8 +53,10 @@ job = "update-screenshots.yml#update"
 
 # The Release suite's cells (ADR 0108). The hosted Linux cells deny in a
 # network namespace, the Windows cell with firewall rules on the product's
-# programs, and the visual job in the owner's machine's VM
-# (ci/egress/egress.sh). The macOS cells run outside the deny (ADR 0043's amendment of 2026-11-22).
+# programs, and the visual job in the hosted tier's container, whose network
+# namespace the pinned Playwright image's container shares (ci/egress/egress.sh,
+# ci/hosted/visual.sh). The macOS cells run outside the deny (ADR 0043's
+# amendment of 2026-11-22).
 [[deny]]
 job = "release-suite.yml#linux-x64"
 
@@ -70,7 +72,7 @@ reason = "On macOS itself, the runner's standard user has no deny but a sandbox 
 
 [[outside]]
 job = "release-suite.yml#macos-x64"
-reason = "As the macos-arm64 cell, under Rosetta 2 (ADR 0043's amendment of 2026-11-22)."
+reason = "As the macos-arm64 cell, on an Intel runner (ADR 0043's amendment of 2026-11-22)."
 
 [[deny]]
 job = "release-suite.yml#visual"

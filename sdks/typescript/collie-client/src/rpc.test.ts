@@ -336,6 +336,87 @@ describe("a Channel under the engine's cap on calls in flight", () => {
     },
   );
 
+  test("sends a call queued for part of its own timeout with what is left of it as its timeout", async () => {
+    const engine = playedEngine();
+    const channel = new Channel(engine.transport, owner);
+    channel.capCallsInFlight(1);
+    const first = channel.call("sample.echo", {});
+    const queued = channel.call(
+      "page.goto",
+      { url: "https://example.test", timeout: 1000 },
+      { deadline: { key: "timeout.navigation", value: 1000 } },
+    );
+
+    await new Promise((resolve) => setTimeout(resolve, 40));
+    engine.send({ id: 0, result: "first" });
+    await first;
+    await expect.poll(() => engine.written).toHaveLength(2);
+    engine.send({ id: 1, result: "navigated" });
+    await queued;
+    const sent = engine.written[1] as { params: { url: string; timeout: number } };
+
+    expect(sent.params.url).toBe("https://example.test");
+    expect(sent.params.timeout).toBeGreaterThanOrEqual(1);
+    expect(sent.params.timeout).toBeLessThanOrEqual(960);
+  });
+
+  test(
+    "fails a queued call that gives no timeout of its own at its setting's value, as hello's result resolved it",
+    { tags: ["error:deadline_exceeded"] },
+    async () => {
+      const engine = playedEngine();
+      const channel = new Channel(engine.transport, owner);
+      channel.capCallsInFlight(1);
+      channel.boundByTimeoutSettings([
+        { key: "timeout.navigation", value: 5, layer: "user_configuration" },
+        { key: "timeout.wait", value: null, layer: "run", origin: "settings" },
+      ]);
+      const first = channel.call("sample.echo", {});
+
+      const error = await failure(
+        channel.call(
+          "page.goto",
+          {},
+          { deadline: { key: "timeout.navigation", value: undefined } },
+        ),
+      );
+      engine.send({ id: 0, result: "first" });
+      await first;
+      await settled();
+
+      expect(error).toMatchObject({
+        code: "deadline_exceeded",
+        limit: { key: "timeout.navigation", value: 5, layer: "user_configuration" },
+        details: { waited_for: "calls_in_flight" },
+      });
+      expect(engine.written).toEqual([expect.objectContaining({ id: 0 })]);
+    },
+  );
+
+  test("keeps a queued call waiting whose setting resolved no timeout", async () => {
+    const engine = playedEngine();
+    const channel = new Channel(engine.transport, owner);
+    channel.capCallsInFlight(1);
+    channel.boundByTimeoutSettings([
+      { key: "timeout.wait", value: null, layer: "run", origin: "settings" },
+    ]);
+    const first = channel.call("sample.echo", {});
+    const queued = channel.call(
+      "page.wait_for_load_state",
+      {},
+      { deadline: { key: "timeout.wait", value: undefined } },
+    );
+
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    engine.send({ id: 0, result: "first" });
+    await first;
+    await expect.poll(() => engine.written).toHaveLength(2);
+    engine.send({ id: 1, result: "loaded" });
+
+    await expect(queued).resolves.toBe("loaded");
+    expect(engine.written[1]).toMatchObject({ params: {} });
+  });
+
   test("keeps a queued call whose timeout is past the longest timer waiting, rather than failing it at once", async () => {
     const engine = playedEngine();
     const channel = new Channel(engine.transport, owner);

@@ -766,6 +766,9 @@ export class ClientConnection implements AsyncDisposable {
     if (result.maxCallsInFlight !== undefined && result.maxCallsInFlight !== null) {
       this.#channel.capCallsInFlight(result.maxCallsInFlight);
     }
+    // A call queued under that cap with no timeout of its own waits no
+    // longer than its setting's value (ADR 0038; issue 3193).
+    this.#channel.boundByTimeoutSettings(result.timeouts ?? []);
     this.#engineInstance = result.engineInstance;
     this.#info = {
       kind: this.#reached.kind,

@@ -20,7 +20,7 @@
 import type { CallDeadline } from "./caller.ts";
 import { replyOfError } from "./errors.ts";
 import { inCall, type ErrorLimit, type OperationNames } from "./goodfetch-error.ts";
-import { encodeMessage, readLines, type Message, type MessageId } from "./framing.ts";
+import { encodeMessage, isRecord, readLines, type Message, type MessageId } from "./framing.ts";
 import {
   CallCancelledError,
   ConnectionLostError,
@@ -223,22 +223,72 @@ interface Waiting {
   notified: ((method: string, params: unknown) => void) | undefined;
   /** What it is sent again with on a new link; `undefined` when it never is. */
   readonly again: (() => Resent) | undefined;
-  /** Its own timeout, which fails it while the Client holds it back; `undefined` for none. */
+  /** Its timeout, which fails it while the Client holds it back; `undefined` for none. */
   readonly deadline: HeldDeadline | undefined;
 }
 
-/** A call's own timeout, counted from when the call was made. */
+/**
+ * A call's timeout, counted from when the call was made (ADR 0080): its
+ * own, or its setting's as `hello`'s result resolved it.
+ */
 interface HeldDeadline {
-  readonly limit: { readonly key: string; readonly value: number };
+  /** The setting that bounds it, at the layer that set it. */
+  readonly limit: ErrorLimit & { readonly value: number };
+  /** Whether the program gave it as the call's own `timeout`, which the call is sent with. */
+  readonly own: boolean;
   readonly startedAt: number;
 }
 
-/** `deadline` counted from now, or `undefined` when it bounds nothing. */
-function heldDeadline(deadline: CallDeadline | undefined): HeldDeadline | undefined {
-  const value = deadline?.value;
-  return deadline === undefined || value === undefined || value === null
+/**
+ * `deadline` counted from now: the call's own timeout, else its setting's
+ * among `settings`, or `undefined` when neither bounds it.
+ */
+function heldDeadline(
+  deadline: CallDeadline | undefined,
+  settings: ReadonlyMap<string, ErrorLimit>,
+): HeldDeadline | undefined {
+  if (deadline === undefined || deadline.value === null) {
+    return undefined;
+  }
+  const startedAt = Date.now();
+  if (deadline.value !== undefined) {
+    const limit = {
+      key: deadline.key,
+      value: deadline.value,
+      layer: "run",
+      origin: "argument",
+    } as const;
+    return { limit, own: true, startedAt };
+  }
+  const setting = settings.get(deadline.key);
+  const value = setting?.value;
+  return setting === undefined || typeof value !== "number"
     ? undefined
-    : { limit: { key: deadline.key, value }, startedAt: Date.now() };
+    : { limit: { ...setting, value }, own: false, startedAt };
+}
+
+/**
+ * The request of the call `id` of `method` with `params`, sent once it
+ * left the queue: with what is left of its own timeout as its `timeout`,
+ * so the timeout counts from the call's start (ADR 0080; issue 3193), or
+ * `request` as it was encoded when no time passed.
+ */
+function withTimeLeft(
+  id: MessageId,
+  { method, params, deadline }: Timed,
+  request: Uint8Array,
+): Uint8Array {
+  const left = Math.ceil(deadline.startedAt + deadline.limit.value - Date.now());
+  return left >= deadline.limit.value
+    ? request
+    : encodeMessage({ id, method, params: { ...params, timeout: Math.max(left, 1) } });
+}
+
+/** A queued call whose own timeout it is sent with: what it is encoded from again. */
+interface Timed {
+  readonly method: string;
+  readonly params: Readonly<Record<string, unknown>>;
+  readonly deadline: HeldDeadline;
 }
 
 /** A call as it is sent again on a new link: its request, then the notifications naming it. */
@@ -274,6 +324,8 @@ interface Queued {
   timer: ReturnType<typeof setTimeout> | undefined;
   /** The encoded notifications naming it, such as its `$/credit`, sent right after it. */
   readonly notes: Uint8Array[];
+  /** A call the program gave its own timeout, sent with what is left of it. */
+  readonly timed?: Timed | undefined;
 }
 
 /** The id a notification's params name, such as a `$/credit`'s call. */
@@ -418,6 +470,8 @@ export class Channel {
   readonly #queued = new Map<MessageId, Queued>();
   /** How many calls the engine keeps in flight, none until `hello`'s result names it. */
   #cap = Number.POSITIVE_INFINITY;
+  /** The timeout settings `hello`'s result resolved, by key, which bound a queued call that gives no timeout of its own. */
+  #settingTimeouts: ReadonlyMap<string, ErrorLimit> = new Map();
   /** The engine's requests being served, each stopped by its `$/cancel`. */
   readonly #serving = new Map<MessageId, AbortController>();
   #nextId = 0;
@@ -480,7 +534,7 @@ export class Channel {
       return { id, result: Promise.reject(overloaded) };
     }
     const again = this.#againOf(id, method, request, options);
-    const deadline = heldDeadline(options.deadline);
+    const deadline = heldDeadline(options.deadline, this.#settingTimeouts);
     const answer = new Promise<unknown>((resolve, reject) => {
       this.#waiting.set(id, {
         method,
@@ -506,7 +560,9 @@ export class Channel {
     if (!this.#held && this.#inFlight.size < this.#cap) {
       this.#dispatch(id, request);
     } else {
-      this.#enqueue(id, method, { request, timer: undefined, notes: [] }, deadline);
+      const timed =
+        deadline?.own === true && isRecord(params) ? { method, params, deadline } : undefined;
+      this.#enqueue(id, method, { request, timer: undefined, notes: [], timed }, deadline);
     }
     const result = answer.finally(() => signal?.removeEventListener("abort", abort));
     return { id, result };
@@ -566,6 +622,15 @@ export class Channel {
   capCallsInFlight(max: number): void {
     this.#cap = max;
     this.#drain();
+  }
+
+  /**
+   * Bounds each call queued from now on that gives no timeout of its own
+   * by its setting's among `limits`, the timeout settings the engine's
+   * `hello` result resolved (ADR 0038; issue 3193).
+   */
+  boundByTimeoutSettings(limits: readonly ErrorLimit[]): void {
+    this.#settingTimeouts = new Map(limits.map((limit) => [limit.key, limit]));
   }
 
   /** Sends the call `id`, which holds a place in flight until it is answered. */
@@ -641,7 +706,7 @@ export class Channel {
       return;
     }
     this.#waiting.delete(id);
-    const given = { key: limit.key, value: limit.value, layer: "run", origin: "argument" } as const;
+    const given = limit;
     const exceeded = this.#held
       ? phaseExceeded(
           `the call waited ${limit.value} ms, its \`${limit.key}\`, while the Client reached the engine again after the link dropped, so it was not sent`,
@@ -667,9 +732,9 @@ export class Channel {
       if (next.done === true) {
         return;
       }
-      const [id, { request, notes }] = next.value;
+      const [id, { request, notes, timed }] = next.value;
       this.#unqueue(id);
-      this.#dispatch(id, request);
+      this.#dispatch(id, timed === undefined ? request : withTimeLeft(id, timed, request));
       for (const note of notes) {
         this.#write(note);
       }

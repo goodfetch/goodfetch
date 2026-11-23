@@ -25,6 +25,8 @@ use crate::environment::Environment;
 use crate::output;
 use crate::products;
 
+mod publish;
+
 /// The Collie client crate's folder.
 const CLIENT_CRATE: &str = "crates/goodfetch-collie-client";
 /// Each released Rust crate's folder: each Product's executable crate,
@@ -57,10 +59,19 @@ pub(crate) enum Command {
         #[arg(long)]
         version: ProductVersion,
     },
+    /// Plans both Products' publish: one step per registry and package in
+    /// publish order, each marked published, to publish, or a new name to
+    /// publish by hand first, as its registry's public interface shows it.
+    Plan(publish::Arguments),
 }
 
 pub(crate) fn run(command: Command, environment: &Environment) -> Result<ExitCode> {
     match command {
+        Command::Plan(arguments) => publish::run(
+            &environment.root,
+            &arguments,
+            environment.github_token.as_deref(),
+        ),
         Command::Prepare { version } => {
             for (path, text) in prepare(&environment.root, &version)? {
                 std::fs::write(environment.root.join(&path), text)

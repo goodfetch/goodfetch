@@ -62,7 +62,7 @@ quarantine = ["check", "environment", "github", "issues", "output", "runners"]
 rate = []
 received_requests = ["check", "tree"]
 register = ["check", "environment", "github", "issues", "markdown", "output", "perf"]
-release = ["environment", "output", "products"]
+release = ["check", "environment", "github", "output", "products"]
 release_suite = ["check", "environment", "github", "issues", "output", "rate", "runtimes", "workflow"]
 repeat = ["environment", "output", "quarantine", "runners"]
 results = ["github", "junit", "release_suite"]
@@ -141,6 +141,10 @@ table = ["budget", "files"]
 models = []
 run = ["models", "tools"]
 tools = []
+
+# Which of `release`'s own modules may import which.
+[submodules.release]
+publish = []
 
 # Which of `release_suite`'s own modules may import which.
 [submodules.release_suite]

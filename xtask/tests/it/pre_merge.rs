@@ -54,13 +54,13 @@ const ALL_HOST_CALLS: [&str; 17] = [
     "feature-combinations",
     "fuzz-check",
     "proofs",
+    "msrv",
     "_suite pre-merge all",
     "features-audit",
     "stress",
     "journeys-tasks --check",
     "features-tests clients-tests",
     "_kennel all",
-    "msrv",
 ];
 
 /// The calls `just pre-merge` alone makes on the host, in their order.
@@ -75,13 +75,13 @@ const CHANGED_HOST_CALLS: [&str; 17] = [
     "feature-combinations",
     "fuzz-check",
     "proofs",
+    "msrv",
     "_suite pre-merge",
     "features-audit",
     "stress",
     "journeys-tasks --check",
     "features-tests clients-tests",
     "_kennel",
-    "msrv",
 ];
 
 /// The calls of the steps the full gate and `just pre-merge` alone run beside
@@ -674,12 +674,12 @@ const RECORDED_STEPS: [&str; 24] = [
     "feature-combinations",
     "fuzz-check",
     "proofs",
+    "msrv",
     "pre-merge",
     "stress",
     "journeys-tasks",
     "features-tests",
     "kennel",
-    "msrv",
     "perf",
     "counts",
     "linux",
@@ -704,12 +704,12 @@ const HOST_CALLS_WITHOUT_THE_AUDIT: [&str; 16] = [
     "feature-combinations",
     "fuzz-check",
     "proofs",
+    "msrv",
     "_suite pre-merge all",
     "stress",
     "journeys-tasks --check",
     "features-tests clients-tests",
     "_kennel all",
-    "msrv",
 ];
 
 /// One red step, whichever it is, leaves the full gate's verdict as it was,
@@ -723,12 +723,14 @@ const HOST_CALLS_WITHOUT_THE_AUDIT: [&str; 16] = [
 /// each step beside, a host step run with its `just` command (`lint`;
 /// every plain host step takes that way, by its name alone), the stress run
 /// with its evidence, and the Pre-merge suite, red in its tests or in its
-/// exercise audit.
+/// exercise audit. The MSRV build, red before the suites and the stress
+/// run, leaves them running (issue 2040).
 #[rstest]
 #[case::perf("perf", "perf", &["perf"], &ALL_HOST_CALLS)]
 #[case::linux("linux", "linux", &["linux"], &ALL_HOST_CALLS)]
 #[case::visual("visual", "visual", &["visual"], &ALL_HOST_CALLS)]
 #[case::lint("lint", "lint", &["lint"], &ALL_HOST_CALLS)]
+#[case::msrv("msrv", "msrv", &["msrv"], &ALL_HOST_CALLS)]
 #[case::pre_merge(
     "_suite pre-merge all",
     "pre-merge",
@@ -846,7 +848,7 @@ fn a_red_steps_result_files_are_kept_from_the_steps_after_it(
     // The red step leaves the file, and a step after it writes over it.
     std::fs::write(
         stand_in.join("leaving"),
-        format!("{call}=target/{file}\nmsrv=target/{file}\n"),
+        format!("{call}=target/{file}\n_kennel all=target/{file}\n"),
     )
     .unwrap();
 
@@ -951,7 +953,7 @@ fn on_the_host(run: Run) -> Vec<String> {
 #[case::no_members_for_a_part(
     "pre-merge.action=run\npre-merge.members=-\n",
     "pre-merge.action=part\n",
-    10,
+    11,
     "`pre-merge.members=`"
 )]
 #[case::no_reason_for_a_reuse(
@@ -963,7 +965,7 @@ fn on_the_host(run: Run) -> Vec<String> {
 #[case::no_members_for_a_part_of_the_stress_run(
     "stress.action=run\nstress.members=-\n",
     "stress.action=part\n",
-    12,
+    13,
     "`stress.members=`"
 )]
 #[case::no_action_for_a_step_beside("perf.action=run\n", "", 6, "`perf.action=`")]

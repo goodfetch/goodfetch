@@ -12,8 +12,10 @@ use crate::affected::Job;
 /// A step of `just pre-merge all` that the gate records, declared in the
 /// order `ci/pre-merge.sh` starts them (`steps`): the checks that judge the
 /// whole change in seconds first, so the gate's log opens with their
-/// verdicts, then those beside the host's, then the host's others. A red
-/// step ends no gate: every step runs and records its result.
+/// verdicts, then those beside the host's, then the host's others: the
+/// other checks of the whole change, then the MSRV build, before the suites
+/// (issue 2040). A red step ends no gate: every step runs and records its
+/// result.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub(crate) enum Step {
     Dco,
@@ -34,13 +36,13 @@ pub(crate) enum Step {
     FeatureCombinations,
     FuzzCheck,
     Proofs,
+    Msrv,
     Quick,
     PreMerge,
     Stress,
     JourneysTasks,
     FeaturesTests,
     Kennel,
-    Msrv,
     /// xtask's codegen tests, `tests/` tests the Quick suite never runs, when
     /// the change reaches what only they check (`xtask affected`'s
     /// `codegen-tests=true`): the quick form's last step, so a change to the
@@ -92,13 +94,13 @@ impl Step {
         Self::FeatureCombinations,
         Self::FuzzCheck,
         Self::Proofs,
+        Self::Msrv,
         Self::Quick,
         Self::PreMerge,
         Self::Stress,
         Self::JourneysTasks,
         Self::FeaturesTests,
         Self::Kennel,
-        Self::Msrv,
         Self::CodegenTests,
     ];
 

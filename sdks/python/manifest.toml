@@ -1895,6 +1895,24 @@ form = "runtime"
 [[member]]
 package = "goodfetch_collie_client.connection"
 receiver = "ClientConnection"
+member = "serve"
+entry = "none"
+reason = "Answers the engine's requests of one method, such as Foxhound's `crawl_request.handle` (ADR 0093)."
+words = ["serve"]
+form = "runtime"
+
+[[member]]
+package = "goodfetch_collie_client.connection"
+receiver = "ClientConnection"
+member = "serves"
+entry = "none"
+reason = "Hands each request the engine sends to what serves its method, or says none does, which the channel answers `-32601`."
+words = ["serves"]
+form = "runtime"
+
+[[member]]
+package = "goodfetch_collie_client.connection"
+receiver = "ClientConnection"
 member = "reachable"
 entry = "none"
 reason = "Whether the common Connection can still reach the engine: not once the engine's side of the transport ended."

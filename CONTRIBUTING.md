@@ -37,7 +37,7 @@ Install [`just`](https://just.systems), Rust through `rustup` (the toolchain is 
 | Command | What it does |
 |---|---|
 | `just quick` | The Quick suite: formatting, lints and in-process tests. Run it before every push, or let the pre-push hook of `just hooks` run it; never both. |
-| `just pre-merge` | The Pre-merge suite on this host: the Quick suite, every test and the stress run of new and changed tests, with `just perf`, `just linux` (the tests only Linux decides) and `just visual` (the visual projects) in containers beside them. |
+| `just pre-merge` | The Pre-merge suite on this host: every test, the Quick suite's included, and the stress run of new and changed tests, with `just perf`, `just linux` (the tests only Linux decides) and `just visual` (the visual projects) in containers beside them. |
 | `just release` | This host's cell of the Release suite. |
 | `just release-ci [cells] [commit]` | Dispatches the Release suite on your pushed branch in CI and follows it: every cell by default, or the ones named, separated by commas; on `main`, a commit of `main`, its head by default (ADR 0108). |
 | `just test <suite> [packages]` | One suite's tests (`quick`, `pre-merge` or `release`), without lints. |

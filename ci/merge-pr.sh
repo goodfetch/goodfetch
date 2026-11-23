@@ -16,7 +16,8 @@
 #   - `just pre-merge quick` when it finds that no test, benchmark, model,
 #     container or Evaluation reads the change (`gate=quick`);
 #   - for a change a test reads (`gate=full`), `just pre-merge all`, which
-#     starts with `just quick all`'s lint and Quick suite, on the pull request
+#     starts with `just quick all`'s lint and runs the Quick suite's tests in
+#     its Pre-merge suite, on the pull request
 #     that finishes a spec: its head branch is `spec/<n>`
 #     (docs/agents/issue-tracker.md), and spec issue #<n> has no open
 #     sub-issue once the issues the pull request closes are closed, as one
@@ -450,7 +451,7 @@ if [[ $affected == full && $branch =~ ^spec/[0-9]+$ ]]; then
 fi
 if [[ -n $why_full ]]; then
   gate=all
-  ran="\`just pre-merge all\` ($why_full), which starts with \`just quick all\`'s lint and Quick suite,"
+  ran="\`just pre-merge all\` ($why_full), which starts with \`just quick all\`'s lint and runs the Quick suite's tests in its Pre-merge suite,"
   # `just stress`, after the whole Pre-merge suite, refuses a selected
   # `lazyfs::` test without a LazyFS build (xtask's `repeat`). Which tests it
   # selects takes a build to find, so every full gate on Linux, the one system

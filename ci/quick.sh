@@ -44,10 +44,18 @@
 # `xtask affected` ends the run early, since without its `gate=` line the
 # tier cannot tell which checks the change takes.
 #
-# A green run on a clean checkout records its tree in the repository's
-# common folder, shared by its worktrees, and the pre-push hook does not run
-# it on a push of a recorded tree: `just quick` never runs twice on one tree.
-# A tree is recorded only when every step passed.
+# `just quick` never runs twice on one tree (ADR 0135's amendment of
+# 2026-11-22): a run on a clean checkout is recorded, green or red, in the
+# gate's records every worktree shares (`just _quick-record`), by the layer
+# that ran it, `pre-push` when the pre-push hook started it (its
+# `GOODFETCH_GATE_LAYER`), else `quick`, with the result of the steps after
+# the commit checks, since a red commit is mended by a rewrite that keeps
+# the tree;
+# and a run whose key a green run already holds (`just _quick-held`: the same
+# tree, form and merge base with the base, on this host and in this
+# environment, within a day, with lint's other reads unchanged) runs only the
+# checks of the change's commits, which read more than the tree, and no lint
+# or suite. A run on uncommitted changes is neither held nor recorded.
 #
 # Every step runs through the `just` on PATH, where the recipe puts its own.
 # It keeps to bash 3.2, which stock macOS runs.
@@ -67,20 +75,20 @@ esac
 # the repository as bare: every step finds the repository from its folder.
 for variable in $(git rev-parse --local-env-vars); do unset "$variable"; done
 
-# Records HEAD's tree as passed when the working tree is HEAD's, untracked
-# files included; outside a repository it records nothing.
-record_green() {
-  local common tree stamps
-  common=$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null) || return 0
-  if [[ -n $(git status --porcelain 2>/dev/null) ]]; then
-    echo "The working tree differs from HEAD, so no tree is recorded for the pre-push hook."
-    return 0
-  fi
-  tree=$(git rev-parse 'HEAD^{tree}')
-  stamps=$common/goodfetch-quick-green
-  { tail -n 199 "$stamps" 2>/dev/null || true; echo "$tree"; } > "$stamps.$$"
-  mv "$stamps.$$" "$stamps"
-  echo "\`just quick\` passed on tree $tree: the pre-push hook does not run it again on a push of it."
+# HEAD when the working tree is HEAD's, untracked files included; nothing on
+# uncommitted changes or outside a repository.
+clean_head() {
+  git rev-parse --is-inside-work-tree > /dev/null 2>&1 || return 0
+  [[ -z $(git status --porcelain 2>/dev/null) ]] || return 0
+  git rev-parse HEAD 2>/dev/null || true
+}
+
+# Records the run's result, `pass` or `fail`, for the head it started on; a
+# record that fails costs a rerun later and fails no run.
+record_run() {
+  [[ -n $head ]] || return 0
+  just _quick-record "$layer" "$head" "$base" "$form" "$1" \
+    || echo "warning: \`just quick\`'s run was not recorded, so the next one on this tree runs again." >&2
 }
 
 # shellcheck source=ci/keep-going.sh
@@ -101,30 +109,57 @@ fi
 echo "The change: the working tree against its merge base with $base."
 quoted_base=$(printf '%q' "$base")
 
+# The run's key: the head of a clean checkout, the form and the layer.
+head=$(clean_head)
+form=${all:-changed}
+case ${GOODFETCH_GATE_LAYER:-} in
+  pre-push) layer=pre-push ;;
+  *) layer=quick ;;
+esac
+if [[ -z $head ]]; then
+  echo "The working tree differs from HEAD, so this run is neither held nor recorded for the next one."
+fi
+
 rm -f target/skipped.txt
 trap 'just _skips-report' EXIT
 steps_begin quick
 step compiler-cache 'just compiler-cache'
+held=""
+if [[ -n $head ]] && just _quick-held "$head" "$base" "$form"; then
+  held=yes
+fi
 step dco "just dco $quoted_base"
 step commit-messages "just commit-messages $quoted_base"
 step floor-guard "just floor-guard $quoted_base"
 step commit-leaks "just commit-leaks $quoted_base"
 
+if [[ -n $held ]]; then
+  echo "No lint and no suite runs again: only the checks of the change's commits ran, which read more than the tree."
+  steps_end
+  exit 0
+fi
+
+# What the run records is the tree's result, the steps after this mark: a
+# red commit check is mended by rewriting the commit, which keeps the tree.
+tree_steps=$(steps_mark)
 if [[ -z $all ]]; then
   change=(--local --since "$base")
   if ! selection=$(cargo run --quiet --locked --bin xtask -- affected "${change[@]}"); then
     echo "error: \`xtask affected\` failed, so no lint and no Quick suite ran: the tier cannot tell which checks the change takes" >&2
     steps_end || true
+    record_run fail
     exit 1
   fi
   if ! gate=$(output_value gate "$selection"); then
     echo "error: \`xtask affected\` gave no gate, so no lint and no Quick suite ran: the tier cannot tell which checks the change takes" >&2
     steps_end || true
+    record_run fail
     exit 1
   fi
   if ! codegen=$(output_value codegen-tests "$selection"); then
     echo "error: \`xtask affected\` gave no codegen-tests line, so no lint and no Quick suite ran: the tier cannot tell whether the change takes xtask's codegen tests" >&2
     steps_end || true
+    record_run fail
     exit 1
   fi
   if [[ $gate == docs ]]; then
@@ -148,7 +183,9 @@ else
   step quick-suite 'just _suite quick all'
 fi
 
-if ! steps_end; then
-  exit 1
+if steps_red_since "$tree_steps"; then
+  record_run fail
+else
+  record_run pass
 fi
-record_green
+steps_end

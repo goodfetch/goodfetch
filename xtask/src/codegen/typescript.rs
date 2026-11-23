@@ -13,9 +13,10 @@ use std::fmt::Write as _;
 use anyhow::Result;
 use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::cli::ATTACHED_ENGINE;
+use goodfetch_protocol::formats::USER_CONFIGURATION;
 use goodfetch_protocol::settings::{
     COLLIE_ENGINE_PATH_VARIABLE, DEPLOYMENT_PREFIX, DEPLOYMENT_VARIABLES,
-    FOXHOUND_ENGINE_PATH_VARIABLE,
+    FOXHOUND_ENGINE_PATH_VARIABLE, PROJECT_CONFIGURATION_FILE,
 };
 
 use super::handles::{self, Form, Handle, HandleId, Member, Overload};
@@ -23,6 +24,7 @@ use super::layer::{Deprecation, Layer, Stability};
 use super::naming::{camel, pascal};
 use super::{Generated, TypesFile};
 
+mod answered;
 mod errors;
 mod listeners;
 mod markers;
@@ -31,6 +33,7 @@ mod settings;
 mod signature;
 mod wire;
 
+use answered::{answer, answered, response_import};
 use markers::{
     CLIENT_RUNTIME, ENTRY_MARKERS, MARKERS_MODULE, WARN_ENTRY, markers_import, warnings,
 };
@@ -293,7 +296,7 @@ fn connection(layer: &Layer) -> String {
     let (shared, name, constant, variable) = match layer.product {
         Product::Collie => (
             format!(
-                "/** The protocol version `major.minor` this package's `hello` names (ADRs 0024 and 0066). */\nexport const PROTOCOL_VERSION = {:?};\n\n/** The WebSocket subprotocol a Client offers an Exposed Daemon, `goodfetch.v<major>` of the protocol version (ADR 0049). */\nexport const WEBSOCKET_SUBPROTOCOL = {:?};\n\n/** The Product version this package carries, `hello`'s `product_version`, which each Product's package pins exactly (ADRs 0090 and 0095). */\nexport const PRODUCT_VERSION = {:?};\n\n/** The executable's hidden command that serves one Connection over stdio. */\nexport const ATTACHED_ENGINE_COMMAND = {:?};\n\n/** The prefix every deployment variable has, which ADR 0034 reserves. */\nexport const DEPLOYMENT_PREFIX = {DEPLOYMENT_PREFIX:?};\n\n/** The deployment variables, the closed list of `GOODFETCH_` variables `connect()` takes from its environment map (ADR 0083). */\nexport const DEPLOYMENT_VARIABLES = [\n{}\n] as const;\n\n",
+                "/** The protocol version `major.minor` this package's `hello` names (ADRs 0024 and 0066). */\nexport const PROTOCOL_VERSION = {:?};\n\n/** The WebSocket subprotocol a Client offers an Exposed Daemon, `goodfetch.v<major>` of the protocol version (ADR 0049). */\nexport const WEBSOCKET_SUBPROTOCOL = {:?};\n\n/** The Product version this package carries, `hello`'s `product_version`, which each Product's package pins exactly (ADRs 0090 and 0095). */\nexport const PRODUCT_VERSION = {:?};\n\n/** The executable's hidden command that serves one Connection over stdio. */\nexport const ATTACHED_ENGINE_COMMAND = {:?};\n\n/** The prefix every deployment variable has, which ADR 0034 reserves. */\nexport const DEPLOYMENT_PREFIX = {DEPLOYMENT_PREFIX:?};\n\n/** The deployment variables, the closed list of `GOODFETCH_` variables `connect()` takes from its environment map (ADR 0083). */\nexport const DEPLOYMENT_VARIABLES = [\n{}\n] as const;\n\n/** The project configuration's file `connect()` reads, found in the working directory or the nearest folder above it (ADR 0083). */\nexport const PROJECT_FILE = {PROJECT_CONFIGURATION_FILE:?};\n\n/** The format a project configuration's file is written in, which an unreadable version names (ADR 0030). */\nexport const PROJECT_FORMAT = {:?};\n\n/** The version `major.minor` of that format this package reads (ADR 0030). */\nexport const PROJECT_FORMAT_VERSION = {:?};\n\n",
                 layer.protocol_version.to_string(),
                 layer.protocol_version.websocket_subprotocol(),
                 layer.product_version,
@@ -303,6 +306,8 @@ fn connection(layer: &Layer) -> String {
                     .map(|variable| format!("  {variable:?},"))
                     .collect::<Vec<_>>()
                     .join("\n"),
+                USER_CONFIGURATION.name,
+                USER_CONFIGURATION.version.to_string(),
             ),
             "Collie",
             "COLLIE",
@@ -580,35 +585,6 @@ const TIMEOUT: &str = "timeout";
 /// own `timeout` no deadline can be before it is sent (ADR 0080).
 const TIMEOUT_OF: &str = "timeoutOf";
 
-/// The type `member` answers: the operation's result type, or the type of
-/// its one property, which an optional one gives with `null` for absent.
-fn answered(member: &Member<'_>, result: &str) -> String {
-    match &member.unwrapped {
-        None => format!("types.{result}"),
-        Some(unwrapped) if unwrapped.required => {
-            format!("types.{result}[{:?}]", camel(&unwrapped.property))
-        }
-        Some(unwrapped) => {
-            format!(
-                "NonNullable<types.{result}[{:?}]> | null",
-                camel(&unwrapped.property)
-            )
-        }
-    }
-}
-
-/// What `member` returns of `call`: its result, or its result's one
-/// property, `null` when an optional one is absent.
-fn answer(member: &Member<'_>, call: &str) -> String {
-    match &member.unwrapped {
-        None => call.to_owned(),
-        Some(unwrapped) if unwrapped.required => {
-            format!("(await {call}).{}", camel(&unwrapped.property))
-        }
-        Some(unwrapped) => format!("(await {call}).{} ?? null", camel(&unwrapped.property)),
-    }
-}
-
 /// The documented signatures that come before `member`'s implementation:
 /// its doc alone, or each overload: the current one, then one per
 /// deprecated form, which a call resolves to and a linter reports, then one
@@ -712,7 +688,7 @@ fn member(member: &Member<'_>, id: &HandleId) -> Result<String> {
             None => (
                 String::new(),
                 format!("Promise<{}>", answered(member, result)),
-                format!("    return {};\n", answer(member, &call)),
+                answer(member, &call),
             ),
             // Its result is typed by the fields the caller passes, which
             // the member takes as a type parameter (ADR 0147).
@@ -827,8 +803,9 @@ fn handles_imports(handles: &[Handle<'_>], operation_types: &str, events: &str) 
         ("", String::new())
     };
     let settings = settings::handles_import(handles)?;
+    let response = response_import(handles);
     Ok(format!(
-        "{HEADER}\n{field_values}import {{ defined{timeout_of}, type HandleHost{listener_types} }} from \"{HANDLE_MODULE}\";\n{markers}import {{ Handle }} from \"{RAW_CALL_MODULE}\";\n{registry}import type {{ {operation_types} }} from \"./operations.ts\";\n{settings}import type * as types from \"./types.ts\";\n"
+        "{HEADER}\n{field_values}import {{ defined{timeout_of}, type HandleHost{listener_types} }} from \"{HANDLE_MODULE}\";\n{markers}import {{ Handle }} from \"{RAW_CALL_MODULE}\";\n{response}{registry}import type {{ {operation_types} }} from \"./operations.ts\";\n{settings}import type * as types from \"./types.ts\";\n"
     ))
 }
 

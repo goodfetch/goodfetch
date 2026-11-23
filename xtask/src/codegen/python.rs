@@ -20,10 +20,11 @@ use serde_json::Value;
 
 use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::cli::ATTACHED_ENGINE;
+use goodfetch_protocol::formats::USER_CONFIGURATION;
 use goodfetch_protocol::foxhound::crawl::ATTEMPT_ENDED;
 use goodfetch_protocol::settings::{
     COLLIE_ENGINE_PATH_VARIABLE, DEPLOYMENT_PREFIX, DEPLOYMENT_VARIABLES,
-    FOXHOUND_ENGINE_PATH_VARIABLE,
+    FOXHOUND_ENGINE_PATH_VARIABLE, PROJECT_CONFIGURATION_FILE,
 };
 
 use super::handles;
@@ -447,7 +448,7 @@ fn connection(layer: &Layer) -> String {
     let (shared, name, constant, variable) = match layer.product {
         Product::Collie => (
             format!(
-                "\nPROTOCOL_VERSION: Final = {:?}\n\"\"\"The protocol version `major.minor` this package's `hello` names (ADRs 0024 and 0066).\"\"\"\n\nWEBSOCKET_SUBPROTOCOL: Final = {:?}\n\"\"\"The WebSocket subprotocol a Client offers an Exposed Daemon, `goodfetch.v<major>` of the protocol version (ADR 0049).\"\"\"\n\nPRODUCT_VERSION: Final = {:?}\n\"\"\"The Product version this package carries, `hello`'s `product_version` (ADRs 0090 and 0095).\"\"\"\n\nATTACHED_ENGINE_COMMAND: Final = {:?}\n\"\"\"The executable's hidden command that serves one Connection over stdio.\"\"\"\n\nDEPLOYMENT_PREFIX: Final = {DEPLOYMENT_PREFIX:?}\n\"\"\"The prefix every deployment variable has, which ADR 0034 reserves.\"\"\"\n\nDEPLOYMENT_VARIABLES: Final = (\n{}\n)\n\"\"\"The deployment variables, the closed list of `GOODFETCH_` variables `connect()` takes from its environment map (ADR 0083).\"\"\"\n",
+                "\nPROTOCOL_VERSION: Final = {:?}\n\"\"\"The protocol version `major.minor` this package's `hello` names (ADRs 0024 and 0066).\"\"\"\n\nWEBSOCKET_SUBPROTOCOL: Final = {:?}\n\"\"\"The WebSocket subprotocol a Client offers an Exposed Daemon, `goodfetch.v<major>` of the protocol version (ADR 0049).\"\"\"\n\nPRODUCT_VERSION: Final = {:?}\n\"\"\"The Product version this package carries, `hello`'s `product_version` (ADRs 0090 and 0095).\"\"\"\n\nATTACHED_ENGINE_COMMAND: Final = {:?}\n\"\"\"The executable's hidden command that serves one Connection over stdio.\"\"\"\n\nDEPLOYMENT_PREFIX: Final = {DEPLOYMENT_PREFIX:?}\n\"\"\"The prefix every deployment variable has, which ADR 0034 reserves.\"\"\"\n\nDEPLOYMENT_VARIABLES: Final = (\n{}\n)\n\"\"\"The deployment variables, the closed list of `GOODFETCH_` variables `connect()` takes from its environment map (ADR 0083).\"\"\"\n\nPROJECT_FILE: Final = {PROJECT_CONFIGURATION_FILE:?}\n\"\"\"The project configuration's file `connect()` reads, found in the working directory or the nearest folder above it (ADR 0083).\"\"\"\n\nPROJECT_FORMAT: Final = {:?}\n\"\"\"The format a project configuration's file is written in, which an unreadable version names (ADR 0030).\"\"\"\n\nPROJECT_FORMAT_VERSION: Final = {:?}\n\"\"\"The version `major.minor` of that format this package reads (ADR 0030).\"\"\"\n",
                 layer.protocol_version.to_string(),
                 layer.protocol_version.websocket_subprotocol(),
                 layer.product_version,
@@ -457,6 +458,8 @@ fn connection(layer: &Layer) -> String {
                     .map(|variable| format!("    {variable:?},"))
                     .collect::<Vec<_>>()
                     .join("\n"),
+                USER_CONFIGURATION.name,
+                USER_CONFIGURATION.version.to_string(),
             ),
             "Collie",
             "COLLIE",

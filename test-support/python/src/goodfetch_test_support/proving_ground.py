@@ -8,6 +8,8 @@ nothing. Its routes come from `test-support/fixtures/proving-ground/routes.json`
 which `xtask codegen` writes from the Proving ground's own interface.
 """
 
+import json
+import urllib.request
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
@@ -85,6 +87,20 @@ class ProvingGround:
                 target=cast("str", fixtures["target"]),
                 connections=cast("str", fixtures["connections"]),
             ),
+        )
+
+    def url(self, host: str, path: str) -> str:
+        """The HTTP URL of `path` on its page host `host`, such as `fetch-edge.test`."""
+        port = self.address.rpartition(":")[2]
+        return f"http://{host}:{port}{path}"
+
+    def start_url(self, task: str) -> str:
+        """The URL its task `task` starts at, read from its task list; it blocks."""
+        tasks = f"http://{self.address}{proving_ground_routes().tasks}"
+        with urllib.request.urlopen(tasks) as answer:
+            listed = cast("dict[str, list[dict[str, str]]]", json.load(answer))
+        return next(
+            entry["start_url"] for entry in listed["tasks"] if entry["id"] == task
         )
 
 

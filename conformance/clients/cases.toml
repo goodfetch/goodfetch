@@ -23,7 +23,7 @@
 
 [suite]
 name = "clients"
-version = "52"
+version = "53"
 
 [[capability]]
 name = "lifecycle"
@@ -692,8 +692,10 @@ modes = { sdk-typescript = ["attached"], sdk-python = ["attached"] }
 # program's active span sends that span's `traceparent`, and its
 # `tracestate` when set, in `_meta`, never Baggage, and a call made outside
 # any span sends no `_meta`; against the Scripted engine. Rust plays it
-# behind its `opentelemetry` feature, as a Daemon's client: its `daemon`
-# mode; its `linked` mode joins with issue 3405. TypeScript, with
+# behind its `opentelemetry` feature, as a Daemon's client, its `daemon`
+# mode, and in its `linked` mode, where the linked engine's request spans,
+# exported through the program's subscriber, show each call's parent
+# (issue 3405). TypeScript, with
 # `@opentelemetry/api` installed, and Python (asyncio, Trio and the sync
 # API), with `opentelemetry-api` importable, play it in both their modes
 # (issue 3404).
@@ -704,4 +706,4 @@ name = "trace-context"
 id = "trace-context"
 covers = ["story:11-138"]
 surfaces = ["sdk-typescript", "sdk-python", "sdk-rust"]
-modes = { sdk-rust = ["daemon"] }
+modes = { sdk-rust = ["daemon", "linked"] }

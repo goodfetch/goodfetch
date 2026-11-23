@@ -4,19 +4,26 @@ The `trace-context` client conformance case, three ways: async on asyncio,
 async on Trio and through the sync `Collie`. With `opentelemetry-api`
 installed, a call made in the program's current span sends that span's
 `traceparent`, and its `tracestate`, in its `_meta`, a raw call's beside
-its raw mark; a call made outside any span sends no `_meta`, nor does
+its raw mark, and never the Baggage the program set; a call made outside
+any span sends no `_meta`, nor does
 `hello`, the Connection's own, though opened in the span. The sync API
 sends the context of the thread that calls it, not the private thread's:
-two threads in two spans share one `Collie`. The Scripted engine fails on
+two threads in two spans share one `Collie`. Without `opentelemetry-api`,
+a program imports the SDK, which tries no OpenTelemetry import, and its
+call sends no `_meta` and fails nothing. The Scripted engine fails on
 params it does not expect and on a step left unused, so a play with no
 warning, or a Daemon's clean exit, says each call carried exactly that.
 TypeScript's `trace-context.test.ts` and Rust's `trace_context.rs` are its
 twins.
 """
 
+import json
+import subprocess
+import sys
 import threading
 from collections.abc import Awaitable
 from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
 
 import pytest
 from collie_calls import engine_warnings, exit_code, open_collie
@@ -30,10 +37,16 @@ from goodfetch_test_support import (
     three_ways,
 )
 from goodfetch_test_support import Product as ToolProduct
-from opentelemetry import trace
+from opentelemetry import baggage, context, trace
 from opentelemetry.trace import NonRecordingSpan, SpanContext, TraceFlags, TraceState
 
 COVERS = pytest.mark.covers("story:11-138")
+
+PROGRAM = Path(__file__).parents[1] / "programs" / "collie_without_opentelemetry.py"
+"""The program that runs where `opentelemetry-api` does not import."""
+
+PROGRAM_DEADLINE_SECONDS = 60.0
+"""How long the program may take, its engine's start included."""
 
 PROGRAM_SPAN = NonRecordingSpan(
     SpanContext(
@@ -58,15 +71,22 @@ OTHER_SPAN = NonRecordingSpan(
 
 
 async def play_the_case(opening: Awaitable[AsyncCollie]) -> None:
-    """The case: the opening and three calls in the program's span, two outside."""
-    with trace.use_span(PROGRAM_SPAN):
-        collie = await opening
+    """The case: the opening and three calls in the program's span, two outside.
+
+    Every call is made where the program has set Baggage, which none carries.
+    """
+    with_baggage = context.attach(baggage.set_baggage("user", "secret"))
+    try:
+        with trace.use_span(PROGRAM_SPAN):
+            collie = await opening
+            await collie.explain_settings()
+            await collie.call("run.list", {"lifecycle": "running"})
+            run = await collie.start()
         await collie.explain_settings()
-        await collie.call("run.list", {"lifecycle": "running"})
-        run = await collie.start()
-    await collie.explain_settings()
-    await run.finish()
-    await collie.close()
+        await run.finish()
+        await collie.close()
+    finally:
+        context.detach(with_baggage)
 
 
 @COVERS
@@ -154,3 +174,26 @@ def test_each_thread_of_the_sync_api_sends_its_own_trace_context(
         collie.close()
 
     assert engine_warnings(caplog) == []
+
+
+@COVERS
+def test_without_opentelemetry_the_sdk_imports_none_and_a_call_sends_no_meta(
+    test_env: TestEnv,
+    product: ToolProduct,
+) -> None:
+    """Where `opentelemetry-api` is absent, nothing of it is tried, sent or failed."""
+    env = scripted_engine_env(
+        test_env, product, "sdk-python/connect/without-opentelemetry.json"
+    )
+
+    played = subprocess.run(
+        [sys.executable, str(PROGRAM)],
+        capture_output=True,
+        cwd=test_env.folder,
+        env=dict(env),
+        timeout=PROGRAM_DEADLINE_SECONDS,
+        check=False,
+    )
+
+    assert played.returncode == 0, played.stderr.decode(errors="replace")
+    assert json.loads(played.stdout) == {"tried_on_import": [], "loaded": []}

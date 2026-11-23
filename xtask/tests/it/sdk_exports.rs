@@ -694,6 +694,127 @@ fn check_refuses_an_entry_reaching_no_member_of_an_sdk(
     assert_eq!(outcome.code, 1);
 }
 
+/// `_meta` is the runtime's alone (ADR 0132): no public type or method of
+/// any SDK names it, listed or not. A hand-written name fails when `meta`
+/// is one of its words, whatever its case or prefix; a generated one when
+/// it is the type the protocol gives `_meta`.
+#[rstest]
+#[case::typescript_method(
+    MANIFEST,
+    COLLIE,
+    "  close(): void {",
+    "  withMeta(): void {}\n\n  close(): void {",
+    "Collie",
+    "withMeta"
+)]
+#[case::typescript_type(
+    MANIFEST,
+    "sdks/typescript/collie/src/index.ts",
+    "export { Collie }",
+    "export interface RequestMeta {\n  traceparent: string;\n}\nexport { Collie }",
+    "(module)",
+    "RequestMeta"
+)]
+#[case::rust_method(
+    RUST_MANIFEST,
+    RUST_FOXHOUND,
+    "    /// Closes it.",
+    "    /// Its request's meta.\n    pub fn set_meta(&self) {}\n\n    /// Closes it.",
+    "Foxhound",
+    "set_meta"
+)]
+#[case::python_method(
+    PYTHON_MANIFEST,
+    PYTHON_COLLIE,
+    "    def close(self) -> None:",
+    "    def meta(self) -> None:\n        \"\"\"Its request's meta.\"\"\"\n\n    def close(self) -> None:",
+    "Collie",
+    "meta"
+)]
+fn check_refuses_a_public_member_naming_meta(
+    #[case] manifest: &str,
+    #[case] file: &str,
+    #[case] from: &str,
+    #[case] to: &str,
+    #[case] receiver: &str,
+    #[case] member: &str,
+) {
+    let workspace = workspace();
+    workspace.edit(file, from, to);
+
+    let outcome = workspace.xtask(&["sdk-exports"]);
+
+    let subject = format!("{manifest} {receiver}.{member}");
+    assert_eq!(
+        outcome.findings(),
+        vec![
+            finding("unlisted", &subject),
+            finding("names-meta", &subject)
+        ],
+        "{}",
+        outcome.stdout
+    );
+    assert_eq!(outcome.code, 1);
+}
+
+/// The generated type of `_meta`, `RequestMeta`, which an SDK's runtime
+/// imports and no entry exports.
+#[test]
+fn check_refuses_an_entry_exporting_the_generated_type_of_meta() {
+    let workspace = workspace();
+    workspace.append(
+        "sdks/typescript/collie/src/generated/page.ts",
+        "export interface RequestMeta {\n  traceparent?: string;\n}\n",
+    );
+    workspace.append(
+        "sdks/typescript/collie/src/index.ts",
+        "export type { RequestMeta } from \"./generated/page.ts\";\n",
+    );
+
+    let outcome = workspace.xtask(&["sdk-exports"]);
+
+    assert_eq!(
+        outcome.findings(),
+        vec![finding(
+            "names-meta",
+            &format!("{MANIFEST} (module).RequestMeta")
+        )],
+        "{}",
+        outcome.stdout
+    );
+    assert_eq!(outcome.code, 1);
+}
+
+/// A name holding `meta` inside a word, such as `metadata`, names no
+/// `_meta`, nor does a generated name other than `_meta`'s type, such as
+/// that of an HTML `<meta>` tag.
+#[test]
+fn check_passes_a_name_holding_meta_otherwise() {
+    let workspace = workspace();
+    workspace.edit(
+        COLLIE,
+        "  close(): void {",
+        "  metadata(): void {}\n\n  close(): void {",
+    );
+    workspace.append(
+        "sdks/typescript/collie/src/generated/page.ts",
+        "export interface MetaTag {\n  name: string;\n}\n",
+    );
+    workspace.append(
+        "sdks/typescript/collie/src/index.ts",
+        "export type { MetaTag } from \"./generated/page.ts\";\n",
+    );
+
+    let outcome = workspace.xtask(&["sdk-exports"]);
+
+    assert_eq!(
+        outcome.findings(),
+        vec![finding("unlisted", &format!("{MANIFEST} Collie.metadata"))],
+        "{}",
+        outcome.stdout
+    );
+}
+
 /// An `[[unreached]]` line names only entries the SDK must reach and does
 /// not: never one a member serves, one the generator writes a member for,
 /// one only a person calls, or no entry at all.

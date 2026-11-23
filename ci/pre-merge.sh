@@ -347,10 +347,10 @@ reused() {
   why=$(output_value "$1.why" "$plan") || return
   echo "Gate step $1: reused ($why)"
 }
-# A failed Quick suite or stress run is recorded with the files its crates
-# are judged by, crate by crate (`xtask gate record --junit`): its nextest
-# JUnit and, for the stress run, its selection, the commands that went red and
-# when it began. Each crate that passed in full records green, every other
+# A failed Pre-merge suite or stress run is recorded with the files its
+# crates are judged by, crate by crate (`xtask gate record --junit`): its
+# nextest JUnit and, for the stress run, its selection, the commands that went
+# red and when it began. Each crate that passed in full records green, every other
 # member red; a failure they do not account for records every member red. A
 # crate a red stress run left short of its counts, with no failing test, keeps
 # its clean passes for the next run, unless that failure takes them all.
@@ -362,7 +362,6 @@ record() {
   fi
   local evidence=() folder
   case $1 in
-    quick) evidence=(--junit target/nextest/quick/junit.xml) ;;
     # Only after nextest's tests alone failed (the suite's 100, kept when
     # the exercise audit passed).
     pre-merge) [[ $2 -ne 100 ]] || evidence=(--junit target/nextest/ci/junit.xml) ;;
@@ -380,7 +379,6 @@ record() {
 # so they are this run's.
 clear_evidence() {
   case $1 in
-    quick) rm -f target/nextest/quick/junit.xml ;;
     stress) rm -rf target/stress-selection.tsv target/stress-red-commands.tsv target/junit/repeat-* ;;
   esac
 }
@@ -439,9 +437,9 @@ pre_merge_suite() {
   [[ $status -eq 0 ]] || keep_results pre-merge
   [[ $status -eq 0 ]] || went_red pre-merge "$status"
 }
-# A part of a step run per member: the Quick and Pre-merge suites rerun
-# every Vitest, Playwright and pytest test, as a full run does, in the
-# head's order (`--shuffled-all`), and nextest over its crates; the stress
+# A part of a step run per member: the Pre-merge suite reruns every Vitest,
+# Playwright and pytest test, as a full run does, in the head's order
+# (`--shuffled-all`), and nextest over its crates; the stress
 # run takes the new and changed tests of the members the change since the
 # earlier run reaches, and each test that change changed, each running what
 # its count still owes after the clean passes the plan kept (#2233); new and
@@ -449,14 +447,10 @@ pre_merge_suite() {
 run_part() {
   local part members=()
   case $1 in
-    quick | pre-merge)
+    pre-merge)
       part=$(members_of "$1")
       read -ra members <<<"$part"
-      if [[ $1 == quick ]]; then
-        gated quick just test quick --shuffled-all "${members[@]}"
-      else
-        pre_merge_suite test pre-merge --shuffled-all "${members[@]}"
-      fi
+      pre_merge_suite test pre-merge --shuffled-all "${members[@]}"
       ;;
     stress)
       part=$(output_value stress.members "$plan")

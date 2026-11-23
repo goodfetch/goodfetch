@@ -4,6 +4,7 @@ import { typedBy, type TypedBy } from "../field-values.ts";
 import { defined, timeoutOf, type HandleHost, type Listener, type OpenedEvents, type Opens, type Subscription } from "../handle.ts";
 import { warnEntry, warnExperimental } from "../markers.ts";
 import { Handle } from "../raw-call.ts";
+import { Response } from "../response.ts";
 import { collieEvents } from "./events.ts";
 import type { CollieOperationTypes } from "./operations.ts";
 import { settingsOnWire, type PageSettings, type SessionSettings } from "./settings.ts";
@@ -443,9 +444,10 @@ export class Page extends Handle implements AsyncDisposable {
    *
    * @experimental
    */
-  async goBack(options: { readonly signal?: AbortSignal | undefined } = {}): Promise<NonNullable<types.Navigated["response"]> | null> {
+  async goBack(options: { readonly signal?: AbortSignal | undefined } = {}): Promise<Response | null> {
     warnExperimental("page.go_back");
-    return (await this.#host.call("page.go_back", { pageId: this.#host.id }, { signal: options.signal })).response ?? null;
+    const response = (await this.#host.call("page.go_back", { pageId: this.#host.id }, { signal: options.signal })).response ?? null;
+    return response === null ? null : new Response(this.#host, response);
   }
 
   /**
@@ -453,9 +455,10 @@ export class Page extends Handle implements AsyncDisposable {
    *
    * @experimental
    */
-  async goForward(options: { readonly signal?: AbortSignal | undefined } = {}): Promise<NonNullable<types.Navigated["response"]> | null> {
+  async goForward(options: { readonly signal?: AbortSignal | undefined } = {}): Promise<Response | null> {
     warnExperimental("page.go_forward");
-    return (await this.#host.call("page.go_forward", { pageId: this.#host.id }, { signal: options.signal })).response ?? null;
+    const response = (await this.#host.call("page.go_forward", { pageId: this.#host.id }, { signal: options.signal })).response ?? null;
+    return response === null ? null : new Response(this.#host, response);
   }
 
   /**
@@ -463,9 +466,10 @@ export class Page extends Handle implements AsyncDisposable {
    *
    * @experimental
    */
-  async goto(url: types.GotoParams["url"], options: { readonly timeout?: types.GotoParams["timeout"] | undefined; readonly waitUntil?: types.GotoParams["waitUntil"] | undefined; readonly signal?: AbortSignal | undefined } = {}): Promise<NonNullable<types.Navigated["response"]> | null> {
+  async goto(url: types.GotoParams["url"], options: { readonly timeout?: types.GotoParams["timeout"] | undefined; readonly waitUntil?: types.GotoParams["waitUntil"] | undefined; readonly signal?: AbortSignal | undefined } = {}): Promise<Response | null> {
     warnExperimental("page.goto");
-    return (await this.#host.call("page.goto", defined({ pageId: this.#host.id, url, timeout: timeoutOf(options.timeout, "timeout.navigation"), waitUntil: options.waitUntil }), { signal: options.signal, deadline: { key: "timeout.navigation", value: options.timeout } })).response ?? null;
+    const response = (await this.#host.call("page.goto", defined({ pageId: this.#host.id, url, timeout: timeoutOf(options.timeout, "timeout.navigation"), waitUntil: options.waitUntil }), { signal: options.signal, deadline: { key: "timeout.navigation", value: options.timeout } })).response ?? null;
+    return response === null ? null : new Response(this.#host, response);
   }
 
   /**
@@ -483,9 +487,10 @@ export class Page extends Handle implements AsyncDisposable {
    *
    * @experimental
    */
-  async reload(options: { readonly signal?: AbortSignal | undefined } = {}): Promise<NonNullable<types.Navigated["response"]> | null> {
+  async reload(options: { readonly signal?: AbortSignal | undefined } = {}): Promise<Response | null> {
     warnExperimental("page.reload");
-    return (await this.#host.call("page.reload", { pageId: this.#host.id }, { signal: options.signal })).response ?? null;
+    const response = (await this.#host.call("page.reload", { pageId: this.#host.id }, { signal: options.signal })).response ?? null;
+    return response === null ? null : new Response(this.#host, response);
   }
 
   /**
@@ -493,9 +498,9 @@ export class Page extends Handle implements AsyncDisposable {
    *
    * @experimental
    */
-  async request(url: types.PageRequestParams["url"], options: { readonly headers?: types.PageRequestParams["headers"] | undefined; readonly maxRedirects?: types.PageRequestParams["maxRedirects"] | undefined; readonly method?: types.PageRequestParams["method"] | undefined; readonly postData?: types.PageRequestParams["postData"] | undefined; readonly signal?: AbortSignal | undefined } = {}): Promise<types.PageResponse> {
+  async request(url: types.PageRequestParams["url"], options: { readonly headers?: types.PageRequestParams["headers"] | undefined; readonly maxRedirects?: types.PageRequestParams["maxRedirects"] | undefined; readonly method?: types.PageRequestParams["method"] | undefined; readonly postData?: types.PageRequestParams["postData"] | undefined; readonly signal?: AbortSignal | undefined } = {}): Promise<Response> {
     warnExperimental("page.request");
-    return this.#host.call("page.request", defined({ pageId: this.#host.id, url, headers: options.headers, maxRedirects: options.maxRedirects, method: options.method, postData: options.postData }), { signal: options.signal });
+    return new Response(this.#host, await this.#host.call("page.request", defined({ pageId: this.#host.id, url, headers: options.headers, maxRedirects: options.maxRedirects, method: options.method, postData: options.postData }), { signal: options.signal }));
   }
 
   /**

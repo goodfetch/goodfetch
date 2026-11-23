@@ -139,10 +139,12 @@ pub(crate) fn entries(form: Form) -> Vec<Entry> {
     entries
 }
 
-/// Whether `form` runs `step`.
+/// Whether `form` runs `step`. The full forms run no step another one's
+/// units cover ([`Step::covered_by`]): the Pre-merge suite holds every
+/// Quick test, so the Quick suite runs only in the quick form.
 const fn runs_in(step: Step, form: Form) -> bool {
     match form {
-        Form::All | Form::Changed => true,
+        Form::All | Form::Changed => step.covered_by().is_none(),
         Form::Quick => {
             step.judges_the_whole_change()
                 || matches!(step, Step::Lint | Step::Quick | Step::JourneysTasks)

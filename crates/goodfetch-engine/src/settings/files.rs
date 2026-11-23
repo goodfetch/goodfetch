@@ -29,7 +29,7 @@ use goodfetch_protocol::formats::{
     Compatibility, Format, OPERATOR_POLICY, Rule, USER_CONFIGURATION,
 };
 use goodfetch_protocol::home::{OPERATOR_POLICY_FILE, USER_CONFIGURATION_FILE};
-use goodfetch_protocol::settings::{SettingsFile, SettingsLayer};
+use goodfetch_protocol::settings::{PROJECT_CONFIGURATION_FILE, SettingsFile, SettingsLayer};
 use serde_json::{Map, Number, Value};
 use sha2::{Digest as _, Sha256};
 use toml_edit::{DocumentMut, Item};
@@ -44,9 +44,6 @@ use crate::lowest_minor::{Marker, Opener};
 /// The key beside `version` that records a shared settings file's lowest
 /// minor (ADR 0098).
 pub const LOWEST_MINOR_KEY: &str = "lowest_minor";
-
-/// A project configuration's file, found in a folder or above it.
-pub const PROJECT_CONFIGURATION_FILE: &str = "goodfetch.toml";
 
 /// Where one major's Operator policy and user configuration are.
 #[derive(Clone, Debug, PartialEq, Eq)]

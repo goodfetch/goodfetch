@@ -50,6 +50,15 @@ export const DEPLOYMENT_VARIABLES = [
   "GOODFETCH_URL",
 ] as const;
 
+/** The project configuration's file `connect()` reads, found in the working directory or the nearest folder above it (ADR 0083). */
+export const PROJECT_FILE = "goodfetch.toml";
+
+/** The format a project configuration's file is written in, which an unreadable version names (ADR 0030). */
+export const PROJECT_FORMAT = "user-configuration";
+
+/** The version `major.minor` of that format this package reads (ADR 0030). */
+export const PROJECT_FORMAT_VERSION = "0.1";
+
 /** The variable naming Collie's executable (ADR 0090). */
 export const COLLIE_ENGINE_PATH_VARIABLE = "GOODFETCH_COLLIE_ENGINE_PATH";
 

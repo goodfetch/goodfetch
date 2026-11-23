@@ -61,13 +61,16 @@ pub(super) fn answered(
 }
 
 /// What a member's body returns, beside how it calls: the result's model,
-/// the annotation it returns, and the one property it answers in place of
-/// the result, if any.
+/// the annotation it returns, the one property it answers in place of
+/// the result, if any, and the hand-written `Response` class that wraps a
+/// page's response with the page's host, for a member that answers one
+/// (`Member::responds`).
 #[derive(Clone, Copy)]
 pub(super) struct Returned<'text> {
     pub(super) result: &'text str,
     pub(super) returns: &'text str,
     pub(super) property: Option<&'text str>,
+    pub(super) response: Option<&'text str>,
 }
 
 /// The last lines of `member`'s body, which send `sent` and return what
@@ -82,14 +85,24 @@ pub(super) fn returned(
         result,
         returns,
         property,
+        response,
     } = returned;
     let call = host_call(member, awaits, sent);
     match &member.form {
         Form::RoundTrip | Form::Query | Form::Waiter => {
-            let property = property
-                .map(|property| format!(".{property}"))
-                .unwrap_or_default();
-            format!("        return result_of({result}, {call}){property}\n")
+            let answer = format!(
+                "result_of({result}, {call}){}",
+                property
+                    .map(|property| format!(".{property}"))
+                    .unwrap_or_default()
+            );
+            match response {
+                None => format!("        return {answer}\n"),
+                Some(class) if returns.ends_with("None") => format!(
+                    "        response = {answer}\n        return None if response is None else {class}(self._host, response)\n"
+                ),
+                Some(class) => format!("        return {class}(self._host, {answer})\n"),
+            }
         }
         Form::Opens(opened) => format!(
             "        opened = result_of({result}, {call})\n        return {returns}(self._host.child(opened.{opened}_id))\n"

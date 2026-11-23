@@ -4,8 +4,9 @@
 Pydantic model and one by a JSON Schema written by hand, and a handler's
 `ctx.request.payload` takes the Label's Payload type. An `AsyncCrawl`
 takes `async def` handlers and a `Crawl` plain functions; a handler of
-another Payload, a handler of the other kind and a misspelled or string
-Label are each refused. mypy's `--strict` reports an ignore that no longer
+another Payload, a handler of the other kind, a misspelled or string
+Label and a crawl started on the Connection of the other API are each
+refused. mypy's `--strict` reports an ignore that no longer
 silences an error. TypeScript's `payloads.test-d.ts` of Foxhound's package
 is its twin.
 """
@@ -14,14 +15,18 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, assert_type
 
+from goodfetch_foxhound import CrawlRun, seed
+
 if TYPE_CHECKING:
     from goodfetch_collie_client.json_values import JSONObject
     from goodfetch_foxhound import (
         AsyncCrawl,
         AsyncCrawlContext,
+        AsyncFoxhound,
         Crawl,
         CrawlContext,
         Dataset,
+        Foxhound,
         Label,
     )
     from pydantic import BaseModel
@@ -104,6 +109,22 @@ def refuses_a_handler_of_the_other_kind(
         del ctx
 
     del plain, coroutine
+
+
+def refuses_an_async_crawl_on_the_sync_api(
+    foxhound: Foxhound, async_crawl: AsyncCrawl, crawl: Crawl, label: Label[None]
+) -> None:
+    """`Foxhound` starts a `Crawl`, whose Run is a `CrawlRun`, and no `AsyncCrawl`."""
+    seeds = [seed("https://shop.test/", label)]
+    assert_type(foxhound.start_crawl(crawl, seeds=seeds), CrawlRun)
+    foxhound.start_crawl(async_crawl, seeds=seeds)  # type: ignore[arg-type]
+
+
+async def refuses_a_sync_crawl_on_the_async_api(
+    foxhound: AsyncFoxhound, crawl: Crawl, label: Label[None]
+) -> None:
+    """`AsyncFoxhound` starts an `AsyncCrawl` alone."""
+    await foxhound.start_crawl(crawl, seeds=[seed("https://shop.test/", label)])  # type: ignore[arg-type]
 
 
 def refuses_a_misspelled_or_string_label(crawl: AsyncCrawl) -> None:

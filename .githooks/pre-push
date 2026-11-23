@@ -27,12 +27,16 @@
 # in the gate's records, so neither this hook nor `just merge` judges one of
 # them again; a reworded commit is another commit, and is judged.
 #
-# A push of a branch the hosted tier serves, a batch's or a spec's (`batch/…`,
-# `spec/<n>`) with an open pull request to `main` while the pull-request
-# workflow is active, judges its commits alone: the hosted run the push
-# starts runs the Quick suite, and `just merge` waits for it (ADR 0135's
-# amendment of 2026-11-22). When GitHub cannot say, the hook keeps the rule
-# above.
+# A push to `spec/<n>`, a run's ticket, runs no `just quick`: the batch that
+# holds the spec's pull request runs it once on the combined tree (`just
+# batch-check`; TESTING.md, Checks by role, the owner's decision of
+# 2026-11-23). Its commits are judged all the same.
+#
+# A push of a batch's branch (`batch/…`) with an open pull request to `main`
+# while the pull-request workflow is active, which the hosted tier serves,
+# judges its commits alone too: the hosted run the push starts runs the Quick
+# suite, and `just merge` waits for it (ADR 0135's amendment of 2026-11-22).
+# When GitHub cannot say, the hook keeps the rule above.
 set -euo pipefail
 # git gives this hook the push's GIT_DIR (a linked worktree's), and a build
 # script's `git init` under `just quick` (btls-sys's) would then reinitialize
@@ -46,10 +50,11 @@ own=${GOODFETCH_QUICK_BASE:-$(branch_base)}
 base=""
 due=0
 pushed=""
-# Whether the hosted tier serves the remote ref `$1`, as GitHub says it.
+# Whether the hosted tier serves the remote ref `$1`, a batch's branch, as
+# GitHub says it.
 served() {
   local branch=${1#refs/heads/} open state
-  [[ $branch =~ ^(batch/.+|spec/[0-9]+)$ ]] || return 1
+  [[ $branch =~ ^batch/.+$ ]] || return 1
   open=$(gh pr list --head "$branch" --base main --state open --json number --jq length </dev/null 2>/dev/null) || return 1
   [[ $open =~ ^[1-9][0-9]*$ ]] || return 1
   state=$(gh api 'repos/{owner}/{repo}/actions/workflows/pull-request.yml' --jq .state </dev/null 2>/dev/null) || return 1
@@ -59,6 +64,10 @@ while read -r _local_ref local_oid remote_ref remote_oid; do
   # A deletion pushes no tree.
   [[ $local_oid =~ ^0+$ ]] && continue
   pushed="$pushed $local_oid"
+  if [[ $remote_ref == refs/heads/spec/* ]]; then
+    echo "pre-push: a push to ${remote_ref#refs/heads/} runs no \`just quick\`: its batch's \`just batch-check\` runs it on the combined tree."
+    continue
+  fi
   if served "$remote_ref"; then
     echo "pre-push: ${remote_ref#refs/heads/} has an open pull request to main that the hosted tier serves, so its hosted run runs the Quick suite and the hook judges the commits alone."
     continue

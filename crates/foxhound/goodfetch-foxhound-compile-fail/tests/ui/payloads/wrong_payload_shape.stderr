@@ -14,7 +14,7 @@ help: the return type of this call is `&'static str` due to the type of the argu
    |                                                        |
    |                                                        this argument influences the return type of `enqueue`
 note: method defined here
-  --> src/crawl/context.rs
+  --> $WORKSPACE/crates/foxhound/goodfetch-foxhound/src/crawl/context.rs
    |
    |     pub fn enqueue<Q: Serialize + DeserializeOwned>(
    |            ^^^^^^^
@@ -28,7 +28,7 @@ error[E0308]: mismatched types
   |        arguments to this function are incorrect
   |
 note: associated function defined here
- --> src/crawl/handles.rs
+ --> $WORKSPACE/crates/foxhound/goodfetch-foxhound/src/crawl/handles.rs
   |
   |     pub fn new<P: Serialize + DeserializeOwned>(
   |            ^^^

@@ -6,3 +6,7 @@ members = ["crates/*", "crates/foxhound/*"]
 version = "0.0.0"
 edition = "2024"
 publish = false
+
+[workspace.dependencies]
+goodfetch-collie-client = { path = "crates/goodfetch-collie-client", version = "=0.0.0" }
+goodfetch-engine = { path = "crates/goodfetch-engine" }

@@ -20,6 +20,8 @@
 
 mod journal;
 pub mod lifecycle;
+#[cfg(test)]
+mod tests;
 
 pub use journal::{Report, TABLES};
 
@@ -93,6 +95,37 @@ impl Book {
                 .iter()
                 .all(|answered| !answered.owner.is_alive())
     }
+
+    /// Marks every body as being judged by its Run's end, which then
+    /// writes their judgement with the book unlocked, and gives their
+    /// entries. A body already marked is marked again: an end whose write
+    /// was dropped left it for the next end to judge.
+    fn judging(&mut self) -> Vec<i64> {
+        self.bodies
+            .iter_mut()
+            .map(|body| {
+                body.judging = true;
+                body.entry
+            })
+            .collect()
+    }
+
+    /// Where the body of `entry` runs, unless its Run's end is judging it,
+    /// which leaves its row to that judgement.
+    fn running(&self, entry: i64) -> Option<usize> {
+        self.bodies
+            .iter()
+            .position(|body| body.entry == entry && !body.judging)
+    }
+
+    /// Takes out the bodies of `entries`, whose judgement was written.
+    fn judged(&mut self, entries: &[i64]) -> Vec<Body> {
+        let (judged, kept) = std::mem::take(&mut self.bodies)
+            .into_iter()
+            .partition(|body| entries.contains(&body.entry));
+        self.bodies = kept;
+        judged
+    }
 }
 
 /// A body that runs.
@@ -104,6 +137,8 @@ struct Body {
     /// The first command sent for it, and when, once one was.
     sent: Option<(String, SystemTime)>,
     owner: Owner,
+    /// Whether its Run's end is judging it, cut short.
+    judging: bool,
 }
 
 impl Body {
@@ -289,6 +324,7 @@ impl Effects {
                     repeatable,
                     sent: None,
                     owner,
+                    judging: false,
                 });
                 return Ok(EffectOpened::Perform {
                     entry: entry.to_string(),
@@ -334,7 +370,7 @@ impl Effects {
         let run = live(&run_id, context).await?;
         let run_shelf = self.shelf(&run_id).await;
         let mut book = run_shelf.book.lock().await;
-        let Some(at) = book.bodies.iter().position(|body| body.entry == number) else {
+        let Some(at) = book.running(number) else {
             drop(book);
             return closed_before(&run, &entry, number, context).await;
         };
@@ -484,25 +520,26 @@ impl Effects {
                 () = &mut deadline => break,
             }
         }
-        let mut book = run_shelf.book.lock().await;
-        if book.bodies.is_empty() {
+        // Marked under the lock, judged with it released: a late
+        // `effect.close` leaves a marked body to this judgement, and a wait
+        // dropped during the write leaves them in the book for the Run's
+        // end to judge again.
+        let entries = run_shelf.book.lock().await.judging();
+        if entries.is_empty() {
             return;
         }
-        let entries: Vec<i64> = book.bodies.iter().map(|body| body.entry).collect();
+        let written = entries.clone();
         if let Err(error) = run
             .state()
-            .write(move |connection| interrupted(connection, &entries))
+            .write(move |connection| interrupted(connection, &written))
             .await
         {
             tracing::warn!(%error, run_id = %run.id(), "the Effects still running at the Run's end were not judged: their next declaration judges them");
         }
-        // Taken once judged, so a wait dropped during the write leaves
-        // them in the book for the Run's end to judge.
-        let cut = std::mem::take(&mut book.bodies);
+        let cut = run_shelf.book.lock().await.judged(&entries);
         for body in &cut {
             body.owner.end_effect();
         }
-        drop(book);
         run_shelf.judged.notify_waiters();
     }
 

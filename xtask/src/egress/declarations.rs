@@ -17,11 +17,13 @@ const CANARY: &str = "ci/egress/egress.sh canary";
 const CHECK: &str = "ci/egress/egress.sh check";
 
 /// What a test step after the deny runs its command through, so the command
-/// runs where the deny applies: the job's VM on the owner's machine, or, on a
-/// runner's own system, the deny's network namespace.
-const UNDER_DENY: [&str; 3] = [
+/// runs where the deny applies: the job's VM on the owner's machine, the
+/// hosted tier's container on a standard hosted runner, or, on a runner's own
+/// system, the deny's network namespace.
+const UNDER_DENY: [&str; 4] = [
     "ci/vm/exec.sh ",
     "ci/vm/visual.sh ",
+    "ci/hosted/exec.sh ",
     "ci/egress/under-deny.sh ",
 ];
 

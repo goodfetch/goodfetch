@@ -109,31 +109,83 @@ pub(super) fn previous(
     })
 }
 
+/// The hosted runs' records under `folder`, as `ci/hosted-records.sh` lays
+/// them out, one folder a job's artifact, each `<head>.tsv` a run of its own:
+/// those whose head is `tip` or one of its ancestors, the fewest commits from
+/// it first. Each job records the units it ran beside those its plan carried,
+/// so no record is merged with another.
+pub(super) fn hosted(root: &Path, folder: &Path, tip: &str) -> Result<Vec<GateRun>> {
+    let mut files = Vec::new();
+    let mut folders = vec![folder.to_path_buf()];
+    while let Some(folder) = folders.pop() {
+        if !folder.is_dir() {
+            continue;
+        }
+        for entry in
+            std::fs::read_dir(&folder).with_context(|| format!("reading {}", folder.display()))?
+        {
+            let path = entry
+                .with_context(|| format!("reading {}", folder.display()))?
+                .path();
+            if path.is_dir() {
+                folders.push(path);
+            } else if path.extension().is_some_and(|extension| extension == "tsv")
+                && let Some(head) = path.file_stem().and_then(|stem| stem.to_str())
+            {
+                files.push((head.to_owned(), path));
+            }
+        }
+    }
+    files.sort();
+    let mut runs = Vec::new();
+    for (head, path) in files {
+        let Some(distance) = distance(root, &head, tip)? else {
+            continue;
+        };
+        let text = std::fs::read_to_string(&path)
+            .with_context(|| format!("reading {}", path.display()))?;
+        let run =
+            runs::parse(&head, &text).with_context(|| format!("reading {}", path.display()))?;
+        runs.push((distance, run));
+    }
+    runs.sort_by_key(|(distance, _)| *distance);
+    Ok(runs.into_iter().map(|(_, run)| run).collect())
+}
+
+/// How many commits `tip` is from `candidate`, when `candidate` is `tip` or
+/// one of its ancestors; none for any other commit, or one this clone lacks.
+fn distance(root: &Path, candidate: &str, tip: &str) -> Result<Option<u64>> {
+    let ancestor = git::succeeds(
+        root,
+        &[
+            "merge-base",
+            "--is-ancestor",
+            "--end-of-options",
+            candidate,
+            tip,
+        ],
+    )?;
+    if !ancestor {
+        return Ok(None);
+    }
+    Ok(Some(
+        git::line(
+            root,
+            &["rev-list", "--count", &format!("{candidate}..{tip}")],
+        )?
+        .parse()
+        .context("reading git rev-list's count")?,
+    ))
+}
+
 /// The heads with a record that are `tip` or one of its ancestors, the fewest
 /// commits from it first.
 fn recorded_ancestors(root: &Path, records: &Path, tip: &str) -> Result<Vec<String>> {
     let mut ancestors = Vec::new();
     for candidate in runs::heads(records)? {
-        let ancestor = git::succeeds(
-            root,
-            &[
-                "merge-base",
-                "--is-ancestor",
-                "--end-of-options",
-                &candidate,
-                tip,
-            ],
-        )?;
-        if !ancestor {
-            continue;
+        if let Some(distance) = distance(root, &candidate, tip)? {
+            ancestors.push((distance, candidate));
         }
-        let distance: u64 = git::line(
-            root,
-            &["rev-list", "--count", &format!("{candidate}..{tip}")],
-        )?
-        .parse()
-        .context("reading git rev-list's count")?;
-        ancestors.push((distance, candidate));
     }
     ancestors.sort();
     Ok(ancestors.into_iter().map(|(_, head)| head).collect())

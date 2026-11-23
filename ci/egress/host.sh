@@ -15,17 +15,28 @@ JOB_LINK=gf-egress-job
 HOST_ADDRESS=10.203.0.1
 JOB_ADDRESS=10.203.0.2
 
-# The owner's machine's pull-request jobs run in a Lima VM (ADR 0135); the
-# Release suite's macOS cells run on macOS itself (ADR 0108).
+# The owner's machine's jobs run in a Lima VM (ADR 0135); the hosted tier's
+# pull-request jobs in a container on a standard hosted Linux runner (ADR
+# 0135's amendment of 2026-11-22); the Release suite's macOS cells on macOS
+# itself (ADR 0108).
 if [[ "$(uname -s)" == Darwin ]]; then
   # shellcheck source=ci/vm/common.sh
   source "$host_root/ci/vm/common.sh"
+else
+  # shellcheck source=ci/hosted/common.sh
+  source "$host_root/ci/hosted/common.sh"
 fi
 
-# vm, namespace or windows.
+# vm, container, namespace or windows.
 deny_backend() {
   case "${RUNNER_OS:-$(uname -s)}" in
-    Linux) echo namespace ;;
+    Linux)
+      if hosted_container_running; then
+        echo container
+      else
+        echo namespace
+      fi
+      ;;
     Windows | MINGW* | MSYS*) echo windows ;;
     macOS | Darwin)
       if command -v limactl >/dev/null && limactl list --quiet 2>/dev/null | grep -qx "$VM_NAME"; then

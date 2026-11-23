@@ -89,10 +89,12 @@ pub(crate) fn run(command: Command, environment: &Environment) -> Result<ExitCod
     }
 }
 
-/// The setup step, run on a runner's own system or in the job's container.
-const SETUP: [&str; 2] = [
+/// The setup step, run on a runner's own system, in the owner's machine's VM,
+/// or in a hosted job's container.
+const SETUP: [&str; 3] = [
     "ci/os-services.sh setup",
     "ci/vm/exec.sh ci/os-services.sh setup",
+    "ci/hosted/exec.sh ci/os-services.sh setup",
 ];
 
 /// Every job with a test step sets the services up before its first one, and

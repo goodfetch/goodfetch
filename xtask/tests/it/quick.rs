@@ -782,6 +782,65 @@ fn a_push_of_another_tree_runs_quick_against_the_commit_the_remote_ref_holds() {
     assert_eq!(layer.trim(), "pre-push");
 }
 
+/// A push of a batch's branch with an open pull request to `main`, while the
+/// pull-request workflow is active, judges its commits and runs no `just
+/// quick`: the hosted run the push starts runs the Quick suite (ADR 0135's
+/// amendment of 2026-11-22). Without the pull request, with the workflow off,
+/// or when GitHub cannot say, `just quick` runs as before.
+#[rstest]
+#[case::served("1", "active", false)]
+#[case::without_a_pull_request("0", "active", true)]
+#[case::with_the_workflow_off("1", "disabled_manually", true)]
+#[case::when_github_cannot_say("", "", true)]
+fn a_push_of_a_branch_the_hosted_tier_serves_judges_its_commits_alone(
+    #[case] open: &str,
+    #[case] state: &str,
+    #[case] quick: bool,
+) {
+    let workspace = Workspace::from_fixture("empty");
+    let stand_in = hook_stand_in(&workspace);
+    let gh = format!(
+        "#!/bin/sh\necho \"$*\" >>\"{asked}\"\n\
+         case \"$1 $2\" in\n\
+           'pr list') [ -n '{open}' ] || exit 1; echo '{open}' ;;\n\
+           'api repos/{{owner}}/{{repo}}/actions/workflows/pull-request.yml') [ -n '{state}' ] || exit 1; echo '{state}' ;;\n\
+         esac\n",
+        asked = stand_in.join("gh-calls").display(),
+    );
+    let path = stand_in.join("gh");
+    std::fs::write(&path, gh).unwrap();
+    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let (first, head) = two_commits(&workspace);
+    let branch = "batch/2026-11-23a";
+
+    let run = pre_push(
+        &workspace,
+        &stand_in,
+        &format!("refs/heads/{branch} {head} refs/heads/{branch} {first}\n"),
+    );
+
+    assert_eq!(run.code, Some(0), "{}", run.stderr);
+    let mut calls = commit_checks(&head).to_vec();
+    if quick {
+        calls.push(format!("quick base={first}"));
+    }
+    assert_eq!(run.calls, calls);
+    let asked = std::fs::read_to_string(stand_in.join("gh-calls")).unwrap();
+    assert!(
+        asked.starts_with(&format!(
+            "pr list --head {branch} --base main --state open --json number --jq length\n"
+        )),
+        "{asked}"
+    );
+    assert_eq!(
+        run.stdout
+            .contains("the hosted tier serves, so its hosted run runs the Quick suite"),
+        !quick,
+        "{}",
+        run.stdout
+    );
+}
+
 /// A repository whose `ticket` branch, off `main` with no upstream, added a
 /// document and was pushed; `origin/main` then gained a code change, which
 /// `main` holds too. Returns the pushed commit.

@@ -35,4 +35,8 @@ case "$backend" in
     echo "error: in the job's VM, run the step through ci/vm/exec.sh" >&2
     exit 2
     ;;
+  container)
+    echo "error: in the hosted tier's container, run the step through ci/hosted/exec.sh" >&2
+    exit 2
+    ;;
 esac

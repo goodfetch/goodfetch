@@ -173,7 +173,7 @@ lint:
     step zizmor 'ci/tool.sh zizmor zizmor --config zizmor.yml --persona=regular .github/workflows .github/actions'
     step actionlint 'ci/tool.sh actionlint actionlint'
     step gitleaks 'ci/tool.sh gitleaks ci/canary-rule.sh'
-    step shellcheck 'ci/tool.sh shellcheck shellcheck ci/*.sh ci/compiler-cache/sccache ci/deny/*.sh ci/egress/*.sh ci/host/*.sh ci/musl/*.sh ci/musl/cargo ci/musl/link-cc ci/musl/stable-metadata/sccache ci/release/*.sh ci/results/*.sh ci/runner/*.sh ci/test-health/*.sh ci/vm/*.sh ci/visual/*.sh ci/proofs/run.sh ci/proofs/live.sh kennel/scripts/*.sh .githooks/pre-commit .githooks/pre-push'
+    step shellcheck 'ci/tool.sh shellcheck shellcheck ci/*.sh ci/compiler-cache/sccache ci/deny/*.sh ci/egress/*.sh ci/host/*.sh ci/hosted/*.sh ci/musl/*.sh ci/musl/cargo ci/musl/link-cc ci/musl/stable-metadata/sccache ci/release/*.sh ci/results/*.sh ci/runner/*.sh ci/test-health/*.sh ci/vm/*.sh ci/visual/*.sh ci/proofs/run.sh ci/proofs/live.sh kennel/scripts/*.sh .githooks/pre-commit .githooks/pre-push'
     step cargo-deny 'ci/tool.sh cargo-deny cargo deny check -A unused-wrapper -A license-not-encountered bans licenses sources'
     step cargo-deny-products 'ci/tool.sh cargo-deny ci/deny/products.sh'
     # The Collie client crate, which takes no OpenTelemetry crate: the
@@ -2126,23 +2126,15 @@ _gate-steps form:
 # what the TypeScript tests read, load each test file, which reads only the
 # keys of the test tool manifest: an empty one serves. Before it reuses a
 # green lint on the same tree, the plan reads each quarantined test's issue
-# again, as lint's quarantine check does, with the same token.
-_gate-plan:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    records=$(ci/gate-records.sh)
-    mkdir -p target "$records"
-    echo '{}' >target/gate-listing-tools.json
-    # The variables that change what the steps run or how join the host
-    # fingerprint (ci/gate-variables.sh).
-    variables=$(ci/gate-variables.sh)
-    # With a GitHub token in the run's environment, lint's zizmor also runs
-    # its online audits, which read GitHub: such a lint is never reused.
-    zizmor_token="${GH_TOKEN:-}${GITHUB_TOKEN:-}${ZIZMOR_GITHUB_TOKEN:-}"
-    GITHUB_TOKEN="${GITHUB_TOKEN:-$(gh auth token 2>/dev/null || true)}" \
-      GOODFETCH_TEST_SUITE=pre-merge GOODFETCH_TEST_TOOLS="$PWD/target/gate-listing-tools.json" \
-      cargo run --quiet --bin xtask -- gate plan --records "$records" --now "$(date +%s)" \
-      --environment "$variables" ${GOODFETCH_GATE_FULL:+--full} ${zizmor_token:+--zizmor-online}
+# again, as lint's quarantine check does, with the same token. The plan is
+# of the form `form` of `just pre-merge`, by the layer `layer`; the hosted
+# runs' records `just merge` or a hosted job downloaded
+# (GOODFETCH_GATE_HOSTED_RECORDS, ci/hosted-records.sh) count for the
+# hosted-owned steps when they name the repository GOODFETCH_GATE_REPOSITORY
+# names; a hosted job's fingerprint names its runner image
+# (GOODFETCH_GATE_RUNNER_IMAGE).
+_gate-plan form="all" layer="merge":
+    ci/gate-plan.sh {{ form }} {{ layer }}
 
 # Records a gate step's result (`pass` or `fail`) for the head the plan was
 # made for, which must still be checked out on a clean tree (ADR 0135), by

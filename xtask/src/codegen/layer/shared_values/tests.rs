@@ -2,16 +2,9 @@
 //! of the definitions and the layer's values.
 
 use goodfetch_protocol::catalog::Product;
-use serde_json::{Map, Value, json};
+use serde_json::{Value, json};
 
 use super::{SharedTypeValue, is_value_union, with_own_values};
-
-fn definitions(value: Value) -> Map<String, Value> {
-    match value {
-        Value::Object(definitions) => definitions,
-        _ => unreachable!("the definitions are an object"),
-    }
-}
 
 fn value(shared_type: &str, name: &str) -> SharedTypeValue {
     SharedTypeValue {
@@ -28,13 +21,15 @@ fn value(shared_type: &str, name: &str) -> SharedTypeValue {
 #[test]
 fn a_shared_value_union_keeps_the_layers_values_alone() {
     let cause = |name: &str| json!({ "const": name, "type": "string", "description": name });
-    let mut input = definitions(json!({
+    let Value::Object(mut input) = json!({
         "BlockCause": { "oneOf": [cause("captcha"), cause("decoy"), cause("ip_block")] },
         "LimitScope": {
             "oneOf": [{ "type": "object", "properties": { "kind": { "const": "crawl" } } }],
         },
         "Claim": { "oneOf": [cause("done"), cause("gave_up")] },
-    }));
+    }) else {
+        unreachable!("the definitions are an object")
+    };
     let unchanged = input.clone();
 
     with_own_values(

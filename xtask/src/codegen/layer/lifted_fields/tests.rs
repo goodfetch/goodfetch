@@ -1,16 +1,9 @@
 //! Each details type without the fields the SDKs take out of an error's
 //! data, as a function of the definitions.
 
-use serde_json::{Map, Value, json};
+use serde_json::{Value, json};
 
 use super::without_lifted_fields;
-
-fn definitions(value: Value) -> Map<String, Value> {
-    match value {
-        Value::Object(definitions) => definitions,
-        _ => unreachable!("the definitions are an object"),
-    }
-}
 
 /// A field the SDKs take out, by its name and shape, leaves the type's
 /// fields and those it requires, in the type and in each of its members,
@@ -18,7 +11,7 @@ fn definitions(value: Value) -> Map<String, Value> {
 /// another shape stays, as do the type's other fields and other types.
 #[test]
 fn a_details_type_loses_each_field_the_sdks_take_out_of_the_errors_data() {
-    let mut input = definitions(json!({
+    let Value::Object(mut input) = json!({
         "SettingLimit": {
             "type": "object",
             "properties": {
@@ -70,7 +63,9 @@ fn a_details_type_loses_each_field_the_sdks_take_out_of_the_errors_data() {
             "properties": { "url": { "type": "string" } },
             "required": ["url"],
         },
-    }));
+    }) else {
+        unreachable!("the definitions are an object")
+    };
 
     without_lifted_fields(&mut input, ["FetchDetails", "BytesDetails"]).unwrap();
 
@@ -100,7 +95,7 @@ fn a_details_type_loses_each_field_the_sdks_take_out_of_the_errors_data() {
 /// with a field the SDKs take out is refused rather than changed for both.
 #[test]
 fn a_details_type_another_type_holds_is_refused_when_it_loses_a_field() {
-    let mut input = definitions(json!({
+    let Value::Object(mut input) = json!({
         "StopDetails": {
             "type": "object",
             "properties": { "fix": { "type": "string" } },
@@ -109,7 +104,9 @@ fn a_details_type_another_type_holds_is_refused_when_it_loses_a_field() {
             "type": "object",
             "properties": { "details": { "$ref": "#/$defs/StopDetails" } },
         },
-    }));
+    }) else {
+        unreachable!("the definitions are an object")
+    };
 
     let refused = without_lifted_fields(&mut input, ["StopDetails"])
         .unwrap_err()
@@ -122,14 +119,16 @@ fn a_details_type_another_type_holds_is_refused_when_it_loses_a_field() {
 /// that is text or a number, is refused: its type would be wrong for one.
 #[test]
 fn a_field_taken_out_for_some_values_only_is_refused() {
-    let mut input = definitions(json!({
+    let Value::Object(mut input) = json!({
         "OddDetails": {
             "type": "object",
             "properties": {
                 "url": { "anyOf": [{ "type": "string" }, { "type": "integer" }] },
             },
         },
-    }));
+    }) else {
+        unreachable!("the definitions are an object")
+    };
 
     let refused = without_lifted_fields(&mut input, ["OddDetails"])
         .unwrap_err()

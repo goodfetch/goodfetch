@@ -39,6 +39,10 @@ const LIFTED: &[(&str, Shape)] = &[
     ("agent_task", Shape::Object),
 ];
 
+/// Why a field is refused when its value has the lifted shape for some of
+/// its values and not for others.
+const PARTLY_LIFTED: &str = "is taken out of the error's data for some of its values only";
+
 /// `definitions` with each of `details`, the codes' details types, without
 /// the fields the SDKs take out of an error's data, in the type and in each
 /// of its members, out of its fields and those it requires. A field taken
@@ -146,8 +150,7 @@ fn has_shape(
 ) -> Result<bool, String> {
     let schema = resolved(schema, definitions);
     let alternatives = schema
-        .get("anyOf")
-        .or_else(|| schema.get("oneOf"))
+        .get(members_key(schema))
         .and_then(Value::as_array)
         .filter(|_| schema.get("properties").is_none());
     if let Some(alternatives) = alternatives {
@@ -160,9 +163,7 @@ fn has_shape(
         };
         for answer in answers {
             if answer? != first {
-                return Err(
-                    "is taken out of the error's data for some of its values only".to_owned(),
-                );
+                return Err(PARTLY_LIFTED.to_owned());
             }
         }
         return Ok(first);
@@ -179,9 +180,7 @@ fn has_shape(
                 [kind] => Some(*kind),
                 [] => None,
                 _ if kinds.contains(&expected(shape)) => {
-                    return Err(
-                        "is taken out of the error's data for some of its values only".to_owned(),
-                    );
+                    return Err(PARTLY_LIFTED.to_owned());
                 }
                 _ => None,
             }

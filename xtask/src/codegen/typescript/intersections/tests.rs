@@ -42,48 +42,29 @@ fn a_type_with_fields_beside_its_members_becomes_their_intersection() {
             },
         },
     });
-    let referred_to = ["Outcome", "Ended"].map(|name| (name, input["$defs"][name].clone()));
+    let mut expected = input.clone();
+    expected["$defs"]["DownloadDetails"] = json!({
+        "description": "What a download's failure details.",
+        "open": true,
+        "allOf": [
+            {
+                "type": "object",
+                "properties": { "host": { "type": "string" } },
+                "required": ["host"],
+            },
+            {
+                "oneOf": [
+                    {
+                        "type": "object",
+                        "properties": { "failure": { "const": "network", "type": "string" } },
+                        "required": ["failure"],
+                    },
+                ],
+            },
+        ],
+    });
 
     fields_beside_members_as_intersections(&mut input);
 
-    for (name, schema) in referred_to {
-        assert_eq!(input["$defs"][name], schema, "{name}");
-        input["$defs"]
-            .as_object_mut()
-            .expect("the definitions are an object")
-            .remove(name);
-    }
-    assert_eq!(
-        input,
-        json!({
-            "$defs": {
-                "DownloadDetails": {
-                    "description": "What a download's failure details.",
-                    "open": true,
-                    "allOf": [
-                        {
-                            "type": "object",
-                            "properties": { "host": { "type": "string" } },
-                            "required": ["host"],
-                        },
-                        {
-                            "oneOf": [
-                                {
-                                    "type": "object",
-                                    "properties": {
-                                        "failure": { "const": "network", "type": "string" },
-                                    },
-                                    "required": ["failure"],
-                                },
-                            ],
-                        },
-                    ],
-                },
-                "Plain": {
-                    "type": "object",
-                    "properties": { "host": { "type": "string" } },
-                },
-            },
-        })
-    );
+    assert_eq!(input, expected);
 }

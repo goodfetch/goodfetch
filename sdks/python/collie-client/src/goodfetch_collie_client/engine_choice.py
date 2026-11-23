@@ -183,14 +183,14 @@ async def reach_engine(
     if isinstance(choice, RemoteDaemon):
         return await _reach_remote(choice, "engine", deadline)
     if choice == "attached":
-        return AttachedReach(_home_of(env))
+        return AttachedReach(home_of(env))
     if choice == "daemon":
         return await _reach_daemon(env, executable)
     if choice == "auto":
         remote = _remote_of_environment(env)
         if remote is not None:
             return await _reach_remote(remote, URL_VARIABLE, deadline)
-        home = _home_of(env)
+        home = home_of(env)
         daemon = None if home is None else await _running_daemon(home)
         return AttachedReach(home) if daemon is None else daemon
     # A caller without a type checker may pass anything.
@@ -399,7 +399,7 @@ async def _reach_daemon(
     Raises:
         DaemonUnreachableError: It cannot be started or reached.
     """
-    home = _home_of(env)
+    home = home_of(env)
     if home is None:
         raise _unreachable(
             "No Goodfetch home names where the Daemon is found",
@@ -656,12 +656,13 @@ def _unopened() -> DaemonUnreachableError:
     )
 
 
-def _home_of(env: Mapping[str, str]) -> str | None:
+def home_of(env: Mapping[str, str]) -> str | None:
     """The Goodfetch home.
 
     `GOODFETCH_HOME` when it is set, else the `goodfetch` folder of the OS's
     usual data folder, as the engine finds it (`dirs`'s `data_dir`); `None`
-    when the environment names no home folder.
+    when the environment names no home folder. The testing kit finds its
+    caller's Browser cache with it.
     """
     named = _variable(env, HOME_VARIABLE)
     if named is not None:

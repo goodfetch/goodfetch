@@ -172,7 +172,10 @@ pub use hostile::{
 /// insta, for [`assert_cli_snapshot!`], whose expansion names it.
 #[doc(hidden)]
 pub use insta as __insta;
-pub use invariants::{GuaranteeClass, Violation, ViolationKind, fencing, limits};
+pub use invariants::{
+    GuaranteeClass, Violation, ViolationKind, audit_chain, fencing, limits, liveness, one_lead,
+    partitions,
+};
 pub use journey_run::{
     BodyResult, Finished, JourneyRun, JourneyRunError, UnfinishedJourneyRun, VariantNotProved,
     journey_engine,

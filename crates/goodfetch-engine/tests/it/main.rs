@@ -22,6 +22,7 @@
 static ALLOCATOR: goodfetch_engine::heap::Counting<std::alloc::System> =
     goodfetch_engine::heap::Counting::new(std::alloc::System);
 
+mod audit_chain;
 // B3's Audit entry scenario, which `counted_audit` checks.
 #[path = "../../benches/audit.rs"]
 #[expect(

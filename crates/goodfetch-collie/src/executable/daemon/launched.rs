@@ -14,32 +14,29 @@
 use std::collections::BTreeMap;
 use std::ffi::OsString;
 use std::io::{BufRead as _, BufReader};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::process::{ExitCode, Stdio};
 use std::sync::Arc;
 use std::time::Duration;
 
-use goodfetch_engine::browser_cache::{self, MaxUnusedAge};
+use goodfetch_engine::browser_cache;
 use goodfetch_engine::children::give_huge_pages_as_started;
-use goodfetch_engine::clock::Clock;
 use goodfetch_engine::daemon::files::{DaemonFiles, FileLock};
 use goodfetch_engine::daemon::service::LaunchedCommand;
 use goodfetch_engine::daemon::{DaemonEnd, DaemonOptions, Drain, Holds, Succession};
 use goodfetch_engine::endpoint::new_token;
 use goodfetch_engine::home::Home;
-use goodfetch_engine::installed::{InstalledList, Seen, pick, stores_floor};
 use goodfetch_engine::ops::Ops;
 use goodfetch_engine::run_state::install::InstallDatabase;
 use goodfetch_engine::settings::{Resolved, get_or_default};
 use goodfetch_engine::transport::{DaemonListener, Network};
-use goodfetch_engine::{Dependencies, Engine, Identity};
+use goodfetch_engine::{Dependencies, Engine};
 use goodfetch_protocol::browser_cache::{ArtifactId, ArtifactKind};
-use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::daemon::{
     DRAIN_GRACE, DaemonEndpoint, DaemonRuntimeFile, DaemonToken, IDLE_TIMEOUT,
 };
 
-use super::{Failure, Machine, now_of, per_install, unavailable};
+use super::{Failure, Machine, MajorsPick, per_install, unavailable};
 use crate::executable::output;
 use crate::runtime;
 
@@ -227,13 +224,12 @@ pub(in crate::executable) fn launched(
             idle_timeout,
             keep_alive: keep_alive || activated || installed,
             holds: Holds::new(),
-            succession: Arc::new(OnTheMachine::of(
-                machine,
-                identity,
-                files.clone(),
+            succession: Arc::new(OnTheMachine {
+                files: files.clone(),
+                pick: machine.majors_pick(),
                 pid,
-                activated,
-            )),
+                keeps_socket: activated,
+            }),
             drain: Drain {
                 asked: None,
                 grace: drain_grace,
@@ -352,60 +348,18 @@ fn finish(
 
 /// The pick and the handover on this machine (ADR 0098).
 struct OnTheMachine {
+    /// The runtime files of the Daemon `pid`.
     files: DaemonFiles,
-    home: Home,
-    cache: PathBuf,
-    product: Product,
-    version: goodfetch_protocol::connection::ProductVersion,
-    max_unused_age: MaxUnusedAge,
-    clock: Clock,
+    /// The pick, as the Daemon's executable reads it.
+    pick: MajorsPick,
     pid: u32,
     /// Whether its socket is the service manager's, which stays.
     keeps_socket: bool,
 }
 
-impl OnTheMachine {
-    /// The pick and handover of the Daemon `pid` that `identity` runs on
-    /// `machine`, whose runtime files are `files`.
-    fn of(
-        machine: &Machine<'_>,
-        identity: &Identity,
-        files: DaemonFiles,
-        pid: u32,
-        keeps_socket: bool,
-    ) -> Self {
-        Self {
-            files,
-            home: machine.home.clone(),
-            cache: machine.cache(),
-            product: identity.product,
-            version: identity.product_version.clone(),
-            max_unused_age: machine.max_unused_age(),
-            clock: machine.clock,
-            pid,
-            keeps_socket,
-        }
-    }
-}
-
 impl Succession for OnTheMachine {
     fn is_pick(&self) -> bool {
-        let entries = InstalledList::of(&self.home).read().unwrap_or_default();
-        let seen: Vec<Seen<'_>> = entries
-            .iter()
-            .map(|entry| Seen::look(entry, &self.cache))
-            .collect();
-        let floor = stores_floor(&self.home, &self.version).map(|floor| floor.version);
-        pick(
-            &seen,
-            &self.version,
-            floor,
-            now_of(self.clock),
-            self.max_unused_age,
-        )
-        .is_none_or(|picked| {
-            picked.product == self.product && picked.product_version == self.version
-        })
+        self.pick.is_this_executable()
     }
 
     fn begin_handover(&self) -> Box<dyn Send> {

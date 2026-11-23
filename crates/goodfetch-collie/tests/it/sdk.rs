@@ -23,6 +23,7 @@ mod engine_choice;
 mod engine_exited;
 mod errors_and_outcomes;
 mod events;
+mod exported_spans;
 #[cfg(unix)]
 mod fork;
 #[cfg(unix)]
@@ -39,7 +40,13 @@ mod refused_by_the_daemon;
 mod scripted;
 mod settings;
 mod start;
+// The crate's tests take its `opentelemetry` feature, except in the build
+// `just feature-combinations` makes without it, which runs
+// `without_opentelemetry` alone. `trace_context` stays in every build, as
+// `xtask clients` requires of a client case's tests.
 mod trace_context;
+#[cfg(not(feature = "opentelemetry"))]
+mod without_opentelemetry;
 
 /// What a connection opens with: the test's environment, which names its
 /// Goodfetch home.

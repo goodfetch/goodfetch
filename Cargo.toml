@@ -172,8 +172,9 @@ goodfetch-cdp = { path = "crates/goodfetch-cdp" }
 goodfetch-clean-up-rules = { path = "crates/goodfetch-clean-up-rules" }
 # Collie's client crate, no engine (spec #606, ADR 0095): the Connection,
 # its transports and `Call<T>`; it depends on neither SDK crate nor any
-# Foxhound crate.
-goodfetch-collie-client = { path = "crates/goodfetch-collie-client" }
+# Foxhound crate. Both SDK crates take it at exactly their own version, so
+# their values are one type (ADR 0095); `xtask release prepare` repins it.
+goodfetch-collie-client = { path = "crates/goodfetch-collie-client", version = "=0.0.0" }
 goodfetch-collie = { path = "crates/goodfetch-collie" }
 # Counted work (ADR 0140): the counts, and each primitive's counted function.
 goodfetch-counted-work = { path = "crates/goodfetch-counted-work" }
@@ -188,6 +189,9 @@ goodfetch-dataset = { path = "crates/foxhound/goodfetch-dataset" }
 goodfetch-engine = { path = "crates/goodfetch-engine" }
 # The page formats read from a document (spec #580, ADR 0007).
 goodfetch-extractor = { path = "crates/goodfetch-extractor" }
+# Foxhound's SDK crate and executable; only crates under `crates/foxhound/`
+# and `xtask` take it (ADR 0087): its compile-fail tests' crate does.
+goodfetch-foxhound = { path = "crates/foxhound/goodfetch-foxhound" }
 # Foxhound's fetch tiers; only crates under `crates/foxhound/` and `xtask` take it (ADR 0087).
 goodfetch-fetch-tier = { path = "crates/foxhound/goodfetch-fetch-tier" }
 # Foxhound's Frontier, its per-domain queues; only crates under `crates/foxhound/` and `xtask` take it (ADR 0087).
@@ -486,8 +490,10 @@ unreachable_pub = "warn"
 # `goodfetch-engine` and `goodfetch-fetch-tier`, on their own crate alone, when
 # `GOODFETCH_CALLGRIND_NAMES` is set, as `xtask counts` sets it on the build it
 # reads `E1.handled_page_wire_share` in, where the wire's functions are never
-# inlined so that Callgrind names them.
-unexpected_cfgs = { level = "warn", check-cfg = ["cfg(goodfetch_callgrind_names)", "cfg(goodfetch_loom)", "cfg(tokio_unstable)"] }
+# inlined so that Callgrind names them. `goodfetch_without_opentelemetry` is
+# set by `just feature-combinations` alone, on the build of the Rust SDK's
+# tests without its `opentelemetry` feature.
+unexpected_cfgs = { level = "warn", check-cfg = ["cfg(goodfetch_callgrind_names)", "cfg(goodfetch_loom)", "cfg(goodfetch_without_opentelemetry)", "cfg(tokio_unstable)"] }
 
 [workspace.lints.clippy]
 pedantic = { level = "warn", priority = -1 }

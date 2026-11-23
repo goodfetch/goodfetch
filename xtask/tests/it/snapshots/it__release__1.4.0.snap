@@ -13,6 +13,11 @@ expression: changes(&workspace)
 @@ -26 +26 @@ name = "goodfetch-foxhound"
 -version = "0.0.0"
 +version = "1.4.0"
+--- a/Cargo.toml
++++ b/Cargo.toml
+@@ -11 +11 @@ publish = false
+-goodfetch-collie-client = { path = "crates/goodfetch-collie-client", version = "=0.0.0" }
++goodfetch-collie-client = { path = "crates/goodfetch-collie-client", version = "=1.4.0" }
 --- a/crates/foxhound/goodfetch-foxhound/Cargo.toml
 +++ b/crates/foxhound/goodfetch-foxhound/Cargo.toml
 @@ -3 +3 @@ name = "goodfetch-foxhound"

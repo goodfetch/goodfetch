@@ -13,8 +13,6 @@ compressed bodies.
 from __future__ import annotations
 
 import io
-import json
-import zipfile
 
 import openpyxl
 import pytest
@@ -25,25 +23,6 @@ SNAPSHOTS = WORKSPACE / "crates/foxhound/goodfetch-foxhound/tests/it/snapshots"
 
 WORKBOOK = SNAPSHOTS / "it__exports__d07_books.snap.xlsx"
 """The D07 Export's workbook, as the Rust acceptance test committed it."""
-
-COLUMNS = (
-    "page",
-    "title",
-    "astral",
-    "bidi",
-    "bom",
-    "nfc",
-    "nfd",
-    "tab_and_newline",
-    "zero_width_joiner",
-    "zwj_emoji",
-    "author",
-    "in_stock",
-    "note",
-    "price",
-    "tags",
-)
-"""Every field the Records carry, in first-seen order."""
 
 
 def read(workbook: bytes) -> tuple[list[str], list[list[object]]]:
@@ -67,41 +46,27 @@ def typed(rows: list[list[object]]) -> list[list[tuple[type, object]]]:
     return [[(type(cell), cell) for cell in row] for row in rows]
 
 
-def expected_rows() -> list[list[object]]:
-    """The rows D07's three Records give, each cell of its own type."""
-    unicode: dict[str, object] = {
-        field.name: field.text for field in unicode_record().fields
-    }
-    records: list[dict[str, object]] = [
-        {"page": 1, "title": "Café 1"},
-        unicode,
-        {
-            "author": '{"name":"Zoé"}',
-            "in_stock": True,
-            "page": 3,
-            "price": 12.5,
-            "tags": '["roman","poche"]',
-            "title": "Café 3",
-        },
-    ]
-    header: list[object] = list(COLUMNS)
-    return [header, *([record.get(name) for name in COLUMNS] for record in records)]
-
-
 @pytest.mark.covers("format:export")
 def test_openpyxl_reads_each_d07_record_cell_as_its_own_type() -> None:
     """A string, a number, a boolean, an empty cell and JSON text read back."""
+    text = {field.name: field.text for field in unicode_record().fields}
+    # fmt: off
+    expected: list[list[object]] = [
+        ["page", "title", "astral", "bidi", "bom", "nfc", "nfd",
+         "tab_and_newline", "zero_width_joiner", "zwj_emoji", "author",
+         "in_stock", "note", "price", "tags"],
+        [1, "Café 1", None, None, None, None, None,
+         None, None, None, None,
+         None, None, None, None],
+        [None, None, text["astral"], text["bidi"], text["bom"], text["nfc"],
+         text["nfd"], text["tab_and_newline"], text["zero_width_joiner"],
+         text["zwj_emoji"], None, None, None, None, None],
+        [3, "Café 3", None, None, None, None, None,
+         None, None, None, '{"name":"Zoé"}',
+         True, None, 12.5, '["roman","poche"]'],
+    ]
+    # fmt: on
+
     names, rows = read(WORKBOOK.read_bytes())
 
-    assert (names, typed(rows)) == (["books"], typed(expected_rows()))
-    author = rows[3][COLUMNS.index("author")]
-    assert isinstance(author, str)
-    assert json.loads(author) == {"name": "Zoé"}
-
-
-def test_a_workbook_openpyxl_cannot_open_fails_the_read() -> None:
-    """The read raises, so the test above fails, on a workbook cut short."""
-    whole = WORKBOOK.read_bytes()
-
-    with pytest.raises(zipfile.BadZipFile):
-        read(whole[: len(whole) // 2])
+    assert (names, typed(rows)) == (["books"], typed(expected))

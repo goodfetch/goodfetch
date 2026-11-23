@@ -48,7 +48,7 @@ fn the_pages_schema_is_generated_from_the_formats_request_and_a_pages_record_hol
         "links": [{ "url": "http://site.test/b", "href": "/b", "text": "B", "rel": [] }],
     }));
     let at = point_in_time::from_rfc3339("2026-10-26T10:00:00Z").unwrap();
-    let record = record_of(page, Some(200), at, Map::new());
+    let record = record_of(&page, Some(200), at, &[], &Map::new()).value();
     let mut without_links = record.clone();
     without_links.as_object_mut().unwrap().remove("links");
     let mut with_html = record.clone();
@@ -198,7 +198,7 @@ fn the_pages_schema_holds_each_fields_type() {
         let mut fields = Map::new();
         fields.insert("name".to_owned(), name);
         fields.insert("price".to_owned(), price);
-        record_of(page.clone(), Some(200), at, fields)
+        record_of(&page, Some(200), at, extraction.fields.declared(), &fields).value()
     };
     let mut without_price = with(json!("Delta kite"), json!(1099.98));
     without_price.as_object_mut().unwrap().remove("price");
@@ -294,14 +294,23 @@ fn two_starts_of_one_extraction_build_the_dataset_pages_once() {
     );
 }
 
-/// A page's Record holds the page's Markdown, HTML and text where the page
-/// read them, moved into it, never copied (ADR 0140's F4: a Record's data
-/// is copied nowhere), beside its other formats, its status, when it was
-/// read and its fields' values.
+/// A page's Record holds its formats, its status, when it was read, then
+/// its fields' values in the order its extraction declared them, which
+/// need not be alphabetical (issue 2394).
 ///
 /// Covers: story:6-304
 #[test]
-fn a_pages_record_holds_the_pages_text_where_the_page_read_it() {
+fn a_pages_record_holds_its_formats_then_its_fields_in_the_order_declared() {
+    let extraction: CrawlExtraction = serde_json::from_str(
+        r#"{
+            "formats": { "markdown": true, "html": true, "text": true, "links": true },
+            "fields": {
+                "price": { "locator": { "kind": "css", "selector": ".price" } },
+                "name": { "locator": { "kind": "css", "selector": "h1" } }
+            }
+        }"#,
+    )
+    .unwrap();
     let page = formats(json!({
         "url": "http://site.test/a",
         "base_url": "http://site.test/",
@@ -311,31 +320,20 @@ fn a_pages_record_holds_the_pages_text_where_the_page_read_it() {
         "text": "A",
         "links": [{ "url": "http://site.test/b", "href": "/b", "text": "B", "rel": [] }],
     }));
-    let read_at =
-        [&page.markdown, &page.html, &page.text].map(|text| text.as_ref().unwrap().as_ptr());
     let at = point_in_time::from_rfc3339("2026-10-26T10:00:00Z").unwrap();
     let mut fields = Map::new();
     fields.insert("name".to_owned(), json!("Delta kite"));
+    fields.insert("price".to_owned(), json!(1099.98));
 
-    let record = record_of(page, None, at, fields);
+    let record = record_of(&page, None, at, extraction.fields.declared(), &fields);
 
     assert_eq!(
-        record,
-        json!({
-            "url": "http://site.test/a",
-            "base_url": "http://site.test/",
-            "main_content": "found",
-            "markdown": "# A",
-            "html": "<h1>A</h1>",
-            "text": "A",
-            "links": [{ "url": "http://site.test/b", "href": "/b", "text": "B", "rel": [] }],
-            "status": null,
-            "fetched_at": "2026-10-26T10:00:00Z",
-            "name": "Delta kite",
-        })
-    );
-    assert_eq!(
-        ["markdown", "html", "text"].map(|format| record[format].as_str().unwrap().as_ptr()),
-        read_at
+        record.json(),
+        concat!(
+            r#"{"url":"http://site.test/a","base_url":"http://site.test/","main_content":"found","#,
+            r##""markdown":"# A","html":"<h1>A</h1>","text":"A","##,
+            r#""links":[{"url":"http://site.test/b","href":"/b","text":"B","rel":[]}],"#,
+            r#""status":null,"fetched_at":"2026-10-26T10:00:00Z","price":1099.98,"name":"Delta kite"}"#,
+        )
     );
 }

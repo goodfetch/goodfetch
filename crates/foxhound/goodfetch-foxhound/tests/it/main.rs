@@ -185,6 +185,7 @@ mod outcomes;
 mod pacing;
 mod path_budgets;
 mod payload;
+mod plugin;
 mod politeness;
 mod politeness_records;
 mod pool_proxies;

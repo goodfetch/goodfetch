@@ -95,6 +95,7 @@ mod page;
 mod page_ends;
 mod page_events;
 mod parent_death;
+mod plugin;
 mod private_endpoint;
 mod private_ranges;
 mod proxy;

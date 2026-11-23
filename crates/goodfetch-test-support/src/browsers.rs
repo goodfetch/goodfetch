@@ -498,7 +498,7 @@ pub fn lightpanda_copy() -> Result<PathBuf, BrowserCacheError> {
 /// The folder a `ci/*-fetch.sh` script downloads the tests' copy of a
 /// pinned build into: the one `variable` names, else
 /// `~/.cache/goodfetch/<name>`.
-fn downloads(variable: &str, name: &str) -> PathBuf {
+pub(crate) fn downloads(variable: &str, name: &str) -> PathBuf {
     let variables = Variables::from_process();
     variables
         .get(variable)

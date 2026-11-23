@@ -6638,10 +6638,11 @@ export interface RunResumeParams {
    */
   project?: ProjectSettings | null;
   /**
-   * Whether a `checkpoint` behind the Run's run file on this machine
-   * replaces it all the same, rolling the Run back to the Checkpoint, as
-   * the Audit log records; by default such a Checkpoint is refused with
-   * `checkpoint_behind`. Without `checkpoint` it changes nothing.
+   * Whether a `checkpoint` behind the Run's run file on this machine, or
+   * given where that file cannot be read, replaces it all the same,
+   * rolling the Run back to the Checkpoint, as the Audit log records; by
+   * default such a Checkpoint is refused, with `checkpoint_behind` or the
+   * error the file's read gave. Without `checkpoint` it changes nothing.
    */
   rollback?: boolean;
   /**

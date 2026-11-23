@@ -48,10 +48,11 @@ pub struct RunResumeParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(extend("arrived_in" = "0.1"))]
     pub checkpoint: Option<String>,
-    /// Whether a `checkpoint` behind the Run's run file on this machine
-    /// replaces it all the same, rolling the Run back to the Checkpoint, as
-    /// the Audit log records; by default such a Checkpoint is refused with
-    /// `checkpoint_behind`. Without `checkpoint` it changes nothing.
+    /// Whether a `checkpoint` behind the Run's run file on this machine, or
+    /// given where that file cannot be read, replaces it all the same,
+    /// rolling the Run back to the Checkpoint, as the Audit log records; by
+    /// default such a Checkpoint is refused, with `checkpoint_behind` or the
+    /// error the file's read gave. Without `checkpoint` it changes nothing.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     #[schemars(extend("arrived_in" = "0.1"))]
     pub rollback: bool,
@@ -142,7 +143,7 @@ pub const RUN_MIGRATE: Operation = Operation {
 /// `run.resume`.
 pub const RUN_RESUME: Operation = Operation {
     name: "run.resume",
-    description: "Resumes an interrupted Run from its committed state, its run file on this machine or the Checkpoint `checkpoint` names: it takes the Run's writer lock and the next run epoch, so every write of an earlier writer is refused, and redoes the work since that state; its recorded Clean-up rules digest is kept. A Run this engine runs already fails with `run_in_use`, as one another engine writes does; a finished one is answered as it ended, `ended`. A Run bound to another machine fails with `session_bound_to_machine`, a Checkpoint of a format version this engine cannot read with `format_version_unsupported`, and a Checkpoint behind the Run's run file on this machine with `checkpoint_behind`, unless `rollback` replaces that file, as the Audit log records.",
+    description: "Resumes an interrupted Run from its committed state, its run file on this machine or the Checkpoint `checkpoint` names: it takes the Run's writer lock and the next run epoch, so every write of an earlier writer is refused, and redoes the work since that state; its recorded Clean-up rules digest is kept. A Run this engine runs already fails with `run_in_use`, as one another engine writes does; a finished one is answered as it ended, `ended`. A Run bound to another machine fails with `session_bound_to_machine`, a Checkpoint of a format version this engine cannot read with `format_version_unsupported`, and a Checkpoint behind the Run's run file on this machine with `checkpoint_behind`, or with the error that file's read gives when it cannot be read, unless `rollback` replaces that file, as the Audit log records.",
     class: OperationClass::IdempotentWrite,
     kind: OperationKind::Opener,
     reach: Reach::AllSurfaces,
@@ -436,3 +437,6 @@ pub const ENTRIES: Entries = Entries {
     hook_stages: &[],
     shared_type_values: &[],
 };
+
+#[cfg(test)]
+mod tests;

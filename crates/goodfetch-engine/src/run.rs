@@ -66,14 +66,13 @@ use goodfetch_protocol::settings::{
     TIMEOUT_CLOSE, TIMEOUT_RUN,
 };
 
-use crate::audit::Origin;
 use crate::call_error::{CallError, named};
 use crate::composition::{CallContext, Handler};
 use crate::deadline::Deadline;
 use crate::product::{Identity, Requested};
 use crate::runs::{
-    Aborter, EndedBy, FixedSettingChanged, Forwarded, FromCheckpoint, ListError, Resume, Resumed,
-    RunError, Start, StartError, Started, StorageExhausted,
+    Aborter, Behind, EndedBy, FixedSettingChanged, Forwarded, FromCheckpoint, ListError, Resume,
+    Resumed, RollbackBy, RunError, Start, StartError, Started, StorageExhausted,
 };
 use crate::secrets::SecretError;
 use crate::settings::{
@@ -671,6 +670,39 @@ fn stopped() -> CallError {
     )
 }
 
+/// `session_bound_to_machine` for the Run `run_id` (ADR 0056).
+fn bound_to_machine(run_id: RunId) -> CallError {
+    CallError::new(
+        &SESSION_BOUND_TO_MACHINE,
+        format!(
+            "The Run `{run_id}` is bound to the machine its Session source is on; resume it there, or serve its Session source through a Browser host."
+        ),
+        &SessionBoundToMachineDetails { run_id },
+    )
+}
+
+/// `checkpoint_behind` for a Checkpoint behind the run file here (ADR
+/// 0002's note of #2322).
+fn checkpoint_behind(behind: Behind) -> CallError {
+    let Behind {
+        run_id,
+        checkpoint,
+        run_file,
+    } = behind;
+    CallError::new(
+        &CHECKPOINT_BEHIND,
+        format!(
+            "The Checkpoint given stands behind the run file of the Run `{run_id}` on this machine, so resuming from it would lose the work done since; nothing was changed."
+        ),
+        &CheckpointBehindDetails {
+            run_id,
+            checkpoint,
+            run_file,
+            fix: "Resume without `checkpoint` to go on from the run file here, or pass `rollback` to replace it with the Checkpoint, as the Audit log records.".to_owned(),
+        },
+    )
+}
+
 /// The Error code a Run's failure answers `context`'s call with.
 pub fn run_error(error: RunError, context: &CallContext) -> CallError {
     match error {
@@ -727,29 +759,8 @@ pub fn run_error(error: RunError, context: &CallContext) -> CallError {
                 None => format_refusal(format, &found, compatibility),
             }
         }
-        RunError::BoundToMachine(run_id) => CallError::new(
-            &SESSION_BOUND_TO_MACHINE,
-            format!(
-                "The Run `{run_id}` is bound to the machine its Session source is on; resume it there, or serve its Session source through a Browser host."
-            ),
-            &SessionBoundToMachineDetails { run_id },
-        ),
-        RunError::Behind {
-            run_id,
-            checkpoint,
-            run_file,
-        } => CallError::new(
-            &CHECKPOINT_BEHIND,
-            format!(
-                "The Checkpoint given stands behind the run file of the Run `{run_id}` on this machine, so resuming from it would lose the work done since; nothing was changed."
-            ),
-            &CheckpointBehindDetails {
-                run_id,
-                checkpoint,
-                run_file,
-                fix: "Resume without `checkpoint` to go on from the run file here, or pass `rollback` to replace it with the Checkpoint, as the Audit log records.".to_owned(),
-            },
-        ),
+        RunError::BoundToMachine(run_id) => bound_to_machine(run_id),
+        RunError::Behind(behind) => checkpoint_behind(behind),
         RunError::WriteFailed {
             run_id,
             folder,
@@ -1184,13 +1195,11 @@ async fn resume(params: RunResumeParams, context: CallContext) -> Result<RunStar
         .await
         .map_err(|error| settings_error(&error, &context))?;
     // A roll-back is recorded as the caller's (ADR 0002's note of #2322).
-    let rollback = params.rollback.then(|| Origin {
+    let rollback = params.rollback.then(|| RollbackBy {
         actor: Actor::Person {
             name: context.person(),
         },
-        surface: Some(context.surface()),
-        layer: None,
-        run_id: Some(params.run_id.clone()),
+        surface: context.surface(),
     });
     let checkpoint = params.checkpoint.map(|path| FromCheckpoint {
         path: PathBuf::from(path),

@@ -12077,7 +12077,7 @@
         },
         "rollback": {
           "arrived_in": "0.1",
-          "description": "Whether a `checkpoint` behind the Run's run file on this machine\nreplaces it all the same, rolling the Run back to the Checkpoint, as\nthe Audit log records; by default such a Checkpoint is refused with\n`checkpoint_behind`. Without `checkpoint` it changes nothing.",
+          "description": "Whether a `checkpoint` behind the Run's run file on this machine, or\ngiven where that file cannot be read, replaces it all the same,\nrolling the Run back to the Checkpoint, as the Audit log records; by\ndefault such a Checkpoint is refused, with `checkpoint_behind` or the\nerror the file's read gave. Without `checkpoint` it changes nothing.",
           "type": "boolean"
         },
         "run_id": {
@@ -20112,7 +20112,7 @@
       "cancellable": false,
       "class": "idempotent_write",
       "deprecated": null,
-      "description": "Resumes an interrupted Run from its committed state, its run file on this machine or the Checkpoint `checkpoint` names: it takes the Run's writer lock and the next run epoch, so every write of an earlier writer is refused, and redoes the work since that state; its recorded Clean-up rules digest is kept. A Run this engine runs already fails with `run_in_use`, as one another engine writes does; a finished one is answered as it ended, `ended`. A Run bound to another machine fails with `session_bound_to_machine`, a Checkpoint of a format version this engine cannot read with `format_version_unsupported`, and a Checkpoint behind the Run's run file on this machine with `checkpoint_behind`, unless `rollback` replaces that file, as the Audit log records.",
+      "description": "Resumes an interrupted Run from its committed state, its run file on this machine or the Checkpoint `checkpoint` names: it takes the Run's writer lock and the next run epoch, so every write of an earlier writer is refused, and redoes the work since that state; its recorded Clean-up rules digest is kept. A Run this engine runs already fails with `run_in_use`, as one another engine writes does; a finished one is answered as it ended, `ended`. A Run bound to another machine fails with `session_bound_to_machine`, a Checkpoint of a format version this engine cannot read with `format_version_unsupported`, and a Checkpoint behind the Run's run file on this machine with `checkpoint_behind`, or with the error that file's read gives when it cannot be read, unless `rollback` replaces that file, as the Audit log records.",
       "events": [],
       "kind": "opener",
       "name": "run.resume",
@@ -27918,7 +27918,7 @@
     },
     {
       "arrived_in": "0.1",
-      "description": "A resume asked to roll back replaced the Run's run file on this machine with a Checkpoint behind it, so the work done since that Checkpoint is gone: the positions of both, written before the run file is replaced (ADR 0002).",
+      "description": "A resume asked to roll back the Run's run file on this machine to a Checkpoint behind it, or one this engine could not read, losing the work done since that Checkpoint: the positions of both, the run file's null when unread. It is written before the run file is replaced, and a replacement that then fails leaves that file as it was (ADR 0002).",
       "name": "run_rolled_back",
       "product": "collie",
       "type": "audit_kind"

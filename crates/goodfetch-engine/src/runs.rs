@@ -60,7 +60,7 @@ use goodfetch_protocol::checkpoint::{
     RUN_ABORTING, RUN_CHECKPOINTING, RUN_MIGRATING, RUN_STOPPING, RunAborting, RunBinding,
     RunCheckpointing, RunMigrating, RunStatePosition, RunStopping,
 };
-use goodfetch_protocol::connection::{ProductVersion, StoppedBy};
+use goodfetch_protocol::connection::{ProductVersion, StoppedBy, Surface};
 use goodfetch_protocol::formats::Compatibility;
 use goodfetch_protocol::governor::{RUN_SHARE, SystemInfo};
 use goodfetch_protocol::jsonrpc::ErrorObject;
@@ -368,9 +368,29 @@ pub struct FromCheckpoint {
     /// Its path on this machine.
     pub path: PathBuf,
     /// Who asked to roll back, as the Audit log records them, when the
-    /// Checkpoint may replace a run file here that is past it; none refuses
-    /// such a Checkpoint with `Behind` (ADR 0002's note of #2322).
-    pub rollback: Option<Origin>,
+    /// Checkpoint may replace a run file here that is past it, or that this
+    /// engine cannot read; none refuses it (ADR 0002's note of #2322).
+    pub rollback: Option<RollbackBy>,
+}
+
+/// A Checkpoint a resume gave, behind the Run's run file here.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Behind {
+    /// The Run ID.
+    pub run_id: RunId,
+    /// Where the Checkpoint stands.
+    pub checkpoint: RunStatePosition,
+    /// Where the run file here stands, past it.
+    pub run_file: RunStatePosition,
+}
+
+/// Who asks a resume to roll back the Run's run file here.
+#[derive(Clone, Debug)]
+pub struct RollbackBy {
+    /// The person or process asking.
+    pub actor: Actor,
+    /// The surface they ask through.
+    pub surface: Surface,
 }
 
 impl Resume {
@@ -928,15 +948,8 @@ pub enum RunError {
     /// The Checkpoint a resume gave stands behind the Run's run file here,
     /// and the resume did not ask to roll back; nothing changed (ADR 0002's
     /// note of #2322).
-    #[error("the Checkpoint of `{run_id}` is behind its run file here")]
-    Behind {
-        /// The Run ID.
-        run_id: RunId,
-        /// Where the Checkpoint stands.
-        checkpoint: RunStatePosition,
-        /// Where the run file here stands, past it.
-        run_file: RunStatePosition,
-    },
+    #[error("the Checkpoint of `{}` is behind its run file here", .0.run_id)]
+    Behind(Behind),
     /// A Checkpoint could not be written (ADR 0116); no file is left.
     #[error("a Checkpoint of `{run_id}` could not be written: {message}")]
     WriteFailed {
@@ -6411,10 +6424,12 @@ impl Registry {
     async fn held_with_key(
         &self,
         run_id: &RunId,
-        checkpoint: Option<&Path>,
+        checkpoint: Option<&FromCheckpoint>,
         stored: Option<StoredKey>,
     ) -> Result<checkpoint::Held, RunError> {
-        let held = self.held(run_id, checkpoint).await?;
+        let held = self
+            .held(run_id, checkpoint.map(|from| from.path.as_path()))
+            .await?;
         if held.key != stored {
             return Err(RunError::Unavailable {
                 run_id: run_id.clone(),
@@ -6470,11 +6485,7 @@ impl Registry {
         // is then not found, and starts again (ADR 0138).
         self.discard_unclean(&run_id, settings.as_ref()).await?;
         let held = self
-            .held_with_key(
-                &run_id,
-                checkpoint.as_ref().map(|from| from.path.as_path()),
-                stored,
-            )
+            .held_with_key(&run_id, checkpoint.as_ref(), stored)
             .await?;
         let folder = self.folder(&run_id);
         self.may_resume(&run_id, &held, &folder).await?;
@@ -6485,10 +6496,7 @@ impl Registry {
             Err(refused) => return Err(RunError::refused(&run_id, &folder, refused)),
         };
         let options = self.opened_with(settings.as_ref());
-        let checkpoint = checkpoint.map(|from| (from, held.position));
-        let (lock, writer, state) = self
-            .reopen(&run_id, held.lifecycle, checkpoint, &options)
-            .await?;
+        let (lock, writer, state) = self.reopen(&run_id, &held, checkpoint, &options).await?;
         let recorded = self.recorded(&run_id, &folder).await?;
         self.ended.forget(&run_id);
         self.unrecorded.remove(&run_id);
@@ -6618,16 +6626,17 @@ impl Registry {
         Ok(held)
     }
 
-    /// Takes the writer role of `run_id`, `held` as its state says: its
-    /// lock, which another writer's holding refuses as the Run's table says
-    /// (`WriterFound`), the Checkpoint `checkpoint`, which stands where its
-    /// position says, made its run file when given, then the next run epoch,
-    /// under which its writer opens and marks it running again.
+    /// Takes the writer role of `run_id`, `held` as its state, or the
+    /// Checkpoint `checkpoint` when given, says: its lock, which another
+    /// writer's holding refuses as the Run's table says (`WriterFound`), the
+    /// Checkpoint made its run file unless the run file here is past it,
+    /// then the next run epoch, under which its writer opens and marks it
+    /// running again.
     async fn reopen(
         &mut self,
         run_id: &RunId,
-        held: Lifecycle,
-        checkpoint: Option<(FromCheckpoint, RunStatePosition)>,
+        held: &checkpoint::Held,
+        checkpoint: Option<FromCheckpoint>,
         options: &RunStateOptions,
     ) -> Result<(File, Arc<TaskOwner>, RunState), RunError> {
         let folder = self.folder(run_id);
@@ -6637,7 +6646,7 @@ impl Registry {
             .await
             .map_err(|error| match error {
                 StartError::InUse { run_id, folder } => {
-                    match lifecycle::apply(held, RunEvent::WriterFound) {
+                    match lifecycle::apply(held.lifecycle, RunEvent::WriterFound) {
                         Err(refused) => RunError::refused(&run_id, &folder, refused),
                         Ok(_) => RunError::InUse { run_id, folder },
                     }
@@ -6680,26 +6689,10 @@ impl Registry {
                 | StartError::Refused(_)
                 | StartError::Stopped => RunError::Stopped,
             })?;
-        let mut after = 0;
-        if let Some((from, position)) = checkpoint {
-            // The run epoch of a run file of this Run already here, which the
-            // Checkpoint replaces: the resume's goes past it too.
-            if let Ok(Some(_)) = self.existing(run_id).await
-                && let Ok(here) = self.held(run_id, None).await
-            {
-                after = here.position.run_epoch;
-                if here.position > position {
-                    self.roll_back(run_id, &from, position, here.position)
-                        .await?;
-                }
-            }
-            let FromCheckpoint { path, .. } = from;
-            let (into, vfs) = (file.clone(), self.setup.run_state.vfs.clone());
-            self.owner
-                .blocking(move || checkpoint::install(&path, &into, vfs.as_deref()))
-                .await
-                .map_err(|error| RunError::of_write(run_id, &folder, error))?;
-        }
+        let after = match checkpoint {
+            Some(from) => self.install_checkpoint(run_id, held, from).await?,
+            None => 0,
+        };
         let (taking, tables, next) = (options.clone(), self.setup.tables.clone(), file.clone());
         let epoch = self
             .owner
@@ -6732,29 +6725,78 @@ impl Registry {
         Ok((lock, writer, state))
     }
 
+    /// Makes the Checkpoint `from`, `held` as it says, the run file of
+    /// `run_id` here, unless that file is past it or cannot be read and the
+    /// resume did not ask to roll back: the run epoch of the file it
+    /// replaced, which the resume's goes past too, or 0 with none.
+    async fn install_checkpoint(
+        &self,
+        run_id: &RunId,
+        held: &checkpoint::Held,
+        from: FromCheckpoint,
+    ) -> Result<u64, RunError> {
+        let folder = self.folder(run_id);
+        let here = match self.existing(run_id).await {
+            Ok(None) => None,
+            Ok(Some(_)) => Some(self.held(run_id, None).await),
+            Err(error) => Some(Err(RunError::Unavailable {
+                run_id: run_id.clone(),
+                folder: folder.clone(),
+                error: error.to_string(),
+            })),
+        };
+        let after = match here {
+            None => 0,
+            Some(Ok(here)) if here.position <= held.position => here.position.run_epoch,
+            Some(here) => {
+                let here = here.map(|here| here.position);
+                let after = here.as_ref().map_or(0, |here| here.run_epoch);
+                self.roll_back(run_id, &from, held.position, here).await?;
+                after
+            }
+        };
+        let FromCheckpoint { path, .. } = from;
+        let (into, vfs) = (folder.join(RUN_FILE), self.setup.run_state.vfs.clone());
+        self.owner
+            .blocking(move || checkpoint::install(&path, &into, vfs.as_deref()))
+            .await
+            .map_err(|error| RunError::of_write(run_id, &folder, error))?;
+        Ok(after)
+    }
+
     /// Lets the Checkpoint `from`, at `checkpoint`, replace the run file of
-    /// `run_id` here, at `run_file` past it, only when the resume asked to
-    /// roll back, as the Audit log records before anything is replaced
-    /// (ADR 0002's note of #2322).
+    /// `run_id` here, past it at `run_file` or unread for the error it
+    /// gives, only when the resume asked to roll back, as the Audit log
+    /// records before anything is replaced (ADR 0002's note of #2322).
     async fn roll_back(
         &self,
         run_id: &RunId,
         from: &FromCheckpoint,
         checkpoint: RunStatePosition,
-        run_file: RunStatePosition,
+        run_file: Result<RunStatePosition, RunError>,
     ) -> Result<(), RunError> {
-        let Some(origin) = &from.rollback else {
-            return Err(RunError::Behind {
-                run_id: run_id.clone(),
-                checkpoint,
-                run_file,
+        let Some(by) = &from.rollback else {
+            return Err(match run_file {
+                Ok(run_file) => RunError::Behind(Behind {
+                    run_id: run_id.clone(),
+                    checkpoint,
+                    run_file,
+                }),
+                Err(unread) => unread,
             });
         };
+        let origin = Origin {
+            actor: by.actor.clone(),
+            surface: Some(by.surface),
+            layer: None,
+            run_id: Some(run_id.clone()),
+        };
+        let run_file = run_file.ok();
         self.setup
             .engine
             .audit()
             .record(
-                origin,
+                &origin,
                 &RUN_ROLLED_BACK,
                 json!({ "checkpoint": checkpoint, "run_file": run_file }),
                 self.setup.engine.clock().timestamp(),

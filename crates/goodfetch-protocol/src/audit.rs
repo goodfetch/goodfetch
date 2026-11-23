@@ -490,7 +490,7 @@ pub const PRESSING_HARDER_VALUE_SET: SharedTypeValue = kind(
 /// A Run rolled back to a Checkpoint behind its run file.
 pub const RUN_ROLLED_BACK: SharedTypeValue = kind(
     "run_rolled_back",
-    "A resume asked to roll back replaced the Run's run file on this machine with a Checkpoint behind it, so the work done since that Checkpoint is gone: the positions of both, written before the run file is replaced (ADR 0002).",
+    "A resume asked to roll back the Run's run file on this machine to a Checkpoint behind it, or one this engine could not read, losing the work done since that Checkpoint: the positions of both, the run file's null when unread. It is written before the run file is replaced, and a replacement that then fails leaves that file as it was (ADR 0002).",
 );
 
 /// The anchor a pruning leaves.

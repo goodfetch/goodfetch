@@ -4255,6 +4255,57 @@
       "description": "What `page.on_dialog` answers when its page closes.",
       "type": "object"
     },
+    "DoctorFinding": {
+      "description": "What `doctor` found about one part of the installation.",
+      "properties": {
+        "fix": {
+          "arrived_in": "0.1",
+          "description": "What to do about it; present whenever the status is not `ok`.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "id": {
+          "$ref": "#/$defs/FindingId",
+          "arrived_in": "0.1",
+          "description": "The part checked."
+        },
+        "message": {
+          "arrived_in": "0.1",
+          "description": "What was found, for people; never matched on.",
+          "type": "string"
+        },
+        "status": {
+          "$ref": "#/$defs/FindingStatus",
+          "arrived_in": "0.1",
+          "description": "Whether it is in order."
+        }
+      },
+      "required": [
+        "id",
+        "status",
+        "message"
+      ],
+      "type": "object"
+    },
+    "DoctorReport": {
+      "description": "What `doctor --json` prints: its findings, in the order of\n[`FindingId`].",
+      "properties": {
+        "findings": {
+          "arrived_in": "0.1",
+          "description": "One finding for each part checked.",
+          "items": {
+            "$ref": "#/$defs/DoctorFinding"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "findings"
+      ],
+      "type": "object"
+    },
     "DownloadId": {
       "description": "A Download of a Run, named by the engine when it keeps its file:\n`<run_id>.download-<position>`.",
       "type": "string"
@@ -6161,6 +6212,56 @@
         "value"
       ],
       "type": "object"
+    },
+    "FindingId": {
+      "description": "A part of the installation `doctor` checks.",
+      "oneOf": [
+        {
+          "const": "home",
+          "description": "Goodfetch home: whether it can be written, and whether its Operator\npolicy and user configuration can be read.",
+          "type": "string"
+        },
+        {
+          "const": "executables",
+          "description": "The list of installed executables, in which this one records\nitself (ADR 0098).",
+          "type": "string"
+        },
+        {
+          "const": "daemon",
+          "description": "The Daemon of this executable's major: whether it runs and answers.",
+          "type": "string"
+        },
+        {
+          "const": "version_skew",
+          "description": "Whether the running Daemon is of this executable's version.",
+          "type": "string"
+        },
+        {
+          "const": "browsers",
+          "description": "Whether the browser build a Run launches by default is in the\nBrowser cache.",
+          "type": "string"
+        }
+      ]
+    },
+    "FindingStatus": {
+      "description": "Whether a part of the installation is in order.",
+      "oneOf": [
+        {
+          "const": "ok",
+          "description": "It is.",
+          "type": "string"
+        },
+        {
+          "const": "warning",
+          "description": "It works, but something may fail or slow down later.",
+          "type": "string"
+        },
+        {
+          "const": "failing",
+          "description": "Something that needs it fails until the fix is applied.",
+          "type": "string"
+        }
+      ]
     },
     "ForcedBy": {
       "description": "Which scope's `fetch.tier` forced a tier.",
@@ -29043,6 +29144,9 @@
     },
     "daemon.uninstall": {
       "$ref": "#/$defs/DaemonUninstallOutput"
+    },
+    "doctor": {
+      "$ref": "#/$defs/DoctorReport"
     },
     "runs.reindex": {
       "$ref": "#/$defs/RunsReindexOutput"

@@ -62,6 +62,10 @@
         "name": "config"
       },
       {
+        "commands": [],
+        "name": "doctor"
+      },
+      {
         "commands": [
           {
             "commands": [],
@@ -427,6 +431,10 @@
           }
         ],
         "name": "config"
+      },
+      {
+        "commands": [],
+        "name": "doctor"
       },
       {
         "commands": [

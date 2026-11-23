@@ -2281,6 +2281,17 @@
       ]
     },
     {
+      "id": "error:run_state_filesystem_unsupported",
+      "kind": "error",
+      "area": 3,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "error:run_state_unavailable",
       "kind": "error",
       "area": 3,

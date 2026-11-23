@@ -43,6 +43,9 @@ use goodfetch_protocol::run::{
     RUN_INTERRUPTED, RUN_LIST, RUN_PROGRESS_READ, RUN_REPORT, RunInterruptedDetails, RunList,
     RunListParams, RunProgressParams,
 };
+use goodfetch_protocol::run::{
+    RUN_STATE_FILESYSTEM_UNSUPPORTED, RUN_STATE_LOCATION, RunStateFilesystemUnsupportedDetails,
+};
 use goodfetch_protocol::secret_reference::SecretReference;
 use goodfetch_protocol::usage::{
     LIMIT_NOT_UNDERSTOOD, LIMIT_REACHED, Limit, LimitNotUnderstoodDetails,
@@ -71,7 +74,7 @@ use crate::deadline::Deadline;
 use crate::product::{Identity, Requested};
 use crate::runs::{
     EndedBy, FixedSettingChanged, Forwarded, ListError, Resume, Resumed, RunError, Start,
-    StartError, Started, StorageExhausted,
+    StartError, Started, StorageExhausted, UnsupportedFolder,
 };
 use crate::secrets::SecretError;
 use crate::settings::{
@@ -246,15 +249,11 @@ pub fn start_error(error: StartError) -> CallError {
                 differences,
             },
         ),
-        StartError::InUse { run_id, folder } => CallError::new(
-            &RUN_IN_USE,
-            format!("Another engine writes the Run `{run_id}`."),
-            &RunDetails {
-                run_id,
-                path: Some(folder.display().to_string()),
-            },
-        ),
+        StartError::InUse { run_id, folder } => in_use(run_id, &folder),
         StartError::Live { run_id, folder } => running_here(run_id, &folder),
+        StartError::FilesystemUnsupported(run_id, refused) => {
+            filesystem_unsupported(run_id, &refused)
+        }
         StartError::Unavailable {
             run_id,
             folder,
@@ -700,14 +699,7 @@ pub fn run_error(error: RunError, context: &CallContext) -> CallError {
             );
             CallError::new(&NOT_IN_PRODUCT, message, &details)
         }
-        RunError::InUse { run_id, folder } => CallError::new(
-            &RUN_IN_USE,
-            format!("Another engine writes the Run `{run_id}`."),
-            &RunDetails {
-                run_id,
-                path: Some(folder.display().to_string()),
-            },
-        ),
+        RunError::InUse { run_id, folder } => in_use(run_id, &folder),
         RunError::Format {
             format,
             found,
@@ -750,6 +742,9 @@ pub fn run_error(error: RunError, context: &CallContext) -> CallError {
                 side: WriteSide::Engine,
             },
         ),
+        RunError::FilesystemUnsupported(run_id, refused) => {
+            filesystem_unsupported(run_id, &refused)
+        }
         RunError::Unavailable {
             run_id,
             folder,
@@ -782,6 +777,39 @@ pub fn state_unavailable(run_id: RunId, folder: &std::path::Path, error: &str) -
         &RunDetails {
             run_id,
             path: Some(folder.display().to_string()),
+        },
+    )
+}
+
+/// `run_in_use`: another engine writes the Run `run_id` in `folder`.
+fn in_use(run_id: RunId, folder: &std::path::Path) -> CallError {
+    CallError::new(
+        &RUN_IN_USE,
+        format!("Another engine writes the Run `{run_id}`."),
+        &RunDetails {
+            run_id,
+            path: Some(folder.display().to_string()),
+        },
+    )
+}
+
+/// `run_state_filesystem_unsupported`: the folder of `run_id` is on a
+/// filesystem the engine keeps no run state on (ADR 0049).
+fn filesystem_unsupported(run_id: RunId, refused: &UnsupportedFolder) -> CallError {
+    CallError::new(
+        &RUN_STATE_FILESYSTEM_UNSUPPORTED,
+        format!(
+            "The folder of the Run `{run_id}` is on {}, whose locking SQLite cannot rely on, so the engine keeps no run state there.",
+            refused.found
+        ),
+        &RunStateFilesystemUnsupportedDetails {
+            run_id,
+            path: refused.folder.display().to_string(),
+            filesystem: refused.filesystem,
+            fix: format!(
+                "Set `{}` to a folder on a local disk or a block volume, such as EBS, a Persistent Disk or an Azure managed disk.",
+                RUN_STATE_LOCATION.name
+            ),
         },
     )
 }

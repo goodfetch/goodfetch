@@ -34,6 +34,7 @@ use crate::settings::{ProjectSettings, SettingLimit};
 
 pub mod completeness;
 pub mod durability;
+mod filesystem;
 mod list;
 mod progress;
 mod report;
@@ -45,6 +46,9 @@ pub use self::durability::{
     RUN_STATE_BATCH_BYTES, RUN_STATE_BATCH_INTERVAL, RUN_STATE_BATCH_PAGES,
     RUN_STATE_BATCH_PER_ATTEMPT, RUN_STATE_BATCH_SYNC, RUN_STATE_COMMIT_INTERVAL,
     RUN_STATE_DURABILITY, RUN_STATE_MEMORY_BUDGET,
+};
+pub use self::filesystem::{
+    RUN_STATE_FILESYSTEM_UNSUPPORTED, RunStateFilesystem, RunStateFilesystemUnsupportedDetails,
 };
 pub use self::list::{
     CREATOR_TAG, OCCURRENCE_TAG, RECIPE_TAG, RESERVED_TAG_PREFIX, ROLE_TAG, RUN_LIST, RunList,
@@ -1433,6 +1437,7 @@ pub const ENTRIES: Entries = Entries {
         RUN_BUSY,
         RUN_NOT_OWNED,
         RUN_STATE_UNAVAILABLE,
+        RUN_STATE_FILESYSTEM_UNSUPPORTED,
         RUN_LIVE,
         RESOURCES_EXHAUSTED,
         RUN_INTERRUPTED,

@@ -3,8 +3,12 @@
 //! `goodfetch-test-client` depends on no Goodfetch crate but
 //! `goodfetch-protocol` and `goodfetch-test-support`, is only ever a
 //! dev-dependency and is never taken by `goodfetch-protocol` (ADR 0062's
-//! note of 2026-11-07); `goodfetch-simulation` is only ever a
-//! dev-dependency (ADR 0060); the Proving
+//! note of 2026-11-07); a test adapter crate, such as
+//! `goodfetch-simulation` (ADR 0060) or `goodfetch-scripted-model`, is only
+//! ever a dev-dependency, has `publish = false`, and no crate among its
+//! dependencies names it under its `src/`, where its unit tests live, while
+//! their integration tests and any other crate's unit tests may (ADR 0125;
+//! the fixture's `goodfetch-model-provider` and `goodfetch-repair`); the Proving
 //! ground depends on no engine crate, nor on `goodfetch-conformance` or
 //! `goodfetch-protocol`; `goodfetch-conformance` depends only on
 //! `goodfetch-protocol` (ADR 0032, STYLE.md); `xtask` builds no Goodfetch
@@ -19,6 +23,9 @@ use rstest::rstest;
 
 use crate::workspace::{Workspace, finding};
 
+/// The fixture as it is passes, the Scripted model taken by its
+/// dependency's integration tests and by another crate's unit tests
+/// included.
 #[test]
 fn test_support_taken_only_as_a_dev_dependency_passes() {
     let workspace = Workspace::from_fixture("dependency-direction");
@@ -168,7 +175,87 @@ fn simulation_outside_dev_dependencies_fails(#[case] manifest: &str) {
 
     assert_eq!(
         outcome.findings(),
-        vec![finding("simulation-not-dev-only", "goodfetch-engine")]
+        vec![finding("test-adapter-not-dev-only", "goodfetch-engine")]
+    );
+    assert_eq!(outcome.code, 1);
+}
+
+#[test]
+fn scripted_model_outside_dev_dependencies_fails() {
+    let workspace = Workspace::from_fixture("dependency-direction");
+    workspace.add_fixture_file(
+        "dependency-direction-cases/protocol-depends-on-scripted-model.toml",
+        "crates/goodfetch-protocol/Cargo.toml",
+    );
+
+    let outcome = workspace.xtask(&["dependency-direction"]);
+
+    assert_eq!(
+        outcome.findings(),
+        vec![finding("test-adapter-not-dev-only", "goodfetch-protocol")]
+    );
+    assert_eq!(outcome.code, 1);
+}
+
+/// A test adapter is never published: `publish = false`, not left unset nor
+/// naming a registry.
+#[rstest]
+#[case::publish_unset("scripted-model-publish-unset.toml")]
+#[case::publish_to_a_registry("scripted-model-publish-to-registry.toml")]
+fn test_adapter_without_publish_false_fails(#[case] manifest: &str) {
+    let workspace = Workspace::from_fixture("dependency-direction");
+    workspace.add_fixture_file(
+        &format!("dependency-direction-cases/{manifest}"),
+        "crates/goodfetch-scripted-model/Cargo.toml",
+    );
+
+    let outcome = workspace.xtask(&["dependency-direction"]);
+
+    assert_eq!(
+        outcome.findings(),
+        vec![finding(
+            "test-adapter-published",
+            "goodfetch-scripted-model"
+        )]
+    );
+    assert_eq!(outcome.code, 1);
+}
+
+/// A unit test of a crate the adapter depends on, here through
+/// `goodfetch-model-provider`, would link two copies of that crate: the
+/// crate's `src/` never names the adapter, under its own name or the one
+/// its manifest gives it.
+#[rstest]
+#[case::by_its_name(
+    "engine-dev-depends-on-scripted-model.toml",
+    "#[cfg(test)]\nmod tests {\n    use goodfetch_scripted_model::ScriptedModel;\n}\n"
+)]
+#[case::by_its_manifests_name(
+    "engine-dev-depends-on-scripted-model-renamed.toml",
+    "#[cfg(test)]\nmod tests {\n    use scripted::ScriptedModel;\n}\n"
+)]
+fn test_adapter_in_a_unit_test_of_its_dependency_fails(
+    #[case] manifest: &str,
+    #[case] source: &str,
+) {
+    let workspace = Workspace::from_fixture("dependency-direction");
+    workspace.add_fixture_file(
+        &format!("dependency-direction-cases/{manifest}"),
+        "crates/goodfetch-engine/Cargo.toml",
+    );
+    workspace.write(
+        "crates/goodfetch-engine/src/tests.rs",
+        format!("//! Fixture engine tests.\n\n{source}").as_bytes(),
+    );
+
+    let outcome = workspace.xtask(&["dependency-direction"]);
+
+    assert_eq!(
+        outcome.findings(),
+        vec![finding(
+            "test-adapter-in-unit-tests-of-its-dependency",
+            "crates/goodfetch-engine/src/tests.rs"
+        )]
     );
     assert_eq!(outcome.code, 1);
 }

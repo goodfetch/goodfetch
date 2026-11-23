@@ -8540,6 +8540,7 @@ version = "0.0.0"
 dependencies = [
  "anyhow",
  "clap",
+ "data-encoding",
  "flate2",
  "glob",
  "goodfetch-counted-work",

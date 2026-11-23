@@ -67,6 +67,12 @@ impl Skills {
         Self { files }
     }
 
+    /// Their files.
+    #[must_use]
+    pub const fn files(self) -> &'static [SkillFile] {
+        self.files
+    }
+
     /// Each skill's files, by its name, each by its path from the skill's
     /// folder.
     fn by_name(self) -> BTreeMap<&'static str, BTreeMap<&'static str, &'static [u8]>> {

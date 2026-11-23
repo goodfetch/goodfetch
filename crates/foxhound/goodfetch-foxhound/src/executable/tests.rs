@@ -10,13 +10,13 @@ use goodfetch_collie::executable::{OwnCommands, command};
 use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::foxhound_names;
 use goodfetch_test_support::{
-    certificate_verification_switches, command_help, command_paths, long_flags,
+    certificate_verification_switches, command_help, command_paths, long_flags, unknown_options,
 };
 use rstest::rstest;
 use serde_json::{Map, Value, json};
 
-use super::COMMANDS;
 use super::crawl_start::Flags;
+use super::{COMMANDS, SKILLS};
 
 /// The commands `product`'s executable writes by hand.
 fn own(product: Product) -> OwnCommands {
@@ -364,6 +364,42 @@ fn a_start_builds_no_command_of_any_group() {
         .collect();
 
     assert_eq!(built, Vec::<(&str, Vec<&str>)>::new());
+}
+
+/// Every option a skill Foxhound's executable carries names, in an example
+/// or in its prose, is an option of the command it names.
+/// Covers: story:11-237
+#[test]
+fn every_option_a_skill_names_is_one_of_its_command() {
+    let command = command(Product::Foxhound, COMMANDS);
+
+    let unknown: Vec<(&str, Vec<String>)> = SKILLS
+        .files()
+        .iter()
+        .filter(|file| {
+            std::path::Path::new(file.path)
+                .extension()
+                .is_some_and(|extension| extension.eq_ignore_ascii_case("md"))
+        })
+        .map(|file| {
+            let text = std::str::from_utf8(file.contents).expect("a skill's text is UTF-8");
+            (file.path, unknown_options(&command, text))
+        })
+        .collect();
+
+    assert!(
+        unknown
+            .iter()
+            .any(|(path, _)| *path == "goodfetch-foxhound-cli/SKILL.md"),
+        "the skills reach the command-line skill: {unknown:?}"
+    );
+    assert_eq!(
+        unknown
+            .into_iter()
+            .filter(|(_, options)| !options.is_empty())
+            .collect::<Vec<_>>(),
+        Vec::new()
+    );
 }
 
 /// Story 4-31: no flag of Foxhound's executable turns certificate

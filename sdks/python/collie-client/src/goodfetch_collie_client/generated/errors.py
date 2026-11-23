@@ -801,6 +801,14 @@ class RunNotOwnedError(RefusedError):
         super().__init__(message, code="run_not_owned", group="refused", retryable=False, **fields)
 
 
+class RunStateFilesystemUnsupportedError(UnavailableError):
+    """The Run's folder is on a network filesystem (NFS, which EFS and Filestore are, or SMB, which Azure Files is) or on a FUSE mount of object storage, whose locking SQLite cannot rely on, so the engine keeps no run state there. The details name the Run, its folder, the `filesystem` and the `fix`: a `run_state.location` on a local disk or a block volume."""
+
+    def __init__(self, message: str, **fields: Unpack[ErrorFields]) -> None:
+        """Takes the message the engine rendered, and what it carries."""
+        super().__init__(message, code="run_state_filesystem_unsupported", group="unavailable", retryable=False, **fields)
+
+
 class RunStateUnavailableError(UnavailableError):
     """The Run's state is missing, damaged or cannot be written at its location; the details give the path. The engine never starts afresh under that Run ID."""
 
@@ -1079,6 +1087,7 @@ ERROR_CLASSES: Final[Mapping[str, ErrorClass]] = {
     "run_live": RunLiveError,
     "run_not_found": RunNotFoundError,
     "run_not_owned": RunNotOwnedError,
+    "run_state_filesystem_unsupported": RunStateFilesystemUnsupportedError,
     "run_state_unavailable": RunStateUnavailableError,
     "run_target_unbuilt": RunTargetUnbuiltError,
     "sample_refused": SampleRefusedError,

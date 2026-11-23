@@ -99,6 +99,7 @@ pub use self::reader::{RunFileOpener, RunReader};
 pub use self::reindex::{Reindexed, reindex};
 pub use self::report::ReportPart;
 pub use self::writer::{Writer, test_writer};
+pub use crate::run_state::UnsupportedFolder;
 
 use self::ended::{EndedHere, EndedRuns};
 use self::folder::{
@@ -466,6 +467,10 @@ pub enum StartError {
         /// The Run's folder.
         folder: PathBuf,
     },
+    /// The Run's folder is on a filesystem the engine keeps no run state
+    /// on (ADR 0049).
+    #[error("the folder of `{0}` is on {found}, which the engine keeps no run state on", found = .1.found)]
+    FilesystemUnsupported(RunId, UnsupportedFolder),
     /// The Run's state cannot be read, created or written.
     #[error("the state of `{run_id}` is unavailable: {error}")]
     Unavailable {
@@ -880,6 +885,10 @@ pub enum RunError {
         /// The Product it needs.
         needs: Product,
     },
+    /// The Run's folder is on a filesystem the engine keeps no run state
+    /// on (ADR 0049).
+    #[error("the folder of `{0}` is on {found}, which the engine keeps no run state on", found = .1.found)]
+    FilesystemUnsupported(RunId, UnsupportedFolder),
     /// The Run's state cannot be read or written.
     #[error("the state of `{run_id}` is unavailable: {error}")]
     Unavailable {
@@ -1030,6 +1039,9 @@ impl RunError {
                 compatibility,
                 install,
             },
+            RunStateError::FilesystemUnsupported(refused) => {
+                Self::FilesystemUnsupported(run_id.clone(), refused)
+            }
             other => Self::Unavailable {
                 run_id: run_id.clone(),
                 folder: folder.to_owned(),
@@ -5707,7 +5719,12 @@ impl Registry {
             &writer,
         )
         .await
-        .map_err(|error| unavailable(error.to_string()))?;
+        .map_err(|error| match error {
+            RunStateError::FilesystemUnsupported(refused) => {
+                StartError::FilesystemUnsupported(run_id.clone(), refused)
+            }
+            other => unavailable(other.to_string()),
+        })?;
         let started_at = self.now();
         let row = self.run_row(&run_id, &start, inputs.clone(), started_at);
         let fixed_settings = row.fixed_settings.clone();
@@ -6701,6 +6718,7 @@ impl Registry {
                 | StartError::Draining { .. }
                 | StartError::Secret(_)
                 | StartError::Refused(_)
+                | StartError::FilesystemUnsupported(..)
                 | StartError::Stopped => RunError::Stopped,
             })?;
         let mut after = 0;

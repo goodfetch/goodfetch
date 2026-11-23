@@ -4774,7 +4774,9 @@ class Locator(BaseModel):
     """
     A locator (ADR 0085): what an action looks for on a page, resolved
     again at each use, never a handle on an element. This tracer's locators
-    are CSS selectors.
+    are CSS selectors. Whether it reaches inside a closed shadow root
+    depends on the browser (ADR 0121): a CSS selector reaches open roots
+    only today.
     """
 
     model_config = ConfigDict(

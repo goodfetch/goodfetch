@@ -70,8 +70,12 @@ impl ClientConnection {
         RawCall::new(self.0.raw_call(operation), &self.0)
     }
 
-    /// Leaving the scope or `close()` stops the Run with a Checkpoint;
+    /// Leaving the scope or `close()` stops the Run with a Checkpoint.
     /// `finish()` ends it.
+    ///
+    /// In a service, close the Run on `SIGINT` and `SIGTERM`: the SDK
+    /// installs no signal handler, and a signal the program does not handle
+    /// ends it as a crash would (ADRs 0078, 0093).
     ///
     /// Starts a Run its program drives, and answers once it is started. A
     /// Run ID names the Run for good, and a start under one acts on what
@@ -228,6 +232,13 @@ impl From<crate::Page> for Page {
 /// }
 /// ```
 pub trait Connection {
+    /// Leaving the scope or `close()` stops the Run with a Checkpoint.
+    /// `finish()` ends it.
+    ///
+    /// In a service, close the Run on `SIGINT` and `SIGTERM`: the SDK
+    /// installs no signal handler, and a signal the program does not handle
+    /// ends it as a crash would (ADRs 0078, 0093).
+    ///
     /// Starts a Run its program drives, and answers once it is started. A
     /// Run ID names the Run for good, and a start under one acts on what
     /// the Run index holds (ADR 0102): no such Run begins it, `new`; an
@@ -781,10 +792,10 @@ impl Response {
         self.inner.connection().wait(self.inner.body())
     }
 
-    /// Its body as text, decoded with the response's own encoding, as
-    /// [`crate::Response::text`] decodes it: a legacy charset is honoured,
-    /// a BOM left out, unlike Playwright's `text()`, which decodes every
-    /// body as UTF-8.
+    /// Its body as text, decoded with the response's own encoding (ADR
+    /// 0119), as [`crate::Response::text`] decodes it: a legacy charset is
+    /// honoured, a BOM left out, unlike Playwright's `text()`, which decodes
+    /// every body as UTF-8.
     ///
     /// # Errors
     ///
@@ -873,6 +884,9 @@ impl Run {
         EventIter::new(self.inner.progress(), self.inner.host.connection())
     }
 
+    /// Leaving the scope or `close()` stops the Run with a Checkpoint.
+    /// `finish()` ends it.
+    ///
     /// Closes the Run for every clone, as [`crate::Run::close`] does, and
     /// returns once it is closed.
     ///

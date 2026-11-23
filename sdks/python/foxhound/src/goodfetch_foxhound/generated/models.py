@@ -496,7 +496,10 @@ class ExportFormat(StrEnum):
     """An Export's format, named, never inferred from a file name (ADR 0103)."""
 
     json = "json"
-    """One JSON array of the Records' values."""
+    """
+    One JSON array of the Records' values, indented as
+    `export.json.indent` says.
+    """
     jsonl = "jsonl"
     """One Record's value per line, each line ended by a line feed."""
     csv = "csv"
@@ -521,22 +524,44 @@ class ExportFormat(StrEnum):
     """
     xml = "xml"
     """
-    One XML document: a root element holding one element per Record,
-    each field an element of its name.
+    One XML document: a root element named by `export.xml.root` holding
+    one element per Record named by `export.xml.record`, each field an
+    element of its name (`field` with a `name` attribute where its name
+    is no XML name), an object's fields as elements, an array's values
+    as `item` elements, and `null` an empty element with
+    `xsi:nil="true"`.
     """
     parquet = "parquet"
-    """One Apache Parquet file of one column per field seen, typed."""
+    """
+    One Apache Parquet file of one column per field seen, typed: a
+    column whose values are all `true` or `false` is boolean, all whole
+    numbers a 64-bit integer, all numbers a 64-bit float, and any other
+    a string holding each cell's text, every column nullable.
+    """
     avro = "avro"
     """
     One Apache Avro object container file of one record per Record,
-    with one field per field seen, typed.
+    with one field per field seen, typed as Parquet's columns are, each
+    field's name made a valid Avro name with the field's own in its
+    `doc`.
     """
     arrow_ipc = "arrow_ipc"
-    """One Apache Arrow IPC file of one column per field seen, typed."""
+    """
+    One Apache Arrow IPC file of one column per field seen, typed as
+    Parquet's columns are.
+    """
     rss = "rss"
-    """One RSS 2.0 feed of one item per Record."""
+    """
+    One RSS 2.0 feed named after the Dataset, of one item per Record,
+    its title, link, date and summary taken from the fields the
+    `export.feed.*` settings name.
+    """
     atom = "atom"
-    """One Atom feed of one entry per Record."""
+    """
+    One Atom feed named after the Dataset, of one entry per Record, its
+    title, link, date and summary taken from the fields the
+    `export.feed.*` settings name.
+    """
 
 
 class ExportId(RootModel[str]):

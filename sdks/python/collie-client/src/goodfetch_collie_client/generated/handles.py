@@ -285,7 +285,7 @@ class AsyncPage(AsyncHandle):
         return result_of(models.PageFormats, await self._host.call("page.formats", models.FormatsParams(page_id=self._host.id, formats=formats)))
 
     async def go_back(self) -> AsyncResponse | None:
-        """Goes back one entry in the page's history and waits for its `load` event, answering the document's response, or none when there is no entry to go back to. The back/forward cache is off, so the document always loads again (ADR 0121).
+        """Goes back one entry in the page's history and waits for its `load` event, answering the document's response. It answers none only when no document loads: for a same-document entry, or when there is no entry to go back to. The back/forward cache is off, so a document always loads again (ADR 0121).
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
@@ -294,7 +294,7 @@ class AsyncPage(AsyncHandle):
         return None if response is None else AsyncResponse(self._host, response)
 
     async def go_forward(self) -> AsyncResponse | None:
-        """Goes forward one entry in the page's history and waits for its `load` event, answering the document's response, or none when there is no entry to go forward to. The back/forward cache is off, so the document always loads again (ADR 0121).
+        """Goes forward one entry in the page's history and waits for its `load` event, answering the document's response. It answers none only when no document loads: for a same-document entry, or when there is no entry to go forward to. The back/forward cache is off, so a document always loads again (ADR 0121).
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
@@ -495,7 +495,9 @@ class AsyncPage(AsyncHandle):
     def locator(self, selector: str) -> AsyncLocator:
         """A locator (ADR 0085): what an action looks for on a page, resolved
         again at each use, never a handle on an element. This tracer's locators
-        are CSS selectors.
+        are CSS selectors. Whether it reaches inside a closed shadow root
+        depends on the browser (ADR 0121): a CSS selector reaches open roots
+        only today.
 
         Built without a call (ADR 0099).
         """
@@ -849,7 +851,7 @@ class Page(Handle):
         return result_of(models.PageFormats, self._host.call("page.formats", models.FormatsParams(page_id=self._host.id, formats=formats)))
 
     def go_back(self) -> Response | None:
-        """Goes back one entry in the page's history and waits for its `load` event, answering the document's response, or none when there is no entry to go back to. The back/forward cache is off, so the document always loads again (ADR 0121).
+        """Goes back one entry in the page's history and waits for its `load` event, answering the document's response. It answers none only when no document loads: for a same-document entry, or when there is no entry to go back to. The back/forward cache is off, so a document always loads again (ADR 0121).
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
@@ -858,7 +860,7 @@ class Page(Handle):
         return None if response is None else Response(self._host, response)
 
     def go_forward(self) -> Response | None:
-        """Goes forward one entry in the page's history and waits for its `load` event, answering the document's response, or none when there is no entry to go forward to. The back/forward cache is off, so the document always loads again (ADR 0121).
+        """Goes forward one entry in the page's history and waits for its `load` event, answering the document's response. It answers none only when no document loads: for a same-document entry, or when there is no entry to go forward to. The back/forward cache is off, so a document always loads again (ADR 0121).
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
@@ -1059,7 +1061,9 @@ class Page(Handle):
     def locator(self, selector: str) -> Locator:
         """A locator (ADR 0085): what an action looks for on a page, resolved
         again at each use, never a handle on an element. This tracer's locators
-        are CSS selectors.
+        are CSS selectors. Whether it reaches inside a closed shadow root
+        depends on the browser (ADR 0121): a CSS selector reaches open roots
+        only today.
 
         Built without a call (ADR 0099).
         """

@@ -84,6 +84,13 @@ impl Foxhound {
         self.connection.raw_call(operation)
     }
 
+    /// Leaving the scope or `close()` stops the Run with a Checkpoint.
+    /// `finish()` ends it.
+    ///
+    /// In a service, close the Run on `SIGINT` and `SIGTERM`: the SDK
+    /// installs no signal handler, and a signal the program does not handle
+    /// ends it as a crash would (ADRs 0078, 0093).
+    ///
     /// Starts a Run its program drives, and answers once it is started. A
     /// Run ID names the Run for good, and a start under one acts on what
     /// the Run index holds (ADR 0102): no such Run begins it, `new`; an

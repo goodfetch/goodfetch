@@ -6,7 +6,9 @@
 //! members are read by TypeScript's checker (`typescript-exports.mjs` says
 //! which), a Rust crate's from its source ([`rust`] says which), and the
 //! Python packages' from their source by the repository's interpreter
-//! (`python_exports.py` says which).
+//! (`python_exports.py` says which). It also reads the doc obligations of
+//! `sdks/doc-obligations.toml` in each text they bind ([`obligations`]
+//! says how).
 #![expect(
     clippy::disallowed_methods,
     reason = "xtask is synchronous; the blocking-fs ban targets async crates (STYLE.md)"
@@ -25,6 +27,7 @@ use super::{Language, MANIFESTS, Manifest, Member, Operation};
 use crate::check::Finding;
 use crate::codegen;
 
+mod obligations;
 mod rust;
 
 /// Prints the members the TypeScript packages of the SDK's folder export.
@@ -83,6 +86,7 @@ pub(crate) fn check(root: &Path) -> Result<Vec<Finding>> {
     let generated = codegen::handle_entries(root)?;
     let mut findings = Vec::new();
     let mut manifests = Vec::new();
+    let mut sdks = Vec::new();
     for (path, language) in MANIFESTS {
         let exported = exports(root, path, language)?;
         let manifest = super::read(root, path)?;
@@ -96,8 +100,20 @@ pub(crate) fn check(root: &Path) -> Result<Vec<Finding>> {
             &operations,
             &mut findings,
         );
+        sdks.push(exported);
         manifests.push((path, language, manifest));
     }
+    let read: Vec<obligations::Sdk<'_>> = manifests
+        .iter()
+        .zip(&sdks)
+        .map(|((path, language, manifest), exported)| obligations::Sdk {
+            manifest: path,
+            language: *language,
+            members: &manifest.members,
+            exported,
+        })
+        .collect();
+    obligations::check(root, &catalog, &read, &mut findings)?;
     for language in LANGUAGES {
         let of_language: Vec<(&str, &Manifest)> = manifests
             .iter()
@@ -180,6 +196,18 @@ fn flattened(text: &str) -> String {
     text.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
+/// The hand-written member a manifest's line names, `None` when its SDK
+/// exports none, which [`compare`] fails.
+fn listed_export<'a>(member: &Member, exported: &'a [Exported]) -> Option<&'a Exported> {
+    exported.iter().find(|found| {
+        !found.generated
+            && !found.library
+            && found.entry == member.package
+            && found.receiver == member.receiver
+            && found.member == member.name
+    })
+}
+
 /// Fails each line of `manifest` whose member lacks its entry's doc text,
 /// or the marker of its Experimental or deprecated entry (ADR 0099): its doc
 /// holds the entry's description, however it wraps it; an Experimental
@@ -199,13 +227,7 @@ fn carried(
         let Some(operation) = operations.get(member.entry.as_str()) else {
             continue;
         };
-        let Some(found) = exported.iter().find(|found| {
-            !found.generated
-                && !found.library
-                && found.entry == member.package
-                && found.receiver == member.receiver
-                && found.member == member.name
-        }) else {
+        let Some(found) = listed_export(member, exported) else {
             continue;
         };
         let subject = super::subject(manifest, member);

@@ -835,7 +835,9 @@ class AsyncRun(AsyncRunMembers):
         return AsyncSequence(reading)
 
     async def close(self) -> None:
-        """Closes the Run; idempotent.
+        """Leaving the scope or `close()` stops the Run with a Checkpoint.
+
+        `finish()` ends it. Closing is idempotent.
 
         A Run still running is stopped with `run.abort`, resumable by its Run
         ID, and the Run report it answers is not returned; one no longer
@@ -984,7 +986,9 @@ class Run(RunMembers):
         )
 
     def close(self) -> None:
-        """Closes the Run; idempotent.
+        """Leaving the scope or `close()` stops the Run with a Checkpoint.
+
+        `finish()` ends it. Closing is idempotent.
 
         A Run still running is stopped with `run.abort`, resumable by its Run
         ID, unless it was started `detached`, as `AsyncRun.close` says.

@@ -5816,7 +5816,7 @@
       "oneOf": [
         {
           "const": "json",
-          "description": "One JSON array of the Records' values.",
+          "description": "One JSON array of the Records' values, indented as\n`export.json.indent` says.",
           "type": "string"
         },
         {
@@ -5846,32 +5846,32 @@
         },
         {
           "const": "xml",
-          "description": "One XML document: a root element holding one element per Record,\neach field an element of its name.",
+          "description": "One XML document: a root element named by `export.xml.root` holding\none element per Record named by `export.xml.record`, each field an\nelement of its name (`field` with a `name` attribute where its name\nis no XML name), an object's fields as elements, an array's values\nas `item` elements, and `null` an empty element with\n`xsi:nil=\"true\"`.",
           "type": "string"
         },
         {
           "const": "parquet",
-          "description": "One Apache Parquet file of one column per field seen, typed.",
+          "description": "One Apache Parquet file of one column per field seen, typed: a\ncolumn whose values are all `true` or `false` is boolean, all whole\nnumbers a 64-bit integer, all numbers a 64-bit float, and any other\na string holding each cell's text, every column nullable.",
           "type": "string"
         },
         {
           "const": "avro",
-          "description": "One Apache Avro object container file of one record per Record,\nwith one field per field seen, typed.",
+          "description": "One Apache Avro object container file of one record per Record,\nwith one field per field seen, typed as Parquet's columns are, each\nfield's name made a valid Avro name with the field's own in its\n`doc`.",
           "type": "string"
         },
         {
           "const": "arrow_ipc",
-          "description": "One Apache Arrow IPC file of one column per field seen, typed.",
+          "description": "One Apache Arrow IPC file of one column per field seen, typed as\nParquet's columns are.",
           "type": "string"
         },
         {
           "const": "rss",
-          "description": "One RSS 2.0 feed of one item per Record.",
+          "description": "One RSS 2.0 feed named after the Dataset, of one item per Record,\nits title, link, date and summary taken from the fields the\n`export.feed.*` settings name.",
           "type": "string"
         },
         {
           "const": "atom",
-          "description": "One Atom feed of one entry per Record.",
+          "description": "One Atom feed named after the Dataset, of one entry per Record, its\ntitle, link, date and summary taken from the fields the\n`export.feed.*` settings name.",
           "type": "string"
         }
       ]
@@ -8372,7 +8372,7 @@
     },
     "Locator": {
       "additionalProperties": false,
-      "description": "A locator (ADR 0085): what an action looks for on a page, resolved\nagain at each use, never a handle on an element. This tracer's locators\nare CSS selectors.",
+      "description": "A locator (ADR 0085): what an action looks for on a page, resolved\nagain at each use, never a handle on an element. This tracer's locators\nare CSS selectors. Whether it reaches inside a closed shadow root\ndepends on the browser (ADR 0121): a CSS selector reaches open roots\nonly today.",
       "properties": {
         "page_id": {
           "$ref": "#/$defs/PageId",

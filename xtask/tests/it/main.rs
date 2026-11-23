@@ -38,6 +38,7 @@ mod dco;
 mod deny_products;
 mod dependency_direction;
 mod diagnostic;
+mod doc_obligations;
 mod docs_samples;
 mod egress;
 mod egress_canary;

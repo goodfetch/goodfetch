@@ -44,6 +44,7 @@ mod github;
 mod image_pins;
 mod issues;
 mod journeys;
+mod judged_commits;
 mod junit;
 mod junit_summary;
 mod kennel;
@@ -168,6 +169,11 @@ enum Command {
         /// The recorded starting point: it and its ancestors are not judged.
         #[arg(long)]
         since: String,
+        /// The gate's records (`ci/gate-records.sh`): the commits judged
+        /// green there before are not judged again, and those judged green
+        /// now are recorded there.
+        #[arg(long)]
+        records: Option<std::path::PathBuf>,
     },
     /// The comparison matrix (ADRs 0134 and 0138): each scenario's cells,
     /// Foxhound against Spider, Crawlee and Scrapy, crawling the Proving
@@ -197,6 +203,11 @@ enum Command {
         /// The pull request's head commit.
         #[arg(long)]
         head: String,
+        /// The gate's records (`ci/gate-records.sh`): the commits judged
+        /// green there before are not judged again, and those judged green
+        /// now are recorded there.
+        #[arg(long)]
+        records: Option<std::path::PathBuf>,
     },
     /// Fails on a dependency against the workspace's enforced directions.
     DependencyDirection,
@@ -580,14 +591,21 @@ fn run(command: Command, environment: &Environment) -> anyhow::Result<ExitCode> 
         Command::Budgets(arguments) => budgets::run(&arguments, environment),
         Command::Clients { command } => clients::run(&command, environment),
         Command::Codegen(arguments) => codegen::run(arguments, environment),
-        Command::CommitMessages { base, head, since } => Ok(check::report(
-            &commit_messages::check(root, &base, &head, &since)?,
-        )),
+        Command::CommitMessages {
+            base,
+            head,
+            since,
+            records,
+        } => Ok(commit_messages::check(root, &base, &head, &since, records.as_deref())?.report()),
         Command::FloorGuard { base, head } => floor_guard::run(root, &base, &head),
         Command::Compat { command } => compat::run(command, environment),
         Command::Containment => Ok(check::report(&containment::check(root)?)),
         Command::Counts(arguments) => counts::run(&arguments, environment),
-        Command::Dco { base, head } => Ok(check::report(&dco::check(root, &base, &head)?)),
+        Command::Dco {
+            base,
+            head,
+            records,
+        } => Ok(dco::check(root, &base, &head, records.as_deref())?.report()),
         Command::DependencyDirection => {
             Ok(check::report(&dependency_direction::check(cargo, root)?))
         }

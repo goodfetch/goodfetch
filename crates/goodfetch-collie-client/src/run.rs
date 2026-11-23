@@ -94,11 +94,13 @@ impl IntoFuture for Start {
 
     /// Reads the level the program's subscriber records for the engine
     /// on the calling thread, which the start tells the engine first when
-    /// it changed (ADR 0078).
+    /// it changed (ADR 0078). The start carries the project file the
+    /// Connection carries (ADR 0083).
     fn into_future(mut self) -> Self::IntoFuture {
         let settings = self.settings.within(SettingScope::Run);
         let started = settings.map(|settings| {
             self.params.settings = settings;
+            self.params.project = self.connection.project().cloned();
             self.connection.start_with(RUN_START.name, self.params)
         });
         Box::pin(async move { started?.await })
@@ -321,14 +323,18 @@ impl ClientConnection {
     /// What the Connection runs with (ADR 0083), as `config explain` shows
     /// it (`config.explain`), which awaiting asks: each setting, or those
     /// [`Query::keys`] names, with the origin that set it, the
-    /// Connection's own settings, which each Run it starts inherits. Once
-    /// the Connection is closed it fails with `closed`.
+    /// Connection's own settings over the project file it carries, which
+    /// each Run it starts inherits. Once the Connection is closed it fails
+    /// with `closed`.
     pub fn explain_settings(&self) -> Query<SettingsExplanation, ConfigExplainParams> {
         crate::markers::warn_operation(CONFIG_EXPLAIN.name);
         Query::new(
             self.sender(),
             CONFIG_EXPLAIN.name,
-            Ok(ConfigExplainParams::default()),
+            Ok(ConfigExplainParams {
+                project: self.project().cloned(),
+                ..ConfigExplainParams::default()
+            }),
         )
     }
 }

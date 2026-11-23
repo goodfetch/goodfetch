@@ -346,8 +346,7 @@ async def test_a_sessions_listeners_share_one_subscription_and_hear_their_own_pa
         "each Session's page, and the credits granted again",
     )
     values = [
-        (await way.api(page, page).evaluate("() => 1")).value
-        for page in (*firsts, *seconds)
+        await way.api(page, page).evaluate("() => 1") for page in (*firsts, *seconds)
     ]
     heard_first.close()
     heard_second.close()

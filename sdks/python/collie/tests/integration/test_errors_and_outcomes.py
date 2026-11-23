@@ -34,7 +34,7 @@ from goodfetch_collie import (
     TargetNotUniqueError,
     UnavailableError,
 )
-from goodfetch_collie_client.generated.models import Navigated
+from goodfetch_collie_client.generated.models import PageResponse
 from goodfetch_test_support import (
     Canary,
     ClientCaseRecord,
@@ -78,7 +78,7 @@ COVERS = pytest.mark.covers(
 class Played:
     """What the case's calls answered, in the script's order."""
 
-    missing: Navigated
+    missing: PageResponse | None
     unbound: GoodfetchError
     input_refused: GoodfetchError
     not_unique: GoodfetchError
@@ -147,8 +147,8 @@ def check_played(
     from_outside = answered.from_outside
     panicked = answered.panicked
     with client_case.check("a 404 is the navigation's outcome, returned, not raised"):
-        assert missing.response is not None
-        assert (missing.response.status, missing.response.url) == (
+        assert missing is not None
+        assert (missing.status, missing.url) == (
             404,
             "https://shop.test/missing",
         )

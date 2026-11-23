@@ -499,6 +499,7 @@ async fn opened(timeout: ConnectTimeout) -> (ClientConnection, Peer, PeerLink) {
             timeout,
             ListenerQueue::DEFAULT,
             None,
+            None,
         ),
         async {
             let mut link = peer.accept().await;

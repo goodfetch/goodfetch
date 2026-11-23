@@ -1655,6 +1655,87 @@ fn an_empty_deployment_variable_is_invalid() {
     );
 }
 
+/// The engine's channels are the ones the protocol crate lists, which the
+/// SDKs' checks take from it.
+#[test]
+fn the_channels_are_the_protocols_list() {
+    assert_eq!(
+        crate::Channel::ALL.map(crate::Channel::name),
+        goodfetch_protocol::settings::CHANNELS
+    );
+}
+
+/// A value the engine parses later is parsed here, so a bad one is
+/// refused before any engine starts (ADR 0083).
+/// Covers: story:11-73, error:setting_invalid
+#[rstest]
+#[case::no_channel(
+    "GOODFETCH_CHANNEL",
+    "nightly",
+    "`nightly` is no channel; one of npm, pypi, crates-io, homebrew, oci, installer"
+)]
+#[case::a_channel_in_capitals(
+    "GOODFETCH_CHANNEL",
+    "NPM",
+    "`NPM` is no channel; one of npm, pypi, crates-io, homebrew, oci, installer"
+)]
+#[case::a_drain_grace_in_seconds(
+    "GOODFETCH_DAEMON_DRAIN_GRACE",
+    "5s",
+    "`5s` is no whole number of milliseconds"
+)]
+#[case::a_negative_drain_grace(
+    "GOODFETCH_DAEMON_DRAIN_GRACE",
+    "-1",
+    "`-1` is no whole number of milliseconds"
+)]
+#[case::a_drain_grace_past_u64(
+    "GOODFETCH_DAEMON_DRAIN_GRACE",
+    "18446744073709551616",
+    "`18446744073709551616` is no whole number of milliseconds"
+)]
+#[case::a_daemon_address_by_host_name(
+    "GOODFETCH_DAEMON_ADDRESS",
+    "localhost:7900",
+    "`localhost:7900` is no `host:port`"
+)]
+#[case::an_ops_address_without_a_port(
+    "GOODFETCH_OPS_ADDRESS",
+    "0.0.0.0",
+    "`0.0.0.0` is no `host:port`"
+)]
+fn an_unparsable_deployment_value_is_invalid(
+    #[case] name: &str,
+    #[case] value: &str,
+    #[case] reason: &str,
+) {
+    let environment = std::collections::BTreeMap::from([(name.into(), value.into())]);
+
+    assert_eq!(
+        check_environment(&environment),
+        Err(SettingsError::Invalid {
+            key: name.to_owned(),
+            layer: None,
+            reason: reason.to_owned(),
+        })
+    );
+}
+
+/// A channel, a whole number of milliseconds, `+` signed as Rust reads
+/// one, up to `u64::MAX`, and an IPv4 or IPv6 address and port pass.
+#[rstest]
+#[case::a_channel("GOODFETCH_CHANNEL", "crates-io")]
+#[case::no_drain_grace("GOODFETCH_DAEMON_DRAIN_GRACE", "0")]
+#[case::a_signed_drain_grace("GOODFETCH_DAEMON_DRAIN_GRACE", "+5")]
+#[case::the_longest_drain_grace("GOODFETCH_DAEMON_DRAIN_GRACE", "18446744073709551615")]
+#[case::an_ipv4_daemon_address("GOODFETCH_DAEMON_ADDRESS", "127.0.0.1:7900")]
+#[case::an_ipv6_ops_address_with_its_scope("GOODFETCH_OPS_ADDRESS", "[fe80::1%2]:9464")]
+fn a_parsable_deployment_value_passes(#[case] name: &str, #[case] value: &str) {
+    let environment = std::collections::BTreeMap::from([(name.into(), value.into())]);
+
+    assert_eq!(check_environment(&environment), Ok(()));
+}
+
 #[test]
 fn a_variable_outside_the_reserved_prefix_is_not_checked() {
     let environment = std::collections::BTreeMap::from([("GOODFETCHER".into(), "".into())]);

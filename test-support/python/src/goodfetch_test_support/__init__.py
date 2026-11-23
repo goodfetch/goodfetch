@@ -31,6 +31,7 @@ from goodfetch_test_support.environment import (
     project_script,
     scripted_engine_client_methods,
     scripted_engine_env,
+    scripted_engine_environment,
     scripted_engine_record,
     until_scripted_engine_read,
 )
@@ -157,6 +158,7 @@ __all__ = [
     "redact",
     "scripted_engine_client_methods",
     "scripted_engine_env",
+    "scripted_engine_environment",
     "scripted_engine_record",
     "search_canaries",
     "start_journey_run",

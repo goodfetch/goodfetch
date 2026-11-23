@@ -22,7 +22,7 @@ use goodfetch_protocol::daemon::DaemonUnreachableDetails;
 use goodfetch_protocol::settings::{SettingInvalidDetails, SettingUnknownDetails};
 use goodfetch_test_support::{
     CapturedLog, Process, RuntimeFile, SCRIPTED_DAEMON_TOKEN, TestEnv, Tool, capturing, case_logs,
-    engine_script, real_time_runtime, reported_address, tools,
+    engine_script, real_time_runtime, reported_address, run_host_test, tools,
 };
 use rstest::rstest;
 use serde_json::Value;
@@ -579,6 +579,184 @@ fn an_empty_goodfetch_url_is_refused() {
         (details.key.as_str(), details.reason.as_str()),
         ("GOODFETCH_URL", "it is empty; unset it instead")
     );
+}
+
+/// A deployment value the engine cannot parse fails `connect()` with
+/// `setting_invalid`, its `fix` naming what the variable takes, as the two
+/// other SDKs say it (ADR 0083).
+/// Covers: story:11-73
+#[rstest]
+#[case::a_channel_in_capitals(
+    "GOODFETCH_CHANNEL",
+    "NPM",
+    "one of npm, pypi, crates-io, homebrew, oci, installer"
+)]
+#[case::a_drain_grace_in_seconds(
+    "GOODFETCH_DAEMON_DRAIN_GRACE",
+    "5s",
+    "a whole number of milliseconds"
+)]
+#[case::an_ops_address_by_host_name(
+    "GOODFETCH_OPS_ADDRESS",
+    "metrics:9464",
+    "an IP address and port such as 0.0.0.0:9464"
+)]
+fn an_unparsable_deployment_value_is_refused(
+    #[case] variable: &str,
+    #[case] value: &str,
+    #[case] taken: &str,
+) {
+    let env = TestEnv::new();
+
+    let refused = real_time_runtime().block_on(async {
+        Collie::connect(
+            ConnectOptions::default().environment(environment(&env, &[(variable, value)])),
+        )
+        .await
+    });
+
+    let error = refused.unwrap_err();
+    assert_eq!(error.code(), ErrorCode::SETTING_INVALID, "{error:?}");
+    assert_eq!(
+        error.fix(),
+        Some(format!("Set {variable} to {taken}, or unset it.").as_str())
+    );
+    let details: SettingInvalidDetails = error.details().unwrap();
+    assert_eq!(details.key, variable);
+}
+
+/// The `connect-takes-the-environment-map` case in `linked` mode: the
+/// linked engine runs in the Goodfetch home the environment map names, and
+/// with no map in the one the process environment names, which
+/// [`process_environment_host`], a program of its own started with an
+/// environment of its own, reads once; so no test patches its own (ADR
+/// 0062). A `GOODFETCH_` variable off the list, an empty one and one the
+/// engine cannot parse fail `connect()` before any engine, which would have
+/// made its home.
+/// Covers: story:11-73, error:setting_unknown, error:setting_invalid
+#[test]
+fn connect_takes_the_environment_map() {
+    let _case = ClientCaseRun::start(
+        case_logs().as_deref(),
+        "connect-takes-the-environment-map",
+        RustMode::Linked,
+    )
+    .unwrap();
+    let env = TestEnv::new();
+    let given = env.folder().join("given");
+    let given_home = given.to_str().unwrap();
+    let refusals = [
+        ("unknown", "GOODFETCH_HOEM", "/home/goodfetch"),
+        ("empty", "GOODFETCH_URL", ""),
+        ("channel", "GOODFETCH_CHANNEL", "nightly"),
+        ("drain_grace", "GOODFETCH_DAEMON_DRAIN_GRACE", "5s"),
+    ];
+
+    let (engine, refused) = real_time_runtime().block_on(async {
+        let options = ConnectOptions::default()
+            .environment(environment(&env, &[("GOODFETCH_HOME", given_home)]));
+        let collie = Collie::connect(options).await.unwrap();
+        let engine = collie.engine().clone();
+        collie.close().await.unwrap();
+        let mut refused = Vec::new();
+        for (name, variable, value) in refusals {
+            let home = env.folder().join(name);
+            let map = environment(
+                &env,
+                &[
+                    ("GOODFETCH_HOME", home.to_str().unwrap()),
+                    (variable, value),
+                ],
+            );
+            let error = Collie::connect(ConnectOptions::default().environment(map))
+                .await
+                .unwrap_err();
+            refused.push((name, error, home.exists()));
+        }
+        (engine, refused)
+    });
+    let process_home = env.folder().join("process");
+    let host = run_host_test(
+        &env,
+        "sdk::engine_choice::process_environment_host",
+        &[("GOODFETCH_HOME", process_home.as_os_str())],
+    )
+    .unwrap();
+
+    assert_eq!(
+        (engine.kind, engine.home),
+        (EngineKind::Linked, Some(given.clone()))
+    );
+    assert!(given.is_dir(), "the linked engine made the home it runs in");
+    assert!(host.status.success(), "{}", host.stderr);
+    let reported: Value = serde_json::from_str(host.stdout.trim()).unwrap();
+    assert_eq!(reported["home"], process_home.to_str().unwrap());
+    let unknown: SettingUnknownDetails = refused[0].1.details().unwrap();
+    assert_eq!(
+        (
+            refused[0].1.code(),
+            unknown.key.as_str(),
+            unknown.closest.as_deref()
+        ),
+        (
+            ErrorCode::SETTING_UNKNOWN,
+            "GOODFETCH_HOEM",
+            Some("GOODFETCH_HOME")
+        )
+    );
+    let invalid: Vec<_> = refused[1..]
+        .iter()
+        .map(|(_, error, _)| {
+            let details: SettingInvalidDetails = error.details().unwrap();
+            (error.code(), details.key)
+        })
+        .collect();
+    assert_eq!(
+        invalid,
+        [
+            (ErrorCode::SETTING_INVALID, "GOODFETCH_URL".to_owned()),
+            (ErrorCode::SETTING_INVALID, "GOODFETCH_CHANNEL".to_owned()),
+            (
+                ErrorCode::SETTING_INVALID,
+                "GOODFETCH_DAEMON_DRAIN_GRACE".to_owned()
+            ),
+        ]
+    );
+    let made: Vec<_> = refused
+        .iter()
+        .map(|(name, _, made)| (*name, *made))
+        .collect();
+    assert_eq!(
+        made,
+        [
+            ("unknown", false),
+            ("empty", false),
+            ("channel", false),
+            ("drain_grace", false)
+        ],
+        "no refused connect() made its engine's home"
+    );
+}
+
+/// The program that connects with no environment map, so the SDK reads
+/// the process environment its parent gave it, and prints the Goodfetch
+/// home its linked engine ran in as one JSON line.
+#[test]
+#[ignore = "run as a child by sdk::engine_choice::connect_takes_the_environment_map"]
+fn process_environment_host() {
+    let home = real_time_runtime().block_on(async {
+        let collie = Collie::connect(ConnectOptions::default()).await.unwrap();
+        let home = collie.engine().home.clone();
+        collie.close().await.unwrap();
+        home
+    });
+    #[expect(
+        clippy::print_stdout,
+        reason = "the host is a program of its own, which reports to its parent on its stdout"
+    )]
+    {
+        println!("{}", serde_json::json!({ "home": home }));
+    }
 }
 
 /// A `GOODFETCH_` variable off the closed list fails `connect()` with

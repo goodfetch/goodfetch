@@ -326,6 +326,29 @@ def scripted_engine_record(home: Path) -> Path:
     return home / SCRIPTED_ENGINE_FOLDER / "record.jsonl"
 
 
+def scripted_engine_environment(home: Path) -> dict[str, str] | None:
+    """The environment the Scripted engine under `home` was started with.
+
+    `goodfetch-scripted-engine attached-engine` writes it before it plays;
+    `None` when no engine was started there. TypeScript's
+    `scriptedEngineEnvironment` is its twin.
+    """
+    written = home / SCRIPTED_ENGINE_FOLDER / "environment.json"
+    if not written.exists():
+        return None
+    parsed: object = json.loads(written.read_text("utf-8"))
+    if not isinstance(parsed, dict):
+        msg = f"{written} holds no map of names to strings"
+        raise TypeError(msg)
+    environment: dict[str, str] = {}
+    for name, value in cast("dict[object, object]", parsed).items():
+        if not isinstance(name, str) or not isinstance(value, str):
+            msg = f"{written} holds no map of names to strings"
+            raise TypeError(msg)
+        environment[name] = value
+    return environment
+
+
 SCRIPTED_ENGINE_READ_DEADLINE_SECONDS = 10.0
 """How long a test waits for the Scripted engine to read a Client's call."""
 

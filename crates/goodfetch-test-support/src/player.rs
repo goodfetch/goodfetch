@@ -23,6 +23,12 @@ pub const ATTACHED_SCRIPT: &str = "scripted-engine/script.json";
 /// for a line that is not JSON.
 pub const ATTACHED_RECORD: &str = "scripted-engine/record.jsonl";
 
+/// Where that engine writes, before it plays, the environment it was
+/// started with, under the same home: one JSON object of each variable's
+/// name and value, a part that is not Unicode replaced by U+FFFD, so a test
+/// sees what its SDK passed (ADR 0083).
+pub const ATTACHED_ENVIRONMENT: &str = "scripted-engine/environment.json";
+
 /// How a script that played to its end ends.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Ending {

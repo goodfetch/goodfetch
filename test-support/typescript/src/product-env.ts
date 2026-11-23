@@ -103,3 +103,32 @@ export function scriptedEngineClientMethods(home: string): unknown[] {
     )
     .map((entry) => entry.message.method);
 }
+
+/**
+ * The environment the Scripted engine under `home` was started with, which
+ * `goodfetch-scripted-engine attached-engine` writes before it plays;
+ * `undefined` when no engine was started there. Python's
+ * `scripted_engine_environment` is its twin.
+ */
+export function scriptedEngineEnvironment(
+  home: string,
+): Readonly<Record<string, string>> | undefined {
+  const written = join(home, "scripted-engine", "environment.json");
+  if (!existsSync(written)) {
+    return undefined;
+  }
+  const parsed: unknown = JSON.parse(readFileSync(written, "utf8"));
+  if (!isEnvironment(parsed)) {
+    throw new Error(`${written} holds no map of names to strings`);
+  }
+  return parsed;
+}
+
+function isEnvironment(value: unknown): value is Readonly<Record<string, string>> {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    !Array.isArray(value) &&
+    Object.values(value).every((entry) => typeof entry === "string")
+  );
+}

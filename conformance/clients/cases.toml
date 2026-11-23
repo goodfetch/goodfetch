@@ -26,7 +26,7 @@
 
 [suite]
 name = "clients"
-version = "62"
+version = "63"
 
 [[capability]]
 name = "lifecycle"
@@ -752,6 +752,16 @@ modes = { sdk-typescript = ["attached"], sdk-python = ["attached"], sdk-rust = [
 [[capability.case]]
 id = "non-json-value-refused"
 covers = ["story:11-68"]
+surfaces = ["sdk-typescript"]
+modes = ["attached"]
+
+# A schema's own validation that raises something other than the library's
+# rejection stops the call at once with `schema_validator_failed`, the
+# original as its cause, never a `value_invalid` (ADR 0082). The extraction
+# retry loop's cases join with `extract` (#1338).
+[[capability.case]]
+id = "validator-throw-fails-at-once"
+covers = ["story:11-67"]
 surfaces = ["sdk-typescript"]
 modes = ["attached"]
 

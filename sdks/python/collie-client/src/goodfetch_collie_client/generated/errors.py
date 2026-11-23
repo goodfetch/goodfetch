@@ -841,6 +841,14 @@ class SampleRefusedError(RefusedError):
         super().__init__(message, code="sample_refused", group="refused", retryable=False, **fields)
 
 
+class SchemaValidatorFailedError(ProgramError):
+    """A schema's own validation, run by the SDK in the program's process, raised something other than a rejection, so the call stopped at once: only the library's own rejection (Standard Schema issues, Pydantic's `ValidationError`) is one, and a bug is never retried or reported as a value the schema refused. The message always names the exception, and the original is the error's cause. The details name the schema by its JSON Schema `title` (`null` without one), the field path where known (`null` otherwise), and the exception's type and message. Fix the validator so that it rejects with the library's own issue, or never raises."""
+
+    def __init__(self, message: str, **fields: Unpack[ErrorFields]) -> None:
+        """Takes the message the engine rendered, and what it carries."""
+        super().__init__(message, code="schema_validator_failed", group="program", retryable=False, **fields)
+
+
 class SecretDomainNotAllowedError(RefusedError):
     """A Secret placeholder's value would go to a domain outside its binding's `domains`: the field's frame or the request's URL. The details name the placeholder, the reference and the domain, never a value."""
 
@@ -1100,6 +1108,7 @@ ERROR_CLASSES: Final[Mapping[str, ErrorClass]] = {
     "run_state_unavailable": RunStateUnavailableError,
     "run_target_unbuilt": RunTargetUnbuiltError,
     "sample_refused": SampleRefusedError,
+    "schema_validator_failed": SchemaValidatorFailedError,
     "secret_domain_not_allowed": SecretDomainNotAllowedError,
     "secret_input_refused": SecretInputRefusedError,
     "secret_unavailable": SecretUnavailableError,

@@ -8,6 +8,7 @@
 // what it receives the output type, built by the schema's own parse; a
 // hand-written JSON Schema types both as a JSON value.
 
+import { SchemaValidatorFailedError } from "./generated/errors.ts";
 import { pointerToken, type JSONObject, type JSONValue } from "./json.ts";
 
 /** Standard Typed's inferred types (`@standard-schema/spec` 1.1.0). */
@@ -119,7 +120,9 @@ export type Parsed<Output> =
 /**
  * `value` parsed by `schema`'s own validation (ADR 0082): the output value,
  * or each issue with its path as a JSON Pointer. A hand-written JSON Schema
- * has no parse in the program, so the value stays the JSON it is.
+ * has no parse in the program, so the value stays the JSON it is. A
+ * validation that throws rather than giving issues fails with
+ * `schema_validator_failed`, the thrown value as its cause.
  */
 export async function parse<S extends Schema>(
   schema: S,
@@ -129,7 +132,14 @@ export async function parse<S extends Schema>(
     // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- a hand-written schema's output type is `JSONValue`, which `value` is.
     return { value: value as SchemaOutput<S> };
   }
-  const result = await schema["~standard"].validate(value);
+  let result: StandardResult<unknown>;
+  try {
+    result = await schema["~standard"].validate(value);
+  } catch (thrown) {
+    // Only the library's own issues are a rejection: anything else its
+    // validation throws is the program's bug, so the call stops here.
+    throw validatorFailed(schema, thrown);
+  }
   if (result.issues) {
     return {
       issues: result.issues.map((issue) => ({
@@ -151,6 +161,37 @@ export function wireSchema(schema: Schema): Readonly<Record<string, unknown>> {
   return isTyped(schema)
     ? schema["~standard"].jsonSchema.input({ target: "draft-2020-12" })
     : schema;
+}
+
+/**
+ * The `schema_validator_failed` of `schema`, whose validation threw
+ * `thrown` (ADR 0082): the message names the exception's type and message,
+ * the details name the schema by its JSON Schema `title`, and no path,
+ * which a throw past the library does not carry.
+ */
+function validatorFailed(schema: TypedSchema, thrown: unknown): SchemaValidatorFailedError {
+  const title = titleOf(schema);
+  const type = thrown instanceof Error ? thrown.name : thrown === null ? "null" : typeof thrown;
+  const message = thrown instanceof Error ? thrown.message : String(thrown);
+  const named = title === null ? "the schema" : `the schema ${title}`;
+  return new SchemaValidatorFailedError(`${named}'s own validation threw ${type}: ${message}`, {
+    cause: thrown,
+    fix: "Fix the validator so that it rejects through its library, as a `.refine()` that returns false or an issue it adds, or never throws.",
+    details: { schema: title, path: null, exception_type: type, exception_message: message },
+  });
+}
+
+/** `schema`'s JSON Schema `title`, or null without one or a JSON Schema to read it from. */
+function titleOf(schema: TypedSchema): string | null {
+  let title: unknown;
+  try {
+    ({ title } = wireSchema(schema));
+  } catch {
+    // Standard JSON Schema's converter may throw where it has no JSON
+    // Schema for the type: the schema then has no title to name.
+    return null;
+  }
+  return typeof title === "string" ? title : null;
 }
 
 /** Whether `schema` is a typed one rather than a JSON Schema written by hand. */

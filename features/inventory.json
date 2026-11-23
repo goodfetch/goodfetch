@@ -2389,6 +2389,17 @@
       ]
     },
     {
+      "id": "error:schema_validator_failed",
+      "kind": "error",
+      "area": null,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "error:secret_domain_not_allowed",
       "kind": "error",
       "area": 4,

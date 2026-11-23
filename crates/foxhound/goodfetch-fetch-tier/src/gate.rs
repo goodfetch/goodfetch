@@ -326,12 +326,14 @@ type ReservedCell = std::sync::atomic::AtomicU64;
 impl ReservedSend {
     /// The send reserved at `at`, none for `None`.
     pub fn at(at: Option<SystemTime>) -> Self {
-        let nanos = at
-            .and_then(|at| at.duration_since(SystemTime::UNIX_EPOCH).ok())
-            .map_or(0, |since| {
-                u64::try_from(since.as_nanos()).unwrap_or(u64::MAX)
-            });
-        Self(Arc::new(ReservedCell::new(nanos)))
+        Self(Arc::new(ReservedCell::new(nanos(at))))
+    }
+
+    /// Reserves the send at `at`, none for `None`, in place of what it
+    /// held: the Permit of a request whose before-request Hooks ran first
+    /// is granted after its attempt began (#2905).
+    pub fn reserve(&self, at: Option<SystemTime>) {
+        self.0.store(nanos(at), Ordering::Release);
     }
 
     /// The reserved moment, taken once: `None` after the first take, or
@@ -342,6 +344,15 @@ impl ReservedSend {
             nanos => Some(SystemTime::UNIX_EPOCH + Duration::from_nanos(nanos)),
         }
     }
+}
+
+/// `at` as the nanoseconds since the epoch a reserved send holds, `0` for
+/// none.
+fn nanos(at: Option<SystemTime>) -> u64 {
+    at.and_then(|at| at.duration_since(SystemTime::UNIX_EPOCH).ok())
+        .map_or(0, |since| {
+            u64::try_from(since.as_nanos()).unwrap_or(u64::MAX)
+        })
 }
 
 impl HandOver {

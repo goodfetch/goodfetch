@@ -74,7 +74,7 @@ mod stored;
 mod tally;
 pub(crate) mod teacher;
 
-pub(crate) use asks::{Asked, Asking, Escalated, Question, mailbox};
+pub(crate) use asks::{Asked, Asking, Escalated, Message, PermitAsk, Question, mailbox};
 pub(crate) use stored::{Opening, QueuedEnd, Ran, Stored, Unkeyed, Within};
 pub(crate) use tally::Tally;
 

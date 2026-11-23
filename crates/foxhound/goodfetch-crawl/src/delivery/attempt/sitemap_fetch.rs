@@ -25,8 +25,13 @@ impl On<'_> {
     /// it, through the attempt's hand-over as a page's hops are. A
     /// robots.txt seed reads the copy its origin's robots.txt read gave,
     /// with no second fetch, whether or not the crawl obeys robots.txt,
-    /// since the crawl asked for its `Sitemap:` lines (ADR 0138).
+    /// since the crawl asked for its `Sitemap:` lines (ADR 0138). It runs
+    /// no Hook, so in a crawl that takes each Permit after a request's
+    /// before-request Hooks it takes its own first ([`On::permitted`]).
     pub(super) async fn sitemap(&self, http: &HttpTier) -> Answer {
+        if let Some(ended) = self.permitted().await {
+            return ended;
+        }
         let (run, leased, lease) = (self.run, self.leased, self.lease);
         // A sitemap seed's Session sends from its own transport, keeping
         // its cookies there (`AttemptPlan::sends_from`).

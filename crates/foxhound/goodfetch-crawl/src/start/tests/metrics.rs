@@ -168,10 +168,11 @@ fn counted(registry: &prometheus::Registry, shared_path: &str, work: &str) -> Op
         .map(|metric| metric.get_counter().get_value())
 }
 
-/// Crawls from `seeds`, handling three pages at a time, and returns how many
-/// pages the handler saw and how many round trips to the actor that owns the
-/// Run state the crawl counted as `F3.actor_round_trips`.
-fn pages_and_round_trips(seeds: &Value) -> (usize, Option<f64>) {
+/// Crawls from `seeds` with the Hooks in code `hooks`, handling three pages
+/// at a time, and returns how many pages the handler saw and how many round
+/// trips to the actor that owns the Run state the crawl counted as
+/// `F3.actor_round_trips`.
+fn pages_and_round_trips(seeds: &Value, hooks: &Value) -> (usize, Option<f64>) {
     let env = TestEnv::new();
     let (engine, registry, _provider) = metered();
     let mut pages = 0;
@@ -183,11 +184,15 @@ fn pages_and_round_trips(seeds: &Value) -> (usize, Option<f64>) {
             client
                 .call(
                     "crawl.start",
-                    json!({ "run_id": "trips", "seeds": seeds, "settings": { "crawl": { "handler": { "concurrency": 3 } } }, "labels": { "page": {} } }),
+                    json!({ "run_id": "trips", "seeds": seeds, "settings": { "crawl": { "handler": { "concurrency": 3 } } }, "labels": { "page": {} }, "hooks": hooks }),
                     &mut |_| Reply::Silent,
                 )
                 .await;
-            let mut handler = |_: &Value| {
+            let mut handler = |params: &Value| {
+                // A Hook's call changes nothing; a handler request is a page.
+                if params.get("hook").is_some() {
+                    return Reply::Records(Vec::new());
+                }
                 pages += 1;
                 Reply::Records(vec![json!({ "handled": true })])
             };
@@ -275,7 +280,7 @@ fn at_a_memory_budget_of_0_each_lease_reads_the_run_file_at_most_once() {
 /// Covers: story:3-25
 #[test]
 fn each_attempt_costs_the_run_states_actor_one_round_trip() {
-    assert_eq!(pages_and_round_trips(&seeds(5)), (5, Some(5.0)));
+    assert_eq!(pages_and_round_trips(&seeds(5), &json!([])), (5, Some(5.0)));
 }
 
 /// A sitemap's attempt ends in one message to the actor as a page's does:
@@ -285,12 +290,36 @@ fn each_attempt_costs_the_run_states_actor_one_round_trip() {
 /// Covers: story:3-25
 #[test]
 fn a_sitemap_attempt_costs_the_run_states_actor_one_round_trip() {
-    let seeds = json!([{
+    assert_eq!(
+        pages_and_round_trips(&sitemap_seed(), &json!([])),
+        (3, Some(4.0))
+    );
+}
+
+/// A sitemap seed whose sitemap lists three pages.
+fn sitemap_seed() -> Value {
+    json!([{
         "sitemap": format!("https://shop.test{SITEMAP}"),
         "rules": [{ "pattern": "**", "label": "page" }],
-    }]);
+    }])
+}
 
-    assert_eq!(pages_and_round_trips(&seeds), (3, Some(4.0)));
+/// A crawl with a before-request Hook takes each request's Permit once its
+/// Hooks returned, in a second round trip to the actor (#2905; the
+/// owner's decision of 2026-11-07 on #1546): each attempt costs two, a
+/// sitemap's too, though it runs no Hook.
+///
+/// Covers: story:3-168, setting:politeness.domain.concurrency
+#[rstest]
+#[case::pages(seeds(5), (5, Some(10.0)))]
+#[case::sitemap(sitemap_seed(), (3, Some(8.0)))]
+fn a_before_request_hook_costs_each_attempt_a_second_round_trip_for_its_permit(
+    #[case] seeds: Value,
+    #[case] expected: (usize, Option<f64>),
+) {
+    let hooks = json!([{ "name": "sign", "stage": "before_request" }]);
+
+    assert_eq!(pages_and_round_trips(&seeds, &hooks), expected);
 }
 
 /// Every admission keys the work items it adds, in the write that adds

@@ -31,6 +31,29 @@ use crate::work_items::{Failure, Unsuccessful};
 /// engine's `blocked` spells it on the wire (ADRs 0038 and 0118).
 pub(super) const RETRY_AFTER: &str = "retry_after";
 
+/// The `fix` of a request a site's `Retry-After` holds further away than
+/// the Run waits (ADR 0118).
+pub(super) const RETRY_AFTER_FIX: &str = "The site asked for no request to its domain before `retry_after`, further away than `politeness.retry_after.max`: re-admit the request with `run.retry_failed` once the site is back, or raise `politeness.retry_after.max` for the crawl to wait that long.";
+
+/// The failure of a request left unsent because its domain's site asked
+/// for no request before `until`, further away than the Run waits (ADR
+/// 0118): refused at its admission, or at its Permit's once its
+/// before-request Hooks ran (#2905).
+pub(super) fn unsent(until: SystemTime) -> Failure {
+    let mut details = Map::new();
+    details.insert("status".to_owned(), Value::Null);
+    details.insert(
+        RETRY_AFTER.to_owned(),
+        Value::from(retry_after::detail(until)),
+    );
+    details.insert("fix".to_owned(), Value::from(RETRY_AFTER_FIX));
+    Failure {
+        code: RESPONSE_UNAVAILABLE.name.to_owned(),
+        message: "The site asked for no request to its domain before a time further away than `politeness.retry_after.max`; nothing was sent.".to_owned(),
+        details,
+    }
+}
+
 /// Why an attempt failed, as far as anything acts on it.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum Why {

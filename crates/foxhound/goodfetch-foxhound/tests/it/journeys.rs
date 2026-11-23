@@ -3,6 +3,7 @@
 //! the same test given Foxhound's executable.
 
 mod j002;
+mod j007;
 mod j009;
 mod j030;
 mod j031;

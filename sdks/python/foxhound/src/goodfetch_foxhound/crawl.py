@@ -15,9 +15,10 @@ context. TypeScript's `crawl.ts` is its twin.
 
 from __future__ import annotations
 
+import base64
 import weakref
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, Generic, TypeVar, final, overload
+from typing import TYPE_CHECKING, Any, Generic, TypeVar, cast, final, overload
 
 from goodfetch_collie_client.schema import SchemaCodec, schema_codec
 from goodfetch_collie_client.settings import settings_on_wire
@@ -27,16 +28,25 @@ from goodfetch_foxhound.generated.errors import (
     LabelDuplicateError,
     LabelUnhandledError,
     LabelUnknownError,
+    ResponseNotDocumentError,
 )
-from goodfetch_foxhound.generated.models import DatasetDeclaration, LabelDeclaration
+from goodfetch_foxhound.generated.models import (
+    CrawlRequestEnqueueParams,
+    CrawlRequestPushParams,
+    DatasetDeclaration,
+    LabelDeclaration,
+    RequestSeed,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable, Sequence
 
-    from goodfetch_collie_client.json_values import JSONObject
+    from goodfetch_collie_client.generated.handles import AsyncPage
+    from goodfetch_collie_client.json_values import JSONObject, JSONValue
     from goodfetch_collie_client.schema import JSONSchema
 
-    from goodfetch_foxhound.generated.models import RequestSeed
+    from goodfetch_foxhound.generated.models import Enqueued
+    from goodfetch_foxhound.generated.operations import AsyncFoxhoundOperations
     from goodfetch_foxhound.generated.settings import LabelSettings
 
 __all__ = [
@@ -47,9 +57,11 @@ __all__ = [
     "CrawlRequest",
     "Dataset",
     "Label",
+    "seed",
 ]
 
 P = TypeVar("P")
+Q = TypeVar("Q")
 R = TypeVar("R")
 M = TypeVar("M", bound=BaseModel)
 
@@ -114,6 +126,32 @@ class CrawlRequest(Generic[P]):
     """The Payload its program attached, typed by its Label."""
 
 
+@dataclass(frozen=True)
+class HandlerAttempt:
+    """What a handler's attempt calls the engine with: its lease and its page."""
+
+    run_id: str
+    """The Run its crawl request belongs to."""
+    crawl_request_id: str
+    """The crawl request it handles."""
+    lease_epoch: int
+    """The epoch of its lease, which each of its calls carries."""
+    crawl: AsyncCrawl | Crawl
+    """The crawl whose handler it runs."""
+    operations: AsyncFoxhoundOperations
+    """Foxhound's calls, sent on its Run."""
+    page: AsyncPage | None
+    """Its page; none for a response that is not a document."""
+
+    def lease(self) -> dict[str, object]:
+        """The fields naming its lease, which each of its calls carries."""
+        return {
+            "run_id": self.run_id,
+            "crawl_request_id": self.crawl_request_id,
+            "lease_epoch": self.lease_epoch,
+        }
+
+
 @final
 class AsyncCrawlContext(Generic[P]):
     """What an `AsyncCrawl` handler's attempt at one work item holds (ADR 0093).
@@ -122,14 +160,153 @@ class AsyncCrawlContext(Generic[P]):
     Run is closed, each call fails.
     """
 
-    def __init__(self, request: CrawlRequest[P]) -> None:
-        """Takes the crawl request of the attempt."""
+    def __init__(self, request: CrawlRequest[P], attempt: HandlerAttempt) -> None:
+        """Takes the crawl request of the attempt, and what it calls with."""
         self._request = request
+        self._attempt = attempt
 
     @property
     def request(self) -> CrawlRequest[P]:
         """The crawl request the attempt handles, its Payload typed by its Label."""
         return self._request
+
+    @property
+    def page(self) -> AsyncPage:
+        """Already navigated.
+
+        The handler runs once the request's navigation has happened, so a
+        route set on this page applies from its next navigation. To keep a
+        resource kind from loading on every request, set
+        `browser.block_resources`, which acts before each navigation (ADR
+        0117). The work item's page: a Collie `AsyncPage`, on every fetch
+        tier (ADR 0093).
+
+        Raises:
+            ResponseNotDocumentError: The response is not a document, such
+                as a PDF its Label's `crawl.content_types` lists.
+        """
+        page = self._attempt.page
+        if page is None:
+            message = (
+                f"the crawl request {self._request.id}'s response is not a "
+                "document, so its handler has no page"
+            )
+            raise ResponseNotDocumentError(message)
+        return page
+
+    @overload
+    async def enqueue(
+        self,
+        url: str,
+        label: Label[None],
+        *,
+        method: str | None = None,
+        body: bytes | None = None,
+        priority: int | None = None,
+        forefront: bool | None = None,
+        key: str | None = None,
+    ) -> Enqueued: ...
+    @overload
+    async def enqueue(
+        self,
+        url: str,
+        label: Label[Q],
+        payload: Q,
+        *,
+        method: str | None = None,
+        body: bytes | None = None,
+        priority: int | None = None,
+        forefront: bool | None = None,
+        key: str | None = None,
+    ) -> Enqueued: ...
+    async def enqueue(
+        self,
+        url: str,
+        label: Label[Any],
+        payload: object = None,
+        *,
+        method: str | None = None,
+        body: bytes | None = None,
+        priority: int | None = None,
+        forefront: bool | None = None,
+        key: str | None = None,
+    ) -> Enqueued:
+        """Adds a request to the crawl, handled under `label`, with its Payload.
+
+        Adds one request to a crawl from inside a handler's attempt, a
+        handler context's `enqueue`, and answers what the Frontier did with
+        it: added, with its crawl request's ID and its URL as parsed, or not
+        added, with its reason (`duplicate`, `out_of_scope`,
+        `unsupported_scheme`, `invalid_url`, `max_depth`, `max_requests`,
+        `path_budget` or a URL cap's name). A relative URL resolves against
+        the document's base URL: its `<base href>`, resolved against the URL
+        the document was reached at after its redirects, or that URL itself.
+        A request is `duplicate` when one of its identity was already
+        admitted: its method, its URL's key (the fragment, `utm_*`, `gclid`,
+        `fbclid`, empty pairs and `;jsessionid=` dropped, the parameters
+        sorted) and its body's hash, or the `key` the program declares in
+        their place; it is still fetched at its own URL. The request sits one
+        level deeper than the one whose attempt added it. An attempt whose
+        lease no longer holds fails with `attempt_ended`.
+
+        The request goes under `label`, and its Payload comes after the
+        Label only when the Label has one (ADR 0082).
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+
+        Raises:
+            LabelUnknownError: `label` is another crawl's.
+        """
+        attempt = self._attempt
+        name = declared_label(attempt.crawl, label)
+        fields = {
+            **attempt.lease(),
+            "url": url,
+            "label": name,
+            **_payload_field(label, payload),
+            **_request_options(method, body, priority, forefront, key),
+        }
+        return await attempt.operations.crawl_request_enqueue(
+            CrawlRequestEnqueueParams.model_construct(None, **fields)
+        )
+
+    async def push(self, dataset: Dataset[R], records: R | list[R]) -> None:
+        """Pushes one Record, or a list of them, to `dataset` (ADR 0103).
+
+        Pushes one Record or several, in one message, into a Dataset the
+        crawl declares from inside a handler's attempt, a handler context's
+        `push`, and answers once they are staged: they commit once with the
+        attempt's other outputs when the handler returns, and are discarded
+        with them when the attempt ends any other way. Each Record is checked
+        first. A push of no Record fails with `invalid_params`. A Dataset the
+        crawl does not declare fails with `dataset_unknown`, and none of the
+        Records is staged. A Record that is no JSON object, fails its
+        Dataset's JSON Schema or lacks one of its key's fields is not staged:
+        its rejection is staged instead, entering the Dataset's rejection
+        table (`run.rejected_records`) if the attempt commits, while the
+        Records that hold are staged and the attempt keeps what it staged
+        before; the call then fails with `record_invalid`, naming each such
+        Record by its position in the list and each of its issues by its
+        path. An attempt that already ended fails with `attempt_ended`.
+
+        An empty list sends nothing, so it never fails with
+        `invalid_params`.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        # A Record is a JSON object, never a list, so a list is the Records
+        # of one push.
+        pushed: list[object] = (
+            cast("list[object]", records) if isinstance(records, list) else [records]
+        )
+        if not pushed:
+            return
+        codec = _record_codecs.get(dataset)
+        wire = [record if codec is None else codec.encode(record) for record in pushed]
+        params = CrawlRequestPushParams.model_construct(
+            None, **self._attempt.lease(), dataset=dataset.name, records=wire
+        )
+        await self._attempt.operations.crawl_request_push(params)
 
 
 @final
@@ -377,14 +554,95 @@ def crawl_declaration(
     declared = _crawls[crawl]
     labels: dict[str, LabelDeclaration] = {}
     for name, label in declared.labels.items():
+        # Only what the Label declares is sent: a field set to `None` would
+        # go as `null`.
+        declaration: dict[str, object] = {}
         codec = _payload_codecs.get(label.label)
-        labels[name] = LabelDeclaration(
-            payload=None if codec is None else codec.wire_schema,
-            settings=None
-            if label.settings is None
-            else settings_on_wire(label.settings),
-        )
+        if codec is not None:
+            declaration["payload"] = codec.wire_schema
+        if label.settings is not None:
+            declaration["settings"] = settings_on_wire(label.settings)
+        labels[name] = LabelDeclaration.model_validate(declaration)
     return labels, list(declared.datasets)
+
+
+@overload
+def seed(
+    url: str,
+    label: Label[None],
+    *,
+    method: str | None = None,
+    body: bytes | None = None,
+    priority: int | None = None,
+    forefront: bool | None = None,
+    key: str | None = None,
+) -> RequestSeed: ...
+@overload
+def seed(
+    url: str,
+    label: Label[Q],
+    payload: Q,
+    *,
+    method: str | None = None,
+    body: bytes | None = None,
+    priority: int | None = None,
+    forefront: bool | None = None,
+    key: str | None = None,
+) -> RequestSeed: ...
+def seed(
+    url: str,
+    label: Label[Any],
+    payload: object = None,
+    *,
+    method: str | None = None,
+    body: bytes | None = None,
+    priority: int | None = None,
+    forefront: bool | None = None,
+    key: str | None = None,
+) -> RequestSeed:
+    """A seed request of a crawl: `url`, handled under `label` (ADR 0093).
+
+    A Label with a Payload takes one, after it (ADR 0082). `method` is
+    `GET` when left out, `body` is sent with it, a higher `priority` is
+    fetched first, `forefront` puts it ahead of the requests of its
+    priority, and `key` names it in place of its method, URL and body, so
+    another of the same key is a duplicate.
+    """
+    fields: dict[str, object] = {
+        "url": url,
+        "label": label.name,
+        **_payload_field(label, payload),
+        **_request_options(method, body, priority, forefront, key),
+    }
+    return RequestSeed.model_validate(fields)
+
+
+def _payload_field(label: Label[Any], payload: object) -> dict[str, JSONValue]:
+    """The wire's `payload` field of `payload`, sent under `label`; none without one."""
+    codec = _payload_codecs.get(label)
+    return {} if codec is None else {"payload": codec.encode(payload)}
+
+
+def _request_options(
+    method: str | None,
+    body: bytes | None,
+    priority: int | None,
+    forefront: bool | None,
+    key: str | None,
+) -> dict[str, object]:
+    """The wire's fields of a request's options, each one given."""
+    options: dict[str, object] = {}
+    if method is not None:
+        options["method"] = method
+    if body is not None:
+        options["body"] = base64.b64encode(body).decode("ascii")
+    if priority is not None:
+        options["priority"] = priority
+    if forefront is not None:
+        options["forefront"] = forefront
+    if key is not None:
+        options["key"] = key
+    return options
 
 
 def check_startable(crawl: AsyncCrawl | Crawl, seeds: Sequence[RequestSeed]) -> None:
@@ -423,3 +681,16 @@ def handler_of(crawl: AsyncCrawl | Crawl, label: str) -> Callable[..., object] |
     """The handler attached to the Label named `label` in `crawl`, if any."""
     declared = _crawls[crawl].labels.get(label)
     return None if declared is None else declared.handler
+
+
+def payload_of(crawl: AsyncCrawl | Crawl, label: str, payload: JSONValue) -> object:
+    """The Payload a crawl request under `label` carries, as its Label types it.
+
+    A Label without a Payload carries `None`.
+
+    Raises:
+        SchemaRejectedError: The Label's schema rejects it.
+    """
+    declared = _crawls[crawl].labels.get(label)
+    codec = None if declared is None else _payload_codecs.get(declared.label)
+    return None if codec is None else codec.decode(payload)

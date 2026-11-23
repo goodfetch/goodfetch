@@ -224,7 +224,7 @@ fn usage_raise_runs_on_the_engine_its_flags_choose(#[case] on: On) {
 /// The refusal a failed command printed: its code, whether it is
 /// retryable and its `fix`, from the `CommandFailed` on stdout under
 /// `--json`, else from its lines on stderr.
-fn refusal(output: &Output, json: bool) -> (Value, Value, String) {
+pub(crate) fn refusal(output: &Output, json: bool) -> (Value, Value, String) {
     if json {
         let printed: Value =
             serde_json::from_str(&output.stdout).unwrap_or_else(|_| panic!("{output}"));

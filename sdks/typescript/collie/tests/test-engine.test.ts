@@ -8,7 +8,7 @@
 // `test_test_engine.py` are its twins.
 import { chmod, lstat, readdir, stat } from "node:fs/promises";
 import { join, relative, sep } from "node:path";
-import { EgressRefusedError } from "@goodfetch/collie";
+import { ArtifactUnavailableOfflineError, EgressRefusedError } from "@goodfetch/collie";
 import { TestEngine } from "@goodfetch/collie/testing";
 import { failure, provingGroundUrl, taskStartUrl, test } from "@goodfetch/test-support";
 import { describe, expect } from "vitest";
@@ -88,6 +88,34 @@ describe("a test engine", () => {
 
   describe("on the Proving ground", () => {
     test.override("provingGroundSeed", 3398);
+
+    describe("with no browser installed", () => {
+      // A mirror it never reaches: `egress.offline` refuses the download first.
+      test.override("browserDownload", "not-found");
+
+      test(
+        "fails the first page with artifact_unavailable_offline, the cache left empty",
+        { tags: ["attached"] },
+        async ({ env }) => {
+          const cache = env["GOODFETCH_BROWSERS_PATH"];
+          if (cache === undefined) {
+            throw new TypeError("the test's environment names its Browser cache");
+          }
+          const engine = await TestEngine.start({ env });
+          const run = await engine.connection.start();
+          const refused = await failure(run.newPage());
+          await run.finish();
+          await engine.close();
+
+          expect(refused).toBeInstanceOf(ArtifactUnavailableOfflineError);
+          expect(refused).toHaveProperty(
+            "fix",
+            "Run `goodfetch-collie browser install` beforehand where the Browser cache is writable, or lift `egress.offline` where it was set",
+          );
+          expect(await tree(cache)).toEqual({});
+        },
+      );
+    });
 
     describe("with a browser installed", () => {
       test.override("withBrowser", true);

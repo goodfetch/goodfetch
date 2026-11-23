@@ -128,6 +128,7 @@ mod body_limits;
 mod bounds;
 mod browser_fetch;
 mod certificates;
+mod checkpoint_resume;
 mod client_conformance;
 mod code_free;
 mod code_free_resume;

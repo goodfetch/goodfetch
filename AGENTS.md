@@ -45,7 +45,7 @@ Traps that break things, each explained in `STYLE.md`:
 
 ## Merging
 
-CI runs locally (ADR 0135); GitHub Actions runs the Release suite and, for a batch's, a spec's or a fork's pull request, the hosted tier's quick-form steps, whose records `just merge` reuses (ADR 0135's notes of 2026-11-23).
+CI runs locally (ADR 0135); GitHub Actions runs the Release suite and, for a batch's, a spec's or a fork's pull request, the pull-request workflow's hosted tier, whose records `just merge` reuses (ADR 0135's notes of 2026-11-23).
 
 - Merge a pull request only with `just merge <number>`: it gates the pull request's head in a clean, locked worktree and merges only when the gate passes. A head without `main`'s tip needs no refresh first: the gate merges the tip in, pushes that merge to the pull request's branch and gates it (ADR 0135's amendment of 2026-11-17); a head that conflicts with the tip is refused. After a red gate, pull the branch before the next push. While the owner rents it, `just merge` runs on the Hetzner server (ADR 0135's amendment of 2026-10-22).
 - `just merge` refuses, before it holds anything, a pull request whose merge would close other issues than its body's `Closes #<n>` lines name, one issue a line, or whose commit messages name an issue after a closing keyword that no such line names; a batch's `Part of #<n>` lines close nothing (ADR 0135's note of 2026-11-22).
@@ -56,7 +56,7 @@ CI runs locally (ADR 0135); GitHub Actions runs the Release suite and, for a bat
 - Combine every ready pull request into one batch branch and run `just merge` once, whatever gate each would take, so the gate host runs one gate where it would run dozens (ADR 0135's note of 2026-11-21).
 - Before `just merge` of a batch branch, run `just batch-check` in its worktree: the installs, then `just quick` once over the batch's whole change, which a run's tickets no longer run themselves (the owner's decision of 2026-11-23).
 - Dispatch the Release suite with `just release-ci`. On `main`, name the hosted cells: the default, `all`, includes the macOS cells, which queue for the unregistered `owner-machine` runner and fail after 24 hours.
-- Keep every other workflow disabled: when a merge brings a new workflow file to `main`, disable it in the repository's Actions settings unless an ADR turns it on.
+- Keep every workflow but the Release suite and the pull-request workflow disabled: when a merge brings a new workflow file to `main`, disable it in the repository's Actions settings unless an ADR turns it on.
 - Change a repository setting only together with the text that records it: open the pull request amending the ADR or this file when the setting changes, never after.
 
 ## Authorship

@@ -1085,12 +1085,16 @@ async fn start(params: RunStartParams, context: CallContext) -> Result<RunStarte
         .await
         .map_err(start_error)?;
     let started = match started {
-        Started::New(run) => RunStarted {
-            run_id: run.id().clone(),
-            started_as: StartedAs::New,
-            lifecycle: goodfetch_protocol::run::Lifecycle::Running,
-            needs: Product::Collie,
-        },
+        Started::New(run) => {
+            run.secrets()
+                .answered_by(run.id().clone(), context.client().clone());
+            RunStarted {
+                run_id: run.id().clone(),
+                started_as: StartedAs::New,
+                lifecycle: goodfetch_protocol::run::Lifecycle::Running,
+                needs: Product::Collie,
+            }
+        }
         Started::Interrupted(run_id) => resume_run(&context, run_id, None, settings, true).await?,
         Started::Ended(ended) => ended,
     };
@@ -1300,6 +1304,8 @@ pub async fn resume_run(
         Resumed::New {
             run, kind, needs, ..
         } => {
+            run.secrets()
+                .answered_by(run.id().clone(), context.client().clone());
             let started = RunStarted {
                 run_id: run.id().clone(),
                 started_as: StartedAs::Resumed,

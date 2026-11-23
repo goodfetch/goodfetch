@@ -301,6 +301,8 @@ async fn start(
         .map_err(start_error)?;
     match started {
         Started::New(run) => {
+            run.secrets()
+                .answered_by(run.id().clone(), context.client().clone());
             let started = RunStarted {
                 run_id: run.id().clone(),
                 started_as: StartedAs::New,

@@ -42,8 +42,9 @@ use goodfetch_protocol::page::access_mode::IDENTIFIED_SIGNING_KEY;
 use goodfetch_protocol::run::RunId;
 use goodfetch_protocol::secret_reference::{Provider, SecretReference};
 use goodfetch_protocol::secrets::{
-    KEY_REFERENCE_IN_FILE, KEY_REFERENCE_IN_KEYCHAIN, RUN_STATE_KEY_REFERENCE,
-    SECRETS_RESOLVE_EACH_USE, SecretFailure, SecretInputRefusedReason,
+    KEY_REFERENCE_IN_FILE, KEY_REFERENCE_IN_KEYCHAIN, RUN_STATE_KEY_REFERENCE, SECRETS_RESOLVE,
+    SECRETS_RESOLVE_EACH_USE, SecretFailure, SecretInputRefusedReason, SecretResolved,
+    SecretsResolveParams,
 };
 use goodfetch_protocol::settings::SettingsLayer;
 use secrecy::{ExposeSecret as _, SecretString};
@@ -53,6 +54,7 @@ use subtle::ConstantTimeEq as _;
 pub use keychain::Keychain;
 
 use crate::audit::{AuditError, AuditLog, Origin};
+use crate::client::{Client, ClientRequestError};
 use crate::clock::Clock;
 use crate::entropy::Entropy;
 use crate::home::Home;
@@ -636,6 +638,7 @@ impl Secrets {
             mask: self.0.masks.for_run(redaction),
             values: tokio::sync::Mutex::default(),
             each_use,
+            caller: std::sync::OnceLock::new(),
         }))
     }
 }
@@ -720,11 +723,28 @@ struct ForRun {
     /// The references resolved again at each use, its
     /// `secrets.resolve_each_use`.
     each_use: BTreeSet<String>,
+    /// The Run and the Client of the Connection that opened it, which
+    /// alone answers its `caller:` references (ADR 0092); none until it is
+    /// opened from one.
+    caller: std::sync::OnceLock<(RunId, Client)>,
 }
 
 /// A value a Run resolved once for a reference and placeholder, or the
 /// resolution of it in flight, which its later uses wait for.
 type Reused = Arc<tokio::sync::OnceCell<SecretString>>;
+
+/// The option that answers `caller:` references in each language, which a
+/// `resolver_failed`'s fix names (ADR 0092).
+const RESOLVER_OPTION: &str = "`resolveSecret` in `connect()` (`resolve_secret` in Python, `ConnectOptions::resolve_secret()` and `gf.secret_requests()` in Rust)";
+
+/// The fix of a `caller:` reference whose resolver gave no answer within
+/// `timeout`, its `timeout.secret`.
+fn silent(reference: &SecretReference, timeout: Duration) -> String {
+    format!(
+        "The program's {RESOLVER_OPTION} gave no answer for `{reference}` within `timeout.secret` ({} ms); make it answer sooner, or raise `timeout.secret`.",
+        timeout.as_millis()
+    )
+}
 
 impl std::fmt::Debug for RunSecrets {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -754,6 +774,13 @@ impl RunSecrets {
     /// placeholder, or the setting's key where none names it.
     pub fn mask(&self) -> &Mask {
         &self.0.mask
+    }
+
+    /// Makes `client`, of the Connection that opened the Run `run_id`, the
+    /// one Client asked for the Run's `caller:` references; a Run already
+    /// answered by its opener keeps it.
+    pub fn answered_by(&self, run_id: RunId, client: Client) {
+        let _ = self.0.caller.set((run_id, client));
     }
 
     /// The value `reference` points to for `purpose`: refused for a domain
@@ -845,6 +872,12 @@ impl RunSecrets {
             failure,
             fix,
         };
+        if reference.provider() == Provider::Caller {
+            return self
+                .ask_caller(reference, purpose)
+                .await
+                .map_err(|fix| unavailable(SecretFailure::ResolverFailed, fix));
+        }
         let scheme = reference.provider().as_str();
         let Some(Implementation(provider)) = self.0.secrets.0.providers.get(&reference.provider())
         else {
@@ -892,6 +925,67 @@ impl RunSecrets {
                     return Err(unavailable(failure, fix));
                 }
             }
+        }
+    }
+
+    /// The value of the `caller:` reference `reference`, asked now with
+    /// `secrets.resolve` of the Client of the Connection that opened the
+    /// Run, and of no other, within `timeout.secret`: a request left
+    /// unanswered is cancelled. What the program's resolver said when it
+    /// failed is never repeated, as it may hold the value.
+    ///
+    /// # Errors
+    ///
+    /// The fix of a `resolver_failed`: no Client answers the Run, it has no
+    /// `resolveSecret`, its resolver failed, gave something that is no
+    /// value, or no answer in time, or its Connection ended.
+    async fn ask_caller(
+        &self,
+        reference: &SecretReference,
+        purpose: &Purpose<'_>,
+    ) -> Result<SecretString, String> {
+        let Some((run_id, client)) = self.0.caller.get() else {
+            return Err(format!(
+                "No program's Connection opened this Run to answer `caller:` references; start it from a program that passes {RESOLVER_OPTION}, or use another reference."
+            ));
+        };
+        let params = SecretsResolveParams {
+            name: reference.rest().to_owned(),
+            run_id: run_id.clone(),
+            domain: purpose.domain.map(str::to_owned),
+        };
+        let gone = || {
+            format!(
+                "The program that opened the Run left before its {RESOLVER_OPTION} answered; keep its Connection open while the Run uses `{reference}`."
+            )
+        };
+        let clock = self.0.secrets.0.clock;
+        let deadline = clock.now() + self.0.timeout;
+        let mut sent = tokio::select! {
+            sent = client.send::<SecretResolved>(&SECRETS_RESOLVE, &params) => sent.map_err(|_| gone())?,
+            () = clock.sleep_until(deadline) => return Err(silent(reference, self.0.timeout)),
+        };
+        let answer = tokio::select! {
+            answer = sent.answer() => answer,
+            () = clock.sleep_until(deadline) => {
+                sent.cancel().await;
+                return Err(silent(reference, self.0.timeout));
+            }
+        };
+        match answer {
+            Ok(SecretResolved { value }) => Ok(SecretString::from(value)),
+            Err(ClientRequestError::Gone) => Err(gone()),
+            Err(ClientRequestError::Failed { code, .. }) if code == "method_not_found" => {
+                Err(format!(
+                    "The program that opened the Run has no resolver; pass {RESOLVER_OPTION}, answering `{reference}`."
+                ))
+            }
+            Err(ClientRequestError::Failed { code, .. }) => Err(format!(
+                "The program's {RESOLVER_OPTION} failed with `{code}` for `{reference}`; make it answer that name."
+            )),
+            Err(ClientRequestError::Malformed(_)) => Err(format!(
+                "The program's {RESOLVER_OPTION} answered `{reference}` with no text value; make it return the value as a string."
+            )),
         }
     }
 

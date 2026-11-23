@@ -157,6 +157,8 @@ async fn reopened(
         .map_err(|error| run_error(error, &context))?;
     match resumed {
         Resumed::New { run, kind, .. } => {
+            run.secrets()
+                .answered_by(run.id().clone(), context.client().clone());
             let readmitted = readmit(&run, blocked).await;
             if let Some(driver) = context.driver(kind) {
                 run.spawn(driver(*run.clone(), context.clone(), settings));

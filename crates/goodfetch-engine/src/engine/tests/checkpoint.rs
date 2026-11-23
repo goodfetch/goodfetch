@@ -261,7 +261,7 @@ fn sha256(path: &Path) -> String {
 }
 
 /// The notes of the run file or Checkpoint at `path`.
-fn notes(path: &Path) -> Vec<i64> {
+pub(super) fn notes(path: &Path) -> Vec<i64> {
     let file = Connection::open(path).unwrap();
     let mut statement = file
         .prepare("SELECT value FROM notes ORDER BY rowid")
@@ -745,8 +745,9 @@ fn every_checkpoint_first_writes_the_open_run_state_batch(#[case] taken: Taken) 
         }
     };
     let asked = location.display().to_string();
+    let copy = location.clone();
 
-    let (before, taken_at) = attached_on(&engine(), &env, |client| async move {
+    let (before, taken_at, copied) = attached_on(&engine(), &env, |client| async move {
         let mut talk = Talk::open(client).await;
         let interval = matches!(taken, Taken::Periodic).then_some(60_000);
         talk.ok(
@@ -784,18 +785,29 @@ fn every_checkpoint_first_writes_the_open_run_state_batch(#[case] taken: Taken) 
             }
             Taken::Periodic => {
                 talk.events_until("run.checkpointing", 1).await;
-                json!(1)
+                // The event comes first; the copy is whole once renamed
+                // into place, and is read before `run.finish` writes the
+                // batch itself.
+                while !copy.exists() {
+                    tokio::time::sleep(Duration::from_millis(10)).await;
+                }
+                talk.events
+                    .iter()
+                    .find(|event| event["event"] == "run.checkpointing")
+                    .map(|event| event["data"]["run_epoch"].clone())
+                    .unwrap()
             }
         };
+        let copied = notes(&copy);
         if matches!(taken, Taken::Asked | Taken::Periodic) {
             talk.ok(5, "run.finish", json!({ "run_id": "sealed" }))
                 .await;
         }
-        (before, taken_at)
+        (before, taken_at, copied)
     });
 
     assert_eq!(
-        (before, taken_at, notes(&location)),
+        (before, taken_at, copied),
         (Vec::<i64>::new(), json!(1), vec![1]),
         "{taken:?}"
     );

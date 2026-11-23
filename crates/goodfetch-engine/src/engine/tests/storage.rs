@@ -25,6 +25,7 @@ use opentelemetry_sdk::metrics::SdkMeterProvider;
 use rusqlite::{Connection, OpenFlags};
 use serde_json::{Value, json};
 
+use super::checkpoint::notes;
 use super::disk_view::DiskView;
 use super::events::credit;
 use super::ops::series;
@@ -555,18 +556,6 @@ where
         },
         client,
     )
-}
-
-/// The notes committed into the run file at `path`.
-fn notes(path: &std::path::Path) -> Vec<i64> {
-    Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_ONLY)
-        .unwrap()
-        .prepare("SELECT value FROM notes ORDER BY rowid")
-        .unwrap()
-        .query_map([], |row| row.get(0))
-        .unwrap()
-        .collect::<Result<Vec<i64>, _>>()
-        .unwrap()
 }
 
 /// The notes in the run file of `run_id` and its integrity check, read

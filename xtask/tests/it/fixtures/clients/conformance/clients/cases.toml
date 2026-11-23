@@ -28,6 +28,7 @@ name = "crawls.resume"
 id = "crawl-resumes"
 covers = ["story:1-3"]
 surfaces = ["cli"]
+product = "foxhound"
 task = "catalog/1"
 
 [[capability]]

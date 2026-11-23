@@ -5,8 +5,11 @@
 # its own, as `modes = { sdk-rust = ["daemon"] }`, where a surface the table
 # leaves out takes every mode it has. Every surface a case lists implements
 # it in each of its modes; `xtask clients check` fails on a missing one or an
-# unknown ID. Area 11 writes the cases; each joins with the ticket whose code
-# satisfies it. Bump the version whenever a case changes.
+# unknown ID. On the `cli` surface, a case runs on its Product's executable:
+# Collie's, unless it needs what only Foxhound's has and says
+# `product = "foxhound"` (ADR 0094). Area 11 writes the cases; each joins
+# with the ticket whose code satisfies it. Bump the version whenever a case
+# changes.
 #
 # The `sdk-typescript` and `sdk-python` cases below run in the `attached`
 # mode only: the Daemon transport (#220 and area 11's Daemon ticket) adds

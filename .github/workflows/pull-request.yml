@@ -39,15 +39,29 @@
 # step and runs the Egress canary right after (ADR 0043); every job is
 # declared in ci/egress/endpoints.toml, which `xtask egress check` enforces.
 # No job holds a secret, and the checkout persists no credential.
+#
+# On `main`, the `ci-image` job alone runs: after a push that changes what
+# the CI image is built from, or when dispatched by hand, it saves the image
+# into the Actions cache the jobs above restore (#3480). A cache saved by a
+# pull request's run serves only that pull request, so only `main` saves it.
 name: pull request
 
 on:
   pull_request:
+  push:
+    branches: [main]
+    paths:
+      - ci/image/**
+      - ci/hosted/common.sh
+      - ci/hosted/image.sh
+      - .github/workflows/pull-request.yml
+  # Saves the image again when GitHub dropped its entry, after 7 days unused.
+  workflow_dispatch:
 
 permissions: {}
 
 concurrency:
-  group: pull-request-${{ github.event.pull_request.number }}
+  group: pull-request-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -56,9 +70,10 @@ jobs:
     # A batch's or a spec's branch (`spec/<n>`, never a ticket's
     # `spec/<n>-<ticket>`), or a fork's pull request.
     if: >-
+      github.event_name == 'pull_request' && (
       github.event.pull_request.head.repo.full_name != github.repository
       || startsWith(github.head_ref, 'batch/')
-      || (startsWith(github.head_ref, 'spec/') && !contains(github.head_ref, '-'))
+      || (startsWith(github.head_ref, 'spec/') && !contains(github.head_ref, '-')))
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     permissions:
@@ -144,8 +159,8 @@ jobs:
           echo "GOODFETCH_GATE_RUNNER_IMAGE=$ImageVersion" >>"$GITHUB_ENV"
           ci/hosted-records.sh ancestors "$GOODFETCH_GATE_REPOSITORY" HEAD "origin/$BASE" "$BRANCH" \
             target/hosted-records "$GITHUB_RUN_ID"
-      # Saved by the Release suite on `main`; start.sh builds the image on a
-      # miss (#3480).
+      # Saved on `main` by the `ci-image` job below; start.sh builds the
+      # image on a miss (#3480).
       - name: Restore the CI image of the tree's Containerfile
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
@@ -212,8 +227,8 @@ jobs:
           echo "GOODFETCH_GATE_RUNNER_IMAGE=$ImageVersion" >>"$GITHUB_ENV"
           ci/hosted-records.sh ancestors "$GOODFETCH_GATE_REPOSITORY" HEAD "origin/$BASE" "$BRANCH" \
             target/hosted-records "$GITHUB_RUN_ID"
-      # Saved by the Release suite on `main`; start.sh builds the image on a
-      # miss (#3480).
+      # Saved on `main` by the `ci-image` job below; start.sh builds the
+      # image on a miss (#3480).
       - name: Restore the CI image of the tree's Containerfile
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
@@ -318,8 +333,8 @@ jobs:
           echo "GOODFETCH_GATE_RUNNER_IMAGE=$ImageVersion" >>"$GITHUB_ENV"
           ci/hosted-records.sh ancestors "$GOODFETCH_GATE_REPOSITORY" HEAD "origin/$BASE" "$BRANCH" \
             target/hosted-records "$GITHUB_RUN_ID"
-      # Saved by the Release suite on `main`; start.sh builds the image on a
-      # miss (#3480).
+      # Saved on `main` by the `ci-image` job below; start.sh builds the
+      # image on a miss (#3480).
       - name: Restore the CI image of the tree's Containerfile
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
@@ -408,8 +423,8 @@ jobs:
         with:
           path: ~/.cache/goodfetch/chrome-for-testing
           key: chrome-for-testing-${{ steps.chrome-for-testing.outputs.build }}-linux64
-      # Saved by the Release suite on `main`; start.sh builds the image on a
-      # miss (#3480).
+      # Saved on `main` by the `ci-image` job below; start.sh builds the
+      # image on a miss (#3480).
       - name: Restore the CI image of the tree's Containerfile
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
@@ -498,8 +513,8 @@ jobs:
         with:
           path: ~/.cache/goodfetch/chrome-for-testing
           key: chrome-for-testing-${{ steps.chrome-for-testing.outputs.build }}-linux64
-      # Saved by the Release suite on `main`; start.sh builds the image on a
-      # miss (#3480).
+      # Saved on `main` by the `ci-image` job below; start.sh builds the
+      # image on a miss (#3480).
       - name: Restore the CI image of the tree's Containerfile
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
@@ -599,8 +614,8 @@ jobs:
           pattern: pre-merge-shard-*
           path: target
           merge-multiple: true
-      # Saved by the Release suite on `main`; start.sh builds the image on a
-      # miss (#3480).
+      # Saved on `main` by the `ci-image` job below; start.sh builds the
+      # image on a miss (#3480).
       - name: Restore the CI image of the tree's Containerfile
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
@@ -630,15 +645,52 @@ jobs:
   chromium-build-gate:
     name: Chromium build gate
     if: >-
+      github.event_name == 'pull_request' && (
       github.event.pull_request.head.repo.full_name != github.repository
       || startsWith(github.head_ref, 'batch/')
-      || (startsWith(github.head_ref, 'spec/') && !contains(github.head_ref, '-'))
+      || (startsWith(github.head_ref, 'spec/') && !contains(github.head_ref, '-')))
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions: {}
     steps:
       - name: Pass until the gate's first build lands
         run: echo "No Goodfetch Chromium build exists yet (#445); the gate passes and builds nothing."
+
+  # The CI image the jobs above restore (#3480), on `main` only: it looks up
+  # the cache entry keyed by the hash of the commit's ci/image/Containerfile
+  # and, when there is none, builds the image and saves it compressed
+  # (ci/hosted/image.sh save). A key the cache holds is looked up, never
+  # downloaded. Its `pull-request-…-Linux-…` key keeps it out of `xtask
+  # evict-caches`'s deletions. The Release suite's `ci-image` job does the
+  # same on its runs on `main`.
+  ci-image:
+    name: ci image
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Look the CI image up in the cache
+        id: ci-image-cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/goodfetch/ci-image
+          key: pull-request-ci-image-Linux-${{ hashFiles('ci/image/Containerfile') }}
+          lookup-only: true
+      - name: Build the CI image and write its archive
+        if: steps.ci-image-cache.outputs.cache-hit != 'true'
+        run: ci/hosted/image.sh save
+      - name: Save the CI image
+        if: steps.ci-image-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/goodfetch/ci-image
+          key: pull-request-ci-image-Linux-${{ hashFiles('ci/image/Containerfile') }}
 
   all-green:
     name: all green

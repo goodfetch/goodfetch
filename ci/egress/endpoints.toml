@@ -95,6 +95,10 @@ job = "pull-request.yml#all-green"
 reason = "It judges the run through GitHub's API and runs none of the product."
 
 [[outside]]
+job = "pull-request.yml#ci-image"
+reason = "It builds the hosted tier's CI image from the tree's Containerfile, whose steps download its tools, and saves it into the Actions cache on `main` (#3480); it runs none of the product."
+
+[[outside]]
 job = "lab.yml#lab"
 reason = "It runs the frozen R&D lab under rnd/, which is no Product."
 

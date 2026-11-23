@@ -10,6 +10,9 @@
     reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
 )]
 
+use goodfetch_protocol::catalog::{ErrorGroup, Product};
+use goodfetch_protocol::connection::Surface;
+use goodfetch_test_client::{Attached, Hello};
 use goodfetch_test_support::{CliOutput as Output, TestEnv, cli, pty};
 use serde_json::{Value, json};
 
@@ -133,7 +136,7 @@ fn install_limit(env: &TestEnv) -> (Value, Value) {
     (limit["amount"].clone(), limit["set_by"].clone())
 }
 
-/// Covers: story:3-75, command:usage.raise
+/// Covers: story:3-75, story:11-210, command:usage.raise
 #[rstest::rstest]
 #[case::answered_yes("y", (json!(1_000), json!("person")))]
 #[case::answered_no("n", (json!(500), json!("client")))]
@@ -317,4 +320,56 @@ fn usage_raise_under_json_is_refused_at_a_terminal() {
         (Some(4), true, false, (json!(500), json!("client"))),
         "{printed}"
     );
+}
+
+/// `person_required` is one refusal for the CLI and an agent alike: the
+/// failure `usage raise --json` prints and an Attached engine's reply to
+/// `usage.raise` from an MCP server carry the same code, the `refused`
+/// group, which the SDKs raise as their `RefusedError`, and the same
+/// retryable.
+///
+/// Covers: story:11-210, operation:usage.raise, error:person_required
+#[test]
+fn person_required_is_one_refusal_for_the_cli_and_an_agent() {
+    let env = TestEnv::new();
+
+    let printed = cli(&env, COLLIE)
+        .args(install_requests("raise", 1_000))
+        .arg("--json")
+        .run()
+        .unwrap();
+    let mut engine = Attached::start(&env, COLLIE);
+    engine.send(
+        &Hello::needing(Product::Collie)
+            .surface(Surface::Mcp)
+            .message(),
+    );
+    let _ = engine.next();
+    let replied = engine.ask(
+        1,
+        "usage.raise",
+        &json!({ "scope": "install", "usage_kind": "requests", "amount": 1_000 }),
+    );
+    let _ = engine.finish();
+
+    let printed: Value =
+        serde_json::from_str(&printed.stdout).unwrap_or_else(|_| panic!("{printed}"));
+    let replied_group = ErrorGroup::ALL
+        .into_iter()
+        .find(|group| json!(group.json_rpc_class()) == replied["error"]["code"])
+        .map(|group| json!(group.as_str()));
+    assert_eq!(
+        (
+            printed["error"]["code"].clone(),
+            Some(printed["error"]["group"].clone()),
+            printed["error"]["retryable"].clone(),
+        ),
+        (
+            replied["error"]["data"]["code"].clone(),
+            replied_group,
+            replied["error"]["data"]["retryable"].clone(),
+        ),
+        "{replied}"
+    );
+    assert_eq!(printed["error"]["group"], json!("refused"));
 }

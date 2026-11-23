@@ -62,7 +62,7 @@ fn check() -> AddressCheck {
             .with_private_ranges(&[ALLOWED])
             .unwrap(),
         clock: Clock::system(),
-        resolver: ResolverConfiguration::name_servers([]),
+        resolver: ResolverConfiguration::name_servers([]).into(),
         local: None,
         delays: goodfetch_engine::happy_eyeballs::Delays::default(),
     })

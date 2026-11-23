@@ -40,7 +40,7 @@ use encoding_rs::Encoding;
 use goodfetch_counted_work::{CountedWork, Row};
 use goodfetch_encoding::Kind;
 use goodfetch_engine::deadline::Enclosing;
-use goodfetch_engine::dns::{HostMapping, ResolverConfiguration};
+use goodfetch_engine::dns::{HostMapping, ResolverSource};
 use goodfetch_engine::egress::Policy;
 use goodfetch_engine::happy_eyeballs::Delays;
 use goodfetch_engine::home::Home;
@@ -1107,7 +1107,7 @@ impl FetchTiers {
             resolve: HostMapping::of(settings),
             egress: egress.clone(),
             clock: run.clock(),
-            resolver: ResolverConfiguration::system().map_err(|error| error.to_string())?,
+            resolver: ResolverSource::system(),
             local,
             delays: Delays::of(settings),
         };

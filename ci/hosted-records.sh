@@ -16,10 +16,23 @@
 # `await`, for `just merge` (ci/merge-pr.sh): it waits for the run on `head`,
 # which a push of the pull request's branch starts, up to
 # GOODFETCH_HOSTED_APPEAR seconds (120) to appear and then until it ends,
-# polling every GOODFETCH_HOSTED_POLL seconds (10). Once a run still going is
-# GOODFETCH_HOSTED_CAP seconds (1800, ADR 0061's job cap) past its start, it
-# cancels it and the gate runs what no record holds itself; a run it may not
-# cancel it waits for to its end, so no unit runs on two layers at once. A
+# polling every GOODFETCH_HOSTED_POLL seconds (10). The cap,
+# GOODFETCH_HOSTED_CAP seconds (1800, ADR 0061's job cap), is on each job
+# (#3490): it cancels a run still going when one of its jobs has been in
+# progress for the cap since that job's start, or queued for it since the
+# later of its creation and the last end of another job of its run, as a
+# matrix job its `max-parallel` holds back waits for a slot; or when no job
+# of it has been going for the cap, before its first or between two. It
+# also cancels a run that has gone on for its bound, `chain` times the cap
+# (9000 s), so jobs that keep starting late cannot hold the gate for good:
+# the longest chain of jobs one after another in pull-request.yml is five,
+# plan, the Pre-merge archive build, its shards (one wave, `max-parallel`
+# being their count's limit), its record and all green, and the `quick`
+# matrix, two jobs at a time, is plan, its waves and all green, within five
+# up to six steps. The gate then runs what no record holds itself, and
+# names the job past the cap; a run it may not cancel it waits for to its
+# end, so no unit runs on two layers at once. When a run's jobs cannot be
+# read, only the bound holds it. A
 # run on `head` that ended red ends this red, naming each failed job and its
 # page (ADR 0064): the gate runs nothing of it again. A run that appears
 # after the wait is cancelled before the gate starts its steps. When the
@@ -63,6 +76,8 @@ esac
 appear=${GOODFETCH_HOSTED_APPEAR:-120}
 poll=${GOODFETCH_HOSTED_POLL:-10}
 cap=${GOODFETCH_HOSTED_CAP:-1800}
+chain=5
+bound=$((chain * cap))
 workflow=.github/workflows/pull-request.yml
 endpoint="repos/{owner}/{repo}/actions/workflows/pull-request.yml"
 
@@ -123,6 +138,47 @@ list() {
   run=$(awk -F '\t' -v head="$head" '$4 == head { print; exit }' <<<"$listed")
 }
 
+# A run's jobs not yet completed, one a line, `<since>\t<state>\t<name>`:
+# `running` since the job's start, or `queued` since the later of its
+# creation and the last end of a job of its run; or, with none, one line
+# `<last end>\tnone`, 0 when no job has ended. It is jq, not shell.
+# shellcheck disable=SC2016
+ages='([.jobs[] | select(.status == "completed") | .completed_at // empty | fromdateiso8601] | max // 0) as $last
+  | [.jobs[] | select(.status != "completed")] as $going
+  | if $going == [] then [$last, "none"]
+    else $going[]
+      | if .status == "in_progress" then [(.started_at | fromdateiso8601), "running", .name]
+        else [([(.created_at | fromdateiso8601), $last] | max), "queued", .name] end
+    end
+  | @tsv'
+
+# What a run begun at `started`, whose jobs are `jobs` as `ages` gives them
+# (empty when GitHub could not say), is past: its bound, or the cap on a
+# job; nothing when it is within both.
+past_cap() {
+  local started=$1 jobs=$2 now since state name what
+  now=$(date -u +%s)
+  if ((now - started >= bound)); then
+    echo "gone on for $((now - started)) s, past its $bound s bound ($chain jobs one after another at the $cap s cap each)"
+    return
+  fi
+  while IFS=$'\t' read -r since state name; do
+    case $state in
+      running) what="its job $name in progress" ;;
+      queued) what="its job $name queued" ;;
+      none)
+        what="no job going"
+        ((since >= started)) || since=$started
+        ;;
+      *) continue ;;
+    esac
+    if ((now - since >= cap)); then
+      echo "$what for $((now - since)) s, past the $cap s cap"
+      return
+    fi
+  done <<<"$jobs"
+}
+
 if [[ $mode == await ]]; then
   if ! state=$(gh api "$endpoint" --jq .state) || [[ $state != active ]]; then
     echo "No hosted run serves this gate: the pull-request workflow is ${state:-unreadable on GitHub}, so the gate runs every unit no local record holds"
@@ -144,19 +200,29 @@ if [[ $mode == await ]]; then
   fi
   said=""
   cancelled=""
+  unread=""
   while [[ -n $run ]]; do
     IFS=$'\t' read -r id status conclusion _ started page <<<"$run"
     [[ $status != completed ]] || break
     # A cancelled run that has not ended a while later holds the gate no
     # more: the check below cancels it again before any step.
     [[ $cancelled != yes ]] || ((SECONDS - cancelled_at < appear)) || break
-    if [[ -z $cancelled ]] && (($(date -u +%s) - started >= cap)); then
+    past=""
+    if [[ -z $cancelled ]]; then
+      if ! jobs=$(gh api "repos/{owner}/{repo}/actions/runs/$id/jobs?per_page=100" --jq "$ages"); then
+        jobs=""
+        [[ -n $unread ]] || echo "warning: the jobs of the hosted run $id on $head ($page) could not be read: only its $bound s bound holds it" >&2
+        unread=yes
+      fi
+      past=$(past_cap "$started" "$jobs")
+    fi
+    if [[ -n $past ]]; then
       if gh run cancel "$id" >/dev/null; then
-        echo "The hosted run $id on $head ($page) is past its $cap s cap: the gate cancelled it, and runs what it left itself"
+        echo "The hosted run $id on $head ($page) has $past: the gate cancelled it, and runs what it left itself"
         cancelled=yes
         cancelled_at=$SECONDS
       else
-        echo "The hosted run $id on $head ($page) is past its $cap s cap, and the gate may not cancel it: the gate waits for its end, so no unit runs beside it"
+        echo "The hosted run $id on $head ($page) has $past, and the gate may not cancel it: the gate waits for its end, so no unit runs beside it"
         cancelled=refused
       fi
     elif [[ -z $said ]]; then

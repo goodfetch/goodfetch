@@ -26,7 +26,11 @@
 # shard and record the Pre-merge suite (ci/hosted/pre-merge.sh). Each
 # uploads the gate's records of its step for a day. `just merge` reads those
 # records under ci/hosted-records.sh's rules, reuses the green units and
-# ends red on a red one; it never reads a fork's runs.
+# ends red on a red one; it never reads a fork's runs. It waits for a run
+# whose jobs are each within the 30-minute cap, up to a bound of five times
+# the cap, this workflow's longest chain of jobs one after another (plan,
+# pre-merge build, shard, record, all green; #3490): a longer chain, such as
+# a fourth wave of the `quick` matrix, raises `chain` there.
 #
 # A step whose name starts with "Test" is a test step: "all green" fails when
 # one failed in an earlier attempt of the run (ADR 0064).

@@ -303,6 +303,38 @@ fn a_program_opens_pages_in_the_runs_default_session_and_gets_a_documents_respon
     );
 }
 
+/// A program's `page.goto` charges its Run one `requests` Usage, as a
+/// crawl's request is charged, which the Run's Usage shows.
+///
+/// Covers: operation:page.goto, operation:run.usage
+#[test]
+fn a_page_goto_charges_one_request_to_its_runs_usage() {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let cache = browser_cache(&env).unwrap();
+    let mut engine = started(&env, &cache, &proving_ground, "counted");
+
+    let page = opened(&engine.ask(2, "run.new_page", &json!({ "run_id": "counted" })));
+    let went = engine.ask(
+        3,
+        "page.goto",
+        &json!({ "page_id": page.page_id, "url": proving_ground.url("catalog.test", "/catalog/1") }),
+    );
+    let usage = engine.ask(4, "run.usage", &json!({ "run_id": "counted" }));
+    let finished = engine.ask(5, "run.finish", &json!({ "run_id": "counted" }));
+    let _ = engine.finish();
+
+    assert_eq!(
+        (
+            &went["result"]["response"]["status"],
+            &usage["result"]["requests"],
+            &finished["result"]["usage"]["requests"],
+        ),
+        (&json!(200), &json!(1), &json!(1)),
+        "{went} {usage} {finished}"
+    );
+}
+
 /// A Session's page opens on every OS over the browser's debugging pipe,
 /// with no debugging port: Chromium writes `DevToolsActivePort` into its data
 /// folder once its debugging server listens on a port, as a Borrowed

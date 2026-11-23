@@ -52,8 +52,10 @@ use goodfetch_engine::browser_cache::PinnedArtifact;
 use goodfetch_engine::deadline::Deadline;
 use goodfetch_engine::egress::{self, Navigator};
 use goodfetch_engine::hostile_input::check_headers;
+use goodfetch_engine::ledger::Refusal as LedgerRefusal;
 use goodfetch_engine::response_limits::Limits;
-use goodfetch_engine::runs::Run;
+use goodfetch_engine::run::{limit_not_understood, limit_reached};
+use goodfetch_engine::runs::{ChargeError, Run};
 use goodfetch_engine::settings::RunSettings;
 use goodfetch_engine::{CallContext, CallError, Contribution, Enclose, Guard, Handler, named};
 use goodfetch_extractor::{BuiltIn, Serialization};
@@ -94,6 +96,7 @@ use goodfetch_protocol::page::{
 };
 use goodfetch_protocol::run::RunId;
 use goodfetch_protocol::settings::{SETTING_INVALID, SettingInvalidDetails, SettingsLayer};
+use goodfetch_protocol::usage::REQUESTS;
 use serde_json::Value;
 
 use crate::blocks::{Block, BlockClassifier, NoBlocks};
@@ -734,6 +737,7 @@ fn with_page_handlers(contribution: Contribution, pages: &Pages) -> Contribution
                             Destination::Url(&params.url),
                             params.wait_until.unwrap_or_default(),
                             params.timeout,
+                            Charge::OneRequest,
                             &context,
                         )
                         .await
@@ -751,6 +755,7 @@ fn with_page_handlers(contribution: Contribution, pages: &Pages) -> Contribution
                             Destination::Reload,
                             WaitUntil::Load,
                             None,
+                            Charge::Nothing,
                             &context,
                         )
                         .await
@@ -768,6 +773,7 @@ fn with_page_handlers(contribution: Contribution, pages: &Pages) -> Contribution
                             Destination::Back,
                             WaitUntil::Load,
                             None,
+                            Charge::Nothing,
                             &context,
                         )
                         .await
@@ -785,6 +791,7 @@ fn with_page_handlers(contribution: Contribution, pages: &Pages) -> Contribution
                             Destination::Forward,
                             WaitUntil::Load,
                             None,
+                            Charge::Nothing,
                             &context,
                         )
                         .await
@@ -939,7 +946,8 @@ impl BrowserPages for Opener {
                 page_id: Some(page_id.clone()),
             };
             // Its document is fetched with the crawl request's method and
-            // body for as long as the navigation goes on.
+            // body for as long as the navigation goes on, its request charged
+            // at its admission already.
             let sent = self.pages.interception.send_own(&page_id, own);
             let navigated = self
                 .pages
@@ -948,6 +956,7 @@ impl BrowserPages for Opener {
                     Destination::Url(own.url),
                     WaitUntil::Load,
                     None,
+                    Charge::Nothing,
                     context,
                 )
                 .await;
@@ -1128,6 +1137,28 @@ impl BrowserPages for Opener {
     }
 }
 
+/// What a navigation charges its page's Run before it is sent (issue 3416).
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Charge {
+    /// One `requests` Usage for a URL the network serves: a program's
+    /// `page.goto`, charged as a crawl's request is.
+    OneRequest,
+    /// Nothing: a crawl's navigation, whose request its admission charged,
+    /// or a reload or a move in the page's history.
+    Nothing,
+}
+
+/// Charges `run` the one `requests` Usage of a navigation: a Limit with
+/// too little left refuses it `limit_reached` and stops the Run at its next
+/// safe point, as a crawl's request is refused.
+async fn charge_request(run: &Run, context: &CallContext) -> Result<(), CallError> {
+    run.charge(REQUESTS, 1).await.map_err(|error| match error {
+        ChargeError::Refused(LedgerRefusal::Reached(reached)) => limit_reached(&reached),
+        ChargeError::Refused(LedgerRefusal::NotUnderstood(limit)) => limit_not_understood(*limit),
+        error => sessions::unavailable(run, &error, context),
+    })
+}
+
 /// The engine's pages, which every call of every Connection shares.
 #[derive(Clone)]
 struct Pages {
@@ -1158,7 +1189,9 @@ impl Pages {
     /// otherwise, and a `javascript:` URL runs only in a main frame whose
     /// document's origin the domain policy allows. The navigation waits
     /// under the call's own `timeout` when it gives one, else under the
-    /// Run's `timeout.navigation` (ADR 0080).
+    /// Run's `timeout.navigation` (ADR 0080). Under `charge`, a URL the
+    /// network serves is charged as one `requests` Usage to the page's Run
+    /// before the navigation is sent (issue 3416).
     #[tracing::instrument(name = "page", level = "debug", skip_all, fields(page_id = %page_id.0, operation = destination.operation(), run_id = tracing::field::Empty, url.origin = tracing::field::Empty))]
     #[expect(
         clippy::option_option,
@@ -1170,6 +1203,7 @@ impl Pages {
         destination: Destination<'_>,
         wait_until: WaitUntil,
         timeout: Option<Option<u64>>,
+        charge: Charge,
         context: &CallContext,
     ) -> Result<Navigated, CallError> {
         let span = tracing::Span::current();
@@ -1190,13 +1224,20 @@ impl Pages {
             // engine serves the program's own code alone (`engine_context::CALLER`).
             accounts: false,
         };
-        if let Destination::Url(url) = destination
-            && egress::navigation(url, navigator).map_err(|refused| refused.error())?
-                == egress::Destination::JavaScript
-        {
-            let document = page.driver.document_url().await?;
-            self.interception
-                .judge_javascript(page_id, url, &document)?;
+        if let Destination::Url(url) = destination {
+            match egress::navigation(url, navigator).map_err(|refused| refused.error())? {
+                egress::Destination::JavaScript => {
+                    let document = page.driver.document_url().await?;
+                    self.interception
+                        .judge_javascript(page_id, url, &document)?;
+                }
+                egress::Destination::Network if charge == Charge::OneRequest => {
+                    charge_request(&page.run, context).await?;
+                }
+                egress::Destination::Network
+                | egress::Destination::Blank
+                | egress::Destination::Local => {}
+            }
         }
         let _files = navigator
             .reads_files()

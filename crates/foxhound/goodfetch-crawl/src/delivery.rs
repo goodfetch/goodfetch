@@ -493,8 +493,7 @@ async fn deliver(
     let (mut wakes, mut queued) = (admission.wakes(), run.metrics().level(&WORK_ITEM_QUEUED));
     let lessons = Lessons::of(run, state.stored().frontier());
     let mut pages = Pages::new(run, in_flight, lessons);
-    let taught = state.stored().taught();
-    let mut settling = Settlements::new();
+    let (taught, mut settling) = (state.stored().taught(), Settlements::new());
     // Resolved once, as the Run opened: no turn reads the settings again
     // (ADR 0138).
     let (resolved, read) = (settings.resolved(), Read::of(settings.resolved()));

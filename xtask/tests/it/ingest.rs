@@ -24,7 +24,7 @@ const RUN_ATTEMPT: &str = r#"{
 const ATTEMPT_JOBS: &str = r#"{ "total_count": 2, "jobs": [
   { "name": "quarantined", "labels": ["ubuntu-24.04"], "conclusion": "failure",
     "started_at": "2026-10-18T03:00:05Z", "completed_at": "2026-10-18T03:02:10Z" },
-  { "name": "rerun (macOS)", "labels": ["self-hosted", "owner-machine"], "conclusion": "success",
+  { "name": "rerun (macOS)", "labels": ["self-hosted", "macOS"], "conclusion": "success",
     "started_at": "2026-10-18T03:00:05Z", "completed_at": "2026-10-18T03:00:35Z" }
 ] }"#;
 
@@ -522,7 +522,7 @@ fn attempt_becomes_one_store_file_with_a_record_per_test_run_and_job() {
             }),
             json!({
                 "job": "rerun (macOS)",
-                "labels": ["self-hosted", "owner-machine"],
+                "labels": ["self-hosted", "macOS"],
                 "runner_os": "macos",
                 "self_hosted": true,
                 "started_at": "2026-10-18T03:00:05Z",

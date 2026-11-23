@@ -80,7 +80,6 @@ mod runtimes;
 mod scan;
 mod screenshots;
 mod sdk_manifests;
-mod self_hosted;
 mod size;
 mod static_pie;
 mod stress;
@@ -94,6 +93,7 @@ mod tree;
 mod watchlist;
 mod wording;
 mod workflow;
+mod workflow_policy;
 
 use std::ffi::OsString;
 use std::path::PathBuf;
@@ -390,11 +390,6 @@ enum Command {
     /// it in, or when a job step names no set of it or installs none of its
     /// runtimes.
     Runtimes,
-    /// The self-hosted allowlist (ADRs 0108 and 0135).
-    SelfHosted {
-        #[command(subcommand)]
-        command: self_hosted::Command,
-    },
     /// Each Product's Size budget (ADRs 0057 and 0087): measures built files
     /// and writes one table of their sizes.
     Size {
@@ -457,6 +452,11 @@ enum Command {
     /// Fails on a term of `wording.toml` in the prose of any text published
     /// about either Product (ADRs 0035 and 0097).
     Wording,
+    /// Fails on a job off GitHub's standard hosted runners, on
+    /// `pull_request_target` or a `workflow_run` job that checks out a pull
+    /// request's code, on a workflow whose top-level `permissions:` is not
+    /// `{}`, and on a `uses:` not pinned by commit or digest (ADR 0108).
+    WorkflowPolicy,
 }
 
 #[derive(Subcommand)]
@@ -651,7 +651,6 @@ fn run(command: Command, environment: &Environment) -> anyhow::Result<ExitCode> 
         Command::SdkExports => Ok(check::report(&sdk_manifests::exports::check(root)?)),
         Command::Screenshots { command } => screenshots::run(command, environment),
         Command::Runtimes => Ok(check::report(&runtimes::check(root)?)),
-        Command::SelfHosted { command } => self_hosted::run(command, environment),
         Command::Size { mode } => size::run(&mode, environment),
         Command::StaticPie { target, files } => {
             Ok(check::report(&static_pie::check(root, &files, &target)?))
@@ -664,6 +663,7 @@ fn run(command: Command, environment: &Environment) -> anyhow::Result<ExitCode> 
         Command::Tlc { command } => tlc::run(command, environment),
         Command::Watchlist(arguments) => watchlist::run(&arguments, environment),
         Command::Wording => Ok(check::report(&wording::check(root)?)),
+        Command::WorkflowPolicy => Ok(check::report(&workflow_policy::check(root)?)),
     }
 }
 

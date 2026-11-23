@@ -83,11 +83,7 @@ fn month_counts_hosted_minutes_of_test_health_jobs_rounded_up_and_multiplied() {
                     // 1 minute 1 second on Linux arm64: 2.
                     job(&["ubuntu-24.04-arm"], 61, "2026-10-02T03:00:00Z"),
                     // The owner's machine counts nothing (ADR 0108).
-                    job(
-                        &["self-hosted", "owner-machine"],
-                        600,
-                        "2026-10-02T03:00:00Z",
-                    ),
+                    job(&["self-hosted", "macOS"], 600, "2026-10-02T03:00:00Z"),
                 ],
             ),
             attempt(

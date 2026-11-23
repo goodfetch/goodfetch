@@ -212,7 +212,7 @@ lint:
     step cargo-deny-kennel 'ci/tool.sh cargo-deny cargo deny --manifest-path kennel/Cargo.toml --config kennel/deny.toml check bans sources'
     step --after xtask xtask-kennel-manifest 'cargo run --quiet --bin xtask -- kennel-manifest'
     step cargo-shear 'ci/tool.sh cargo-shear cargo shear'
-    step --after xtask xtask-self-hosted 'cargo run --quiet --bin xtask -- self-hosted check'
+    step --after xtask xtask-workflow-policy 'cargo run --quiet --bin xtask -- workflow-policy'
     step --after xtask xtask-egress 'cargo run --quiet --bin xtask -- egress check'
     step --after xtask xtask-os-services 'cargo run --quiet --bin xtask -- os-services workflows'
     step --after xtask xtask-fixture-size 'cargo run --quiet --bin xtask -- fixture-size'
@@ -2023,12 +2023,6 @@ merge number *override:
 # disk monitor runs it every few minutes.
 sweep-target *args:
     cargo run --quiet --bin xtask -- sweep-target {{ args }}
-
-# Installs the owner's copy of the self-hosted allowlist and the runner's
-# pre-job and post-job scripts into a folder the runner user can read but not
-# write (ADRs 0108 and 0135). Run by the owner on the runner's machine.
-runner-install folder:
-    ci/runner/install.sh "{{ folder }}"
 
 # Runs ADR 0135's Rosetta trial in a throwaway Lima VM: Callgrind, the pinned
 # Playwright image and `cargo fuzz check` under Rosetta for Linux.

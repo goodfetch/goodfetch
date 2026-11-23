@@ -100,7 +100,7 @@ reason = "It runs the frozen R&D lab under rnd/, which is no Product."
 
 [[outside]]
 job = "cache-warming.yml#warm"
-reason = "It fetches and builds the tier's targets without running them, and saves the build cache."
+reason = "It fetches and builds the tier's targets without running them."
 
 # Test health (ADR 0064): the jobs that run tests deny; those that read and
 # write the results store, GitHub's interface and the ceiling run none of the
@@ -137,8 +137,12 @@ reason = "It counts the month's minutes from the results store; it runs none of 
 job = "diagnostic.yml#rerun"
 
 [[outside]]
-job = "diagnostic.yml#rerun-owner-machine"
-reason = "It runs a failed macOS cell's tests again on the owner's machine, as that cell runs them: outside the deny (ADR 0043's amendment of 2026-11-22)."
+job = "diagnostic.yml#rerun-macos-arm64"
+reason = "It runs a failed macOS arm64 cell's tests again as that cell runs them: outside the deny (ADR 0043's amendment of 2026-11-22)."
+
+[[outside]]
+job = "diagnostic.yml#rerun-macos-x64"
+reason = "As rerun-macos-arm64, for a failed macOS x64 cell on an Intel runner (ADR 0043's amendment of 2026-11-22)."
 
 [[outside]]
 job = "diagnostic.yml#select"

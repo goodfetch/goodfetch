@@ -37,8 +37,7 @@ done
 cache_folder=${GOODFETCH_CACHE_FOLDER:?the runner sets GOODFETCH_CACHE_FOLDER in its .env (#1562)}
 workspace=${GITHUB_WORKSPACE:-$(pwd)}
 
-# A VM an earlier job left behind is destroyed first (the pre-job script also
-# does so before it admits a job).
+# A VM an earlier job left behind is destroyed first.
 limactl delete --force "$VM_NAME" >/dev/null 2>&1 || true
 rm -f "$EGRESS_STATE"
 

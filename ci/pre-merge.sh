@@ -54,10 +54,14 @@
 # fails, a step list or a plan the script cannot read, a result that cannot
 # be recorded, or a stop.
 #
-# `all` is incremental (ADR 0135): on a head that descends from a head whose
-# gate already ran, it reuses the green results of the steps, and of the
-# members' tests, that the change since then does not reach, and reruns the
-# rest; see the plan below. `GOODFETCH_GATE_FULL=1` reuses nothing.
+# `all` and `quick` are incremental (ADR 0135): on a head that descends from
+# a head whose gate already ran, they reuse the green results of the steps,
+# and of the members' tests, that the change since then does not reach, and
+# rerun the rest; see the plan below. They also reuse the hosted-owned
+# units a hosted run of the pull-request workflow holds, whose records
+# `just merge` downloaded (GOODFETCH_GATE_HOSTED_RECORDS), and end red on
+# one such run's red unit on the head's tree (ADR 0135's amendment of
+# 2026-11-22). `GOODFETCH_GATE_FULL=1` reuses nothing.
 #
 # Each form's steps, their order and each step's `just` command come from
 # `xtask gate steps` (`just _gate-steps`, xtask/src/gate/steps.rs), and the
@@ -113,13 +117,17 @@ case "$all" in
     ;;
 esac
 form=${all:-changed}
-# The forms the plan reads and the record keeps: the full gate's, and
-# preflight's units of it.
+# The forms the plan reads and the record keeps: the full gate's,
+# preflight's units of it, and the quick gate's, whose hosted-owned units
+# a hosted run on the tree already holds (ADR 0135's amendment of
+# 2026-11-22).
 planning=""
-[[ $form != all && $form != preflight ]] || planning=yes
+[[ $form != all && $form != preflight && $form != quick ]] || planning=yes
 # The layer the record names for each result this run gives (`xtask gate
 # record --by`): `preflight` for that form, else `GOODFETCH_GATE_LAYER`'s,
-# which the backstop sets, and `merge` by default.
+# which the backstop and the hosted jobs set, and `merge` by default. A
+# hosted job runs one step, `GOODFETCH_GATE_ONLY`, and every other step of
+# its form is another job's (.github/workflows/pull-request.yml).
 layer=${GOODFETCH_GATE_LAYER:-merge}
 [[ $form != preflight ]] || layer=preflight
 
@@ -171,16 +179,11 @@ order=$(output_value steps "$listing")
 read -ra steps <<<"$order"
 
 rm -rf target/skipped.txt target/red-steps
-# The docs and quick forms run their steps one after the other on the host,
-# recording nothing.
-if [[ $form == docs || $form == quick ]]; then
+# The docs form runs its steps one after the other on the host, recording
+# nothing.
+if [[ $form == docs ]]; then
   trap 'just _skips-report' EXIT
-  if [[ $form == docs ]]; then
-    echo "The docs gate: the change is documents alone, so only the checks that read its commits, the bar and documents run; the code lints and every suite do not (xtask affected's gate=docs, ADR 0135)."
-  else
-    os_services
-    echo "The quick gate: no test reads this change, so perf, the Linux-only and visual tests, the Pre-merge suite, the stress run, TLC, the MSRV build, Miri, loom and the Windows build under Wine do not run (xtask affected's gate=quick, ADR 0135)."
-  fi
+  echo "The docs gate: the change is documents alone, so only the checks that read its commits, the bar and documents run; the code lints and every suite do not (xtask affected's gate=docs, ADR 0135)."
   for step in "${steps[@]}"; do
     arguments=$(output_value "$step.just" "$listing")
     read -ra command <<<"$arguments"
@@ -313,7 +316,8 @@ planned=""
 stress_base=""
 if [[ -n $planning ]]; then
   [[ $form != preflight ]] || echo "Preflight: the full gate's units only the gate host runs, the counted rows and the stress run, recorded by the layer preflight in $records, so the full gate on the same tree reuses them (ADR 0135)."
-  plan=$(just _gate-plan)
+  [[ $form != quick ]] || echo "The quick gate: no test reads this change, so perf, the Linux-only and visual tests, the Pre-merge suite, the stress run, TLC, the MSRV build, Miri, loom and the Windows build under Wine do not run (xtask affected's gate=quick, ADR 0135)."
+  plan=$(just _gate-plan "$form" "$layer")
   previous=$(output_value previous "$plan")
   planned=$(output_value head "$plan")
   stress_base=$(output_value stress.base "$plan")
@@ -390,7 +394,7 @@ started=""
 # write over those files. The stress run removes nextest's JUnit files before
 # each of its counts, and each suite writes Vitest's, Playwright's and
 # pytest's anew. It covers the host's steps the gate records; the steps
-# beside and the quick and docs forms get no folder. A
+# beside and the docs form get no folder. A
 # folder or a copy that cannot be made only warns: it changes no verdict.
 keep_results() {
   local kept=target/red-steps/$1 results
@@ -457,11 +461,31 @@ run_part() {
       read -ra members <<<"$part"
       gated stress just stress "$stress_base" "$previous" "$records/$planned.earned" "" "${members[@]}"
       ;;
+    quick)
+      part=$(members_of "$1")
+      read -ra members <<<"$part"
+      gated quick just test quick --shuffled-all "${members[@]}"
+      ;;
     *)
       echo "error: the plan runs a part of $1, which runs no member's tests" >&2
       exit 1
       ;;
   esac
+}
+# A step the plan runs nowhere here: covered by another step of the form,
+# or, in a hosted job, another layer's (`left`); its why says which.
+not_run() {
+  local why
+  why=$(output_value "$1.why" "$plan") || return
+  echo "Gate step $1: not run ($why)"
+}
+# A step a hosted run on the head's tree ended red (`red`): the gate is
+# red, naming it, and runs it not again (ADR 0064).
+red_elsewhere() {
+  local why
+  why=$(output_value "$1.why" "$plan") || return
+  echo "Gate step $1: red ($why)"
+  went_red "$1 ($why)" 1
 }
 # A step on the host, as its plan has it: reused, run in part, or run in
 # full with its `just` command, the stress run's with the plan's
@@ -472,6 +496,8 @@ run_step() {
   planned_action=$(action "$step")
   case $planned_action in
     reuse) reused "$step" ;;
+    covered | left) not_run "$step" ;;
+    red) red_elsewhere "$step" ;;
     part) run_part "$step" ;;
     run)
       if [[ $step == pre-merge ]]; then
@@ -483,7 +509,7 @@ run_step() {
       fi
       ;;
     *)
-      echo "error: the plan's action for $step is $planned_action, not run, part or reuse" >&2
+      echo "error: the plan's action for $step is $planned_action, not run, part, reuse, covered, left or red" >&2
       exit 1
       ;;
   esac
@@ -491,6 +517,10 @@ run_step() {
 # The form's steps in their order: the whole change's checks, the steps
 # beside, then the host's others.
 for step in "${steps[@]}"; do
+  if [[ -n ${GOODFETCH_GATE_ONLY:-} && $step != "$GOODFETCH_GATE_ONLY" ]]; then
+    echo "Gate step $step: not run (this job runs $GOODFETCH_GATE_ONLY alone)"
+    continue
+  fi
   arguments=$(output_value "$step.just" "$listing")
   read -ra command <<<"$arguments"
   kind=$(output_value "$step.kind" "$listing")
@@ -502,7 +532,12 @@ for step in "${steps[@]}"; do
       ;;
     beside)
       planned_action=$(action "$step")
-      if [[ $planned_action == reuse ]]; then reused "$step"; else beside "$step" "${command[@]}"; fi
+      case $planned_action in
+        reuse) reused "$step" ;;
+        covered | left) not_run "$step" ;;
+        red) red_elsewhere "$step" ;;
+        *) beside "$step" "${command[@]}" ;;
+      esac
       ;;
     step) run_step "$step" "${command[@]}" ;;
     *)

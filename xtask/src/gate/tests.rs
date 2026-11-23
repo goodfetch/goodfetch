@@ -9,8 +9,8 @@ use rstest::rstest;
 
 use super::host::{REMOVED_BY_THE_GATE, step_variables};
 use super::plan::{
-    Action, EarnedPasses, GateRun, Head, Layer, LintReads, MAX_AGE, Outcome, Planned, Step,
-    Touched, UNOWNED, gate_input, narrowed, plan, unit,
+    Action, Earlier, EarnedPasses, GateRun, Head, Layer, LintReads, MAX_AGE, Outcome, Pin, Planned,
+    Step, Touched, UNOWNED, gate_input, hosted_fingerprint, narrowed, plan, unit,
 };
 use super::steps::{self, Form, Kind, Owner, entries};
 use super::{plan_value, render, runs};
@@ -101,8 +101,28 @@ fn planned_shuffling(
         host: HOST,
         now: NOW,
         lint: LintReads::new(&lint_holds),
+        form: Form::All,
+        layer: Layer::Merge,
+        pin: PIN,
     };
-    plan(&head, record, "no earlier run", touched)
+    plan(&head, &earlier(record, &[]), touched)
+}
+
+/// The CI image and repository every case's head pins.
+const PIN: Pin<'static> = Pin {
+    image: IMAGE,
+    repository: REPOSITORY,
+};
+const IMAGE: &str = "image";
+const REPOSITORY: &str = "goodfetch/goodfetch";
+
+/// The earlier runs of a case: the local `record`, and the `hosted` runs.
+fn earlier<'a>(record: Option<&'a GateRun>, hosted: &'a [GateRun]) -> Earlier<'a> {
+    Earlier {
+        previous: record,
+        no_previous: "no earlier run",
+        hosted,
+    }
 }
 
 /// The plan for a head on `EARLIER`'s tree, where what lint reads besides
@@ -119,11 +139,13 @@ fn planned_on_earliers_tree(record: &GateRun, lint_holds: Result<(), &str>) -> V
         host: HOST,
         now: NOW,
         lint: LintReads::new(&lint_holds),
+        form: Form::All,
+        layer: Layer::Merge,
+        pin: PIN,
     };
     plan(
         &head,
-        Some(record),
-        "no earlier run",
+        &earlier(Some(record), &[]),
         &touched_since_earlier(Touched::default()),
     )
 }
@@ -148,7 +170,10 @@ fn reruns(plan: &[Planned]) -> (BTreeSet<&'static str>, BTreeMap<&'static str, V
             Action::Part { members, .. } => {
                 part.insert(planned.step.name(), members.iter().cloned().collect());
             }
-            Action::Reuse { .. } | Action::Covered { .. } => {}
+            Action::Reuse { .. }
+            | Action::Covered { .. }
+            | Action::Left { .. }
+            | Action::Red { .. } => {}
         }
     }
     (full, part)
@@ -404,7 +429,7 @@ fn a_change_to_a_gate_input_reruns_every_step_in_full(#[case] path: &str) {
     let (full, part) = reruns(&plan);
     let every_step_but_the_covered: BTreeSet<&str> = Step::ALL
         .into_iter()
-        .filter(|step| *step != Step::Quick)
+        .filter(|step| step.covered_by().is_none())
         .map(Step::name)
         .collect();
     assert_eq!(full, every_step_but_the_covered);
@@ -879,12 +904,14 @@ fn a_result_that_names_no_known_layer_is_an_error(#[case] text: &str) {
     assert!(runs::parse("feed", text).is_err());
 }
 
-/// The checks a run on the tree of their green result reuses.
-const TREE_ONLY: [Step; 4] = [
+/// The checks a run on the tree of their green result reuses (the codegen
+/// tests too, which the full form's Pre-merge suite covers).
+const TREE_ONLY: [Step; 5] = [
     Step::Lint,
     Step::FeatureCombinations,
     Step::FuzzCheck,
     Step::Proofs,
+    Step::JourneysTasks,
 ];
 
 #[test]
@@ -911,7 +938,6 @@ fn a_run_on_the_same_tree_reuses_the_checks_that_follow_from_the_tree_and_the_ho
             "commit-leaks",
             "audit",
             "notices",
-            "journeys-tasks",
             "features-tests",
         ])
     );
@@ -1141,10 +1167,9 @@ const BESIDE_STEPS: [&str; 8] = [
 
 /// Each entry's owning layer, as the spec's table of owning layers sets it
 /// (spec #3373): `just merge` judges the change in seconds, the gate host
-/// keeps what a noisy runner would move, and the hosted tier owns the rest,
-/// which still runs here until it exists. A command of a form's list is
-/// part of a hosted step: the documents' lint is lint's, and the codegen
-/// tests are the Pre-merge suite's.
+/// keeps what a noisy runner would move, and the hosted tier owns the rest.
+/// A command of a form's list is part of a hosted step: the documents' lint
+/// is lint's.
 #[rstest]
 #[case::all(Form::All)]
 #[case::quick(Form::Quick)]
@@ -1298,5 +1323,352 @@ fn a_reason_over_several_lines_stays_on_its_key_line() {
     assert_eq!(
         plan_value(&text, "lint.why").unwrap(),
         "git failed: fatal: bad object"
+    );
+}
+
+/// The steps the hosted tier owns that the quick form runs.
+const HOSTED_QUICK: [Step; 4] = [
+    Step::Lint,
+    Step::Quick,
+    Step::JourneysTasks,
+    Step::CodegenTests,
+];
+
+/// A hosted job's record of a run on `EARLIER` whose every unit of a step
+/// the hosted tier owns passed on `tree`, its fingerprint naming `image` and
+/// `repository`.
+fn hosted_run(image: &str, repository: &str, tree: &str) -> GateRun {
+    let outcome = Outcome {
+        tree: tree.to_owned(),
+        by: Layer::Hosted,
+        ..green(EARLIER)
+    };
+    let mut units = BTreeMap::new();
+    for step in Step::ALL
+        .into_iter()
+        .filter(|step| Owner::of(*step) == Owner::Hosted)
+    {
+        if step.per_member() {
+            for member in members() {
+                units.insert(unit(step, Some(&member)), outcome.clone());
+            }
+        } else {
+            units.insert(unit(step, None), outcome.clone());
+        }
+    }
+    GateRun {
+        head: EARLIER.to_owned(),
+        base: BASE.to_owned(),
+        host: hosted_fingerprint(image, repository, "ubuntu24/20261116.1", "variables"),
+        units,
+        earned: BTreeMap::new(),
+    }
+}
+
+/// The plan of `layer` in `form` for the head, which has no local record,
+/// from `hosted` runs, with the shuffling runners' members `shuffled`.
+fn planned_from_hosted(
+    (form, layer): (Form, Layer),
+    shuffled: &BTreeSet<String>,
+    hosted: &[GateRun],
+    touched: &BTreeMap<String, Touched>,
+) -> Vec<Planned> {
+    let members = members();
+    let lint_holds = || Ok(());
+    let head = Head {
+        base: BASE,
+        members: &members,
+        shuffled,
+        tree: HEAD_TREE,
+        host: HOST,
+        now: NOW,
+        lint: LintReads::new(&lint_holds),
+        form,
+        layer,
+        pin: PIN,
+    };
+    plan(&head, &earlier(None, hosted), touched)
+}
+
+/// `just merge` on a batch whose hosted run passed on the head's tree runs
+/// none of the hosted-owned units of the quick form, and says the hosted
+/// layer ran each; the shuffling runners' members too, whose order the tree
+/// gives. The checks of the whole change still run here.
+#[test]
+fn the_merge_reuses_every_hosted_unit_green_on_the_heads_tree() {
+    let hosted = [hosted_run(IMAGE, REPOSITORY, HEAD_TREE)];
+    let shuffled = BTreeSet::from(["test-support/typescript".to_owned()]);
+
+    let plan = planned_from_hosted(
+        (Form::Quick, Layer::Merge),
+        &shuffled,
+        &hosted,
+        &touched_since_earlier(Touched::default()),
+    );
+
+    for step in HOSTED_QUICK {
+        let planned = plan.iter().find(|planned| planned.step == step).unwrap();
+        assert!(
+            matches!(&planned.action, Action::Reuse { origins } if origins == &BTreeSet::from([EARLIER.to_owned()])),
+            "{step:?}: {:?}",
+            planned.action
+        );
+        assert!(
+            !planned.carried.is_empty()
+                && planned
+                    .carried
+                    .values()
+                    .all(|outcome| outcome.by == Layer::Hosted),
+            "{step:?}"
+        );
+    }
+    for step in WHOLE_CHANGE_STEPS {
+        let step = Step::from_name(step).unwrap();
+        assert!(
+            matches!(action(&plan, step), Action::Run { .. }),
+            "{step:?}"
+        );
+    }
+}
+
+/// A hosted record counts only under the head's pin: one from another CI
+/// image, or a fork's, whose fingerprint names the fork, is never reused,
+/// and neither is a fingerprint that names no image.
+#[rstest]
+#[case::another_image("other-image", REPOSITORY, "ran in another CI image")]
+#[case::a_fork(IMAGE, "someone/goodfetch", "another repository's pull request")]
+fn a_hosted_record_off_the_heads_pin_is_not_reused(
+    #[case] image: &str,
+    #[case] repository: &str,
+    #[case] reason: &str,
+) {
+    let hosted = [hosted_run(image, repository, HEAD_TREE)];
+
+    let plan = planned_from_hosted(
+        (Form::Quick, Layer::Merge),
+        &BTreeSet::new(),
+        &hosted,
+        &touched_since_earlier(Touched::default()),
+    );
+
+    for step in HOSTED_QUICK {
+        assert!(
+            matches!(action(&plan, step), Action::Run { why } if why.contains(reason)),
+            "{step:?}: {:?}",
+            action(&plan, step)
+        );
+    }
+}
+
+#[test]
+fn a_local_hosts_record_never_counts_as_a_hosted_one() {
+    let mut local = hosted_run(IMAGE, REPOSITORY, HEAD_TREE);
+    local.host = HOST.to_owned();
+
+    let plan = planned_from_hosted(
+        (Form::Quick, Layer::Merge),
+        &BTreeSet::new(),
+        &[local],
+        &touched_since_earlier(Touched::default()),
+    );
+
+    assert!(
+        matches!(action(&plan, Step::Lint), Action::Run { why } if why.contains("names no CI image")),
+        "{:?}",
+        action(&plan, Step::Lint)
+    );
+}
+
+#[test]
+fn a_hosted_unit_older_than_a_day_reruns() {
+    let mut hosted = hosted_run(IMAGE, REPOSITORY, HEAD_TREE);
+    for outcome in hosted.units.values_mut() {
+        outcome.at = NOW - MAX_AGE - 1;
+    }
+
+    let plan = planned_from_hosted(
+        (Form::Quick, Layer::Merge),
+        &BTreeSet::new(),
+        &[hosted],
+        &touched_since_earlier(Touched::default()),
+    );
+
+    for step in HOSTED_QUICK {
+        assert!(
+            matches!(action(&plan, step), Action::Run { why } if why.contains("older than a day")),
+            "{step:?}: {:?}",
+            action(&plan, step)
+        );
+    }
+}
+
+/// On a head past the hosted run's, the merge of `main`'s tip the gate
+/// pushes for one, a hosted unit holds where the change since its head does
+/// not reach it: the members it touches rerun, and so do the checks of the
+/// tree and the shuffling runners' members, whose tree changed.
+#[test]
+fn a_change_since_the_hosted_run_reruns_what_it_reaches() {
+    let hosted = [hosted_run(IMAGE, REPOSITORY, &green(EARLIER).tree)];
+    let shuffled = BTreeSet::from(["test-support/typescript".to_owned()]);
+    let touched = Touched {
+        members: BTreeSet::from(["goodfetch-engine".to_owned()]),
+        ..Touched::default()
+    };
+
+    let plan = planned_from_hosted(
+        (Form::Quick, Layer::Merge),
+        &shuffled,
+        &hosted,
+        &touched_since_earlier(touched),
+    );
+
+    assert!(
+        matches!(
+            action(&plan, Step::Quick),
+            Action::Part { members, .. }
+                if members == &BTreeSet::from(["goodfetch-engine".to_owned(), "test-support/typescript".to_owned()])
+        ),
+        "{:?}",
+        action(&plan, Step::Quick)
+    );
+    for step in [Step::Lint, Step::JourneysTasks, Step::CodegenTests] {
+        assert!(
+            matches!(action(&plan, step), Action::Run { why } if why.contains("the tree changed")),
+            "{step:?}: {:?}",
+            action(&plan, step)
+        );
+    }
+}
+
+/// A hosted unit red on the head's tree is the gate's verdict (ADR 0064): the
+/// step is red and runs nowhere beside it. Red on another tree, it reruns.
+#[rstest]
+#[case::on_the_heads_tree(HEAD_TREE, true)]
+#[case::on_another_tree("earlier-tree", false)]
+fn a_red_hosted_unit(#[case] tree: &str, #[case] red: bool) {
+    let mut hosted = hosted_run(IMAGE, REPOSITORY, tree);
+    hosted
+        .units
+        .get_mut(&unit(Step::Quick, Some("goodfetch-engine")))
+        .unwrap()
+        .green = false;
+
+    let plan = planned_from_hosted(
+        (Form::Quick, Layer::Merge),
+        &BTreeSet::new(),
+        &[hosted],
+        &touched_since_earlier(Touched::default()),
+    );
+
+    if red {
+        assert!(
+            matches!(action(&plan, Step::Quick), Action::Red { why } if why.contains("goodfetch-engine: red in the hosted run on earlier")),
+            "{:?}",
+            action(&plan, Step::Quick)
+        );
+    } else {
+        assert!(
+            matches!(
+                action(&plan, Step::Quick),
+                Action::Part { members, why }
+                    if members.contains("goodfetch-engine") && why.contains("red on earlier")
+            ),
+            "{:?}",
+            action(&plan, Step::Quick)
+        );
+    }
+}
+
+/// A hosted record stands in only for the steps the hosted tier owns: a
+/// result it holds of a step `just merge` or the gate host owns is never
+/// reused.
+#[test]
+fn a_hosted_record_never_stands_in_for_a_local_or_gate_host_step() {
+    let mut hosted = hosted_run(IMAGE, REPOSITORY, HEAD_TREE);
+    let forged = Outcome {
+        tree: HEAD_TREE.to_owned(),
+        by: Layer::Hosted,
+        ..green(EARLIER)
+    };
+    for step in [Step::Perf, Step::Counts] {
+        hosted.units.insert(unit(step, None), forged.clone());
+    }
+
+    let plan = planned_from_hosted(
+        (Form::All, Layer::Merge),
+        &BTreeSet::new(),
+        &[hosted],
+        &touched_since_earlier(Touched::default()),
+    );
+
+    for step in [Step::Perf, Step::Counts] {
+        assert!(
+            matches!(action(&plan, step), Action::Run { .. }),
+            "{step:?}: {:?}",
+            action(&plan, step)
+        );
+    }
+}
+
+/// A hosted job plans with the one planner, and leaves each step it does
+/// not own to the layer that does (spec #3373's table of owning layers).
+#[test]
+fn the_hosted_layer_leaves_each_step_to_its_owner() {
+    let plan = planned_from_hosted(
+        (Form::Quick, Layer::Hosted),
+        &BTreeSet::new(),
+        &[],
+        &BTreeMap::new(),
+    );
+
+    assert_eq!(
+        action(&plan, Step::Dco),
+        &Action::Left {
+            owner: Owner::Local
+        }
+    );
+    assert_eq!(
+        action(&plan, Step::Perf),
+        &Action::Left {
+            owner: Owner::GateHost
+        }
+    );
+    for step in HOSTED_QUICK {
+        assert!(
+            matches!(action(&plan, step), Action::Run { .. }),
+            "{step:?}"
+        );
+    }
+}
+
+/// xtask's codegen tests are a step of the quick form, and the Pre-merge
+/// suite, which runs every test, covers them in the full forms.
+#[rstest]
+#[case::all(Form::All, true)]
+#[case::preflight(Form::Preflight, true)]
+#[case::quick(Form::Quick, false)]
+fn the_codegen_tests_are_covered_where_the_pre_merge_suite_runs(
+    #[case] form: Form,
+    #[case] covered: bool,
+) {
+    let plan = planned_from_hosted(
+        (form, Layer::Merge),
+        &BTreeSet::new(),
+        &[],
+        &BTreeMap::new(),
+    );
+
+    assert_eq!(
+        matches!(
+            action(&plan, Step::CodegenTests),
+            Action::Covered { by: Step::PreMerge }
+        ),
+        covered
+    );
+    assert_eq!(
+        entries(form)
+            .iter()
+            .any(|entry| entry.name == "codegen-tests"),
+        form == Form::Quick
     );
 }

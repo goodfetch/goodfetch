@@ -8,7 +8,10 @@
 #   ci/junit-summary.sh       on the runner's own system, as the hosted jobs
 #                             and the owner's machine's host steps do;
 #   ci/junit-summary.sh vm    in the job's VM (ci/vm/exec.sh), where the
-#                             owner's machine builds the repository's code.
+#                             owner's machine builds the repository's code;
+#   ci/junit-summary.sh container
+#                             in the hosted tier's job container
+#                             (ci/hosted/exec.sh).
 # The step fails when a JUnit file is malformed; the page still shows the
 # rest.
 set -euo pipefail
@@ -23,8 +26,9 @@ status=0
 case "$where" in
   host) "${xtask[@]}" || status=$? ;;
   vm) ci/vm/exec.sh "${xtask[@]}" || status=$? ;;
+  container) ci/hosted/exec.sh "${xtask[@]}" || status=$? ;;
   *)
-    echo "usage: ci/junit-summary.sh [vm]" >&2
+    echo "usage: ci/junit-summary.sh [vm|container]" >&2
     exit 2
     ;;
 esac

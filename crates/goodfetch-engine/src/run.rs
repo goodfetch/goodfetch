@@ -78,10 +78,16 @@ use crate::settings::{
     self, Opening, Resolved, RunSettings, SettingsError, beneath_connection, check_scope,
 };
 
-/// The `run.*` handlers.
-pub(crate) fn handlers() -> [Handler; 14] {
+mod starts;
+
+/// The `run.*` handlers, and the starts of Runs with no handler in the
+/// program.
+pub(crate) fn handlers() -> [Handler; 16] {
+    let [recipe_start, catalog_run_start] = starts::handlers();
     [
         Handler::new(&RUN_START, start),
+        recipe_start,
+        catalog_run_start,
         Handler::new(&RUN_FINISH, finish),
         Handler::new(&RUN_STOP, stop),
         Handler::new(&RUN_USAGE, usage),

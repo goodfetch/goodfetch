@@ -93,6 +93,7 @@ mod command_line;
 mod config;
 mod daemon;
 mod daemon_command;
+mod doctor;
 pub mod engine_choice;
 pub mod exit_codes;
 mod identity;
@@ -178,6 +179,17 @@ enum Command {
     Config {
         #[command(subcommand)]
         command: ConfigCommand,
+        #[command(flatten)]
+        _colour: ColourFlag,
+    },
+    /// Checks the installation: Goodfetch home, the installed executables,
+    /// the Daemon, the version it runs and the browser build a Run
+    /// launches, with a fix for each finding not in order. Exits 0
+    /// whatever it finds.
+    Doctor {
+        /// Prints the findings as JSON.
+        #[arg(long)]
+        json: bool,
         #[command(flatten)]
         _colour: ColourFlag,
     },
@@ -725,6 +737,7 @@ fn run(
             },
             human,
         ),
+        Command::Doctor { json, .. } => doctor::doctor(&machine, json),
         Command::Daemon { command, .. } => {
             daemon_command(command, engine, dependencies, &machine, human)
         }

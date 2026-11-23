@@ -9,80 +9,8 @@
 # job whose head is not a branch of this repository.
 repository = "goodfetch/goodfetch"
 
-# The pull-request tier, from branches of this repository only (ADR 0135).
-[[job]]
-workflow = "pull-request.yml"
-job = "quick"
-events = ["pull_request"]
-refs = ["refs/pull/*/merge"]
-if = "github.event.pull_request.head.repo.full_name == github.repository"
-
-[[job]]
-workflow = "pull-request.yml"
-job = "affected"
-events = ["pull_request"]
-refs = ["refs/pull/*/merge"]
-if = "github.event.pull_request.head.repo.full_name == github.repository"
-
-[[job]]
-workflow = "pull-request.yml"
-job = "pre-merge"
-events = ["pull_request"]
-refs = ["refs/pull/*/merge"]
-if = "github.event.pull_request.head.repo.full_name == github.repository && contains(fromJSON(needs.affected.outputs.jobs), 'pre-merge')"
-
-[[job]]
-workflow = "pull-request.yml"
-job = "perf"
-events = ["pull_request"]
-refs = ["refs/pull/*/merge"]
-if = "github.event.pull_request.head.repo.full_name == github.repository && contains(fromJSON(needs.affected.outputs.jobs), 'perf')"
-
-[[job]]
-workflow = "pull-request.yml"
-job = "tlc"
-events = ["pull_request"]
-refs = ["refs/pull/*/merge"]
-if = "github.event.pull_request.head.repo.full_name == github.repository && contains(fromJSON(needs.affected.outputs.jobs), 'tlc')"
-
-[[job]]
-workflow = "pull-request.yml"
-job = "visual"
-events = ["pull_request"]
-refs = ["refs/pull/*/merge"]
-if = "github.event.pull_request.head.repo.full_name == github.repository && contains(fromJSON(needs.affected.outputs.jobs), 'visual')"
-
-[[job]]
-workflow = "pull-request.yml"
-job = "supply-chain"
-events = ["pull_request"]
-refs = ["refs/pull/*/merge"]
-if = "github.event.pull_request.head.repo.full_name == github.repository"
-
-# The in-diff mutation job (ADR 0072), outside "all green".
-[[job]]
-workflow = "pull-request.yml"
-job = "mutants"
-events = ["pull_request"]
-refs = ["refs/pull/*/merge"]
-if = "github.event.pull_request.head.repo.full_name == github.repository && needs.affected.result == 'success' && needs.affected.outputs.mutants-shards != '[]'"
-
-[[job]]
-workflow = "pull-request.yml"
-job = "chromium-build-gate"
-events = ["pull_request"]
-refs = ["refs/pull/*/merge"]
-if = "github.event.pull_request.head.repo.full_name == github.repository"
-
-# "all green" runs even when a job it needs failed or was skipped; the pre-job
-# script still refuses it for a fork.
-[[job]]
-workflow = "pull-request.yml"
-job = "all-green"
-events = ["pull_request"]
-refs = ["refs/pull/*/merge"]
-if = "always()"
-
+# The pull-request tier runs on GitHub's standard hosted runners (ADR 0135's
+# amendment of 2026-11-22), so none of its jobs is here.
 [[job]]
 workflow = "lab.yml"
 job = "lab"

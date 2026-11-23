@@ -69,7 +69,10 @@ async def collie_on(way: Way, script: str) -> tuple[AsyncCollie, PlayedScript]:
                 "close",
                 "engine",
                 "explain_settings",
+                "open_run",
                 "start",
+                "start_catalog_run",
+                "start_recipe",
                 "__aenter__",
                 "__aexit__",
             },
@@ -83,7 +86,10 @@ async def collie_on(way: Way, script: str) -> tuple[AsyncCollie, PlayedScript]:
                 "close",
                 "engine",
                 "explain_settings",
+                "open_run",
                 "start",
+                "start_catalog_run",
+                "start_recipe",
                 "__enter__",
                 "__exit__",
             },
@@ -608,6 +614,106 @@ async def test_fails_connect_when_a_deployment_variable_is_no_unicode(
         "key": "GOODFETCH_HOME",
         "reason": "it is not Unicode",
     }
+
+
+@pytest.mark.covers("story:11-73", "error:setting_invalid")
+@pytest.mark.parametrize(
+    ("variable", "value", "reason", "taken"),
+    [
+        pytest.param(
+            "GOODFETCH_CHANNEL",
+            "NPM",
+            "`NPM` is no channel; one of npm, pypi, crates-io, homebrew, oci, "
+            "installer",
+            "one of npm, pypi, crates-io, homebrew, oci, installer",
+            id="a channel in capitals",
+        ),
+        pytest.param(
+            "GOODFETCH_DAEMON_DRAIN_GRACE",
+            "5s",
+            "`5s` is no whole number of milliseconds",
+            "a whole number of milliseconds",
+            id="a drain grace in seconds",
+        ),
+        pytest.param(
+            "GOODFETCH_DAEMON_DRAIN_GRACE",
+            "-1",
+            "`-1` is no whole number of milliseconds",
+            "a whole number of milliseconds",
+            id="a negative drain grace",
+        ),
+        pytest.param(
+            "GOODFETCH_DAEMON_DRAIN_GRACE",
+            "18446744073709551616",
+            "`18446744073709551616` is no whole number of milliseconds",
+            "a whole number of milliseconds",
+            id="a drain grace past 64 bits",
+        ),
+        pytest.param(
+            "GOODFETCH_DAEMON_ADDRESS",
+            "localhost:7900",
+            "`localhost:7900` is no `host:port`",
+            "an IP address and port such as 127.0.0.1:7900",
+            id="a Daemon address by host name",
+        ),
+        pytest.param(
+            "GOODFETCH_OPS_ADDRESS",
+            "[fe80::1%eth0]:9464",
+            "`[fe80::1%eth0]:9464` is no `host:port`",
+            "an IP address and port such as 0.0.0.0:9464",
+            id="an ops address with a named scope",
+        ),
+        pytest.param(
+            "GOODFETCH_OPS_ADDRESS",
+            "10.0.0.01:9464",
+            "`10.0.0.01:9464` is no `host:port`",
+            "an IP address and port such as 0.0.0.0:9464",
+            id="an ops address with a leading zero",
+        ),
+    ],
+)
+@three_ways
+async def test_fails_connect_on_a_deployment_value_the_engine_cannot_parse(
+    way: Way, variable: str, value: str, reason: str, taken: str
+) -> None:
+    """The engine's own check refuses it the same (ADR 0083)."""
+    error = await connect_failure(way, {variable: value})
+
+    assert summary(error) == {
+        "code": "setting_invalid",
+        "group": "program",
+        "fix": f"Set {variable} to {taken}, or unset it.",
+        "details": {"key": variable, "reason": reason},
+    }
+
+
+@pytest.mark.covers("story:11-73")
+@pytest.mark.parametrize(
+    "env",
+    [
+        pytest.param({"GOODFETCH_CHANNEL": "crates-io"}, id="a channel"),
+        pytest.param({"GOODFETCH_DAEMON_DRAIN_GRACE": "+5"}, id="a signed grace"),
+        pytest.param(
+            {"GOODFETCH_DAEMON_DRAIN_GRACE": "18446744073709551615"},
+            id="the longest grace",
+        ),
+        pytest.param(
+            {"GOODFETCH_DAEMON_ADDRESS": "127.0.0.1:7900"}, id="an IPv4 Daemon address"
+        ),
+        pytest.param(
+            {"GOODFETCH_OPS_ADDRESS": "[fe80::1%2]:9464"},
+            id="an IPv6 ops address with its scope",
+        ),
+    ],
+)
+@three_ways
+async def test_passes_on_a_deployment_value_the_engine_parses(
+    way: Way, env: Mapping[str, str]
+) -> None:
+    """As Rust reads it, a `u64`'s leading `+` included: `connect()` goes on."""
+    error = await connect_failure(way, env)
+
+    assert error.code == "engine_not_found"
 
 
 @pytest.mark.covers("story:11-73", "error:setting_unknown")

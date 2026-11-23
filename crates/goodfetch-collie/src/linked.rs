@@ -35,7 +35,7 @@ use goodfetch_engine::politeness::PolitenessOptions;
 use goodfetch_engine::run_state::RunStateOptions;
 use goodfetch_engine::secrets::Keychain;
 use goodfetch_engine::settings::{
-    SettingsError, SettingsFiles, check_environment, deployment_variable,
+    SettingsError, SettingsFiles, check_environment, deployment_variable, taken_value,
 };
 use goodfetch_engine::tasks::BlockingPolicy;
 use goodfetch_engine::transport::{self, InMemoryDialer};
@@ -105,8 +105,10 @@ impl ConnectOptions {
     /// read, such as `GOODFETCH_HOME` and `GOODFETCH_URL`, in place of the
     /// process's own. A `GOODFETCH_` variable off the closed list of
     /// deployment variables fails the connect with `setting_unknown`, naming
-    /// the closest, and an empty one or one that is no Unicode with
-    /// `setting_invalid`, before any engine is reached (ADR 0083).
+    /// the closest, and an empty one, one that is no Unicode or one the
+    /// engine cannot parse, such as a `GOODFETCH_CHANNEL` naming no
+    /// channel, with `setting_invalid`, before any engine is reached (ADR
+    /// 0083).
     #[must_use]
     pub fn environment(mut self, environment: BTreeMap<OsString, OsString>) -> Self {
         self.environment = Some(environment);
@@ -250,9 +252,7 @@ fn environment_refused(error: SettingsError) -> Error {
         SettingsError::Invalid { key, reason, .. } => Error::setting_invalid(
             message,
             &SettingInvalidDetails {
-                fix: Some(format!(
-                    "Set {key} to a non-empty Unicode value, or unset it."
-                )),
+                fix: Some(format!("Set {key} to {}, or unset it.", taken_value(&key))),
                 key,
                 layer: None,
                 reason,

@@ -1,44 +1,45 @@
 # Features no pinned test proves (ADR 0072; TESTING.md, Exceptions): each is
 # excepted, never tested, with its evidence (`manual`, `live`, `check` or
 # `none`), the reason, and a link to where it is checked. A `check` exception
-# is a story met by repository configuration and checked by a named CI job;
-# its link names the workflow file and the job id.
+# is a story met by repository configuration and checked by a named CI job or
+# gate step; its link names the workflow file and the job id, or the gate's
+# script (ci/pre-merge.sh, which `just merge` runs, ADR 0135).
 
 [[exception]]
 feature = "story:1-37"
 evidence = "check"
-reason = "The workspace's `rust-version` is the latest stable minus two, and the supply-chain job builds the workspace with that toolchain on every pull request (`just msrv`); the Pre-merge job proves the build refuses an API stabilized after it."
-link = ".github/workflows/pull-request.yml#supply-chain"
+reason = "The workspace's `rust-version` is the latest stable minus two, and the full gate's msrv step builds the workspace with that toolchain (`just msrv`); the Pre-merge suite proves the build refuses an API stabilized after it."
+link = "ci/pre-merge.sh"
 
 [[exception]]
 feature = "story:1-49"
 evidence = "check"
-reason = "One repository holding every surface is its layout; the Quick job's lints and cargo metadata run over the whole workspace on every pull request."
-link = ".github/workflows/pull-request.yml#quick"
+reason = "One repository holding every surface is its layout; lint and cargo metadata run over the whole workspace in every gate, in the hosted tier's lint job or on the gate host."
+link = ".github/workflows/pull-request.yml#lint"
 
 [[exception]]
 feature = "story:1-50"
 evidence = "check"
-reason = "`just` is the entry point for every suite and gate CI runs: the Quick, Pre-merge, visual and supply-chain jobs run `just` recipes (the Quick job `just quick all` in its two parts around the egress deny). The affected, perf and all-green jobs call the `xtask` commands those recipes call, since each splits a check around the deny or reads the run's own context."
+reason = "`just` is the entry point for every suite and gate CI runs: `just merge` gates through `just pre-merge`, and the hosted tier's lint and quick jobs run each step they are given through `just pre-merge quick`. The plan and all-green jobs call the `xtask` commands those recipes call, since each reads the run's own context."
 link = ".github/workflows/pull-request.yml#quick"
 
 [[exception]]
 feature = "story:1-59"
 evidence = "check"
-reason = "The Quick job's lints run formatting, Clippy, cargo-deny (licenses, bans, sources, each Product's bans), cargo-shear, typos, zizmor, oxlint and ruff; the supply-chain job runs cargo-deny's and cargo-audit's advisories, pnpm audit, pip-audit and the MSRV build; the Pre-merge job runs cargo-nextest and proves each gate on a fixture that breaks it."
-link = ".github/workflows/pull-request.yml#supply-chain"
+reason = "Lint runs formatting, Clippy, cargo-deny (licenses, bans, sources, each Product's bans), cargo-shear, typos, zizmor, oxlint and ruff; the gate's audit step runs cargo-deny's and cargo-audit's advisories and OSV-Scanner over npm's and PyPI's, and the full gate the MSRV build; the Pre-merge suite runs cargo-nextest and proves each gate on a fixture that breaks it."
+link = "ci/pre-merge.sh"
 
 [[exception]]
 feature = "story:1-60"
 evidence = "check"
-reason = "The supply-chain job runs cargo-hack over every feature combination of `goodfetch-collie` and `goodfetch-foxhound` (`just feature-combinations`), once they exist; the Pre-merge job proves it refuses two features that break together."
-link = ".github/workflows/pull-request.yml#supply-chain"
+reason = "The full gate runs cargo-hack over every feature combination of `goodfetch-collie` and `goodfetch-foxhound` (`just feature-combinations`), once they exist; the Pre-merge suite proves it refuses two features that break together."
+link = "ci/pre-merge.sh"
 
 [[exception]]
 feature = "story:1-61"
 evidence = "check"
-reason = "The supply-chain job runs Miri on the modules ci/miri.toml opts in (`just miri`); none opts in yet, so it runs nothing, and the first opt-in adds Miri's toolchain to the CI image and a proof."
-link = ".github/workflows/pull-request.yml#supply-chain"
+reason = "The full gate runs Miri on the modules ci/miri.toml opts in (`just miri`); none opts in yet, so it runs nothing, and the first opt-in adds Miri's toolchain to the CI image and a proof."
+link = "ci/pre-merge.sh"
 
 [[exception]]
 feature = "story:1-63"
@@ -55,25 +56,25 @@ link = ".github/workflows/lab.yml#lab"
 [[exception]]
 feature = "story:1-71"
 evidence = "check"
-reason = "zizmor's hash-pin policy runs on every workflow in the Quick job, and the Pre-merge job proves it refuses an Action pinned by tag."
-link = ".github/workflows/pull-request.yml#pre-merge"
+reason = "zizmor's hash-pin policy runs on every workflow in lint, and the Pre-merge suite proves it refuses an Action pinned by tag."
+link = "ci/pre-merge.sh"
 
 [[exception]]
 feature = "story:1-77"
 evidence = "check"
-reason = "ci/repository-files.sh, in the Quick job's lints, checks SECURITY.md's required sections and terms."
-link = ".github/workflows/pull-request.yml#quick"
+reason = "ci/repository-files.sh, in lint, checks SECURITY.md's required sections and terms."
+link = ".github/workflows/pull-request.yml#lint"
 
 [[exception]]
 feature = "story:1-100"
 evidence = "check"
-reason = "ci/repository-files.sh, in the Quick job's lints, checks that both licence files name the Goodfetch contributors and the trademark policy exists."
-link = ".github/workflows/pull-request.yml#quick"
+reason = "ci/repository-files.sh, in lint, checks that both licence files name the Goodfetch contributors and the trademark policy exists."
+link = ".github/workflows/pull-request.yml#lint"
 
 [[exception]]
 feature = "story:1-105"
 evidence = "check"
-reason = "`just quick`, `just pre-merge` and `just release` list the parts they could not run on their host, with the reason, even when a part fails; CI runs their parts as separate steps and jobs, and its Quick job lists the parts it skipped."
+reason = "`just quick`, `just pre-merge` and `just release` list the parts they could not run on their host, with the reason, even when a part fails; the hosted tier runs each gate step as its own job, which lists the parts it skipped."
 link = ".github/workflows/pull-request.yml#quick"
 
 [[exception]]

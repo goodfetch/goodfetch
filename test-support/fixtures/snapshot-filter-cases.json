@@ -51,6 +51,26 @@
       "redacted": "token 4d after [DURATION] and [DURATION]"
     },
     {
+      "description": "A Daemon service's name under systemd or a logon task, and its unit file, whose folder depends on the user",
+      "output": "goodfetch-daemon-0.3-1a2b3c4d wrote /home/someone/.config/systemd/user/goodfetch-daemon-0.3-1a2b3c4d.service",
+      "redacted": "[SERVICE_NAME] wrote [USER_UNITS]/[SERVICE_NAME].service"
+    },
+    {
+      "description": "A Daemon service's label under launchd, and its property list in the user's LaunchAgents",
+      "output": "dev.goodfetch.daemon.0.3.1a2b3c4d wrote /Users/someone/Library/LaunchAgents/dev.goodfetch.daemon.0.3.1a2b3c4d.plist",
+      "redacted": "[SERVICE_NAME] wrote [LAUNCH_AGENTS]/[SERVICE_NAME].plist"
+    },
+    {
+      "description": "A Daemon service's name from a released major, named by its major alone, under each manager",
+      "output": "goodfetch-daemon-1-0123abcd and dev.goodfetch.daemon.1.0123abcd",
+      "redacted": "[SERVICE_NAME] and [SERVICE_NAME]"
+    },
+    {
+      "description": "A Daemon service's socket folder, the short one a long home's socket path falls back to",
+      "output": "listening on /tmp/goodfetch-daemon-0123456789abcdef/daemon.sock",
+      "redacted": "listening on [SOCKET_FOLDER]/daemon.sock"
+    },
+    {
       "description": "A word boundary is ASCII's in all three languages: a non-ASCII letter ends a word",
       "output": "é5s",
       "redacted": "é[DURATION]"

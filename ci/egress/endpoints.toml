@@ -24,31 +24,16 @@ canary = "1.1.1.1:443"
 # fetches what it needs before its deny, so a denied step that reaches
 # GitHub fails the job (owner decision of 2026-10-19).
 
+# The hosted tier's gate steps, in the job's container on a standard hosted
+# runner (ADR 0135's amendment of 2026-11-22): the image builds and `just
+# fetch` runs before the deny, which applies in the container's network
+# namespace. Lint, which reads GitHub, has its own job outside it.
 [[deny]]
 job = "pull-request.yml#quick"
 
-[[deny]]
-job = "pull-request.yml#pre-merge"
-
-# The counted performance gates (ADR 0071): the base's and the head's
-# benchmarks build, and the pull request's acceptance is read, before the
-# deny; the benchmarks run under it.
-[[deny]]
-job = "pull-request.yml#perf"
-
-# The visual projects, in the pinned Playwright image (ADR 0073). The job also
-# loads the CI image, whose container runs the deny's xtask commands.
-[[deny]]
-job = "pull-request.yml#visual"
-
-# TLC on the TLA+ models (ADR 0060): the pinned tools are fetched before the
-# deny, and TLC runs under it.
-[[deny]]
-job = "pull-request.yml#tlc"
-
-# The in-diff mutation job (ADR 0072): each mutant's tests run under the deny.
-[[deny]]
-job = "pull-request.yml#mutants"
+[[outside]]
+job = "pull-request.yml#lint"
+reason = "It runs lint, whose zizmor runs the online audits and whose quarantine-list check reads GitHub's issues, and runs none of the product."
 
 [[deny]]
 job = "update-screenshots.yml#update"
@@ -82,15 +67,8 @@ job = "pull-request.yml#chromium-build-gate"
 reason = "Until its first build lands (#445) it builds and runs nothing. Then its fetches come before the deny and its tests run under it (ADR 0074)."
 
 [[outside]]
-job = "pull-request.yml#affected"
-reason = "It selects the jobs and tests a change needs from its files and runs none of the product."
-
-# The supply-chain gates (#133): the sign-offs, the audits against public
-# advisory databases (RustSec, the npm registry, PyPI and OSV), the MSRV
-# build, cargo-hack and the notice inventory's license check run before the
-# deny; Miri's tests run under it.
-[[deny]]
-job = "pull-request.yml#supply-chain"
+job = "pull-request.yml#plan"
+reason = "It plans the hosted steps from the change's files and the hosted records GitHub holds, and runs none of the product."
 
 [[outside]]
 job = "pull-request.yml#all-green"

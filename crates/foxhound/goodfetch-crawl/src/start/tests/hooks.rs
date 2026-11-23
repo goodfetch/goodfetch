@@ -384,34 +384,192 @@ fn a_failed_record_stage_commits_nothing_its_attempt_staged() {
     );
 }
 
-/// A start declaring a Hook at a stage this engine does not run Hooks in
-/// code at yet is refused with `invalid_params`, before the Run begins.
+/// Each request and page stage Hook and handler request the engine sent,
+/// in order, as `(method, hook, stage, attempt)`: the hook and stage are
+/// null on a handler request.
+fn stages_sent(client: &Client) -> Vec<(String, Value, Value, Value)> {
+    client
+        .arrivals
+        .iter()
+        .map(|(message, _)| message)
+        .filter(|message| {
+            message["method"] == "crawl_hook.handle" || message["method"] == "crawl_request.handle"
+        })
+        .map(|message| {
+            let params = &message["params"];
+            (
+                message["method"].as_str().unwrap().to_owned(),
+                params["hook"].clone(),
+                params["stage"].clone(),
+                params["attempt"].clone(),
+            )
+        })
+        .collect()
+}
+
+/// A Hook call of `hook` at `stage` on attempt `attempt`, as
+/// [`stages_sent`] lists it.
+fn hook_call(hook: &str, stage: &str, attempt: u32) -> (String, Value, Value, Value) {
+    (
+        "crawl_hook.handle".to_owned(),
+        json!(hook),
+        json!(stage),
+        json!(attempt),
+    )
+}
+
+/// The handler request of attempt `attempt`, as [`stages_sent`] lists it.
+fn handler_call(attempt: u32) -> (String, Value, Value, Value) {
+    (
+        "crawl_request.handle".to_owned(),
+        Value::Null,
+        Value::Null,
+        json!(attempt),
+    )
+}
+
+/// On the `http` tier, a request goes through its before-request Hooks,
+/// then its after-response Hooks once its document arrived, then its
+/// page-ready Hooks just before its handler: each Hook its Label reaches
+/// called once, in the order declared, before the next stage. A Hook
+/// scoped to another Label, and a navigation Hook on a tier that does not
+/// navigate, are sent nothing.
 ///
 /// Covers: story:3-168
 #[test]
-fn a_start_declaring_a_hook_at_a_stage_not_run_yet_is_refused() {
+fn a_requests_hooks_run_per_stage_in_the_order_declared_before_its_handler() {
     let env = TestEnv::new();
 
-    let refused = crawl(
+    let sent = crawl(
         || dependencies(&env, RunStateOptions::default()),
         async |client| {
             let start = json!({
-                "run_id": "early",
+                "run_id": "staged",
                 "seeds": seeds(1),
-                "labels": { "page": {} },
-                "hooks": [{ "name": "sign", "stage": "before_request" }],
+                "labels": { "page": {}, "detail": {} },
+                "hooks": [
+                    { "name": "sign", "stage": "before_request" },
+                    { "name": "detail_only", "stage": "before_request", "labels": ["detail"] },
+                    { "name": "look", "stage": "after_response" },
+                    { "name": "steer", "stage": "before_navigation" },
+                    { "name": "ready", "stage": "page_ready", "labels": ["page"] },
+                    { "name": "seal", "stage": "before_request", "labels": ["page"] },
+                    { "name": "landed", "stage": "after_navigation" },
+                ],
             });
+            let mut handler = |_: &Value| Reply::Records(vec![json!({ "n": 1 })]);
+            let started = client.call("crawl.start", start, &mut handler).await;
+            assert!(started.get("result").is_some(), "{started}");
             client
-                .call("crawl.start", start, &mut |_| Reply::Silent)
-                .await
+                .call("run.finish", json!({ "run_id": "staged" }), &mut handler)
+                .await;
+            stages_sent(client)
         },
     );
 
     assert_eq!(
+        (sent, records(&run_file(&env, "staged")).len()),
         (
-            refused["error"]["data"]["code"].clone(),
-            env.home().join("1").join("runs").join("early").exists()
-        ),
-        (json!("invalid_params"), false)
+            vec![
+                hook_call("sign", "before_request", 1),
+                hook_call("seal", "before_request", 1),
+                hook_call("look", "after_response", 1),
+                hook_call("ready", "page_ready", 1),
+                handler_call(1),
+            ],
+            1,
+        )
+    );
+}
+
+/// Before request is also the stage before a retry: an attempt the
+/// handler failed is fetched again after its before-request Hook ran once
+/// more, with the new attempt's number.
+///
+/// Covers: story:3-168
+#[test]
+fn a_before_request_hook_runs_again_before_each_retry() {
+    let env = TestEnv::new();
+
+    let sent = crawl(
+        || dependencies(&env, RunStateOptions::default()),
+        async |client| {
+            let hooks = json!([{ "name": "sign", "stage": "before_request" }]);
+            crawled(
+                client,
+                "retried",
+                (json!({}), json!({}), hooks),
+                |params| match (is_hook(params), params["attempt"].as_u64()) {
+                    (false, Some(1)) => Reply::Fails("retry_requested", true),
+                    _ => Reply::Records(vec![json!({ "attempt": params["attempt"] })]),
+                },
+            )
+            .await;
+            stages_sent(client)
+        },
+    );
+
+    assert_eq!(
+        sent,
+        vec![
+            hook_call("sign", "before_request", 1),
+            handler_call(1),
+            hook_call("sign", "before_request", 2),
+            handler_call(2),
+        ]
+    );
+}
+
+/// A Hook at a request or page stage that raises fails its attempt with
+/// `hook_failed`, naming its stage and the Hook, and the handler is never
+/// sent the request.
+///
+/// Covers: story:3-170, error:hook_failed
+#[rstest]
+#[case::before_request("before_request")]
+#[case::after_response("after_response")]
+#[case::page_ready("page_ready")]
+fn a_request_stage_hook_that_raises_fails_its_attempt_before_the_handler(#[case] stage: &str) {
+    let env = TestEnv::new();
+
+    let sent = crawl(
+        || dependencies(&env, RunStateOptions::default()),
+        async |client| {
+            let hooks = json!([{ "name": "check", "stage": stage }]);
+            crawled(client, "raises", (json!({}), json!({}), hooks), |params| {
+                if is_hook(params) {
+                    Reply::FailsWith(
+                        "hook_failed",
+                        true,
+                        json!({ "exception_type": "TypeError", "exception_message": "no token" }),
+                    )
+                } else {
+                    Reply::Records(vec![json!({ "n": 1 })])
+                }
+            })
+            .await;
+            stages_sent(client)
+        },
+    );
+
+    let file = run_file(&env, "raises");
+    let errors: Vec<_> = attempt_errors(&file)
+        .into_iter()
+        .map(|(attempt, code, details)| {
+            (
+                attempt,
+                code,
+                details["stage"].clone(),
+                details["hook"].clone(),
+            )
+        })
+        .collect();
+    assert_eq!(
+        (sent, errors, records(&file).len()),
+        (
+            vec![hook_call("check", stage, 1)],
+            vec![(1, "hook_failed".to_owned(), json!(stage), json!("check"))],
+            0,
+        )
     );
 }

@@ -927,11 +927,10 @@ impl BrowserPages for Opener {
         context: &'a CallContext,
     ) -> Opening<'a, Result<(PageId, Navigated), CallError>> {
         Box::pin(async move {
-            let opened = self
-                .pages
-                .sessions
-                .new_pool_page(run_id, pooled, context)
-                .await?;
+            // Boxed: opening holds a live Run's lookup and a browser
+            // context's opening (clippy's `large_futures`).
+            let opened =
+                Box::pin(self.pages.sessions.new_pool_page(run_id, pooled, context)).await?;
             let page_id = opened.page_id;
             let page = self.pages.sessions.page(&page_id).await?;
             // The document its navigation reaches is its crawl request's

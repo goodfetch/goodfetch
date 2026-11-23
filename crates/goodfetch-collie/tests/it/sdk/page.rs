@@ -3,10 +3,9 @@
 //! test's Goodfetch home and reaches the test's own Proving ground through
 //! its user configuration: the `page` and `page.request` client
 //! conformance cases in Rust's mode, `linked` (Rust starts no Attached
-//! engine), and the Response
-//! `goto`, `go_back`, `go_forward`, `request` and
-//! `wait_for_request_finished` answer, whose body reads,
-//! decodes and fails as ADRs 0085, 0118 and 0119 say.
+//! engine), and the Response `goto`, `go_back`, `go_forward`, `request` and
+//! `wait_for_request_finished` answer, whose body reads, decodes and fails as
+//! ADRs 0085, 0118 and 0119 say.
 
 use std::collections::BTreeMap;
 

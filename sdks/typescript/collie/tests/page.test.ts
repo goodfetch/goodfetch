@@ -11,6 +11,7 @@ import {
   failure,
   goodfetchFailure,
   judgeTask,
+  provingGroundObservations,
   provingGroundUrl,
   taskStartUrl,
   test,
@@ -311,21 +312,16 @@ describe("page.request through the page's Session on an Attached engine", () => 
 
       const response = await page.request(about);
       await run.finish();
-      const observations: unknown = await (await fetch(provingGround.fixtures.connections)).json();
+      const observations = await provingGroundObservations(provingGround);
+      const sent = observations.requests
+        .filter(({ host, target }) => host === "scope.test" && target === "/about?by=page-request")
+        .map(({ cookies }) => cookies);
 
       await clientCase.check("`page.request` from the Session answers 200", () =>
         expect(response.status()).toBe(200),
       );
       await clientCase.check("it sends the cookie a page of its Session got", () =>
-        expect(observations).toMatchObject({
-          requests: expect.arrayContaining([
-            expect.objectContaining({
-              host: "scope.test",
-              target: "/about?by=page-request",
-              cookies: [["mark", "page-request"]],
-            }),
-          ]),
-        }),
+        expect(sent).toEqual([[["mark", "page-request"]]]),
       );
       await clientCase.check("it leaves through the Run's proxy", () =>
         expect(observations).toMatchObject({

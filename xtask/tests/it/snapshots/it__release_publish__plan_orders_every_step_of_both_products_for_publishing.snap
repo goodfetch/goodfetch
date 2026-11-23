@@ -3,8 +3,8 @@ source: xtask/tests/it/release_publish.rs
 expression: outcome.stdout
 ---
 github draft v1.4.0: create
-crates.io goodfetch-collie-client 1.4.0: publish
 crates.io goodfetch-engine 0.0.0: published
+crates.io goodfetch-collie-client 1.4.0: publish
 crates.io goodfetch-collie 1.4.0: publish
 crates.io goodfetch-foxhound 1.4.0: publish
 npm @goodfetch/collie-client 1.4.0: publish

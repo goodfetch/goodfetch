@@ -6,3 +6,9 @@ publish.workspace = true
 
 [dependencies]
 goodfetch-collie = { path = "../../goodfetch-collie" }
+
+[target.'cfg(unix)'.dependencies]
+goodfetch-engine = { path = "../../goodfetch-engine" }
+
+[target.'cfg(unix)'.dev-dependencies]
+goodfetch-engine = { workspace = true, features = ["test-util"] }

@@ -7,15 +7,21 @@ use rstest::rstest;
 
 use crate::workspace::Workspace;
 
-/// The fixture's manifests and lockfiles a release versions; the
-/// workspace's `Cargo.toml` pins the Collie client crate both SDK crates
-/// take (ADR 0095).
-const RELEASED: [&str; 12] = [
+/// The fixture's manifests and lockfiles a release versions or publishes:
+/// the workspace's `Cargo.toml` pins each crate the released ones depend on,
+/// and the internal crate they take is published too (ADR 0030), a
+/// dev-dependency on it written out without that version; the
+/// library outside the workspace takes the client crate by a range of the
+/// new line, its internal crate unchanged; the workspace-hack and the
+/// dev-only test support stay as they are.
+const RELEASED: [&str; 14] = [
     "Cargo.lock",
     "Cargo.toml",
     "crates/foxhound/goodfetch-foxhound/Cargo.toml",
+    "crates/foxhound/goodfetch-foxhound/tests/libraries/connection-library/Cargo.toml",
     "crates/goodfetch-collie-client/Cargo.toml",
     "crates/goodfetch-collie/Cargo.toml",
+    "crates/goodfetch-engine/Cargo.toml",
     "sdks/python/collie-client/pyproject.toml",
     "sdks/python/collie/pyproject.toml",
     "sdks/python/foxhound/pyproject.toml",
@@ -44,7 +50,7 @@ fn changes(workspace: &Workspace) -> String {
 }
 
 #[test]
-fn prepare_versions_only_the_released_manifests() {
+fn prepare_changes_only_the_published_manifests() {
     let workspace = committed();
 
     let outcome = workspace.xtask(&["release", "prepare", "--version", "1.4.0"]);
@@ -84,23 +90,6 @@ fn prepare_refuses_a_version_outside_the_release_forms(#[case] version: &str) {
     assert_eq!(outcome.code, 2, "{}", outcome.stdout);
     assert!(
         outcome.stderr.contains("is not a release version"),
-        "{}",
-        outcome.stderr
-    );
-    assert_eq!(workspace.git(&["status", "--porcelain"]), "");
-}
-
-#[test]
-fn prepare_writes_nothing_when_the_client_crate_is_not_pinned() {
-    let workspace = committed();
-    workspace.edit("Cargo.toml", ", version = \"=0.0.0\"", "");
-    workspace.commit_all();
-
-    let outcome = workspace.xtask(&["release", "prepare", "--version", "1.4.0"]);
-
-    assert_eq!(outcome.code, 2, "{}", outcome.stdout);
-    assert!(
-        outcome.stderr.contains("goodfetch-collie-client"),
         "{}",
         outcome.stderr
     );

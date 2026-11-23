@@ -1848,9 +1848,14 @@ msrv:
     ci/msrv.sh
 
 # cargo-hack over every feature combination of each Product's SDK crate
-# (ADR 0087).
+# (ADR 0087), then the Rust SDK's test of a program without its
+# `opentelemetry` feature (ADR 0132): every other build of the crate's tests
+# takes the feature, so this one sets `--cfg goodfetch_without_opentelemetry`,
+# in a target folder of its own so that the other builds' stay fresh.
 feature-combinations:
     ci/tool.sh cargo-hack ci/feature-combinations.sh
+    RUSTFLAGS="${RUSTFLAGS:-} --cfg goodfetch_without_opentelemetry" CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-$PWD/target}/without-opentelemetry" \
+      cargo nextest run --locked --package goodfetch-collie --test it -E 'test(/^sdk::without_opentelemetry::/)'
 
 # Miri over the pure-Rust `unsafe` modules that opt in through ci/miri.toml
 # (STYLE.md, `unsafe`).

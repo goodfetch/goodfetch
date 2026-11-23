@@ -20,12 +20,31 @@ use std::future::Future;
 use std::sync::Arc;
 use std::time::Duration;
 
-use tokio::io::{AsyncRead, AsyncWrite};
+use tokio::io::{AsyncRead, AsyncReadExt as _, AsyncWrite, AsyncWriteExt as _};
 
 use crate::observation::{Connection, Delivery, End, Protocol, RequestId};
 
 /// The largest request head or body the raw server reads.
 const READ_LIMIT: usize = 1024 * 1024;
+
+/// How long a connection the Proving ground ends on purpose waits for its
+/// client to close before closing it.
+const LINGER: Duration = Duration::from_secs(1);
+
+/// Ends a connection the Proving ground ends on purpose: closes its sending
+/// side, then reads and drops what the client still sends, until the client
+/// closes its side or [`LINGER`] passes. A socket closed with bytes unread
+/// resets its connection, and on Windows the reset drops what the client
+/// had received and not yet read: a `GOAWAY` and the answers before it
+/// (issues 2916 and 2900), or a refused handshake's alert (issue 3535).
+pub(crate) async fn linger<S: AsyncRead + AsyncWrite + Unpin>(stream: &mut S) {
+    let _ = stream.shutdown().await;
+    let drained = async {
+        let mut sink = vec![0; 16_384];
+        while matches!(stream.read(&mut sink).await, Ok(read) if read > 0) {}
+    };
+    let _ = tokio::time::timeout(LINGER, drained).await;
+}
 
 /// One request, as the raw server read it.
 pub(crate) struct Request {

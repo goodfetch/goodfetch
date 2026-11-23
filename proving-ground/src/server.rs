@@ -268,8 +268,14 @@ impl Connection {
             } else {
                 Arc::clone(&self.tls.any)
             };
-            let Ok(stream) = start.into_stream(config).await else {
-                return;
+            let stream = match start.into_stream(config).into_fallible().await {
+                Ok(stream) => stream,
+                // The refusal's alert is written; the client's request may
+                // follow its last flight unread.
+                Err((_, mut wire)) => {
+                    raw::linger(&mut wire).await;
+                    return;
+                }
             };
             if let Some(name) = &name
                 && stream.get_ref().1.peer_certificates().is_some()

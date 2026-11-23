@@ -18,6 +18,7 @@ export type { Limits, Money } from "./limits.ts";
 export type { PageSettings, RunSettings, SessionSettings, Settings } from "./generated/settings.ts";
 export type { Logger } from "./logger.ts";
 export { Run } from "./run.ts";
+export { RunView } from "./run-view.ts";
 export {
   Locator,
   Page,

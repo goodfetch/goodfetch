@@ -2,7 +2,8 @@
 // code-free catalog run of each target kind, started with every start
 // option on the Scripted engine as a Daemon, which checks every message the
 // SDK sends. Each Run is detached, so closing its value and the Connection
-// sends no `run.abort`: the Daemon keeps the Run once its program is gone.
+// sends no `run.abort`: the Daemon keeps the Run once its program is gone. A
+// view of a Run opened by its Run ID closes without stopping it either.
 import { Collie } from "@goodfetch/collie";
 import { startScriptedDaemon, test } from "@goodfetch/test-support";
 import { describe, expect } from "vitest";
@@ -58,11 +59,14 @@ describe("A handler-less start on the Scripted engine as a Daemon", () => {
         },
       );
       await recipe.close();
+      const view = await collie.openRun("checkout-replay");
+      await view.close();
       await collie.close();
       const exit = await daemon.exit;
 
       expect({
         started: [recipe, extract, agent, replay].map((run) => [run.id(), run.startedAs()]),
+        view: view.id(),
         exit,
       }).toMatchObject({
         started: [
@@ -71,6 +75,7 @@ describe("A handler-less start on the Scripted engine as a Daemon", () => {
           ["cheapest-kettle", "new"],
           ["checkout-replay", "new"],
         ],
+        view: "checkout-replay",
         exit: { code: 0 },
       });
     },

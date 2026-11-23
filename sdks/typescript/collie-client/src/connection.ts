@@ -6,6 +6,7 @@ import type { CatalogTarget, SettingsExplanation } from "./generated/index.ts";
 import type { JSONValue } from "./json.ts";
 import type { RawCallOptions, RawParams } from "./raw-call.ts";
 import type { Run } from "./run.ts";
+import type { RunView } from "./run-view.ts";
 
 /** A Client's open link to one engine, through which a program reaches its Runs. */
 export interface Connection extends AsyncDisposable {
@@ -50,6 +51,13 @@ export interface Connection extends AsyncDisposable {
    * @experimental
    */
   startCatalogRun(target: CatalogTarget, options?: HandlerlessStartOptions): Promise<Run>;
+  /**
+   * Opens a view of the Run `runId` names, one another program started such
+   * as a detached Run, with no round trip (ADR 0102). The view takes no
+   * writer role, and closing it frees only the view. Fails with `closed`
+   * once the Connection is closed.
+   */
+  openRun(runId: string): Promise<RunView>;
   /**
    * Sends `operation`, one the SDK may not generate that acts on no value
    * or whose `params` name every value, with `params` as the wire's JSON in

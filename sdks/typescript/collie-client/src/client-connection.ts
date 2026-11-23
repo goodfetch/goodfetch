@@ -51,6 +51,7 @@ import { warnEntry } from "./markers.ts";
 import { holdInRealm } from "./realm.ts";
 import { timeoutOf } from "./handle.ts";
 import { Run, type RunHost } from "./run.ts";
+import { RunView } from "./run-view.ts";
 import { settingsOnWire, type RunSettings } from "./generated/settings.ts";
 import { MAX_LISTENER_QUEUE } from "./listeners.ts";
 import type { SettingsOnWire } from "./settings.ts";
@@ -517,6 +518,17 @@ export class ClientConnection implements AsyncDisposable {
       () => this.#operations.catalogRunStart(params),
       (host, started) => new Run(host, started, options.detached === true),
     );
+  }
+
+  /**
+   * Opens a view of the Run `runId` names, one another program started such
+   * as a detached Run, with no round trip (ADR 0102). The view takes no
+   * writer role, and closing it frees only the view. Fails with `closed`
+   * once the Connection is closed.
+   */
+  async openRun(runId: string): Promise<RunView> {
+    this.#openOrThrow("openRun");
+    return new RunView(runId);
   }
 
   /**

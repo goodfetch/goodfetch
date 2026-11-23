@@ -28,6 +28,7 @@ expectTypeOf<keyof Connection>().toEqualTypeOf<
   | "start"
   | "startRecipe"
   | "startCatalogRun"
+  | "openRun"
   | "call"
   | "explainSettings"
   | "close"

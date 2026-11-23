@@ -19,6 +19,7 @@ import type {
   RawCallOptions,
   RawParams,
   Run,
+  RunView,
   SettingsExplanation,
   StartOptions,
 } from "@goodfetch/collie-client";
@@ -210,6 +211,16 @@ export class Foxhound implements Connection {
    */
   startCatalogRun(target: CatalogTarget, options?: FoxhoundHandlerlessStartOptions): Promise<Run> {
     return this.#connection.startCatalogRun(target, options);
+  }
+
+  /**
+   * Opens a view of the Run `runId` names, one another program started such
+   * as a detached Run, with no round trip (ADR 0102). The view takes no
+   * writer role, and closing it frees only the view. Fails with `closed`
+   * once the Connection is closed.
+   */
+  openRun(runId: string): Promise<RunView> {
+    return this.#connection.openRun(runId);
   }
 
   /**

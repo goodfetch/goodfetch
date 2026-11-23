@@ -86,6 +86,16 @@ form = "opener"
 [[member]]
 package = "@goodfetch/collie"
 receiver = "Collie"
+member = "openRun"
+entry = "none"
+reason = "Opens a view of a Run another program started, by its Run ID, with no round trip (ADR 0102)."
+only = "Issue 3396's Python and Rust parts add it."
+words = ["open", "run"]
+form = "opener"
+
+[[member]]
+package = "@goodfetch/collie"
+receiver = "Collie"
 member = "explainSettings"
 entry = "config.explain"
 words = ["explain", "settings"]
@@ -151,6 +161,16 @@ member = "startCatalogRun"
 entry = "catalog_run.start"
 only = "Issue 3396's Python and Rust parts add it."
 words = ["start", "catalog", "run"]
+form = "opener"
+
+[[member]]
+package = "@goodfetch/foxhound"
+receiver = "Foxhound"
+member = "openRun"
+entry = "none"
+reason = "Opens a view of a Run another program started, by its Run ID, with no round trip (ADR 0102); `Collie.openRun`'s member under the same name."
+only = "Issue 3396's Python and Rust parts add it."
+words = ["open", "run"]
 form = "opener"
 
 [[member]]
@@ -337,6 +357,16 @@ member = "startCatalogRun"
 entry = "catalog_run.start"
 only = "Issue 3396's Python and Rust parts add it."
 words = ["start", "catalog", "run"]
+form = "opener"
+
+[[member]]
+package = "@goodfetch/collie-client"
+receiver = "Connection"
+member = "openRun"
+entry = "none"
+reason = "Opens a view of a Run another program started, by its Run ID, with no round trip (ADR 0102)."
+only = "Issue 3396's Python and Rust parts add it."
+words = ["open", "run"]
 form = "opener"
 
 [[member]]
@@ -1191,6 +1221,56 @@ form = "type"
 [[member]]
 package = "@goodfetch/collie-client"
 receiver = "(module)"
+member = "RunView"
+entry = "none"
+reason = "The view of a Run another program started that `openRun()` opens (ADR 0102), which takes no writer role."
+only = "Issue 3396's Python and Rust parts add it."
+words = ["run", "view"]
+form = "type"
+
+[[member]]
+package = "@goodfetch/collie-client"
+receiver = "RunView"
+member = "id"
+entry = "none"
+reason = "The Run ID the view was opened with, read without a round trip (ADR 0102)."
+only = "Issue 3396's Python and Rust parts add it."
+words = ["id"]
+form = "read"
+
+[[member]]
+package = "@goodfetch/collie-client"
+receiver = "RunView"
+member = "close"
+entry = "none"
+reason = "Frees only the view (ADR 0102): the Run goes on."
+only = "Issue 3396's Python and Rust parts add it."
+words = ["close"]
+form = "closer"
+
+[[member]]
+package = "@goodfetch/collie-client"
+receiver = "RunView"
+member = "[Symbol.asyncDispose]"
+entry = "none"
+reason = "The scoped form of `close()` (ADR 0078), which frees only the view."
+only = "Issue 3396's Python and Rust parts add it."
+words = ["close"]
+form = "closer"
+
+[[member]]
+package = "@goodfetch/collie-client"
+receiver = "RunView"
+member = "constructor"
+entry = "none"
+reason = "A Connection's `openRun()` opens a view; a program never constructs one."
+only = "Issue 3396's Python and Rust parts add the view, which has no constructor there."
+words = ["run", "view"]
+form = "read"
+
+[[member]]
+package = "@goodfetch/collie-client"
+receiver = "(module)"
 member = "ConnectOptions"
 entry = "none"
 reason = "The options of `connect()`, which no catalog entry shapes (ADR 0078)."
@@ -1972,6 +2052,15 @@ receiver = "ClientConnection"
 member = "startCatalogRun"
 entry = "catalog_run.start"
 words = ["start", "catalog", "run"]
+form = "opener"
+
+[[member]]
+package = "@goodfetch/collie-client/runtime"
+receiver = "ClientConnection"
+member = "openRun"
+entry = "none"
+reason = "Opens a view of a Run another program started, by its Run ID, with no round trip (ADR 0102)."
+words = ["open", "run"]
 form = "opener"
 
 [[member]]

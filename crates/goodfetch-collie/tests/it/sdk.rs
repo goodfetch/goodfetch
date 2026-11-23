@@ -26,6 +26,7 @@ mod events;
 mod exported_spans;
 #[cfg(unix)]
 mod fork;
+mod handlerless_starts;
 #[cfg(unix)]
 mod interrupt;
 mod limits;

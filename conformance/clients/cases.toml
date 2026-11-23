@@ -26,7 +26,7 @@
 
 [suite]
 name = "clients"
-version = "60"
+version = "61"
 
 [[capability]]
 name = "lifecycle"
@@ -457,6 +457,26 @@ id = "start-reaches-its-run"
 covers = ["story:11-126", "story:11-127"]
 surfaces = ["sdk-typescript", "sdk-python", "sdk-rust"]
 modes = ["attached", "linked"]
+
+# The handler-less starts (ADRs 0036 and 0102; issues 3396 and 3397):
+# `startRecipe` (`start_recipe`) and `startCatalogRun` (`start_catalog_run`)
+# send every start option they are given, a Run ID resuming an interrupted
+# Run, logged at info, or returning a finished one ended, logged at warning,
+# through the host's logger, and `openRun` (`open_run`) opens a view by its
+# Run ID with no message. On the Scripted engine as a Daemon, each start is
+# `detached` and each target kind is started, and closing a value or the
+# Connection sends no `run.abort`; on it as the Attached engine, a start is
+# not detached, so closing its value aborts it. Rust's linked engine runs no
+# Recipe or code-free target yet (`run_target_unbuilt`), so Rust plays it
+# linked as far as that engine goes: `Tags` refuses more than 16 tags or one
+# over 64 characters before anything is sent, and each start reaches the
+# engine carrying them. A tag list past its bounds is no message the corpus
+# may hold, so its `invalid_params` plays on the engine of the same commit
+# in TypeScript and Python.
+[[capability.case]]
+id = "handlerless-starts"
+covers = ["story:11-131"]
+surfaces = ["sdk-typescript", "sdk-python", "sdk-rust"]
 
 # How a Run ends and what it does meanwhile (ADRs 0029 and 0102; issue
 # 1282): `finish()` answers the whole Run report and `stop()` the Run

@@ -411,6 +411,7 @@ async fn store_body(params: StoreBody, context: CallContext) -> Result<BodyHandl
             checkpoint_interval: None,
             timeout: None,
             settings: None,
+            detached: false,
         })
         .await
         .map_err(|error| failed(error.to_string()))?;

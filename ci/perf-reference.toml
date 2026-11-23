@@ -20,3 +20,63 @@ figure = "goodfetch-frontier/instructions::frontier::enqueue/no_urls instruction
 up_to = 5109874
 cause = "#2489's rules_cursors and rules_ended tables, made with the run file's set-up, which this bench (the seed alone) measures"
 decision = "ADR 0140, note of 2026-11-13"
+
+[[accepted]]
+figure = "goodfetch-frontier/heap::admission::admit/one_heavy_domain_and_a_thousand_small global-maximum-bytes"
+up_to = 1423178
+cause = "frontier drift measured on #3326's head 29485a1b6, not yet diagnosed; #3488 finds and fixes it"
+decision = "TESTING.md Exception X40: the coordinator's decision of 2026-11-23 under the register's rule of 2026-11-21; removed by issue 3488"
+
+[[accepted]]
+figure = "goodfetch-frontier/heap::admission::admit/one_heavy_domain_and_a_thousand_small total-allocations"
+up_to = 20384
+cause = "frontier drift measured on #3326's head 29485a1b6, not yet diagnosed; #3488 finds and fixes it"
+decision = "TESTING.md Exception X40: the coordinator's decision of 2026-11-23 under the register's rule of 2026-11-21; removed by issue 3488"
+
+[[accepted]]
+figure = "goodfetch-frontier/heap::admission::admit/one_heavy_domain_and_a_thousand_small total-bytes"
+up_to = 1817764
+cause = "frontier drift measured on #3326's head 29485a1b6, not yet diagnosed; #3488 finds and fixes it"
+decision = "TESTING.md Exception X40: the coordinator's decision of 2026-11-23 under the register's rule of 2026-11-21; removed by issue 3488"
+
+[[accepted]]
+figure = "goodfetch-frontier/instructions::admission::admit/one_heavy_domain_and_a_thousand_small instructions"
+up_to = 28073244
+cause = "frontier drift measured on #3326's head 29485a1b6, not yet diagnosed; #3488 finds and fixes it"
+decision = "TESTING.md Exception X40: the coordinator's decision of 2026-11-23 under the register's rule of 2026-11-21; removed by issue 3488"
+
+[[accepted]]
+figure = "goodfetch-frontier/heap::frontier::enqueue/hundred_thousand_urls global-maximum-bytes"
+up_to = 765474
+cause = "frontier drift measured on #3326's head 29485a1b6, not yet diagnosed; #3488 finds and fixes it"
+decision = "TESTING.md Exception X40: the coordinator's decision of 2026-11-23 under the register's rule of 2026-11-21; removed by issue 3488"
+
+[[accepted]]
+figure = "goodfetch-frontier/heap::frontier::enqueue/hundred_thousand_urls total-bytes"
+up_to = 471291982
+cause = "frontier drift measured on #3326's head 29485a1b6, not yet diagnosed; #3488 finds and fixes it"
+decision = "TESTING.md Exception X40: the coordinator's decision of 2026-11-23 under the register's rule of 2026-11-21; removed by issue 3488"
+
+[[accepted]]
+figure = "goodfetch-frontier/heap::staging::stage/a_hundred_enqueues global-maximum-bytes"
+up_to = 93296
+cause = "frontier drift measured on #3326's head 29485a1b6, not yet diagnosed; #3488 finds and fixes it"
+decision = "TESTING.md Exception X40: the coordinator's decision of 2026-11-23 under the register's rule of 2026-11-21; removed by issue 3488"
+
+[[accepted]]
+figure = "goodfetch-frontier/heap::staging::stage/a_hundred_enqueues total-bytes"
+up_to = 549087
+cause = "frontier drift measured on #3326's head 29485a1b6, not yet diagnosed; #3488 finds and fixes it"
+decision = "TESTING.md Exception X40: the coordinator's decision of 2026-11-23 under the register's rule of 2026-11-21; removed by issue 3488"
+
+[[accepted]]
+figure = "goodfetch-frontier/heap::staging::stage/a_thousand_enqueues global-maximum-bytes"
+up_to = 278596
+cause = "frontier drift measured on #3326's head 29485a1b6, not yet diagnosed; #3488 finds and fixes it"
+decision = "TESTING.md Exception X40: the coordinator's decision of 2026-11-23 under the register's rule of 2026-11-21; removed by issue 3488"
+
+[[accepted]]
+figure = "goodfetch-frontier/heap::staging::stage/a_thousand_enqueues total-bytes"
+up_to = 4084031
+cause = "frontier drift measured on #3326's head 29485a1b6, not yet diagnosed; #3488 finds and fixes it"
+decision = "TESTING.md Exception X40: the coordinator's decision of 2026-11-23 under the register's rule of 2026-11-21; removed by issue 3488"

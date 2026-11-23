@@ -220,7 +220,7 @@ def install_wheel(
     wheels = list(wheels)
     return _install(
         test_env,
-        f"{installer} {system} café",
+        f"{installer} {system}",
         wheels,
         [_pinned(wheel) for wheel in wheels],
         installer=installer,
@@ -259,7 +259,7 @@ def install_lowest_direct(
     """
     return _install(
         test_env,
-        f"uv lowest-direct {system} café",
+        f"uv lowest-direct {system}",
         [wheel, *available],
         [_pinned(wheel), *_requires(wheel)],
         installer=Installer.UV,
@@ -295,7 +295,11 @@ def _install(
     system: System,
     options: Sequence[str] = (),
 ) -> InstalledEnvironment:
-    folder = test_env.folder / name
+    """Installs `requirements` from `wheels` alone into a new environment.
+
+    The project's folder is `name` with a non-ASCII word after it.
+    """
+    folder = test_env.folder / f"{name} café"
     links = folder / "wheels"
     links.mkdir(parents=True)
     for wheel in wheels:

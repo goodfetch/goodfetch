@@ -75,8 +75,7 @@ strict_markers = true
 addopts = [
   "--import-mode=importlib",
   # LangSmith, which langchain-core requires, registers a pytest plugin that
-  # adds about 0.7 s of imports to every pytest process and reports to its
-  # own service when configured; no test uses it.
+  # adds about 0.7 s of imports to every pytest process; no test uses it.
   "-p",
   "no:langsmith_plugin",
   "--junitxml=target/junit/pytest.xml",

@@ -18,6 +18,22 @@ from langchain_core.outputs import ChatResult
 from langchain_core.runnables import Runnable
 from langchain_core.tools import BaseTool
 from langchain_core.utils.function_calling import convert_to_openai_tool
+from pydantic import PrivateAttr
+
+
+class UnboundToolCalled(Exception):
+    """A scripted turn calls a tool that is not bound to the model."""
+
+    def __init__(self, unbound: tuple[str, ...], bound: tuple[str, ...]) -> None:
+        """Names the tools the turn calls and those bound."""
+        super().__init__(
+            f"the script calls {', '.join(unbound)}, which is not bound "
+            f"(bound: {', '.join(bound) or 'none'})"
+        )
+        self.unbound = unbound
+        """The tools the turn calls that are not bound."""
+        self.bound = bound
+        """The tools bound to the model."""
 
 
 class BindToolsChatModel(GenericFakeChatModel):
@@ -25,13 +41,13 @@ class BindToolsChatModel(GenericFakeChatModel):
 
     Its turns are the scripted `messages`, as its parent's; an `AIMessage`
     with `tool_calls` asks the loop to call those tools. Each bound copy
-    shares the script and refuses a scripted call to a tool it was not
-    given, so a misnamed call fails the test instead of reaching the loop as
-    a "tool not found" result the model would read.
+    shares the script. A scripted call to a tool the model was not given
+    raises `UnboundToolCalled`, also when no tool was bound at all (the loop
+    binds none when it has none), so a misnamed call fails the test instead
+    of reaching the loop as a "tool not found" result or ending the run.
     """
 
-    bound_tools: tuple[str, ...] | None = None
-    """The names of the tools bound to this copy, or `None` before `bind_tools`."""
+    _bound_tools: tuple[str, ...] = PrivateAttr(default=())
 
     @override
     def bind_tools(
@@ -51,10 +67,11 @@ class BindToolsChatModel(GenericFakeChatModel):
             tool_choice: Accepted and unused: the script decides each call.
             kwargs: Accepted and unused, as `tool_choice`.
         """
-        names = tuple(
+        bound = self.model_copy()
+        bound._bound_tools = tuple(
             convert_to_openai_tool(each)["function"]["name"] for each in tools
         )
-        return self.model_copy(update={"bound_tools": names})
+        return bound
 
     @override
     def _generate(
@@ -66,17 +83,12 @@ class BindToolsChatModel(GenericFakeChatModel):
     ) -> ChatResult:
         result = super()._generate(messages, stop, run_manager, **kwargs)
         message = result.generations[0].message
-        if self.bound_tools is not None and isinstance(message, AIMessage):
-            unbound = [
+        if isinstance(message, AIMessage):
+            unbound = tuple(
                 call["name"]
                 for call in message.tool_calls
-                if call["name"] not in self.bound_tools
-            ]
+                if call["name"] not in self._bound_tools
+            )
             if unbound:
-                bound = ", ".join(self.bound_tools) or "none"
-                text = (
-                    f"the script calls {', '.join(unbound)}, "
-                    f"which is not bound (bound: {bound})"
-                )
-                raise ValueError(text)
+                raise UnboundToolCalled(unbound, self._bound_tools)
         return result

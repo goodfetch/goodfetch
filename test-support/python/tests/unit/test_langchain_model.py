@@ -6,7 +6,10 @@ the loop calls first; test support's `BindToolsChatModel` adds it.
 """
 
 import pytest
-from goodfetch_test_support.langchain_model import BindToolsChatModel
+from goodfetch_test_support.langchain_model import (
+    BindToolsChatModel,
+    UnboundToolCalled,
+)
 from langchain.agents import (
     create_agent,  # pyright: ignore[reportUnknownVariableType]
 )
@@ -24,6 +27,12 @@ TITLES = {"https://shop.test/": "Shop", "https://shop.test/cart": "Cart"}
 def page_title(url: str) -> str:
     """Gives the title of the page at `url`."""
     return TITLES[url]
+
+
+@tool
+def page_count() -> int:
+    """Gives how many pages the fixture tool knows; the script never calls it."""
+    return len(TITLES)
 
 
 def _script(url: str) -> list[AIMessage]:
@@ -76,5 +85,20 @@ def test_a_scripted_call_to_a_tool_never_bound_is_refused() -> None:
     """A misnamed call fails the test instead of reaching the loop."""
     model = BindToolsChatModel(messages=iter(_script("https://shop.test/")))
 
-    with pytest.raises(ValueError, match="calls page_title, which is not bound"):
-        model.bind_tools([]).invoke("Which page is the shop?")
+    with pytest.raises(UnboundToolCalled) as refused:
+        _ask(model, [page_count], "Which page is the shop?")
+
+    assert (refused.value.unbound, refused.value.bound) == (
+        ("page_title",),
+        ("page_count",),
+    )
+
+
+def test_a_scripted_tool_call_in_a_loop_without_tools_is_refused() -> None:
+    """The loop binds nothing when it has no tools, and the call still fails."""
+    model = BindToolsChatModel(messages=iter(_script("https://shop.test/")))
+
+    with pytest.raises(UnboundToolCalled) as refused:
+        _ask(model, [], "Which page is the shop?")
+
+    assert (refused.value.unbound, refused.value.bound) == (("page_title",), ())

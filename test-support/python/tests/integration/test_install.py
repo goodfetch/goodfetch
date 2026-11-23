@@ -185,7 +185,11 @@ def test_an_adapter_s_tests_pass_at_the_lowest_version_it_declares(
 
     assert environment.folder.name == f"uv lowest-direct {system} café"
     assert environment.install.exit == 0, environment.install.stderr
-    assert "+ fixture-framework==1.0.0" in environment.install.stderr
+    assert environment.run(
+        "python",
+        "-c",
+        "from importlib.metadata import version; print(version('fixture-framework'))",
+    ) == CommandOutput(0, "1.0.0\n", "")
     tests = environment.run_tests(ADAPTER_TESTS)
     assert tests.exit == 0, tests.stdout + tests.stderr
     assert "1 passed" in tests.stdout

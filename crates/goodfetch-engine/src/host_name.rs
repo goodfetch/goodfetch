@@ -60,6 +60,17 @@ pub fn covering(key: &str) -> impl Iterator<Item = &str> {
     })
 }
 
+/// The registrable domain of `key`, a host as [`key`] leaves it, under the
+/// Public Suffix List: its public suffix and the one label before it, as
+/// `example.co.uk` is `www.example.co.uk`'s; `None` for an address and for
+/// a name that is a public suffix itself.
+pub fn registrable(key: &str) -> Option<&str> {
+    if key.parse::<IpAddr>().is_ok() {
+        return None;
+    }
+    psl::domain_str(key)
+}
+
 /// A value for each listed host or domain, as `tls.trusted_cas`,
 /// `tls.accept_invalid_certs` and `tls.client_certificates` list them:
 /// each entry covers its host and that host's subdomains, keyed as [`key`]

@@ -458,6 +458,28 @@ pub fn local_settings_error(error: &SettingsError, identity: &Identity) -> CallE
     translated(error, identity, false)
 }
 
+/// `setting_invalid` for the setting `key`, set in `layer`, that lists
+/// `domain` in its `domains`, below its `registrable` domain, which the
+/// `fix` gives instead.
+fn below_registrable(
+    message: String,
+    (key, layer): (&str, Option<SettingsLayer>),
+    domain: &str,
+    registrable: &str,
+) -> CallError {
+    CallError::new(
+        &SETTING_INVALID,
+        message,
+        &SettingInvalidDetails {
+            key: key.to_owned(),
+            layer,
+            reason: settings::not_registrable(domain, registrable),
+            limit: None,
+            fix: Some(format!("Give `{registrable}` in `domains`")),
+        },
+    )
+}
+
 /// `capability_unavailable` for the setting `key`, set in `layer`, whose
 /// `feature` the engine does not build yet, with its default as the `fix`.
 fn unbuilt(
@@ -492,7 +514,8 @@ fn keys_marked(error: &SettingsError) -> String {
             layer,
             closest,
         } => (*layer, [Some(key.as_str()), closest.as_deref()]),
-        SettingsError::Invalid { key, layer, .. } => (*layer, [Some(key.as_str()), None]),
+        SettingsError::Invalid { key, layer, .. }
+        | SettingsError::NotRegistrable { key, layer, .. } => (*layer, [Some(key.as_str()), None]),
         SettingsError::NotApplicable { key, layer, .. }
         | SettingsError::Locked { key, layer, .. }
         | SettingsError::Unavailable { key, layer, .. } => {
@@ -551,6 +574,12 @@ pub(crate) fn translated(
                 fix: None,
             },
         ),
+        SettingsError::NotRegistrable {
+            key,
+            layer,
+            domain,
+            registrable,
+        } => below_registrable(message, (key, *layer), domain, registrable),
         SettingsError::NotApplicable { key, layer, fix } => CallError::new(
             &SETTING_NOT_APPLICABLE,
             message,
@@ -599,15 +628,7 @@ pub(crate) fn translated(
                 format: (*format).to_owned(),
                 found: found.clone(),
                 supported: supported.clone(),
-                fix: match install {
-                    Some(install) => {
-                        format!("Install Goodfetch {install} or newer, then try again.")
-                    }
-                    None if error_is_older_major(error) => {
-                        "Run `upgrade-files`, then try again.".to_owned()
-                    }
-                    None => format!("Upgrade Goodfetch to a version that reads {format} {found}."),
-                },
+                fix: format_fix(error, install.as_deref(), format, found),
             },
         ),
         SettingsError::OlderMajorPolicy { major, current, .. } => CallError::new(
@@ -676,6 +697,17 @@ fn internal(message: String) -> CallError {
         goodfetch_protocol::jsonrpc::ProtocolFailure::InternalError,
         message,
     )
+}
+
+/// What a settings file of the `format` version `found`, which `error`
+/// refuses, asks of its user: the Product version to `install`, the upgrade
+/// of an older major's file, or a Goodfetch that reads it.
+fn format_fix(error: &SettingsError, install: Option<&str>, format: &str, found: &str) -> String {
+    match install {
+        Some(install) => format!("Install Goodfetch {install} or newer, then try again."),
+        None if error_is_older_major(error) => "Run `upgrade-files`, then try again.".to_owned(),
+        None => format!("Upgrade Goodfetch to a version that reads {format} {found}."),
+    }
 }
 
 fn error_is_older_major(error: &SettingsError) -> bool {

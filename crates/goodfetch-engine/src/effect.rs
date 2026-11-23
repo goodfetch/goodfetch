@@ -8,7 +8,10 @@
 //! `open` or `sent` by a body whose attempt, Connection or engine is gone
 //! is judged as cut short at its key's next declaration, so a crash after
 //! the sent mark leaves the Effect uncertain, never run again until a
-//! person reconciles it ([`Effects::reconcile`]). Every change of an
+//! person reconciles it ([`Effects::reconcile`]). A Run that stops at a
+//! safe point first waits, at most its `timeout.close`, for each body
+//! whose owner still holds to be judged, and every body still running at
+//! a Run's end is judged then as cut short. Every change of an
 //! entry's state goes through [`lifecycle::apply`].
 //!
 //! The idempotency key a body sends is derived from a per-Run secret kept
@@ -34,12 +37,14 @@ use goodfetch_protocol::effect::{
 };
 use goodfetch_protocol::jsonrpc::ProtocolFailure;
 use goodfetch_protocol::run::{RUN_NOT_FOUND, RunDetails, RunId, UncertainEffect};
+use goodfetch_protocol::settings::TIMEOUT_CLOSE;
 use serde_json::{Value, json};
 use tokio::sync::{Mutex, MutexGuard, Notify};
+use tokio::time::Instant;
 
 use self::journal::{
     Answering, Declared, SECRET_BYTES, answer_about, declare, done, drop_entry, idempotency_key,
-    mark_sent, row, turn_uncertain,
+    interrupted, mark_sent, row, turn_uncertain,
 };
 use self::lifecycle::{EffectEvent, EffectState, InvalidEffectTransition, Next, apply};
 use crate::audit::{AuditError, Origin};
@@ -441,6 +446,66 @@ impl Effects {
         Ok(())
     }
 
+    /// The safe point's wait (ADR 0106): waits, on `run`'s clock, for each
+    /// body of `run` whose owner still holds to be judged, at most its
+    /// `timeout.close` and never past `by`, so not at all when `by` is now,
+    /// or until `run` stops at once; then judges each body still running
+    /// as cut short: one that sent something is left uncertain, any other
+    /// dropped.
+    async fn settle_run(&self, run: &Run, by: Option<Instant>) {
+        let Some(run_shelf) = self.shelf_of(run.id()).await else {
+            return;
+        };
+        let close: Duration =
+            get_or_default(run.settings().map(RunSettings::resolved), &TIMEOUT_CLOSE);
+        let clock = run.clock();
+        let closed_by = clock.now() + close;
+        let until = by.map_or(closed_by, |by| by.min(closed_by));
+        let deadline = clock.sleep_until(until);
+        tokio::pin!(deadline);
+        loop {
+            let judged = run_shelf.judged.notified();
+            tokio::pin!(judged);
+            judged.as_mut().enable();
+            if !run_shelf
+                .book
+                .lock()
+                .await
+                .bodies
+                .iter()
+                .any(|body| body.owner.is_alive())
+            {
+                break;
+            }
+            tokio::select! {
+                () = judged => {}
+                () = clock.sleep(HOLD_CHECK) => {}
+                () = run.cancellation().cancelled() => break,
+                () = &mut deadline => break,
+            }
+        }
+        let mut book = run_shelf.book.lock().await;
+        if book.bodies.is_empty() {
+            return;
+        }
+        let entries: Vec<i64> = book.bodies.iter().map(|body| body.entry).collect();
+        if let Err(error) = run
+            .state()
+            .write(move |connection| interrupted(connection, &entries))
+            .await
+        {
+            tracing::warn!(%error, run_id = %run.id(), "the Effects still running at the Run's end were not judged: their next declaration judges them");
+        }
+        // Taken once judged, so a wait dropped during the write leaves
+        // them in the book for the Run's end to judge.
+        let cut = std::mem::take(&mut book.bodies);
+        for body in &cut {
+            body.owner.end_effect();
+        }
+        drop(book);
+        run_shelf.judged.notify_waiters();
+    }
+
     /// A person's `answer` about the uncertain Effect `entry` of `run`,
     /// recorded in the Audit log as `context`'s person's.
     ///
@@ -518,6 +583,14 @@ impl SendWindow for Effects {
                 state_unavailable(run.id().clone(), run.folder(), &error.to_string())
             })
         })
+    }
+
+    fn settle<'a>(
+        &'a self,
+        run: &'a Run,
+        by: Option<Instant>,
+    ) -> Pin<Box<dyn Future<Output = ()> + Send + 'a>> {
+        Box::pin(self.settle_run(run, by))
     }
 }
 

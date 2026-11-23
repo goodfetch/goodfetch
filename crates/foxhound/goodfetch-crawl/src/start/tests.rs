@@ -17,6 +17,7 @@
 
 mod admission;
 mod detached;
+mod effect_wait;
 mod finishing;
 mod fixed;
 mod given_back;
@@ -122,6 +123,24 @@ pub(crate) struct Client {
 }
 
 impl Client {
+    /// A Client on a new Connection through `dialer`, which said nothing
+    /// yet.
+    pub(crate) async fn dialed(dialer: &transport::InMemoryDialer) -> Self {
+        let (reader, writer) = dialer.connect().await.unwrap().split();
+        Self {
+            lines: BufReader::new(reader).lines(),
+            writer,
+            next_id: 0,
+            handled: Vec::new(),
+            hooked: Vec::new(),
+            silent: Vec::new(),
+            arrivals: Vec::new(),
+            late: None,
+            replies: Vec::new(),
+            early: std::collections::VecDeque::new(),
+        }
+    }
+
     pub(crate) async fn send(&mut self, message: &Value) {
         let mut line = serde_json::to_vec(message).unwrap();
         line.push(b'\n');
@@ -529,19 +548,7 @@ pub(crate) fn connected_on<T>(
         );
         let (network, dialer) = transport::in_memory();
         let client = async {
-            let (reader, writer) = dialer.connect().await.unwrap().split();
-            let mut client = Client {
-                lines: BufReader::new(reader).lines(),
-                writer,
-                next_id: 0,
-                handled: Vec::new(),
-                hooked: Vec::new(),
-                silent: Vec::new(),
-                arrivals: Vec::new(),
-                late: None,
-                replies: Vec::new(),
-                early: std::collections::VecDeque::new(),
-            };
+            let mut client = Client::dialed(&dialer).await;
             let hello = client
                 .call(
                     "hello",

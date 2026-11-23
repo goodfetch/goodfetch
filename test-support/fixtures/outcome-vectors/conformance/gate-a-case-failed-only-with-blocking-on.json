@@ -1,0 +1,20 @@
+{
+  "description": "In gate mode, a case that fails with Filter-list blocking on and passes with it off is failed: the rules broke the page",
+  "gate": true,
+  "cases": [
+    {
+      "entries": [
+        {
+          "blocking": "on",
+          "checks": [false]
+        },
+        {
+          "blocking": "off",
+          "checks": [true]
+        }
+      ]
+    }
+  ],
+  "case_outcomes": ["failed"],
+  "outcome": "failed"
+}

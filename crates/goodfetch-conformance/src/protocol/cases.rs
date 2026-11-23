@@ -61,8 +61,11 @@ use goodfetch_protocol::events::EVENTS_SUBSCRIBE;
 use goodfetch_protocol::formats::USER_CONFIGURATION;
 use goodfetch_protocol::jsonrpc::ProtocolFailure;
 use goodfetch_protocol::page::{Navigated, PAGE_GOTO, PageOpened, RUN_NEW_PAGE};
-use goodfetch_protocol::result_document::{CaseCheck, OracleAnswer};
+use goodfetch_protocol::result_document::{Blocking, CaseCheck, OracleAnswer};
 use goodfetch_protocol::run::{RUN_FINISH, RUN_START};
+use goodfetch_protocol::settings::{
+    FILTER_LISTS_ADS, FILTER_LISTS_ANNOYANCES, FILTER_LISTS_EXTRA, FILTER_LISTS_TRACKERS,
+};
 use serde_json::{Value, json};
 
 use self::guard::Step;
@@ -75,6 +78,18 @@ use crate::proving_ground::{
 
 /// A method no Product carries, which every target must refuse.
 const UNKNOWN_METHOD: &str = "conformance.unknown_method";
+
+/// The settings a Site with blocking off overrides in each Run's, each
+/// with its value that blocks nothing: every Filter list the Clean-up rules
+/// hold off, and no extra one. The second run of gate mode (ADR 0047).
+fn blocking_off_settings() -> [(&'static str, Value); 4] {
+    [
+        (FILTER_LISTS_ADS.name, json!(false)),
+        (FILTER_LISTS_TRACKERS.name, json!(false)),
+        (FILTER_LISTS_ANNOYANCES.name, json!(false)),
+        (FILTER_LISTS_EXTRA.name, json!([])),
+    ]
+}
 
 /// One case the protocol suite can declare.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -185,6 +200,10 @@ pub(crate) struct Site {
     /// What a case expected of the Proving ground and could not read, with
     /// why, since the suite last took it: each fails the case.
     unread: RefCell<Vec<String>>,
+    /// In gate mode (ADR 0047), whether every Run a case starts on it keeps
+    /// its Filter lists as its settings say, or has each off; none outside
+    /// gate mode, where settings stay as they are.
+    blocking: Option<Blocking>,
 }
 
 impl Site {
@@ -258,7 +277,23 @@ impl Site {
             proxy_credentials: fixtures.and_then(|fixtures| fixtures.proxy_credentials),
             proving_ground: proving_ground.clone(),
             unread: RefCell::new(Vec::new()),
+            blocking: None,
         })
+    }
+
+    /// The same site in gate mode, every Run a case starts on it with its
+    /// Filter lists `blocking`: on as the case's settings say, or each off.
+    pub(crate) fn with_blocking(self, blocking: Blocking) -> Self {
+        Self {
+            blocking: Some(blocking),
+            ..self
+        }
+    }
+
+    /// The Filter-list blocking of gate mode's run on this site, which
+    /// marks each case's entry; none outside gate mode.
+    pub(crate) fn blocking(&self) -> Option<Blocking> {
+        self.blocking
     }
 
     /// The requests the Proving ground's page hosts received; none when it
@@ -317,7 +352,9 @@ impl Site {
     /// resolved-address check left on, and `localhost` and literal
     /// loopback addresses stay refused. A Client acting for a model never
     /// sets the key; its cases list the hosts in user configuration
-    /// ([`Site::configured_hosts`]).
+    /// ([`Site::configured_hosts`]). With blocking off, each Filter list is
+    /// off too, whatever `settings` say: every Run that loads a Proving
+    /// ground page takes the mapping, so none loads one with blocking on.
     pub(crate) fn mapped(&self, settings: &Value, for_model: bool) -> Value {
         let mut settings = settings.clone();
         if !settings.is_object() {
@@ -327,6 +364,17 @@ impl Site {
             settings["network"] = json!({});
         }
         settings["network"]["resolve"] = self.resolve.clone();
+        if self.blocking == Some(Blocking::Off) {
+            for (name, off) in blocking_off_settings() {
+                let (table, key) = name
+                    .split_once('.')
+                    .expect("invariant: a Filter list setting sits in its table");
+                if !settings[table].is_object() {
+                    settings[table] = json!({});
+                }
+                settings[table][key] = off;
+            }
+        }
         if for_model {
             return settings;
         }

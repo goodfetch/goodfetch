@@ -48,7 +48,7 @@ const READS_THE_TRACE: &str =
 
 /// A suite of `cases`, in order, on Foxhound's executable or Collie's, one
 /// capability each.
-fn suite(product: &str, cases: &[&str]) -> ProtocolSuite {
+pub(crate) fn suite(product: &str, cases: &[&str]) -> ProtocolSuite {
     let mut text = format!(
         "product = \"{product}\"\n\n[suite]\nname = \"harness-failures\"\nversion = \"1\"\n"
     );
@@ -173,7 +173,10 @@ fn failing_proving_ground(observations: (u16, &'static str)) -> ProvingGround {
 }
 
 /// `case`'s outcome and the names of its failed checks.
-fn failed_checks(document: &ConformanceDocument, case: &str) -> (CaseOutcome, Vec<String>) {
+pub(crate) fn failed_checks(
+    document: &ConformanceDocument,
+    case: &str,
+) -> (CaseOutcome, Vec<String>) {
     let found = document
         .capabilities()
         .iter()

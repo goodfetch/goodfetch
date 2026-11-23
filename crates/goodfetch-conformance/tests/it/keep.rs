@@ -28,6 +28,7 @@ fn document() -> ConformanceDocument {
             seed: 7,
         },
         online: false,
+        gate: false,
     };
     ConformanceDocument::new(
         header,
@@ -38,6 +39,7 @@ fn document() -> ConformanceDocument {
                 covers: Vec::new(),
                 entries: vec![CaseEntry {
                     mode: None,
+                    blocking: None,
                     checks: vec![CaseCheck {
                         name: "the response is the document's".to_owned(),
                         passed: true,

@@ -19,6 +19,18 @@ class ResultDocumentTypes(BaseModel):
     )
 
 
+class Blocking(StrEnum):
+    """
+    Whether a gate mode's entry ran with Filter-list blocking on or off
+    (ADR 0047).
+    """
+
+    on = "on"
+    """The Filter lists blocked as the case's settings say."""
+    off = "off"
+    """Every Filter list was off."""
+
+
 class CaseCheck(BaseModel):
     """One check of a case."""
 
@@ -37,7 +49,16 @@ class CaseOutcome(StrEnum):
     passed = "passed"
     """Every entry has checks and every check held."""
     failed = "failed"
-    """A check failed, or an entry holds no check."""
+    """
+    A check failed, or an entry holds no check; in gate mode, it failed
+    with Filter-list blocking on and passed with it off.
+    """
+    inconclusive = "inconclusive"
+    """
+    In gate mode, it failed with Filter-list blocking on and did not
+    pass with it off, as when a vendor's scoring change moves both: it
+    neither passes nor blocks (ADR 0047).
+    """
     not_reached = "not_reached"
     """The case log holds no entry for it."""
 
@@ -425,6 +446,8 @@ class CaseEntry(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    blocking: Blocking | None = None
+    """Whether Filter-list blocking was on or off, in gate mode."""
     checks: list[CaseCheck]
     """Each check's result."""
     evidence: Evidence | None = None
@@ -442,6 +465,11 @@ class CaseLogEntry(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    blocking: Blocking | None = None
+    """
+    Whether Filter-list blocking was on or off, in the harness's gate
+    mode (ADR 0047).
+    """
     capability: str
     """The capability the case belongs to."""
     case: str
@@ -491,6 +519,12 @@ class ConformanceDocument(BaseModel):
     """
 
     capabilities: list[CapabilityResult]
+    gate: bool | None = None
+    """
+    Whether the suite ran in gate mode, each case once with Filter-list
+    blocking on and once with it off, its failures blocking the job that
+    asked for it (ADR 0047): the Clean-up rules' daily channel's.
+    """
     online: bool
     """
     Whether the Proving ground was the online copy, whose results report
@@ -515,6 +549,12 @@ class ResultDocument1(BaseModel):
     """What a conformance suite proved against a target."""
 
     capabilities: list[CapabilityResult]
+    gate: bool | None = None
+    """
+    Whether the suite ran in gate mode, each case once with Filter-list
+    blocking on and once with it off, its failures blocking the job that
+    asked for it (ADR 0047): the Clean-up rules' daily channel's.
+    """
     online: bool
     """
     Whether the Proving ground was the online copy, whose results report

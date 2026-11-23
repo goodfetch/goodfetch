@@ -120,6 +120,7 @@ pub fn run_self_test(
                 case: case.id.clone(),
                 capability: capability.name.clone(),
                 mode: None,
+                blocking: None,
                 platform: platform(),
                 runtime: RUNTIME.to_owned(),
                 checks: vec![
@@ -155,6 +156,7 @@ fn header(suite: &Suite, task_list: TaskList, online: bool) -> ConformanceHeader
         runtime: RUNTIME.to_owned(),
         proving_ground: task_list.proving_ground,
         online,
+        gate: false,
     }
 }
 

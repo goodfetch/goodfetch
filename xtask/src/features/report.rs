@@ -465,7 +465,8 @@ fn conformance_outcomes(store: &Path, latest: &str) -> Result<BTreeMap<TestKey, 
                 let outcome = match case.outcome() {
                     CaseOutcome::Passed => TestOutcome::Passed,
                     CaseOutcome::Failed => TestOutcome::Failed,
-                    CaseOutcome::NotReached => TestOutcome::NotRun,
+                    // An inconclusive case proved nothing either way.
+                    CaseOutcome::Inconclusive | CaseOutcome::NotReached => TestOutcome::NotRun,
                 };
                 let key = (
                     Source::Conformance.as_str().to_owned(),

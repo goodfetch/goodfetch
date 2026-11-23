@@ -5,11 +5,14 @@
 //! adds operation handlers and the drivers of its kinds of Run, the tables
 //! it keeps in every run file and the Politeness file, its gates in
 //! admission, its parts of a Run's report and progress, its Clean-up
-//! versions, its "Needs you" sources, its Secret providers and the
-//! controls and weakenings it records.
+//! versions, its send window, its "Needs you" sources, its Secret
+//! providers and the controls and weakenings it records.
 //!
 //! A handler answers a value or a [`CallError`], which only the RPC layer
 //! turns into the wire's error object.
+//!
+//! Size: one concern, what a contribution adds, each a field, its builder
+//! and the composition's reader, kept side by side.
 
 mod call_streams;
 mod closing;
@@ -42,7 +45,7 @@ use crate::needs_you::NeedsYouSource;
 use crate::politeness::PolitenessTables;
 use crate::product::Identity;
 use crate::run_state::RunStateTables;
-use crate::runs::{CleanUpVersions, Driving, ProgressPart, ReportPart, Run, Runs};
+use crate::runs::{CleanUpVersions, Driving, ProgressPart, ReportPart, Run, Runs, SendWindow};
 use crate::secrets::ProviderFactory;
 use crate::settings::RunSettings;
 use goodfetch_protocol::run::{RunId, RunKind};
@@ -598,6 +601,7 @@ pub struct Contribution {
     report_parts: Vec<Arc<dyn ReportPart>>,
     progress_parts: Vec<Arc<dyn ProgressPart>>,
     clean_up_versions: Option<Arc<dyn CleanUpVersions>>,
+    send_window: Option<Arc<dyn SendWindow>>,
     needs_you_sources: Vec<NeedsYouSource>,
     controls: Vec<(&'static Setting, Recorded)>,
     secret_providers: Vec<(Provider, ProviderFactory)>,
@@ -619,6 +623,7 @@ impl Contribution {
             report_parts: Vec::new(),
             progress_parts: Vec::new(),
             clean_up_versions: None,
+            send_window: None,
             needs_you_sources: Vec::new(),
             controls: Vec::new(),
         }
@@ -750,6 +755,14 @@ impl Contribution {
     #[must_use]
     pub fn with_admission_gates(mut self, gates: Arc<dyn Gates>) -> Self {
         self.admission_gates = Some(gates);
+        self
+    }
+
+    /// The same, passing in `window` as the send window each Run's
+    /// commands mark (ADR 0106): the engine's declared Effects.
+    #[must_use]
+    pub(crate) fn with_send_window(mut self, window: Arc<dyn SendWindow>) -> Self {
+        self.send_window = Some(window);
         self
     }
 
@@ -964,6 +977,13 @@ impl Composition {
             return Err(CompositionError::DuplicateCleanUpVersions { first, second });
         }
         Ok(first.map(|(_, versions)| versions))
+    }
+
+    /// The send window the engine's contribution, held once, passes in.
+    pub(crate) fn send_window(&self) -> Option<Arc<dyn SendWindow>> {
+        self.contributions
+            .iter()
+            .find_map(|each| each.send_window.clone())
     }
 
     /// Each operation's one handler.

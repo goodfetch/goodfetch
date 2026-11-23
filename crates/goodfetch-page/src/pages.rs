@@ -106,7 +106,7 @@ use crate::document_request::{DocumentRequest, Unread};
 use crate::driver::{Destination, SerializedDocument};
 use crate::extractor;
 use crate::fields;
-use crate::guard::{self, Action, Request, Window};
+use crate::guard::{self, Action, Request, SentMark, Window};
 use crate::hiding::Hidden;
 use crate::interception::{
     Answer, ConsentHandling, Fulfillment, Interception, Overrides, Reply, Scope,
@@ -734,7 +734,7 @@ fn with_page_handlers(contribution: Contribution, pages: &Pages) -> Contribution
                     pages
                         .navigate(
                             &params.page_id,
-                            Destination::Url(&params.url),
+                            (Destination::Url(&params.url), Navigating::Program),
                             params.wait_until.unwrap_or_default(),
                             params.timeout,
                             Charge::OneRequest,
@@ -752,7 +752,7 @@ fn with_page_handlers(contribution: Contribution, pages: &Pages) -> Contribution
                     pages
                         .navigate(
                             &params.page_id,
-                            Destination::Reload,
+                            (Destination::Reload, Navigating::Program),
                             WaitUntil::Load,
                             None,
                             Charge::Nothing,
@@ -770,7 +770,7 @@ fn with_page_handlers(contribution: Contribution, pages: &Pages) -> Contribution
                     pages
                         .navigate(
                             &params.page_id,
-                            Destination::Back,
+                            (Destination::Back, Navigating::Program),
                             WaitUntil::Load,
                             None,
                             Charge::Nothing,
@@ -788,7 +788,7 @@ fn with_page_handlers(contribution: Contribution, pages: &Pages) -> Contribution
                     pages
                         .navigate(
                             &params.page_id,
-                            Destination::Forward,
+                            (Destination::Forward, Navigating::Program),
                             WaitUntil::Load,
                             None,
                             Charge::Nothing,
@@ -888,6 +888,18 @@ struct Opener {
     pages: Pages,
 }
 
+/// Whose navigation [`Pages::navigate`] sends, which says whether it opens
+/// ADR 0106's send window.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Navigating {
+    /// A program's command, which may change a site: it marks the window's
+    /// bodies sent before it goes out.
+    Program,
+    /// A crawl request's own document, a read whatever its method (ADR
+    /// 0104's amendment): it marks nothing.
+    OwnDocument,
+}
+
 /// A page [`Opener`] opened whose navigation has not answered yet: dropped
 /// so, as when its opening is cancelled, it closes on a task of its Run,
 /// its navigation with it.
@@ -952,7 +964,7 @@ impl BrowserPages for Opener {
                 .pages
                 .navigate(
                     &page_id,
-                    Destination::Url(own.url),
+                    (Destination::Url(own.url), Navigating::OwnDocument),
                     WaitUntil::Load,
                     None,
                     Charge::Nothing,
@@ -1190,7 +1202,8 @@ impl Pages {
     /// under the call's own `timeout` when it gives one, else under the
     /// Run's `timeout.navigation` (ADR 0080). Under `charge`, a URL the
     /// network serves is charged as one `requests` Usage to the page's Run
-    /// before the navigation is sent (issue 3416).
+    /// before the navigation is sent (issue 3416). A program's navigation
+    /// marks the page's send window before it goes out (ADR 0106).
     #[tracing::instrument(name = "page", level = "debug", skip_all, fields(page_id = %page_id.0, operation = destination.operation(), run_id = tracing::field::Empty, url.origin = tracing::field::Empty))]
     #[expect(
         clippy::option_option,
@@ -1199,7 +1212,7 @@ impl Pages {
     async fn navigate(
         &self,
         page_id: &PageId,
-        destination: Destination<'_>,
+        (destination, navigating): (Destination<'_>, Navigating),
         wait_until: WaitUntil,
         timeout: Option<Option<u64>>,
         charge: Charge,
@@ -1244,6 +1257,9 @@ impl Pages {
         let events = context.events();
         let deadline = page.driver.navigation_deadline(timeout)?;
         let blocked_before = self.interception.lists_blocked(page_id);
+        if navigating == Navigating::Program {
+            page.sending(destination.operation()).await?;
+        }
         let navigated = page
             .life
             .call(
@@ -1345,6 +1361,10 @@ impl Pages {
                 page_id: &locator.page_id,
                 session_id: &page.session,
             },
+            sent: SentMark {
+                run: &page.run,
+                lease: page.lease(),
+            },
         };
         let acted = page
             .life
@@ -1389,6 +1409,7 @@ impl Pages {
             limits,
             read: browser_fetch::BodyRead::Whole,
         };
+        page.sending(PAGE_REQUEST.name).await?;
         // A cancelled call closes the engine's page as it drops.
         // A command its lease check withheld ends the page (P31).
         let engine_page = self
@@ -1456,6 +1477,7 @@ impl Pages {
                 .mark(&page.run, &page.session, page_id, injection)
                 .await;
         }
+        page.sending(operation).await?;
         let returns = page
             .life
             .call(
@@ -1478,6 +1500,7 @@ impl Pages {
         let source = page_functions::init_script(&params.function, params.arg.as_ref())?;
         let page = self.opened(&params.page_id).await?;
         tracing::Span::current().record("run_id", page.run.id().as_str());
+        page.sending(PAGE_ADD_INIT_SCRIPT.name).await?;
         // Registered on a task of the Run's, so a call dropped meanwhile
         // never leaves the script registered: its registration, answered to
         // no one, is removed there, counted before `pending` goes.

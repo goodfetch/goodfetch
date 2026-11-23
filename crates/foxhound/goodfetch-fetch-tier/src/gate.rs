@@ -100,6 +100,7 @@ use goodfetch_page::page_value::{
     Admission, DocumentJudgment, DocumentResponse, Navigation, NavigationGate, Permit, Refusal,
     Sending,
 };
+use goodfetch_protocol::effect::EffectAttempt;
 use goodfetch_protocol::foxhound::crawl::RESPONSE_UNAVAILABLE;
 use goodfetch_protocol::foxhound::frontier::HttpMethod;
 use goodfetch_protocol::foxhound::outcomes::SkipReason;
@@ -561,6 +562,10 @@ impl LeaseCheck for Lease {
 
     fn enclosing(&self) -> Option<Enclosing> {
         self.0.lease.enclosing()
+    }
+
+    fn effect_attempt(&self) -> Option<EffectAttempt> {
+        self.0.lease.effect_attempt()
     }
 }
 

@@ -60,6 +60,7 @@ use goodfetch_engine::clock::Clock;
 use goodfetch_engine::deadline::Deadline;
 use goodfetch_engine::egress::CdpUrlOrigin;
 use goodfetch_engine::governor::Permit;
+use goodfetch_engine::lease::LeaseCheck;
 use goodfetch_engine::local_addresses::Unavailable;
 use goodfetch_engine::request_signing::{KeyError, RequestSigner};
 use goodfetch_engine::run::{secret_error, settings_error};
@@ -299,6 +300,26 @@ pub(crate) struct OpenPage {
     _admission: Arc<Permit>,
     /// Its place among its browser's open pages, left at the same moment.
     in_browser: Arc<InBrowser>,
+}
+
+impl OpenPage {
+    /// Its lease, when a handler's page: the attempt whose commands it
+    /// sends (ADR 0106's window).
+    pub(crate) fn lease(&self) -> Option<&dyn LeaseCheck> {
+        self.driver.value().lease().map(AsRef::as_ref)
+    }
+
+    /// Marks sent each body of the page's attempt, or of its Run outside
+    /// any attempt, that nothing was sent for yet, before `command`, which
+    /// may change the page or a site, goes out (ADR 0106).
+    ///
+    /// # Errors
+    ///
+    /// `run_state_unavailable` when the mark could not be written:
+    /// `command` must not go out.
+    pub(crate) async fn sending(&self, command: &str) -> Result<(), CallError> {
+        self.run.sending(self.lease(), command).await
+    }
 }
 
 // The Run a raw call names by a page or a Session, whose trace records it

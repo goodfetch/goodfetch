@@ -21,12 +21,14 @@ const NOW: &str = "1800000000";
 
 /// Each step's `(action, members)` and reason from the plan's
 /// `<step>.action`, `<step>.members` and `<step>.why` lines, and the
-/// `previous`, `head` and `stress.base` lines' heads. A step another one's
-/// units cover (`covered`, the Quick suite) is in `covered` alone, since it
-/// runs nothing whatever the records hold.
+/// `previous`, `head` and `stress.base` lines' heads, and the head's
+/// `members` line. A step another one's units cover (`covered`, the Quick
+/// suite and xtask's codegen tests) is in `covered` alone, since it runs
+/// nothing whatever the records hold.
 struct Plan {
     previous: String,
     head: String,
+    head_members: BTreeSet<String>,
     stress_base: String,
     steps: BTreeMap<String, (String, String)>,
     covered: BTreeSet<String>,
@@ -114,6 +116,7 @@ fn parse(outcome: &Outcome) -> Plan {
     let mut plan = Plan {
         previous: String::new(),
         head: String::new(),
+        head_members: BTreeSet::new(),
         stress_base: String::new(),
         steps: BTreeMap::new(),
         covered: BTreeSet::new(),
@@ -127,7 +130,10 @@ fn parse(outcome: &Outcome) -> Plan {
             None => match key {
                 "previous" => value.clone_into(&mut plan.previous),
                 "head" => value.clone_into(&mut plan.head),
-                "members" | "unowned" => {}
+                "members" => {
+                    plan.head_members = value.split(' ').map(str::to_owned).collect();
+                }
+                "unowned" => {}
                 _ => panic!("an unexpected plan line: {line:?}"),
             },
             Some(("stress", "base")) => value.clone_into(&mut plan.stress_base),
@@ -266,14 +272,20 @@ fn gated_repository(extra: &[(&str, &str)]) -> (Workspace, tempfile::TempDir, Pa
     (workspace, folder, records)
 }
 
+/// The steps of the quick form the full gate's Pre-merge suite covers: the
+/// Quick suite and xtask's codegen tests, whose every test it runs.
+fn covered_in_the_full_gate() -> BTreeSet<String> {
+    BTreeSet::from(["codegen-tests".to_owned(), "quick".to_owned()])
+}
+
 /// A first run on the fixture's `change` head, with perf, TLC and the
 /// Pre-merge suite green and the Kennel's checks red. It runs every step
-/// but the Quick suite, which the Pre-merge suite covers.
+/// but those the Pre-merge suite covers.
 fn first_run(workspace: &Workspace, records: &Path) -> String {
     let first = plan(workspace, records);
     assert_eq!(first.previous, "none");
     assert!(first.steps.values().all(|(action, _)| action == "run"));
-    assert_eq!(first.covered, BTreeSet::from(["quick".to_owned()]));
+    assert_eq!(first.covered, covered_in_the_full_gate());
     for (step, status) in [
         ("perf", "pass"),
         ("tlc", "pass"),
@@ -341,7 +353,7 @@ fn a_later_run_reruns_what_the_change_since_the_first_reaches_and_every_red_resu
     // Red on the first head: never reused.
     assert_eq!(action(&second, "kennel"), ("run", "-"));
     // Covered by the Pre-merge suite's units, whatever the records hold.
-    assert_eq!(second.covered, BTreeSet::from(["quick".to_owned()]));
+    assert_eq!(second.covered, covered_in_the_full_gate());
     // Never recorded on the first head.
     assert_eq!(action(&second, "msrv"), ("run", "-"));
     for step in [
@@ -1082,6 +1094,273 @@ fn no_unit_runs_twice_on_one_tree_across_the_local_layers() {
         "{}",
         twice.stdout
     );
+}
+
+/// The repository whose own pull requests' hosted runs count.
+const REPOSITORY: &str = "goodfetch/goodfetch";
+
+/// The steps of the quick form the hosted tier owns (spec 3373).
+const HOSTED_OWNED: [&str; 4] = ["lint", "quick", "journeys-tasks", "codegen-tests"];
+
+/// The quick form's steps (`xtask gate steps --form quick`): the plan lists
+/// every step, and `ci/pre-merge.sh quick` runs these.
+const QUICK_FORM: [&str; 10] = [
+    "dco",
+    "commit-messages",
+    "floor-guard",
+    "commit-leaks",
+    "audit",
+    "notices",
+    "lint",
+    "quick",
+    "journeys-tasks",
+    "codegen-tests",
+];
+
+/// Each unit a layer ran, `<step>` or `<step>:<member>`, with the tree it
+/// ran on: the layers that ran it.
+type Ran = BTreeMap<(String, String), Vec<String>>;
+
+/// The units of `step` that `plan` runs, in full or in part: the Quick
+/// suite's one a member, every member of the head's when it runs in full.
+fn units(plan: &Plan, step: &str) -> BTreeSet<String> {
+    let (action, members) = action(plan, step);
+    match action {
+        "run" | "part" if step != "quick" => BTreeSet::from([step.to_owned()]),
+        "run" if members == "-" => plan
+            .head_members
+            .iter()
+            .map(|member| format!("{step}:{member}"))
+            .collect(),
+        "run" | "part" => members
+            .split(' ')
+            .map(|member| format!("{step}:{member}"))
+            .collect(),
+        _ => BTreeSet::new(),
+    }
+}
+
+/// Adds to `ran` the units of `steps` that `plan` runs on the tree of its
+/// head, as run by `layer`.
+fn add_ran(workspace: &Workspace, ran: &mut Ran, plan: &Plan, steps: &[&str], layer: &str) {
+    let tree = workspace.git(&["rev-parse", &format!("{}^{{tree}}", plan.head)]);
+    for step in steps {
+        for unit in units(plan, step) {
+            ran.entry((unit, tree.trim().to_owned()))
+                .or_default()
+                .push(layer.to_owned());
+        }
+    }
+}
+
+/// The fixture with the CI image pinned and a batch's commit on it: returns
+/// the commit the batch went off.
+fn a_batch_pinning_the_ci_image(workspace: &Workspace) -> String {
+    workspace.write("ci/image/Containerfile", b"FROM scratch\n");
+    commit_all(workspace, "Pin the CI image");
+    a_ticket_on_a_register(workspace).0
+}
+
+/// The hosted tier's run `run` on the head checked out, as the pull-request
+/// workflow runs it: its planning job plans by the layer `hosted` from the
+/// records in `downloaded` of the head's ancestors' runs, and a job a step
+/// the plan schedules runs it green and uploads its record, which lands in
+/// `downloaded/<run>/gate-record-<step>/` as `ci/hosted-records.sh`
+/// downloads it. Only the jobs of `finished` end; the others are cancelled
+/// with the run and upload nothing. Returns the planning job's plan.
+fn hosted_run(
+    workspace: &Workspace,
+    folder: &Path,
+    downloaded: &Path,
+    run: &str,
+    finished: &[&str],
+    ran: &mut Ran,
+) -> Plan {
+    let downloaded_arg = downloaded.to_string_lossy();
+    let hosted = [
+        "--form",
+        "quick",
+        "--layer",
+        "hosted",
+        "--head-repository",
+        REPOSITORY,
+        "--runner-image",
+        "ubuntu24/20261116.1",
+        "--hosted-records",
+        &downloaded_arg,
+    ];
+    let job = |name: &str| {
+        plan_with(
+            workspace,
+            &folder.join(format!("hosted-{run}-{name}")),
+            "CI=true",
+            &hosted,
+        )
+    };
+    let planning = job("plan");
+    for step in HOSTED_OWNED {
+        if units(&planning, step).is_empty() || !finished.contains(&step) {
+            continue;
+        }
+        let records = folder.join(format!("hosted-{run}-{step}"));
+        let plan = job(step);
+        add_ran(workspace, ran, &plan, &[step], "hosted");
+        let outcome = workspace.xtask(&[
+            "gate",
+            "record",
+            "--by",
+            "hosted",
+            "--records",
+            &records.to_string_lossy(),
+            "--head",
+            &plan.head,
+            "--now",
+            NOW,
+            "--step",
+            step,
+            "--status",
+            "pass",
+        ]);
+        assert_eq!(outcome.code, 0, "{}", outcome.stderr);
+        let artifact = downloaded.join(run).join(format!("gate-record-{step}"));
+        std::fs::create_dir_all(&artifact).unwrap();
+        let file = format!("{}.tsv", plan.head);
+        std::fs::copy(records.join(&file), artifact.join(&file)).unwrap();
+    }
+    planning
+}
+
+/// `just merge`'s gate in the quick form on the head checked out, reading
+/// the hosted runs' records in `downloaded`: it runs each step it plans to
+/// green, and returns its plan.
+fn merge_gate(workspace: &Workspace, records: &Path, downloaded: &Path, ran: &mut Ran) -> Plan {
+    let plan = plan_with(
+        workspace,
+        records,
+        "CI=",
+        &[
+            "--form",
+            "quick",
+            "--head-repository",
+            REPOSITORY,
+            "--hosted-records",
+            &downloaded.to_string_lossy(),
+        ],
+    );
+    add_ran(workspace, ran, &plan, &QUICK_FORM, "merge");
+    for step in QUICK_FORM {
+        if !units(&plan, step).is_empty() {
+            record(workspace, records, &plan.head, step, "pass");
+        }
+    }
+    plan
+}
+
+/// Every unit in `ran` ran once, on one layer, for its tree.
+fn ran_once(ran: &Ran) {
+    let twice: Vec<_> = ran.iter().filter(|(_, layers)| layers.len() > 1).collect();
+    assert!(twice.is_empty(), "units run twice on one tree: {twice:?}");
+}
+
+/// The no-double-run walk of the hosted tier (spec 3373's Testing
+/// Decisions; the local layers' walk is the test above): the hosted run on
+/// a batch's head, `just merge`'s merge of `main`'s new tip, the hosted run
+/// on that merge, which plans from the head's records and runs only what
+/// the merge reaches, and the gate on the merge, which reads both runs and
+/// runs none of the hosted-owned units. No unit runs twice on one tree, nor
+/// on two layers, and each step the quick form needs is run or reused.
+#[test]
+fn no_unit_runs_twice_on_one_tree_across_the_hosted_and_local_layers() {
+    let (workspace, folder, records) = gated_with_a_register("2027-01-30");
+    let downloaded = folder.path().join("downloaded");
+    let base = a_batch_pinning_the_ci_image(&workspace);
+    let mut ran = Ran::new();
+
+    let first = hosted_run(
+        &workspace,
+        folder.path(),
+        &downloaded,
+        "1",
+        &HOSTED_OWNED,
+        &mut ran,
+    );
+    for step in HOSTED_OWNED {
+        assert_eq!(action(&first, step).0, "run", "{step}");
+    }
+    workspace.git(&["switch", "--quiet", "--create", "main-tip", &base]);
+    workspace.write(
+        "crates/goodfetch-conformance/src/lib.rs",
+        b"//! Main moved.\n",
+    );
+    commit_all(&workspace, "Main moves");
+    workspace.git(&["update-ref", "refs/remotes/origin/main", "main-tip"]);
+    workspace.git(&["switch", "--quiet", "-"]);
+    workspace.git(&["merge", "--quiet", "--no-edit", "main-tip"]);
+    let second = hosted_run(
+        &workspace,
+        folder.path(),
+        &downloaded,
+        "2",
+        &HOSTED_OWNED,
+        &mut ran,
+    );
+    let gate = merge_gate(&workspace, &records, &downloaded, &mut ran);
+
+    ran_once(&ran);
+    let (first_quick, second_quick) = (units(&first, "quick"), units(&second, "quick"));
+    assert!(
+        !second_quick.is_empty()
+            && second_quick.is_subset(&first_quick)
+            && second_quick != first_quick,
+        "the merge's hosted run reruns only what main's tip reaches: {second_quick:?} of {first_quick:?}"
+    );
+    assert_eq!(gate.head, second.head);
+    for step in HOSTED_OWNED {
+        assert_eq!(action(&gate, step).0, "reuse", "{step}");
+        assert!(
+            gate.why[step].contains("by hosted"),
+            "{step}: {}",
+            gate.why[step]
+        );
+    }
+    for step in QUICK_FORM {
+        assert!(
+            matches!(action(&gate, step).0, "run" | "part" | "reuse"),
+            "{step}: {:?}",
+            action(&gate, step)
+        );
+    }
+}
+
+/// The walk's fallback: a hosted run cancelled at its cap leaves the units
+/// of its jobs that had not ended to the gate, whose local run is their
+/// only run, and the gate reuses what the ended jobs ran.
+#[test]
+fn a_hosted_run_cancelled_at_its_cap_leaves_the_gate_the_only_run_of_its_unfinished_units() {
+    let (workspace, folder, records) = gated_with_a_register("2027-01-30");
+    let downloaded = folder.path().join("downloaded");
+    a_batch_pinning_the_ci_image(&workspace);
+    let mut ran = Ran::new();
+
+    hosted_run(
+        &workspace,
+        folder.path(),
+        &downloaded,
+        "1",
+        &["lint"],
+        &mut ran,
+    );
+    let gate = merge_gate(&workspace, &records, &downloaded, &mut ran);
+
+    ran_once(&ran);
+    assert_eq!(action(&gate, "lint").0, "reuse");
+    for step in ["quick", "journeys-tasks", "codegen-tests"] {
+        assert_eq!(action(&gate, step).0, "run", "{step}");
+        for unit in units(&gate, step) {
+            let tree = workspace.git(&["rev-parse", "HEAD^{tree}"]);
+            assert_eq!(ran[&(unit, tree.trim().to_owned())], ["merge"]);
+        }
+    }
 }
 
 /// Lint's register check reads the day: an Exception past its expiry fails

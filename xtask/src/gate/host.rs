@@ -12,14 +12,21 @@ use sha2::{Digest as _, Sha256};
 /// any step starts, which decides whether a gate begins, those that say
 /// where the record is and which layer runs (`ci/gate-records.sh`,
 /// `ci/pre-merge.sh`), and the base `just quick` reads its change against,
-/// which its run's unit names (`quick_runs`). None changes what a step runs
-/// or how beyond what the key holds, so every layer fingerprints one host
-/// alike.
-const LAUNCHER_VARIABLES: [&str; 4] = [
+/// which its run's unit names (`quick_runs`), and what `just merge` and the
+/// hosted tier give the plan: where the hosted runs' records are, the
+/// repository they must name, the one step a hosted job runs and the hosted
+/// runner's image version, which its fingerprint names. None changes what a
+/// step runs or how beyond what the key holds, so every layer fingerprints
+/// one host alike.
+const LAUNCHER_VARIABLES: [&str; 8] = [
     "GOODFETCH_GATE_MIN_FREE_GB",
     "GOODFETCH_GATE_RECORDS",
     "GOODFETCH_GATE_LAYER",
     "GOODFETCH_QUICK_BASE",
+    "GOODFETCH_GATE_HOSTED_RECORDS",
+    "GOODFETCH_GATE_REPOSITORY",
+    "GOODFETCH_GATE_ONLY",
+    "GOODFETCH_GATE_RUNNER_IMAGE",
 ];
 
 /// The variables of the keep-going steps (`ci/keep-going.sh`), which
@@ -129,6 +136,29 @@ pub(super) fn host_fingerprint(root: &Path, cargo: &OsStr, variables: &str) -> S
     }
     digest.update(variables.as_bytes());
     format!("{:x}", digest.finalize())
+}
+
+/// The identity of the CI image `tree` pins: the SHA-256 of its
+/// `ci/image/Containerfile`, which pins the base image by digest and each
+/// tool by version and checksum, and copies nothing from the tree, as
+/// `ci/vm/common.sh` tags the image by it. `None` for a tree without one.
+pub(super) fn ci_image(root: &Path, tree: &str) -> Option<String> {
+    let output = Process::new("git")
+        .args(["show", &format!("{tree}:ci/image/Containerfile")])
+        .current_dir(root)
+        .output()
+        .ok()?;
+    output
+        .status
+        .success()
+        .then(|| format!("{:x}", Sha256::digest(&output.stdout)))
+}
+
+/// The digest of the step variables a hosted job ran with, for its
+/// fingerprint ([`super::plan::hosted_fingerprint`]).
+pub(super) fn variables_digest(variables: &str) -> String {
+    let digest = format!("{:x}", Sha256::digest(variables.as_bytes()));
+    digest.get(..16).unwrap_or(&digest).to_owned()
 }
 
 /// The files outside the tree that tell Git what else to ignore: the

@@ -6,6 +6,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
+use super::steps::{self, Form, Owner};
 use crate::affected::{Job, RepoPath, Selection};
 use crate::products;
 
@@ -41,6 +42,13 @@ pub(crate) enum Step {
     FeaturesTests,
     Kennel,
     Msrv,
+    /// xtask's codegen tests, `tests/` tests the Quick suite never runs, when
+    /// the change reaches what only they check (`xtask affected`'s
+    /// `codegen-tests=true`): the quick form's last step, so a change to the
+    /// emitter or to the protocol files their fixture copies cannot merge on
+    /// the quick gate with them red (issue 2892). The full forms' Pre-merge
+    /// suite runs them with every other test.
+    CodegenTests,
 }
 
 /// What a step's result depends on, besides the gate's own inputs.
@@ -65,7 +73,7 @@ enum Reach {
 
 impl Step {
     /// Every step, in the order `ci/pre-merge.sh` starts them.
-    pub(crate) const ALL: [Self; 25] = [
+    pub(crate) const ALL: [Self; 26] = [
         Self::Dco,
         Self::CommitMessages,
         Self::FloorGuard,
@@ -91,6 +99,7 @@ impl Step {
         Self::FeaturesTests,
         Self::Kennel,
         Self::Msrv,
+        Self::CodegenTests,
     ];
 
     /// The step's name in the plan, the record and `ci/pre-merge.sh`.
@@ -121,6 +130,7 @@ impl Step {
             Self::Loom => "loom",
             Self::Windows => "windows",
             Self::Kennel => "kennel",
+            Self::CodegenTests => "codegen-tests",
         }
     }
 
@@ -135,10 +145,16 @@ impl Step {
             | Self::FloorGuard
             | Self::Audit
             | Self::CommitLeaks
-            | Self::JourneysTasks
             | Self::FeaturesTests
             | Self::Notices => Reach::Always,
-            Self::Lint | Self::FeatureCombinations | Self::FuzzCheck | Self::Proofs => Reach::Tree,
+            // The Journey task lists follow from the tree's Proving ground,
+            // and the codegen tests from the tree and its base.
+            Self::Lint
+            | Self::FeatureCombinations
+            | Self::FuzzCheck
+            | Self::Proofs
+            | Self::JourneysTasks
+            | Self::CodegenTests => Reach::Tree,
             // The counted rows read the benchmarks perf reads, and judge them
             // against the register's limits, never against the base.
             Self::Perf | Self::Counts => Reach::Job(Job::Perf),
@@ -201,9 +217,11 @@ impl Step {
     /// the full gate runs or reuses a member's Pre-merge unit, which it does
     /// for every member, its Quick unit is covered and never runs beside it
     /// (ADR 0135's amendment of 2026-11-22).
+    /// The Pre-merge suite runs xtask's codegen tests with every other test,
+    /// so they are covered alike.
     pub(crate) const fn covered_by(self) -> Option<Self> {
         match self {
-            Self::Quick => Some(Self::PreMerge),
+            Self::Quick | Self::CodegenTests => Some(Self::PreMerge),
             _ => None,
         }
     }
@@ -226,9 +244,10 @@ impl Step {
     }
 
     /// Whether the step compares the head with the change's base (the merge
-    /// base with `origin/main`), so its result holds only for that base.
+    /// base with `origin/main`), so its result holds only for that base. The
+    /// codegen tests run only when the change since the base reaches them.
     const fn reads_the_base(self) -> bool {
-        matches!(self, Self::Perf | Self::Stress)
+        matches!(self, Self::Perf | Self::Stress | Self::CodegenTests)
     }
 }
 
@@ -466,6 +485,10 @@ pub(crate) enum Layer {
     Quick,
     /// The pre-push hook's `just quick`.
     PrePush,
+    /// A job of the hosted tier, the pull-request workflow on a batch, spec
+    /// or fork pull request (ADR 0135's amendment of 2026-11-22). It runs
+    /// only the hosted-owned units and leaves the others to their layers.
+    Hosted,
 }
 
 impl Layer {
@@ -477,6 +500,7 @@ impl Layer {
             Self::Backstop => "backstop",
             Self::Quick => "quick",
             Self::PrePush => "pre-push",
+            Self::Hosted => "hosted",
         }
     }
 
@@ -487,6 +511,7 @@ impl Layer {
             Self::Backstop,
             Self::Quick,
             Self::PrePush,
+            Self::Hosted,
         ]
         .into_iter()
         .find(|layer| layer.name() == name)
@@ -571,6 +596,51 @@ pub(crate) struct Head<'a> {
     /// What lint reads besides the tree and the host, read again now. Asked
     /// only for a green lint this run would otherwise reuse.
     pub(crate) lint: LintReads<'a>,
+    /// The form of `just pre-merge` this run plans: a step another one's
+    /// units cover is covered only where the form runs that one.
+    pub(crate) form: Form,
+    /// The layer that plans: the hosted tier's runs only the hosted-owned
+    /// units and leaves every other to its owner.
+    pub(crate) layer: Layer,
+    /// What a hosted run's record must name to count for this head.
+    pub(crate) pin: Pin<'a>,
+}
+
+/// The CI image the head's tree pins, and the repository whose pull
+/// requests' hosted runs count for it: a hosted record counts as an earlier
+/// run only when its fingerprint names both ([`hosted_fingerprint`]). The
+/// repository is the pull request's head repository, so a fork's run, which
+/// names the fork, never counts for this repository's head.
+#[derive(Clone, Copy)]
+pub(crate) struct Pin<'a> {
+    /// The SHA-256 of the tree's `ci/image/Containerfile`, which pins its
+    /// base image by digest and each tool by version and checksum: the
+    /// image's identity, by which `ci/vm/common.sh` tags it too.
+    pub(crate) image: &'a str,
+    /// `<owner>/<name>`; empty where no hosted run is read.
+    pub(crate) repository: &'a str,
+}
+
+/// The host line of a hosted job's record: the image its steps ran in, the
+/// pull request's head repository, the runner image's version and the digest
+/// of the variables its steps read, each after `hosted:`. Only the first two
+/// decide whether it counts ([`Pin`]); the others say where it ran.
+pub(crate) fn hosted_fingerprint(
+    image: &str,
+    repository: &str,
+    runner: &str,
+    variables: &str,
+) -> String {
+    format!("{HOSTED}{image}:{repository}:{runner}:{variables}")
+}
+
+const HOSTED: &str = "hosted:";
+
+/// The image and the repository a hosted fingerprint names; none for a
+/// local host's.
+fn hosted_pin(host: &str) -> Option<(&str, &str)> {
+    let mut fields = host.strip_prefix(HOSTED)?.splitn(3, ':');
+    Some((fields.next()?, fields.next()?))
 }
 
 /// What lint reads besides the tree and the host, its register check the
@@ -605,16 +675,25 @@ pub(crate) enum Action {
     /// runs or reuses for every member, hold this step's tests
     /// ([`Step::covered_by`]).
     Covered { by: Step },
+    /// Runs nothing and records nothing: the hosted tier leaves the step to
+    /// the layer that owns it (spec #3373's table of owning layers).
+    Left { owner: Owner },
+    /// Runs nothing: a hosted run went red on a unit of it on this tree, so
+    /// the gate is red (ADR 0064), and the unit is never run again beside it.
+    Red { why: String },
 }
 
-/// The plan of a step another step's units cover, whatever the records say.
-pub(crate) fn covered(step: Step) -> Option<Planned> {
-    step.covered_by().map(|by| Planned {
-        step,
-        action: Action::Covered { by },
-        carried: BTreeMap::new(),
-        earned: BTreeMap::new(),
-    })
+/// The plan of a step another step's units cover where `form` runs those,
+/// whatever the records say.
+pub(crate) fn covered(step: Step, form: Form) -> Option<Planned> {
+    step.covered_by()
+        .filter(|by| steps::runs_in(*by, form) || form == Form::Preflight)
+        .map(|by| Planned {
+            step,
+            action: Action::Covered { by },
+            carried: BTreeMap::new(),
+            earned: BTreeMap::new(),
+        })
 }
 
 /// Why a step that `by` covers runs nothing.
@@ -622,6 +701,14 @@ pub(crate) fn covered_why(by: Step) -> String {
     format!(
         "covered by {}, which runs or reuses each member's unit, and whose selection of a member holds every test of this step's",
         by.name()
+    )
+}
+
+/// Why the hosted tier runs nothing of a step `owner` owns.
+pub(crate) fn left_why(owner: Owner) -> String {
+    format!(
+        "the {} layer owns it, and the hosted tier leaves it to that layer",
+        owner.name()
     )
 }
 
@@ -635,137 +722,247 @@ pub(crate) struct Planned {
     pub(crate) earned: BTreeMap<String, EarnedPasses>,
 }
 
-/// Each step's action for `head`, from the nearest earlier run on an
-/// ancestor (`previous`, `None` with the reason `no_previous` when there is
-/// none or a full run is asked for) and what the change since each head a
-/// carried result ran on reaches (`touched`, by that head).
+/// The earlier runs a plan reads: the nearest local run on an ancestor
+/// (`previous`, `None` with the reason `no_previous` when there is none or a
+/// full run is asked for), then the accepted hosted runs on the head or its
+/// ancestors, nearest first (`hosted`), whose units count for the hosted-owned
+/// steps alone, under the head's [`Pin`].
+pub(crate) struct Earlier<'a> {
+    pub(crate) previous: Option<&'a GateRun>,
+    pub(crate) no_previous: &'a str,
+    pub(crate) hosted: &'a [GateRun],
+}
+
+/// Why a unit's earlier result is not reused.
+enum Unreused {
+    /// It runs here.
+    Rerun(String),
+    /// A hosted run went red on it on this tree.
+    Red(String),
+}
+
+/// Each step's action for `head`, from the `earlier` runs and what the change
+/// since each head a carried result ran on reaches (`touched`, by that head).
+/// Each unit takes the first earlier result that holds: the local run's, then
+/// the hosted runs' in their order.
 pub(crate) fn plan(
     head: &Head<'_>,
-    previous: Option<&GateRun>,
-    no_previous: &str,
+    earlier: &Earlier<'_>,
     touched: &BTreeMap<String, Touched>,
 ) -> Vec<Planned> {
     Step::ALL
         .into_iter()
-        .map(|step| {
-            if let Some(planned) = covered(step) {
-                return planned;
-            }
-            let judge = |member: Option<&str>| match previous {
-                None => Err(no_previous.to_owned()),
-                Some(previous) => judge(step, member, head, previous, touched),
-            };
-            if !step.per_member() {
-                return match judge(None) {
-                    Ok(outcome) => Planned {
-                        step,
-                        action: Action::Reuse {
-                            origins: BTreeSet::from([outcome.origin.clone()]),
-                        },
-                        carried: BTreeMap::from([(unit(step, None), outcome)]),
-                        earned: BTreeMap::new(),
-                    },
-                    Err(why) => Planned {
-                        step,
-                        action: Action::Run { why },
-                        carried: BTreeMap::new(),
-                        earned: BTreeMap::new(),
-                    },
-                };
-            }
-            let mut rerun = BTreeSet::new();
-            let mut reasons = Vec::new();
-            let mut carried = BTreeMap::new();
-            let mut earned = BTreeMap::new();
-            for member in head.members {
-                match judge(Some(member)) {
-                    Ok(outcome) => {
-                        carried.insert(unit(step, Some(member)), outcome);
-                    }
-                    Err(why) => {
-                        rerun.insert(member.clone());
-                        if !reasons.contains(&why) {
-                            reasons.push(why);
-                        }
-                        if let Some(passes) = previous
-                            .and_then(|previous| kept_passes(step, member, head, previous, touched))
-                        {
-                            earned.insert(member.clone(), passes);
-                        }
-                    }
-                }
-            }
-            let why = reasons.join("; ");
-            let action = if head.members.is_empty() {
-                Action::Run {
-                    why: "the workspaces have no member".to_owned(),
-                }
-            } else if rerun.is_empty() {
-                Action::Reuse {
-                    origins: carried
-                        .values()
-                        .map(|outcome| outcome.origin.clone())
-                        .collect(),
-                }
-            } else if rerun.len() == head.members.len() && earned.is_empty() {
-                Action::Run { why }
-            } else {
-                Action::Part {
-                    members: rerun,
-                    why,
-                }
-            };
-            if matches!(action, Action::Run { .. }) {
-                carried.clear();
-            }
-            Planned {
-                step,
-                action,
-                carried,
-                earned,
-            }
-        })
+        .map(|step| plan_step(step, head, earlier, touched))
         .collect()
 }
 
-/// A unit's green result that this run may reuse, or why it reruns.
+/// One step's action for `head`, as [`plan`] says.
+fn plan_step(
+    step: Step,
+    head: &Head<'_>,
+    earlier: &Earlier<'_>,
+    touched: &BTreeMap<String, Touched>,
+) -> Planned {
+    if let Some(planned) = covered(step, head.form) {
+        return planned;
+    }
+    let owner = Owner::of(step);
+    if head.layer == Layer::Hosted && owner != Owner::Hosted {
+        return carrying_nothing(step, Action::Left { owner });
+    }
+    let judge = |member: Option<&str>| judge_unit(step, member, owner, head, earlier, touched);
+    if !step.per_member() {
+        return match judge(None) {
+            Ok(outcome) => Planned {
+                step,
+                action: Action::Reuse {
+                    origins: BTreeSet::from([outcome.origin.clone()]),
+                },
+                carried: BTreeMap::from([(unit(step, None), outcome)]),
+                earned: BTreeMap::new(),
+            },
+            Err(Unreused::Red(why)) => carrying_nothing(step, Action::Red { why }),
+            Err(Unreused::Rerun(why)) => carrying_nothing(step, Action::Run { why }),
+        };
+    }
+    let previous = earlier.previous;
+    let mut rerun = BTreeSet::new();
+    let mut reasons = Vec::new();
+    let mut red = Vec::new();
+    let mut carried = BTreeMap::new();
+    let mut earned = BTreeMap::new();
+    for member in head.members {
+        match judge(Some(member)) {
+            Ok(outcome) => {
+                carried.insert(unit(step, Some(member)), outcome);
+            }
+            Err(Unreused::Red(why)) => red.push(format!("{member}: {why}")),
+            Err(Unreused::Rerun(why)) => {
+                rerun.insert(member.clone());
+                if !reasons.contains(&why) {
+                    reasons.push(why);
+                }
+                if let Some(passes) =
+                    previous.and_then(|previous| kept_passes(step, member, head, previous, touched))
+                {
+                    earned.insert(member.clone(), passes);
+                }
+            }
+        }
+    }
+    if !red.is_empty() {
+        return carrying_nothing(
+            step,
+            Action::Red {
+                why: red.join("; "),
+            },
+        );
+    }
+    let why = reasons.join("; ");
+    let action = if head.members.is_empty() {
+        Action::Run {
+            why: "the workspaces have no member".to_owned(),
+        }
+    } else if rerun.is_empty() {
+        Action::Reuse {
+            origins: carried
+                .values()
+                .map(|outcome| outcome.origin.clone())
+                .collect(),
+        }
+    } else if rerun.len() == head.members.len() && earned.is_empty() {
+        Action::Run { why }
+    } else {
+        Action::Part {
+            members: rerun,
+            why,
+        }
+    };
+    if matches!(action, Action::Run { .. }) {
+        carried.clear();
+    }
+    Planned {
+        step,
+        action,
+        carried,
+        earned,
+    }
+}
+
+/// A step's plan that carries no earlier unit.
+fn carrying_nothing(step: Step, action: Action) -> Planned {
+    Planned {
+        step,
+        action,
+        carried: BTreeMap::new(),
+        earned: BTreeMap::new(),
+    }
+}
+
+/// The earlier result one unit takes: the local run's, then, for a
+/// hosted-owned step, the hosted runs' in their order, a red one ending the
+/// search.
+fn judge_unit(
+    step: Step,
+    member: Option<&str>,
+    owner: Owner,
+    head: &Head<'_>,
+    earlier: &Earlier<'_>,
+    touched: &BTreeMap<String, Touched>,
+) -> Result<Outcome, Unreused> {
+    let mut reasons = vec![match earlier.previous {
+        None => earlier.no_previous.to_owned(),
+        Some(previous) => match judge(step, member, head, (previous, Rule::SameHost), touched) {
+            Ok(outcome) => return Ok(outcome),
+            Err(Unreused::Rerun(why) | Unreused::Red(why)) => why,
+        },
+    }];
+    if owner == Owner::Hosted {
+        for run in earlier.hosted {
+            match judge(step, member, head, (run, Rule::Pinned), touched) {
+                Ok(outcome) => return Ok(outcome),
+                Err(Unreused::Red(why)) => return Err(Unreused::Red(why)),
+                Err(Unreused::Rerun(why)) => reasons.push(why),
+            }
+        }
+    }
+    reasons.dedup();
+    Err(Unreused::Rerun(reasons.join("; ")))
+}
+
+/// What an earlier run's host must match for its results to count.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Rule {
+    /// A local run's: this host and its tools.
+    SameHost,
+    /// A hosted run's: the head's [`Pin`], its image and repository.
+    Pinned,
+}
+
+/// A unit's green result that this run may reuse, or why not.
 fn judge(
     step: Step,
     member: Option<&str>,
     head: &Head<'_>,
-    previous: &GateRun,
+    (previous, rule): (&GateRun, Rule),
     touched: &BTreeMap<String, Touched>,
-) -> Result<Outcome, String> {
+) -> Result<Outcome, Unreused> {
+    let rerun = |why: String| Err(Unreused::Rerun(why));
     if matches!(step.reach(), Reach::Always) {
-        return Err("every run reruns it".to_owned());
+        return rerun("every run reruns it".to_owned());
     }
-    // A full run on the head orders these tests by the head's seed: a
-    // result from another tree's order would not be the same verdict.
-    if step.orders_by_the_head() && member.is_some_and(|member| head.shuffled.contains(member)) {
-        return Err(
-            "Vitest, Playwright and pytest rerun every member in the head's test order".to_owned(),
-        );
+    if rule == Rule::Pinned {
+        let on = short(&previous.head);
+        match hosted_pin(&previous.host) {
+            None => return rerun(format!("the hosted run on {on} names no CI image")),
+            Some((_, repository)) if repository != head.pin.repository => {
+                return rerun(format!(
+                    "the hosted run on {on} is another repository's pull request"
+                ));
+            }
+            Some((image, _)) if image != head.pin.image => {
+                return rerun(format!("the hosted run on {on} ran in another CI image"));
+            }
+            Some(_) => {}
+        }
     }
     let Some(outcome) = previous.units.get(&unit(step, member)) else {
-        return Err(format!("no result in the run on {}", short(&previous.head)));
+        return rerun(format!("no result in the run on {}", short(&previous.head)));
     };
     let origin = short(&outcome.origin);
     if !outcome.green {
-        return Err(format!("red on {origin}"));
+        // A hosted unit red on this very tree is the gate's verdict: running
+        // it again here could only hide a flaky test (ADR 0064).
+        if rule == Rule::Pinned && outcome.tree == head.tree {
+            return Err(Unreused::Red(format!("red in the hosted run on {origin}")));
+        }
+        return rerun(format!("red on {origin}"));
+    }
+    // These runners order a member's tests by the seed the tree under test
+    // gives (`ci/order-seed.sh`): a result on another tree ran in another
+    // order, so it is not this tree's verdict.
+    if step.orders_by_the_head()
+        && member.is_some_and(|member| head.shuffled.contains(member))
+        && outcome.tree != head.tree
+    {
+        return rerun(
+            "Vitest, Playwright and pytest rerun every member in the head's test order".to_owned(),
+        );
     }
     if matches!(step.reach(), Reach::Tree) && outcome.tree != head.tree {
-        return Err(format!("the tree changed since {origin}"));
+        return rerun(format!("the tree changed since {origin}"));
     }
     still_holds(
         step,
         member,
-        &outcome.origin,
-        outcome.at,
-        (head, previous, touched),
-    )?;
+        (&outcome.origin, outcome.at),
+        (head, previous, rule),
+        touched,
+    )
+    .map_err(Unreused::Rerun)?;
     // Lint alone reads more than the tree and the host.
     if matches!(step, Step::Lint) {
-        head.lint.hold()?;
+        head.lint.hold().map_err(Unreused::Rerun)?;
     }
     Ok(outcome.clone())
 }
@@ -787,25 +984,25 @@ fn kept_passes(
     still_holds(
         step,
         Some(member),
-        &passes.origin,
-        passes.at,
-        (head, previous, touched),
+        (&passes.origin, passes.at),
+        (head, previous, Rule::SameHost),
+        touched,
     )
     .ok()?;
     Some(passes.clone())
 }
 
 /// Whether what ran on `origin` at `at` still holds for this run: why not, if
-/// not.
+/// not. A hosted run's host was judged by its pin, in `judge`.
 fn still_holds(
     step: Step,
     member: Option<&str>,
-    origin_head: &str,
-    at: u64,
-    (head, previous, touched): (&Head<'_>, &GateRun, &BTreeMap<String, Touched>),
+    (origin_head, at): (&str, u64),
+    (head, previous, rule): (&Head<'_>, &GateRun, Rule),
+    touched: &BTreeMap<String, Touched>,
 ) -> Result<(), String> {
     let origin = short(origin_head);
-    if previous.host != head.host {
+    if rule == Rule::SameHost && previous.host != head.host {
         return Err(format!(
             "the host or its tools changed since the run on {}",
             short(&previous.head)

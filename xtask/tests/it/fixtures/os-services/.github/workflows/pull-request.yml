@@ -14,6 +14,17 @@ jobs:
         run: ci/egress/egress.sh deny
       - name: "Test: just test quick"
         run: ci/vm/exec.sh just test quick
+  hosted:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Start the job's container
+        run: ci/hosted/start.sh
+      - name: Set up the OS services the tests use
+        run: ci/hosted/exec.sh ci/os-services.sh setup
+      - name: Deny outbound traffic
+        run: ci/egress/egress.sh deny
+      - name: "Test: the gate's step"
+        run: ci/hosted/exec.sh just pre-merge quick
   release:
     runs-on: ubuntu-24.04
     steps:

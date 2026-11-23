@@ -84,6 +84,52 @@ fn job_the_selection_skipped_passes(#[case] job: &str) {
     assert_eq!(outcome.code, 0);
 }
 
+/// The hosted tier's `lint` and `quick` jobs run the steps their `plan` job
+/// schedules for each, in its output named after the job (ADR 0135's
+/// amendment of 2026-11-22): with none scheduled the job is skipped, and
+/// passes; scheduled steps, no output for the job or a failed plan never let
+/// a skip stand in for a pass.
+#[rstest]
+#[case::none_planned_for_quick(
+    "quick",
+    r#"{ "result": "success", "outputs": { "lint": "[\"lint\"]", "quick": "[]" } }"#,
+    vec![]
+)]
+#[case::none_planned_for_lint(
+    "lint",
+    r#"{ "result": "success", "outputs": { "lint": "[]", "quick": "[\"quick\"]" } }"#,
+    vec![]
+)]
+#[case::steps_planned(
+    "quick",
+    r#"{ "result": "success", "outputs": { "lint": "[]", "quick": "[\"quick\"]" } }"#,
+    vec![finding("job-not-successful", "quick")]
+)]
+#[case::no_output_for_the_job(
+    "lint",
+    r#"{ "result": "success", "outputs": { "quick": "[]" } }"#,
+    vec![finding("job-not-successful", "lint")]
+)]
+#[case::plan_failed(
+    "quick",
+    r#"{ "result": "failure", "outputs": {} }"#,
+    vec![finding("job-not-successful", "plan"), finding("job-not-successful", "quick")]
+)]
+fn job_skipped_for_an_empty_plan_passes(
+    #[case] job: &str,
+    #[case] plan: &str,
+    #[case] expected: Vec<Finding>,
+) {
+    let workspace = Workspace::from_fixture("empty");
+    let github = GitHub::serving(&[]);
+    let needs =
+        format!(r#"{{ "plan": {plan}, "{job}": {{ "result": "skipped", "outputs": {{}} }} }}"#);
+
+    let outcome = all_green(&workspace, &needs, "1", github.url());
+
+    assert_eq!(outcome.findings(), expected);
+}
+
 #[test]
 fn skipped_job_the_selection_never_chooses_fails() {
     let workspace = Workspace::from_fixture("empty");

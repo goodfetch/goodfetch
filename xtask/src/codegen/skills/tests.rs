@@ -237,3 +237,29 @@ fn a_skill_without_a_front_matter_does_not_render() {
         )
     );
 }
+
+/// The topics each Product carries: the workspace's own skills, rendered
+/// from the committed catalog and command lines with no finding, so none
+/// presents a person-only answer as the agent's action.
+///
+/// Covers: story:11-240, skill:goodfetch-collie, skill:goodfetch-collie-cli
+#[test]
+fn the_topic_list_is_each_products_rendering_of_the_skills() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
+    let read = |file: &str| std::fs::read_to_string(root.join(file)).unwrap();
+    let catalog: Value =
+        serde_json::from_str(&read("crates/goodfetch-protocol/generated/catalog.json")).unwrap();
+    let command_lines: CommandLines = serde_json::from_str(&read(
+        "crates/goodfetch-protocol/generated/command_lines.json",
+    ))
+    .unwrap();
+
+    let (files, findings) = rendered(&root, &catalog, Some(&command_lines)).unwrap();
+
+    let topics: Vec<&str> = files
+        .keys()
+        .filter_map(|path| path.strip_suffix("/SKILL.md"))
+        .collect();
+    assert_eq!(findings.len(), 0);
+    insta::assert_snapshot!(topics.join("\n"));
+}

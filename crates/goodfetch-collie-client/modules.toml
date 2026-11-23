@@ -65,6 +65,9 @@
 # `start_catalog_run`, and the Run it leaves, detached when asked (issue
 # 3396), through `call`'s builder. `run_view` is the view `open_run` opens of
 # a Run another program started, by its Run ID, with no round trip (ADR 0102).
+# `testing` is the testing kit's shared part (ADR 0105): the options a
+# Product's test engine starts with, the settings it isolates it with, and
+# what every Product's test engine is.
 [modules]
 ai_work = ["error"]
 answer = []
@@ -98,6 +101,7 @@ run_view = ["connection", "error"]
 schema = []
 settings = ["call", "error", "markers"]
 sync = []
+testing = ["error", "settings"]
 trace_context = []
 transport = []
 write_queue = ["sync"]

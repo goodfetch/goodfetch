@@ -7,7 +7,7 @@
 //! round-trips byte for byte; it answers an Export only once its file is
 //! whole, which `export.save_as` writes at the program's path and
 //! `export.stream` sends, and which outlives the engine killed during the
-//! next call. On a tmpfs of its own, a write the full filesystem refuses
+//! next call. On Linux, on a tmpfs of its own, a write the full filesystem refuses
 //! fails with `file_write_failed`, side `engine`, leaving no unfinished
 //! file, and one at the `critical` storage level fails before writing.
 //! Exports and Records read under `TZ=Pacific/Chatham` and
@@ -29,6 +29,7 @@ use goodfetch_test_support::{DISPATCH_TARGET, TestEnv, unicode_record};
 use serde_json::{Map, Value, json};
 use sha2::{Digest as _, Sha256};
 
+#[cfg(target_os = "linux")]
 use goodfetch_test_support::{fill_filesystem, free_filesystem, inside_mount, tmpfs_mounted_home};
 
 use crate::attached;
@@ -541,14 +542,18 @@ fn exports_and_records_under_another_time_zone_and_locale_are_byte_identical() {
     assert_eq!(on_elsewhere, on_host);
 }
 
+#[cfg(target_os = "linux")]
 const MIB: u64 = 1 << 20;
 
 /// The tmpfs's size over the home.
+#[cfg(target_os = "linux")]
 const SIZE: u64 = 64 * MIB;
 
 /// An Attached engine on a tmpfs of its own over the test's home, whose
 /// user configuration holds `settings`, with a finished crawl `run_id` of
-/// 40 Records of about 50 kB each in `books`.
+/// 40 Records of about 50 kB each in `books`. The tmpfs is Linux's: its
+/// mount runs through `unshare`.
+#[cfg(target_os = "linux")]
 fn crawled_on_a_tmpfs((env, site): (&TestEnv, &Site), settings: &str, run_id: &str) -> Attached {
     env.user_configuration(settings);
     let mut command = tmpfs_mounted_home(env, SIZE, FOXHOUND);
@@ -570,6 +575,7 @@ fn crawled_on_a_tmpfs((env, site): (&TestEnv, &Site), settings: &str, run_id: &s
 /// space is freed the same call writes the Export.
 ///
 /// Covers: story:6-280, operation:run.export, error:file_write_failed
+#[cfg(target_os = "linux")]
 #[test]
 fn a_write_the_full_filesystem_refuses_fails_with_file_write_failed_and_leaves_no_file() {
     let env = TestEnv::new();
@@ -625,6 +631,7 @@ fn a_write_the_full_filesystem_refuses_fails_with_file_write_failed_and_leaves_n
 /// Exports folder at all (ADR 0122).
 ///
 /// Covers: story:6-280, operation:run.export, error:file_write_failed, setting:storage.critical_free
+#[cfg(target_os = "linux")]
 #[test]
 fn an_export_at_the_critical_storage_level_fails_before_writing() {
     let env = TestEnv::new();

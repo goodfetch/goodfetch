@@ -229,7 +229,7 @@ fn a_name_that_does_not_exist_is_its_own_failure(
         stack,
         goodfetch_fetch_tier::TransportConfig {
             resolve: HostMapping::default(),
-            resolver: ResolverConfiguration::name_servers([fixture]),
+            resolver: ResolverConfiguration::name_servers([fixture]).into(),
             ..config(&proving_ground, None, &[])
         },
     );

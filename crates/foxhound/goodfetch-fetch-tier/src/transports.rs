@@ -88,7 +88,9 @@ use std::task::{Context, Poll};
 
 use bytes::Bytes;
 use goodfetch_engine::clock::Clock;
-use goodfetch_engine::dns::{Dns, HostMapping, Resolution, ResolverConfiguration, Route};
+use goodfetch_engine::dns::{
+    ConfigurationUnreadable, Dns, HostMapping, Resolution, ResolverSource, Route,
+};
 use goodfetch_engine::egress::{Gate, Policy, Refused, RequestKind};
 use goodfetch_engine::happy_eyeballs::Delays;
 use goodfetch_engine::local_addresses::SessionAddresses;
@@ -135,8 +137,9 @@ pub struct TransportConfig {
     /// What the resolver's cache keeps time on.
     pub clock: Clock,
     /// What the engine's own resolver reads: the system's configuration,
-    /// or the name servers a test gives.
-    pub resolver: ResolverConfiguration,
+    /// read only when the Session's route asks the engine's resolver, or
+    /// the name servers a test gives.
+    pub resolver: ResolverSource,
     /// The Session's local addresses (`egress.local_addresses`), `None`
     /// to let the OS choose.
     pub local: Option<LocalSource>,
@@ -230,6 +233,10 @@ pub enum TransportUnavailable {
     /// not take.
     #[error("the HTTP transport could not be built: {0}")]
     Client(String),
+    /// The Session's route asks the engine's resolver, and the system's
+    /// resolver configuration cannot be read.
+    #[error(transparent)]
+    Resolver(#[from] ConfigurationUnreadable),
 }
 
 /// reqwest, the transport of `standard` and `identified` Sessions.
@@ -304,13 +311,15 @@ impl Reqwest {
     ///
     /// # Errors
     ///
-    /// [`TransportUnavailable`] when reqwest refuses the proxy.
+    /// [`TransportUnavailable`] when reqwest refuses the proxy, or when the
+    /// Session's route needs the system's resolver configuration and it
+    /// cannot be read.
     #[expect(
         clippy::needless_pass_by_value,
         reason = "both transports take their configuration alike, and `Wreq::new` consumes it"
     )]
     pub fn new(config: TransportConfig) -> Result<Self, TransportUnavailable> {
-        let resolver = Arc::new(Resolver::new(&config));
+        let resolver = Arc::new(Resolver::new(&config)?);
         let connect = connect::Connect::new(&config, Arc::clone(&resolver));
         let trust = SharedTrust::new(
             config.trust.clone(),
@@ -787,10 +796,20 @@ struct Resolver {
 impl Resolver {
     /// The resolver of a transport under `config`, its connections
     /// reaching every family the Session holds.
-    fn new(config: &TransportConfig) -> Self {
+    ///
+    /// # Errors
+    ///
+    /// [`ConfigurationUnreadable`] when its route needs the system's
+    /// resolver configuration and it cannot be read.
+    fn new(config: &TransportConfig) -> Result<Self, ConfigurationUnreadable> {
+        let route = if config.local.is_some() {
+            Route::LocalAddress
+        } else {
+            Route::Direct
+        };
         let dns = Dns::new(
             config.resolve.clone(),
-            config.resolver.clone(),
+            config.resolver.for_route(route)?,
             config.clock,
         );
         let dns = match &config.local {
@@ -798,18 +817,13 @@ impl Resolver {
             None => dns,
         };
         let families = config.local.as_ref().map(LocalSource::families);
-        let route = if config.local.is_some() {
-            Route::LocalAddress
-        } else {
-            Route::Direct
-        };
-        Self {
+        Ok(Self {
             dns,
             route,
             egress: config.egress.clone(),
             direct: config.proxy.is_none(),
             families,
-        }
+        })
     }
 
     /// Whether its connections go to the site directly, not through a

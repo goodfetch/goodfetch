@@ -170,7 +170,7 @@ impl Wreq {
         config: TransportConfig,
         profile: HttpProfile,
     ) -> Result<Self, TransportUnavailable> {
-        let resolver = Arc::new(Resolver::new(&config));
+        let resolver = Arc::new(Resolver::new(&config)?);
         let refused = |error: wreq::Error| TransportUnavailable::Client(error.to_string());
         let proxy = config
             .proxy

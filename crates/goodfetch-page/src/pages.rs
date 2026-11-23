@@ -928,7 +928,8 @@ impl BrowserPages for Opener {
     ) -> Opening<'a, Result<(PageId, Navigated), CallError>> {
         Box::pin(async move {
             // Boxed: opening holds a live Run's lookup and a browser
-            // context's opening (clippy's `large_futures`).
+            // context's opening (clippy's `large_futures`, reached on
+            // Windows too).
             let opened =
                 Box::pin(self.pages.sessions.new_pool_page(run_id, pooled, context)).await?;
             let page_id = opened.page_id;

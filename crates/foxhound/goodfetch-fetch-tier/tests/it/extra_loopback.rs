@@ -60,7 +60,7 @@ fn bound(
                 .with_private_ranges(&["127.0.0.0/8".to_owned()])
                 .unwrap(),
             resolve: HostMapping::new(resolve),
-            resolver: ResolverConfiguration::name_servers([fixture]),
+            resolver: ResolverConfiguration::name_servers([fixture]).into(),
             local: Some(local),
             ..crate::config(proving_ground, None, &[])
         },

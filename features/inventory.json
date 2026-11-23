@@ -1390,7 +1390,7 @@
     {
       "id": "error:detach_unsupported",
       "kind": "error",
-      "area": null,
+      "area": 3,
       "milestone": null,
       "status": "active",
       "products": [

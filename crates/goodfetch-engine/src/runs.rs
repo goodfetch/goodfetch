@@ -1346,6 +1346,8 @@ pub struct Runs {
     /// The owner of the registry's own task, whose panic stops the engine
     /// at once (ADR 0148).
     registry: Arc<TaskOwner>,
+    /// How many Runs are live, as the registry last said.
+    live: watch::Receiver<usize>,
 }
 
 /// The composition's Clean-up rules, and the engine's Product version, the
@@ -2967,6 +2969,7 @@ impl Runs {
         owner: &TaskOwner,
     ) -> Self {
         let (commands, mailbox) = mpsc::channel(COMMANDS);
+        let (live_count, live) = watch::channel(0);
         let readers = Arc::clone(setup.engine.owner());
         let limits = Limits {
             owner: Arc::clone(&readers),
@@ -2989,6 +2992,7 @@ impl Runs {
             metrics: setup.metrics.clone(),
             gates: setup.gates.clone(),
             registry: Arc::new(owner.part("Run registry")),
+            live,
         };
         let politeness = SharedPoliteness {
             file: Arc::new(tokio::sync::OnceCell::new()),
@@ -3011,6 +3015,7 @@ impl Runs {
             itself: Arc::clone(&runs.registry),
             readers,
             live: BTreeMap::new(),
+            live_count,
             ended: EndedRuns::new(),
             runs: runs.downgrade(),
             limits: Arc::clone(&runs.limits),
@@ -4080,6 +4085,18 @@ impl Runs {
         answered.await.unwrap_or(0)
     }
 
+    /// How many Runs are live, told each time the registry answered a
+    /// command that changed it.
+    pub(crate) fn live_changes(&self) -> watch::Receiver<usize> {
+        self.live.clone()
+    }
+
+    /// Whether the engine found the Run index's lowest minor raised past
+    /// itself (ADR 0098), told once it does.
+    pub(crate) fn locked_out_of_the_index(&self) -> watch::Receiver<bool> {
+        self.engine.run_index().locked_out()
+    }
+
     /// Whether the engine drains and where its run folders go, answered by
     /// the registry itself: `None` once it stopped or stopped answering.
     ///
@@ -4499,6 +4516,8 @@ struct Registry {
     /// Where readers of run state run their blocking reads.
     readers: Arc<TaskOwner>,
     live: BTreeMap<RunId, Live>,
+    /// How many Runs `live` holds, told once each command is answered.
+    live_count: watch::Sender<usize>,
     /// What it keeps of the Runs this engine ended: nothing of most
     /// (`runs::ended`).
     ended: EndedRuns,
@@ -4580,11 +4599,15 @@ impl Registry {
         // writes are done.
         startup.await;
         self.reclaim().await;
+        self.rebuild_orphaned_rows().await;
         self.follow_governor();
         while let Some(command) = mailbox.recv().await {
             if let Some(command) = self.unless_discarding(command) {
                 self.ending_line(&command);
                 self.answer(command).await;
+                let live = self.live.len();
+                self.live_count
+                    .send_if_modified(|count| std::mem::replace(count, live) != live);
             }
         }
         self.readers.wait().await;
@@ -5008,6 +5031,31 @@ impl Registry {
             .await;
         if let Err(error) = reclaimed {
             tracing::warn!(%error, "the Usage ledger could not be opened to reclaim the Slices of dead runs");
+        }
+    }
+
+    /// Rebuilds, as a Daemon starts, the Run index rows that an engine
+    /// left owned with no writer holding their Runs, such as those a
+    /// Daemon locked out of the index ended (ADRs 0031 and 0098).
+    async fn rebuild_orphaned_rows(&self) {
+        if !matches!(self.setup.reached_at, Some(RunOwner::Daemon(_))) {
+            return;
+        }
+        let home = self.setup.engine.home().clone();
+        let version = self.setup.version.clone();
+        let rebuilt = self
+            .owner
+            .blocking(move || reindex::orphaned(&home, &version))
+            .await;
+        match rebuilt {
+            Ok(0) => {}
+            Ok(rebuilt) => tracing::info!(
+                rebuilt,
+                "the Run index rows no live engine owns were rebuilt"
+            ),
+            Err(error) => {
+                tracing::warn!(%error, "the Run index rows no live engine owns were not rebuilt; `runs reindex` rebuilds them");
+            }
         }
     }
 
@@ -6038,6 +6086,7 @@ impl Registry {
             metrics: self.setup.metrics.clone(),
             gates: self.setup.gates.clone(),
             registry: Arc::clone(&self.itself),
+            live: self.live_count.subscribe(),
         }
     }
 

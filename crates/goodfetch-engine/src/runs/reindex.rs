@@ -88,6 +88,39 @@ pub fn reindex(
     })
 }
 
+/// Rebuilds, from its own state, the row of each Run that the Run index
+/// of `version`'s major in `home` says an engine owns but that no writer
+/// holds: one whose engine ended unable to write it, as an engine locked
+/// out of the index does (ADR 0098), or one whose engine died. Answers how
+/// many rows it rebuilt. An index not made yet holds none, and is not
+/// made. It blocks, as [`reindex`] does.
+///
+/// # Errors
+///
+/// When the Run index cannot be read or written.
+pub(super) fn orphaned(home: &Home, version: &ProductVersion) -> Result<u64, RunStateError> {
+    let index = IndexFile::of(home.run_index(version), version);
+    if !index.path().is_file() {
+        return Ok(0);
+    }
+    let connection = index.open()?;
+    let per_major = home.per_major(version);
+    let owned = index.owned(&connection)?;
+    let mut rebuilt = 0;
+    for row in &owned {
+        let folder = per_major.join(&row.location);
+        if matches!(test_writer(&folder), Ok(Writer::Live)) {
+            continue;
+        }
+        let listed = BTreeMap::from([(row.run_id.clone(), row.clone())]);
+        if let Some(found) = found_row(&folder, &per_major, &listed) {
+            index.write(&connection, &found)?;
+            rebuilt += 1;
+        }
+    }
+    Ok(rebuilt)
+}
+
 /// The Run folders `location` holds: itself when it holds a Run's state,
 /// else each of its folders that does.
 fn run_folders(location: &Path) -> Vec<PathBuf> {

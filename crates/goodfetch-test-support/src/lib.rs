@@ -8,7 +8,8 @@
 //! paused runtime and the hold of its blocking pool, proptest's configuration, the
 //! test `tracing` subscriber and `logged`, which captures what `tracing`
 //! wrote, the size-capped tmpfs a test fills on Linux, the Observation log with its fencing and
-//! Limits checkers, seeded kills of real processes and the crash VFS under
+//! Limits checkers, Fault plans with the generator that shrinks a failing
+//! one and writes it with its replay command, seeded kills of real processes and the crash VFS under
 //! SQLite (ADR 0060), the byte-stable SQL dump of a SQLite store (ADR 0066),
 //! the lines of a Run trace's raw call log (ADR 0099), the strict reader of a child's JSON-RPC stdout
 //! (ADR 0070), `fuzz_replay!`, the replay of a fuzz target's seeds and past
@@ -61,6 +62,7 @@ mod endpoints;
 mod env;
 mod exercise;
 mod facts;
+mod fault_plan;
 mod fuzz;
 mod host_test;
 mod hostile;
@@ -161,6 +163,10 @@ pub use endpoints::{
 pub use env::{START_TIME, TEST_SETTINGS, TestEnv, TestEnvError, command};
 pub use exercise::{ANSWER_RECORD, AnsweredCalls, COMMAND_RECORD, COMMAND_TARGET};
 pub use facts::{CHROME_FOR_TESTING_BUILD, DISPATCH_TARGET, LIGHTPANDA_BUILD, OUTCOME_TARGET};
+pub use fault_plan::{
+    FAULT_PLAN_FILE, FAULT_PLAN_SOURCE_FILE, FaultPlan, FaultPlanAction, FaultPlanError,
+    FaultPlanFailure, FaultPlanGenerator, FaultPlanStep,
+};
 pub use fuzz::{CRASHERS_FOLDER, FuzzReplayError, Replayed, SEEDS_FOLDER, replay_fuzz_target};
 pub use host_test::{HOST_DEADLINE, HostRun, past_the_harness, run_host_test};
 pub use hostile::{

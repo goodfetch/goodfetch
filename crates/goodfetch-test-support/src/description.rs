@@ -11,6 +11,7 @@ use std::path::PathBuf;
 use crate::daemon::DaemonDescription;
 use crate::endpoints::EndpointTable;
 use crate::env::{START_TIME, TestEnv};
+use crate::fault_plan::FaultPlan;
 use crate::hostile::{
     HeaderValue, HostileTable, PathName, ResourceLimit, SchemaRef, SecretRedirect,
 };
@@ -102,6 +103,10 @@ pub fn schemas() -> BTreeMap<&'static str, serde_json::Value> {
         (
             "schemas/endpoint-table.schema.json",
             schemars::schema_for!(EndpointTable).to_value(),
+        ),
+        (
+            "schemas/fault-plan.schema.json",
+            schemars::schema_for!(FaultPlan).to_value(),
         ),
         (
             "schemas/hostile-header-values.schema.json",

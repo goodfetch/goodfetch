@@ -149,6 +149,26 @@ impl Settings {
         self
     }
 
+    /// The value given `name`, as the wire carries it, if any.
+    pub(crate) fn given(&self, name: &str) -> Option<&Value> {
+        self.values.get(name).map(|given| &given.value)
+    }
+
+    /// Sets `setting` to `value` unless a value was given it before, which
+    /// stays.
+    #[must_use]
+    pub(crate) fn or_set<T: SettingValue>(
+        self,
+        setting: Setting<T>,
+        value: impl IntoSettingValue<T>,
+    ) -> Self {
+        if self.values.contains_key(setting.name) {
+            self
+        } else {
+            self.set(setting, value)
+        }
+    }
+
     /// The settings as `scope`'s `settings` member carries them, nested by
     /// the keys' segments: a Run's start's, or a connection's `hello`'s.
     ///

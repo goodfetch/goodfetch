@@ -26,7 +26,7 @@
 
 [suite]
 name = "clients"
-version = "54"
+version = "55"
 
 [[capability]]
 name = "lifecycle"
@@ -501,6 +501,24 @@ id = "connect-takes-the-environment-map"
 covers = ["story:11-73"]
 surfaces = ["sdk-typescript", "sdk-python", "sdk-rust"]
 modes = ["attached", "linked"]
+
+# The project file `connect()` reads (ADR 0083; issue 3407).
+# - Which file: by default it is found upward from the working directory, as
+#   the CLI finds it, shown in a child process the test starts there, so no
+#   test moves its own. `project` names another file, and `null` (Python's
+#   `None`, Rust's `no_project()`) reads none.
+# - Its values reach the engine as the `project_configuration` layer on
+#   `config.explain` and `run.start`, and the engine info reports the file.
+# - Its `timeout.connect` bounds `hello`, unless the connection sets its own.
+# - Daemon mode: against the Scripted engine as a remote Daemon, a project
+#   value that widens `tls.trusted_cas` makes the Run's start raise
+#   `setting_locked` at `project_configuration`.
+# Rust plays the attached lines linked, where the engine itself explains the
+# value and its layer.
+[[capability.case]]
+id = "connect-reads-the-project-file"
+covers = ["story:11-75"]
+surfaces = ["sdk-typescript", "sdk-python", "sdk-rust"]
 
 [[capability]]
 name = "time"

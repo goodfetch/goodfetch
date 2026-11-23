@@ -22,6 +22,7 @@ use goodfetch_test_support::{TestEnv, cli};
 use rstest::rstest;
 use serde_json::{Value, json};
 
+use crate::governor::wait_group;
 use crate::run_file;
 use crate::site::Site;
 
@@ -256,26 +257,13 @@ fn an_operator_policy_cap_bounds_the_rate_of_a_crawl_that_set_none() {
     };
     engine.send(&json!({ "jsonrpc": "2.0", "id": first["id"], "result": { "records": [] } }));
 
-    let mut params = json!({ "run_id": "paced" });
-    let held = loop {
-        let progress = engine.call("progress", "run.progress", &params, &mut |request| {
-            panic!("the rate cap let a second request go within its minute: {request}")
-        });
-        let progress = &progress["result"];
-        if let Some(group) = progress["waiting"]
-            .as_array()
-            .and_then(|groups| groups.iter().find(|group| group["reason"] == "rate_cap"))
-        {
-            break json!([
-                &group["count"],
-                &group["domains"][0]["domain"],
-                group["domains"][0]["next_admitted_at"].is_string(),
-                &group["setting"],
-            ]);
-        }
-        assert_eq!(progress["last"], false, "the crawl ended: {progress}");
-        params["after"] = progress["position"].clone();
-    };
+    let group = wait_group(&mut engine, "paced", "rate_cap");
+    let held = json!([
+        &group["count"],
+        &group["domains"][0]["domain"],
+        group["domains"][0]["next_admitted_at"].is_string(),
+        &group["setting"],
+    ]);
     let report = engine.call(
         "abort",
         "run.abort",

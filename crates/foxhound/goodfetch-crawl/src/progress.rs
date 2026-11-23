@@ -133,29 +133,32 @@ pub(crate) fn show_waits(
     for queued in queued {
         let first_until = queued.sample.first().and_then(|(_, until)| *until);
         // The rate cap holds every domain the gate would admit until its
-        // one next admission.
-        let mut rate_until = None;
-        let (reason, setting) = match queued.held {
+        // one next admission, which it gives as `rate_until`.
+        let (reason, setting, rate_until) = match queued.held {
             Some(Held::Concurrency) => (
                 DOMAIN_CONCURRENCY,
                 setting(resolved, &POLITENESS_DOMAIN_CONCURRENCY),
+                None,
             ),
-            Some(Held::Delay) => (DOMAIN_DELAY, setting(resolved, &POLITENESS_DOMAIN_DELAY)),
-            Some(Held::BackOff) => (BACKOFF, backoff_setting(resolved, first_until, now)),
-            Some(Held::PolitenessFile) => (POLITENESS_FILE, None),
+            Some(Held::Delay) => (
+                DOMAIN_DELAY,
+                setting(resolved, &POLITENESS_DOMAIN_DELAY),
+                None,
+            ),
+            Some(Held::BackOff) => (BACKOFF, backoff_setting(resolved, first_until, now), None),
+            Some(Held::PolitenessFile) => (POLITENESS_FILE, None, None),
             None => match room {
                 Room::Full => (
                     HANDLER_CONCURRENCY,
                     setting(resolved, &CRAWL_HANDLER_CONCURRENCY),
+                    None,
                 ),
-                Room::Starved => (GOVERNOR, None),
-                Room::RateCapped(until) => {
-                    rate_until = Some(until);
-                    (
-                        RATE_CAP,
-                        setting(resolved, &ADMISSION_MAX_REQUESTS_PER_MINUTE),
-                    )
-                }
+                Room::Starved => (GOVERNOR, None, None),
+                Room::RateCapped(until) => (
+                    RATE_CAP,
+                    setting(resolved, &ADMISSION_MAX_REQUESTS_PER_MINUTE),
+                    Some(until),
+                ),
                 Room::Free | Room::None => continue,
             },
         };

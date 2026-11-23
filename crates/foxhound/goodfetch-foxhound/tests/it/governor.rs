@@ -190,8 +190,9 @@ fn two_crawls_take_the_governors_http_admissions_in_turn() {
 }
 
 /// Follows the progress of `run_id` from its first value to the first that
-/// holds a wait group of `reason`, and answers that group.
-fn wait_group(engine: &mut Attached, run_id: &str, reason: &str) -> Value {
+/// holds a wait group of `reason`, and answers that group; a handler
+/// request meanwhile goes unanswered.
+pub(crate) fn wait_group(engine: &mut Attached, run_id: &str, reason: &str) -> Value {
     let mut params = json!({ "run_id": run_id });
     loop {
         engine.send(

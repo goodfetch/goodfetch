@@ -4,7 +4,10 @@
 //! tells the engine the level the program's subscriber records for
 //! `goodfetch::engine` only when it changed. Each test installs the
 //! process's global subscriber, which the linked engine's threads log to,
-//! so each runs in a process of its own, as `just test` runs every test.
+//! so each runs in a process of its own, as `just test` runs every test,
+//! and installs it before its `TestEnv`, which under `just test` installs
+//! test support's for a test with none. A program with none runs as a host
+//! of its own, which `just test` gives no exercise record.
 
 use std::collections::BTreeMap;
 use std::ffi::OsString;
@@ -55,8 +58,8 @@ fn the_linked_engines_own_events_reach_the_programs_subscriber_once() {
         RustMode::Linked,
     )
     .unwrap();
-    let env = TestEnv::new();
     let log = global_log();
+    let env = TestEnv::new();
     let first = RunId::parse("first").unwrap();
 
     real_time_runtime().block_on(async {
@@ -99,8 +102,8 @@ fn a_start_tells_the_linked_engine_the_level_only_when_it_changed() {
         RustMode::Linked,
     )
     .unwrap();
-    let env = TestEnv::new();
     let log = global_log();
+    let env = TestEnv::new();
     let runtime = real_time_runtime();
     let (at_debug, _) = capturing(&[("goodfetch::engine", Level::DEBUG)]);
     let (at_warn, _) = capturing(&[("goodfetch::engine", Level::WARN)]);
@@ -156,36 +159,12 @@ fn a_start_tells_the_linked_engine_the_level_only_when_it_changed() {
     });
 }
 
-/// The SDK installs no subscriber: after a program with none connects,
-/// starts a Run and closes, none was ever set in the process, so what it
-/// and the linked engine log goes nowhere, not to stdout or stderr.
-/// Covers: story:11-25
-#[test]
-fn the_sdk_installs_no_subscriber() {
-    let env = TestEnv::new();
-    let first = RunId::parse("first").unwrap();
-
-    real_time_runtime().block_on(async {
-        let collie = Collie::connect(options(&env)).await.unwrap();
-        collie
-            .start()
-            .run_id(&first)
-            .await
-            .unwrap()
-            .finish()
-            .await
-            .unwrap();
-        collie.close().await.unwrap();
-    });
-
-    assert!(!tracing::dispatcher::has_been_set());
-}
-
 /// A program with no subscriber that links the engine writes nothing to
 /// stdout or stderr: [`unlogged_linked_host`], a program of its own,
 /// connects, starts a Run, finishes it and closes, while the engine logs
-/// at every level to a subscriber that is not there. TypeScript's and
-/// Python's twins run a fixture program the same way.
+/// at every level to a subscriber that is not there, as the SDK installs
+/// none: the host fails when one was ever set in its process. TypeScript's
+/// and Python's twins run a fixture program the same way.
 /// Covers: story:11-25
 #[test]
 fn a_linked_program_with_no_subscriber_sees_nothing_on_stdout_or_stderr() {
@@ -204,9 +183,10 @@ fn a_linked_program_with_no_subscriber_sees_nothing_on_stdout_or_stderr() {
 }
 
 /// The program with no subscriber that links the engine, run with its
-/// parent's environment, which names the test's Goodfetch home.
+/// parent's environment, which names the test's Goodfetch home, and fails
+/// when, once it closed, a subscriber was ever set in its process.
 #[test]
-#[ignore = "run as a child by sdk::logging::a_linked_program_with_no_subscriber_sees_nothing_on_stdout_or_stderr"]
+#[ignore = "run as a child by sdk::logging's a_linked_program_with_no_subscriber_sees_nothing_on_stdout_or_stderr"]
 #[expect(
     clippy::disallowed_methods,
     reason = "the host is a program of its own, whose parent passes it the test's environment"
@@ -229,4 +209,6 @@ fn unlogged_linked_host() {
             .unwrap();
         collie.close().await.unwrap();
     });
+
+    assert!(!tracing::dispatcher::has_been_set());
 }

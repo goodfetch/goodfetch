@@ -569,22 +569,19 @@ fn masked_lines_logged_at_once_from_many_threads_are_each_one_json_line_in_the_l
 /// `trace` records still do. A `log` record a bridge hands over is filtered
 /// under the same target, as the Rust SDK's `frame_logs` test shows over a
 /// live WebSocket. The test installs the process's global subscriber, so
-/// it runs in a process of its own, as `just test` runs every test.
+/// it runs in a process of its own, as `just test` runs every test, and
+/// installs it before its `TestEnv`, which under `just test` installs test
+/// support's for a test with none.
 #[test]
 #[expect(
     clippy::disallowed_methods,
     reason = "the test reads the file the subscriber wrote, outside any async worker"
 )]
 fn the_executables_logs_never_hold_a_websocket_frames_payload_at_trace() {
-    let env = goodfetch_test_support::TestEnv::new();
-    let mut canaries = goodfetch_test_support::Canaries::new(env.seed());
-    let token = canaries
-        .plant(goodfetch_test_support::SecretKind::EndpointToken)
-        .value()
-        .to_owned();
-    let folder = env.folder().join("logs");
+    let logs = tempfile::tempdir().unwrap();
+    let folder = logs.path();
     let file = LogFile::open(
-        &folder,
+        folder,
         "collie-1",
         Rotation {
             max_size: 1 << 30,
@@ -606,6 +603,12 @@ fn the_executables_logs_never_hold_a_websocket_frames_payload_at_trace() {
             trace_ids: None,
         },
     });
+    let env = goodfetch_test_support::TestEnv::new();
+    let mut canaries = goodfetch_test_support::Canaries::new(env.seed());
+    let token = canaries
+        .plant(goodfetch_test_support::SecretKind::EndpointToken)
+        .value()
+        .to_owned();
 
     tracing::trace!(target: "tungstenite::protocol::frame", "writing frame {token}");
     tracing::trace!(target: "tokio_tungstenite::compat", "a record of the stream {token}");

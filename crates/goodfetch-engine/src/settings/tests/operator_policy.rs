@@ -188,6 +188,14 @@ fn an_operator_policy_locks_every_crawl_key_against_every_higher_layer() {
         }
         let changed = other(&key.setting.kind, &at);
         for (from, layer, mut layers) in above_the_policy(name, &changed) {
+            // A layer the key's authority keeps it out of, such as a
+            // machine's key in the project file, refuses it with no policy.
+            if matches!(
+                refused(&layers, name),
+                Ok(SettingsError::NotApplicable { .. })
+            ) {
+                continue;
+            }
             layers.operator_policy = lock.clone();
             if let Err(why) = refused_by_the_policy(refused(&layers, name), name, layer, &at) {
                 failures.push(format!("{name} = {changed} from {from}: {why}"));

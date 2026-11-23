@@ -407,6 +407,8 @@ fn judge(measured: &Measured, issues: &mut Issues<'_>) -> Result<()> {
         &measured.title,
         &body,
         newest.started_at,
+        // A budget belongs to no spec's test: its issue goes to triage.
+        || Ok(None),
     )
 }
 

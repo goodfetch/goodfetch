@@ -56,6 +56,7 @@ mod crash_dumps;
 mod crash_vfs;
 mod daemon;
 mod description;
+mod determinism;
 #[cfg(target_os = "linux")]
 mod dns_namespace;
 mod endpoints;
@@ -72,6 +73,7 @@ mod kill;
 #[cfg(target_os = "linux")]
 mod lazyfs;
 mod locales;
+mod model_trace;
 #[cfg(all(
     target_os = "linux",
     any(target_arch = "x86_64", target_arch = "aarch64")
@@ -154,6 +156,7 @@ pub use crash_vfs::{
 };
 pub use daemon::{DAEMON_DEADLINE, Daemon, DaemonDescription, DaemonError};
 pub use description::{Description, schemas};
+pub use determinism::{Divergence, Replay, ReplayOutput, check_determinism};
 #[cfg(target_os = "linux")]
 pub use dns_namespace::{
     DNS_NAMESPACE_COMMAND, DnsNamespace, DnsNamespaceError, Inside, InsideUser, Mechanism,
@@ -193,6 +196,7 @@ pub use kill::{KILL_DEADLINE, KillAtError, Killed, Moment, kill_at, kill_at_with
 #[cfg(target_os = "linux")]
 pub use lazyfs::{LAZYFS_DEADLINE, LazyFs, LazyFsError};
 pub use locales::{LocaleTableError, TimeZoneCase, locales, time_zones};
+pub use model_trace::model_trace;
 #[cfg(all(
     target_os = "linux",
     any(target_arch = "x86_64", target_arch = "aarch64")
@@ -283,7 +287,8 @@ pub use user_namespaces::{
 pub use valkey::Valkey;
 pub use variables::{
     CALLGRIND_AT_ONCE_VARIABLE, CASE_LOGS_VARIABLE, CallgrindAtOnceError, DNS_NAMESPACE_VARIABLE,
-    ENGINE_VARIABLE, LAZYFS_FOLDER_VARIABLE, LAZYFS_VARIABLE, MAX_SEED, NO_GUI_SESSION_VARIABLE,
-    RECORDS_VARIABLE, RESULT_DOCUMENTS_VARIABLE, SEED_VARIABLE, SUITE_VARIABLE, SeedError, Suite,
-    SuiteError, TOOLS_VARIABLE, TOXIPROXY_DOWNLOADS_VARIABLE, Variables, case_logs, current_test,
+    ENGINE_VARIABLE, FAULT_PLAN_VARIABLE, LAZYFS_FOLDER_VARIABLE, LAZYFS_VARIABLE, MAX_SEED,
+    NO_GUI_SESSION_VARIABLE, RECORDS_VARIABLE, RESULT_DOCUMENTS_VARIABLE, SEED_VARIABLE,
+    SUITE_VARIABLE, SeedError, Suite, SuiteError, TOOLS_VARIABLE, TOXIPROXY_DOWNLOADS_VARIABLE,
+    Variables, case_logs, current_test,
 };

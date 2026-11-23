@@ -408,6 +408,8 @@ fn test_that_failed_in_one_attempt_and_passed_in_another_is_found_flaky_after_in
     ]);
     assert_eq!(ingest(&workspace, &github).code, 0);
     ingest_a_passing_third_attempt(&workspace);
+    // The scan reads the history for the commit that added the test.
+    workspace.commit_all();
     let issues = GitHub::serving(&[
         (
             "/repos/goodfetch/goodfetch/issues?labels=flaky-test&state=all&per_page=100&page=1",
@@ -416,10 +418,6 @@ fn test_that_failed_in_one_attempt_and_passed_in_another_is_found_flaky_after_in
         (
             "/repos/goodfetch/goodfetch/issues?labels=live-check&state=all&per_page=100&page=1",
             "[]",
-        ),
-        (
-            "/repos/goodfetch/goodfetch/milestones?state=open&per_page=100&page=1",
-            r#"[{ "number": 1, "title": "M1 Core", "open_issues": 5, "due_on": null }]"#,
         ),
         (
             "POST /repos/goodfetch/goodfetch/issues",

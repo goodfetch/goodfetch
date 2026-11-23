@@ -20,7 +20,7 @@ const GATE_FILES_BULLET: &str = "- **No edit to the gate's own files**";
 /// A table's rows by their first cell, each row's cells by its column's name.
 type Rows = BTreeMap<String, BTreeMap<String, String>>;
 
-pub(super) struct Register {
+pub(crate) struct Register {
     /// Each text section's lines, with how often each stands there.
     text: BTreeMap<&'static str, BTreeMap<String, usize>>,
     enforced: Rows,
@@ -112,7 +112,7 @@ fn gate_files(floor: &[&str]) -> Vec<String> {
 }
 
 /// Reads a `TESTING.md`; `None` when it holds no register.
-pub(super) fn read(testing: &str) -> Result<Option<Register>> {
+pub(crate) fn read(testing: &str) -> Result<Option<Register>> {
     let Some(document) = Document::find(testing) else {
         return Ok(None);
     };
@@ -152,7 +152,7 @@ pub(super) fn read(testing: &str) -> Result<Option<Register>> {
 
 impl Register {
     /// Whether the Floor's bullet names this path as one of the gate's files.
-    pub(super) fn is_gate_file(&self, path: &str) -> bool {
+    pub(crate) fn is_gate_file(&self, path: &str) -> bool {
         self.gate_files.iter().any(|file| {
             if file.ends_with('/') {
                 path.starts_with(file.as_str())

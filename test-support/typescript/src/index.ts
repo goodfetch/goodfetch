@@ -68,10 +68,13 @@ export {
 export { redact, type SnapshotValues } from "./snapshot.ts";
 export {
   judgeTask,
+  provingGroundObservations,
   provingGroundOf,
   provingGroundRoutes,
   provingGroundUrl,
   taskStartUrl,
+  type ObservedRequest,
+  type ProvingGroundObservations,
   type TaskResult,
   type ProvingGroundDescription,
   type ProvingGroundFixtures,

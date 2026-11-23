@@ -1938,6 +1938,17 @@
       ]
     },
     {
+      "id": "error:page_navigated_during_call",
+      "kind": "error",
+      "area": 11,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "error:page_value_invalid",
       "kind": "error",
       "area": 5,
@@ -9999,6 +10010,17 @@
     },
     {
       "id": "setting:politeness.sharing",
+      "kind": "setting",
+      "area": 3,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "setting:politeness.store",
       "kind": "setting",
       "area": 3,
       "milestone": null,

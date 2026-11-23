@@ -27,7 +27,7 @@ use serde::Deserialize;
 use serde::de::DeserializeOwned;
 use toml_edit::{DocumentMut, Item, Table};
 
-use super::{CRATES, ProductVersion, Stage, name, read, toml};
+use super::{CRATES, ProductVersion, Stage, Tree, name, toml};
 use crate::check::{self, Finding};
 use crate::github::{self, List};
 use crate::output;
@@ -154,7 +154,8 @@ pub(crate) fn run(root: &Path, arguments: &Arguments, token: Option<&str>) -> Re
     let version = &arguments.version;
     let nightly = matches!(version.stage, Stage::Nightly(_));
     let semver = version.semver();
-    let crates = publish_order(root)?;
+    let tree = Tree::Workspace(root);
+    let crates = publish_order(tree)?;
     let unprepared = unprepared(&crates, &semver);
     if !unprepared.is_empty() {
         return Ok(check::report(&unprepared));
@@ -186,7 +187,7 @@ pub(crate) fn run(root: &Path, arguments: &Arguments, token: Option<&str>) -> Re
             ));
         }
     }
-    for name in npm_packages(root)? {
+    for name in npm_packages(tree)? {
         let published = npm_versions(&arguments.npm_registry, &name)?;
         steps.push(package_step("npm", &name, &semver, published));
     }
@@ -291,8 +292,8 @@ pub(super) struct Crate {
 /// their dev-dependencies, which `cargo publish` strips: each after its
 /// dependencies, which crates.io needs published first, and in name order
 /// otherwise.
-pub(super) fn publish_order(root: &Path) -> Result<Vec<Crate>> {
-    let workspace = toml(root, "Cargo.toml")?;
+pub(super) fn publish_order(tree: Tree<'_>) -> Result<Vec<Crate>> {
+    let workspace = toml(tree, "Cargo.toml")?;
     let empty = Table::new();
     let workspace_table = workspace
         .get("workspace")
@@ -314,7 +315,7 @@ pub(super) fn publish_order(root: &Path) -> Result<Vec<Crate>> {
             continue;
         }
         let path = format!("{folder}/Cargo.toml");
-        let manifest = toml(root, &path)?;
+        let manifest = toml(tree, &path)?;
         let dependencies = path_dependencies(&manifest, &folder, shared_dependencies);
         pending.extend(dependencies.iter().cloned());
         manifests.insert(folder, (manifest, dependencies));
@@ -436,10 +437,10 @@ pub(super) fn normalized(path: &str) -> String {
 /// Each npm package of both Products, in publish order: the Collie
 /// client's, then each Product's platform packages before its root
 /// package.
-fn npm_packages(root: &Path) -> Result<Vec<String>> {
-    let mut names = vec![package_json_name(root, CLIENT_PACKAGE)?];
+fn npm_packages(tree: Tree<'_>) -> Result<Vec<String>> {
+    let mut names = vec![package_json_name(tree, CLIENT_PACKAGE)?];
     for product in Product::ALL {
-        let name = package_json_name(root, product.key())?;
+        let name = package_json_name(tree, product.key())?;
         names.extend(
             PLATFORMS
                 .iter()
@@ -450,10 +451,10 @@ fn npm_packages(root: &Path) -> Result<Vec<String>> {
     Ok(names)
 }
 
-fn package_json_name(root: &Path, folder: &str) -> Result<String> {
+fn package_json_name(tree: Tree<'_>, folder: &str) -> Result<String> {
     let path = format!("sdks/typescript/{folder}/package.json");
     let package: Named =
-        serde_json::from_str(&read(root, &path)?).with_context(|| format!("parsing {path}"))?;
+        serde_json::from_str(&tree.read(&path)?).with_context(|| format!("parsing {path}"))?;
     Ok(package.name)
 }
 

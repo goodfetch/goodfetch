@@ -23,6 +23,8 @@ export type TestSupportErrorCode =
   | "task_unknown"
   /** The Proving ground's oracle refused a test's result, or answered no outcome. */
   | "oracle_refused"
+  /** The Proving ground's observations fail their committed schema. */
+  | "observations_invalid"
   /** A test took `daemon` without setting `withDaemon`. */
   | "daemon_not_requested"
   /** The Scripted engine played as a Daemon ended without saying where it listens. */

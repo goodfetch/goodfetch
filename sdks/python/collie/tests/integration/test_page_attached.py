@@ -10,17 +10,22 @@ ground (`with_browser`). `goto`, `reload`, `go_back`, `go_forward` and
 """
 
 from collections.abc import Mapping
+from typing import cast
 from urllib.parse import urljoin
 
 import anyio.to_thread
 import pytest
-from collie_calls import failure, open_collie, response_on
+from collie_calls import failure, locator_on, open_collie, response_on
 from goodfetch_collie import (
     BodyUnavailableError,
+    ClosedError,
     ResponseNotJSONError,
     ResponseTruncatedError,
+    SettingInvalidError,
+    TooManyRedirectsError,
 )
-from goodfetch_test_support import ProvingGround, Way, three_ways
+from goodfetch_collie_client.generated.models import FormatsRequest, PageField
+from goodfetch_test_support import ClientCaseRecord, ProvingGround, Way, three_ways
 
 FETCH_EDGE = "fetch-edge.test"
 """The Proving ground's host of edge cases of the HTTP layer."""
@@ -69,10 +74,50 @@ async def test_a_navigations_response_gives_its_head_and_its_documents_text(
     assert text == body.decode("utf-8", "replace")
 
 
+@pytest.mark.covers("story:11-77")
+@pytest.mark.client_case(id="page-form-program", mode="attached")
+@three_ways
+async def test_the_form_program_fills_and_sends_the_form_and_reads_its_markdown(
+    way: Way,
+    env: Mapping[str, str],
+    proving_ground: ProvingGround,
+    client_case: ClientCaseRecord,
+) -> None:
+    """A field filled, a box clicked, Enter pressed, the end state's Markdown read."""
+    form = await start_url(proving_ground, "actionability/20")
+    collie = await open_collie(way, env)
+    run = await collie.start()
+    page = await run.new_page()
+
+    navigated = await page.goto(form)
+    await locator_on(way, page, "#name").fill("Goodfetch")
+    await locator_on(way, page, "#consent").click()
+    await locator_on(way, page, "#submit").press("Enter")
+    await locator_on(way, page, "#done:not(:empty)").wait_for()
+    formats = await page.formats(
+        FormatsRequest.model_validate({"markdown": {"content": "full"}})
+    )
+    await page.close()
+    report = await run.finish()
+    await collie.close()
+
+    with client_case.check("goto answers the form page's document"):
+        assert navigated is not None
+        assert navigated.status == 200
+    with client_case.check("the page reached its end state: the form was sent"):
+        assert "done" in (formats.markdown or "")
+    with client_case.check("the Run finished"):
+        assert report.lifecycle == "finished"
+
+
 @pytest.mark.covers("story:11-84")
+@pytest.mark.client_case(id="goto-404-returns-the-response", mode="attached")
 @three_ways
 async def test_goto_answers_the_response_of_a_404(
-    way: Way, env: Mapping[str, str], proving_ground: ProvingGround
+    way: Way,
+    env: Mapping[str, str],
+    proving_ground: ProvingGround,
+    client_case: ClientCaseRecord,
 ) -> None:
     """A 404 is a value, the document's response, which is not `ok`."""
     start = await start_url(proving_ground, "statuses/1")
@@ -85,14 +130,23 @@ async def test_goto_answers_the_response_of_a_404(
     await run.finish()
     await collie.close()
 
-    assert navigated is not None, "a 404 is a response"
-    assert (navigated.status, navigated.url, navigated.ok) == (404, missing, False)
+    with client_case.check("a 404 is a value: the document's Response"):
+        assert navigated is not None, "a 404 is a response"
+        assert (navigated.status, navigated.url, navigated.ok) == (
+            404,
+            missing,
+            False,
+        )
 
 
 @pytest.mark.covers("story:11-77")
+@pytest.mark.client_case(id="second-new-page-in-the-default-session", mode="attached")
 @three_ways
 async def test_a_runs_second_page_opens_in_its_session_and_another_sessions_apart(
-    way: Way, env: Mapping[str, str], proving_ground: ProvingGround
+    way: Way,
+    env: Mapping[str, str],
+    proving_ground: ProvingGround,
+    client_case: ClientCaseRecord,
 ) -> None:
     """The second page reads what the first stored; another Session's reads none."""
     form = await start_url(proving_ground, "actionability/20")
@@ -111,7 +165,143 @@ async def test_a_runs_second_page_opens_in_its_session_and_another_sessions_apar
     await run.finish()
     await collie.close()
 
-    assert (shared, apart) == ("by the first page", None)
+    with client_case.check("the second page reads what the first stored: one Session"):
+        assert shared == "by the first page"
+    with client_case.check("a page of another Session reads nothing of it"):
+        assert apart is None
+
+
+PRODUCT_FIELDS = {
+    "id": PageField.model_validate({"locator": {"kind": "css", "selector": "span.id"}}),
+    "name": PageField.model_validate(
+        {"locator": {"kind": "css", "selector": "h1.name"}}
+    ),
+    "price": PageField.model_validate(
+        {
+            "locator": {"kind": "css", "selector": "span.price"},
+            "attribute": "data-price",
+            "transform": {"kind": "number", "locale": "en"},
+        }
+    ),
+    "missing": PageField.model_validate(
+        {"locator": {"kind": "css", "selector": ".no-such-element"}}
+    ),
+}
+"""The fields of the Proving ground's product page, and one no element answers."""
+
+
+@pytest.mark.covers("story:11-77", "operation:page.read")
+@pytest.mark.client_case(id="page-read-fields", mode="attached")
+@three_ways
+async def test_reads_a_product_pages_fields_in_one_call(
+    way: Way,
+    env: Mapping[str, str],
+    proving_ground: ProvingGround,
+    client_case: ClientCaseRecord,
+) -> None:
+    """The oracle verifies the Record; a field with no element is `None`, with why."""
+    product = await start_url(proving_ground, "catalog/2")
+    collie = await open_collie(way, env)
+    run = await collie.start()
+    page = await run.new_page()
+    await page.goto(product)
+
+    read = await page.read(PRODUCT_FIELDS)
+    await run.finish()
+    await collie.close()
+    record = {name: value for name, value in read.values.items() if name != "missing"}
+    answer = await anyio.to_thread.run_sync(
+        proving_ground.judge,
+        {"task": "catalog/2", "status": "success", "records": [record]},
+    )
+    client_case.oracle_answer(answer)
+
+    with client_case.check("the oracle verifies the Record the fields answer"):
+        assert answer.outcome == "verified"
+    with client_case.check("the number field answers a number"):
+        assert isinstance(record["price"], float | int)
+    with client_case.check("a field with no element is None, with its reason"):
+        assert read.values["missing"] is None
+        assert [(unread.field, unread.reason) for unread in read.unread or []] == [
+            ("/missing", "no_element")
+        ]
+
+
+@pytest.mark.covers("story:11-77", "error:closed")
+@pytest.mark.client_case(id="closed-page-raises-closed", mode="attached")
+@three_ways
+async def test_a_closed_page_and_a_locator_built_on_it_raise_closed(
+    way: Way,
+    env: Mapping[str, str],
+    proving_ground: ProvingGround,
+    client_case: ClientCaseRecord,
+) -> None:
+    """`goto` on the closed page and a click of its Locator raise `ClosedError`."""
+    form = await start_url(proving_ground, "actionability/20")
+    collie = await open_collie(way, env)
+    run = await collie.start()
+    page = await run.new_page()
+    await page.goto(form)
+
+    button = locator_on(way, page, "#submit")
+    await page.close()
+    navigation = await failure(page.goto(form))
+    click = await failure(button.click())
+    await run.finish()
+    await collie.close()
+
+    with client_case.check("goto on the closed page fails with closed"):
+        assert isinstance(navigation, ClosedError)
+        assert (navigation.code, navigation.group) == ("closed", "program")
+    with client_case.check("a locator of the closed page fails with closed"):
+        assert isinstance(click, ClosedError)
+        assert (click.code, click.group) == ("closed", "program")
+
+
+@pytest.mark.covers("story:11-84", "operation:page.goto")
+@pytest.mark.client_case(
+    id="goto-skips-a-redirects-retry-after-and-answers-none-for-a-file",
+    mode="attached",
+)
+@three_ways
+async def test_goto_skips_a_redirects_retry_after_and_answers_none_for_a_file(
+    way: Way,
+    env: Mapping[str, str],
+    proving_ground: ProvingGround,
+    client_case: ClientCaseRecord,
+) -> None:
+    """A program's own `goto` is outside Politeness, and a file is a download.
+
+    The redirect's `Retry-After` asks for an hour, far past
+    `timeout.navigation`, so its target answering is the proof, with no
+    measured time (ADRs 0086, 0118). The PDF answers no response and the
+    page keeps its document, which a reload loads again (ADR 0119).
+    """
+    redirect = proving_ground.url(FETCH_EDGE, "/retry-after/302/seconds/long")
+    target = proving_ground.url(FETCH_EDGE, "/target")
+    document = await start_url(proving_ground, "catalog/2")
+    file = urljoin(await start_url(proving_ground, "files/2"), "/files/report.pdf")
+    collie = await open_collie(way, env)
+    run = await collie.start()
+    page = await run.new_page()
+
+    followed = await page.goto(redirect)
+    await page.goto(document)
+    downloaded = await page.goto(file)
+    reloaded = await page.reload()
+    await run.finish()
+    await collie.close()
+
+    with client_case.check(
+        "a 302 whose Retry-After asks for an hour is followed at once"
+    ):
+        assert followed is not None
+        assert (followed.status, followed.url) == (200, target)
+    with client_case.check("a goto to a file the browser downloads answers None"):
+        assert downloaded is None
+    with client_case.check("the page keeps its document, which a reload loads again"):
+        assert reloaded is not None
+        assert (reloaded.status, reloaded.url) == (200, document)
 
 
 @pytest.mark.covers(
@@ -216,3 +406,100 @@ async def test_back_and_forward_answer_the_documents_response_and_none_past_the_
     assert back is not None, "the first document's entry"
     assert forward is not None, "the second document's entry"
     assert (back.url, forward.url, past) == (first, then, None)
+
+
+@pytest.mark.covers("story:11-87", "operation:page.request")
+@pytest.mark.client_case(
+    id="page-request-sends-the-sessions-cookie-through-its-proxy", mode="attached"
+)
+@three_ways
+async def test_page_request_sends_the_sessions_cookie_through_its_proxy(
+    way: Way,
+    env: Mapping[str, str],
+    proving_ground: ProvingGround,
+    client_case: ClientCaseRecord,
+) -> None:
+    """On a Run whose `proxy.server` is the open proxy, as its record shows."""
+    open_proxy = proving_ground.fixtures.proxies["open"]
+    storage = proving_ground.url("scope.test", "/storage?mark=page-request")
+    about = proving_ground.url("scope.test", "/about?by=page-request")
+    collie = await open_collie(way, env)
+    run = await collie.start(settings={"proxy": {"server": f"http://{open_proxy}"}})
+    page = await run.new_page()
+    await page.goto(storage)
+
+    response = await page.request(about)
+    await run.finish()
+    await collie.close()
+    observations = await anyio.to_thread.run_sync(proving_ground.observations)
+
+    requests = cast("list[dict[str, object]]", observations["requests"])
+    relays = cast("list[dict[str, object]]", observations.get("relays", []))
+    with client_case.check("`page.request` from the Session answers 200"):
+        assert response.status == 200
+    with client_case.check("it sends the cookie a page of its Session got"):
+        assert [
+            request["cookies"]
+            for request in requests
+            if (request["host"], request["target"])
+            == ("scope.test", "/about?by=page-request")
+        ] == [[["mark", "page-request"]]]
+    with client_case.check("it leaves through the Run's proxy"):
+        assert any(
+            relay["proxy"] == "open"
+            and relay["outcome"] == "relayed"
+            and str(relay["target"]).endswith("/about?by=page-request")
+            for relay in relays
+        ), relays
+
+
+@pytest.mark.covers(
+    "story:11-87",
+    "operation:page.request",
+    "error:too_many_redirects",
+    "error:setting_invalid",
+)
+@pytest.mark.client_case(
+    id="page-request-follows-its-max-redirects-and-refuses-a-count-above-19",
+    mode="attached",
+)
+@three_ways
+async def test_page_request_follows_its_max_redirects_and_refuses_a_count_above_19(
+    way: Way,
+    env: Mapping[str, str],
+    proving_ground: ProvingGround,
+    client_case: ClientCaseRecord,
+) -> None:
+    """On the Proving ground's chain of 5 redirects (ADR 0118)."""
+    chain = proving_ground.url(FETCH_EDGE, "/redirect/hops/5")
+    collie = await open_collie(way, env)
+    run = await collie.start()
+    page = await run.new_page()
+
+    refused = await failure(page.request(chain, max_redirects=20))
+    unfollowed = await page.request(chain, max_redirects=0)
+    within = await page.request(chain, max_redirects=5)
+    past = await failure(page.request(chain, max_redirects=3))
+    await run.finish()
+    await collie.close()
+
+    with client_case.check("`max_redirects` 20 is refused, naming the option"):
+        assert isinstance(refused, SettingInvalidError), refused
+        assert refused.details.get("key") == "max_redirects", refused.details
+    with client_case.check("`max_redirects` 0 answers the 3xx itself"):
+        assert unfollowed.status == 302
+        assert unfollowed.url.endswith("/redirect/hops/5"), unfollowed.url
+        assert unfollowed.headers.get("location") == "/redirect/hops/4"
+    with client_case.check("a chain within its count answers its last response"):
+        assert within.status == 200
+        assert within.url.endswith("/redirect/hops/0"), within.url
+    with client_case.check(
+        "past its count, `too_many_redirects` names the chain, its hops and the option"
+    ):
+        assert isinstance(past, TooManyRedirectsError), past
+        hops = cast("list[str]", past.details["hops"])
+        assert (past.url, len(hops), past.details["limit"]) == (
+            chain,
+            3,
+            {"kind": "option", "name": "max_redirects", "count": 3},
+        )

@@ -182,7 +182,7 @@ fn reruns(plan: &[Planned]) -> (BTreeSet<&'static str>, BTreeMap<&'static str, V
 }
 
 /// The checks every run on another tree reruns, whatever the change.
-const ALWAYS: [&str; 12] = [
+const ALWAYS: [&str; 13] = [
     "dco",
     "commit-messages",
     "floor-guard",
@@ -191,6 +191,7 @@ const ALWAYS: [&str; 12] = [
     "notices",
     "lint",
     "feature-combinations",
+    "semver-checks",
     "fuzz-check",
     "proofs",
     "journeys-tasks",
@@ -908,9 +909,10 @@ fn a_result_that_names_no_known_layer_is_an_error(#[case] text: &str) {
 
 /// The checks a run on the tree of their green result reuses (the codegen
 /// tests too, which the full form's Pre-merge suite covers).
-const TREE_ONLY: [Step; 6] = [
+const TREE_ONLY: [Step; 7] = [
     Step::Lint,
     Step::FeatureCombinations,
+    Step::SemverChecks,
     Step::FuzzCheck,
     Step::Proofs,
     Step::JourneysTasks,
@@ -967,7 +969,7 @@ fn another_tree_reruns_the_checks_that_follow_from_the_tree_and_the_host() {
 
 /// Lint also reads the day and GitHub (its register and quarantine checks):
 /// a result on the same tree holds only while they read as a green lint
-/// found them, and the other three checks read neither.
+/// found them, and the other four checks read neither.
 #[test]
 fn lint_reruns_on_the_same_tree_when_what_it_reads_besides_the_tree_no_longer_holds() {
     let plan = planned_on_earliers_tree(&full_green_run(), Err("issue #1601 is closed"));
@@ -978,7 +980,12 @@ fn lint_reruns_on_the_same_tree_when_what_it_reads_besides_the_tree_no_longer_ho
             why: "issue #1601 is closed".to_owned()
         }
     );
-    for step in [Step::FeatureCombinations, Step::FuzzCheck, Step::Proofs] {
+    for step in [
+        Step::FeatureCombinations,
+        Step::SemverChecks,
+        Step::FuzzCheck,
+        Step::Proofs,
+    ] {
         assert_eq!(
             action(&plan, step),
             &Action::Reuse {
@@ -1182,11 +1189,12 @@ const BESIDE_STEPS: [&str; 8] = [
 #[case::preflight(Form::Preflight)]
 fn each_entry_has_the_owner_the_table_of_owning_layers_names(#[case] form: Form) {
     const GATE_HOST: [&str; 3] = ["perf", "counts", "stress"];
-    const TOO_LONG_FOR_A_HOSTED_JOB: [&str; 6] = [
+    const TOO_LONG_FOR_A_HOSTED_JOB: [&str; 7] = [
         "windows",
         "tlc",
         "fuzz-check",
         "feature-combinations",
+        "semver-checks",
         "loom",
         "miri",
     ];

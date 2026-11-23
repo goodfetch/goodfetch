@@ -1,10 +1,12 @@
 //! The scan of the results store after each ingest (ADR 0064; TESTING.md,
 //! After merge and Live checks): a test that passed and failed on the same
 //! tree hash and configuration (OS, architecture, runtime), in any tiers or
-//! attempts, is flaky and gets one `flaky-test` issue in the current
-//! milestone, reopened when it recurs after the issue closed; a Live check
-//! (the `live` tier) whose last result failed, or whose last three were
-//! inconclusive, opens or updates its one `live-check` issue.
+//! attempts, is flaky and gets one `flaky-test` issue, reopened when it
+//! recurs after the issue closed; a Live check (the `live` tier) whose last
+//! result failed, or whose last three were inconclusive, opens or updates
+//! its one `live-check` issue. A new issue goes to the spec whose ticket
+//! added the test or declared the Live check (ADR 0136), or to triage when
+//! none is found.
 
 #![expect(
     clippy::disallowed_methods,
@@ -23,6 +25,7 @@ use crate::check::Finding;
 use crate::github::Api;
 use crate::issues::{Issues, Label};
 use crate::output;
+use crate::owners::{Added, Owners};
 use crate::results::{self, Outcome, TestRun};
 
 /// The tier Live checks report under (ADR 0064).
@@ -102,6 +105,7 @@ pub(crate) fn scan(
         .flat_map(|attempt| &attempt.test_runs)
         .collect();
     let mut issues = Issues::new(api, repository);
+    let owners = Owners::new(api, repository);
     for (test, groups) in flaky_tests(&test_runs) {
         let latest = groups
             .values()
@@ -112,7 +116,9 @@ pub(crate) fn scan(
         let title = format!("Flaky test: {} ({})", test.test, test.runner);
         let key = format!("{} {}", test.runner, test.test);
         let body = flaky_test_body(&test, &groups);
-        issues.keep(Label::FlakyTest, &key, &title, &body, latest)?;
+        issues.keep(Label::FlakyTest, &key, &title, &body, latest, || {
+            added_test(&test).map_or(Ok(None), |added| owners.of_added(root, &added))
+        })?;
     }
     for (check, last) in failing_live_checks(&test_runs) {
         let area = if let Some(area) = live_checks.area(&check) {
@@ -129,12 +135,60 @@ pub(crate) fn scan(
         let body = live_check_body(&check, &area, &last);
         let latest = last.iter().map(|test_run| test_run.started_at).max();
         let Some(latest) = latest else { continue };
-        issues.keep(Label::LiveCheck, &check, &title, &body, latest)?;
+        issues.keep(Label::LiveCheck, &check, &title, &body, latest, || {
+            let added = Added {
+                text: format!("\"{check}\""),
+                files: Some(LIVE_CHECKS.to_owned()),
+            };
+            owners.of_added(root, &added)
+        })?;
     }
     for action in issues.actions() {
         output::line(action);
     }
     Ok(findings)
+}
+
+/// The text that first wrote `test` in the source: a nextest test's function
+/// (an rstest case's leaf is its case, under its function), a pytest test's
+/// function without its parameters, a Vitest or Playwright test's own title,
+/// the last of its titles, searched in the runner's test files, so an
+/// earlier mention elsewhere does not count. None for another runner.
+fn added_test(test: &TestKey) -> Option<Added> {
+    let (written, files) = match test.runner.as_str() {
+        "nextest" => {
+            let path = test
+                .test
+                .split_once(' ')
+                .map_or(test.test.as_str(), |(_, path)| path);
+            let mut segments = path.rsplit("::");
+            let leaf = segments.next()?;
+            let is_case = leaf
+                .strip_prefix("case_")
+                .is_some_and(|rest| rest.starts_with(|first: char| first.is_ascii_digit()));
+            let function = if is_case { segments.next()? } else { leaf };
+            (format!("fn {function}("), ":(glob)**/*.rs")
+        }
+        "pytest" => {
+            let leaf = test.test.rsplit("::").next()?;
+            let function = leaf.split_once('[').map_or(leaf, |(function, _)| function);
+            (format!("def {function}("), ":(glob)**/test_*.py")
+        }
+        "vitest" => (own_title(&test.test).to_owned(), ":(glob)**/*.test.*"),
+        "playwright" => (own_title(&test.test).to_owned(), ":(glob)**/*.spec.*"),
+        _ => return None,
+    };
+    (!written.is_empty()).then(|| Added {
+        text: written,
+        files: Some(files.to_owned()),
+    })
+}
+
+/// A Vitest or Playwright test's own title: the last of its titles.
+fn own_title(test: &str) -> &str {
+    [" › ", " > "].iter().fold(test, |title, separator| {
+        title.rsplit(separator).next().unwrap_or(title)
+    })
 }
 
 /// Each flaky test, with the results of each of its inputs that both passed
@@ -243,7 +297,7 @@ fn flaky_test_body(test: &TestKey, groups: &BTreeMap<Inputs, Vec<&TestRun>>) -> 
 fn live_check_body(check: &str, area: &str, last: &[&TestRun]) -> String {
     let mut body = format!(
         "The Live check `{check}`, owned by {area} (ADR 0037), failed, or was inconclusive {INCONCLUSIVE_IN_A_ROW} times in a row (ADR 0064).\n\n\
-         State its cause in a comment within two business days. This issue closes once the cause is fixed in Goodfetch, \
+         State its cause in a comment starting `Cause:` within two business days, or `xtask release check` holds the next minor's promotion. This issue closes once the cause is fixed in Goodfetch, \
          or attributed to an external party with a linked upstream report.\n\n\
          | Started | Run | Attempt | Job | Outcome | Commit |\n|---|---|---|---|---|---|\n"
     );

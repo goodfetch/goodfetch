@@ -12,6 +12,8 @@ use goodfetch_protocol::error_code::ErrorCode;
 use goodfetch_protocol::hook::HookFailedDetails;
 use goodfetch_protocol::jsonrpc::{ErrorData, ErrorObject};
 use goodfetch_protocol::page::BlockedDetails;
+use goodfetch_protocol::page::ai_work::PageNavigatedDuringCallDetails;
+use goodfetch_protocol::secrets::{SecretFailure, SecretUnavailableDetails};
 use goodfetch_protocol::settings::{RunOrigin, SettingLimit, SettingsLayer};
 use serde_json::{Map, Value, json};
 
@@ -107,6 +109,48 @@ fn a_blocked_answer_with_foxhounds_decoy_cause_reads_it_as_unknown() {
         panic!("{:?} is a cause Collie knows", details.cause);
     };
     assert_eq!(cause.as_str(), "decoy");
+}
+
+/// Covers: story:11-36, error:page_navigated_during_call
+#[test]
+fn a_navigation_during_an_ai_verb_reads_both_documents_by_type() {
+    let error = answer(
+        "page_navigated_during_call",
+        ErrorGroup::Page,
+        &json!({
+            "url": "https://travel.test/books",
+            "navigated_to": "https://travel.test/books/1",
+            "fix": "Await the Collie call before your driver acts on the page.",
+        }),
+    );
+
+    assert_eq!(error.code(), ErrorCode::PAGE_NAVIGATED_DURING_CALL);
+    assert_eq!(
+        error.details::<PageNavigatedDuringCallDetails>(),
+        Some(PageNavigatedDuringCallDetails {
+            url: "https://travel.test/books".to_owned(),
+            navigated_to: "https://travel.test/books/1".to_owned(),
+        })
+    );
+}
+
+/// Covers: story:11-36, error:secret_unavailable
+#[test]
+fn a_secret_provider_that_made_no_code_reads_as_no_code() {
+    let error = answer(
+        "secret_unavailable",
+        ErrorGroup::Unavailable,
+        &json!({
+            "placeholder": "shop_totp",
+            "reference": "bw:shop/totp",
+            "provider": "bw",
+            "failure": "no_code",
+            "fix": "Check the seed in the vault.",
+        }),
+    );
+
+    let details: SecretUnavailableDetails = error.details().unwrap();
+    assert_eq!(details.failure, SecretFailure::NoCode);
 }
 
 /// Covers: story:11-36, story:11-187

@@ -52,7 +52,7 @@ pub(crate) enum Outcome {
 }
 
 impl Outcome {
-    const fn from_exit_status(status: i32) -> Self {
+    pub(super) const fn from_exit_status(status: i32) -> Self {
         match status {
             0 => Self::Passed,
             10 => Self::AssumptionViolated,
@@ -64,7 +64,7 @@ impl Outcome {
         }
     }
 
-    const fn kind(self) -> &'static str {
+    pub(super) const fn kind(self) -> &'static str {
         match self {
             Self::Passed => "passed",
             Self::AssumptionViolated => "assumption-violated",

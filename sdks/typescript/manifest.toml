@@ -198,7 +198,6 @@ package = "@goodfetch/foxhound"
 receiver = "Foxhound"
 member = "startCrawl"
 entry = "crawl.start"
-only = "Python's crawl declaration joins with #1468."
 words = ["start", "crawl"]
 form = "opener"
 
@@ -273,7 +272,6 @@ receiver = "CrawlContext"
 member = "page"
 entry = "none"
 reason = "The page the engine serves the attempt, `crawl_request.handle`'s `page_id` as Collie's `Page` (ADR 0093)."
-only = "Python's context joins with #1468."
 words = ["page"]
 form = "read"
 
@@ -282,7 +280,6 @@ package = "@goodfetch/foxhound"
 receiver = "CrawlContext"
 member = "enqueue"
 entry = "crawl_request.enqueue"
-only = "Python's context joins with #1468."
 words = ["enqueue"]
 form = "round_trip"
 
@@ -291,7 +288,6 @@ package = "@goodfetch/foxhound"
 receiver = "CrawlContext"
 member = "enqueueLinks"
 entry = "crawl_request.enqueue_links"
-only = "Python's context joins with #1468."
 words = ["enqueue", "links"]
 form = "round_trip"
 
@@ -300,7 +296,6 @@ package = "@goodfetch/foxhound"
 receiver = "CrawlContext"
 member = "push"
 entry = "crawl_request.push"
-only = "Python's context joins with #1468."
 words = ["push"]
 form = "round_trip"
 
@@ -2847,7 +2842,6 @@ receiver = "(module)"
 member = "CrawlRun"
 entry = "none"
 reason = "A crawl's Run, which `Foxhound.startCrawl` opens (ADR 0102)."
-only = "Python's crawl declaration joins with #1468."
 words = ["crawl", "run"]
 form = "type"
 

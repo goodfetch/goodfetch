@@ -11,6 +11,7 @@ mistakes of `src/crawl.test.ts` of `@goodfetch/foxhound`.
 from __future__ import annotations
 
 from datetime import timedelta
+from typing import cast
 
 import pytest
 from goodfetch_foxhound.crawl import (
@@ -22,24 +23,26 @@ from goodfetch_foxhound.crawl import (
     crawl_declaration,
     declared_label,
     handler_of,
+    seed,
 )
 from goodfetch_foxhound.generated.errors import (
     LabelDuplicateError,
     LabelUnhandledError,
     LabelUnknownError,
+    PayloadInvalidError,
 )
 from goodfetch_foxhound.generated.models import (
     DatasetDeclaration,
     LabelDeclaration,
     RequestSeed,
 )
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class Shelf(BaseModel):
-    """A listing page's Payload."""
+    """A listing page's Payload, numbered from 1."""
 
-    number: int
+    number: int = Field(ge=1)
 
 
 class Product(BaseModel):
@@ -105,6 +108,35 @@ def test_declares_each_label_with_its_payload_schema_and_settings_on_the_wire() 
         },
         [],
     )
+
+
+def _issues(refused: PayloadInvalidError) -> tuple[object, list[object]]:
+    """What a `payload_invalid` names: its Label and each issue's path."""
+    issues = cast("list[dict[str, object]]", refused.details["issues"])
+    return refused.details["label"], [issue["path"] for issue in issues]
+
+
+@pytest.mark.covers("story:11-1018", "error:payload_invalid")
+def test_refuses_a_seeds_payload_its_models_own_parse_refuses() -> None:
+    """Pydantic's parse checks it in the program, before anything is sent."""
+    with pytest.raises(PayloadInvalidError) as refused:
+        seed("https://shop.test/shelf/0", shelf, Shelf.model_construct(number=0))
+
+    assert (refused.value.code, _issues(refused.value)) == (
+        "payload_invalid",
+        ("shelf", ["/number"]),
+    )
+
+
+@pytest.mark.covers("story:11-1018", "error:payload_invalid")
+def test_refuses_a_seeds_payload_that_is_not_json() -> None:
+    """A hand-written schema has no parse in the program, but NaN is no JSON."""
+    book = Crawl().label("book", payload={"type": "object"})
+
+    with pytest.raises(PayloadInvalidError) as refused:
+        seed("https://shop.test/book/1", book, {"isbn": float("nan")})
+
+    assert _issues(refused.value) == ("book", ["/isbn"])
 
 
 @pytest.mark.covers("story:11-1015")

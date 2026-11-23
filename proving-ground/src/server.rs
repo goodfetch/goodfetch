@@ -270,10 +270,10 @@ impl Connection {
             };
             let stream = match start.into_stream(config).into_fallible().await {
                 Ok(stream) => stream,
-                // The refusal's alert is written; the client's request may
-                // follow its last flight unread.
+                // Any alert has had its one write attempt; the client's
+                // request may follow its last flight unread.
                 Err((_, mut wire)) => {
-                    raw::linger(&mut wire).await;
+                    crate::linger::linger(&mut wire).await;
                     return;
                 }
             };

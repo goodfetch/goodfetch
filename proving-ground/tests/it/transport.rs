@@ -163,7 +163,7 @@ fn the_mutual_tls_host_serves_only_the_client_certificate_it_hands_out() {
 fn a_refused_handshake_ends_with_its_alert_then_an_orderly_close() {
     let proving_ground = ProvingGround::start(SEED);
     // Past what the server's TLS reads at once while it handshakes.
-    let request = [b'x'; 32 * 1024];
+    let request = vec![b'x'; 32 * 1024];
 
     let ended = clients::refused_tls(
         proving_ground.address(),

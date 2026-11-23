@@ -9,9 +9,9 @@ use loona_hpack::{Decoder, Encoder};
 use tokio::io::{AsyncRead, AsyncReadExt as _, AsyncWrite, AsyncWriteExt as _};
 
 use super::{
-    Answer, Context, Cut, ErrorCode, LATE, Page, Pages, READ_LIMIT, Refusal, Request, linger,
-    settle,
+    Answer, Context, Cut, ErrorCode, LATE, Page, Pages, READ_LIMIT, Refusal, Request, settle,
 };
+use crate::linger::linger;
 use crate::observation::{End, Protocol};
 
 const PREFACE: &[u8] = b"PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n";

@@ -1,9 +1,10 @@
 //! The Release workflow's first job (ADR 0108): it checks the commit a
 //! dispatch asks for, chooses the cells to start and, before any hosted cell
-//! starts, checks the run against the 600-minute ceiling of included minutes
-//! a month, counted in Linux-equivalent minutes from the month's recorded
-//! Release jobs. It writes its choice as the job's outputs and its reasons to
-//! the job's summary.
+//! starts, checks the run against the 600-minute ceiling a month, counted in
+//! Linux-equivalent minutes from the month's recorded Release jobs. Only
+//! minutes that bill count: in a public repository a standard hosted runner
+//! counts none (ADR 0108's note of 2026-11-23). It writes its choice as the
+//! job's outputs and its reasons to the job's summary.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Write as _;
@@ -18,9 +19,10 @@ use crate::check::Finding;
 use crate::github::Api;
 use crate::issues::{Issues, Label};
 use crate::output;
+use crate::rate::Visibility;
 
-/// The included minutes a month that manual-dispatch Release runs' hosted
-/// jobs may use (ADR 0108).
+/// The minutes that bill a month, included minutes or billed ones, that
+/// manual-dispatch Release runs' hosted jobs may use (ADR 0108).
 pub(crate) const CEILING: u32 = 600;
 
 /// ADR 0061's budget for a Release job, which estimates a cell with no
@@ -99,12 +101,15 @@ pub(crate) fn plan(api: Api<'_>, dispatch: &Dispatch<'_>) -> Result<Vec<Finding>
     };
 
     let runs = history.runs(None)?;
-    let estimates = estimates(&mut history, &runs, this.id)?;
+    let estimates = estimates(&mut history, &runs, &this)?;
     let hosted: Vec<Cell> = requested
         .iter()
         .copied()
         .filter(|cell| matches!(cell.runner(), Runner::Hosted(_)))
         .collect();
+    let bills = hosted.iter().any(
+        |cell| matches!(cell.runner(), Runner::Hosted(runner) if runner.bills_in(this.visibility)),
+    );
     let owner_machine: Vec<Cell> = requested
         .iter()
         .copied()
@@ -122,7 +127,9 @@ pub(crate) fn plan(api: Api<'_>, dispatch: &Dispatch<'_>) -> Result<Vec<Finding>
             used + estimate + main_run
         },
     };
-    let decision = if hosted.is_empty() || count.needed <= CEILING {
+    // A run whose hosted cells bill nothing adds nothing to the month's
+    // count, so the ceiling never holds it.
+    let decision = if !bills || count.needed <= CEILING {
         Decision::Start
     } else if on_main
         && estimate > CEILING
@@ -154,6 +161,7 @@ pub(crate) fn plan(api: Api<'_>, dispatch: &Dispatch<'_>) -> Result<Vec<Finding>
             requested: &requested,
             started: &started,
             on_main,
+            visibility: this.visibility,
             decision,
             count: &count,
             month: this.month,
@@ -166,16 +174,17 @@ pub(crate) fn plan(api: Api<'_>, dispatch: &Dispatch<'_>) -> Result<Vec<Finding>
 }
 
 /// Each hosted cell's estimate: the minutes its jobs took in the latest
-/// attempt of its latest recorded run, or one job budget at its rate before
-/// any (270 for every hosted cell, ADR 0108).
-fn estimates(history: &mut History<'_>, runs: &[Run], this: u64) -> Result<BTreeMap<Cell, u32>> {
+/// attempt of its latest recorded run, or one job budget before any (270
+/// for every hosted cell, ADR 0108), as its runner counts them in this
+/// run's repository.
+fn estimates(history: &mut History<'_>, runs: &[Run], this: &Run) -> Result<BTreeMap<Cell, u32>> {
     let mut estimates = BTreeMap::new();
     for cell in Cell::ALL {
-        let Runner::Hosted(rate) = cell.runner() else {
+        let Runner::Hosted(runner) = cell.runner() else {
             continue;
         };
         let mut recorded = None;
-        for run in runs.iter().filter(|run| run.id != this) {
+        for run in runs.iter().filter(|run| run.id != this.id) {
             let jobs: Vec<_> = history
                 .jobs(run.id)?
                 .iter()
@@ -189,22 +198,27 @@ fn estimates(history: &mut History<'_>, runs: &[Run], this: u64) -> Result<BTree
             recorded = Some(
                 jobs.iter()
                     .filter(|job| job.attempt == attempt)
-                    .map(|job| job.minutes.unwrap_or(0) * rate.multiplier())
+                    .map(|job| job.minutes.unwrap_or(0))
                     .sum(),
             );
             break;
         }
         estimates.insert(
             cell,
-            recorded.unwrap_or(JOB_BUDGET_MINUTES * rate.multiplier()),
+            runner.counted(recorded.unwrap_or(JOB_BUDGET_MINUTES), this.visibility),
         );
     }
     Ok(estimates)
 }
 
 /// The month's count: every hosted job of the month's Release runs, in
-/// whole minutes at its rate. A job still queued or running counts as its
-/// cell's estimate, once per run, and any other as one minute.
+/// whole minutes at its rate, as its runner counts them in this run's
+/// repository. A job still queued or running counts as its cell's estimate,
+/// once per run, and any other as one minute.
+///
+/// The repository's visibility is read now, not when each job ran, so in a
+/// public repository a standard runner's minutes from before it was public
+/// count none either (ADR 0108's note of 2026-11-23).
 fn used(
     history: &mut History<'_>,
     runs: &[Run],
@@ -215,11 +229,13 @@ fn used(
     for run in runs.iter().filter(|run| run.month == this.month) {
         let mut pending_cells = BTreeSet::new();
         for job in history.jobs(run.id)? {
-            let Some(rate) = job.rate else {
+            let Some(runner) = job.runner else {
                 continue;
             };
             used += match job.ended {
-                Ended::Success | Ended::Failure => job.minutes.unwrap_or(0) * rate.multiplier(),
+                Ended::Success | Ended::Failure => {
+                    runner.counted(job.minutes.unwrap_or(0), this.visibility)
+                }
                 Ended::NotRun => 0,
                 Ended::Pending => match Cell::ALL.into_iter().find(|cell| cell.owns_job(&job.name))
                 {
@@ -227,7 +243,7 @@ fn used(
                         estimates.get(&cell).copied().unwrap_or(0)
                     }
                     Some(_) => 0,
-                    None => rate.multiplier(),
+                    None => runner.counted(1, this.visibility),
                 },
             };
         }
@@ -303,14 +319,19 @@ struct Summary<'a> {
     requested: &'a [Cell],
     started: &'a [Cell],
     on_main: bool,
+    visibility: Visibility,
     decision: Decision,
     count: &'a Count,
     month: Month,
 }
 
 fn write_summary(path: &Path, summary: &Summary<'_>) -> Result<()> {
+    let free = match summary.visibility {
+        Visibility::Public => "; standard hosted runners of this public repository count none",
+        Visibility::Private => "",
+    };
     let mut text = format!(
-        "## Release suite plan\n\nCommit `{}`. Included minutes this month, in Linux-equivalent minutes (Linux 1, Windows 2, macOS 11): {} used, this run's hosted cells estimated at {}, ceiling {CEILING} (ADR 0108).\n\n| Cell | Where | This run |\n|---|---|---|\n",
+        "## Release suite plan\n\nCommit `{}`. Minutes that bill this month, in Linux-equivalent minutes (Linux 1, Windows 2, macOS 11{free}): {} used, this run's hosted cells estimated at {}, ceiling {CEILING} (ADR 0108).\n\n| Cell | Where | This run |\n|---|---|---|\n",
         summary.commit, summary.count.used, summary.count.estimate
     );
     for cell in Cell::ALL {
@@ -331,7 +352,7 @@ fn write_summary(path: &Path, summary: &Summary<'_>) -> Result<()> {
         Decision::Held => {
             let _ = write!(
                 text,
-                "\nNo hosted cell started: the run needs {} included minutes{}, past the ceiling of {CEILING}. The month turns on {}.\n",
+                "\nNo hosted cell started: the run needs {} minutes that bill{}, past the ceiling of {CEILING}. The month turns on {}.\n",
                 summary.count.needed,
                 if summary.on_main {
                     ""
@@ -356,7 +377,7 @@ fn write_summary(path: &Path, summary: &Summary<'_>) -> Result<()> {
 /// breach does (ADR 0061), found again by its marker.
 fn keep_issue(api: Api<'_>, repository: &str, run: &Run, count: &Count) -> Result<()> {
     let body = format!(
-        "Release run {} estimated its hosted cells at {} Linux-equivalent minutes, past the ceiling of {CEILING} included minutes a month (ADR 0108). It started as the month's first Release run on `main` whose hosted cells start. Merge shards or speed up the tests (ADR 0061).",
+        "Release run {} estimated its hosted cells at {} Linux-equivalent minutes, past the ceiling of {CEILING} minutes that bill a month (ADR 0108). It started as the month's first Release run on `main` whose hosted cells start. Merge shards or speed up the tests (ADR 0061).",
         run.id, count.estimate
     );
     let mut issues = Issues::new(&api, repository);

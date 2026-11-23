@@ -1,8 +1,8 @@
 //! The Release suite's private-period run (ADRs 0061 and 0108): which cells a
-//! manual dispatch starts under the 600-minute ceiling of included minutes,
+//! manual dispatch starts under the 600-minute ceiling of minutes that bill,
 //! counted from the month's recorded Release jobs in Linux-equivalent
-//! minutes (Linux 1, Windows 2, macOS 11). GitHub's interface is a local
-//! stand-in.
+//! minutes (Linux 1, Windows 2, macOS 11), with standard runners of a public
+//! repository counting none. GitHub's interface is a local stand-in.
 //! Covers: story:1-54, story:1-98
 
 use std::collections::BTreeMap;
@@ -150,24 +150,45 @@ fn run(id: u64, created_at: &str, branch: &str, jobs: Vec<Job>) -> Run {
     }
 }
 
+/// The repository's visibility, which GitHub gives each run's `repository`
+/// as `private`.
+#[derive(Clone, Copy)]
+enum Visibility {
+    Private,
+    Public,
+}
+
 impl Run {
-    fn json(&self) -> String {
+    fn json(&self, visibility: Visibility) -> String {
+        let private = matches!(visibility, Visibility::Private);
         format!(
-            r#"{{"id": {}, "created_at": "{}", "head_branch": "{}", "head_sha": "{HEAD}"}}"#,
+            r#"{{"id": {}, "created_at": "{}", "head_branch": "{}", "head_sha": "{HEAD}", "repository": {{"private": {private}}}}}"#,
             self.id, self.created_at, self.branch
         )
     }
 }
 
-/// This run (ID 7, created 2026-10-18 on `branch`) and the earlier runs,
-/// newest first, served as GitHub's Actions interface lists them, with any
-/// `extra` routes.
+/// This run (ID 7, created 2026-10-18 on `branch`) and the earlier runs of
+/// a private repository, newest first, served as GitHub's Actions interface
+/// lists them, with any `extra` routes.
 fn serve(branch: &str, earlier: Vec<Run>, extra: &[(&str, &str)]) -> GitHub {
+    serve_in(Visibility::Private, branch, earlier, extra)
+}
+
+fn serve_in(
+    visibility: Visibility,
+    branch: &str,
+    earlier: Vec<Run>,
+    extra: &[(&str, &str)],
+) -> GitHub {
     let mut runs = vec![run(7, "2026-10-18T09:00:00Z", branch, vec![plan_job()])];
     runs.extend(earlier);
-    let listed: Vec<String> = runs.iter().map(Run::json).collect();
+    let listed: Vec<String> = runs.iter().map(|run| run.json(visibility)).collect();
     let mut routes = vec![
-        (format!("{REPOSITORY}/actions/runs/7"), runs[0].json()),
+        (
+            format!("{REPOSITORY}/actions/runs/7"),
+            runs[0].json(visibility),
+        ),
         (
             format!("{REPOSITORY}/actions/workflows/release-suite.yml/runs?per_page=100&page=1"),
             format!(
@@ -480,6 +501,63 @@ fn second_run_on_main_over_the_ceiling_on_its_own_is_held() {
     assert_eq!(github.writes(), vec![]);
 }
 
+/// Standard GitHub-hosted runners are free in a public repository and draw
+/// on no included minutes (ADR 0108's note of 2026-11-23), so a run on them
+/// alone starts whatever its estimate.
+#[test]
+fn in_a_public_repository_a_run_on_standard_runners_alone_starts_whatever_its_estimate() {
+    let workspace = Workspace::from_fixture("empty");
+    let this_month = over_the_ceiling(5, "2026-10-02T00:00:00Z", "2026-10-02");
+    let github = serve_in(Visibility::Public, "main", vec![this_month], &[]);
+
+    let outcome = plan(&workspace, &github, MAIN, &["--cells", "windows-x64"]);
+
+    assert_eq!(outcome.code, 0);
+    let outputs = outputs(&workspace);
+    assert_eq!(
+        (
+            outputs["held"].as_str(),
+            outputs["cells"].as_str(),
+            outputs["used"].as_str(),
+            outputs["estimate"].as_str(),
+        ),
+        ("false", r#"["windows-x64"]"#, "0", "0")
+    );
+    assert_eq!(github.writes(), vec![]);
+}
+
+/// A larger runner bills in a public repository too, so its minutes still
+/// count against the ceiling, at its rate.
+#[test]
+fn in_a_public_repository_a_larger_runners_minutes_still_count() {
+    let workspace = Workspace::from_fixture("empty");
+    let mut jobs = full_run("2026-10-05", 80);
+    jobs.push(ran(
+        "bench",
+        "ubuntu-24.04-16core",
+        "2026-10-05",
+        700,
+        "success",
+    ));
+    let this_month = run(5, "2026-10-05T00:00:00Z", "main", jobs);
+    let github = serve_in(Visibility::Public, "main", vec![this_month], &[]);
+
+    let outcome = plan(&workspace, &github, MAIN, &[]);
+
+    assert_eq!(outcome.code, 0);
+    let outputs = outputs(&workspace);
+    // The larger runner's 700 minutes count; the standard runners' 481 and
+    // this plan job's do not. This run's cells bill nothing, so it starts.
+    assert_eq!(
+        (
+            outputs["used"].as_str(),
+            outputs["estimate"].as_str(),
+            outputs["held"].as_str(),
+        ),
+        ("700", "0", "false")
+    );
+}
+
 #[rstest]
 #[case::ahead("ahead", 0)]
 #[case::diverged("diverged", 1)]
@@ -538,7 +616,10 @@ fn jobs_routes(runs: &[Run]) -> Vec<(String, String)> {
 }
 
 fn serve_commit(runs: &[Run]) -> GitHub {
-    let listed: Vec<String> = runs.iter().map(Run::json).collect();
+    let listed: Vec<String> = runs
+        .iter()
+        .map(|run| run.json(Visibility::Private))
+        .collect();
     let mut routes = vec![(
         format!(
             "{REPOSITORY}/actions/workflows/release-suite.yml/runs?head_sha={HEAD}&per_page=100&page=1"

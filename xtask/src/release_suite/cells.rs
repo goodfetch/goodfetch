@@ -8,12 +8,12 @@ use anyhow::{Result, bail};
 
 use crate::runtimes::Set;
 
-pub(crate) use crate::rate::Rate;
+use crate::rate::{Hosted, Rate, Size};
 
-/// Where a cell runs while the repository is private (ADR 0108).
+/// Where a cell runs (ADR 0108).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Runner {
-    Hosted(Rate),
+    Hosted(Hosted),
     /// The owner's machine, on `main` only; it uses no included minutes.
     OwnerMachine,
 }
@@ -95,12 +95,20 @@ impl Cell {
         }
     }
 
+    /// Where the cell runs: every hosted cell on a standard runner, as
+    /// `release-suite.yml` names it.
     pub(crate) fn runner(self) -> Runner {
+        let standard = |rate| {
+            Runner::Hosted(Hosted {
+                rate,
+                size: Size::Standard,
+            })
+        };
         match self {
             Self::LinuxX64Gnu | Self::LinuxX64Musl | Self::LinuxArm64Gnu | Self::LinuxArm64Musl => {
-                Runner::Hosted(Rate::Linux)
+                standard(Rate::Linux)
             }
-            Self::WindowsX64 => Runner::Hosted(Rate::Windows),
+            Self::WindowsX64 => standard(Rate::Windows),
             Self::MacosArm64 | Self::MacosX64 => Runner::OwnerMachine,
         }
     }

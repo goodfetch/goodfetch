@@ -66,6 +66,10 @@ CREATE TABLE datasets (
         ) STRICT, WITHOUT ROWID;
 INSERT INTO "datasets" VALUES('links',1,NULL,NULL,'[]');
 INSERT INTO "datasets" VALUES('pages',0,'{"properties":{"title":{"type":"string"},"url":{"type":"string"}},"required":["url"],"type":"object"}','0cc5066123c66c6b05b623ef251d6f0ecc72c6335a787255f2d42c7dfb19f1a4','["url"]');
+CREATE TABLE declared_hooks (
+            position INTEGER NOT NULL PRIMARY KEY,
+            declaration TEXT NOT NULL
+        ) STRICT;
 CREATE TABLE domains (
             key TEXT NOT NULL PRIMARY KEY,
             ready_at INTEGER,

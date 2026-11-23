@@ -47,6 +47,10 @@ CREATE TABLE datasets (
             schema_hash TEXT,
             key TEXT NOT NULL
         ) STRICT, WITHOUT ROWID;
+CREATE TABLE declared_hooks (
+            position INTEGER NOT NULL PRIMARY KEY,
+            declaration TEXT NOT NULL
+        ) STRICT;
 CREATE TABLE domains (
             key TEXT NOT NULL PRIMARY KEY,
             ready_at INTEGER,

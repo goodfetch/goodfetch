@@ -5,9 +5,9 @@
 # `<base>`, `<run>` the job's own run. It prints the job's outputs, one line
 # each, for the jobs that run the gate's hosted-owned steps:
 #   form=      the gate's form the jobs plan with: `batch` on a batch's
-#              branch (`batch/…`, issue 3378), whose run also holds the
-#              Pre-merge suite of the members whose tests launch no browser,
-#              else `quick`;
+#              branch (`batch/…`, issues 3378 and 3380), whose run also
+#              holds the Pre-merge suite of every member it reaches, else
+#              `quick`;
 #   lint=      a JSON list, `["lint"]` when the planner runs lint in full or
 #              in part, which runs before the deny;
 #   quick=     a JSON list of the form's other hosted-owned steps the planner
@@ -19,7 +19,9 @@
 #              `["pre-merge"]` when it holds some, else `[]`;
 #   pre-merge-shard=
 #              a JSON list of the Pre-merge shards' numbers, as strings,
-#              `"1"` to `"n"`, `[]` when it holds none.
+#              `"1"` to `"n"`, `[]` when it holds no crate's: the build
+#              job runs the other members' Vitest, Playwright and pytest
+#              tests itself (ci/hosted/pre-merge.sh).
 # Every other line goes to stderr, for the job's log. A job's JSON list is
 # named after it, so "all green" passes a job its list leaves `[]` to
 # (`xtask all-green`).
@@ -32,7 +34,7 @@
 # the token would rerun it (ADR 0135's note on lint's online audits).
 #
 # The Pre-merge suite runs in up to `shard_count` hash partitions of one
-# archive, one job each, never more partitions than members: with the build
+# archive, one job each, never more partitions than crates: with the build
 # job, the record job, lint, the three other steps' jobs and the Chromium
 # build gate, a run holds at most 10 jobs at once (ADR 0061).
 set -euo pipefail
@@ -87,8 +89,15 @@ done
 read -ra members <<<"$pre_merge"
 held=()
 [[ ${#members[@]} -eq 0 ]] || held=(pre-merge)
+crates=0
+if [[ ${#members[@]} -gt 0 ]]; then
+  names=$(cargo metadata --no-deps --format-version 1 --locked | jq -r '.packages[].name')
+  for member in "${members[@]}"; do
+    if grep -qxF -- "$member" <<<"$names"; then crates=$((crates + 1)); fi
+  done
+fi
 shards=()
-for ((shard = 1; shard <= shard_count && shard <= ${#members[@]}; shard++)); do
+for ((shard = 1; shard <= shard_count && shard <= crates; shard++)); do
   shards+=("$shard")
 done
 list() { jq --compact-output --null-input '$ARGS.positional' --args "$@"; }

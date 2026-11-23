@@ -509,25 +509,7 @@ pub(crate) fn plan(
     earlier: &Earlier<'_>,
     touched: &BTreeMap<String, Touched>,
 ) -> Vec<Planned> {
-    // The hosted tier runs no Pre-merge suite of a member whose tests launch
-    // a browser or use an OS service: `just merge` runs those.
-    let unhosted: BTreeSet<String> = if head.layer == Layer::Hosted {
-        head.members
-            .iter()
-            .filter(|member| !launches_no_browser(head, member))
-            .cloned()
-            .collect()
-    } else {
-        BTreeSet::new()
-    };
-    let mut pre_merge = plan_step(Step::PreMerge, head, earlier, touched, &unhosted);
-    if let Action::Part { why, .. } = &mut pre_merge.action
-        && !unhosted.is_empty()
-    {
-        why.push_str(
-            "; the members whose tests launch a browser or use an OS service run on the gate host",
-        );
-    }
+    let pre_merge = plan_step(Step::PreMerge, head, earlier, touched, &BTreeSet::new());
     let in_hand = held_by(&pre_merge, head);
     Step::ALL
         .into_iter()
@@ -543,35 +525,6 @@ pub(crate) fn plan(
         .collect()
 }
 
-/// The crates whose tests launch Chrome for Testing or use an OS service
-/// (ADR 0059's extra loopback addresses, the Secret Service, `tc netem`, the
-/// user's service manager): the hosted tier's Pre-merge shards run none of
-/// their tests until its browser shards do (spec #3373). A crate whose
-/// tests come to launch the browser joins it: `.config/nextest.toml` names
-/// each such test for the cells without the pinned build, and a unit test
-/// holds every crate it names here.
-pub(crate) const BROWSER_OR_SERVICE_CRATES: [&str; 10] = [
-    "goodfetch-collie",
-    "goodfetch-collie-client",
-    "goodfetch-conformance",
-    "goodfetch-engine",
-    "goodfetch-fetch-tier",
-    "goodfetch-foxhound",
-    "goodfetch-page",
-    "goodfetch-proving-ground",
-    "goodfetch-test-support",
-    XTASK,
-];
-
-/// Whether `member`'s tests launch no browser and use no OS service: a
-/// crate outside [`BROWSER_OR_SERVICE_CRATES`]. Vitest's, Playwright's and
-/// pytest's members drive the Products, so none is.
-fn launches_no_browser(head: &Head<'_>, member: &str) -> bool {
-    !head.shuffled.contains(member)
-        && member != UNOWNED
-        && !BROWSER_OR_SERVICE_CRATES.contains(&member)
-}
-
 /// The members whose Pre-merge unit this run holds: those it carries, and
 /// those it runs where the form runs the Pre-merge suite.
 fn held_by(pre_merge: &Planned, head: &Head<'_>) -> BTreeSet<String> {
@@ -584,9 +537,7 @@ fn held_by(pre_merge: &Planned, head: &Head<'_>) -> BTreeSet<String> {
                 .contains_key(&unit(Step::PreMerge, Some(member)))
                 || (runs_here
                     && match &pre_merge.action {
-                        Action::Run { .. } => {
-                            head.layer != Layer::Hosted || launches_no_browser(head, member)
-                        }
+                        Action::Run { .. } => true,
                         Action::Part { members, .. } => members.contains(*member),
                         _ => false,
                     })

@@ -11,7 +11,7 @@
 # records the runs on the head's ancestors uploaded, it schedules the form's
 # hosted-owned steps the change reaches, lint, the Quick suite, the Journey
 # task lists and xtask's codegen tests, and on a batch's branch the
-# Pre-merge suite of the members whose tests launch no browser (issue 3378).
+# Pre-merge suite of every member it reaches (issues 3378 and 3380).
 # The `lint` job runs lint, and the `quick` job each other scheduled step,
 # alone, through the gate itself (`just pre-merge <form>`,
 # GOODFETCH_GATE_ONLY); the `pre-merge-*` jobs build, shard and record the
@@ -227,12 +227,16 @@ jobs:
           if-no-files-found: ignore
           retention-days: 1
 
-  # The Pre-merge suite of a batch's run (issue 3378), over the members the
-  # plan holds it for (ci/hosted/pre-merge.sh): this job builds their tests
-  # once into a nextest archive and runs their doctests, each
-  # `pre-merge-shard` job one hash partition of the archive, and
-  # `pre-merge-record` records the step's result for each member once every
-  # shard has ended. Nothing it uploads outlives the day.
+  # The Pre-merge suite of a batch's run (issues 3378 and 3380), over the
+  # members the plan holds it for (ci/hosted/pre-merge.sh): this job builds
+  # the crates' tests once into a nextest archive and runs their doctests,
+  # then Vitest, Playwright and pytest when the plan holds a member that is
+  # no crate; each `pre-merge-shard` job runs one hash partition of the
+  # archive, and `pre-merge-record` records the step's result for each
+  # member once every shard has ended. The jobs that run tests boot systemd
+  # in their container and start the OS services the gate host's suite uses,
+  # and restore the pinned Chrome for Testing build from the cache the
+  # Release suite saves on `main`. Nothing they upload outlives the day.
   pre-merge-build:
     name: pre-merge build
     needs: plan
@@ -241,17 +245,31 @@ jobs:
     timeout-minutes: 30
     permissions:
       contents: read
+    # Whether the archive and the listing were built: the shards run then,
+    # even after a red doctest or runner, so the record judges each crate.
+    outputs:
+      built: ${{ steps.build.outcome }}
     steps:
       - name: Check out
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.event.pull_request.head.sha }}
           persist-credentials: false
+      - name: Read the pinned Chrome for Testing build
+        id: chrome-for-testing
+        run: echo "build=$(jq -r .chrome_for_testing.build crates/goodfetch-collie/src/pins.json)" >>"$GITHUB_OUTPUT"
+      # Saved by the Release suite on `main` only (#3380).
+      - name: Restore the tests' copy of Chrome for Testing
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/goodfetch/chrome-for-testing
+          key: chrome-for-testing-${{ steps.chrome-for-testing.outputs.build }}-linux64
       - name: Start the job's container
         run: ci/hosted/start.sh
       - name: Set up the OS services the tests use
         run: ci/hosted/exec.sh ci/os-services.sh setup
       - name: Build the members' tests and list the suite's selection
+        id: build
         env:
           MEMBERS: ${{ needs.plan.outputs.pre_merge }}
         run: |
@@ -260,9 +278,16 @@ jobs:
       - name: Deny outbound traffic
         run: ci/egress/egress.sh deny
       - name: Refuse the Egress canary
+        id: canary
         run: ci/egress/egress.sh canary
       - name: "Test: the members' doctests"
         run: ci/hosted/exec.sh ci/hosted/pre-merge.sh doctests
+      # Every Vitest, Playwright and pytest test, when the plan holds a
+      # member that is no crate, after red doctests too: the record judges
+      # the crates apart.
+      - name: "Test: Vitest, Playwright and pytest"
+        if: "!cancelled() && steps.canary.outcome == 'success'"
+        run: ci/hosted/exec.sh ci/hosted/pre-merge.sh runners
       - name: Check that the deny refused nothing else
         if: always()
         run: ci/egress/egress.sh check
@@ -282,7 +307,8 @@ jobs:
   pre-merge-shard:
     name: pre-merge shard (${{ matrix.shard }})
     needs: [plan, pre-merge-build]
-    if: needs.pre-merge-build.result == 'success'
+    # The shards run the crates' tests; a run that holds none starts none.
+    if: "!cancelled() && needs.plan.outputs.pre-merge-shard != '[]' && needs.pre-merge-build.outputs.built == 'success'"
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     permissions:
@@ -303,6 +329,15 @@ jobs:
         with:
           name: pre-merge-build
           path: target/pre-merge
+      - name: Read the pinned Chrome for Testing build
+        id: chrome-for-testing
+        run: echo "build=$(jq -r .chrome_for_testing.build crates/goodfetch-collie/src/pins.json)" >>"$GITHUB_OUTPUT"
+      # Saved by the Release suite on `main` only (#3380).
+      - name: Restore the tests' copy of Chrome for Testing
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/goodfetch/chrome-for-testing
+          key: chrome-for-testing-${{ steps.chrome-for-testing.outputs.build }}-linux64
       - name: Start the job's container
         run: ci/hosted/start.sh
       - name: Set up the OS services the tests use

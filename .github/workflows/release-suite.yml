@@ -153,11 +153,29 @@ jobs:
       # cell's builds need the room (ci/host/free-disk.sh).
       - name: Free the runner's disk
         run: ci/host/free-disk.sh
+      # The tests' copy of the pinned Chrome for Testing build, which `just
+      # fetch` downloads on a miss; saved below on `main` only, for these
+      # cells and the pull-request tier's Pre-merge jobs (#3380).
+      - name: Read the pinned Chrome for Testing build
+        id: chrome-for-testing
+        run: echo "build=$(jq -r .chrome_for_testing.build crates/goodfetch-collie/src/pins.json)" >>"$GITHUB_OUTPUT"
+      - name: Restore the tests' copy of Chrome for Testing
+        id: chrome-for-testing-cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/goodfetch/chrome-for-testing
+          key: chrome-for-testing-${{ steps.chrome-for-testing.outputs.build }}-linux64
       - name: Install the toolchains, tools and runtimes
         uses: ./.github/actions/host-tools
         with:
           target: ${{ matrix.target }}
           runtimes: ${{ matrix.runtimes }}
+      - name: Save the tests' copy of Chrome for Testing
+        if: github.ref == 'refs/heads/main' && steps.chrome-for-testing-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/goodfetch/chrome-for-testing
+          key: chrome-for-testing-${{ steps.chrome-for-testing.outputs.build }}-linux64
       - name: Restore the build cache
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:

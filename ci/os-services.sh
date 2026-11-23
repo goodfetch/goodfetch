@@ -212,8 +212,11 @@ setup_linux() {
   # The user's systemd manager, kept running by lingering, when systemd
   # booted this host; `systemctl --user` reaches it through its own socket
   # in the user's runtime folder, `/run/user/<uid>/systemd/private`.
+  # Lingering starts it without waiting, so it is started here too, which
+  # waits until it runs: a container booted just before has none yet.
   if [[ -d /run/systemd/system ]] && command -v loginctl >/dev/null; then
     as_root loginctl enable-linger "$(id -un)" || true
+    as_root systemctl start "user@$(id -u).service" || true
   fi
   # So the tests keep that runtime folder when systemd made one, and only
   # the bus is the session's; elsewhere the session's folder stands in.

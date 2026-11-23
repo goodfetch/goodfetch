@@ -228,10 +228,11 @@ const IMAGE_COMMANDS: [&str; 3] = ["run", "pull", "create"];
 /// The options of those subcommands that take a value as the next word,
 /// which is no image; any other option is read as a flag, and a value written
 /// `--option=value` is one word.
-const VALUE_OPTIONS: [&str; 32] = [
+const VALUE_OPTIONS: [&str; 33] = [
     "--add-host",
     "--cap-add",
     "--cap-drop",
+    "--cgroupns",
     "--cpus",
     "--device",
     "--dns",

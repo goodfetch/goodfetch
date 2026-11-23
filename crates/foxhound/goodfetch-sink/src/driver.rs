@@ -1,9 +1,11 @@
 //! The delivery driver (ADR 0129): what every Sink shares. It reads the
 //! run file's committed Records in number order per Dataset, sends them in
 //! batches with their delivery IDs and the run epoch (ADR 0008), takes up
-//! after the last Record the destination holds, and turns each failure
-//! into what it leads to: a retry on the delivery schedule, or a failed
-//! Sink.
+//! after the last Record the destination holds from this copy of the Run,
+//! and turns each failure into what it leads to: a retry on the delivery
+//! schedule, or a failed Sink. A copy with a new run epoch, as a resume
+//! takes (ADR 0003), holds nothing yet and delivers every Record again,
+//! in place of the older copy's.
 
 use std::collections::BTreeMap;
 use std::time::Duration;
@@ -12,7 +14,7 @@ use goodfetch_dataset::Query;
 use rusqlite::Connection;
 
 use crate::contract::{
-    Batch, Class, Delivered, Failure, FailureKind, Primitives, RunCopy, Written,
+    Batch, Delivered, Failure, FailureKind, GuaranteeClass, Primitives, RunCopy, Written,
 };
 
 /// How long after each failed attempt the next one waits: the Standard
@@ -62,7 +64,7 @@ pub struct Driver<S> {
     run: RunCopy,
     datasets: Vec<String>,
     batch_records: usize,
-    class: Option<Class>,
+    class: Option<GuaranteeClass>,
     /// How far the destination holds each Dataset, once probed; none until
     /// the probe, and again after a failure, when the destination may hold
     /// more than was answered.
@@ -98,7 +100,7 @@ impl<S: Primitives> Driver<S> {
     /// The guarantee class the Sink's last probe reported; none before one
     /// answered.
     #[must_use]
-    pub fn class(&self) -> Option<Class> {
+    pub fn class(&self) -> Option<GuaranteeClass> {
         self.class
     }
 
@@ -176,7 +178,7 @@ impl<S: Primitives> Driver<S> {
         match failure.kind() {
             FailureKind::Transient | FailureKind::Unrecognized => {
                 if failure.kind() == FailureKind::Unrecognized {
-                    tracing::warn!(sink = %self.sink_name, %failure, "a Sink's failure was not recognized");
+                    tracing::warn!(sink = %self.sink_name, ?failure, "a Sink's failure was not recognized");
                 }
                 let retry_in = SCHEDULE.get(self.failures).copied();
                 self.failures += 1;

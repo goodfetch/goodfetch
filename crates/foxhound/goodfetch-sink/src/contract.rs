@@ -93,7 +93,7 @@ pub struct Batch {
 
 /// The guarantee class a Sink's probe reports (ADR 0026).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Class {
+pub enum GuaranteeClass {
     /// A stale run epoch is refused in the same transaction as the write.
     Fenced,
     /// A stale run epoch is refused per Record.
@@ -108,7 +108,7 @@ pub enum Class {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Probe {
     /// The guarantee class it holds.
-    pub class: Class,
+    pub class: GuaranteeClass,
     /// For each Dataset, the number of the last Record the destination
     /// holds from this copy of the Run; a Dataset it holds none of is
     /// missing.
@@ -140,19 +140,40 @@ pub enum FailureKind {
     /// The destination no longer exists.
     Gone,
     /// The Sink's translation point did not recognize it: counted as
-    /// transient and logged at `warn` with its text (ADR 0127).
+    /// transient and logged at `warn` (ADR 0127).
     Unrecognized,
 }
 
 /// A Sink's failure, as its translation point (ADR 0127) turned its
 /// destination's own: the kind the driver acts on, and the destination's
-/// text, kept for logs and never offered to compare.
-#[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
-#[error("{kind:?}: {text}")]
+/// text, kept for diagnosis. Two failures are equal when their kinds are:
+/// no code compares the text.
+#[derive(Clone, Debug, thiserror::Error)]
+#[error("a Sink's write failed: {kind:?}")]
 #[non_exhaustive]
 pub struct Failure {
     kind: FailureKind,
-    text: String,
+    text: PartyText,
+}
+
+impl PartialEq for Failure {
+    fn eq(&self, other: &Self) -> bool {
+        self.kind == other.kind
+    }
+}
+
+impl Eq for Failure {}
+
+/// A destination's own text about a failure: read by no code, and redacted
+/// wherever it is formatted, since a destination may echo what it was
+/// given, a Record's values or a credential included.
+#[derive(Clone)]
+struct PartyText(String);
+
+impl fmt::Debug for PartyText {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(formatter, "PartyText(<{} bytes, redacted>)", self.0.len())
+    }
 }
 
 impl Failure {
@@ -161,7 +182,7 @@ impl Failure {
     pub fn new(kind: FailureKind, text: impl Into<String>) -> Self {
         Self {
             kind,
-            text: text.into(),
+            text: PartyText(text.into()),
         }
     }
 

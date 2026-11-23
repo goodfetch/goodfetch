@@ -11,7 +11,8 @@ mod driver;
 mod sqlite;
 
 pub use contract::{
-    Batch, Class, Delivered, DeliveryId, Failure, FailureKind, Primitives, Probe, RunCopy, Written,
+    Batch, Delivered, DeliveryId, Failure, FailureKind, GuaranteeClass, Primitives, Probe, RunCopy,
+    Written,
 };
 pub use driver::{Driver, Status};
 pub use sqlite::SqliteSink;

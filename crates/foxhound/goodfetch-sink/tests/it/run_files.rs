@@ -18,21 +18,25 @@ pub(crate) fn run_file(records: &[(&str, Vec<Value>)]) -> Connection {
     for statement in goodfetch_dataset::TABLES.statements {
         connection.execute_batch(statement).unwrap();
     }
-    let mut insert = connection
+    for (dataset, values) in records {
+        commit(&connection, dataset, 1, values);
+    }
+    connection
+}
+
+/// Commits `values` to `dataset` of `run_file`, numbered from `first`.
+pub(crate) fn commit(run_file: &Connection, dataset: &str, first: i64, values: &[Value]) {
+    let mut insert = run_file
         .prepare_cached(
             "INSERT INTO records (dataset, number, work_item, url, committed_at, data, schema_hash, provenance)
              VALUES (?1, ?2, 'request-1', 'https://shop.test/', '2026-01-05T09:00:00Z', ?3, NULL, '{\"request_id\":\"request-1\"}')",
         )
         .unwrap();
-    for (dataset, values) in records {
-        for (number, value) in (1_i64..).zip(values) {
-            insert
-                .execute((dataset, number, value.to_string()))
-                .unwrap();
-        }
+    for (number, value) in (first..).zip(values) {
+        insert
+            .execute((dataset, number, value.to_string()))
+            .unwrap();
     }
-    drop(insert);
-    connection
 }
 
 /// `count` values `{"item": "<prefix><n>"}`, from 1.

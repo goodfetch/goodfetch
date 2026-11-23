@@ -5,14 +5,14 @@
 
 use std::time::Duration;
 
-use goodfetch_sink::{Class, DeliveryId, Driver, FailureKind, SqliteSink, Status};
+use goodfetch_sink::{DeliveryId, Driver, FailureKind, GuaranteeClass, SqliteSink, Status};
 use goodfetch_test_support::unicode_record;
 use rstest::rstest;
 use serde_json::{Value, json};
 use tempfile::TempDir;
 
 use crate::faults::{Fault, Faulty};
-use crate::run_files::{TARGET, copy, items, numbers, record_texts, rows, run_file, sink};
+use crate::run_files::{TARGET, commit, copy, items, numbers, record_texts, rows, run_file, sink};
 
 /// The Sink's name in every test.
 const SINK: &str = "warehouse";
@@ -48,7 +48,7 @@ fn each_record_lands_once_with_its_delivery_id_dataset_number_and_epoch() {
 
     assert_eq!(delivering.deliver(&records).unwrap(), Status::Complete);
 
-    assert_eq!(delivering.class(), Some(Class::Fenced));
+    assert_eq!(delivering.class(), Some(GuaranteeClass::Fenced));
     let rows = rows(&file);
     let expected: Vec<(String, u64)> = (1..=7)
         .map(|n| ("products".to_owned(), n))
@@ -69,8 +69,6 @@ fn each_record_lands_once_with_its_delivery_id_dataset_number_and_epoch() {
 
 /// Records committed after a delivery are delivered by the next one, after
 /// those already delivered.
-///
-/// Covers: story:6-285
 #[test]
 fn a_later_delivery_takes_up_after_the_last_record_delivered() {
     let (_folder, file) = destination();
@@ -78,11 +76,7 @@ fn a_later_delivery_takes_up_after_the_last_record_delivered() {
     let mut delivering = driver(sink(&file), 1, &["products"]);
     assert_eq!(delivering.deliver(&records).unwrap(), Status::Complete);
 
-    records
-        .execute_batch(
-            "INSERT INTO records VALUES ('products', 3, 'request-2', 'https://shop.test/3', '2026-01-05T09:01:00Z', '{\"item\":\"p3\"}', NULL, '{\"request_id\":\"request-2\"}')",
-        )
-        .unwrap();
+    commit(&records, "products", 3, &[json!({ "item": "p3" })]);
     assert_eq!(delivering.deliver(&records).unwrap(), Status::Complete);
 
     assert_eq!(
@@ -96,14 +90,18 @@ fn a_later_delivery_takes_up_after_the_last_record_delivered() {
 }
 
 /// An engine killed in the middle of a delivery, before or after its write
-/// landed, and started again with the same run epoch, ends with every
-/// Record at the destination once.
-///
-/// Covers: story:6-285
+/// landed, and started again, with the same run epoch or with the next as
+/// a resume takes, ends with every Record at the destination once, from
+/// the copy that started again.
 #[rstest]
-#[case::before_the_write_landed(false)]
-#[case::after_the_write_landed(true)]
-fn a_kill_mid_delivery_loses_and_duplicates_nothing(#[case] landed: bool) {
+#[case::before_the_write_landed(false, 1)]
+#[case::after_the_write_landed(true, 1)]
+#[case::before_the_write_landed_then_resumed(false, 2)]
+#[case::after_the_write_landed_then_resumed(true, 2)]
+fn a_kill_mid_delivery_loses_and_duplicates_nothing(
+    #[case] landed: bool,
+    #[case] restart_epoch: u64,
+) {
     let (_folder, file) = destination();
     let records = run_file(&[("products", items("p", 8)), ("reviews", items("r", 5))]);
     let mut killed = driver(
@@ -117,7 +115,7 @@ fn a_kill_mid_delivery_loses_and_duplicates_nothing(#[case] landed: bool) {
     ));
     drop(killed);
 
-    let mut restarted = driver(sink(&file), 1, &["products", "reviews"]);
+    let mut restarted = driver(sink(&file), restart_epoch, &["products", "reviews"]);
     assert_eq!(restarted.deliver(&records).unwrap(), Status::Complete);
 
     let expected: Vec<(String, u64)> = (1..=8)
@@ -125,6 +123,7 @@ fn a_kill_mid_delivery_loses_and_duplicates_nothing(#[case] landed: bool) {
         .chain((1..=5).map(|n| ("reviews".to_owned(), n)))
         .collect();
     assert_eq!(numbers(&file), expected);
+    assert!(rows(&file).iter().all(|row| row.run_epoch == restart_epoch));
 }
 
 /// A write that landed but whose answer was lost is sent again, and the
@@ -165,26 +164,28 @@ fn a_retry_whose_write_had_landed_writes_nothing_twice() {
 
 /// Two copies of one Run with different run epochs, the older a zombie
 /// that keeps delivering: the destination ends with the current copy's
-/// Records, and the zombie's later writes are refused.
+/// Records alone, whether the zombie had delivered fewer or more than the
+/// current copy, and the zombie's later writes are refused.
 ///
 /// Covers: story:6-285
-#[test]
-fn a_zombie_copy_never_overwrites_the_records_of_the_current_copy() {
+#[rstest]
+#[case::fewer_than_the_current_copy(4)]
+#[case::more_than_the_current_copy(8)]
+fn a_zombie_copy_never_overwrites_the_records_of_the_current_copy(#[case] zombie_count: u32) {
     let (_folder, file) = destination();
-    let zombie_records = run_file(&[("products", items("zombie-", 4))]);
+    let zombie_records = run_file(&[("products", items("zombie-", zombie_count))]);
     let current_records = run_file(&[("products", items("current-", 6))]);
     let mut zombie = driver(sink(&file), 1, &["products"]);
     let mut current = driver(sink(&file), 2, &["products"]);
 
     assert_eq!(zombie.deliver(&zombie_records).unwrap(), Status::Complete);
     assert_eq!(current.deliver(&current_records).unwrap(), Status::Complete);
-    zombie_records
-        .execute_batch(
-            "INSERT INTO records VALUES ('products', 5, 'request-5', 'https://shop.test/5', '2026-01-05T09:01:00Z', '{\"item\":\"zombie-5\"}', NULL, '{\"request_id\":\"request-5\"}'),
-                                       ('products', 6, 'request-6', 'https://shop.test/6', '2026-01-05T09:01:00Z', '{\"item\":\"zombie-6\"}', NULL, '{\"request_id\":\"request-6\"}'),
-                                       ('products', 7, 'request-7', 'https://shop.test/7', '2026-01-05T09:01:00Z', '{\"item\":\"zombie-7\"}', NULL, '{\"request_id\":\"request-7\"}')",
-        )
-        .unwrap();
+    commit(
+        &zombie_records,
+        "products",
+        i64::from(zombie_count) + 1,
+        &items("zombie-later-", 3),
+    );
     assert_eq!(
         zombie.deliver(&zombie_records).unwrap(),
         Status::Superseded { run_epoch: 2 }
@@ -202,8 +203,6 @@ fn a_zombie_copy_never_overwrites_the_records_of_the_current_copy() {
 }
 
 /// The Unicode record's fields reach the destination byte for byte.
-///
-/// Covers: story:6-285
 #[test]
 fn the_unicode_record_round_trips_into_sqlite_byte_for_byte() {
     let (_folder, file) = destination();

@@ -10,7 +10,9 @@ use std::collections::BTreeMap;
 
 use rusqlite::{Connection, ErrorCode, OptionalExtension, TransactionBehavior};
 
-use crate::contract::{Batch, Class, Failure, FailureKind, Primitives, Probe, RunCopy, Written};
+use crate::contract::{
+    Batch, Failure, FailureKind, GuaranteeClass, Primitives, Probe, RunCopy, Written,
+};
 
 #[cfg(test)]
 mod tests;
@@ -22,6 +24,10 @@ pub struct SqliteSink {
     target: String,
     /// The target table's name, as the delivery log keys it.
     target_name: String,
+    /// The statement writing one Record into the target table.
+    insert: String,
+    /// The statement removing the rows an older copy of a Run wrote.
+    clear: String,
 }
 
 impl SqliteSink {
@@ -29,9 +35,24 @@ impl SqliteSink {
     /// `connection` opened, made at the first probe.
     #[must_use]
     pub fn new(connection: Connection, target: &str) -> Self {
+        let quoted = format!("\"{}\"", target.replace('"', "\"\""));
         Self {
             connection,
-            target: format!("\"{}\"", target.replace('"', "\"\"")),
+            insert: format!(
+                "INSERT INTO {quoted} AS held (
+                     _goodfetch_delivery_id, _goodfetch_run_id, _goodfetch_run_epoch,
+                     _goodfetch_dataset, _goodfetch_record_number, _goodfetch_committed_at, record
+                 ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+                 ON CONFLICT (_goodfetch_delivery_id) DO UPDATE SET
+                     _goodfetch_run_epoch = excluded._goodfetch_run_epoch,
+                     _goodfetch_committed_at = excluded._goodfetch_committed_at,
+                     record = excluded.record
+                 WHERE excluded._goodfetch_run_epoch > held._goodfetch_run_epoch"
+            ),
+            clear: format!(
+                "DELETE FROM {quoted} WHERE _goodfetch_run_id = ?1 AND _goodfetch_run_epoch < ?2"
+            ),
+            target: quoted,
             target_name: target.to_owned(),
         }
     }
@@ -80,7 +101,7 @@ impl Primitives for SqliteSink {
             )?
             .collect::<rusqlite::Result<BTreeMap<String, u64>>>()?;
         Ok(Probe {
-            class: Class::Fenced,
+            class: GuaranteeClass::Fenced,
             delivered,
         })
     }
@@ -106,18 +127,21 @@ impl Primitives for SqliteSink {
             });
         }
         {
-            let mut insert = transaction.prepare_cached(&format!(
-                "INSERT INTO {target} AS held (
-                     _goodfetch_delivery_id, _goodfetch_run_id, _goodfetch_run_epoch,
-                     _goodfetch_dataset, _goodfetch_record_number, _goodfetch_committed_at, record
-                 ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
-                 ON CONFLICT (_goodfetch_delivery_id) DO UPDATE SET
-                     _goodfetch_run_epoch = excluded._goodfetch_run_epoch,
-                     _goodfetch_committed_at = excluded._goodfetch_committed_at,
-                     record = excluded.record
-                 WHERE excluded._goodfetch_run_epoch > held._goodfetch_run_epoch",
-                target = self.target,
-            ))?;
+            if fence.is_some_and(|fence| fence < run_epoch) {
+                // This copy takes the Run over: the older copy's rows go,
+                // those past this copy's reach included, so the
+                // destination ends with this copy's Records alone.
+                transaction
+                    .prepare_cached(&self.clear)?
+                    .execute((&batch.run.run_id, run_epoch))?;
+                transaction
+                    .prepare_cached(
+                        "DELETE FROM _goodfetch_deliveries
+                         WHERE target = ?1 AND run_id = ?2 AND run_epoch < ?3",
+                    )?
+                    .execute((&self.target_name, &batch.run.run_id, run_epoch))?;
+            }
+            let mut insert = transaction.prepare_cached(&self.insert)?;
             for record in &batch.records {
                 insert.execute((
                     record.delivery_id.as_str(),

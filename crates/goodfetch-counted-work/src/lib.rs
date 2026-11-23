@@ -241,6 +241,13 @@ rows! {
     /// log's writer, which happens only while `browser.cdp_command_log` is
     /// on: with it off, as B2 runs, none is sent.
     CdpLogSendsOff => "C1.log_sends_off", "cdp_command", "log_sends_off";
+    /// `C1.event_visits`: a reader the connection's driver visits to hand
+    /// on one event, at most the readers of the event's session.
+    CdpEventVisits => "C1.event_visits", "cdp_command", "event_visits";
+    /// `C1.pending_orphans`: a command still in the connection's pending
+    /// map when the connection ends whose caller had gone, by its timeout
+    /// or its drop.
+    CdpPendingOrphans => "C1.pending_orphans", "cdp_command", "pending_orphans";
     /// `C3.script_sends`: a send of `check.js`'s source for a guard's check.
     ActionScriptSends => "C3.script_sends", "action", "script_sends";
     /// `C3.check_commands`: a CDP command a guard's check sent.

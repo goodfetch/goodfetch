@@ -14,9 +14,32 @@
 //! starts without the driver, and the driver never waits on a subscriber,
 //! so a browser that stops reading its pipe, or a subscription its holder
 //! never reads, holds up no other call.
+//!
+//! The driver owns its state: the commands in flight, and the table of
+//! readers by session, so an event visits the readers of its session alone
+//! (ADR 0140's `C1.event_visits`). A subscription starts without the driver
+//! by joining a short list beside it, under a lock held for one push; the
+//! driver takes that list into its table before it hands on each event, so
+//! a subscription that started before the browser sent an event gets it. A
+//! command whose caller left its wait, by its timeout or its drop, leaves
+//! the commands in flight: its caller tells the driver, one bounded word
+//! for any number of callers (`C1.pending_orphans` reads 0). The browser's
+//! answer to such a command, or to any command no caller waits for, is
+//! dropped with a `debug` log of its ID: no other command takes it and no
+//! subscription sees it.
+//!
+//! A reader of several sessions, as a Page's reads those of its
+//! out-of-process frames and of its workers (spec #2256, "One reader per
+//! Page"), is listed in the table under each of them with a clone of its
+//! one bounded events' sender, so its events share one buffer and one
+//! order; only its first session's listing holds where the driver says why
+//! it ended. The detach of one of the other sessions takes that listing out
+//! alone; the reader ends with its first session's detach, by falling
+//! behind, or with the connection. The call that lists a reader under one
+//! more session comes with its first caller, the Page's one reader (#2265).
 #![expect(
     clippy::disallowed_types,
-    reason = "the subscribers' list is shared by every handle and the driver, each lock held for one list operation, never across another lock or an `.await`, so there is no lock order to test under loom (ADR 0060)"
+    reason = "the joining subscriptions' list is shared by every handle and the driver, each lock held for one list operation, never across another lock or an `.await`, so there is no lock order to test under loom (ADR 0060)"
 )]
 
 use std::collections::BTreeMap;
@@ -178,23 +201,100 @@ impl Subscriber {
     }
 }
 
-/// The subscriptions of the connection, which every handle adds to and the
-/// driver hands each event to.
+/// The subscriptions that joined since the driver last took them in, which
+/// every handle adds to without the driver.
 #[derive(Debug, Default)]
-struct Subscribers {
+struct Joining {
     /// Each subscription's session and the sender of its events.
     list: Vec<Subscriber>,
     /// Whether the connection ended, so a new subscription ends at once.
     ended: bool,
 }
 
-/// The connection's subscribers, shared.
-type Shared = Arc<Mutex<Subscribers>>;
+/// The connection's joining subscriptions, shared by every handle and the
+/// driver.
+type Shared = Arc<Mutex<Joining>>;
 
-/// The subscribers, a panic in another holder notwithstanding: each change
-/// is one list operation, so none leaves the list half changed.
-fn lock(subscribers: &Shared) -> MutexGuard<'_, Subscribers> {
-    subscribers.lock().unwrap_or_else(PoisonError::into_inner)
+/// The joining subscriptions, a panic in another holder notwithstanding:
+/// each change is one list operation, so none leaves the list half changed.
+fn lock(joining: &Shared) -> MutexGuard<'_, Joining> {
+    joining.lock().unwrap_or_else(PoisonError::into_inner)
+}
+
+/// The readers of the connection's events by the session whose events each
+/// takes: the driver's own table, which only it reads and changes.
+#[derive(Debug, Default)]
+struct Readers(BTreeMap<Option<SessionId>, Vec<Subscriber>>);
+
+impl Readers {
+    /// Takes in the subscriptions that joined since the last event, each
+    /// under its session, whose readers their holders dropped leave first,
+    /// so a session's list stays as long as its live readers.
+    fn take_in(&mut self, joining: &Shared) {
+        let joined = std::mem::take(&mut lock(joining).list);
+        for subscriber in joined {
+            let readers = self.0.entry(subscriber.session.clone()).or_default();
+            readers.retain(|reader| !reader.events.is_closed());
+            readers.push(subscriber);
+        }
+    }
+
+    /// Hands `event` to the readers of `session` alone, each visit counted
+    /// on `work`, never waiting for one: a reader its holder dropped leaves,
+    /// and one that fell [`EVENTS`] behind ends.
+    fn hand(&mut self, session: Option<SessionId>, event: &Arc<Event>, work: &CountedWork) {
+        let std::collections::btree_map::Entry::Occupied(mut entry) = self.0.entry(session) else {
+            return;
+        };
+        for reader in std::mem::take(entry.get_mut()) {
+            work.count(Row::CdpEventVisits);
+            match reader.events.try_send(Arc::clone(event)) {
+                Ok(()) => entry.get_mut().push(reader),
+                Err(mpsc::error::TrySendError::Closed(_)) => {}
+                Err(mpsc::error::TrySendError::Full(_)) => {
+                    tracing::warn!(
+                        method = event.method,
+                        "a subscription of the browser's connection fell too far behind and ends"
+                    );
+                    reader.end(SubscriptionEnd::FellBehind);
+                }
+            }
+        }
+        if entry.get().is_empty() {
+            entry.remove();
+        }
+    }
+
+    /// Ends the readers of the session `gone` the browser detached, saying
+    /// so, and forgets the session.
+    fn detached(&mut self, gone: &SessionId) {
+        for reader in self.0.remove(&Some(gone.clone())).into_iter().flatten() {
+            reader.end(SubscriptionEnd::Detached);
+        }
+    }
+}
+
+/// A caller's wait for its command's answer. When it ends before the answer
+/// came, by its timeout or its drop, it tells the driver, which takes the
+/// command out of its pending map.
+struct Waiting<'a> {
+    answered: oneshot::Receiver<Result<Value, Failure>>,
+    /// Where it tells the driver: one word in it stands for any number of
+    /// callers that left, as the driver then looks at every command.
+    left: &'a mpsc::Sender<()>,
+    /// Whether the answer came, or the driver dropped the command unanswered.
+    over: bool,
+}
+
+impl Drop for Waiting<'_> {
+    fn drop(&mut self) {
+        if !self.over {
+            // Closed first, so the driver, told, sees that no one waits.
+            self.answered.close();
+            // A full channel already holds the word.
+            let _ = self.left.try_send(());
+        }
+    }
 }
 
 /// Where a connection records the method of each command it sends: the
@@ -225,7 +325,9 @@ pub trait CommandLogImpl: Debug + Send + Sync {
 #[derive(Clone, Debug)]
 pub struct Connection {
     requests: mpsc::Sender<Request>,
-    subscribers: Shared,
+    /// Where a caller that left its command's wait tells the driver.
+    left: mpsc::Sender<()>,
+    joining: Shared,
     /// The work a typed command's params serialization counts on: C1's
     /// encodes, beside the driver's frame (ADR 0140).
     work: CountedWork,
@@ -251,7 +353,9 @@ pub struct Driver<R, W> {
     reader: R,
     writer: W,
     requests: mpsc::Receiver<Request>,
-    subscribers: Shared,
+    /// The word that a caller left its command's wait.
+    left: mpsc::Receiver<()>,
+    joining: Shared,
     /// The longest message it reads: [`MAX_FRAME`].
     frame_limit: usize,
     /// Where each command's encode and send are counted (ADR 0140's C1): the
@@ -275,11 +379,13 @@ impl Connection {
         W: AsyncWrite + Unpin + Send,
     {
         let (requests, receiver) = mpsc::channel(REQUESTS);
-        let subscribers = Shared::default();
+        let (left, told) = mpsc::channel(1);
+        let joining = Shared::default();
         (
             Self {
                 requests,
-                subscribers: Arc::clone(&subscribers),
+                left,
+                joining: Arc::clone(&joining),
                 work: work.clone(),
                 log,
             },
@@ -287,7 +393,8 @@ impl Connection {
                 reader,
                 writer,
                 requests: receiver,
-                subscribers,
+                left: told,
+                joining,
                 frame_limit: MAX_FRAME,
                 work,
             },
@@ -350,12 +457,19 @@ impl Connection {
             params,
             answer,
         };
+        let mut waiting = Waiting {
+            answered,
+            left: &self.left,
+            over: false,
+        };
         let sent = async {
             self.requests
                 .send(request)
                 .await
                 .map_err(|_| Failure::Disconnected)?;
-            answered.await.map_err(|_| Failure::Disconnected)?
+            let answer = (&mut waiting.answered).await;
+            waiting.over = true;
+            answer.map_err(|_| Failure::Disconnected)?
         };
         tokio::time::timeout(timeout, sent)
             .await
@@ -369,10 +483,10 @@ impl Connection {
     pub fn subscribe(&self, session: Option<&SessionId>) -> Subscription {
         let (events, receiver) = mpsc::channel(EVENTS);
         let (why, said) = oneshot::channel();
-        let mut subscribers = lock(&self.subscribers);
+        let mut joining = lock(&self.joining);
         // A connection that ended gives a subscription that ends at once.
-        if !subscribers.ended {
-            subscribers.list.push(Subscriber {
+        if !joining.ended {
+            joining.list.push(Subscriber {
                 session: session.cloned(),
                 events,
                 why,
@@ -389,7 +503,7 @@ impl Connection {
     /// writing it failed. A subscription that ended while this is false fell
     /// behind.
     pub fn is_closed(&self) -> bool {
-        lock(&self.subscribers).ended
+        lock(&self.joining).ended
     }
 }
 
@@ -440,6 +554,7 @@ where
     pub async fn run(mut self) -> Ended {
         let mut framer = Framer::with_limit(self.frame_limit);
         let mut pending: BTreeMap<u64, Pending> = BTreeMap::new();
+        let mut readers = Readers::default();
         let mut next_id: u64 = 1;
         let mut buffer = vec![0; READ];
         let ended = loop {
@@ -463,8 +578,13 @@ where
                         let _ = answer.send(Err(Failure::Disconnected));
                         break Ended::Broken(error.kind());
                     }
-                    pending.insert(id, Pending { method, session, answer });
+                    // A caller that left before its command was written was
+                    // already looked for: its command does not wait.
+                    if !answer.is_closed() {
+                        pending.insert(id, Pending { method, session, answer });
+                    }
                 }
+                Some(()) = self.left.recv() => forget(&mut pending),
                 read = self.reader.read(&mut buffer) => {
                     match read {
                         Ok(0) => break Ended::Closed,
@@ -474,7 +594,7 @@ where
                     loop {
                         match framer.next_frame() {
                             Ok(Some(bytes)) => {
-                                dispatch(&bytes, &mut pending, &self.subscribers, &self.work);
+                                dispatch(&bytes, &mut pending, &mut readers, &self.joining, &self.work);
                             }
                             Ok(None) => break,
                             Err(FramingError::TooLarge { answering }) => {
@@ -485,14 +605,23 @@ where
                 }
             }
         };
+        // A caller that left before the end told the driver before its
+        // handle went: its word is taken first, so its command is no orphan.
+        if self.left.try_recv().is_ok() {
+            forget(&mut pending);
+        }
         for (_, Pending { answer, .. }) in pending {
+            if answer.is_closed() {
+                self.work.count(Row::CdpPendingOrphans);
+            }
             let _ = answer.send(Err(Failure::Disconnected));
         }
         {
-            let mut subscribers = lock(&self.subscribers);
-            subscribers.ended = true;
-            subscribers.list.clear();
+            let mut joining = lock(&self.joining);
+            joining.ended = true;
+            joining.list.clear();
         }
+        drop(readers);
         // A send takes its place in the queue, then queues its request: a
         // request queued after the receiver dropped is never dropped while a
         // handle lives, so its command would wait for good, and every one
@@ -525,14 +654,23 @@ fn dropped(answering: Option<u64>, pending: &mut BTreeMap<u64, Pending>) {
     }
 }
 
-/// Hands one message to the command it answers or to the subscribers of
-/// its session, never waiting for one: a subscription its holder dropped
-/// leaves, and one that fell [`EVENTS`] behind ends. An event's work is
+/// Takes out of `pending` each command whose caller left its wait, by its
+/// timeout or its drop. The browser may still answer one, and that answer is
+/// then one no command waits for.
+fn forget(pending: &mut BTreeMap<u64, Pending>) {
+    pending.retain(|_, command| !command.answer.is_closed());
+}
+
+/// Hands one message to the command it answers or to the readers of its
+/// session, those that joined since the last event among them, never
+/// waiting for one. An answer no command waits for, as its caller left, its
+/// session was detached or it was never sent, is dropped. An event's work is
 /// counted on `work`.
 fn dispatch(
     bytes: &[u8],
     pending: &mut BTreeMap<u64, Pending>,
-    subscribers: &Shared,
+    readers: &mut Readers,
+    joining: &Shared,
     work: &CountedWork,
 ) {
     let Ok(mut message) = serde_json::from_slice::<Value>(bytes) else {
@@ -541,6 +679,10 @@ fn dispatch(
     };
     if let Some(id) = message.get("id").and_then(Value::as_u64) {
         let Some(Pending { method, answer, .. }) = pending.remove(&id) else {
+            tracing::debug!(
+                id,
+                "the browser answered a command no caller waits for, and the answer is dropped"
+            );
             return;
         };
         let answered = match message.get("error") {
@@ -570,37 +712,12 @@ fn dispatch(
         .then(|| event.params.get("sessionId").and_then(Value::as_str))
         .flatten()
         .map(|gone| SessionId(gone.to_owned()));
+    readers.take_in(joining);
     if let Some(gone) = &gone {
         detached(gone, pending);
+        readers.detached(gone);
     }
-    let mut subscribers = lock(subscribers);
-    for subscriber in std::mem::take(&mut subscribers.list) {
-        if subscriber.events.is_closed() {
-            continue;
-        }
-        if gone
-            .as_ref()
-            .is_some_and(|gone| subscriber.session.as_ref() == Some(gone))
-        {
-            subscriber.end(SubscriptionEnd::Detached);
-            continue;
-        }
-        if subscriber.session != session {
-            subscribers.list.push(subscriber);
-            continue;
-        }
-        match subscriber.events.try_send(Arc::clone(&event)) {
-            Ok(()) => subscribers.list.push(subscriber),
-            Err(mpsc::error::TrySendError::Closed(_)) => {}
-            Err(mpsc::error::TrySendError::Full(_)) => {
-                tracing::warn!(
-                    method = event.method,
-                    "a subscription of the browser's connection fell too far behind and ends"
-                );
-                subscriber.end(SubscriptionEnd::FellBehind);
-            }
-        }
-    }
+    readers.hand(session, &event, work);
 }
 
 /// Fails at once each command in flight on the session `gone` the browser
@@ -652,6 +769,7 @@ pub fn fuzz_pipe(data: &[u8]) {
     );
     let mut subscriptions = [None, Some(&session)].map(|on| (on, connection.subscribe(on)));
     let mut pending = BTreeMap::new();
+    let mut readers = Readers::default();
     let mut answers = Vec::new();
     for id in 0..8 {
         let (answer, answered) = oneshot::channel();
@@ -672,7 +790,13 @@ pub fn fuzz_pipe(data: &[u8]) {
             .as_ref()
             .and_then(|message| message.get("id")?.as_u64())
             .filter(|id| pending.contains_key(id));
-        dispatch(&bytes, &mut pending, &driver.subscribers, &driver.work);
+        dispatch(
+            &bytes,
+            &mut pending,
+            &mut readers,
+            &driver.joining,
+            &driver.work,
+        );
         if let Some(id) = answering {
             let answered = usize::try_from(id)
                 .ok()

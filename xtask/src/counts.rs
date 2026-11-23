@@ -217,7 +217,7 @@ const LARGE: &str = "large_params";
 
 /// Every row with a counter. Adding one here, with its counter and its
 /// plant in the family's benchmark, is what gives a row its command.
-const ROWS: [Row; 144] = [
+const ROWS: [Row; 146] = [
     Row {
         name: "F1.parses",
         family: "B1",
@@ -505,6 +505,22 @@ const ROWS: [Row; 144] = [
     },
     Row {
         name: "C1.log_sends_off",
+        family: "B2",
+        unit: "commands",
+        happens: false,
+        valgrind: None,
+    },
+    // Per event the browser sent, on any session: the readers the driver
+    // visits to hand it on.
+    Row {
+        name: "C1.event_visits",
+        family: "B2",
+        unit: "events",
+        happens: true,
+        valgrind: None,
+    },
+    Row {
+        name: "C1.pending_orphans",
         family: "B2",
         unit: "commands",
         happens: false,

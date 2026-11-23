@@ -818,6 +818,146 @@ fn a_frame_detached_on_its_page_session_ends_only_the_frame_subscriptions() {
     });
 }
 
+/// A connection, its driver and the browser's end, counting on `work`.
+fn connected_on(work: &CountedWork) -> (Connection, Pipe, Browser) {
+    let (client, browser) = tokio::io::duplex(1 << 16);
+    let (reader, writer) = tokio::io::split(client);
+    let (connection, driver) = Connection::new(reader, writer, work.clone(), None);
+    (
+        connection,
+        driver,
+        Browser {
+            stream: browser,
+            framer: Framer::default(),
+        },
+    )
+}
+
+/// C1's seam (ADR 0140): the driver hands an event to the readers of its
+/// session alone, visiting no other session's.
+#[test]
+fn an_event_visits_the_readers_of_its_session_alone() {
+    let work = CountedWork::default();
+    let (connection, driver, mut browser) = connected_on(&work);
+    let sessions = ["page", "frame", "worker"].map(|on| SessionId(on.to_owned()));
+    runtime().block_on(async {
+        let (_, method) = tokio::join!(driver.run(), async {
+            let mut readers = sessions
+                .each_ref()
+                .map(|session| connection.subscribe(Some(session)));
+            browser
+                .send(&json!({ "method": "Page.loadEventFired", "params": { "timestamp": 1.0 }, "sessionId": "frame" }))
+                .await;
+            let method = readers[1].next().await.map(|event| event.method.clone());
+            drop((connection, browser));
+            method
+        });
+        assert_eq!(method.as_deref(), Some("Page.loadEventFired"));
+    });
+
+    assert_eq!(work.read(Row::CdpEventVisits), 1);
+}
+
+/// C1's seam (ADR 0140): a command whose caller's timeout ended its wait
+/// leaves the pending map, though the browser never answers it.
+#[test]
+fn a_command_whose_caller_timed_out_leaves_the_pending_map() {
+    let work = CountedWork::default();
+    let (connection, driver, mut browser) = connected_on(&work);
+    runtime().block_on(async {
+        let (_, answer) = tokio::join!(driver.run(), async {
+            let (answer, _) = tokio::join!(
+                connection.send_raw(
+                    "Browser.getVersion",
+                    None,
+                    json!({}),
+                    Duration::from_secs(1)
+                ),
+                browser.received(),
+            );
+            drop((connection, browser));
+            answer
+        });
+        assert_eq!(
+            answer.err(),
+            Some(Failure::TimedOut {
+                method: "Browser.getVersion"
+            })
+        );
+    });
+
+    assert_eq!(work.read(Row::CdpPendingOrphans), 0);
+}
+
+/// C1's seam (ADR 0140): a command whose caller dropped its wait leaves the
+/// pending map, though the browser never answers it.
+#[test]
+fn a_command_whose_caller_was_dropped_leaves_the_pending_map() {
+    let work = CountedWork::default();
+    let (connection, driver, mut browser) = connected_on(&work);
+    runtime().block_on(async {
+        let (_, received) = tokio::join!(driver.run(), async {
+            let received = tokio::select! {
+                answer = connection.send_raw("Browser.getVersion", None, json!({}), HUNG) => {
+                    panic!("the browser answered nothing, yet the caller got {answer:?}")
+                }
+                command = browser.received() => command,
+            };
+            drop((connection, browser));
+            received
+        });
+        assert_eq!(received["method"], "Browser.getVersion");
+    });
+
+    assert_eq!(work.read(Row::CdpPendingOrphans), 0);
+}
+
+/// The browser's answer to a command whose caller had gone is dropped: no
+/// other command takes it, no reader sees it, and the connection goes on.
+#[test]
+fn an_answer_to_a_command_whose_caller_had_gone_is_dropped() {
+    runtime().block_on(async {
+        let (connection, driver, mut browser) = connected();
+        let (_, (late, next, unread)) = tokio::join!(driver.run(), async {
+            let mut on_browser = connection.subscribe(None);
+            let (late, command) = tokio::join!(
+                connection.send_raw(
+                    "Browser.getVersion",
+                    None,
+                    json!({}),
+                    Duration::from_secs(1)
+                ),
+                browser.received(),
+            );
+            browser
+                .send(&json!({ "id": command["id"], "result": { "late": true } }))
+                .await;
+            let (next, ()) = tokio::join!(
+                connection.send(None, &GetVersionParams {}, TIMEOUT),
+                async {
+                    let command = browser.received().await;
+                    browser
+                        .send(&json!({ "id": command["id"], "result": version() }))
+                        .await;
+                },
+            );
+            let unread = tokio::time::timeout(TIMEOUT, on_browser.next()).await;
+            drop((connection, browser));
+            (late, next, unread.is_err())
+        });
+        assert_eq!(
+            (late.err(), next.map(|version| version.product), unread),
+            (
+                Some(Failure::TimedOut {
+                    method: "Browser.getVersion"
+                }),
+                Ok("Chrome/156.0.8078.4".to_owned()),
+                true
+            )
+        );
+    });
+}
+
 mod cdp_pipe {
     goodfetch_test_support::fuzz_replay!(crate::connection::fuzz_pipe, "fuzz/cdp_pipe");
 }

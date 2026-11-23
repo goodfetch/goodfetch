@@ -194,6 +194,8 @@ The rows of counted work, and those read under Valgrind, promoted from the Measu
 | `C1.sends` | sends per CDP command | 1 | 1 | B2 | must not grow | `just counts` | implementer done, merge gate |
 | `C1.file_opens` | directories created and files opened per CDP command | 0 | 0 | B2 | must not grow | `just counts` | implementer done, merge gate |
 | `C1.log_sends_off` | sends to the CDP command log's writer per command, log off | 0 | 0 | B2 | must not grow | `just counts` | implementer done, merge gate |
+| `C1.event_visits` | readers the connection's driver visits per event the browser sent, at most the readers of the event's session; its figure follows the readers a Page holds (7.929 with the Filter lists off, 7 with Consent handling off) until #2265 leaves one a Page | no cap (ratchet) | 8.949 | B2 | must not grow | `just counts` | implementer done, merge gate |
+| `C1.pending_orphans` | commands still in the connection's pending map at its end whose caller had gone, per command | 0 | 0 | B2 | must not grow | `just counts` | implementer done, merge gate |
 | `C2.commands` | CDP commands per page read | 1 | 2 | B2 | must not grow | `just counts` | implementer done, merge gate |
 | `C2.world_creations` | `Page.createIsolatedWorld` per page read, past a document's first | 0 | 1 | B2 | must not grow | `just counts` | implementer done, merge gate |
 | `C2.document_worlds` | `Page.createIsolatedWorld` per document and frame read | ≤ 1 | 2 | B2 | must not grow | `just counts` | implementer done, merge gate |

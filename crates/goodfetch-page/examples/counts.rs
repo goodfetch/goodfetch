@@ -225,6 +225,7 @@ fn run(cell: Cell, planted: Option<&str>, bypassed: Option<&str>) -> Counted {
 fn units(session: &session::Counted) -> Map<String, Value> {
     let mut units = Map::from_iter([
         ("commands".to_owned(), json!(session.commands)),
+        ("events".to_owned(), json!(session.events)),
         ("reads".to_owned(), json!(session.reads)),
         ("documents".to_owned(), json!(session.documents)),
         ("serializations".to_owned(), json!(session.serializations)),

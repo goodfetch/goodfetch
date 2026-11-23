@@ -255,6 +255,8 @@ const ACTIONS: [(&str, &str); 3] = [
 pub(crate) struct Counted {
     /// The commands the browser read, each once.
     pub(crate) commands: u64,
+    /// The events the browser sent, on any session.
+    pub(crate) events: u64,
     /// The navigations the browser was asked for, each once.
     pub(crate) navigations: u64,
     /// The guard's checks the browser was asked for outside the program's
@@ -422,6 +424,8 @@ const WAITED: [&str; 4] = ["attached", "detached", "visible", "hidden"];
 #[derive(Default)]
 struct Units {
     commands: AtomicU64,
+    /// The events the browser sent, on any session.
+    events: AtomicU64,
     requests: AtomicU64,
     paused: AtomicU64,
     refused: AtomicU64,
@@ -1101,6 +1105,10 @@ async fn browser(mut wire: Wire, counts: Heard, plant: Option<Plant>) {
                 }
             }
         }
+        counts.units.events.fetch_add(
+            u64::try_from(events.len()).expect("invariant: a command leads to few events"),
+            Ordering::Relaxed,
+        );
         let mut messages = vec![answer];
         messages.extend(events);
         for message in messages {
@@ -1588,6 +1596,7 @@ pub(crate) fn counted(
     let [commands, requests, paused, refused] = heard.units.reading();
     Counted {
         commands,
+        events: heard.units.events.load(Ordering::Relaxed),
         navigations: heard.navigations.load(Ordering::Relaxed),
         checks: heard.checks.load(Ordering::Relaxed),
         attempts,

@@ -85,17 +85,21 @@ fn judged(work: &goodfetch_counted_work::CountedWork) -> [u64; 4] {
 /// command log off, its default, nothing goes to the Run trace's writer; a
 /// typed command's params serialized first are an encode of their own (X21);
 /// the page a Borrowed browser opens walks no memory, as the pool never
-/// measures it.
+/// measures it. The browser sends events, and no command is left in the
+/// connection's pending map with no caller waiting for it.
 #[test]
 fn a_session_counts_each_commands_work() {
     let Counted {
         commands,
+        events,
         pages_opened,
         work,
         ..
     } = run(None);
 
     assert!(commands > 0, "the Session sent no command");
+    assert!(events > 0, "the browser sent no event");
+    assert_eq!(work.read(Row::CdpPendingOrphans), 0);
     let encodes = work.read(Row::CdpEncodes);
     assert!(
         encodes > commands && encodes <= 2 * commands,

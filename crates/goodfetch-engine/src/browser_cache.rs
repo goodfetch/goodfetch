@@ -33,7 +33,7 @@ use goodfetch_protocol::browser_cache::{
     ARTIFACT_DOWNLOAD_FAILED, ARTIFACT_UNAVAILABLE_OFFLINE, ArtifactDownloadFailedDetails,
     ArtifactId, ArtifactKind, ArtifactUnavailableOfflineDetails, BROWSER_NOT_INSTALLED,
     BrowserCacheEntry, BrowserNotInstalledDetails, DownloadFailure, DownloadProgress,
-    InstallOutcome, MissingBrowser, PinnedBy,
+    InstallOutcome, MissingBrowser, PinnedBy, READ_ONLY,
 };
 use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::egress::EGRESS_OFFLINE;
@@ -697,15 +697,31 @@ impl BrowserCache {
         why: Unreachable,
     ) -> CacheError {
         let cache = self.root.display().to_string();
+        let install = install_command(pinned_by.product, &artifact.id);
+        let read_only_mode =
+            matches!(why, Unreachable::ReadOnly) && self.mode == CacheMode::ReadOnly;
         let message = format!(
             "{} is not in the Browser cache at {cache}, {}",
             describe(&artifact.id, pinned_by),
             match why {
-                Unreachable::ReadOnly => "which this engine cannot write",
+                Unreachable::ReadOnly if read_only_mode => {
+                    format!("which `{}` keeps this engine from writing", READ_ONLY.name)
+                }
+                Unreachable::ReadOnly => "which this engine cannot write".to_owned(),
                 Unreachable::NoArchiveDigest =>
-                    "and its pin names no archive digest yet, so it is never downloaded",
+                    "and its pin names no archive digest yet, so it is never downloaded".to_owned(),
             },
         );
+        let fix = if read_only_mode {
+            format!(
+                "Run `{install}` beforehand, or lift `{}` where it was set",
+                READ_ONLY.name
+            )
+        } else {
+            format!(
+                "Run `{install}` where the Browser cache is writable, such as in the image's build, or point {BROWSERS_PATH_VARIABLE} at a cache that holds it",
+            )
+        };
         CacheError::BrowserNotInstalled {
             message,
             details: Box::new(BrowserNotInstalledDetails {
@@ -714,10 +730,7 @@ impl BrowserCache {
                     pinned_by: pinned_by.clone(),
                     cache,
                 },
-                fix: format!(
-                    "Run `{}` where the Browser cache is writable, such as in the image's build, or point {BROWSERS_PATH_VARIABLE} at a cache that holds it",
-                    install_command(pinned_by.product, &artifact.id),
-                ),
+                fix,
             }),
         }
     }

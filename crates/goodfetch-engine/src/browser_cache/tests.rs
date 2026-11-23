@@ -490,6 +490,77 @@ fn a_read_only_cache_that_holds_the_pinned_build_is_left_as_it_was() {
     assert_eq!(tree(cache.root()), before);
 }
 
+/// Covers: setting:browser_cache.read_only, error:browser_not_installed
+#[rstest]
+#[case::offline(offline())]
+#[case::online(Fetching::new(Clock::system()))]
+fn a_read_only_cache_refuses_a_build_of_the_wrong_digest_and_leaves_it_in_place(
+    #[case] fetching: Fetching,
+) {
+    let env = TestEnv::new();
+    let cache = cache_in(&env).in_mode(CacheMode::ReadOnly);
+    let id = browser("141.0.7390.54-linux64");
+    let folder = lay_out(&cache, &id, now(&env));
+    fs::write(folder.join("files/chrome"), "#!tampered\n").unwrap();
+    let before = tree(cache.root());
+
+    let refused = goodfetch_test_support::runtime()
+        .block_on(cache.prepare(
+            &pin(id),
+            &pinned_by(),
+            &fetching,
+            now(&env),
+            &mut no_progress(),
+        ))
+        .err()
+        .unwrap();
+
+    let CacheError::BrowserNotInstalled { message, details } = refused else {
+        panic!("expected browser_not_installed, got {refused:?}");
+    };
+    assert_eq!(
+        (
+            message.ends_with("which `browser_cache.read_only` keeps this engine from writing"),
+            details.fix.as_str()
+        ),
+        (
+            true,
+            "Run `goodfetch-collie browser install` beforehand, or lift `browser_cache.read_only` where it was set"
+        )
+    );
+    assert_eq!(tree(cache.root()), before);
+}
+
+/// A missing build is never downloaded into a read-only cache, nor its
+/// root created by the write check.
+///
+/// Covers: setting:browser_cache.read_only, error:artifact_unavailable_offline, error:browser_not_installed
+#[rstest]
+#[case::offline(offline(), "artifact_unavailable_offline")]
+#[case::online(Fetching::new(Clock::system()), "browser_not_installed")]
+fn a_read_only_cache_downloads_no_missing_build(#[case] fetching: Fetching, #[case] code: &str) {
+    let env = TestEnv::new();
+    let root = env.folder().join("absent cache");
+    let cache = BrowserCache::new(
+        &CacheLocation::new(env.home(), Some(root.clone())),
+        inline(),
+    )
+    .in_mode(CacheMode::ReadOnly);
+
+    let refused = goodfetch_test_support::runtime()
+        .block_on(cache.prepare(
+            &pin(browser("141.0.7390.54-linux64")),
+            &pinned_by(),
+            &fetching,
+            now(&env),
+            &mut no_progress(),
+        ))
+        .err()
+        .unwrap();
+
+    assert_eq!((refused.code(), root.exists()), (code, false));
+}
+
 /// Covers: error:browser_not_installed
 #[test]
 fn a_chrome_channel_that_is_not_installed_names_where_it_was_looked_for() {

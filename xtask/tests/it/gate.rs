@@ -1367,15 +1367,9 @@ fn a_hosted_run_cancelled_at_its_cap_leaves_the_gate_the_only_run_of_its_unfinis
 /// The full form's steps the hosted tier owns (spec 3373's Step ownership):
 /// a finishing spec pull request's hosted run holds those its change
 /// reaches.
-const HOSTED_OWNED_FULL: [&str; 14] = [
+const HOSTED_OWNED_FULL: [&str; 8] = [
     "visual",
-    "tlc",
-    "miri",
-    "loom",
-    "windows",
     "lint",
-    "feature-combinations",
-    "fuzz-check",
     "proofs",
     "pre-merge",
     "journeys-tasks",
@@ -1385,9 +1379,11 @@ const HOSTED_OWNED_FULL: [&str; 14] = [
 ];
 
 /// The full form's steps the gate runs itself: those that judge the whole
-/// change, perf, and the Linux-only tests, which the Pre-merge suite runs
-/// on a Linux runner and `ci/linux.sh` skips on the Linux gate host.
-const RUN_BY_THE_FULL_GATE: [&str; 8] = [
+/// change, perf, the Linux-only tests, which the Pre-merge suite runs on a
+/// Linux runner and `ci/linux.sh` skips on the Linux gate host, and the
+/// steps no 4-vCPU hosted job finishes within ADR 0061's 30-minute cap
+/// (#3382).
+const RUN_BY_THE_FULL_GATE: [&str; 14] = [
     "dco",
     "commit-messages",
     "floor-guard",
@@ -1396,30 +1392,26 @@ const RUN_BY_THE_FULL_GATE: [&str; 8] = [
     "notices",
     "perf",
     "linux",
+    "tlc",
+    "miri",
+    "loom",
+    "windows",
+    "feature-combinations",
+    "fuzz-check",
 ];
 
-/// The no-double-run walk of a finishing spec pull request (#3382):
-/// `just preflight` records the stress run and the counts on the head, the
-/// hosted run in the full form runs each hosted-owned step its change
-/// reaches, and `just merge`'s full gate reads both. It reuses every unit
-/// they ran, runs perf and the steps it owns, and no unit runs twice on
-/// one tree.
-#[test]
-fn no_unit_runs_twice_on_one_tree_across_preflight_the_hosted_run_and_the_full_gate() {
-    let (workspace, folder, records) = gated_with_a_register("2027-01-30");
-    let downloaded = folder.path().join("downloaded");
-    a_batch_pinning_the_ci_image(&workspace);
-    let mut ran = Ran::new();
-
+/// `just preflight` on the head: its plan, whose units of the stress run and
+/// the counts it adds to `ran` and records green by the layer `preflight`.
+fn preflight_run(workspace: &Workspace, records: &Path, ran: &mut Ran) -> Plan {
     let preflight = plan_with(
-        &workspace,
-        &records,
+        workspace,
+        records,
         "CI=",
         &["--form", "preflight", "--layer", "preflight"],
     );
     add_ran(
-        &workspace,
-        &mut ran,
+        workspace,
+        ran,
         &preflight,
         &["counts", "stress"],
         "preflight",
@@ -1443,6 +1435,23 @@ fn no_unit_runs_twice_on_one_tree_across_preflight_the_hosted_run_and_the_full_g
         ]);
         assert_eq!(outcome.code, 0, "{}", outcome.stderr);
     }
+    preflight
+}
+
+/// The no-double-run walk of a finishing spec pull request (#3382):
+/// `just preflight` records the stress run and the counts on the head, the
+/// hosted run in the full form runs each hosted-owned step its change
+/// reaches, and `just merge`'s full gate reads both. It reuses every unit
+/// they ran, runs perf and the steps it owns, and no unit runs twice on
+/// one tree.
+#[test]
+fn no_unit_runs_twice_on_one_tree_across_preflight_the_hosted_run_and_the_full_gate() {
+    let (workspace, folder, records) = gated_with_a_register("2027-01-30");
+    let downloaded = folder.path().join("downloaded");
+    a_batch_pinning_the_ci_image(&workspace);
+    let mut ran = Ran::new();
+
+    let preflight = preflight_run(&workspace, &records, &mut ran);
     let hosted = hosted_run(
         &workspace,
         folder.path(),
@@ -1485,7 +1494,7 @@ fn no_unit_runs_twice_on_one_tree_across_preflight_the_hosted_run_and_the_full_g
         duplicates.stdout, duplicates.stderr
     );
     ran_once(&ran);
-    for step in ["perf", "counts", "stress", "linux"] {
+    for step in RUN_BY_THE_FULL_GATE.into_iter().chain(["counts", "stress"]) {
         assert!(units(&hosted, step).is_empty(), "{step} runs hosted");
     }
     for step in HOSTED_OWNED_FULL {

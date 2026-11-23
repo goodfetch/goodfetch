@@ -35,6 +35,14 @@ workspace=${GITHUB_WORKSPACE:-$(pwd)}
 chrome_for_testing="$HOME/.cache/goodfetch/chrome-for-testing"
 mkdir -p "$chrome_for_testing"
 
+# A job that runs the Products' plugin tests sets
+# GOODFETCH_FETCH_CLAUDE_CODE=yes, so `just fetch` in the container downloads
+# the pinned Claude Code they validate with (ci/claude-code-fetch.sh).
+environment=()
+if [[ -n "${GOODFETCH_FETCH_CLAUDE_CODE:-}" ]]; then
+  environment+=(--env "GOODFETCH_FETCH_CLAUDE_CODE=$GOODFETCH_FETCH_CLAUDE_CODE")
+fi
+
 rm -f "$EGRESS_STATE"
 "$here/image.sh" ready
 docker rm --force "$CONTAINER" >/dev/null 2>&1 || true
@@ -44,6 +52,7 @@ docker run --detach --name "$CONTAINER" --platform linux/amd64 \
   --volume "$chrome_for_testing:/var/cache/chrome-for-testing" \
   --env GOODFETCH_CHROME_FOR_TESTING_DOWNLOADS=/var/cache/chrome-for-testing \
   --env CI=true --env GOODFETCH_TEST_DNS_NAMESPACE=user_namespace \
+  ${environment[@]+"${environment[@]}"} \
   "$CI_IMAGE" /sbin/init >/dev/null
 # systemd's own socket comes first; then the boot ends, `degraded` when a
 # unit a container cannot run (loading kernel modules) failed.

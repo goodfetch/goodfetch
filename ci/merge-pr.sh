@@ -457,7 +457,10 @@ fi
 echo "The gate is ${ran%,}"
 # The hosted tier (ADR 0135's amendment of 2026-11-22) runs a batch's or a
 # spec's pull request's hosted-owned units, lint, the Quick suite, the
-# Journey task lists and xtask's codegen tests, on GitHub's standard runners.
+# Journey task lists and xtask's codegen tests, on GitHub's standard runners,
+# a batch's Pre-merge suite too, and on the pull request that finishes a spec
+# the full form's (#3382): the proofs, the visual tests, the Pre-merge suite,
+# the feature tests, the Kennel's check and the MSRV build.
 # The gate waits for the run on its head and reads the records of the runs
 # on it and its ancestors (ci/hosted-records.sh): the plan reuses their green
 # units, and a red one ends the gate red. A fork's runs are never read, and

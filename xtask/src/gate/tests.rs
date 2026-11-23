@@ -1169,8 +1169,9 @@ const BESIDE_STEPS: [&str; 8] = [
 /// (spec #3373): `just merge` judges the change in seconds, the gate host
 /// keeps what a noisy runner would move, and the hosted tier owns the rest
 /// but the Linux-only tests, which the Pre-merge suite runs on a Linux
-/// runner. A command of a form's list is part of a hosted step: the
-/// documents' lint is lint's.
+/// runner, and the steps no 4-vCPU hosted job finishes within ADR 0061's
+/// 30-minute cap, which `just merge` keeps (#3382). A command of a form's
+/// list is part of a hosted step: the documents' lint is lint's.
 #[rstest]
 #[case::all(Form::All)]
 #[case::quick(Form::Quick)]
@@ -1179,6 +1180,14 @@ const BESIDE_STEPS: [&str; 8] = [
 #[case::preflight(Form::Preflight)]
 fn each_entry_has_the_owner_the_table_of_owning_layers_names(#[case] form: Form) {
     const GATE_HOST: [&str; 3] = ["perf", "counts", "stress"];
+    const TOO_LONG_FOR_A_HOSTED_JOB: [&str; 6] = [
+        "windows",
+        "tlc",
+        "fuzz-check",
+        "feature-combinations",
+        "loom",
+        "miri",
+    ];
     let owners: Vec<(&str, Owner)> = entries(form)
         .iter()
         .map(|entry| (entry.name, entry.owner))
@@ -1186,7 +1195,10 @@ fn each_entry_has_the_owner_the_table_of_owning_layers_names(#[case] form: Form)
     let expected: Vec<(&str, Owner)> = owners
         .iter()
         .map(|(name, _)| {
-            let owner = if WHOLE_CHANGE_STEPS.contains(name) || *name == "linux" {
+            let owner = if WHOLE_CHANGE_STEPS.contains(name)
+                || *name == "linux"
+                || TOO_LONG_FOR_A_HOSTED_JOB.contains(name)
+            {
                 Owner::Local
             } else if GATE_HOST.contains(name) {
                 Owner::GateHost

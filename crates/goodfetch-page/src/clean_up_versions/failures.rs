@@ -167,7 +167,8 @@ pub(super) fn refusal(
     let pinned_by = PinnedBy {
         product: context.product,
         product_version: context.product_version.clone(),
-    };
+    }
+    .pinners();
     let host = failure
         .host()
         .map_or_else(|| registry(context), str::to_owned);

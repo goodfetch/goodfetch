@@ -371,8 +371,9 @@ modes = ["attached"]
 # `BrowserNotInstalledError` (not retryable), `ArtifactUnavailableOfflineError`
 # (a `RefusedError` whose `limit` names `egress.offline`) or
 # `ArtifactDownloadFailedError` (retryable, its `failure` `http_status`,
-# `network` or `digest_mismatch`), each naming the build, the Product
-# version that pins it and, in `fix`, that Product's `browser install`.
+# `network` or `digest_mismatch`), each naming the build, what pins it
+# as the list `pinned_by`, here the Product version alone, and, in `fix`,
+# that Product's `browser install`.
 # Played by the Scripted engine attached in TypeScript and Python (asyncio,
 # Trio and the sync API), the engine from npm and PyPI, and as a Daemon in
 # all three, each from another channel: the archive installer for

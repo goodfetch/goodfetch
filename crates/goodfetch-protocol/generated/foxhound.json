@@ -5558,6 +5558,60 @@
       ],
       "type": "object"
     },
+    "HookFailedDetails": {
+      "description": "What `hook_failed` details: the Hook, and the exception as\n`handler_failed`'s details name a handler's (ADR 0079's notes of\n2026-10-24 and 2026-10-27).",
+      "properties": {
+        "exception_message": {
+          "arrived_in": "0.1",
+          "description": "The exception's message.",
+          "type": "string"
+        },
+        "exception_stack": {
+          "arrived_in": "0.1",
+          "description": "The frames of the program's code, as one text; empty from Rust.",
+          "type": "string"
+        },
+        "exception_type": {
+          "arrived_in": "0.1",
+          "description": "The exception's type name: `BoxError` or `panic` from Rust (ADR\n0109).",
+          "type": "string"
+        },
+        "hook": {
+          "arrived_in": "0.1",
+          "description": "The Hook that raised.",
+          "type": "string"
+        },
+        "label": {
+          "arrived_in": "0.1",
+          "description": "The request's Label, or none at a lifecycle stage, which has no\nrequest, and outside a crawl.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "stage": {
+          "$ref": "#/$defs/ReportedHookStage",
+          "arrived_in": "0.1",
+          "description": "The stage the Hook ran at."
+        },
+        "wrapped_code": {
+          "arrived_in": "0.1",
+          "description": "The Goodfetch code raised inside the Hook, such as\n`header_forbidden`, or none for the program's own exception.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "stage",
+        "hook",
+        "exception_type",
+        "exception_message",
+        "exception_stack"
+      ],
+      "type": "object"
+    },
     "HtmlFormat": {
       "anyOf": [
         {
@@ -10084,6 +10138,47 @@
         "claim"
       ],
       "type": "object"
+    },
+    "ReportedHookStage": {
+      "description": "The stage a Hook that raised ran at, as `hook_failed` reports it, by\nthe catalog's name (ADR 0104): a crawl's Hooks in code run at the stages\nwhose answer changes the work, and Plugins and Script Hooks also at the\nobserve-only `request_ended`. A Run's lifecycle stage reads as a stage\nthis reader does not know, its name kept.",
+      "oneOf": [
+        {
+          "const": "before_request",
+          "description": "Before each fetch of a request, its retries included.",
+          "type": "string"
+        },
+        {
+          "const": "after_response",
+          "description": "After the request's final response, redirects followed.",
+          "type": "string"
+        },
+        {
+          "const": "before_navigation",
+          "description": "Before a navigation to the request's URL, on the tiers that\nnavigate.",
+          "type": "string"
+        },
+        {
+          "const": "after_navigation",
+          "description": "After that navigation.",
+          "type": "string"
+        },
+        {
+          "const": "page_ready",
+          "description": "Just before the handler, with its page, on every tier.",
+          "type": "string"
+        },
+        {
+          "const": "before_record_commit",
+          "description": "Before each Record the attempt staged commits.",
+          "type": "string"
+        },
+        {
+          "const": "request_ended",
+          "description": "Once a crawl request ended, with its outcome; observe-only.",
+          "type": "string"
+        }
+      ],
+      "open": true
     },
     "RequestCounts": {
       "description": "How a crawl's requests ended (ADR 0079).",
@@ -16377,6 +16472,9 @@
     {
       "arrived_in": "0.1",
       "description": "A Hook raised, so its work failed: an attempt commits nothing, and one that failed at the Record stage commits none of what it staged. The message always names the exception. The details name the stage, the Hook, the request's Label (`null` at a lifecycle stage or outside a crawl), the exception's type, message and stack, and the Goodfetch code raised inside (`null` for the program's own exception). A wrapped code is retried when its own retryable flag says so; in a crawl, the program's own exception only when `crawl.retry.handler_failed` is on, since a bug fails the same way every time, and either retry draws on `crawl.retry.max`.",
+      "details": {
+        "$ref": "#/$defs/HookFailedDetails"
+      },
       "exit_code": null,
       "group": "program",
       "json_rpc_class": -32001,

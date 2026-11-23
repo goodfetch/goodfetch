@@ -11,6 +11,7 @@ import {
   CallCancelledError,
   collieErrorClasses,
   errorGroupClasses,
+  HookFailedError,
   InternalError,
   isCollieError,
   PageError,
@@ -18,6 +19,7 @@ import {
   SettingInvalidError,
   type CallCancelledDetails,
   type ErrorGroup,
+  type HookFailedDetails,
 } from "./generated/index.ts";
 
 interface CatalogCode {
@@ -248,6 +250,47 @@ describe("errorOfReply", () => {
       const details: Readonly<CallCancelledDetails> | undefined =
         error instanceof CallCancelledError ? error.typedDetails : undefined;
       expect(details).toEqual(read);
+    },
+  );
+
+  // ADRs 0079 and 0104: a Hook that raised reads its stage, its Hook
+  // and the exception typed from the client package, since a Collie Run's
+  // Script Hooks raise it too; a stage a newer engine names reaches the
+  // program unchanged.
+  test.for(["after_response", "a_stage_from_a_newer_engine"])(
+    "reads hook_failed's details at the stage %s typed",
+    { tags: ["error:hook_failed"] },
+    (stage) => {
+      const error = errorOfReply(
+        {
+          code: -32001,
+          message: "the Hook checkPrice raised TypeError: price is undefined",
+          data: {
+            code: "hook_failed",
+            retryable: true,
+            stage,
+            hook: "checkPrice",
+            label: null,
+            exception_type: "TypeError",
+            exception_message: "price is undefined",
+            exception_stack: "at checkPrice (crawl.ts:12:5)",
+            wrapped_code: "header_forbidden",
+          },
+        },
+        collieErrorClasses,
+      );
+
+      const details: Readonly<HookFailedDetails> | undefined =
+        error instanceof HookFailedError ? error.typedDetails : undefined;
+      expect(details).toEqual({
+        stage,
+        hook: "checkPrice",
+        label: null,
+        exceptionType: "TypeError",
+        exceptionMessage: "price is undefined",
+        exceptionStack: "at checkPrice (crawl.ts:12:5)",
+        wrappedCode: "header_forbidden",
+      });
     },
   );
 

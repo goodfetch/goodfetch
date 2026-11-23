@@ -7,31 +7,56 @@ removes on close, with a cleared environment and `egress.offline` on; a host
 `network.resolve` maps to loopback alone is reached live and any other is
 refused, and browsers come from the caller's Browser cache, which the engine
 reads and never writes: the kit turns `browser_cache.read_only` on (issue
-3458). Rust's `tests/it/sdk/test_engine.rs` is its twin.
+3458). With a Daemon running in the caller's home, the code under test runs
+unchanged on the Daemon's connection and on the test engine's, which reaches
+its own Attached engine. The kit's sample tests run under pytest with AnyIO's
+plugin alone and under `unittest` (issue 3399). Rust's
+`tests/it/sdk/test_engine.rs` is its twin.
 """
 
 from __future__ import annotations
 
 import os
+import re
+import shutil
+import subprocess
+import sys
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 import anyio.to_thread
 import pytest
-from collie_calls import failure, response_on
+from collie_calls import failure, open_collie, response_on
 from goodfetch_collie import (
     ArtifactUnavailableOfflineError,
     AsyncCollie,
+    Collie,
     EgressRefusedError,
     Settings,
     testing,
 )
-from goodfetch_test_support import BrowserDownload, ProvingGround, Way, three_ways
+from goodfetch_test_support import (
+    BrowserDownload,
+    ClientCaseRecord,
+    ProvingGround,
+    TestEnv,
+    Way,
+    three_ways,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
     from goodfetch_collie_client import testing as client_testing
+
+CASE = "test-engine-runs-the-code-under-test"
+"""The Testing-kit case these tests play."""
+
+PROGRAMS = Path(__file__).parents[1] / "programs"
+"""The folder of the programs the tests run, the kit's sample tests among them."""
+
+SAMPLE_DEADLINE_SECONDS = 120.0
+"""How long a runner may take over the kit's sample tests, their engines included."""
 
 PUBLIC_HOST = "public.test"
 """A host the test's `network.resolve` maps to an address that is not loopback.
@@ -94,27 +119,158 @@ def tree(cache: Path) -> dict[str, Entry]:
     return entries
 
 
+async def finished(collie: AsyncCollie) -> str:
+    """The code under test: it starts a Run on `collie` and answers how it ended."""
+    return (await (await collie.start()).finish()).lifecycle
+
+
+@pytest.mark.covers("story:11-156", "story:11-157", "story:11-168", "story:11-172")
+@pytest.mark.client_case(id=CASE, mode="attached")
 @three_ways
 async def test_a_test_runs_its_code_on_the_connection_and_close_removes_its_home(
-    way: Way, env: Mapping[str, str]
+    way: Way, env: Mapping[str, str], client_case: ClientCaseRecord
 ) -> None:
     """The Run finishes on `engine.connection`; its home is gone after `close()`."""
     engine = await start(way, env)
+    own_type = type(engine.connection)
     connection = connection_of(way, engine)
     home = connection.engine.home
     assert home is not None, "an Attached engine names its home"
     existed = await anyio.to_thread.run_sync(os.path.isdir, home)
 
-    run = await connection.start()
-    report = await run.finish()
+    lifecycle = await finished(connection)
     await engine.close()
 
-    assert report.lifecycle == "finished"
-    assert Path(home) != Path(env["GOODFETCH_HOME"])
-    assert (existed, await anyio.to_thread.run_sync(os.path.exists, home)) == (
-        True,
-        False,
-    ), home
+    with client_case.check("engine.connection is the Product's own connection type"):
+        assert own_type is (Collie if way is Way.SYNC else AsyncCollie)
+    with client_case.check("the code under test finishes a Run on engine.connection"):
+        assert lifecycle == "finished"
+    with client_case.check(
+        "the engine ran in a temporary Goodfetch home of its own, removed on close"
+    ):
+        assert Path(home) != Path(env["GOODFETCH_HOME"])
+        assert (existed, await anyio.to_thread.run_sync(os.path.exists, home)) == (
+            True,
+            False,
+        ), home
+
+
+@pytest.mark.covers("story:11-157", "story:11-169")
+@pytest.mark.client_case(id=CASE, mode="daemon")
+@pytest.mark.parametrize("with_daemon", [True])
+@three_ways
+async def test_the_code_under_test_runs_unchanged_on_a_daemon_and_on_the_test_engine(
+    way: Way, env: Mapping[str, str], client_case: ClientCaseRecord
+) -> None:
+    """The Daemon in the caller's home answers `connect()`, never the test engine."""
+    collie = await open_collie(way, env, engine="daemon")
+    on_the_daemon = await finished(collie)
+    daemon = collie.engine
+    await collie.close()
+    engine = await start(way, env)
+    connection = connection_of(way, engine)
+    on_the_test_engine = await finished(connection)
+    reached = connection.engine
+    await engine.close()
+
+    with client_case.check(
+        "the code under test finishes a Run on a Daemon's connection and on the "
+        "test engine's"
+    ):
+        assert (on_the_daemon, on_the_test_engine) == ("finished", "finished")
+    with client_case.check(
+        "the test engine reaches its own Attached engine in its own home, never "
+        "the Daemon of the caller's"
+    ):
+        assert (daemon.kind, reached.kind) == ("daemon", "attached")
+        assert reached.home is not None
+        assert Path(reached.home) != Path(env["GOODFETCH_HOME"])
+
+
+def sample_folder(test_env: TestEnv, *samples: str) -> Path:
+    """A program's own folder holding the kit's `samples`, none of the workspace's.
+
+    An empty `pytest.ini` makes it pytest's root, so no configuration of
+    the workspace's applies.
+    """
+    folder = test_env.folder / "program"
+    folder.mkdir()
+    (folder / "pytest.ini").write_text("[pytest]\n", "utf-8")
+    for sample in samples:
+        shutil.copy(PROGRAMS / sample, folder / sample)
+    return folder
+
+
+def run_sample(
+    command: list[str], folder: Path, env: Mapping[str, str]
+) -> subprocess.CompletedProcess[str]:
+    """`command` run in `folder` with the test's environment and no plugin autoloaded.
+
+    The engine comes from the environment, as a test run sets it, and
+    nothing writes bytecode into the folder.
+    """
+    return subprocess.run(
+        [sys.executable, *command],
+        capture_output=True,
+        text=True,
+        cwd=folder,
+        env={
+            **env,
+            "PYTEST_DISABLE_PLUGIN_AUTOLOAD": "1",
+            "PYTHONDONTWRITEBYTECODE": "1",
+        },
+        timeout=SAMPLE_DEADLINE_SECONDS,
+        check=False,
+    )
+
+
+@pytest.mark.covers("story:11-171", "story:11-172")
+def test_the_kits_sample_test_passes_under_pytest_with_anyio_alone(
+    env: Mapping[str, str], test_env: TestEnv
+) -> None:
+    """On asyncio, on Trio and through the sync API, `TestEngine` never collected.
+
+    Collection warnings are errors, so a `TestEngine` pytest tried to
+    collect fails the run.
+    """
+    folder = sample_folder(test_env, "kit_sample_pytest.py")
+
+    ran = run_sample(
+        [
+            "-m",
+            "pytest",
+            "-p",
+            "anyio.pytest_plugin",
+            "-p",
+            "no:cacheprovider",
+            "-W",
+            "error::pytest.PytestCollectionWarning",
+            "-rA",
+            "kit_sample_pytest.py",
+        ],
+        folder,
+        env,
+    )
+
+    summary = ran.stdout.splitlines()[-1]
+    outcomes = re.findall(r"\d+ (?:passed|failed|errors?|skipped|x\w+)", summary)
+    assert (ran.returncode, outcomes) == (0, ["3 passed"]), ran.stdout + ran.stderr
+
+
+@pytest.mark.covers("story:11-171", "story:11-172")
+def test_the_kits_sample_test_passes_under_unittest(
+    env: Mapping[str, str], test_env: TestEnv
+) -> None:
+    """The async test on `IsolatedAsyncioTestCase`; the same test on the sync API."""
+    folder = sample_folder(test_env, "kit_sample_unittest.py")
+
+    ran = run_sample(["-m", "unittest", "kit_sample_unittest"], folder, env)
+
+    assert (
+        ran.returncode,
+        re.findall(r"^Ran (\d+) tests? in", ran.stderr, re.MULTILINE),
+        ran.stderr.splitlines()[-1],
+    ) == (0, ["2"], "OK"), ran.stderr
 
 
 @pytest.fixture
@@ -123,6 +279,7 @@ def proving_ground_seed() -> int:
     return 3398
 
 
+@pytest.mark.covers("story:11-168", "story:11-169")
 @pytest.mark.parametrize("with_browser", [True])
 @three_ways
 async def test_a_loopback_resolve_entry_is_reached_any_other_host_is_refused(
@@ -154,6 +311,7 @@ async def test_a_loopback_resolve_entry_is_reached_any_other_host_is_refused(
     assert tree(cache) == before
 
 
+@pytest.mark.covers("story:11-169")
 @pytest.mark.parametrize("browser_download", [BrowserDownload.NOT_FOUND])
 @three_ways
 async def test_with_no_browser_installed_the_first_page_fails_offline(

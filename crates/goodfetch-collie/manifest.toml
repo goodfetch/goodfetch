@@ -466,6 +466,15 @@ form = "read"
 
 [[member]]
 crate = "goodfetch-collie"
+receiver = "executable::Skills"
+member = "files"
+entry = "none"
+reason = "Their files, which each executable's unit test reads for the options its skills name."
+words = ["files"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-collie"
 receiver = "executable"
 member = "Start"
 entry = "none"

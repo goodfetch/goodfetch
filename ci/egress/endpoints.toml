@@ -27,13 +27,18 @@ canary = "1.1.1.1:443"
 # The hosted tier's gate steps, in the job's container on a standard hosted
 # runner (ADR 0135's amendment of 2026-11-22): the image builds and `just
 # fetch` runs before the deny, which applies in the container's network
-# namespace. Lint, which reads GitHub, has its own job outside it.
+# namespace. Lint and the proofs, which read GitHub, have their own job
+# outside it. The visual tests' Playwright container joins the job
+# container's network namespace, so the deny holds it too (#3382).
 [[deny]]
 job = "pull-request.yml#quick"
 
+[[deny]]
+job = "pull-request.yml#visual"
+
 [[outside]]
 job = "pull-request.yml#lint"
-reason = "It runs lint, whose zizmor runs the online audits and whose quarantine-list check reads GitHub's issues, and runs none of the product."
+reason = "It runs lint, whose zizmor runs the online audits and whose quarantine-list check reads GitHub's issues, or the proofs, whose audit downloads the pinned advisory snapshot from GitHub, and runs none of the product's tests."
 
 # A batch's hosted Pre-merge suite (issue 3378): the build of the archive
 # comes before the deny, and its doctests and each shard's tests run under

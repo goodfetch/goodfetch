@@ -142,6 +142,7 @@ table = ["budget", "files"]
 models = []
 run = ["models", "tools"]
 tools = []
+validate = ["models", "run", "tools"]
 
 # Which of `release_suite`'s own modules may import which.
 [submodules.release_suite]

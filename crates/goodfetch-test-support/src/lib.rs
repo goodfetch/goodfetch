@@ -73,6 +73,7 @@ mod kill;
 #[cfg(target_os = "linux")]
 mod lazyfs;
 mod locales;
+mod model_trace;
 #[cfg(all(
     target_os = "linux",
     any(target_arch = "x86_64", target_arch = "aarch64")
@@ -195,6 +196,7 @@ pub use kill::{KILL_DEADLINE, KillAtError, Killed, Moment, kill_at, kill_at_with
 #[cfg(target_os = "linux")]
 pub use lazyfs::{LAZYFS_DEADLINE, LazyFs, LazyFsError};
 pub use locales::{LocaleTableError, TimeZoneCase, locales, time_zones};
+pub use model_trace::model_trace;
 #[cfg(all(
     target_os = "linux",
     any(target_arch = "x86_64", target_arch = "aarch64")

@@ -1618,13 +1618,25 @@ tlc *arguments:
     {{ just_executable() }} tlc-fetch
     cargo run --quiet --bin xtask -- tlc run {{ arguments }}
 
-# A job that passes the models is so shown able to fail, and run fencing's
-# model to reach the zombie copy its destinations fence (`zombie.cfg`).
-# The TLC job's self-test: the sample's broken variant and run fencing's zombie variant must fail their invariants.
+# Each model's trace spec (`trace_spec` in its model.toml) checks the
+# committed traces of real runs it names, built on the template of
+# test-support/models/trace-validation/ (ADR 0060); a model with no trace
+# spec is skipped. `--trace <file>` validates one other trace, and
+# `--expect unmatched` expects it to fail. Needs Java 11 or later.
+# Validates traces of real runs against TLA+ models: `just tlc-validate <model>…` or `--all`.
+tlc-validate *arguments:
+    {{ just_executable() }} tlc-fetch
+    cargo run --quiet --bin xtask -- tlc validate {{ arguments }}
+
+# A job that passes the models is so shown able to fail, run fencing's
+# model to reach the zombie copy its destinations fence (`zombie.cfg`), and
+# the trace validation to refuse a trace altered by hand.
+# The TLC job's self-test: the sample's broken variant and run fencing's zombie variant must fail their invariants, and a slices trace with a Slice past the Limit must fail its validation.
 tlc-self-test:
     {{ just_executable() }} tlc-fetch
     cargo run --quiet --bin xtask -- tlc run sample --config broken --expect invariant-violated
     cargo run --quiet --bin xtask -- tlc run run-fencing --config zombie --expect invariant-violated
+    cargo run --quiet --bin xtask -- tlc validate slices --trace test-support/models/slices/slice-past-the-limit.ndjson --expect unmatched
 
 # Keeps each archive of test-support/lazyfs/sources.toml in
 # target/lazyfs/sources/, downloading only a file that lacks its pinned
@@ -2098,8 +2110,9 @@ _suite suite all="":
       *) echo "error: the only argument is \`all\`, not {{ all }}" >&2; exit 2 ;;
     esac
 
-# TLC on the models the change reaches (`all`: every model), then the job's
-# self-test, as CI's `tlc` job runs them; listed as skipped without Java.
+# TLC on the models the change reaches (`all`: every model), their trace
+# validation, then the job's self-test, as CI's `tlc` job runs them; listed
+# as skipped without Java.
 _tlc all="":
     #!/usr/bin/env bash
     set -euo pipefail
@@ -2119,6 +2132,7 @@ _tlc all="":
       *) echo "error: the only argument is \`all\`, not {{ all }}" >&2; exit 2 ;;
     esac
     ci/tool.sh java "$just" tlc "${models[@]}"
+    ci/tool.sh java "$just" tlc-validate "${models[@]}"
     ci/tool.sh java "$just" tlc-self-test
 
 # The gate's `kennel` step: the Kennel's checks when the change reaches

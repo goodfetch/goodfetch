@@ -19,11 +19,17 @@ use goodfetch_protocol::governor::{AllowanceSource, GovernorLevel};
 use super::storage::{Disks, FilesystemSource};
 
 pub(crate) use linux::Cgroup;
+#[cfg(all(test, target_os = "macos"))]
+use macos::tree as os_tree;
+#[cfg(all(test, windows))]
+use windows::tree as os_tree;
 
 mod cpus;
 mod linux;
 #[cfg(target_os = "macos")]
 mod macos;
+#[cfg(any(target_os = "macos", windows, test))]
+mod readings;
 #[cfg(windows)]
 mod windows;
 

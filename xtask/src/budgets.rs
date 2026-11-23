@@ -7,8 +7,8 @@
 //! stays 0.
 //!
 //! The tiers, while the repository is private: the pull-request tier's
-//! runs, on the owner's machine and labelled with it (ADR 0135), for the
-//! Quick and Pre-merge suites; manual-dispatch Release runs, on hosted
+//! runs, on the hosted tier's standard runners (ADR 0135's amendment of
+//! 2026-11-22), for the Quick and Pre-merge suites; manual-dispatch Release runs, on hosted
 //! runners only, for the Release suite (ADR 0108). Only successful jobs are
 //! measured, since a failed one ends early; a suite's whole-run budget is
 //! measured on first attempts, since a re-run's carried jobs keep their
@@ -108,13 +108,18 @@ const RELEASE_SUITE: &str = ".github/workflows/release-suite.yml";
 /// three suites), so it has budgets of its own.
 const CHROMIUM_BUILD_GATE: &str = "Chromium build gate";
 
+/// The hosted tier's job of the Quick suite itself, one cell of the `quick`
+/// matrix; its other cells, lint and the Pre-merge jobs count toward the
+/// Pre-merge suite's budgets.
+const QUICK: &str = "quick (quick)";
+
 const TIERS: [Tier; 3] = [
     Tier {
         suite: "Quick",
         place: "CI, whole workspace",
         workflow: PULL_REQUEST,
         event: "pull_request",
-        jobs: Jobs::Only(&["quick"]),
+        jobs: Jobs::Only(&[QUICK]),
         hosted_only: false,
         whole: None,
     },
@@ -123,7 +128,7 @@ const TIERS: [Tier; 3] = [
         place: "Pull request",
         workflow: PULL_REQUEST,
         event: "pull_request",
-        jobs: Jobs::AllBut(&["quick", CHROMIUM_BUILD_GATE]),
+        jobs: Jobs::AllBut(&[QUICK, CHROMIUM_BUILD_GATE]),
         hosted_only: false,
         whole: Some(Whole::AllGreen("all green")),
     },

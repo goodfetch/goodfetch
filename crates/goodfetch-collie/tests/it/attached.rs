@@ -34,12 +34,14 @@ fn an_attached_engine_answers_hello_over_stdio_and_stops_at_the_end_of_its_input
         .as_object_mut()
         .unwrap()
         .remove("engine_instance");
+    let timeouts = reply["result"].as_object_mut().unwrap().remove("timeouts");
 
     assert_eq!(
         (
             reply,
             private_endpoint.is_some_and(|it| it.is_object()),
-            engine_instance.is_some_and(|it| it.is_string())
+            engine_instance.is_some_and(|it| it.is_string()),
+            timeouts.is_some_and(|it| it.is_array())
         ),
         (
             json!({
@@ -52,6 +54,7 @@ fn an_attached_engine_answers_hello_over_stdio_and_stops_at_the_end_of_its_input
                     "max_calls_in_flight": 256,
                 },
             }),
+            true,
             true,
             true
         )

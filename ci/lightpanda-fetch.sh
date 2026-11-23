@@ -24,12 +24,14 @@ case "$(uname -s)-$(uname -m)" in
     ;;
 esac
 
-read -r build asset digest < <(python3 -c '
-import json, sys
-pins = json.load(open(sys.argv[1]))["lightpanda"]
-pinned = pins["platforms"][sys.argv[2]]
-print(pins["build"], pinned["asset"], pinned["archive_digest"].removeprefix("sha256:"))
-' "$pins" "$platform")
+# jq, not Python: the hosted tier's CI image has no system Python before
+# `uv sync`'s environment, and every host that runs `just fetch` has jq.
+read -r build asset digest < <(jq -er --arg platform "$platform" '
+  .lightpanda as $pins
+  | ($pins.platforms[$platform] // error("no Lightpanda pin for \($platform)")) as $pinned
+  | [$pins.build, $pinned.asset, ($pinned.archive_digest | ltrimstr("sha256:"))]
+  | @tsv
+' "$pins")
 
 folder="${GOODFETCH_LIGHTPANDA_DOWNLOADS:-$HOME/.cache/goodfetch/lightpanda}/$build"
 target="$folder/$asset"

@@ -200,7 +200,7 @@ fn worst(reasons: &[CompletenessReason]) -> Completeness {
 /// What a stop reason says, for people.
 fn stopped_for(reason: &StopReason) -> String {
     match reason {
-        StopReason::Abort { by } => format!("aborted by its {}", by_name(*by)),
+        StopReason::Abort { by, .. } => format!("aborted by {}", by_name(*by)),
         StopReason::Pause => "paused".to_owned(),
         StopReason::Migrate => "migrated".to_owned(),
         StopReason::Timeout => "its `timeout.run` passed".to_owned(),
@@ -226,9 +226,10 @@ fn stopped_for(reason: &StopReason) -> String {
 
 fn by_name(by: goodfetch_protocol::connection::StoppedBy) -> &'static str {
     match by {
-        goodfetch_protocol::connection::StoppedBy::Client => "Client",
-        goodfetch_protocol::connection::StoppedBy::Program => "program",
-        goodfetch_protocol::connection::StoppedBy::Browser => "browser",
+        goodfetch_protocol::connection::StoppedBy::Person => "a person",
+        goodfetch_protocol::connection::StoppedBy::Client => "its Client",
+        goodfetch_protocol::connection::StoppedBy::Program => "its program",
+        goodfetch_protocol::connection::StoppedBy::Browser => "its browser",
     }
 }
 

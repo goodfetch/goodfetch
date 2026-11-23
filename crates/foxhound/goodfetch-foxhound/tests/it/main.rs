@@ -189,6 +189,7 @@ mod politeness;
 mod politeness_records;
 mod pool_proxies;
 mod provenance;
+mod proxy_limits;
 mod records;
 mod redundant_requests;
 mod rejections;

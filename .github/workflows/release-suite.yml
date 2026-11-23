@@ -216,6 +216,11 @@ jobs:
       # (goodfetch_test_support.install), pulled by its digest before the deny.
       - name: Pull the install harness's Alpine image
         run: ci/alpine/fetch.sh
+      # The clean container goodfetch-collie's `source_build` builds the
+      # crate in, from Debian's packages, before the deny.
+      - name: Build the source build's clean container
+        if: matrix.cell == 'linux-x64-gnu'
+        run: ci/source-build/fetch.sh
       - name: Deny outbound traffic
         run: ci/egress/egress.sh deny
       - name: Refuse the Egress canary

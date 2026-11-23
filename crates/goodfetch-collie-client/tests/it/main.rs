@@ -23,6 +23,7 @@ mod events;
 mod file_saving;
 mod frame_logs;
 mod handler_requests;
+mod handlerless_starts;
 mod limits;
 mod logging;
 mod navigations;

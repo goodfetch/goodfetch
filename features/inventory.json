@@ -10931,6 +10931,28 @@
       ]
     },
     {
+      "id": "skill:goodfetch-collie",
+      "kind": "skill",
+      "area": 11,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "skill:goodfetch-collie-cli",
+      "kind": "skill",
+      "area": 11,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "story:1-1",
       "kind": "story",
       "area": 1,

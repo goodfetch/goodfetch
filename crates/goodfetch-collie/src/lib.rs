@@ -31,7 +31,9 @@
 //! Its library also exposes Collie's composition of the engine, which
 //! Foxhound's starts from, the [`linked`] connection both Products' SDKs
 //! open, and, under the `executable` feature, the executable's entry,
-//! which both Products' `main` call.
+//! which both Products' `main` call. Under the `test-util` feature,
+//! `testing` is Collie's testing kit: a real engine for a test, in a
+//! temporary Goodfetch home (ADR 0105).
 #![warn(missing_docs)]
 
 #[cfg_attr(
@@ -52,6 +54,8 @@ pub mod linked;
 mod pins;
 mod runtime;
 mod sample;
+#[cfg(feature = "test-util")]
+pub mod testing;
 mod trace_context;
 
 pub use collie::Collie;
@@ -59,9 +63,9 @@ pub use composition::{composition, composition_with};
 pub use engine_choice::{EngineChoice, EngineFallback, EngineInfo, EngineKind, RemoteDaemon};
 pub use goodfetch_collie_client::{
     AiWorkResult, Answer, BoxError, Call, Connection, Ended, Error, ErrorCode, ErrorDetails,
-    EventStream, Exchange, FieldValues, Limits, Locator, Money, MoneyError, Page, PartialOutput,
-    Query, RawCall, Response, Run, Schema, SchemaError, Session, Start, UsageKind, events,
-    schemars, settings,
+    EventStream, Exchange, FieldValues, HandlerlessStart, Limits, Locator, Money, MoneyError, Page,
+    PartialOutput, Query, RawCall, Response, Run, RunView, Schema, SchemaError, Session, Start,
+    UsageKind, events, schemars, settings,
 };
 pub use goodfetch_protocol::page::ai_work::{Claim, NotVerifiedDetails, Reported};
 pub use goodfetch_protocol::page::events::PageRequest;
@@ -70,7 +74,8 @@ pub use goodfetch_protocol::page::read::{
     UnreadField, UnreadReason, ValueField,
 };
 pub use goodfetch_protocol::run::{
-    AxisReason, RunId, RunReport, StartedAs, StopReason, Tags, Verdict,
+    AxisReason, CatalogTarget, Recording, RecordingMode, RunId, RunReport, StartedAs, StopReason,
+    Tags, Verdict,
 };
 pub use goodfetch_protocol::settings::{
     ExplainedSetting, RunOrigin, SettingsExplanation, SettingsLayer,

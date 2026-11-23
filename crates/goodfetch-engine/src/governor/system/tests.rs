@@ -408,3 +408,92 @@ fn the_footprint_of_a_running_process_counts_its_memory_and_of_a_gone_one_nothin
 
     assert_eq!((own > MIB, gone), (true, 0));
 }
+
+/// macOS's kernel memory-pressure level, as `sysctl` gives it, is the
+/// host's own pressure: 2 warns and 4 is critical (#2357).
+///
+/// Covers: story:3-57
+#[rstest]
+#[case::no_reading(None, GovernorLevel::Normal)]
+#[case::normal(Some(1), GovernorLevel::Normal)]
+#[case::warn(Some(2), GovernorLevel::Pressure)]
+#[case::critical(Some(4), GovernorLevel::Critical)]
+fn macos_kernel_memory_pressure_level_is_the_hosts_pressure(
+    #[case] level: Option<i32>,
+    #[case] host: GovernorLevel,
+) {
+    assert_eq!(super::readings::macos_host(level), host);
+}
+
+/// On Windows, the low-memory notification is critical whatever the memory
+/// in use, which is judged against `governor.pressure` and
+/// `governor.critical` as on Linux (#2357).
+///
+/// Covers: story:3-57
+#[rstest]
+#[case::headroom(50, false, GovernorLevel::Normal)]
+#[case::in_use_past_pressure(85, false, GovernorLevel::Pressure)]
+#[case::in_use_past_critical(95, false, GovernorLevel::Critical)]
+#[case::low_memory_notified(10, true, GovernorLevel::Critical)]
+fn windows_low_memory_notification_and_memory_in_use_are_the_hosts_pressure(
+    #[case] load: u64,
+    #[case] low_memory: bool,
+    #[case] host: GovernorLevel,
+) {
+    let inputs = inputs(None);
+
+    assert_eq!(
+        super::readings::windows_host(load, low_memory, inputs.pressure, inputs.critical),
+        host
+    );
+}
+
+/// The footprint's tree on macOS and Windows: the engine, its children and
+/// theirs, each once, though a process ID the OS reused makes a process its
+/// own ancestor (#2357).
+///
+/// Covers: story:3-56
+#[test]
+fn the_tree_of_processes_holds_every_descendant_once() {
+    let children = |process: u32| match process {
+        1 => vec![2, 3],
+        2 => vec![4],
+        4 => vec![1],
+        _ => Vec::new(),
+    };
+
+    let mut tree = super::readings::tree(1, children);
+    tree.sort_unstable();
+
+    assert_eq!(tree, [1, 2, 3, 4]);
+}
+
+/// The engine's own tree on macOS and Windows, from the OS itself, holds a
+/// child it started, whose memory counts (#2357).
+///
+/// Covers: story:3-56
+#[cfg(any(target_os = "macos", windows))]
+#[test]
+#[expect(
+    clippy::disallowed_methods,
+    reason = "the test starts a child that waits on its input, outside any runtime"
+)]
+fn the_engines_tree_holds_a_child_it_started() {
+    #[cfg(target_os = "macos")]
+    let (program, arguments): (&str, &[&str]) = ("cat", &[]);
+    #[cfg(windows)]
+    let (program, arguments): (&str, &[&str]) = ("cmd", &["/C", "pause"]);
+    let mut child = std::process::Command::new(program)
+        .args(arguments)
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::null())
+        .spawn()
+        .unwrap();
+
+    let tree = super::os_tree(std::process::id());
+    let footprint = super::footprint_of(child.id());
+    child.kill().unwrap();
+    child.wait().unwrap();
+
+    assert_eq!((tree.contains(&child.id()), footprint > 0), (true, true));
+}

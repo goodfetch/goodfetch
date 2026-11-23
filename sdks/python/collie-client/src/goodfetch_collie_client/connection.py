@@ -17,6 +17,7 @@ from typing import TYPE_CHECKING, Literal, cast
 
 import anyio
 
+from goodfetch_collie_client._attached_engine import EngineExit
 from goodfetch_collie_client._framing import object_members
 from goodfetch_collie_client._once import Once
 from goodfetch_collie_client._opening_process import OpeningProcess
@@ -33,7 +34,6 @@ from goodfetch_collie_client._rpc import (
 )
 from goodfetch_collie_client._shared_subscription import SharedSubscription
 from goodfetch_collie_client._trace_context import carry, current, untraced
-from goodfetch_collie_client.attached_engine import EngineExit
 from goodfetch_collie_client.generated.connection import (
     PRODUCT_VERSION,
     PROTOCOL_VERSION,
@@ -91,10 +91,10 @@ if TYPE_CHECKING:
     from anyio.abc import ByteStream
     from pydantic import BaseModel, JsonValue
 
+    from goodfetch_collie_client._attached_engine import AttachedEngine
     from goodfetch_collie_client._project_file import ConnectTimeout, ProjectFile
     from goodfetch_collie_client._relink import Reconnect
     from goodfetch_collie_client._rpc import TransportEnd
-    from goodfetch_collie_client.attached_engine import AttachedEngine
     from goodfetch_collie_client.generated.models import (
         ProjectSettings,
         Recording,
@@ -508,7 +508,14 @@ class ClientConnection:
         limits: Limits | None = None,
         settings: RunSettings | None = None,
     ) -> AsyncRun:
-        """Starts a Run and returns once it is started (ADR 0102).
+        """Leaving the scope or `close()` stops the Run with a Checkpoint.
+
+        `finish()` ends it.
+
+        In a service, close the Run on `SIGINT` and `SIGTERM`: the SDK installs
+        no signal handler, and a signal the program does not handle ends it as
+        a crash would (ADRs 0078, 0093). Python's `KeyboardInterrupt` unwinds
+        into `close()`; `SIGTERM` does not.
 
         Starts a Run its program drives, and answers once it is started. A Run ID
         names the Run for good, and a start under one acts on what the Run index
@@ -523,11 +530,10 @@ class ClientConnection:
 
         Experimental: outside semver until it is promoted (ADR 0030).
 
-        Leaving the scope or `close()` stops the Run with a Checkpoint, and
-        `finish()` ends it. A start that resumed its Run is logged at info, and
-        one that found it ended at warning, on the `goodfetch.client.run`
-        logger. A `limits` amount the SDK cannot turn exactly fails with
-        `setting_invalid` before anything is sent. When the effective level
+        A start that resumed its Run is logged at info, and one that found it
+        ended at warning, on the `goodfetch.client.run` logger. A `limits`
+        amount the SDK cannot turn exactly fails with `setting_invalid` before
+        anything is sent. When the effective level
         of `goodfetch.engine` changed since the engine was last told, the
         start tells it first with `connection.set_log_level`.
         """

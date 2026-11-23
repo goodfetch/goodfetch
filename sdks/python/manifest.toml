@@ -69,7 +69,6 @@ package = "goodfetch_collie"
 receiver = "Collie"
 member = "start_recipe"
 entry = "recipe.start"
-only = "Issue 3396's Rust part adds it."
 words = ["start", "recipe"]
 form = "opener"
 
@@ -78,7 +77,6 @@ package = "goodfetch_collie"
 receiver = "Collie"
 member = "start_catalog_run"
 entry = "catalog_run.start"
-only = "Issue 3396's Rust part adds it."
 words = ["start", "catalog", "run"]
 form = "opener"
 
@@ -88,7 +86,6 @@ receiver = "Collie"
 member = "open_run"
 entry = "none"
 reason = "Opens a view of a Run another program started, by its Run ID, with no round trip (ADR 0102)."
-only = "Issue 3396's Rust part adds it."
 words = ["open", "run"]
 form = "opener"
 
@@ -159,7 +156,6 @@ package = "goodfetch_collie"
 receiver = "AsyncCollie"
 member = "start_recipe"
 entry = "recipe.start"
-only = "Issue 3396's Rust part adds it."
 words = ["start", "recipe"]
 form = "opener"
 
@@ -168,7 +164,6 @@ package = "goodfetch_collie"
 receiver = "AsyncCollie"
 member = "start_catalog_run"
 entry = "catalog_run.start"
-only = "Issue 3396's Rust part adds it."
 words = ["start", "catalog", "run"]
 form = "opener"
 
@@ -178,7 +173,6 @@ receiver = "AsyncCollie"
 member = "open_run"
 entry = "none"
 reason = "Opens a view of a Run another program started, by its Run ID, with no round trip (ADR 0102)."
-only = "Issue 3396's Rust part adds it."
 words = ["open", "run"]
 form = "opener"
 
@@ -250,7 +244,6 @@ package = "goodfetch_collie"
 receiver = "Connection"
 member = "start_recipe"
 entry = "recipe.start"
-only = "Issue 3396's Rust part adds it."
 words = ["start", "recipe"]
 form = "opener"
 
@@ -259,7 +252,6 @@ package = "goodfetch_collie"
 receiver = "Connection"
 member = "start_catalog_run"
 entry = "catalog_run.start"
-only = "Issue 3396's Rust part adds it."
 words = ["start", "catalog", "run"]
 form = "opener"
 
@@ -269,7 +261,6 @@ receiver = "Connection"
 member = "open_run"
 entry = "none"
 reason = "Opens a view of a Run another program started, by its Run ID, with no round trip (ADR 0102)."
-only = "Issue 3396's Rust part adds it."
 words = ["open", "run"]
 form = "opener"
 
@@ -331,7 +322,6 @@ package = "goodfetch_collie"
 receiver = "AsyncConnection"
 member = "start_recipe"
 entry = "recipe.start"
-only = "Issue 3396's Rust part adds it."
 words = ["start", "recipe"]
 form = "opener"
 
@@ -340,7 +330,6 @@ package = "goodfetch_collie"
 receiver = "AsyncConnection"
 member = "start_catalog_run"
 entry = "catalog_run.start"
-only = "Issue 3396's Rust part adds it."
 words = ["start", "catalog", "run"]
 form = "opener"
 
@@ -350,7 +339,6 @@ receiver = "AsyncConnection"
 member = "open_run"
 entry = "none"
 reason = "Opens a view of a Run another program started, by its Run ID, with no round trip (ADR 0102)."
-only = "Issue 3396's Rust part adds it."
 words = ["open", "run"]
 form = "opener"
 
@@ -517,7 +505,6 @@ receiver = "AsyncRunView"
 member = "id"
 entry = "none"
 reason = "The Run ID the view was opened with, read without a round trip (ADR 0102)."
-only = "Issue 3396's Rust part adds it."
 words = ["id"]
 form = "read"
 
@@ -527,7 +514,6 @@ receiver = "AsyncRunView"
 member = "close"
 entry = "none"
 reason = "Frees only the view (ADR 0102): the Run goes on."
-only = "Issue 3396's Rust part adds it."
 words = ["close"]
 form = "closer"
 
@@ -537,7 +523,6 @@ receiver = "RunView"
 member = "id"
 entry = "none"
 reason = "The Run ID the view was opened with, read without a round trip (ADR 0102)."
-only = "Issue 3396's Rust part adds it."
 words = ["id"]
 form = "read"
 
@@ -547,7 +532,6 @@ receiver = "RunView"
 member = "close"
 entry = "none"
 reason = "Frees only the view (ADR 0102): the Run goes on."
-only = "Issue 3396's Rust part adds it."
 words = ["close"]
 form = "closer"
 
@@ -1289,6 +1273,100 @@ words = ["async", "connect", "over"]
 form = "opener"
 
 [[member]]
+package = "goodfetch_collie.testing"
+receiver = "(module)"
+member = "AsyncTestEngine"
+entry = "none"
+reason = "A real Collie engine for a test in the async API (ADR 0105), an Attached engine in a temporary Goodfetch home with a cleared environment, `egress.offline` on and short durations, its browsers from the caller's Browser cache."
+only = "Python's async twin (ADR 0081): TypeScript's and Rust's `TestEngine` are async."
+words = ["async", "test", "engine"]
+form = "type"
+
+[[member]]
+package = "goodfetch_collie.testing"
+receiver = "AsyncTestEngine"
+member = "start"
+entry = "none"
+reason = "Starts the test engine with the client package's `TestEngineOptions`, answering a `StartingTestEngine` to await or open with `async with`."
+words = ["start"]
+form = "opener"
+
+[[member]]
+package = "goodfetch_collie.testing"
+receiver = "AsyncTestEngine"
+member = "connection"
+entry = "none"
+reason = "The `AsyncCollie` connected to the test engine, on which the code under test runs unchanged."
+words = ["connection"]
+form = "read"
+
+[[member]]
+package = "goodfetch_collie.testing"
+receiver = "AsyncTestEngine"
+member = "close"
+entry = "none"
+reason = "Closes the connection, then removes the temporary Goodfetch home."
+words = ["close"]
+form = "closer"
+
+[[member]]
+package = "goodfetch_collie.testing"
+receiver = "(module)"
+member = "StartingTestEngine"
+entry = "none"
+reason = "An `AsyncTestEngine` being started, which `AsyncTestEngine.start()` answers: awaited, or opened with `async with`."
+only = "Python's opening of its async twin (ADR 0081), as `Connecting` is; TypeScript's and Rust's `start()` answer the started engine."
+words = ["starting", "test", "engine"]
+form = "type"
+
+[[member]]
+package = "goodfetch_collie.testing"
+receiver = "(module)"
+member = "TestEngine"
+entry = "none"
+reason = "A real Collie engine for a test in the sync API (ADR 0105), as `AsyncTestEngine` is in the async one."
+only = "Until TypeScript's `TestEngine`, issue 3398's TypeScript part, lands in `@goodfetch/collie/testing`, which removes this line."
+words = ["test", "engine"]
+form = "type"
+
+[[member]]
+package = "goodfetch_collie.testing"
+receiver = "TestEngine"
+member = "start"
+entry = "none"
+reason = "Starts the test engine with the client package's `TestEngineOptions` and answers it, open."
+words = ["start"]
+form = "opener"
+
+[[member]]
+package = "goodfetch_collie.testing"
+receiver = "TestEngine"
+member = "connection"
+entry = "none"
+reason = "The `Collie` connected to the test engine, on which the code under test runs unchanged."
+words = ["connection"]
+form = "read"
+
+[[member]]
+package = "goodfetch_collie.testing"
+receiver = "TestEngine"
+member = "close"
+entry = "none"
+reason = "Closes the connection, then removes the temporary Goodfetch home."
+words = ["close"]
+form = "closer"
+
+[[member]]
+package = "goodfetch_collie.testing"
+receiver = "(module)"
+member = "TestEngineOptions"
+entry = "none"
+reason = "The client package's `TestEngineOptions`, re-exported: what a test engine starts with (ADR 0105)."
+only = "Until TypeScript's `TestEngineOptions`, issue 3398's TypeScript part, lands in `@goodfetch/collie/testing`, which removes this line."
+words = ["test", "engine", "options"]
+form = "type"
+
+[[member]]
 package = "goodfetch_foxhound"
 receiver = "(module)"
 member = "ExperimentalWarning"
@@ -1338,7 +1416,6 @@ package = "goodfetch_foxhound"
 receiver = "Foxhound"
 member = "start_recipe"
 entry = "recipe.start"
-only = "Issue 3396's Rust part adds it."
 words = ["start", "recipe"]
 form = "opener"
 
@@ -1347,7 +1424,6 @@ package = "goodfetch_foxhound"
 receiver = "Foxhound"
 member = "start_catalog_run"
 entry = "catalog_run.start"
-only = "Issue 3396's Rust part adds it."
 words = ["start", "catalog", "run"]
 form = "opener"
 
@@ -1357,7 +1433,6 @@ receiver = "Foxhound"
 member = "open_run"
 entry = "none"
 reason = "Opens a view of a Run another program started, by its Run ID, with no round trip (ADR 0102); `Collie.open_run`'s member under the same name."
-only = "Issue 3396's Rust part adds it."
 words = ["open", "run"]
 form = "opener"
 
@@ -1428,7 +1503,6 @@ package = "goodfetch_foxhound"
 receiver = "AsyncFoxhound"
 member = "start_recipe"
 entry = "recipe.start"
-only = "Issue 3396's Rust part adds it."
 words = ["start", "recipe"]
 form = "opener"
 
@@ -1437,7 +1511,6 @@ package = "goodfetch_foxhound"
 receiver = "AsyncFoxhound"
 member = "start_catalog_run"
 entry = "catalog_run.start"
-only = "Issue 3396's Rust part adds it."
 words = ["start", "catalog", "run"]
 form = "opener"
 
@@ -1447,7 +1520,6 @@ receiver = "AsyncFoxhound"
 member = "open_run"
 entry = "none"
 reason = "Opens a view of a Run another program started, by its Run ID, with no round trip (ADR 0102); `AsyncCollie.open_run`'s member under the same name."
-only = "Issue 3396's Rust part adds it."
 words = ["open", "run"]
 form = "opener"
 
@@ -2194,6 +2266,70 @@ entry = "none"
 reason = "Settings as the wire takes them, by segment with durations in milliseconds (ADR 0083), which a Product's generated handles send."
 words = ["settings", "on", "wire"]
 form = "runtime"
+
+[[member]]
+package = "goodfetch_collie_client.testing"
+receiver = "(module)"
+member = "TestEngineOptions"
+entry = "none"
+reason = "What a Product's test engine starts with (ADR 0105): the connection's settings over the kit's, the environment map it reads the caller's browsers and engine from, and the project file it reads."
+words = ["test", "engine", "options"]
+form = "type"
+
+[[member]]
+package = "goodfetch_collie_client.testing"
+receiver = "(module)"
+member = "AsyncTestEngine"
+entry = "none"
+reason = "What every Product's test engine is in the async API (ADR 0105): its Product's connection, and a close that removes its temporary Goodfetch home."
+only = "Python's async twin (ADR 0081): TypeScript's and Rust's `TestEngine` are async."
+words = ["async", "test", "engine"]
+form = "type"
+
+[[member]]
+package = "goodfetch_collie_client.testing"
+receiver = "AsyncTestEngine"
+member = "connection"
+entry = "none"
+reason = "The Product's connection to the test engine, on which the code under test runs unchanged."
+words = ["connection"]
+form = "read"
+
+[[member]]
+package = "goodfetch_collie_client.testing"
+receiver = "AsyncTestEngine"
+member = "close"
+entry = "none"
+reason = "Closes the connection, then removes the temporary Goodfetch home."
+words = ["close"]
+form = "closer"
+
+[[member]]
+package = "goodfetch_collie_client.testing"
+receiver = "(module)"
+member = "TestEngine"
+entry = "none"
+reason = "What every Product's test engine is in the sync API, as `AsyncTestEngine` is in the async one."
+words = ["test", "engine"]
+form = "type"
+
+[[member]]
+package = "goodfetch_collie_client.testing"
+receiver = "TestEngine"
+member = "connection"
+entry = "none"
+reason = "The Product's connection to the test engine, on which the code under test runs unchanged."
+words = ["connection"]
+form = "read"
+
+[[member]]
+package = "goodfetch_collie_client.testing"
+receiver = "TestEngine"
+member = "close"
+entry = "none"
+reason = "Closes the connection, then removes the temporary Goodfetch home."
+words = ["close"]
+form = "closer"
 
 [[member]]
 package = "goodfetch_collie_client.unknown_member"

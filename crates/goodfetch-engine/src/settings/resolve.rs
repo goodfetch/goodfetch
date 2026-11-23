@@ -395,6 +395,21 @@ impl Resolved {
         self.policy_version.as_deref()
     }
 
+    /// Each setting the Run's Product honours that is not fixed for its
+    /// life, with its effective value and its catalog default, in
+    /// declaration order: what a resume may change (ADR 0102).
+    pub(crate) fn changeable(
+        &self,
+    ) -> impl Iterator<Item = (&'static str, &Effective, &'static Value)> {
+        keys::all()
+            .map(|key| key.setting)
+            .filter(|setting| !setting.fixed_for_run)
+            .filter_map(|setting| {
+                let effective = self.settings.get(setting.name)?;
+                Some((setting.name, effective, keys::default_of(setting)))
+            })
+    }
+
     /// Every setting whose value weakens a guarantee or switches off a
     /// costly control, with its value, layer and origin, which the results
     /// it touches are marked with (ADR 0028).

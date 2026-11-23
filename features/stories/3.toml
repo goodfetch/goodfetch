@@ -1375,3 +1375,11 @@ milestone = "M1 Core"
 journey = false
 not_journey = "part"
 status = "active"
+
+[[story]]
+id = 175
+title = "As a developer, I want a resume that changes a setting the Run ran with, set to another value or left out to fall back to a lower layer, to apply it from the resume on and record it in the Run trace with its key, layer and the resume's run epoch, and with no value a credential could hide in, so that the trace says which settings each part of a resumed Run ran under (ADR 0102)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"

@@ -1098,7 +1098,7 @@ impl Subject {
                             connection,
                             &failure(HANDLER_LOST),
                             POLICY.retry_max,
-                            &ended_at(),
+                            ended_at(),
                             &mut Changed::default(),
                         )?,
                     }
@@ -1258,7 +1258,7 @@ impl Subject {
             refused_payload: None,
         };
         let (answer, answered) = tokio::sync::oneshot::channel();
-        let ask = Box::new(Question::Stored(Ask::Links {
+        let ask = Question::Stored(Box::new(Ask::Links {
             links: batch,
             answer,
         }));

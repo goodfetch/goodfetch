@@ -512,9 +512,9 @@ impl RunState {
     /// ([`Stored::answer`]), counting what its write changed: the work
     /// items it added, each keyed, for the loop to offer their domains'
     /// queues, when the loop waited for the write itself.
-    pub(crate) async fn answer(&mut self, question: Box<Question>) -> Option<Vec<Waiting>> {
-        let ask = match *question {
-            Question::Stored(ask) => ask,
+    pub(crate) async fn answer(&mut self, question: Question) -> Option<Vec<Waiting>> {
+        let ask = match question {
+            Question::Stored(ask) => *ask,
             Question::Escalated { escalated, answer } => {
                 let drawn = self.escalated(&escalated);
                 // The attempt no longer waits for it: it served nothing.

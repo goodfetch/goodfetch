@@ -82,10 +82,11 @@ pub(crate) enum HopAsk {
 }
 
 /// One message to the loop: a question the run file answers, or an
-/// escalated attempt's draw, which memory answers.
+/// escalated attempt's draw, which memory answers. A stored question is
+/// boxed: it is the larger variant, more than twice the other on Windows.
 pub(crate) enum Question {
     /// A question the run file answers.
-    Stored(Ask),
+    Stored(Box<Ask>),
     /// The draw of a Session for an escalated attempt.
     Escalated {
         escalated: Escalated,
@@ -158,11 +159,11 @@ pub(crate) enum Ask {
 #[derive(Clone)]
 pub(crate) struct Asking {
     work: CountedWork,
-    mailbox: mpsc::Sender<Box<Question>>,
+    mailbox: mpsc::Sender<Question>,
 }
 
 /// The loop's side of the mailbox.
-pub(crate) struct Asked(mpsc::Receiver<Box<Question>>);
+pub(crate) struct Asked(mpsc::Receiver<Question>);
 
 /// The mailbox of a crawl whose counted work `work` counts: the handle
 /// other tasks ask through, and the loop's side.
@@ -177,7 +178,7 @@ impl Asked {
     /// # Cancel safety
     ///
     /// Dropping the future takes no question out of the mailbox.
-    pub(crate) async fn next(&mut self) -> Option<Box<Question>> {
+    pub(crate) async fn next(&mut self) -> Option<Question> {
         self.0.recv().await
     }
 }
@@ -186,7 +187,7 @@ impl Asking {
     /// Sends the loop the question `ask`; `Closed` once the loop ended.
     async fn send(&self, ask: Ask) -> Result<(), StateError> {
         self.mailbox
-            .send(Box::new(Question::Stored(ask)))
+            .send(Question::Stored(Box::new(ask)))
             .await
             .map_err(|_| StateError::Closed)
     }
@@ -308,7 +309,7 @@ impl Asking {
         self.work.count(Row::ActorRoundTrips);
         let (answer, answered) = oneshot::channel();
         self.mailbox
-            .send(Box::new(Question::Escalated { escalated, answer }))
+            .send(Question::Escalated { escalated, answer })
             .await
             .map_err(|_| StateError::Closed)?;
         answered.await.map_err(|_| StateError::Closed)

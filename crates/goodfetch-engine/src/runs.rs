@@ -339,6 +339,9 @@ pub struct Start {
     pub timeout: Option<Duration>,
     /// Its resolved settings, which its pages and Sessions open under.
     pub settings: Option<RunSettings>,
+    /// Whether it outlives the Connection that starts it (ADR 0102): its
+    /// start checked that nothing in the program serves it.
+    pub detached: bool,
 }
 
 /// What a resume asks for.
@@ -5659,7 +5662,9 @@ impl Registry {
             report: watch::Sender::new(None),
             writer,
             lock: Arc::new(lock),
-            connection,
+            // A detached Run is no Connection's, so no Connection's end
+            // stops it (ADR 0102).
+            connection: connection.filter(|_| !start.detached),
             checkpoint: None,
             progress_message: None,
             lifecycle: Lifecycle::Running,

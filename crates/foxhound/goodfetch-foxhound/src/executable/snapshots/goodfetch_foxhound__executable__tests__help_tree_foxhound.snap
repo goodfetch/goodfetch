@@ -1564,13 +1564,14 @@ Arguments:
   [URL]...  A seed of the crawl, its URL; repeatable
 
 Options:
+      --detached              Whether the Run outlives the Connection that started it (ADR 0102), as a Recipe's run does: only a code-free crawl with no Hook, started on a Daemon, detaches, and any other such start fails with `detach_unsupported`
       --labels <LABELS>       The crawl's Labels, by name, each with its Payload's JSON Schema or none, and its own settings (ADRs 0082 and 0093): a scope between the Run and its requests. A Payload of a declared schema is checked against it at every enqueue. A seed, a sitemap rule or an enqueue naming a Label the crawl does not declare fails with `label_unknown`, and so does a start under the ID of a Run with pending requests of a Label no longer declared, before any work; a code-free crawl declares its own Label
       --limit <KIND=AMOUNT>   Holds the Run to AMOUNT of the Usage kind KIND: a count, such as `requests=500`, or a price with its currency, such as `paid_fetch=0.50USD`; repeatable, and a start that names the Run again only lowers a Limit
       --project <PROJECT>     The project configuration the Client found, layer 3 (ADR 0083)
       --run-id <RUN_ID>       The Run's ID, as `run.start` takes it
       --set <KEY=VALUE>       Sets a setting for this run, as `key=value`, the value read as JSON when it parses as JSON and as text otherwise, a duration as milliseconds or as `45s`, `2m` or `1h`; repeatable
-      --settings <FILE|->     Reads settings for this run from a JSON object, nested by key, in FILE, or from standard input for `-`; `--set` beats it
       --color <WHEN>          When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+      --settings <FILE|->     Reads settings for this run from a JSON object, nested by key, in FILE, or from standard input for `-`; `--set` beats it
       --tags <TAGS>           The Run's opaque tags
       --format <NAME>         A format each page's Record holds, as `page.formats` gives it; repeatable; `markdown` when neither a format nor a field is given [possible values: contacts, html, images, links, markdown, media, metadata, tables, text]
       --field <NAME=LOCATOR>  A named field each page's Record holds: the text of the first element a CSS selector, or an XPath expression after `xpath:`, finds; repeatable

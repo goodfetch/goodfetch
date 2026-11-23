@@ -12,12 +12,13 @@ use std::sync::Arc;
 use goodfetch_collie::linked::ProductConnection;
 use goodfetch_collie::{ConnectOptions, EngineInfo};
 use goodfetch_collie_client::{Error, blocking};
+use goodfetch_protocol::run::CatalogTarget;
 use goodfetch_protocol::settings::{ConfigExplainParams, SettingsExplanation};
 
 pub use crawl::{Crawl, CrawlContext, CrawlRun, StartCrawl};
 pub use goodfetch_collie_client::blocking::{
-    Call, Connection, EventIter, Exchange, Locator, Page, Query, RawCall, Response, Run, Session,
-    Start,
+    Call, Connection, EventIter, Exchange, HandlerlessStart, Locator, Page, Query, RawCall,
+    Response, Run, Session, Start,
 };
 
 use crate::crawl_requests::CrawlRequests;
@@ -103,6 +104,36 @@ impl Foxhound {
         self.connection.start()
     }
 
+    /// Starts a Recipe's run, a Run with no handler in the program, and
+    /// answers once it is started. Its Run ID works as `run.start`'s. With
+    /// `detached`, the Run outlives the program that started it: closing
+    /// its value frees only the value, `run.finish` waits for its end and
+    /// `run.stop` stops it.
+    ///
+    /// Experimental: outside semver until it is promoted (ADR 0030).
+    ///
+    /// The start of a Recipe's run, as [`crate::Foxhound::start_recipe`]'s,
+    /// which `send()` sends.
+    pub fn start_recipe(&self, recipe: &str) -> HandlerlessStart {
+        self.connection.start_recipe(recipe)
+    }
+
+    /// Starts a code-free catalog run, a Run with no handler in the program
+    /// whose verbs come from the catalog (ADR 0036): an Extraction of a
+    /// page by a schema, `extract`, an Agent task, `agent`, or a Plan
+    /// replayed with no model call, `plan_replay`; and answers once it is
+    /// started. Its Run ID works as `run.start`'s. With `detached`, the Run
+    /// outlives the program that started it: closing its value frees only
+    /// the value, `run.finish` waits for its end and `run.stop` stops it.
+    ///
+    /// Experimental: outside semver until it is promoted (ADR 0030).
+    ///
+    /// The start of a code-free catalog run, as
+    /// [`crate::Foxhound::start_catalog_run`]'s, which `send()` sends.
+    pub fn start_catalog_run(&self, target: CatalogTarget) -> HandlerlessStart {
+        self.connection.start_catalog_run(target)
+    }
+
     /// Shows each setting's effective value, the layer that set it and the
     /// layer that locked it, from the built-in defaults, the Operator
     /// policy, user configuration, the project configuration given and the
@@ -134,6 +165,14 @@ impl Foxhound {
 impl Connection for Foxhound {
     fn start(&self) -> Start {
         Foxhound::start(self)
+    }
+
+    fn start_recipe(&self, recipe: &str) -> HandlerlessStart {
+        Foxhound::start_recipe(self, recipe)
+    }
+
+    fn start_catalog_run(&self, target: CatalogTarget) -> HandlerlessStart {
+        Foxhound::start_catalog_run(self, target)
     }
 
     fn call(&self, operation: &str) -> RawCall {

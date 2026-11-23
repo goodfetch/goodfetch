@@ -8,10 +8,12 @@
 
 use std::future::Future;
 
+use goodfetch_protocol::run::CatalogTarget;
 use goodfetch_protocol::settings::{ConfigExplainParams, SettingsExplanation};
 
 use crate::call::Query;
 use crate::error::Error;
+use crate::handlerless::HandlerlessStart;
 use crate::raw_call::RawCall;
 use crate::run::Start;
 
@@ -48,6 +50,31 @@ pub trait Connection {
     /// The start of a Run the program drives (`run.start`), which awaiting
     /// sends.
     fn start(&self) -> Start;
+
+    /// Starts a Recipe's run, a Run with no handler in the program, and
+    /// answers once it is started. Its Run ID works as `run.start`'s. With
+    /// `detached`, the Run outlives the program that started it: closing
+    /// its value frees only the value, `run.finish` waits for its end and
+    /// `run.stop` stops it.
+    ///
+    /// Experimental: outside semver until it is promoted (ADR 0030).
+    ///
+    /// The start of a Recipe's run (`recipe.start`), which awaiting sends.
+    fn start_recipe(&self, recipe: &str) -> HandlerlessStart;
+
+    /// Starts a code-free catalog run, a Run with no handler in the program
+    /// whose verbs come from the catalog (ADR 0036): an Extraction of a
+    /// page by a schema, `extract`, an Agent task, `agent`, or a Plan
+    /// replayed with no model call, `plan_replay`; and answers once it is
+    /// started. Its Run ID works as `run.start`'s. With `detached`, the Run
+    /// outlives the program that started it: closing its value frees only
+    /// the value, `run.finish` waits for its end and `run.stop` stops it.
+    ///
+    /// Experimental: outside semver until it is promoted (ADR 0030).
+    ///
+    /// The start of a code-free catalog run (`catalog_run.start`), which
+    /// awaiting sends.
+    fn start_catalog_run(&self, target: CatalogTarget) -> HandlerlessStart;
 
     /// The raw call of `operation` (ADR 0099, G8), the way down to an
     /// operation the SDK does not generate: its params and its result are

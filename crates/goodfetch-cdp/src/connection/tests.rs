@@ -748,10 +748,7 @@ fn an_event_whose_params_do_not_read_is_logged_at_warn_with_its_method() {
 
     let (warned, warnings) = std::sync::mpsc::channel();
     let subscriber = tracing_subscriber::registry().with(Warned(warned));
-    let event = super::Event {
-        method: "Page.loadEventFired".to_owned(),
-        params: json!({ "timestamp": "not a time" }),
-    };
+    let event = super::Event::new("Page.loadEventFired", &json!({ "timestamp": "not a time" }));
 
     let read = tracing::subscriber::with_default(subscriber, || {
         event.read::<crate::generated::page::LoadEventFiredEvent>()
@@ -956,6 +953,126 @@ fn an_answer_to_a_command_whose_caller_had_gone_is_dropped() {
             )
         );
     });
+}
+
+/// An event of the page's session, and its length as the browser's message.
+fn page_event() -> (Value, usize) {
+    let event = json!({ "method": "Page.loadEventFired", "params": { "timestamp": 1.0 }, "sessionId": "page" });
+    let length = serde_json::to_vec(&event).unwrap().len();
+    (event, length)
+}
+
+/// Sends `events` on the page's session, then one on the browser's, and
+/// waits for the driver to have handed that one on, so it has handed on
+/// every event before.
+async fn handed_on(browser: &mut Browser, connection: &Connection, events: &[Value]) {
+    let mut on_browser = connection.subscribe(None);
+    for event in events {
+        browser.send(event).await;
+    }
+    browser
+        .send(&json!({ "method": "Target.targetCreated", "params": {} }))
+        .await;
+    on_browser.next().await.unwrap();
+}
+
+/// The events a subscription holds, taken until it ends, and why it ended.
+async fn held(subscription: &mut super::Subscription) -> (usize, Option<SubscriptionEnd>) {
+    let mut count = 0;
+    while tokio::time::timeout(Duration::from_millis(100), subscription.next())
+        .await
+        .ok()
+        .flatten()
+        .is_some()
+    {
+        count += 1;
+    }
+    (count, subscription.ended())
+}
+
+/// A reader that leaves events untaken holds no more bytes than its quota:
+/// the event that would take it past its quota ends it, as one that fell
+/// too many events behind, and the events it holds stay its to take.
+#[test]
+fn a_reader_that_leaves_events_untaken_holds_no_more_bytes_than_its_quota() {
+    let (event, length) = page_event();
+    let quota = 10 * length + length / 2;
+    runtime().block_on(async {
+        let (connection, driver, mut browser) = connected();
+        let driver = driver.with_event_bytes(quota);
+        let page = SessionId("page".to_owned());
+        let (_, (count, ended)) = tokio::join!(driver.run(), async {
+            let mut untaken = connection.subscribe(Some(&page));
+            handed_on(&mut browser, &connection, &vec![event; 100]).await;
+            let held = held(&mut untaken).await;
+            drop((connection, browser));
+            held
+        });
+        assert!(count * length <= quota, "{count} events of {length} bytes");
+        assert_eq!((count, ended), (10, Some(SubscriptionEnd::FellBehind)));
+    });
+}
+
+/// An event larger than the quota alone reaches a reader that holds none,
+/// so a reader that keeps up loses no event; a taken event no longer counts
+/// against it, and one over the quota while it holds another ends it.
+#[test]
+fn an_event_over_the_quota_reaches_a_reader_that_holds_none() {
+    let (event, length) = page_event();
+    runtime().block_on(async {
+        let (connection, driver, mut browser) = connected();
+        let driver = driver.with_event_bytes(length / 2);
+        let page = SessionId("page".to_owned());
+        let (_, (taken, held)) = tokio::join!(driver.run(), async {
+            let mut reader = connection.subscribe(Some(&page));
+            let mut taken = 0;
+            for _ in 0..2 {
+                browser.send(&event).await;
+                taken += usize::from(reader.next().await.is_some());
+            }
+            handed_on(&mut browser, &connection, &[event.clone(), event.clone()]).await;
+            let held = held(&mut reader).await;
+            drop((connection, browser));
+            (taken, held)
+        });
+        assert_eq!((taken, held), (2, (1, Some(SubscriptionEnd::FellBehind))));
+    });
+}
+
+/// C1's seam (ADR 0140): the driver reads only what routes an event, so one
+/// no reader of its session wants is not decoded past its envelope, and its
+/// params are decoded once, from the browser's message, for all its readers.
+#[test]
+fn an_event_is_decoded_once_for_all_its_readers() {
+    let work = CountedWork::default();
+    let (connection, driver, mut browser) = connected_on(&work);
+    let page = SessionId("page".to_owned());
+    runtime().block_on(async {
+        let (_, read) = tokio::join!(driver.run(), async {
+            let mut readers = [
+                connection.subscribe(Some(&page)),
+                connection.subscribe(Some(&page)),
+            ];
+            browser
+                .send(&json!({ "method": "Page.loadEventFired", "params": { "timestamp": 1.0 }, "sessionId": "frame" }))
+                .await;
+            browser.send(&page_event().0).await;
+            let mut read = Vec::new();
+            for reader in &mut readers {
+                let event = reader.next().await.unwrap();
+                read.push(
+                    event
+                        .read::<crate::generated::page::LoadEventFiredEvent>()
+                        .map(|read| read.timestamp),
+                );
+            }
+            drop((connection, browser));
+            read
+        });
+        assert!(read.iter().all(Option::is_some), "{read:?}");
+    });
+
+    assert_eq!(work.read(Row::CdpEventDecodes), 1);
 }
 
 mod cdp_pipe {

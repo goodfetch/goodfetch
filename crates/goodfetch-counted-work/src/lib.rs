@@ -248,6 +248,9 @@ rows! {
     /// map when the connection ends whose caller had gone, by its timeout
     /// or its drop.
     CdpPendingOrphans => "C1.pending_orphans", "cdp_command", "pending_orphans";
+    /// `C1.event_decodes`: a decode of an event's params from the
+    /// browser's message, by its reader or by the connection's driver.
+    CdpEventDecodes => "C1.event_decodes", "cdp_command", "event_decodes";
     /// `C3.script_sends`: a send of `check.js`'s source for a guard's check.
     ActionScriptSends => "C3.script_sends", "action", "script_sends";
     /// `C3.check_commands`: a CDP command a guard's check sent.

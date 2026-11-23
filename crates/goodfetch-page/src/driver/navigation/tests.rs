@@ -13,11 +13,12 @@ use crate::driver::replay::{self, SESSION};
 /// The page's main frame.
 const FRAME: &str = "main";
 
+#[expect(
+    clippy::needless_pass_by_value,
+    reason = "each caller builds the params in place with `json!`"
+)]
 fn event(method: &str, params: Value) -> RawEvent {
-    RawEvent {
-        method: method.to_owned(),
-        params,
-    }
+    RawEvent::new(method, &params)
 }
 
 fn stopped() -> RawEvent {

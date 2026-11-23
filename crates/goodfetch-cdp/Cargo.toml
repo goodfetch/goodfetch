@@ -13,7 +13,8 @@ bytes.workspace = true
 # What each command costs (ADR 0140): given at construction, read by no behaviour.
 goodfetch-counted-work.workspace = true
 serde.workspace = true
-serde_json.workspace = true
+# Its envelope alone is read to route a message (issue 3256).
+serde_json = { workspace = true, features = ["raw_value"] }
 thiserror.workspace = true
 tokio = { workspace = true, features = ["io-util", "sync", "time", "macros"] }
 tracing.workspace = true

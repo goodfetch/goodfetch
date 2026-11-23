@@ -28,6 +28,15 @@
 //! dropped with a `debug` log of its ID: no other command takes it and no
 //! subscription sees it.
 //!
+//! The driver reads a message's envelope alone, what routes it: its `id`,
+//! `method` and session, and the session a detach names. An answer's result
+//! is decoded for its command; an event keeps the browser's message whole,
+//! and its first reader decodes its params once, from the message's bytes,
+//! for all its readers (ADR 0140's `C1.event_decodes`), so an event no reader
+//! of its session wants is never decoded. Every buffer stays bounded: a subscriber holds at most
+//! [`EVENTS`] events and its quota of bytes, [`EVENT_BYTES`], past which it
+//! ends as one that fell behind.
+//!
 //! A reader of several sessions, as a Page's reads those of its
 //! out-of-process frames and of its workers (spec #2256, "One reader per
 //! Page"), is listed in the table under each of them with a clone of its
@@ -39,23 +48,31 @@
 //! more session comes with its first caller, the Page's one reader (#2265).
 #![expect(
     clippy::disallowed_types,
-    reason = "the joining subscriptions' list is shared by every handle and the driver, each lock held for one list operation, never across another lock or an `.await`, so there is no lock order to test under loom (ADR 0060)"
+    reason = "the joining subscriptions' list is shared by every handle and the driver, each lock held for one list operation, never across another lock or an `.await`, so there is no lock order to test under loom; a subscriber's count of the bytes it holds is one counter, which orders no other memory (ADR 0060)"
 )]
 
 use std::collections::BTreeMap;
 use std::fmt::Debug;
 use std::pin::Pin;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::Duration;
 
+use bytes::Bytes;
 use goodfetch_counted_work::{CountedWork, Row};
 use serde::de::DeserializeOwned;
+use serde_json::value::RawValue;
 use serde_json::{Value, json};
 use tokio::io::{AsyncRead, AsyncReadExt as _, AsyncWrite, AsyncWriteExt as _};
 use tokio::sync::{mpsc, oneshot};
 
+use self::envelope::{Envelope, range_in, text};
+pub use self::event::Event;
 use crate::failure::{Failure, PartyText, Refusal};
 use crate::framing::{Framer, FramingError, MAX_FRAME, frame};
+
+mod envelope;
+mod event;
 
 /// How many requests wait for the driver before their senders wait.
 const REQUESTS: usize = 64;
@@ -64,6 +81,17 @@ const REQUESTS: usize = 64;
 /// subscription: one that falls this far behind is no longer read, and the
 /// driver never waits for it.
 const EVENTS: usize = 4_096;
+
+/// The bytes of the events a subscriber may leave untaken, its quota: the
+/// event that would take it past its quota ends its subscription, as one
+/// [`EVENTS`] behind does. An event larger than the quota alone still
+/// reaches a subscriber that holds none, so one that keeps up loses no event
+/// and holds at most one message the framing reads ([`MAX_FRAME`]).
+const EVENT_BYTES: usize = 64 * 1024 * 1024;
+
+/// The bytes of the events one subscriber holds, which the driver adds to
+/// and its holder takes from.
+type Held = Arc<AtomicUsize>;
 
 /// The bytes read from the pipe at once.
 const READ: usize = 64 * 1024;
@@ -98,38 +126,13 @@ fn count_interception(work: &CountedWork, method: &str) {
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct SessionId(pub String);
 
-/// An event as the browser sent it.
-#[derive(Clone, Debug, PartialEq)]
-pub struct Event {
-    /// `Domain.event`.
-    pub method: String,
-    /// Its params.
-    pub params: Value,
-}
-
-impl Event {
-    /// Its params as `E`'s, when it is `E`; params that do not read as
-    /// `E`'s, which only a browser the bindings do not match sends, are
-    /// logged at `warn` with the method, never with the params.
-    pub fn read<E: crate::Event>(&self) -> Option<E> {
-        if self.method != E::METHOD {
-            return None;
-        }
-        E::deserialize(&self.params)
-            .inspect_err(|_| {
-                tracing::warn!(
-                    cdp.method = E::METHOD,
-                    "the browser sent an event whose params do not read as the bindings say"
-                );
-            })
-            .ok()
-    }
-}
-
 /// The events of one session, from when it was subscribed.
 #[derive(Debug)]
 pub struct Subscription {
     events: mpsc::Receiver<Arc<Event>>,
+    /// The bytes of the events it holds, which it takes from as its holder
+    /// takes each.
+    held: Held,
     /// Why the driver ended it, which it says before it drops its sender.
     why: oneshot::Receiver<SubscriptionEnd>,
     /// Why it ended, once known.
@@ -143,8 +146,10 @@ pub enum SubscriptionEnd {
     /// The browser detached its session's target: the target sends nothing
     /// more.
     Detached,
-    /// Its holder fell [`EVENTS`] events behind, so the events after it
-    /// stopped are lost while its target may still send more.
+    /// Its holder fell [`EVENTS`] events behind, or the events it left
+    /// untaken came to more than its quota of bytes ([`EVENT_BYTES`]), so
+    /// the events after it stopped are lost while its target may still send
+    /// more.
     FellBehind,
     /// The connection ended.
     Disconnected,
@@ -152,14 +157,19 @@ pub enum SubscriptionEnd {
 
 impl Subscription {
     /// The next event; `None` once it ended: the connection ended, its
-    /// session's target detached, or its holder fell [`EVENTS`] behind,
-    /// which [`ended`](Self::ended) tells apart.
+    /// session's target detached, or its holder fell behind, by
+    /// [`EVENTS`] or by its quota of bytes, which [`ended`](Self::ended)
+    /// tells apart.
     ///
     /// # Cancel safety
     ///
     /// Dropping the future loses no event.
     pub async fn next(&mut self) -> Option<Arc<Event>> {
-        self.events.recv().await
+        let event = self.events.recv().await;
+        if let Some(event) = &event {
+            self.held.fetch_sub(event.bytes(), Ordering::Relaxed);
+        }
+        event
     }
 
     /// Why it ended, once [`next`](Self::next) answered `None`; `None`
@@ -190,6 +200,9 @@ struct Subscriber {
     /// The session whose events it takes.
     session: Option<SessionId>,
     events: mpsc::Sender<Arc<Event>>,
+    /// The bytes of the events its holder has not taken, which the driver
+    /// adds to as it hands each.
+    held: Held,
     /// Where the driver says why it ended it.
     why: oneshot::Sender<SubscriptionEnd>,
 }
@@ -223,17 +236,31 @@ fn lock(joining: &Shared) -> MutexGuard<'_, Joining> {
 
 /// The readers of the connection's events by the session whose events each
 /// takes: the driver's own table, which only it reads and changes.
-#[derive(Debug, Default)]
-struct Readers(BTreeMap<Option<SessionId>, Vec<Subscriber>>);
+#[derive(Debug)]
+struct Readers {
+    by_session: BTreeMap<Option<SessionId>, Vec<Subscriber>>,
+    /// The bytes each may leave untaken: [`EVENT_BYTES`].
+    quota: usize,
+}
 
 impl Readers {
+    fn new(quota: usize) -> Self {
+        Self {
+            by_session: BTreeMap::new(),
+            quota,
+        }
+    }
+
     /// Takes in the subscriptions that joined since the last event, each
     /// under its session, whose readers their holders dropped leave first,
     /// so a session's list stays as long as its live readers.
     fn take_in(&mut self, joining: &Shared) {
         let joined = std::mem::take(&mut lock(joining).list);
         for subscriber in joined {
-            let readers = self.0.entry(subscriber.session.clone()).or_default();
+            let readers = self
+                .by_session
+                .entry(subscriber.session.clone())
+                .or_default();
             readers.retain(|reader| !reader.events.is_closed());
             readers.push(subscriber);
         }
@@ -241,17 +268,34 @@ impl Readers {
 
     /// Hands `event` to the readers of `session` alone, each visit counted
     /// on `work`, never waiting for one: a reader its holder dropped leaves,
-    /// and one that fell [`EVENTS`] behind ends.
+    /// and one that fell behind ends, [`EVENTS`] behind or by the event that
+    /// would take it past its quota while it holds others.
     fn hand(&mut self, session: Option<SessionId>, event: &Arc<Event>, work: &CountedWork) {
-        let std::collections::btree_map::Entry::Occupied(mut entry) = self.0.entry(session) else {
+        let std::collections::btree_map::Entry::Occupied(mut entry) =
+            self.by_session.entry(session)
+        else {
             return;
         };
+        let bytes = event.bytes();
         for reader in std::mem::take(entry.get_mut()) {
             work.count(Row::CdpEventVisits);
+            // Only its holder takes from it meanwhile, so the bytes it holds
+            // are at most those read here.
+            let held = reader.held.load(Ordering::Relaxed);
+            if held > 0 && held.saturating_add(bytes) > self.quota {
+                tracing::warn!(
+                    method = event.method,
+                    "a subscription of the browser's connection left more bytes untaken than its quota and ends"
+                );
+                reader.end(SubscriptionEnd::FellBehind);
+                continue;
+            }
+            reader.held.fetch_add(bytes, Ordering::Relaxed);
             match reader.events.try_send(Arc::clone(event)) {
                 Ok(()) => entry.get_mut().push(reader),
                 Err(mpsc::error::TrySendError::Closed(_)) => {}
                 Err(mpsc::error::TrySendError::Full(_)) => {
+                    reader.held.fetch_sub(bytes, Ordering::Relaxed);
                     tracing::warn!(
                         method = event.method,
                         "a subscription of the browser's connection fell too far behind and ends"
@@ -268,7 +312,12 @@ impl Readers {
     /// Ends the readers of the session `gone` the browser detached, saying
     /// so, and forgets the session.
     fn detached(&mut self, gone: &SessionId) {
-        for reader in self.0.remove(&Some(gone.clone())).into_iter().flatten() {
+        for reader in self
+            .by_session
+            .remove(&Some(gone.clone()))
+            .into_iter()
+            .flatten()
+        {
             reader.end(SubscriptionEnd::Detached);
         }
     }
@@ -358,6 +407,8 @@ pub struct Driver<R, W> {
     joining: Shared,
     /// The longest message it reads: [`MAX_FRAME`].
     frame_limit: usize,
+    /// The bytes each subscriber may leave untaken: [`EVENT_BYTES`].
+    event_bytes: usize,
     /// Where each command's encode and send are counted (ADR 0140's C1): the
     /// one seam every command crosses.
     work: CountedWork,
@@ -396,6 +447,7 @@ impl Connection {
                 left: told,
                 joining,
                 frame_limit: MAX_FRAME,
+                event_bytes: EVENT_BYTES,
                 work,
             },
         )
@@ -483,17 +535,20 @@ impl Connection {
     pub fn subscribe(&self, session: Option<&SessionId>) -> Subscription {
         let (events, receiver) = mpsc::channel(EVENTS);
         let (why, said) = oneshot::channel();
+        let held = Held::default();
         let mut joining = lock(&self.joining);
         // A connection that ended gives a subscription that ends at once.
         if !joining.ended {
             joining.list.push(Subscriber {
                 session: session.cloned(),
                 events,
+                held: Arc::clone(&held),
                 why,
             });
         }
         Subscription {
             events: receiver,
+            held,
             why: said,
             ended: None,
         }
@@ -543,6 +598,15 @@ where
         self
     }
 
+    /// The driver, letting each subscriber leave `quota` bytes untaken.
+    /// Kept for its tests: the real [`EVENT_BYTES`] (64 MiB) is too much to
+    /// send through the Quick suite.
+    #[cfg(test)]
+    fn with_event_bytes(mut self, quota: usize) -> Self {
+        self.event_bytes = quota;
+        self
+    }
+
     /// Runs the connection until the browser closes it or every handle is
     /// dropped, and says which. Every command still waiting when it ends,
     /// including one queued as it ends, fails with [`Failure::Disconnected`].
@@ -554,7 +618,7 @@ where
     pub async fn run(mut self) -> Ended {
         let mut framer = Framer::with_limit(self.frame_limit);
         let mut pending: BTreeMap<u64, Pending> = BTreeMap::new();
-        let mut readers = Readers::default();
+        let mut readers = Readers::new(self.event_bytes);
         let mut next_id: u64 = 1;
         let mut buffer = vec![0; READ];
         let ended = loop {
@@ -594,7 +658,7 @@ where
                     loop {
                         match framer.next_frame() {
                             Ok(Some(bytes)) => {
-                                dispatch(&bytes, &mut pending, &mut readers, &self.joining, &self.work);
+                                dispatch(bytes, &mut pending, &mut readers, &self.joining, &self.work);
                             }
                             Ok(None) => break,
                             Err(FramingError::TooLarge { answering }) => {
@@ -663,21 +727,25 @@ fn forget(pending: &mut BTreeMap<u64, Pending>) {
 
 /// Hands one message to the command it answers or to the readers of its
 /// session, those that joined since the last event among them, never
-/// waiting for one. An answer no command waits for, as its caller left, its
-/// session was detached or it was never sent, is dropped. An event's work is
-/// counted on `work`.
+/// waiting for one. Only its envelope is read: an event's params are left
+/// in the message for its reader to decode. An answer no command waits for,
+/// as its caller left, its session was detached or it was never sent, is
+/// dropped. An event's work is counted on `work`.
 fn dispatch(
-    bytes: &[u8],
+    bytes: Bytes,
     pending: &mut BTreeMap<u64, Pending>,
     readers: &mut Readers,
     joining: &Shared,
     work: &CountedWork,
 ) {
-    let Ok(mut message) = serde_json::from_slice::<Value>(bytes) else {
-        tracing::warn!("the browser sent a message that is not JSON");
+    let Ok(envelope) = serde_json::from_slice::<Envelope<'_>>(&bytes) else {
+        tracing::warn!("the browser sent a message that is not a JSON object");
         return;
     };
-    if let Some(id) = message.get("id").and_then(Value::as_u64) {
+    if let Some(id) = envelope
+        .id
+        .and_then(|id| serde_json::from_str::<u64>(id.get()).ok())
+    {
         let Some(Pending { method, answer, .. }) = pending.remove(&id) else {
             tracing::debug!(
                 id,
@@ -685,39 +753,47 @@ fn dispatch(
             );
             return;
         };
-        let answered = match message.get("error") {
-            Some(error) => Err(Failure::refused(method, error)),
-            None => Ok(message.get_mut("result").map_or(Value::Null, Value::take)),
-        };
-        let _ = answer.send(answered);
+        let _ = answer.send(answered(method, envelope));
         return;
     }
-    // The message's own strings and params are taken, never copied: every
-    // subscriber shares the one event.
-    let Some(Value::String(method)) = message.get_mut("method").map(Value::take) else {
+    let Some(method) = envelope.method.and_then(text) else {
         return;
     };
     count_interception(work, &method);
-    let session = match message.get_mut("sessionId").map(Value::take) {
-        Some(Value::String(session)) => Some(SessionId(session)),
-        _ => None,
-    };
-    let event = Arc::new(Event {
-        method,
-        params: message.get_mut("params").map_or(Value::Null, Value::take),
-    });
+    let session = envelope.session.and_then(text).map(SessionId);
     // A target's detach comes on its parent's session: the browser's own
-    // for a page, the page's for a frame it auto-attached.
-    let gone = (event.method == DETACHED)
-        .then(|| event.params.get("sessionId").and_then(Value::as_str))
-        .flatten()
-        .map(|gone| SessionId(gone.to_owned()));
+    // for a page, the page's for a frame it auto-attached. Its params are
+    // read for the session alone, which the driver routes by.
+    let gone = envelope
+        .params
+        .filter(|_| method == DETACHED)
+        .and_then(|params| serde_json::from_str::<Envelope<'_>>(params.get()).ok())
+        .and_then(|params| params.session)
+        .and_then(text)
+        .map(SessionId);
+    let params = envelope.params.map(|params| range_in(&bytes, params.get()));
+    let event = Arc::new(Event::sent(method, bytes, params, work.clone()));
     readers.take_in(joining);
     if let Some(gone) = &gone {
         detached(gone, pending);
         readers.detached(gone);
     }
     readers.hand(session, &event, work);
+}
+
+/// What a command's answer says: the browser's refusal, or what it returned,
+/// decoded from the browser's message.
+fn answered(method: &'static str, envelope: Envelope<'_>) -> Result<Value, Failure> {
+    if let Some(error) = envelope.error {
+        let error = serde_json::from_str::<Value>(error.get()).unwrap_or(Value::Null);
+        return Err(Failure::refused(method, &error));
+    }
+    envelope.result.map_or(Ok(Value::Null), |result| {
+        serde_json::from_str(result.get()).map_err(|error| Failure::Unreadable {
+            method,
+            message: PartyText::new(error.to_string()),
+        })
+    })
 }
 
 /// Fails at once each command in flight on the session `gone` the browser
@@ -769,7 +845,7 @@ pub fn fuzz_pipe(data: &[u8]) {
     );
     let mut subscriptions = [None, Some(&session)].map(|on| (on, connection.subscribe(on)));
     let mut pending = BTreeMap::new();
-    let mut readers = Readers::default();
+    let mut readers = Readers::new(EVENT_BYTES);
     let mut answers = Vec::new();
     for id in 0..8 {
         let (answer, answered) = oneshot::channel();
@@ -785,13 +861,18 @@ pub fn fuzz_pipe(data: &[u8]) {
         answers.push(answered);
     }
     for bytes in messages {
-        let message = serde_json::from_slice::<Value>(&bytes).ok();
-        let answering = message
+        // The members as an object's map reads them, the last of each name.
+        let message = serde_json::from_slice::<BTreeMap<String, Box<RawValue>>>(&bytes).ok();
+        let member = |name: &str| message.as_ref()?.get(name);
+        let id = member("id").and_then(|id| serde_json::from_str::<u64>(id.get()).ok());
+        let answering = id.filter(|id| pending.contains_key(id));
+        let event = message
             .as_ref()
-            .and_then(|message| message.get("id")?.as_u64())
-            .filter(|id| pending.contains_key(id));
+            .filter(|_| id.is_none())
+            .and_then(|_| member("method").and_then(|method| text(method)))
+            .map(|method| (method, member("sessionId").and_then(|on| text(on))));
         dispatch(
-            &bytes,
+            bytes,
             &mut pending,
             &mut readers,
             &driver.joining,
@@ -806,21 +887,13 @@ pub fn fuzz_pipe(data: &[u8]) {
             assert!(answered.is_ok(), "an answer reaches its command in flight");
             continue;
         }
-        let event = message.as_ref().and_then(|message| {
-            if message.get("id").and_then(Value::as_u64).is_some() {
-                return None;
-            }
-            let method = message.get("method")?.as_str()?;
-            let on = message.get("sessionId").and_then(Value::as_str);
-            Some((method, on))
-        });
         for (on, subscription) in &mut subscriptions {
             let received = subscription.events.try_recv();
-            let Some((method, event_on)) = event else {
+            let Some((method, event_on)) = &event else {
                 assert!(received.is_err(), "only an event reaches a subscription");
                 continue;
             };
-            if subscription.ended().is_some() || on.map(|on| on.0.as_str()) != event_on {
+            if subscription.ended().is_some() || on.map(|on| on.0.as_str()) != event_on.as_deref() {
                 assert!(
                     received.is_err(),
                     "an event reaches only the subscription of its session"
@@ -830,7 +903,7 @@ pub fn fuzz_pipe(data: &[u8]) {
             let Ok(received) = received else {
                 panic!("an event reaches the subscription of its session");
             };
-            assert_eq!(received.method, method, "an event keeps its method");
+            assert_eq!(&received.method, method, "an event keeps its method");
         }
     }
 }

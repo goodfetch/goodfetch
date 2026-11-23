@@ -42,8 +42,9 @@ pub trait Command: serde::Serialize {
     type Returns: serde::de::DeserializeOwned;
 }
 
-/// An event of the protocol: its params, tied to its method's name.
-pub trait Event: serde::de::DeserializeOwned {
+/// An event of the protocol: its params, tied to its method's name. Its
+/// readers share one decode of an event's params, each taking a copy.
+pub trait Event: serde::de::DeserializeOwned + Clone + Send + Sync + 'static {
     /// `Domain.event`.
     const METHOD: &'static str;
 }

@@ -2215,6 +2215,7 @@
             "encodes",
             "end_round_trips",
             "entries",
+            "event_decodes",
             "event_visits",
             "evidence_reads",
             "fetch_messages_no_rule",

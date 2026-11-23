@@ -1,0 +1,124 @@
+{
+  "description": "A Python Client's hello accepted, a Run started and a page opened in it (ADRs 0092 and 0114): a fill of the `shop_totp` placeholder fails with `secret_unavailable`, `failure: \"no_code\"`, since Bitwarden made no one-time code from the item's seed, naming the placeholder, the reference and the provider, never a value; then a click fails with `page_navigated_during_call`, retryable, naming the document the call read and the one a navigation it did not start replaced it with, and the fix. Only an AI verb fails with that code, and no call of this protocol has one yet, so the script answers it to a click, which a Client reads by its code alone. The Run then finishes. The `complete-error-details` client conformance case; `run/complete-error-details.json` is TypeScript's.",
+  "steps": [
+    {
+      "expect": {
+        "method": "hello",
+        "params": {
+          "protocol_version": "0.1",
+          "surface": "sdk_python",
+          "form": "python",
+          "needs": "collie",
+          "product_version": "0.0.0",
+          "log_level": "warn"
+        }
+      }
+    },
+    {
+      "reply": {
+        "result": {
+          "protocol_version": "0.1",
+          "product": "collie",
+          "product_version": "0.0.0",
+          "engine_instance": "0123456789abcdef"
+        }
+      }
+    },
+    { "expect": { "method": "run.start", "params": {} } },
+    {
+      "reply": {
+        "result": {
+          "run_id": "01ke6p4ym0j8x3v5wq2rtbn7hc",
+          "lifecycle": "running",
+          "needs": "collie",
+          "started_as": "new"
+        }
+      }
+    },
+    {
+      "expect": { "method": "run.new_page", "params": { "run_id": "01ke6p4ym0j8x3v5wq2rtbn7hc" } }
+    },
+    { "reply": { "result": { "page_id": "page-1", "session_id": "session-1" } } },
+    {
+      "expect": {
+        "method": "locator.fill",
+        "params": { "locator": { "page_id": "page-1", "selector": "#otp" }, "value": "%shop_totp%" }
+      }
+    },
+    {
+      "reply": {
+        "error": {
+          "code": -32006,
+          "message": "the Secret reference bw:shop/totp gave no one-time code: Bitwarden made none from the item's seed",
+          "data": {
+            "code": "secret_unavailable",
+            "retryable": false,
+            "operation": "locator.fill",
+            "call_id": "call-1",
+            "run_id": "01ke6p4ym0j8x3v5wq2rtbn7hc",
+            "target": "#otp",
+            "url": "https://shop.test/login",
+            "placeholder": "shop_totp",
+            "reference": "bw:shop/totp",
+            "provider": "bw",
+            "failure": "no_code",
+            "fix": "Check the TOTP seed of the vault's shop item"
+          }
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "locator.click",
+        "params": { "locator": { "page_id": "page-1", "selector": "#book" } }
+      }
+    },
+    {
+      "reply": {
+        "error": {
+          "code": -32003,
+          "message": "a navigation the call did not start replaced https://travel.test/books with https://travel.test/books/1",
+          "data": {
+            "code": "page_navigated_during_call",
+            "retryable": true,
+            "operation": "locator.click",
+            "call_id": "call-2",
+            "run_id": "01ke6p4ym0j8x3v5wq2rtbn7hc",
+            "target": "#book",
+            "url": "https://travel.test/books",
+            "navigated_to": "https://travel.test/books/1",
+            "fix": "Await the Collie call before your driver acts on the page."
+          }
+        }
+      }
+    },
+    { "expect": { "method": "run.finish", "params": { "run_id": "01ke6p4ym0j8x3v5wq2rtbn7hc" } } },
+    {
+      "reply": {
+        "result": {
+          "run_id": "01ke6p4ym0j8x3v5wq2rtbn7hc",
+          "lifecycle": "finished",
+          "verdict": "verified",
+          "completeness": "complete",
+          "started_at": "2026-01-01T00:00:00Z",
+          "ended_at": "2026-01-01T00:00:00Z",
+          "usage": {
+            "model": {
+              "calls": 0,
+              "tokens": 0,
+              "input_tokens": 0,
+              "cache_read_tokens": 0,
+              "cache_write_tokens": 0,
+              "output_tokens": 0,
+              "reasoning_tokens": 0,
+              "price": null
+            },
+            "browser_time": 0,
+            "proxy_bytes": 0,
+            "requests": 0
+          }
+        }
+      }
+    }
+  ]
+}

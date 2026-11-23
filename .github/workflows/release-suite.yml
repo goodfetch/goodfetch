@@ -723,6 +723,13 @@ jobs:
         with:
           ref: ${{ needs.plan.outputs.commit }}
           persist-credentials: false
+      # Saved by the `ci-image` job below, which runs beside this one, so a
+      # first run on a new Containerfile builds the image here too (#3480).
+      - name: Restore the CI image of the tree's Containerfile
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/goodfetch/ci-image
+          key: pull-request-ci-image-Linux-${{ hashFiles('ci/image/Containerfile') }}
       - name: Start the job's container
         run: ci/hosted/start.sh
       - name: Set up the OS services the tests use
@@ -771,6 +778,44 @@ jobs:
             target/vitest-attachments/
           if-no-files-found: ignore
 
+  # The hosted tier's CI image (#3480): on `main` only, the image of the
+  # commit's ci/image/Containerfile, built and saved compressed into the
+  # Actions cache under a key holding the file's hash, which every hosted
+  # job that starts the job's container restores. A key the cache already
+  # holds is looked up, never downloaded, so the job builds only when the
+  # Containerfile changed. Its `pull-request-…-Linux-…` key keeps it out of
+  # `xtask evict-caches`'s deletions.
+  ci-image:
+    name: ci image
+    needs: plan
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - name: Check out the commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.plan.outputs.commit }}
+          persist-credentials: false
+      - name: Look the CI image up in the cache
+        id: ci-image-cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/goodfetch/ci-image
+          key: pull-request-ci-image-Linux-${{ hashFiles('ci/image/Containerfile') }}
+          lookup-only: true
+      - name: Build the CI image and write its archive
+        if: steps.ci-image-cache.outputs.cache-hit != 'true'
+        run: ci/hosted/image.sh save
+      - name: Save the CI image
+        if: steps.ci-image-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/goodfetch/ci-image
+          key: pull-request-ci-image-Linux-${{ hashFiles('ci/image/Containerfile') }}
+
   # Cache priority within GitHub's 10 GB (ADR 0061): once the repository's
   # caches pass 9 GB, the least recently used ones that are not the
   # pull-request tier's Linux caches are deleted until they fit. While the
@@ -780,7 +825,7 @@ jobs:
   # cells have saved theirs.
   caches:
     name: caches
-    needs: [plan, linux-x64, linux-arm64, windows-x64, macos-arm64, macos-x64, visual]
+    needs: [plan, linux-x64, linux-arm64, windows-x64, macos-arm64, macos-x64, visual, ci-image]
     if: "!cancelled() && github.ref == 'refs/heads/main'"
     runs-on: ubuntu-24.04
     timeout-minutes: 5

@@ -120,6 +120,13 @@ jobs:
           echo "GOODFETCH_GATE_RUNNER_IMAGE=$ImageVersion" >>"$GITHUB_ENV"
           ci/hosted-records.sh ancestors "$GOODFETCH_GATE_REPOSITORY" HEAD "origin/$BASE" "$BRANCH" \
             target/hosted-records "$GITHUB_RUN_ID"
+      # Saved by the Release suite on `main`; start.sh builds the image on a
+      # miss (#3480).
+      - name: Restore the CI image of the tree's Containerfile
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/goodfetch/ci-image
+          key: pull-request-ci-image-Linux-${{ hashFiles('ci/image/Containerfile') }}
       - name: Start the job's container
         run: ci/hosted/start.sh
       - name: Set up the OS services the tests use
@@ -181,6 +188,13 @@ jobs:
           echo "GOODFETCH_GATE_RUNNER_IMAGE=$ImageVersion" >>"$GITHUB_ENV"
           ci/hosted-records.sh ancestors "$GOODFETCH_GATE_REPOSITORY" HEAD "origin/$BASE" "$BRANCH" \
             target/hosted-records "$GITHUB_RUN_ID"
+      # Saved by the Release suite on `main`; start.sh builds the image on a
+      # miss (#3480).
+      - name: Restore the CI image of the tree's Containerfile
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/goodfetch/ci-image
+          key: pull-request-ci-image-Linux-${{ hashFiles('ci/image/Containerfile') }}
       - name: Start the job's container
         run: ci/hosted/start.sh
       - name: Set up the OS services the tests use
@@ -264,6 +278,13 @@ jobs:
         with:
           path: ~/.cache/goodfetch/chrome-for-testing
           key: chrome-for-testing-${{ steps.chrome-for-testing.outputs.build }}-linux64
+      # Saved by the Release suite on `main`; start.sh builds the image on a
+      # miss (#3480).
+      - name: Restore the CI image of the tree's Containerfile
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/goodfetch/ci-image
+          key: pull-request-ci-image-Linux-${{ hashFiles('ci/image/Containerfile') }}
       - name: Start the job's container
         run: ci/hosted/start.sh
       - name: Set up the OS services the tests use
@@ -338,6 +359,13 @@ jobs:
         with:
           path: ~/.cache/goodfetch/chrome-for-testing
           key: chrome-for-testing-${{ steps.chrome-for-testing.outputs.build }}-linux64
+      # Saved by the Release suite on `main`; start.sh builds the image on a
+      # miss (#3480).
+      - name: Restore the CI image of the tree's Containerfile
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/goodfetch/ci-image
+          key: pull-request-ci-image-Linux-${{ hashFiles('ci/image/Containerfile') }}
       - name: Start the job's container
         run: ci/hosted/start.sh
       - name: Set up the OS services the tests use
@@ -432,6 +460,13 @@ jobs:
           pattern: pre-merge-shard-*
           path: target
           merge-multiple: true
+      # Saved by the Release suite on `main`; start.sh builds the image on a
+      # miss (#3480).
+      - name: Restore the CI image of the tree's Containerfile
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/goodfetch/ci-image
+          key: pull-request-ci-image-Linux-${{ hashFiles('ci/image/Containerfile') }}
       - name: Start the job's container
         run: ci/hosted/start.sh
       - name: Judge the shards and record the step's result

@@ -160,6 +160,10 @@ job = "release-suite.yml#caches"
 reason = "It lists and deletes the repository's caches through GitHub's API (ADR 0061), and runs none of the product."
 
 [[outside]]
+job = "release-suite.yml#ci-image"
+reason = "It builds the hosted tier's CI image from the tree's Containerfile, whose steps download its tools, and saves it into the Actions cache on `main` (#3480); it runs none of the product."
+
+[[outside]]
 job = "watchlist.yml#watchlist"
 reason = "It reads the vendor names of the two public watchlists, webappanalyzer and Scrapfly's Antibot-Detector, and opens issues through GitHub's API; it runs none of the product (ADRs 0035 and 0043)."
 

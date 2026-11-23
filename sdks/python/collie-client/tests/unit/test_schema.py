@@ -21,6 +21,7 @@ from decimal import Decimal
 from typing import Any
 
 import pytest
+from goodfetch_collie_client.generated.errors import SchemaValidatorFailedError
 from goodfetch_collie_client.json_values import JSONObject, JSONValue
 from goodfetch_collie_client.schema import (
     JSONSchema,
@@ -31,7 +32,7 @@ from goodfetch_collie_client.schema import (
 )
 from hypothesis import example, given, seed, settings
 from hypothesis import strategies as st
-from pydantic import BaseModel, Field, computed_field, field_serializer
+from pydantic import BaseModel, Field, computed_field, field_serializer, field_validator
 from typing_extensions import TypeForm
 
 
@@ -78,6 +79,18 @@ class Notes(BaseModel):
 
 class Pickled:
     """An object only pickle could carry."""
+
+
+class Shelved(BaseModel):
+    """A model whose own validator has a bug: it raises, never rejects."""
+
+    title: str
+
+    @field_validator("title")
+    @classmethod
+    def _shelf(cls, title: str) -> str:
+        shelves: dict[str, str] = {}
+        return shelves[title]
 
 
 class Wrapping(BaseModel):
@@ -221,6 +234,45 @@ def test_an_answer_of_an_older_shape_fails_the_typed_read_at_its_path() -> None:
         )
 
     assert [issue.path for issue in refused.value.issues] == ["/0/publishedIn"]
+
+
+@pytest.mark.covers("story:11-67", "error:schema_validator_failed")
+@PYDANTIC
+@pytest.mark.parametrize(
+    ("schema", "value", "title"),
+    [
+        (Shelved, {"title": "Dune"}, "Shelved"),
+        (list[Shelved], [{"title": "Dune"}], None),
+    ],
+    ids=["titled", "untitled"],
+)
+def test_a_validator_that_raises_stops_the_parse_at_once_with_the_original_as_cause(
+    schema: TypeForm[object], value: JSONValue, title: str | None
+) -> None:
+    """Only Pydantic's `ValidationError` is a rejection; a `KeyError` is a bug."""
+    with pytest.raises(SchemaValidatorFailedError) as failed:
+        schema_codec(schema).decode(value)
+
+    assert failed.value.code == "schema_validator_failed"
+    assert failed.value.retryable is False
+    assert failed.value.details == {
+        "schema": title,
+        "path": None,
+        "exception_type": "KeyError",
+        "exception_message": "'Dune'",
+    }
+    assert isinstance(failed.value.__cause__, KeyError)
+    assert "KeyError: 'Dune'" in str(failed.value)
+
+
+@pytest.mark.covers("story:11-67", "error:schema_validator_failed")
+@PYDANTIC
+def test_a_validator_that_raises_stops_a_value_before_it_is_sent() -> None:
+    """The parse back of a value to send raises the same way, so nothing is sent."""
+    with pytest.raises(SchemaValidatorFailedError) as failed:
+        schema_codec(Shelved).encode(Shelved.model_construct(title="Dune"))
+
+    assert isinstance(failed.value.__cause__, KeyError)
 
 
 @pytest.mark.covers("story:11-68")

@@ -51,8 +51,8 @@ const BUILD = {
   build: "141.0.7390.54-linux64",
 };
 
-/** The Product version that pins it. */
-const PINNED_BY = { product: "collie", product_version: "0.0.0" };
+/** What pins it: the Product version alone, in a list that also names the Plugins using a Plugin runtime (ADR 0115). */
+const PINNED_BY = [{ kind: "product", name: "collie", version: "0.0.0" }];
 
 /** What a failed download's error says to do, whatever failed. */
 const DOWNLOAD_FIX =
@@ -337,8 +337,8 @@ function engineVersion(): string {
 /** The real engine's Product version, which pins the build. */
 const ENGINE_VERSION = engineVersion();
 
-/** The Product version that pins the build, as the real engine's errors name it. */
-const REAL_PINNED_BY = { product: "collie", product_version: ENGINE_VERSION };
+/** What pins the build, as the real engine's errors name it: its Product version alone. */
+const REAL_PINNED_BY = [{ kind: "product", name: "collie", version: ENGINE_VERSION }];
 
 /** The build and what pins it, as each provisioning error's message names them. */
 const DESCRIBED = `the browser build chrome-for-testing ${PINNED_BUILD}, pinned by Collie ${ENGINE_VERSION}`;

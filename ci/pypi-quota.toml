@@ -1,0 +1,7 @@
+# Each Product's PyPI project's storage limit, in GiB (ADRs 0057 and 0094).
+# `xtask release plan` sums each project's files from PyPI's JSON interface
+# and warns past 70% of its limit, so a larger one is asked for before a
+# publish fails. Both projects are at PyPI's 10 GiB default until the owner's
+# request through pypi/support raises them; set the new limit here then.
+goodfetch-collie = 10
+goodfetch-foxhound = 10

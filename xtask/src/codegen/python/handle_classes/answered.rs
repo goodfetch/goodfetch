@@ -9,7 +9,7 @@ use anyhow::{Context as _, Result, bail};
 
 use super::super::super::handles::{Form, Member};
 use super::super::super::layer::Layer;
-use super::{Imports, annotation};
+use super::{Imports, annotation, holders};
 
 /// The member's call on its host, `awaits` before it, sending `sent`.
 ///
@@ -105,7 +105,8 @@ pub(super) fn returned(
             }
         }
         Form::Opens(opened) => format!(
-            "        opened = result_of({result}, {call})\n        return {returns}(self._host.child(opened.{opened}_id))\n"
+            "        opened = result_of({result}, {call})\n{}",
+            holders::opened(member.holding.as_ref(), returns, opened)
         ),
         Form::Closes => format!(
             "        {awaits}self._host.close({:?}, {sent})\n",

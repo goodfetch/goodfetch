@@ -25,6 +25,7 @@ pub const RETRY_AFTER_POINT_IN_TIME: &[ErrorCode] =
 pub const TYPED_IN_SDKS: &[TypedDetails] = &[
     TypedDetails::of::<crate::connection::CallCancelledDetails>(),
     TypedDetails::of::<crate::page::ai_work::NotVerifiedDetails>(),
+    TypedDetails::of::<crate::hook::HookFailedDetails>(),
 ];
 
 /// A details type the SDKs read typed: the codes whose details it holds and
@@ -175,6 +176,7 @@ details! {
     crate::run::RunInterruptedDetails => ErrorCode::RUN_INTERRUPTED,
     crate::run::RunStateFilesystemUnsupportedDetails => ErrorCode::RUN_STATE_FILESYSTEM_UNSUPPORTED,
     crate::run::RunTargetUnbuiltDetails => ErrorCode::RUN_TARGET_UNBUILT,
+    crate::schema_validator::SchemaValidatorFailedDetails => ErrorCode::SCHEMA_VALIDATOR_FAILED,
     crate::secrets::RunKeyMismatchDetails => ErrorCode::RUN_KEY_MISMATCH,
     crate::secrets::SecretDomainNotAllowedDetails => ErrorCode::SECRET_DOMAIN_NOT_ALLOWED,
     crate::secrets::SecretInputRefusedDetails => ErrorCode::SECRET_INPUT_REFUSED,

@@ -29,7 +29,7 @@ pub use protocol::{
     EngineMode, EngineTarget, FabricatedHelloError, FabricatedHelloOutcome, GatewayAddress,
     GatewayAddressError, GatewaySuite, GatewaySuiteError, GatewayTarget, PROXY_PASSWORD_VARIABLE,
     ProtocolSuite, ProtocolSuiteError, StartError, SuiteError, run_gateway_suite,
-    run_protocol_suite, send_fabricated_hello,
+    run_protocol_suite, run_protocol_suite_in_gate_mode, send_fabricated_hello,
 };
 pub use proving_ground::{
     ProvingGround, ProvingGroundError, ProxyCredentials, Submission, Task, TaskAccount, TaskList,

@@ -13,8 +13,10 @@ a `Literal`, an `Annotated` or a union types it too.
 
 Each call names its own refusals (`value_invalid`, `payload_invalid`, a
 Record's), so the codec raises `ValueNotJSONError` and
-`SchemaRejectedError`, which the call turns into its code. TypeScript's
-`schema.ts` is its twin.
+`SchemaRejectedError`, which the call turns into its code. Only Pydantic's
+`ValidationError` is a rejection: anything else a validator raises stops
+the call at once with `schema_validator_failed`, the same for every call,
+the original as its cause. TypeScript's `schema.ts` is its twin.
 """
 
 from __future__ import annotations
@@ -27,6 +29,7 @@ from typing import TYPE_CHECKING, Generic, TypeAlias, TypeVar, cast, overload
 from pydantic import TypeAdapter, ValidationError
 from typing_extensions import TypeForm, TypeIs
 
+from goodfetch_collie_client.generated.errors import SchemaValidatorFailedError
 from goodfetch_collie_client.json_values import (
     JSONObject,
     JSONValue,
@@ -97,6 +100,8 @@ class SchemaCodec(ABC, Generic[T]):
         Raises:
             ValueNotJSONError: Something in it is not JSON.
             SchemaRejectedError: The schema would not parse its JSON back.
+            SchemaValidatorFailedError: A validator raised something other
+                than a rejection.
         """
 
     @abstractmethod
@@ -105,6 +110,8 @@ class SchemaCodec(ABC, Generic[T]):
 
         Raises:
             SchemaRejectedError: The schema rejects it.
+            SchemaValidatorFailedError: A validator raised something other
+                than a rejection.
         """
 
 
@@ -201,6 +208,10 @@ class _Typed(SchemaCodec[T]):
                     for error in rejected.errors(include_url=False)
                 )
             ) from None
+        except Exception as raised:
+            # Only Pydantic's `ValidationError` is a rejection: anything else
+            # a validator raises is the program's bug, so the call stops here.
+            raise _validator_failed(self._wire_schema, raised) from raised
 
     def _dump(self, value: T) -> object:
         """`value` by alias in Python's own types, which keep what it holds."""
@@ -216,6 +227,35 @@ class _Typed(SchemaCodec[T]):
             path = _path_of(dumped, lambda member: type(member) is type(unknown), "")
         found = f"an instance of {type(unknown).__qualname__}"
         return NonJSON("" if path is None else path, found)
+
+
+def _validator_failed(
+    wire_schema: JSONObject, raised: Exception
+) -> SchemaValidatorFailedError:
+    """The `schema_validator_failed` of a schema whose validation raised `raised`.
+
+    Its message names the exception's type and message; the details name
+    the schema by its JSON Schema `title`, and no path, which an exception
+    raised past Pydantic does not carry.
+    """
+    title = wire_schema.get("title")
+    schema = title if isinstance(title, str) else None
+    kind = type(raised).__name__
+    message = str(raised)
+    named = "the schema" if schema is None else f"the schema {schema}"
+    return SchemaValidatorFailedError(
+        f"{named}'s own validation raised {kind}: {message}",
+        fix=(
+            "Fix the validator so that it rejects with a ValueError, which "
+            "Pydantic reports as a ValidationError, or never raises."
+        ),
+        details={
+            "schema": schema,
+            "path": None,
+            "exception_type": kind,
+            "exception_message": message,
+        },
+    )
 
 
 class _UnknownTypeError(Exception):

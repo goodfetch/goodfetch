@@ -23,4 +23,7 @@ npm @goodfetch/foxhound-win32-arm64 1.4.0: publish
 npm @goodfetch/foxhound-win32-x64 1.4.0: publish
 npm @goodfetch/foxhound 1.4.0: publish
 github tag v1.4.0: push
+pypi goodfetch-collie-client 1.4.0: publish
+pypi goodfetch-collie 1.4.0: publish
+pypi goodfetch-foxhound 1.4.0: publish
 github release v1.4.0: publish

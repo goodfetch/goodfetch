@@ -659,6 +659,21 @@
       ],
       "open": true
     },
+    "Blocking": {
+      "description": "Whether a gate mode's entry ran with Filter-list blocking on or off\n(ADR 0047).",
+      "oneOf": [
+        {
+          "const": "on",
+          "description": "The Filter lists blocked as the case's settings say.",
+          "type": "string"
+        },
+        {
+          "const": "off",
+          "description": "Every Filter list was off.",
+          "type": "string"
+        }
+      ]
+    },
     "BodyHandle": {
       "description": "A page body as a handle: its ID, the file that holds it and its size.",
       "properties": {
@@ -951,6 +966,17 @@
       "additionalProperties": false,
       "description": "One time a case ran.",
       "properties": {
+        "blocking": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Blocking"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Whether Filter-list blocking was on or off, in gate mode."
+        },
         "checks": {
           "description": "Each check's result.",
           "items": {
@@ -969,6 +995,13 @@
             "string",
             "null"
           ]
+        },
+        "unreachable": {
+          "description": "What it could not reach while it ran, such as a vendor or the\nonline Proving ground, each as its runner names it. An entry with\nany neither passes nor fails, whatever its checks: an outage is\ninconclusive (ADR 0064).",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
         }
       },
       "required": [
@@ -980,6 +1013,17 @@
       "additionalProperties": false,
       "description": "One time a case ran.",
       "properties": {
+        "blocking": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Blocking"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Whether Filter-list blocking was on or off, in the harness's gate\nmode (ADR 0047)."
+        },
         "capability": {
           "description": "The capability the case belongs to.",
           "type": "string"
@@ -1014,6 +1058,13 @@
         "runtime": {
           "description": "The runtime it ran on, such as `node-24` or `cpython-3.14`.",
           "type": "string"
+        },
+        "unreachable": {
+          "description": "What it could not reach while it ran, such as a vendor or the\nonline Proving ground, each as the runner names it; its entry is\nthen inconclusive (ADR 0064).",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
         }
       },
       "required": [
@@ -1035,7 +1086,12 @@
         },
         {
           "const": "failed",
-          "description": "A check failed, or an entry holds no check.",
+          "description": "A check failed, or an entry holds no check; in gate mode, it failed\nwith Filter-list blocking on and passed with it off.",
+          "type": "string"
+        },
+        {
+          "const": "inconclusive",
+          "description": "An entry could not reach something it needed, such as a vendor, and\nno entry that reached everything failed (ADR 0064); or, in gate\nmode, it failed with Filter-list\nblocking on and did not pass with it off, as when a vendor's scoring\nchange moves both (ADR 0047). It neither passes nor blocks.",
           "type": "string"
         },
         {
@@ -1923,6 +1979,10 @@
             "$ref": "#/$defs/CapabilityResult"
           },
           "type": "array"
+        },
+        "gate": {
+          "description": "Whether the suite ran in gate mode, each case once with Filter-list\nblocking on and once with it off, its failures blocking the job that\nasked for it (ADR 0047): the Clean-up rules' daily channel's.",
+          "type": "boolean"
         },
         "online": {
           "description": "Whether the Proving ground was the online copy, whose results report\nand never block a release.",
@@ -6994,6 +7054,60 @@
         "product",
         "product_version",
         "engine_instance"
+      ],
+      "type": "object"
+    },
+    "HookFailedDetails": {
+      "description": "What `hook_failed` details: the Hook, and the exception as\n`handler_failed`'s details name a handler's (ADR 0079's notes of\n2026-10-24 and 2026-10-27).",
+      "properties": {
+        "exception_message": {
+          "arrived_in": "0.1",
+          "description": "The exception's message.",
+          "type": "string"
+        },
+        "exception_stack": {
+          "arrived_in": "0.1",
+          "description": "The frames of the program's code, as one text; empty from Rust.",
+          "type": "string"
+        },
+        "exception_type": {
+          "arrived_in": "0.1",
+          "description": "The exception's type name: `BoxError` or `panic` from Rust (ADR\n0109).",
+          "type": "string"
+        },
+        "hook": {
+          "arrived_in": "0.1",
+          "description": "The Hook that raised.",
+          "type": "string"
+        },
+        "label": {
+          "arrived_in": "0.1",
+          "description": "The request's Label, or none at a lifecycle stage, which has no\nrequest, and outside a crawl.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "stage": {
+          "$ref": "#/$defs/ReportedHookStage",
+          "arrived_in": "0.1",
+          "description": "The stage the Hook ran at."
+        },
+        "wrapped_code": {
+          "arrived_in": "0.1",
+          "description": "The Goodfetch code raised inside the Hook, such as\n`header_forbidden`, or none for the program's own exception.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "stage",
+        "hook",
+        "exception_type",
+        "exception_message",
+        "exception_stack"
       ],
       "type": "object"
     },
@@ -12936,6 +13050,47 @@
         "claim"
       ],
       "type": "object"
+    },
+    "ReportedHookStage": {
+      "description": "The stage a Hook that raised ran at, as `hook_failed` reports it, by\nthe catalog's name (ADR 0104): a crawl's Hooks in code run at the stages\nwhose answer changes the work, and Plugins and Script Hooks also at the\nobserve-only `request_ended`. A Run's lifecycle stage reads as a stage\nthis reader does not know, its name kept.",
+      "oneOf": [
+        {
+          "const": "before_request",
+          "description": "Before each fetch of a request, its retries included.",
+          "type": "string"
+        },
+        {
+          "const": "after_response",
+          "description": "After the request's final response, redirects followed.",
+          "type": "string"
+        },
+        {
+          "const": "before_navigation",
+          "description": "Before a navigation to the request's URL, on the tiers that\nnavigate.",
+          "type": "string"
+        },
+        {
+          "const": "after_navigation",
+          "description": "After that navigation.",
+          "type": "string"
+        },
+        {
+          "const": "page_ready",
+          "description": "Just before the handler, with its page, on every tier.",
+          "type": "string"
+        },
+        {
+          "const": "before_record_commit",
+          "description": "Before each Record the attempt staged commits.",
+          "type": "string"
+        },
+        {
+          "const": "request_ended",
+          "description": "Once a crawl request ended, with its outcome; observe-only.",
+          "type": "string"
+        }
+      ],
+      "open": true
     },
     "Request": {
       "additionalProperties": false,

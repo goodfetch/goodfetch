@@ -11,6 +11,9 @@ use serde_json::{Value, json};
 
 use crate::workspace::{Finding, Workspace, finding};
 
+mod connection;
+mod defaults;
+
 const COLLIE: &str = "crates/goodfetch-protocol/generated/collie.json";
 const FOXHOUND: &str = "crates/goodfetch-protocol/generated/foxhound.json";
 const BUNDLE: &str = "crates/goodfetch-protocol/generated/bundle.json";
@@ -502,40 +505,6 @@ fn a_settings_change_by_what_a_user_may_write(
     assert_eq!(
         outcome.findings(),
         expected(breaks, "collie settings sample.max_pages"),
-        "{}",
-        outcome.stdout
-    );
-}
-
-#[test]
-fn a_changed_default_of_a_setting_that_weakens_a_guarantee_is_a_break() {
-    let workspace = released_with(
-        |workspace| {
-            for path in [COLLIE, FOXHOUND] {
-                edit_json(workspace, path, |projection| {
-                    let mut weakening = setting();
-                    weakening["weakens"] = json!(true);
-                    projection["settings"]
-                        .as_array_mut()
-                        .unwrap()
-                        .push(weakening);
-                });
-            }
-        },
-        "",
-    );
-    edit_json(&workspace, COLLIE, |projection| {
-        entry(projection, "settings", "sample.max_pages")["default"] = json!(20);
-    });
-
-    let outcome = workspace.xtask(&["api-check"]);
-
-    assert_eq!(
-        outcome.findings(),
-        vec![finding(
-            "unannounced-break",
-            "collie settings sample.max_pages"
-        )],
         "{}",
         outcome.stdout
     );

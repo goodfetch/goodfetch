@@ -1,9 +1,11 @@
 """Prints how the Python SDK's packages break the previous release's API.
 
 `xtask sdk-api` runs it on the repository's interpreter with one JSON
-argument: `previous` and `current`, the folders of the two trees, and
+argument: `previous` and `current`, the folders of the two trees,
 `packages`, each package's source folder under a tree and its import name,
-such as `["sdks/python/collie/src", "goodfetch_collie"]`. It prints a JSON
+such as `["sdks/python/collie/src", "goodfetch_collie"]`, and
+`experimental_line`, the docstring line that marks an Experimental object
+(ADR 0099), the generator's own text. It prints a JSON
 array, one object per breakage Griffe finds between the two trees' packages,
 testing modules included, as `sdk_api.rs`'s `PythonBreak` reads it. Griffe
 reads the sources and imports none of them, so reading the SDK runs none of
@@ -18,12 +20,14 @@ Each object carries:
   a module itself;
 - `path`, the object's dotted path;
 - `kind`, Griffe's kind of breakage, such as `Public object was removed`;
-- `experimental`, whether the object, in either tree, is a function that
-  calls `warn_experimental(`, the SDK's mark of an Experimental member.
+- `experimental`, whether the object, or a class that holds it, is
+  Experimental in either tree: a function that calls `warn_experimental(`,
+  the SDK's run-time mark, or an object whose docstring has
+  `experimental_line`, as the generated Plugins' handlers have alone.
 
-A module with a `generated` segment is the generator's, which `xtask
-api-check` judges, and is left out. A package the previous tree lacks has no
-API to break; a package the current tree lacks is one breakage, its removal.
+The generated layer's modules are read as the rest are: they are public API
+a program imports. A package the previous tree lacks has no API to break; a
+package the current tree lacks is one breakage, its removal.
 """
 
 from __future__ import annotations
@@ -35,7 +39,6 @@ from pathlib import Path
 
 import griffe
 
-GENERATED = "generated"
 MODULE = "(module)"
 EXPERIMENTAL_CALL = "warn_experimental("
 
@@ -68,12 +71,26 @@ def find(loader: griffe.GriffeLoader, path: str) -> griffe.Object | None:
     return found
 
 
-def is_experimental(obj: griffe.Object | None) -> bool:
-    """Whether `obj` is a function that calls `warn_experimental(`."""
-    if obj is None or not obj.is_function:
-        return False
+def is_experimental(obj: griffe.Object | None, line: str) -> bool:
+    """Whether `obj`, or a class that holds it, is Experimental.
+
+    That is a function that calls `warn_experimental(`, or an object whose
+    docstring has `line`, the one ADR 0099 gives Python.
+    """
+    while obj is not None and not obj.is_module:
+        docstring = obj.docstring.value if obj.docstring is not None else ""
+        if any(text.strip() == line for text in docstring.splitlines()):
+            return True
+        if obj.is_function and calls_warn_experimental(obj):
+            return True
+        obj = obj.parent
+    return False
+
+
+def calls_warn_experimental(function: griffe.Object) -> bool:
+    """Whether `function`'s source calls `warn_experimental(`."""
     try:
-        return EXPERIMENTAL_CALL in obj.source
+        return EXPERIMENTAL_CALL in function.source
     except (OSError, ValueError):
         return False
 
@@ -87,9 +104,12 @@ def located(obj: griffe.Object | griffe.Alias) -> tuple[str, str]:
 
 
 def breakages(
-    previous: Path, current: Path, packages: list[tuple[str, str]]
+    previous: Path, current: Path, packages: list[tuple[str, str]], line: str
 ) -> list[dict[str, object]]:
-    """Every breakage of `current`'s packages against `previous`'s."""
+    """Every breakage of `current`'s packages against `previous`'s.
+
+    `line` is the docstring line that marks an Experimental object.
+    """
     old_loader = load(previous, packages)
     new_loader = load(current, packages)
     rows: list[dict[str, object]] = []
@@ -111,11 +131,9 @@ def breakages(
             continue
         for breakage in griffe.find_breaking_changes(old, new):
             obj = breakage.obj
-            if GENERATED in obj.path.split("."):
-                continue
             module, top = located(obj)
-            experimental = is_experimental(find(old_loader, obj.path)) or (
-                is_experimental(find(new_loader, obj.path))
+            experimental = is_experimental(find(old_loader, obj.path), line) or (
+                is_experimental(find(new_loader, obj.path), line)
             )
             rows.append(
                 {
@@ -138,5 +156,6 @@ if __name__ == "__main__":
         Path(request["previous"]),
         Path(request["current"]),
         [(folder, name) for folder, name in request["packages"]],
+        request["experimental_line"],
     )
     sys.stdout.write(json.dumps(found))

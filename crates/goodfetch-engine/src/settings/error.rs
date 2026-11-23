@@ -37,6 +37,24 @@ pub enum SettingsError {
         /// What is wrong.
         reason: String,
     },
+    /// A domain listed where a registrable domain is due, such as a Session
+    /// source's `domains` (ADR 0056), that lies below its registrable
+    /// domain.
+    #[error(
+        "`{key}` is not valid{}: {}",
+        in_layer(*layer),
+        not_registrable(domain, registrable)
+    )]
+    NotRegistrable {
+        /// The key.
+        key: String,
+        /// Its layer; `None` for the environment.
+        layer: Option<SettingsLayer>,
+        /// The domain as written.
+        domain: String,
+        /// Its registrable domain, to give instead.
+        registrable: String,
+    },
     /// A key set where it cannot take effect.
     #[error("`{key}` cannot be set in {}: {fix}", layer.as_str())]
     NotApplicable {
@@ -143,6 +161,12 @@ fn format_message(
     }
 }
 
+/// Why `domain`, listed in `domains`, is refused: it lies below
+/// `registrable`.
+pub(crate) fn not_registrable(domain: &str, registrable: &str) -> String {
+    format!("`{domain}` in `domains` is no registrable domain, whose is `{registrable}`")
+}
+
 fn in_layer(layer: Option<SettingsLayer>) -> String {
     layer.map_or_else(
         || " in the environment".to_owned(),
@@ -170,7 +194,7 @@ impl SettingsError {
     pub fn code(&self) -> &'static str {
         match self {
             Self::Unknown { .. } => SETTING_UNKNOWN.name,
-            Self::Invalid { .. } => SETTING_INVALID.name,
+            Self::Invalid { .. } | Self::NotRegistrable { .. } => SETTING_INVALID.name,
             Self::NotApplicable { .. } => SETTING_NOT_APPLICABLE.name,
             Self::Unavailable { .. } => CAPABILITY_UNAVAILABLE.name,
             Self::Locked { .. } => SETTING_LOCKED.name,

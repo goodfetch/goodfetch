@@ -10,6 +10,7 @@
 // on the oldest version the SDK supports.
 import {
   Collie,
+  SchemaValidatorFailedError,
   ValueInvalidError,
   type JSONObject,
   type JSONSchema,
@@ -165,6 +166,92 @@ describe("Typed data on the Scripted engine as the Attached engine", () => {
       );
       await clientCase.check(
         "no refused value reached the engine, and `__proto__` crossed as an own key, so the script wrote no failure",
+        () => expect(warned).toEqual([]),
+      );
+    },
+  );
+
+  test(
+    "stops a call at once with schema_validator_failed when the schema's own validation raises something other than a rejection",
+    {
+      tags: [
+        "client_case/validator-throw-fails-at-once",
+        "attached",
+        "story:11-67",
+        "error:schema_validator_failed",
+      ],
+    },
+    async ({ testEnv, clientCase }) => {
+      const env = scriptedEngineEnv(testEnv, "collie", "run/validator-throw-fails-at-once.json");
+      const { logger, warned } = recordingLogger();
+      // oxlint-disable-next-line no-restricted-properties -- `Collie.connect` is the SDK's own factory (ADR 0078), not a browser's.
+      const collie = await Collie.connect({ env, logger });
+      const run = await collie.start({ runId: "buggy" });
+      const store = run.keyValueStore;
+      const bug = new TypeError("Cannot read properties of undefined (reading 'length')");
+      const titled = z
+        .object({ title: z.string(), year: z.string() })
+        .refine(() => {
+          throw bug;
+        })
+        .meta({ title: "Book" });
+      const untitled = z.object({
+        title: z.string().refine(() => {
+          throw new RangeError("Invalid array length");
+        }),
+      });
+
+      const unsent = await failure(store.set("book", { title: "Dune", year: "1965" }, titled));
+      const untitledUnsent = await failure(store.set("book", { title: "Dune" }, untitled));
+      const read = await failure(store.get("book", titled));
+      await run.finish();
+      await collie.close();
+
+      await clientCase.check(
+        "each fails with schema_validator_failed, a program error that is not retried, naming the exception",
+        () => {
+          for (const failed of [unsent, untitledUnsent, read]) {
+            expect(failed).toBeInstanceOf(SchemaValidatorFailedError);
+            expect(failed).toMatchObject({
+              code: "schema_validator_failed",
+              group: "program",
+              retryable: false,
+            });
+          }
+          expect(unsent).toMatchObject({
+            message: expect.stringContaining(
+              "TypeError: Cannot read properties of undefined (reading 'length')",
+            ),
+          });
+        },
+      );
+      await clientCase.check(
+        "the details name the schema by its title, the path as unknown, and the exception's type and message",
+        () => {
+          const details = {
+            schema: "Book",
+            path: null,
+            exception_type: "TypeError",
+            exception_message: "Cannot read properties of undefined (reading 'length')",
+          };
+          expect(unsent).toMatchObject({ details });
+          expect(read).toMatchObject({ details });
+          expect(untitledUnsent).toMatchObject({
+            details: {
+              schema: null,
+              path: null,
+              exception_type: "RangeError",
+              exception_message: "Invalid array length",
+            },
+          });
+        },
+      );
+      await clientCase.check("the original exception is the error's cause", () => {
+        expect(unsent).toHaveProperty("cause", bug);
+        expect(read).toHaveProperty("cause", bug);
+      });
+      await clientCase.check(
+        "no value whose validation raised was sent, and the typed read read once, so the script wrote no failure",
         () => expect(warned).toEqual([]),
       );
     },

@@ -88,10 +88,6 @@ pub(crate) enum Command {
         #[arg(long)]
         version: ProductVersion,
     },
-    /// Plans both Products' publish: one step per registry and package in
-    /// publish order, each marked published, to publish, or a new name to
-    /// publish by hand first, as its registry's public interface shows it.
-    Plan(publish::Arguments),
     /// Cuts minor `x.y` from `origin`'s `main`, once its release gates
     /// pass: pushes the `release/x.y` branch and the `x.y-branch` tag at
     /// `main`'s commit, then opens the first candidate's release pull
@@ -174,6 +170,10 @@ pub(crate) enum Command {
         #[command(flatten)]
         github: github::Arguments,
     },
+    /// Plans both Products' publish: one step per registry and package in
+    /// publish order, each marked published, to publish, or a new name to
+    /// publish by hand first, as its registry's public interface shows it.
+    Plan(publish::Arguments),
 }
 
 pub(crate) fn run(command: Command, environment: &Environment) -> Result<ExitCode> {

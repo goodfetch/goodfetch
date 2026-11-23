@@ -394,6 +394,40 @@ impl Held for Locator {
     }
 }
 
+/// The handles a handle keeps of the answers its calls get, each named by
+/// its ID, such as the Run's default Session, which each `run.new_page`
+/// answer names (ADRs 0078, 0092): the first answer that names one builds
+/// it, and every later one shares it, so each of its pages answers the
+/// same Session. Every clone keeps the same handles.
+#[derive(Debug)]
+pub(crate) struct Kept<Id, T>(Arc<Mutex<Vec<(Id, T)>>>);
+
+impl<Id, T> Clone for Kept<Id, T> {
+    fn clone(&self) -> Self {
+        Self(Arc::clone(&self.0))
+    }
+}
+
+impl<Id, T> Default for Kept<Id, T> {
+    fn default() -> Self {
+        Self(Arc::new(Mutex::new(Vec::new())))
+    }
+}
+
+impl<Id: PartialEq + Clone, T: Clone> Kept<Id, T> {
+    /// The handle `id` names, which `build` builds when no answer named it
+    /// before.
+    pub(crate) fn share(&self, id: Id, build: impl FnOnce(Id) -> T) -> T {
+        let mut kept = self.0.lock().unwrap_or_else(PoisonError::into_inner);
+        if let Some((_, held)) = kept.iter().find(|(named, _)| *named == id) {
+            return held.clone();
+        }
+        let held = build(id.clone());
+        kept.push((id, held.clone()));
+        held
+    }
+}
+
 /// A Run a program holds, which every handle of it shares.
 #[derive(Debug)]
 pub(crate) struct HeldRun {

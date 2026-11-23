@@ -302,9 +302,10 @@ fn metric_entry(product: Product, metric: &Metric) -> Value {
 }
 
 /// A setting's entry in the settings schema: its value's schema, default and
-/// authority, and the Products that honour it, read from its mark: both for
-/// Collie's, which Foxhound contains, only Foxhound for Foxhound's (ADRs
-/// 0087 and 0095).
+/// authority, whether a value weakens a guarantee and which way
+/// ([`ValueKind::weakening`](super::ValueKind::weakening)), and the
+/// Products that honour it, read from its mark: both for Collie's, which
+/// Foxhound contains, only Foxhound for Foxhound's (ADRs 0087 and 0095).
 fn setting_entry(product: Product, setting: &Setting, scopes: &[SettingScope]) -> Value {
     let products: Vec<&str> = [Product::Collie, Product::Foxhound]
         .into_iter()
@@ -321,6 +322,9 @@ fn setting_entry(product: Product, setting: &Setting, scopes: &[SettingScope]) -
         "clearable": setting.clearable,
         "authority": setting.authority.as_str(),
         "weakens": setting.weakens.is_some(),
+        "weakening": setting
+            .weakens
+            .map_or(Value::Null, |weakens| setting.kind.weakening(weakens)),
         "fixed_for_run": setting.fixed_for_run,
         "scopes": scopes.iter().map(|scope| scope.as_str()).collect::<Vec<_>>(),
         "deprecated": deprecation(setting.deprecated),

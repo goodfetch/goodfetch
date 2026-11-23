@@ -26,7 +26,7 @@
 
 [suite]
 name = "clients"
-version = "63"
+version = "64"
 
 [[capability]]
 name = "lifecycle"
@@ -258,6 +258,21 @@ covers = ["story:11-92"]
 surfaces = ["sdk-typescript", "sdk-python", "sdk-rust"]
 modes = { sdk-typescript = ["attached"], sdk-python = ["attached"], sdk-rust = ["daemon"] }
 
+# A page reaches its Session without a call (ADRs 0092 and 0078; issue
+# 3585): `page.session()` (a property in Python) answers the Session that
+# opened the page, the two pages `run.newPage()` opens sharing the Run's
+# default Session. Closing it through one page closes the other, whose
+# later call raises `closed` without a message, and a later
+# `run.newPage()` raises the engine's `closed`, while a page of a Session of
+# the program's own opens a page through its Session still. In Rust,
+# dropping a page's Session sends no `session.close`. Played as
+# `sessions-open-from-their-source` is.
+[[capability.case]]
+id = "a-page-reaches-its-session"
+covers = ["story:11-92"]
+surfaces = ["sdk-typescript", "sdk-python", "sdk-rust"]
+modes = { sdk-typescript = ["attached"], sdk-python = ["attached"], sdk-rust = ["daemon"] }
+
 # `page.request` through the page's Session (issue 1303, ADRs 0085 and
 # 0118), on the Proving ground: the request carries the cookie a page of
 # the Session got and leaves through the Run's proxy, as the Proving
@@ -371,8 +386,9 @@ modes = ["attached"]
 # `BrowserNotInstalledError` (not retryable), `ArtifactUnavailableOfflineError`
 # (a `RefusedError` whose `limit` names `egress.offline`) or
 # `ArtifactDownloadFailedError` (retryable, its `failure` `http_status`,
-# `network` or `digest_mismatch`), each naming the build, the Product
-# version that pins it and, in `fix`, that Product's `browser install`.
+# `network` or `digest_mismatch`), each naming the build, what pins it
+# as the list `pinned_by`, here the Product version alone, and, in `fix`,
+# that Product's `browser install`.
 # Played by the Scripted engine attached in TypeScript and Python (asyncio,
 # Trio and the sync API), the engine from npm and PyPI, and as a Daemon in
 # all three, each from another channel: the archive installer for
@@ -456,6 +472,32 @@ id = "partial-results"
 covers = ["story:11-35"]
 surfaces = ["sdk-typescript", "sdk-python", "sdk-rust"]
 modes = { sdk-typescript = ["attached"], sdk-python = ["attached"], sdk-rust = ["daemon"] }
+
+# Complete error details (ADRs 0092 and 0114; issues 3168 and 1273): each
+# failure carries every detail its code declares. A fill whose one-time
+# code never came raises `secret_unavailable` with `failure: "no_code"`;
+# `page_navigated_during_call` raises its class, retryable, naming the
+# document the call read and the one that replaced it, which Rust reads as
+# `PageNavigatedDuringCallDetails`. Only an AI verb fails with that code,
+# and no call of this protocol has one yet (ADR 0114), so the script answers
+# it to a click: a Client reads a failure by its code, whatever call it
+# answers. A navigation a site rate-limits raises `blocked` with the Block
+# cause's wire value, `rate_limit`, and `retryAfter` the point in time the
+# site asked for, read in UTC (`Date`, `datetime`, `SystemTime`); a cause no
+# catalog names is kept as received (ADRs 0035, 0079 and 0118). Played by
+# the Scripted engine in TypeScript and Python (asyncio, Trio and the sync
+# API), attached and as a Daemon, and as the Daemon Rust's client crate
+# reaches.
+[[capability.case]]
+id = "complete-error-details"
+covers = [
+  "error:secret_unavailable",
+  "error:page_navigated_during_call",
+  "error:blocked",
+  "block-cause:rate_limit",
+]
+surfaces = ["sdk-typescript", "sdk-python", "sdk-rust"]
+modes = { sdk-rust = ["daemon"] }
 
 # Unknown values from a newer engine (ADR 0079; issue 3011): each value a
 # Client reads that no catalog of its package has is kept as received and
@@ -799,6 +841,16 @@ modes = { sdk-typescript = ["attached"], sdk-python = ["attached"], sdk-rust = [
 [[capability.case]]
 id = "non-json-value-refused"
 covers = ["story:11-68"]
+surfaces = ["sdk-typescript"]
+modes = ["attached"]
+
+# A schema's own validation that raises something other than the library's
+# rejection stops the call at once with `schema_validator_failed`, the
+# original as its cause, never a `value_invalid` (ADR 0082). The extraction
+# retry loop's cases join with `extract` (#1338).
+[[capability.case]]
+id = "validator-throw-fails-at-once"
+covers = ["story:11-67"]
 surfaces = ["sdk-typescript"]
 modes = ["attached"]
 

@@ -23,11 +23,16 @@
 //!
 //! Each breakage Griffe finds, such as a public object removed or a
 //! parameter that became required, is a break of `python <module> <name>`,
-//! except one of a function calling `warn_experimental(`, the Python SDK's
-//! Experimental member. Griffe reports no additions.
+//! except one of an Experimental object or of what an Experimental class
+//! holds: a function calling `warn_experimental(`, the Python SDK's
+//! run-time mark, or an object whose docstring has the line ADR 0099 gives
+//! Python ([`EXPERIMENTAL`]). Griffe reports no additions.
 //!
-//! The generator's code, under a `generated` folder or module, is left to
-//! `xtask api-check`, which judges the catalog it comes from.
+//! The generator's code, under a `generated` folder or module, is compared
+//! as the hand-written code is: its declarations are public API a program
+//! imports, through the packages' re-exports and their `generated` entry
+//! points, and a rename made in the generator changes no catalog entry that
+//! `xtask api-check` would see.
 #![expect(
     clippy::disallowed_methods,
     reason = "xtask is synchronous; the blocking-fs and blocking-process bans target async crates (STYLE.md)"
@@ -41,6 +46,7 @@ use anyhow::{Context as _, Result, bail};
 use serde::Deserialize;
 
 use crate::api_baseline::{self, Changes, PYTHON, TYPESCRIPT};
+use crate::codegen::EXPERIMENTAL;
 
 /// Writes the items of the TypeScript packages' entry points.
 const TYPESCRIPT_API: &str = include_str!("sdk_api/typescript-api.mjs");
@@ -237,6 +243,7 @@ fn python_breaks(root: &Path, previous: &Path) -> Result<Vec<PythonBreak>> {
         "previous": previous,
         "current": root,
         "packages": PYTHON_PACKAGES,
+        "experimental_line": EXPERIMENTAL,
     });
     let output = Command::new(python)
         .args(["-I", "-c", PYTHON_API])

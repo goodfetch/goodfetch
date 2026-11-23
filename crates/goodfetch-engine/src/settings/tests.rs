@@ -2035,6 +2035,66 @@ fn a_private_range_that_is_no_range_address_or_host_is_invalid(#[case] value: Va
     );
 }
 
+/// A Session source's `domains` are registrable domains (ADR 0056): a host
+/// below one, from any layer, is `setting_invalid` naming the registrable
+/// domain to give instead.
+/// Covers: story:5-62, setting:session.source, error:setting_invalid
+#[rstest]
+#[case::a_subdomain_from_the_run(
+    SettingsLayer::Run,
+    json!({ "kind": "cdp_url", "url": "http://127.0.0.1:9222", "domains": ["www.example.com"] }),
+    "www.example.com",
+    "example.com"
+)]
+#[case::below_a_two_label_suffix_from_user_configuration(
+    SettingsLayer::UserConfiguration,
+    json!({ "kind": "running_browser", "browser": "chrome", "domains": ["shop.test", "Account.Example.CO.UK."] }),
+    "Account.Example.CO.UK.",
+    "example.co.uk"
+)]
+fn a_session_source_domain_below_its_registrable_domain_is_invalid(
+    #[case] layer: SettingsLayer,
+    #[case] source: Value,
+    #[case] domain: &str,
+    #[case] registrable: &str,
+) {
+    let refused = Values::read(
+        layer,
+        &nested(json!({ "session": { "source": source } })),
+        Product::Collie,
+    )
+    .unwrap_err();
+
+    assert_eq!(
+        refused,
+        SettingsError::NotRegistrable {
+            key: "session.source".to_owned(),
+            layer: Some(layer),
+            domain: domain.to_owned(),
+            registrable: registrable.to_owned(),
+        }
+    );
+    assert_eq!(refused.code(), "setting_invalid");
+}
+
+/// Registrable domains, an address and a single-label host are taken as
+/// written, and a source without `domains` has none to check.
+/// Covers: setting:session.source
+#[rstest]
+#[case::registrable_domains(json!({ "kind": "state_file", "path": "state.json", "domains": ["example.com", "shop.test", "example.co.uk"] }))]
+#[case::an_address_and_a_single_label(json!({ "kind": "cdp_url", "url": "http://127.0.0.1:9222", "domains": ["127.0.0.1", "localhost"] }))]
+#[case::no_domains(json!({ "kind": "saved_identity", "name": "shop" }))]
+fn a_session_source_of_registrable_domains_is_taken(#[case] source: Value) {
+    let read = Values::read(
+        SettingsLayer::Run,
+        &nested(json!({ "session": { "source": source } })),
+        Product::Collie,
+    )
+    .unwrap();
+
+    assert_eq!(read.get("session.source"), Some(&source));
+}
+
 /// What `key` resolves to when user configuration sets it to `configured`
 /// and `layer` gives `value`, from a Client acting for a model where
 /// `for_model`: the value taken, or the refusal's code and key.

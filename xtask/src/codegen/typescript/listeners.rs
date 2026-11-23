@@ -294,15 +294,22 @@ fn published_events(
     text.push_str(&events_value(class, listener, events));
     let _ = write!(
         text,
-        "\n/** What builds each of `{class}Events` from its payload, with the host of the `{}` that listens. */\nconst {events}_VALUES: {{\n  readonly [Name in keyof {class}Events]: (host: {host}, payload: {class}Payloads[Name]) => {class}Events[Name];\n}} = {{\n",
+        "\n/** What builds each of `{class}Events` from its payload, with the `{}` that listens and its host. */\nconst {events}_VALUES: {{\n  readonly [Name in keyof {class}Events]: (handle: {class}, host: {host}, payload: {class}Payloads[Name]) => {class}Events[Name];\n}} = {{\n",
         handle.namespace
     );
     for listened in &listener.events {
         let built = listened.builds.map_or_else(
-            || "(_host, payload) => payload".to_owned(),
+            || "(_handle, _host, payload) => payload".to_owned(),
             |namespace| {
+                // A value that holds the listening handle is built with it
+                // (ADR 0078), as a Session's page is.
+                let (handle, held) = if listened.holds {
+                    ("handle", ", handle")
+                } else {
+                    ("_handle", "")
+                };
                 format!(
-                    "(host, payload) => new {}(host.child(payload.{}))",
+                    "({handle}, host, payload) => new {}(host.child(payload.{}){held})",
                     pascal(namespace),
                     camel(&format!("{namespace}_id"))
                 )
@@ -336,7 +343,7 @@ fn published_member(
     );
     let _ = write!(
         text,
-        "  on<Name extends keyof {class}Events>(event: Name, listener: Listener<{class}Events[Name]>): Subscription {{\n{}    const listened = {events}[event];\n    warnEntry({registry}, `{namespace}.${{listened}}`);\n    const build = {events}_VALUES[event];\n    return this.#host.listenPublished({:?}, {{ {}: this.#host.id, {}: listened }}, `{namespace}.${{listened}}`, {id:?}, (payload: {class}Payloads[Name], dropped: number) => listener(build(this.#host, payload), dropped));\n  }}\n",
+        "  on<Name extends keyof {class}Events>(event: Name, listener: Listener<{class}Events[Name]>): Subscription {{\n{}    const listened = {events}[event];\n    warnEntry({registry}, `{namespace}.${{listened}}`);\n    const build = {events}_VALUES[event];\n    return this.#host.listenPublished({:?}, {{ {}: this.#host.id, {}: listened }}, `{namespace}.${{listened}}`, {id:?}, (payload: {class}Payloads[Name], dropped: number) => listener(build(this, this.#host, payload), dropped));\n  }}\n",
         warnings(operation),
         operation.name,
         camel(&handle.id.param),

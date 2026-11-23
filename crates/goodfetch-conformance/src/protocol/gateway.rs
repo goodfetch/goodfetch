@@ -283,6 +283,8 @@ pub fn run_gateway_suite(
                 case: declared.id.clone(),
                 capability: capability.name.clone(),
                 mode: Some(MODE.to_owned()),
+                blocking: None,
+                unreachable: Vec::new(),
                 platform: platform(),
                 runtime: RUNTIME.to_owned(),
                 checks,
@@ -304,6 +306,7 @@ pub fn run_gateway_suite(
         runtime: RUNTIME.to_owned(),
         proving_ground: task_list.proving_ground,
         online: proving_ground.is_online(),
+        gate: false,
     };
     Ok(write_document(header, &suite.cases, &log)?)
 }

@@ -14,7 +14,10 @@
 //! 3. npm: the Collie client package, then each Product's platform packages
 //!    before its root package (ADR 0090);
 //! 4. the tag, only after both Products' npm packages (ADR 0094);
-//! 5. the GitHub Release's publishing, which makes it immutable, once both
+//! 5. PyPI: the client's and each Product's wheels (none for a nightly,
+//!    ADR 0057), with a warning when a Product's project passes 70% of the
+//!    storage limit `ci/pypi-quota.toml` records for it (ADRs 0057, 0094);
+//! 6. the GitHub Release's publishing, which makes it immutable, once both
 //!    Products' files are on it (ADR 0094).
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -36,6 +39,7 @@ use crate::products::Product;
 /// crates.io's sparse index.
 const CRATES_IO_INDEX: &str = "https://index.crates.io";
 const NPM_REGISTRY: &str = "https://registry.npmjs.org";
+const PYPI: &str = "https://pypi.org";
 
 /// The Node platforms each Product's npm platform packages are named after,
 /// `process.platform` and `process.arch` (ADR 0090).
@@ -48,8 +52,8 @@ const PLATFORMS: [&str; 6] = [
     "win32-x64",
 ];
 
-/// The npm package's folder of the Collie client, under
-/// `sdks/typescript/`; each Product's is its key.
+/// The SDK packages' folder of the Collie client, under `sdks/typescript/`
+/// and `sdks/python/`; each Product's is its key.
 const CLIENT_PACKAGE: &str = "collie-client";
 
 /// cargo-hakari's crate, which every member depends on and which never
@@ -59,6 +63,12 @@ const WORKSPACE_HACK: &str = "goodfetch-workspace-hack";
 /// The dependency tables `cargo publish` keeps, each target's too; it
 /// strips a dev-dependency that carries no version.
 pub(super) const KEPT: [&str; 2] = ["dependencies", "build-dependencies"];
+
+/// Each Product's PyPI project's storage limit, in GiB.
+const PYPI_QUOTA: &str = "ci/pypi-quota.toml";
+/// The share of a project's limit past which the plan warns (ADR 0057).
+const QUOTA_WARNING_PERCENT: u64 = 70;
+const GIB: u64 = 1 << 30;
 
 #[derive(clap::Args)]
 pub(crate) struct Arguments {
@@ -71,6 +81,9 @@ pub(crate) struct Arguments {
     /// An npm registry: npm's, or a stand-in's address.
     #[arg(long, default_value = NPM_REGISTRY)]
     npm_registry: String,
+    /// PyPI, whose JSON interface the plan reads, or a stand-in's address.
+    #[arg(long, default_value = PYPI)]
+    pypi: String,
     #[command(flatten)]
     github: github::Arguments,
 }
@@ -147,15 +160,15 @@ impl fmt::Display for GitHubState {
     }
 }
 
-/// Writes the plan's steps in order and an `error[new-name]` for each name
-/// not on its registry, or only an `error[unprepared]` for each released
-/// crate whose manifest does not hold the version.
+/// Writes the plan's steps in order, a `note[pypi-quota]` for each Product
+/// project past its warning, and an `error[new-name]` for each name not on
+/// its registry, or only an `error[unprepared]` for each released crate
+/// whose manifest does not hold the version.
 pub(crate) fn run(root: &Path, arguments: &Arguments, token: Option<&str>) -> Result<ExitCode> {
     let version = &arguments.version;
     let nightly = matches!(version.stage, Stage::Nightly(_));
     let semver = version.semver();
-    let tree = Tree::Workspace(root);
-    let crates = publish_order(tree)?;
+    let crates = publish_order(Tree::Workspace(root))?;
     let unprepared = unprepared(&crates, &semver);
     if !unprepared.is_empty() {
         return Ok(check::report(&unprepared));
@@ -187,7 +200,7 @@ pub(crate) fn run(root: &Path, arguments: &Arguments, token: Option<&str>) -> Re
             ));
         }
     }
-    for name in npm_packages(tree)? {
+    for name in npm_packages(root)? {
         let published = npm_versions(&arguments.npm_registry, &name)?;
         steps.push(package_step("npm", &name, &semver, published));
     }
@@ -202,6 +215,12 @@ pub(crate) fn run(root: &Path, arguments: &Arguments, token: Option<&str>) -> Re
             GitHubState::Push
         },
     });
+    let mut notes = Vec::new();
+    if !nightly {
+        let (pypi, warnings) = pypi_steps(root, &arguments.pypi, &version.pep440())?;
+        steps.extend(pypi);
+        notes = warnings;
+    }
     steps.push(Step::GitHub {
         name: format!("release {tag}"),
         state: match release {
@@ -213,6 +232,7 @@ pub(crate) fn run(root: &Path, arguments: &Arguments, token: Option<&str>) -> Re
     for step in &steps {
         output::line(&step.to_string());
     }
+    check::note(&notes);
     let new_names: Vec<Finding> = steps
         .iter()
         .filter_map(|step| match step {
@@ -249,6 +269,32 @@ fn unprepared(crates: &[Crate], semver: &str) -> Vec<Finding> {
             )
         })
         .collect()
+}
+
+/// The PyPI steps, the client's project first, and a `pypi-quota` note for
+/// each Product's project past its warning.
+fn pypi_steps(root: &Path, pypi: &str, pep440: &str) -> Result<(Vec<Step>, Vec<Finding>)> {
+    let quotas = pypi_quotas(root)?;
+    let (client, products) = pypi_projects(root)?;
+    let mut steps = Vec::new();
+    let mut notes = Vec::new();
+    for (project, product) in [(client, false)]
+        .into_iter()
+        .chain(products.into_iter().map(|project| (project, true)))
+    {
+        let releases = pypi_releases(pypi, &project)?;
+        if product {
+            let quota = *quotas
+                .get(&project)
+                .with_context(|| format!("{PYPI_QUOTA} records no limit for {project}"))?;
+            if let Some(releases) = &releases {
+                notes.extend(quota_warning(&project, releases, quota));
+            }
+        }
+        let published = releases.map(|releases| releases.into_keys().collect());
+        steps.push(package_step("pypi", &project, pep440, published));
+    }
+    Ok((steps, notes))
 }
 
 fn package_step(
@@ -437,10 +483,10 @@ pub(super) fn normalized(path: &str) -> String {
 /// Each npm package of both Products, in publish order: the Collie
 /// client's, then each Product's platform packages before its root
 /// package.
-fn npm_packages(tree: Tree<'_>) -> Result<Vec<String>> {
-    let mut names = vec![package_json_name(tree, CLIENT_PACKAGE)?];
+fn npm_packages(root: &Path) -> Result<Vec<String>> {
+    let mut names = vec![package_json_name(root, CLIENT_PACKAGE)?];
     for product in Product::ALL {
-        let name = package_json_name(tree, product.key())?;
+        let name = package_json_name(root, product.key())?;
         names.extend(
             PLATFORMS
                 .iter()
@@ -451,16 +497,70 @@ fn npm_packages(tree: Tree<'_>) -> Result<Vec<String>> {
     Ok(names)
 }
 
-fn package_json_name(tree: Tree<'_>, folder: &str) -> Result<String> {
+fn package_json_name(root: &Path, folder: &str) -> Result<String> {
     let path = format!("sdks/typescript/{folder}/package.json");
-    let package: Named =
-        serde_json::from_str(&tree.read(&path)?).with_context(|| format!("parsing {path}"))?;
+    let package: Named = serde_json::from_str(&Tree::Workspace(root).read(&path)?)
+        .with_context(|| format!("parsing {path}"))?;
     Ok(package.name)
 }
 
 #[derive(Deserialize)]
 struct Named {
     name: String,
+}
+
+/// The Collie client's PyPI project, and each Product's.
+fn pypi_projects(root: &Path) -> Result<(String, Vec<String>)> {
+    let client = pyproject_name(root, CLIENT_PACKAGE)?;
+    let products = Product::ALL
+        .into_iter()
+        .map(|product| pyproject_name(root, product.key()))
+        .collect::<Result<_>>()?;
+    Ok((client, products))
+}
+
+fn pyproject_name(root: &Path, folder: &str) -> Result<String> {
+    let path = format!("sdks/python/{folder}/pyproject.toml");
+    let manifest = toml(Tree::Workspace(root), &path)?;
+    let project = manifest
+        .get("project")
+        .and_then(Item::as_table)
+        .with_context(|| format!("{path} has no [project] table"))?;
+    name(project, &path)
+}
+
+/// Each Product project's storage limit in bytes, from [`PYPI_QUOTA`].
+fn pypi_quotas(root: &Path) -> Result<BTreeMap<String, u64>> {
+    let quotas = toml(Tree::Workspace(root), PYPI_QUOTA)?;
+    quotas
+        .iter()
+        .map(|(project, gib)| {
+            let gib = gib
+                .as_integer()
+                .and_then(|gib| u64::try_from(gib).ok())
+                .with_context(|| format!("{PYPI_QUOTA}: {project} is not a number of GiB"))?;
+            Ok((project.to_owned(), gib * GIB))
+        })
+        .collect()
+}
+
+/// A `pypi-quota` note when the sizes of every file of every version of
+/// `project` pass [`QUOTA_WARNING_PERCENT`] of its `quota`.
+fn quota_warning(
+    project: &str,
+    releases: &BTreeMap<String, Vec<PypiFile>>,
+    quota: u64,
+) -> Option<Finding> {
+    let used: u64 = releases.values().flatten().map(|file| file.size).sum();
+    (used * 100 > quota * QUOTA_WARNING_PERCENT).then(|| {
+        Finding::new(
+            "pypi-quota",
+            project,
+            format!(
+                "uses {used} of its {quota} bytes, past {QUOTA_WARNING_PERCENT}%: ask pypi/support for a larger limit before the next publish fails"
+            ),
+        )
+    })
 }
 
 /// The versions of `name` in the sparse Cargo index at `index`; `None` when
@@ -509,6 +609,25 @@ fn npm_versions(registry: &str, name: &str) -> Result<Option<BTreeSet<String>>> 
 struct Packument {
     #[serde(default)]
     versions: BTreeMap<String, serde_json::Value>,
+}
+
+/// Each version of `project` on PyPI at `pypi`, with its files, from its
+/// JSON interface; `None` when PyPI has never had it.
+fn pypi_releases(pypi: &str, project: &str) -> Result<Option<BTreeMap<String, Vec<PypiFile>>>> {
+    let url = format!("{}/pypi/{project}/json", pypi.trim_end_matches('/'));
+    let project: Option<PypiProject> = fetch_json(&url)?;
+    Ok(project.map(|project| project.releases))
+}
+
+#[derive(Deserialize)]
+struct PypiProject {
+    #[serde(default)]
+    releases: BTreeMap<String, Vec<PypiFile>>,
+}
+
+#[derive(Deserialize)]
+struct PypiFile {
+    size: u64,
 }
 
 fn fetch_json<T: DeserializeOwned>(url: &str) -> Result<Option<T>> {

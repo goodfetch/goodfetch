@@ -119,8 +119,11 @@ fn published_member(
         let heard = listened.builds.map_or_else(
             || "listener".to_owned(),
             |namespace| {
+                // A value that holds the listening handle is built with it
+                // (ADR 0078), as a Session's page is.
+                let held = if listened.holds { ", self" } else { "" };
                 format!(
-                    "lambda opened: listener({}{}(self._host.child(opened.{namespace}_id)))",
+                    "lambda opened: listener({}{}(self._host.child(opened.{namespace}_id){held}))",
                     mode.prefix,
                     pascal(namespace)
                 )

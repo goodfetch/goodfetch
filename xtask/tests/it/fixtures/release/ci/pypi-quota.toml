@@ -1,0 +1,3 @@
+# Each Product's PyPI project's storage limit, in GiB.
+goodfetch-collie = 10
+goodfetch-foxhound = 20

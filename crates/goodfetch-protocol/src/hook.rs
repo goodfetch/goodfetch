@@ -7,6 +7,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use crate::catalog::{Entries, ErrorCodeDefinition, ErrorGroup, ProtocolVersion};
+use crate::open_value::UnknownValue;
 
 const ARRIVED_IN: ProtocolVersion = ProtocolVersion { major: 0, minor: 1 };
 
@@ -20,6 +21,54 @@ pub const HOOK_FAILED: ErrorCodeDefinition = ErrorCodeDefinition {
     arrived_in: ARRIVED_IN,
 };
 
+/// The stage a Hook that raised ran at, as `hook_failed` reports it, by
+/// the catalog's name (ADR 0104): a crawl's Hooks in code run at the stages
+/// whose answer changes the work, and Plugins and Script Hooks also at the
+/// observe-only `request_ended`. A Run's lifecycle stage reads as a stage
+/// this reader does not know, its name kept.
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+#[schemars(extend("open" = true), transform = crate::open_value::known_members)]
+#[non_exhaustive]
+pub enum ReportedHookStage {
+    /// Before each fetch of a request, its retries included.
+    BeforeRequest,
+    /// After the request's final response, redirects followed.
+    AfterResponse,
+    /// Before a navigation to the request's URL, on the tiers that
+    /// navigate.
+    BeforeNavigation,
+    /// After that navigation.
+    AfterNavigation,
+    /// Just before the handler, with its page, on every tier.
+    PageReady,
+    /// Before each Record the attempt staged commits.
+    BeforeRecordCommit,
+    /// Once a crawl request ended, with its outcome; observe-only.
+    RequestEnded,
+    /// A stage this reader does not know, such as a lifecycle stage or a
+    /// newer engine's, kept as received (ADR 0079).
+    #[serde(untagged)]
+    #[schemars(skip)]
+    Unknown(UnknownValue),
+}
+
+impl ReportedHookStage {
+    /// Its name in the catalog and on the wire.
+    pub const fn as_str(&self) -> &str {
+        match self {
+            Self::BeforeRequest => "before_request",
+            Self::AfterResponse => "after_response",
+            Self::BeforeNavigation => "before_navigation",
+            Self::AfterNavigation => "after_navigation",
+            Self::PageReady => "page_ready",
+            Self::BeforeRecordCommit => "before_record_commit",
+            Self::RequestEnded => "request_ended",
+            Self::Unknown(stage) => stage.as_str(),
+        }
+    }
+}
+
 /// What `hook_failed` details: the Hook, and the exception as
 /// `handler_failed`'s details name a handler's (ADR 0079's notes of
 /// 2026-10-24 and 2026-10-27).
@@ -27,7 +76,7 @@ pub const HOOK_FAILED: ErrorCodeDefinition = ErrorCodeDefinition {
 pub struct HookFailedDetails {
     /// The stage the Hook ran at.
     #[schemars(extend("arrived_in" = "0.1"))]
-    pub stage: String,
+    pub stage: ReportedHookStage,
     /// The Hook that raised.
     #[schemars(extend("arrived_in" = "0.1"))]
     pub hook: String,

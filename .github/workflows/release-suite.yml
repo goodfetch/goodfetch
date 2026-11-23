@@ -155,8 +155,10 @@ jobs:
         with:
           ref: ${{ needs.plan.outputs.commit }}
           persist-credentials: false
-          # `xtask perf`'s base is the commit's first parent.
-          fetch-depth: 2
+          # `xtask perf`'s base is the commit's first parent, and its
+          # reference build the older commit or release tag
+          # ci/perf-reference.toml pins: the whole history, with its tags.
+          fetch-depth: 0
       # The runner's disk holds toolchains the suite never uses, and the
       # cell's builds need the room (ci/host/free-disk.sh).
       - name: Free the runner's disk
@@ -366,8 +368,10 @@ jobs:
         with:
           ref: ${{ needs.plan.outputs.commit }}
           persist-credentials: false
-          # `xtask perf`'s base is the commit's first parent.
-          fetch-depth: 2
+          # `xtask perf`'s base is the commit's first parent, and its
+          # reference build the older commit or release tag
+          # ci/perf-reference.toml pins: the whole history, with its tags.
+          fetch-depth: 0
       # The runner's disk holds toolchains the suite never uses, and the
       # cell's builds need the room (ci/host/free-disk.sh).
       - name: Free the runner's disk

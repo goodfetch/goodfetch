@@ -41,6 +41,15 @@
 //!   marked is refused.
 //! - A handle whose ID is a value that holds another handle's ID is built
 //!   by that handle, without a call, from the value's other fields.
+//! - A handle every answer that builds it requires the ID of one other
+//!   handle in, an opener's result or a listener's event's payload, holds
+//!   that handle and answers it without a call, by a member named after its
+//!   namespace: a page's `session()`. An answer that builds it without that
+//!   ID is refused. The held handle's own opener or listener builds it with
+//!   itself; another handle's opener keeps each one its answers name,
+//!   reached rather than opened, the first answer building it and every
+//!   later one sharing it, as the Run keeps its default Session (ADRs 0078,
+//!   0092). A listener of another handle that builds it is refused.
 //! - `<handle>.<name>.<member>` is a member of the handle's sub-object
 //!   `<name>`, which takes the handle's ID.
 //! - A result property marked `typed_by` a parameter holds the values of
@@ -67,8 +76,9 @@
 //!
 //! Size: one concern, the rules that read the catalog's operations into
 //! the handles every generator writes, each refusal naming its entry; the
-//! reads' rules live in a module of their own.
+//! reads' rules and the held handles' each live in a module of their own.
 
+mod holdings;
 mod reads;
 
 use anyhow::{Context as _, Result, bail};
@@ -152,6 +162,9 @@ pub(super) struct Listened {
     /// payload, which is what an opener of that handle answers, such as
     /// `page` for `session.page`'s `PageOpened`.
     pub(super) builds: Option<&'static str>,
+    /// Whether the handle it builds holds the listening handle, which it
+    /// is built with, as a Session's page is.
+    pub(super) holds: bool,
     /// The value its listener gets in place of its payload when the call
     /// also carries that value's own events, such as the WebSocket a page's
     /// `web_socket` opens.
@@ -277,6 +290,47 @@ pub(super) struct Member<'a> {
     /// Its deprecated forms, each an overload of its own; none when the
     /// member itself is deprecated, which marks every call.
     pub(super) deprecated_forms: Vec<DeprecatedForm>,
+    /// For an opener whose value holds another handle, how it gets that
+    /// handle.
+    pub(super) holding: Option<Holding>,
+}
+
+/// The handle a handle holds (ADRs 0078, 0092): every answer that builds
+/// it names that handle by its ID, so it answers it without a call, by a
+/// member named after its namespace, as a page answers its Session.
+#[derive(Clone)]
+pub(super) struct Holds {
+    /// The namespace of the handle held, which names the member, such as
+    /// `session`.
+    pub(super) namespace: &'static str,
+    /// The property of each building answer that names it, such as
+    /// `session_id`.
+    pub(super) id: String,
+    /// The type of its ID in the bundle, such as `SessionId`.
+    pub(super) type_name: String,
+}
+
+/// How a value an opener opens gets the handle it holds, which each
+/// variant names.
+#[derive(Clone)]
+pub(super) enum Holding {
+    /// The opener's own handle is the one held, as for a Session's
+    /// `new_page`.
+    Builder(Holds),
+    /// The opener's handle keeps the held handle its answer names: the
+    /// first answer naming it builds it, reached rather than opened, so
+    /// dropping it closes nothing, and every later one shares it, as the
+    /// Run's `new_page` keeps its default Session.
+    Kept(Holds),
+}
+
+impl Holding {
+    /// The handle held.
+    pub(super) fn holds(&self) -> &Holds {
+        match self {
+            Self::Builder(holds) | Self::Kept(holds) => holds,
+        }
+    }
 }
 
 /// Which of a member's signatures a generator declares (ADR 0099): an
@@ -356,6 +410,11 @@ pub(super) struct Handle<'a> {
     /// Its reads, when it has any: the handle is then built with the
     /// answer that opened it.
     pub(super) reads: Option<Reads<'a>>,
+    /// The handle it holds, when every answer that builds it names one.
+    pub(super) holds: Option<Holds>,
+    /// The handles its openers keep, each built once from the answers that
+    /// name it ([`Holding::Kept`]).
+    pub(super) keeps: Vec<Holds>,
 }
 
 impl<'a> Handle<'a> {
@@ -402,6 +461,8 @@ impl<'a> Handle<'a> {
             listener: None,
             published_listener: None,
             reads: None,
+            holds: None,
+            keeps: Vec::new(),
         }
     }
 
@@ -818,6 +879,7 @@ fn listener<'a>(
                 payload: found.payload.0.clone(),
                 description: found.description.clone(),
                 builds: opened_by(layer, &found.payload.0),
+                holds: false,
                 stability: found.stability,
                 deprecated: found.deprecated.clone(),
                 opens: opened_value(layer, namespace, wire, &found.payload.0)
@@ -885,6 +947,7 @@ fn opened_value(
             payload: event.payload.0.clone(),
             description: event.description.clone(),
             builds: None,
+            holds: false,
             opens: None,
             stability: event.stability,
             deprecated: event.deprecated.clone(),
@@ -1020,6 +1083,7 @@ pub(super) fn handles(layer: &Layer) -> Result<Vec<Handle<'_>>> {
                 typed_by,
                 timeout_setting,
                 unwrapped,
+                holding: None,
             };
             found
                 .get_or_insert_with(|| Handle::of(namespace, id))
@@ -1033,6 +1097,7 @@ pub(super) fn handles(layer: &Layer) -> Result<Vec<Handle<'_>>> {
     for (parent, builder) in builders {
         handles[parent].builders.push(builder);
     }
+    holdings::holdings(layer, &mut handles)?;
     Ok(handles)
 }
 

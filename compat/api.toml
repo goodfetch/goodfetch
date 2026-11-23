@@ -2,22 +2,76 @@
 # and `xtask sdk-api`, ADR 0030, issue 148).
 #
 # `previous` is the commit of the previous release of the major, whose
-# projections, `--json` output types, Rust crates under semver and
-# TypeScript and Python SDK packages the checks compare with the tree's.
-# Before the first release it is a commit of `main` that stands for one;
-# each release's pull request moves it to the release's own commit.
+# projections, `--json` output types, `connection` messages, Rust crates
+# under semver and TypeScript and Python SDK packages the checks compare
+# with the tree's. Before the first release it is a commit of `main` that
+# stands for one; each release's pull request moves it to the release's own
+# commit and removes the announcements the release shipped.
 #
 # Each `[[announced]]` table names a break of a stable entry, announced for
 # the next major, by its finding's subject (`<collie|foxhound> <section>
-# <name>`, `bundle outputs <command>`, `rust <crate> <lint>` for a
-# cargo-semver-checks lint, `typescript <entry> <name>` for a TypeScript
-# entry point's declaration, or `python <module> <name>` for a Python
-# module's), and says why for the release notes. Each check
-# fails on an announcement of its own that names no break, so the list is
-# the one the release's pull request shows the owner.
+# <name>`, `bundle outputs <command>`, `collie-client connection <message>`
+# for a message of the Collie client packages' Connection, `rust <crate>
+# <lint>` for a cargo-semver-checks lint, `typescript <entry> <name>` for a
+# TypeScript entry point's declaration, or `python <module> <name>` for a
+# Python module's), and says why for the release notes. Each check fails on
+# an announcement of its own that names no break, so the list is the one
+# the release's pull request shows the owner.
 #
 #     [[announced]]
 #     entry = "foxhound operations crawl.start"
 #     reason = "…"
 
 previous = "c20e03c8ce403cea6572374b31e081f49d990fb6"
+
+[[announced]]
+entry = "python goodfetch_collie_client.generated.handles AsyncPage"
+reason = "A page carries the Session that opened it, so `page.session` answers without a call (issue 3585): the SDK opens a page with its Session's ID, and a program never constructs one."
+
+[[announced]]
+entry = "python goodfetch_collie_client.generated.handles Page"
+reason = "A page carries the Session that opened it, so `page.session` answers without a call (issue 3585): the SDK opens a page with its Session's ID, and a program never constructs one."
+
+[[announced]]
+entry = "typescript @goodfetch/collie-client/runtime pageOf"
+reason = "A page carries the Session that opened it, so `page.session()` answers without a call (issue 3585): `pageOf` takes the page's Session ID."
+
+[[announced]]
+entry = "typescript @goodfetch/collie CollieError"
+reason = "Two Error codes join the catalog, `page_navigated_during_call` (issue 3168) and `schema_validator_failed` (issue 1338): a switch over every Collie error needs their cases."
+
+[[announced]]
+entry = "typescript @goodfetch/collie CollieErrorCode"
+reason = "Two Error codes join the catalog, `page_navigated_during_call` (issue 3168) and `schema_validator_failed` (issue 1338): a switch over every code needs their cases."
+
+[[announced]]
+entry = "typescript @goodfetch/collie-client CollieError"
+reason = "Two Error codes join the catalog, `page_navigated_during_call` (issue 3168) and `schema_validator_failed` (issue 1338): a switch over every Collie error needs their cases."
+
+[[announced]]
+entry = "typescript @goodfetch/collie-client CollieErrorCode"
+reason = "Two Error codes join the catalog, `page_navigated_during_call` (issue 3168) and `schema_validator_failed` (issue 1338): a switch over every code needs their cases."
+
+[[announced]]
+entry = "typescript @goodfetch/collie-client/generated CollieError"
+reason = "Two Error codes join the catalog, `page_navigated_during_call` (issue 3168) and `schema_validator_failed` (issue 1338): a switch over every Collie error needs their cases."
+
+[[announced]]
+entry = "typescript @goodfetch/collie-client/generated CollieErrorCode"
+reason = "Two Error codes join the catalog, `page_navigated_during_call` (issue 3168) and `schema_validator_failed` (issue 1338): a switch over every code needs their cases."
+
+[[announced]]
+entry = "typescript @goodfetch/foxhound CollieError"
+reason = "Two Error codes join the catalog, `page_navigated_during_call` (issue 3168) and `schema_validator_failed` (issue 1338): a switch over every Collie error needs their cases."
+
+[[announced]]
+entry = "typescript @goodfetch/foxhound CollieErrorCode"
+reason = "Two Error codes join the catalog, `page_navigated_during_call` (issue 3168) and `schema_validator_failed` (issue 1338): a switch over every code needs their cases."
+
+[[announced]]
+entry = "typescript @goodfetch/collie-client/runtime CollieWireType"
+reason = "`hook_failed`'s details are typed in the client package (issue 3169): `HookFailedDetails` joins the wire types."
+
+[[announced]]
+entry = "typescript @goodfetch/foxhound/generated SinkReport"
+reason = "A Sink report's `guaranteeClass` is the Guarantee class's own type, no longer any string (issue 1121)."

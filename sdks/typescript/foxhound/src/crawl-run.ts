@@ -23,6 +23,7 @@ import {
   type ClientConnection,
   fromWire,
   type RunHost,
+  thrownException,
   warnEntry,
 } from "@goodfetch/collie-client/runtime";
 import {
@@ -219,7 +220,8 @@ export class CrawlRun extends Run {
     const crawl = this.#crawl;
     const options: CallOptions = { signal };
     const pageId = request.pageId ?? undefined;
-    const page = pageId === undefined ? undefined : pageOf(this, pageId, signal);
+    const page =
+      pageId === undefined ? undefined : pageOf(this, pageId, request.session.id, signal);
     return {
       get page(): Page {
         if (page === undefined) {
@@ -320,8 +322,7 @@ function recordOf(method: string, params: unknown): DatasetRecord | undefined {
  * stack's text past the line that repeats them.
  */
 function handlerFailed(label: string, thrown: unknown): HandlerFailedError {
-  const type = thrown instanceof Error ? thrown.name : thrown === null ? "null" : typeof thrown;
-  const message = thrown instanceof Error ? thrown.message : String(thrown);
+  const { type, message } = thrownException(thrown);
   const stack = thrown instanceof Error ? (thrown.stack ?? "") : "";
   // V8's header line: the type alone when the message is empty.
   const header = message === "" ? type : `${type}: ${message}`;

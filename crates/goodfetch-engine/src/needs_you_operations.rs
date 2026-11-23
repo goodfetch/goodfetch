@@ -97,7 +97,7 @@ fn consent_domain(domain: &str) -> Result<String, CallError> {
         Ok(url::Host::Domain(host)) => host_name::without_root(&host).to_owned(),
         _ => return Err(refused("names no domain")),
     };
-    let registrable = psl::domain_str(&host).unwrap_or(&host);
+    let registrable = host_name::registrable(&host).unwrap_or(&host);
     if registrable != host {
         return Err(refused(&format!(
             "is no registrable domain, whose is `{registrable}`"

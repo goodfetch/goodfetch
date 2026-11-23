@@ -33,7 +33,7 @@ use anyhow::{Context as _, Result};
 use super::super::handles::{Handle, Listened, Listener, Opens};
 use super::super::naming;
 use super::index::Index;
-use super::{Twin, comment, doc, field, indent, type_name, warning};
+use super::{Twin, comment, doc, field, ident, indent, type_name, warning};
 
 /// The `# Errors` section of an `events` member.
 const EVENTS_ERRORS: &str = "# Errors\n\nIts stream hands `closed` when its handle or the Connection is closed, the engine's error, such as `page_events_lost`, and `internal` for an event that does not fit its type.";
@@ -125,6 +125,9 @@ struct Built {
     type_name: String,
     /// The payload's field its ID is in, such as `page_id`.
     id_field: String,
+    /// Its field that holds the listening handle, such as a page's
+    /// `session`, when it holds that handle (ADR 0078).
+    holder: Option<String>,
 }
 
 impl ListenerModel {
@@ -275,6 +278,15 @@ fn markers(index: &Index, namespace: &str, listener: &Listener<'_>) -> Result<Ve
                         Ok::<_, anyhow::Error>(Built {
                             type_name: type_name(built)?,
                             id_field: format!("{built}_id"),
+                            holder: listened
+                                .holds
+                                .then(|| {
+                                    ident(
+                                        namespace,
+                                        &format!("event `{namespace}.{}`", listened.wire),
+                                    )
+                                })
+                                .transpose()?,
                         })
                     })
                     .transpose()?,
@@ -480,8 +492,13 @@ fn marker_text(listener: &ListenerModel, marker: &Marker) -> String {
             format!("crate::{}", built.type_name),
             format!("crate::blocking::{}", built.type_name),
             format!(
-                "let payload: {payload} = ::serde_json::from_value(data).map_err(crate::Error::shape)?;\n        Ok(crate::{} {{ host: handle.host.reached(payload.{}) }})",
-                built.type_name, built.id_field
+                "let payload: {payload} = ::serde_json::from_value(data).map_err(crate::Error::shape)?;\n        Ok(crate::{} {{ host: handle.host.reached(payload.{}){} }})",
+                built.type_name,
+                built.id_field,
+                built
+                    .holder
+                    .as_ref()
+                    .map_or_else(String::new, |holder| format!(", {holder}: handle.clone()"))
             ),
             format!("crate::blocking::{} {{ inner: data }}", built.type_name),
         ),

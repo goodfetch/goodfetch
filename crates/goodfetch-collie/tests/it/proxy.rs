@@ -647,7 +647,10 @@ fn leaks_of(
         .unwrap()
 }
 
-/// Covers: story:5-88, setting:proxy.server, setting:proxy.username, setting:proxy.password
+/// The proxy's password, a Secret canary, is in nothing `doctor` prints
+/// after the Run, beside the engine's own outputs.
+///
+/// Covers: story:5-88, story:11-212, command:doctor, setting:proxy.server, setting:proxy.username, setting:proxy.password
 #[cfg(unix)]
 #[rstest]
 #[case::socks5("socks5", false, true)]
@@ -728,6 +731,17 @@ fn the_credentials_of_a_socks5_proxy_reach_it_through_the_sessions_loopback_rela
     let arguments = crate::page::browser_command_lines(&env);
     let _ = engine.ask(4, "run.finish", &json!({ "run_id": "relayed" }));
     let (_, stderr) = engine.finish_with_stderr();
+    let doctor =
+        crate::canaries::doctor_output(&env, &[(PASSWORD_VARIABLE, &credentials.password)]);
+    let mut leaks = leaks_of(&canaries, env.home(), &stderr, &arguments);
+    leaks.extend(
+        canaries
+            .leaks(&[Output::Bytes {
+                name: "doctor",
+                bytes: &doctor,
+            }])
+            .unwrap(),
+    );
 
     let port = proving_ground
         .url("scope.test", "")
@@ -747,7 +761,7 @@ fn the_credentials_of_a_socks5_proxy_reach_it_through_the_sessions_loopback_rela
             &navigated["result"]["response"]["status"],
             relays.first(),
             arguments.is_empty(),
-            leaks_of(&canaries, env.home(), &stderr, &arguments),
+            leaks,
         ),
         (
             &json!(200),

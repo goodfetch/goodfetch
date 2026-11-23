@@ -99,6 +99,7 @@ pub use self::reader::{RunFileOpener, RunReader};
 pub use self::reindex::{Reindexed, reindex};
 pub use self::report::ReportPart;
 pub use self::writer::{Writer, test_writer};
+pub use crate::run_state::UnsupportedFolder;
 
 use self::ended::{EndedHere, EndedRuns};
 use self::folder::{
@@ -341,6 +342,9 @@ pub struct Start {
     pub timeout: Option<Duration>,
     /// Its resolved settings, which its pages and Sessions open under.
     pub settings: Option<RunSettings>,
+    /// Whether it outlives the Connection that starts it (ADR 0102): its
+    /// start checked that nothing in the program serves it.
+    pub detached: bool,
 }
 
 /// What a resume asks for.
@@ -463,6 +467,10 @@ pub enum StartError {
         /// The Run's folder.
         folder: PathBuf,
     },
+    /// The Run's folder is on a filesystem the engine keeps no run state
+    /// on (ADR 0049).
+    #[error("the folder of `{0}` is on {found}, which the engine keeps no run state on", found = .1.found)]
+    FilesystemUnsupported(RunId, UnsupportedFolder),
     /// The Run's state cannot be read, created or written.
     #[error("the state of `{run_id}` is unavailable: {error}")]
     Unavailable {
@@ -877,6 +885,10 @@ pub enum RunError {
         /// The Product it needs.
         needs: Product,
     },
+    /// The Run's folder is on a filesystem the engine keeps no run state
+    /// on (ADR 0049).
+    #[error("the folder of `{0}` is on {found}, which the engine keeps no run state on", found = .1.found)]
+    FilesystemUnsupported(RunId, UnsupportedFolder),
     /// The Run's state cannot be read or written.
     #[error("the state of `{run_id}` is unavailable: {error}")]
     Unavailable {
@@ -1027,6 +1039,9 @@ impl RunError {
                 compatibility,
                 install,
             },
+            RunStateError::FilesystemUnsupported(refused) => {
+                Self::FilesystemUnsupported(run_id.clone(), refused)
+            }
             other => Self::Unavailable {
                 run_id: run_id.clone(),
                 folder: folder.to_owned(),
@@ -1343,6 +1358,8 @@ pub struct Runs {
     /// The owner of the registry's own task, whose panic stops the engine
     /// at once (ADR 0148).
     registry: Arc<TaskOwner>,
+    /// How many Runs are live, as the registry last said.
+    live: watch::Receiver<usize>,
 }
 
 /// The composition's Clean-up rules, and the engine's Product version, the
@@ -2964,6 +2981,7 @@ impl Runs {
         owner: &TaskOwner,
     ) -> Self {
         let (commands, mailbox) = mpsc::channel(COMMANDS);
+        let (live_count, live) = watch::channel(0);
         let readers = Arc::clone(setup.engine.owner());
         let limits = Limits {
             owner: Arc::clone(&readers),
@@ -2986,6 +3004,7 @@ impl Runs {
             metrics: setup.metrics.clone(),
             gates: setup.gates.clone(),
             registry: Arc::new(owner.part("Run registry")),
+            live,
         };
         let politeness = SharedPoliteness {
             file: Arc::new(tokio::sync::OnceCell::new()),
@@ -3008,6 +3027,7 @@ impl Runs {
             itself: Arc::clone(&runs.registry),
             readers,
             live: BTreeMap::new(),
+            live_count,
             ended: EndedRuns::new(),
             runs: runs.downgrade(),
             limits: Arc::clone(&runs.limits),
@@ -4077,6 +4097,18 @@ impl Runs {
         answered.await.unwrap_or(0)
     }
 
+    /// How many Runs are live, told each time the registry answered a
+    /// command that changed it.
+    pub(crate) fn live_changes(&self) -> watch::Receiver<usize> {
+        self.live.clone()
+    }
+
+    /// Whether the engine found the Run index's lowest minor raised past
+    /// itself (ADR 0098), told once it does.
+    pub(crate) fn locked_out_of_the_index(&self) -> watch::Receiver<bool> {
+        self.engine.run_index().locked_out()
+    }
+
     /// Whether the engine drains and where its run folders go, answered by
     /// the registry itself: `None` once it stopped or stopped answering.
     ///
@@ -4496,6 +4528,8 @@ struct Registry {
     /// Where readers of run state run their blocking reads.
     readers: Arc<TaskOwner>,
     live: BTreeMap<RunId, Live>,
+    /// How many Runs `live` holds, told once each command is answered.
+    live_count: watch::Sender<usize>,
     /// What it keeps of the Runs this engine ended: nothing of most
     /// (`runs::ended`).
     ended: EndedRuns,
@@ -4577,11 +4611,15 @@ impl Registry {
         // writes are done.
         startup.await;
         self.reclaim().await;
+        self.rebuild_orphaned_rows().await;
         self.follow_governor();
         while let Some(command) = mailbox.recv().await {
             if let Some(command) = self.unless_discarding(command) {
                 self.ending_line(&command);
                 self.answer(command).await;
+                let live = self.live.len();
+                self.live_count
+                    .send_if_modified(|count| std::mem::replace(count, live) != live);
             }
         }
         self.readers.wait().await;
@@ -5005,6 +5043,31 @@ impl Registry {
             .await;
         if let Err(error) = reclaimed {
             tracing::warn!(%error, "the Usage ledger could not be opened to reclaim the Slices of dead runs");
+        }
+    }
+
+    /// Rebuilds, as a Daemon starts, the Run index rows that an engine
+    /// left owned with no writer holding their Runs, such as those a
+    /// Daemon locked out of the index ended (ADRs 0031 and 0098).
+    async fn rebuild_orphaned_rows(&self) {
+        if !matches!(self.setup.reached_at, Some(RunOwner::Daemon(_))) {
+            return;
+        }
+        let home = self.setup.engine.home().clone();
+        let version = self.setup.version.clone();
+        let rebuilt = self
+            .owner
+            .blocking(move || reindex::orphaned(&home, &version))
+            .await;
+        match rebuilt {
+            Ok(0) => {}
+            Ok(rebuilt) => tracing::info!(
+                rebuilt,
+                "the Run index rows no live engine owns were rebuilt"
+            ),
+            Err(error) => {
+                tracing::warn!(%error, "the Run index rows no live engine owns were not rebuilt; `runs reindex` rebuilds them");
+            }
         }
     }
 
@@ -5656,7 +5719,12 @@ impl Registry {
             &writer,
         )
         .await
-        .map_err(|error| unavailable(error.to_string()))?;
+        .map_err(|error| match error {
+            RunStateError::FilesystemUnsupported(refused) => {
+                StartError::FilesystemUnsupported(run_id.clone(), refused)
+            }
+            other => unavailable(other.to_string()),
+        })?;
         let started_at = self.now();
         let row = self.run_row(&run_id, &start, inputs.clone(), started_at);
         let fixed_settings = row.fixed_settings.clone();
@@ -5695,7 +5763,9 @@ impl Registry {
             report: watch::Sender::new(None),
             writer,
             lock: Arc::new(lock),
-            connection,
+            // A detached Run is no Connection's, so no Connection's end
+            // stops it (ADR 0102).
+            connection: connection.filter(|_| !start.detached),
             checkpoint: None,
             progress_message: None,
             lifecycle: Lifecycle::Running,
@@ -6033,6 +6103,7 @@ impl Registry {
             metrics: self.setup.metrics.clone(),
             gates: self.setup.gates.clone(),
             registry: Arc::clone(&self.itself),
+            live: self.live_count.subscribe(),
         }
     }
 
@@ -6647,6 +6718,7 @@ impl Registry {
                 | StartError::Draining { .. }
                 | StartError::Secret(_)
                 | StartError::Refused(_)
+                | StartError::FilesystemUnsupported(..)
                 | StartError::Stopped => RunError::Stopped,
             })?;
         let mut after = 0;

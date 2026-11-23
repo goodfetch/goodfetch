@@ -5,7 +5,7 @@ expression: "format!(\"crawl start --follow\\n{}\\nrun outcomes --follow\\n{}\\n
 crawl start --follow
 1 x sent request hello, 213 bytes
 N x received response
-1 x sent request crawl.start, 77232 bytes
+1 x sent request crawl.start, 77294 bytes
 N x sent request run.progress
 1 x sent request run.report, 76 bytes
 

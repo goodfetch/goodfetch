@@ -712,10 +712,29 @@ struct Session<'owner> {
     closing: Option<Closing>,
 }
 
-/// A handler request the engine sent, waiting for its reply.
+/// A handler request the engine sent, waiting for its reply while its
+/// sender waits for it.
 struct Pending {
     method: &'static str,
     reply: oneshot::Sender<Result<Received, ErrorObject>>,
+}
+
+/// Ready once a handler request of `pending` has nobody waiting for its
+/// reply any more: its call was cancelled or ended, or its sender dropped
+/// it. Until then, each request whose sender stops waiting wakes the
+/// Connection.
+fn stopped_waiting(pending: &mut BTreeMap<RequestId, Pending>) -> impl Future<Output = ()> + '_ {
+    std::future::poll_fn(move |context: &mut Context<'_>| {
+        let mut stopped = false;
+        for waiting in pending.values_mut() {
+            stopped |= waiting.reply.poll_closed(context).is_ready();
+        }
+        if stopped {
+            Poll::Ready(())
+        } else {
+            Poll::Pending
+        }
+    })
 }
 
 impl Session<'_> {
@@ -786,6 +805,12 @@ impl Session<'_> {
                     if let Flow::Close = self.send_request(request).await {
                         return ended;
                     }
+                }
+                // After the requests, so a `$/cancel` sent just before its
+                // sender stopped waiting still goes out; before the reading,
+                // so a late reply finds its request gone.
+                () = stopped_waiting(&mut self.pending), if !self.pending.is_empty() => {
+                    self.pending.retain(|_, waiting| !waiting.reply.is_closed());
                 }
                 more = reading.read(&mut pending), if !ended => {
                     ended = !more;
@@ -979,8 +1004,9 @@ impl Session<'_> {
         }
     }
 
-    /// Routes a reply to the handler request it answers; a reply whose
-    /// sender stopped waiting, or that answers no request, is dropped.
+    /// Routes a reply to the handler request it answers; a reply to a
+    /// request nobody waits for any more, which left the pending requests
+    /// as its sender stopped waiting, answers no request and is dropped.
     fn reply(&mut self, id: &RequestId, answer: Result<Received, ErrorObject>) {
         let Some(pending) = self.pending.remove(id) else {
             tracing::debug!(?id, "a reply that answers no handler request is ignored");

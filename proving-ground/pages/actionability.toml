@@ -523,3 +523,25 @@ const menu = document.querySelector('.menu');
 document.querySelector('#export').addEventListener('click', async event => { await post({ event: 'click', target: 'export', trusted: event.isTrusted, details: { hovered: String(menu.matches(':hover')) } }); done(); });
 document.body.dataset.ready = 'true';
 </script></body></html>'''
+
+# The page Collie's CLI skill's example commands run against (#1361): read
+# the heading, click `a.next`, fill `input[name=q]` and press Enter in it.
+
+[[tasks]]
+name = "skill-examples"
+kind = "act"
+description = "Read the heading, follow the Next link once, then type `browser automation` into the search field and press Enter in it."
+effects = [{ event = "search", target = "q", trusted = true, details = { next = "true", query = "browser automation" } }]
+[tasks.pages]
+"/" = '''<!doctype html><html lang="en"><body><output id="done"></output><main><h1>Skill examples</h1><a class="next" href="#results">Next</a><form><label>Search <input name="q"></label></form></main><script src="/effects.js"></script><script>
+let next = false;
+document.querySelector('a.next').addEventListener('click', event => { next = next || event.isTrusted; });
+const field = document.querySelector('input[name=q]');
+field.addEventListener('keydown', async event => {
+  if (event.key !== 'Enter') return;
+  event.preventDefault();
+  await post({ event: 'search', target: 'q', trusted: event.isTrusted, details: { next: String(next), query: field.value } });
+  done();
+});
+document.body.dataset.ready = 'true';
+</script></body></html>'''

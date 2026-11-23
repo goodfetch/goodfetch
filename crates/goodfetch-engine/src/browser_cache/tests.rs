@@ -36,8 +36,8 @@ use crate::pinned_download::{Digest, Fetching};
 
 use super::{
     Arch, BrowserCache, BrowserChoice, BrowserSource, BuildPlatform, CHROME_FOR_TESTING,
-    CHROME_HEADLESS_SHELL, CacheError, CacheLocation, CleanUp, InstalledExecutable, MaxUnusedAge,
-    Os, PinnedArtifact, Platform, PlatformNotice, browser_source, content_digest,
+    CHROME_HEADLESS_SHELL, CacheError, CacheLocation, CacheMode, CleanUp, InstalledExecutable,
+    MaxUnusedAge, Os, PinnedArtifact, Platform, PlatformNotice, browser_source, content_digest,
     installed_browser, kept_artifacts,
 };
 
@@ -404,6 +404,161 @@ fn a_missing_build_in_a_cache_the_engine_cannot_write_is_not_installed() {
         details.fix,
         "Run `goodfetch-collie browser install` where the Browser cache is writable, such as in the image's build, or point GOODFETCH_BROWSERS_PATH at a cache that holds it"
     );
+}
+
+/// Every path under `root`, `root` itself included, with its kind, length
+/// and modification time, symbolic links unfollowed.
+fn tree(root: &Path) -> BTreeMap<PathBuf, (bool, u64, SystemTime)> {
+    let mut entries = BTreeMap::new();
+    let mut pending = vec![root.to_owned()];
+    while let Some(next) = pending.pop() {
+        let metadata = fs::symlink_metadata(&next).unwrap();
+        if metadata.is_dir() {
+            for entry in fs::read_dir(&next).unwrap() {
+                pending.push(entry.unwrap().path());
+            }
+        }
+        entries.insert(
+            next.strip_prefix(root).unwrap().to_owned(),
+            (
+                metadata.is_dir(),
+                metadata.len(),
+                metadata.modified().unwrap(),
+            ),
+        );
+    }
+    entries
+}
+
+/// The use `folder`'s entry records.
+fn used_at(folder: &Path) -> jiff::Timestamp {
+    let entry: serde_json::Value =
+        serde_json::from_slice(&fs::read(folder.join("entry.json")).unwrap()).unwrap();
+    entry["used_at"].as_str().unwrap().parse().unwrap()
+}
+
+/// A launch records its build's use in a cache it can write, and none in
+/// [`CacheMode::ReadOnly`].
+///
+/// Covers: setting:browser_cache.read_only
+#[rstest]
+#[case::read_write(CacheMode::ReadWrite, 0)]
+#[case::read_only(CacheMode::ReadOnly, 3)]
+fn a_held_build_s_use_is_recorded_unless_the_cache_is_read_only(
+    #[case] mode: CacheMode,
+    #[case] days_since_use: u64,
+) {
+    let env = TestEnv::new();
+    let cache = cache_in(&env).in_mode(mode);
+    let id = browser("141.0.7390.54-linux64");
+    let folder = lay_out(&cache, &id, days_before(&env, 3));
+
+    let prepared = goodfetch_test_support::runtime()
+        .block_on(cache.prepare(
+            &pin(id),
+            &pinned_by(),
+            &offline(),
+            now(&env),
+            &mut no_progress(),
+        ))
+        .unwrap();
+
+    assert_eq!(prepared.artifact.files(), folder.join("files"));
+    assert_eq!(used_at(&folder), days_before(&env, days_since_use));
+}
+
+/// Covers: setting:browser_cache.read_only
+#[test]
+fn a_read_only_cache_that_holds_the_pinned_build_is_left_as_it_was() {
+    let env = TestEnv::new();
+    let cache = cache_in(&env).in_mode(CacheMode::ReadOnly);
+    let id = browser("141.0.7390.54-linux64");
+    lay_out(&cache, &id, days_before(&env, 3));
+    let before = tree(cache.root());
+
+    let prepared = goodfetch_test_support::runtime()
+        .block_on(cache.prepare(
+            &pin(id),
+            &pinned_by(),
+            &offline(),
+            now(&env),
+            &mut no_progress(),
+        ))
+        .unwrap();
+    drop(prepared);
+
+    assert_eq!(tree(cache.root()), before);
+}
+
+/// Covers: setting:browser_cache.read_only, error:browser_not_installed
+#[rstest]
+#[case::offline(offline())]
+#[case::online(Fetching::new(Clock::system()))]
+fn a_read_only_cache_refuses_a_build_of_the_wrong_digest_and_leaves_it_in_place(
+    #[case] fetching: Fetching,
+) {
+    let env = TestEnv::new();
+    let cache = cache_in(&env).in_mode(CacheMode::ReadOnly);
+    let id = browser("141.0.7390.54-linux64");
+    let folder = lay_out(&cache, &id, now(&env));
+    fs::write(folder.join("files/chrome"), "#!tampered\n").unwrap();
+    let before = tree(cache.root());
+
+    let refused = goodfetch_test_support::runtime()
+        .block_on(cache.prepare(
+            &pin(id),
+            &pinned_by(),
+            &fetching,
+            now(&env),
+            &mut no_progress(),
+        ))
+        .err()
+        .unwrap();
+
+    let CacheError::BrowserNotInstalled { message, details } = refused else {
+        panic!("expected browser_not_installed, got {refused:?}");
+    };
+    assert_eq!(
+        (
+            message.ends_with("which `browser_cache.read_only` keeps this engine from writing"),
+            details.fix.as_str()
+        ),
+        (
+            true,
+            "Run `goodfetch-collie browser install` beforehand, or lift `browser_cache.read_only` where it was set"
+        )
+    );
+    assert_eq!(tree(cache.root()), before);
+}
+
+/// A missing build is never downloaded into a read-only cache, nor its
+/// root created by the write check.
+///
+/// Covers: setting:browser_cache.read_only, error:artifact_unavailable_offline, error:browser_not_installed
+#[rstest]
+#[case::offline(offline(), "artifact_unavailable_offline")]
+#[case::online(Fetching::new(Clock::system()), "browser_not_installed")]
+fn a_read_only_cache_downloads_no_missing_build(#[case] fetching: Fetching, #[case] code: &str) {
+    let env = TestEnv::new();
+    let root = env.folder().join("absent cache");
+    let cache = BrowserCache::new(
+        &CacheLocation::new(env.home(), Some(root.clone())),
+        inline(),
+    )
+    .in_mode(CacheMode::ReadOnly);
+
+    let refused = goodfetch_test_support::runtime()
+        .block_on(cache.prepare(
+            &pin(browser("141.0.7390.54-linux64")),
+            &pinned_by(),
+            &fetching,
+            now(&env),
+            &mut no_progress(),
+        ))
+        .err()
+        .unwrap();
+
+    assert_eq!((refused.code(), root.exists()), (code, false));
 }
 
 /// Covers: error:browser_not_installed

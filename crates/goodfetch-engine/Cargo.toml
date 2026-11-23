@@ -114,8 +114,9 @@ zip = { workspace = true, features = ["deflate-flate2"] }
 zstd.workspace = true
 goodfetch-workspace-hack.workspace = true
 
-# Frees the buffer launchd answers the Daemon's activated sockets in, and
-# watches an Attached engine's parent (prctl, kqueue).
+# Frees the buffer launchd answers the Daemon's activated sockets in,
+# watches an Attached engine's parent (prctl, kqueue) and names a run
+# folder's filesystem (statfs).
 [target.'cfg(unix)'.dependencies]
 libc.workspace = true
 

@@ -26,10 +26,12 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 
+use goodfetch_protocol::catalog::ProtocolVersion;
 use goodfetch_protocol::connection::ProductVersion;
-use goodfetch_protocol::formats::RUN_INDEX;
+use goodfetch_protocol::formats::{Compatibility, RUN_INDEX};
 use goodfetch_protocol::run::{Completeness, Lifecycle, Presence, RunId, RunIndexRow, Verdict};
 use rusqlite::{Connection, OptionalExtension as _, Row};
+use tokio::sync::watch;
 
 use crate::lowest_minor::{self, Opener};
 use crate::run_state::RunStateError;
@@ -129,6 +131,13 @@ const STOPPED_BY_LIMIT: &str = concat!(
      ORDER BY run_id"
 );
 
+/// The rows that name an owner, present.
+const OWNED: &str = concat!(
+    "SELECT ",
+    columns!(),
+    " FROM runs WHERE owner IS NOT NULL AND presence = ?1 ORDER BY run_id"
+);
+
 fn failed(path: &Path, error: &impl std::fmt::Display) -> RunStateError {
     RunStateError::Sqlite {
         path: path.to_owned(),
@@ -141,6 +150,9 @@ fn failed(path: &Path, error: &impl std::fmt::Display) -> RunStateError {
 #[derive(Clone, Debug)]
 pub(crate) struct RunIndex {
     store: Arc<KeptStore<IndexFile>>,
+    /// Whether a call found the index's lowest minor raised past this
+    /// engine, which never lowers again.
+    locked_out: Arc<watch::Sender<bool>>,
 }
 
 impl RunIndex {
@@ -155,9 +167,17 @@ impl RunIndex {
         owner: Arc<TaskOwner>,
     ) -> Self {
         let file = IndexFile::new(path, opener(engine), vfs);
+        let locked_out = Arc::clone(&file.locked_out);
         Self {
             store: Arc::new(KeptStore::of(file, "run-index-writer", owner)),
+            locked_out,
         }
+    }
+
+    /// Whether a call found the index's lowest minor raised past this
+    /// engine (ADR 0098), told as it changes: it then never changes again.
+    pub(crate) fn locked_out(&self) -> watch::Receiver<bool> {
+        self.locked_out.subscribe()
     }
 
     /// Writes `row`, replacing the Run's earlier row.
@@ -408,6 +428,9 @@ pub(crate) struct IndexFile {
     path: PathBuf,
     opener: Opener,
     vfs: Option<String>,
+    /// Set once a transaction finds the lowest minor raised past the
+    /// engine.
+    locked_out: Arc<watch::Sender<bool>>,
 }
 
 /// What a transaction of the index fails with: SQLite's error, or its
@@ -490,7 +513,12 @@ impl IndexFile {
     }
 
     fn new(path: PathBuf, opener: Opener, vfs: Option<String>) -> Self {
-        Self { path, opener, vfs }
+        Self {
+            path,
+            opener,
+            vfs,
+            locked_out: Arc::new(watch::Sender::new(false)),
+        }
     }
 
     /// Runs `work` in one transaction of `connection`, after checking the
@@ -505,9 +533,13 @@ impl IndexFile {
         let checked = |connection: &Connection| -> Result<T, Failure> {
             let found = lowest_minor::read_sqlite(connection, RUN_INDEX.name)?
                 .unwrap_or_else(|| self.opener.created());
-            self.opener
-                .check(&found)
-                .map_err(|refusal| Failure::Refused(RunStateError::refused(refusal)))?;
+            self.opener.check(&found).map_err(|refusal| {
+                if matches!(refusal.compatibility, Compatibility::NewerMinor) {
+                    self.locked_out
+                        .send_if_modified(|locked_out| !std::mem::replace(locked_out, true));
+                }
+                Failure::Refused(RunStateError::refused(refusal))
+            })?;
             let answer = work(connection)?;
             if writes {
                 let marked = self.opener.written(found, None);
@@ -650,6 +682,22 @@ impl IndexFile {
                 .collect()
         })
     }
+
+    /// The rows that name an owner and whose state is present, in Run ID
+    /// order, read through `connection`: those of live Runs, and those an
+    /// engine left when it ended unable to write them.
+    ///
+    /// # Errors
+    ///
+    /// As [`Self::write`], when the index cannot be read.
+    pub(crate) fn owned(&self, connection: &Connection) -> Result<Vec<RunIndexRow>, RunStateError> {
+        self.in_transaction(connection, false, |connection| {
+            connection
+                .prepare_cached(OWNED)?
+                .query_map([Presence::Present.as_str()], row_of)?
+                .collect()
+        })
+    }
 }
 
 /// The Run index as the engine of Product version `engine` opens it.
@@ -736,15 +784,15 @@ fn row_of(row: &Row<'_>) -> rusqlite::Result<RunIndexRow> {
     })
 }
 
-/// The lowest minor the Run index at `path` records (ADR 0098), read
-/// without opening it for writes; none when it is not there or cannot be
-/// read. It blocks: run it under a blocking policy.
+/// The format version and lowest minor the Run index at `path` records
+/// (ADR 0098), read without opening it for writes; none when it is not
+/// there or cannot be read. It blocks: run it under a blocking policy.
 ///
 /// It opens the file for this one read rather than through a [`RunIndex`]
 /// (#1886): the Daemon's pick of an executable asks it, before any engine
 /// runs or while none is in the process, and it must see a marker another
 /// engine raised since, which no connection kept for later could promise.
-pub(crate) fn lowest_minor(path: &Path) -> Option<u16> {
+pub(crate) fn marker(path: &Path) -> Option<(ProtocolVersion, u16)> {
     if !path.is_file() {
         return None;
     }
@@ -752,7 +800,7 @@ pub(crate) fn lowest_minor(path: &Path) -> Option<u16> {
     lowest_minor::read_sqlite(&connection, RUN_INDEX.name)
         .ok()
         .flatten()
-        .map(|marker| marker.lowest_minor)
+        .map(|marker| (marker.version, marker.lowest_minor))
 }
 
 /// A domain whose consent wall the Runs met, as the Run index keeps it.

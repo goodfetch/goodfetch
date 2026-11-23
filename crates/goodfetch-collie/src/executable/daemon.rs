@@ -58,7 +58,7 @@ use goodfetch_engine::daemon::files::DaemonFiles;
 use goodfetch_engine::daemon::{RefusedClient, RefusedExecutable, refusal_fix};
 use goodfetch_engine::home::Home;
 use goodfetch_engine::installed::{InstalledList, Seen, fingerprint, pick, stores_floor};
-use goodfetch_engine::run::local_settings_error;
+use goodfetch_engine::run::{local_settings_error, store_refusal};
 use goodfetch_engine::settings::{Resolved, SettingsError};
 use goodfetch_protocol::browser_cache::MAX_UNUSED_AGE;
 use goodfetch_protocol::catalog::Product;
@@ -83,6 +83,8 @@ mod launched;
 #[cfg(target_os = "linux")]
 mod reaper;
 mod remote;
+#[cfg(test)]
+mod tests;
 
 use launched::launch;
 pub(super) use launched::launched;
@@ -317,7 +319,7 @@ impl Machine<'_> {
         pick(
             &seen,
             &self.identity.product_version,
-            stores_floor(self.home, &self.identity.product_version),
+            stores_floor(self.home, &self.identity.product_version).map(|floor| floor.version),
             self.now(),
             self.max_unused_age(),
         )
@@ -451,19 +453,31 @@ impl Machine<'_> {
     /// Starts the major's pick from its versioned copy and waits for its
     /// runtime file; whoever calls it holds the start lock. A Daemon starts
     /// only on machine settings it can read, so it fails first with their
-    /// Error code when they cannot be.
+    /// Error code when they cannot be. With no executable able to be the
+    /// pick because a shared store's lowest minor is raised past every one,
+    /// it fails with that store's version refusal, naming the version to
+    /// install (ADR 0098).
     pub(super) fn start_pick(&self, keep_alive: bool) -> Result<DaemonRuntimeFile, Failure> {
         self.settings()?;
         let Some(picked) = self.pick() else {
-            let install = stores_floor(self.home, &self.identity.product_version).map_or_else(
-                || self.identity.product_version.to_string(),
-                |floor| floor.to_string(),
+            return Err(
+                match stores_floor(self.home, &self.identity.product_version) {
+                    Some(floor) => Failure::of(
+                        store_refusal(
+                            floor.format,
+                            &floor.found.to_string(),
+                            &floor.version.to_string(),
+                        )
+                        .to_error_object(),
+                    ),
+                    None => Failure::Unavailable(format!(
+                        "no installed executable can run the Daemon of major {}: install {} {} or newer",
+                        self.major(),
+                        self.identity.product.name(),
+                        self.identity.product_version,
+                    )),
+                },
             );
-            return Err(Failure::Unavailable(format!(
-                "no installed executable can run the Daemon of major {}, whose shared stores need Goodfetch {install} or newer: install {} {install} or newer",
-                self.major(),
-                self.identity.product.name(),
-            )));
         };
         let (executable, build) = self.copy_of(&picked)?;
         launch(&executable, &build, keep_alive, self.environment, self.home)

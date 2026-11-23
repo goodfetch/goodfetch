@@ -5,11 +5,12 @@
 // `@goodfetch/collie-client/runtime` exports to the Product packages. A
 // Product's kit starts an Attached engine in a temporary Goodfetch home,
 // which closing it removes, with a cleared environment, `egress.offline`
-// on, short durations and no project file unless the test names one; every
-// host its `network.resolve` maps to loopback alone is the only one a Run's
-// requests reach, live. Importing it reads, patches and logs nothing (ADR
-// 0078). Rust's `testing` module of `goodfetch-collie-client` and Python's
-// `goodfetch_collie_client.testing` are its twins.
+// and `browser_cache.read_only` on, short durations and no project file
+// unless the test names one; every host its `network.resolve` maps to
+// loopback alone is the only one a Run's requests reach, live. Importing it
+// reads, patches and logs nothing (ADR 0078). Rust's `testing` module of
+// `goodfetch-collie-client` and Python's `goodfetch_collie_client.testing`
+// are its twins.
 import { mkdtemp, rm } from "node:fs/promises";
 import { BlockList, isIP } from "node:net";
 import { tmpdir } from "node:os";
@@ -127,13 +128,15 @@ export function engineEnvironment(
 /**
  * `settings` over the kit's isolations, `settings` itself left unchanged:
  * `egress.offline` on, the hosts `network.resolve` maps to loopback alone
- * as the only hosts allowed and the private hosts a page may reach, and
- * the short durations.
+ * as the only hosts allowed and the private hosts a page may reach,
+ * `browser_cache.read_only` on, so the caller's Browser cache is left as
+ * the test found it (issue 3458), and the short durations.
  */
 export function isolated(settings: Settings): Settings {
   const loopback = loopbackHosts(settings.network?.resolve);
   return {
     ...settings,
+    browserCache: { readOnly: true, ...settings.browserCache },
     egress: {
       offline: true,
       allowedDomains: loopback,

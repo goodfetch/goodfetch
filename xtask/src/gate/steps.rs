@@ -145,11 +145,12 @@ impl Step {
             | Self::FloorGuard
             | Self::Audit
             | Self::CommitLeaks
-            | Self::FeaturesTests
             | Self::Notices => Reach::Always,
             // The Journey task lists follow from the tree's Proving ground,
-            // and the codegen tests from the tree and its base.
+            // the Feature and case-list checks from the listings of the
+            // tree's tests, and the codegen tests from the tree and its base.
             Self::Lint
+            | Self::FeaturesTests
             | Self::FeatureCombinations
             | Self::FuzzCheck
             | Self::Proofs
@@ -301,8 +302,15 @@ impl Kind {
 /// spec #3373's table of owning layers).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Owner {
-    /// `just merge` on its own host, in seconds: the checks that judge the
-    /// whole change.
+    /// `just merge` on its own host: in seconds, the checks that judge the
+    /// whole change, and the Linux-only tests' step, which `ci/linux.sh`
+    /// skips on a Linux host, where the Pre-merge suite runs those tests: a
+    /// hosted job of its own would run nothing (spec #3373's Step
+    /// ownership). It also keeps the steps no 4-vCPU hosted job finishes
+    /// within ADR 0061's 30-minute cap, as the 16-vCPU gate host's full
+    /// gates measured them: the Windows build under Wine, TLC, the fuzz
+    /// targets' check, the feature combinations, loom and Miri (#3382,
+    /// ADR 0135's note of 2026-11-23 on the full gate's hosted steps).
     Local,
     /// The pull-request tier on hosted runners, on a batch, spec or fork
     /// pull request: `just merge` reuses its units, and runs here those no
@@ -324,7 +332,18 @@ impl Owner {
 
     /// The owner of `step`.
     pub(crate) const fn of(step: Step) -> Self {
-        if step.judges_the_whole_change() {
+        if step.judges_the_whole_change()
+            || matches!(
+                step,
+                Step::Linux
+                    | Step::Windows
+                    | Step::Tlc
+                    | Step::FuzzCheck
+                    | Step::FeatureCombinations
+                    | Step::Loom
+                    | Step::Miri
+            )
+        {
             Self::Local
         } else if matches!(step, Step::Perf | Step::Counts | Step::Stress) {
             Self::GateHost

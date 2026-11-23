@@ -44,6 +44,7 @@ describe("the test engine's settings", () => {
 
   test("allow no host with no resolve, and make the five durations short", () => {
     expect(isolated({})).toEqual({
+      browserCache: { readOnly: true },
       egress: { offline: true, allowedDomains: [], privateRanges: [] },
       timeout: SHORT_TIMEOUTS,
     });
@@ -51,6 +52,7 @@ describe("the test engine's settings", () => {
 
   test("take a test's own key in place of the kit's, its settings left unchanged", () => {
     const given: Settings = {
+      browserCache: { readOnly: false },
       egress: { offline: false, allowedDomains: ["*"] },
       timeout: { navigation: 60_000 },
     };
@@ -58,10 +60,12 @@ describe("the test engine's settings", () => {
     const settings = isolated(given);
 
     expect(settings).toEqual({
+      browserCache: { readOnly: false },
       egress: { offline: false, allowedDomains: ["*"], privateRanges: [] },
       timeout: { ...SHORT_TIMEOUTS, navigation: 60_000 },
     });
     expect(given).toEqual({
+      browserCache: { readOnly: false },
       egress: { offline: false, allowedDomains: ["*"] },
       timeout: { navigation: 60_000 },
     });

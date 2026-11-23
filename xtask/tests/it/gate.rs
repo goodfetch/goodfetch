@@ -1161,25 +1161,26 @@ fn a_batch_pinning_the_ci_image(workspace: &Workspace) -> String {
     a_ticket_on_a_register(workspace).0
 }
 
-/// The hosted tier's run `run` on the head checked out, as the pull-request
-/// workflow runs it: its planning job plans by the layer `hosted` from the
-/// records in `downloaded` of the head's ancestors' runs, and a job a step
-/// the plan schedules runs it green and uploads its record, which lands in
-/// `downloaded/<run>/gate-record-<step>/` as `ci/hosted-records.sh`
-/// downloads it. Only the jobs of `finished` end; the others are cancelled
-/// with the run and upload nothing. Returns the planning job's plan.
+/// The hosted tier's run `run` on the head checked out, in the gate's form
+/// `form`, as the pull-request workflow runs it: its planning job plans by
+/// the layer `hosted` from the records in `downloaded` of the head's
+/// ancestors' runs, and a job a step the plan schedules runs it green and
+/// uploads its record, which lands in `downloaded/<run>/gate-record-<step>/`
+/// as `ci/hosted-records.sh` downloads it. Only the jobs of `finished` end;
+/// the others are cancelled with the run and upload nothing. Returns the
+/// planning job's plan.
 fn hosted_run(
     workspace: &Workspace,
     folder: &Path,
     downloaded: &Path,
-    run: &str,
+    (run, form): (&str, &str),
     finished: &[&str],
     ran: &mut Ran,
 ) -> Plan {
     let downloaded_arg = downloaded.to_string_lossy();
     let hosted = [
         "--form",
-        "quick",
+        form,
         "--layer",
         "hosted",
         "--head-repository",
@@ -1198,8 +1199,8 @@ fn hosted_run(
         )
     };
     let planning = job("plan");
-    for step in HOSTED_OWNED {
-        if units(&planning, step).is_empty() || !finished.contains(&step) {
+    for &step in finished {
+        if units(&planning, step).is_empty() {
             continue;
         }
         let records = folder.join(format!("hosted-{run}-{step}"));
@@ -1280,7 +1281,7 @@ fn no_unit_runs_twice_on_one_tree_across_the_hosted_and_local_layers() {
         &workspace,
         folder.path(),
         &downloaded,
-        "1",
+        ("1", "quick"),
         &HOSTED_OWNED,
         &mut ran,
     );
@@ -1300,7 +1301,7 @@ fn no_unit_runs_twice_on_one_tree_across_the_hosted_and_local_layers() {
         &workspace,
         folder.path(),
         &downloaded,
-        "2",
+        ("2", "quick"),
         &HOSTED_OWNED,
         &mut ran,
     );
@@ -1346,7 +1347,7 @@ fn a_hosted_run_cancelled_at_its_cap_leaves_the_gate_the_only_run_of_its_unfinis
         &workspace,
         folder.path(),
         &downloaded,
-        "1",
+        ("1", "quick"),
         &["lint"],
         &mut ran,
     );
@@ -1361,6 +1362,183 @@ fn a_hosted_run_cancelled_at_its_cap_leaves_the_gate_the_only_run_of_its_unfinis
             assert_eq!(ran[&(unit, tree.trim().to_owned())], ["merge"]);
         }
     }
+}
+
+/// The full form's steps the hosted tier owns (spec 3373's Step ownership):
+/// a finishing spec pull request's hosted run holds those its change
+/// reaches.
+const HOSTED_OWNED_FULL: [&str; 8] = [
+    "visual",
+    "lint",
+    "proofs",
+    "pre-merge",
+    "journeys-tasks",
+    "features-tests",
+    "kennel",
+    "msrv",
+];
+
+/// The full form's steps the gate runs itself: those that judge the whole
+/// change, perf, the Linux-only tests, which the Pre-merge suite runs on a
+/// Linux runner and `ci/linux.sh` skips on the Linux gate host, and the
+/// steps no 4-vCPU hosted job finishes within ADR 0061's 30-minute cap
+/// (#3382).
+const RUN_BY_THE_FULL_GATE: [&str; 14] = [
+    "dco",
+    "commit-messages",
+    "floor-guard",
+    "commit-leaks",
+    "audit",
+    "notices",
+    "perf",
+    "linux",
+    "tlc",
+    "miri",
+    "loom",
+    "windows",
+    "feature-combinations",
+    "fuzz-check",
+];
+
+/// `just preflight` on the head: its plan, whose units of the stress run and
+/// the counts it adds to `ran` and records green by the layer `preflight`.
+fn preflight_run(workspace: &Workspace, records: &Path, ran: &mut Ran) -> Plan {
+    let preflight = plan_with(
+        workspace,
+        records,
+        "CI=",
+        &["--form", "preflight", "--layer", "preflight"],
+    );
+    add_ran(
+        workspace,
+        ran,
+        &preflight,
+        &["counts", "stress"],
+        "preflight",
+    );
+    for step in ["counts", "stress"] {
+        let outcome = workspace.xtask(&[
+            "gate",
+            "record",
+            "--by",
+            "preflight",
+            "--records",
+            &records.to_string_lossy(),
+            "--head",
+            &preflight.head,
+            "--now",
+            NOW,
+            "--step",
+            step,
+            "--status",
+            "pass",
+        ]);
+        assert_eq!(outcome.code, 0, "{}", outcome.stderr);
+    }
+    preflight
+}
+
+/// The no-double-run walk of a finishing spec pull request (#3382):
+/// `just preflight` records the stress run and the counts on the head, the
+/// hosted run in the full form runs each hosted-owned step its change
+/// reaches, and `just merge`'s full gate reads both. It reuses every unit
+/// they ran, runs perf and the steps it owns, and no unit runs twice on
+/// one tree.
+#[test]
+fn no_unit_runs_twice_on_one_tree_across_preflight_the_hosted_run_and_the_full_gate() {
+    let (workspace, folder, records) = gated_with_a_register("2027-01-30");
+    let downloaded = folder.path().join("downloaded");
+    a_batch_pinning_the_ci_image(&workspace);
+    let mut ran = Ran::new();
+
+    let preflight = preflight_run(&workspace, &records, &mut ran);
+    let hosted = hosted_run(
+        &workspace,
+        folder.path(),
+        &downloaded,
+        ("1", "all"),
+        &HOSTED_OWNED_FULL,
+        &mut ran,
+    );
+    let full = plan_with(
+        &workspace,
+        &records,
+        "CI=",
+        &[
+            "--head-repository",
+            REPOSITORY,
+            "--hosted-records",
+            &downloaded.to_string_lossy(),
+        ],
+    );
+    let steps: Vec<&str> = full.steps.keys().map(String::as_str).collect();
+    add_ran(&workspace, &mut ran, &full, &steps, "merge");
+    for &step in &steps {
+        if !units(&full, step).is_empty() {
+            record(&workspace, &records, &full.head, step, "pass");
+        }
+    }
+
+    let duplicates = workspace.xtask(&[
+        "gate",
+        "duplicates",
+        "--records",
+        &records.to_string_lossy(),
+        "--hosted-records",
+        &downloaded.to_string_lossy(),
+    ]);
+
+    assert_eq!(
+        duplicates.code, 0,
+        "{}{}",
+        duplicates.stdout, duplicates.stderr
+    );
+    ran_once(&ran);
+    for step in RUN_BY_THE_FULL_GATE.into_iter().chain(["counts", "stress"]) {
+        assert!(units(&hosted, step).is_empty(), "{step} runs hosted");
+    }
+    for step in HOSTED_OWNED_FULL {
+        if step == "pre-merge" {
+            assert!(!units(&hosted, step).is_empty(), "{step}");
+        }
+        if units(&hosted, step).is_empty() {
+            assert!(
+                units(&full, step).is_empty(),
+                "{step}: {:?}",
+                action(&full, step)
+            );
+            continue;
+        }
+        assert_eq!(action(&full, step).0, "reuse", "{step}: {}", full.why[step]);
+        assert!(
+            full.why[step].contains("by hosted"),
+            "{step}: {}",
+            full.why[step]
+        );
+    }
+    for step in ["counts", "stress"] {
+        if !units(&preflight, step).is_empty() {
+            assert_eq!(action(&full, step).0, "reuse", "{step}: {}", full.why[step]);
+            assert!(
+                full.why[step].contains("by preflight"),
+                "{step}: {}",
+                full.why[step]
+            );
+        }
+    }
+    let run_here: BTreeSet<&str> = steps
+        .iter()
+        .copied()
+        .filter(|step| !units(&full, step).is_empty())
+        .collect();
+    assert!(
+        run_here.is_subset(&BTreeSet::from(RUN_BY_THE_FULL_GATE)),
+        "{run_here:?}"
+    );
+    assert!(
+        run_here.contains("perf") && run_here.contains("linux"),
+        "{run_here:?}"
+    );
 }
 
 /// Lint's register check reads the day: an Exception past its expiry fails

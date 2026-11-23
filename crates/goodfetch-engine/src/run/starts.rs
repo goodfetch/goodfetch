@@ -1,8 +1,9 @@
 //! `recipe.start` and `catalog_run.start`, the starts of Runs with no
 //! handler in the program (ADRs 0036 and 0102). This engine runs neither a
 //! Recipe nor a code-free target yet, so each refuses with
-//! `run_target_unbuilt` once its params read, and starts no Run. The
-//! tickets that build those runtimes remove the refusal and its Error code.
+//! `run_target_unbuilt` once its params read and its tags and `detached`
+//! are checked, and starts no Run. The tickets that build those runtimes
+//! remove the refusal and its Error code.
 
 use goodfetch_protocol::run::{
     CATALOG_RUN_START, CatalogRunStartParams, RECIPE_START, RUN_TARGET_UNBUILT, RecipeStartParams,
@@ -21,16 +22,18 @@ pub(super) fn handlers() -> [Handler; 2] {
 }
 
 async fn recipe_start(
-    _params: RecipeStartParams,
-    _context: CallContext,
+    params: RecipeStartParams,
+    context: CallContext,
 ) -> Result<RunStarted, CallError> {
+    super::client_start(&params.tags, params.detached, None, &context)?;
     Err(unbuilt(RECIPE_START.name, "recipe"))
 }
 
 async fn catalog_run_start(
     params: CatalogRunStartParams,
-    _context: CallContext,
+    context: CallContext,
 ) -> Result<RunStarted, CallError> {
+    super::client_start(&params.tags, params.detached, None, &context)?;
     Err(unbuilt(CATALOG_RUN_START.name, params.target.kind()))
 }
 

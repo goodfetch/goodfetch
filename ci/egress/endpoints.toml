@@ -27,13 +27,18 @@ canary = "1.1.1.1:443"
 # The hosted tier's gate steps, in the job's container on a standard hosted
 # runner (ADR 0135's amendment of 2026-11-22): the image builds and `just
 # fetch` runs before the deny, which applies in the container's network
-# namespace. Lint, which reads GitHub, has its own job outside it.
+# namespace. Lint and the proofs, which read GitHub, have their own job
+# outside it. The visual tests' Playwright container joins the job
+# container's network namespace, so the deny holds it too (#3382).
 [[deny]]
 job = "pull-request.yml#quick"
 
+[[deny]]
+job = "pull-request.yml#visual"
+
 [[outside]]
 job = "pull-request.yml#lint"
-reason = "It runs lint, whose zizmor runs the online audits and whose quarantine-list check reads GitHub's issues, and runs none of the product."
+reason = "It runs lint, whose zizmor runs the online audits and whose quarantine-list check reads GitHub's issues, or the proofs, whose audit downloads the pinned advisory snapshot from GitHub, and runs none of the product's tests."
 
 # A batch's hosted Pre-merge suite (issue 3378): the build of the archive
 # comes before the deny, and its doctests and each shard's tests run under
@@ -53,8 +58,10 @@ job = "update-screenshots.yml#update"
 
 # The Release suite's cells (ADR 0108). The hosted Linux cells deny in a
 # network namespace, the Windows cell with firewall rules on the product's
-# programs, and the visual job in the owner's machine's VM
-# (ci/egress/egress.sh). The macOS cells run outside the deny (ADR 0043's amendment of 2026-11-22).
+# programs, and the visual job in the hosted tier's container, whose network
+# namespace the pinned Playwright image's container shares (ci/egress/egress.sh,
+# ci/hosted/visual.sh). The macOS cells run outside the deny (ADR 0043's
+# amendment of 2026-11-22).
 [[deny]]
 job = "release-suite.yml#linux-x64"
 
@@ -70,7 +77,7 @@ reason = "On macOS itself, the runner's standard user has no deny but a sandbox 
 
 [[outside]]
 job = "release-suite.yml#macos-x64"
-reason = "As the macos-arm64 cell, under Rosetta 2 (ADR 0043's amendment of 2026-11-22)."
+reason = "As the macos-arm64 cell, on an Intel runner (ADR 0043's amendment of 2026-11-22)."
 
 [[deny]]
 job = "release-suite.yml#visual"
@@ -156,6 +163,10 @@ reason = "It reads the results store and opens budget issues through GitHub's AP
 [[outside]]
 job = "release-suite.yml#caches"
 reason = "It lists and deletes the repository's caches through GitHub's API (ADR 0061), and runs none of the product."
+
+[[outside]]
+job = "release-suite.yml#ci-image"
+reason = "It builds the hosted tier's CI image from the tree's Containerfile, whose steps download its tools, and saves it into the Actions cache on `main` (#3480); it runs none of the product."
 
 [[outside]]
 job = "watchlist.yml#watchlist"

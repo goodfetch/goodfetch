@@ -821,6 +821,12 @@ pub(crate) fn run(arguments: Arguments, environment: &Environment) -> Result<Exi
 /// The Product version the workspace carries: the root manifest's
 /// `[workspace.package] version`, which every crate takes (ADR 0030).
 fn product_version(root: &Path) -> Result<String> {
+    workspace_package(root, "version")
+}
+
+/// The root manifest's `[workspace.package]` string `key`, which every
+/// crate takes.
+fn workspace_package(root: &Path, key: &str) -> Result<String> {
     let path = root.join("Cargo.toml");
     let manifest: toml::Table = toml::from_str(
         &std::fs::read_to_string(&path).with_context(|| format!("reading {}", path.display()))?,
@@ -829,8 +835,8 @@ fn product_version(root: &Path) -> Result<String> {
     manifest
         .get("workspace")
         .and_then(|workspace| workspace.get("package"))
-        .and_then(|package| package.get("version"))
+        .and_then(|package| package.get(key))
         .and_then(toml::Value::as_str)
         .map(str::to_owned)
-        .with_context(|| format!("{} has no `[workspace.package] version`", path.display()))
+        .with_context(|| format!("{} has no `[workspace.package] {key}`", path.display()))
 }

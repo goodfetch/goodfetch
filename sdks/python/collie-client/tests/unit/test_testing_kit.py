@@ -59,6 +59,7 @@ def test_with_no_resolve_no_host_is_allowed_and_the_durations_are_short() -> Non
     wire = settings_on_wire(testing.isolated({}))
 
     assert wire == {
+        "browser_cache": {"read_only": True},
         "egress": {"offline": True, "allowed_domains": [], "private_ranges": []},
         "timeout": SHORT_TIMEOUTS,
     }
@@ -67,6 +68,7 @@ def test_with_no_resolve_no_host_is_allowed_and_the_durations_are_short() -> Non
 def test_a_test_s_own_setting_takes_the_place_of_the_kit_s() -> None:
     """Key by key, the test's settings left unchanged."""
     given: Settings = {
+        "browser_cache": {"read_only": False},
         "egress": {"offline": False, "allowed_domains": ["*"]},
         "timeout": {"navigation": timedelta(minutes=1)},
     }
@@ -74,10 +76,12 @@ def test_a_test_s_own_setting_takes_the_place_of_the_kit_s() -> None:
     wire = settings_on_wire(testing.isolated(given))
 
     assert wire == {
+        "browser_cache": {"read_only": False},
         "egress": {"offline": False, "allowed_domains": ["*"], "private_ranges": []},
         "timeout": {**SHORT_TIMEOUTS, "navigation": 60_000},
     }
     assert given == {
+        "browser_cache": {"read_only": False},
         "egress": {"offline": False, "allowed_domains": ["*"]},
         "timeout": {"navigation": timedelta(minutes=1)},
     }

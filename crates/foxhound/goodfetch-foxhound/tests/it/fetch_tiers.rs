@@ -759,6 +759,48 @@ fn a_post_crawl_request_with_a_body_reaches_the_site_as_that_post_on_a_forced_br
     );
 }
 
+/// A crawl request on a forced `browser` tier is charged one `requests`
+/// Usage, at its admission, and its navigation of the Collie page it
+/// opens charges none, as a program's `page.goto` does (issue 3416).
+///
+/// Covers: story:5-118, operation:run.finish
+#[test]
+fn a_crawl_request_on_a_forced_browser_tier_is_charged_one_request() {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let mut engine = engine(&env);
+
+    let finished = crawl_declaring(
+        &mut engine,
+        "tiers-charged-once",
+        &[json!({ "url": proving_ground.url(STATIC_HOST, STATIC_PATH), "label": "listing" })],
+        &json!({ "listing": {} }),
+        &settings(
+            &proving_ground,
+            &json!({
+                "fetch": { "tier": "browser" },
+                "site_preferences": { "respect_robots_txt": false },
+            }),
+        ),
+        &mut |_, _| json!({ "result": { "records": [] } }),
+    );
+    let ended = outcomes(&mut engine, "tiers-charged-once");
+    assert!(engine.finished());
+
+    assert_eq!(
+        (ended, &finished["result"]["usage"]["requests"]),
+        (
+            vec![(
+                proving_ground.url(STATIC_HOST, STATIC_PATH),
+                json!("succeeded"),
+                Value::Null
+            )],
+            &json!(1)
+        ),
+        "{finished}"
+    );
+}
+
 /// Under `auto`, the same crawl request, a sample, is sent as that `POST`
 /// on `http`, from the browser under `fetch.http_from: browser` or from
 /// the Run's transport under `transport`, where the handler's script call

@@ -534,6 +534,7 @@ fetch:
     uv sync --frozen --all-extras
     ci/lightpanda-fetch.sh
     ci/chrome-for-testing-fetch.sh
+    ci/claude-code-fetch.sh
     ci/alpine/fetch.sh
     ci/source-build/fetch.sh
 
@@ -1186,9 +1187,9 @@ release:
 # it; the exit code is the run's verdict (ADRs 0061 and 0108). `cells` is
 # `all` or cell names separated by commas: linux-x64-gnu, linux-x64-musl,
 # linux-arm64-gnu, linux-arm64-musl, windows-x64, macos-arm64, macos-x64. On
-# `main`, `commit` is a commit of `main` to test, its head by default, and the
-# macOS cells run on the owner's machine; off `main` the run tests the
-# branch's pushed head with the hosted cells alone. The commit's verdict
+# `main`, `commit` is a commit of `main` to test, its head by default, and
+# every cell runs on a standard hosted runner; off `main` the run tests the
+# branch's pushed head without the macOS cells. The commit's verdict
 # across all its dispatches follows the run's, naming each cell not green on
 # it, the skipped ones included.
 release-ci cells="all" commit="":
@@ -1220,9 +1221,7 @@ release-ci cells="all" commit="":
       exit 2
     fi
     echo "Release run $run on $branch, cells {{ cells }}."
-    if [[ "$branch" == main ]]; then
-      echo "The macOS cells wait for the owner's machine (owner-machine); while it is off, they stay queued and fail after 24 hours."
-    else
+    if [[ "$branch" != main ]]; then
       echo "Off main, the macOS cells do not run (ADR 0108)."
     fi
     status=0
@@ -2257,8 +2256,13 @@ _gate-compare full runs since="":
 # The duplicate-run check (ADR 0135's amendment of 2026-11-22): fails, naming
 # both layers, on each unit a run in the gate's records (ci/gate-records.sh)
 # ran, not reused, on a tree where an earlier run had recorded it green.
-duplicate-runs:
-    cargo run --quiet --locked --bin xtask -- gate duplicates --records "$(ci/gate-records.sh)"
+# `hosted`, a folder of hosted runs' records that `ci/hosted-records.sh`
+# downloaded (`just merge` keeps them in its gate worktree's
+# `target/hosted-records`), adds their runs, so a unit the gate ran after a
+# hosted job had run it green is found too (spec #3373).
+duplicate-runs hosted="":
+    cargo run --quiet --locked --bin xtask -- gate duplicates --records "$(ci/gate-records.sh)" \
+      {{ if hosted == "" { "" } else { "--hosted-records " + quote(hosted) } }}
 
 # Starts and checks the real OS services the tests use (ci/os-services.sh),
 # which `just pre-merge` runs first on a Linux host.

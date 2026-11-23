@@ -503,7 +503,7 @@ fn declared_labels(env: &TestEnv, run_id: &str) -> Vec<(String, Value)> {
 /// Run's: its `fetch.tier`, its `fetch.encoding`, its Session pool and its
 /// `session.page_check` (#2825).
 ///
-/// Covers: operation:crawl.start, operation:run.resume, setting:fetch.tier, setting:fetch.encoding, setting:session.source, setting:session.page_check
+/// Covers: operation:crawl.start, setting:fetch.tier, setting:fetch.encoding, setting:session.source, setting:session.page_check
 #[test]
 fn a_label_a_resume_declares_first_works_under_its_own_settings() {
     let env = TestEnv::new();
@@ -661,9 +661,11 @@ fn a_resume_that_changes_no_label_leaves_its_settings_as_they_were() {
 /// records none of its Labels: the run file keeps the Run's, and a resume
 /// after it works under them (#2825).
 ///
-/// Covers: error:label_unknown, error:setting_locked, operation:crawl.start, operation:run.resume
+/// Covers: operation:crawl.start, operation:run.resume
 #[rstest]
+/// Covers: error:label_unknown
 #[case::label_unknown(json!({ "book": book() }), "label_unknown")]
+/// Covers: error:setting_locked
 #[case::setting_locked(
     json!({
         "page": {},

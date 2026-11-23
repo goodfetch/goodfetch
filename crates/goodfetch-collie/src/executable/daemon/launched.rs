@@ -395,7 +395,7 @@ impl Succession for OnTheMachine {
             .iter()
             .map(|entry| Seen::look(entry, &self.cache))
             .collect();
-        let floor = stores_floor(&self.home, &self.version);
+        let floor = stores_floor(&self.home, &self.version).map(|floor| floor.version);
         pick(
             &seen,
             &self.version,

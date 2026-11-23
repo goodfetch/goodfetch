@@ -145,12 +145,12 @@ The rows of counted work, and those read under Valgrind, promoted from the Measu
 | `F1.rule_list_builds` | cosmetic rule-list builds per page whose Clean-up rules run (0 with every Filter list off) | at most one per host the cache misses: on B4's one-host cells, 1 for the crawl (#2186) | 1 | B4 | must not grow | `just counts --family B4` | implementer done, merge gate |
 | `F1.rule_tests` | clean-up rule tests per page: each CSS rule an element is matched against, and each procedural rule run | the figure of spec #2164's tuned run | 1 | B4 | must not grow | `just counts --family B4` | implementer done, merge gate |
 | `F1.analysis_handoffs` | hand-offs to the analysis pool per page | at most 1, and 0 when no reader needs a tree (#2189) | 1 | B1, B4 | must not grow | `just counts` | implementer done, merge gate |
-| `F2.transactions` | run-file transactions per attempt (`full`, `fast`) | ≤ 2 | 3.385 | B1 | must not grow | `just counts` | implementer done, merge gate |
+| `F2.transactions` | run-file transactions per attempt (`full`, `fast`) | ≤ 2 | 1.616 | B1 | must not grow | `just counts` | implementer done, merge gate |
 | `F2.syncs` | syncs per attempt at `full` | ≤ 1 | 2.385 | B1 | must not grow | `just counts` | implementer done, merge gate |
 | `F2.prepares` | statement preparations per page added | 0 | 0 | B1 | must not grow | `just counts` | implementer done, merge gate |
 | `F2.writer_reads` | reads through the writer per page | 0 | 0 | B1 | must not grow | `just counts` | implementer done, merge gate |
 | `F2.page_waits` | a page's waits on the run file's writer per page at `batch` and `off`: a lease, an admission or a settled outcome its task or the delivery loop awaits | 0 | 0 | B1 | must not grow | `just counts` | implementer done, merge gate |
-| `F2.page_waits.full` | a page's waits on the run file's writer per page at `full` | ≤ 2 | 2 | B1 | must not grow | `just counts` | implementer done, merge gate |
+| `F2.page_waits.full` | a page's waits on the run file's writer per page at `full` | ≤ 2 | 1 | B1 | must not grow | `just counts` | implementer done, merge gate |
 | `F2.batches` | batches sealed early per Run, before their pages or their interval, beyond those of the calls no page makes again (0 at the per-attempt levels, where each write is its own batch) | ≤ 2 | 2 | B1 | must not grow | `just counts` | implementer done, merge gate |
 | `F2.evidence_reads` | rows of the evidence the Frontier's learning reads per page (0 on a site whose URLs have no query, and with `frontier.learning` off) | no cap (ratchet) | 0.429 | B1 | must not grow | `just counts` | implementer done, merge gate |
 | `F2.admission_evidence` | rows of the evidence the Frontier's admissions read and write per page: offsets, cursor links and the path patterns' streaks (0 with `frontier.learning` off) | no cap (ratchet) | 0.924 | B1 | must not grow | `just counts` | implementer done, merge gate |

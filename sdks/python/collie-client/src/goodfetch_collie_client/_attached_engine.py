@@ -4,8 +4,10 @@ Started from its executable with exactly the program's environment map, in a
 session of its own so a terminal's Ctrl+C reaches only the host, its stdio
 the Connection's transport. Its stderr is piped, never inherited: a daemon
 thread passes each line to the `goodfetch.client` logger at warning and keeps
-the last 64 KiB for the error its unexpected exit raises. TypeScript's
-`attached-engine.ts` is its twin.
+the last 64 KiB for the error its unexpected exit raises. Where the running
+loop starts no subprocess, asyncio's selector loop on Windows, it starts
+with `subprocess.Popen` on a worker thread, its pipes bridged to the loop
+through threads (ADR 0081). TypeScript's `attached-engine.ts` is its twin.
 """
 
 from __future__ import annotations
@@ -23,6 +25,7 @@ import anyio.lowlevel
 import anyio.to_thread
 from anyio.streams.stapled import StapledByteStream
 
+from goodfetch_collie_client._threaded_process import ThreadedProcess
 from goodfetch_collie_client.generated.connection import ATTACHED_ENGINE_COMMAND
 from goodfetch_collie_client.generated.errors import EngineNotFoundError
 from goodfetch_collie_client.host_logging import CLIENT_LOGGER
@@ -82,14 +85,19 @@ class AttachedEngine:
 
         if not await is_executable_file(path):
             raise not_found()
+        command = [path, ATTACHED_ENGINE_COMMAND]
         read_end, write_end = os.pipe()
         try:
-            process = await anyio.open_process(
-                [path, ATTACHED_ENGINE_COMMAND],
-                stderr=write_end,
-                env=dict(env),
-                start_new_session=True,
-            )
+            try:
+                process: Process = await anyio.open_process(
+                    command, stderr=write_end, env=dict(env), start_new_session=True
+                )
+            except NotImplementedError:
+                # The running loop starts no subprocess: asyncio's selector
+                # loop, as on Windows (ADR 0081).
+                process = await ThreadedProcess.start(
+                    command, stderr=write_end, env=env, start_new_session=True
+                )
         except OSError as cause:
             os.close(read_end)
             raise not_found() from cause

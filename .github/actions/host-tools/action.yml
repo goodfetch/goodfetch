@@ -34,10 +34,6 @@ inputs:
     description: "A set of ci/runtimes.toml: `pre-merge`, `release-linux-x64-gnu`, `release-linux`, `release-other` or `nightly`."
     required: false
     default: pre-merge
-  architecture:
-    description: "`x64` on Apple silicon runs the toolchains and runtimes as x86-64 under Rosetta 2 (the `macos-x64 (Rosetta 2)` cell); otherwise the runner's own."
-    required: false
-    default: native
 
 runs:
   using: composite
@@ -78,7 +74,6 @@ runs:
       shell: bash
       env:
         TARGET: ${{ inputs.target }}
-        ARCHITECTURE: ${{ inputs.architecture }}
       run: ci/host/rust.sh
 
     # The static musl build's toolchain (ADR 0024's note of 2026-11-06):
@@ -119,7 +114,6 @@ runs:
       uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
       with:
         node-version: ${{ steps.runtimes.outputs.node-26 }}
-        architecture: ${{ inputs.architecture == 'x64' && 'x64' || '' }}
     - name: Record Node 26
       if: steps.runtimes.outputs.node-26 != ''
       shell: bash
@@ -130,7 +124,6 @@ runs:
       uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
       with:
         node-version: ${{ steps.runtimes.outputs.node-24 }}
-        architecture: ${{ inputs.architecture == 'x64' && 'x64' || '' }}
     - name: Record Node 24
       if: steps.runtimes.outputs.node-24 != ''
       shell: bash
@@ -153,5 +146,4 @@ runs:
       shell: bash
       env:
         RUNTIMES: ${{ inputs.runtimes }}
-        ARCHITECTURE: ${{ inputs.architecture }}
       run: ci/host/fetch.sh

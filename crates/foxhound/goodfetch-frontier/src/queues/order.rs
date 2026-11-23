@@ -10,7 +10,7 @@
 //! logarithm of the keys with a request waiting, plus the keys whose wait
 //! ended since the last admission, and never a walk of every key (#2197).
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 
 use goodfetch_engine::settings::Resolved;
 use goodfetch_protocol::foxhound::crawl::CRAWL_DOMAIN_ORDER;
@@ -55,14 +55,16 @@ pub(super) enum Standing {
     Full,
 }
 
-/// A key's place in the turns.
+/// A key's turn, which its domain holds while it takes one (#3488).
 #[derive(Clone, Copy, Debug)]
-struct Turn {
+pub(super) struct Turn {
     /// Its number: a later turn has a higher one.
     number: u64,
     rank: usize,
     /// Where it is indexed: among the ready keys, the keys asleep until a
-    /// moment, or neither while it is full.
+    /// moment, or neither while it is full. A turn asleep may since be
+    /// among the ready keys, its wait over; one in neither index, though
+    /// ready or asleep, was taken by a free slot.
     standing: Standing,
 }
 
@@ -71,14 +73,19 @@ struct Turn {
 ///
 /// Its readings never go back, as a monotonic clock's: a choice at one
 /// moment takes every key whose wait ended by then among the ready ones.
+///
+/// Each key's [`Turn`] is held by its domain, which the caller hands in,
+/// so no step looks a key up by its name; the indexes order by numbers
+/// alone, a turn's number being its own, and hold the key's name, which
+/// moves between them as its standing changes (#3488).
 #[derive(Debug)]
 pub(super) struct Turns {
     order: DomainOrder,
     /// The next turn's number; a later turn has a higher one.
     next: u64,
-    keys: BTreeMap<String, Turn>,
-    ready: BTreeSet<(usize, u64, String)>,
-    asleep: BTreeSet<(Instant, u64, String)>,
+    ready: BTreeMap<(usize, u64), Box<str>>,
+    /// The keys asleep, each with its rank.
+    asleep: BTreeMap<(Instant, u64), (usize, Box<str>)>,
 }
 
 impl Turns {
@@ -87,118 +94,134 @@ impl Turns {
         Self {
             order,
             next: 0,
-            keys: BTreeMap::new(),
-            ready: BTreeSet::new(),
-            asleep: BTreeSet::new(),
+            ready: BTreeMap::new(),
+            asleep: BTreeMap::new(),
         }
     }
 
-    /// `key` takes a turn at the back, with `in_flight` requests in flight
-    /// and ready as `standing` says.
-    pub(super) fn join(&mut self, key: &str, in_flight: usize, standing: Standing) {
-        let turn = Turn {
+    /// `key`, whose turn `turn` holds, takes a turn at the back, with
+    /// `in_flight` requests in flight and ready as `standing` says.
+    pub(super) fn join(
+        &mut self,
+        turn: &mut Option<Turn>,
+        key: &str,
+        in_flight: usize,
+        standing: Standing,
+    ) {
+        let name = turn.take().and_then(|before| self.unindex(before));
+        let joined = Turn {
             number: self.next,
             rank: self.order.rank(in_flight),
             standing,
         };
         self.next += 1;
-        self.leave(key);
-        self.index(key, turn);
-        self.keys.insert(key.to_owned(), turn);
+        self.index(joined, name.unwrap_or_else(|| Box::from(key)));
+        *turn = Some(joined);
     }
 
-    /// `key` takes no more turns.
-    pub(super) fn leave(&mut self, key: &str) {
-        if let Some(turn) = self.keys.remove(key) {
-            self.unindex(key, turn);
+    /// The key whose turn `turn` holds takes no more turns.
+    pub(super) fn leave(&mut self, turn: &mut Option<Turn>) {
+        if let Some(before) = turn.take() {
+            self.unindex(before);
         }
     }
 
-    /// `key` keeps its turn, now with `in_flight` requests in flight and
-    /// ready as `standing` says; nothing when it takes no turn.
-    pub(super) fn stand(&mut self, key: &str, in_flight: usize, standing: Standing) {
-        let Some(turn) = self.keys.get(key).copied() else {
+    /// `key`, whose turn `turn` holds, keeps its turn, now with
+    /// `in_flight` requests in flight and ready as `standing` says;
+    /// nothing when it takes no turn or a free slot took it.
+    pub(super) fn stand(
+        &mut self,
+        turn: &mut Option<Turn>,
+        key: &str,
+        in_flight: usize,
+        standing: Standing,
+    ) {
+        let Some(before) = *turn else {
             return;
         };
-        self.unindex(key, turn);
-        let turn = Turn {
+        let stood = Turn {
             rank: self.order.rank(in_flight),
             standing,
-            ..turn
+            ..before
         };
-        self.index(key, turn);
-        self.keys.insert(key.to_owned(), turn);
+        if (stood.rank, stood.standing) == (before.rank, before.standing) {
+            return;
+        }
+        let name = match before.standing {
+            Standing::Full => Box::from(key),
+            Standing::Ready | Standing::From(_) => match self.unindex(before) {
+                Some(name) => name,
+                None => return,
+            },
+        };
+        self.index(stood, name);
+        *turn = Some(stood);
     }
 
     /// The key a free slot goes to at `now`, if one is ready.
     pub(super) fn next(&self, now: Instant) -> Option<&str> {
         let ready = self
             .ready
-            .first()
-            .map(|(rank, turn, key)| (*rank, *turn, key.as_str()));
+            .first_key_value()
+            .map(|((rank, turn), key)| (*rank, *turn, &**key));
         let woken = self
             .asleep
             .iter()
-            .take_while(|(from, _, _)| *from <= now)
-            .filter_map(|(_, turn, key)| {
-                let rank = self.keys.get(key)?.rank;
-                Some((rank, *turn, key.as_str()))
-            })
+            .take_while(|((from, _), _)| *from <= now)
+            .map(|((_, turn), (rank, key))| (*rank, *turn, &**key))
             .min();
         ready.into_iter().chain(woken).min().map(|(_, _, key)| key)
     }
 
     /// Takes the key a free slot goes to at `now` out of the turns, if one
-    /// is ready: it takes a turn again at the back if it still has a
-    /// request waiting.
+    /// is ready. The caller then has it take a turn again at the back,
+    /// if it still has a request waiting, or leave.
     pub(super) fn take(&mut self, now: Instant) -> Option<String> {
-        while let Some((from, _, _)) = self.asleep.first()
-            && *from <= now
+        while let Some(entry) = self.asleep.first_entry()
+            && entry.key().0 <= now
         {
-            let Some((_, turn, key)) = self.asleep.pop_first() else {
-                break;
-            };
-            if let Some(kept) = self.keys.get_mut(&key) {
-                kept.standing = Standing::Ready;
-                self.ready.insert((kept.rank, turn, key));
-            }
+            let ((_, turn), (rank, key)) = entry.remove_entry();
+            self.ready.insert((rank, turn), key);
         }
-        let (_, _, key) = self.ready.pop_first()?;
-        self.keys.remove(&key);
-        Some(key)
+        self.ready.pop_first().map(|(_, key)| key.into_string())
     }
 
     /// The first moment from `now` a key is ready; `None` while every key
     /// is full or none takes a turn.
     pub(super) fn ready_at(&self, now: Instant) -> Option<Instant> {
         if self.ready.is_empty() {
-            self.asleep.first().map(|(from, _, _)| (*from).max(now))
+            self.asleep
+                .first_key_value()
+                .map(|((from, _), _)| (*from).max(now))
         } else {
             Some(now)
         }
     }
 
-    fn index(&mut self, key: &str, turn: Turn) {
+    /// Indexes `turn` under its standing, holding `key`'s name there.
+    fn index(&mut self, turn: Turn, key: Box<str>) {
         match turn.standing {
             Standing::Ready => {
-                self.ready.insert((turn.rank, turn.number, key.to_owned()));
+                self.ready.insert((turn.rank, turn.number), key);
             }
             Standing::From(from) => {
-                self.asleep.insert((from, turn.number, key.to_owned()));
+                self.asleep.insert((from, turn.number), (turn.rank, key));
             }
             Standing::Full => {}
         }
     }
 
-    fn unindex(&mut self, key: &str, turn: Turn) {
+    /// Takes `turn` out of its index, answering the name it held there;
+    /// `None` when it is full or a free slot took it.
+    fn unindex(&mut self, turn: Turn) -> Option<Box<str>> {
         match turn.standing {
-            Standing::Ready => {
-                self.ready.remove(&(turn.rank, turn.number, key.to_owned()));
-            }
-            Standing::From(from) => {
-                self.asleep.remove(&(from, turn.number, key.to_owned()));
-            }
-            Standing::Full => {}
+            Standing::Ready => self.ready.remove(&(turn.rank, turn.number)),
+            Standing::From(from) => self
+                .asleep
+                .remove(&(from, turn.number))
+                .map(|(_, key)| key)
+                .or_else(|| self.ready.remove(&(turn.rank, turn.number))),
+            Standing::Full => None,
         }
     }
 }

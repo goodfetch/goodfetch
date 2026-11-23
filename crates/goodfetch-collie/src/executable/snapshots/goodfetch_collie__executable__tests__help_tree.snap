@@ -592,7 +592,7 @@ Commands:
   progress     Reads a Run's progress: what it does and why it waits. Without `after`, it answers at once; given `after`, the position of the value the reader last read, it waits for a change and answers the latest value, so values in between are coalesced. The value whose `last` is true ends the sequence: the Run ended, and its `lifecycle` and `stop_reason` say how, or no engine works it (`writer: none`) until a start with its Run ID resumes it. A Run another engine works is read through that engine, the owner the Run index names, and one no engine works from its committed state; a read never takes the Run's writer lock. A Run ID the Run index does not list fails with `run_not_found`
   report       Reads a Run's report: at once for a Run that ended, and at its end for a live one, which the read never ends. A Run another engine works is read through that engine, and one no engine works from its committed state, never taking its writer lock. A Run that has no live writer and has not ended fails with `run_interrupted`, whose `fix` names a start with its Run ID, and a Run ID the Run index does not list with `run_not_found`
   list         Lists the Runs of the Run index of the user and major, of either Product (ADRs 0031 and 0098): each row with its tags, Lifecycle, Verdict, Completeness, start and end, the engine that owns it while it is live, and its presence, a Run whose state is gone `missing` and one discarded on purpose `erased`, never left out. The engine filters by tags, the Recipe, Schedule, occurrence and trigger its reserved `goodfetch.` tags name, Product, each axis, start and end time, and a text found in its Run ID or tags, and sorts by the key given; Watch runs are left out unless `watch_runs` asks for them (ADR 0036)
-  checkpoint   Writes a Checkpoint of a live Run now, through SQLite's online backup, where `location` says or where the engine keeps the Run's Checkpoints, and answers it once its file is complete, with its size, digest, run epoch and journal position. A Checkpoint the engine cannot write fails with `file_write_failed` and leaves no file
+  checkpoint   Writes a Checkpoint of a live Run now, through SQLite's online backup, where the engine keeps the Run's Checkpoints, or where `location` says, a path on the engine's machine that only the catalog's caller gives, an SDK's `checkpoint()` taking none, and answers it once its file is complete, with its size, digest, run epoch and journal position. A Checkpoint the engine cannot write fails with `file_write_failed` and leaves no file
   pause        Pauses a live Run: checkpoints it, then stops it at its next safe point, `stopped` with the stop reason `pause` and resumable by its Run ID with `run.resume`, after a restart too. Answers its Run report, which names the Checkpoint
   migrate      Migrates a live Run: checkpoints it where `location` says or where the engine keeps its Checkpoints, then stops it at its next safe point, `stopped` with the stop reason `migrate`, to be resumed from that Checkpoint on another machine. Answers its Run report, which names the Checkpoint
   resume       Resumes an interrupted Run from its committed state, its run file on this machine or the Checkpoint `checkpoint` names: it takes the Run's writer lock and the next run epoch, so every write of an earlier writer is refused, and redoes the work since that state; its recorded Clean-up rules digest is kept. A Run this engine runs already fails with `run_in_use`, as one another engine writes does; a finished one is answered as it ended, `ended`. A Run bound to another machine fails with `session_bound_to_machine`, a Checkpoint of a format version this engine cannot read with `format_version_unsupported`, and a Checkpoint behind the Run's run file on this machine with `checkpoint_behind`, or with the error that file's read gives when it cannot be read, unless `rollback` replaces that file, as the Audit log records
@@ -780,7 +780,7 @@ Options:
   -h, --help                         Print help
 
 $ goodfetch-collie run checkpoint --help
-Writes a Checkpoint of a live Run now, through SQLite's online backup, where `location` says or where the engine keeps the Run's Checkpoints, and answers it once its file is complete, with its size, digest, run epoch and journal position. A Checkpoint the engine cannot write fails with `file_write_failed` and leaves no file
+Writes a Checkpoint of a live Run now, through SQLite's online backup, where the engine keeps the Run's Checkpoints, or where `location` says, a path on the engine's machine that only the catalog's caller gives, an SDK's `checkpoint()` taking none, and answers it once its file is complete, with its size, digest, run epoch and journal position. A Checkpoint the engine cannot write fails with `file_write_failed` and leaves no file
 
 Usage: goodfetch-collie run checkpoint [OPTIONS] <RUN_ID>
 
@@ -788,7 +788,7 @@ Arguments:
   <RUN_ID>  The Run's ID
 
 Options:
-      --location <LOCATION>  Where to write the Checkpoint, a path on the engine's machine; by default where the engine keeps the Run's Checkpoints, its own folder
+      --location <LOCATION>  Where to write the Checkpoint, a path on the engine's machine; by default where the engine keeps the Run's Checkpoints, its own folder. The catalog's caller alone gives it, such as Goodfetch Cloud: an SDK's `checkpoint()` takes no path, which would break on a Daemon or Goodfetch Cloud (ADR 0102)
       --json                 Prints the result as JSON
       --attached             Runs the call on an Attached engine in this process, even when a Daemon runs
       --daemon               Runs the call on the Daemon of the major, starting it if none runs; its refusal ends the command
@@ -820,7 +820,7 @@ Arguments:
   <RUN_ID>  The Run's ID
 
 Options:
-      --location <LOCATION>  Where to write the Checkpoint, a path on the engine's machine; by default where the engine keeps the Run's Checkpoints, its own folder
+      --location <LOCATION>  Where to write the Checkpoint the Run is resumed from, a path on the engine's machine; by default where the engine keeps the Run's Checkpoints, its own folder
       --json                 Prints the result as JSON
       --attached             Runs the call on an Attached engine in this process, even when a Daemon runs
       --daemon               Runs the call on the Daemon of the major, starting it if none runs; its refusal ends the command

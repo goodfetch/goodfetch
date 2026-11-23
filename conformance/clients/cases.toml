@@ -26,7 +26,7 @@
 
 [suite]
 name = "clients"
-version = "61"
+version = "62"
 
 [[capability]]
 name = "lifecycle"
@@ -185,40 +185,48 @@ modes = ["attached", "linked"]
 
 # A program's first pages (issue 2400): opened, navigated, acted on through
 # locators, read and closed, on the Proving ground: attached through
-# Collie's executable in TypeScript, linked in Rust (issue 2803), each
-# surface taking the modes it has. The Python SDK joins with its part of
-# issues 1236 and 1237.
+# Collie's executable in TypeScript and Python (issue 3395, three ways),
+# linked in Rust (issue 2803), each surface taking the modes it has. A
+# program's own `goto` is outside Politeness (ADR 0086): it follows a
+# redirect whose `Retry-After` asks for an hour at once, and one to a file
+# the browser downloads answers no response (ADRs 0118, 0119).
 [[capability]]
 name = "page"
 
 [[capability.case]]
 id = "page-form-program"
 covers = ["story:11-77"]
-surfaces = ["sdk-typescript", "sdk-rust"]
+surfaces = ["sdk-typescript", "sdk-python", "sdk-rust"]
 modes = ["attached", "linked"]
 
 [[capability.case]]
 id = "goto-404-returns-the-response"
 covers = ["story:11-84"]
-surfaces = ["sdk-typescript", "sdk-rust"]
+surfaces = ["sdk-typescript", "sdk-python", "sdk-rust"]
 modes = ["attached", "linked"]
 
 [[capability.case]]
 id = "second-new-page-in-the-default-session"
 covers = ["story:11-77"]
-surfaces = ["sdk-typescript", "sdk-rust"]
+surfaces = ["sdk-typescript", "sdk-python", "sdk-rust"]
 modes = ["attached", "linked"]
 
 [[capability.case]]
 id = "page-read-fields"
 covers = ["story:11-77", "operation:page.read"]
-surfaces = ["sdk-typescript", "sdk-rust"]
+surfaces = ["sdk-typescript", "sdk-python", "sdk-rust"]
 modes = ["attached", "linked"]
 
 [[capability.case]]
 id = "closed-page-raises-closed"
 covers = ["story:11-77"]
-surfaces = ["sdk-typescript", "sdk-rust"]
+surfaces = ["sdk-typescript", "sdk-python", "sdk-rust"]
+modes = ["attached", "linked"]
+
+[[capability.case]]
+id = "goto-skips-a-redirects-retry-after-and-answers-none-for-a-file"
+covers = ["story:11-84", "operation:page.goto"]
+surfaces = ["sdk-typescript", "sdk-python", "sdk-rust"]
 modes = ["attached", "linked"]
 
 # `page.request` through the page's Session (issue 1303, ADRs 0085 and

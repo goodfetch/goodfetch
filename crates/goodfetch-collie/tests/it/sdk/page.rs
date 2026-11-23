@@ -192,6 +192,55 @@ fn goto_answers_the_response_of_a_404() {
     });
 }
 
+/// The `goto-skips-a-redirects-retry-after-and-answers-none-for-a-file`
+/// client conformance case, linked: a program's own `goto` is outside
+/// Politeness, so it follows a 302 whose `Retry-After` asks for an hour, far
+/// past `timeout.navigation`, at once (ADRs 0086, 0118); a `goto` to a PDF
+/// answers no response and the page keeps its document, which a reload
+/// loads again (ADR 0119).
+/// Covers: story:11-84, operation:page.goto
+#[test]
+fn goto_skips_a_redirects_retry_after_and_answers_none_for_a_file() {
+    let _case = ClientCaseRun::start(
+        case_logs().as_deref(),
+        "goto-skips-a-redirects-retry-after-and-answers-none-for-a-file",
+        RustMode::Linked,
+    )
+    .unwrap();
+    let env = TestEnv::new();
+    let proving_ground = proving_ground(&env);
+    let redirect = proving_ground.url(FETCH_EDGE, "/retry-after/302/seconds/long");
+    let target = proving_ground.url(FETCH_EDGE, "/target");
+    let document = proving_ground.start_url("catalog/2").unwrap();
+    let file = url::Url::parse(&proving_ground.start_url("files/2").unwrap())
+        .unwrap()
+        .join("/files/report.pdf")
+        .unwrap()
+        .to_string();
+    real_time_runtime().block_on(async {
+        let collie = Collie::connect(options(&env)).await.unwrap();
+        let run = collie.start().await.unwrap();
+        let page = run.new_page().await.unwrap();
+
+        let followed = page.goto(&redirect).await.unwrap();
+        page.goto(&document).await.unwrap();
+        let downloaded = page.goto(&file).await.unwrap();
+        let reloaded = page.reload().await.unwrap();
+        run.finish().await.unwrap();
+        collie.close().await.unwrap();
+
+        let head = |response: Option<Response>| {
+            response.map(|response| (response.status(), response.url().to_owned()))
+        };
+        assert_eq!(head(followed), Some((200, target)));
+        assert!(
+            downloaded.is_none(),
+            "a file the browser downloads answers no response"
+        );
+        assert_eq!(head(reloaded), Some((200, document)));
+    });
+}
+
 /// The `second-new-page-in-the-default-session` client conformance case,
 /// linked: a Run's second page shares the first's Session, its storage
 /// included, and a page of a new Session reads none of it.

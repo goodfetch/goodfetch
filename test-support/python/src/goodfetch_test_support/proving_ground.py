@@ -10,11 +10,12 @@ which `xtask codegen` writes from the Proving ground's own interface.
 
 import json
 import urllib.request
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Self, cast
 
+from goodfetch_test_support.generated.result_document import OracleAnswer
 from goodfetch_test_support.schemas import shared_fixture
 
 
@@ -111,6 +112,23 @@ class ProvingGround:
         """
         with urllib.request.urlopen(self.fixtures.connections) as answer:
             return cast("dict[str, object]", json.load(answer))
+
+    def judge(self, task: str, records: Sequence[Mapping[str, object]]) -> OracleAnswer:
+        """Its oracle's answer to a tool's successful result for `task`; it blocks.
+
+        Raises:
+            urllib.error.HTTPError: The oracle refused the result.
+        """
+        request = urllib.request.Request(
+            f"http://{self.address}{proving_ground_routes().oracle}",
+            data=json.dumps(
+                {"task": task, "status": "success", "records": list(records)}
+            ).encode(),
+            headers={"content-type": "application/json"},
+            method="POST",
+        )
+        with urllib.request.urlopen(request) as answer:
+            return OracleAnswer.model_validate(json.load(answer))
 
 
 @dataclass(frozen=True)

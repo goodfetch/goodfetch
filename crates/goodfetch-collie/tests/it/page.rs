@@ -335,6 +335,69 @@ fn a_page_goto_charges_one_request_to_its_runs_usage() {
     );
 }
 
+/// With a `requests` Limit of two on the install, a program's third
+/// `page.goto` is refused `limit_reached` and its Run stops on that Limit,
+/// the reason a crawl's Run stops with when its requests reach the Limit.
+///
+/// Covers: operation:page.goto, error:limit_reached
+#[test]
+fn a_requests_limit_refuses_the_page_goto_past_it_and_stops_the_run() {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let cache = browser_cache(&env).unwrap();
+    let mut engine = started_after(
+        &env,
+        &cache,
+        &proving_ground,
+        "capped",
+        &Map::new(),
+        |_| {},
+        &[(
+            "usage.set",
+            json!({ "scope": "install", "usage_kind": "requests", "amount": 2 }),
+        )],
+    );
+    let url = proving_ground.url("catalog.test", "/catalog/1");
+
+    let page = opened(&engine.ask(2, "run.new_page", &json!({ "run_id": "capped" })));
+    let went: Vec<Value> = (3..=5)
+        .map(|id| {
+            engine.ask(
+                id,
+                "page.goto",
+                &json!({ "page_id": page.page_id, "url": url }),
+            )
+        })
+        .collect();
+    let finished = engine.ask(6, "run.finish", &json!({ "run_id": "capped" }));
+    let _ = engine.finish();
+
+    let report = &finished["result"];
+    assert_eq!(
+        (
+            &went[0]["result"]["response"]["status"],
+            &went[1]["result"]["response"]["status"],
+            &went[2]["error"]["data"]["code"],
+            &went[2]["error"]["data"]["usage_kind"],
+            &report["stop_reason"]["kind"],
+            &report["stop_reason"]["usage_kind"],
+            &report["stop_reason"]["scope"]["kind"],
+            &report["usage"]["requests"],
+        ),
+        (
+            &json!(200),
+            &json!(200),
+            &json!("limit_reached"),
+            &json!("requests"),
+            &json!("limit"),
+            &json!("requests"),
+            &json!("install"),
+            &json!(2),
+        ),
+        "{went:?} {finished}"
+    );
+}
+
 /// A Session's page opens on every OS over the browser's debugging pipe,
 /// with no debugging port: Chromium writes `DevToolsActivePort` into its data
 /// folder once its debugging server listens on a port, as a Borrowed

@@ -14,6 +14,8 @@ use serde_json::Value;
 
 use crate::catalog::{Authority, Entries, ProtocolVersion, Setting, ValueKind};
 
+pub mod store;
+
 const ARRIVED_IN: ProtocolVersion = ProtocolVersion { major: 0, minor: 1 };
 
 /// `politeness.sharing`'s values, in the catalog's order.
@@ -138,6 +140,7 @@ pub const ENTRIES: Entries = Entries {
         POLITENESS_DELEGATION,
         POLITENESS_PROXY_CONCURRENCY,
         POLITENESS_PROXY_RATE,
+        store::POLITENESS_STORE,
     ],
     hook_stages: &[],
     shared_type_values: &[],

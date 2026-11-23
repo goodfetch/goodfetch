@@ -1821,6 +1821,7 @@ const SPELLING: Spelling = {
       rate: "rate",
     }],
     sharing: "sharing",
+    store: "store",
   }],
   proxy: ["proxy", {
     bypass: "bypass",

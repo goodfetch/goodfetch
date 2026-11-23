@@ -9988,6 +9988,17 @@
       ]
     },
     {
+      "id": "setting:politeness.store",
+      "kind": "setting",
+      "area": 3,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "setting:provenance.log",
       "kind": "setting",
       "area": 6,

@@ -189,7 +189,9 @@ pub use no_exec::NoExec;
 pub use observation::{
     Epoch, Fault, LOG_FILE, ObservationLog, Operation, REDACTED, Record, Redacted, ValueDigest,
 };
-pub use player::{ATTACHED_RECORD, ATTACHED_SCRIPT, Ending, PlayError, play, play_relinking};
+pub use player::{
+    ATTACHED_ENVIRONMENT, ATTACHED_RECORD, ATTACHED_SCRIPT, Ending, PlayError, play, play_relinking,
+};
 pub use process::{
     Process, ProcessTracker, ProcessesAlive, REPORT_DEADLINE, Reported, ReportedAddressError,
     reported_address, reported_address_within,

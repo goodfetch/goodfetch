@@ -8,7 +8,12 @@
 //! ID with `_` for `-`, and ends with the mode, as the test's own name or its
 //! rstest case's (`client_conformance::hello_refused::refuses::case_1_attached`).
 //! The `cli` surface's tests are those of each Product's executable crate,
-//! read through the Feature scanner, which starts no process. The
+//! read through the Feature scanner, which starts no process. A case runs
+//! once, on its Product's executable (ADR 0094): Collie's, unless the case
+//! says `product = "foxhound"`. A test of Foxhound's crate may carry a
+//! Collie case too, since Foxhound's executable contains Collie's (ADR
+//! 0084), but only one of Collie's implements it; a test of Collie's crate
+//! carrying a Foxhound case is a finding. The
 //! `sdk-typescript` surface's tests are the Vitest tests of the TypeScript
 //! SDK packages (`sdks/typescript/`), read from Vitest's listing with
 //! `--listings`, in the Pre-merge suite (`just clients-tests`): each carries
@@ -43,12 +48,14 @@ use crate::check::{self, Finding};
 use crate::environment::Environment;
 use crate::features;
 use crate::output;
-use crate::products;
+use crate::products::{self, Product};
 
 #[derive(clap::Subcommand)]
 pub(crate) enum Command {
     /// Fails on a case with no test on a surface it lists in one of that
-    /// surface's modes, a test carrying an unknown case, a case on a surface
+    /// surface's modes (on the `cli` surface, no test of its Product's
+    /// executable crate), a test carrying an unknown case, a test of
+    /// Collie's executable crate carrying a Foxhound case, a case on a surface
     /// or in a mode the case does not list, or no mode, two cases with one
     /// ID, a case whose modes are on no surface it lists, a case giving
     /// modes of their own to a surface it does not list, a Rust test's
@@ -66,8 +73,8 @@ pub(crate) enum Command {
 
 /// The Client conformance case list.
 const CASE_LIST: &str = "conformance/clients/cases.toml";
-/// The crates whose tests implement the `cli` surface's cases: each
-/// Product's executable crate (ADR 0094).
+/// The crates whose tests carry the `cli` surface's cases: each Product's
+/// executable crate, each implementing its own Product's (ADR 0094).
 const EXECUTABLE_CRATES: [&str; 2] = products::PACKAGES;
 /// The module in a test's path that the case's module follows.
 const CASES_MODULE: &str = "client_conformance";
@@ -205,6 +212,16 @@ struct Case {
     /// for a case a platform lacks; every platform otherwise.
     #[serde(default)]
     platforms: Option<Vec<String>>,
+    /// The Product whose executable carries it on the `cli` surface:
+    /// Collie's unless the case needs what only Foxhound's has, as
+    /// `product = "foxhound"` (ADR 0094).
+    #[serde(default = "collie")]
+    product: Product,
+}
+
+/// A case's Product when it names none.
+fn collie() -> Product {
+    Product::Collie
 }
 
 /// The modes a case exists in, for a capability that exists in some only.
@@ -344,7 +361,7 @@ fn check(cargo: &OsStr, root: &Path, listings: Option<&Path>) -> Result<Verdict>
 /// Each case and mode a runner's tests run, by surface; `None` for an SDK
 /// whose listing was not given.
 struct Tested<'a> {
-    cli: BTreeSet<(&'a str, Mode)>,
+    cli: ByProduct<'a>,
     rust: BTreeSet<(&'a str, Mode)>,
     typescript: Option<BTreeSet<(&'a str, Mode)>>,
     python: Option<BTreeSet<(&'a str, Mode)>>,
@@ -377,10 +394,10 @@ fn check_case(
         }
         let (implemented, carrier) = match (surface, &tested.typescript, &tested.python) {
             (Surface::Cli, _, _) => (
-                &tested.cli,
+                tested.cli.of(case.product),
                 format!(
-                    "no test of {} carries `{CASES_MODULE}::{}`",
-                    EXECUTABLE_CRATES.join(" or "),
+                    "no test of {}, the executable crate of the case's Product, carries `{CASES_MODULE}::{}`",
+                    case.product.executable().package,
                     case.module()
                 ),
             ),
@@ -454,8 +471,32 @@ fn read(root: &Path) -> Result<Result<Option<Vec<Case>>, String>> {
 /// Each case and mode the Rust tests the Feature scanner reads implement,
 /// on the `cli` surface and on `sdk-rust`.
 struct Scanned<'a> {
-    cli: BTreeSet<(&'a str, Mode)>,
+    cli: ByProduct<'a>,
     rust: BTreeSet<(&'a str, Mode)>,
+}
+
+/// Each case and mode the tests of each Product's executable crate
+/// implement on the `cli` surface.
+#[derive(Default)]
+struct ByProduct<'a> {
+    collie: BTreeSet<(&'a str, Mode)>,
+    foxhound: BTreeSet<(&'a str, Mode)>,
+}
+
+impl<'a> ByProduct<'a> {
+    fn of(&self, product: Product) -> &BTreeSet<(&'a str, Mode)> {
+        match product {
+            Product::Collie => &self.collie,
+            Product::Foxhound => &self.foxhound,
+        }
+    }
+
+    fn of_mut(&mut self, product: Product) -> &mut BTreeSet<(&'a str, Mode)> {
+        match product {
+            Product::Collie => &mut self.collie,
+            Product::Foxhound => &mut self.foxhound,
+        }
+    }
 }
 
 /// Each case and mode a test of the executable crates implements on the
@@ -474,7 +515,7 @@ fn scanned_tests<'a>(
     packages.sort_unstable();
     packages.dedup();
     let mut scanned = Scanned {
-        cli: BTreeSet::new(),
+        cli: ByProduct::default(),
         rust: BTreeSet::new(),
     };
     for test in features::tests(cargo, root, Some(packages.as_slice()))? {
@@ -487,17 +528,30 @@ fn scanned_tests<'a>(
             ..
         } = test;
         let subject = format!("{binary} {name}");
-        if EXECUTABLE_CRATES.contains(&package.as_str())
+        if let Some(product) = Product::of_package(&package)
             && let Some(carried) = cli_carried(&name, by_module, &subject, findings)
         {
-            implement(
-                carried,
-                Surface::Cli,
-                &gates,
-                &subject,
-                findings,
-                &mut scanned.cli,
-            );
+            let (case, _) = carried;
+            if product.contains(case.product) {
+                implement(
+                    carried,
+                    Surface::Cli,
+                    &gates,
+                    &subject,
+                    findings,
+                    scanned.cli.of_mut(product),
+                );
+            } else {
+                findings.push(Finding::new(
+                    "other-product",
+                    &subject,
+                    format!(
+                        "the case's Product is `{}`, whose executable this crate's does not contain; move the test to {}",
+                        case.product.key(),
+                        case.product.executable().package
+                    ),
+                ));
+            }
         }
         if RUST_SDK_CRATES.contains(&package.as_str()) {
             for run in case_runs(body) {

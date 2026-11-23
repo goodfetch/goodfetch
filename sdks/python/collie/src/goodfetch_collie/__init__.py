@@ -2,7 +2,10 @@
 
 Where the main types live (ADR 0117): this package, `goodfetch_collie`,
 holds `AsyncCollie` and the sync `Collie`; the Collie client package,
-`goodfetch_collie_client`, holds `AsyncRun` and `Run`, the results, the
+`goodfetch_collie_client`, holds `AsyncRun` and `Run`, the view of a Run
+another program started (`AsyncRunView` and `RunView`), a handler-less
+start's code-free targets (`ExtractTarget`, `AgentTarget`,
+`PlanReplayTarget`) and its `Recording`, the results, the
 errors (every group's class and every class of Collie's Error codes), a
 listener's `Subscription`, a sequence's iterators (`AsyncSequence`
 and `Sequence`), a Run's Key-value store (`AsyncKeyValueStore` and
@@ -136,6 +139,7 @@ from goodfetch_collie_client.generated.errors import (
     RunNotFoundError,
     RunNotOwnedError,
     RunStateUnavailableError,
+    RunTargetUnbuiltError,
     SampleRefusedError,
     SecretDomainNotAllowedError,
     SecretInputRefusedError,
@@ -157,6 +161,8 @@ from goodfetch_collie_client.generated.errors import (
 from goodfetch_collie_client.generated.models import (
     ExplainedSetting,
     Product,
+    Recording,
+    RecordingMode,
     RunOrigin,
     RunProgress,
     RunReport,
@@ -174,12 +180,19 @@ from goodfetch_collie_client.generated.settings import (
 )
 from goodfetch_collie_client.goodfetch_error import GoodfetchError
 from goodfetch_collie_client.handle import Subscription
+from goodfetch_collie_client.handlerless import (
+    AgentTarget,
+    CatalogTarget,
+    ExtractTarget,
+    PlanReplayTarget,
+)
 from goodfetch_collie_client.json_values import JSONObject, JSONValue
 from goodfetch_collie_client.key_value_store import AsyncKeyValueStore, KeyValueStore
 from goodfetch_collie_client.limits import Limits, Money, Prices
 from goodfetch_collie_client.markers import ExperimentalWarning
 from goodfetch_collie_client.response import AsyncResponse, Response
 from goodfetch_collie_client.run import AsyncRun, Run
+from goodfetch_collie_client.run_view import AsyncRunView, RunView
 from goodfetch_collie_client.schema import JSONSchema
 from goodfetch_collie_client.sequence import AsyncSequence, Sequence
 
@@ -188,6 +201,7 @@ from goodfetch_collie.collie import AsyncCollie, Collie, Connecting
 __all__ = [
     "AIWorkResult",
     "AddressFamilyUnavailableError",
+    "AgentTarget",
     "ArtifactDownloadFailedError",
     "ArtifactUnavailableOfflineError",
     "AsyncCollie",
@@ -195,6 +209,7 @@ __all__ = [
     "AsyncKeyValueStore",
     "AsyncResponse",
     "AsyncRun",
+    "AsyncRunView",
     "AsyncSequence",
     "BlockedError",
     "BodyNotFoundError",
@@ -211,6 +226,7 @@ __all__ = [
     "CDPURLUnreachableError",
     "CallCancelledError",
     "CapabilityUnavailableError",
+    "CatalogTarget",
     "CertificateChangedError",
     "CertificateInvalidError",
     "ChallengeUnsolvedError",
@@ -244,6 +260,7 @@ __all__ = [
     "ExecutableBlockedBySmartAppControlError",
     "ExperimentalWarning",
     "ExplainedSetting",
+    "ExtractTarget",
     "FileWriteFailedError",
     "Finished",
     "FormatVersionUnsupportedError",
@@ -285,6 +302,7 @@ __all__ = [
     "PathUnsafeError",
     "PatternUnsupportedError",
     "PersonRequiredError",
+    "PlanReplayTarget",
     "PluginCrashedError",
     "PolicyConflictError",
     "Prices",
@@ -295,6 +313,8 @@ __all__ = [
     "ProxyProviderUnavailableError",
     "ProxyRelayUnavailableError",
     "ProxyUnavailableError",
+    "Recording",
+    "RecordingMode",
     "RefusedError",
     "RemoteDaemon",
     "Reported",
@@ -321,6 +341,8 @@ __all__ = [
     "RunSettings",
     "RunStarted",
     "RunStateUnavailableError",
+    "RunTargetUnbuiltError",
+    "RunView",
     "SampleRefusedError",
     "SecretDomainNotAllowedError",
     "SecretInputRefusedError",

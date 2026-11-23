@@ -46,11 +46,13 @@ from goodfetch_collie_client.generated.errors import (
     ProtocolVersionUnsupportedError,
 )
 from goodfetch_collie_client.generated.models import (
+    CatalogRunStartParams,
     Form,
     HelloParams,
     Product,
     ProductVersion,
     ProtocolVersion,
+    RecipeStartParams,
     RunOrigin,
     RunStartParams,
     SetLogLevelParams,
@@ -67,7 +69,8 @@ from goodfetch_collie_client.generated.operations import (
 )
 from goodfetch_collie_client.generated.settings import DEPRECATED_SETTINGS
 from goodfetch_collie_client.goodfetch_error import GoodfetchError, runtime_message
-from goodfetch_collie_client.handle import NotGiven, not_given
+from goodfetch_collie_client.handle import NotGiven, not_given, timeout_of
+from goodfetch_collie_client.handlerless import target_on_wire
 from goodfetch_collie_client.host_logging import (
     CLIENT_LOGGER,
     RUN_LOGGER,
@@ -78,10 +81,12 @@ from goodfetch_collie_client.limits import Limits, limit_list
 from goodfetch_collie_client.listeners import MAX_LISTENER_QUEUE, ResumedEvents
 from goodfetch_collie_client.markers import warn_deprecated_settings, warn_entry
 from goodfetch_collie_client.run import AsyncRun, explain_params
+from goodfetch_collie_client.run_view import AsyncRunView
 from goodfetch_collie_client.settings import settings_on_wire
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable, Iterable, Mapping, Sequence
+    from datetime import timedelta
 
     from anyio.abc import ByteStream
     from pydantic import BaseModel, JsonValue
@@ -92,12 +97,14 @@ if TYPE_CHECKING:
     from goodfetch_collie_client._rpc import TransportEnd
     from goodfetch_collie_client.generated.models import (
         ProjectSettings,
+        Recording,
         RunLimit,
         RunStarted,
         SettingsExplanation,
     )
     from goodfetch_collie_client.generated.settings import RunSettings
     from goodfetch_collie_client.goodfetch_error import ErrorClass
+    from goodfetch_collie_client.handlerless import CatalogTarget
 
 __all__ = ["ClientConnection", "EngineFallback", "EngineInfo", "closed_error"]
 
@@ -528,27 +535,152 @@ class ClientConnection:
         warn_deprecated_settings(settings, DEPRECATED_SETTINGS)
         self._opener.ensure_current("run.start")
         self.ensure_open("run.start")
-        fields: dict[str, object] = {}
-        if run_id is not None:
-            fields["run_id"] = run_id
-        if tags is not None:
-            fields["tags"] = list(tags)
-        run_limits = limit_list(limits)
-        if run_limits:
-            fields["limits"] = run_limits
-        if settings is not None:
-            fields["settings"] = settings_on_wire(settings)
-        if self._project is not None:
-            fields["project"] = self._project
+        fields = _start_fields(run_id, tags, limits, settings, self._project)
         await self._follow_log_level()
         self.ensure_open("run.start")
         started = await self._operations.run_start(
             RunStartParams.model_construct(None, **fields)
         )
+        return self._held_run(started, detached=False)
+
+    async def start_recipe(
+        self,
+        recipe: str,
+        *,
+        run_id: str | None = None,
+        tags: Iterable[str] | None = None,
+        limits: Limits | None = None,
+        settings: RunSettings | None = None,
+        recording: Recording | None = None,
+        timeout: timedelta | NotGiven | None = not_given,
+        detached: bool = False,
+    ) -> AsyncRun:
+        """Starts a Recipe's run and returns once it is started (ADR 0102).
+
+        Starts a Recipe's run, a Run with no handler in the program, and answers once
+        it is started. Its Run ID works as `run.start`'s. With `detached`, the Run
+        outlives the program that started it: closing its value frees only the
+        value, `run.finish` waits for its end and `run.stop` stops it.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+
+        `recipe` is an installed Recipe's name or the path to its manifest.
+        It takes `start`'s options, and `recording`, the Response recording
+        the Run replays or records (ADR 0105); `timeout`, how long the Run
+        may last, as `timeout.run` for this Run: its setting's value when
+        left out, none for `None`, a `timedelta` sent in whole milliseconds;
+        and `detached`, with which the Run outlives its program, so closing
+        its value, or the Connection, sends no `run.abort`. A `limits`
+        amount the SDK cannot turn exactly, or a `timeout` of zero or less,
+        fails with `setting_invalid` before anything is sent.
+        """
+        warn_entry("recipe.start", EXPERIMENTAL_OPERATIONS, DEPRECATED_OPERATIONS)
+        warn_deprecated_settings(settings, DEPRECATED_SETTINGS)
+        fields = self._handlerless_fields(
+            "recipe.start", run_id, tags, limits, settings, recording, timeout, detached
+        )
+        await self._follow_log_level()
+        self.ensure_open("recipe.start")
+        started = await self._operations.recipe_start(
+            RecipeStartParams.model_construct(None, recipe=recipe, **fields)
+        )
+        return self._held_run(started, detached=detached)
+
+    async def start_catalog_run(
+        self,
+        target: CatalogTarget,
+        *,
+        run_id: str | None = None,
+        tags: Iterable[str] | None = None,
+        limits: Limits | None = None,
+        settings: RunSettings | None = None,
+        recording: Recording | None = None,
+        timeout: timedelta | NotGiven | None = not_given,
+        detached: bool = False,
+    ) -> AsyncRun:
+        """Starts a code-free catalog run and returns once it is started (ADR 0036).
+
+        Starts a code-free catalog run, a Run with no handler in the program whose
+        verbs come from the catalog (ADR 0036): an Extraction of a page by a schema,
+        `extract`, an Agent task, `agent`, or a Plan replayed with no model call,
+        `plan_replay`; and answers once it is started. Its Run ID works as
+        `run.start`'s. With `detached`, the Run outlives the program that started
+        it: closing its value frees only the value, `run.finish` waits for its end
+        and `run.stop` stops it.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+
+        `target` is an `ExtractTarget`, an `AgentTarget` or a
+        `PlanReplayTarget`. Its options are `start_recipe`'s.
+        """
+        warn_entry("catalog_run.start", EXPERIMENTAL_OPERATIONS, DEPRECATED_OPERATIONS)
+        warn_deprecated_settings(settings, DEPRECATED_SETTINGS)
+        fields = self._handlerless_fields(
+            "catalog_run.start",
+            run_id,
+            tags,
+            limits,
+            settings,
+            recording,
+            timeout,
+            detached,
+        )
+        await self._follow_log_level()
+        self.ensure_open("catalog_run.start")
+        started = await self._operations.catalog_run_start(
+            CatalogRunStartParams.model_construct(
+                None, target=target_on_wire(target), **fields
+            )
+        )
+        return self._held_run(started, detached=detached)
+
+    def _handlerless_fields(
+        self,
+        operation: str,
+        run_id: str | None,
+        tags: Iterable[str] | None,
+        limits: Limits | None,
+        settings: RunSettings | None,
+        recording: Recording | None,
+        timeout: timedelta | NotGiven | None,
+        detached: bool,
+    ) -> dict[str, object]:
+        """The fields a handler-less start sends besides its target, once open.
+
+        Raises:
+            SettingInvalidError: A `limits` amount the SDK cannot turn
+                exactly, or a `timeout` of zero or less, before anything is
+                sent.
+        """
+        self._opener.ensure_current(operation)
+        self.ensure_open(operation)
+        fields = _start_fields(run_id, tags, limits, settings, self._project)
+        if recording is not None:
+            fields["recording"] = recording
+        if not isinstance(timeout, NotGiven):
+            fields["timeout"] = timeout_of(timeout, "timeout.run")
+        if detached:
+            fields["detached"] = True
+        return fields
+
+    def _held_run(self, started: RunStarted, *, detached: bool) -> AsyncRun:
+        """The Run a start answered, held until the Connection closes."""
         _log_start(started)
-        run = AsyncRun(self, started)
+        run = AsyncRun(self, started, detached=detached)
         self._runs[run] = None
         return run
+
+    async def open_run(self, run_id: str) -> AsyncRunView:
+        """Opens a view of the Run `run_id` names, with no round trip (ADR 0102).
+
+        The Run is one another program started, such as a detached Run. The
+        view takes no writer role, and closing it frees only the view.
+
+        Raises:
+            ClosedError: The Connection is closed.
+        """
+        self.ensure_open("open_run")
+        return AsyncRunView(run_id)
 
     async def explain_settings(
         self, keys: Iterable[str] | None = None
@@ -899,6 +1031,33 @@ def _log_start(started: RunStarted) -> None:
                 run_id,
                 extra=fields,
             )
+
+
+def _start_fields(
+    run_id: str | None,
+    tags: Iterable[str] | None,
+    limits: Limits | None,
+    settings: RunSettings | None,
+    project: ProjectSettings | None,
+) -> dict[str, object]:
+    """The fields every start takes, each one given, and the project file read.
+
+    Raises:
+        SettingInvalidError: A `limits` amount the SDK cannot turn exactly.
+    """
+    fields: dict[str, object] = {}
+    if run_id is not None:
+        fields["run_id"] = run_id
+    if tags is not None:
+        fields["tags"] = list(tags)
+    run_limits = limit_list(limits)
+    if run_limits:
+        fields["limits"] = run_limits
+    if settings is not None:
+        fields["settings"] = settings_on_wire(settings)
+    if project is not None:
+        fields["project"] = project
+    return fields
 
 
 def _wire(params: BaseModel) -> dict[str, object]:

@@ -1,22 +1,29 @@
-# The pull-request tier (ADRs 0061, 0064, 0074 and 0135). While the repository
-# is private, every job runs on the owner's machine; whatever builds or runs
-# the repository's code runs in a Linux VM recreated for the job (ci/vm/),
-# whose userland is Linux x86-64 under Rosetta for Linux. Every job is on
-# .github/self-hosted-allowlist.toml with its exact `if:`.
+# The hosted tier of the pull-request gate (ADRs 0061, 0064 and 0135, and
+# ADR 0135's amendment of 2026-11-22). It serves a batch's or a spec's pull
+# request from a branch of this repository (`batch/…`, `spec/<n>`), and a
+# fork's, on GitHub's free standard `ubuntu-24.04` runners: a ticket's pull
+# request starts no job. Whatever builds or runs the repository's code runs
+# in the job's container, from the tree's pinned Linux x86-64 CI image
+# (ci/hosted/, ci/image/Containerfile).
+#
+# The `plan` job runs the gate's planner for the quick form on the head
+# (ci/hosted/plan.sh): from the records the runs on the head's ancestors
+# uploaded, it schedules the quick form's hosted-owned steps the change
+# reaches, lint, the Quick suite, the Journey task lists and xtask's codegen
+# tests. The `lint` job runs lint, and the `quick` job each other scheduled
+# step, alone, through the gate itself (`just pre-merge quick`,
+# GOODFETCH_GATE_ONLY); each uploads the gate's records of its step for a
+# day. `just merge` reads those records under
+# ci/hosted-records.sh's rules, reuses the green units and ends red on a red
+# one; it never reads a fork's runs.
 #
 # A step whose name starts with "Test" is a test step: "all green" fails when
-# one failed in an earlier attempt of the run (ADR 0064). Required checks:
-# "all green" and "Chromium build gate" (AGENTS.md, Merging).
-#
-# The `affected` job decides which other jobs run (ADR 0032): a job it may
-# skip names itself in its `if:`, and "all green" passes a job skipped that
-# way. No required check filters on paths. The change is the merge commit
-# against its first parent, the base branch's head, so each job that reads it
-# checks out two commits.
+# one failed in an earlier attempt of the run (ADR 0064).
 #
 # A job that runs the product denies outbound traffic before its first test
 # step and runs the Egress canary right after (ADR 0043); every job is
 # declared in ci/egress/endpoints.toml, which `xtask egress check` enforces.
+# No job holds a secret, and the checkout persists no credential.
 name: pull request
 
 on:
@@ -29,42 +36,153 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  quick:
-    name: quick
-    if: github.event.pull_request.head.repo.full_name == github.repository
-    runs-on: [self-hosted, owner-machine]
+  plan:
+    name: plan
+    # A batch's or a spec's branch (`spec/<n>`, never a ticket's
+    # `spec/<n>-<ticket>`), or a fork's pull request.
+    if: >-
+      github.event.pull_request.head.repo.full_name != github.repository
+      || startsWith(github.head_ref, 'batch/')
+      || (startsWith(github.head_ref, 'spec/') && !contains(github.head_ref, '-'))
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     permissions:
       contents: read
-      # The quarantine-list check reads each entry's issue (ADR 0064).
-      issues: read
+      # The records of the runs on the head's ancestors.
+      actions: read
+    # Each a JSON list of the steps the job of its name runs.
+    outputs:
+      lint: ${{ steps.plan.outputs.lint }}
+      quick: ${{ steps.plan.outputs.quick }}
     steps:
       - name: Check out
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
           persist-credentials: false
-      - name: Start the VM
-        run: ci/vm/start.sh read-only
+      - name: Plan the hosted steps
+        id: plan
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BASE: ${{ github.base_ref }}
+          BRANCH: ${{ github.head_ref }}
+          GOODFETCH_GATE_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name }}
+          GOODFETCH_GATE_HOSTED_RECORDS: target/hosted-records
+        run: >-
+          GOODFETCH_GATE_RUNNER_IMAGE="$ImageVersion"
+          ci/hosted/plan.sh "$BASE" "$BRANCH" "$GITHUB_RUN_ID" >>"$GITHUB_OUTPUT"
+
+  # Lint, when the plan schedules it. Its zizmor runs the online audits and
+  # its quarantine-list check reads GitHub's issues, so it runs no deny; it
+  # runs none of the product.
+  lint:
+    name: lint
+    needs: plan
+    if: needs.plan.outputs.lint != '[]'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      # The records of the runs on the head's ancestors.
+      actions: read
+      # The quarantine-list check reads each entry's issue (ADR 0064).
+      issues: read
+    env:
+      GOODFETCH_GATE_LAYER: hosted
+      GOODFETCH_GATE_ONLY: lint
+      GOODFETCH_GATE_RECORDS: /work/target/gate-records
+      GOODFETCH_GATE_HOSTED_RECORDS: /work/target/hosted-records
+      GOODFETCH_GATE_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name }}
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Download the records of the runs on the head's ancestors
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BASE: ${{ github.base_ref }}
+          BRANCH: ${{ github.head_ref }}
+        run: |
+          echo "GOODFETCH_GATE_RUNNER_IMAGE=$ImageVersion" >>"$GITHUB_ENV"
+          ci/hosted-records.sh ancestors "$GOODFETCH_GATE_REPOSITORY" HEAD "origin/$BASE" "$BRANCH" \
+            target/hosted-records "$GITHUB_RUN_ID"
+      - name: Start the job's container
+        run: ci/hosted/start.sh
       - name: Set up the OS services the tests use
-        run: ci/vm/exec.sh ci/os-services.sh setup
-      # `just quick all` in its two parts, around the deny: `just lint` before
-      # it, since the quarantine-list check reads GitHub's issues, then
-      # `just test quick` under it.
-      - name: Lint
+        run: ci/hosted/exec.sh ci/os-services.sh setup
+      - name: "Test: the gate's lint step"
         env:
           GITHUB_TOKEN: ${{ github.token }}
-        run: ci/vm/exec.sh just lint
+        run: ci/hosted/exec.sh just pre-merge quick
+      - name: List the parts the job skipped
+        if: always()
+        run: if [[ -s target/skipped.txt ]]; then cat target/skipped.txt; fi
+      - name: Scan the job's outputs for secrets before they upload
+        id: leaks
+        if: always()
+        run: ci/hosted/exec.sh ci/leaks.sh target/gate-records/
+      - name: Upload the gate's records of the step
+        if: always() && steps.leaks.outcome == 'success'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: gate-record-lint
+          path: target/gate-records/*.tsv
+          if-no-files-found: ignore
+          retention-days: 1
+
+  quick:
+    name: quick (${{ matrix.step }})
+    needs: plan
+    if: needs.plan.outputs.quick != '[]'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      # The records of the runs on the head's ancestors.
+      actions: read
+    strategy:
+      fail-fast: false
+      matrix:
+        step: ${{ fromJSON(needs.plan.outputs.quick) }}
+    env:
+      GOODFETCH_GATE_LAYER: hosted
+      GOODFETCH_GATE_ONLY: ${{ matrix.step }}
+      GOODFETCH_GATE_RECORDS: /work/target/gate-records
+      GOODFETCH_GATE_HOSTED_RECORDS: /work/target/hosted-records
+      GOODFETCH_GATE_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name }}
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Download the records of the runs on the head's ancestors
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BASE: ${{ github.base_ref }}
+          BRANCH: ${{ github.head_ref }}
+        run: |
+          echo "GOODFETCH_GATE_RUNNER_IMAGE=$ImageVersion" >>"$GITHUB_ENV"
+          ci/hosted-records.sh ancestors "$GOODFETCH_GATE_REPOSITORY" HEAD "origin/$BASE" "$BRANCH" \
+            target/hosted-records "$GITHUB_RUN_ID"
+      - name: Start the job's container
+        run: ci/hosted/start.sh
+      - name: Set up the OS services the tests use
+        run: ci/hosted/exec.sh ci/os-services.sh setup
       - name: Deny outbound traffic
         run: ci/egress/egress.sh deny
       - name: Refuse the Egress canary
         run: ci/egress/egress.sh canary
-      - name: "Test: just test quick"
-        run: ci/vm/exec.sh just test quick
+      - name: "Test: the gate's step"
+        run: ci/hosted/exec.sh just pre-merge quick
       - name: Check that the deny refused nothing else
         if: always()
         run: ci/egress/egress.sh check
-      # The parts `just lint` and `just test` could not run here, as `just
-      # quick all` lists them.
       - name: List the parts the job skipped
         if: always()
         run: if [[ -s target/skipped.txt ]]; then cat target/skipped.txt; fi
@@ -73,495 +191,36 @@ jobs:
         run: ci/junit-context.sh
       - name: Summarize the failed tests
         if: always()
-        run: ci/junit-summary.sh vm
+        run: ci/junit-summary.sh container
       - name: Scan the job's outputs for secrets before they upload
         id: leaks
         if: always()
-        run: ci/vm/exec.sh ci/leaks.sh target/junit/
+        run: ci/hosted/exec.sh ci/leaks.sh target/junit/ target/gate-records/
       - name: Upload the JUnit files
         if: always() && steps.leaks.outcome == 'success'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: junit-quick-pull-request-linux-x64-1
+          name: junit-quick-${{ matrix.step }}-pull-request-linux-x64-1
           path: target/junit/
           if-no-files-found: ignore
-      - name: Destroy the VM
-        if: always()
-        run: ci/vm/stop.sh
-
-  affected:
-    name: affected
-    if: github.event.pull_request.head.repo.full_name == github.repository
-    runs-on: [self-hosted, owner-machine]
-    timeout-minutes: 15
-    permissions:
-      contents: read
-    outputs:
-      jobs: ${{ steps.select.outputs.jobs }}
-      bench-targets: ${{ steps.select.outputs.bench-targets }}
-      models: ${{ steps.select.outputs.models }}
-      mutants-shards: ${{ steps.mutants.outputs.mutants-shards }}
-    steps:
-      - name: Check out
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-          fetch-depth: 2
-      - name: Start the VM
-        run: ci/vm/start.sh read-only
-      - name: Select the jobs and tests the change needs
-        run: >-
-          ci/vm/exec.sh bash -c "mkdir -p target && cargo run --quiet --bin xtask --
-          affected --base HEAD^1 --head HEAD > target/affected.txt"
-      - name: Write the selection to the job's outputs
-        id: select
-        run: |
-          cat target/affected.txt
-          cat target/affected.txt >> "$GITHUB_OUTPUT"
-      # The in-diff mutation job's shards: listing the mutants builds nothing.
-      # The mutation job is outside "all green" (ADR 0072), so a listing
-      # that fails, such as cargo-mutants refusing new syntax, warns and
-      # plans no shard instead of failing this job, which "all green" needs.
-      - name: Count the shards of the change's mutants
-        run: |
-          if ! ci/vm/exec.sh bash -c "ci/mutants.sh plan HEAD^1 > target/mutants-plan.txt"; then
-            echo "::warning title=Mutation testing::listing the change's mutants failed, so the in-diff mutation job does not run; the pull request's Verification section says so"
-            echo 'mutants-shards=[]' > target/mutants-plan.txt
-          fi
-      - name: Write the shards to the job's outputs
-        id: mutants
-        run: |
-          cat target/mutants-plan.txt
-          cat target/mutants-plan.txt >> "$GITHUB_OUTPUT"
-      - name: Destroy the VM
-        if: always()
-        run: ci/vm/stop.sh
-
-  pre-merge:
-    name: pre-merge
-    needs: [quick, affected]
-    if: >-
-      github.event.pull_request.head.repo.full_name == github.repository
-      && contains(fromJSON(needs.affected.outputs.jobs), 'pre-merge')
-    runs-on: [self-hosted, owner-machine]
-    timeout-minutes: 30
-    permissions:
-      contents: read
-    steps:
-      - name: Check out
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-          fetch-depth: 2
-      - name: Start the VM
-        run: ci/vm/start.sh read-only
-      - name: Set up the OS services the tests use
-        run: ci/vm/exec.sh ci/os-services.sh setup
-      - name: Build with the CI profile
-        run: ci/vm/exec.sh just build ci
-      - name: Prove the static checks on their fixtures
-        run: ci/vm/exec.sh just proofs
-      - name: Deny outbound traffic
-        run: ci/egress/egress.sh deny
-      - name: Refuse the Egress canary
-        run: ci/egress/egress.sh canary
-      - name: "Test: just test-affected pre-merge"
-        run: ci/vm/exec.sh just test-affected pre-merge --base HEAD^1 --head HEAD
-      # ADR 0072's exercise audit over the Rust tests that just ran, before
-      # the stress run replaces their JUnit file. With the justfile's
-      # `exercise_audit` at `gate`, a declaring test that never reached its
-      # Feature fails it, so it is a test step (ADR 0064).
-      - name: "Test: audit what each declaring test reached"
-        run: ci/vm/exec.sh just features-audit
-      # ADR 0064's stress run: each new or changed test 20 times, and each
-      # test the change takes off the quarantine list 200 times, in the
-      # order the merge commit's tree seeds. Its JUnit files go to
-      # target/junit/repeat-<count>/, uploaded with the suite's.
-      - name: "Test: just stress"
-        run: ci/vm/exec.sh just stress HEAD^1
-      - name: Check the Journeys' task lists against the Proving ground
-        run: ci/vm/exec.sh just journeys-tasks --check
-      - name: Check each Journey variant's tests, every runner's Feature declarations and the Client conformance cases' tests
-        run: ci/vm/exec.sh just features-tests clients-tests
-      - name: Check that the deny refused nothing else
-        if: always()
-        run: ci/egress/egress.sh check
-      - name: Record the job's context beside its JUnit files
-        if: always()
-        run: ci/junit-context.sh
-      - name: Summarize the failed tests
-        if: always()
-        run: ci/junit-summary.sh vm
-      - name: Scan the job's outputs for secrets before they upload
-        id: leaks
-        if: always()
-        run: ci/vm/exec.sh ci/leaks.sh target/junit/
-      - name: Upload the JUnit files
+      # Green or red, the step's record reaches `just merge`, which reuses a
+      # green unit and ends red on a red one (ci/hosted-records.sh).
+      - name: Upload the gate's records of the step
         if: always() && steps.leaks.outcome == 'success'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: junit-pre-merge-pull-request-linux-x64-1
-          path: target/junit/
+          name: gate-record-${{ matrix.step }}
+          path: target/gate-records/*.tsv
           if-no-files-found: ignore
-      - name: Destroy the VM
-        if: always()
-        run: ci/vm/stop.sh
+          retention-days: 1
 
-  # The counted performance gates (ADR 0071): the base branch's head, then
-  # the merge commit, measured in this one job (`xtask perf`), against +5%
-  # per benchmark figure and +5 kB brotli per size-limit entry. Its steps are not test steps: a tripped figure
-  # passes on a re-run of this job once the owner has accepted the pull
-  # request's "Performance change" section on the head, since the figures
-  # repeat exactly. It reads that section before the deny. It is one job
-  # while the selected bench targets fit it, and becomes a matrix over
-  # `bench-targets` once they do not (TESTING.md, Benchmarks).
-  perf:
-    name: perf
-    needs: [quick, affected]
-    if: >-
-      github.event.pull_request.head.repo.full_name == github.repository
-      && contains(fromJSON(needs.affected.outputs.jobs), 'perf')
-    runs-on: [self-hosted, owner-machine]
-    timeout-minutes: 30
-    permissions:
-      contents: read
-      # The "Performance change" section and its acceptance comment.
-      pull-requests: read
-    steps:
-      - name: Check out
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-          fetch-depth: 2
-      - name: Start the VM
-        run: ci/vm/start.sh read-only
-      - name: Build the base's and the head's benchmarks
-        env:
-          BENCH_TARGETS: ${{ needs.affected.outputs.bench-targets }}
-        run: >-
-          ci/vm/exec.sh cargo run --quiet --bin xtask -- perf build --base HEAD^1
-          --bench-targets "$BENCH_TARGETS"
-      - name: Read the pull request's Performance change section
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
-          NUMBER: ${{ github.event.pull_request.number }}
-        run: >-
-          ci/vm/exec.sh cargo run --quiet --bin xtask -- perf pull-request --number "$NUMBER"
-          --repository "$GITHUB_REPOSITORY" --save target/perf-pull-request.json
-      - name: Deny outbound traffic
-        run: ci/egress/egress.sh deny
-      - name: Refuse the Egress canary
-        run: ci/egress/egress.sh canary
-      - name: Measure the base, then the head, against the Performance budget
-        run: >-
-          ci/vm/exec.sh cargo run --quiet --bin xtask -- perf run
-          --pull-request target/perf-pull-request.json --summary target/perf-summary.md
-      - name: Check that the deny refused nothing else
-        if: always()
-        run: ci/egress/egress.sh check
-      - name: Record the job's context beside its JUnit files
-        if: always()
-        run: ci/junit-context.sh
-      - name: Scan the job's outputs for secrets before they upload
-        id: leaks
-        if: always()
-        run: ci/vm/exec.sh ci/leaks.sh target/junit/ target/perf-summary.md
-      # gungraun's and size-limit's reports (target/junit/perf/) and the
-      # head's figures (perf-figures.json) go with the JUnit files.
-      - name: Upload the JUnit files and the performance reports
-        if: always() && steps.leaks.outcome == 'success'
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: junit-perf-pull-request-linux-x64-1
-          path: target/junit/
-          if-no-files-found: ignore
-      # The summary page is an output too: the table goes to it only once
-      # the scan passed.
-      - name: Write the table to the job's summary page
-        if: always() && steps.leaks.outcome == 'success'
-        run: if [[ -f target/perf-summary.md ]]; then cat target/perf-summary.md >>"$GITHUB_STEP_SUMMARY"; fi
-      - name: Destroy the VM
-        if: always()
-        run: ci/vm/stop.sh
-
-  # TLC on the TLA+ models the change reaches (ADR 0060): `xtask affected`
-  # selects a model when its own folder, a module it traces (its
-  # model.toml's `traces`), the pinned tools or xtask's TLC command
-  # changes. Each runs with its small constants within 10 minutes, then the
-  # sample's broken variant must fail, so the job is shown able to fail. In
-  # M1 the job is model checking only; trace validation of the Simulation's
-  # traces joins it in M4.
-  tlc:
-    name: tlc
-    needs: [quick, affected]
-    if: >-
-      github.event.pull_request.head.repo.full_name == github.repository
-      && contains(fromJSON(needs.affected.outputs.jobs), 'tlc')
-    runs-on: [self-hosted, owner-machine]
-    timeout-minutes: 20
-    permissions:
-      contents: read
-    steps:
-      - name: Check out
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - name: Start the VM
-        run: ci/vm/start.sh read-only
-      - name: Set up the OS services the tests use
-        run: ci/vm/exec.sh ci/os-services.sh setup
-      # The tools are a release asset of this repository, read with the
-      # job's token while the repository is private (ADR 0060).
-      - name: Fetch the pinned TLA+ tools
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
-        run: ci/vm/exec.sh just tlc-fetch
-      - name: Deny outbound traffic
-        run: ci/egress/egress.sh deny
-      - name: Refuse the Egress canary
-        run: ci/egress/egress.sh canary
-      - name: "Test: TLC on the selected models"
-        timeout-minutes: 10
-        env:
-          MODELS: ${{ needs.affected.outputs.models }}
-        # `just` splits the space-separated names into its arguments.
-        run: ci/vm/exec.sh just tlc "$MODELS"
-      - name: "Test: the sample's broken variant fails TLC"
-        run: ci/vm/exec.sh just tlc-self-test
-      - name: Check that the deny refused nothing else
-        if: always()
-        run: ci/egress/egress.sh check
-      - name: Summarize the failed tests
-        if: always()
-        run: ci/junit-summary.sh vm
-      - name: Destroy the VM
-        if: always()
-        run: ci/vm/stop.sh
-
-  # The visual projects of the Pre-merge suite (ADR 0073): Chromium screenshots,
-  # compared with zero mismatched pixels, only inside the Playwright image
-  # pinned by digest in ci/visual/image.toml, on Linux x86-64. No other job
-  # runs them, and no job writes a Reference screenshot: the
-  # update-screenshots workflow does. `xtask affected` selects it when a
-  # visual test, a Reference screenshot, a runner's config, the pinned image
-  # or the code a visual test exercises changes.
-  visual:
-    name: visual
-    needs: [quick, affected]
-    if: >-
-      github.event.pull_request.head.repo.full_name == github.repository
-      && contains(fromJSON(needs.affected.outputs.jobs), 'visual')
-    runs-on: [self-hosted, owner-machine]
-    timeout-minutes: 30
-    permissions:
-      contents: read
-    steps:
-      - name: Check out
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - name: Start the VM with the pinned Playwright image
-        run: ci/vm/start.sh read-only ci playwright
-      - name: Set up the OS services the tests use
-        run: ci/vm/exec.sh ci/os-services.sh setup
-      - name: Install the visual projects' packages
-        run: ci/vm/visual.sh install
-      - name: Deny outbound traffic
-        run: ci/egress/egress.sh deny
-      - name: Refuse the Egress canary
-        run: ci/egress/egress.sh canary
-      - name: "Test: the visual projects in the pinned image"
-        run: ci/vm/visual.sh test
-      - name: Check that the deny refused nothing else
-        if: always()
-        run: ci/egress/egress.sh check
-      - name: Record the job's context beside its JUnit files
-        if: always()
-        run: ci/junit-context.sh
-      - name: Summarize the failed tests
-        if: always()
-        run: ci/junit-summary.sh vm
-      - name: Scan the job's outputs for secrets before they upload
-        id: leaks
-        if: always()
-        run: ci/vm/exec.sh ci/leaks.sh target/junit/ target/vitest-attachments/
-      - name: Upload the JUnit files
-        if: always() && steps.leaks.outcome == 'success'
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: junit-visual-pull-request-linux-x64-1
-          path: target/junit/
-          if-no-files-found: ignore
-      - name: Upload the expected, actual and diff images
-        if: failure() && steps.leaks.outcome == 'success'
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: visual-differences-pull-request
-          path: |
-            target/junit/playwright/
-            target/vitest-attachments/
-          if-no-files-found: ignore
-      - name: Destroy the VM
-        if: always()
-        run: ci/vm/stop.sh
-
-  # The supply-chain gates (#133): the advisories of every lockfile, the MSRV
-  # build, cargo-hack over each Product's SDK crate, Miri on opted-in
-  # `unsafe`, the DCO sign-off and the Conventional Commits subject of every
-  # commit the pull request adds, and the third-party notice inventory's
-  # license check over every ecosystem and declared input (#137); and two of
-  # ADR 0067's security parts of the Pre-merge suite, gitleaks over those
-  # commits and `cargo fuzz check` (#317). cargo-deny's licenses, bans,
-  # sources and the boundary checks, the image digest pins and the secret
-  # scan before every upload run in the Quick job's lints.
-  # The audit downloads its pinned advisory snapshot, so it runs before the
-  # egress deny; Miri runs tests, so it runs under it
-  # (ci/egress/endpoints.toml).
-  supply-chain:
-    name: supply-chain
-    if: github.event.pull_request.head.repo.full_name == github.repository
-    runs-on: [self-hosted, owner-machine]
-    timeout-minutes: 30
-    permissions:
-      contents: read
-    steps:
-      - name: Check out
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-          # Every commit the pull request adds, for the DCO check.
-          fetch-depth: 0
-      - name: Start the VM
-        run: ci/vm/start.sh read-only
-      - name: Set up the OS services the tests use
-        run: ci/vm/exec.sh ci/os-services.sh setup
-      - name: Check every commit's sign-off
-        run: ci/vm/exec.sh just dco HEAD^1 HEAD^2
-      - name: Check every commit's message
-        run: ci/vm/exec.sh just commit-messages HEAD^1 HEAD^2
-      # gitleaks over the commits the pull request adds, while the repository
-      # is private; GitHub secret scanning and push protection take over once
-      # it is public (ADR 0067; .github/security-settings.md).
-      - name: Scan every commit for secrets
-        if: github.event.repository.private
-        run: ci/vm/exec.sh just commit-leaks HEAD^1 HEAD^2
-      # Every fuzz target still builds with fuzzing's flags; nothing fuzzes
-      # in a pull request (ADR 0067).
-      - name: Check every fuzz target with cargo fuzz check
-        run: ci/vm/exec.sh just fuzz-check
-      # Against the pinned advisory snapshot (ADR 0064), whose OSV databases
-      # are assets of this repository's release, read with the job's token
-      # while the repository is private.
-      - name: Audit the locked dependencies
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
-        run: ci/vm/exec.sh just audit
-      - name: Build on the MSRV
-        run: ci/vm/exec.sh just msrv
-      - name: Check every feature combination
-        run: ci/vm/exec.sh just feature-combinations
-      - name: Check the third-party notice inventory's licenses
-        run: ci/vm/exec.sh just notices
-      - name: Set up Miri's sysroot
-        run: ci/vm/exec.sh just miri-setup
-      - name: Deny outbound traffic
-        run: ci/egress/egress.sh deny
-      - name: Refuse the Egress canary
-        run: ci/egress/egress.sh canary
-      - name: "Test: Miri on opted-in unsafe code"
-        run: ci/vm/exec.sh just miri
-      - name: Check that the deny refused nothing else
-        if: always()
-        run: ci/egress/egress.sh check
-      - name: Summarize the failed tests
-        if: always()
-        run: ci/junit-summary.sh vm
-      - name: Destroy the VM
-        if: always()
-        run: ci/vm/stop.sh
-
-  # ADR 0072's in-diff mutation job: cargo-mutants with nextest over the Rust
-  # code the change touches (ci/mutants.sh), in the shards `affected` counts,
-  # each within the 15-minute job budget; skipped when the change touches no
-  # Rust code. It is outside "all green" (not in its `needs`) and fails on no
-  # surviving mutant: each shard's survivors go to its job summary and its
-  # report is attached to the run, for the pull request's Evidence section.
-  # While the repository is private it runs on the owner's machine with the
-  # rest of the tier, using no included minutes, so no shard cap and no
-  # minute threshold apply (ADR 0135). Its steps are not test steps.
-  mutants:
-    name: mutants ${{ matrix.shard }}
-    needs: [affected]
-    if: >-
-      github.event.pull_request.head.repo.full_name == github.repository
-      && needs.affected.result == 'success'
-      && needs.affected.outputs.mutants-shards != '[]'
-    runs-on: [self-hosted, owner-machine]
-    timeout-minutes: 15
-    permissions:
-      contents: read
-    strategy:
-      fail-fast: false
-      matrix:
-        shard: ${{ fromJSON(needs.affected.outputs.mutants-shards) }}
-    steps:
-      - name: Check out
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-          fetch-depth: 2
-      - name: Start the VM
-        run: ci/vm/start.sh read-only
-      - name: Set up the OS services the tests use
-        run: ci/vm/exec.sh ci/os-services.sh setup
-      - name: Deny outbound traffic
-        run: ci/egress/egress.sh deny
-      - name: Refuse the Egress canary
-        run: ci/egress/egress.sh canary
-      - name: Mutate the change's Rust code, one shard
-        env:
-          SHARD: ${{ matrix.shard }}
-          SHARDS: ${{ strategy.job-total }}
-        run: ci/vm/exec.sh ci/mutants.sh run HEAD^1 "$SHARD/$SHARDS"
-      - name: Check that the deny refused nothing else
-        if: always()
-        run: ci/egress/egress.sh check
-      - name: Scan the job's outputs for secrets before they upload
-        id: leaks
-        if: always()
-        run: ci/vm/exec.sh ci/leaks.sh target/mutants/
-      - name: Attach the mutation report
-        id: report
-        if: always() && steps.leaks.outcome == 'success'
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: mutants-${{ matrix.shard }}
-          path: target/mutants/
-          if-no-files-found: ignore
-      # The summary page is an output too: it is written only once the scan
-      # of target/mutants/, which holds summary.md, passed. It links the
-      # report, for the pull request's Evidence section.
-      - name: Write the surviving mutants to the job's summary page
-        if: always() && steps.leaks.outcome == 'success'
-        env:
-          URL: ${{ steps.report.outputs.artifact-url }}
-        run: |
-          if [[ -f target/mutants/summary.md ]]; then
-            {
-              cat target/mutants/summary.md
-              [[ -z "$URL" ]] || { echo; echo "Report: $URL"; }
-            } >>"$GITHUB_STEP_SUMMARY"
-          fi
-      - name: Destroy the VM
-        if: always()
-        run: ci/vm/stop.sh
-
-  # Area 8's gate (ADR 0074). Until its free design (#445) is decided and its
-  # first build lands, it passes and builds nothing, so it needs no VM.
   chromium-build-gate:
     name: Chromium build gate
-    if: github.event.pull_request.head.repo.full_name == github.repository
-    runs-on: [self-hosted, owner-machine]
+    if: >-
+      github.event.pull_request.head.repo.full_name != github.repository
+      || startsWith(github.head_ref, 'batch/')
+      || (startsWith(github.head_ref, 'spec/') && !contains(github.head_ref, '-'))
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions: {}
     steps:
@@ -570,9 +229,9 @@ jobs:
 
   all-green:
     name: all green
-    if: always()
-    needs: [quick, affected, pre-merge, perf, visual, tlc, supply-chain]
-    runs-on: [self-hosted, owner-machine]
+    if: always() && needs.plan.result != 'skipped'
+    needs: [plan, lint, quick]
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     permissions:
       actions: read
@@ -581,19 +240,15 @@ jobs:
       - name: Check out
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ github.event.pull_request.head.sha }}
           persist-credentials: false
       - name: Write the needed jobs' results
         env:
           NEEDS: ${{ toJSON(needs) }}
         run: printf '%s' "$NEEDS" > needs.json
-      - name: Start the VM
-        run: ci/vm/start.sh read-only
       - name: Judge the run and its earlier attempts
         env:
           GITHUB_TOKEN: ${{ github.token }}
         run: >-
-          ci/vm/exec.sh cargo run --quiet --bin xtask -- all-green --needs needs.json
+          cargo run --quiet --locked --bin xtask -- all-green --needs needs.json
           --repository "$GITHUB_REPOSITORY" --run-id "$GITHUB_RUN_ID" --attempt "$GITHUB_RUN_ATTEMPT"
-      - name: Destroy the VM
-        if: always()
-        run: ci/vm/stop.sh

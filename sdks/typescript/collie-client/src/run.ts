@@ -3,7 +3,8 @@
 // report. Hand-written here is what no catalog entry gives: its ID and how it
 // started, read without a call, its Key-value store, and `close()`, which
 // frees the value and, while the Run is still running, stops it as an abort
-// by its Client, resumable by its Run ID. Any other call on a closed Run
+// by its Client, resumable by its Run ID, unless the Run was started
+// `detached` and outlives its program. Any other call on a closed Run
 // fails with `closed`. A Product's package also builds, with `pageOf`, the
 // page the engine lends a handler of the Run for one attempt, and fails its
 // own Run type's calls on a closed Run with `ensureRunOpen`. A listener a
@@ -515,12 +516,17 @@ export class Run extends RunMembers implements AsyncDisposable {
 
   readonly #host: RunHost;
   readonly #scope: RunScope;
+  /** Whether the Run outlives its program (ADR 0102): its close then frees only the value. */
+  readonly #detached: boolean;
   #closing: Promise<void> | undefined;
   /** The Run's Key-value store (ADR 0103), kept in its run state across a resume. */
   readonly keyValueStore: KeyValueStore;
 
-  /** @internal The Connection's start opens a Run; a program never constructs one. */
-  constructor(host: RunHost, started: RunStarted) {
+  /**
+   * @internal The Connection's start opens a Run; a program never
+   * constructs one. A `detached` start's Run outlives its program.
+   */
+  constructor(host: RunHost, started: RunStarted, detached = false) {
     const scope: RunScope = {
       id: started.runId,
       operationNames: host.operationNames,
@@ -530,6 +536,7 @@ export class Run extends RunMembers implements AsyncDisposable {
     super(hostIn(host, scope, undefined, started.runId), started);
     this.#host = host;
     this.#scope = scope;
+    this.#detached = detached;
     this.keyValueStore = new KeyValueStore(host.keyValueStore, scope.id, (operation) => {
       ensureOpen(scope, operation);
     });
@@ -621,7 +628,8 @@ export class Run extends RunMembers implements AsyncDisposable {
   /**
    * Closes the Run's value; idempotent. A Run still running is stopped
    * first, `stopped` and `incomplete` as an abort by its Client, and can be
-   * resumed by starting its Run ID again. A listener of one of its values
+   * resumed by starting its Run ID again; a Run started `detached` is not
+   * stopped, since it outlives its program. A listener of one of its values
    * that threw and that nothing raised yet is raised then, as
    * `listener_failed`, once the Run is closed.
    *
@@ -647,10 +655,10 @@ export class Run extends RunMembers implements AsyncDisposable {
   }
 
   async #close(): Promise<void> {
-    const running = this.#scope.state === "running";
+    const stops = this.#scope.state === "running" && !this.#detached;
     this.#scope.state = "closed";
     try {
-      if (running && this.#host.reachable()) {
+      if (stops && this.#host.reachable()) {
         await this.#host.calls.call("run.abort", { runId: this.#scope.id }, {});
       }
     } finally {

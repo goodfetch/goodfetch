@@ -52,6 +52,7 @@ use goodfetch_protocol::connection::{CancelParams, HelloParams, HelloResult};
 use goodfetch_protocol::daemon::{
     DaemonHealthOutput, DaemonStatus, DaemonUninstallOutput, HttpListenerToken, TokenRotated,
 };
+use goodfetch_protocol::doctor::DoctorReport;
 use goodfetch_protocol::entries::{KIND_PARTS, MODULES};
 use goodfetch_protocol::error_details::typed_details_of;
 use goodfetch_protocol::events::{CreditParams, EventBatch};
@@ -137,6 +138,7 @@ pub(super) fn emit() -> Emitted {
         "daemon.status": generator.subschema_for::<DaemonStatus>(),
         "daemon.stop": generator.subschema_for::<DaemonStatus>(),
         "daemon.uninstall": generator.subschema_for::<DaemonUninstallOutput>(),
+        "doctor": generator.subschema_for::<DoctorReport>(),
         "runs.reindex": generator.subschema_for::<RunsReindexOutput>(),
         "upgrade-files": generator.subschema_for::<FilesUpgraded>(),
     });

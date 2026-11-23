@@ -1,0 +1,161 @@
+{
+  "description": "A Collie Client's hello accepted by a Collie Daemon, its token carried, then the handler-less starts (ADRs 0036 and 0102): the Recipe `shop-prices` started with every start option, its Run ID, tags, Limits, settings, recording, timeout and `detached`, and a code-free catalog run of each target kind, `extract`, `agent` and `plan_replay`, each with every field it takes, its JSON values sent as written, detached too, one with no timeout. The Client then closes with no `run.abort`, since a detached Run outlives its program: the Daemon keeps each Run once the Client is gone.",
+  "steps": [
+    {
+      "expect": {
+        "method": "hello",
+        "params": {
+          "protocol_version": "0.1",
+          "surface": "sdk_typescript",
+          "form": "typescript",
+          "needs": "collie",
+          "product_version": "0.0.0",
+          "log_level": "off",
+          "token": "scripted-daemon-token"
+        }
+      }
+    },
+    {
+      "reply": {
+        "result": {
+          "protocol_version": "0.1",
+          "product": "collie",
+          "product_version": "0.0.0",
+          "engine_instance": "0123456789abcdef"
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "recipe.start",
+        "params": {
+          "recipe": "shop-prices",
+          "run_id": "nightly-prices",
+          "tags": ["nightly", "prices"],
+          "limits": [
+            {
+              "usage_kind": "requests",
+              "amount": 500
+            }
+          ],
+          "settings": {
+            "timeout": {
+              "wait": 5000
+            }
+          },
+          "recording": {
+            "mode": "replay",
+            "path": "recordings/shop.warc"
+          },
+          "timeout": 3600000,
+          "detached": true
+        }
+      }
+    },
+    {
+      "reply": {
+        "result": {
+          "run_id": "nightly-prices",
+          "lifecycle": "running",
+          "needs": "collie",
+          "started_as": "new"
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "catalog_run.start",
+        "params": {
+          "target": {
+            "kind": "extract",
+            "url": "https://shop.example/products",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "productName": { "type": "string" }
+              }
+            },
+            "instruction": "Read each product's name."
+          },
+          "run_id": "extract-products",
+          "detached": true
+        }
+      }
+    },
+    {
+      "reply": {
+        "result": {
+          "run_id": "extract-products",
+          "lifecycle": "running",
+          "needs": "collie",
+          "started_as": "new"
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "catalog_run.start",
+        "params": {
+          "target": {
+            "kind": "agent",
+            "url": "https://shop.example/",
+            "task": "Find the cheapest kettle.",
+            "expect": {
+              "found": true
+            },
+            "schema": {
+              "type": "object",
+              "properties": {
+                "unitPrice": { "type": "number" }
+              }
+            },
+            "max_steps": 20
+          },
+          "run_id": "cheapest-kettle",
+          "timeout": null,
+          "detached": true
+        }
+      }
+    },
+    {
+      "reply": {
+        "result": {
+          "run_id": "cheapest-kettle",
+          "lifecycle": "running",
+          "needs": "collie",
+          "started_as": "new"
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "catalog_run.start",
+        "params": {
+          "target": {
+            "kind": "plan_replay",
+            "plan": "plans/checkout.json"
+          },
+          "run_id": "checkout-replay",
+          "recording": {
+            "mode": "record",
+            "path": "recordings/checkout.warc"
+          },
+          "detached": true
+        }
+      }
+    },
+    {
+      "reply": {
+        "result": {
+          "run_id": "checkout-replay",
+          "lifecycle": "running",
+          "needs": "collie",
+          "started_as": "new"
+        }
+      }
+    },
+    {
+      "stall": {}
+    }
+  ]
+}

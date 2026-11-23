@@ -79,6 +79,27 @@ impl Product {
         Self::ALL.into_iter().find(|product| product.key() == word)
     }
 
+    /// Its executable crate.
+    pub(crate) fn executable(self) -> Executable {
+        match self {
+            Self::Collie => COLLIE,
+            Self::Foxhound => FOXHOUND,
+        }
+    }
+
+    /// The Product whose executable crate is the package `package`.
+    pub(crate) fn of_package(package: &str) -> Option<Self> {
+        Self::ALL
+            .into_iter()
+            .find(|product| product.executable().package == package)
+    }
+
+    /// Whether its executable has everything `other`'s has: Foxhound's
+    /// contains Collie's (ADR 0084), and each has its own.
+    pub(crate) fn contains(self, other: Self) -> bool {
+        self == other || other == Self::Collie
+    }
+
     pub(crate) fn other(self) -> Self {
         match self {
             Self::Collie => Self::Foxhound,

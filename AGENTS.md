@@ -45,7 +45,7 @@ Traps that break things, each explained in `STYLE.md`:
 
 ## Merging
 
-CI runs locally (ADR 0135); GitHub Actions runs the Release suite only.
+CI runs locally (ADR 0135); GitHub Actions runs the Release suite and, for a batch's, a spec's or a fork's pull request, the hosted tier's quick-form steps, whose records `just merge` reuses (ADR 0135's notes of 2026-11-23).
 
 - Merge a pull request only with `just merge <number>`: it gates the pull request's head in a clean, locked worktree and merges only when the gate passes. A head without `main`'s tip needs no refresh first: the gate merges the tip in, pushes that merge to the pull request's branch and gates it (ADR 0135's amendment of 2026-11-17); a head that conflicts with the tip is refused. After a red gate, pull the branch before the next push. While the owner rents it, `just merge` runs on the Hetzner server (ADR 0135's amendment of 2026-10-22).
 - `just merge` refuses, before it holds anything, a pull request whose merge would close other issues than its body's `Closes #<n>` lines name, one issue a line, or whose commit messages name an issue after a closing keyword that no such line names; a batch's `Part of #<n>` lines close nothing (ADR 0135's note of 2026-11-22).

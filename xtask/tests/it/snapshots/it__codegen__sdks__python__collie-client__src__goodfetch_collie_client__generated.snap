@@ -49,6 +49,16 @@ DEPLOYMENT_VARIABLES: Final = (
 )
 """The deployment variables, the closed list of `GOODFETCH_` variables `connect()` takes from its environment map (ADR 0083)."""
 
+CHANNELS: Final = (
+    "npm",
+    "pypi",
+    "crates-io",
+    "homebrew",
+    "oci",
+    "installer",
+)
+"""The channels an executable can come from, the names `GOODFETCH_CHANNEL` takes (ADR 0090)."""
+
 PROJECT_FILE: Final = "goodfetch.toml"
 """The project configuration's file `connect()` reads, found in the working directory or the nearest folder above it (ADR 0083)."""
 

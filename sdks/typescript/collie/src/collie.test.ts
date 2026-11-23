@@ -742,6 +742,97 @@ describe("Collie.connect()", () => {
     },
   );
 
+  const channels = "one of npm, pypi, crates-io, homebrew, oci, installer";
+  const milliseconds = "a whole number of milliseconds";
+  test.for([
+    {
+      name: "a channel in capitals",
+      key: "GOODFETCH_CHANNEL",
+      value: "NPM",
+      reason: `\`NPM\` is no channel; ${channels}`,
+      taken: channels,
+    },
+    {
+      name: "a drain grace in seconds",
+      key: "GOODFETCH_DAEMON_DRAIN_GRACE",
+      value: "5s",
+      reason: "`5s` is no whole number of milliseconds",
+      taken: milliseconds,
+    },
+    {
+      name: "a negative drain grace",
+      key: "GOODFETCH_DAEMON_DRAIN_GRACE",
+      value: "-1",
+      reason: "`-1` is no whole number of milliseconds",
+      taken: milliseconds,
+    },
+    {
+      name: "a drain grace past u64",
+      key: "GOODFETCH_DAEMON_DRAIN_GRACE",
+      value: "18446744073709551616",
+      reason: "`18446744073709551616` is no whole number of milliseconds",
+      taken: milliseconds,
+    },
+    {
+      name: "a Daemon address by host name",
+      key: "GOODFETCH_DAEMON_ADDRESS",
+      value: "localhost:7900",
+      reason: "`localhost:7900` is no `host:port`",
+      taken: "an IP address and port such as 127.0.0.1:7900",
+    },
+    {
+      name: "an ops address with a named scope",
+      key: "GOODFETCH_OPS_ADDRESS",
+      value: "[fe80::1%eth0]:9464",
+      reason: "`[fe80::1%eth0]:9464` is no `host:port`",
+      taken: "an IP address and port such as 0.0.0.0:9464",
+    },
+    {
+      name: "an ops address with a leading zero",
+      key: "GOODFETCH_OPS_ADDRESS",
+      value: "10.0.0.01:9464",
+      reason: "`10.0.0.01:9464` is no `host:port`",
+      taken: "an IP address and port such as 0.0.0.0:9464",
+    },
+  ])(
+    "fails on $name, which the engine cannot parse, as its own check does",
+    { tags: ["story:11-73", "error:setting_invalid"] },
+    async ({ key, value, reason, taken }) => {
+      // oxlint-disable-next-line no-restricted-properties -- `Collie.connect` is the SDK's own factory (ADR 0078), not a browser's.
+      const error = await failure(Collie.connect({ env: { [key]: value } }));
+
+      expect(error).toMatchObject({
+        code: "setting_invalid",
+        group: "program",
+        fix: `Set ${key} to ${taken}, or unset it.`,
+        details: { key, reason },
+      });
+    },
+  );
+
+  test.for([
+    { name: "a channel", key: "GOODFETCH_CHANNEL", value: "crates-io" },
+    { name: "a signed drain grace", key: "GOODFETCH_DAEMON_DRAIN_GRACE", value: "+5" },
+    {
+      name: "the longest drain grace",
+      key: "GOODFETCH_DAEMON_DRAIN_GRACE",
+      value: "18446744073709551615",
+    },
+    { name: "an IPv4 Daemon address", key: "GOODFETCH_DAEMON_ADDRESS", value: "127.0.0.1:7900" },
+    {
+      name: "an IPv6 ops address with its scope",
+      key: "GOODFETCH_OPS_ADDRESS",
+      value: "[fe80::1%2]:9464",
+    },
+  ])("goes on with $name, as Rust reads it", { tags: ["story:11-73"] }, async ({ key, value }) => {
+    const error = await failure(
+      // oxlint-disable-next-line no-restricted-properties -- `Collie.connect` is the SDK's own factory (ADR 0078), not a browser's.
+      Collie.connect({ env: { [key]: value, GOODFETCH_COLLIE_ENGINE_PATH: "/nonexistent" } }),
+    );
+
+    expect(error).toMatchObject({ code: "engine_not_found" });
+  });
+
   test(
     "reads only Collie's engine-path variable, never Foxhound's",
     { tags: ["story:11-2"] },

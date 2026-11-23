@@ -13,7 +13,7 @@ use std::time::Duration;
 
 use goodfetch_protocol::page::events::PageRequest;
 use goodfetch_protocol::page::read::{PageRead, PageReadParams};
-use goodfetch_protocol::run::{RunId, RunProgress, RunReport, Tags};
+use goodfetch_protocol::run::{CatalogTarget, Recording, RunId, RunProgress, RunReport, Tags};
 use goodfetch_protocol::settings::{ConfigExplainParams, SettingsExplanation};
 use serde::Serialize;
 use serde::de::DeserializeOwned;
@@ -22,6 +22,7 @@ use serde_json::Value;
 use crate::answer::Answer;
 use crate::error::Error;
 use crate::field_values::FieldValues;
+use crate::run_view::RunView;
 pub use twins::{Locator, Page, Run, Session, WebSocket};
 
 /// The blocking twins of the handles, which `xtask codegen` writes.
@@ -90,6 +91,48 @@ impl ClientConnection {
     /// `send()` sends.
     pub fn start(&self) -> Start {
         Start(self.0.start(), self.0.clone())
+    }
+
+    /// Starts a Recipe's run, a Run with no handler in the program, and
+    /// answers once it is started. Its Run ID works as `run.start`'s. With
+    /// `detached`, the Run outlives the program that started it: closing
+    /// its value frees only the value, `run.finish` waits for its end and
+    /// `run.stop` stops it.
+    ///
+    /// Experimental: outside semver until it is promoted (ADR 0030).
+    ///
+    /// The start of a Recipe's run, as
+    /// [`crate::ClientConnection::start_recipe`]'s, which `send()` sends.
+    pub fn start_recipe(&self, recipe: &str) -> HandlerlessStart {
+        HandlerlessStart(self.0.start_recipe(recipe), self.0.clone())
+    }
+
+    /// Starts a code-free catalog run, a Run with no handler in the program
+    /// whose verbs come from the catalog (ADR 0036): an Extraction of a
+    /// page by a schema, `extract`, an Agent task, `agent`, or a Plan
+    /// replayed with no model call, `plan_replay`; and answers once it is
+    /// started. Its Run ID works as `run.start`'s. With `detached`, the Run
+    /// outlives the program that started it: closing its value frees only
+    /// the value, `run.finish` waits for its end and `run.stop` stops it.
+    ///
+    /// Experimental: outside semver until it is promoted (ADR 0030).
+    ///
+    /// The start of a code-free catalog run, as
+    /// [`crate::ClientConnection::start_catalog_run`]'s, which `send()`
+    /// sends.
+    pub fn start_catalog_run(&self, target: CatalogTarget) -> HandlerlessStart {
+        HandlerlessStart(self.0.start_catalog_run(target), self.0.clone())
+    }
+
+    /// Opens a view of the Run `run_id` names, as
+    /// [`crate::ClientConnection::open_run`] does, with no round trip, so
+    /// nothing blocks.
+    ///
+    /// # Errors
+    ///
+    /// As [`crate::ClientConnection::open_run`].
+    pub fn open_run(&self, run_id: &RunId) -> Result<RunView, Error> {
+        self.0.open_run(run_id)
     }
 
     /// Shows each setting's effective value, the layer that set it and the
@@ -202,6 +245,40 @@ pub trait Connection {
     /// The start of a Run, as [`crate::Connection::start`]'s, which
     /// `send()` sends.
     fn start(&self) -> Start;
+
+    /// Starts a Recipe's run, a Run with no handler in the program, and
+    /// answers once it is started. Its Run ID works as `run.start`'s. With
+    /// `detached`, the Run outlives the program that started it: closing
+    /// its value frees only the value, `run.finish` waits for its end and
+    /// `run.stop` stops it.
+    ///
+    /// Experimental: outside semver until it is promoted (ADR 0030).
+    ///
+    /// The start of a Recipe's run, as
+    /// [`crate::Connection::start_recipe`]'s, which `send()` sends.
+    fn start_recipe(&self, recipe: &str) -> HandlerlessStart;
+
+    /// Starts a code-free catalog run, a Run with no handler in the program
+    /// whose verbs come from the catalog (ADR 0036): an Extraction of a
+    /// page by a schema, `extract`, an Agent task, `agent`, or a Plan
+    /// replayed with no model call, `plan_replay`; and answers once it is
+    /// started. Its Run ID works as `run.start`'s. With `detached`, the Run
+    /// outlives the program that started it: closing its value frees only
+    /// the value, `run.finish` waits for its end and `run.stop` stops it.
+    ///
+    /// Experimental: outside semver until it is promoted (ADR 0030).
+    ///
+    /// The start of a code-free catalog run, as
+    /// [`crate::Connection::start_catalog_run`]'s, which `send()` sends.
+    fn start_catalog_run(&self, target: CatalogTarget) -> HandlerlessStart;
+
+    /// Opens a view of the Run `run_id` names, as
+    /// [`crate::Connection::open_run`] does.
+    ///
+    /// # Errors
+    ///
+    /// As [`crate::Connection::open_run`].
+    fn open_run(&self, run_id: &RunId) -> Result<RunView, Error>;
 
     /// The raw call of `operation`, as [`crate::Connection::call`]'s,
     /// which `send()` sends.
@@ -520,6 +597,73 @@ impl Start {
     }
 }
 
+/// The start of a Run with no handler in the program, a Recipe's run or a
+/// code-free catalog run. Nothing is sent until
+/// [`HandlerlessStart::send`].
+#[must_use = "a start is sent only by send()"]
+#[derive(Debug)]
+pub struct HandlerlessStart(crate::HandlerlessStart, crate::ClientConnection);
+
+impl HandlerlessStart {
+    /// Names the Run for good, as [`crate::HandlerlessStart::run_id`] does.
+    pub fn run_id(self, run_id: &RunId) -> Self {
+        Self(self.0.run_id(run_id), self.1)
+    }
+
+    /// Tags the Run, as [`crate::HandlerlessStart::tags`] does.
+    pub fn tags(self, tags: Tags) -> Self {
+        Self(self.0.tags(tags), self.1)
+    }
+
+    /// Sets the Run's own Limits, as [`crate::HandlerlessStart::limits`]
+    /// does.
+    pub fn limits(self, limits: crate::Limits) -> Self {
+        Self(self.0.limits(limits), self.1)
+    }
+
+    /// Sets the Run's own settings, as
+    /// [`crate::HandlerlessStart::settings`] does.
+    pub fn settings(self, settings: crate::settings::Settings) -> Self {
+        Self(self.0.settings(settings), self.1)
+    }
+
+    /// Sets the Response recording the Run replays or records, as
+    /// [`crate::HandlerlessStart::recording`] does.
+    pub fn recording(self, recording: Recording) -> Self {
+        Self(self.0.recording(recording), self.1)
+    }
+
+    /// Bounds how long the Run may last, as
+    /// [`crate::HandlerlessStart::timeout`] does.
+    pub fn timeout(self, timeout: Duration) -> Self {
+        Self(self.0.timeout(timeout), self.1)
+    }
+
+    /// Lets the Run last as long as it takes, as
+    /// [`crate::HandlerlessStart::no_timeout`] does.
+    pub fn no_timeout(self) -> Self {
+        Self(self.0.no_timeout(), self.1)
+    }
+
+    /// Lets the Run outlive the program that started it, as
+    /// [`crate::HandlerlessStart::detached`] does.
+    pub fn detached(self) -> Self {
+        Self(self.0.detached(), self.1)
+    }
+
+    /// Starts the Run and blocks the calling thread until it is started.
+    ///
+    /// # Errors
+    ///
+    /// What its opener fails with, and `setting_invalid` for a zero
+    /// `timeout`, before anything is sent.
+    pub fn send(self) -> Result<Run, Error> {
+        let Self(start, connection) = self;
+        let inner = connection.wait(start.into_future())?;
+        Ok(Run { inner })
+    }
+}
+
 impl<T> Query<T, ConfigExplainParams> {
     /// Explains only `keys`, as [`crate::Query::keys`] does.
     pub fn keys(self, keys: impl IntoIterator<Item = impl Into<String>>) -> Self {
@@ -766,6 +910,7 @@ const _: () = {
     send_static::<Call<RunReport>>();
     send_static::<Query<Value>>();
     send_static::<Start>();
+    send_static::<HandlerlessStart>();
     send_static::<RawCall>();
     send_static::<SaveFile<serde_json::Value>>();
 };

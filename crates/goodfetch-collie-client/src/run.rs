@@ -130,13 +130,30 @@ impl ClientConnection {
         opener: &'static str,
         params: impl Serialize + Send + 'static,
     ) -> impl Future<Output = Result<Run, Error>> + Send + 'static {
+        self.start_held(opener, params, false)
+    }
+
+    /// Starts a Run with `opener` as [`ClientConnection::start_with`]
+    /// does, held `detached` when it outlives the program: closing or
+    /// dropping its value then sends no `run.abort` (ADR 0102).
+    pub(crate) fn start_held(
+        &self,
+        opener: &'static str,
+        params: impl Serialize + Send + 'static,
+        detached: bool,
+    ) -> impl Future<Output = Result<Run, Error>> + Send + 'static {
         let log_level = engine_log_level();
         let connection = self.clone();
         async move {
             connection.follow_log_level(log_level).await?;
             let started: RunStarted = connection.call(opener, &params).no_timeout().await?;
             log_start(&started);
-            let held = HeldRun::new(connection, started.run_id.clone(), started.lifecycle);
+            let held = HeldRun::new(
+                connection,
+                started.run_id.clone(),
+                started.lifecycle,
+                detached,
+            );
             Ok(Run {
                 host: Host::run(held),
                 opened: Arc::new(started),

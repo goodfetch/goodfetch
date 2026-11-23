@@ -69,7 +69,6 @@ package = "goodfetch_collie"
 receiver = "Collie"
 member = "start_recipe"
 entry = "recipe.start"
-only = "Issue 3396's Rust part adds it."
 words = ["start", "recipe"]
 form = "opener"
 
@@ -78,7 +77,6 @@ package = "goodfetch_collie"
 receiver = "Collie"
 member = "start_catalog_run"
 entry = "catalog_run.start"
-only = "Issue 3396's Rust part adds it."
 words = ["start", "catalog", "run"]
 form = "opener"
 
@@ -88,7 +86,6 @@ receiver = "Collie"
 member = "open_run"
 entry = "none"
 reason = "Opens a view of a Run another program started, by its Run ID, with no round trip (ADR 0102)."
-only = "Issue 3396's Rust part adds it."
 words = ["open", "run"]
 form = "opener"
 
@@ -159,7 +156,6 @@ package = "goodfetch_collie"
 receiver = "AsyncCollie"
 member = "start_recipe"
 entry = "recipe.start"
-only = "Issue 3396's Rust part adds it."
 words = ["start", "recipe"]
 form = "opener"
 
@@ -168,7 +164,6 @@ package = "goodfetch_collie"
 receiver = "AsyncCollie"
 member = "start_catalog_run"
 entry = "catalog_run.start"
-only = "Issue 3396's Rust part adds it."
 words = ["start", "catalog", "run"]
 form = "opener"
 
@@ -178,7 +173,6 @@ receiver = "AsyncCollie"
 member = "open_run"
 entry = "none"
 reason = "Opens a view of a Run another program started, by its Run ID, with no round trip (ADR 0102)."
-only = "Issue 3396's Rust part adds it."
 words = ["open", "run"]
 form = "opener"
 
@@ -250,7 +244,6 @@ package = "goodfetch_collie"
 receiver = "Connection"
 member = "start_recipe"
 entry = "recipe.start"
-only = "Issue 3396's Rust part adds it."
 words = ["start", "recipe"]
 form = "opener"
 
@@ -259,7 +252,6 @@ package = "goodfetch_collie"
 receiver = "Connection"
 member = "start_catalog_run"
 entry = "catalog_run.start"
-only = "Issue 3396's Rust part adds it."
 words = ["start", "catalog", "run"]
 form = "opener"
 
@@ -269,7 +261,6 @@ receiver = "Connection"
 member = "open_run"
 entry = "none"
 reason = "Opens a view of a Run another program started, by its Run ID, with no round trip (ADR 0102)."
-only = "Issue 3396's Rust part adds it."
 words = ["open", "run"]
 form = "opener"
 
@@ -331,7 +322,6 @@ package = "goodfetch_collie"
 receiver = "AsyncConnection"
 member = "start_recipe"
 entry = "recipe.start"
-only = "Issue 3396's Rust part adds it."
 words = ["start", "recipe"]
 form = "opener"
 
@@ -340,7 +330,6 @@ package = "goodfetch_collie"
 receiver = "AsyncConnection"
 member = "start_catalog_run"
 entry = "catalog_run.start"
-only = "Issue 3396's Rust part adds it."
 words = ["start", "catalog", "run"]
 form = "opener"
 
@@ -350,7 +339,6 @@ receiver = "AsyncConnection"
 member = "open_run"
 entry = "none"
 reason = "Opens a view of a Run another program started, by its Run ID, with no round trip (ADR 0102)."
-only = "Issue 3396's Rust part adds it."
 words = ["open", "run"]
 form = "opener"
 
@@ -517,7 +505,6 @@ receiver = "AsyncRunView"
 member = "id"
 entry = "none"
 reason = "The Run ID the view was opened with, read without a round trip (ADR 0102)."
-only = "Issue 3396's Rust part adds it."
 words = ["id"]
 form = "read"
 
@@ -527,7 +514,6 @@ receiver = "AsyncRunView"
 member = "close"
 entry = "none"
 reason = "Frees only the view (ADR 0102): the Run goes on."
-only = "Issue 3396's Rust part adds it."
 words = ["close"]
 form = "closer"
 
@@ -537,7 +523,6 @@ receiver = "RunView"
 member = "id"
 entry = "none"
 reason = "The Run ID the view was opened with, read without a round trip (ADR 0102)."
-only = "Issue 3396's Rust part adds it."
 words = ["id"]
 form = "read"
 
@@ -547,7 +532,6 @@ receiver = "RunView"
 member = "close"
 entry = "none"
 reason = "Frees only the view (ADR 0102): the Run goes on."
-only = "Issue 3396's Rust part adds it."
 words = ["close"]
 form = "closer"
 
@@ -1430,7 +1414,6 @@ package = "goodfetch_foxhound"
 receiver = "Foxhound"
 member = "start_recipe"
 entry = "recipe.start"
-only = "Issue 3396's Rust part adds it."
 words = ["start", "recipe"]
 form = "opener"
 
@@ -1439,7 +1422,6 @@ package = "goodfetch_foxhound"
 receiver = "Foxhound"
 member = "start_catalog_run"
 entry = "catalog_run.start"
-only = "Issue 3396's Rust part adds it."
 words = ["start", "catalog", "run"]
 form = "opener"
 
@@ -1449,7 +1431,6 @@ receiver = "Foxhound"
 member = "open_run"
 entry = "none"
 reason = "Opens a view of a Run another program started, by its Run ID, with no round trip (ADR 0102); `Collie.open_run`'s member under the same name."
-only = "Issue 3396's Rust part adds it."
 words = ["open", "run"]
 form = "opener"
 
@@ -1520,7 +1501,6 @@ package = "goodfetch_foxhound"
 receiver = "AsyncFoxhound"
 member = "start_recipe"
 entry = "recipe.start"
-only = "Issue 3396's Rust part adds it."
 words = ["start", "recipe"]
 form = "opener"
 
@@ -1529,7 +1509,6 @@ package = "goodfetch_foxhound"
 receiver = "AsyncFoxhound"
 member = "start_catalog_run"
 entry = "catalog_run.start"
-only = "Issue 3396's Rust part adds it."
 words = ["start", "catalog", "run"]
 form = "opener"
 
@@ -1539,7 +1518,6 @@ receiver = "AsyncFoxhound"
 member = "open_run"
 entry = "none"
 reason = "Opens a view of a Run another program started, by its Run ID, with no round trip (ADR 0102); `AsyncCollie.open_run`'s member under the same name."
-only = "Issue 3396's Rust part adds it."
 words = ["open", "run"]
 form = "opener"
 

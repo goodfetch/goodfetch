@@ -16,7 +16,6 @@
 )]
 
 use std::collections::BTreeSet;
-use std::time::Duration;
 
 use goodfetch_test_client::HomeLayout;
 use goodfetch_test_support::{TestEnv, cli};
@@ -228,9 +227,11 @@ fn a_crawls_own_domain_keys_put_two_sites_in_one_queue() {
 
 /// An Operator policy's cap bounds a crawl's rate even though no layer set
 /// one: at one request a minute, the second waits though the handler
-/// concurrency has room.
+/// concurrency has room, and the crawl's progress says so: a `rate_cap`
+/// group naming the cap, the layer that set it and when its domain is next
+/// admitted (ADR 0102).
 ///
-/// Covers: story:3-51, setting:admission.max_requests_per_minute, operation:run.abort
+/// Covers: story:3-51, story:3-162, setting:admission.max_requests_per_minute, operation:run.progress, operation:run.abort
 #[test]
 fn an_operator_policy_cap_bounds_the_rate_of_a_crawl_that_set_none() {
     let env = TestEnv::new();
@@ -255,7 +256,26 @@ fn an_operator_policy_cap_bounds_the_rate_of_a_crawl_that_set_none() {
     };
     engine.send(&json!({ "jsonrpc": "2.0", "id": first["id"], "result": { "records": [] } }));
 
-    let held = engine.is_quiet_for(Duration::from_secs(1));
+    let mut params = json!({ "run_id": "paced" });
+    let held = loop {
+        let progress = engine.call("progress", "run.progress", &params, &mut |request| {
+            panic!("the rate cap let a second request go within its minute: {request}")
+        });
+        let progress = &progress["result"];
+        if let Some(group) = progress["waiting"]
+            .as_array()
+            .and_then(|groups| groups.iter().find(|group| group["reason"] == "rate_cap"))
+        {
+            break json!([
+                &group["count"],
+                &group["domains"][0]["domain"],
+                group["domains"][0]["next_admitted_at"].is_string(),
+                &group["setting"],
+            ]);
+        }
+        assert_eq!(progress["last"], false, "the crawl ended: {progress}");
+        params["after"] = progress["position"].clone();
+    };
     let report = engine.call(
         "abort",
         "run.abort",
@@ -274,7 +294,16 @@ fn an_operator_policy_cap_bounds_the_rate_of_a_crawl_that_set_none() {
     assert_eq!(
         (held, &report["result"]["lifecycle"], statuses),
         (
-            true,
+            json!([
+                1,
+                "b.test",
+                true,
+                {
+                    "key": "admission.max_requests_per_minute",
+                    "value": 1,
+                    "layer": "operator_policy",
+                },
+            ]),
             &json!("stopped"),
             vec![
                 (site.url("a.test", "/1"), "succeeded".to_owned()),

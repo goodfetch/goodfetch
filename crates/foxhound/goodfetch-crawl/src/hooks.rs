@@ -8,8 +8,8 @@
 //! The request and page stages run in the delivery's attempt, around its
 //! fetch and before its handler (`hook_call`), the Record stage after its
 //! handler answered (`record_stage`). A stage none of a request's Hooks is
-//! scoped to sends nothing and builds nothing. A Label a navigation Hook
-//! reaches never races its tiers ([`Hooks::navigates`]).
+//! scoped to sends nothing and builds nothing. A Label a navigation or
+//! after-response Hook reaches never races its tiers ([`Hooks::lets_race`]).
 
 use std::collections::BTreeMap;
 
@@ -87,15 +87,19 @@ impl Hooks {
             .filter(move |hook| in_scope(hook.labels.as_deref(), label))
     }
 
-    /// Whether a request of `label` has a navigation Hook, which runs
-    /// around a navigation the attempt itself starts.
-    pub(crate) fn navigates(&self, label: &str) -> bool {
+    /// Whether a request of `label` may race its tiers: no navigation
+    /// Hook reaches it, as a race's first request may win with no
+    /// navigation, and no after-response Hook, as that request is judged
+    /// before it wins (ADR 0104: after response runs before anything
+    /// judges the response).
+    pub(crate) fn lets_race(&self, label: &str) -> bool {
         [
+            CrawlHookStage::AfterResponse,
             CrawlHookStage::BeforeNavigation,
             CrawlHookStage::AfterNavigation,
         ]
         .iter()
-        .any(|stage| self.on_request(stage, label).next().is_some())
+        .all(|stage| self.on_request(stage, label).next().is_none())
     }
 
     /// The Record stage's Hooks a Record of `dataset`, pushed for a request

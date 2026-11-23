@@ -54,7 +54,7 @@ impl On<'_> {
         let (run, leased, lease) = (self.run, self.leased, self.lease);
         // The race is one fetch of the request: its before-request Hooks run
         // once, before either side leaves (ADR 0104).
-        if let Some(answer) = self.stages(&[CrawlHookStage::BeforeRequest]).await {
+        if let Some(answer) = self.ended_in(&[CrawlHookStage::BeforeRequest]).await {
             return (answer, (None, false));
         }
         let tiers = &tiering.tiers;

@@ -154,9 +154,8 @@ pub(crate) struct Drawing<'a> {
     /// The Run's `fetch.http_from`, which a Label's own setting overrides.
     pub(crate) http_from: HttpFrom,
     pub(crate) races: bool,
-    /// The Run's Hooks in code: a Label a navigation Hook reaches never
-    /// races, as a race's winning page may come with no navigation (ADR
-    /// 0104).
+    /// The Run's Hooks in code: a Label a navigation or after-response Hook
+    /// reaches never races ([`Hooks::lets_race`]).
     pub(crate) hooks: &'a Hooks,
     /// Whether the Run's crawl requests read site files, robots.txt or the
     /// AI-use signal files, and the Run has a transport to read them with.
@@ -787,7 +786,7 @@ impl RunState {
             None => Chosen::Planned(AttemptPlan::Sitemap),
             Some(Choosing::Engine) if keeps_fragment => Chosen::Planned(browser),
             Some(Choosing::Engine)
-                if drawing.races && !to_browser && !drawing.hooks.navigates(&request.label) =>
+                if drawing.races && !to_browser && drawing.hooks.lets_race(&request.label) =>
             {
                 Chosen::Racing(learned())
             }

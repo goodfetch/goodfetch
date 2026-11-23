@@ -520,9 +520,9 @@ fn a_before_request_hook_runs_again_before_each_retry() {
     );
 }
 
-/// A request-stage Hook that raises fails its attempt with `hook_failed`,
-/// naming its stage, before the handler is sent anything: here at before
-/// request, so the request is never fetched for the handler.
+/// A Hook at a request or page stage that raises fails its attempt with
+/// `hook_failed`, naming its stage and the Hook, and the handler is never
+/// sent the request.
 ///
 /// Covers: story:3-170, error:hook_failed
 #[rstest]

@@ -151,24 +151,26 @@ fn each_request_and_page_stage_keeps_its_hooks_in_order_scoped_by_label() {
     );
 }
 
-/// A navigation Hook makes its Labels navigate in order: a request of a
-/// Label one reaches does not race its first request against its
-/// navigation.
+/// A navigation or after-response Hook keeps the Labels it reaches from
+/// racing their tiers: a race's first request may win with no navigation,
+/// and is judged before it wins. A before-request Hook lets them race.
 #[test]
-fn a_navigation_hook_marks_the_labels_it_reaches() {
+fn a_navigation_or_after_response_hook_keeps_its_labels_from_racing() {
     let hooks = |declared| Hooks::of(declared, &resolved(json!({})), &LabelSettings::default());
-    let steering = hooks(vec![
+    let scoped = hooks(vec![
         hook("sign", CrawlHookStage::BeforeRequest, None),
         hook("steer", CrawlHookStage::AfterNavigation, Some(&["detail"])),
+        hook("look", CrawlHookStage::AfterResponse, Some(&["listing"])),
     ]);
     let everywhere = hooks(vec![hook("steer", CrawlHookStage::BeforeNavigation, None)]);
 
     assert_eq!(
         (
-            steering.navigates("detail"),
-            steering.navigates("list"),
-            everywhere.navigates("list"),
+            scoped.lets_race("detail"),
+            scoped.lets_race("listing"),
+            scoped.lets_race("list"),
+            everywhere.lets_race("list"),
         ),
-        (true, false, true)
+        (false, false, true, false)
     );
 }

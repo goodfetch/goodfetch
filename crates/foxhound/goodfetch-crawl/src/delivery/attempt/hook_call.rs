@@ -9,7 +9,7 @@
 //! program gives back, answering `call_cancelled` with nothing closed,
 //! releases the request, as its handler's would.
 //!
-//! [`stage_passed`] runs a request or page stage's chain, the Record
+//! [`ended_in_stage`] runs a request or page stage's chain, the Record
 //! stage's `record_stage`.
 
 use goodfetch_engine::client::ClientRequestError;
@@ -44,7 +44,7 @@ struct Calling<'a> {
 /// request's Label reaches, in the order declared, each after the one
 /// before returned: `None` once every one returned, none when no Hook is
 /// there, else how the first that did not ended the attempt.
-pub(super) async fn stage_passed(on: &On<'_>, stage: &CrawlHookStage) -> Option<Answer> {
+pub(super) async fn ended_in_stage(on: &On<'_>, stage: &CrawlHookStage) -> Option<Answer> {
     let label = on.leased.crawl_request.label.as_str();
     for hook in on.hooks.on_request(stage, label) {
         if let Some(answer) = called(on, hook, None).await {

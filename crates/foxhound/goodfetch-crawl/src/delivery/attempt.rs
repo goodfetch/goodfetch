@@ -896,11 +896,11 @@ impl On<'_> {
     }
 
     /// The attempt through the Hooks in code of each of `stages` in turn
-    /// ([`hook_call::stage_passed`]): `None` once every call returned,
+    /// ([`hook_call::ended_in_stage`]): `None` once every call returned,
     /// else how the first that did not ended the attempt.
-    async fn stages(&self, stages: &[CrawlHookStage]) -> Option<Answer> {
+    async fn ended_in(&self, stages: &[CrawlHookStage]) -> Option<Answer> {
         for stage in stages {
-            if let Some(ended) = hook_call::stage_passed(self, stage).await {
+            if let Some(ended) = hook_call::ended_in_stage(self, stage).await {
                 return Some(ended);
             }
         }
@@ -910,7 +910,7 @@ impl On<'_> {
     /// The attempt's handler request `params`, once its page-ready Hooks
     /// returned ([`handled`]); else how the first that did not ended it.
     async fn page_ready(&self, params: &CrawlRequestHandleParams) -> Answer {
-        if let Some(ended) = self.stages(&[CrawlHookStage::PageReady]).await {
+        if let Some(ended) = self.ended_in(&[CrawlHookStage::PageReady]).await {
             return ended;
         }
         handled(
@@ -1323,24 +1323,8 @@ impl On<'_> {
         let http = &self.client(tiers, http);
         // Lightpanda navigates to the request's URL; the other tiers fetch
         // it (ADR 0104).
-        let (before, after): (&[_], &[_]) = if choice.tier == FetchTier::LightBrowser {
-            (
-                &[
-                    CrawlHookStage::BeforeRequest,
-                    CrawlHookStage::BeforeNavigation,
-                ],
-                &[
-                    CrawlHookStage::AfterResponse,
-                    CrawlHookStage::AfterNavigation,
-                ],
-            )
-        } else {
-            (
-                &[CrawlHookStage::BeforeRequest],
-                &[CrawlHookStage::AfterResponse],
-            )
-        };
-        if let Some(ended) = self.stages(before).await {
+        let navigates = choice.tier == FetchTier::LightBrowser;
+        if let Some(ended) = self.ended_in(before_fetch(navigates)).await {
             return Err(ended);
         }
         let (served, facts) = self
@@ -1361,7 +1345,8 @@ impl On<'_> {
         *self.document.lock().await = facts.response.clone();
         // Its after-response Hooks see the response before anything judges
         // it; an attempt they end closes its page as `served` drops.
-        if let Some(ended) = self.stages(after).await {
+        let after = after_fetch(facts.response.is_some(), navigates);
+        if let Some(ended) = self.ended_in(after).await {
             return Err(ended);
         }
         // A `discovered_api` page replays its Label's calls (ADR 0020).
@@ -1612,8 +1597,9 @@ impl On<'_> {
 
     /// The handler request of the attempt on `tier`, given the page
     /// `page_id`, whose request's own document answered `response`,
-    /// bounded by its lease, once the attempt went through its
-    /// after-response Hooks, when a response came, and its page-ready ones.
+    /// bounded by its lease, once the attempt went through its page-ready
+    /// Hooks. It serves a race's winner (`race`), whose Label no
+    /// navigation or after-response Hook reaches ([`Hooks::lets_race`]).
     async fn handle(
         &self,
         page_id: &PageId,
@@ -1625,13 +1611,6 @@ impl On<'_> {
             &self.leased.crawl_request.id,
             InFlightPhase::Handling,
         );
-        // A race's winner (`race`): a Label with a navigation Hook never
-        // races, so no navigation stage is due here.
-        if response.is_some()
-            && let Some(ended) = self.stages(&[CrawlHookStage::AfterResponse]).await
-        {
-            return ended;
-        }
         let params = self.params(Some(tier), Some(page_id.clone()), response);
         self.page_ready(&params).await
     }
@@ -1664,7 +1643,7 @@ impl On<'_> {
             ended_at: None,
         };
         let (run, leased, lease) = (self.run, self.leased, self.lease);
-        if let Some(answer) = self.stages(&[CrawlHookStage::BeforeRequest]).await {
+        if let Some(answer) = self.ended_in(&[CrawlHookStage::BeforeRequest]).await {
             return ended(answer);
         }
         // The address check judges the request's URL before the browser
@@ -1688,7 +1667,7 @@ impl On<'_> {
             tracing::debug!(run_id = %run.id(), work_item = %leased.crawl_request.id, "a page reached through a suspected trap link is a decoy on the browser tier");
             return ended(decoy);
         }
-        if let Some(answer) = self.stages(&[CrawlHookStage::BeforeNavigation]).await {
+        if let Some(answer) = self.ended_in(&[CrawlHookStage::BeforeNavigation]).await {
             return ended(answer);
         }
         let hand_over = match capture {
@@ -1710,15 +1689,8 @@ impl On<'_> {
         if let Some(refused) = refused_type(tiers, &page_id, run, leased).await {
             return ended(refused);
         }
-        let after: &[_] = if navigated.response.is_some() {
-            &[
-                CrawlHookStage::AfterResponse,
-                CrawlHookStage::AfterNavigation,
-            ]
-        } else {
-            &[CrawlHookStage::AfterNavigation]
-        };
-        if let Some(answer) = self.stages(after).await {
+        let after = after_fetch(navigated.response.is_some(), true);
+        if let Some(answer) = self.ended_in(after).await {
             tiers.close_browser(&page_id).await;
             return ended(answer);
         }
@@ -1795,6 +1767,33 @@ pub(super) fn read_by_browser(
         page_id,
         response.and_then(|response| response.encoding.as_deref()),
     )
+}
+
+/// The request stages before a fetch, the navigation's too when it
+/// `navigates` (ADR 0104).
+fn before_fetch(navigates: bool) -> &'static [CrawlHookStage] {
+    if navigates {
+        &[
+            CrawlHookStage::BeforeRequest,
+            CrawlHookStage::BeforeNavigation,
+        ]
+    } else {
+        &[CrawlHookStage::BeforeRequest]
+    }
+}
+
+/// The stages after a fetch: after response when it `responded`, after
+/// navigation when it `navigated` (ADR 0104).
+fn after_fetch(responded: bool, navigated: bool) -> &'static [CrawlHookStage] {
+    match (responded, navigated) {
+        (true, true) => &[
+            CrawlHookStage::AfterResponse,
+            CrawlHookStage::AfterNavigation,
+        ],
+        (true, false) => &[CrawlHookStage::AfterResponse],
+        (false, true) => &[CrawlHookStage::AfterNavigation],
+        (false, false) => &[],
+    }
 }
 
 /// Whether the cheaper run `run`, which staged `staged`, staged what the

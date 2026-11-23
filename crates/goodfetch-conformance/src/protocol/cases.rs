@@ -17,6 +17,7 @@
 
 mod blocking_off;
 mod blocks;
+mod caller_secrets;
 mod clean_up;
 mod consent;
 mod delivery;

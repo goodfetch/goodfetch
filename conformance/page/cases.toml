@@ -1,5 +1,5 @@
 # The page suite's case list (spec #577, tickets #695, #696, #697, #698, #699, #700, #702, #703, #704, #706, #707, #708, #713, #715, #717, #719, #705, #710, #716, #711, #718, #859, #709 and #1597;
-# spec #580, tickets #783, #784, #785, #786, #787, #788, #789 and #2402): a Collie program's pages, their locator actions
+# spec #580, tickets #783, #784, #785, #786, #787, #788, #789 and #2402; spec #563, ticket #652): a Collie program's pages, their locator actions
 # and their formats over the protocol, run by `goodfetch-conformance`'s
 # engine harness against an Attached engine of Collie's executable on the
 # local Proving ground (ADR 0094), each case on a Run of its own whose
@@ -11,7 +11,7 @@ product = "collie"
 
 [suite]
 name = "page"
-version = "40"
+version = "41"
 
 [[capability]]
 name = "sessions.default"
@@ -111,6 +111,17 @@ covers = ["story:5-88", "setting:proxy.server", "setting:proxy.username", "setti
 [[capability.case]]
 id = "a-client-acting-for-a-model-sets-no-proxy"
 covers = ["story:5-88", "setting:proxy.server", "setting:proxy.password", "error:setting_locked", "operation:run.new_session"]
+
+[[capability]]
+name = "secrets.caller"
+
+[[capability.case]]
+id = "a-caller-reference-is-answered-by-the-runs-own-client-at-its-use"
+covers = ["story:4-59", "setting:proxy.password", "operation:run.new_page", "operation:page.goto"]
+
+[[capability.case]]
+id = "a-caller-reference-its-client-fails-or-leaves-unanswered-is-resolver-failed"
+covers = ["story:4-59", "error:secret_unavailable", "setting:timeout.secret", "setting:proxy.password", "operation:run.new_page"]
 
 [[capability]]
 name = "sessions.proxy_limits"

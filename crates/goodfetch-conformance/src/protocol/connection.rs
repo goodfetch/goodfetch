@@ -162,11 +162,17 @@ impl Connection {
     }
 
     fn send(&mut self, message: &impl Serialize) -> Result<(), Gone> {
+        self.send_hiding(message, "")
+    }
+
+    /// Sends `message`, which the kept exchange holds with `hidden`, as the
+    /// Daemon's token, as [`REDACTED`].
+    fn send_hiding(&mut self, message: &impl Serialize, hidden: &str) -> Result<(), Gone> {
         let message = serde_json::to_value(message).expect("invariant: a message serializes");
         let line = serde_json::to_vec(&message).expect("invariant: a JSON value serializes");
         let kept = match &self.started.token {
-            Some(token) => redacted(&message, token),
-            None => message.clone(),
+            Some(token) => redacted(&redacted(&message, hidden), token),
+            None => redacted(&message, hidden),
         };
         self.exchanged
             .push(json!({ "from": "client", "message": kept }));
@@ -279,6 +285,24 @@ impl Connection {
             id,
             result: result.clone(),
         })
+    }
+
+    /// Answers the engine's `secrets.resolve` request `id` with `value`,
+    /// which the kept exchange holds as [`REDACTED`], as the Daemon's token:
+    /// the value a program's resolver gives never reaches the result
+    /// document.
+    pub(crate) fn reply_secret(&mut self, id: &Value, value: &str) -> Result<(), Gone> {
+        let Some(id) = self.id_of(id) else {
+            return Ok(());
+        };
+        self.send_hiding(
+            &Response {
+                jsonrpc: Version,
+                id,
+                result: json!({ "value": value }),
+            },
+            value,
+        )
     }
 
     /// Answers the engine's request `id` with a failure of the Error code

@@ -36,6 +36,9 @@ pub(crate) enum Case {
     PageCheck(super::page_check::Case),
     /// One of a Session's Block cause cases.
     Blocked(super::blocks::Case),
+    /// One of the caller as a Secret provider's cases, on a Session's
+    /// proxy password.
+    CallerSecret(super::caller_secrets::Case),
 }
 
 impl Case {
@@ -54,7 +57,8 @@ impl Case {
                     .map(Self::Proxy)
                     .or_else(|| super::proxy_limits::Case::from_id(id).map(Self::ProxyLimit))
                     .or_else(|| super::page_check::Case::from_id(id).map(Self::PageCheck))
-                    .or_else(|| super::blocks::Case::from_id(id).map(Self::Blocked));
+                    .or_else(|| super::blocks::Case::from_id(id).map(Self::Blocked))
+                    .or_else(|| super::caller_secrets::Case::from_id(id).map(Self::CallerSecret));
             }
         })
     }
@@ -77,6 +81,7 @@ impl Case {
             Self::ProxyLimit(case) => case.run(connection, target, site, checks),
             Self::PageCheck(case) => case.run(connection, target, site, checks),
             Self::Blocked(case) => case.run(connection, target, site, checks),
+            Self::CallerSecret(case) => case.run(connection, site, checks),
         }
     }
 }

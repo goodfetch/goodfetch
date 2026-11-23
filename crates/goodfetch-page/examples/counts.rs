@@ -39,6 +39,7 @@
 #[path = "../benches/session.rs"]
 mod session;
 
+use std::collections::BTreeMap;
 use std::fs::OpenOptions;
 use std::path::Path;
 use std::sync::Arc;
@@ -246,8 +247,10 @@ fn units(session: &session::Counted) -> Map<String, Value> {
 }
 
 /// Fails unless `cell` read fields, each read with a command at least, and
-/// counted on `C2.read_commands` the commands the browser read meanwhile.
-fn fields_read(cell: &Counted) {
+/// counted on `C2.read_commands` the commands the browser read meanwhile,
+/// and as many again when that row is `planted`: its plant does one extra
+/// unit per command the browser reads.
+fn fields_read(cell: &Counted, planted: Option<&str>) {
     let session = &cell.session;
     let field_read_commands: u64 = session.field_read_commands.values().sum();
     assert!(
@@ -257,8 +260,21 @@ fn fields_read(cell: &Counted) {
         session.field_reads,
         field_read_commands
     );
+    let per_command = if session::FIELD_READ_ROWS
+        .iter()
+        .any(|row| Some(row.name()) == planted)
+    {
+        2
+    } else {
+        1
+    };
+    let expected: BTreeMap<usize, u64> = session
+        .field_read_commands
+        .iter()
+        .map(|(fields, commands)| (*fields, commands * per_command))
+        .collect();
     assert_eq!(
-        session.field_rows, session.field_read_commands,
+        session.field_rows, expected,
         "the cell {} counted other field-read commands than the browser read",
         cell.name
     );
@@ -340,7 +356,7 @@ fn main() {
             session.serializations,
             session.serialization_commands
         );
-        fields_read(cell);
+        fields_read(cell, planted);
         assert!(
             session.pages_opened > 0,
             "the cell {} opened no page",

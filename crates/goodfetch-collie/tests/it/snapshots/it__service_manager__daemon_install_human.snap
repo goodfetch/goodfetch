@@ -1,0 +1,8 @@
+---
+source: crates/goodfetch-collie/tests/it/service_manager.rs
+expression: output.to_string()
+---
+exit: 0
+----- stdout -----
+Installed as the systemd user units [SERVICE_NAME]: the first connection to [SOCKET_FOLDER]/daemon.sock starts the Daemon
+----- stderr -----

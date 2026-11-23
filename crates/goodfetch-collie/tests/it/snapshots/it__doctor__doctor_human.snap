@@ -1,0 +1,13 @@
+---
+source: crates/goodfetch-collie/tests/it/doctor.rs
+expression: output.to_string()
+---
+exit: 0
+----- stdout -----
+ok home: Goodfetch home at [FOLDER]/home can be written, and its settings read
+ok executables: Collie 0.0.0 is recorded among the installed executables, 0 others beside it
+ok daemon: No Daemon of major 0.0 runs; the first command that needs one starts it
+ok version_skew: No Daemon runs another version than this executable
+failing browsers: The chrome-for-testing build this version pins is not in the Browser cache at [FOLDER]/home/browsers, and `egress.offline` forbids downloading it
+  fix: Run `goodfetch-collie browser install` where the network can be reached, point GOODFETCH_BROWSERS_PATH at a cache that holds it, or lift `egress.offline`
+----- stderr -----

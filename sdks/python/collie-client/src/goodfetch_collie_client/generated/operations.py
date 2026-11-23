@@ -13,7 +13,7 @@ from typing_extensions import deprecated
 from goodfetch_collie_client.caller import AsyncCaller, Caller, result_of
 from goodfetch_collie_client.markers import warn_deprecated, warn_deprecated_settings, warn_experimental
 
-from .models import Acted, AddInitScriptParams, AuditExportParams, AuditExported, AuditVerified, AuditVerifyParams, BodyHandle, CertsListParams, CertsListed, Checkpoint, ClickParams, ConfigExplainParams, Counted, DaemonHealth, DaemonParams, DaemonState, DaemonStopping, DialogAcceptParams, DialogAnswered, DialogDismissParams, DialogsEnded, DownloadSaveAsParams, DownloadSaved, EffectCloseParams, EffectClosed, EffectOpenParams, EffectOpened, EngineInfo, EngineInfoParams, EvaluateParams, Evaluated, EventsSubscribeParams, FillParams, FormatsParams, GotoParams, InitScriptEnded, KeyValueStoreBytesValue, KeyValueStoreDeleted, KeyValueStoreKeyParams, KeyValueStoreKeysEnded, KeyValueStoreKeysParams, KeyValueStoreSet, KeyValueStoreSetBytesParams, KeyValueStoreSetParams, KeyValueStoreValue, LimitUsage, LocatorEvaluateAllParams, LocatorWaitForFunctionParams, LocatorWaitForParams, LogLevelSet, Navigated, NeedsYouDismissParams, NeedsYouDismissed, NeedsYouList, NeedsYouListParams, NewPageParams, NewSessionPageParams, NewSessionParams, PageBodyParams, PageBodyRead, PageCloseParams, PageClosed, PageExchange, PageFormats, PageOnDialogParams, PageOnEnded, PageOnParams, PageOpened, PageParams, PageRead, PageReadParams, PageRequest, PageRequestParams, PageResponse, PageRouteParams, PressParams, Reached, ResponseBodyParams, RouteAbortParams, RouteAnswered, RouteEnded, RouteFetched, RouteFulfillParams, RouteOverridesParams, RunAbortParams, RunCheckpointParams, RunDiscarded, RunFinishParams, RunList, RunListParams, RunParams, RunProgress, RunProgressParams, RunReport, RunResumeParams, RunSetProgressMessageParams, RunStartParams, RunStarted, RunStopParams, RunUsage, SampleEchoParams, SampleEchoResult, SessionClosed, SessionOnEnded, SessionOnParams, SessionOpened, SessionPages, SessionParams, SessionRouteParams, SetLogLevelParams, SettingsExplanation, SigningKeyCreateParams, SigningKeyCreated, SigningKeyDirectory, SigningKeyDirectoryParams, SubscriptionEnded, UsageListParams, UsageListResult, UsageSetParams, WaitForCountParams, WaitForExchangeParams, WaitForFunctionParams, WaitForLoadStateParams, WaitForRequestFinishedParams, WaitForUrlParams
+from .models import Acted, AddInitScriptParams, AuditExportParams, AuditExported, AuditVerified, AuditVerifyParams, BodyHandle, CatalogRunStartParams, CertsListParams, CertsListed, Checkpoint, ClickParams, ConfigExplainParams, Counted, DaemonHealth, DaemonParams, DaemonState, DaemonStopping, DialogAcceptParams, DialogAnswered, DialogDismissParams, DialogsEnded, DownloadSaveAsParams, DownloadSaved, EffectCloseParams, EffectClosed, EffectOpenParams, EffectOpened, EngineInfo, EngineInfoParams, EvaluateParams, Evaluated, EventsSubscribeParams, FillParams, FormatsParams, GotoParams, InitScriptEnded, KeyValueStoreBytesValue, KeyValueStoreDeleted, KeyValueStoreKeyParams, KeyValueStoreKeysEnded, KeyValueStoreKeysParams, KeyValueStoreSet, KeyValueStoreSetBytesParams, KeyValueStoreSetParams, KeyValueStoreValue, LimitUsage, LocatorEvaluateAllParams, LocatorWaitForFunctionParams, LocatorWaitForParams, LogLevelSet, Navigated, NeedsYouDismissParams, NeedsYouDismissed, NeedsYouList, NeedsYouListParams, NewPageParams, NewSessionPageParams, NewSessionParams, PageBodyParams, PageBodyRead, PageCloseParams, PageClosed, PageExchange, PageFormats, PageOnDialogParams, PageOnEnded, PageOnParams, PageOpened, PageParams, PageRead, PageReadParams, PageRequest, PageRequestParams, PageResponse, PageRouteParams, PressParams, Reached, RecipeStartParams, ResponseBodyParams, RouteAbortParams, RouteAnswered, RouteEnded, RouteFetched, RouteFulfillParams, RouteOverridesParams, RunAbortParams, RunCheckpointParams, RunDiscarded, RunFinishParams, RunList, RunListParams, RunParams, RunProgress, RunProgressParams, RunReport, RunResumeParams, RunSetProgressMessageParams, RunStartParams, RunStarted, RunStopParams, RunUsage, SampleEchoParams, SampleEchoResult, SessionClosed, SessionOnEnded, SessionOnParams, SessionOpened, SessionPages, SessionParams, SessionRouteParams, SetLogLevelParams, SettingsExplanation, SigningKeyCreateParams, SigningKeyCreated, SigningKeyDirectory, SigningKeyDirectoryParams, SubscriptionEnded, UsageListParams, UsageListResult, UsageSetParams, WaitForCountParams, WaitForExchangeParams, WaitForFunctionParams, WaitForLoadStateParams, WaitForRequestFinishedParams, WaitForUrlParams
 from .settings import DEPRECATED_SETTINGS
 
 
@@ -39,6 +39,15 @@ class AsyncCollieOperations:
         """
         warn_experimental("audit.verify")
         return result_of(AuditVerified, await self._caller.call("audit.verify", params))
+
+    async def catalog_run_start(self, params: CatalogRunStartParams) -> RunStarted:
+        """Starts a code-free catalog run, a Run with no handler in the program whose verbs come from the catalog (ADR 0036): an Extraction of a page by a schema, `extract`, an Agent task, `agent`, or a Plan replayed with no model call, `plan_replay`; and answers once it is started. Its Run ID works as `run.start`'s. With `detached`, the Run outlives the program that started it: closing its value frees only the value, `run.finish` waits for its end and `run.stop` stops it.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        warn_experimental("catalog_run.start")
+        warn_deprecated_settings(params.settings, DEPRECATED_SETTINGS)
+        return result_of(RunStarted, await self._caller.call("catalog_run.start", params))
 
     async def certs_list(self, params: CertsListParams) -> CertsListed:
         """Lists the caller's pins in the known-certificates store: each host whose invalid certificate was accepted on first use, the SHA-256 of its public key, when and by which Run. Another person's pins on a shared Daemon are never listed. A row the engine cannot read is listed without its hash; it stops its host as a changed key.
@@ -405,6 +414,15 @@ class AsyncCollieOperations:
         warn_experimental("page.wait_for_url")
         return result_of(Reached, await self._caller.call("page.wait_for_url", params))
 
+    async def recipe_start(self, params: RecipeStartParams) -> RunStarted:
+        """Starts a Recipe's run, a Run with no handler in the program, and answers once it is started. Its Run ID works as `run.start`'s. With `detached`, the Run outlives the program that started it: closing its value frees only the value, `run.finish` waits for its end and `run.stop` stops it.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        warn_experimental("recipe.start")
+        warn_deprecated_settings(params.settings, DEPRECATED_SETTINGS)
+        return result_of(RunStarted, await self._caller.call("recipe.start", params))
+
     async def response_body(self, params: ResponseBodyParams) -> BodyHandle:
         """Reads the body of the response a page's request got, once the request finished, as a page body's handle: kept already for a response `page.wait_for_request_finished` answered, and otherwise read from the browser, on the session of the frame that loaded it. A body the browser no longer holds, or a redirect's, which has none, raises `body_unavailable`, whose fix names `page.wait_for_request_finished`; one that broke off raises `response_truncated`, never returned as whole. Past its `timeout`, `timeout.wait` when the call gives none, a request that has not ended fails it with `deadline_exceeded`; a page that ends under it raises what ended it, as a call on the page does.
 
@@ -693,6 +711,15 @@ class CollieOperations:
         """
         warn_experimental("audit.verify")
         return result_of(AuditVerified, self._caller.call("audit.verify", params))
+
+    def catalog_run_start(self, params: CatalogRunStartParams) -> RunStarted:
+        """Starts a code-free catalog run, a Run with no handler in the program whose verbs come from the catalog (ADR 0036): an Extraction of a page by a schema, `extract`, an Agent task, `agent`, or a Plan replayed with no model call, `plan_replay`; and answers once it is started. Its Run ID works as `run.start`'s. With `detached`, the Run outlives the program that started it: closing its value frees only the value, `run.finish` waits for its end and `run.stop` stops it.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        warn_experimental("catalog_run.start")
+        warn_deprecated_settings(params.settings, DEPRECATED_SETTINGS)
+        return result_of(RunStarted, self._caller.call("catalog_run.start", params))
 
     def certs_list(self, params: CertsListParams) -> CertsListed:
         """Lists the caller's pins in the known-certificates store: each host whose invalid certificate was accepted on first use, the SHA-256 of its public key, when and by which Run. Another person's pins on a shared Daemon are never listed. A row the engine cannot read is listed without its hash; it stops its host as a changed key.
@@ -1059,6 +1086,15 @@ class CollieOperations:
         warn_experimental("page.wait_for_url")
         return result_of(Reached, self._caller.call("page.wait_for_url", params))
 
+    def recipe_start(self, params: RecipeStartParams) -> RunStarted:
+        """Starts a Recipe's run, a Run with no handler in the program, and answers once it is started. Its Run ID works as `run.start`'s. With `detached`, the Run outlives the program that started it: closing its value frees only the value, `run.finish` waits for its end and `run.stop` stops it.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        warn_experimental("recipe.start")
+        warn_deprecated_settings(params.settings, DEPRECATED_SETTINGS)
+        return result_of(RunStarted, self._caller.call("recipe.start", params))
+
     def response_body(self, params: ResponseBodyParams) -> BodyHandle:
         """Reads the body of the response a page's request got, once the request finished, as a page body's handle: kept already for a response `page.wait_for_request_finished` answered, and otherwise read from the browser, on the session of the frame that loaded it. A body the browser no longer holds, or a redirect's, which has none, raises `body_unavailable`, whose fix names `page.wait_for_request_finished`; one that broke off raises `response_truncated`, never returned as whole. Past its `timeout`, `timeout.wait` when the call gives none, a request that has not ended fails it with `deadline_exceeded`; a page that ends under it raises what ended it, as a call on the page does.
 
@@ -1327,6 +1363,7 @@ class CollieOperations:
 EXPERIMENTAL_OPERATIONS: Final[frozenset[str]] = frozenset({
     "audit.export",
     "audit.verify",
+    "catalog_run.start",
     "certs.list",
     "connection.set_log_level",
     "dialog.accept",
@@ -1370,6 +1407,7 @@ EXPERIMENTAL_OPERATIONS: Final[frozenset[str]] = frozenset({
     "page.wait_for_request_finished",
     "page.wait_for_response",
     "page.wait_for_url",
+    "recipe.start",
     "response.body",
     "route.abort",
     "route.continue",
@@ -1414,6 +1452,7 @@ DEPRECATED_OPERATIONS: Final[Mapping[str, str]] = {
 OPERATION_CLASSES: Final[Mapping[str, Literal["read", "idempotent_write", "effect"]]] = {
     "audit.export": "read",
     "audit.verify": "read",
+    "catalog_run.start": "idempotent_write",
     "certs.list": "read",
     "config.explain": "read",
     "connection.set_log_level": "idempotent_write",
@@ -1462,6 +1501,7 @@ OPERATION_CLASSES: Final[Mapping[str, Literal["read", "idempotent_write", "effec
     "page.wait_for_request_finished": "read",
     "page.wait_for_response": "read",
     "page.wait_for_url": "read",
+    "recipe.start": "idempotent_write",
     "response.body": "read",
     "route.abort": "effect",
     "route.continue": "effect",

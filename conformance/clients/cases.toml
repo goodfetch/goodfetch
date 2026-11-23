@@ -5,8 +5,11 @@
 # its own, as `modes = { sdk-rust = ["daemon"] }`, where a surface the table
 # leaves out takes every mode it has. Every surface a case lists implements
 # it in each of its modes; `xtask clients check` fails on a missing one or an
-# unknown ID. Area 11 writes the cases; each joins with the ticket whose code
-# satisfies it. Bump the version whenever a case changes.
+# unknown ID. On the `cli` surface, a case runs on its Product's executable:
+# Collie's, unless it needs what only Foxhound's has and says
+# `product = "foxhound"` (ADR 0094). Area 11 writes the cases; each joins
+# with the ticket whose code satisfies it. Bump the version whenever a case
+# changes.
 #
 # The `sdk-typescript` and `sdk-python` cases below run in the `attached`
 # mode only: the Daemon transport (#220 and area 11's Daemon ticket) adds
@@ -23,7 +26,7 @@
 
 [suite]
 name = "clients"
-version = "53"
+version = "54"
 
 [[capability]]
 name = "lifecycle"
@@ -479,6 +482,23 @@ modes = ["attached", "linked"]
 [[capability.case]]
 id = "settings-refusals-say-how-to-fix"
 covers = ["story:11-71", "story:11-76"]
+surfaces = ["sdk-typescript", "sdk-python", "sdk-rust"]
+modes = ["attached", "linked"]
+
+# `connect()`'s environment map (ADR 0083; issue 3118): an Attached engine
+# gets exactly the `env` map as its environment, and with none TypeScript
+# and Python pass the process environment and Rust reads it once, each
+# shown in a child process the test starts with an environment of its own,
+# so no test patches its own. A `GOODFETCH_` name off the closed list
+# (`setting_unknown`), an empty value and a value the engine cannot parse,
+# a `GOODFETCH_CHANNEL` naming no channel or a
+# `GOODFETCH_DAEMON_DRAIN_GRACE` that is no whole number of milliseconds
+# (`setting_invalid`), each fail `connect()` before any engine is reached.
+# Rust plays it linked, where the engine's Goodfetch home shows the map it
+# was given.
+[[capability.case]]
+id = "connect-takes-the-environment-map"
+covers = ["story:11-73"]
 surfaces = ["sdk-typescript", "sdk-python", "sdk-rust"]
 modes = ["attached", "linked"]
 

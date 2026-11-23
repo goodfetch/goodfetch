@@ -32,8 +32,8 @@ pub struct DeclaredCapability {
 
 /// One case a suite declares. A case of the Client conformance case list
 /// (`conformance/clients/cases.toml`) also names its `surfaces`, `modes`,
-/// `script` or `task`, which `xtask clients check` and the runners read and
-/// the writer leaves aside.
+/// `platforms`, `product`, `script` or `task`, which `xtask clients check`
+/// and the runners read and the writer leaves aside.
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
 pub struct DeclaredCase {
     /// Its ID, unique in the suite.

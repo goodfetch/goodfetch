@@ -15,7 +15,7 @@ use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::cli::ATTACHED_ENGINE;
 use goodfetch_protocol::formats::USER_CONFIGURATION;
 use goodfetch_protocol::settings::{
-    COLLIE_ENGINE_PATH_VARIABLE, DEPLOYMENT_PREFIX, DEPLOYMENT_VARIABLES,
+    CHANNELS, COLLIE_ENGINE_PATH_VARIABLE, DEPLOYMENT_PREFIX, DEPLOYMENT_VARIABLES,
     FOXHOUND_ENGINE_PATH_VARIABLE, PROJECT_CONFIGURATION_FILE,
 };
 
@@ -296,7 +296,7 @@ fn connection(layer: &Layer) -> String {
     let (shared, name, constant, variable) = match layer.product {
         Product::Collie => (
             format!(
-                "/** The protocol version `major.minor` this package's `hello` names (ADRs 0024 and 0066). */\nexport const PROTOCOL_VERSION = {:?};\n\n/** The WebSocket subprotocol a Client offers an Exposed Daemon, `goodfetch.v<major>` of the protocol version (ADR 0049). */\nexport const WEBSOCKET_SUBPROTOCOL = {:?};\n\n/** The Product version this package carries, `hello`'s `product_version`, which each Product's package pins exactly (ADRs 0090 and 0095). */\nexport const PRODUCT_VERSION = {:?};\n\n/** The executable's hidden command that serves one Connection over stdio. */\nexport const ATTACHED_ENGINE_COMMAND = {:?};\n\n/** The prefix every deployment variable has, which ADR 0034 reserves. */\nexport const DEPLOYMENT_PREFIX = {DEPLOYMENT_PREFIX:?};\n\n/** The deployment variables, the closed list of `GOODFETCH_` variables `connect()` takes from its environment map (ADR 0083). */\nexport const DEPLOYMENT_VARIABLES = [\n{}\n] as const;\n\n/** The project configuration's file `connect()` reads, found in the working directory or the nearest folder above it (ADR 0083). */\nexport const PROJECT_FILE = {PROJECT_CONFIGURATION_FILE:?};\n\n/** The format a project configuration's file is written in, which an unreadable version names (ADR 0030). */\nexport const PROJECT_FORMAT = {:?};\n\n/** The version `major.minor` of that format this package reads (ADR 0030). */\nexport const PROJECT_FORMAT_VERSION = {:?};\n\n",
+                "/** The protocol version `major.minor` this package's `hello` names (ADRs 0024 and 0066). */\nexport const PROTOCOL_VERSION = {:?};\n\n/** The WebSocket subprotocol a Client offers an Exposed Daemon, `goodfetch.v<major>` of the protocol version (ADR 0049). */\nexport const WEBSOCKET_SUBPROTOCOL = {:?};\n\n/** The Product version this package carries, `hello`'s `product_version`, which each Product's package pins exactly (ADRs 0090 and 0095). */\nexport const PRODUCT_VERSION = {:?};\n\n/** The executable's hidden command that serves one Connection over stdio. */\nexport const ATTACHED_ENGINE_COMMAND = {:?};\n\n/** The prefix every deployment variable has, which ADR 0034 reserves. */\nexport const DEPLOYMENT_PREFIX = {DEPLOYMENT_PREFIX:?};\n\n/** The deployment variables, the closed list of `GOODFETCH_` variables `connect()` takes from its environment map (ADR 0083). */\nexport const DEPLOYMENT_VARIABLES = [\n{}\n] as const;\n\n/** The channels an executable can come from, the names `GOODFETCH_CHANNEL` takes (ADR 0090). */\nexport const CHANNELS = [\n{}\n] as const;\n\n/** The project configuration's file `connect()` reads, found in the working directory or the nearest folder above it (ADR 0083). */\nexport const PROJECT_FILE = {PROJECT_CONFIGURATION_FILE:?};\n\n/** The format a project configuration's file is written in, which an unreadable version names (ADR 0030). */\nexport const PROJECT_FORMAT = {:?};\n\n/** The version `major.minor` of that format this package reads (ADR 0030). */\nexport const PROJECT_FORMAT_VERSION = {:?};\n\n",
                 layer.protocol_version.to_string(),
                 layer.protocol_version.websocket_subprotocol(),
                 layer.product_version,
@@ -304,6 +304,11 @@ fn connection(layer: &Layer) -> String {
                 DEPLOYMENT_VARIABLES
                     .iter()
                     .map(|variable| format!("  {variable:?},"))
+                    .collect::<Vec<_>>()
+                    .join("\n"),
+                CHANNELS
+                    .iter()
+                    .map(|channel| format!("  {channel:?},"))
                     .collect::<Vec<_>>()
                     .join("\n"),
                 USER_CONFIGURATION.name,

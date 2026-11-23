@@ -11,13 +11,14 @@
 // Products imports it directly. Importing it reads, patches and logs nothing
 // (ADR 0078).
 export type { Connection } from "./connection.ts";
-export type { EngineInfo, StartOptions } from "./client-connection.ts";
+export type { EngineInfo, HandlerlessStartOptions, StartOptions } from "./client-connection.ts";
 export type { ConnectOptions, ConnectOverOptions } from "./product-connection.ts";
 export type { EngineChoice, RemoteDaemon } from "./engine-choice.ts";
 export type { Limits, Money } from "./limits.ts";
 export type { PageSettings, RunSettings, SessionSettings, Settings } from "./generated/settings.ts";
 export type { Logger } from "./logger.ts";
 export { Run } from "./run.ts";
+export { RunView } from "./run-view.ts";
 export {
   Locator,
   Page,
@@ -48,6 +49,7 @@ export type {
   Acted,
   BlockCause,
   CallOptions,
+  CatalogTarget,
   Claim,
   Completeness,
   ConsoleMessage,
@@ -66,6 +68,8 @@ export type {
   PageResponse,
   PageWebSocket,
   Product,
+  Recording,
+  RecordingMode,
   Reported,
   RunOrigin,
   RunProgress,

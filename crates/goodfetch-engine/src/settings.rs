@@ -34,7 +34,7 @@ use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::settings::{ProjectSettings, RecipeManifest, RunOrigin, SettingsLayer};
 use serde_json::{Map, Value};
 
-pub use environment::{check_environment, deployment_variable};
+pub use environment::{check_environment, deployment_variable, taken_value};
 pub use error::SettingsError;
 pub use files::{
     LOWEST_MINOR_KEY, MachineLayers, SettingsFiles, configuration, find_project,

@@ -793,6 +793,14 @@ class RunStateUnavailableError(UnavailableError):
         super().__init__(message, code="run_state_unavailable", group="unavailable", retryable=False, **fields)
 
 
+class RunTargetUnbuiltError(UnavailableError):
+    """This engine does not run what the start names yet, a Recipe's run or a code-free catalog run's target, so it starts no Run: the details name the start and the target's kind."""
+
+    def __init__(self, message: str, **fields: Unpack[ErrorFields]) -> None:
+        """Takes the message the engine rendered, and what it carries."""
+        super().__init__(message, code="run_target_unbuilt", group="unavailable", retryable=False, **fields)
+
+
 class SampleRefusedError(RefusedError):
     """The sample operation refused the text."""
 
@@ -1046,6 +1054,7 @@ ERROR_CLASSES: Final[Mapping[str, ErrorClass]] = {
     "run_not_found": RunNotFoundError,
     "run_not_owned": RunNotOwnedError,
     "run_state_unavailable": RunStateUnavailableError,
+    "run_target_unbuilt": RunTargetUnbuiltError,
     "sample_refused": SampleRefusedError,
     "secret_domain_not_allowed": SecretDomainNotAllowedError,
     "secret_input_refused": SecretInputRefusedError,

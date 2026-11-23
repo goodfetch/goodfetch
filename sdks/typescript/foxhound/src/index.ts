@@ -18,6 +18,7 @@ export {
   Foxhound,
   type FoxhoundConnectOptions,
   type FoxhoundConnectOverOptions,
+  type FoxhoundHandlerlessStartOptions,
   type FoxhoundLimits,
   type FoxhoundStartOptions,
   type StartCrawlOptions,

@@ -1208,6 +1208,16 @@
     },
     {
       "arrived_in": "0.1",
+      "description": "This engine does not run what the start names yet, a Recipe's run or a code-free catalog run's target, so it starts no Run: the details name the start and the target's kind.",
+      "exit_code": null,
+      "group": "unavailable",
+      "json_rpc_class": -32006,
+      "name": "run_target_unbuilt",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
       "description": "The sample crawl refused its pages.",
       "exit_code": null,
       "group": "refused",
@@ -2555,6 +2565,25 @@
       "cancellable": false,
       "class": "idempotent_write",
       "deprecated": null,
+      "description": "Starts a code-free catalog run, a Run with no handler in the program whose verbs come from the catalog (ADR 0036): an Extraction of a page by a schema, `extract`, an Agent task, `agent`, or a Plan replayed with no model call, `plan_replay`; and answers once it is started. Its Run ID works as `run.start`'s. With `detached`, the Run outlives the program that started it: closing its value frees only the value, `run.finish` waits for its end and `run.stop` stops it.",
+      "events": [],
+      "kind": "opener",
+      "name": "catalog_run.start",
+      "params": {
+        "$ref": "#/$defs/CatalogRunStartParams"
+      },
+      "product": "collie",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/RunStarted"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": false,
+      "class": "idempotent_write",
+      "deprecated": null,
       "description": "Pins the changed key that stopped a host with `certificate_changed` in place of its pin, in the caller's partition, and records the accepted change in the Audit log; answers the new pin. Refused unless the key is the change the store holds for the host. A person's answer: offered only in the interactive CLI prompt.",
       "events": [],
       "kind": "round_trip",
@@ -3852,6 +3881,25 @@
       "reach": "all_surfaces",
       "result": {
         "$ref": "#/$defs/Reached"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": false,
+      "class": "idempotent_write",
+      "deprecated": null,
+      "description": "Starts a Recipe's run, a Run with no handler in the program, and answers once it is started. Its Run ID works as `run.start`'s. With `detached`, the Run outlives the program that started it: closing its value frees only the value, `run.finish` waits for its end and `run.stop` stops it.",
+      "events": [],
+      "kind": "opener",
+      "name": "recipe.start",
+      "params": {
+        "$ref": "#/$defs/RecipeStartParams"
+      },
+      "product": "collie",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/RunStarted"
       },
       "stability": "experimental"
     },

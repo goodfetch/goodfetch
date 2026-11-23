@@ -782,6 +782,50 @@ fn a_push_of_another_tree_runs_quick_against_the_commit_the_remote_ref_holds() {
     assert_eq!(layer.trim(), "pre-push");
 }
 
+/// A run's ticket ends with no `just quick` of its own (Checks by role, the
+/// owner's decision of 2026-11-23): its push to `spec/<n>` judges the pushed
+/// commits' sign-offs and subjects alone, and the batch's `just batch-check`
+/// runs `just quick` once on the combined tree that merges.
+#[test]
+fn a_push_to_a_spec_branch_checks_its_commits_and_runs_no_quick() {
+    let workspace = Workspace::from_fixture("empty");
+    let stand_in = hook_stand_in(&workspace);
+    let (first, head) = two_commits(&workspace);
+
+    let run = pre_push(
+        &workspace,
+        &stand_in,
+        &format!("refs/heads/ticket {head} refs/heads/spec/607 {first}\n"),
+    );
+
+    assert_eq!(run.code, Some(0), "{}", run.stderr);
+    assert_eq!(run.calls, commit_checks(&head));
+    assert!(run.stdout.contains("spec/607"), "{}", run.stdout);
+}
+
+/// The push's other refs still take `just quick`: only `spec/<n>` leaves it
+/// to the batch.
+#[test]
+fn a_push_of_a_spec_branch_and_another_runs_quick_for_the_other() {
+    let workspace = Workspace::from_fixture("empty");
+    let stand_in = hook_stand_in(&workspace);
+    let (first, head) = two_commits(&workspace);
+
+    let run = pre_push(
+        &workspace,
+        &stand_in,
+        &format!(
+            "refs/heads/ticket {head} refs/heads/spec/607 {first}\nrefs/heads/ticket {head} refs/heads/ticket {first}\n"
+        ),
+    );
+
+    assert_eq!(run.code, Some(0), "{}", run.stderr);
+    let mut calls = commit_checks(&head).to_vec();
+    calls.extend(commit_checks(&head));
+    calls.push(format!("quick base={first}"));
+    assert_eq!(run.calls, calls);
+}
+
 /// A push of a batch's branch with an open pull request to `main`, while the
 /// pull-request workflow is active, judges its commits and runs no `just
 /// quick`: the hosted run the push starts runs the Quick suite (ADR 0135's
@@ -839,50 +883,6 @@ fn a_push_of_a_branch_the_hosted_tier_serves_judges_its_commits_alone(
         "{}",
         run.stdout
     );
-}
-
-/// A run's ticket ends with no `just quick` of its own (Checks by role, the
-/// owner's decision of 2026-11-23): its push to `spec/<n>` judges the pushed
-/// commits' sign-offs and subjects alone, and the batch's `just batch-check`
-/// runs `just quick` once on the combined tree that merges.
-#[test]
-fn a_push_to_a_spec_branch_checks_its_commits_and_runs_no_quick() {
-    let workspace = Workspace::from_fixture("empty");
-    let stand_in = hook_stand_in(&workspace);
-    let (first, head) = two_commits(&workspace);
-
-    let run = pre_push(
-        &workspace,
-        &stand_in,
-        &format!("refs/heads/ticket {head} refs/heads/spec/607 {first}\n"),
-    );
-
-    assert_eq!(run.code, Some(0), "{}", run.stderr);
-    assert_eq!(run.calls, commit_checks(&head));
-    assert!(run.stdout.contains("spec/607"), "{}", run.stdout);
-}
-
-/// The push's other refs still take `just quick`: only `spec/<n>` leaves it
-/// to the batch.
-#[test]
-fn a_push_of_a_spec_branch_and_another_runs_quick_for_the_other() {
-    let workspace = Workspace::from_fixture("empty");
-    let stand_in = hook_stand_in(&workspace);
-    let (first, head) = two_commits(&workspace);
-
-    let run = pre_push(
-        &workspace,
-        &stand_in,
-        &format!(
-            "refs/heads/ticket {head} refs/heads/spec/607 {first}\nrefs/heads/ticket {head} refs/heads/ticket {first}\n"
-        ),
-    );
-
-    assert_eq!(run.code, Some(0), "{}", run.stderr);
-    let mut calls = commit_checks(&head).to_vec();
-    calls.extend(commit_checks(&head));
-    calls.push(format!("quick base={first}"));
-    assert_eq!(run.calls, calls);
 }
 
 /// A repository whose `ticket` branch, off `main` with no upstream, added a

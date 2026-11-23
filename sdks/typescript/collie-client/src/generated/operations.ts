@@ -2,7 +2,7 @@
 
 import type { CallOptions, Caller } from "../caller.ts";
 import { type EntryMarkers, warnDeprecated, warnExperimental } from "../markers.ts";
-import type { Acted, AddInitScriptParams, AuditExportParams, AuditExported, AuditVerified, AuditVerifyParams, BodyHandle, CertsListParams, CertsListed, Checkpoint, ClickParams, ConfigExplainParams, Counted, DaemonHealth, DaemonParams, DaemonState, DaemonStopping, DialogAcceptParams, DialogAnswered, DialogDismissParams, DialogsEnded, DownloadSaveAsParams, DownloadSaved, EffectCloseParams, EffectClosed, EffectOpenParams, EffectOpened, EngineInfo, EngineInfoParams, EvaluateParams, Evaluated, EventsSubscribeParams, FillParams, FormatsParams, GotoParams, InitScriptEnded, KeyValueStoreBytesValue, KeyValueStoreDeleted, KeyValueStoreKeyParams, KeyValueStoreKeysEnded, KeyValueStoreKeysParams, KeyValueStoreSet, KeyValueStoreSetBytesParams, KeyValueStoreSetParams, KeyValueStoreValue, LimitUsage, LocatorEvaluateAllParams, LocatorWaitForFunctionParams, LocatorWaitForParams, LogLevelSet, Navigated, NeedsYouDismissParams, NeedsYouDismissed, NeedsYouList, NeedsYouListParams, NewPageParams, NewSessionPageParams, NewSessionParams, PageBodyParams, PageBodyRead, PageCloseParams, PageClosed, PageExchange, PageFormats, PageOnDialogParams, PageOnEnded, PageOnParams, PageOpened, PageParams, PageRead, PageReadParams, PageRequest, PageRequestParams, PageResponse, PageRouteParams, PressParams, Reached, ResponseBodyParams, RouteAbortParams, RouteAnswered, RouteEnded, RouteFetched, RouteFulfillParams, RouteOverridesParams, RunAbortParams, RunCheckpointParams, RunDiscarded, RunFinishParams, RunList, RunListParams, RunParams, RunProgress, RunProgressParams, RunReport, RunResumeParams, RunSetProgressMessageParams, RunStartParams, RunStarted, RunStartedAs, RunStopParams, RunUsage, SampleEchoParams, SampleEchoResult, SessionClosed, SessionOnEnded, SessionOnParams, SessionOpened, SessionPages, SessionParams, SessionRouteParams, SetLogLevelParams, SettingsExplanation, SigningKeyCreateParams, SigningKeyCreated, SigningKeyDirectory, SigningKeyDirectoryParams, SubscriptionEnded, UsageListParams, UsageListResult, UsageSetParams, WaitForCountParams, WaitForExchangeParams, WaitForFunctionParams, WaitForLoadStateParams, WaitForRequestFinishedParams, WaitForUrlParams } from "./types.ts";
+import type { Acted, AddInitScriptParams, AuditExportParams, AuditExported, AuditVerified, AuditVerifyParams, BodyHandle, CatalogRunStartParams, CertsListParams, CertsListed, Checkpoint, ClickParams, ConfigExplainParams, Counted, DaemonHealth, DaemonParams, DaemonState, DaemonStopping, DialogAcceptParams, DialogAnswered, DialogDismissParams, DialogsEnded, DownloadSaveAsParams, DownloadSaved, EffectCloseParams, EffectClosed, EffectOpenParams, EffectOpened, EngineInfo, EngineInfoParams, EvaluateParams, Evaluated, EventsSubscribeParams, FillParams, FormatsParams, GotoParams, InitScriptEnded, KeyValueStoreBytesValue, KeyValueStoreDeleted, KeyValueStoreKeyParams, KeyValueStoreKeysEnded, KeyValueStoreKeysParams, KeyValueStoreSet, KeyValueStoreSetBytesParams, KeyValueStoreSetParams, KeyValueStoreValue, LimitUsage, LocatorEvaluateAllParams, LocatorWaitForFunctionParams, LocatorWaitForParams, LogLevelSet, Navigated, NeedsYouDismissParams, NeedsYouDismissed, NeedsYouList, NeedsYouListParams, NewPageParams, NewSessionPageParams, NewSessionParams, PageBodyParams, PageBodyRead, PageCloseParams, PageClosed, PageExchange, PageFormats, PageOnDialogParams, PageOnEnded, PageOnParams, PageOpened, PageParams, PageRead, PageReadParams, PageRequest, PageRequestParams, PageResponse, PageRouteParams, PressParams, Reached, RecipeStartParams, ResponseBodyParams, RouteAbortParams, RouteAnswered, RouteEnded, RouteFetched, RouteFulfillParams, RouteOverridesParams, RunAbortParams, RunCheckpointParams, RunDiscarded, RunFinishParams, RunList, RunListParams, RunParams, RunProgress, RunProgressParams, RunReport, RunResumeParams, RunSetProgressMessageParams, RunStartParams, RunStarted, RunStartedAs, RunStopParams, RunUsage, SampleEchoParams, SampleEchoResult, SessionClosed, SessionOnEnded, SessionOnParams, SessionOpened, SessionPages, SessionParams, SessionRouteParams, SetLogLevelParams, SettingsExplanation, SigningKeyCreateParams, SigningKeyCreated, SigningKeyDirectory, SigningKeyDirectoryParams, SubscriptionEnded, UsageListParams, UsageListResult, UsageSetParams, WaitForCountParams, WaitForExchangeParams, WaitForFunctionParams, WaitForLoadStateParams, WaitForRequestFinishedParams, WaitForUrlParams } from "./types.ts";
 import { warnDeprecatedSettings } from "./settings.ts";
 
 export type { CallOptions, Caller, OperationTypes } from "../caller.ts";
@@ -11,6 +11,7 @@ export type { CallOptions, Caller, OperationTypes } from "../caller.ts";
 export interface CollieOperationTypes {
   "audit.export": { params: AuditExportParams; result: AuditExported };
   "audit.verify": { params: AuditVerifyParams; result: AuditVerified };
+  "catalog_run.start": { params: CatalogRunStartParams; result: RunStarted };
   "certs.list": { params: CertsListParams; result: CertsListed };
   "config.explain": { params: ConfigExplainParams; result: SettingsExplanation };
   "connection.set_log_level": { params: SetLogLevelParams; result: LogLevelSet };
@@ -59,6 +60,7 @@ export interface CollieOperationTypes {
   "page.wait_for_request_finished": { params: WaitForRequestFinishedParams; result: PageExchange };
   "page.wait_for_response": { params: WaitForExchangeParams; result: PageExchange };
   "page.wait_for_url": { params: WaitForUrlParams; result: Reached };
+  "recipe.start": { params: RecipeStartParams; result: RunStarted };
   "response.body": { params: ResponseBodyParams; result: BodyHandle };
   "route.abort": { params: RouteAbortParams; result: RouteAnswered };
   "route.continue": { params: RouteOverridesParams; result: RouteAnswered };
@@ -98,6 +100,7 @@ export interface CollieOperationTypes {
 export const collieOperations: Readonly<Record<keyof CollieOperationTypes, EntryMarkers>> = {
   "audit.export": { experimental: true, deprecated: undefined },
   "audit.verify": { experimental: true, deprecated: undefined },
+  "catalog_run.start": { experimental: true, deprecated: undefined },
   "certs.list": { experimental: true, deprecated: undefined },
   "config.explain": { experimental: false, deprecated: undefined },
   "connection.set_log_level": { experimental: true, deprecated: undefined },
@@ -146,6 +149,7 @@ export const collieOperations: Readonly<Record<keyof CollieOperationTypes, Entry
   "page.wait_for_request_finished": { experimental: true, deprecated: undefined },
   "page.wait_for_response": { experimental: true, deprecated: undefined },
   "page.wait_for_url": { experimental: true, deprecated: undefined },
+  "recipe.start": { experimental: true, deprecated: undefined },
   "response.body": { experimental: true, deprecated: undefined },
   "route.abort": { experimental: true, deprecated: undefined },
   "route.continue": { experimental: true, deprecated: undefined },
@@ -185,6 +189,7 @@ export const collieOperations: Readonly<Record<keyof CollieOperationTypes, Entry
 export const collieOperationNames: Readonly<Record<keyof CollieOperationTypes, string>> = {
   "audit.export": "audit.export",
   "audit.verify": "audit.verify",
+  "catalog_run.start": "catalogRun.start",
   "certs.list": "certs.list",
   "config.explain": "config.explain",
   "connection.set_log_level": "connection.setLogLevel",
@@ -233,6 +238,7 @@ export const collieOperationNames: Readonly<Record<keyof CollieOperationTypes, s
   "page.wait_for_request_finished": "page.waitForRequestFinished",
   "page.wait_for_response": "page.waitForResponse",
   "page.wait_for_url": "page.waitForURL",
+  "recipe.start": "recipe.start",
   "response.body": "response.body",
   "route.abort": "route.abort",
   "route.continue": "route.continue",
@@ -272,6 +278,7 @@ export const collieOperationNames: Readonly<Record<keyof CollieOperationTypes, s
 export const collieOperationClasses: Readonly<Record<keyof CollieOperationTypes, "read" | "idempotent_write" | "effect">> = {
   "audit.export": "read",
   "audit.verify": "read",
+  "catalog_run.start": "idempotent_write",
   "certs.list": "read",
   "config.explain": "read",
   "connection.set_log_level": "idempotent_write",
@@ -320,6 +327,7 @@ export const collieOperationClasses: Readonly<Record<keyof CollieOperationTypes,
   "page.wait_for_request_finished": "read",
   "page.wait_for_response": "read",
   "page.wait_for_url": "read",
+  "recipe.start": "idempotent_write",
   "response.body": "read",
   "route.abort": "effect",
   "route.continue": "effect",
@@ -381,6 +389,17 @@ export class CollieOperations {
   auditVerify(params: AuditVerifyParams): Promise<AuditVerified> {
     warnExperimental("audit.verify");
     return this.#caller.call("audit.verify", params, {});
+  }
+
+  /**
+   * Starts a code-free catalog run, a Run with no handler in the program whose verbs come from the catalog (ADR 0036): an Extraction of a page by a schema, `extract`, an Agent task, `agent`, or a Plan replayed with no model call, `plan_replay`; and answers once it is started. Its Run ID works as `run.start`'s. With `detached`, the Run outlives the program that started it: closing its value frees only the value, `run.finish` waits for its end and `run.stop` stops it.
+   *
+   * @experimental
+   */
+  catalogRunStart(params: CatalogRunStartParams): Promise<RunStarted> {
+    warnExperimental("catalog_run.start");
+    warnDeprecatedSettings(params.settings);
+    return this.#caller.call("catalog_run.start", params, {});
   }
 
   /**
@@ -847,6 +866,17 @@ export class CollieOperations {
   pageWaitForURL(params: WaitForUrlParams, options: CallOptions = {}): Promise<Reached> {
     warnExperimental("page.wait_for_url");
     return this.#caller.call("page.wait_for_url", params, options);
+  }
+
+  /**
+   * Starts a Recipe's run, a Run with no handler in the program, and answers once it is started. Its Run ID works as `run.start`'s. With `detached`, the Run outlives the program that started it: closing its value frees only the value, `run.finish` waits for its end and `run.stop` stops it.
+   *
+   * @experimental
+   */
+  recipeStart(params: RecipeStartParams): Promise<RunStarted> {
+    warnExperimental("recipe.start");
+    warnDeprecatedSettings(params.settings);
+    return this.#caller.call("recipe.start", params, {});
   }
 
   /**

@@ -3,6 +3,10 @@
 //! packages only, or reuses the green result that a gate run on an ancestor
 //! head recorded. The choice reads what `xtask affected` selects for the
 //! change since the head each green result was produced on, never a guess.
+//! Size: one concern, the choice for each step: the table of what each step
+//! reads (`Step`, `GATE_INPUTS`, `NARROWED`), the rules that judge a recorded
+//! result against the change (`judge`, `still_holds`) and the hosted pin
+//! (`Pin`); the tables are about a third of its length.
 
 use std::collections::{BTreeMap, BTreeSet};
 

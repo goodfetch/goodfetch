@@ -115,6 +115,7 @@ fn every_layer_sets_navigation() -> Layers {
             json!({ "timeout": { "navigation": 4_000 } }),
             &[("timeout.navigation", Exposure::default())],
         )),
+        registered: Values::default(),
         run: values(
             SettingsLayer::Run,
             json!({ "timeout": { "navigation": 5_000 } }),
@@ -324,11 +325,10 @@ fn a_lock_wins_over_a_registered_value_with_no_refusal(
     #[case] locking: SettingsLayer,
     #[case] locked: Value,
 ) {
-    layers.run = values(
+    layers.registered = values(
         SettingsLayer::Run,
         json!({ "timeout": { "navigation": 9_000 } }),
-    )
-    .from_origin(RunOrigin::Registered);
+    );
 
     let effective = resolved(&layers);
 
@@ -346,30 +346,71 @@ fn a_lock_wins_over_a_registered_value_with_no_refusal(
     );
 }
 
-/// Unlocked, the registered value is the run layer's, with its origin.
+/// `proxy.provider` as `config.explain` shows it: its value, layer and
+/// origin.
+fn explained_provider(layers: &Layers) -> (Value, SettingsLayer, Option<RunOrigin>) {
+    let explained = resolved(layers).explain(&["proxy.provider".to_owned()], Vec::new());
+    let [provider] = explained.settings.as_slice() else {
+        panic!("one key explained: {explained:?}");
+    };
+    (provider.value.clone(), provider.layer, provider.origin)
+}
+
+/// A Connection's only SDK handler of a kind one setting chooses is that
+/// setting's run-layer value with the origin `registered`, which
+/// configuration does not replace (ADR 0104's amendment of ADR 0083).
 #[test]
-fn an_unlocked_registered_value_is_the_run_layers_with_its_origin() {
+fn a_registered_value_beats_configuration_and_shows_its_origin() {
     let layers = Layers {
-        run: values(
+        user_configuration: values(
+            SettingsLayer::UserConfiguration,
+            json!({ "proxy": { "provider": "bright_data" } }),
+        ),
+        project_configuration: values(
+            SettingsLayer::ProjectConfiguration,
+            json!({ "proxy": { "provider": "oxylabs" } }),
+        ),
+        registered: values(
             SettingsLayer::Run,
-            json!({ "timeout": { "navigation": 9_000 } }),
-        )
-        .from_origin(RunOrigin::Registered),
-        ..every_layer_sets_navigation()
+            json!({ "proxy": { "provider": "my_pool" } }),
+        ),
+        ..Layers::default()
     };
 
-    let effective = resolved(&layers);
-
-    let navigation = effective
-        .effective(catalog_key("timeout.navigation"))
-        .unwrap();
     assert_eq!(
-        (&navigation.value, navigation.layer, navigation.origin),
+        explained_provider(&layers),
         (
-            &json!(9_000),
+            json!("my_pool"),
             SettingsLayer::Run,
             Some(RunOrigin::Registered)
         )
+    );
+}
+
+/// Every other run-layer value replaces a registered one: a call's
+/// argument, a scope's `settings`, a CLI flag or a form (ADR 0104).
+#[rstest]
+#[case::argument(RunOrigin::Argument)]
+#[case::settings(RunOrigin::Settings)]
+#[case::flag(RunOrigin::Flag)]
+#[case::form(RunOrigin::Form)]
+fn every_other_run_layer_value_replaces_a_registered_one(#[case] origin: RunOrigin) {
+    let layers = Layers {
+        registered: values(
+            SettingsLayer::Run,
+            json!({ "proxy": { "provider": "my_pool" } }),
+        ),
+        run: values(
+            SettingsLayer::Run,
+            json!({ "proxy": { "provider": "apify" } }),
+        )
+        .from_origin(origin),
+        ..Layers::default()
+    };
+
+    assert_eq!(
+        explained_provider(&layers),
+        (json!("apify"), SettingsLayer::Run, Some(origin))
     );
 }
 
@@ -1770,6 +1811,7 @@ proptest! {
             user_configuration: values(SettingsLayer::UserConfiguration, table(user)),
             project_configuration: values(SettingsLayer::ProjectConfiguration, table(project)),
             recipe: None,
+            registered: Values::default(),
             run: values(SettingsLayer::Run, table(run)),
         };
         let lock_holds = locked && policy_value.is_some();

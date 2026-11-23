@@ -160,7 +160,28 @@ fn a_clients_hello_reads_with_the_product_it_needs() {
             client_surface: None,
             keep_daemon_alive: false,
             settings: serde_json::Map::new(),
+            handlers: std::collections::BTreeMap::new(),
         }
+    );
+}
+
+/// A `hello` names its handlers by Plugin kind (ADR 0104).
+#[test]
+fn a_hello_reads_its_handlers_by_plugin_kind() {
+    let hello: HelloParams = serde_json::from_value(json!({
+        "protocol_version": "0.1",
+        "surface": "sdk_typescript",
+        "product_version": "0.0.0",
+        "handlers": { "proxy_provider": ["my_pool"] },
+    }))
+    .unwrap();
+
+    assert_eq!(
+        hello.handlers,
+        std::collections::BTreeMap::from([(
+            "proxy_provider".to_owned(),
+            std::collections::BTreeSet::from(["my_pool".to_owned()])
+        )])
     );
 }
 
@@ -235,5 +256,5 @@ fn every_field_records_the_minor_that_added_it() {
         .values()
         .map(|field| &field["arrived_in"])
         .collect();
-    assert_eq!(minors, vec![&json!("0.1"); 10]);
+    assert_eq!(minors, vec![&json!("0.1"); 11]);
 }

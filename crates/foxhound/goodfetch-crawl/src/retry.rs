@@ -127,6 +127,7 @@ async fn reopened(
             recipe: None,
             settings: run_layer(&settings, &context)?,
             origin: Some(RunOrigin::Settings),
+            registered: context.registered_settings().clone(),
             acting_for_model: context.surface().acts_for_model(),
             exposed: context.exposed(),
         })

@@ -1027,6 +1027,7 @@ async fn start(params: RunStartParams, context: CallContext) -> Result<RunStarte
             recipe: None,
             settings: run_layer(&params.settings, &context)?,
             origin: Some(RunOrigin::Settings),
+            registered: context.registered_settings().clone(),
             acting_for_model: context.surface().acts_for_model(),
             exposed: context.exposed(),
         })
@@ -1216,6 +1217,7 @@ async fn resume(params: RunResumeParams, context: CallContext) -> Result<RunStar
             recipe: None,
             settings: run_layer(&params.settings, &context)?,
             origin: Some(RunOrigin::Settings),
+            registered: context.registered_settings().clone(),
             acting_for_model: context.surface().acts_for_model(),
             exposed: context.exposed(),
         })

@@ -4551,6 +4551,15 @@ class HelloParams(BaseModel):
     The form its user writes names in (ADR 0099), which every SDK
     declares; without one, the engine takes its surface's.
     """
+    handlers: dict[str, list[str]] | None = None
+    """
+    The program's SDK handlers, their names by Plugin kind, as
+    `connect()` registers them (ADR 0104). The only handler of a kind
+    that one setting chooses becomes that setting's value at the
+    connection scope, with the origin `registered`, beneath every
+    other run-layer value. A kind the engine's Product lacks refuses
+    the `hello`.
+    """
     keep_daemon_alive: bool | None = None
     """
     On a Kennel's `hello` (surface `kennel`), asks a Daemon to count the

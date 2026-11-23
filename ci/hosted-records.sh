@@ -141,14 +141,13 @@ list() {
 # A run's jobs not yet completed, one a line, `<since>\t<state>\t<name>`:
 # `running` since the job's start, or `queued` since the later of its
 # creation and the last end of a job of its run; or, with none, one line
-# `<last end>\tnone`, 0 when no job has ended. It is jq, not shell.
-# shellcheck disable=SC2016
-ages='([.jobs[] | select(.status == "completed") | .completed_at // empty | fromdateiso8601] | max // 0) as $last
-  | [.jobs[] | select(.status != "completed")] as $going
-  | if $going == [] then [$last, "none"]
-    else $going[]
-      | if .status == "in_progress" then [(.started_at | fromdateiso8601), "running", .name]
-        else [([(.created_at | fromdateiso8601), $last] | max), "queued", .name] end
+# `<last end>\tnone`, 0 when no job has ended.
+ages='{last: ([.jobs[] | select(.status == "completed") | .completed_at // empty | fromdateiso8601] | max // 0),
+    going: [.jobs[] | select(.status != "completed")]}
+  | if .going == [] then [.last, "none"]
+    else {last, job: .going[]}
+      | if .job.status == "in_progress" then [(.job.started_at | fromdateiso8601), "running", .job.name]
+        else [([(.job.created_at | fromdateiso8601), .last] | max), "queued", .job.name] end
     end
   | @tsv'
 

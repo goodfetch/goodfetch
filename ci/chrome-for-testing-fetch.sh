@@ -26,11 +26,14 @@ case "$(uname -s)-$(uname -m)" in
     ;;
 esac
 
-read -r build digest < <(python3 -c '
-import json, sys
-pins = json.load(open(sys.argv[1]))["chrome_for_testing"]
-print(pins["build"], pins["platforms"][sys.argv[2]]["archive_digest"].removeprefix("sha256:"))
-' "$pins" "$platform")
+# jq, not Python: the hosted tier's CI image has no system Python before
+# `uv sync`'s environment, and every host that runs `just fetch` has jq.
+read -r build digest < <(jq -er --arg platform "$platform" '
+  .chrome_for_testing as $pins
+  | ($pins.platforms[$platform] // error("no Chrome for Testing pin for \($platform)")) as $pinned
+  | [$pins.build, ($pinned.archive_digest | ltrimstr("sha256:"))]
+  | @tsv
+' "$pins")
 
 archive="chrome-$platform.zip"
 folder="${GOODFETCH_CHROME_FOR_TESTING_DOWNLOADS:-$HOME/.cache/goodfetch/chrome-for-testing}/$build/$platform"

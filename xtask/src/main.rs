@@ -522,6 +522,18 @@ enum ResultsCommand {
         #[arg(long)]
         store: PathBuf,
     },
+    /// Writes each conformance document's Live check result as one test
+    /// case of a JUnit file, `conformance <suite> <target>[ gate]`: failed,
+    /// skipped (inconclusive) or passed (ADR 0064).
+    LiveCheck {
+        /// A conformance document from a run against the online Proving
+        /// ground.
+        #[arg(long = "document", required = true)]
+        documents: Vec<PathBuf>,
+        /// The JUnit file to write, in the job's `live` tier artifact.
+        #[arg(long)]
+        junit: PathBuf,
+    },
     /// Prints `<run> <attempt>` for every attempt of the finished runs the
     /// store lacks, for the daily ingest (ADR 0135).
     Pending {
@@ -717,6 +729,11 @@ fn run_results(command: ResultsCommand, environment: &Environment) -> anyhow::Re
             let artifacts = path(&attempt.artifacts);
             let written = results::ingest(&attempt.source(environment, &artifacts), &path(&store))?;
             output::line(&format!("wrote {}", written.display()));
+            Ok(ExitCode::SUCCESS)
+        }
+        ResultsCommand::LiveCheck { documents, junit } => {
+            let documents: Vec<PathBuf> = documents.iter().map(path).collect();
+            results::write_live_checks(&documents, &path(&junit))?;
             Ok(ExitCode::SUCCESS)
         }
         ResultsCommand::Pending {

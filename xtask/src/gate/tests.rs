@@ -104,6 +104,7 @@ fn planned_shuffling(
         form: Form::All,
         layer: Layer::Merge,
         pin: PIN,
+        release_differs: &BTreeMap::new(),
     };
     plan(&head, &earlier(record, &[]), touched)
 }
@@ -142,6 +143,7 @@ fn planned_on_earliers_tree(record: &GateRun, lint_holds: Result<(), &str>) -> V
         form: Form::All,
         layer: Layer::Merge,
         pin: PIN,
+        release_differs: &BTreeMap::new(),
     };
     plan(
         &head,
@@ -1400,6 +1402,7 @@ fn planned_from_hosted(
         form,
         layer,
         pin: PIN,
+        release_differs: &BTreeMap::new(),
     };
     plan(&head, &earlier(None, hosted), touched)
 }
@@ -1638,13 +1641,15 @@ fn the_hosted_layer_leaves_each_step_to_its_owner() {
     assert_eq!(
         action(&plan, Step::Dco),
         &Action::Left {
-            owner: Owner::Local
+            owner: Owner::Local,
+            by: Layer::Hosted,
         }
     );
     assert_eq!(
         action(&plan, Step::Perf),
         &Action::Left {
-            owner: Owner::GateHost
+            owner: Owner::GateHost,
+            by: Layer::Hosted,
         }
     );
     for step in HOSTED_QUICK {
@@ -1746,6 +1751,7 @@ fn planned_for_a_batch((form, layer): (Form, Layer), hosted: &[GateRun]) -> Vec<
         form,
         layer,
         pin: PIN,
+        release_differs: &BTreeMap::new(),
     };
     plan(
         &head,

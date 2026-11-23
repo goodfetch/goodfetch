@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# `ci/hosted-records.sh await|ancestors <repository> <head> <base> <branch> <folder> [<run>]`:
+# `ci/hosted-records.sh await|ancestors <repository> <head> <base> <branch> <folder> [<run>]`,
+# or `ci/hosted-records.sh tree <repository> <commit> <folder>`:
 # downloads into `folder` the gate records the hosted tier's runs uploaded
 # (ADR 0135's amendment of 2026-11-22), one folder a run, each job's
 # `gate-record-<step>` artifact in it, for `xtask gate plan
@@ -30,21 +31,30 @@
 # own, waiting for none, so the run on the merge with `main`'s tip that the
 # gate pushes plans from the batch head's records.
 #
+# `tree`, for the Release suite's Linux x64 cell (ci/release/reuse.sh,
+# #3384): the runs that ended on `commit` or on one of its parents whose
+# tree is `commit`'s, such as the pull request's head that `just merge`
+# gated and merged as that commit, waiting for none. Its rules are those
+# above, `commit` and those parents standing for `head` and its ancestors.
+#
 # A run's records that cannot be downloaded only warn: the units they hold
 # run again. Every line it prints names the run, its head and its page.
 # It keeps to bash 3.2, which stock macOS runs.
 set -euo pipefail
 
-usage="usage: ci/hosted-records.sh await|ancestors <repository> <head> <base> <branch> <folder> [<run>]"
+usage="usage: ci/hosted-records.sh await|ancestors <repository> <head> <base> <branch> <folder> [<run>], or tree <repository> <commit> <folder>"
 mode=${1:?$usage}
 repository=${2:?$usage}
 head=${3:?$usage}
-base=${4:?$usage}
-branch=${5:?$usage}
-folder=${6:?$usage}
-own=${7:-}
+base="" branch="" own=""
 case $mode in
-  await | ancestors) ;;
+  await | ancestors)
+    base=${4:?$usage}
+    branch=${5:?$usage}
+    folder=${6:?$usage}
+    own=${7:-}
+    ;;
+  tree) folder=${4:?$usage} ;;
   *)
     echo "error: $usage" >&2
     exit 2
@@ -56,22 +66,45 @@ cap=${GOODFETCH_HOSTED_CAP:-1800}
 workflow=.github/workflows/pull-request.yml
 endpoint="repos/{owner}/{repo}/actions/workflows/pull-request.yml"
 
-# The commits whose runs count: `head` and its first-parent ancestors that
-# `base` lacks, one a line.
-candidates=$(git rev-list --first-parent "$head" --not "$base")
+# The commits whose runs count, one a line: `head` and its first-parent
+# ancestors that `base` lacks, or, for `tree`, `head` and its parents whose
+# tree is its own.
+if [[ $mode == tree ]]; then
+  head=$(git rev-parse --verify "$head^{commit}")
+  tree=$(git rev-parse --verify "$head^{tree}")
+  candidates=$head
+  for parent in $(git rev-list --parents --max-count=1 "$head" | cut -d ' ' -f 2-); do
+    [[ $(git rev-parse --verify "$parent^{tree}") != "$tree" ]] || candidates+=$'\n'$parent
+  done
+else
+  candidates=$(git rev-list --first-parent "$head" --not "$base")
+fi
 
-# The runs GitHub lists for the branch that pass the rules above, one a
-# line: `<id>\t<status>\t<conclusion>\t<head>\t<started, in Unix seconds>\t<page>`,
+# The runs GitHub lists for the branch, or for `tree` on each candidate,
+# that pass the rules above, one a line:
+# `<id>\t<status>\t<conclusion>\t<head>\t<started, in Unix seconds>\t<page>`,
 # the conclusion `none` until the run ends, since `read` would merge an
 # empty field with the tabs around it.
 # The repository is an `owner/name` GitHub gave, so it is safe in the filter.
-runs() {
-  local filter listed id status conclusion sha started page
-  filter=".workflow_runs[]
-    | select(.path == \"$workflow\" and .event == \"pull_request\" and .head_repository.full_name == \"$repository\")
+# Each listing of `tree` keeps its own commit's runs alone, so none is read
+# twice; a commit is hexadecimal, so it is safe in the filter too.
+filter() {
+  echo ".workflow_runs[]
+    | select(.path == \"$workflow\" and .event == \"pull_request\" and .head_repository.full_name == \"$repository\"$1)
     | [.id, .status, (.conclusion // \"none\"), .head_sha, ((.run_started_at // .created_at) | fromdateiso8601), .html_url]
     | @tsv"
-  listed=$(gh api "$endpoint/runs?event=pull_request&branch=$branch&per_page=100" --jq "$filter")
+}
+runs() {
+  local listed id status conclusion sha started page candidate
+  if [[ $mode == tree ]]; then
+    listed=""
+    for candidate in $candidates; do
+      listed+=$(gh api "$endpoint/runs?event=pull_request&head_sha=$candidate&per_page=100" \
+        --jq "$(filter " and .head_sha == \"$candidate\"")")$'\n'
+    done
+  else
+    listed=$(gh api "$endpoint/runs?event=pull_request&branch=$branch&per_page=100" --jq "$(filter "")")
+  fi
   while IFS=$'\t' read -r id status conclusion sha started page; do
     [[ -n $id ]] || continue
     grep -qx "$sha" <<<"$candidates" || continue
@@ -84,7 +117,7 @@ runs() {
 # every unit no local record holds, as without the hosted tier.
 list() {
   if ! listed=$(runs); then
-    echo "warning: GitHub did not list the hosted runs of $branch, so the gate runs every unit no local record holds" >&2
+    echo "warning: GitHub did not list the hosted runs of ${branch:-$head}, so the gate runs every unit no local record holds" >&2
     exit 0
   fi
   run=$(awk -F '\t' -v head="$head" '$4 == head { print; exit }' <<<"$listed")

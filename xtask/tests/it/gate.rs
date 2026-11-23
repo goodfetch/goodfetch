@@ -1121,12 +1121,15 @@ const QUICK_FORM: [&str; 10] = [
 /// ran on: the layers that ran it.
 type Ran = BTreeMap<(String, String), Vec<String>>;
 
-/// The units of `step` that `plan` runs, in full or in part: the Quick
-/// suite's one a member, every member of the head's when it runs in full.
+/// The units of `step` that `plan` runs, in full or in part: the Quick and
+/// Pre-merge suites' one a member, every member of the head's when it runs
+/// in full.
 fn units(plan: &Plan, step: &str) -> BTreeSet<String> {
     let (action, members) = action(plan, step);
     match action {
-        "run" | "part" if step != "quick" => BTreeSet::from([step.to_owned()]),
+        "run" | "part" if step != "quick" && step != "pre-merge" => {
+            BTreeSet::from([step.to_owned()])
+        }
         "run" if members == "-" => plan
             .head_members
             .iter()
@@ -1443,11 +1446,16 @@ fn preflight_run(workspace: &Workspace, records: &Path, ran: &mut Ran) -> Plan {
 /// hosted run in the full form runs each hosted-owned step its change
 /// reaches, and `just merge`'s full gate reads both. It reuses every unit
 /// they ran, runs perf and the steps it owns, and no unit runs twice on
-/// one tree.
+/// one tree. Then the Release suite's dispatch on the merge on `main`, whose
+/// tree is the head's (#3384): its Linux x64 cell runs again only the
+/// Pre-merge units whose tests the Release suite selects otherwise, and
+/// its log names the hosted run's head each reused unit was green on.
 #[test]
-fn no_unit_runs_twice_on_one_tree_across_preflight_the_hosted_run_and_the_full_gate() {
+fn no_unit_runs_twice_on_one_tree_across_preflight_the_hosted_run_the_full_gate_and_the_release_suite()
+ {
     let (workspace, folder, records) = gated_with_a_register("2027-01-30");
     let downloaded = folder.path().join("downloaded");
+    a_crate_test_reading_the_suite(&workspace);
     a_batch_pinning_the_ci_image(&workspace);
     let mut ran = Ran::new();
 
@@ -1538,6 +1546,334 @@ fn no_unit_runs_twice_on_one_tree_across_preflight_the_hosted_run_and_the_full_g
     assert!(
         run_here.contains("perf") && run_here.contains("linux"),
         "{run_here:?}"
+    );
+
+    workspace.git(&["switch", "--quiet", "main"]);
+    workspace.git(&["merge", "--quiet", "--no-ff", "--no-edit", "change"]);
+    release_runs_again_only_what_its_suite_selects_otherwise(
+        &workspace,
+        folder.path(),
+        &downloaded,
+        &hosted.head,
+        &mut ran,
+    );
+}
+
+/// The Release suite's dispatch on the merged commit, after the walk above
+/// (#3384): its Linux x64 cell runs again only the units `RELEASE_RERUNS`
+/// names, each of which only the hosted run ran before it, and leaves every
+/// other step to its own steps.
+fn release_runs_again_only_what_its_suite_selects_otherwise(
+    workspace: &Workspace,
+    folder: &Path,
+    downloaded: &Path,
+    hosted_head: &str,
+    ran: &mut Ran,
+) {
+    let (release, log) = release_cell(workspace, folder, downloaded);
+    add_ran(workspace, ran, &release, &["pre-merge"], "release");
+
+    let rerun: BTreeSet<String> = RELEASE_RERUNS.map(str::to_owned).into();
+    assert_eq!(
+        action(&release, "pre-merge").0,
+        "part",
+        "{}",
+        release.why["pre-merge"]
+    );
+    assert_eq!(members(&release, "pre-merge"), rerun);
+    for why in [
+        "the Release suite runs its tests on each Node line and each CPython",
+        "its tests read the running suite",
+    ] {
+        assert!(
+            release.why["pre-merge"].contains(why),
+            "{}",
+            release.why["pre-merge"]
+        );
+    }
+    let twice: BTreeMap<_, _> = ran.iter().filter(|(_, layers)| layers.len() > 1).collect();
+    assert_eq!(
+        twice
+            .keys()
+            .map(|(unit, _)| unit.clone())
+            .collect::<BTreeSet<_>>(),
+        rerun
+            .iter()
+            .map(|member| format!("pre-merge:{member}"))
+            .collect(),
+        "{twice:?}"
+    );
+    assert!(
+        twice
+            .values()
+            .all(|layers| **layers == ["hosted", "release"]),
+        "{twice:?}"
+    );
+    assert!(
+        log.contains(&format!("green on {} by hosted", &hosted_head[..10])),
+        "{log}"
+    );
+    for (step, (action, _)) in &release.steps {
+        if step != "pre-merge" {
+            assert_eq!(action, "left", "{step}: {}", release.why[step]);
+        }
+    }
+}
+
+/// The members of the fixture whose Pre-merge unit the Release suite runs
+/// again on a tree a hosted run passed (#3384): the packages Vitest,
+/// Playwright and pytest test, which it runs on each Node line and each
+/// CPython, and the crate a test of whose reads the running suite.
+const RELEASE_RERUNS: [&str; 5] = [
+    "goodfetch-frontier",
+    "sdks/python/collie-client",
+    "sdks/python/foxhound",
+    "sdks/typescript/collie-client",
+    "sdks/typescript/foxhound",
+];
+
+/// A test of goodfetch-frontier's that reads the running suite, as its
+/// at-scale tests do, which count a million entries in the Release suite.
+fn a_crate_test_reading_the_suite(workspace: &Workspace) {
+    workspace.write(
+        "crates/foxhound/goodfetch-frontier/tests/it/at_scale.rs",
+        b"//! At scale.\n\nfn entries(env: &Env) -> u64 {\n    match env.suite() {\n        Suite::Release => 1_000_000,\n        _ => 1_000,\n    }\n}\n",
+    );
+}
+
+/// The Release suite's Linux x64 cell on the head checked out, as
+/// `ci/release/reuse.sh` plans it (#3384): by the layer `release`, from no
+/// record of its own and the hosted runs' records in `downloaded`. Returns
+/// its plan and its log.
+fn release_cell(workspace: &Workspace, folder: &Path, downloaded: &Path) -> (Plan, String) {
+    let outcome = planned(
+        workspace,
+        &folder.join("release"),
+        "CI=true",
+        &[
+            "--dry-run",
+            "--layer",
+            "release",
+            "--head-repository",
+            REPOSITORY,
+            "--hosted-records",
+            &downloaded.to_string_lossy(),
+        ],
+    );
+    (parse(&outcome), outcome.stderr)
+}
+
+/// The Release suite reuses a hosted unit of the tree it tests alone
+/// (#3384): on a merge whose tree the batch's hosted run never tested, as
+/// when `main` moved, its cell runs every Pre-merge unit.
+#[test]
+fn the_release_suite_reuses_no_hosted_unit_of_another_tree() {
+    let (workspace, folder, _records) = gated_with_a_register("2027-01-30");
+    let downloaded = folder.path().join("downloaded");
+    a_batch_pinning_the_ci_image(&workspace);
+    let hosted = hosted_run(
+        &workspace,
+        folder.path(),
+        &downloaded,
+        ("1", "all"),
+        &["pre-merge"],
+        &mut Ran::new(),
+    );
+    assert_eq!(action(&hosted, "pre-merge").0, "run");
+    workspace.git(&["switch", "--quiet", "main"]);
+    workspace.write(
+        "crates/goodfetch-conformance/src/lib.rs",
+        b"//! Main moved.\n",
+    );
+    commit_all(&workspace, "Main moves");
+    workspace.git(&["merge", "--quiet", "--no-edit", "change"]);
+
+    let (release, _) = release_cell(&workspace, folder.path(), &downloaded);
+
+    assert_eq!(
+        action(&release, "pre-merge").0,
+        "run",
+        "{}",
+        release.why["pre-merge"]
+    );
+    assert!(
+        release.why["pre-merge"].contains("reuses a hosted unit of its own tree alone"),
+        "{}",
+        release.why["pre-merge"]
+    );
+}
+
+/// The Release cell's step before the deny (`ci/release/reuse.sh`, #3384):
+/// it downloads the records of the pull-request workflow's runs on the
+/// commit and on its parents of the same tree, from this repository's pull
+/// requests alone, names each run it reads with its page, and gives the
+/// step's output the crates whose Pre-merge unit it reuses, which the
+/// cell's Rust step then skips.
+#[cfg(unix)]
+#[test]
+fn the_release_cells_reuse_step_names_each_hosted_run_it_reads_and_outputs_the_crates_it_reuses() {
+    let (workspace, folder, _records) = gated_with_a_register("2027-01-30");
+    let downloaded = folder.path().join("downloaded");
+    a_batch_pinning_the_ci_image(&workspace);
+    let hosted = hosted_run(
+        &workspace,
+        folder.path(),
+        &downloaded,
+        ("41", "all"),
+        &["pre-merge"],
+        &mut Ran::new(),
+    );
+    // A fork's run on the same commit, whose records name the fork: never
+    // downloaded.
+    std::fs::create_dir_all(downloaded.join("42")).unwrap();
+    workspace.git(&["switch", "--quiet", "main"]);
+    workspace.git(&["merge", "--quiet", "--no-ff", "--no-edit", "change"]);
+    let run = |id: u64, repository: &str| {
+        serde_json::json!({
+            "id": id,
+            "status": "completed",
+            "conclusion": "success",
+            "head_sha": hosted.head,
+            "path": ".github/workflows/pull-request.yml",
+            "event": "pull_request",
+            "head_repository": { "full_name": repository },
+            "run_started_at": "2027-01-01T00:00:00Z",
+            "html_url": format!("https://github.com/{REPOSITORY}/actions/runs/{id}"),
+        })
+    };
+    let runs = folder.path().join("runs.json");
+    std::fs::write(
+        &runs,
+        serde_json::json!({ "workflow_runs": [run(41, REPOSITORY), run(42, "a-fork/goodfetch")] })
+            .to_string(),
+    )
+    .unwrap();
+    let stand_in = folder.path().join("stand-in");
+    std::fs::create_dir_all(&stand_in).unwrap();
+    let calls = folder.path().join("calls");
+    write_executable(
+        &stand_in.join("gh"),
+        &format!(
+            "#!/bin/sh\necho \"gh $*\" >>\"{calls}\"\n\
+             if [ \"$1\" = api ]; then exec jq -r \"$4\" \"{runs}\"; fi\n\
+             if [ \"$1 $2\" = \"run download\" ]; then\n\
+               artifacts=\"{downloaded}/$3\"\n\
+               while [ $# -gt 0 ]; do if [ \"$1\" = --dir ]; then into=$2; fi; shift; done\n\
+               mkdir -p \"$into\" && cp -R \"$artifacts/.\" \"$into/\"\n\
+             fi\n",
+            calls = calls.display(),
+            runs = runs.display(),
+            downloaded = downloaded.display(),
+        ),
+    );
+    write_executable(
+        &stand_in.join("cargo"),
+        &format!(
+            "#!/bin/sh\n[ \"$1\" = run ] || exit 2\nwhile [ \"$1\" != -- ]; do shift; done\nshift\nexec \"{}\" \"$@\"\n",
+            env!("CARGO_BIN_EXE_xtask")
+        ),
+    );
+    let output = folder.path().join("github-output");
+    let script = Path::new(env!("CARGO_MANIFEST_DIR")).join("../ci/release/reuse.sh");
+    let path = format!("{}:{}", stand_in.display(), std::env::var("PATH").unwrap());
+
+    let outcome = workspace
+        .command(script)
+        .arg(REPOSITORY)
+        .env("PATH", path)
+        .env("GITHUB_OUTPUT", &output)
+        .env("CARGO_NET_OFFLINE", "true")
+        .output()
+        .unwrap();
+
+    let stdout = String::from_utf8_lossy(&outcome.stdout);
+    let stderr = String::from_utf8_lossy(&outcome.stderr);
+    assert!(outcome.status.success(), "{stdout}{stderr}");
+    assert!(
+        stdout.contains(&format!(
+            "The hosted run 41 on {} (https://github.com/{REPOSITORY}/actions/runs/41), success: its gate records are read",
+            hosted.head
+        )),
+        "{stdout}"
+    );
+    assert!(!stdout.contains("runs/42"), "{stdout}");
+    assert!(
+        stderr.contains(&format!("green on {} by hosted", &hosted.head[..10])),
+        "{stderr}"
+    );
+    assert_eq!(
+        std::fs::read_to_string(&output).unwrap(),
+        "reused=goodfetch-conformance goodfetch-engine goodfetch-frontier goodfetch-proving-ground goodfetch-sink-s3\n"
+    );
+    let calls = std::fs::read_to_string(&calls).unwrap();
+    assert!(
+        calls.contains(&format!("head_sha={}", hosted.head)),
+        "{calls}"
+    );
+}
+
+/// The cell's Rust step skips the tests and the doctests of the crates the
+/// reuse step output (`GOODFETCH_RELEASE_REUSED`, #3384), and still runs the
+/// quarantine's skips.
+#[cfg(unix)]
+#[test]
+fn the_release_cells_rust_step_skips_the_tests_and_doctests_of_the_reused_crates() {
+    let checkout = tempfile::tempdir().unwrap();
+    let release = checkout.path().join("ci/release");
+    std::fs::create_dir_all(&release).unwrap();
+    let script = release.join("cell.sh");
+    // The script works in the checkout it lies in, so it runs from a copy.
+    for path in ["ci/release/cell.sh", "ci/order-seed.sh"] {
+        std::fs::copy(
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("..").join(path),
+            checkout.path().join(path),
+        )
+        .unwrap();
+    }
+    std::fs::create_dir_all(checkout.path().join("target/release-suite")).unwrap();
+    std::fs::write(
+        checkout.path().join("target/release-suite/quarantine.json"),
+        r#"{"nextest": ["--", "--skip", "a_quarantined_test"]}"#,
+    )
+    .unwrap();
+    let stand_in = checkout.path().join("stand-in");
+    std::fs::create_dir_all(&stand_in).unwrap();
+    let calls = checkout.path().join("calls");
+    write_executable(
+        &stand_in.join("cargo"),
+        &format!("#!/bin/sh\necho \"cargo $*\" >>\"{}\"\n", calls.display()),
+    );
+    let path = format!("{}:{}", stand_in.display(), std::env::var("PATH").unwrap());
+
+    let outcome = std::process::Command::new(&script)
+        .arg("rust")
+        .current_dir(checkout.path())
+        .env("PATH", path)
+        .env("CELL", "linux-x64-gnu")
+        .env("TARGET", "x86_64-unknown-linux-gnu")
+        .env("GOODFETCH_ORDER_SEED", "1")
+        .env(
+            "GOODFETCH_RELEASE_REUSED",
+            "goodfetch-engine goodfetch-sink-s3",
+        )
+        .output()
+        .unwrap();
+
+    assert!(
+        outcome.status.success(),
+        "{}",
+        String::from_utf8_lossy(&outcome.stderr)
+    );
+    let calls = std::fs::read_to_string(&calls).unwrap();
+    assert_eq!(
+        calls.lines().collect::<Vec<_>>(),
+        [
+            "cargo nextest run --archive-file target/release-suite/tests.tar.zst --workspace-remap . \
+             --profile ci --partition hash:1/1 -E not (package(goodfetch-engine) | package(goodfetch-sink-s3)) \
+             -- --skip a_quarantined_test",
+            "cargo test --workspace --exclude goodfetch-engine --exclude goodfetch-sink-s3 --locked --doc \
+             --target x86_64-unknown-linux-gnu --profile ci-test",
+        ]
     );
 }
 

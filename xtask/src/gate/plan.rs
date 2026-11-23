@@ -249,6 +249,11 @@ pub(crate) enum Layer {
     /// or fork pull request (ADR 0135's amendment of 2026-11-22). It runs
     /// only the hosted-owned units and leaves the others to their layers.
     Hosted,
+    /// The Release suite's Linux x64 glibc cell (`ci/release/reuse.sh`,
+    /// #3384): it plans the Pre-merge suite's units alone, reuses a hosted
+    /// one green on the tree it tests whose tests the Release suite selects
+    /// too, and records nothing.
+    Release,
 }
 
 impl Layer {
@@ -261,6 +266,7 @@ impl Layer {
             Self::Quick => "quick",
             Self::PrePush => "pre-push",
             Self::Hosted => "hosted",
+            Self::Release => "release",
         }
     }
 
@@ -272,6 +278,7 @@ impl Layer {
             Self::Quick,
             Self::PrePush,
             Self::Hosted,
+            Self::Release,
         ]
         .into_iter()
         .find(|layer| layer.name() == name)
@@ -364,6 +371,11 @@ pub(crate) struct Head<'a> {
     pub(crate) layer: Layer,
     /// What a hosted run's record must name to count for this head.
     pub(crate) pin: Pin<'a>,
+    /// On the layer `release`, the members whose tests the Release suite
+    /// selects otherwise than the Pre-merge suite, each with why: their
+    /// units run again whatever ran them (`release::differing`). Empty on
+    /// the other layers.
+    pub(crate) release_differs: &'a BTreeMap<String, String>,
 }
 
 /// The CI image the head's tree pins, and the repository whose pull
@@ -436,8 +448,10 @@ pub(crate) enum Action {
     /// ([`Step::covered_by`]).
     Covered { by: Step },
     /// Runs nothing and records nothing: the hosted tier leaves the step to
-    /// the layer that owns it (spec #3373's table of owning layers).
-    Left { owner: Owner },
+    /// the layer that owns it (spec #3373's table of owning layers), and the
+    /// Release suite's cell every step but the Pre-merge suite to its own
+    /// steps (`by`).
+    Left { owner: Owner, by: Layer },
     /// Runs nothing: a hosted run went red on a unit of it on this tree, so
     /// the gate is red (ADR 0064), and the unit is never run again beside it.
     Red { why: String },
@@ -464,8 +478,12 @@ pub(crate) fn covered_why(by: Step) -> String {
     )
 }
 
-/// Why the hosted tier runs nothing of a step `owner` owns.
-pub(crate) fn left_why(owner: Owner) -> String {
+/// Why the layer `by` runs nothing of a step `owner` owns.
+pub(crate) fn left_why(owner: Owner, by: Layer) -> String {
+    if by == Layer::Release {
+        return "the Release suite's cell plans the Pre-merge suite alone, and runs its own steps"
+            .to_owned();
+    }
     format!(
         "the {} layer owns it, and the hosted tier leaves it to that layer",
         owner.name()
@@ -517,6 +535,14 @@ pub(crate) fn plan(
         .map(|step| {
             if step == Step::PreMerge {
                 pre_merge.clone()
+            } else if head.layer == Layer::Release {
+                carrying_nothing(
+                    step,
+                    Action::Left {
+                        owner: Owner::of(step),
+                        by: Layer::Release,
+                    },
+                )
             } else if step.covered_by() == Some(Step::PreMerge) {
                 plan_covered(step, (head, earlier, touched), &pre_merge, &in_hand)
             } else {
@@ -608,7 +634,13 @@ fn plan_step(
 ) -> Planned {
     let owner = Owner::of(step);
     if head.layer == Layer::Hosted && owner != Owner::Hosted {
-        return carrying_nothing(step, Action::Left { owner });
+        return carrying_nothing(
+            step,
+            Action::Left {
+                owner,
+                by: Layer::Hosted,
+            },
+        );
     }
     let judge = |member: Option<&str>| judge_unit(step, member, owner, head, earlier, touched);
     if !step.per_member() {
@@ -714,6 +746,9 @@ fn judge_unit(
     earlier: &Earlier<'_>,
     touched: &BTreeMap<String, Touched>,
 ) -> Result<Outcome, Unreused> {
+    if let Some(why) = member.and_then(|member| head.release_differs.get(member)) {
+        return Err(Unreused::Rerun(why.clone()));
+    }
     let mut reasons = vec![match earlier.previous {
         None => earlier.no_previous.to_owned(),
         Some(previous) => match judge(step, member, head, (previous, Rule::SameHost), touched) {
@@ -781,6 +816,14 @@ fn judge(
             return Err(Unreused::Red(format!("red in the hosted run on {origin}")));
         }
         return rerun(format!("red on {origin}"));
+    }
+    // The Release suite's verdict is on the tree it tests: a green result
+    // on another holds for the merge gate by what the change reaches, never
+    // for a release.
+    if head.layer == Layer::Release && outcome.tree != head.tree {
+        return rerun(format!(
+            "the Release suite reuses a hosted unit of its own tree alone, and {origin}'s tree is another"
+        ));
     }
     // These runners order a member's tests by the seed the tree under test
     // gives (`ci/order-seed.sh`): a result on another tree ran in another

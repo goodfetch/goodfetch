@@ -27,6 +27,10 @@
 # would spend setup minutes under the ceiling and pass the archive through
 # the account's Actions storage. A cell that breaches its 45-minute budget
 # is split into a build job and shard jobs named `<cell> shard <k>/<n>`.
+# Before the deny, linux-x64-gnu reads the gate records of the
+# pull-request workflow's runs on the tested tree, and its Rust step skips
+# the crates whose Pre-merge unit one passed there (ci/release/reuse.sh,
+# #3384).
 # Runtimes (ADR 0069): each job installs a set of ci/runtimes.toml, every
 # runtime on linux-x64-gnu (release-linux-x64-gnu), the oldest and newest
 # lines with Bun, Deno 2 and free-threaded CPython on the other Linux cells
@@ -122,6 +126,9 @@ jobs:
       # `xtask perf` reads the "Performance change" section of the pull
       # request that merged the commit (ADR 0071).
       pull-requests: read
+      # ci/release/reuse.sh lists the pull-request workflow's runs on the
+      # tested tree and downloads their gate records (#3384).
+      actions: read
     strategy:
       fail-fast: false
       matrix:
@@ -230,19 +237,31 @@ jobs:
       # (goodfetch_test_support.install), pulled by its digest before the deny.
       - name: Pull the install harness's Alpine image
         run: ci/alpine/fetch.sh
+      # The Pre-merge suite's units a batch's hosted run passed on this
+      # tree, which the Rust step skips (#3384): on linux-x64-gnu, the
+      # target of the hosted Pre-merge jobs.
+      - name: Reuse the units a hosted run passed on this tree
+        id: reuse
+        if: matrix.cell == 'linux-x64-gnu'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: ci/release/reuse.sh "$GITHUB_REPOSITORY"
       - name: Deny outbound traffic
         run: ci/egress/egress.sh deny
       - name: Refuse the Egress canary
         run: ci/egress/egress.sh canary
       - name: "Test: Rust"
+        env:
+          GOODFETCH_RELEASE_REUSED: ${{ steps.reuse.outputs.reused }}
         run: ci/egress/under-deny.sh ci/release/cell.sh rust
       - name: "Test: TypeScript on each Node line"
         run: ci/egress/under-deny.sh ci/release/cell.sh typescript
       - name: "Test: Python on each CPython line"
         run: ci/egress/under-deny.sh ci/release/cell.sh python
       # ADR 0072's exercise audit over the Rust tests the cell ran: every
-      # test but the quarantined ones (ADR 0064) and those that cannot run
-      # on the cell, which leave no record. With the justfile's
+      # test but the quarantined ones (ADR 0064), those that cannot run on
+      # the cell and those of the crates the reuse step skips, which leave
+      # no record. With the justfile's
       # `exercise_audit` at `gate`, a declaring test that never reached its
       # Feature fails it, so it is a test step (ADR 0064).
       - name: "Test: audit what each declaring test reached"

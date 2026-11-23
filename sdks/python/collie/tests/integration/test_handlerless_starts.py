@@ -10,9 +10,9 @@ ended, logged at warning. As a Daemon, each Run is detached, so closing its
 value and the Connection sends no `run.abort`: the Daemon keeps the Run
 once its program is gone. As the Attached engine, closing a Run's value
 aborts it. A view of a Run opened by its Run ID closes without stopping it
-either. The last test runs on the executable of the same commit, with the
-tags past their bounds that no script may send. TypeScript's
-`handlerless-starts.test.ts` is its twin.
+either. The last two tests send the tags past their bounds that no script
+may send, to an Attached engine and to the Daemon of the executable of the
+same commit. TypeScript's `handlerless-starts.test.ts` is its twin.
 """
 
 import logging
@@ -20,10 +20,19 @@ from collections.abc import Mapping
 from datetime import timedelta
 
 import pytest
-from collie_calls import CLIENT_LOGGER, exit_code, failure, open_collie
+from collie_calls import (
+    CLIENT_LOGGER,
+    START_LOGGER,
+    exit_code,
+    failure,
+    open_collie,
+    start_lines,
+)
 from goodfetch_collie import (
     AgentTarget,
+    EngineChoice,
     ExtractTarget,
+    GoodfetchError,
     Limits,
     PlanReplayTarget,
     Recording,
@@ -40,9 +49,6 @@ from goodfetch_test_support import (
 )
 from goodfetch_test_support import Product as ToolProduct
 
-START_LOGGER = "goodfetch.client.run"
-"""The logger a start that resumed or found its Run ended goes to."""
-
 PRODUCTS = ExtractTarget(
     url="https://shop.example/products",
     schema={"type": "object", "properties": {"productName": {"type": "string"}}},
@@ -50,21 +56,9 @@ PRODUCTS = ExtractTarget(
 """The Extraction both scripts start, its instruction aside."""
 
 
-def start_lines(
-    caplog: pytest.LogCaptureFixture, resumed: str, ended: str
-) -> tuple[list[tuple[int, str, object, object]], list[tuple[int, str, str, str]]]:
-    """What the starts logged, and what resuming `resumed` and ending `ended` log."""
-    logged = [
-        (
-            record.levelno,
-            record.getMessage(),
-            getattr(record, "run_id", None),
-            getattr(record, "started_as", None),
-        )
-        for record in caplog.records
-        if record.name == START_LOGGER
-    ]
-    expected = [
+def resumed_and_ended(resumed: str, ended: str) -> list[tuple[int, str, str, str]]:
+    """The lines a resume of `resumed` and an end of `ended` log."""
+    return [
         (
             logging.INFO,
             f"The start resumed the Run `{resumed}` from its committed state.",
@@ -79,7 +73,6 @@ def start_lines(
             "ended",
         ),
     ]
-    return logged, expected
 
 
 @pytest.mark.covers(
@@ -166,8 +159,9 @@ async def test_a_handlerless_start_takes_every_option_and_leaves_its_detached_ru
     with client_case.check(
         "the resume is logged at info, the ended Run at warning, on its logger"
     ):
-        logged, expected = start_lines(caplog, "weekly-prices", "checkout-done")
-        assert logged == expected
+        assert start_lines(caplog) == resumed_and_ended(
+            "weekly-prices", "checkout-done"
+        )
     with client_case.check("open_run opens a view by its Run ID with no message"):
         assert view.id == "checkout-replay"
     with client_case.check(
@@ -221,8 +215,9 @@ async def test_a_handlerless_start_sends_every_option_and_aborts_its_run_on_clos
     with client_case.check(
         "the resume is logged at info, the ended Run at warning, on its logger"
     ):
-        logged, expected = start_lines(caplog, "nightly-prices", "extract-products")
-        assert logged == expected
+        assert start_lines(caplog) == resumed_and_ended(
+            "nightly-prices", "extract-products"
+        )
     with client_case.check("open_run opens a view by its Run ID with no message"):
         assert view.id == "checkout-replay"
     with client_case.check(
@@ -236,23 +231,63 @@ async def test_a_handlerless_start_sends_every_option_and_aborts_its_run_on_clos
         ] == []
 
 
-@pytest.mark.covers("story:11-131")
-@three_ways
-async def test_tags_past_their_bounds_are_refused_on_the_executable(
-    way: Way, env: Mapping[str, str]
-) -> None:
-    """The engine refuses tags past their bounds, and runs no target yet."""
-    collie = await open_collie(way, env)
+async def refused_tags(
+    way: Way, env: Mapping[str, str], engine: EngineChoice
+) -> list[GoodfetchError]:
+    """What the engine `engine` names answers three starts' tags.
+
+    Too many tags, a tag too long, and tags at their bounds.
+    """
+    collie = await open_collie(way, env, engine=engine)
     replay = PlanReplayTarget(plan="plans/checkout.json")
 
     too_many = await failure(collie.start_recipe("shop-prices", tags=["t"] * 17))
     too_long = await failure(collie.start_catalog_run(replay, tags=["t" * 65]))
     unbuilt = await failure(collie.start_catalog_run(replay, tags=["t" * 64] * 16))
     await collie.close()
+    return [too_many, too_long, unbuilt]
 
-    assert [error.code for error in (too_many, too_long, unbuilt)] == [
+
+def assert_refused(refused: list[GoodfetchError]) -> None:
+    """Checks the tags past their bounds refused and those at them sent.
+
+    The engine runs no target of the start the tags at their bounds reach.
+    """
+    too_many, too_long, unbuilt = refused
+    assert (too_many.code, too_long.code, unbuilt.code) == (
         "invalid_params",
         "invalid_params",
         "run_target_unbuilt",
-    ]
+    )
     assert (unbuilt.operation, unbuilt.target) == ("catalog_run.start", "plan_replay")
+
+
+@pytest.mark.covers("story:11-131")
+@pytest.mark.client_case(id="handlerless-starts", mode="attached")
+@three_ways
+async def test_tags_past_their_bounds_are_refused_by_an_attached_engine(
+    way: Way, env: Mapping[str, str], client_case: ClientCaseRecord
+) -> None:
+    """The executable of the same commit refuses them, and runs no target yet."""
+    refused = await refused_tags(way, env, "attached")
+
+    with client_case.check(
+        "tags past their bounds are refused, and tags at them reach the start"
+    ):
+        assert_refused(refused)
+
+
+@pytest.mark.covers("story:11-131")
+@pytest.mark.client_case(id="handlerless-starts", mode="daemon")
+@pytest.mark.parametrize("with_daemon", [True])
+@three_ways
+async def test_tags_past_their_bounds_are_refused_by_the_daemon(
+    way: Way, env: Mapping[str, str], client_case: ClientCaseRecord
+) -> None:
+    """The Daemon of the same commit refuses them, and runs no target yet."""
+    refused = await refused_tags(way, env, "daemon")
+
+    with client_case.check(
+        "tags past their bounds are refused, and tags at them reach the start"
+    ):
+        assert_refused(refused)

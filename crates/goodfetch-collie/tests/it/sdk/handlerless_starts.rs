@@ -3,10 +3,11 @@
 //! refuses tags past their bounds before anything is sent, and a Recipe's
 //! run and a code-free catalog run with tags at their bounds reach the
 //! linked engine, which answers `run_target_unbuilt` naming the start and
-//! its target's kind until it runs them. The client crate's Daemon test
+//! its target's kind until it runs them; a view opens by a Run's ID with no
+//! round trip until the connection closes. The client crate's Daemon test
 //! plays every start option, the resumed and ended Runs and their log lines.
 
-use goodfetch_collie::{CatalogTarget, Collie, ErrorCode, Tags};
+use goodfetch_collie::{CatalogTarget, Collie, ErrorCode, RunId, Tags};
 use goodfetch_conformance::{ClientCaseRun, RustMode};
 use goodfetch_protocol::run::{RunTargetUnbuiltDetails, TagsInvalid};
 use goodfetch_test_support::{TestEnv, case_logs, real_time_runtime};
@@ -26,7 +27,8 @@ fn a_handlerless_start_refuses_tags_past_their_bounds_and_reaches_the_linked_eng
     let too_many = Tags::parse(vec!["t"; 17]);
     let too_long = Tags::parse(["t".repeat(65)]);
     let bounds = || Tags::parse(vec!["t".repeat(64); 16]).unwrap();
-    let refused = real_time_runtime().block_on(async {
+    let detached = RunId::parse("checkout-replay").unwrap();
+    let (refused, viewed, after) = real_time_runtime().block_on(async {
         let collie = Collie::connect(options(&env)).await.unwrap();
         let recipe = collie
             .start_recipe("shop-prices")
@@ -40,8 +42,15 @@ fn a_handlerless_start_refuses_tags_past_their_bounds_and_reaches_the_linked_eng
             .tags(bounds())
             .await
             .unwrap_err();
+        let view = collie.open_run(&detached).unwrap();
+        let viewed = view.id().clone();
+        view.close();
         collie.close().await.unwrap();
-        [recipe, replay]
+        let after = collie
+            .open_run(&detached)
+            .map(|_| ())
+            .map_err(|error| error.code());
+        ([recipe, replay], viewed, after)
     });
 
     case.check(
@@ -76,5 +85,9 @@ fn a_handlerless_start_refuses_tags_past_their_bounds_and_reaches_the_linked_eng
                 ]
             );
         },
+    );
+    case.check(
+        "open_run opens a view by its Run ID with no round trip, until the connection closes",
+        || assert_eq!((viewed, after), (detached, Err(ErrorCode::CLOSED))),
     );
 }

@@ -13,7 +13,13 @@ import logging
 from collections.abc import Mapping
 
 import pytest
-from collie_calls import CLIENT_LOGGER, failure, open_collie
+from collie_calls import (
+    CLIENT_LOGGER,
+    START_LOGGER,
+    failure,
+    open_collie,
+    start_lines,
+)
 from goodfetch_collie import (
     LimitReachedError,
     RunConflictError,
@@ -30,9 +36,6 @@ from goodfetch_test_support import (
     three_ways,
 )
 from goodfetch_test_support import Product as ToolProduct
-
-START_LOGGER = "goodfetch.client.run"
-"""The logger a start that resumed or found its Run ended goes to."""
 
 
 @pytest.mark.covers("story:11-126", "story:11-127", "operation:run.started_as")
@@ -78,16 +81,7 @@ async def test_reaches_the_run_its_run_id_names_and_raises_each_refusals_class(
     with client_case.check(
         "the resume is logged at info, the ended Run at warning, on its logger"
     ):
-        assert [
-            (
-                record.levelno,
-                record.getMessage(),
-                getattr(record, "run_id", None),
-                getattr(record, "started_as", None),
-            )
-            for record in caplog.records
-            if record.name == START_LOGGER
-        ] == [
+        assert start_lines(caplog) == [
             (
                 logging.INFO,
                 "The start resumed the Run `nightly` from its committed state.",

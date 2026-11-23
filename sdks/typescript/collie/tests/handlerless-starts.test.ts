@@ -6,9 +6,9 @@
 // As a Daemon, each Run is detached, so closing its value and the
 // Connection sends no `run.abort`: the Daemon keeps the Run once its program
 // is gone. As the Attached engine, closing a Run's value aborts it. A view of
-// a Run opened by its Run ID closes without stopping it either. The last test
-// runs on an Attached engine of Collie's executable of the same commit, with
-// the tags past their bounds that no script may send.
+// a Run opened by its Run ID closes without stopping it either. The last two
+// tests send the tags past their bounds that no script may send, to an
+// Attached engine and to the Daemon of Collie's executable of the same commit.
 import { Collie } from "@goodfetch/collie";
 import {
   failure,
@@ -201,32 +201,57 @@ describe("A handler-less start on the Scripted engine as the Attached engine", (
   );
 });
 
-describe("A handler-less start on an Attached engine", () => {
+/** What the engine `engine` names answers starts with too many tags, a tag too long, and tags at their bounds. */
+async function refusedTags(
+  env: Record<string, string>,
+  engine: "attached" | "daemon",
+): Promise<Record<"tooMany" | "tooLong" | "unbuilt", unknown>> {
+  // oxlint-disable-next-line no-restricted-properties -- `Collie.connect` is the SDK's own factory (ADR 0078), not a browser's.
+  await using collie = await Collie.connect({ env, engine });
+  const replay = { kind: "plan_replay", plan: "plans/checkout.json" } as const;
+  const tooMany = await failure(
+    collie.startRecipe("shop-prices", { tags: Array.from({ length: 17 }, () => "t") }),
+  );
+  const tooLong = await failure(collie.startCatalogRun(replay, { tags: ["t".repeat(65)] }));
+  const unbuilt = await failure(
+    collie.startCatalogRun(replay, { tags: Array.from({ length: 16 }, () => "t".repeat(64)) }),
+  );
+  return { tooMany, tooLong, unbuilt };
+}
+
+/** Tags past their bounds are refused, and tags at their bounds reach a start the engine runs no target of yet. */
+const REFUSED = {
+  tooMany: { code: "invalid_params" },
+  tooLong: { code: "invalid_params" },
+  unbuilt: { code: "run_target_unbuilt", operation: "catalog_run.start", target: "plan_replay" },
+};
+
+describe("A handler-less start on the engine of the same commit", () => {
+  test.override("withDaemon", true);
+
   test(
-    "refuses tags past their bounds, and the engine runs no Recipe or code-free target yet",
-    { tags: ["story:11-131"] },
-    async ({ env }) => {
-      // oxlint-disable-next-line no-restricted-properties -- `Collie.connect` is the SDK's own factory (ADR 0078), not a browser's.
-      await using collie = await Collie.connect({ env });
-      const replay = { kind: "plan_replay", plan: "plans/checkout.json" } as const;
+    "refuses tags past their bounds as an Attached engine, and runs no Recipe or code-free target yet",
+    { tags: ["client_case/handlerless-starts", "attached", "story:11-131"] },
+    async ({ env, clientCase }) => {
+      const refused = await refusedTags(env, "attached");
 
-      const tooMany = await failure(
-        collie.startRecipe("shop-prices", { tags: Array.from({ length: 17 }, () => "t") }),
+      await clientCase.check(
+        "tags past their bounds are refused, and tags at them reach the start",
+        () => expect(refused).toMatchObject(REFUSED),
       );
-      const tooLong = await failure(collie.startCatalogRun(replay, { tags: ["t".repeat(65)] }));
-      const unbuilt = await failure(
-        collie.startCatalogRun(replay, { tags: Array.from({ length: 16 }, () => "t".repeat(64)) }),
-      );
+    },
+  );
 
-      expect({ tooMany, tooLong, unbuilt }).toMatchObject({
-        tooMany: { code: "invalid_params" },
-        tooLong: { code: "invalid_params" },
-        unbuilt: {
-          code: "run_target_unbuilt",
-          operation: "catalog_run.start",
-          target: "plan_replay",
-        },
-      });
+  test(
+    "refuses tags past their bounds as the Daemon, and runs no Recipe or code-free target yet",
+    { tags: ["client_case/handlerless-starts", "daemon", "story:11-131"] },
+    async ({ env, clientCase }) => {
+      const refused = await refusedTags(env, "daemon");
+
+      await clientCase.check(
+        "tags past their bounds are refused, and tags at them reach the start",
+        () => expect(refused).toMatchObject(REFUSED),
+      );
     },
   );
 });

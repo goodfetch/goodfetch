@@ -469,10 +469,11 @@ modes = ["attached", "linked"]
 # not detached, so closing its value aborts it. Rust's linked engine runs no
 # Recipe or code-free target yet (`run_target_unbuilt`), so Rust plays it
 # linked as far as that engine goes: `Tags` refuses more than 16 tags or one
-# over 64 characters before anything is sent, and each start reaches the
-# engine carrying them. A tag list past its bounds is no message the corpus
-# may hold, so its `invalid_params` plays on the engine of the same commit
-# in TypeScript and Python.
+# over 64 characters before anything is sent, each start reaches the engine
+# carrying them, and `open_run` opens a view. A tag list past its bounds is
+# no message the corpus may hold, so its `invalid_params` plays on the
+# engine of the same commit in TypeScript and Python, as an Attached engine
+# and as the Daemon.
 [[capability.case]]
 id = "handlerless-starts"
 covers = ["story:11-131"]

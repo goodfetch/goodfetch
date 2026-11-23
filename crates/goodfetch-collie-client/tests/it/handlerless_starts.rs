@@ -23,13 +23,11 @@ use goodfetch_collie_client::{
     ClientConnection, ConnectionRuntime, ErrorCode, Limits, Run, UsageKind, blocking,
 };
 use goodfetch_conformance::{ClientCaseRun, RustMode};
-use goodfetch_protocol::connection::HelloParams;
-use goodfetch_protocol::log::LogLevel;
 use goodfetch_protocol::run::{CatalogTarget, Recording, RecordingMode, RunId, StartedAs, Tags};
 use goodfetch_test_support::{TestEnv, case_logs, logged, real_time_runtime};
 use serde_json::json;
 
-use crate::scripted_daemon::{daemon_hello, scripted_daemon_hearing};
+use crate::scripted_daemon::{assert_start_lines, scripted_daemon_hearing, traced_daemon_hello};
 
 /// The six starts, each detached, then the Client's close with no
 /// `run.abort`.
@@ -38,15 +36,6 @@ const SCRIPT: &str = "sdk-python/run/detached-starts-from-a-daemon.json";
 /// The Run ID `text` names.
 fn id(text: &str) -> RunId {
     RunId::parse(text).unwrap()
-}
-
-/// This crate's `hello` to the Daemon with the `trace` that `logged`
-/// records, so a start tells the engine no other level.
-fn hello() -> HelloParams {
-    HelloParams {
-        log_level: Some(LogLevel::Trace),
-        ..daemon_hello()
-    }
 }
 
 /// What the test played: each start's Run, then the Daemon's exit and a
@@ -69,7 +58,7 @@ fn a_handlerless_start_takes_every_option_and_leaves_its_detached_run() {
     )
     .unwrap();
     let env = TestEnv::new();
-    let (process, endpoint) = scripted_daemon_hearing(&env, SCRIPT, &hello());
+    let (process, endpoint) = scripted_daemon_hearing(&env, SCRIPT, &traced_daemon_hello());
     let (played, log) = logged(|| {
         let one = NonZeroUsize::MIN;
         let owned = goodfetch_runtime::named(goodfetch_runtime::Threads {
@@ -83,7 +72,7 @@ fn a_handlerless_start_takes_every_option_and_leaves_its_detached_run() {
                 ConnectionRuntime::owned(owned),
                 &Network::Os,
                 &Endpoint::Daemon(endpoint),
-                hello(),
+                traced_daemon_hello(),
             ))
             .unwrap();
 
@@ -136,7 +125,7 @@ fn a_handlerless_start_takes_every_option_and_leaves_its_detached_run() {
     );
     case.check(
         "the resume is logged at info, the ended Run at warning, on the start's target",
-        || assert_start_lines(&log),
+        || assert_start_lines(&log, "weekly-prices", "checkout-done"),
     );
     case.check(
         "the Daemon heard every option and no run.abort, so it played its script whole",
@@ -145,28 +134,6 @@ fn a_handlerless_start_takes_every_option_and_leaves_its_detached_run() {
     case.check("a closed Connection opens no view", || {
         assert_eq!(played.after, Err(ErrorCode::CLOSED));
     });
-}
-
-/// Checks that `log` holds the resume of `weekly-prices` at info and the
-/// ended `checkout-done` at warning, with their fields, on the start's
-/// target, and nothing else there.
-fn assert_start_lines(log: &str) {
-    let start_lines: Vec<&str> = log
-        .lines()
-        .filter(|line| line.contains("goodfetch::client::run"))
-        .collect();
-    assert_eq!(start_lines.len(), 2, "{log}");
-    for (line, (level, run_id, started_as)) in start_lines.iter().zip([
-        ("INFO", "weekly-prices", "resumed"),
-        ("WARN", "checkout-done", "ended"),
-    ]) {
-        assert!(
-            line.contains(level)
-                && line.contains(&format!("run_id={run_id}"))
-                && line.contains(&format!("started_as=\"{started_as}\"")),
-            "{log}"
-        );
-    }
 }
 
 /// The script's first four starts, awaited: a Recipe's run with every

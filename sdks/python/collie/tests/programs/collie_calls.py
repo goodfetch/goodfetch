@@ -2,10 +2,10 @@
 
 A Connection opened one of the three ways, a page's locator and a
 response whatever the way, the Goodfetch error a call raises, the lines
-the engine wrote on its stderr, and a process's exit code waited for off
-the event loop.
-TypeScript's `failure` and `recordingLogger` of `@goodfetch/test-support`
-are their twins.
+the engine wrote on its stderr and those a start logged, and a process's
+exit code waited for off the event loop.
+TypeScript's `failure`, `recordingLogger` and `startRecordingLogger` of
+`@goodfetch/test-support` are their twins.
 """
 
 from __future__ import annotations
@@ -29,6 +29,9 @@ if TYPE_CHECKING:
 
 CLIENT_LOGGER = "goodfetch.client"
 """The logger of the engine reached, its stderr lines and a refused log level."""
+
+START_LOGGER = "goodfetch.client.run"
+"""The logger a start that resumed or found its Run ended goes to."""
 
 
 async def open_collie(
@@ -79,6 +82,26 @@ def engine_warnings(caplog: pytest.LogCaptureFixture) -> list[str]:
         record.getMessage()
         for record in caplog.records
         if record.name == CLIENT_LOGGER and record.levelno >= logging.WARNING
+    ]
+
+
+def start_lines(
+    caplog: pytest.LogCaptureFixture,
+) -> list[tuple[int, str, object, object]]:
+    """Each line a start that resumed or found its Run ended logged.
+
+    Its level, message, Run ID and how the Run started, from a test that
+    set `START_LOGGER`'s level to info.
+    """
+    return [
+        (
+            record.levelno,
+            record.getMessage(),
+            getattr(record, "run_id", None),
+            getattr(record, "started_as", None),
+        )
+        for record in caplog.records
+        if record.name == START_LOGGER
     ]
 
 

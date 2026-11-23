@@ -6,9 +6,10 @@ Pydantic model and one by a JSON Schema written by hand, and a handler's
 takes `async def` handlers and a `Crawl` plain functions; a handler of
 another Payload, a handler of the other kind, a misspelled or string
 Label and a crawl started on the Connection of the other API are each
-refused. mypy's `--strict` reports an ignore that no longer
-silences an error. TypeScript's `payloads.test-d.ts` of Foxhound's package
-is its twin.
+refused. A seed, an `enqueue` and an `enqueue_links` take a Payload of
+their Label's type, and none for a Label without one. mypy's `--strict`
+reports an ignore that no longer silences an error. TypeScript's
+`payloads.test-d.ts` of Foxhound's package is its twin.
 """
 
 from __future__ import annotations
@@ -140,6 +141,55 @@ def refuses_a_misspelled_or_string_label(crawl: AsyncCrawl) -> None:
         del ctx
 
     del listing, misspelled, named
+
+
+def takes_a_payload_only_of_its_labels_type(crawl: Crawl) -> None:
+    """A seed carries a Payload of its Label's type, and only for a Label with one.
+
+    A JSON Schema's Payload is a JSON object, written in place.
+    """
+    listing = crawl.label("listing")
+    shelf = crawl.label("shelf", payload=Shelf)
+    book = crawl.label("book", payload={"type": "object"})
+    seed("https://shop.test/", listing, priority=1)
+    seed("https://shop.test/shelf/1", shelf, Shelf(number=1), priority=1)
+    seed("https://shop.test/book/1", book, {"isbn": "9780000000001"})
+    seed("https://shop.test/shelf/1", shelf, {"number": 1})  # type: ignore[arg-type]
+    seed("https://shop.test/shelf/1", shelf)  # type: ignore[arg-type]
+    seed("https://shop.test/", listing, Shelf(number=1))  # type: ignore[misc]
+    seed("https://shop.test/book/1", book, "9780000000001")  # type: ignore[call-overload]
+
+
+async def enqueues_a_payload_only_of_its_labels_type(
+    ctx: AsyncCrawlContext[None],
+    listing: Label[None],
+    shelf: Label[Shelf],
+    book: Label[JSONObject],
+) -> None:
+    """A handler's `enqueue` and `enqueue_links` follow a seed's rules."""
+    await ctx.enqueue("/shelf/2", shelf, Shelf(number=2))
+    await ctx.enqueue("/book/2", book, {"isbn": "9780000000002"})
+    await ctx.enqueue("/next", listing, priority=1)
+    await ctx.enqueue_links(ctx.page.locator("a.shelf"), shelf, Shelf(number=3))
+    await ctx.enqueue_links(ctx.page.locator("a.book"), book, {"from": "shelf"})
+    await ctx.enqueue("/shelf/2", shelf, {"number": 2})  # type: ignore[arg-type]
+    await ctx.enqueue("/next", listing, Shelf(number=2))  # type: ignore[misc]
+    await ctx.enqueue_links(ctx.page.locator("a.shelf"), shelf)  # type: ignore[arg-type]
+
+
+def enqueues_a_payload_only_of_its_labels_type_in_sync_code(
+    ctx: CrawlContext[None],
+    listing: Label[None],
+    shelf: Label[Shelf],
+    book: Label[JSONObject],
+) -> None:
+    """The sync context's `enqueue` and `enqueue_links` follow the same rules."""
+    ctx.enqueue("/shelf/2", shelf, Shelf(number=2))
+    ctx.enqueue("/book/2", book, {"isbn": "9780000000002"})
+    ctx.enqueue_links(ctx.page.locator("a.book"), book, {"from": "shelf"})
+    ctx.enqueue("/shelf/2", shelf, {"number": 2})  # type: ignore[arg-type]
+    ctx.enqueue("/next", listing, Shelf(number=2))  # type: ignore[misc]
+    ctx.enqueue_links(ctx.page.locator("a.shelf"), shelf)  # type: ignore[arg-type]
 
 
 def refuses_a_payload_that_is_no_model_or_schema(crawl: Crawl) -> None:

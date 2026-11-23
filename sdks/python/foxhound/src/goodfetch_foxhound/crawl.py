@@ -23,7 +23,12 @@ from typing import TYPE_CHECKING, Any, Generic, TypeVar, cast, final, overload
 from goodfetch_collie_client.generated.models import Locator as LocatorId
 from goodfetch_collie_client.markers import warn_entry
 from goodfetch_collie_client.raw_call import carried_id
-from goodfetch_collie_client.schema import SchemaCodec, schema_codec
+from goodfetch_collie_client.schema import (
+    SchemaCodec,
+    SchemaRejectedError,
+    ValueNotJSONError,
+    schema_codec,
+)
 from goodfetch_collie_client.settings import settings_on_wire
 from pydantic import BaseModel
 
@@ -31,6 +36,7 @@ from goodfetch_foxhound.generated.errors import (
     LabelDuplicateError,
     LabelUnhandledError,
     LabelUnknownError,
+    PayloadInvalidError,
     ResponseNotDocumentError,
 )
 from goodfetch_foxhound.generated.models import (
@@ -77,7 +83,6 @@ __all__ = [
 ]
 
 P = TypeVar("P")
-Q = TypeVar("Q")
 R = TypeVar("R")
 M = TypeVar("M", bound=BaseModel)
 
@@ -174,6 +179,8 @@ class HandlerAttempt:
 
         Raises:
             LabelUnknownError: `label` is another crawl's.
+            PayloadInvalidError: `payload` is not JSON, or its Label's model
+                refuses it.
         """
         fields = {
             **self.lease(),
@@ -195,6 +202,8 @@ class HandlerAttempt:
 
         Raises:
             LabelUnknownError: `label` is another crawl's.
+            PayloadInvalidError: `payload` is not JSON, or its Label's model
+                refuses it.
         """
         locator_id = carried_id(locator)
         if not isinstance(locator_id, LocatorId):
@@ -288,8 +297,21 @@ class AsyncCrawlContext(Generic[P]):
     async def enqueue(
         self,
         url: str,
-        label: Label[Q],
-        payload: Q,
+        label: Label[M],
+        payload: M,
+        *,
+        method: str | None = None,
+        body: bytes | None = None,
+        priority: int | None = None,
+        forefront: bool | None = None,
+        key: str | None = None,
+    ) -> Enqueued: ...
+    @overload
+    async def enqueue(
+        self,
+        url: str,
+        label: Label[JSONObject],
+        payload: JSONObject,
         *,
         method: str | None = None,
         body: bytes | None = None,
@@ -334,6 +356,8 @@ class AsyncCrawlContext(Generic[P]):
 
         Raises:
             LabelUnknownError: `label` is another crawl's.
+            PayloadInvalidError: `payload` is not JSON, or its Label's model
+                refuses it, each issue named by its path; nothing is sent.
         """
         warn_entry(
             "crawl_request.enqueue", EXPERIMENTAL_OPERATIONS, DEPRECATED_OPERATIONS
@@ -357,8 +381,20 @@ class AsyncCrawlContext(Generic[P]):
     async def enqueue_links(
         self,
         locator: AsyncLocator,
-        label: Label[Q],
-        payload: Q,
+        label: Label[M],
+        payload: M,
+        *,
+        include: Sequence[str] | None = None,
+        exclude: Sequence[str] | None = None,
+        limit: int | None = None,
+        priority: int | None = None,
+    ) -> EnqueuedLinks: ...
+    @overload
+    async def enqueue_links(
+        self,
+        locator: AsyncLocator,
+        label: Label[JSONObject],
+        payload: JSONObject,
         *,
         include: Sequence[str] | None = None,
         exclude: Sequence[str] | None = None,
@@ -408,6 +444,8 @@ class AsyncCrawlContext(Generic[P]):
 
         Raises:
             LabelUnknownError: `label` is another crawl's; nothing is sent.
+            PayloadInvalidError: `payload` is not JSON, or its Label's model
+                refuses it, each issue named by its path; nothing is sent.
         """
         warn_entry(
             "crawl_request.enqueue_links",
@@ -510,8 +548,21 @@ class CrawlContext(Generic[P]):
     def enqueue(
         self,
         url: str,
-        label: Label[Q],
-        payload: Q,
+        label: Label[M],
+        payload: M,
+        *,
+        method: str | None = None,
+        body: bytes | None = None,
+        priority: int | None = None,
+        forefront: bool | None = None,
+        key: str | None = None,
+    ) -> Enqueued: ...
+    @overload
+    def enqueue(
+        self,
+        url: str,
+        label: Label[JSONObject],
+        payload: JSONObject,
         *,
         method: str | None = None,
         body: bytes | None = None,
@@ -553,6 +604,8 @@ class CrawlContext(Generic[P]):
 
         Raises:
             LabelUnknownError: `label` is another crawl's.
+            PayloadInvalidError: `payload` is not JSON, or its Label's model
+                refuses it, each issue named by its path; nothing is sent.
         """
         warn_entry(
             "crawl_request.enqueue", EXPERIMENTAL_OPERATIONS, DEPRECATED_OPERATIONS
@@ -576,8 +629,20 @@ class CrawlContext(Generic[P]):
     def enqueue_links(
         self,
         locator: Locator,
-        label: Label[Q],
-        payload: Q,
+        label: Label[M],
+        payload: M,
+        *,
+        include: Sequence[str] | None = None,
+        exclude: Sequence[str] | None = None,
+        limit: int | None = None,
+        priority: int | None = None,
+    ) -> EnqueuedLinks: ...
+    @overload
+    def enqueue_links(
+        self,
+        locator: Locator,
+        label: Label[JSONObject],
+        payload: JSONObject,
         *,
         include: Sequence[str] | None = None,
         exclude: Sequence[str] | None = None,
@@ -621,6 +686,8 @@ class CrawlContext(Generic[P]):
 
         Raises:
             LabelUnknownError: `label` is another crawl's; nothing is sent.
+            PayloadInvalidError: `payload` is not JSON, or its Label's model
+                refuses it, each issue named by its path; nothing is sent.
         """
         warn_entry(
             "crawl_request.enqueue_links",
@@ -923,8 +990,20 @@ def seed(
 @overload
 def seed(
     url: str,
-    label: Label[Q],
-    payload: Q,
+    label: Label[M],
+    payload: M,
+    *,
+    method: str | None = None,
+    body: bytes | None = None,
+    priority: int | None = None,
+    forefront: bool | None = None,
+    key: str | None = None,
+) -> RequestSeed: ...
+@overload
+def seed(
+    url: str,
+    label: Label[JSONObject],
+    payload: JSONObject,
     *,
     method: str | None = None,
     body: bytes | None = None,
@@ -950,6 +1029,12 @@ def seed(
     fetched first, `forefront` puts it ahead of the requests of its
     priority, and `key` names it in place of its method, URL and body, so
     another of the same key is a duplicate.
+
+    Raises:
+        PayloadInvalidError: `payload` is not JSON, or its Label's model
+            refuses it, each issue named by its path. The engine checks a
+            Payload against a hand-written JSON Schema, and its length
+            against `crawl.payload.max_size`, when the crawl starts.
     """
     fields: dict[str, object] = {
         "url": url,
@@ -961,9 +1046,40 @@ def seed(
 
 
 def _payload_field(label: Label[Any], payload: object) -> dict[str, JSONValue]:
-    """The wire's `payload` field of `payload`, sent under `label`; none without one."""
+    """The wire's `payload` field of `payload`, sent under `label`; none without one.
+
+    Raises:
+        PayloadInvalidError: `payload` is not JSON, or its Label's model's own
+            parse refuses it (ADR 0082), each issue named by its path; a
+            hand-written JSON Schema is the engine's to check.
+    """
     codec = _payload_codecs.get(label)
-    return {} if codec is None else {"payload": codec.encode(payload)}
+    if codec is None:
+        return {}
+    try:
+        return {"payload": codec.encode(payload)}
+    except ValueNotJSONError as refused:
+        issues = [{"path": refused.path, "message": f"{refused.found} is not JSON"}]
+        raise _payload_refused(label.name, issues) from None
+    except SchemaRejectedError as refused:
+        issues = [
+            {"path": issue.path, "message": issue.message} for issue in refused.issues
+        ]
+        raise _payload_refused(label.name, issues) from None
+
+
+def _payload_refused(label: str, issues: list[dict[str, str]]) -> PayloadInvalidError:
+    """The `payload_invalid` of a Payload for the Label `label` refused for `issues`."""
+    named = "; ".join(
+        f"{issue['path'] or 'its root'}: {issue['message']}" for issue in issues
+    )
+    return PayloadInvalidError(
+        f"the Payload for the Label {label} was not sent: {named}",
+        fix="Send a Payload its Label's schema accepts, made of JSON values only: "
+        "a string, a finite number, a boolean, None, a list or a dict with "
+        "string keys.",
+        details={"label": label, "issues": issues},
+    )
 
 
 def _request_options(

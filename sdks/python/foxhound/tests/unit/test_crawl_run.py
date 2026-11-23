@@ -27,6 +27,7 @@ from goodfetch_foxhound import (
     seed,
 )
 from goodfetch_foxhound.crawl_run import handler_failed
+from goodfetch_foxhound.generated.errors import PayloadInvalidError
 from goodfetch_foxhound.testing import async_connect_over, connect_over
 from goodfetch_test_support import Finished, PlayedMessage, play_script
 
@@ -301,6 +302,50 @@ async def test_enqueues_the_links_a_locator_matches_with_one_payload() -> None:
         for answered in enqueued
         for link in answered.links
     ] == ENQUEUED_LINKS
+    assert played.done() == Finished()
+
+
+@pytest.mark.covers("story:11-1018", "error:payload_invalid")
+@pytest.mark.anyio
+async def test_refuses_a_payload_that_is_not_json_at_enqueue_sending_nothing() -> None:
+    """`enqueue` and `enqueue_links` fail with `payload_invalid`; nothing is sent."""
+    crawl = AsyncCrawl()
+    page = crawl.label("page", payload=FROM_SCHEMA)
+    titles = crawl.dataset("pages")
+    refused: list[tuple[object, list[object]]] = []
+
+    @crawl.handle(page)
+    async def read_page(context: AsyncCrawlContext[JSONObject]) -> None:
+        not_json: JSONObject = {"from": float("nan")}
+        links = context.page.locator("ul.pages a")
+        for enqueued in (
+            lambda: context.enqueue("/nan", page, not_json),
+            lambda: context.enqueue_links(links, page, not_json),
+        ):
+            try:
+                await enqueued()
+            except PayloadInvalidError as error:
+                issues = cast("list[dict[str, object]]", error.details["issues"])
+                refused.append((error.details["label"], [i["path"] for i in issues]))
+        read = await context.page.read({"title": _css("h1")})
+        record: JSONObject = {"title": _text(read, "title")}
+        await context.push(titles, record)
+        await context.enqueue_links(
+            links, page, FROM_LISTING, exclude=["*/logout"], limit=2
+        )
+
+    played = play_script("sdk-python/crawl/enqueue-links.json")
+    foxhound = await async_connect_over(played.transport)
+
+    await foxhound.start_crawl(
+        crawl,
+        seeds=[seed("https://shop.test/a", page, FROM_START)],
+        run_id="nightly",
+    )
+    await _answered(played, 1)
+    await foxhound.close()
+
+    assert refused == [("page", ["/from"]), ("page", ["/from"])]
     assert played.done() == Finished()
 
 

@@ -1150,7 +1150,10 @@ batch-check base="origin/main":
 # Miri and loom run beside them too, on the host, in folders of their own. The suite waits for
 # them and fails when one fails (ci/pre-merge.sh). A red step ends no form:
 # every other step still runs, and the end names each red step. `quick` runs only the
-# checks every change needs, for a change no test reads (ADR 0135). `all`
+# checks every change needs, for a change no test reads (ADR 0135), and
+# `batch` those and the Pre-merge suite, the hosted tier's form for a
+# batch's pull request, each member's Pre-merge unit covering its Quick unit
+# (#3378). `all`
 # on a head descending from a head whose gate ran reruns only the steps and
 # members' tests the change since then reaches, with every whole-change
 # check, and reuses the other green results (ADR 0135, `xtask gate`).
@@ -2113,8 +2116,8 @@ _visual-elsewhere:
     @mkdir -p target
     @echo "visual projects: skipped, they run only in the pinned Playwright image (CI's visual job, ADR 0073)" >>target/skipped.txt
 
-# The steps a form of `just pre-merge` runs (`all`, `changed`, `quick` or
-# `docs`), in their order, with each one's `just` command, which
+# The steps a form of `just pre-merge` runs (`all`, `changed`, `quick`,
+# `batch`, `docs` or `preflight`), in their order, with each one's `just` command, which
 # ci/pre-merge.sh follows (`xtask gate steps`, ADR 0135).
 _gate-steps form:
     cargo run --quiet --bin xtask -- gate steps --form {{ form }}

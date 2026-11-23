@@ -38,7 +38,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
-use super::plan::Step;
+use super::steps::Step;
 use crate::junit::{self, Ending};
 use crate::output;
 use crate::runners::Runner;

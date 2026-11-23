@@ -1,12 +1,16 @@
 #!/usr/bin/env bash
-# `just pre-merge [all|quick|docs]`: the Pre-merge suite on this host
+# `just pre-merge [all|quick|batch|docs]`: the Pre-merge suite on this host
 # (TESTING.md, The three suites), which `just merge` runs before every merge
 # (ADR 0135); `all` runs it over the whole workspace, else over what changed.
 # `quick` is the gate of a change that no test, benchmark, model, container
 # or Evaluation reads (`xtask affected`'s `gate=quick`): only the checks every
 # change needs, over the whole workspace, then xtask's codegen tests when the
 # change reaches what only they check (`just codegen-tests`, which reads the
-# change itself, issue 2892). `docs` is the gate of such a change
+# change itself, issue 2892). `batch` is the hosted tier's form for a
+# batch's pull request: the quick form's steps and the Pre-merge suite, each
+# member's Pre-merge unit covering its Quick unit (`xtask gate`'s plan; the
+# hosted shards run the suite itself, .github/workflows/pull-request.yml,
+# issue 3378). `docs` is the gate of such a change
 # made of documents alone (`gate=docs`): the checks that read its commits and
 # the bar, then `just lint-documents`, the checks of `just lint` that read
 # documents; no code lint and no suite. `preflight` is `just preflight`: the
@@ -110,19 +114,19 @@ conclude() {
 
 all=${1:-}
 case "$all" in
-  all | quick | docs | preflight | "") ;;
+  all | quick | batch | docs | preflight | "") ;;
   *)
-    echo "error: the argument is \`all\`, \`quick\`, \`docs\` or \`preflight\`, not $all" >&2
+    echo "error: the argument is \`all\`, \`quick\`, \`batch\`, \`docs\` or \`preflight\`, not $all" >&2
     exit 2
     ;;
 esac
 form=${all:-changed}
 # The forms the plan reads and the record keeps: the full gate's,
-# preflight's units of it, and the quick gate's, whose hosted-owned units
-# a hosted run on the tree already holds (ADR 0135's amendment of
-# 2026-11-22).
+# preflight's units of it, and the quick gate's and a batch's, whose
+# hosted-owned units a hosted run on the tree already holds (ADR 0135's
+# amendment of 2026-11-22).
 planning=""
-[[ $form != all && $form != preflight && $form != quick ]] || planning=yes
+[[ $form != all && $form != preflight && $form != quick && $form != batch ]] || planning=yes
 # The layer the record names for each result this run gives (`xtask gate
 # record --by`): `preflight` for that form, else `GOODFETCH_GATE_LAYER`'s,
 # which the backstop and the hosted jobs set, and `merge` by default. A

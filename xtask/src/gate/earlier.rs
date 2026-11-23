@@ -11,7 +11,8 @@ use std::path::Path;
 
 use anyhow::{Context as _, Result};
 
-use super::plan::{GateRun, Head, Layer, Step, unit};
+use super::plan::{GateRun, Head, Layer, unit};
+use super::steps::Step;
 use super::{plan_list, plan_value, runs};
 use crate::affected::{self, Range, WorkspaceMembers};
 use crate::git;

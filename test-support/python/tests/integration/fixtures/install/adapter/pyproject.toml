@@ -1,0 +1,13 @@
+# A fixture wheel of the lowest-version runs (spec #326, Seam B): an adapter
+# that declares the framework from 1.0 and uses only what 1.0 has.
+[project]
+name = "fixture-adapter"
+version = "0.2.0"
+description = "A fixture of the install harness's tests; never published."
+requires-python = ">=3.11"
+classifiers = ["Private :: Do Not Upload"]
+dependencies = ["fixture-framework>=1.0"]
+
+[build-system]
+requires = ["uv_build>=0.9.28,<0.10"]
+build-backend = "uv_build"

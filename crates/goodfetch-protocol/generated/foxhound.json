@@ -24505,6 +24505,141 @@
     },
     {
       "arrived_in": "0.1",
+      "authority": "machine",
+      "clearable": true,
+      "default": null,
+      "deprecated": null,
+      "description": "The Politeness store: a Valkey or Redis server through which every engine naming the same `namespace` shares Politeness across machines, for Runs at `politeness.sharing: shared`. `addressing` reaches it as one `server` by its `url`, through `sentinel`, by the `service` whose primary the `sentinels` elect, or as a `cluster` discovered from its `nodes`. Every address is `rediss://` (TLS), except a loopback host's `redis://` or a Unix socket's `redis+unix://`, and carries no user or password: `username` names the store's user and `password` is the Secret reference of its password, such as `env:VALKEY_PASSWORD`; a password given in its place is refused with `setting_invalid`. A Sentinel's primary is reached over TLS whenever a `password` is set, and a `cluster`'s nodes are all `rediss://` or all on loopback. Set in user configuration or an Operator policy only. None by default, for Politeness shared on the machine alone.",
+      "fixed_for_run": false,
+      "name": "politeness.store",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "scopes": [],
+      "value": {
+        "additionalProperties": false,
+        "description": "`politeness.store`'s value: the Politeness store and the namespace this\nengine shares Politeness under (ADR 0053).",
+        "properties": {
+          "addressing": {
+            "arrived_in": "0.1",
+            "description": "How the store's servers are reached.",
+            "oneOf": [
+              {
+                "additionalProperties": false,
+                "description": "One server.",
+                "properties": {
+                  "kind": {
+                    "const": "server",
+                    "type": "string"
+                  },
+                  "url": {
+                    "arrived_in": "0.1",
+                    "description": "Its address.",
+                    "pattern": "^(rediss?|redis\\+unix|unix)://[^@?#]*$",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "kind",
+                  "url"
+                ],
+                "type": "object"
+              },
+              {
+                "additionalProperties": false,
+                "description": "The primary that Sentinel elects for a service, asked of the\nsentinels when the engine connects.",
+                "properties": {
+                  "kind": {
+                    "const": "sentinel",
+                    "type": "string"
+                  },
+                  "sentinels": {
+                    "arrived_in": "0.1",
+                    "description": "The sentinels' addresses, at least one; the primary is reached\nover TLS when they are, or when a `password` is set, so that the\npassword never travels in clear.",
+                    "items": {
+                      "pattern": "^(rediss?|redis\\+unix|unix)://[^@?#]*$",
+                      "type": "string"
+                    },
+                    "minItems": 1,
+                    "type": "array"
+                  },
+                  "service": {
+                    "arrived_in": "0.1",
+                    "description": "The service whose primary the sentinels name.",
+                    "minLength": 1,
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "kind",
+                  "service",
+                  "sentinels"
+                ],
+                "type": "object"
+              },
+              {
+                "additionalProperties": false,
+                "description": "A Cluster, discovered from these nodes, at least one, all over TLS\nor all on loopback, and none a Unix socket; the nodes it finds are\nreached as these are, and a Cluster on loopback that announces a\nnode off loopback is refused when the engine connects.",
+                "properties": {
+                  "kind": {
+                    "const": "cluster",
+                    "type": "string"
+                  },
+                  "nodes": {
+                    "arrived_in": "0.1",
+                    "description": "The nodes' addresses.",
+                    "items": {
+                      "pattern": "^(rediss?|redis\\+unix|unix)://[^@?#]*$",
+                      "type": "string"
+                    },
+                    "minItems": 1,
+                    "type": "array"
+                  }
+                },
+                "required": [
+                  "kind",
+                  "nodes"
+                ],
+                "type": "object"
+              }
+            ]
+          },
+          "namespace": {
+            "arrived_in": "0.1",
+            "description": "The namespace: every engine that names it shares Politeness, and\nshares nothing with another namespace on the same store.",
+            "pattern": "^[^{}]+$",
+            "type": "string"
+          },
+          "password": {
+            "arrived_in": "0.1",
+            "description": "The Secret reference of the user's password, resolved when the\nengine connects; none for a store without one.",
+            "pattern": "^(?:(?:env|keychain|secretfile|caller|bw|vault|aws-sm|gcp-sm|azure-kv|plugin):|op://)[^\\s]+$",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "username": {
+            "arrived_in": "0.1",
+            "description": "The user the store's access list names; its default user when left\nout.",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "namespace",
+          "addressing"
+        ],
+        "type": "object"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
       "authority": "every",
       "clearable": false,
       "default": true,

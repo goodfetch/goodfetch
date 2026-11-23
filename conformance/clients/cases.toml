@@ -26,7 +26,7 @@
 
 [suite]
 name = "clients"
-version = "55"
+version = "56"
 
 [[capability]]
 name = "lifecycle"
@@ -757,5 +757,19 @@ surfaces = ["sdk-python"]
 [[capability.case]]
 id = "sync-calls-interrupt-from-any-thread"
 covers = ["story:11-56"]
+surfaces = ["sdk-python"]
+modes = { sdk-python = ["attached"] }
+
+# Under asyncio's selector loop, which cannot start a subprocess, as on
+# Windows, the async client starts the Attached engine with
+# `subprocess.Popen` on a worker thread of its own, its pipes bridged to the
+# loop through threads, and the Run plays as on any loop; the event-loop
+# policy read after is the one read before (ADR 0081). Off Windows the
+# loop's base class stands in, so the case plays on every OS. Python alone,
+# whose async runtime may run on a loop that cannot start a process;
+# attached only, the mode whose engine is the client's own subprocess.
+[[capability.case]]
+id = "selector-loop-starts-the-engine"
+covers = ["story:11-58"]
 surfaces = ["sdk-python"]
 modes = { sdk-python = ["attached"] }

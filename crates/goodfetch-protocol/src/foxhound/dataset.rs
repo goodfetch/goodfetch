@@ -8,10 +8,12 @@
 //! codes of a declaration or a Record that does not hold. Foxhound's own.
 
 use crate::point_in_time::PointInTime;
+use std::borrow::Cow;
 use std::time::SystemTime;
 
-use schemars::JsonSchema;
+use schemars::{JsonSchema, Schema, SchemaGenerator};
 use serde::{Deserialize, Serialize};
+use serde_json::value::RawValue;
 use serde_json::{Value, json};
 
 use crate::catalog::{
@@ -67,7 +69,77 @@ pub struct CrawlRequestPushParams {
     /// in this list is how `record_invalid` names it.
     #[schemars(length(min = 1))]
     #[schemars(extend("arrived_in" = "0.1"))]
-    pub records: Vec<Value>,
+    pub records: Vec<RecordData>,
+}
+
+/// A pushed Record's data: the JSON text its program wrote, read where it
+/// came, so its fields keep the order the program wrote them in, the
+/// columns' order of a table Export, which a parsed [`Value`] sorts
+/// (issue 2394). Its schema is any JSON value's.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct RecordData(Box<RawValue>);
+
+impl RecordData {
+    /// `record` written as JSON, its fields in the order it writes them.
+    ///
+    /// # Errors
+    ///
+    /// When `record` does not write as JSON.
+    pub fn of<T: Serialize + ?Sized>(record: &T) -> Result<Self, serde_json::Error> {
+        serde_json::value::to_raw_value(record).map(Self)
+    }
+
+    /// Its JSON text, as the program wrote it.
+    #[must_use]
+    pub fn json(&self) -> &str {
+        self.0.get()
+    }
+
+    /// Its JSON text, as a borrowed raw value.
+    #[must_use]
+    pub fn raw(&self) -> &RawValue {
+        &self.0
+    }
+
+    /// It, read as a [`Value`], whose objects sort their fields.
+    #[must_use]
+    pub fn value(&self) -> Value {
+        let mut deserializer = serde_json::Deserializer::from_str(self.json());
+        // Its depth is bounded where it was made: a frame's by framing's,
+        // a code-free page's by its structured data's, past `serde_json`'s
+        // own limit (issue 2394).
+        deserializer.disable_recursion_limit();
+        Value::deserialize(&mut deserializer)
+            .expect("invariant: a raw JSON value reads as a JSON value")
+    }
+}
+
+/// Two are equal when their JSON texts are.
+impl PartialEq for RecordData {
+    fn eq(&self, other: &Self) -> bool {
+        self.json() == other.json()
+    }
+}
+
+impl Eq for RecordData {}
+
+impl JsonSchema for RecordData {
+    fn inline_schema() -> bool {
+        Value::inline_schema()
+    }
+
+    fn schema_name() -> Cow<'static, str> {
+        Value::schema_name()
+    }
+
+    fn schema_id() -> Cow<'static, str> {
+        Value::schema_id()
+    }
+
+    fn json_schema(generator: &mut SchemaGenerator) -> Schema {
+        Value::json_schema(generator)
+    }
 }
 
 /// What `crawl_request.push` answers once every Record is staged.
@@ -354,3 +426,6 @@ pub const ENTRIES: Entries = Entries {
     hook_stages: &[],
     shared_type_values: &[],
 };
+
+#[cfg(test)]
+mod tests;

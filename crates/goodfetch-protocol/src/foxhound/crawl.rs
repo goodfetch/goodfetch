@@ -18,7 +18,7 @@ use crate::catalog::{
     Operation, OperationClass, OperationKind, ProtocolVersion, Reach, Setting, Stability,
     ValueKind, schema_of,
 };
-use crate::foxhound::dataset::DatasetDeclaration;
+use crate::foxhound::dataset::{DatasetDeclaration, RecordData};
 use crate::foxhound::fetch::FetchTier;
 use crate::foxhound::frontier::{HttpBody, HttpMethod};
 use crate::foxhound::hook::CrawlHookDeclaration;
@@ -421,7 +421,7 @@ pub struct PushedRecord {
     pub dataset: String,
     /// The Record.
     #[schemars(extend("arrived_in" = "0.1"))]
-    pub data: Value,
+    pub data: RecordData,
 }
 
 /// A handler's skip of its request: `ctx.skip(message)` (ADR 0093).

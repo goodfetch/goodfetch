@@ -8,6 +8,7 @@ use std::sync::Arc;
 
 use goodfetch_dataset::Datasets;
 use goodfetch_protocol::foxhound::crawl::{CrawlExtraction, PushedRecord, Seed};
+use goodfetch_protocol::foxhound::dataset::RecordData;
 use goodfetch_protocol::page::PageFormats;
 use serde_json::{Map, Value, json};
 
@@ -21,10 +22,10 @@ fn formats(value: Value) -> PageFormats {
     serde_json::from_value(value).unwrap()
 }
 
-fn pushed(data: Value) -> Vec<PushedRecord> {
+fn pushed(data: &Value) -> Vec<PushedRecord> {
     vec![PushedRecord {
         dataset: "pages".to_owned(),
-        data,
+        data: RecordData::of(data).unwrap(),
     }]
 }
 
@@ -61,19 +62,19 @@ fn the_pages_schema_is_generated_from_the_formats_request_and_a_pages_record_hol
             record["fetched_at"].clone(),
             datasets
                 .check(
-                    pushed(record),
+                    pushed(&record),
                     &goodfetch_counted_work::CountedWork::default()
                 )
                 .is_ok(),
             datasets
                 .check(
-                    pushed(without_links),
+                    pushed(&without_links),
                     &goodfetch_counted_work::CountedWork::default()
                 )
                 .is_ok(),
             datasets
                 .check(
-                    pushed(with_html),
+                    pushed(&with_html),
                     &goodfetch_counted_work::CountedWork::default()
                 )
                 .is_ok(),
@@ -207,25 +208,25 @@ fn the_pages_schema_holds_each_fields_type() {
             declared.schema.as_ref().unwrap()["properties"]["price"].clone(),
             datasets
                 .check(
-                    pushed(with(json!("Delta kite"), json!(1099.98))),
+                    pushed(&with(json!("Delta kite"), json!(1099.98))),
                     &goodfetch_counted_work::CountedWork::default()
                 )
                 .is_ok(),
             datasets
                 .check(
-                    pushed(with(Value::Null, Value::Null)),
+                    pushed(&with(Value::Null, Value::Null)),
                     &goodfetch_counted_work::CountedWork::default()
                 )
                 .is_ok(),
             datasets
                 .check(
-                    pushed(without_price),
+                    pushed(&without_price),
                     &goodfetch_counted_work::CountedWork::default()
                 )
                 .is_ok(),
             datasets
                 .check(
-                    pushed(with(json!("Delta kite"), json!("1099.98"))),
+                    pushed(&with(json!("Delta kite"), json!("1099.98"))),
                     &goodfetch_counted_work::CountedWork::default()
                 )
                 .is_ok(),

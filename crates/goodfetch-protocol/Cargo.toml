@@ -15,7 +15,9 @@ data-encoding.workspace = true
 jiff.workspace = true
 schemars.workspace = true
 serde.workspace = true
-serde_json.workspace = true
+# A pushed Record's data is kept as the JSON text its program wrote, its
+# fields in their order, which a parsed `Value` sorts (issue 2394).
+serde_json = { workspace = true, features = ["raw_value", "unbounded_depth"] }
 thiserror.workspace = true
 
 [dev-dependencies]

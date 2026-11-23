@@ -48,6 +48,26 @@ fn params_read_as_their_type_without_their_meta() {
     );
 }
 
+/// A push's Records keep their fields in the order their program wrote
+/// them through the strict read, which a parsed `Value` would sort.
+#[test]
+fn records_in_a_push_keep_their_fields_in_the_order_written() {
+    let work = CountedWork::default();
+    let arrived = Arrived::new(
+        Some(
+            r#"{"run_id":"run-1","crawl_request_id":"r1","lease_epoch":1,"dataset":"books","records":[{"title":"Dune","price":9}]}"#,
+        ),
+        &work,
+    );
+
+    let pushed = arrived
+        .params()
+        .read::<goodfetch_protocol::foxhound::dataset::CrawlRequestPushParams>()
+        .unwrap();
+
+    assert_eq!(pushed.records[0].json(), r#"{"title":"Dune","price":9}"#);
+}
+
 /// A struct or a map reads only from an object, at every depth, which
 /// serde alone would read from an array or `null` too; a `_meta` inside
 /// the params is a member like any other.

@@ -38,7 +38,7 @@ use goodfetch_protocol::foxhound::crawl::{
     CrawlRequestHandled, CrawlStartParams, ExtractionFollow, LabelDeclaration, PushedRecord, Seed,
     SitemapRule, SitemapSeed,
 };
-use goodfetch_protocol::foxhound::dataset::DatasetDeclaration;
+use goodfetch_protocol::foxhound::dataset::{DatasetDeclaration, RecordData};
 use goodfetch_protocol::foxhound::frontier::CrawlRequestEnqueueLinksParams;
 use goodfetch_protocol::jsonrpc::ProtocolFailure;
 use goodfetch_protocol::page::read::{FieldLocator, PageField};
@@ -536,7 +536,8 @@ impl CodeFree {
             CrawlRequestHandled {
                 records: vec![PushedRecord {
                     dataset: CODE_FREE_DATASET.to_owned(),
-                    data: record_of(formats, status, fetched_at, values),
+                    data: RecordData::of(&record_of(formats, status, fetched_at, values))
+                        .expect("invariant: a page's Record encodes as JSON"),
                 }],
                 skipped: None,
             },

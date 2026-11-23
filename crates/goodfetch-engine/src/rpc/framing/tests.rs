@@ -246,6 +246,29 @@ fn a_reply_reads_its_result_from_its_line() {
     );
 }
 
+/// A handler's answer keeps each Record's fields in the order its program
+/// wrote them, which a parsed `Value` would sort.
+#[test]
+fn records_in_a_reply_keep_their_fields_in_the_order_written() {
+    let Ok(Incoming::Reply {
+        answer: Ok(result), ..
+    }) = decode(
+        br#"{"jsonrpc":"2.0","id":7,"result":{"records":[{"dataset":"books","data":{"title":"Dune","price":9}}]}}"#,
+    )
+    else {
+        panic!("no result");
+    };
+
+    let handled = result
+        .read::<goodfetch_protocol::foxhound::crawl::CrawlRequestHandled>()
+        .unwrap();
+
+    assert_eq!(
+        handled.records[0].data.json(),
+        r#"{"title":"Dune","price":9}"#
+    );
+}
+
 #[test]
 fn nesting_past_the_limit_is_too_deep() {
     let line = format!("{}{}", "[".repeat(MAX_DEPTH + 1), "]".repeat(MAX_DEPTH + 1));

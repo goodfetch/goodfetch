@@ -7,8 +7,10 @@
 //! the benchmarks its change selected, so each figure's latest value is its
 //! own. A figure up more than 10% since that release opens or updates one
 //! `needs-triage` issue, catching accepted steps under 5% that add up; so
-//! does a resident-memory peak within 10% of its ceiling. Before the first
-//! release, no figure is compared with a release.
+//! does a resident-memory peak within 10% of its ceiling. A new issue about
+//! a benchmark goes to the spec whose ticket added the benchmark (ADR 0136),
+//! and any other to triage. Before the first release, no figure is compared
+//! with a release.
 
 use std::collections::BTreeMap;
 use std::fmt::Write as _;
@@ -20,13 +22,15 @@ use jiff::Timestamp;
 use serde::Deserialize;
 
 use crate::github::Api;
-use crate::issues::{Issues, Label};
+use crate::issues::{Issues, Label, Owner};
 use crate::output;
+use crate::owners::{Added, Owners};
 use crate::results::{self, Kept};
 
 use super::budget;
 use super::figure::{Figure, Sign, away_from_zero, hundredths};
 use super::figures::{self, Recorded};
+use super::gungraun;
 
 /// The branch whose figures are `main`'s, and the event of the merge
 /// queue's runs, which test what `main` becomes.
@@ -53,7 +57,14 @@ struct Latest {
 /// A figure on a platform: `(<os>-<arch>, <subject> <figure>)`.
 type Key = (String, String);
 
-pub(crate) fn check(api: &Api<'_>, repository: &str, store: &Path) -> Result<ExitCode> {
+/// Checks the figures of the store at `store` and keeps their issues through
+/// `api` in `repository`, whose history is the checkout at `root`.
+pub(crate) fn check(
+    root: &Path,
+    api: &Api<'_>,
+    repository: &str,
+    store: &Path,
+) -> Result<ExitCode> {
     let kept = results::read_kept(store, |file| {
         file.rsplit('/').next() == Some(figures::FILE_NAME)
     })?;
@@ -92,8 +103,10 @@ pub(crate) fn check(api: &Api<'_>, repository: &str, store: &Path) -> Result<Exi
         None => None,
     };
     let mut issues = Issues::new(api, repository);
+    let owners = Owners::new(api, repository);
     for ((platform, id), latest) in &main {
         let recorded = &latest.recorded;
+        let owner = || benchmark_owner(&owners, root, &recorded.subject);
         if let Some(ceiling) = near_ceiling(recorded) {
             let key = format!("perf-ceiling {platform} {id}");
             let title = format!(
@@ -108,7 +121,14 @@ pub(crate) fn check(api: &Api<'_>, repository: &str, store: &Path) -> Result<Exi
                 recorded.value,
                 latest.commit
             );
-            issues.keep(Label::NeedsTriage, &key, &title, &body, latest.started_at)?;
+            issues.keep(
+                Label::NeedsTriage,
+                &key,
+                &title,
+                &body,
+                latest.started_at,
+                owner,
+            )?;
         }
         let Some((tag, released)) = release.as_ref().and_then(|(tag, figures)| {
             let released = figures.get(&(platform.clone(), id.clone()))?;
@@ -131,7 +151,14 @@ pub(crate) fn check(api: &Api<'_>, repository: &str, store: &Path) -> Result<Exi
                 change(released.value, recorded.value),
                 latest.commit
             );
-            issues.keep(Label::NeedsTriage, &key, &title, &body, latest.started_at)?;
+            issues.keep(
+                Label::NeedsTriage,
+                &key,
+                &title,
+                &body,
+                latest.started_at,
+                owner,
+            )?;
         }
     }
     for action in issues.actions() {
@@ -141,6 +168,25 @@ pub(crate) fn check(api: &Api<'_>, repository: &str, store: &Path) -> Result<Exi
         output::line("No release yet: no figure is compared with a release (ADR 0071).");
     }
     Ok(ExitCode::SUCCESS)
+}
+
+/// The owner of the benchmark `subject` names: the spec whose ticket added
+/// its function to its bench file; none for a subject that names no
+/// benchmark (ADR 0136).
+fn benchmark_owner(owners: &Owners<'_>, root: &Path, subject: &str) -> Result<Option<Owner>> {
+    let Some(source) = gungraun::source(subject) else {
+        return Ok(None);
+    };
+    owners.of_added(
+        root,
+        &Added {
+            text: format!("fn {}(", source.function),
+            files: Some(format!(
+                ":(glob)**/{}/benches/{}.rs",
+                source.package, source.file
+            )),
+        },
+    )
 }
 
 /// Each figure's latest value on each platform, `<os>-<arch>`, among `kept`:

@@ -61,6 +61,7 @@ mod notices;
 mod os_services;
 mod output;
 mod output_scans;
+mod owners;
 mod package_dependencies;
 mod perf;
 mod pgo;

@@ -22,7 +22,7 @@ use super::{attached_on, dependencies, engine_with, hello};
 use crate::audit::{AuditError, Origin};
 use crate::call_error::CallError;
 use crate::composition::{CallContext, Contribution, Handler};
-use crate::runs::{EndedBy, Ending, Forwarded, Start, Started};
+use crate::runs::{Aborter, EndedBy, Ending, Forwarded, Start, Started};
 use crate::tasks::TaskOwner;
 
 /// Starts a Run its driver ends, aborts it, and has the driver finish it
@@ -78,7 +78,11 @@ fn abort_then_finish() -> Contribution {
             let run_id = run.id().clone();
             let driver = async move { run.end(Ending::Finished(Vec::new())).await };
             let (aborted, ()) = tokio::join!(
-                runs.abort(run_id.clone(), StoppedBy::Client, Forwarded::No),
+                runs.abort(
+                    run_id.clone(),
+                    Aborter::by(StoppedBy::Client),
+                    Forwarded::No
+                ),
                 driver
             );
             let finished = runs.finish(run_id).await.unwrap();

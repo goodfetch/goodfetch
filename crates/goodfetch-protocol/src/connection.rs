@@ -872,6 +872,9 @@ impl fmt::Display for WaitedFor {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum StoppedBy {
+    /// A person, through `run.abort` from a Client that acts for them
+    /// (ADR 0031).
+    Person,
     /// A Client, through `run.abort`.
     Client,
     /// The program, such as through `run.stop` (ADR 0102).
@@ -918,6 +921,7 @@ impl CancelledBy {
 impl From<StoppedBy> for CancelledBy {
     fn from(by: StoppedBy) -> Self {
         match by {
+            StoppedBy::Person => Self::Person,
             StoppedBy::Client => Self::Client,
             StoppedBy::Program => Self::Program,
             StoppedBy::Browser => Self::Browser,

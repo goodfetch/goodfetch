@@ -3156,6 +3156,11 @@ class StoppedBy(StrEnum):
     call the stop cancels names it as its `by` (ADR 0113).
     """
 
+    person = "person"
+    """
+    A person, through `run.abort` from a Client that acts for them
+    (ADR 0031).
+    """
     client = "client"
     """A Client, through `run.abort`."""
     program = "program"
@@ -5903,6 +5908,11 @@ class StopReason1(BaseModel):
     by: StoppedBy
     """Who stopped it."""
     kind: Literal["abort"]
+    person: str | None = None
+    """
+    Whom the aborting Client acts for (ADR 0031), set when `by` is
+    `person`.
+    """
 
 
 class StopReason6(BaseModel):

@@ -1064,7 +1064,7 @@ export type RouteId = string;
  * This interface was referenced by `CollieTypes`'s JSON-Schema
  * via the `definition` "StoppedBy".
  */
-export type StoppedBy = "client" | "program" | "browser";
+export type StoppedBy = "person" | "client" | "program" | "browser";
 /**
  * What kind of Run it is: a Collie Run its program drives, or a crawl
  * (ADR 0102), which its start's inputs name.
@@ -1099,6 +1099,11 @@ export type StopReason =
        */
       by: StoppedBy;
       kind: "abort";
+      /**
+       * Whom the aborting Client acts for (ADR 0031), set when `by` is
+       * `person`.
+       */
+      person?: string | null;
     }
   | {
       kind: "pause";

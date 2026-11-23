@@ -4,11 +4,11 @@ Each Product's kit re-exports `TestEngineOptions`, what a test engine starts
 with, and its test engines are an `AsyncTestEngine` and a `TestEngine`, the
 async and sync shapes every Product's test engine has. A Product's kit
 starts an Attached engine in a temporary Goodfetch home with a cleared
-environment, `egress.offline` on, short durations and no project file unless
-the test names one; every host its `network.resolve` maps to loopback alone
-is the only one a Run's requests reach, live. Importing it reads, patches
-and logs nothing (ADR 0078). Rust's `testing` module of
-`goodfetch-collie-client` is its twin.
+environment, `egress.offline` and `browser_cache.read_only` on, short
+durations and no project file unless the test names one; every host its
+`network.resolve` maps to loopback alone is the only one a Run's requests
+reach, live. Importing it reads, patches and logs nothing (ADR 0078).
+Rust's `testing` module of `goodfetch-collie-client` is its twin.
 """
 
 from __future__ import annotations
@@ -29,6 +29,7 @@ if TYPE_CHECKING:
     from typing import Self
 
     from goodfetch_collie_client.generated.settings import (
+        ConnectionBrowserCacheSettings,
         ConnectionEgressSettings,
         ConnectionTimeoutSettings,
         Settings,
@@ -184,10 +185,15 @@ def isolated(settings: Settings) -> Settings:
     """`settings` over the kit's isolations, `settings` itself left unchanged.
 
     `egress.offline` on, the hosts `network.resolve` maps to loopback alone
-    as the only hosts allowed and the private hosts a page may reach, and
-    the short durations.
+    as the only hosts allowed and the private hosts a page may reach,
+    `browser_cache.read_only` on, so the caller's Browser cache is left as
+    the test found it (issue 3458), and the short durations.
     """
     loopback = _loopback_hosts(settings.get("network", {}).get("resolve"))
+    browser_cache: ConnectionBrowserCacheSettings = {
+        "read_only": True,
+        **settings.get("browser_cache", {}),
+    }
     egress: ConnectionEgressSettings = {
         "offline": True,
         "allowed_domains": loopback,
@@ -202,7 +208,12 @@ def isolated(settings: Settings) -> Settings:
         "close": _SHORT,
         **settings.get("timeout", {}),
     }
-    return {**settings, "egress": egress, "timeout": timeout}
+    return {
+        **settings,
+        "browser_cache": browser_cache,
+        "egress": egress,
+        "timeout": timeout,
+    }
 
 
 def _loopback_hosts(resolve: Mapping[str, list[str]] | None) -> list[str]:

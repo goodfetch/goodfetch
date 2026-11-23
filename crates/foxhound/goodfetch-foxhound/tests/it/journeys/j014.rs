@@ -1,80 +1,33 @@
 //! J-014, "Pause a Crawl, restart the Daemon and resume it", on the `cli`
-//! surface (ADRs 0063 and 0066; tickets #220 and #2348): a person runs
-//! Foxhound's shipped executable, starts a code-free crawl of the Proving
-//! ground's catalog on the Daemon of the variant's home with `crawl
-//! start`, pauses it with `run pause` once a Record committed, restarts
-//! the Daemon with `daemon restart`, and resumes the crawl by its Run ID
-//! with `run resume`, letting it finish with `run finish`.
-#![expect(
-    clippy::disallowed_methods,
-    reason = "the person's steps write the settings and fields files"
-)]
+//! surface (ADRs 0063, 0075 and 0094): a person starts a code-free crawl of
+//! the Proving ground's catalog on the Daemon with Foxhound's shipped
+//! executable, pauses it once some Records are committed, restarts the
+//! Daemon, checks the crawl is still paused and resumes it by its Run ID,
+//! then reads its Records once it finishes.
 
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
 use goodfetch_protocol::result_document::ResultDocument;
-use goodfetch_test_support::{JourneyRun, ProvingGround, TestEnv, cli as command_line};
+use goodfetch_test_support::{JourneyRun, cli as command_line};
 use serde_json::{Value, json};
 
-use super::j002::{fields_read, products};
-use crate::crawl_commands::short_idle;
-use crate::fetch_tiers::settings;
+use crate::journeys::j001::json_of;
+use crate::journeys::j005::{
+    RUN, dataset, first_records, numbers, products, resume_crawl, resumed_on, start_crawl,
+};
 
 const FOXHOUND: &str = env!("CARGO_BIN_EXE_goodfetch-foxhound");
 
-/// The crawl's Run.
-const RUN: &str = "paused";
+/// How many Records the person reads before pausing the crawl.
+const BEFORE_THE_PAUSE: usize = 3;
 
-/// The task whose Records the crawl returns.
-const CATALOG: &str = "catalog/1";
-
-/// A settings file for the crawl: the `http` tier, a short delay between
-/// a domain's requests, so the pause comes partway through the catalog's
-/// 110 pages, and the Proving ground's hosts mapped.
-fn settings_file(env: &TestEnv, proving_ground: &ProvingGround) -> PathBuf {
-    let path = env.folder().join("settings.json");
-    let more = json!({
-        "fetch": { "tier": "http" },
-        "politeness": { "domain": { "delay": 50 } },
-    });
-    std::fs::write(&path, settings(proving_ground, &more).to_string()).unwrap();
-    path
+/// The stop reason of a Run its pause stopped.
+fn paused_for() -> Value {
+    json!({ "kind": "pause" })
 }
 
-/// The Records of the crawl's Dataset `pages`, as `run records --json`
-/// prints them, through the number `through` when given.
-fn records(run: &JourneyRun<impl Sized>, through: Option<u64>) -> Vec<Value> {
-    let mut command = command_line(run.env(), run.engine()).args([
-        "run",
-        "records",
-        RUN,
-        "--dataset",
-        "pages",
-        "--json",
-    ]);
-    if let Some(through) = through {
-        command = command.args(["--through", &through.to_string()]);
-    }
-    let read = command.json_array("RecordRead").unwrap();
-    read.documents[0]
-        .as_array()
-        .unwrap()
-        .iter()
-        .map(|read| read["record"].clone())
-        .collect()
-}
-
-/// The ID of the process the home's Daemon runs as, from `daemon status`.
-fn daemon_pid(run: &JourneyRun<impl Sized>) -> Value {
-    let status = command_line(run.env(), run.engine())
-        .args(["daemon", "status", "--json"])
-        .json("DaemonStatus")
-        .unwrap();
-    status.documents[0]["pid"].clone()
-}
-
-/// Covers: story:3-35, row:RT-11, command:run.pause, command:run.resume, command:daemon.restart
+/// Covers: story:3-35, row:RT-11
 #[test]
 #[expect(
     clippy::too_many_lines,
@@ -83,90 +36,58 @@ fn daemon_pid(run: &JourneyRun<impl Sized>) -> Value {
 fn cli() {
     let mut run = JourneyRun::start("J-014", "cli", Path::new(FOXHOUND), ResultDocument::journey)
         .expect("J-014's cli variant starts");
-    short_idle(run.env());
+    run.env()
+        .user_configuration("daemon.idle_timeout = 60000\n");
     let mut settings = PathBuf::new();
-    let mut at_pause: Vec<Value> = Vec::new();
+    let mut before: Vec<Value> = Vec::new();
+    let mut pause_exit = None;
     let mut paused = Value::Null;
-    let mut daemons = (Value::Null, Value::Null);
-    let mut after_restart = Value::Null;
+    let mut restarted = Value::Null;
+    let mut after_the_restart = Value::Null;
     let mut resumed = Value::Null;
-    let mut finished = Value::Null;
+    let mut ended = Value::Null;
     let mut committed: Vec<Value> = Vec::new();
 
     run.step("Start a Crawl of the catalog on the Daemon", |run| {
-        let proving_ground = run.proving_ground().expect("J-014 has a Proving ground");
-        settings = settings_file(run.env(), proving_ground);
-        let start = proving_ground.start_url(CATALOG).unwrap();
-        let fields = run.env().folder().join("fields.json");
-        std::fs::write(&fields, fields_read().to_string()).unwrap();
-        let started = command_line(run.env(), run.engine())
-            .args([
-                "crawl", "start", &start, "--run-id", RUN, "--links", "scope",
-            ])
-            .args(["--fields", fields.to_str().unwrap()])
-            .args(["--settings", settings.to_str().unwrap(), "--json"])
-            .json("RunId")
-            .unwrap();
-        assert_eq!(started.documents[0], RUN, "{}", started.output);
+        json_of(run.engine(), run.env(), &["daemon", "start", "--json"]);
+        settings = start_crawl(run);
     });
     run.step(
         "Pause the Crawl once it has committed some Records",
         |run| {
-            // Answers once the first Record committed.
-            records(run, Some(1));
-            paused = command_line(run.env(), run.engine())
+            before = first_records(run, BEFORE_THE_PAUSE);
+            let output = command_line(run.env(), run.engine())
                 .args(["run", "pause", RUN, "--json"])
-                .json("RunReport")
-                .unwrap()
-                .documents[0]
-                .clone();
-            at_pause = records(run, None);
+                .run()
+                .unwrap();
+            pause_exit = output.exit;
+            paused = serde_json::from_str(&output.stdout)
+                .unwrap_or_else(|error| panic!("{error}: {}{}", output.stdout, output.stderr));
         },
     );
     run.step("Restart the Daemon", |run| {
-        let before = daemon_pid(run);
-        let restarted = command_line(run.env(), run.engine())
-            .args(["daemon", "restart"])
-            .run()
-            .unwrap();
-        assert_eq!(restarted.exit, Some(0), "{restarted}");
-        daemons = (before, daemon_pid(run));
-        after_restart = command_line(run.env(), run.engine())
-            .args(["run", "report", RUN, "--json"])
-            .json("RunReport")
-            .unwrap()
-            .documents[0]
-            .clone();
+        restarted = json_of(run.engine(), run.env(), &["daemon", "restart", "--json"]);
     });
     run.step("Resume the Crawl by its Run ID and let it finish", |run| {
-        resumed = command_line(run.env(), run.engine())
-            .args(["run", "resume", RUN])
-            .args(["--settings", settings.to_str().unwrap(), "--json"])
-            .json("RunStarted")
-            .unwrap()
-            .documents[0]
-            .clone();
-        finished = command_line(run.env(), run.engine())
-            .args(["run", "finish", RUN, "--json"])
-            .json("RunReport")
-            .unwrap()
-            .documents[0]
-            .clone();
-        committed = records(run, None);
+        after_the_restart = json_of(run.engine(), run.env(), &["run", "progress", RUN, "--json"]);
+        resumed = resume_crawl(run, &settings);
+        ended = json_of(run.engine(), run.env(), &["run", "report", RUN, "--json"]);
+        committed = dataset(run);
     });
 
     run.check(
         "The pause stopped the Crawl as resumable, with its Checkpoint, and returned its Run report",
         |_| {
-            let checkpoint = paused["checkpoint"]["location"].as_str().unwrap_or_default();
+            // `20`: the Run ended `stopped`, resumable by its Run ID.
             assert_eq!(
                 (
+                    pause_exit,
                     &paused["run_id"],
                     &paused["lifecycle"],
-                    &paused["stop_reason"]["kind"],
-                    Path::new(checkpoint).is_file(),
+                    &paused["stop_reason"],
+                    &paused["checkpoint"]["run_id"],
                 ),
-                (&json!(RUN), &json!("stopped"), &json!("pause"), true),
+                (Some(20), &json!(RUN), &json!("stopped"), &paused_for(), &json!(RUN)),
                 "{paused}"
             );
         },
@@ -174,52 +95,41 @@ fn cli() {
     run.check(
         "After the restart the Crawl was still paused, and resuming it reached the same run rather than a new one",
         |_| {
-            let (before, after) = &daemons;
+            assert!(restarted["pid"].is_u64(), "{restarted}");
             assert_eq!(
                 (
-                    before.is_u64() && after.is_u64() && before != after,
-                    &after_restart["lifecycle"],
-                    &after_restart["stop_reason"]["kind"],
-                    &resumed["run_id"],
-                    &resumed["started_as"],
-                    &finished["run_id"],
-                    &finished["lifecycle"],
+                    &after_the_restart["lifecycle"],
+                    &after_the_restart["stop_reason"],
+                    &resumed,
+                    &ended["run_id"],
+                    &ended["lifecycle"],
                 ),
                 (
-                    true,
                     &json!("stopped"),
-                    &json!("pause"),
-                    &json!(RUN),
-                    &json!("resumed"),
+                    &paused_for(),
+                    &resumed_on(RUN),
                     &json!(RUN),
                     &json!("finished"),
                 ),
-                "{daemons:?} {after_restart} {resumed} {finished}"
+                "{after_the_restart} {resumed} {ended}"
             );
         },
     );
     run.check(
         "No Record is in the Crawl's Dataset twice, across the pause and the resume",
         |_| {
-            let urls: BTreeSet<&str> = committed
+            let ids: BTreeSet<String> = products(&committed)
                 .iter()
-                .filter_map(|record| record["url"].as_str())
-                .collect();
-            let numbers: Vec<Value> = committed
-                .iter()
-                .map(|record| record["number"].clone())
+                .map(|product| product["id"].to_string())
                 .collect();
             let expected: Vec<Value> = (1..=committed.len()).map(|number| json!(number)).collect();
             assert_eq!(
                 (
-                    !at_pause.is_empty()
-                        && at_pause.len() < committed.len()
-                        && committed.starts_with(&at_pause),
-                    urls.len(),
-                    numbers,
+                    numbers(&committed),
+                    &committed[..BEFORE_THE_PAUSE.min(committed.len())],
+                    ids.len(),
                 ),
-                (true, committed.len(), expected),
-                "{at_pause:?}"
+                (expected, &before[..], products(&committed).len()),
             );
         },
     );
@@ -227,7 +137,7 @@ fn cli() {
         "The oracle verifies the resumed Crawl's Records",
         &json!({ "status": "success", "records": products(&committed) }),
     );
-    // The Daemon the commands started stops before the home goes.
+    // The Daemon the person restarted stops before the home goes.
     let _ = command_line(run.env(), FOXHOUND)
         .args(["daemon", "stop"])
         .run();

@@ -313,6 +313,22 @@ impl Program {
             .collect()
     }
 
+    /// Each entry of the Run's Effect journal, in order: its key, its state
+    /// and the first command sent for it, if any.
+    pub(crate) fn effects(&self) -> Vec<(String, String, Option<String>)> {
+        let file = HomeLayout::of(&self.home).run_file(RUN);
+        let connection = rusqlite::Connection::open(&file)
+            .unwrap_or_else(|error| panic!("the run file {} opens: {error}", file.display()));
+        let mut statement = connection
+            .prepare("SELECT key, state, first_command FROM effect_journal ORDER BY entry")
+            .expect("invariant: the Effect journal's table");
+        statement
+            .query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))
+            .expect("invariant: the Effect journal reads")
+            .collect::<Result<_, _>>()
+            .expect("invariant: the Effect journal's rows read")
+    }
+
     /// The lines of the Run trace's request log so far.
     #[expect(
         clippy::disallowed_methods,

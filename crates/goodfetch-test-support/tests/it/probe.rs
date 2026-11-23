@@ -110,6 +110,48 @@ fn dispatches_under_the_test_subscriber() {
     });
 }
 
+/// A dispatch record and an outcome record, logged on a thread of their
+/// own, as a linked engine's threads log them, to the process's global
+/// subscriber.
+fn dispatch_from_another_thread() {
+    std::thread::spawn(|| {
+        tracing::trace!(target: DISPATCH_TARGET, method = "engine.info", "request answered");
+        tracing::trace!(target: OUTCOME_TARGET, error_code = "handler_lost", "the run recorded an error code");
+    })
+    .join()
+    .unwrap();
+}
+
+#[test]
+#[ignore = "run as a child by exercise_record::a_test_with_no_subscriber_of_its_own_records_what_another_thread_dispatches"]
+fn dispatches_from_another_thread_after_a_test_env() {
+    let _env = TestEnv::new();
+
+    dispatch_from_another_thread();
+}
+
+#[test]
+#[ignore = "run as a child by exercise_record::a_test_with_no_subscriber_of_its_own_records_what_another_thread_dispatches"]
+fn dispatches_from_another_thread_on_a_test_runtime() {
+    let _runtime = goodfetch_test_support::runtime();
+
+    dispatch_from_another_thread();
+}
+
+#[test]
+#[ignore = "run as a child by exercise_record::the_test_subscriber_goes_on_unless_the_test_installed_its_own"]
+fn installs_the_test_subscriber_unless_it_has_its_own() {
+    let start = TestEnv::new().start_time();
+    let (own, _) = goodfetch_test_support::capturing(&[]);
+
+    let over_none = goodfetch_test_support::subscriber_unless_own(move || start).is_some();
+    let over_own = tracing::subscriber::with_default(own, || {
+        goodfetch_test_support::subscriber_unless_own(move || start).is_some()
+    });
+
+    assert_eq!((over_none, over_own), (true, false));
+}
+
 /// A test's own operation, carrying a security value.
 #[derive(serde::Serialize)]
 struct SignIn {

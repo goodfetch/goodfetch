@@ -120,6 +120,7 @@ fn keeping() -> Contribution {
                                 .map(Duration::from_millis),
                             timeout: None,
                             settings: None,
+                            detached: false,
                         })
                         .await
                         .unwrap();

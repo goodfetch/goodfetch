@@ -19,7 +19,7 @@ use goodfetch_test_client::Attached;
 use goodfetch_test_support::{JourneyRun, ProvingGround, TestEnv};
 use serde_json::{Value, json};
 
-use super::j002::{fields_read, products};
+use super::j005::{fields_read, products};
 use crate::attached_spawned;
 use crate::checkpoint_resume::{ORDER_TASK, orders, place_order};
 use crate::fetch_tiers::settings;

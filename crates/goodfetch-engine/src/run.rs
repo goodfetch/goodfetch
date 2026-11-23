@@ -28,9 +28,11 @@ use goodfetch_protocol::checkpoint::{
 use goodfetch_protocol::connection::{StoppedBy, WaitedFor};
 use goodfetch_protocol::entries::operations_of;
 use goodfetch_protocol::formats::{Compatibility, Format};
+use goodfetch_protocol::jsonrpc::ProtocolFailure;
 use goodfetch_protocol::run::{
     Checkpoint, Lifecycle, RESOURCES_EXHAUSTED, Resource, ResourcesExhaustedDetails,
 };
+use goodfetch_protocol::run::{RESERVED_TAG_PREFIX, Tags};
 use goodfetch_protocol::run::{
     RUN_ABORT, RUN_BUSY, RUN_CONFLICT, RUN_DISCARD, RUN_FINISH, RUN_ID_INVALID, RUN_ID_PATTERN,
     RUN_IN_USE, RUN_LIVE, RUN_NOT_FOUND, RUN_NOT_OWNED, RUN_SET_PROGRESS_MESSAGE, RUN_START,
@@ -42,6 +44,9 @@ use goodfetch_protocol::run::{
 use goodfetch_protocol::run::{
     RUN_INTERRUPTED, RUN_LIST, RUN_PROGRESS_READ, RUN_REPORT, RunInterruptedDetails, RunList,
     RunListParams, RunProgressParams,
+};
+use goodfetch_protocol::run::{
+    RUN_STATE_FILESYSTEM_UNSUPPORTED, RUN_STATE_LOCATION, RunStateFilesystemUnsupportedDetails,
 };
 use goodfetch_protocol::secret_reference::SecretReference;
 use goodfetch_protocol::usage::{
@@ -71,14 +76,17 @@ use crate::deadline::Deadline;
 use crate::product::{Identity, Requested};
 use crate::runs::{
     Aborter, EndedBy, FixedSettingChanged, Forwarded, ListError, Resume, Resumed, RunError, Start,
-    StartError, Started, StorageExhausted,
+    StartError, Started, StorageExhausted, UnsupportedFolder,
 };
 use crate::secrets::SecretError;
 use crate::settings::{
     self, Opening, Resolved, RunSettings, SettingsError, beneath_connection, check_scope,
 };
 
+mod detached;
 mod starts;
+
+pub use detached::{InProgram, client_start};
 
 /// The `run.*` handlers, and the starts of Runs with no handler in the
 /// program.
@@ -186,6 +194,27 @@ pub fn run_id(run_id: Option<&str>) -> Result<Option<RunId>, CallError> {
         .transpose()
 }
 
+/// Checks the tags a start from a Client gives its Run: the reserved tags
+/// of a Schedule's run, [`goodfetch_protocol::run::SCHEDULER_TAGS`], are
+/// the Daemon's scheduler's alone (ADR 0036), which starts its Runs
+/// without a Client.
+///
+/// # Errors
+///
+/// `invalid_params` naming the first such tag.
+fn client_tags(tags: &Tags) -> Result<(), CallError> {
+    match tags.scheduler_reserved() {
+        Some(tag) => Err(CallError::protocol(
+            ProtocolFailure::InvalidParams,
+            format!(
+                "The tag `{tag}` is reserved for the Daemon's scheduler; tag the Run without the prefix `{RESERVED_TAG_PREFIX}`.",
+                tag = tag.as_str()
+            ),
+        )),
+        None => Ok(()),
+    }
+}
+
 /// The Limits a start gives its Run (ADRs 0041, 0080 and 0102), which every
 /// Product's start, `run.start` and Foxhound's `crawl.start`, applies alike:
 /// checked before the Run starts, then given to it once it started.
@@ -246,15 +275,11 @@ pub fn start_error(error: StartError) -> CallError {
                 differences,
             },
         ),
-        StartError::InUse { run_id, folder } => CallError::new(
-            &RUN_IN_USE,
-            format!("Another engine writes the Run `{run_id}`."),
-            &RunDetails {
-                run_id,
-                path: Some(folder.display().to_string()),
-            },
-        ),
+        StartError::InUse { run_id, folder } => in_use(run_id, &folder),
         StartError::Live { run_id, folder } => running_here(run_id, &folder),
+        StartError::FilesystemUnsupported(run_id, refused) => {
+            filesystem_unsupported(run_id, &refused)
+        }
         StartError::Unavailable {
             run_id,
             folder,
@@ -700,14 +725,7 @@ pub fn run_error(error: RunError, context: &CallContext) -> CallError {
             );
             CallError::new(&NOT_IN_PRODUCT, message, &details)
         }
-        RunError::InUse { run_id, folder } => CallError::new(
-            &RUN_IN_USE,
-            format!("Another engine writes the Run `{run_id}`."),
-            &RunDetails {
-                run_id,
-                path: Some(folder.display().to_string()),
-            },
-        ),
+        RunError::InUse { run_id, folder } => in_use(run_id, &folder),
         RunError::Format {
             format,
             found,
@@ -750,6 +768,9 @@ pub fn run_error(error: RunError, context: &CallContext) -> CallError {
                 side: WriteSide::Engine,
             },
         ),
+        RunError::FilesystemUnsupported(run_id, refused) => {
+            filesystem_unsupported(run_id, &refused)
+        }
         RunError::Unavailable {
             run_id,
             folder,
@@ -782,6 +803,39 @@ pub fn state_unavailable(run_id: RunId, folder: &std::path::Path, error: &str) -
         &RunDetails {
             run_id,
             path: Some(folder.display().to_string()),
+        },
+    )
+}
+
+/// `run_in_use`: another engine writes the Run `run_id` in `folder`.
+fn in_use(run_id: RunId, folder: &std::path::Path) -> CallError {
+    CallError::new(
+        &RUN_IN_USE,
+        format!("Another engine writes the Run `{run_id}`."),
+        &RunDetails {
+            run_id,
+            path: Some(folder.display().to_string()),
+        },
+    )
+}
+
+/// `run_state_filesystem_unsupported`: the folder of `run_id` is on a
+/// filesystem the engine keeps no run state on (ADR 0049).
+fn filesystem_unsupported(run_id: RunId, refused: &UnsupportedFolder) -> CallError {
+    CallError::new(
+        &RUN_STATE_FILESYSTEM_UNSUPPORTED,
+        format!(
+            "The folder of the Run `{run_id}` is on {}, whose locking SQLite cannot rely on, so the engine keeps no run state there.",
+            refused.found
+        ),
+        &RunStateFilesystemUnsupportedDetails {
+            run_id,
+            path: refused.folder.display().to_string(),
+            filesystem: refused.filesystem,
+            fix: format!(
+                "Set `{}` to a folder on a local disk or a block volume, such as EBS, a Persistent Disk or an Azure managed disk.",
+                RUN_STATE_LOCATION.name
+            ),
         },
     )
 }
@@ -962,6 +1016,7 @@ fn key_mismatch(run_id: RunId, reference: &SecretReference, wrapped_by: String) 
 
 async fn start(params: RunStartParams, context: CallContext) -> Result<RunStarted, CallError> {
     let run_id = run_id(params.run_id.as_deref())?;
+    client_tags(&params.tags)?;
     let limits = StartLimits::checked(params.limits, run_id.as_ref(), &context).await?;
     let (settings, _) = context
         .engine()
@@ -994,6 +1049,7 @@ async fn start(params: RunStartParams, context: CallContext) -> Result<RunStarte
             checkpoint_interval: checkpoint_interval(settings.resolved()),
             timeout: settings.resolved().get(&TIMEOUT_RUN),
             settings: Some(settings.clone()),
+            detached: false,
         })
         .await
         .map_err(start_error)?;

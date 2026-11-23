@@ -99,7 +99,7 @@ fn transport(
         TransportConfig {
             egress: policy(domains, ranges),
             resolve: HostMapping::default(),
-            resolver: ResolverConfiguration::name_servers([fixture]),
+            resolver: ResolverConfiguration::name_servers([fixture]).into(),
             ..crate::config(proving_ground, proxy, &[])
         },
     )
@@ -508,7 +508,7 @@ mod linux {
     use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, TcpListener};
 
     use goodfetch_engine::clock::Clock;
-    use goodfetch_engine::dns::{HostMapping, ResolverConfiguration};
+    use goodfetch_engine::dns::{HostMapping, ResolverSource};
     use goodfetch_engine::tls::{CertificateExceptions, Trust};
     use goodfetch_fetch_tier::{Hop, Reuse, Sent, Transport, TransportConfig, TransportFailure};
     use goodfetch_test_support::{DnsNamespace, ProvingGround, TestEnv};
@@ -612,7 +612,7 @@ mod linux {
                 resolve: HostMapping::default(),
                 egress: policy(&every_host(), &[public.to_string()]),
                 clock: Clock::system(),
-                resolver: ResolverConfiguration::system().unwrap(),
+                resolver: ResolverSource::system(),
                 local: None,
                 delays: goodfetch_engine::happy_eyeballs::Delays::default(),
             },
@@ -699,7 +699,7 @@ mod linux {
                 resolve: HostMapping::default(),
                 egress: policy(&every_host(), &[public.to_string()]),
                 clock: Clock::system(),
-                resolver: ResolverConfiguration::system().unwrap(),
+                resolver: ResolverSource::system(),
                 local: None,
                 delays: goodfetch_engine::happy_eyeballs::Delays::default(),
             },

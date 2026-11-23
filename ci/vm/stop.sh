@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Destroys the job's VM (ADR 0135). Every job runs it, pass or fail; the
-# post-job and pre-job scripts destroy a VM a cancelled job left behind.
+# Destroys the job's VM (ADR 0135). Every job runs it, pass or fail; the next
+# start.sh destroys a VM a cancelled job left behind.
 set -euo pipefail
 
 here=$(cd "$(dirname "$0")" && pwd)

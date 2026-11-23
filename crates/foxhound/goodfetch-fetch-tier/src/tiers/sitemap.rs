@@ -107,6 +107,18 @@ impl HopGate for SitemapHops<'_> {
         })
     }
 
+    fn unparsable_retry_after<'a>(
+        &'a self,
+        hop: &'a Hop,
+        status: u16,
+        value: &'a str,
+    ) -> Gating<'a, ()> {
+        Box::pin(
+            self.0
+                .unparsable_retry_after(hop.url.as_str(), status, value),
+        )
+    }
+
     fn sending<'a>(&'a self, hop: &'a Hop, lead: bool) -> Gating<'a, Result<(), Stop>> {
         Box::pin(self.0.sending(hop, lead))
     }

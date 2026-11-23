@@ -1,13 +1,16 @@
 //! The exercise record ADR 0072's audit reads: `TestEnv`'s map turns on the
 //! JSON log of the engine a test starts, and the test `tracing` subscriber
-//! writes an in-process test's dispatch records into the record.
+//! writes an in-process test's dispatch records into the record, as the
+//! global one test support installs does for a test with none.
 
 use std::io::{BufRead as _, BufReader, Write as _};
 use std::path::Path;
+use std::process::Stdio;
 
 use goodfetch_test_support::{
     DISPATCH_TARGET, OUTCOME_TARGET, RECORDS_VARIABLE, TestEnv, Tool, tools,
 };
+use rstest::rstest;
 use serde_json::{Value, json};
 
 use crate::probe;
@@ -102,5 +105,62 @@ fn the_test_subscriber_writes_the_dispatch_and_outcome_records_into_the_exercise
             vec![json!("engine.info")],
             vec![json!("handler_lost")]
         )
+    );
+}
+
+/// A test that installs no subscriber, such as one that links the engine,
+/// whose threads log to the process's global subscriber, still writes the
+/// dispatch and outcome records of another thread into its record, from
+/// its `TestEnv` or its test runtime, whichever comes first.
+#[rstest]
+#[case::from_its_test_env("probe::dispatches_from_another_thread_after_a_test_env")]
+#[case::from_its_runtime("probe::dispatches_from_another_thread_on_a_test_runtime")]
+fn a_test_with_no_subscriber_of_its_own_records_what_another_thread_dispatches(
+    #[case] child: &str,
+) {
+    let env = TestEnv::new();
+    let records = env.folder().join("records");
+    let mut command = probe(&env, child);
+    command
+        .env(RECORDS_VARIABLE, &records)
+        .env("NEXTEST_BINARY_ID", "sample::it")
+        .env("NEXTEST_TEST_NAME", "engine_info");
+
+    let status = command.status().unwrap();
+
+    assert!(status.success());
+    let lines = json_lines(&records);
+    assert_eq!(
+        (&lines[0], dispatched(&lines[1..]), recorded(&lines[1..])),
+        (
+            &json!({ "test": "sample::it engine_info" }),
+            vec![json!("engine.info")],
+            vec![json!("handler_lost")]
+        )
+    );
+}
+
+/// `subscriber_unless_own` installs the test subscriber over the one test
+/// support installs for a test with none, and not over a test's own.
+#[test]
+fn the_test_subscriber_goes_on_unless_the_test_installed_its_own() {
+    let env = TestEnv::new();
+    let records = env.folder().join("records");
+    let mut command = probe(
+        &env,
+        "probe::installs_the_test_subscriber_unless_it_has_its_own",
+    );
+    command
+        .env(RECORDS_VARIABLE, &records)
+        .env("NEXTEST_BINARY_ID", "sample::it")
+        .env("NEXTEST_TEST_NAME", "engine_info")
+        .stderr(Stdio::piped());
+
+    let output = command.output().unwrap();
+
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
     );
 }

@@ -1,0 +1,9 @@
+name: extra
+on: push
+permissions: {}
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e
+      - run: echo short commit

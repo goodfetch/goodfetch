@@ -76,8 +76,9 @@ Decided in [ADR 0065](../adr/0065-ai-features-are-tested-without-live-models-and
 
 - **Skills are checked with no model:**
   - in Quick, `xtask codegen --check`, which renders them for each Product and fails a skill that breaks the Agent Skills frontmatter limits, names an operation its Product's agents cannot call or a command its executable lacks, presents a person-only answer as the agent's action, or uses a word of the wording list;
-  - in Pre-merge, a check that every option they name exists, and a run of every example command against the local Proving ground, checked by the oracle.
-- **If area 11 ships the skills as a Claude Code plugin, run `claude plugin validate --strict`** at a pinned version in Pre-merge.
+  - in Quick too, each executable's unit test that every option its skills name, in an example or a code span, is an option of the command they name (`goodfetch_test_support::unknown_options` over the clap command line);
+  - in Pre-merge, a run of every example command against the local Proving ground, checked by the oracle.
+- **Each Product's skills ship as a Claude Code plugin, and its `plugin` test runs `claude plugin validate --strict`** in Pre-merge, at the version `test-support/claude-code/pins.toml` pins with a SHA-256 per platform. `ci/claude-code-fetch.sh`, part of `just fetch`, downloads that release, never through npm; a CI job fetches it only when it sets `GOODFETCH_FETCH_CLAUDE_CODE=yes`, as every job that runs the plugin tests must. The test runs it offline: autoupdate, telemetry, error reporting and nonessential traffic are off, every proxy variable points at a local listener, and a connection to it fails the test.
 - **Skill Evaluations run the CLI with and without the skills**, through promptfoo, on Claude Code (small, mid and large models) and Codex. The oracle grades; `skill-used` is a signal. Open an issue on any skill that doesn't beat its baseline on some model.
 - **Snapshot the catalog's MCP projection per Product and profile** (Quick). Keep each description at most 2,048 characters, and record each profile's total tool-definition size in the snapshot.
 - **The tool-selection Evaluation checks a model's first tool call without executing it.**

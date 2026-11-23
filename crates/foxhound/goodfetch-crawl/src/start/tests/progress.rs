@@ -584,3 +584,37 @@ fn a_due_request_waits_under_handler_concurrency_while_the_handlers_are_busy() {
         })
     );
 }
+
+/// A due request no domain holds, with a handler free, waits under
+/// `rate_cap` while `admission.max_requests_per_minute` admits nothing
+/// yet: at one a minute, the second domain's request is next admitted a
+/// minute after the first started; at 0, which admits nothing, both wait
+/// with no next admission.
+///
+/// Covers: story:3-162, operation:run.progress, setting:admission.max_requests_per_minute
+#[rstest::rstest]
+#[case::one_a_minute(1, json!({
+    "reason": "rate_cap",
+    "count": 1,
+    "domains": [{ "domain": "b.test", "next_admitted_at": "2026-01-05T09:01:00Z" }],
+    "setting": { "key": "admission.max_requests_per_minute", "value": 1, "layer": "run", "origin": "settings" },
+}))]
+#[case::none(0, json!({
+    "reason": "rate_cap",
+    "count": 2,
+    "domains": [{ "domain": "a.test" }, { "domain": "b.test" }],
+    "setting": { "key": "admission.max_requests_per_minute", "value": 0, "layer": "run", "origin": "settings" },
+}))]
+fn a_due_request_waits_under_rate_cap_until_its_next_admission(
+    #[case] per_minute: u64,
+    #[case] expected: Value,
+) {
+    let group = first_group(
+        &json!([seed("https://a.test/1"), seed("https://b.test/1")]),
+        &json!({ "admission": { "max_requests_per_minute": per_minute } }),
+        "rate_cap",
+        |_| Reply::Records(Vec::new()),
+    );
+
+    assert_eq!(group, expected);
+}

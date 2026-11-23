@@ -46,7 +46,7 @@ use crate::politeness::{self, DomainRule, Limits, SharedEntropy};
 
 mod order;
 
-use order::{DomainOrder, Standing, Turns};
+use order::{DomainOrder, Standing, Turn, Turns};
 
 /// How many requests one domain's queue holds at most; the rest wait in
 /// the run file until it drains.
@@ -112,6 +112,8 @@ struct Domain {
     /// [`DomainQueues::waits`], while it has waiting requests, and until
     /// when that wait lasts, if it ends by itself.
     counted: Option<(usize, Option<Instant>)>,
+    /// Its turn, while it takes one ([`Turns`]).
+    turn: Option<Turn>,
 }
 
 /// Why a domain's waiting requests wait, as a Run's progress groups them:
@@ -266,8 +268,10 @@ impl DomainQueues {
 
     /// `key` keeps its turn, as its state now stands.
     fn stand(&mut self, key: &str) {
-        if let Some(domain) = self.domains.get(key) {
-            self.turns.stand(key, domain.in_flight, domain.standing());
+        if let Some(domain) = self.domains.get_mut(key) {
+            let standing = domain.standing();
+            self.turns
+                .stand(&mut domain.turn, key, domain.in_flight, standing);
         }
     }
 
@@ -382,8 +386,9 @@ impl Gate for DomainQueues {
         let before = domain.waiting.len();
         if before == 0 {
             self.idle.remove(&request.key);
+            let standing = domain.standing();
             self.turns
-                .join(&request.key, domain.in_flight, domain.standing());
+                .join(&mut domain.turn, &request.key, domain.in_flight, standing);
         }
         self.ids.insert(place.1.clone());
         domain.waiting.insert(place);
@@ -412,7 +417,7 @@ impl Gate for DomainQueues {
         let after = domain.waiting.len();
         if after == 0 {
             domain.outside = false;
-            self.turns.leave(key);
+            self.turns.leave(&mut domain.turn);
             if domain.in_flight == 0 {
                 self.idle.insert(key.to_owned());
             }
@@ -512,8 +517,11 @@ impl Gate for DomainQueues {
         let drained = domain.waiting.is_empty();
         if drained {
             domain.outside = false;
+            self.turns.leave(&mut domain.turn);
         } else {
-            self.turns.join(&key, domain.in_flight, domain.standing());
+            let standing = domain.standing();
+            self.turns
+                .join(&mut domain.turn, &key, domain.in_flight, standing);
         }
         self.queue_changed(&key, before, before - 1);
         self.ids.remove(&id);
@@ -594,11 +602,13 @@ impl Gate for DomainQueues {
         } else if domain.is_ready(now) {
             domain.ready_at = None;
         }
+        let standing = domain.standing();
+        self.turns
+            .stand(&mut domain.turn, key, domain.in_flight, standing);
         if wait_until.is_some() || backed_off || domain.journaled {
             self.changed.insert(key.to_owned());
         }
         self.recount.insert(key.to_owned());
-        self.stand(key);
         self.release_drained(now);
     }
 

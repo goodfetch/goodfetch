@@ -1014,6 +1014,18 @@ pub const CONNECTION_FORKED: ErrorCodeDefinition = ErrorCodeDefinition {
     arrived_in: ARRIVED_IN,
 };
 
+/// A Python async Connection, or a value under it, used from another event
+/// loop or thread than the loop that opened it (ADR 0081), raised by the
+/// Python SDK's runtime alone before anything is sent.
+pub const EVENT_LOOP_MISMATCH: ErrorCodeDefinition = ErrorCodeDefinition {
+    name: "event_loop_mismatch",
+    description: "The call was made on an async value from another event loop or thread than the loop that opened its Connection: an async Connection and every Run, Session or Page under it belong to that loop, and nothing was sent. Call it from that loop, or use the sync client, whose values any thread may call.",
+    group: ErrorGroup::Program,
+    retryable: false,
+    exit_code: None,
+    arrived_in: ARRIVED_IN,
+};
+
 /// A transition a lifecycle table refuses that only a bug in Goodfetch can
 /// cause (ADRs 0079 and 0128), logged at `error` with the same details.
 pub const INTERNAL: ErrorCodeDefinition = ErrorCodeDefinition {
@@ -1234,6 +1246,7 @@ pub const ENTRIES: Entries = Entries {
         DEADLINE_EXCEEDED,
         CLOSED,
         CONNECTION_FORKED,
+        EVENT_LOOP_MISMATCH,
         INTERNAL,
         ENGINE_PANICKED,
         CONNECTION_OVERLOADED,

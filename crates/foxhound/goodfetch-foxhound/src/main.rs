@@ -25,6 +25,7 @@ fn main() -> ExitCode {
         release_date: option_env!("GOODFETCH_RELEASE_DATE"),
         composition: goodfetch_foxhound::composition,
         commands: goodfetch_foxhound::executable::COMMANDS,
+        skills: goodfetch_foxhound::executable::SKILLS,
         arguments: std::env::args_os().collect(),
         environment: std::env::vars_os().collect(),
     })

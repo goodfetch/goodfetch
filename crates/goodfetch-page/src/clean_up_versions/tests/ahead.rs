@@ -104,6 +104,7 @@ async fn started_lists(
             checkpoint_interval: None,
             timeout: None,
             settings: Some(settings),
+            detached: false,
         })
         .await
         .map_err(goodfetch_engine::run::start_error)?;

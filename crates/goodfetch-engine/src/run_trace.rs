@@ -15,6 +15,9 @@
 //!   failure it knows (`RequestFailed`). A request a site's service worker
 //!   sent itself, which belongs to no page, is recorded as
 //!   `service_worker.request` whether it went on or was refused (ADR 0121).
+//!   A note of the engine's own on a response, which no event reports,
+//!   such as a crawl's `crawl.retry_after_unparsable` (ADR 0118), is a
+//!   line of the same shape.
 //! - **The CDP command log** (spec #577), `trace/cdp-commands.jsonl`, while
 //!   the Run's `browser.cdp_command_log` is on: one JSON line per command the
 //!   engine sends a browser, its method only.
@@ -455,6 +458,23 @@ impl RequestLog {
     /// sent to the writer.
     pub async fn record(&self, event: &Event, data: &impl Serialize) -> io::Result<()> {
         self.record_line(event.name, data).await
+    }
+
+    /// Records a note of the engine's own named `name`, with its `data`,
+    /// on a response no event reports, such as a crawl's
+    /// `crawl.retry_after_unparsable` (ADR 0118). It counts on
+    /// `C5.entries` as every line of the log does.
+    ///
+    /// # Errors
+    ///
+    /// When the file cannot be written.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future never stops a line being written once it was
+    /// sent to the writer.
+    pub async fn note(&self, name: &str, data: &impl Serialize) -> io::Result<()> {
+        self.record_line(name, data).await
     }
 
     /// Records a request a site's service worker sent itself, which no

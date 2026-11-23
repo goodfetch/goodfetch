@@ -3,13 +3,13 @@
 //! bodies that run. `effect.open` writes an entry before its body starts
 //! and answers `perform`, or the journal's answer when the body must not
 //! run; `effect.close` judges the body by whether something was sent for
-//! it, which [`Effects::sending`] marks, synced, before the first command
-//! the window attributes to it goes out. An entry left `open` or `sent` by
-//! a body whose attempt, Connection or engine is gone is judged as cut
-//! short at its key's next declaration, so a crash after the sent mark
-//! leaves the Effect uncertain, never run again until a person reconciles
-//! it ([`Effects::reconcile`]). Every change of an entry's state goes
-//! through [`lifecycle::apply`].
+//! it, which [`Effects`], the Runs' send window, marks, synced, before
+//! the first command the window attributes to it goes out. An entry left
+//! `open` or `sent` by a body whose attempt, Connection or engine is gone
+//! is judged as cut short at its key's next declaration, so a crash after
+//! the sent mark leaves the Effect uncertain, never run again until a
+//! person reconciles it ([`Effects::reconcile`]). Every change of an
+//! entry's state goes through [`lifecycle::apply`].
 //!
 //! The idempotency key a body sends is derived from a per-Run secret kept
 //! in the journal's own table, so it is the same on every attempt and
@@ -21,6 +21,7 @@ pub mod lifecycle;
 pub use journal::{Report, TABLES};
 
 use std::collections::HashMap;
+use std::pin::Pin;
 use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 
@@ -45,10 +46,11 @@ use crate::audit::{AuditError, Origin};
 use crate::call_error::CallError;
 use crate::client::Client;
 use crate::composition::{CallContext, Handler};
+use crate::lease::LeaseCheck;
 use crate::mask::Scope;
-use crate::run::run_error;
+use crate::run::{run_error, state_unavailable};
 use crate::run_state::{RunStateError, Syncing};
-use crate::runs::{Run, RunError};
+use crate::runs::{Run, RunError, SendWindow};
 use crate::settings::{RunSettings, get_or_default};
 use crate::staging::{AttemptWrites, Unstaged};
 
@@ -392,30 +394,32 @@ impl Effects {
         judged
     }
 
-    /// Marks sent, synced, every body of `run` declared through `attempt`,
-    /// or outside any attempt when it is `None`, that nothing was sent for
-    /// yet, before `command`, which may change a page or a site, goes out
-    /// (ADR 0106's window). Writes nothing when no such body runs.
+    /// Marks sent, synced, every body of `run` declared through the attempt
+    /// `lease` names, or outside any attempt when it names none or is
+    /// `None`, that nothing was sent for yet, before `command`, which may
+    /// change a page or a site, goes out (ADR 0106's window). Writes
+    /// nothing, and reads no attempt, when no body of `run` runs.
     ///
     /// # Errors
     ///
     /// The mark could not be written: the command must not go out.
-    pub async fn sending(
+    async fn marked_sent(
         &self,
         run: &Run,
-        attempt: Option<&EffectAttempt>,
+        lease: Option<&dyn LeaseCheck>,
         command: &str,
     ) -> Result<(), RunStateError> {
         let Some(run_shelf) = self.shelf_of(run.id()).await else {
             return Ok(());
         };
+        let attempt = lease.and_then(LeaseCheck::effect_attempt);
         let mut book = run_shelf.book.lock().await;
         let marked: Vec<usize> = book
             .bodies
             .iter()
             .enumerate()
             .filter(|(_, body)| {
-                body.owner.declares_through(attempt)
+                body.owner.declares_through(attempt.as_ref())
                     && matches!(apply(body.state(), EffectEvent::Send), Ok(Next::To(_)))
             })
             .map(|(at, _)| at)
@@ -498,6 +502,22 @@ impl Effects {
             .await
             .map_err(|error| unrecorded(&error))?;
         Ok(Reconciled::Answered(effect))
+    }
+}
+
+impl SendWindow for Effects {
+    fn sending<'a>(
+        &'a self,
+        run: &'a Run,
+        lease: Option<&'a dyn LeaseCheck>,
+        command: &'a str,
+    ) -> Pin<Box<dyn Future<Output = Result<(), CallError>> + Send + 'a>> {
+        Box::pin(async move {
+            self.marked_sent(run, lease, command).await.map_err(|error| {
+                tracing::warn!(%error, run_id = %run.id(), command, "a declared Effect's sent mark was not written: the command is not sent");
+                state_unavailable(run.id().clone(), run.folder(), &error.to_string())
+            })
+        })
     }
 }
 

@@ -954,6 +954,17 @@
       ]
     },
     {
+      "id": "command:skill.install",
+      "kind": "command",
+      "area": 11,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "command:upgrade-files",
       "kind": "command",
       "area": 3,
@@ -1377,6 +1388,17 @@
       ]
     },
     {
+      "id": "error:detach_unsupported",
+      "kind": "error",
+      "area": 3,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "error:dialog_already_handled",
       "kind": "error",
       "area": 5,
@@ -1500,6 +1522,17 @@
       "id": "error:engine_panicked",
       "kind": "error",
       "area": 3,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "error:event_loop_mismatch",
+      "kind": "error",
+      "area": 11,
       "milestone": null,
       "status": "active",
       "products": [
@@ -2281,6 +2314,17 @@
       ]
     },
     {
+      "id": "error:run_state_filesystem_unsupported",
+      "kind": "error",
+      "area": 3,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "error:run_state_unavailable",
       "kind": "error",
       "area": 3,
@@ -2426,6 +2470,17 @@
       "id": "error:site_preferences_refused",
       "kind": "error",
       "area": 6,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "error:skill_install_refused",
+      "kind": "error",
+      "area": 11,
       "milestone": null,
       "status": "active",
       "products": [
@@ -8374,6 +8429,17 @@
     },
     {
       "id": "setting:browser_cache.max_unused_age",
+      "kind": "setting",
+      "area": 3,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "setting:browser_cache.read_only",
       "kind": "setting",
       "area": 3,
       "milestone": null,
@@ -18618,6 +18684,28 @@
     },
     {
       "id": "story:3-172",
+      "kind": "story",
+      "area": 3,
+      "milestone": "M1 Core",
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "story:3-173",
+      "kind": "story",
+      "area": 3,
+      "milestone": "M1 Core",
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "story:3-174",
       "kind": "story",
       "area": 3,
       "milestone": "M1 Core",

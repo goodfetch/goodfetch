@@ -4,7 +4,7 @@ on:
 permissions: {}
 jobs:
   build:
-    runs-on: [self-hosted, owner-machine]
+    runs-on: ubuntu-24.04
     steps:
       - name: "Test: just test quick"
         run: ci/vm/exec.sh just test quick

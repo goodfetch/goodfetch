@@ -17,7 +17,7 @@ use goodfetch_protocol::catalog::{
 };
 use goodfetch_protocol::jsonrpc::ProtocolFailure;
 use goodfetch_protocol::run::RunId;
-use goodfetch_test_support::{CrashKind, CrashVfs, TestEnv};
+use goodfetch_test_support::{CrashKind, CrashVfs, IoFault, TestEnv};
 use rstest::rstest;
 use serde_json::{Value, json};
 use tokio::io::{AsyncBufReadExt as _, BufReader};
@@ -63,24 +63,19 @@ fn failed(error: impl std::fmt::Display) -> CallError {
     CallError::protocol(ProtocolFailure::InternalError, error.to_string())
 }
 
-/// The test's operations on `effects`.
+/// The test's operations on `effects`: the window's mark through the Run's
+/// own, and a person's answer.
 fn window(effects: &Effects) -> Contribution {
-    let sending = effects.clone();
     let reconciling = effects.clone();
     Contribution::new("test-effect")
         .with_handler(Handler::new(
             &SEND,
-            move |params: Value, context: CallContext| {
-                let effects = sending.clone();
-                async move {
-                    let run_id = RunId::parse(params["run_id"].as_str().unwrap()).unwrap();
-                    let run = context.runs().live(run_id).await.map_err(failed)?;
-                    effects
-                        .sending(&run, None, params["command"].as_str().unwrap())
-                        .await
-                        .map_err(failed)?;
-                    Ok::<Value, CallError>(json!({ "marked": true }))
-                }
+            |params: Value, context: CallContext| async move {
+                let run_id = RunId::parse(params["run_id"].as_str().unwrap()).unwrap();
+                let run = context.runs().live(run_id).await.map_err(failed)?;
+                run.sending(None, params["command"].as_str().unwrap())
+                    .await?;
+                Ok::<Value, CallError>(json!({ "marked": true }))
             },
         ))
         .with_handler(Handler::new(
@@ -494,12 +489,14 @@ fn a_body_that_failed_after_a_send_leaves_its_effect_uncertain(
 
 /// A value larger than `effect.output.max_size` is `effect_output_invalid`
 /// when nothing was sent, and leaves the Effect uncertain after a send.
-/// Covers: error:effect_output_invalid, setting:effect.output.max_size
+/// Covers: setting:effect.output.max_size
 #[rstest]
+/// Covers: error:effect_output_invalid
 #[case::nothing_sent(
     false,
     json!([null, null, "effect_output_invalid", ["export", 25, 16], "perform", null])
 )]
+/// Covers: error:effect_uncertain
 #[case::after_a_send(
     true,
     json!(["uncertain", "effect_output_invalid", null, [null, null, null], null, "effect_uncertain"])
@@ -538,10 +535,10 @@ fn a_value_too_large_for_the_journal_is_not_kept(#[case] sent: bool, #[case] exp
 /// Audit log, "it happened" answers `reconciled` and "it did not happen"
 /// runs the body again, both off the Run report, while "leave uncertain"
 /// changes nothing.
-/// Covers: error:effect_uncertain
 #[rstest]
 #[case::happened("happened", json!("reconciled"), json!(null), json!("verified"))]
 #[case::did_not_happen("did_not_happen", json!("perform"), json!(null), json!("verified"))]
+/// Covers: error:effect_uncertain
 #[case::leave_uncertain("leave_uncertain", json!(null), json!(1), json!("needs_review"))]
 fn a_persons_answer_reconciles_an_uncertain_effect(
     #[case] answer: &str,
@@ -639,9 +636,10 @@ fn an_answer_about_an_effect_that_is_not_uncertain_does_nothing() {
 /// mark the body runs again, between the mark and the close the Effect is
 /// uncertain, and after the close the journal answers. The mark is synced
 /// before the command goes out, and the close is synced before it answers.
-/// Covers: error:effect_uncertain, operation:effect.open
+/// Covers: operation:effect.open
 #[rstest]
 #[case::before_the_mark(0, json!("perform"), json!(null))]
+/// Covers: error:effect_uncertain
 #[case::between_the_mark_and_the_close(1, json!(null), json!("effect_uncertain"))]
 #[case::after_the_close(2, json!("journal"), json!(null))]
 fn a_power_cut_leaves_each_effect_as_its_last_synced_step(
@@ -674,5 +672,37 @@ fn a_power_cut_leaves_each_effect_as_its_last_synced_step(
         (&again["result"]["answer"], code(&again)),
         (&answer, &refused),
         "{again}"
+    );
+}
+
+/// A sent mark the Run's state cannot write answers `run_state_unavailable`
+/// in place of what the caller does after the mark, which stands for the
+/// command the mark guards.
+/// Covers: error:run_state_unavailable
+#[test]
+fn a_mark_the_run_state_cannot_write_answers_run_state_unavailable_in_its_commands_place() {
+    let env = TestEnv::new();
+    let vfs = CrashVfs::register(&env.unique_name("effect-mark-full"), env.seed()).unwrap();
+    let faulted = vfs.clone();
+    let refused = killed(
+        || on(&env, Some(&vfs)),
+        "full",
+        None,
+        |mut calls| async move {
+            calls.open("full", "order").await;
+            faulted.fail_at(faulted.operations(), IoFault::Full);
+            calls
+                .call(
+                    "test.effect_send",
+                    json!({ "run_id": "full", "command": "locator.click" }),
+                )
+                .await
+        },
+    );
+
+    assert_eq!(
+        (code(&refused), refused.get("result")),
+        (&json!("run_state_unavailable"), None),
+        "{refused}"
     );
 }

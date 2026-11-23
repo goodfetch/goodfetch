@@ -32,7 +32,7 @@ const PRODUCT_FIELDS: [&str; 3] = ["id", "name", "price"];
 /// The named fields the crawl reads from each page beside its Markdown,
 /// as `--fields` takes them: each product's, by CSS selector, the price
 /// from its machine-readable attribute.
-pub(crate) fn fields_read() -> Value {
+fn fields_read() -> Value {
     json!({
         "id": { "locator": { "kind": "css", "selector": "article.product .id" } },
         "name": { "locator": { "kind": "css", "selector": "article.product .name" } },
@@ -41,23 +41,6 @@ pub(crate) fn fields_read() -> Value {
             "attribute": "data-price",
         },
     })
-}
-
-/// The products among `records`, a Dataset's Records as `run.records`
-/// reads them: each product page's `id`, `name` and `price`, as the
-/// oracle takes them; a listing page's Record has no `id`.
-pub(crate) fn products(records: &[Value]) -> Vec<Value> {
-    records
-        .iter()
-        .filter(|record| record["value"]["id"].is_string())
-        .map(|record| {
-            PRODUCT_FIELDS
-                .iter()
-                .map(|field| ((*field).to_owned(), record["value"][*field].clone()))
-                .collect::<serde_json::Map<String, Value>>()
-                .into()
-        })
-        .collect()
 }
 
 /// The file `run export --out` writes the Export of `format` to, in the
@@ -166,9 +149,20 @@ fn cli() {
             );
         },
     );
+    let products: Vec<Value> = committed
+        .iter()
+        .filter(|record| record["value"]["id"].is_string())
+        .map(|record| {
+            PRODUCT_FIELDS
+                .iter()
+                .map(|field| ((*field).to_owned(), record["value"][*field].clone()))
+                .collect::<serde_json::Map<String, Value>>()
+                .into()
+        })
+        .collect();
     run.expect_task(
         "The oracle verifies the crawl's Records",
-        &json!({ "status": "success", "records": products(&committed) }),
+        &json!({ "status": "success", "records": products }),
     );
     run.check(
         "The crawl fetched every page over HTTP and launched no browser",

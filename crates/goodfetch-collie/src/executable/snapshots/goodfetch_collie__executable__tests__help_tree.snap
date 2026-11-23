@@ -15,6 +15,7 @@ Commands:
   doctor           Checks the installation: Goodfetch home, the installed executables, the Daemon, the version it runs and the browser build a Run launches, with a fix for each finding not in order. Exits 0 whatever it finds
   daemon           Starts, stops and shows the Daemon of this executable's major, which both Products share
   runs             Works on the runs of this executable's major, of both Products
+  skill            Installs the agent skills this executable carries for a coding agent
   usage            Shows, sets and raises the Limits of the user's Usage ledger, which hold every engine of the user
   upgrade-files    Gives this executable's major its own copy of an older major's settings, Operator policy, Run index and runs in Goodfetch home, never changing the older major's files
   engine           Calls the catalog's `engine` operations
@@ -382,6 +383,31 @@ Arguments:
   [PATHS]...  Run folders, or folders of run folders, to look in as well
 
 Options:
+      --json          Prints the result as JSON
+      --color <WHEN>  When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+  -h, --help          Print help
+
+$ goodfetch-collie skill --help
+Installs the agent skills this executable carries for a coding agent
+
+Usage: goodfetch-collie skill [OPTIONS] <COMMAND>
+
+Commands:
+  install  Writes the agent skills this executable carries into a coding agent's skills folder, each in a folder of its name, replacing only one it installed itself that nobody changed since; a skill already there as it carries it is left as it is
+
+Options:
+      --color <WHEN>  When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+  -h, --help          Print help
+
+$ goodfetch-collie skill install --help
+Writes the agent skills this executable carries into a coding agent's skills folder, each in a folder of its name, replacing only one it installed itself that nobody changed since; a skill already there as it carries it is left as it is
+
+Usage: goodfetch-collie skill install [OPTIONS]
+
+Options:
+      --for <HOST>    The coding agent whose skills folder it writes: `.claude/skills` for Claude Code, `.cursor/skills` for Cursor, and the Agent Skills folder, `.agents/skills`, for Codex and other agents [default: agents] [possible values: claude-code, codex, cursor, agents]
+      --project       Writes the skills folder in the working folder, for the project the agent opens there, as it does unless `--user` is given
+      --user          Writes the skills folder in the user's home folder, for every project
       --json          Prints the result as JSON
       --color <WHEN>  When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
   -h, --help          Print help

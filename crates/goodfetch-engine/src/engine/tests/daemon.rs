@@ -185,14 +185,7 @@ where
             ..dependencies(env)
         };
         let clock = dependencies.clock;
-        let unset = tracing::dispatcher::get_default(
-            tracing::Dispatch::is::<tracing::subscriber::NoSubscriber>,
-        );
-        let _subscriber = unset.then(|| {
-            tracing::subscriber::set_default(goodfetch_test_support::subscriber(move || {
-                clock.wall()
-            }))
-        });
+        let _subscriber = goodfetch_test_support::subscriber_unless_own(move || clock.wall());
         let (network, dialer) = transport::in_memory();
         let (listener, _) = Network::InMemory(network)
             .listen(std::path::Path::new("daemon.sock"))
@@ -941,6 +934,134 @@ fn a_daemon_not_the_pick_hands_over_with_only_a_kennel_left_unless_it_keeps_the_
     );
 }
 
+/// A Daemon that finds the Run index's lowest minor raised past itself
+/// takes no new Run, and once its live Runs end hands over to its major's
+/// pick though its Client stays connected, closing it; with the index
+/// unraised its new Run starts, and it keeps its Client until the Client
+/// leaves (ADR 0098).
+///
+/// Covers: story:3-144, story:3-138, error:format_version_unsupported
+#[rstest]
+#[case::raised(true, (Some("format_version_unsupported".to_owned()), true, 1))]
+#[case::unraised(false, (None, false, 0))]
+fn a_daemon_locked_out_of_the_run_index_hands_over_once_its_runs_end(
+    #[case] raised: bool,
+    #[case] expected: (Option<String>, bool, u32),
+) {
+    let env = TestEnv::new();
+    let handovers = no_handover();
+    let counted = Arc::clone(&handovers);
+    let major = super::per_major(&env);
+
+    let (end, observed) = daemon_within(
+        &engine(Product::Collie),
+        &env,
+        BlockingPolicy::Inline,
+        options(false, &handovers),
+        MINUTE,
+        |dialer| async move {
+            let mut client = opened(&dialer, sdk_hello()).await;
+            call(&mut client, 1, "run.start", json!({ "run_id": "busy" })).await;
+            if raised {
+                raise_the_run_index(&major, 5);
+            }
+            let late = call(&mut client, 2, "run.start", json!({ "run_id": "late" })).await;
+            call(&mut client, 3, "run.finish", json!({ "run_id": "busy" })).await;
+            let closed = closed_within_a_second(&mut client).await;
+            let while_connected = begun(&counted);
+            if !closed {
+                call(&mut client, 4, "run.finish", json!({ "run_id": "late" })).await;
+            }
+            client.close().await;
+            let refused = late["error"]["data"]["code"].as_str().map(str::to_owned);
+            (refused, closed, while_connected)
+        },
+    );
+
+    assert_eq!(
+        (observed, matches!(end, Some(DaemonEnd::HandedOver(_)))),
+        (expected, true)
+    );
+}
+
+/// The pick that a Daemon locked out of the Run index handed over to
+/// rebuilds, from its run state, the row of the Run that ended after the
+/// lockout, which the index still listed as running (ADRs 0031 and 0098).
+///
+/// Covers: story:3-144
+#[test]
+fn the_pick_rebuilds_the_row_a_locked_out_daemon_could_not_write() {
+    let env = TestEnv::new();
+    let handovers = no_handover();
+    let major = super::per_major(&env);
+
+    let (locked_out, ()) = daemon_within(
+        &engine(Product::Collie),
+        &env,
+        BlockingPolicy::Inline,
+        options(false, &handovers),
+        MINUTE,
+        |dialer| async move {
+            let mut client = opened(&dialer, sdk_hello()).await;
+            call(&mut client, 1, "run.start", json!({ "run_id": "busy" })).await;
+            raise_the_run_index(&major, 5);
+            call(&mut client, 2, "run.finish", json!({ "run_id": "busy" })).await;
+            closed_within_a_second(&mut client).await;
+            client.close().await;
+        },
+    );
+    let left = index_row(&env, "busy")["lifecycle"].clone();
+    daemon_within(
+        &super::engine_at(Product::Collie, "1.5.0"),
+        &env,
+        BlockingPolicy::Inline,
+        options(true, &handovers),
+        MINUTE,
+        |dialer| async move {
+            let mut client = opened(&dialer, sdk_hello()).await;
+            // A Run call is answered once the Daemon's startup ended.
+            call(&mut client, 1, "run.start", json!({ "run_id": "next" })).await;
+            call(&mut client, 2, "run.finish", json!({ "run_id": "next" })).await;
+            client.close().await;
+        },
+    );
+
+    assert_eq!(
+        (
+            matches!(locked_out, Some(DaemonEnd::HandedOver(_))),
+            left,
+            index_row(&env, "busy")["lifecycle"].clone(),
+        ),
+        (true, json!("running"), json!("finished"))
+    );
+}
+
+/// Whether the Daemon closes `client`'s Connection within a second: on
+/// the paused clock, the wait ends at once when it does, else once it has
+/// done all it does.
+async fn closed_within_a_second(client: &mut Client) -> bool {
+    tokio::time::timeout(Duration::from_secs(1), async {
+        while client.next().await.is_some() {}
+    })
+    .await
+    .is_ok()
+}
+
+/// Raises the lowest minor of the Run index in the per-major folder
+/// `major` to `lowest_minor`, as a newer engine of the major would.
+fn raise_the_run_index(major: &std::path::Path, lowest_minor: u16) {
+    let index = rusqlite::Connection::open(major.join("run-index.sqlite")).unwrap();
+    crate::lowest_minor::write_sqlite(
+        &index,
+        goodfetch_protocol::formats::RUN_INDEX.name,
+        crate::lowest_minor::Marker {
+            version: goodfetch_protocol::formats::RUN_INDEX.version,
+            lowest_minor,
+        },
+    )
+    .unwrap();
+}
+
 /// `daemon.stop` that arrives while a handover is decided, beside a
 /// Client's end, never holds the Daemon: the handover goes on, the stop is
 /// answered and changes nothing, and the Daemon ends handed over within a
@@ -1112,6 +1233,7 @@ pub(super) async fn driven(context: &CallContext, params: &Value) -> Run {
             checkpoint_interval: None,
             timeout: None,
             settings: None,
+            detached: false,
         })
         .await
         .unwrap();

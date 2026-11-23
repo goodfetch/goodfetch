@@ -101,7 +101,8 @@ fn plan_job() -> Job {
     }
 }
 
-/// Every hosted cell's job, and the owner's machine's, each `minutes` long.
+/// Every cell's job, each `minutes` long but the macOS cells', a minute each
+/// (11 at their rate).
 fn full_run(date: &str, minutes: u32) -> Vec<Job> {
     vec![
         ran("plan", "ubuntu-24.04", date, 1, "success"),
@@ -122,14 +123,8 @@ fn full_run(date: &str, minutes: u32) -> Vec<Job> {
             "success",
         ),
         ran("windows-x64", "windows-2025", date, minutes, "success"),
-        ran("macos-arm64", "owner-machine", date, minutes, "success"),
-        ran(
-            "macos-x64 (Rosetta 2)",
-            "owner-machine",
-            date,
-            minutes,
-            "success",
-        ),
+        ran("macos-arm64", "macos-15", date, 1, "success"),
+        ran("macos-x64", "macos-15-intel", date, 1, "success"),
     ]
 }
 
@@ -241,10 +236,12 @@ fn outputs(workspace: &Workspace) -> BTreeMap<String, String> {
         .collect()
 }
 
+/// Every cell runs on a standard hosted runner, which a public repository's
+/// ceiling counts none of (ADR 0108's note of 2026-11-23).
 #[test]
 fn first_run_on_main_starts_every_cell_on_the_commit() {
     let workspace = Workspace::from_fixture("empty");
-    let github = serve("main", vec![], &[]);
+    let github = serve_in(Visibility::Public, "main", vec![], &[]);
 
     let outcome = plan(&workspace, &github, MAIN, &[]);
 
@@ -268,13 +265,14 @@ fn first_run_on_main_starts_every_cell_on_the_commit() {
         )
     );
     assert_eq!(outputs["held"], "false");
-    assert_eq!(outputs["estimate"], "270");
+    assert_eq!(outputs["estimate"], "0");
 }
 
 #[test]
-fn run_on_main_past_the_ceiling_holds_the_hosted_cells_and_starts_the_owners_machines() {
+fn run_on_main_past_the_ceiling_holds_every_cell() {
     let workspace = Workspace::from_fixture("empty");
-    // Earlier this month: 1 + 4 x 80 + 2 x 80 = 481 minutes; this plan job, 1.
+    // Earlier this month: 1 + 4 x 80 + 2 x 80 + 2 x 11 = 503 minutes; this
+    // plan job, 1.
     let earlier = run(
         5,
         "2026-10-05T00:00:00Z",
@@ -288,12 +286,12 @@ fn run_on_main_past_the_ceiling_holds_the_hosted_cells_and_starts_the_owners_mac
     assert_eq!(outcome.code, 0);
     let outputs = outputs(&workspace);
     assert_eq!(outputs["held"], "true");
-    assert_eq!(outputs["cells"], r#"["macos-arm64","macos-x64"]"#);
+    assert_eq!(outputs["cells"], "[]");
     assert_eq!(outputs["linux-x64"], "[]");
     assert_eq!(outputs["linux-arm64"], "[]");
-    assert_eq!(outputs["used"], "482");
-    assert_eq!(outputs["estimate"], "480");
-    assert_eq!(outputs["needed"], "962");
+    assert_eq!(outputs["used"], "504");
+    assert_eq!(outputs["estimate"], "502");
+    assert_eq!(outputs["needed"], "1006");
     assert_eq!(outputs["month-turns"], "2026-11-01");
 }
 
@@ -321,9 +319,10 @@ fn estimate_comes_from_each_cells_latest_recorded_run_at_its_rate() {
 
     assert_eq!(outcome.code, 0);
     let outputs = outputs(&workspace);
-    // Windows' failed run of 30 minutes at 2, and 40 minutes for each Linux
-    // cell from the older run, since the newer one skipped Linux x64.
-    assert_eq!(outputs["estimate"], "220");
+    // Windows' failed run of 30 minutes at 2, 40 minutes for each Linux
+    // cell from the older run, since the newer one skipped Linux x64, and
+    // a minute at 11 for each macOS cell.
+    assert_eq!(outputs["estimate"], "242");
     assert_eq!(outputs["used"], "1");
 }
 
@@ -344,9 +343,10 @@ fn dispatch_off_main_starts_its_hosted_cells_only_when_a_run_on_main_still_fits(
     #[case] cells: &str,
 ) {
     let workspace = Workspace::from_fixture("empty");
-    // Each run: 1 + 4 x 30 + 2 x 30 = 181 minutes. Room left: this run's 180,
-    // then a run on `main` of 180, after 182 used, fits (542); after another
-    // branch run (363 used), it does not (723).
+    // Each run: 1 + 4 x 30 + 2 x 30 + 2 x 11 = 203 minutes. Room left: this
+    // run's 180, its macOS cells being `main`'s only, then a run on `main`
+    // of 202, after 204 used, fits (586); after another branch run (407
+    // used), it does not (789).
     let mut earlier = more;
     earlier.push(run(
         5,
@@ -364,8 +364,9 @@ fn dispatch_off_main_starts_its_hosted_cells_only_when_a_run_on_main_still_fits(
     assert_eq!(outputs["cells"], cells);
 }
 
+/// The macOS cells run on `main` only (ADR 0108).
 #[test]
-fn dispatch_off_main_never_starts_the_owners_machine() {
+fn dispatch_off_main_never_starts_the_macos_cells() {
     let workspace = Workspace::from_fixture("empty");
     let github = serve("topic", vec![], &[]);
 
@@ -396,7 +397,8 @@ fn chosen_cells_alone_start_and_are_estimated() {
     let outputs = outputs(&workspace);
     assert_eq!(outputs["cells"], r#"["windows-x64","macos-arm64"]"#);
     assert_eq!(outputs["linux-x64"], "[]");
-    assert_eq!(outputs["estimate"], "90");
+    // One job budget of 45 minutes each, at 2 and at 11.
+    assert_eq!(outputs["estimate"], "585");
 }
 
 #[test]
@@ -566,7 +568,14 @@ fn commit_off_mains_history_is_refused_before_any_cell(#[case] status: &str, #[c
     let workspace = Workspace::from_fixture("empty");
     let compare = format!("{REPOSITORY}/compare/{OLDER}...{HEAD}");
     let body = format!(r#"{{"status": "{status}"}}"#);
-    let github = serve("main", vec![], &[(compare.as_str(), body.as_str())]);
+    // Public, as the repository is: a private first run's estimate, with the
+    // macOS cells at 11, passes the ceiling and would open an issue.
+    let github = serve_in(
+        Visibility::Public,
+        "main",
+        vec![],
+        &[(compare.as_str(), body.as_str())],
+    );
 
     let outcome = plan(&workspace, &github, MAIN, &["--commit", OLDER]);
 
@@ -651,8 +660,8 @@ fn verdict(workspace: &Workspace, github: &GitHub) -> Outcome {
     ])
 }
 
-/// The hosted cells' jobs of a dispatch, with the owner's machine's skipped,
-/// as a dispatch that did not reach it lists them.
+/// The Linux and Windows cells' jobs of a dispatch, with the macOS ones
+/// skipped, as a dispatch that asked for no macOS cell lists them.
 fn hosted_cells(date: &str, conclusion: &str) -> Vec<Job> {
     vec![
         ran("linux-x64-gnu", "ubuntu-24.04", date, 30, conclusion),
@@ -660,20 +669,14 @@ fn hosted_cells(date: &str, conclusion: &str) -> Vec<Job> {
         ran("linux-arm64-gnu", "ubuntu-24.04-arm", date, 30, conclusion),
         ran("linux-arm64-musl", "ubuntu-24.04-arm", date, 30, conclusion),
         ran("windows-x64", "windows-2025", date, 30, conclusion),
-        ran("macos-arm64", "owner-machine", date, 0, "skipped"),
+        ran("macos-arm64", "macos-15", date, 0, "skipped"),
     ]
 }
 
-fn owner_machine_cells(date: &str) -> Vec<Job> {
+fn macos_cells(date: &str) -> Vec<Job> {
     vec![
-        ran("macos-arm64", "owner-machine", date, 30, "success"),
-        ran(
-            "macos-x64 (Rosetta 2)",
-            "owner-machine",
-            date,
-            30,
-            "success",
-        ),
+        ran("macos-arm64", "macos-15", date, 30, "success"),
+        ran("macos-x64", "macos-15-intel", date, 30, "success"),
     ]
 }
 
@@ -681,12 +684,7 @@ fn owner_machine_cells(date: &str) -> Vec<Job> {
 fn commit_whose_every_cell_is_green_across_dispatches_passes() {
     let workspace = Workspace::from_fixture("empty");
     let github = serve_commit(&[
-        run(
-            9,
-            "2026-10-19T00:00:00Z",
-            "main",
-            owner_machine_cells("2026-10-19"),
-        ),
+        run(9, "2026-10-19T00:00:00Z", "main", macos_cells("2026-10-19")),
         run(
             8,
             "2026-10-18T00:00:00Z",
@@ -711,7 +709,7 @@ fn cell_with_a_failed_test_step_in_any_attempt_leaves_the_commit_red() {
     jobs.push(
         ran("windows-x64", "windows-2025", "2026-10-18", 30, "failure").with_failed_test_step(),
     );
-    jobs.extend(owner_machine_cells("2026-10-18"));
+    jobs.extend(macos_cells("2026-10-18"));
     let github = serve_commit(&[run(8, "2026-10-18T00:00:00Z", "main", jobs)]);
 
     let outcome = verdict(&workspace, &github);
@@ -734,7 +732,7 @@ fn cell_not_run_or_failed_without_a_failed_test_step_is_not_green_yet() {
         vec![
             finding("cell-failed", "windows-x64"),
             finding("cell-not-run", "macos-arm64"),
-            finding("cell-not-run", "macos-x64 (Rosetta 2)"),
+            finding("cell-not-run", "macos-x64"),
         ]
     );
     assert_eq!(outcome.code, 1);

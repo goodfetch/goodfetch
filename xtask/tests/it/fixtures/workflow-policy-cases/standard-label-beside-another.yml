@@ -1,0 +1,8 @@
+name: extra
+on: push
+permissions: {}
+jobs:
+  build:
+    runs-on: [ubuntu-24.04, gpu]
+    steps:
+      - run: echo two labels

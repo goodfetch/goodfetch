@@ -250,7 +250,11 @@ struct StandIn {
 }
 
 /// The alias table as a Rust table of `StandIn` values, each file's bytes
-/// included.
+/// included. A file's path is built when the library is compiled, from the
+/// crate's folder as Cargo then gives it, never written out as the folder
+/// this script ran in: a checkout that builds in a build folder another
+/// checkout built last, and does not run this script again, still includes
+/// its own files (issue 2487).
 fn stand_ins(manifest: &Path, text: &str) -> String {
     let aliases: Aliases = toml::from_str(text)
         .unwrap_or_else(|error| panic!("invariant: {ALIASES} is well formed: {error}"));
@@ -263,9 +267,9 @@ fn stand_ins(manifest: &Path, text: &str) -> String {
                     path.is_file(),
                     "invariant: {ALIASES} names {file}, which the crate carries"
                 );
+                let under_crate = format!("/stand-ins/{file}");
                 format!(
-                    "Body::Bytes(include_bytes!({:?}))",
-                    path.display().to_string()
+                    "Body::Bytes(include_bytes!(concat!(env!(\"CARGO_MANIFEST_DIR\"), {under_crate:?})))"
                 )
             }
             (None, Some(body), None) => format!("Body::Bytes({body:?}.as_bytes())"),

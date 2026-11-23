@@ -110,6 +110,7 @@ async def test_stops_a_running_run_it_closes_and_frees_an_ended_runs_value(
         assert engine_warnings(caplog) == []
 
 
+@pytest.mark.covers("story:11-56")
 @pytest.mark.client_case(id="connection-close-stops-its-engine", mode="attached")
 @three_ways
 async def test_aborts_its_run_cancels_a_call_in_flight_and_waits_for_its_engine(
@@ -119,7 +120,11 @@ async def test_aborts_its_run_cancels_a_call_in_flight_and_waits_for_its_engine(
     client_case: ClientCaseRecord,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    """The Connection's close: the Run's abort, the `$/cancel`, the engine's end."""
+    """The Connection's close: the Run's abort, the `$/cancel`, the engine's end.
+
+    Through the sync `Collie`, the close comes from another thread than the
+    one blocked in the finish, which it ends with `call_cancelled`.
+    """
     env = scripted_engine_env(
         test_env, product, "sdk-python/run/closed-during-a-finish.json"
     )

@@ -1,8 +1,14 @@
+#![expect(
+    clippy::doc_markdown,
+    reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
+)]
+
 use std::any::Any;
 
 use goodfetch_protocol::foxhound::crawl::HandlerFailedDetails;
+use serde_json::Value;
 
-use super::panicked;
+use super::{Crawl, CrawlContext, panicked};
 use crate::error_code;
 
 /// What a handler's panic with `payload` fails its attempt with.
@@ -26,6 +32,26 @@ fn a_handlers_panic_is_handler_failed_of_the_exception_type_panic() {
             exception_stack: String::new(),
         }
     );
+}
+
+/// A crawl that attaches a handler to one Label and none to another is
+/// refused before its start is sent, with `label_unhandled`. The SDK
+/// raises it itself, so no exercise record of a test that connects can show it (ADR
+/// 0072): this test, which never reaches `rpc`, declares it.
+///
+/// Covers: error:label_unhandled
+#[test]
+fn a_label_left_unhandled_beside_a_handled_one_refuses_the_start_with_label_unhandled() {
+    let mut crawl = Crawl::new();
+    let page = crawl.label::<Value>("page").unwrap();
+    let _detail = crawl.label::<Value>("detail").unwrap();
+    crawl
+        .handle(&page, |_ctx: CrawlContext<Value>| async { Ok(()) })
+        .unwrap();
+
+    let refused = crawl.start_params(Vec::new()).unwrap_err();
+
+    assert_eq!(refused.code(), error_code::LABEL_UNHANDLED, "{refused}");
 }
 
 #[test]

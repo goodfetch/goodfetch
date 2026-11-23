@@ -4,6 +4,7 @@
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
+use std::time::Duration;
 
 use loona_hpack::{Decoder, Encoder};
 use tokio::io::{AsyncRead, AsyncReadExt as _, AsyncWrite, AsyncWriteExt as _};
@@ -32,6 +33,10 @@ const PRIORITY: u8 = 0x20;
 
 /// The largest frame payload either side sends by default.
 const FRAME_SIZE: usize = 16_384;
+
+/// How long a connection that sent a `GOAWAY` waits for its client to
+/// close before closing it.
+const LINGER: Duration = Duration::from_secs(1);
 
 /// A frame as read.
 struct Frame {
@@ -308,6 +313,7 @@ impl<S: AsyncRead + AsyncWrite + Unpin + Send> Connection<S> {
                     },
                 );
                 let _ = self.stream.shutdown().await;
+                self.linger().await;
                 Ok(true)
             }
             Answer::Refuse(Refusal::Close) => {
@@ -352,6 +358,19 @@ impl<S: AsyncRead + AsyncWrite + Unpin + Send> Connection<S> {
             self.frame(DATA, flags, stream, chunk).await?;
         }
         Ok(())
+    }
+
+    /// Reads and drops what the client still sends after a `GOAWAY`, until
+    /// it closes its side or [`LINGER`] passes. A socket closed with bytes
+    /// unread resets its connection, and on Windows the reset drops what
+    /// the client had received and not yet read: the answers before the
+    /// `GOAWAY` and the `GOAWAY` itself (#2916, #2900).
+    async fn linger(&mut self) {
+        let drained = async {
+            let mut sink = vec![0; FRAME_SIZE];
+            while matches!(self.stream.read(&mut sink).await, Ok(read) if read > 0) {}
+        };
+        let _ = tokio::time::timeout(LINGER, drained).await;
     }
 
     async fn read_frame(&mut self) -> std::io::Result<Frame> {

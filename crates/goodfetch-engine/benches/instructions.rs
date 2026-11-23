@@ -41,32 +41,47 @@ fn dispatch(input: (Vec<u8>, tempfile::TempDir)) -> (usize, tempfile::TempDir) {
     config = LibraryBenchmarkConfig::default().pass_through_env(messages::PLANT_VARIABLE)
 )]
 #[bench::no_messages(
-    args = (messages::NO_MESSAGES, messages::Logs::On),
+    args = (messages::NO_MESSAGES, messages::Logs::On, messages::Carriage::Stdio),
     setup = messages::input,
     teardown = messages::done
 )]
 #[bench::small_params(
-    args = (messages::SMALL_PARAMS, messages::Logs::On),
+    args = (messages::SMALL_PARAMS, messages::Logs::On, messages::Carriage::Stdio),
     setup = messages::input,
     teardown = messages::done
 )]
 #[bench::large_params(
-    args = (messages::LARGE_PARAMS, messages::Logs::On),
+    args = (messages::LARGE_PARAMS, messages::Logs::On, messages::Carriage::Stdio),
     setup = messages::input,
     teardown = messages::done
 )]
 #[bench::no_messages_log_off(
-    args = (messages::NO_MESSAGES, messages::Logs::Off),
+    args = (messages::NO_MESSAGES, messages::Logs::Off, messages::Carriage::Stdio),
     setup = messages::input,
     teardown = messages::done
 )]
 #[bench::small_params_log_off(
-    args = (messages::SMALL_PARAMS, messages::Logs::Off),
+    args = (messages::SMALL_PARAMS, messages::Logs::Off, messages::Carriage::Stdio),
     setup = messages::input,
     teardown = messages::done
 )]
 #[bench::large_params_log_off(
-    args = (messages::LARGE_PARAMS, messages::Logs::Off),
+    args = (messages::LARGE_PARAMS, messages::Logs::Off, messages::Carriage::Stdio),
+    setup = messages::input,
+    teardown = messages::done
+)]
+#[bench::no_messages_websocket(
+    args = (messages::NO_MESSAGES, messages::Logs::On, messages::Carriage::WebSocket),
+    setup = messages::input,
+    teardown = messages::done
+)]
+#[bench::small_params_websocket(
+    args = (messages::SMALL_PARAMS, messages::Logs::On, messages::Carriage::WebSocket),
+    setup = messages::input,
+    teardown = messages::done
+)]
+#[bench::large_params_websocket(
+    args = (messages::LARGE_PARAMS, messages::Logs::On, messages::Carriage::WebSocket),
     setup = messages::input,
     teardown = messages::done
 )]

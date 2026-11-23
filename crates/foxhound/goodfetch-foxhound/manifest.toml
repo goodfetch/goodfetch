@@ -56,6 +56,15 @@ form = "constant"
 
 [[member]]
 crate = "goodfetch-foxhound"
+receiver = "executable"
+member = "SKILLS"
+entry = "none"
+reason = "The agent skills Foxhound's executable embeds, which its `main` passes to Collie's executable entry for `skill install`, behind the `executable` feature."
+words = ["skills"]
+form = "constant"
+
+[[member]]
+crate = "goodfetch-foxhound"
 receiver = "Foxhound"
 member = "connect"
 entry = "none"

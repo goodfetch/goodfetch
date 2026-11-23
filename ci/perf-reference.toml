@@ -20,9 +20,3 @@ figure = "goodfetch-frontier/instructions::frontier::enqueue/no_urls instruction
 up_to = 5109874
 cause = "#2489's rules_cursors and rules_ended tables, made with the run file's set-up, which this bench (the seed alone) measures"
 decision = "ADR 0140, note of 2026-11-13"
-
-[[accepted]]
-figure = "goodfetch-frontier/heap::frontier::enqueue/no_urls total-allocations"
-up_to = 2666
-cause = "#2489's rules_cursors and rules_ended tables, made with the run file's set-up, which this bench (the seed alone) measures"
-decision = "ADR 0140, note of 2026-11-13"

@@ -104,6 +104,6 @@ pub use composition::{
 };
 pub use engine::{AttachedFailure, Dependencies, Engine};
 pub use engine_context::EngineContext;
-pub use info::{contribution, contribution_sharing};
+pub use info::contribution;
 pub use product::{Channel, Identity, Requested};
 pub use stored_time::StoredTime;

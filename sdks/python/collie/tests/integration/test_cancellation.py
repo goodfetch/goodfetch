@@ -3,7 +3,9 @@
 A call the program cancels once the engine has read it sends `$/cancel`
 naming it, without waiting, and the cancellation propagates unchanged: the
 backend's cancellation exception for the async API, on asyncio and on Trio,
-and Ctrl+C's `KeyboardInterrupt` for the sync API (ADR 0081). With a
+and Ctrl+C's `KeyboardInterrupt` for the sync API (ADR 0081), at once even
+when the signal lands on another thread than the blocked caller, as on
+Windows. With a
 cancellation and a timeout both set, whichever comes first ends the call. A
 click already sent is neither sent again nor undone. The script fails on a
 message it does not expect and on a step left unused, and the engine writes
@@ -53,6 +55,9 @@ LATE_CANCEL_SECONDS = 60.0
 
 PROGRAM_DEADLINE_SECONDS = 60.0
 """How long the sync host may take, its engine's start included."""
+
+PROMPT_SECONDS = 1.0
+"""How soon a Ctrl+C raised on another thread must end the sync call it interrupts."""
 
 CLIENT_METHODS = [
     "hello",
@@ -218,6 +223,62 @@ def test_ctrl_c_in_a_sync_call_sends_cancel_and_propagates_keyboard_interrupt(
     with client_case.check(
         "the next call goes as usual, and the script played to its end"
     ):
+        assert seen["lifecycle"] == "finished"
+        assert seen["warnings"] == []
+    with client_case.check("the SDK wrote nothing to the host's stdout or stderr"):
+        assert (stdout, stderr) == (b"", b"")
+
+
+@pytest.mark.covers("story:11-56")
+@pytest.mark.client_case(id="sync-calls-interrupt-from-any-thread", mode="attached")
+def test_ctrl_c_on_another_thread_ends_a_blocked_sync_call_promptly(
+    test_env: TestEnv, product: ToolProduct, client_case: ClientCaseRecord
+) -> None:
+    """Windows's way: the SIGINT lands on another thread than the blocked caller.
+
+    The host raises it from a thread of its own, as Windows's console does
+    for Ctrl+C, so the blocked main thread runs the signal's handler only
+    once its wait returns: on every OS, the sync call's wait is timed, so
+    the interrupt still ends the call at once.
+    """
+    env = scripted_engine_env(test_env, product, SCRIPT)
+    out = test_env.folder / "cancelled.json"
+    host = subprocess.Popen(
+        [
+            sys.executable,
+            str(PROGRAMS / "collie_cancelled.py"),
+            str(out),
+            str(test_env.home),
+        ],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        cwd=test_env.folder,
+        env=dict(env),
+    )
+    try:
+        stdout, stderr = host.communicate(timeout=PROGRAM_DEADLINE_SECONDS)
+    finally:
+        if host.poll() is None:
+            host.kill()
+            host.communicate()
+
+    with client_case.check("the host played its calls and exited 0"):
+        assert host.returncode == 0, stderr.decode(errors="replace")
+        seen = json.loads(out.read_text("utf-8"))
+        client_case.message(seen)
+    with client_case.check(
+        "each Ctrl+C raised on another thread ended its blocked call with"
+        " KeyboardInterrupt, within a second"
+    ):
+        assert (seen["click_interrupted"], seen["finish_interrupted"]) == (True, True)
+        assert len(seen["interrupt_seconds"]) == 2
+        assert all(seconds < PROMPT_SECONDS for seconds in seen["interrupt_seconds"])
+    with client_case.check(
+        "each Ctrl+C sent one $/cancel the engine read, and the next calls went"
+        " as usual"
+    ):
+        assert scripted_engine_client_methods(test_env.home) == CLIENT_METHODS
+        assert seen["timed_out"] == "deadline_exceeded"
         assert seen["lifecycle"] == "finished"
         assert seen["warnings"] == []
     with client_case.check("the SDK wrote nothing to the host's stdout or stderr"):

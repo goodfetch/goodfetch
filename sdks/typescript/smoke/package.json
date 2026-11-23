@@ -1,0 +1,23 @@
+{
+  "name": "goodfetch-sdk-smoke",
+  "version": "0.0.0",
+  "private": true,
+  "description": "The TypeScript SDKs' smoke scripts (ADR 0069), which each runtime of the matrix runs; never published.",
+  "license": "MIT OR Apache-2.0",
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@goodfetch/collie": "workspace:*"
+  },
+  "devDependencies": {
+    "@goodfetch/test-support": "workspace:*",
+    "@types/node": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  },
+  "engines": {
+    "node": ">=24.0.0"
+  }
+}

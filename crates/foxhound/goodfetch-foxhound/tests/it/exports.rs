@@ -974,7 +974,9 @@ pub(crate) fn third_book() -> Value {
 /// a reference reader (a CSV reader, a spreadsheet library, an HTML parser,
 /// a Markdown parser) and gives the Records back, the Unicode record among
 /// them. CSV carries no BOM by default, and the XLSX sheet is named after
-/// the Dataset.
+/// the Dataset. The workbook is also kept as a binary snapshot, which
+/// `test_export_xlsx.py` of Foxhound's Python package opens with openpyxl,
+/// a spreadsheet library no Rust build here can take (issue 1679).
 ///
 /// Covers: story:6-278, story:6-277, operation:run.export, operation:export.save_as, format:export
 #[test]
@@ -998,6 +1000,7 @@ fn csv_xlsx_html_and_markdown_exports_carry_every_field_seen_in_first_seen_order
     let html_bytes = saved(&mut engine, &env, &html, "books.html");
     let markdown_bytes = saved(&mut engine, &env, &markdown, "books.md");
     assert!(engine.finished());
+    insta::assert_binary_snapshot!("d07_books.xlsx", xlsx_bytes.clone());
 
     let columns = [
         "page",

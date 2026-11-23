@@ -1789,6 +1789,43 @@ class ServingSession(BaseModel):
     """
 
 
+class SheetCapacity(StrEnum):
+    """
+    What a sheet holds at most, as Excel's specifications and limits give
+    it, which an XLSX Export's one sheet may not pass (issue 1678).
+    """
+
+    rows = "rows"
+    """1,048,576 rows, the header row included."""
+    columns = "columns"
+    """16,384 columns, `A` to `XFD`."""
+    cell_length = "cell_length"
+    """
+    32,767 characters in one cell, a column's name included, counted in
+    UTF-16 code units as Excel counts them, so a character outside the
+    Basic Multilingual Plane counts two.
+    """
+
+
+class SheetCapacityExceededDetails(BaseModel):
+    """What `sheet_capacity_exceeded` details."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    capacity: SheetCapacity
+    """What its sheet would pass."""
+    dataset: str
+    """The Dataset's name."""
+    figure: Annotated[int, Field(ge=0)]
+    """
+    How much of it the Dataset needs: its rows with the header, its
+    columns, or the length of its longest cell.
+    """
+    maximum: Annotated[int, Field(ge=0)]
+    """The most a sheet holds of it."""
+
+
 class SinkStatus(StrEnum):
     """A Sink's delivery status (ADRs 0026 and 0103)."""
 

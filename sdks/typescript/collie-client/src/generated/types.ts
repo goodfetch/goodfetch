@@ -8640,6 +8640,32 @@ export interface SampleStorePutResult {
   replaced: boolean;
 }
 /**
+ * What `schema_validator_failed` details: the schema, where in the value,
+ * and the exception, as `hook_failed`'s details name a Hook's.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "SchemaValidatorFailedDetails".
+ */
+export interface SchemaValidatorFailedDetails {
+  /**
+   * The exception's message.
+   */
+  exceptionMessage: string;
+  /**
+   * The exception's type name.
+   */
+  exceptionType: string;
+  /**
+   * Where in the value the validator ran, a JSON Pointer (RFC 6901),
+   * or none when the library does not say.
+   */
+  path?: string | null;
+  /**
+   * The schema's JSON Schema `title`, or none when it has none.
+   */
+  schema?: string | null;
+}
+/**
  * What `secret_domain_not_allowed` details.
  *
  * This interface was referenced by `CollieTypes`'s JSON-Schema

@@ -182,6 +182,7 @@ export type CollieWireType =
   | "RunStopping"
   | "RunStorage"
   | "RunUsage"
+  | "SchemaValidatorFailedDetails"
   | "SessionOnParams"
   | "SessionOpened"
   | "SessionParams"
@@ -393,6 +394,7 @@ export const collieWire: Wire<keyof CollieOperationTypes & string, keyof CollieE
     "RunStopping": { fields: { "cause": ["cause", { type: "StopReason" }], "run_id": "runId" } },
     "RunStorage": { fields: { "free_bytes": "freeBytes" } },
     "RunUsage": { fields: { "browser_time": "browserTime", "limits": ["limits", { items: { type: "AppliedLimit" } }], "model": ["model", { type: "ModelUsage" }], "model_allowance": ["modelAllowance", { items: { type: "ModelAllowance" } }], "other": ["other", { items: { type: "KindUsage" } }], "paid_fetches": "paidFetches", "paid_solves": "paidSolves", "proxy_bytes": "proxyBytes", "proxy_bytes_by_kind": "proxyBytesByKind", "proxy_price": "proxyPrice" } },
+    "SchemaValidatorFailedDetails": { fields: { "exception_message": "exceptionMessage", "exception_type": "exceptionType" } },
     "SessionOnParams": { fields: { "session_id": "sessionId" } },
     "SessionOpened": { fields: { "session_id": "sessionId" } },
     "SessionParams": { fields: { "session_id": "sessionId" } },

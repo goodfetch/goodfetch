@@ -8,8 +8,9 @@ use crate::catalog::{
 use crate::{
     audit, block, browser_cache, checkpoint, connection, daemon, dns, download, effect, egress,
     engine, events, executables, foxhound, governor, hook, hostile_input, key_value_store, log,
-    model, needs_you, ops, page, plugin, politeness, response_limits, run, sample, schema_validator,
-    secrets, security, settings, site_preferences, skills, storage, tls, usage, versions,
+    model, needs_you, ops, page, plugin, politeness, response_limits, run, sample,
+    schema_validator, secrets, security, settings, site_preferences, skills, storage, tls, usage,
+    versions,
 };
 
 /// Every module that defines entries.

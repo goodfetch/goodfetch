@@ -578,6 +578,14 @@ export type OutcomesAfter = number | Now;
  * via the `definition` "QueryRefusal".
  */
 export type QueryRefusal = "syntax" | "unknown_name" | "not_a_read" | "run_not_selected" | "outside_read";
+/**
+ * What a sheet holds at most, as Excel's specifications and limits give
+ * it, which an XLSX Export's one sheet may not pass (issue 1678).
+ *
+ * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
+ * via the `definition` "SheetCapacity".
+ */
+export type SheetCapacity = "rows" | "columns" | "cell_length";
 
 /**
  * The root of the layer's types, which holds no value of its own.
@@ -3391,6 +3399,31 @@ export interface SamplePageFilterAdmitResult {
    * Whether the sample crawl visits the page.
    */
   admitted: boolean;
+}
+/**
+ * What `sheet_capacity_exceeded` details.
+ *
+ * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
+ * via the `definition` "SheetCapacityExceededDetails".
+ */
+export interface SheetCapacityExceededDetails {
+  /**
+   * What its sheet would pass.
+   */
+  capacity: SheetCapacity;
+  /**
+   * The Dataset's name.
+   */
+  dataset: string;
+  /**
+   * How much of it the Dataset needs: its rows with the header, its
+   * columns, or the length of its longest cell.
+   */
+  figure: number;
+  /**
+   * The most a sheet holds of it.
+   */
+  maximum: number;
 }
 /**
  * What `staging_full` names: the setting that bounds an attempt's staged

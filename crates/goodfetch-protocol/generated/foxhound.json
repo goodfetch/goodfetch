@@ -16515,6 +16515,42 @@
         }
       ]
     },
+    "SchemaValidatorFailedDetails": {
+      "description": "What `schema_validator_failed` details: the schema, where in the value,\nand the exception, as `hook_failed`'s details name a Hook's.",
+      "properties": {
+        "exception_message": {
+          "arrived_in": "0.1",
+          "description": "The exception's message.",
+          "type": "string"
+        },
+        "exception_type": {
+          "arrived_in": "0.1",
+          "description": "The exception's type name.",
+          "type": "string"
+        },
+        "path": {
+          "arrived_in": "0.1",
+          "description": "Where in the value the validator ran, a JSON Pointer (RFC 6901),\nor none when the library does not say.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "schema": {
+          "arrived_in": "0.1",
+          "description": "The schema's JSON Schema `title`, or none when it has none.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "exception_type",
+        "exception_message"
+      ],
+      "type": "object"
+    },
     "SecretDomainNotAllowedDetails": {
       "description": "What `secret_domain_not_allowed` details.",
       "properties": {
@@ -17526,6 +17562,68 @@
           "type": "string"
         }
       ]
+    },
+    "SheetCapacity": {
+      "description": "What a sheet holds at most, as Excel's specifications and limits give\nit, which an XLSX Export's one sheet may not pass (issue 1678).",
+      "oneOf": [
+        {
+          "const": "rows",
+          "description": "1,048,576 rows, the header row included.",
+          "type": "string"
+        },
+        {
+          "const": "columns",
+          "description": "16,384 columns, `A` to `XFD`.",
+          "type": "string"
+        },
+        {
+          "const": "cell_length",
+          "description": "32,767 characters in one cell, a column's name included, counted in\nUTF-16 code units as Excel counts them, so a character outside the\nBasic Multilingual Plane counts two.",
+          "type": "string"
+        }
+      ]
+    },
+    "SheetCapacityExceededDetails": {
+      "description": "What `sheet_capacity_exceeded` details.",
+      "properties": {
+        "capacity": {
+          "$ref": "#/$defs/SheetCapacity",
+          "arrived_in": "0.1",
+          "description": "What its sheet would pass."
+        },
+        "dataset": {
+          "arrived_in": "0.1",
+          "description": "The Dataset's name.",
+          "type": "string"
+        },
+        "figure": {
+          "arrived_in": "0.1",
+          "description": "How much of it the Dataset needs: its rows with the header, its\ncolumns, or the length of its longest cell.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "fix": {
+          "arrived_in": "0.1",
+          "description": "What to do instead.",
+          "type": "string"
+        },
+        "maximum": {
+          "arrived_in": "0.1",
+          "description": "The most a sheet holds of it.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "dataset",
+        "capacity",
+        "figure",
+        "maximum",
+        "fix"
+      ],
+      "type": "object"
     },
     "SigningKeyCreateParams": {
       "additionalProperties": false,
@@ -21657,6 +21755,9 @@
     {
       "arrived_in": "0.1",
       "description": "A schema's own validation, run by the SDK in the program's process, raised something other than a rejection, so the call stopped at once: only the library's own rejection (Standard Schema issues, Pydantic's `ValidationError`) is one, and a bug is never retried or reported as a value the schema refused. The message always names the exception, and the original is the error's cause. The details name the schema by its JSON Schema `title` (`null` without one), the field path where known (`null` otherwise), and the exception's type and message. Fix the validator so that it rejects with the library's own issue, or never raises.",
+      "details": {
+        "$ref": "#/$defs/SchemaValidatorFailedDetails"
+      },
       "exit_code": null,
       "group": "program",
       "json_rpc_class": -32001,
@@ -21784,6 +21885,9 @@
     {
       "arrived_in": "0.1",
       "description": "An XLSX Export's one sheet would hold more than Excel opens: more than 1,048,576 rows, the header row included, more than 16,384 columns, or a cell, a column's name included, longer than 32,767 characters, counted in UTF-16 code units as Excel counts them. Nothing was written, and no file is left in the Run's folder. The details name the Dataset, the capacity passed (`rows`, `columns` or `cell_length`), the Dataset's figure and the most a sheet holds. Export the Dataset as `csv`, `jsonl` or `parquet`, which hold any number of rows, columns and characters.",
+      "details": {
+        "$ref": "#/$defs/SheetCapacityExceededDetails"
+      },
       "exit_code": null,
       "group": "program",
       "json_rpc_class": -32001,
@@ -30463,6 +30567,7 @@
         },
         "type": "object"
       },
+      "weakening": null,
       "weakens": false
     },
     {

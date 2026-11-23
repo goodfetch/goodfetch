@@ -11660,6 +11660,42 @@
         }
       ]
     },
+    "SchemaValidatorFailedDetails": {
+      "description": "What `schema_validator_failed` details: the schema, where in the value,\nand the exception, as `hook_failed`'s details name a Hook's.",
+      "properties": {
+        "exception_message": {
+          "arrived_in": "0.1",
+          "description": "The exception's message.",
+          "type": "string"
+        },
+        "exception_type": {
+          "arrived_in": "0.1",
+          "description": "The exception's type name.",
+          "type": "string"
+        },
+        "path": {
+          "arrived_in": "0.1",
+          "description": "Where in the value the validator ran, a JSON Pointer (RFC 6901),\nor none when the library does not say.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "schema": {
+          "arrived_in": "0.1",
+          "description": "The schema's JSON Schema `title`, or none when it has none.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "exception_type",
+        "exception_message"
+      ],
+      "type": "object"
+    },
     "SecretDomainNotAllowedDetails": {
       "description": "What `secret_domain_not_allowed` details.",
       "properties": {
@@ -15786,6 +15822,9 @@
     {
       "arrived_in": "0.1",
       "description": "A schema's own validation, run by the SDK in the program's process, raised something other than a rejection, so the call stopped at once: only the library's own rejection (Standard Schema issues, Pydantic's `ValidationError`) is one, and a bug is never retried or reported as a value the schema refused. The message always names the exception, and the original is the error's cause. The details name the schema by its JSON Schema `title` (`null` without one), the field path where known (`null` otherwise), and the exception's type and message. Fix the validator so that it rejects with the library's own issue, or never raises.",
+      "details": {
+        "$ref": "#/$defs/SchemaValidatorFailedDetails"
+      },
       "exit_code": null,
       "group": "program",
       "json_rpc_class": -32001,
@@ -22309,6 +22348,7 @@
         },
         "type": "object"
       },
+      "weakening": null,
       "weakens": false
     },
     {

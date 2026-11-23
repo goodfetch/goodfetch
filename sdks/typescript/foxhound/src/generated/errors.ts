@@ -2,7 +2,7 @@
 
 import { PageError, ProgramError, RefusedError, UnavailableError, detailsOf, isCollieError, isGoodfetchError, retryAfterOf } from "@goodfetch/collie-client/generated";
 import type { CollieError, ErrorClass, ErrorFields } from "@goodfetch/collie-client/generated";
-import type { BrowserRequiredDetails, DatasetDuplicateDetails, DatasetKeyInvalidDetails, DatasetUnknownDetails, HandlerFailedDetails, HookDuplicateDetails, HookIneffectiveDetails, HookUndeclaredDetails, HookUnknownDetails, LabelUnknownDetails, PayloadInvalidDetails, PayloadSchemaChangedDetails, QueryInvalidDetails, QueryMemoryExceededDetails, RecordInvalidDetails, ResponseNotDocumentDetails, ResponseUnavailableDetails, StagingFullDetails } from "./types.ts";
+import type { BrowserRequiredDetails, DatasetDuplicateDetails, DatasetKeyInvalidDetails, DatasetUnknownDetails, HandlerFailedDetails, HookDuplicateDetails, HookIneffectiveDetails, HookUndeclaredDetails, HookUnknownDetails, LabelUnknownDetails, PayloadInvalidDetails, PayloadSchemaChangedDetails, QueryInvalidDetails, QueryMemoryExceededDetails, RecordInvalidDetails, ResponseNotDocumentDetails, ResponseUnavailableDetails, SheetCapacityExceededDetails, StagingFullDetails } from "./types.ts";
 import { foxhoundWire } from "./wire.ts";
 
 /**
@@ -388,8 +388,15 @@ export class SampleCrawlRefusedError extends RefusedError<"sample_crawl_refused"
  * An XLSX Export's one sheet would hold more than Excel opens: more than 1,048,576 rows, the header row included, more than 16,384 columns, or a cell, a column's name included, longer than 32,767 characters, counted in UTF-16 code units as Excel counts them. Nothing was written, and no file is left in the Run's folder. The details name the Dataset, the capacity passed (`rows`, `columns` or `cell_length`), the Dataset's figure and the most a sheet holds. Export the Dataset as `csv`, `jsonl` or `parquet`, which hold any number of rows, columns and characters.
  */
 export class SheetCapacityExceededError extends ProgramError<"sheet_capacity_exceeded"> {
+  /**
+   * The code's details, typed; `undefined` when they lack a field the type
+   * requires, as those of an error a program builds without details do.
+   */
+  readonly typedDetails: Readonly<SheetCapacityExceededDetails> | undefined;
+
   constructor(message: string, fields: ErrorFields = {}) {
     super(message, { ...fields, name: "SheetCapacityExceededError", code: "sheet_capacity_exceeded", group: "program", retryable: false });
+    this.typedDetails = detailsOf<SheetCapacityExceededDetails>(fields.details, ["dataset", "capacity", "figure", "maximum"]);
   }
 }
 

@@ -3854,6 +3854,28 @@ class SandboxEnvironment(StrEnum):
     """
 
 
+class SchemaValidatorFailedDetails(BaseModel):
+    """
+    What `schema_validator_failed` details: the schema, where in the value,
+    and the exception, as `hook_failed`'s details name a Hook's.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    exception_message: str
+    """The exception's message."""
+    exception_type: str
+    """The exception's type name."""
+    path: str | None = None
+    """
+    Where in the value the validator ran, a JSON Pointer (RFC 6901),
+    or none when the library does not say.
+    """
+    schema_: Annotated[str | None, Field(alias="schema")] = None
+    """The schema's JSON Schema `title`, or none when it has none."""
+
+
 class SecretDomainNotAllowedDetails(BaseModel):
     """What `secret_domain_not_allowed` details."""
 

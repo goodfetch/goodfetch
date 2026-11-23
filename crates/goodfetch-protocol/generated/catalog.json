@@ -1600,6 +1600,9 @@
     {
       "arrived_in": "0.1",
       "description": "A schema's own validation, run by the SDK in the program's process, raised something other than a rejection, so the call stopped at once: only the library's own rejection (Standard Schema issues, Pydantic's `ValidationError`) is one, and a bug is never retried or reported as a value the schema refused. The message always names the exception, and the original is the error's cause. The details name the schema by its JSON Schema `title` (`null` without one), the field path where known (`null` otherwise), and the exception's type and message. Fix the validator so that it rejects with the library's own issue, or never raises.",
+      "details": {
+        "$ref": "#/$defs/SchemaValidatorFailedDetails"
+      },
       "exit_code": null,
       "group": "program",
       "json_rpc_class": -32001,
@@ -1727,6 +1730,9 @@
     {
       "arrived_in": "0.1",
       "description": "An XLSX Export's one sheet would hold more than Excel opens: more than 1,048,576 rows, the header row included, more than 16,384 columns, or a cell, a column's name included, longer than 32,767 characters, counted in UTF-16 code units as Excel counts them. Nothing was written, and no file is left in the Run's folder. The details name the Dataset, the capacity passed (`rows`, `columns` or `cell_length`), the Dataset's figure and the most a sheet holds. Export the Dataset as `csv`, `jsonl` or `parquet`, which hold any number of rows, columns and characters.",
+      "details": {
+        "$ref": "#/$defs/SheetCapacityExceededDetails"
+      },
       "exit_code": null,
       "group": "program",
       "json_rpc_class": -32001,
@@ -10406,6 +10412,7 @@
         },
         "type": "object"
       },
+      "weakening": null,
       "weakens": false
     },
     {

@@ -2319,6 +2319,78 @@ form = "read"
 
 [[member]]
 crate = "goodfetch-collie-client"
+receiver = "testing"
+member = "TestEngineOptions"
+entry = "none"
+reason = "What a Product's test engine starts with (ADR 0105): the connection's settings over the kit's, the environment map it reads the caller's browsers and engine from, and the project file it reads."
+words = ["test", "engine", "options"]
+form = "type"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "testing::TestEngineOptions"
+member = "new"
+entry = "none"
+reason = "The kit's isolations alone: no settings of the test's, the process's environment, and no project file."
+words = ["new"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "testing::TestEngineOptions"
+member = "settings"
+entry = "none"
+reason = "The connection's settings over the kit's: the hosts `network.resolve` maps to loopback alone are the hosts its Runs reach, live, and a key it gives takes the place of the kit's."
+words = ["settings"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "testing::TestEngineOptions"
+member = "env"
+entry = "none"
+reason = "The environment map the kit reads `GOODFETCH_HOME`, `GOODFETCH_BROWSERS_PATH` and its Product's engine-path variable from, and no other, in place of the process's own."
+words = ["env"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "testing::TestEngineOptions"
+member = "project"
+entry = "none"
+reason = "The project file the test engine reads (ADR 0083), in place of none."
+words = ["project"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "testing"
+member = "TestEngine"
+entry = "none"
+reason = "What every Product's test engine is (ADR 0105): its Product's connection, and a close that removes its temporary Goodfetch home."
+words = ["test", "engine"]
+form = "type"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "testing::TestEngine"
+member = "connection"
+entry = "none"
+reason = "The Product's connection to the test engine, on which the code under test runs unchanged."
+words = ["connection"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "testing::TestEngine"
+member = "close"
+entry = "none"
+reason = "Closes the connection, then removes the temporary Goodfetch home."
+words = ["close"]
+form = "closer"
+
+[[member]]
+crate = "goodfetch-collie-client"
 receiver = "transport"
 member = "AttachedEngine"
 entry = "none"

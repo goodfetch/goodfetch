@@ -31,7 +31,9 @@
 //! Its library also exposes Collie's composition of the engine, which
 //! Foxhound's starts from, the [`linked`] connection both Products' SDKs
 //! open, and, under the `executable` feature, the executable's entry,
-//! which both Products' `main` call.
+//! which both Products' `main` call. Under the `test-util` feature,
+//! `testing` is Collie's testing kit: a real engine for a test, in a
+//! temporary Goodfetch home (ADR 0105).
 #![warn(missing_docs)]
 
 #[cfg_attr(
@@ -52,6 +54,8 @@ pub mod linked;
 mod pins;
 mod runtime;
 mod sample;
+#[cfg(feature = "test-util")]
+pub mod testing;
 mod trace_context;
 
 pub use collie::Collie;

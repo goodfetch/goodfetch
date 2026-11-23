@@ -15,7 +15,8 @@
 //! program's path whole or not at all (ADR 0116). Each request carries the
 //! Trace context a [`TraceContextSource`] reads (ADR 0132). AI work's
 //! [`AiWorkResult`] keeps how it [`Ended`], its Verdict and its model's
-//! claim apart (ADRs 0079 and 0117). The SDK crates
+//! claim apart (ADRs 0079 and 0117). [`testing`] is the testing kit's
+//! shared part, which each Product's kit re-exports (ADR 0105). The SDK crates
 //! build on it; it depends on neither of them, on any Foxhound crate nor on
 //! any OpenTelemetry crate.
 
@@ -53,6 +54,7 @@ mod run_view;
 mod schema;
 pub mod settings;
 mod sync;
+pub mod testing;
 mod trace_context;
 pub mod transport;
 mod write_queue;

@@ -19,6 +19,10 @@ executable = ["dep:clap", "dep:jiff", "dep:mimalloc", "dep:regex", "dep:schemars
 # without it, a request carries none. The engine, which the SDK links,
 # already takes both crates, so the feature adds none.
 opentelemetry = []
+# The testing kit (ADR 0105), `goodfetch_collie::testing`: a test engine in a
+# temporary Goodfetch home, which builds test values alone and never a
+# capability (ADR 0087).
+test-util = ["dep:tempfile"]
 
 [dependencies]
 # The command line both executables carry (ADR 0090): owned names and help,
@@ -160,14 +164,14 @@ secrecy.workspace = true
 # (CARGO_BIN_EXE_goodfetch-collie, ADRs 0059 and 0062), and the Trace
 # context its requests carry (tests/it/sdk/trace_context.rs).
 [target.'cfg(not(goodfetch_without_opentelemetry))'.dev-dependencies]
-goodfetch-collie = { path = ".", features = ["executable", "opentelemetry"] }
+goodfetch-collie = { path = ".", features = ["executable", "opentelemetry", "test-util"] }
 
 # Its own executable without the `opentelemetry` feature, in the build that
 # `just feature-combinations` makes with `--cfg
 # goodfetch_without_opentelemetry` (tests/it/sdk/without_opentelemetry.rs):
 # every other build of its tests takes the feature through the table above.
 [target.'cfg(goodfetch_without_opentelemetry)'.dev-dependencies]
-goodfetch-collie = { path = ".", features = ["executable"] }
+goodfetch-collie = { path = ".", features = ["executable", "test-util"] }
 
 [target.'cfg(unix)'.dev-dependencies]
 # The `connection-used-after-fork` case forks the test and waits for its

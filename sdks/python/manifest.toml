@@ -2098,6 +2098,15 @@ words = ["retry", "after", "of"]
 form = "runtime"
 
 [[member]]
+package = "goodfetch_collie_client.goodfetch_error"
+receiver = "(module)"
+member = "retry_after_duration_of"
+entry = "none"
+reason = "Reads the `retry_after` an error's details name as a duration in milliseconds, which the generated `ModelUnavailableError` calls (ADRs 0080 and 0101)."
+words = ["retry", "after", "duration", "of"]
+form = "runtime"
+
+[[member]]
 package = "goodfetch_collie_client.handle"
 receiver = "(module)"
 member = "AsyncHandleHost"

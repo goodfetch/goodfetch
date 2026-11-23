@@ -189,7 +189,8 @@ modes = ["attached", "linked"]
 # linked in Rust (issue 2803), each surface taking the modes it has. A
 # program's own `goto` is outside Politeness (ADR 0086): it follows a
 # redirect whose `Retry-After` asks for an hour at once, and one to a file
-# the browser downloads answers no response (ADRs 0118, 0119).
+# the browser downloads answers no response (ADRs 0118, 0119). Python
+# also plays that case's Client side on the Scripted engine (issue 3395).
 [[capability]]
 name = "page"
 

@@ -400,6 +400,13 @@ number = 3
 kind = "error"
 prefix = "daemon_draining"
 
+# Area 3's detached starts (ADR 0102, issue 2829): the refusal of a
+# `detached` start on an engine or a Run that cannot outlive its Connection.
+[[area]]
+number = 3
+kind = "error"
+prefix = "detach_unsupported"
+
 [[area]]
 number = 3
 kind = "setting"

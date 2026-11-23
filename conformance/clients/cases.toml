@@ -481,12 +481,21 @@ modes = { sdk-typescript = ["attached"], sdk-python = ["attached"], sdk-rust = [
 # `PageNavigatedDuringCallDetails`. Only an AI verb fails with that code,
 # and no call of this protocol has one yet (ADR 0114), so the script answers
 # it to a click: a Client reads a failure by its code, whatever call it
-# answers. Played by the Scripted engine in TypeScript and Python (asyncio,
-# Trio and the sync API), attached and as a Daemon, and as the Daemon
-# Rust's client crate reaches.
+# answers. A navigation a site rate-limits raises `blocked` with the Block
+# cause's wire value, `rate_limit`, and `retryAfter` the point in time the
+# site asked for, read in UTC (`Date`, `datetime`, `SystemTime`); a cause no
+# catalog names is kept as received (ADRs 0035, 0079 and 0118). Played by
+# the Scripted engine in TypeScript and Python (asyncio, Trio and the sync
+# API), attached and as a Daemon, and as the Daemon Rust's client crate
+# reaches.
 [[capability.case]]
 id = "complete-error-details"
-covers = ["error:secret_unavailable", "error:page_navigated_during_call"]
+covers = [
+  "error:secret_unavailable",
+  "error:page_navigated_during_call",
+  "error:blocked",
+  "block-cause:rate_limit",
+]
 surfaces = ["sdk-typescript", "sdk-python", "sdk-rust"]
 modes = { sdk-rust = ["daemon"] }
 

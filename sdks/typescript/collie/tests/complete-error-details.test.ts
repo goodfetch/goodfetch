@@ -3,11 +3,15 @@
 // fill whose one-time code never came raises `SecretUnavailableError` with
 // `failure: "no_code"`, and `page_navigated_during_call` raises
 // `PageNavigatedDuringCallError`, retryable, naming the document the call
-// read and the one that replaced it. Played attached, and as a Daemon,
-// whose script exits 0 only once every step played. Python's
-// `test_complete_error_details.py` and Rust's `complete_error_details.rs`
-// are its twins.
+// read and the one that replaced it. A navigation a site rate-limits
+// raises `BlockedError` with the Block cause's wire value, `rate_limit`, and
+// `retryAfter` the point in time the site asked for, in UTC (ADRs 0035 and
+// 0118); a cause no catalog names is kept as received, with no time. Played
+// attached, and as a Daemon, whose script exits 0 only once every step
+// played. Python's `test_complete_error_details.py` and Rust's
+// `complete_error_details.rs` are its twins.
 import {
+  BlockedError,
   Collie,
   type GoodfetchError,
   PageError,
@@ -30,6 +34,10 @@ interface Played {
   readonly noCode: GoodfetchError;
   /** The click whose document a navigation it did not start replaced. */
   readonly navigated: GoodfetchError;
+  /** The navigation the site rate-limited. */
+  readonly rateLimited: GoodfetchError;
+  /** The navigation the site refused with a cause no catalog names. */
+  readonly unknownCause: GoodfetchError;
 }
 
 /** Plays the script's calls on `collie`, then closes it. */
@@ -38,14 +46,16 @@ async function played(collie: Collie): Promise<Played> {
   const page = await run.newPage();
   const noCode = await goodfetchFailure(page.locator("#otp").fill("%shop_totp%"));
   const navigated = await goodfetchFailure(page.locator("#book").click());
+  const rateLimited = await goodfetchFailure(page.goto("https://shop.test/deals"));
+  const unknownCause = await goodfetchFailure(page.goto("https://shop.test/abroad"));
   await run.finish();
   await collie.close();
-  return { noCode, navigated };
+  return { noCode, navigated, rateLimited, unknownCause };
 }
 
 /** The case's checks, the same in both modes. */
 async function checkPlayed(clientCase: ClientCaseRecord, answered: Played): Promise<void> {
-  const { noCode, navigated } = answered;
+  const { noCode, navigated, rateLimited, unknownCause } = answered;
   await clientCase.check(
     "a one-time code that never came raises SecretUnavailableError saying no_code",
     () => {
@@ -80,6 +90,32 @@ async function checkPlayed(clientCase: ClientCaseRecord, answered: Played): Prom
       expect(navigated.details).toEqual({ navigated_to: "https://travel.test/books/1" });
     },
   );
+  await clientCase.check(
+    "a rate-limited navigation raises BlockedError with rate_limit and retryAfter a point in time",
+    () => {
+      expect(rateLimited).toBeInstanceOf(BlockedError);
+      expect(rateLimited).toMatchObject({
+        code: "blocked",
+        group: "page",
+        retryable: false,
+        url: "https://shop.test/deals",
+        retryAfter: new Date("2026-11-21T08:00:00Z"),
+      });
+      expect(rateLimited.details).toEqual({
+        cause: "rate_limit",
+        status: 429,
+        retry_after: "2026-11-21T10:00:00+02:00",
+      });
+    },
+  );
+  await clientCase.check(
+    "a Block cause no catalog names is kept as received, with no retryAfter",
+    () => {
+      expect(unknownCause).toBeInstanceOf(BlockedError);
+      expect(unknownCause).toMatchObject({ url: "https://shop.test/abroad", retryAfter: null });
+      expect(unknownCause.details).toEqual({ cause: "geo_block", status: 451, retry_after: null });
+    },
+  );
 }
 
 describe("A Collie Connection on the Scripted engine", () => {
@@ -91,6 +127,8 @@ describe("A Collie Connection on the Scripted engine", () => {
         "attached",
         "error:secret_unavailable",
         "error:page_navigated_during_call",
+        "error:blocked",
+        "block-cause:rate_limit",
       ],
     },
     async ({ testEnv, clientCase }) => {
@@ -110,6 +148,8 @@ describe("A Collie Connection on the Scripted engine", () => {
         "daemon",
         "error:secret_unavailable",
         "error:page_navigated_during_call",
+        "error:blocked",
+        "block-cause:rate_limit",
       ],
     },
     async ({ testEnv, processes, clientCase }) => {

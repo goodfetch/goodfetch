@@ -400,6 +400,9 @@ pub(crate) struct HeldRun {
     connection: ClientConnection,
     run_id: RunId,
     state: Mutex<State>,
+    /// Whether the Run outlives the program (ADR 0102): closing or
+    /// dropping its value then sends no `run.abort`.
+    detached: bool,
 }
 
 /// Where a Run's value is.
@@ -414,8 +417,14 @@ enum State {
 }
 
 impl HeldRun {
-    /// The Run `run.start` answered, on `connection`.
-    pub(crate) fn new(connection: ClientConnection, run_id: RunId, lifecycle: Lifecycle) -> Self {
+    /// The Run its opener answered, on `connection`, `detached` when it
+    /// outlives the program.
+    pub(crate) fn new(
+        connection: ClientConnection,
+        run_id: RunId,
+        lifecycle: Lifecycle,
+        detached: bool,
+    ) -> Self {
         let state = if lifecycle == Lifecycle::Running {
             State::Running
         } else {
@@ -425,14 +434,16 @@ impl HeldRun {
             connection,
             run_id,
             state: Mutex::new(state),
+            detached,
         }
     }
 
     /// Closes the Run for every handle, as [`crate::Run::close`] says: it
-    /// is closed at once, and the future sends its abort if it still ran.
+    /// is closed at once, and the future sends its abort if it still ran
+    /// and is not detached.
     pub(crate) fn close(&self) -> impl Future<Output = Result<(), Error>> + Send + 'static {
         let was = std::mem::replace(&mut *self.lock(), State::Closed);
-        let abort = (was == State::Running).then(|| {
+        let abort = (was == State::Running && !self.detached).then(|| {
             let params = RunAbortParams {
                 run_id: self.run_id.clone(),
                 forwarded: false,
@@ -488,7 +499,8 @@ impl Drop for HeldRun {
         let state = *self.state.get_mut().unwrap_or_else(PoisonError::into_inner);
         // In another process, such as the child of a `fork`, nothing
         // reaches the engine: the opener closes the Run.
-        if state == State::Running && self.connection.in_opener() {
+        // A detached Run outlives its value.
+        if state == State::Running && !self.detached && self.connection.in_opener() {
             tracing::warn!(
                 target: "goodfetch::client",
                 run_id = %self.run_id,

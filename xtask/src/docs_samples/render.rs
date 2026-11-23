@@ -26,16 +26,16 @@ use crate::products::Product;
 pub(super) const MALFORMED: &str = "docs-samples";
 
 /// One Product's rendering of a page or README.
-pub(super) struct Rendering {
-    pub(super) product: Product,
-    pub(super) lines: Vec<Line>,
+pub(crate) struct Rendering {
+    pub(crate) product: Product,
+    pub(crate) lines: Vec<Line>,
 }
 
 /// One line of a rendering.
-pub(super) struct Line {
-    pub(super) text: String,
+pub(crate) struct Line {
+    pub(crate) text: String,
     /// Its line in the source, from 1.
-    pub(super) source: usize,
+    pub(crate) source: usize,
     /// The Products whose renderings carry it, Collie first.
     pub(super) carriers: Vec<Product>,
     /// The Product the part it sits in is marked as naming.
@@ -79,7 +79,7 @@ pub(super) fn readme(product: Product, text: &str) -> Rendering {
 
 /// Each Product's rendering of the page at `page`, Collie's first, or what
 /// keeps it from rendering.
-pub(super) fn page(page: &str, text: &str) -> Result<Vec<Rendering>, Vec<Finding>> {
+pub(crate) fn page(page: &str, text: &str) -> Result<Vec<Rendering>, Vec<Finding>> {
     let source: Vec<&str> = text.lines().collect();
     let (page_products, body_start) = front_matter(page, &source)?;
     let mut findings = Vec::new();
@@ -227,7 +227,7 @@ fn marker(line: &str) -> Option<Result<Marker, String>> {
 }
 
 /// `text` with each name marker written as `product`'s name.
-fn with_names(text: &str, product: Product) -> String {
+pub(crate) fn with_names(text: &str, product: Product) -> String {
     product
         .names()
         .by_marker()

@@ -107,6 +107,17 @@ impl Language {
 #[derive(Deserialize)]
 struct Catalog {
     operations: Vec<Operation>,
+    #[serde(default)]
+    settings: Vec<Setting>,
+}
+
+/// A setting of the catalog, whose description the generator copies into
+/// each SDK's settings type.
+#[derive(Deserialize)]
+struct Setting {
+    name: String,
+    #[serde(default)]
+    description: String,
 }
 
 #[derive(Deserialize)]

@@ -202,6 +202,12 @@ impl<P> CrawlContext<P> {
         &self.attempt.params.run_id
     }
 
+    /// Already navigated: the handler runs once the request's navigation
+    /// has happened, so a route set on this page applies from its next
+    /// navigation. To keep a resource kind from loading on every request,
+    /// set `browser.block_resources`, which acts before each navigation
+    /// (ADR 0117).
+    ///
     /// The attempt's page, Collie's [`Page`] served from the request's
     /// document (ADRs 0085 and 0093), whose calls run under the attempt's
     /// lease and count in the crawl's own Run; the handler reads it, or

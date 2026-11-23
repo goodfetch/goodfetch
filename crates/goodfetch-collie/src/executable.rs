@@ -105,6 +105,7 @@ pub mod operation;
 mod other_product;
 mod otlp;
 pub mod output;
+mod prompts;
 mod runs;
 mod service;
 mod settings_flags;
@@ -248,7 +249,7 @@ enum OwnUsageCommand {
     /// Raises a Limit, in place of the ones of its scope, Usage kind,
     /// currency and period but a managed Operator policy's: a person's
     /// answer, asked at the terminal, and refused with `person_required`
-    /// when stdin is no terminal.
+    /// under `--json` or when stdin is no terminal.
     Raise {
         /// The scope's kind.
         #[arg(long)]
@@ -271,6 +272,9 @@ enum OwnUsageCommand {
         /// Usage kind, or millionths of the currency.
         #[arg(long)]
         amount: u64,
+        /// Refused: a person answers at a terminal, never under `--json`.
+        #[arg(long)]
+        json: bool,
         #[command(flatten)]
         engine: EngineFlags,
     },
@@ -788,6 +792,7 @@ fn usage_command(
         currency,
         period,
         amount,
+        json,
         engine: flags,
     } = command;
     let params = goodfetch_protocol::usage::UsageRaiseParams {
@@ -802,7 +807,7 @@ fn usage_command(
         engine,
         dependencies,
         (machine, flags.choice()),
-        &params,
+        (&params, json),
         human,
     )
 }

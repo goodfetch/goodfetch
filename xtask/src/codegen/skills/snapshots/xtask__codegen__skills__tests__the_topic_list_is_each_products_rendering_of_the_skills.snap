@@ -1,0 +1,8 @@
+---
+source: xtask/src/codegen/skills/tests.rs
+expression: "topics.join(\"\\n\")"
+---
+crates/foxhound/goodfetch-foxhound/generated/skills/goodfetch-foxhound-cli
+crates/foxhound/goodfetch-foxhound/generated/skills/goodfetch-foxhound
+crates/goodfetch-collie/generated/skills/goodfetch-collie-cli
+crates/goodfetch-collie/generated/skills/goodfetch-collie

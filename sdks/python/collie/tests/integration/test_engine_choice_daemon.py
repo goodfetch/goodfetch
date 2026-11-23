@@ -44,3 +44,29 @@ async def test_reaches_the_running_daemon_at_auto_and_an_attached_engine_when_as
             None,
         ),
     ]
+
+
+@pytest.mark.covers("story:11-299")
+@three_ways
+async def test_takes_an_environment_whose_only_engine_path_is_foxhounds(
+    way: Way, env: Mapping[str, str], daemon: Daemon
+) -> None:
+    """Foxhound's variable fails no `connect()`, which reaches the Daemon."""
+    foxhounds_only = {
+        **{
+            name: value
+            for name, value in env.items()
+            if name != "GOODFETCH_COLLIE_ENGINE_PATH"
+        },
+        "GOODFETCH_FOXHOUND_ENGINE_PATH": "/nonexistent/goodfetch-foxhound",
+    }
+
+    collie = await open_collie(way, foxhounds_only)
+    engine = collie.engine
+    await collie.close()
+
+    assert (engine.kind, engine.engine_path, engine.url) == (
+        "daemon",
+        None,
+        daemon.socket,
+    )

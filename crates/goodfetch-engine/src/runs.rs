@@ -227,13 +227,15 @@ pub(crate) struct RunsSetup {
 
 /// How a live action reaches the engine that owns a Run (ADR 0031).
 pub(crate) trait Forwarder: Send + Sync {
-    /// Asks the engine at `owner` to abort `run_id` as its owner, its
-    /// blocking work under `tasks`, and answers the Run report it answered;
-    /// `None` when it did not answer, answered `run_not_owned`, or failed.
+    /// Asks the engine at `owner` to abort `run_id` as its owner, for `by`,
+    /// its blocking work under `tasks`, and answers the Run report it
+    /// answered; `None` when it did not answer, answered `run_not_owned`,
+    /// or failed.
     fn abort<'a>(
         &'a self,
         owner: &'a RunOwner,
         run_id: &'a RunId,
+        by: &'a Aborter,
         tasks: &'a TaskOwner,
     ) -> Pin<Box<dyn Future<Output = Option<RunReport>> + Send + 'a>>;
 
@@ -1182,7 +1184,7 @@ enum Command {
     ),
     Abort(
         RunId,
-        StoppedBy,
+        Aborter,
         Forwarded,
         Option<RawMark>,
         oneshot::Sender<Result<Waiting, RunError>>,
@@ -1277,6 +1279,42 @@ pub enum Forwarded {
     No,
     /// Another engine forwarded it to this one as the Run's owner.
     Yes,
+}
+
+/// Who aborts a Run, and whom a person's Client acts for (ADRs 0031 and
+/// 0113): the abort's stop reason, which the calls it cancels name.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Aborter {
+    by: StoppedBy,
+    person: Option<String>,
+}
+
+impl Aborter {
+    /// `by`, naming no person.
+    pub fn by(by: StoppedBy) -> Self {
+        Self { by, person: None }
+    }
+
+    /// A person, through a Client that acts for `person`.
+    pub fn person(person: String) -> Self {
+        Self {
+            by: StoppedBy::Person,
+            person: Some(person),
+        }
+    }
+
+    /// Who aborts.
+    pub fn stopped_by(&self) -> StoppedBy {
+        self.by
+    }
+
+    /// The abort's stop reason.
+    pub fn reason(&self) -> StopReason {
+        StopReason::Abort {
+            by: self.by,
+            person: self.person.clone(),
+        }
+    }
 }
 
 /// The Connection of a Daemon a Run belongs to (ADR 0078): its end stops
@@ -3289,7 +3327,7 @@ impl Runs {
     pub async fn abort(
         &self,
         run_id: RunId,
-        by: StoppedBy,
+        by: Aborter,
         forwarded: Forwarded,
     ) -> Result<RunReport, RunError> {
         let (answer, answered) = oneshot::channel();
@@ -4912,9 +4950,7 @@ impl Registry {
     async fn stop_by_client(&mut self, ids: Vec<RunId>) -> Vec<watch::Receiver<Option<Ended>>> {
         let mut reports = Vec::new();
         for run_id in ids {
-            let end = End::Stopped(StopReason::Abort {
-                by: StoppedBy::Client,
-            });
+            let end = End::Stopped(Aborter::by(StoppedBy::Client).reason());
             if let Ok(report) = self.end_or_report(&run_id, end).await {
                 reports.push(report);
             }
@@ -6173,14 +6209,15 @@ impl Registry {
     ) -> Result<Waiting, RunError> {
         if let Some(live) = self.live.get(run_id) {
             if let Some(run) = &live.run {
-                run.stop_at_safe_point(StopReason::Abort { by });
+                run.stop_at_safe_point(Aborter::by(by).reason());
             }
             return Ok(Waiting::Report(live.report.subscribe()));
         }
         if self.ended.contains(run_id) || self.found_ended.contains(run_id) {
             return self.ended_report(run_id).await.map(Waiting::Report);
         }
-        self.abort(run_id, by, Forwarded::No, raw).await
+        self.abort(run_id, Aborter::by(by), Forwarded::No, raw)
+            .await
     }
 
     /// Stops a live Run of this engine's, answers the report of one it
@@ -6192,13 +6229,13 @@ impl Registry {
     async fn abort(
         &mut self,
         run_id: &RunId,
-        by: StoppedBy,
+        by: Aborter,
         forwarded: Forwarded,
         raw: Option<RawMark>,
     ) -> Result<Waiting, RunError> {
         if self.live.contains_key(run_id) || self.ended.contains(run_id) {
             return self
-                .end_or_report(run_id, End::Stopped(StopReason::Abort { by }))
+                .end_or_report(run_id, End::Stopped(by.reason()))
                 .await
                 .map(Waiting::Report);
         }
@@ -6699,7 +6736,7 @@ async fn announce_stop(events: &Events, run_id: &RunId, cause: &StopReason) {
             .publish(&RUN_MIGRATING, Some(run_id.as_str()), &migrating)
             .await;
     }
-    if let StopReason::Abort { by } = cause {
+    if let StopReason::Abort { by, .. } = cause {
         let aborting = RunAborting {
             run_id: run_id.clone(),
             by: *by,

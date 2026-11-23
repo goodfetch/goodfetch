@@ -1325,7 +1325,6 @@ receiver = "(module)"
 member = "TestEngine"
 entry = "none"
 reason = "A real Collie engine for a test in the sync API (ADR 0105), as `AsyncTestEngine` is in the async one."
-only = "Until TypeScript's `TestEngine`, issue 3398's TypeScript part, lands in `@goodfetch/collie/testing`, which removes this line."
 words = ["test", "engine"]
 form = "type"
 
@@ -1362,7 +1361,6 @@ receiver = "(module)"
 member = "TestEngineOptions"
 entry = "none"
 reason = "The client package's `TestEngineOptions`, re-exported: what a test engine starts with (ADR 0105)."
-only = "Until TypeScript's `TestEngineOptions`, issue 3398's TypeScript part, lands in `@goodfetch/collie/testing`, which removes this line."
 words = ["test", "engine", "options"]
 form = "type"
 

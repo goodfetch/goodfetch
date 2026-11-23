@@ -40,14 +40,11 @@ use std::process::ExitCode;
 use std::sync::LazyLock;
 
 use anyhow::{Context as _, Result, bail};
-use serde::Deserialize;
 use serde_json::{Map, Value};
 
-use crate::check::{self, Finding};
+use crate::api_baseline::{self, Changes, Outcome, RUST};
+use crate::check::Finding;
 use crate::git;
-
-/// The previous release's commit and the announced breaks.
-const API: &str = "compat/api.toml";
 
 /// Each Product's projection of the catalog.
 const PROJECTIONS: [(&str, &str); 2] = [
@@ -116,26 +113,6 @@ const UPPER_BOUNDS: [&str; 5] = [
     "maximum",
 ];
 
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct Api {
-    /// The commit that stands for the previous release of the major.
-    previous: String,
-    #[serde(default)]
-    announced: Vec<Announced>,
-}
-
-/// A break announced for the next major.
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct Announced {
-    /// The finding's subject: `<collie|foxhound> <section> <name>`,
-    /// `bundle outputs <command>` or `bundle command_failed`.
-    entry: String,
-    /// Why, as the release notes will say it.
-    reason: String,
-}
-
 /// Which side of the contract writes the data a schema describes.
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 enum Side {
@@ -145,21 +122,8 @@ enum Side {
     Output,
 }
 
-#[derive(Default)]
-struct Changes {
-    breaks: Vec<String>,
-    additions: Vec<String>,
-}
-
+/// The contracts' changes by the side their data flows.
 impl Changes {
-    fn breaks(&mut self, at: &str, what: impl std::fmt::Display) {
-        self.breaks.push(format!("{at}: {what}"));
-    }
-
-    fn adds(&mut self, at: &str, what: impl std::fmt::Display) {
-        self.additions.push(format!("{at}: {what}"));
-    }
-
     /// `breaks` on the side that may not narrow, `adds` on the other.
     fn narrows(&mut self, side: Side, at: &str, what: impl std::fmt::Display) {
         match side {
@@ -177,92 +141,33 @@ impl Changes {
     }
 }
 
-/// What the comparison found: the breaks that fail and the notes beside them.
-struct Outcome {
-    findings: Vec<Finding>,
-    notes: Vec<Finding>,
-}
-
 pub(crate) fn run(root: &Path) -> Result<ExitCode> {
-    let outcome = check(root)?;
-    check::note(&outcome.notes);
-    Ok(check::report(&outcome.findings))
+    Ok(check(root)?.report())
 }
 
 fn check(root: &Path) -> Result<Outcome> {
-    let text = std::fs::read_to_string(root.join(API)).with_context(|| format!("reading {API}"))?;
-    let api: Api = toml::from_str(&text).with_context(|| format!("parsing {API}"))?;
-    let commit = git::commit(root, &api.previous)
-        .with_context(|| format!("resolving {API}'s previous release `{}`", api.previous))?;
+    let baseline = api_baseline::baseline(root)?;
+    let commit = &baseline.commit;
     let mut entries: BTreeMap<String, Changes> = BTreeMap::new();
     let mut duplicates = BTreeSet::new();
     for (product, path) in PROJECTIONS {
-        let previous = previous_json(root, &commit, path)?;
+        let previous = previous_json(root, commit, path)?;
         let current = current_json(root, path)?;
         compare_projection(product, &previous, &current, &mut entries, &mut duplicates)?;
     }
-    let previous = previous_json(root, &commit, BUNDLE)?;
+    let previous = previous_json(root, commit, BUNDLE)?;
     let current = current_json(root, BUNDLE)?;
     compare_outputs(&previous, &current, &mut entries);
 
-    let mut announced: BTreeMap<&str, &Announced> = api
-        .announced
-        .iter()
-        .map(|announcement| (announcement.entry.as_str(), announcement))
-        .collect();
-    let mut findings: Vec<Finding> = api
-        .announced
-        .iter()
-        .filter(|announcement| announcement.reason.trim().is_empty())
-        .map(|announcement| {
-            Finding::new(
-                "announcement-without-reason",
-                &announcement.entry,
-                "an announced break says why, for the release notes",
-            )
-        })
-        .collect();
-    findings.extend(duplicates.iter().map(|entry| {
+    let mut outcome = baseline.verdict(|entry| !entry.starts_with(RUST), &entries);
+    outcome.findings.extend(duplicates.iter().map(|entry| {
         Finding::new(
             "duplicate-entry",
             entry,
             "two entries share this key, so the comparison would read one of them only",
         )
     }));
-    let mut notes = Vec::new();
-    for (entry, changes) in &entries {
-        if !changes.breaks.is_empty() {
-            let breaks = changes.breaks.join("; ");
-            match announced.remove(entry.as_str()) {
-                Some(announcement) => notes.push(Finding::new(
-                    "announced-break",
-                    entry,
-                    format!("{breaks} (announced: {})", announcement.reason),
-                )),
-                None => findings.push(Finding::new(
-                    "unannounced-break",
-                    entry,
-                    format!(
-                        "{breaks}; a break waits for the next major: announce it in {API}, or keep the entry compatible"
-                    ),
-                )),
-            }
-        } else if !changes.additions.is_empty() {
-            notes.push(Finding::new(
-                "addition",
-                entry,
-                changes.additions.join("; "),
-            ));
-        }
-    }
-    for entry in announced.keys() {
-        findings.push(Finding::new(
-            "announced-without-break",
-            *entry,
-            format!("{API} announces a break that the comparison with the previous release no longer finds"),
-        ));
-    }
-    Ok(Outcome { findings, notes })
+    Ok(outcome)
 }
 
 /// `path` at `commit`, a commit's full name, which no option starts with.
@@ -330,7 +235,7 @@ fn compare_projection(
                 .adds(name, "added");
         }
     }
-    entries.retain(|_, changes| !changes.breaks.is_empty() || !changes.additions.is_empty());
+    entries.retain(|_, changes| !changes.is_empty());
     Ok(())
 }
 
@@ -570,7 +475,7 @@ fn compare_outputs(previous: &Value, current: &Value, entries: &mut BTreeMap<Str
                 );
             }
         }
-        if !changes.breaks.is_empty() || !changes.additions.is_empty() {
+        if !changes.is_empty() {
             entries.insert(format!("bundle {output}"), changes);
         }
     }

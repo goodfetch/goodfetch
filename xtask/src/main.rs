@@ -13,6 +13,7 @@ mod advisories;
 mod affected;
 mod all_green;
 mod allure;
+mod api_baseline;
 mod api_check;
 mod base_console;
 mod browser_releases;
@@ -81,6 +82,7 @@ mod runtimes;
 mod scan;
 mod screenshots;
 mod sdk_manifests;
+mod semver_checks;
 mod size;
 mod static_pie;
 mod stress;
@@ -385,6 +387,12 @@ enum Command {
     /// manifest does not list, and on a line naming no hand-written member
     /// the SDK exports (ADRs 0069, 0099).
     SdkExports,
+    /// The Rust crates' API breakage check (ADRs 0030, 0069, 0095):
+    /// cargo-semver-checks on `goodfetch-collie-client`, `goodfetch-collie`
+    /// and `goodfetch-foxhound`, their testing kits included, against the
+    /// previous release's commit `compat/api.toml` names; fails on a break
+    /// the file does not announce as `rust <crate> <lint>`.
+    SemverChecks,
     /// Reference screenshots (ADR 0073).
     Screenshots {
         #[command(subcommand)]
@@ -663,6 +671,7 @@ fn run(command: Command, environment: &Environment) -> anyhow::Result<ExitCode> 
         Command::Rss { command } => rss::run(command, environment),
         Command::SdkManifests => Ok(check::report(&sdk_manifests::check(root)?)),
         Command::SdkExports => Ok(check::report(&sdk_manifests::exports::check(root)?)),
+        Command::SemverChecks => semver_checks::run(root, cargo),
         Command::Screenshots { command } => screenshots::run(command, environment),
         Command::Runtimes => Ok(check::report(&runtimes::check(root)?)),
         Command::Size { mode } => size::run(&mode, environment),

@@ -119,6 +119,15 @@ impl HopGate for Recording {
         })
     }
 
+    fn unparsable_retry_after<'a>(
+        &'a self,
+        _hop: &'a Hop,
+        _status: u16,
+        _value: &'a str,
+    ) -> Gating<'a, ()> {
+        Box::pin(std::future::ready(()))
+    }
+
     fn reached<'a>(&'a self, hop: &'a Hop) -> Gating<'a, Result<(), Stop>> {
         Box::pin(async move {
             self.reached.lock().unwrap().push(hop.url.path().to_owned());

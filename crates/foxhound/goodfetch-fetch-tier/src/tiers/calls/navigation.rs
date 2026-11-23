@@ -271,6 +271,18 @@ impl HopGate for Navigating {
         })
     }
 
+    fn unparsable_retry_after<'a>(
+        &'a self,
+        hop: &'a Hop,
+        status: u16,
+        value: &'a str,
+    ) -> Gating<'a, ()> {
+        Box::pin(
+            self.hand_over
+                .unparsable_retry_after(hop.url.as_str(), status, value),
+        )
+    }
+
     /// A handler's navigation is no crawl request's own send: it takes no
     /// token of its domain's sends, whichever hop it is.
     fn sending<'a>(&'a self, hop: &'a Hop, _lead: bool) -> Gating<'a, Result<(), Stop>> {

@@ -207,6 +207,29 @@ pub const CODE_FREE_LABEL: &str = "page";
 /// The one Dataset a code-free crawl declares, keyed by `url` (ADR 0103).
 pub const CODE_FREE_DATASET: &str = "pages";
 
+/// The name the Run trace's request log notes a `Retry-After` that does
+/// not parse under (ADR 0118): no page's event reports it.
+pub const RETRY_AFTER_UNPARSABLE: &str = "crawl.retry_after_unparsable";
+
+/// What the Run trace notes of a `Retry-After` the engine read and could
+/// not parse, which adds no wait beyond its domain's backoff (ADR 0118).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct UnparsableRetryAfter {
+    /// The crawl request whose response carried it.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub crawl_request_id: String,
+    /// The URL that answered with it.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub url: String,
+    /// The answer's status: a redirect's or a refresh stub's the chain
+    /// follows, or a 429, 502, 503 or 504 of the request's own document.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub status: u16,
+    /// The value, as the site sent it.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub retry_after: String,
+}
+
 /// What a crawl with no handler reads from each page it fetches (spec
 /// #582's code-free crawls; ADR 0103): the engine declares the Label
 /// [`CODE_FREE_LABEL`] and the Dataset [`CODE_FREE_DATASET`], keyed by

@@ -106,9 +106,9 @@ async fn calling(
     }
 }
 
-/// A reply to the engine's request `request` with `result`.
-fn reply(request: &Value, result: Value) -> Value {
-    json!({ "jsonrpc": "2.0", "id": request["id"], "result": result })
+/// A reply to the engine's `secrets.resolve` request `request` with `value`.
+fn reply(request: &Value, value: &str) -> Value {
+    json!({ "jsonrpc": "2.0", "id": request["id"], "result": { "value": value } })
 }
 
 /// A failure of the engine's request `request` with the Error code `code`.
@@ -160,9 +160,7 @@ fn a_callers_resolver_answers_a_caller_reference_which_is_used_masked_and_never_
                 used,
                 &mut received,
                 async |client: &mut Client, request: &Value| {
-                    client
-                        .send(&[reply(request, json!({ "value": value }))])
-                        .await;
+                    client.send(&[reply(request, &value)]).await;
                 },
             )
             .await;

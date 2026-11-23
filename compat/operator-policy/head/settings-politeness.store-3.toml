@@ -1,0 +1,5 @@
+version = "0.1"
+lowest_minor = 0
+
+[settings.politeness]
+store = { addressing = { kind = "cluster", nodes = ["rediss://node.example:6379"] }, namespace = "crawl" }

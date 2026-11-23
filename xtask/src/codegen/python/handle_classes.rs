@@ -35,6 +35,10 @@
 //! - A `new_<value>` member's `settings` takes the scope's settings type,
 //!   which `settings_on_wire` sends, durations in whole milliseconds
 //!   (`settings`, ADR 0083).
+//! - A parameter that takes a setting's value, such as `run.new_session`'s
+//!   `source`, which is `session.source` for one Session, takes the
+//!   settings module's `TypedDict`s, as `settings` does, which the member
+//!   validates into the model.
 //! - A call's own `timeout` takes a `timedelta`, never a number of
 //!   milliseconds, which `timeout_of` sends in whole milliseconds, rounded
 //!   up, refusing one of zero or less before it is sent; the docstring
@@ -77,8 +81,10 @@ use super::{CALLER_MODULE, deprecated_decorator, docstring, header, markers_impo
 
 mod answered;
 mod listeners;
+mod setting_values;
 
 use answered::{Returned, answered, returned};
+use setting_values::setting_value;
 
 /// The hand-written module of Collie's client package that declares what a
 /// generated handle reaches its engine through.
@@ -163,6 +169,9 @@ struct Imports {
     /// The settings types its members take, from the generated settings
     /// module, with [`SETTINGS_ON_WIRE`] when there is one.
     settings: BTreeSet<&'static str>,
+    /// The settings module's classes a parameter taking a setting's value
+    /// names, such as `run.new_session`'s `source`.
+    setting_values: BTreeSet<String>,
     /// The classes of [`RESPONSE_MODULE`] it imports: both, when a member
     /// answers a page's response, which it wraps in the hand-written
     /// `Response`.
@@ -383,6 +392,51 @@ struct CatalogTyped<'a> {
     settings_type: Option<&'static str>,
 }
 
+/// The annotation of the parameter `name` of `owner`'s params `schema`,
+/// and the expression that passes it to the model.
+fn spell_parameter(
+    layer: &Layer,
+    owner: &str,
+    schema: &Value,
+    overload: Overload<'_>,
+    name: &str,
+    imports: &mut Imports,
+) -> Result<(String, String)> {
+    if snake(name) != name {
+        bail!(
+            "operation `{owner}`: its parameter `{name}` is not a Python name, which a handle's member takes it by (ADR 0099)"
+        );
+    }
+    let property = &schema["properties"][name];
+    if let Some(Wrapped {
+        annotation,
+        model,
+        nullable,
+    }) = wrapped(property, layer, imports, |value| {
+        overload.takes(name, value)
+    }) {
+        // A deprecated value's overload takes that value alone.
+        let nullable = nullable && !overload.chosen_value_of(name);
+        return Ok(if nullable {
+            (
+                format!("{annotation} | None"),
+                format!("None if {name} is None else {model}({name})"),
+            )
+        } else {
+            (annotation, format!("{model}({name})"))
+        });
+    }
+    if let Some(value) = setting_value(property, layer, imports)? {
+        return Ok(value.spell(name, imports));
+    }
+    let Some(spelled) = annotation(property, imports) else {
+        bail!(
+            "operation `{owner}`: the Python handles cannot spell the type of its parameter `{name}`: give it a type of its own in the bundle (ADR 0099)"
+        );
+    };
+    Ok((spelled, name.to_owned()))
+}
+
 #[expect(
     clippy::too_many_arguments,
     reason = "each is one input of the one signature, which a struct would only rename"
@@ -401,39 +455,8 @@ fn signature(
         .definitions
         .get(model)
         .with_context(|| format!("operation `{owner}`: the bundle has no type `{model}`"))?;
-    // Each parameter's annotation, and the expression that passes it to
-    // the model.
-    let spell = |name: &str, imports: &mut Imports| -> Result<(String, String)> {
-        if snake(name) != name {
-            bail!(
-                "operation `{owner}`: its parameter `{name}` is not a Python name, which a handle's member takes it by (ADR 0099)"
-            );
-        }
-        let property = &schema["properties"][name];
-        if let Some(Wrapped {
-            annotation,
-            model,
-            nullable,
-        }) = wrapped(property, layer, imports, |value| {
-            overload.takes(name, value)
-        }) {
-            // A deprecated value's overload takes that value alone.
-            let nullable = nullable && !overload.chosen_value_of(name);
-            return Ok(if nullable {
-                (
-                    format!("{annotation} | None"),
-                    format!("None if {name} is None else {model}({name})"),
-                )
-            } else {
-                (annotation, format!("{model}({name})"))
-            });
-        }
-        let Some(spelled) = annotation(property, imports) else {
-            bail!(
-                "operation `{owner}`: the Python handles cannot spell the type of its parameter `{name}`: give it a type of its own in the bundle (ADR 0099)"
-            );
-        };
-        Ok((spelled, name.to_owned()))
+    let spell = |name: &str, imports: &mut Imports| {
+        spell_parameter(layer, owner, schema, overload, name, imports)
     };
     let mut declared = Vec::new();
     let mut entries = vec![format!("{}=self._host.id", id.param)];
@@ -951,13 +974,16 @@ pub(super) fn handles_module(layer: &Layer, handles: &[Handle<'_>]) -> Result<St
     if events {
         text.push_str("from .events import DEPRECATED_EVENTS, EXPERIMENTAL_EVENTS\n");
     }
-    if !imports.settings.is_empty() {
-        let types: Vec<&str> = imports.settings.iter().copied().collect();
-        let _ = writeln!(
-            text,
-            "from .settings import {DEPRECATED_SETTINGS}, {}",
-            types.join(", ")
-        );
+    if !(imports.settings.is_empty() && imports.setting_values.is_empty()) {
+        let deprecated = (!imports.settings.is_empty()).then_some(DEPRECATED_SETTINGS);
+        let types: BTreeSet<&str> = imports
+            .settings
+            .iter()
+            .copied()
+            .chain(imports.setting_values.iter().map(String::as_str))
+            .collect();
+        let names: Vec<&str> = deprecated.into_iter().chain(types).collect();
+        let _ = writeln!(text, "from .settings import {}", names.join(", "));
     }
     text.push_str(&body);
     Ok(text)

@@ -19,6 +19,7 @@ use crate::check::Finding;
 use crate::github::Api;
 use crate::issues::{Issues, Label};
 use crate::output;
+use crate::owners::Owners;
 use crate::rate::Visibility;
 
 /// The minutes that bill a month, included minutes or billed ones, that
@@ -37,6 +38,10 @@ const ISSUE_TITLE: &str = "A Release run's estimate passes the 600-minute ceilin
 
 /// The marker key of that issue.
 const ISSUE_KEY: &str = "release-ceiling";
+
+/// The ticket that fits the Release runs in the free Actions minutes: the
+/// ceiling's issue goes to its spec, in its milestone (ADR 0136).
+const CEILING_TICKET: u64 = 535;
 
 pub(crate) struct Dispatch<'a> {
     pub(crate) repository: &'a str,
@@ -367,6 +372,7 @@ fn keep_issue(api: Api<'_>, repository: &str, run: &Run, count: &Count) -> Resul
         run.id, count.estimate
     );
     let mut issues = Issues::new(&api, repository);
+    let owners = Owners::new(&api, repository);
     issues
         .keep(
             Label::NeedsTriage,
@@ -374,6 +380,7 @@ fn keep_issue(api: Api<'_>, repository: &str, run: &Run, count: &Count) -> Resul
             ISSUE_TITLE,
             &body,
             run.created_at,
+            || owners.of_ticket(CEILING_TICKET),
         )
         .context("opening or updating the ceiling's `needs-triage` issue")
 }

@@ -30,16 +30,21 @@ pub enum SecretFailure {
     ResolverFailed,
     /// The provider gave no answer within `timeout.secret`.
     TimedOut,
+    /// No one-time code came: a provider made none from the reference,
+    /// such as a TOTP seed it cannot read, or a code source's code never
+    /// arrived (ADR 0092).
+    NoCode,
 }
 
 impl SecretFailure {
     /// Every value, in declaration order.
-    pub const ALL: [Self; 5] = [
+    pub const ALL: [Self; 6] = [
         Self::Missing,
         Self::NotConfigured,
         Self::ProviderFailed,
         Self::ResolverFailed,
         Self::TimedOut,
+        Self::NoCode,
     ];
 
     /// Its name as the wire writes it.
@@ -51,7 +56,7 @@ impl SecretFailure {
 /// A provider gave no value (ADR 0092).
 pub const SECRET_UNAVAILABLE: ErrorCodeDefinition = ErrorCodeDefinition {
     name: "secret_unavailable",
-    description: "A Secret provider gave no value for a reference: a missing variable, a locked keychain, an unreachable vault, the caller's `resolveSecret` missing or throwing, no answer within `timeout.secret`. `failure` says which, and the details name the placeholder or setting, the reference and the provider, never a value.",
+    description: "A Secret provider gave no value for a reference: a missing variable, a locked keychain, an unreachable vault, no one-time code (a TOTP seed the provider makes none from, or a code source's code that never arrived), the caller's `resolveSecret` missing or throwing, no answer within `timeout.secret`. `failure` says which, and the details name the placeholder or setting, the reference and the provider, never a value.",
     group: ErrorGroup::Unavailable,
     retryable: false,
     exit_code: None,
@@ -275,7 +280,7 @@ pub const SECRET_PROVIDERS_OP_COMMAND: Setting = Setting {
 /// answers `bw:` references, from Bitwarden or a Vaultwarden server.
 pub const SECRET_PROVIDERS_BW_COMMAND: Setting = Setting {
     name: "secret_providers.bw.command",
-    description: "The absolute path of the Bitwarden CLI, `bw`, that answers `bw:item/field` Secret references from Bitwarden or, once `bw config server` points it there, a Vaultwarden server: the engine runs `bw get` without interaction and with its own environment, so `BW_SESSION` unlocks the vault. `field` is `password`, `username`, `totp` (the current code, never the seed), `notes`, `uri` or the name of a custom field. Unset, the default, a `bw:` reference fails with `secret_unavailable`, `failure: \"not_configured\"`. Taken only from an Operator policy and user and project configuration.",
+    description: "The absolute path of the Bitwarden CLI, `bw`, that answers `bw:item/field` Secret references from Bitwarden or, once `bw config server` points it there, a Vaultwarden server: the engine runs `bw get` without interaction and with its own environment, so `BW_SESSION` unlocks the vault. `field` is `password`, `username`, `totp` (the current code, never the seed, or `failure: \"no_code\"` when Bitwarden makes none from it), `notes`, `uri` or the name of a custom field. Unset, the default, a `bw:` reference fails with `secret_unavailable`, `failure: \"not_configured\"`. Taken only from an Operator policy and user and project configuration.",
     kind: ValueKind::Text,
     default: no_command,
     clearable: true,

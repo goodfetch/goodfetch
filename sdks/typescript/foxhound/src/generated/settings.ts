@@ -2879,6 +2879,7 @@ const SPELLING: Spelling = {
       max: "max",
     }],
     sharing: "sharing",
+    store: "store",
   }],
   provenance: ["provenance", {
     log: "log",

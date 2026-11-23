@@ -163,6 +163,18 @@ expression: "serde_json::to_string_pretty(&explained.documents[0]).unwrap()"
       "user_settable": true,
       "value": "shared",
       "weakens": false
+    },
+    {
+      "applied": true,
+      "key": "politeness.store",
+      "layer": "default",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "user_settable": true,
+      "value": null,
+      "weakens": false
     }
   ]
 }

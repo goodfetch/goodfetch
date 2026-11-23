@@ -25,7 +25,7 @@ CONFIGURATION = """\
 [tool.pytest]
 strict = true
 strict_markers = true
-addopts = ["--import-mode=importlib"]
+addopts = ["--import-mode=importlib", "-p", "no:langsmith_plugin"]
 """
 """The settings of the workspace's `[tool.pytest]` that a sample run keeps."""
 

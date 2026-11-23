@@ -8,6 +8,8 @@ nothing. Its routes come from `test-support/fixtures/proving-ground/routes.json`
 which `xtask codegen` writes from the Proving ground's own interface.
 """
 
+import http
+import http.client
 import json
 import urllib.request
 from collections.abc import Mapping
@@ -15,11 +17,16 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Self, cast
 
-from goodfetch_test_support.schemas import shared_fixture
+from goodfetch_test_support.generated.result_document import OracleAnswer
+from goodfetch_test_support.schemas import shared_fixture, validate
 
 
 class ProvingGroundUnseeded(Exception):
     """A test took `proving_ground` without overriding `proving_ground_seed`."""
+
+
+class OracleRefused(Exception):
+    """The Proving ground's oracle gave no answer to a submission."""
 
 
 @dataclass(frozen=True)
@@ -102,6 +109,47 @@ class ProvingGround:
         return next(
             entry["start_url"] for entry in listed["tasks"] if entry["id"] == task
         )
+
+    def observations(self) -> dict[str, object]:
+        """What it has observed so far, read from its connection record; it blocks.
+
+        Every request its page hosts received, under `requests`, and the
+        connection record, its proxies' `relays` among it.
+        """
+        with urllib.request.urlopen(self.fixtures.connections) as answer:
+            return cast("dict[str, object]", json.load(answer))
+
+    def judge(self, submission: Mapping[str, object]) -> OracleAnswer:
+        """Its oracle's answer to `submission`, checked against its schema first.
+
+        It blocks.
+
+        Raises:
+            SchemaError: The submission does not match its schema.
+            OracleRefused: The oracle gave no answer.
+        """
+        validate(submission, "proving-ground-oracle-submission.schema.json")
+        host, port = self.address.rsplit(":", 1)
+        connection = http.client.HTTPConnection(host, int(port), timeout=30)
+        try:
+            connection.request(
+                "POST",
+                proving_ground_routes().oracle,
+                json.dumps(submission),
+                {"Content-Type": "application/json"},
+            )
+            response = connection.getresponse()
+            body = response.read().decode("utf-8", errors="replace")
+        finally:
+            connection.close()
+        if response.status != http.HTTPStatus.OK:
+            message = f"the Proving ground's oracle answered {response.status}: {body}"
+            raise OracleRefused(message)
+        answer: object = json.loads(body)
+        if not isinstance(answer, dict) or not {"outcome", "task"} <= answer.keys():
+            message = "the Proving ground's oracle answered no outcome"
+            raise OracleRefused(message)
+        return OracleAnswer.model_validate(answer)
 
 
 @dataclass(frozen=True)

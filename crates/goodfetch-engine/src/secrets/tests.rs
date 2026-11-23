@@ -330,6 +330,50 @@ fn a_provider_that_hangs_ends_at_its_timeout_as_timed_out() {
     assert_eq!(failure, (SecretFailure::TimedOut, Duration::from_secs(30)));
 }
 
+/// A provider that holds the reference but makes no one-time code from it.
+struct NoCode;
+
+impl SecretProvider for NoCode {
+    fn resolve<'a>(&'a self, _: &'a SecretReference) -> Resolving<'a> {
+        Box::pin(async {
+            Err(ProviderFailure::NoCode {
+                fix: "Check the seed in the vault.".to_owned(),
+            })
+        })
+    }
+
+    fn check_config(&self) -> Result<(), ConfigProblem> {
+        Ok(())
+    }
+}
+
+/// Covers: story:4-60, error:secret_unavailable
+#[test]
+fn a_provider_that_makes_no_one_time_code_is_unavailable_as_no_code_with_its_fix() {
+    let env = TestEnv::new();
+    let error = goodfetch_test_support::runtime().block_on(async {
+        let secrets = run_under(
+            &answering(driver(&env, &[]), Provider::Vault, Arc::new(NoCode)),
+            &built_in(),
+        );
+        secrets
+            .resolve(
+                &reference("vault:secret/shop#totp"),
+                &for_the_key(None, &[]),
+            )
+            .await
+            .unwrap_err()
+    });
+
+    let SecretError::Unavailable { failure, fix, .. } = error else {
+        panic!("expected `secret_unavailable`, found {error:?}");
+    };
+    assert_eq!(
+        (failure, fix.as_str()),
+        (SecretFailure::NoCode, "Check the seed in the vault.")
+    );
+}
+
 /// Covers: story:4-62
 #[test]
 fn each_resolution_is_recorded_with_its_placeholder_reference_and_domain_never_its_value() {

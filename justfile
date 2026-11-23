@@ -124,6 +124,8 @@ lint-drift:
     step --after xtask xtask-sdk-manifests 'cargo run --quiet --bin xtask -- sdk-manifests'
     step --after xtask xtask-sdk-exports 'cargo run --quiet --bin xtask -- sdk-exports'
     step --after xtask xtask-compat 'cargo run --quiet --bin xtask -- compat check'
+    step --after xtask xtask-api-check 'cargo run --quiet --bin xtask -- api-check'
+    step --after xtask xtask-sdk-api 'cargo run --quiet --bin xtask -- sdk-api'
     steps_end
 
 # The type checks of the TypeScript and Python code, over the workspace: the
@@ -1617,13 +1619,25 @@ tlc *arguments:
     {{ just_executable() }} tlc-fetch
     cargo run --quiet --bin xtask -- tlc run {{ arguments }}
 
-# A job that passes the models is so shown able to fail, and run fencing's
-# model to reach the zombie copy its destinations fence (`zombie.cfg`).
-# The TLC job's self-test: the sample's broken variant and run fencing's zombie variant must fail their invariants.
+# Each model's trace spec (`trace_spec` in its model.toml) checks the
+# committed traces of real runs it names, built on the template of
+# test-support/models/trace-validation/ (ADR 0060); a model with no trace
+# spec is skipped. `--trace <file>` validates one other trace, and
+# `--expect unmatched` expects it to fail. Needs Java 11 or later.
+# Validates traces of real runs against TLA+ models: `just tlc-validate <model>…` or `--all`.
+tlc-validate *arguments:
+    {{ just_executable() }} tlc-fetch
+    cargo run --quiet --bin xtask -- tlc validate {{ arguments }}
+
+# A job that passes the models is so shown able to fail, run fencing's
+# model to reach the zombie copy its destinations fence (`zombie.cfg`), and
+# the trace validation to refuse a trace altered by hand.
+# The TLC job's self-test: the sample's broken variant and run fencing's zombie variant must fail their invariants, and a slices trace with a Slice past the Limit must fail its validation.
 tlc-self-test:
     {{ just_executable() }} tlc-fetch
     cargo run --quiet --bin xtask -- tlc run sample --config broken --expect invariant-violated
     cargo run --quiet --bin xtask -- tlc run run-fencing --config zombie --expect invariant-violated
+    cargo run --quiet --bin xtask -- tlc validate slices --trace test-support/models/slices/slice-past-the-limit.ndjson --expect unmatched
 
 # Keeps each archive of test-support/lazyfs/sources.toml in
 # target/lazyfs/sources/, downloading only a file that lacks its pinned
@@ -1862,6 +1876,14 @@ feature-combinations:
     RUSTFLAGS="${RUSTFLAGS:-} --cfg goodfetch_without_opentelemetry" CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-$PWD/target}/without-opentelemetry" \
       cargo nextest run --locked --package goodfetch-collie --test it -E 'test(/^sdk::without_opentelemetry::/)'
 
+# cargo-semver-checks on `goodfetch-collie-client`, `goodfetch-collie` and
+# `goodfetch-foxhound`, their testing kits included, against the previous
+# release's commit `compat/api.toml` names (ADRs 0030, 0069, issue 148).
+# It builds both trees' rustdoc, minutes, so the full gate runs it and the
+# Quick suite's `xtask api-check` does not.
+semver-checks:
+    ci/tool.sh cargo-semver-checks cargo run --quiet --bin xtask -- semver-checks
+
 # Miri over the pure-Rust `unsafe` modules that opt in through ci/miri.toml
 # (STYLE.md, `unsafe`).
 miri:
@@ -1901,6 +1923,44 @@ loom:
         LOOM_MAX_PREEMPTIONS="$preemptions" \
         cargo test --locked --package "${module%%$'\t'*}" --lib -- "${module#*$'\t'}"
     done
+
+# The Simulation's scenario `scenario` (ADR 0060): the tests of each
+# crate's `tests/it/simulation/<scenario>.rs`, built with `--cfg
+# tokio_unstable` in a folder of their own, `target/simulation/`, in the
+# suite GOODFETCH_TEST_SUITE names (Quick unless it names another).
+# `--plan <file>`, the command a failing scenario prints, runs only the
+# scenario's Fault plan tests, those named `…fault_plans`, each replaying
+# that plan alone (GOODFETCH_FAULT_PLAN).
+# Runs a Simulation scenario: `just simulate <scenario> [--plan <file>]`.
+[positional-arguments]
+simulate scenario *plan:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    shift
+    filter="test(/^simulation::{{ scenario }}::/)"
+    if [[ $# -gt 0 ]]; then
+      if [[ $# -ne 2 || "$1" != --plan ]]; then
+        echo "usage: just simulate <scenario> [--plan <file>]" >&2
+        exit 2
+      fi
+      GOODFETCH_FAULT_PLAN=$(realpath -- "$2")
+      export GOODFETCH_FAULT_PLAN
+      filter="test(/^simulation::{{ scenario }}::.*fault_plans$/)"
+    fi
+    packages=()
+    while IFS= read -r file; do
+      manifest="$PWD/${file%/tests/it/simulation/*}/Cargo.toml"
+      packages+=(-p "$(cargo metadata --no-deps --format-version 1 --manifest-path "$manifest" \
+        | jq -r --arg manifest "$manifest" '.packages[] | select(.manifest_path == $manifest) | .name')")
+    done < <(find crates -path '*/tests/it/simulation/{{ scenario }}.rs' -not -path '*/target/*')
+    if [[ ${#packages[@]} -eq 0 ]]; then
+      echo "error: no crate has the Simulation scenario {{ scenario }} (tests/it/simulation/{{ scenario }}.rs)" >&2
+      exit 2
+    fi
+    {{ just_executable() }} _test-tools
+    GOODFETCH_TEST_SUITE="${GOODFETCH_TEST_SUITE:-quick}" GOODFETCH_TEST_TOOLS="$PWD/target/test-tools.json" \
+      RUSTFLAGS="${RUSTFLAGS:-} --cfg tokio_unstable" CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-$PWD/target}/simulation" \
+      cargo nextest run --locked "${packages[@]}" --test it --cargo-profile {{ test_profile }} -E "$filter"
 
 # Builds Miri's sysroot, which fetches the standard library's dependencies,
 # so CI runs it before the egress deny; nothing while no module opts in.
@@ -2059,8 +2119,9 @@ _suite suite all="":
       *) echo "error: the only argument is \`all\`, not {{ all }}" >&2; exit 2 ;;
     esac
 
-# TLC on the models the change reaches (`all`: every model), then the job's
-# self-test, as CI's `tlc` job runs them; listed as skipped without Java.
+# TLC on the models the change reaches (`all`: every model), their trace
+# validation, then the job's self-test, as CI's `tlc` job runs them; listed
+# as skipped without Java.
 _tlc all="":
     #!/usr/bin/env bash
     set -euo pipefail
@@ -2080,6 +2141,7 @@ _tlc all="":
       *) echo "error: the only argument is \`all\`, not {{ all }}" >&2; exit 2 ;;
     esac
     ci/tool.sh java "$just" tlc "${models[@]}"
+    ci/tool.sh java "$just" tlc-validate "${models[@]}"
     ci/tool.sh java "$just" tlc-self-test
 
 # The gate's `kennel` step: the Kennel's checks when the change reaches

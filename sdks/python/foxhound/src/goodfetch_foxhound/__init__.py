@@ -38,7 +38,7 @@ from goodfetch_foxhound.crawl import (
     Label,
     seed,
 )
-from goodfetch_foxhound.crawl_run import AsyncCrawlRun
+from goodfetch_foxhound.crawl_run import AsyncCrawlRun, CrawlRun
 from goodfetch_foxhound.foxhound import AsyncFoxhound, Connecting, Foxhound
 
 __all__ = [
@@ -50,6 +50,7 @@ __all__ = [
     "Crawl",
     "CrawlContext",
     "CrawlRequest",
+    "CrawlRun",
     "Dataset",
     "ExperimentalWarning",
     "Foxhound",

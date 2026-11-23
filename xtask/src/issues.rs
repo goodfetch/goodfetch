@@ -2,18 +2,19 @@
 //! results scan`), one per drifting performance figure (`xtask perf drift`)
 //! and one for a Release run past the minute ceiling (`xtask release-suite
 //! plan`), each found again by a marker line in its body, so its title can
-//! be edited. A new one goes to the current milestone, the earliest open
-//! milestone with an open issue
-//! (docs/agents/issue-tracker.md, Frontier); an open one gets the current
-//! results; a closed one reopens only for a result after it closed. The
-//! check of the file that names an issue (the quarantine list) reads it
-//! through [`find`]. The watchlist job's issues
-//! (`xtask watchlist`) are opened once, outside every milestone, and never
-//! reopened: closing one declines its vendor.
+//! be edited. A new one goes to the spec that owns what it is about, as a
+//! sub-issue in the milestone of that spec's ticket (ADR 0136,
+//! [`crate::owners`]); with no owner found, it opens under `needs-triage`
+//! outside every milestone. An open one gets the current results; a closed
+//! one reopens only for a result after it closed, and keeps its parent and
+//! milestone. The check of the file that names an issue (the quarantine
+//! list) reads it through [`find`]. The watchlist job's issues (`xtask
+//! watchlist`) are opened once, outside every milestone, and never reopened:
+//! closing one declines its vendor.
 
 use std::num::NonZeroU64;
 
-use anyhow::{Context as _, Result, bail};
+use anyhow::{Result, bail};
 use jiff::Timestamp;
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -39,6 +40,14 @@ impl Label {
             Self::Watchlist => "watchlist",
         }
     }
+}
+
+/// The spec that owns what an issue is about, and the milestone of its
+/// ticket that added it, when its tickets agree on one (ADR 0136).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub(crate) struct Owner {
+    pub(crate) spec: u64,
+    pub(crate) milestone: Option<u64>,
 }
 
 #[derive(Deserialize)]
@@ -117,15 +126,16 @@ pub(crate) fn find(
 }
 
 #[derive(Deserialize)]
-struct Milestone {
-    number: u64,
-    open_issues: u64,
-    due_on: Option<Timestamp>,
-}
-
-#[derive(Deserialize)]
 struct Created {
     number: u64,
+}
+
+/// A created issue that becomes a sub-issue.
+#[derive(Deserialize)]
+struct CreatedChild {
+    number: u64,
+    /// The issue's id, which the sub-issues endpoint takes.
+    id: u64,
 }
 
 pub(crate) struct Issues<'a> {
@@ -133,16 +143,7 @@ pub(crate) struct Issues<'a> {
     repository: &'a str,
     /// Each label's issues, read once.
     listed: Vec<(Label, Vec<Issue>)>,
-    milestone: CurrentMilestone,
     actions: Vec<String>,
-}
-
-/// The current milestone, read once, when an issue first needs it.
-#[derive(Clone, Copy)]
-enum CurrentMilestone {
-    Unread,
-    /// The milestone's number, or none when no open milestone has an open issue.
-    Read(Option<u64>),
 }
 
 impl<'a> Issues<'a> {
@@ -151,7 +152,6 @@ impl<'a> Issues<'a> {
             api,
             repository,
             listed: Vec::new(),
-            milestone: CurrentMilestone::Unread,
             actions: Vec::new(),
         }
     }
@@ -162,7 +162,11 @@ impl<'a> Issues<'a> {
     }
 
     /// Opens the issue of `key` under `label`, updates its body while it is
-    /// open, or reopens it when `latest` came after it closed.
+    /// open, or reopens it when `latest` came after it closed. `owner` is
+    /// read only to open one: a sub-issue of its spec in its milestone, or,
+    /// with none, an issue under `needs-triage` outside every milestone. One
+    /// that opens but cannot join its spec gets `needs-triage`, and the call
+    /// fails.
     pub(crate) fn keep(
         &mut self,
         label: Label,
@@ -170,6 +174,7 @@ impl<'a> Issues<'a> {
         title: &str,
         body: &str,
         latest: Timestamp,
+        owner: impl FnOnce() -> Result<Option<Owner>>,
     ) -> Result<()> {
         let marker = marker(label, key);
         let body = format!("{marker}\n{body}");
@@ -188,19 +193,55 @@ impl<'a> Issues<'a> {
         let issues = format!("/repos/{}/issues", self.repository);
         match existing {
             None => {
-                let milestone = self.current_milestone()?;
-                let created: Created = self.api.send(
-                    Write::Post,
-                    &issues,
-                    &json!({
-                        "title": title,
-                        "body": body,
-                        "labels": [label.name()],
-                        "milestone": milestone,
-                    }),
-                )?;
-                self.actions
-                    .push(format!("opened #{}: {title}", created.number));
+                if let Some(owner) = owner()? {
+                    let created: CreatedChild = self.api.send(
+                        Write::Post,
+                        &issues,
+                        &json!({
+                            "title": title,
+                            "body": body,
+                            "labels": [label.name()],
+                            "milestone": owner.milestone,
+                        }),
+                    )?;
+                    let joined: Result<Value> = self.api.send(
+                        Write::Post,
+                        &format!("{issues}/{}/sub_issues", owner.spec),
+                        &json!({ "sub_issue_id": created.id }),
+                    );
+                    if let Err(error) = joined {
+                        // Left outside its spec, it waits for triage.
+                        let _: Value = self.api.send(
+                            Write::Post,
+                            &format!("{issues}/{}/labels", created.number),
+                            &json!({ "labels": [Label::NeedsTriage.name()] }),
+                        )?;
+                        return Err(error.context(format!(
+                            "adding #{} to spec #{}; it is labelled {} instead",
+                            created.number,
+                            owner.spec,
+                            Label::NeedsTriage.name()
+                        )));
+                    }
+                    self.actions.push(format!(
+                        "opened #{} under spec #{}: {title}",
+                        created.number, owner.spec
+                    ));
+                } else {
+                    let mut labels = vec![label.name()];
+                    if label != Label::NeedsTriage {
+                        labels.push(Label::NeedsTriage.name());
+                    }
+                    let created: Created = self.api.send(
+                        Write::Post,
+                        &issues,
+                        &json!({ "title": title, "body": body, "labels": labels }),
+                    )?;
+                    self.actions.push(format!(
+                        "opened #{} for triage, no owning spec found: {title}",
+                        created.number
+                    ));
+                }
             }
             Some((number, State::Open, _, current)) => {
                 if current.as_deref() != Some(body.as_str()) {
@@ -214,11 +255,10 @@ impl<'a> Issues<'a> {
             }
             Some((number, State::Closed, closed_at, _)) => {
                 if closed_at.is_none_or(|closed_at| latest > closed_at) {
-                    let milestone = self.current_milestone()?;
                     let _: Value = self.api.send(
                         Write::Patch,
                         &format!("{issues}/{number}"),
-                        &json!({ "state": "open", "body": body, "milestone": milestone }),
+                        &json!({ "state": "open", "body": body }),
                     )?;
                     self.actions.push(format!("reopened #{number}: {title}"));
                 }
@@ -275,33 +315,5 @@ impl<'a> Issues<'a> {
             .iter()
             .find(|(listed, _)| *listed == label)
             .map_or(&[], |(_, issues)| issues.as_slice()))
-    }
-
-    /// The earliest open milestone that still has an open issue, by due date
-    /// and then by number; `None` when there is none.
-    fn current_milestone(&mut self) -> Result<Option<u64>> {
-        if let CurrentMilestone::Read(milestone) = self.milestone {
-            return Ok(milestone);
-        }
-        let milestones: Vec<Milestone> = self
-            .api
-            .get_all(
-                &format!("/repos/{}/milestones?state=open", self.repository),
-                List::Array,
-            )
-            .context("reading the milestones")?;
-        let current = milestones
-            .iter()
-            .filter(|milestone| milestone.open_issues > 0)
-            .min_by_key(|milestone| {
-                (
-                    milestone.due_on.is_none(),
-                    milestone.due_on,
-                    milestone.number,
-                )
-            })
-            .map(|milestone| milestone.number);
-        self.milestone = CurrentMilestone::Read(current);
-        Ok(current)
     }
 }

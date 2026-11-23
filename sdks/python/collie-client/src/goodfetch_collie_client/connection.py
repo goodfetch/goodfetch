@@ -80,6 +80,7 @@ from goodfetch_collie_client.limits import Limits, limit_list
 from goodfetch_collie_client.listeners import MAX_LISTENER_QUEUE, ResumedEvents
 from goodfetch_collie_client.markers import warn_deprecated_settings, warn_entry
 from goodfetch_collie_client.run import AsyncRun, explain_params
+from goodfetch_collie_client.run_view import AsyncRunView
 from goodfetch_collie_client.settings import settings_on_wire
 
 if TYPE_CHECKING:
@@ -651,6 +652,18 @@ class ClientConnection:
         run = AsyncRun(self, started, detached=detached)
         self._runs[run] = None
         return run
+
+    async def open_run(self, run_id: str) -> AsyncRunView:
+        """Opens a view of the Run `run_id` names, with no round trip (ADR 0102).
+
+        The Run is one another program started, such as a detached Run. The
+        view takes no writer role, and closing it frees only the view.
+
+        Raises:
+            ClosedError: The Connection is closed.
+        """
+        self.ensure_open("open_run")
+        return AsyncRunView(run_id)
 
     async def explain_settings(
         self, keys: Iterable[str] | None = None

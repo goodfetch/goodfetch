@@ -30,6 +30,7 @@ if TYPE_CHECKING:
     from goodfetch_collie_client.handlerless import CatalogTarget
     from goodfetch_collie_client.limits import Limits
     from goodfetch_collie_client.run import AsyncRun, Run
+    from goodfetch_collie_client.run_view import AsyncRunView, RunView
 
 __all__ = ["AsyncConnection", "Connection"]
 
@@ -131,6 +132,15 @@ class AsyncConnection(ABC):
 
         `target` is an `ExtractTarget`, an `AgentTarget` or a
         `PlanReplayTarget`; its options are `start_recipe`'s.
+        """
+
+    @abstractmethod
+    async def open_run(self, run_id: str) -> AsyncRunView:
+        """Opens a view of the Run `run_id` names, with no round trip (ADR 0102).
+
+        The Run is one another program started, such as a detached Run. The
+        view takes no writer role, and closing it frees only the view.
+        Raises `closed` once the Connection is closed.
         """
 
     @abstractmethod
@@ -277,6 +287,10 @@ class Connection(ABC):
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
+
+    @abstractmethod
+    def open_run(self, run_id: str) -> RunView:
+        """Opens a view of a Run by its ID, as `AsyncConnection.open_run` says."""
 
     @abstractmethod
     def call(

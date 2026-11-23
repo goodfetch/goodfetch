@@ -6,7 +6,8 @@ through the sync `Collie`. The Daemon checks every message the SDK sends
 and fails on a step left unused, so its clean exit says each start carried
 exactly what its script holds. Each Run is detached, so closing its value
 and the Connection sends no `run.abort`: the Daemon keeps the Run once its
-program is gone. TypeScript's `handlerless-starts.test.ts` is its twin.
+program is gone. A view of a Run opened by its Run ID closes without
+stopping it either. TypeScript's `handlerless-starts.test.ts` is its twin.
 """
 
 from datetime import timedelta
@@ -77,6 +78,8 @@ async def test_a_handlerless_start_takes_every_option_and_leaves_its_detached_ru
         detached=True,
     )
     await recipe.close()
+    view = await collie.open_run("checkout-replay")
+    await view.close()
     await collie.close()
     code = await exit_code(daemon.wait)
 
@@ -86,4 +89,5 @@ async def test_a_handlerless_start_takes_every_option_and_leaves_its_detached_ru
         ("cheapest-kettle", StartedAs.new),
         ("checkout-replay", StartedAs.new),
     ]
+    assert view.id == "checkout-replay"
     assert code == 0

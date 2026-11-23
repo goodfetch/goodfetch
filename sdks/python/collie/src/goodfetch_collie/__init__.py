@@ -2,7 +2,8 @@
 
 Where the main types live (ADR 0117): this package, `goodfetch_collie`,
 holds `AsyncCollie` and the sync `Collie`; the Collie client package,
-`goodfetch_collie_client`, holds `AsyncRun` and `Run`, a handler-less
+`goodfetch_collie_client`, holds `AsyncRun` and `Run`, the view of a Run
+another program started (`AsyncRunView` and `RunView`), a handler-less
 start's code-free targets (`ExtractTarget`, `AgentTarget`,
 `PlanReplayTarget`) and its `Recording`, the results, the
 errors (every group's class and every class of Collie's Error codes), a
@@ -191,6 +192,7 @@ from goodfetch_collie_client.limits import Limits, Money, Prices
 from goodfetch_collie_client.markers import ExperimentalWarning
 from goodfetch_collie_client.response import AsyncResponse, Response
 from goodfetch_collie_client.run import AsyncRun, Run
+from goodfetch_collie_client.run_view import AsyncRunView, RunView
 from goodfetch_collie_client.schema import JSONSchema
 from goodfetch_collie_client.sequence import AsyncSequence, Sequence
 
@@ -207,6 +209,7 @@ __all__ = [
     "AsyncKeyValueStore",
     "AsyncResponse",
     "AsyncRun",
+    "AsyncRunView",
     "AsyncSequence",
     "BlockedError",
     "BodyNotFoundError",
@@ -339,6 +342,7 @@ __all__ = [
     "RunStarted",
     "RunStateUnavailableError",
     "RunTargetUnbuiltError",
+    "RunView",
     "SampleRefusedError",
     "SecretDomainNotAllowedError",
     "SecretInputRefusedError",

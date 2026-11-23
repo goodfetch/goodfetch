@@ -85,6 +85,16 @@ form = "opener"
 [[member]]
 package = "goodfetch_collie"
 receiver = "Collie"
+member = "open_run"
+entry = "none"
+reason = "Opens a view of a Run another program started, by its Run ID, with no round trip (ADR 0102)."
+only = "Issue 3396's Rust part adds it."
+words = ["open", "run"]
+form = "opener"
+
+[[member]]
+package = "goodfetch_collie"
+receiver = "Collie"
 member = "call"
 entry = "none"
 reason = "The raw catalog call on the Connection, for an operation acting on no value that the SDK does not generate (ADR 0099): any catalog operation, so no entry is its own."
@@ -160,6 +170,16 @@ member = "start_catalog_run"
 entry = "catalog_run.start"
 only = "Issue 3396's Rust part adds it."
 words = ["start", "catalog", "run"]
+form = "opener"
+
+[[member]]
+package = "goodfetch_collie"
+receiver = "AsyncCollie"
+member = "open_run"
+entry = "none"
+reason = "Opens a view of a Run another program started, by its Run ID, with no round trip (ADR 0102)."
+only = "Issue 3396's Rust part adds it."
+words = ["open", "run"]
 form = "opener"
 
 [[member]]
@@ -246,6 +266,16 @@ form = "opener"
 [[member]]
 package = "goodfetch_collie"
 receiver = "Connection"
+member = "open_run"
+entry = "none"
+reason = "Opens a view of a Run another program started, by its Run ID, with no round trip (ADR 0102)."
+only = "Issue 3396's Rust part adds it."
+words = ["open", "run"]
+form = "opener"
+
+[[member]]
+package = "goodfetch_collie"
+receiver = "Connection"
 member = "call"
 entry = "none"
 reason = "The interface every Product's Connection type implements (ADR 0095); `Collie.call`'s line holds."
@@ -312,6 +342,16 @@ member = "start_catalog_run"
 entry = "catalog_run.start"
 only = "Issue 3396's Rust part adds it."
 words = ["start", "catalog", "run"]
+form = "opener"
+
+[[member]]
+package = "goodfetch_collie"
+receiver = "AsyncConnection"
+member = "open_run"
+entry = "none"
+reason = "Opens a view of a Run another program started, by its Run ID, with no round trip (ADR 0102)."
+only = "Issue 3396's Rust part adds it."
+words = ["open", "run"]
 form = "opener"
 
 [[member]]
@@ -414,6 +454,26 @@ form = "type"
 [[member]]
 package = "goodfetch_collie"
 receiver = "(module)"
+member = "AsyncRunView"
+entry = "none"
+reason = "The async API's view of a Run another program started, which `open_run` opens (ADR 0102) and which takes no writer role."
+only = "A re-export, which Python lists where its package's `__all__` names it, and TypeScript and Rust in the package that declares it."
+words = ["async", "run", "view"]
+form = "type"
+
+[[member]]
+package = "goodfetch_collie"
+receiver = "(module)"
+member = "RunView"
+entry = "none"
+reason = "The sync API's view of a Run another program started, which `open_run` opens (ADR 0102) and which takes no writer role."
+only = "A re-export, which Python lists where its package's `__all__` names it, and TypeScript and Rust in the package that declares it."
+words = ["run", "view"]
+form = "type"
+
+[[member]]
+package = "goodfetch_collie"
+receiver = "(module)"
 member = "CatalogTarget"
 entry = "none"
 reason = "What a code-free catalog run runs (ADR 0036), the `target` `start_catalog_run` takes: an `ExtractTarget`, an `AgentTarget` or a `PlanReplayTarget`."
@@ -450,6 +510,46 @@ reason = "A catalog run's Plan replayed with no model call (ADR 0036), the `plan
 only = "A re-export, which Python lists where its package's `__all__` names it, and TypeScript and Rust in the package that declares it."
 words = ["plan", "replay", "target"]
 form = "type"
+
+[[member]]
+package = "goodfetch_collie_client.run_view"
+receiver = "AsyncRunView"
+member = "id"
+entry = "none"
+reason = "The Run ID the view was opened with, read without a round trip (ADR 0102)."
+only = "Issue 3396's Rust part adds it."
+words = ["id"]
+form = "read"
+
+[[member]]
+package = "goodfetch_collie_client.run_view"
+receiver = "AsyncRunView"
+member = "close"
+entry = "none"
+reason = "Frees only the view (ADR 0102): the Run goes on."
+only = "Issue 3396's Rust part adds it."
+words = ["close"]
+form = "closer"
+
+[[member]]
+package = "goodfetch_collie_client.run_view"
+receiver = "RunView"
+member = "id"
+entry = "none"
+reason = "The Run ID the view was opened with, read without a round trip (ADR 0102)."
+only = "Issue 3396's Rust part adds it."
+words = ["id"]
+form = "read"
+
+[[member]]
+package = "goodfetch_collie_client.run_view"
+receiver = "RunView"
+member = "close"
+entry = "none"
+reason = "Frees only the view (ADR 0102): the Run goes on."
+only = "Issue 3396's Rust part adds it."
+words = ["close"]
+form = "closer"
 
 [[member]]
 package = "goodfetch_collie"
@@ -1254,6 +1354,16 @@ form = "opener"
 [[member]]
 package = "goodfetch_foxhound"
 receiver = "Foxhound"
+member = "open_run"
+entry = "none"
+reason = "Opens a view of a Run another program started, by its Run ID, with no round trip (ADR 0102); `Collie.open_run`'s member under the same name."
+only = "Issue 3396's Rust part adds it."
+words = ["open", "run"]
+form = "opener"
+
+[[member]]
+package = "goodfetch_foxhound"
+receiver = "Foxhound"
 member = "call"
 entry = "none"
 reason = "The raw catalog call on the Connection, as `Collie.call` is (ADR 0099)."
@@ -1329,6 +1439,16 @@ member = "start_catalog_run"
 entry = "catalog_run.start"
 only = "Issue 3396's Rust part adds it."
 words = ["start", "catalog", "run"]
+form = "opener"
+
+[[member]]
+package = "goodfetch_foxhound"
+receiver = "AsyncFoxhound"
+member = "open_run"
+entry = "none"
+reason = "Opens a view of a Run another program started, by its Run ID, with no round trip (ADR 0102); `AsyncCollie.open_run`'s member under the same name."
+only = "Issue 3396's Rust part adds it."
+words = ["open", "run"]
 form = "opener"
 
 [[member]]
@@ -1516,6 +1636,15 @@ receiver = "ClientConnection"
 member = "start_catalog_run"
 entry = "catalog_run.start"
 words = ["start", "catalog", "run"]
+form = "opener"
+
+[[member]]
+package = "goodfetch_collie_client.connection"
+receiver = "ClientConnection"
+member = "open_run"
+entry = "none"
+reason = "Opens a view of a Run another program started, by its Run ID, with no round trip (ADR 0102)."
+words = ["open", "run"]
 form = "opener"
 
 [[member]]

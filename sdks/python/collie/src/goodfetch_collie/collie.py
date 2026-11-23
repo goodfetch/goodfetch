@@ -41,6 +41,7 @@ from goodfetch_collie_client.product_connection import (
 )
 from goodfetch_collie_client.raw_call import raw_params
 from goodfetch_collie_client.run import AsyncRun, Run
+from goodfetch_collie_client.run_view import RunView
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable, Generator, Iterable, Mapping
@@ -56,6 +57,7 @@ if TYPE_CHECKING:
     from goodfetch_collie_client.generated.settings import RunSettings, Settings
     from goodfetch_collie_client.handlerless import CatalogTarget
     from goodfetch_collie_client.limits import Limits
+    from goodfetch_collie_client.run_view import AsyncRunView
     from pydantic import JsonValue
 
 __all__ = ["AsyncCollie", "Collie", "Connecting", "async_connect_over", "connect_over"]
@@ -316,6 +318,15 @@ class AsyncCollie(AsyncConnection):
             timeout=timeout,
             detached=detached,
         )
+
+    async def open_run(self, run_id: str) -> AsyncRunView:
+        """Opens a view of the Run `run_id` names, with no round trip (ADR 0102).
+
+        The Run is one another program started, such as a detached Run. The
+        view takes no writer role, and closing it frees only the view.
+        Raises `ClosedError` once the Connection is closed.
+        """
+        return await self._connection.open_run(run_id)
 
     async def call(
         self,
@@ -633,6 +644,15 @@ class Collie(Connection):
         except LoopStopped:
             raise closed_error("catalog_run.start") from None
         return Run(self._loop, run)
+
+    def open_run(self, run_id: str) -> RunView:
+        """Opens a view of a Run by its ID, as `AsyncCollie.open_run` says."""
+        opening = functools.partial(self._connection.open_run, run_id)
+        try:
+            view = self._loop.call(opening)
+        except LoopStopped:
+            raise closed_error("open_run") from None
+        return RunView(view)
 
     def call(
         self,

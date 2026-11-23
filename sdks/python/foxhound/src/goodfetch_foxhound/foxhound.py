@@ -45,6 +45,7 @@ from goodfetch_collie_client.product_connection import (
 )
 from goodfetch_collie_client.raw_call import raw_params
 from goodfetch_collie_client.run import AsyncRun, Run
+from goodfetch_collie_client.run_view import RunView
 
 from goodfetch_foxhound.generated.connection import (
     FOXHOUND_ENGINE_PATH_VARIABLE,
@@ -71,6 +72,7 @@ if TYPE_CHECKING:
     from goodfetch_collie_client.generated.settings import RunSettings
     from goodfetch_collie_client.handlerless import CatalogTarget
     from goodfetch_collie_client.limits import Limits
+    from goodfetch_collie_client.run_view import AsyncRunView
     from pydantic import JsonValue
 
     from goodfetch_foxhound.generated.settings import FoxhoundSettings
@@ -258,6 +260,10 @@ class AsyncFoxhound(AsyncConnection):
             timeout=timeout,
             detached=detached,
         )
+
+    async def open_run(self, run_id: str) -> AsyncRunView:
+        """Opens a view of a Run by its ID, as `AsyncCollie.open_run`."""
+        return await self._connection.open_run(run_id)
 
     async def call(
         self,
@@ -495,6 +501,15 @@ class Foxhound(Connection):
         except LoopStopped:
             raise closed_error("catalog_run.start") from None
         return Run(self._loop, run)
+
+    def open_run(self, run_id: str) -> RunView:
+        """Opens a view of a Run by its ID, as `Collie.open_run`."""
+        opening = functools.partial(self._connection.open_run, run_id)
+        try:
+            view = self._loop.call(opening)
+        except LoopStopped:
+            raise closed_error("open_run") from None
+        return RunView(view)
 
     def call(
         self,

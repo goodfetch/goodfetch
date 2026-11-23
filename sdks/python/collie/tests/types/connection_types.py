@@ -3,8 +3,9 @@
 A helper a library serving both Products writes, typed with the client
 package's `AsyncConnection` or `Connection`, takes `AsyncCollie` or
 `Collie`, and refuses any other value; mypy's `--strict` reports an ignore
-that no longer silences an error. It reaches the handler-less starts
-too. TypeScript's `connection.test-d.ts` is its twin.
+that no longer silences an error. It reaches the handler-less starts and
+`open_run` too, the view of a Run being its API's `AsyncRunView` or
+`RunView`. TypeScript's `connection.test-d.ts` is its twin.
 """
 
 from typing import assert_type
@@ -13,11 +14,13 @@ from goodfetch_collie import (
     AsyncCollie,
     AsyncConnection,
     AsyncRun,
+    AsyncRunView,
     Collie,
     Connection,
     EngineInfo,
     PlanReplayTarget,
     Run,
+    RunView,
 )
 
 
@@ -44,10 +47,12 @@ async def takes_collie(collie: AsyncCollie, sync_collie: Collie, run: AsyncRun) 
 async def reaches_a_run_it_does_not_drive(
     connection: AsyncConnection, sync_connection: Connection
 ) -> None:
-    """A helper starts a handler-less Run on either Product."""
+    """A helper starts a handler-less Run and opens a view of one by its ID."""
     replay = PlanReplayTarget(plan="plans/checkout.json")
     assert_type(await connection.start_recipe("shop-prices"), AsyncRun)
     assert_type(await connection.start_catalog_run(replay, detached=True), AsyncRun)
+    assert_type(await connection.open_run("checkout-replay"), AsyncRunView)
     assert_type(sync_connection.start_recipe("shop-prices"), Run)
     assert_type(sync_connection.start_catalog_run(replay), Run)
+    assert_type(sync_connection.open_run("checkout-replay"), RunView)
     await connection.start_catalog_run("plans/checkout.json")  # type: ignore[arg-type]

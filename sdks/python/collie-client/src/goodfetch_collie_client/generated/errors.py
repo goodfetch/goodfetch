@@ -373,6 +373,14 @@ class EnginePanickedError(InternalError):
         super().__init__(message, code="engine_panicked", group="internal", retryable=False, **fields)
 
 
+class EventLoopMismatchError(ProgramError):
+    """The call was made on an async value from another event loop or thread than the loop that opened its Connection: an async Connection and every Run, Session or Page under it belong to that loop, and nothing was sent. Call it from that loop, or use the sync client, whose values any thread may call."""
+
+    def __init__(self, message: str, **fields: Unpack[ErrorFields]) -> None:
+        """Takes the message the engine rendered, and what it carries."""
+        super().__init__(message, code="event_loop_mismatch", group="program", retryable=False, **fields)
+
+
 class ExecutableBlockedBySmartAppControlError(RefusedError):
     """Windows refused to start the file: Smart App Control, or another App Control policy, blocks executables without a signature or reputation it trusts. Goodfetch never re-signs a file it did not build. For a browser, use the Goodfetch Chromium or an installed Chrome by channel; otherwise turn Smart App Control off, or ask the device's administrator to allow the file."""
 
@@ -1018,6 +1026,7 @@ ERROR_CLASSES: Final[Mapping[str, ErrorClass]] = {
     "engine_not_found": EngineNotFoundError,
     "engine_output_invalid": EngineOutputInvalidError,
     "engine_panicked": EnginePanickedError,
+    "event_loop_mismatch": EventLoopMismatchError,
     "executable_blocked_by_smart_app_control": ExecutableBlockedBySmartAppControlError,
     "file_write_failed": FileWriteFailedError,
     "format_version_unsupported": FormatVersionUnsupportedError,

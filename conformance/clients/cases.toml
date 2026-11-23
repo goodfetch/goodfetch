@@ -26,7 +26,7 @@
 
 [suite]
 name = "clients"
-version = "56"
+version = "57"
 
 [[capability]]
 name = "lifecycle"
@@ -761,3 +761,21 @@ id = "trace-context"
 covers = ["story:11-138"]
 surfaces = ["sdk-typescript", "sdk-python", "sdk-rust"]
 modes = { sdk-rust = ["daemon", "linked"] }
+
+# Each SDK on its language's concurrency model (ADR 0081; issue 1275).
+[[capability]]
+name = "concurrency"
+
+# An async value belongs to the event loop that opened its Connection: a
+# call on an `AsyncCollie` or a Run under it from another loop, on another
+# thread, asyncio's or Trio's, fails at once with `event_loop_mismatch`,
+# whose fix names the sync `Collie`, and sends nothing, while the same call
+# from the opening loop works; a sync `Collie`'s values answer the same
+# calls from those loops. Python plays it three ways (asyncio, Trio and the
+# sync API), attached and as a Daemon. No other SDK has an event loop a
+# value belongs to: TypeScript's realm opens its own Connection and Rust's
+# futures run on any executor (ADR 0081), so only Python raises the code.
+[[capability.case]]
+id = "async-values-belong-to-their-loop"
+covers = ["story:11-55", "error:event_loop_mismatch"]
+surfaces = ["sdk-python"]

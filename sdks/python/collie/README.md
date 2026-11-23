@@ -17,3 +17,5 @@ warnings.filterwarnings("ignore", category=ExperimentalWarning)
 ```
 
 A Connection, and every Run, Session or page under it, belongs to the process that opened it: a child created by `fork` that uses one gets `ConnectionForkedError` (`connection_forked`) before anything is written to the parent's engine, and connects on its own (ADR 0078).
+
+An `AsyncCollie`, and every Run, Session or page under it, also belongs to the event loop that opened it: a call from another loop or thread gets `EventLoopMismatchError` (`event_loop_mismatch`) before anything is sent. The sync `Collie` runs its own loop, so its values may be called from any thread (ADR 0081).

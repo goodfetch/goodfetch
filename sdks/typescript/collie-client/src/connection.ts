@@ -12,6 +12,9 @@ export interface Connection extends AsyncDisposable {
   /** The engine reached, fixed when the Connection opened. Read without a round trip. */
   engine(): EngineInfo;
   /**
+   * Leaving the scope or `close()` stops the Run with a Checkpoint.
+   * `finish()` ends it.
+   *
    * Starts a Run its program drives, and answers once it is started. A Run
    * ID names the Run for good, and a start under one acts on what the Run
    * index holds (ADR 0102): no such Run begins it, `new`; an interrupted
@@ -25,6 +28,10 @@ export interface Connection extends AsyncDisposable {
    * starting afresh.
    *
    * Fails with `closed` once the Connection is closed.
+   *
+   * In a service, close the Run on `SIGINT` and `SIGTERM`: the SDK installs
+   * no signal handler, and a signal the program does not handle ends it as a
+   * crash would (ADRs 0078, 0093).
    *
    * @experimental
    */

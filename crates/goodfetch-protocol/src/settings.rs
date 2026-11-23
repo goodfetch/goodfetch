@@ -30,8 +30,8 @@ pub mod page_check;
 pub mod session_source;
 
 pub use deployment::{
-    BROWSERS_PATH_VARIABLE, CHANNEL_VARIABLE, COLLIE_ENGINE_PATH_VARIABLE, DAEMON_ADDRESS_VARIABLE,
-    DAEMON_DRAIN_GRACE_VARIABLE, DEPLOYMENT_PREFIX, DEPLOYMENT_VARIABLES,
+    BROWSERS_PATH_VARIABLE, CHANNEL_VARIABLE, CHANNELS, COLLIE_ENGINE_PATH_VARIABLE,
+    DAEMON_ADDRESS_VARIABLE, DAEMON_DRAIN_GRACE_VARIABLE, DEPLOYMENT_PREFIX, DEPLOYMENT_VARIABLES,
     FOXHOUND_ENGINE_PATH_VARIABLE, HOME_VARIABLE, OPS_ADDRESS_VARIABLE, TEST_SEED_VARIABLE,
     TOKEN_VARIABLE, URL_VARIABLE,
 };
@@ -440,6 +440,11 @@ pub struct SettingsExplanation {
     #[schemars(extend("arrived_in" = "0.1"))]
     pub settings: Vec<ExplainedSetting>,
 }
+
+/// A project configuration's file, found in a folder or above it (ADR
+/// 0083), which a Client reads where it runs: the CLI, and each SDK's
+/// `connect()`.
+pub const PROJECT_CONFIGURATION_FILE: &str = "goodfetch.toml";
 
 /// A project configuration's values, which a Client reads where it runs and
 /// sends with a scope it opens (ADR 0083).

@@ -68,6 +68,18 @@
         product: Product::Collie,
     },
     Namespace {
+        name: "recipe",
+        spelled: "recipe",
+        about: "Calls the catalog's `recipe` operations",
+        product: Product::Collie,
+    },
+    Namespace {
+        name: "catalog_run",
+        spelled: "catalog-run",
+        about: "Calls the catalog's `catalog_run` operations",
+        product: Product::Collie,
+    },
+    Namespace {
         name: "key_value_store",
         spelled: "key-value-store",
         about: "Calls the catalog's `key_value_store` operations",

@@ -10,6 +10,9 @@
 //!
 //! A job `xtask affected` did not select is skipped, and passes: the
 //! `affected` job's `jobs` output lists the selected jobs' IDs (ADR 0032).
+//! So does a job of the hosted tier when its `plan` job scheduled it no step:
+//! the plan's output named after the job is `[]` (ADR 0135's amendment of
+//! 2026-11-22).
 //! Any other skipped job fails, so a skip never stands in for a pass.
 #![expect(
     clippy::disallowed_methods,
@@ -31,6 +34,10 @@ use crate::workflow;
 
 /// The change-detection job, whose `jobs` output is the selection.
 const AFFECTED_JOB: &str = "affected";
+
+/// The hosted tier's planning job: its output named after a job is the JSON
+/// list of the steps that job runs.
+const PLAN_JOB: &str = "plan";
 
 struct Run<'a> {
     api: Api<'a>,
@@ -99,13 +106,29 @@ fn check(needs_file: &Path, run: &Run<'_>) -> Result<Vec<Finding>> {
 }
 
 /// The needed jobs `xtask affected` could have selected and left out, none
-/// when the `affected` job did not succeed.
+/// when the `affected` job did not succeed; and each job of the hosted tier
+/// whose `plan` job succeeded and scheduled it no step.
 fn not_selected(needs: &BTreeMap<String, Need>) -> Result<BTreeSet<&str>> {
+    let mut skippable = BTreeSet::new();
+    if let Some(plan) = needs.get(PLAN_JOB)
+        && plan.result == "success"
+    {
+        for job in needs.keys().filter(|job| *job != PLAN_JOB) {
+            let Some(steps) = plan.outputs.get(job) else {
+                continue;
+            };
+            let steps: Vec<String> = serde_json::from_str(steps)
+                .with_context(|| format!("reading the plan job's `{job}` output"))?;
+            if steps.is_empty() {
+                skippable.insert(job.as_str());
+            }
+        }
+    }
     let Some(affected) = needs.get(AFFECTED_JOB) else {
-        return Ok(BTreeSet::new());
+        return Ok(skippable);
     };
     if affected.result != "success" {
-        return Ok(BTreeSet::new());
+        return Ok(skippable);
     }
     let jobs = affected
         .outputs
@@ -113,13 +136,10 @@ fn not_selected(needs: &BTreeMap<String, Need>) -> Result<BTreeSet<&str>> {
         .context("the affected job has no `jobs` output")?;
     let selected: BTreeSet<String> =
         serde_json::from_str(jobs).context("reading the affected job's `jobs` output")?;
-    Ok(needs
-        .keys()
-        .map(String::as_str)
-        .filter(|job| {
-            affected::selectable_job_ids().any(|id| id == *job) && !selected.contains(*job)
-        })
-        .collect())
+    skippable.extend(needs.keys().map(String::as_str).filter(|job| {
+        affected::selectable_job_ids().any(|id| id == *job) && !selected.contains(*job)
+    }));
+    Ok(skippable)
 }
 
 fn attempt_jobs(run: &Run<'_>, attempt: u32) -> Result<Vec<Job>> {

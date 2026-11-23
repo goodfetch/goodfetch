@@ -19,6 +19,7 @@ pub mod cli;
 pub mod connection;
 pub mod daemon;
 pub mod dns;
+pub mod doctor;
 pub mod download;
 pub mod effect;
 pub mod egress;

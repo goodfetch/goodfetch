@@ -384,6 +384,79 @@ fn page_body_follow_prints_each_chunk_on_one_line_as_it_arrives(#[case] mode: Mo
     ");
 }
 
+/// `--follow` on the Daemon's event stream prints a Run's progress as it
+/// comes, one JSON object per line under `--json`: a Run started and
+/// finished by other commands shows each change of its axes, from running
+/// to finished.
+///
+/// Covers: story:11-212, command:events.subscribe, event:run.axes_changed
+#[cfg(unix)]
+#[test]
+fn events_subscribe_follow_prints_a_runs_progress_as_one_json_object_per_line() {
+    use std::io::{BufRead as _, BufReader};
+    use std::process::Stdio;
+
+    let env = TestEnv::new();
+    let _stops = crate::daemon::StopsTheDaemon::of(&env, COLLIE);
+    let mut command = env.process_command(COLLIE);
+    command
+        .args([
+            "events",
+            "subscribe",
+            "--after",
+            r#"{"engine_instance":"another-engine","position":100}"#,
+            "--follow",
+            "--json",
+            "--daemon",
+        ])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null());
+    let process = env.spawn(&mut command).unwrap();
+    let mut lines = BufReader::new(process.child().stdout.take().unwrap()).lines();
+    // A position another engine instance gave starts with `events.resync`:
+    // the subscription is in flight once it is printed.
+    let resync: Value = serde_json::from_str(&lines.next().unwrap().unwrap()).unwrap();
+
+    let started = cli(&env, COLLIE)
+        .args(["run", "start", "--run-id", "followed", "--daemon"])
+        .run()
+        .unwrap();
+    let finished = cli(&env, COLLIE)
+        .args(["run", "finish", "followed", "--daemon"])
+        .run()
+        .unwrap();
+    let mut progress = Vec::new();
+    for line in lines.by_ref() {
+        let event: Value = serde_json::from_str(&line.unwrap()).unwrap();
+        if event["data"]["run_id"] != "followed" {
+            continue;
+        }
+        let ended = event["event"] == "run.axes_changed" && event["data"]["lifecycle"] != "running";
+        progress.push(event);
+        if ended {
+            break;
+        }
+    }
+    process.terminate().unwrap();
+    let _ = process.child().wait();
+
+    assert_eq!(
+        (&resync["event"], started.exit, finished.exit),
+        (&json!("events.resync"), Some(0), Some(0)),
+        "{started}\n{finished}"
+    );
+    snapshot_settings(&SnapshotValues::of(&env)).bind(|| {
+        insta::assert_snapshot!(
+            "events_subscribe_follow_json",
+            progress
+                .iter()
+                .map(Value::to_string)
+                .collect::<Vec<_>>()
+                .join("\n")
+        );
+    });
+}
+
 /// Covers: command:run.usage
 #[rstest]
 #[case::attached(Mode::Attached)]
@@ -740,6 +813,54 @@ fn a_key_value_store_write_to_a_run_no_engine_holds_fails_with_run_not_found(
     assert_eq!(
         (checked.output.exit, &error["code"], &error["operation"],),
         (Some(3), &json!("run_not_found"), &json!(operation)),
+        "{}",
+        checked.output
+    );
+}
+
+/// A handler-less start, a Recipe's run or a code-free catalog run, is
+/// refused with `run_target_unbuilt` until the engine runs its target
+/// (issue 3396): `--json` prints the error naming the start and the
+/// target's kind, and the command exits by its group's row, `8`.
+///
+/// Covers: error:run_target_unbuilt
+#[rstest]
+/// Covers: command:recipe.start
+#[case::recipe(&["recipe", "start", "--recipe", "shop-prices"], "recipe.start", "recipe")]
+/// Covers: command:catalog-run.start
+#[case::plan_replay(
+    &["catalog-run", "start", "--target", r#"{"kind":"plan_replay","plan":"plans/checkout.json"}"#],
+    "catalog_run.start",
+    "plan_replay"
+)]
+fn a_handlerless_start_is_refused_until_the_engine_runs_its_target(
+    #[case] command: &[&str],
+    #[case] operation: &str,
+    #[case] target: &str,
+) {
+    let env = TestEnv::new();
+
+    let checked = cli(&env, COLLIE)
+        .args(command)
+        .arg("--json")
+        .mode(Mode::Attached)
+        .json("CommandFailed")
+        .unwrap();
+
+    let error = &checked.documents[0]["error"];
+    assert_eq!(
+        (
+            checked.output.exit,
+            &error["code"],
+            &error["operation"],
+            &error["target"]
+        ),
+        (
+            Some(8),
+            &json!("run_target_unbuilt"),
+            &json!(operation),
+            &json!(target)
+        ),
         "{}",
         checked.output
     );

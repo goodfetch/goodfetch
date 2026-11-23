@@ -31,6 +31,8 @@ use goodfetch_test_client::{DaemonClient, HomeLayout};
 use goodfetch_test_support::{Cli, TestEnv, cli};
 #[cfg(unix)]
 use goodfetch_test_support::{DaemonEndpoint, RuntimeFile};
+#[cfg(target_os = "linux")]
+use goodfetch_test_support::{SnapshotValues, assert_cli_snapshot, snapshot_settings};
 use serde_json::{Value, json};
 
 use crate::daemon::{short_idle, validate};
@@ -222,6 +224,43 @@ fn a_reload_of_the_users_systemd_keeps_the_services_socket() {
         ),
         (true, json!("collie"), false)
     );
+}
+
+/// What `daemon install` prints, for people and under `--json`, its
+/// per-host paths (the unit files, the socket, the versioned copy, the
+/// user's own folders and the service's name) redacted by the shared
+/// snapshot filters; a second install replaces the first.
+///
+/// Covers: story:3-21, command:daemon.install
+#[cfg(target_os = "linux")]
+#[test]
+fn daemon_install_prints_the_service_it_registered() {
+    let env = TestEnv::new();
+    let _removes = RemovesTheService(&env);
+
+    let human = in_session(&env, COLLIE)
+        .args(["daemon", "install"])
+        .run()
+        .unwrap();
+    let json = in_session(&env, COLLIE)
+        .args(["daemon", "install", "--json"])
+        .run()
+        .unwrap();
+
+    assert_eq!(
+        (human.exit, json.exit),
+        (Some(0), Some(0)),
+        "{human}\n{json}"
+    );
+    assert_cli_snapshot!("daemon_install_human", human);
+    // The copy's build ID is its file's digest, which each build changes.
+    let installed: Value = serde_json::from_str(&json.stdout).unwrap_or_else(|_| panic!("{json}"));
+    let copy = installed["service"]["executable"]
+        .as_str()
+        .unwrap_or_else(|| panic!("{json}"));
+    let values = SnapshotValues::of(&env).with_path(copy, "[EXECUTABLE_COPY]");
+    snapshot_settings(&values)
+        .bind(|| insta::assert_snapshot!("daemon_install_json", json.to_string()));
 }
 
 /// A rotation stops the Daemon that took the old token: a Client with the

@@ -41,17 +41,24 @@ from goodfetch_collie_client.product_connection import (
 )
 from goodfetch_collie_client.raw_call import raw_params
 from goodfetch_collie_client.run import AsyncRun, Run
+from goodfetch_collie_client.run_view import RunView
 
 if TYPE_CHECKING:
+    import os
     from collections.abc import Awaitable, Callable, Generator, Iterable, Mapping
     from datetime import timedelta
 
     from anyio.abc import ByteStream
     from goodfetch_collie_client.connection import EngineInfo
     from goodfetch_collie_client.engine_choice import EngineChoice
-    from goodfetch_collie_client.generated.models import SettingsExplanation
+    from goodfetch_collie_client.generated.models import (
+        Recording,
+        SettingsExplanation,
+    )
     from goodfetch_collie_client.generated.settings import RunSettings, Settings
+    from goodfetch_collie_client.handlerless import CatalogTarget
     from goodfetch_collie_client.limits import Limits
+    from goodfetch_collie_client.run_view import AsyncRunView
     from pydantic import JsonValue
 
 __all__ = ["AsyncCollie", "Collie", "Connecting", "async_connect_over", "connect_over"]
@@ -93,6 +100,7 @@ class AsyncCollie(AsyncConnection):
         timeout: timedelta | NotGiven | None = not_given,
         max_listener_queue: int = MAX_LISTENER_QUEUE,
         settings: Settings | None = None,
+        project: str | os.PathLike[str] | NotGiven | None = not_given,
     ) -> Connecting:
         """Reaches Collie's engine and finishes `hello`.
 
@@ -124,7 +132,8 @@ class AsyncCollie(AsyncConnection):
         returns at once. An amount the SDK cannot turn exactly, a `timeout`
         of zero or less, a `max_listener_queue` that is no whole number of 1
         or more, a refused `engine` or `GOODFETCH_URL`, or a deployment
-        variable set but empty or not Unicode (`setting_invalid`), a
+        variable set but empty, not Unicode or unparsable by the engine
+        (`setting_invalid`), a
         `GOODFETCH_` variable off the closed list (`setting_unknown`, naming
         the closest), a missing executable (`engine_not_found`), a Daemon
         nothing reaches or that refuses its token (`daemon_unreachable`), a
@@ -140,6 +149,18 @@ class AsyncCollie(AsyncConnection):
         `settings` win over them key by key. A key the Connection does not
         take fails the opening with the engine's error, such as
         `setting_not_applicable` or `setting_locked`.
+
+        `project` is the project file to read (ADR 0083), sent to the
+        engine as the project configuration of each Run the Connection
+        starts and of its `explain_settings()`: the `goodfetch.toml` in the
+        working directory or the nearest folder above it when left out, the
+        file it names, a relative one from the working directory, or none
+        for `None`. Its `timeout.connect` bounds `hello` when `timeout` is
+        left out, and `engine.project_file` names it. A named file that is
+        not there or a file that does not read as a project file
+        (`setting_invalid`), or one of a format version this Goodfetch
+        cannot read (`format_version_unsupported`), raises here before any
+        engine is reached.
         """
         return Connecting(
             functools.partial(
@@ -151,6 +172,7 @@ class AsyncCollie(AsyncConnection):
                 connect_timeout=timeout,
                 max_listener_queue=max_listener_queue,
                 settings=settings,
+                project=project,
             )
         )
 
@@ -214,6 +236,113 @@ class AsyncCollie(AsyncConnection):
         return await self._connection.start(
             run_id=run_id, tags=tags, limits=limits, settings=settings
         )
+
+    async def start_recipe(
+        self,
+        recipe: str,
+        *,
+        run_id: str | None = None,
+        tags: Iterable[str] | None = None,
+        limits: Limits | None = None,
+        settings: RunSettings | None = None,
+        recording: Recording | None = None,
+        timeout: timedelta | NotGiven | None = not_given,
+        detached: bool = False,
+    ) -> AsyncRun:
+        """Starts a Recipe's run and returns once it is started (ADR 0102).
+
+        Starts a Recipe's run, a Run with no handler in the program, and answers once
+        it is started. Its Run ID works as `run.start`'s. With `detached`, the Run
+        outlives the program that started it: closing its value frees only the
+        value, `run.finish` waits for its end and `run.stop` stops it.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+
+        Args:
+            recipe: An installed Recipe's name, or the path to its manifest.
+            run_id: Names the Run for good, as `start`'s.
+            tags: Its tags, as `start`'s.
+            limits: Caps the Run, as `start`'s.
+            settings: The Run's own settings, as `start`'s.
+            recording: The Response recording the Run replays or records
+                (ADR 0105), an input of the Run, never a setting.
+            timeout: How long the Run may last, as `timeout.run` for this
+                Run: its setting's value when left out, none for `None`; a
+                `timedelta` of zero or less raises `SettingInvalidError`
+                before anything is sent.
+            detached: Whether the Run outlives the program: closing its
+                value, or the Connection, then sends no `run.abort`.
+        """
+        warn_entry("recipe.start", EXPERIMENTAL_OPERATIONS, DEPRECATED_OPERATIONS)
+        warn_deprecated_settings(settings, DEPRECATED_SETTINGS)
+        return await self._connection.start_recipe(
+            recipe,
+            run_id=run_id,
+            tags=tags,
+            limits=limits,
+            settings=settings,
+            recording=recording,
+            timeout=timeout,
+            detached=detached,
+        )
+
+    async def start_catalog_run(
+        self,
+        target: CatalogTarget,
+        *,
+        run_id: str | None = None,
+        tags: Iterable[str] | None = None,
+        limits: Limits | None = None,
+        settings: RunSettings | None = None,
+        recording: Recording | None = None,
+        timeout: timedelta | NotGiven | None = not_given,
+        detached: bool = False,
+    ) -> AsyncRun:
+        """Starts a code-free catalog run and returns once it is started (ADR 0036).
+
+        Starts a code-free catalog run, a Run with no handler in the program whose
+        verbs come from the catalog (ADR 0036): an Extraction of a page by a schema,
+        `extract`, an Agent task, `agent`, or a Plan replayed with no model call,
+        `plan_replay`; and answers once it is started. Its Run ID works as
+        `run.start`'s. With `detached`, the Run outlives the program that started
+        it: closing its value frees only the value, `run.finish` waits for its end
+        and `run.stop` stops it.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+
+        Args:
+            target: What the Run does: an `ExtractTarget`, an `AgentTarget`
+                or a `PlanReplayTarget`.
+            run_id: Names the Run for good, as `start`'s.
+            tags: Its tags, as `start`'s.
+            limits: Caps the Run, as `start`'s.
+            settings: The Run's own settings, as `start`'s.
+            recording: The Response recording, as `start_recipe`'s.
+            timeout: How long the Run may last, as `start_recipe`'s.
+            detached: Whether the Run outlives the program, as
+                `start_recipe`'s.
+        """
+        warn_entry("catalog_run.start", EXPERIMENTAL_OPERATIONS, DEPRECATED_OPERATIONS)
+        warn_deprecated_settings(settings, DEPRECATED_SETTINGS)
+        return await self._connection.start_catalog_run(
+            target,
+            run_id=run_id,
+            tags=tags,
+            limits=limits,
+            settings=settings,
+            recording=recording,
+            timeout=timeout,
+            detached=detached,
+        )
+
+    async def open_run(self, run_id: str) -> AsyncRunView:
+        """Opens a view of the Run `run_id` names, with no round trip (ADR 0102).
+
+        The Run is one another program started, such as a detached Run. The
+        view takes no writer role, and closing it frees only the view.
+        Raises `ClosedError` once the Connection is closed.
+        """
+        return await self._connection.open_run(run_id)
 
     async def call(
         self,
@@ -318,6 +447,7 @@ class Collie(Connection):
         timeout: timedelta | NotGiven | None = not_given,
         max_listener_queue: int = MAX_LISTENER_QUEUE,
         settings: Settings | None = None,
+        project: str | os.PathLike[str] | NotGiven | None = not_given,
     ) -> Collie:
         """Reaches Collie's engine and finishes `hello`.
 
@@ -349,7 +479,8 @@ class Collie(Connection):
         returns at once. An amount the SDK cannot turn exactly, a `timeout`
         of zero or less, a `max_listener_queue` that is no whole number of 1
         or more, a refused `engine` or `GOODFETCH_URL`, or a deployment
-        variable set but empty or not Unicode (`setting_invalid`), a
+        variable set but empty, not Unicode or unparsable by the engine
+        (`setting_invalid`), a
         `GOODFETCH_` variable off the closed list (`setting_unknown`, naming
         the closest), a missing executable (`engine_not_found`), a Daemon
         nothing reaches or that refuses its token (`daemon_unreachable`), a
@@ -364,7 +495,8 @@ class Collie(Connection):
         a `timedelta`, sent in whole milliseconds, and a Run's own
         `settings` win over them key by key. A key the Connection does not
         take fails the opening with the engine's error, such as
-        `setting_not_applicable` or `setting_locked`.
+        `setting_not_applicable` or `setting_locked`. `project` is the
+        project file to read, as `AsyncCollie.connect()` reads it.
         """
         return _open_sync(
             functools.partial(
@@ -376,6 +508,7 @@ class Collie(Connection):
                 connect_timeout=timeout,
                 max_listener_queue=max_listener_queue,
                 settings=settings,
+                project=project,
             )
         )
 
@@ -448,6 +581,98 @@ class Collie(Connection):
         except LoopStopped:
             raise closed_error("run.start") from None
         return Run(self._loop, run)
+
+    def start_recipe(
+        self,
+        recipe: str,
+        *,
+        run_id: str | None = None,
+        tags: Iterable[str] | None = None,
+        limits: Limits | None = None,
+        settings: RunSettings | None = None,
+        recording: Recording | None = None,
+        timeout: timedelta | NotGiven | None = not_given,
+        detached: bool = False,
+    ) -> Run:
+        """Starts a Recipe's run, as `AsyncCollie.start_recipe` says.
+
+        Starts a Recipe's run, a Run with no handler in the program, and answers once
+        it is started. Its Run ID works as `run.start`'s. With `detached`, the Run
+        outlives the program that started it: closing its value frees only the
+        value, `run.finish` waits for its end and `run.stop` stops it.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        warn_entry("recipe.start", EXPERIMENTAL_OPERATIONS, DEPRECATED_OPERATIONS)
+        warn_deprecated_settings(settings, DEPRECATED_SETTINGS)
+        starting = functools.partial(
+            self._connection.start_recipe,
+            recipe,
+            run_id=run_id,
+            tags=None if tags is None else list(tags),
+            limits=limits,
+            settings=settings,
+            recording=recording,
+            timeout=timeout,
+            detached=detached,
+        )
+        try:
+            run = self._loop.call(starting)
+        except LoopStopped:
+            raise closed_error("recipe.start") from None
+        return Run(self._loop, run)
+
+    def start_catalog_run(
+        self,
+        target: CatalogTarget,
+        *,
+        run_id: str | None = None,
+        tags: Iterable[str] | None = None,
+        limits: Limits | None = None,
+        settings: RunSettings | None = None,
+        recording: Recording | None = None,
+        timeout: timedelta | NotGiven | None = not_given,
+        detached: bool = False,
+    ) -> Run:
+        """Starts a code-free catalog run, as `AsyncCollie.start_catalog_run` says.
+
+        Starts a code-free catalog run, a Run with no handler in the program whose
+        verbs come from the catalog (ADR 0036): an Extraction of a page by a schema,
+        `extract`, an Agent task, `agent`, or a Plan replayed with no model call,
+        `plan_replay`; and answers once it is started. Its Run ID works as
+        `run.start`'s. With `detached`, the Run outlives the program that started
+        it: closing its value frees only the value, `run.finish` waits for its end
+        and `run.stop` stops it.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        warn_entry("catalog_run.start", EXPERIMENTAL_OPERATIONS, DEPRECATED_OPERATIONS)
+        warn_deprecated_settings(settings, DEPRECATED_SETTINGS)
+        starting = functools.partial(
+            self._connection.start_catalog_run,
+            target,
+            run_id=run_id,
+            tags=None if tags is None else list(tags),
+            limits=limits,
+            settings=settings,
+            recording=recording,
+            timeout=timeout,
+            detached=detached,
+        )
+        try:
+            run = self._loop.call(starting)
+        except LoopStopped:
+            raise closed_error("catalog_run.start") from None
+        return Run(self._loop, run)
+
+    def open_run(self, run_id: str) -> RunView:
+        """Opens a view of a Run by its ID, as `AsyncCollie.open_run` says."""
+        opening = functools.partial(self._connection.open_run, run_id)
+        try:
+            view = self._loop.call(opening)
+        except LoopStopped:
+            raise closed_error("open_run") from None
+        return RunView(view)
 
     def call(
         self,

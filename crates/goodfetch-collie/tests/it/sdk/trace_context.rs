@@ -8,7 +8,11 @@
 //! expect and on a step left unused, so its clean exit says each call
 //! carried exactly that. The blocking API reads the calling thread's span,
 //! though its call runs on the Connection's runtime, even for `run.start`,
-//! whose request is made there.
+//! whose request is made there. In `linked` mode the engine's own request
+//! spans reach the program's subscriber, so the spans it exports show it:
+//! the engine's span of a call made in the program's span is that span's
+//! child, and that of a call made outside any span a root. Without the
+//! feature, `without_opentelemetry.rs` is its twin.
 //! Covers: story:11-138
 
 use goodfetch_collie::{Collie, EngineChoice, blocking};
@@ -16,7 +20,8 @@ use goodfetch_conformance::{ClientCaseRun, RustMode};
 use goodfetch_test_support::{SCRIPTED_DAEMON_TOKEN, TestEnv, case_logs, real_time_runtime};
 use opentelemetry::baggage::BaggageExt as _;
 use opentelemetry::trace::{
-    SpanContext, SpanId, TraceContextExt as _, TraceFlags, TraceId, TraceState, TracerProvider as _,
+    SpanContext, SpanId, SpanKind, TraceContextExt as _, TraceFlags, TraceId, TraceState,
+    TracerProvider as _,
 };
 use opentelemetry::{Context, KeyValue};
 use opentelemetry_sdk::trace::{IdGenerator, SdkTracerProvider};
@@ -26,6 +31,7 @@ use tracing_opentelemetry::OpenTelemetrySpanExt as _;
 use tracing_subscriber::layer::SubscriberExt as _;
 
 use super::engine_choice::{hello, played_whole, scripted};
+use super::exported_spans::{linked_spans, the_span};
 use super::options;
 
 /// The case's script.
@@ -145,4 +151,51 @@ fn a_blocking_call_carries_its_threads_trace_context() {
 
         played_whole(&process);
     });
+}
+
+/// The case in `linked` mode, on the linked engine itself, whose spans the
+/// program's subscriber exports.
+/// Covers: story:11-138
+#[test]
+fn a_call_in_a_span_makes_the_linked_engines_span_its_child_and_one_outside_a_root() {
+    let mut case =
+        ClientCaseRun::start(case_logs().as_deref(), "trace-context", RustMode::Linked).unwrap();
+
+    let spans = linked_spans(async |collie| {
+        async { collie.explain_settings().await.unwrap() }
+            .instrument(tracing::info_span!("program"))
+            .await;
+        collie
+            .call("run.list")
+            .params(json!({ "lifecycle": "running" }))
+            .await
+            .unwrap();
+    });
+
+    let program = the_span(&spans, "program").span_context.clone();
+    let inside = the_span(&spans, "config.explain");
+    let outside = the_span(&spans, "run.list");
+    case.check(
+        "the engine's span of the call in the program's span is its child",
+        || {
+            assert_eq!(
+                (
+                    inside.span_kind.clone(),
+                    inside.span_context.trace_id(),
+                    inside.parent_span_id
+                ),
+                (SpanKind::Server, program.trace_id(), program.span_id()),
+            );
+        },
+    );
+    case.check(
+        "the engine's span of the call outside any span is a root",
+        || {
+            assert_eq!(
+                (outside.span_kind.clone(), outside.parent_span_id),
+                (SpanKind::Server, SpanId::INVALID),
+            );
+            assert_ne!(outside.span_context.trace_id(), program.trace_id());
+        },
+    );
 }

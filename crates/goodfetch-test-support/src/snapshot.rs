@@ -7,8 +7,9 @@
 //!
 //! A rule replaces either one of a run's values (the test's folder, the
 //! executable's Product version and commit), matched literally, or every
-//! match of a pattern (ULIDs and Schedule IDs, RFC 3339 instants, durations,
-//! port numbers on loopback hosts). Values go first, then patterns, each in
+//! match of a pattern (a Daemon service's name, socket folder and unit
+//! folder, ULIDs and Schedule IDs, RFC 3339 instants, durations, port
+//! numbers on loopback hosts). Values go first, then patterns, each in
 //! the file's order. Patterns keep to the syntax Rust's `regex`, JavaScript
 //! and Python's `re` read alike, with ASCII's word boundary in all three
 //! (JavaScript's own), and replacements are literal text, holding neither

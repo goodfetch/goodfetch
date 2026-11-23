@@ -15,6 +15,31 @@
   ],
   "patterns": [
     {
+      "name": "systemd_or_logon_task_service_name",
+      "pattern": "\\bgoodfetch-daemon-[0-9]+(?:\\.[0-9]+)?-[0-9a-f]{8}\\b",
+      "replacement": "[SERVICE_NAME]"
+    },
+    {
+      "name": "launch_agent_label",
+      "pattern": "\\bdev\\.goodfetch\\.daemon\\.[0-9]+(?:\\.[0-9]+)?\\.[0-9a-f]{8}\\b",
+      "replacement": "[SERVICE_NAME]"
+    },
+    {
+      "name": "service_socket_folder",
+      "pattern": "/tmp/goodfetch-daemon-[0-9a-f]{16}\\b",
+      "replacement": "[SOCKET_FOLDER]"
+    },
+    {
+      "name": "systemd_user_units",
+      "pattern": "(?:/[A-Za-z0-9._-]+)+/systemd/user/",
+      "replacement": "[USER_UNITS]/"
+    },
+    {
+      "name": "launch_agents",
+      "pattern": "(?:/[A-Za-z0-9._-]+)*/Library/LaunchAgents/",
+      "replacement": "[LAUNCH_AGENTS]/"
+    },
+    {
       "name": "ulid",
       "pattern": "\\b[0-7][0-9A-HJKMNP-TV-Za-hjkmnp-tv-z]{25}\\b",
       "replacement": "[ULID]"

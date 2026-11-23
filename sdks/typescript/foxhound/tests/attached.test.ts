@@ -3,8 +3,12 @@
 // with `GOODFETCH_FOXHOUND_ENGINE_PATH` and which plays the script of the
 // test's own Goodfetch home. The tracer program is the one the unit tests
 // run over the in-memory transport.
-import { Foxhound, NotInProductError } from "@goodfetch/foxhound";
+import { mkdir, writeFile } from "node:fs/promises";
+import { join } from "node:path";
+import { Crawl, Foxhound, NotInProductError, seed } from "@goodfetch/foxhound";
 import {
+  failure,
+  projectScript,
   recordingLogger,
   scriptedEngineEnv,
   startScriptedDaemon,
@@ -145,6 +149,43 @@ describe("Foxhound.connect() on an Attached engine", () => {
       await clientCase.check("the fallback is logged once at warning", () =>
         expect(warned).toEqual([expect.stringContaining(daemon.address)]),
       );
+    },
+  );
+
+  test(
+    "carries the project file connect() read on crawl.start, and fails with the engine's refusal of it",
+    { tags: ["attached", "story:11-75", "operation:crawl.start", "error:setting_invalid"] },
+    async ({ testEnv }) => {
+      await mkdir(join(testEnv.folder, "work"), { recursive: true });
+      const project = join(testEnv.folder, "work", "goodfetch.toml");
+      await writeFile(project, 'version = "0.1"\n\n[settings.crawl.handler]\nconcurrency = 0\n');
+      // The script expects `crawl.start` to carry the file read, by its path.
+      const env = scriptedEngineEnv(
+        testEnv,
+        "foxhound",
+        projectScript(testEnv, "run/foxhound-crawl-carries-the-project-file.json", project),
+      );
+      const pages = new Crawl();
+      const page = pages.label("page");
+      pages.handle(page, () => undefined);
+
+      // oxlint-disable-next-line no-restricted-properties -- `Foxhound.connect` is the SDK's own factory (ADR 0078), not a browser's.
+      const foxhound = await Foxhound.connect({ env, project });
+      const refused = await failure(
+        foxhound.startCrawl(pages, {
+          seeds: [seed("https://shop.test/a", page)],
+          runId: "nightly",
+        }),
+      );
+      await foxhound.close();
+
+      expect([foxhound.engine().projectFile, refused]).toEqual([
+        project,
+        expect.objectContaining({
+          code: "setting_invalid",
+          details: expect.objectContaining({ layer: "project_configuration" }),
+        }),
+      ]);
     },
   );
 });

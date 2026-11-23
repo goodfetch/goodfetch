@@ -348,14 +348,9 @@ fn configured(machine: &Machine<'_>) -> Result<Configured, Refused> {
         DRAIN_GRACE_VARIABLE,
         &DRAIN_GRACE,
     )? {
-        Some(milliseconds) => milliseconds
-            .parse::<u64>()
-            .map(Duration::from_millis)
-            .map_err(|_| {
-                Source::variable(DRAIN_GRACE_VARIABLE).invalid(format!(
-                    "`{milliseconds}` is no whole number of milliseconds"
-                ))
-            })?,
+        Some(milliseconds) => milliseconds.parse::<u64>().map(Duration::from_millis).expect(
+            "invariant: `identity()`'s environment check refused a drain grace that is no `u64`",
+        ),
         None => settings.get(&DRAIN_GRACE),
     };
     let idle_timeout = settings.get(&IDLE_TIMEOUT);

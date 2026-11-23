@@ -296,6 +296,27 @@ def scripted_engine_env(
     }
 
 
+PROJECT_PLACEHOLDER = "/work/goodfetch.toml"
+"""The project file's path a corpus script names, which `project_script` replaces."""
+
+
+def project_script(test_env: TestEnv, script: str, project: Path) -> str:
+    """The corpus's `script`, each `/work/goodfetch.toml` it names now `project`.
+
+    `project` is the project file the test's Client reads, written in the
+    test's folder. The script is written there too, and its absolute path
+    is returned, which `scripted_engine_env` and `start_scripted_daemon`
+    take as they take a script of the corpus. TypeScript's `projectScript`
+    is its twin.
+    """
+    text = (CORPUS / script).read_text("utf-8")
+    played = text.replace(json.dumps(PROJECT_PLACEHOLDER), json.dumps(str(project)))
+    file = test_env.folder / "project-scripts" / script
+    file.parent.mkdir(parents=True, exist_ok=True)
+    file.write_text(played, "utf-8")
+    return str(file)
+
+
 def scripted_engine_record(home: Path) -> Path:
     """The record `goodfetch-scripted-engine` writes under `home`.
 
@@ -303,6 +324,29 @@ def scripted_engine_record(home: Path) -> Path:
     or writes it, beside the script `scripted_engine_env` installed there.
     """
     return home / SCRIPTED_ENGINE_FOLDER / "record.jsonl"
+
+
+def scripted_engine_environment(home: Path) -> dict[str, str] | None:
+    """The environment the Scripted engine under `home` was started with.
+
+    `goodfetch-scripted-engine attached-engine` writes it before it plays;
+    `None` when no engine was started there. TypeScript's
+    `scriptedEngineEnvironment` is its twin.
+    """
+    written = home / SCRIPTED_ENGINE_FOLDER / "environment.json"
+    if not written.exists():
+        return None
+    parsed: object = json.loads(written.read_text("utf-8"))
+    if not isinstance(parsed, dict):
+        msg = f"{written} holds no map of names to strings"
+        raise TypeError(msg)
+    environment: dict[str, str] = {}
+    for name, value in cast("dict[object, object]", parsed).items():
+        if not isinstance(name, str) or not isinstance(value, str):
+            msg = f"{written} holds no map of names to strings"
+            raise TypeError(msg)
+        environment[name] = value
+    return environment
 
 
 SCRIPTED_ENGINE_READ_DEADLINE_SECONDS = 10.0

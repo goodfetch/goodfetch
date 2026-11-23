@@ -34,12 +34,12 @@ use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::settings::{ProjectSettings, RecipeManifest, RunOrigin, SettingsLayer};
 use serde_json::{Map, Value};
 
-pub use environment::{check_environment, deployment_variable};
+pub use environment::{check_environment, deployment_variable, taken_value};
 pub use error::SettingsError;
 pub use files::{
-    LOWEST_MINOR_KEY, MachineLayers, PROJECT_CONFIGURATION_FILE, SettingsFiles, configuration,
-    find_project, fuzz_settings_file, operator_policy, policy_version, project_settings, rewrite,
-    set, user_configuration,
+    LOWEST_MINOR_KEY, MachineLayers, SettingsFiles, configuration, find_project,
+    fuzz_settings_file, operator_policy, policy_version, project_settings, rewrite, set,
+    user_configuration,
 };
 pub use hosts::HostEntry;
 pub(crate) use keys::fixed_keys;

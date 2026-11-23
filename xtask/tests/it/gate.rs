@@ -21,12 +21,17 @@ const NOW: &str = "1800000000";
 
 /// Each step's `(action, members)` and reason from the plan's
 /// `<step>.action`, `<step>.members` and `<step>.why` lines, and the
-/// `previous`, `head` and `stress.base` lines' heads.
+/// `previous`, `head` and `stress.base` lines' heads, and the head's
+/// `members` line. A step another one's units cover (`covered`, the Quick
+/// suite and xtask's codegen tests) is in `covered` alone, since it runs
+/// nothing whatever the records hold.
 struct Plan {
     previous: String,
     head: String,
+    head_members: BTreeSet<String>,
     stress_base: String,
     steps: BTreeMap<String, (String, String)>,
+    covered: BTreeSet<String>,
     why: BTreeMap<String, String>,
 }
 
@@ -111,8 +116,10 @@ fn parse(outcome: &Outcome) -> Plan {
     let mut plan = Plan {
         previous: String::new(),
         head: String::new(),
+        head_members: BTreeSet::new(),
         stress_base: String::new(),
         steps: BTreeMap::new(),
+        covered: BTreeSet::new(),
         why: BTreeMap::new(),
     };
     for line in outcome.stdout.lines() {
@@ -123,12 +130,21 @@ fn parse(outcome: &Outcome) -> Plan {
             None => match key {
                 "previous" => value.clone_into(&mut plan.previous),
                 "head" => value.clone_into(&mut plan.head),
-                "members" | "unowned" => {}
+                "members" => {
+                    plan.head_members = value.split(' ').map(str::to_owned).collect();
+                }
+                "unowned" => {}
                 _ => panic!("an unexpected plan line: {line:?}"),
             },
             Some(("stress", "base")) => value.clone_into(&mut plan.stress_base),
+            Some((step, "action")) if value == "covered" => {
+                plan.covered.insert(step.to_owned());
+            }
             Some((step, "action")) => {
                 value.clone_into(&mut plan.steps.entry(step.to_owned()).or_default().0);
+            }
+            Some((step, "members")) if plan.covered.contains(step) => {
+                assert_eq!(value, "-", "a covered step runs no member: {line:?}");
             }
             Some((step, "members")) => {
                 value.clone_into(&mut plan.steps.entry(step.to_owned()).or_default().1);
@@ -256,18 +272,26 @@ fn gated_repository(extra: &[(&str, &str)]) -> (Workspace, tempfile::TempDir, Pa
     (workspace, folder, records)
 }
 
+/// The steps of the quick form the full gate's Pre-merge suite covers: the
+/// Quick suite and xtask's codegen tests, whose every test it runs.
+fn covered_in_the_full_gate() -> BTreeSet<String> {
+    BTreeSet::from(["codegen-tests".to_owned(), "quick".to_owned()])
+}
+
 /// A first run on the fixture's `change` head, with perf, TLC and the
-/// Pre-merge suite green and the Quick suite red.
+/// Pre-merge suite green and the Kennel's checks red. It runs every step
+/// but those the Pre-merge suite covers.
 fn first_run(workspace: &Workspace, records: &Path) -> String {
     let first = plan(workspace, records);
     assert_eq!(first.previous, "none");
     assert!(first.steps.values().all(|(action, _)| action == "run"));
+    assert_eq!(first.covered, covered_in_the_full_gate());
     for (step, status) in [
         ("perf", "pass"),
         ("tlc", "pass"),
         ("visual", "pass"),
         ("pre-merge", "pass"),
-        ("quick", "fail"),
+        ("kennel", "fail"),
     ] {
         record(workspace, records, &first.head, step, status);
     }
@@ -327,7 +351,9 @@ fn a_later_run_reruns_what_the_change_since_the_first_reaches_and_every_red_resu
     assert_eq!(action(&second, "perf").0, "reuse");
     assert_eq!(action(&second, "tlc").0, "reuse");
     // Red on the first head: never reused.
-    assert_eq!(action(&second, "quick"), ("run", "-"));
+    assert_eq!(action(&second, "kennel"), ("run", "-"));
+    // Covered by the Pre-merge suite's units, whatever the records hold.
+    assert_eq!(second.covered, covered_in_the_full_gate());
     // Never recorded on the first head.
     assert_eq!(action(&second, "msrv"), ("run", "-"));
     for step in [
@@ -509,7 +535,7 @@ fn a_gate_input_the_map_names_reaches_only_the_steps_that_read_it(
     if reaches_xtask {
         rerun.insert("xtask".to_owned());
     }
-    for step in ["quick", "pre-merge", "stress"] {
+    for step in ["pre-merge", "stress"] {
         assert_eq!(action(&second, step).0, "part", "{step}: {:?}", second.why);
         assert_eq!(members(&second, step), rerun, "{step}: {:?}", second.why);
     }
@@ -640,9 +666,8 @@ const TREE_ONLY: [&str; 4] = ["lint", "feature-combinations", "fuzz-check", "pro
 
 /// The fixture as a repository whose head holds what lint reads again: a
 /// Quality register with one Exception, which expires on `expires`, and a
-/// quarantine list with no test. A first run on it at [`NOW`] (2027-01-15,
-/// 08:00 UTC) recorded each of [`TREE_ONLY`] green.
-fn gated_with_a_green_lint(expires: &str) -> (Workspace, tempfile::TempDir, PathBuf, Plan) {
+/// quarantine list with no test.
+fn gated_with_a_register(expires: &str) -> (Workspace, tempfile::TempDir, PathBuf) {
     let (workspace, folder, records) = gated_repository(&[]);
     workspace.write(
         "TESTING.md",
@@ -655,6 +680,13 @@ fn gated_with_a_green_lint(expires: &str) -> (Workspace, tempfile::TempDir, Path
         &workspace,
         "Add the Quality register and the quarantine list",
     );
+    (workspace, folder, records)
+}
+
+/// [`gated_with_a_register`], where a first run at [`NOW`] (2027-01-15,
+/// 08:00 UTC) recorded each of [`TREE_ONLY`] green.
+fn gated_with_a_green_lint(expires: &str) -> (Workspace, tempfile::TempDir, PathBuf, Plan) {
+    let (workspace, folder, records) = gated_with_a_register(expires);
     let first = plan(&workspace, &records);
     for step in TREE_ONLY {
         record(&workspace, &records, &first.head, step, "pass");
@@ -673,6 +705,661 @@ fn a_run_on_the_same_tree_reuses_the_checks_that_follow_from_the_tree_and_the_ho
     assert_eq!(again.previous, first.head);
     for step in TREE_ONLY {
         assert_eq!(action(&again, step).0, "reuse", "{step}");
+    }
+}
+
+/// The duplicate-run check (`xtask gate duplicates`) passes on the records of
+/// a run on the tree of a green run that reused its results, and fails,
+/// naming both layers, once a full run on that tree reruns one of them.
+#[test]
+fn the_duplicate_run_check_passes_on_reuse_and_fails_on_a_unit_run_twice_on_one_tree() {
+    let (workspace, _folder, records, first) = gated_with_a_green_lint("2027-01-30");
+    let duplicates = || {
+        workspace.xtask(&[
+            "gate",
+            "duplicates",
+            "--records",
+            &records.to_string_lossy(),
+        ])
+    };
+    workspace.git(&["commit", "--quiet", "--allow-empty", "--message", "Again"]);
+    let again = plan(&workspace, &records);
+    assert_eq!(action(&again, "lint").0, "reuse");
+
+    let reuse_only = duplicates();
+
+    assert_eq!(
+        reuse_only.code, 0,
+        "{}{}",
+        reuse_only.stdout, reuse_only.stderr
+    );
+
+    workspace.git(&["commit", "--quiet", "--allow-empty", "--message", "In full"]);
+    let full = plan_with(&workspace, &records, "CI=", &["--full"]);
+    let outcome = workspace.xtask(&[
+        "gate",
+        "record",
+        "--by",
+        "preflight",
+        "--records",
+        &records.to_string_lossy(),
+        "--head",
+        &full.head,
+        // A minute after the first run's results, so the check reads which
+        // ran first.
+        "--now",
+        "1800000060",
+        "--step",
+        "lint",
+        "--status",
+        "pass",
+    ]);
+    assert_eq!(outcome.code, 0, "{}", outcome.stderr);
+
+    let twice = duplicates();
+
+    assert_eq!(twice.code, 1, "{}{}", twice.stdout, twice.stderr);
+    assert_eq!(
+        twice.findings(),
+        [crate::workspace::finding("duplicate-run", "lint")]
+    );
+    assert!(
+        twice.stdout.contains(&format!(
+            "by preflight on {}, after merge on {}",
+            &full.head[..10],
+            &first.head[..10]
+        )),
+        "{}",
+        twice.stdout
+    );
+}
+
+/// Runs `xtask gate quick <command>` on the records in `records`, as the
+/// `_quick-held` and `_quick-record` recipes do, for `head`'s run of the form
+/// `form` against `base`, at `now`, in the run's environment `environment`,
+/// with these arguments added.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "each is part of the key the recipes give"
+)]
+fn quick_run(
+    workspace: &Workspace,
+    records: &Path,
+    command: &str,
+    head: &str,
+    base: &str,
+    form: &str,
+    now: &str,
+    environment: &str,
+    extra: &[&str],
+) -> Outcome {
+    let records = records.to_string_lossy();
+    let mut args = vec![
+        "gate",
+        "quick",
+        command,
+        "--records",
+        &records,
+        "--head",
+        head,
+        "--base",
+        base,
+        "--form",
+        form,
+        "--now",
+        now,
+        "--environment",
+        environment,
+    ];
+    args.extend(extra);
+    workspace.xtask(&args)
+}
+
+/// Whether `just quick` in the form `form` is held on `head` against `base`
+/// at `now` in `environment`: its outcome, which exits 0 when it is held and
+/// 1 when it is due.
+fn held(
+    workspace: &Workspace,
+    records: &Path,
+    head: &str,
+    base: &str,
+    form: &str,
+    now: &str,
+    environment: &str,
+) -> Outcome {
+    let outcome = quick_run(
+        workspace,
+        records,
+        "held",
+        head,
+        base,
+        form,
+        now,
+        environment,
+        &[],
+    );
+    assert!(
+        matches!(outcome.code, 0 | 1),
+        "{}{}",
+        outcome.stdout,
+        outcome.stderr
+    );
+    outcome
+}
+
+/// Records `head`'s run of `just quick` in the changed form against `base`,
+/// by the layer `by`, at `now`, as `status`.
+fn quick_recorded(
+    workspace: &Workspace,
+    records: &Path,
+    head: &str,
+    base: &str,
+    by: &str,
+    now: &str,
+    status: &str,
+) -> Outcome {
+    let outcome = quick_run(
+        workspace,
+        records,
+        "record",
+        head,
+        base,
+        "changed",
+        now,
+        "CI=",
+        &["--by", by, "--status", status],
+    );
+    assert_eq!(outcome.code, 0, "{}{}", outcome.stdout, outcome.stderr);
+    outcome
+}
+
+/// A ticket's commit on the fixture with the register: returns its base, the
+/// commit it went off, and its head.
+fn a_ticket_on_a_register(workspace: &Workspace) -> (String, String) {
+    let base = workspace.git(&["rev-parse", "HEAD"]).trim().to_owned();
+    workspace.write("crates/goodfetch-engine/src/lib.rs", b"//! The ticket.\n");
+    commit_all(workspace, "The ticket");
+    let head = workspace.git(&["rev-parse", "HEAD"]).trim().to_owned();
+    (base, head)
+}
+
+/// `just quick` is held, and runs no lint or suite again, only by the latest
+/// run with its whole key: the tree, the form, the merge base with its base,
+/// the host fingerprint with the run's variables but those only a launcher
+/// reads, a day at most, and lint's other reads unchanged. A red run after a
+/// green one is the latest (ADR 0135's amendment of 2026-11-22).
+#[test]
+fn just_quick_is_held_by_a_green_run_with_its_whole_key_alone() {
+    let (workspace, _folder, records) = gated_with_a_register("2027-01-30");
+    let (base, head) = a_ticket_on_a_register(&workspace);
+    let is_held = |base: &str, form: &str, now: &str, environment: &str| {
+        held(&workspace, &records, &head, base, form, now, environment)
+    };
+
+    let before = is_held(&base, "changed", NOW, "CI=");
+    assert_eq!(before.code, 1);
+    assert!(
+        before.stdout.contains("`just quick` is due: no run"),
+        "{}",
+        before.stdout
+    );
+
+    let recorded = quick_recorded(&workspace, &records, &head, &base, "quick", NOW, "pass");
+    assert!(
+        recorded.stdout.contains("recorded its green run"),
+        "{}",
+        recorded.stdout
+    );
+
+    let after = is_held(&base, "changed", NOW, "CI=");
+    assert_eq!(after.code, 0, "{}", after.stdout);
+    assert!(
+        after
+            .stdout
+            .contains(&format!("green by quick on {}", &head[..10])),
+        "{}",
+        after.stdout
+    );
+    let launched = "CI=\nGOODFETCH_GATE_LAYER=pre-push\nGOODFETCH_QUICK_BASE=origin/spec\nGOODFETCH_STEPS_DIR=/steps";
+    assert_eq!(is_held(&base, "changed", NOW, launched).code, 0);
+    for (why, base, form, now, environment) in [
+        ("another base", "HEAD", "changed", NOW, "CI="),
+        ("the other form", base.as_str(), "all", NOW, "CI="),
+        (
+            "another environment",
+            base.as_str(),
+            "changed",
+            NOW,
+            "CI=true",
+        ),
+        ("a day later", base.as_str(), "changed", "1800086401", "CI="),
+    ] {
+        assert_eq!(is_held(base, form, now, environment).code, 1, "{why}");
+    }
+    let online = quick_run(
+        &workspace,
+        &records,
+        "held",
+        &head,
+        &base,
+        "changed",
+        NOW,
+        "CI=",
+        &["--zizmor-online"],
+    );
+    assert_eq!(online.code, 1, "{}", online.stdout);
+
+    quick_recorded(
+        &workspace,
+        &records,
+        &head,
+        &base,
+        "pre-push",
+        "1800000060",
+        "fail",
+    );
+    let red = is_held(&base, "changed", "1800000060", "CI=");
+    assert_eq!(red.code, 1);
+    assert!(
+        red.stdout
+            .contains(&format!("by pre-push on {}, was red", &head[..10])),
+        "{}",
+        red.stdout
+    );
+}
+
+/// A run is recorded only for the head it checked, on a clean tree, and not
+/// when lint's zizmor read GitHub with the run's token.
+#[test]
+fn a_run_on_another_head_on_uncommitted_changes_or_reading_github_records_nothing() {
+    let (workspace, _folder, records) = gated_with_a_register("2027-01-30");
+    let (base, head) = a_ticket_on_a_register(&workspace);
+    let record = |head: &str, extra: &[&str]| {
+        let mut args = vec!["--by", "quick", "--status", "pass"];
+        args.extend(extra);
+        quick_run(
+            &workspace, &records, "record", head, &base, "changed", NOW, "CI=", &args,
+        )
+    };
+
+    let another_head = record(&base, &[]);
+    let online = record(&head, &["--zizmor-online"]);
+    workspace.write("crates/goodfetch-engine/src/lib.rs", b"//! Edited.\n");
+    let uncommitted = record(&head, &[]);
+
+    for outcome in [another_head, online, uncommitted] {
+        assert_eq!(outcome.code, 0, "{}", outcome.stderr);
+        assert!(
+            outcome.stdout.contains("`just quick` records no run"),
+            "{}",
+            outcome.stdout
+        );
+    }
+    assert!(!records.join("quick-runs").exists());
+}
+
+/// The no-double-run walk of the local layers (spec 3373's Testing
+/// Decisions): the implementer's `just quick` on the ticket, the pre-push
+/// hook on the same head, a merge of `main`'s new tip, the implementer's and
+/// the hook's again, `just preflight` and the full gate on the merge. No
+/// unit runs twice on one tree, and the duplicate-run check passes; a hook
+/// that ran `just quick` again where it was held fails it, naming both
+/// layers.
+#[test]
+fn no_unit_runs_twice_on_one_tree_across_the_local_layers() {
+    let (workspace, _folder, records) = gated_with_a_register("2027-01-30");
+    let (base, ticket) = a_ticket_on_a_register(&workspace);
+    let duplicates = || {
+        workspace.xtask(&[
+            "gate",
+            "duplicates",
+            "--records",
+            &records.to_string_lossy(),
+        ])
+    };
+
+    let held_at =
+        |head: &str, now: &str| held(&workspace, &records, head, &base, "changed", now, "CI=").code;
+    let quick_at = |head: &str, by: &str, now: &str| {
+        quick_recorded(&workspace, &records, head, &base, by, now, "pass");
+    };
+
+    assert_eq!(held_at(&ticket, NOW), 1);
+    quick_at(&ticket, "quick", NOW);
+    assert_eq!(held_at(&ticket, NOW), 0, "the pre-push hook");
+
+    workspace.git(&["switch", "--quiet", "--create", "main-tip", &base]);
+    workspace.write("docs/main.md", b"# Main moved\n");
+    commit_all(&workspace, "Main moves");
+    workspace.git(&["switch", "--quiet", "-"]);
+    workspace.git(&["merge", "--quiet", "--no-edit", "main-tip"]);
+    let merged = workspace.git(&["rev-parse", "HEAD"]).trim().to_owned();
+    assert_eq!(held_at(&merged, NOW), 1, "a new tree");
+    quick_at(&merged, "quick", "1800000060");
+    assert_eq!(held_at(&merged, "1800000060"), 0, "the pre-push hook");
+
+    let preflight = plan_at(&workspace, &records, "1800000120");
+    for step in ["counts", "stress"] {
+        let outcome = workspace.xtask(&[
+            "gate",
+            "record",
+            "--by",
+            "preflight",
+            "--records",
+            &records.to_string_lossy(),
+            "--head",
+            &preflight.head,
+            "--now",
+            "1800000120",
+            "--step",
+            step,
+            "--status",
+            "pass",
+        ]);
+        assert_eq!(outcome.code, 0, "{}", outcome.stderr);
+    }
+    let full = plan_at(&workspace, &records, "1800000180");
+    assert_eq!(full.previous, merged);
+    assert_eq!(action(&full, "counts").0, "reuse");
+    assert!(full.covered.contains("quick"), "{:?}", full.covered);
+    for (step, (action, _)) in &full.steps {
+        if action != "reuse" {
+            record(&workspace, &records, &full.head, step, "pass");
+        }
+    }
+
+    let once = duplicates();
+
+    assert_eq!(once.code, 0, "{}{}", once.stdout, once.stderr);
+
+    quick_at(&merged, "pre-push", "1800000240");
+
+    let twice = duplicates();
+
+    assert_eq!(twice.code, 1, "{}{}", twice.stdout, twice.stderr);
+    let fork = workspace.git(&["merge-base", &merged, &base]);
+    assert_eq!(
+        twice.findings(),
+        [crate::workspace::finding(
+            "duplicate-run",
+            &format!("just-quick:{}", fork.trim())
+        )]
+    );
+    assert!(
+        twice.stdout.contains(&format!(
+            "by pre-push on {}, after quick on {}",
+            &merged[..10],
+            &merged[..10]
+        )),
+        "{}",
+        twice.stdout
+    );
+}
+
+/// The repository whose own pull requests' hosted runs count.
+const REPOSITORY: &str = "goodfetch/goodfetch";
+
+/// The steps of the quick form the hosted tier owns (spec 3373).
+const HOSTED_OWNED: [&str; 4] = ["lint", "quick", "journeys-tasks", "codegen-tests"];
+
+/// The quick form's steps (`xtask gate steps --form quick`): the plan lists
+/// every step, and `ci/pre-merge.sh quick` runs these.
+const QUICK_FORM: [&str; 10] = [
+    "dco",
+    "commit-messages",
+    "floor-guard",
+    "commit-leaks",
+    "audit",
+    "notices",
+    "lint",
+    "quick",
+    "journeys-tasks",
+    "codegen-tests",
+];
+
+/// Each unit a layer ran, `<step>` or `<step>:<member>`, with the tree it
+/// ran on: the layers that ran it.
+type Ran = BTreeMap<(String, String), Vec<String>>;
+
+/// The units of `step` that `plan` runs, in full or in part: the Quick
+/// suite's one a member, every member of the head's when it runs in full.
+fn units(plan: &Plan, step: &str) -> BTreeSet<String> {
+    let (action, members) = action(plan, step);
+    match action {
+        "run" | "part" if step != "quick" => BTreeSet::from([step.to_owned()]),
+        "run" if members == "-" => plan
+            .head_members
+            .iter()
+            .map(|member| format!("{step}:{member}"))
+            .collect(),
+        "run" | "part" => members
+            .split(' ')
+            .map(|member| format!("{step}:{member}"))
+            .collect(),
+        _ => BTreeSet::new(),
+    }
+}
+
+/// Adds to `ran` the units of `steps` that `plan` runs on the tree of its
+/// head, as run by `layer`.
+fn add_ran(workspace: &Workspace, ran: &mut Ran, plan: &Plan, steps: &[&str], layer: &str) {
+    let tree = workspace.git(&["rev-parse", &format!("{}^{{tree}}", plan.head)]);
+    for step in steps {
+        for unit in units(plan, step) {
+            ran.entry((unit, tree.trim().to_owned()))
+                .or_default()
+                .push(layer.to_owned());
+        }
+    }
+}
+
+/// The fixture with the CI image pinned and a batch's commit on it: returns
+/// the commit the batch went off.
+fn a_batch_pinning_the_ci_image(workspace: &Workspace) -> String {
+    workspace.write("ci/image/Containerfile", b"FROM scratch\n");
+    commit_all(workspace, "Pin the CI image");
+    a_ticket_on_a_register(workspace).0
+}
+
+/// The hosted tier's run `run` on the head checked out, as the pull-request
+/// workflow runs it: its planning job plans by the layer `hosted` from the
+/// records in `downloaded` of the head's ancestors' runs, and a job a step
+/// the plan schedules runs it green and uploads its record, which lands in
+/// `downloaded/<run>/gate-record-<step>/` as `ci/hosted-records.sh`
+/// downloads it. Only the jobs of `finished` end; the others are cancelled
+/// with the run and upload nothing. Returns the planning job's plan.
+fn hosted_run(
+    workspace: &Workspace,
+    folder: &Path,
+    downloaded: &Path,
+    run: &str,
+    finished: &[&str],
+    ran: &mut Ran,
+) -> Plan {
+    let downloaded_arg = downloaded.to_string_lossy();
+    let hosted = [
+        "--form",
+        "quick",
+        "--layer",
+        "hosted",
+        "--head-repository",
+        REPOSITORY,
+        "--runner-image",
+        "ubuntu24/20261116.1",
+        "--hosted-records",
+        &downloaded_arg,
+    ];
+    let job = |name: &str| {
+        plan_with(
+            workspace,
+            &folder.join(format!("hosted-{run}-{name}")),
+            "CI=true",
+            &hosted,
+        )
+    };
+    let planning = job("plan");
+    for step in HOSTED_OWNED {
+        if units(&planning, step).is_empty() || !finished.contains(&step) {
+            continue;
+        }
+        let records = folder.join(format!("hosted-{run}-{step}"));
+        let plan = job(step);
+        add_ran(workspace, ran, &plan, &[step], "hosted");
+        let outcome = workspace.xtask(&[
+            "gate",
+            "record",
+            "--by",
+            "hosted",
+            "--records",
+            &records.to_string_lossy(),
+            "--head",
+            &plan.head,
+            "--now",
+            NOW,
+            "--step",
+            step,
+            "--status",
+            "pass",
+        ]);
+        assert_eq!(outcome.code, 0, "{}", outcome.stderr);
+        let artifact = downloaded.join(run).join(format!("gate-record-{step}"));
+        std::fs::create_dir_all(&artifact).unwrap();
+        let file = format!("{}.tsv", plan.head);
+        std::fs::copy(records.join(&file), artifact.join(&file)).unwrap();
+    }
+    planning
+}
+
+/// `just merge`'s gate in the quick form on the head checked out, reading
+/// the hosted runs' records in `downloaded`: it runs each step it plans to
+/// green, and returns its plan.
+fn merge_gate(workspace: &Workspace, records: &Path, downloaded: &Path, ran: &mut Ran) -> Plan {
+    let plan = plan_with(
+        workspace,
+        records,
+        "CI=",
+        &[
+            "--form",
+            "quick",
+            "--head-repository",
+            REPOSITORY,
+            "--hosted-records",
+            &downloaded.to_string_lossy(),
+        ],
+    );
+    add_ran(workspace, ran, &plan, &QUICK_FORM, "merge");
+    for step in QUICK_FORM {
+        if !units(&plan, step).is_empty() {
+            record(workspace, records, &plan.head, step, "pass");
+        }
+    }
+    plan
+}
+
+/// Every unit in `ran` ran once, on one layer, for its tree.
+fn ran_once(ran: &Ran) {
+    let twice: Vec<_> = ran.iter().filter(|(_, layers)| layers.len() > 1).collect();
+    assert!(twice.is_empty(), "units run twice on one tree: {twice:?}");
+}
+
+/// The no-double-run walk of the hosted tier (spec 3373's Testing
+/// Decisions; the local layers' walk is the test above): the hosted run on
+/// a batch's head, `just merge`'s merge of `main`'s new tip, the hosted run
+/// on that merge, which plans from the head's records and runs only what
+/// the merge reaches, and the gate on the merge, which reads both runs and
+/// runs none of the hosted-owned units. No unit runs twice on one tree, nor
+/// on two layers, and each step the quick form needs is run or reused.
+#[test]
+fn no_unit_runs_twice_on_one_tree_across_the_hosted_and_local_layers() {
+    let (workspace, folder, records) = gated_with_a_register("2027-01-30");
+    let downloaded = folder.path().join("downloaded");
+    let base = a_batch_pinning_the_ci_image(&workspace);
+    let mut ran = Ran::new();
+
+    let first = hosted_run(
+        &workspace,
+        folder.path(),
+        &downloaded,
+        "1",
+        &HOSTED_OWNED,
+        &mut ran,
+    );
+    for step in HOSTED_OWNED {
+        assert_eq!(action(&first, step).0, "run", "{step}");
+    }
+    workspace.git(&["switch", "--quiet", "--create", "main-tip", &base]);
+    workspace.write(
+        "crates/goodfetch-conformance/src/lib.rs",
+        b"//! Main moved.\n",
+    );
+    commit_all(&workspace, "Main moves");
+    workspace.git(&["update-ref", "refs/remotes/origin/main", "main-tip"]);
+    workspace.git(&["switch", "--quiet", "-"]);
+    workspace.git(&["merge", "--quiet", "--no-edit", "main-tip"]);
+    let second = hosted_run(
+        &workspace,
+        folder.path(),
+        &downloaded,
+        "2",
+        &HOSTED_OWNED,
+        &mut ran,
+    );
+    let gate = merge_gate(&workspace, &records, &downloaded, &mut ran);
+
+    ran_once(&ran);
+    let (first_quick, second_quick) = (units(&first, "quick"), units(&second, "quick"));
+    assert!(
+        !second_quick.is_empty()
+            && second_quick.is_subset(&first_quick)
+            && second_quick != first_quick,
+        "the merge's hosted run reruns only what main's tip reaches: {second_quick:?} of {first_quick:?}"
+    );
+    assert_eq!(gate.head, second.head);
+    for step in HOSTED_OWNED {
+        assert_eq!(action(&gate, step).0, "reuse", "{step}");
+        assert!(
+            gate.why[step].contains("by hosted"),
+            "{step}: {}",
+            gate.why[step]
+        );
+    }
+    for step in QUICK_FORM {
+        assert!(
+            matches!(action(&gate, step).0, "run" | "part" | "reuse"),
+            "{step}: {:?}",
+            action(&gate, step)
+        );
+    }
+}
+
+/// The walk's fallback: a hosted run cancelled at its cap leaves the units
+/// of its jobs that had not ended to the gate, whose local run is their
+/// only run, and the gate reuses what the ended jobs ran.
+#[test]
+fn a_hosted_run_cancelled_at_its_cap_leaves_the_gate_the_only_run_of_its_unfinished_units() {
+    let (workspace, folder, records) = gated_with_a_register("2027-01-30");
+    let downloaded = folder.path().join("downloaded");
+    a_batch_pinning_the_ci_image(&workspace);
+    let mut ran = Ran::new();
+
+    hosted_run(
+        &workspace,
+        folder.path(),
+        &downloaded,
+        "1",
+        &["lint"],
+        &mut ran,
+    );
+    let gate = merge_gate(&workspace, &records, &downloaded, &mut ran);
+
+    ran_once(&ran);
+    assert_eq!(action(&gate, "lint").0, "reuse");
+    for step in ["quick", "journeys-tasks", "codegen-tests"] {
+        assert_eq!(action(&gate, step).0, "run", "{step}");
+        for unit in units(&gate, step) {
+            let tree = workspace.git(&["rev-parse", "HEAD^{tree}"]);
+            assert_eq!(ran[&(unit, tree.trim().to_owned())], ["merge"]);
+        }
     }
 }
 
@@ -1296,74 +1983,32 @@ fn record_with(workspace: &Workspace, records: &Path, head: &str, step: &str, ar
     assert_eq!(outcome.code, 0, "{}", outcome.stderr);
 }
 
-/// Records the first run's Quick suite red with `junit` as its nextest
-/// file, beside the records, and perf, TLC, visual and the Pre-merge suite
-/// green; then commits a change that reaches no member.
-fn red_quick_suite_then_a_docs_change(workspace: &Workspace, records: &Path, junit: &str) {
-    red_suite_then_a_docs_change(workspace, records, "quick", junit);
-}
-
-/// Records the first run's `suite`, the Quick or the Pre-merge suite, red
-/// with `junit` as its nextest file, beside the records, and the other
-/// suite, perf, TLC and visual green; then commits a change that reaches no
-/// member.
-fn red_suite_then_a_docs_change(workspace: &Workspace, records: &Path, suite: &str, junit: &str) {
+/// Records the first run's Pre-merge suite red with `junit` as its nextest
+/// file, beside the records, and perf, TLC and visual green; then commits a
+/// change that reaches no member.
+fn red_pre_merge_suite_then_a_docs_change(workspace: &Workspace, records: &Path, junit: &str) {
     let first = plan(workspace, records);
-    for step in ["perf", "tlc", "visual", "pre-merge", "quick"] {
-        if step != suite {
-            record(workspace, records, &first.head, step, "pass");
-        }
+    for step in ["perf", "tlc", "visual"] {
+        record(workspace, records, &first.head, step, "pass");
     }
-    let file = records.with_file_name(format!("{suite}-junit.xml"));
+    let file = records.with_file_name("pre-merge-junit.xml");
     std::fs::write(&file, junit).unwrap();
     record_with(
         workspace,
         records,
         &first.head,
-        suite,
+        "pre-merge",
         &["--junit", &file.to_string_lossy()],
     );
     workspace.write("docs/index.md", b"# Changed\n");
     commit_all(workspace, "Change the docs");
 }
 
-/// A red Quick suite records red only the crates with a failing test: the
-/// others passed in full, so the next run reuses them where the change
-/// since does not reach them (the test-gate audit's option 4).
-#[test]
-fn a_red_quick_suite_records_red_only_the_crates_with_a_failing_test() {
-    let (workspace, _folder, records) = gated_repository(&[]);
-    red_quick_suite_then_a_docs_change(
-        &workspace,
-        &records,
-        &nextest_junit(
-            &[
-                ("goodfetch-engine", "dispatch::routes", false),
-                ("goodfetch-frontier", "claim::slices", true),
-            ],
-            true,
-        ),
-    );
-
-    let second = plan(&workspace, &records);
-
-    assert_eq!(action(&second, "quick").0, "part");
-    let rerun = members(&second, "quick");
-    assert!(rerun.contains("goodfetch-engine"), "{rerun:?}");
-    for passed in [
-        "goodfetch-frontier",
-        "goodfetch-conformance",
-        "goodfetch-sink-s3",
-        "goodfetch-proving-ground",
-    ] {
-        assert!(!rerun.contains(passed), "{passed} reran: {rerun:?}");
-    }
-}
-
 /// A red Pre-merge suite, red in nextest alone, records red the crates with
 /// a failing test and those holding insta snapshots, which cargo-insta
-/// judges unreferenced only once every test passed, and green the others
-/// (the test-gate audit's option 4b).
+/// judges unreferenced only once every test passed, and green the others,
+/// so the next run reuses them where the change since does not reach them
+/// (the test-gate audit's options 4 and 4b).
 #[test]
 fn a_red_pre_merge_suite_records_green_each_crate_that_passed_in_full_but_one_holding_snapshots() {
     let (workspace, _folder, records) = gated_repository(&[]);
@@ -1372,10 +2017,9 @@ fn a_red_pre_merge_suite_records_green_each_crate_that_passed_in_full_but_one_ho
         b"---\nsource: tests/it.rs\n---\na case\n",
     );
     commit_all(&workspace, "Add a snapshot");
-    red_suite_then_a_docs_change(
+    red_pre_merge_suite_then_a_docs_change(
         &workspace,
         &records,
-        "pre-merge",
         &nextest_junit(
             &[
                 ("goodfetch-engine", "dispatch::routes", false),
@@ -1410,16 +2054,16 @@ fn a_red_pre_merge_suite_records_green_each_crate_that_passed_in_full_but_one_ho
 #[case::no_failing_test(&[("goodfetch-engine", "dispatch::routes", true)], true)]
 #[case::unfinished(&[("goodfetch-engine", "dispatch::routes", false)], false)]
 #[case::a_crate_the_step_did_not_run(&[("goodfetch-elsewhere", "a::test", false)], true)]
-fn a_red_quick_suite_its_file_does_not_account_for_records_every_member_red(
+fn a_red_pre_merge_suite_its_file_does_not_account_for_records_every_member_red(
     #[case] cases: &[(&str, &str, bool)],
     #[case] whole: bool,
 ) {
     let (workspace, _folder, records) = gated_repository(&[]);
-    red_quick_suite_then_a_docs_change(&workspace, &records, &nextest_junit(cases, whole));
+    red_pre_merge_suite_then_a_docs_change(&workspace, &records, &nextest_junit(cases, whole));
 
     let second = plan(&workspace, &records);
 
-    assert_eq!(action(&second, "quick"), ("run", "-"));
+    assert_eq!(action(&second, "pre-merge"), ("run", "-"));
 }
 
 /// A red stress run records green each crate whose every selected test
@@ -1429,7 +2073,7 @@ fn a_red_quick_suite_its_file_does_not_account_for_records_every_member_red(
 fn a_red_stress_run_records_green_each_crate_whose_selected_tests_all_passed_their_count() {
     let (workspace, _folder, records) = gated_repository(&[]);
     let first = plan(&workspace, &records);
-    for step in ["perf", "tlc", "visual", "pre-merge", "quick"] {
+    for step in ["perf", "tlc", "visual", "pre-merge"] {
         record(&workspace, &records, &first.head, step, "pass");
     }
     let folder = records.with_file_name("repeat-3");
@@ -1646,10 +2290,9 @@ fn a_red_stress_run_leaves_its_clean_members_their_passes_and_the_fix_reruns_wha
             format!("goodfetch-frontier {first} 7 goodfetch-frontier::it c::steady"),
         ]
     );
-    // The fix reaches xtask's tests alone in the other suites.
+    // The fix reaches xtask's tests alone in the Pre-merge suite.
     let mut suites: BTreeSet<String> = SHUFFLED.iter().map(|member| (*member).to_owned()).collect();
     suites.insert("xtask".to_owned());
-    assert_eq!(members(&second, "quick"), suites);
     assert_eq!(members(&second, "pre-merge"), suites);
     for step in [
         "perf", "visual", "tlc", "kennel", "msrv", "miri", "loom", "windows",
@@ -2089,7 +2732,7 @@ fn a_result_carried_from_a_head_main_never_held_is_listed() {
 
 /// How `ci/merge-pr.sh` opens the message of a merge a full gate passed, and of
 /// one a quick gate passed, which `merge_pr` holds it to.
-const FULL_GATE_MERGE: &str = "Merged on the local gate: `just pre-merge all`, which starts with `just quick all`'s lint and Quick suite, passed.";
+const FULL_GATE_MERGE: &str = "Merged on the local gate: `just pre-merge all`, which starts with `just quick all`'s lint and runs the Quick suite's tests in its Pre-merge suite, passed.";
 const QUICK_GATE_MERGE: &str = "Merged on the local gate: `just pre-merge quick` (no test, benchmark, model, container or Evaluation reads the change) passed.";
 
 /// A commit on a branch of its own from `from`, merged nowhere yet: its head.

@@ -100,6 +100,7 @@ ignore = ["D206", "D300"]
 # gives every SDK call that takes one: the operation's own timeout, sent for
 # the engine to apply, as the generated calls take it.
 [tool.ruff.lint.per-file-ignores]
+"sdks/python/collie-client/src/goodfetch_collie_client/connection.py" = ["ASYNC109"]
 "sdks/python/collie-client/src/goodfetch_collie_client/connection_type.py" = ["ASYNC109"]
 "sdks/python/collie-client/src/goodfetch_collie_client/raw_call.py" = ["ASYNC109"]
 "sdks/python/collie/src/goodfetch_collie/collie.py" = ["ASYNC109"]

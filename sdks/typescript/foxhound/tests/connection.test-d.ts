@@ -24,5 +24,13 @@ void startOn(run);
 void startOn({ engine: () => engine });
 
 expectTypeOf<keyof Connection>().toEqualTypeOf<
-  "engine" | "start" | "call" | "explainSettings" | "close" | typeof Symbol.asyncDispose
+  | "engine"
+  | "start"
+  | "startRecipe"
+  | "startCatalogRun"
+  | "openRun"
+  | "call"
+  | "explainSettings"
+  | "close"
+  | typeof Symbol.asyncDispose
 >();

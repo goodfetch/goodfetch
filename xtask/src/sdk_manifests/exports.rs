@@ -17,6 +17,8 @@ use std::path::Path;
 use std::process::Command;
 
 use anyhow::{Context as _, Result, bail};
+use goodfetch_protocol::jsonrpc::RequestMeta;
+use schemars::JsonSchema as _;
 use serde::Deserialize;
 
 use super::{Language, MANIFESTS, Manifest, Member, Operation};
@@ -85,6 +87,7 @@ pub(crate) fn check(root: &Path) -> Result<Vec<Finding>> {
         let exported = exports(root, path, language)?;
         let manifest = super::read(root, path)?;
         compare(path, language, &manifest.members, &exported, &mut findings);
+        naming_meta(path, &exported, &mut findings);
         carried(
             path,
             language,
@@ -110,6 +113,65 @@ pub(crate) fn check(root: &Path) -> Result<Vec<Finding>> {
         );
     }
     Ok(findings)
+}
+
+/// Fails each public type or method of `manifest`'s SDK that names a
+/// request's `_meta`, which its runtime alone writes, with the Trace
+/// context and the raw mark (ADR 0132): a hand-written one whose name has
+/// `meta` as one of its words, such as `withMeta` or `set_meta`, and a
+/// generated one named as the protocol's type of `_meta`, `RequestMeta`,
+/// which an SDK's runtime imports and no entry exports. A generated name is
+/// the schema's, such as an HTML `<meta>` tag's `MetaTag`, so only that
+/// type counts there. A type is a member of its module, so its name is read
+/// there; a declaration several entries export fails once.
+fn naming_meta(manifest: &str, exported: &[Exported], findings: &mut Vec<Finding>) {
+    let meta_type = RequestMeta::schema_name();
+    let mut seen = BTreeSet::new();
+    for member in exported.iter().filter(|member| !member.library) {
+        let names_meta = if member.generated {
+            member.member == meta_type
+        } else {
+            words(&member.member)
+                .iter()
+                .any(|word| word.eq_ignore_ascii_case("meta"))
+        };
+        if !names_meta || !seen.insert(member.id.as_str()) {
+            continue;
+        }
+        findings.push(Finding::new(
+            "names-meta",
+            format!("{manifest} {}.{}", member.receiver, member.member),
+            format!(
+                "`{}` names `_meta`, which only the SDK's runtime writes; rename it, or leave it out of every entry (ADR 0132)",
+                member.member
+            ),
+        ));
+    }
+}
+
+/// The words of an identifier: its runs of letters and digits, each cut
+/// again before an uppercase letter that follows a lowercase one or a
+/// digit, so `withMeta`, `with_meta` and `WithMeta` each hold `meta` as a
+/// word, and `metadata` holds none.
+fn words(name: &str) -> Vec<String> {
+    let mut words = Vec::new();
+    let mut word = String::new();
+    let mut after_lowercase = false;
+    for character in name.chars() {
+        let cut = !character.is_ascii_alphanumeric()
+            || (character.is_ascii_uppercase() && after_lowercase);
+        if cut && !word.is_empty() {
+            words.push(std::mem::take(&mut word));
+        }
+        if character.is_ascii_alphanumeric() {
+            word.push(character);
+        }
+        after_lowercase = character.is_ascii_lowercase() || character.is_ascii_digit();
+    }
+    if !word.is_empty() {
+        words.push(word);
+    }
+    words
 }
 
 /// `text` with each run of whitespace as one space, so a doc wraps its

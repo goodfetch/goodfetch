@@ -67,6 +67,34 @@ form = "opener"
 [[member]]
 package = "goodfetch_collie"
 receiver = "Collie"
+member = "start_recipe"
+entry = "recipe.start"
+only = "Issue 3396's Rust part adds it."
+words = ["start", "recipe"]
+form = "opener"
+
+[[member]]
+package = "goodfetch_collie"
+receiver = "Collie"
+member = "start_catalog_run"
+entry = "catalog_run.start"
+only = "Issue 3396's Rust part adds it."
+words = ["start", "catalog", "run"]
+form = "opener"
+
+[[member]]
+package = "goodfetch_collie"
+receiver = "Collie"
+member = "open_run"
+entry = "none"
+reason = "Opens a view of a Run another program started, by its Run ID, with no round trip (ADR 0102)."
+only = "Issue 3396's Rust part adds it."
+words = ["open", "run"]
+form = "opener"
+
+[[member]]
+package = "goodfetch_collie"
+receiver = "Collie"
 member = "call"
 entry = "none"
 reason = "The raw catalog call on the Connection, for an operation acting on no value that the SDK does not generate (ADR 0099): any catalog operation, so no entry is its own."
@@ -124,6 +152,34 @@ receiver = "AsyncCollie"
 member = "start"
 entry = "run.start"
 words = ["start"]
+form = "opener"
+
+[[member]]
+package = "goodfetch_collie"
+receiver = "AsyncCollie"
+member = "start_recipe"
+entry = "recipe.start"
+only = "Issue 3396's Rust part adds it."
+words = ["start", "recipe"]
+form = "opener"
+
+[[member]]
+package = "goodfetch_collie"
+receiver = "AsyncCollie"
+member = "start_catalog_run"
+entry = "catalog_run.start"
+only = "Issue 3396's Rust part adds it."
+words = ["start", "catalog", "run"]
+form = "opener"
+
+[[member]]
+package = "goodfetch_collie"
+receiver = "AsyncCollie"
+member = "open_run"
+entry = "none"
+reason = "Opens a view of a Run another program started, by its Run ID, with no round trip (ADR 0102)."
+only = "Issue 3396's Rust part adds it."
+words = ["open", "run"]
 form = "opener"
 
 [[member]]
@@ -192,6 +248,34 @@ form = "opener"
 [[member]]
 package = "goodfetch_collie"
 receiver = "Connection"
+member = "start_recipe"
+entry = "recipe.start"
+only = "Issue 3396's Rust part adds it."
+words = ["start", "recipe"]
+form = "opener"
+
+[[member]]
+package = "goodfetch_collie"
+receiver = "Connection"
+member = "start_catalog_run"
+entry = "catalog_run.start"
+only = "Issue 3396's Rust part adds it."
+words = ["start", "catalog", "run"]
+form = "opener"
+
+[[member]]
+package = "goodfetch_collie"
+receiver = "Connection"
+member = "open_run"
+entry = "none"
+reason = "Opens a view of a Run another program started, by its Run ID, with no round trip (ADR 0102)."
+only = "Issue 3396's Rust part adds it."
+words = ["open", "run"]
+form = "opener"
+
+[[member]]
+package = "goodfetch_collie"
+receiver = "Connection"
 member = "call"
 entry = "none"
 reason = "The interface every Product's Connection type implements (ADR 0095); `Collie.call`'s line holds."
@@ -240,6 +324,34 @@ receiver = "AsyncConnection"
 member = "start"
 entry = "run.start"
 words = ["start"]
+form = "opener"
+
+[[member]]
+package = "goodfetch_collie"
+receiver = "AsyncConnection"
+member = "start_recipe"
+entry = "recipe.start"
+only = "Issue 3396's Rust part adds it."
+words = ["start", "recipe"]
+form = "opener"
+
+[[member]]
+package = "goodfetch_collie"
+receiver = "AsyncConnection"
+member = "start_catalog_run"
+entry = "catalog_run.start"
+only = "Issue 3396's Rust part adds it."
+words = ["start", "catalog", "run"]
+form = "opener"
+
+[[member]]
+package = "goodfetch_collie"
+receiver = "AsyncConnection"
+member = "open_run"
+entry = "none"
+reason = "Opens a view of a Run another program started, by its Run ID, with no round trip (ADR 0102)."
+only = "Issue 3396's Rust part adds it."
+words = ["open", "run"]
 form = "opener"
 
 [[member]]
@@ -341,6 +453,106 @@ form = "type"
 
 [[member]]
 package = "goodfetch_collie"
+receiver = "(module)"
+member = "AsyncRunView"
+entry = "none"
+reason = "The async API's view of a Run another program started, which `open_run` opens (ADR 0102) and which takes no writer role."
+only = "A re-export, which Python lists where its package's `__all__` names it, and TypeScript and Rust in the package that declares it."
+words = ["async", "run", "view"]
+form = "type"
+
+[[member]]
+package = "goodfetch_collie"
+receiver = "(module)"
+member = "RunView"
+entry = "none"
+reason = "The sync API's view of a Run another program started, which `open_run` opens (ADR 0102) and which takes no writer role."
+only = "A re-export, which Python lists where its package's `__all__` names it, and TypeScript and Rust in the package that declares it."
+words = ["run", "view"]
+form = "type"
+
+[[member]]
+package = "goodfetch_collie"
+receiver = "(module)"
+member = "CatalogTarget"
+entry = "none"
+reason = "What a code-free catalog run runs (ADR 0036), the `target` `start_catalog_run` takes: an `ExtractTarget`, an `AgentTarget` or a `PlanReplayTarget`."
+only = "A re-export, which Python lists where its package's `__all__` names it, and TypeScript and Rust in the package that declares it."
+words = ["catalog", "target"]
+form = "type"
+
+[[member]]
+package = "goodfetch_collie"
+receiver = "(module)"
+member = "ExtractTarget"
+entry = "none"
+reason = "A catalog run's Extraction of a page by a schema (ADR 0036), the `extract` target."
+only = "A re-export, which Python lists where its package's `__all__` names it, and TypeScript and Rust in the package that declares it."
+words = ["extract", "target"]
+form = "type"
+
+[[member]]
+package = "goodfetch_collie"
+receiver = "(module)"
+member = "AgentTarget"
+entry = "none"
+reason = "A catalog run's Agent task (ADR 0036), the `agent` target."
+only = "A re-export, which Python lists where its package's `__all__` names it, and TypeScript and Rust in the package that declares it."
+words = ["agent", "target"]
+form = "type"
+
+[[member]]
+package = "goodfetch_collie"
+receiver = "(module)"
+member = "PlanReplayTarget"
+entry = "none"
+reason = "A catalog run's Plan replayed with no model call (ADR 0036), the `plan_replay` target."
+only = "A re-export, which Python lists where its package's `__all__` names it, and TypeScript and Rust in the package that declares it."
+words = ["plan", "replay", "target"]
+form = "type"
+
+[[member]]
+package = "goodfetch_collie_client.run_view"
+receiver = "AsyncRunView"
+member = "id"
+entry = "none"
+reason = "The Run ID the view was opened with, read without a round trip (ADR 0102)."
+only = "Issue 3396's Rust part adds it."
+words = ["id"]
+form = "read"
+
+[[member]]
+package = "goodfetch_collie_client.run_view"
+receiver = "AsyncRunView"
+member = "close"
+entry = "none"
+reason = "Frees only the view (ADR 0102): the Run goes on."
+only = "Issue 3396's Rust part adds it."
+words = ["close"]
+form = "closer"
+
+[[member]]
+package = "goodfetch_collie_client.run_view"
+receiver = "RunView"
+member = "id"
+entry = "none"
+reason = "The Run ID the view was opened with, read without a round trip (ADR 0102)."
+only = "Issue 3396's Rust part adds it."
+words = ["id"]
+form = "read"
+
+[[member]]
+package = "goodfetch_collie_client.run_view"
+receiver = "RunView"
+member = "close"
+entry = "none"
+reason = "Frees only the view (ADR 0102): the Run goes on."
+only = "Issue 3396's Rust part adds it."
+words = ["close"]
+form = "closer"
+
+[[member]]
+package = "goodfetch_collie"
 receiver = "AsyncRun"
 member = "id"
 entry = "none"
@@ -389,6 +601,222 @@ member = "close"
 entry = "run.abort"
 words = ["close"]
 form = "closer"
+
+[[member]]
+package = "goodfetch_collie"
+receiver = "(module)"
+member = "Response"
+entry = "none"
+reason = "The response a page's request got in the sync API: a navigation's document, or what `page.request` answered, whose body it reads."
+only = "A re-export, which Python lists where its package's `__all__` names it, and TypeScript and Rust in the package that declares it."
+words = ["response"]
+form = "type"
+
+[[member]]
+package = "goodfetch_collie"
+receiver = "Response"
+member = "url"
+entry = "none"
+reason = "Its final URL."
+words = ["url"]
+form = "read"
+
+[[member]]
+package = "goodfetch_collie"
+receiver = "Response"
+member = "status"
+entry = "none"
+reason = "Its HTTP status."
+words = ["status"]
+form = "read"
+
+[[member]]
+package = "goodfetch_collie"
+receiver = "Response"
+member = "status_text"
+entry = "none"
+reason = "Its status text."
+words = ["status", "text"]
+form = "read"
+
+[[member]]
+package = "goodfetch_collie"
+receiver = "Response"
+member = "ok"
+entry = "none"
+reason = "Whether its status is a success, from 200 to 299."
+words = ["ok"]
+form = "read"
+
+[[member]]
+package = "goodfetch_collie"
+receiver = "Response"
+member = "headers"
+entry = "none"
+reason = "Its headers, their names lower-cased, as the browser received them."
+words = ["headers"]
+form = "read"
+
+[[member]]
+package = "goodfetch_collie"
+receiver = "Response"
+member = "encoding"
+entry = "none"
+reason = "For a navigation's document, the encoding the browser decoded it with, as `document.characterSet` names it, such as `Shift_JIS` (ADR 0119); none for another response, and for a navigation that answered at `commit`, before its document was decoded."
+words = ["encoding"]
+form = "read"
+
+[[member]]
+package = "goodfetch_collie"
+receiver = "Response"
+member = "request_id"
+entry = "none"
+reason = "The engine's ID for its request's hop."
+words = ["request", "id"]
+form = "read"
+
+[[member]]
+package = "goodfetch_collie"
+receiver = "Response"
+member = "from_service_worker"
+entry = "none"
+reason = "Whether a site's service worker supplied it, from its own cache or through its own fetch (ADR 0121)."
+words = ["from", "service", "worker"]
+form = "read"
+
+[[member]]
+package = "goodfetch_collie"
+receiver = "Response"
+member = "body"
+entry = "response.body"
+words = ["body"]
+form = "round_trip"
+
+[[member]]
+package = "goodfetch_collie"
+receiver = "Response"
+member = "text"
+entry = "none"
+reason = "Its body as text, decoded with the response's own encoding (ADR 0119): a navigation's document with the one the browser decoded it with, `encoding`; any other response with its BOM, then its `Content-Type` charset, then for HTML a `<meta>` as Chrome's prescan reads it or an XML declaration at its very start, for an XML type that declaration, and UTF-8 last."
+words = ["text"]
+form = "round_trip"
+
+[[member]]
+package = "goodfetch_collie"
+receiver = "Response"
+member = "json"
+entry = "none"
+reason = "Its body parsed as JSON: decoded as UTF-8 whatever its charset, as JSON is, a leading BOM ignored."
+words = ["json"]
+form = "round_trip"
+
+[[member]]
+package = "goodfetch_collie"
+receiver = "(module)"
+member = "AsyncResponse"
+entry = "none"
+reason = "The response a page's request got in the async API, as `Response` is."
+only = "A re-export, which Python lists where its package's `__all__` names it, and TypeScript and Rust in the package that declares it."
+words = ["async", "response"]
+form = "type"
+
+[[member]]
+package = "goodfetch_collie"
+receiver = "AsyncResponse"
+member = "url"
+entry = "none"
+reason = "Its final URL."
+words = ["url"]
+form = "read"
+
+[[member]]
+package = "goodfetch_collie"
+receiver = "AsyncResponse"
+member = "status"
+entry = "none"
+reason = "Its HTTP status."
+words = ["status"]
+form = "read"
+
+[[member]]
+package = "goodfetch_collie"
+receiver = "AsyncResponse"
+member = "status_text"
+entry = "none"
+reason = "Its status text."
+words = ["status", "text"]
+form = "read"
+
+[[member]]
+package = "goodfetch_collie"
+receiver = "AsyncResponse"
+member = "ok"
+entry = "none"
+reason = "Whether its status is a success, from 200 to 299."
+words = ["ok"]
+form = "read"
+
+[[member]]
+package = "goodfetch_collie"
+receiver = "AsyncResponse"
+member = "headers"
+entry = "none"
+reason = "Its headers, their names lower-cased, as the browser received them."
+words = ["headers"]
+form = "read"
+
+[[member]]
+package = "goodfetch_collie"
+receiver = "AsyncResponse"
+member = "encoding"
+entry = "none"
+reason = "For a navigation's document, the encoding the browser decoded it with, as `document.characterSet` names it, such as `Shift_JIS` (ADR 0119); none for another response, and for a navigation that answered at `commit`, before its document was decoded."
+words = ["encoding"]
+form = "read"
+
+[[member]]
+package = "goodfetch_collie"
+receiver = "AsyncResponse"
+member = "request_id"
+entry = "none"
+reason = "The engine's ID for its request's hop."
+words = ["request", "id"]
+form = "read"
+
+[[member]]
+package = "goodfetch_collie"
+receiver = "AsyncResponse"
+member = "from_service_worker"
+entry = "none"
+reason = "Whether a site's service worker supplied it, from its own cache or through its own fetch (ADR 0121)."
+words = ["from", "service", "worker"]
+form = "read"
+
+[[member]]
+package = "goodfetch_collie"
+receiver = "AsyncResponse"
+member = "body"
+entry = "response.body"
+words = ["body"]
+form = "round_trip"
+
+[[member]]
+package = "goodfetch_collie"
+receiver = "AsyncResponse"
+member = "text"
+entry = "none"
+reason = "Its body as text, decoded with the response's own encoding (ADR 0119): a navigation's document with the one the browser decoded it with, `encoding`; any other response with its BOM, then its `Content-Type` charset, then for HTML a `<meta>` as Chrome's prescan reads it or an XML declaration at its very start, for an XML type that declaration, and UTF-8 last."
+words = ["text"]
+form = "round_trip"
+
+[[member]]
+package = "goodfetch_collie"
+receiver = "AsyncResponse"
+member = "json"
+entry = "none"
+reason = "Its body parsed as JSON: decoded as UTF-8 whatever its charset, as JSON is, a leading BOM ignored."
+words = ["json"]
+form = "round_trip"
 
 [[member]]
 package = "goodfetch_collie"
@@ -908,6 +1336,34 @@ form = "opener"
 [[member]]
 package = "goodfetch_foxhound"
 receiver = "Foxhound"
+member = "start_recipe"
+entry = "recipe.start"
+only = "Issue 3396's Rust part adds it."
+words = ["start", "recipe"]
+form = "opener"
+
+[[member]]
+package = "goodfetch_foxhound"
+receiver = "Foxhound"
+member = "start_catalog_run"
+entry = "catalog_run.start"
+only = "Issue 3396's Rust part adds it."
+words = ["start", "catalog", "run"]
+form = "opener"
+
+[[member]]
+package = "goodfetch_foxhound"
+receiver = "Foxhound"
+member = "open_run"
+entry = "none"
+reason = "Opens a view of a Run another program started, by its Run ID, with no round trip (ADR 0102); `Collie.open_run`'s member under the same name."
+only = "Issue 3396's Rust part adds it."
+words = ["open", "run"]
+form = "opener"
+
+[[member]]
+package = "goodfetch_foxhound"
+receiver = "Foxhound"
 member = "call"
 entry = "none"
 reason = "The raw catalog call on the Connection, as `Collie.call` is (ADR 0099)."
@@ -965,6 +1421,34 @@ receiver = "AsyncFoxhound"
 member = "start"
 entry = "run.start"
 words = ["start"]
+form = "opener"
+
+[[member]]
+package = "goodfetch_foxhound"
+receiver = "AsyncFoxhound"
+member = "start_recipe"
+entry = "recipe.start"
+only = "Issue 3396's Rust part adds it."
+words = ["start", "recipe"]
+form = "opener"
+
+[[member]]
+package = "goodfetch_foxhound"
+receiver = "AsyncFoxhound"
+member = "start_catalog_run"
+entry = "catalog_run.start"
+only = "Issue 3396's Rust part adds it."
+words = ["start", "catalog", "run"]
+form = "opener"
+
+[[member]]
+package = "goodfetch_foxhound"
+receiver = "AsyncFoxhound"
+member = "open_run"
+entry = "none"
+reason = "Opens a view of a Run another program started, by its Run ID, with no round trip (ADR 0102); `AsyncCollie.open_run`'s member under the same name."
+only = "Issue 3396's Rust part adds it."
+words = ["open", "run"]
 form = "opener"
 
 [[member]]
@@ -1136,6 +1620,31 @@ receiver = "ClientConnection"
 member = "start"
 entry = "run.start"
 words = ["start"]
+form = "opener"
+
+[[member]]
+package = "goodfetch_collie_client.connection"
+receiver = "ClientConnection"
+member = "start_recipe"
+entry = "recipe.start"
+words = ["start", "recipe"]
+form = "opener"
+
+[[member]]
+package = "goodfetch_collie_client.connection"
+receiver = "ClientConnection"
+member = "start_catalog_run"
+entry = "catalog_run.start"
+words = ["start", "catalog", "run"]
+form = "opener"
+
+[[member]]
+package = "goodfetch_collie_client.connection"
+receiver = "ClientConnection"
+member = "open_run"
+entry = "none"
+reason = "Opens a view of a Run another program started, by its Run ID, with no round trip (ADR 0102)."
+words = ["open", "run"]
 form = "opener"
 
 [[member]]
@@ -1751,10 +2260,6 @@ reason = "Issue 1287 adds `run.effect`, which declares an Effect through them."
 [[unreached]]
 entries = ["page.body"]
 reason = "A Client that cannot read a page body's file streams it through `page.body`; no member streams it yet (issue 1404)."
-
-[[unreached]]
-entries = ["response.body"]
-reason = "Issue 1476 adds the body of the response a page kept, as `ctx.response.body()`."
 
 [[unreached]]
 entries = [

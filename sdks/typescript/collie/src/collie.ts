@@ -3,14 +3,17 @@
 // program's environment map, and finishes `hello`, naming Collie, before it
 // returns. Everything else is the client package's common Connection.
 import type {
+  CatalogTarget,
   ConnectOptions,
   ConnectOverOptions,
   Connection,
   EngineInfo,
+  HandlerlessStartOptions,
   JSONValue,
   RawCallOptions,
   RawParams,
   Run,
+  RunView,
   SettingsExplanation,
   StartOptions,
 } from "@goodfetch/collie-client";
@@ -46,7 +49,9 @@ export class Collie implements Connection {
   /**
    * Starts Collie's engine as an Attached engine and completes `hello`
    * before returning, so a `GOODFETCH_` variable off the closed list
-   * (`setting_unknown`) or one set but empty (`setting_invalid`), a missing
+   * (`setting_unknown`) or one set but empty (`setting_invalid`), a project
+   * file that cannot be read (`setting_invalid`, or
+   * `format_version_unsupported` for its version), a missing
    * executable (`engine_not_found`) or a refused Product or version fails
    * here, with a `fix`. An aborted
    * `signal` fails it with the signal's reason, leaving no engine behind.
@@ -84,6 +89,43 @@ export class Collie implements Connection {
   }
 
   /**
+   * Starts a Recipe's run, a Run with no handler in the program, and answers
+   * once it is started. Its Run ID works as `run.start`'s. With `detached`,
+   * the Run outlives the program that started it: closing its value frees
+   * only the value, `run.finish` waits for its end and `run.stop` stops it.
+   *
+   * @experimental
+   */
+  startRecipe(recipe: string, options?: HandlerlessStartOptions): Promise<Run> {
+    return this.#connection.startRecipe(recipe, options);
+  }
+
+  /**
+   * Starts a code-free catalog run, a Run with no handler in the program
+   * whose verbs come from the catalog (ADR 0036): an Extraction of a page by
+   * a schema, `extract`, an Agent task, `agent`, or a Plan replayed with no
+   * model call, `plan_replay`; and answers once it is started. Its Run ID
+   * works as `run.start`'s. With `detached`, the Run outlives the program
+   * that started it: closing its value frees only the value, `run.finish`
+   * waits for its end and `run.stop` stops it.
+   *
+   * @experimental
+   */
+  startCatalogRun(target: CatalogTarget, options?: HandlerlessStartOptions): Promise<Run> {
+    return this.#connection.startCatalogRun(target, options);
+  }
+
+  /**
+   * Opens a view of the Run `runId` names, one another program started such
+   * as a detached Run, with no round trip (ADR 0102). The view takes no
+   * writer role, and closing it frees only the view. Fails with `closed`
+   * once the Connection is closed.
+   */
+  openRun(runId: string): Promise<RunView> {
+    return this.#connection.openRun(runId);
+  }
+
+  /**
    * Sends `operation`, one the SDK may not generate that acts on no value
    * or whose `params` name every value, with `params` as the wire's JSON in
    * snake_case, and answers its result as the engine sent it (ADR 0099).
@@ -106,7 +148,8 @@ export class Collie implements Connection {
    * What the Connection runs with (ADR 0083), which each Run it starts
    * inherits: each setting under `keys`, each a key or a prefix of keys
    * such as `timeout`, every one when left out, with the origin that set
-   * it too, as `goodfetch config explain` shows them. Fails with `closed`
+   * it too, as `goodfetch config explain` shows them, the project file
+   * `connect()` read as the project configuration. Fails with `closed`
    * once the Connection is closed.
    */
   explainSettings(keys?: readonly string[]): Promise<SettingsExplanation> {

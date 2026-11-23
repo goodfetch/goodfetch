@@ -31,7 +31,12 @@ import {
   type HelloResult,
   type KeyValueStoreSetParams,
   type LogLevel,
+  type CatalogRunStartParams,
+  type CatalogTarget,
   type Product,
+  type ProjectSettings,
+  type RecipeStartParams,
+  type Recording,
   type RunLimit,
   type RunStartParams,
   type RunStarted,
@@ -39,13 +44,16 @@ import {
   type UsageSetParams,
 } from "./generated/index.ts";
 import type { JSONValue } from "./json.ts";
+import type { ProjectFile } from "./project-file.ts";
 import { limitList, type Limits } from "./limits.ts";
 import { logEngineEvent, logLevelOf, type Logger } from "./logger.ts";
 import { collieWire, type CollieWireType } from "./generated/wire.ts";
 import { rawCall, type RawCallOptions, type RawParams } from "./raw-call.ts";
 import { warnEntry } from "./markers.ts";
 import { holdInRealm } from "./realm.ts";
+import { timeoutOf } from "./handle.ts";
 import { Run, type RunHost } from "./run.ts";
+import { RunView } from "./run-view.ts";
 import { settingsOnWire, type RunSettings } from "./generated/settings.ts";
 import { MAX_LISTENER_QUEUE } from "./listeners.ts";
 import type { SettingsOnWire } from "./settings.ts";
@@ -94,7 +102,7 @@ export interface EngineInfo {
   readonly version: string;
   /** The protocol version `major.minor` it speaks. */
   readonly protocolVersion: string;
-  /** The project file the engine read, or `null` when it read none. */
+  /** The project file `connect()` read and carries to the engine (ADR 0083), by its absolute path, or `null` when it read none. */
   readonly projectFile: string | null;
   /** The Goodfetch home the engine runs in, or `null` for a remote Daemon, or when none is known. */
   readonly home: string | null;
@@ -165,6 +173,28 @@ export interface StartOptions {
   readonly settings?: RunSettings | undefined;
 }
 
+/**
+ * What starting a handler-less Run takes, a Recipe's or a code-free catalog
+ * run's (ADRs 0036 and 0102): a start's options, and how it records, how
+ * long it may last and whether it outlives its program.
+ */
+export interface HandlerlessStartOptions extends StartOptions {
+  /** The Response recording it replays or records, a WARC file on the program's machine. */
+  readonly recording?: Recording | undefined;
+  /**
+   * How long the Run may last, in milliseconds, at least 1, as
+   * `timeout.run` for this Run: left out for the setting's value, `null`
+   * for none. Any other number fails with `setting_invalid` before
+   * anything is sent.
+   */
+  readonly timeout?: number | null | undefined;
+  /**
+   * Whether the Run outlives its program: closing its value then frees
+   * only the value, `finish()` waits for its end and `stop()` stops it.
+   */
+  readonly detached?: boolean | undefined;
+}
+
 /** What opening a Connection takes. */
 export interface ClientConnectionOptions {
   /** The bytes to the engine. */
@@ -208,6 +238,12 @@ export interface ClientConnectionOptions {
    */
   readonly connectStartedAt?: number | undefined;
   /**
+   * The project file `connect()` read (ADR 0083), which each Run's start
+   * and `config.explain` carry, and whose `timeout.connect` bounds `hello`
+   * when `timeout` is left out; none when left out.
+   */
+  readonly project?: ProjectFile | undefined;
+  /**
    * The host's logger, which gets a start that resumed a Run at info and
    * one that found it ended at warning, and the engine's log events at the
    * level it records (`logLevelOf`), read at `open` and again when a Run
@@ -239,6 +275,7 @@ export class ClientConnection implements AsyncDisposable {
   /** The level of the engine's logs the engine was last told, by `hello` or `connection.set_log_level`. */
   #logLevel: LogLevel;
   readonly #reached: Reached;
+  readonly #project: ProjectFile | undefined;
   readonly #operationNames: OperationNames;
   #info: EngineInfo | undefined;
   /** The engine instance the last `hello` answered, which the events read since were published by. */
@@ -253,6 +290,7 @@ export class ClientConnection implements AsyncDisposable {
   private constructor(options: ClientConnectionOptions) {
     this.#engine = options.engine;
     this.#reached = options.reached ?? { kind: "attached", home: null, url: null };
+    this.#project = options.project;
     this.#logger = options.logger;
     this.#logLevel = logLevelOf(options.logger);
     const { errorClasses, operationNames } = options;
@@ -362,7 +400,7 @@ export class ClientConnection implements AsyncDisposable {
         const operationClass = operationClasses[method];
         return operationClass === "read" || operationClass === "idempotent_write";
       },
-      within: connectLimit(options.timeout)?.value ?? null,
+      within: connectLimit(options.timeout, options.project)?.value ?? null,
       signal: this.#closingLink.signal,
       reopen,
       greet: async (call) => {
@@ -423,6 +461,14 @@ export class ClientConnection implements AsyncDisposable {
   }
 
   /**
+   * The project file `connect()` read (ADR 0083), as each Run's start and
+   * `config.explain` carry it; none when it read none.
+   */
+  project(): ProjectSettings | undefined {
+    return this.#project?.carried;
+  }
+
+  /**
    * Starts a Run its program drives, and answers once it is started. A Run
    * ID names the Run for good, and a start under one acts on what the Run
    * index holds (ADR 0102): no such Run begins it, `new`; an interrupted
@@ -442,19 +488,71 @@ export class ClientConnection implements AsyncDisposable {
    */
   async start(options: StartOptions = {}): Promise<Run> {
     warnEntry(collieOperations, "run.start");
-    const limits = limitList(options.limits);
-    const settings = settingsOnWire(options.settings);
-    const params: RunStartParams = {
-      ...(options.runId === undefined ? {} : { runId: options.runId }),
-      ...(options.tags === undefined ? {} : { tags: [...options.tags] }),
-      ...(limits.length === 0 ? {} : { limits }),
-      ...(settings === undefined ? {} : { settings }),
-    };
+    const params = startParams(options, this.project());
     return this.startRun(
       "run.start",
       () => this.#operations.runStart(params),
       (host, started) => new Run(host, started),
     );
+  }
+
+  /**
+   * Starts a Recipe's run, a Run with no handler in the program, and answers
+   * once it is started. Its Run ID works as `run.start`'s. With `detached`,
+   * the Run outlives the program that started it: closing its value frees
+   * only the value, `run.finish` waits for its end and `run.stop` stops it.
+   *
+   * @experimental
+   */
+  async startRecipe(recipe: string, options: HandlerlessStartOptions = {}): Promise<Run> {
+    warnEntry(collieOperations, "recipe.start");
+    const params: RecipeStartParams = {
+      recipe,
+      ...handlerlessParams(options, this.project()),
+    };
+    return this.startRun(
+      "recipe.start",
+      () => this.#operations.recipeStart(params),
+      (host, started) => new Run(host, started, options.detached === true),
+    );
+  }
+
+  /**
+   * Starts a code-free catalog run, a Run with no handler in the program
+   * whose verbs come from the catalog (ADR 0036): an Extraction of a page by
+   * a schema, `extract`, an Agent task, `agent`, or a Plan replayed with no
+   * model call, `plan_replay`; and answers once it is started. Its Run ID
+   * works as `run.start`'s. With `detached`, the Run outlives the program
+   * that started it: closing its value frees only the value, `run.finish`
+   * waits for its end and `run.stop` stops it.
+   *
+   * @experimental
+   */
+  async startCatalogRun(
+    target: CatalogTarget,
+    options: HandlerlessStartOptions = {},
+  ): Promise<Run> {
+    warnEntry(collieOperations, "catalog_run.start");
+    const params: CatalogRunStartParams = {
+      target,
+      ...handlerlessParams(options, this.project()),
+    };
+    return this.startRun(
+      "catalog_run.start",
+      () => this.#operations.catalogRunStart(params),
+      (host, started) => new Run(host, started, options.detached === true),
+    );
+  }
+
+  /**
+   * Opens a view of the Run `runId` names, one another program started such
+   * as a detached Run, with no round trip (ADR 0102). The view takes no
+   * writer role, and closing it frees only the view. Fails with `closed`
+   * once the Connection is closed.
+   */
+  async openRun(runId: string): Promise<RunView> {
+    this.#openOrThrow("openRun");
+    return new RunView(runId);
   }
 
   /**
@@ -583,11 +681,16 @@ export class ClientConnection implements AsyncDisposable {
    * What the Connection runs with (ADR 0083): each setting under `keys`,
    * each a key or a prefix of keys such as `timeout`, every one when left
    * out, with the origin that set it too, as `goodfetch config explain`
-   * shows them. Fails with `closed` once the Connection is closed.
+   * shows them, the project file `connect()` read as the project
+   * configuration. Fails with `closed` once the Connection is closed.
    */
   explainSettings(keys?: readonly string[]): Promise<SettingsExplanation> {
     this.#openOrThrow("config.explain");
-    return this.#operations.configExplain(keys === undefined ? {} : { keys: [...keys] });
+    const project = this.project();
+    return this.#operations.configExplain({
+      ...(keys === undefined ? {} : { keys: [...keys] }),
+      ...(project === undefined ? {} : { project }),
+    });
   }
 
   /**
@@ -673,12 +776,12 @@ export class ClientConnection implements AsyncDisposable {
   }
 
   async #hello(options: ClientConnectionOptions): Promise<void> {
-    const { daemon, signal, timeout, connectStartedAt } = options;
+    const { daemon, signal, connectStartedAt } = options;
     let answer: unknown;
     try {
       answer = await this.#answerWithin(
         this.#channel.call("hello", this.#helloParams(options), { signal }),
-        timeout,
+        connectLimit(options.timeout, options.project),
         connectStartedAt ?? Date.now(),
       );
     } catch (error) {
@@ -747,7 +850,7 @@ export class ClientConnection implements AsyncDisposable {
       product: result.product,
       version: result.productVersion,
       protocolVersion: result.protocolVersion,
-      projectFile: null,
+      projectFile: this.#project?.carried.path ?? null,
       home: this.#reached.home,
       enginePath: this.#engine?.path ?? null,
       url: this.#reached.url,
@@ -756,19 +859,17 @@ export class ClientConnection implements AsyncDisposable {
   }
 
   /**
-   * `hello`'s answer, once `called` gives it within `timeout`, its
+   * `hello`'s answer, once `called` gives it within `connect`, its
    * `timeout.connect` (ADR 0083), counted from `startedAt`.
    *
    * @throws {DeadlineExceededError} past it, its `limit` naming
-   * `timeout.connect` at the run layer, given as an argument, or at its
-   * default, and `waited_for` `hello`.
+   * `timeout.connect` and the layer that set it, and `waited_for` `hello`.
    */
   async #answerWithin(
     called: Promise<unknown>,
-    timeout: number | null | undefined,
+    connect: ConnectLimit | null,
     startedAt: number,
   ): Promise<unknown> {
-    const connect = connectLimit(timeout);
     if (connect === null) {
       return called;
     }
@@ -909,25 +1010,33 @@ async function within<T>(promise: Promise<T>, timeout: number): Promise<T | "lat
   }
 }
 
+/** How long opening a Connection waits for `hello`'s answer, and the setting that says so. */
+interface ConnectLimit {
+  readonly value: number;
+  readonly limit: ErrorLimit;
+}
+
 /**
  * The `timeout.connect` limit of a `connect()` whose `timeout` is
- * `timeout`, already checked by `timeoutOf`: at the run layer, given as an
- * argument, or its 30 s default when left out; `null` for none.
+ * `timeout`, already checked by `timeoutOf`, and which read `project`: at
+ * the run layer, given as an argument; when left out, the project file's,
+ * or its 30 s default; `null` for none.
  */
 export function connectLimit(
   timeout: number | null | undefined,
-): { readonly value: number; readonly limit: ErrorLimit } | null {
+  project: ProjectFile | undefined,
+): ConnectLimit | null {
+  const key = "timeout.connect";
   if (timeout === null) {
     return null;
   }
-  const value = timeout ?? CONNECT_TIMEOUT;
-  return {
-    value,
-    limit:
-      timeout === undefined
-        ? { key: "timeout.connect", value, layer: "default" }
-        : { key: "timeout.connect", value, layer: "run", origin: "argument" },
-  };
+  if (timeout !== undefined) {
+    return { value: timeout, limit: { key, value: timeout, layer: "run", origin: "argument" } };
+  }
+  const value = project?.connectTimeout;
+  return value === undefined
+    ? { value: CONNECT_TIMEOUT, limit: { key, value: CONNECT_TIMEOUT, layer: "default" } }
+    : { value, limit: { key, value, layer: "project_configuration" } };
 }
 
 /**
@@ -939,6 +1048,37 @@ function cancelledByClose(): CallCancelledError {
   return new CallCancelledError("the call's Connection was closed", {
     details: { by: "program", closed: "connection" },
   });
+}
+
+/** The params every start carries, from `options` and the project file `connect()` read. */
+function startParams(options: StartOptions, project: ProjectSettings | undefined): RunStartParams {
+  const limits = limitList(options.limits);
+  const settings = settingsOnWire(options.settings);
+  return {
+    ...(options.runId === undefined ? {} : { runId: options.runId }),
+    ...(options.tags === undefined ? {} : { tags: [...options.tags] }),
+    ...(limits.length === 0 ? {} : { limits }),
+    ...(settings === undefined ? {} : { settings }),
+    ...(project === undefined ? {} : { project }),
+  };
+}
+
+/**
+ * The params a handler-less start carries besides its target, from
+ * `options`; a `timeout` off its form fails with `setting_invalid` before
+ * anything is sent.
+ */
+function handlerlessParams(
+  options: HandlerlessStartOptions,
+  project: ProjectSettings | undefined,
+): Omit<RecipeStartParams, "recipe"> {
+  const timeout = timeoutOf(options.timeout, "timeout.run");
+  return {
+    ...startParams(options, project),
+    ...(options.recording === undefined ? {} : { recording: options.recording }),
+    ...(timeout === undefined ? {} : { timeout }),
+    ...(options.detached === true ? { detached: true } : {}),
+  };
 }
 
 /** The `usage.set` params, in the wire's form, setting `limit` on the Client connection's own scope (ADR 0080's note of issue 2830). */

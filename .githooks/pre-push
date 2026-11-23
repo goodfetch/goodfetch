@@ -1,18 +1,23 @@
 #!/usr/bin/env bash
 # Opt in with `just hooks`: runs the pre-push tier, `just quick`, before a push;
 # it picks the docs gate's checks for a change of documents alone (TESTING.md).
-# It runs no check twice on one tree (TESTING.md, Checks by role): a push whose
-# trees a green `just quick` already recorded (ci/quick.sh, in the repository's
-# common folder) runs no `just quick`. Otherwise `just quick` reads the change
-# against the commit the remote ref holds, so it checks what the push adds,
-# when the push only adds the branch's own commits to it. After a rebase, or a
-# merge of the branch's own base (ci/change-base.sh: its integration branch,
-# else `origin/main`, or `GOODFETCH_QUICK_BASE` when the pusher names one),
-# that commit is no base: read against it, the change would hold every file
-# the base gained since. The hook then says so in one line and gives `just
-# quick` no base of its own, so it reads the change against the branch's own.
+# It runs no check twice on one tree (TESTING.md, Checks by role; ADR 0135's
+# amendment of 2026-11-22): a push whose heads a green `just quick` already
+# holds (`just _quick-held`: a run on the same tree against the same base, on
+# this host and in this environment, within a day, which any worktree's
+# layer recorded in the gate's records) runs no `just quick`. Otherwise
+# `just quick` runs as the layer `pre-push`, which its record names, and
+# reads the change against the commit the remote ref holds, so it checks
+# what the push adds, when the push only adds the branch's own commits to
+# it. After a rebase, or a merge of the branch's own base (ci/change-base.sh:
+# its integration branch, else `origin/main`, or `GOODFETCH_QUICK_BASE` when
+# the pusher names one), that commit is no base: read against it, the change
+# would hold every file the base gained since. The hook then says so in one
+# line and gives `just quick` no base of its own, so it reads the change
+# against the branch's own. Each pushed head is held against the base `just
+# quick` would read it against.
 #
-# A recorded tree says nothing of the messages of the commits that hold it,
+# A held run says nothing of the messages of the commits that hold its tree,
 # since a reworded commit keeps its tree. So every push first judges the
 # sign-offs (`just dco`) and the subjects (`just commit-messages`) of each
 # pushed head's commits since its merge base with `origin/main`, as the gate
@@ -21,6 +26,18 @@
 # on it reuses nothing (ADR 0135). Each records the commits it judged green
 # in the gate's records, so neither this hook nor `just merge` judges one of
 # them again; a reworded commit is another commit, and is judged.
+#
+# A push of a branch the hosted tier serves, a batch's or a spec's (`batch/…`,
+# `spec/<n>`) with an open pull request to `main` while the pull-request
+# workflow is active, judges its commits alone: the hosted run the push
+# starts runs the Quick suite, and `just merge` waits for it (ADR 0135's
+# amendment of 2026-11-22). When GitHub cannot say, the hook keeps the rule
+# above.
+#
+# A push to `spec/<n>`, a run's ticket, runs no `just quick`: the batch that
+# holds the spec's pull request runs it once on the combined tree (`just
+# batch-check`; TESTING.md, Checks by role, the owner's decision of
+# 2026-11-23). Its commits are judged all the same.
 set -euo pipefail
 # git gives this hook the push's GIT_DIR (a linked worktree's), and a build
 # script's `git init` under `just quick` (btls-sys's) would then reinitialize
@@ -29,31 +46,49 @@ set -euo pipefail
 for variable in $(git rev-parse --local-env-vars); do unset "$variable"; done
 # shellcheck source=ci/change-base.sh
 source "$(dirname "${BASH_SOURCE[0]}")/../ci/change-base.sh"
-stamps="$(git rev-parse --path-format=absolute --git-common-dir)/goodfetch-quick-green"
 head=$(git rev-parse HEAD)
+own=${GOODFETCH_QUICK_BASE:-$(branch_base)}
 base=""
 due=0
 pushed=""
-while read -r _local_ref local_oid _remote_ref remote_oid; do
+# Whether the hosted tier serves the remote ref `$1`, as GitHub says it.
+served() {
+  local branch=${1#refs/heads/} open state
+  [[ $branch =~ ^(batch/.+|spec/[0-9]+)$ ]] || return 1
+  open=$(gh pr list --head "$branch" --base main --state open --json number --jq length </dev/null 2>/dev/null) || return 1
+  [[ $open =~ ^[1-9][0-9]*$ ]] || return 1
+  state=$(gh api 'repos/{owner}/{repo}/actions/workflows/pull-request.yml' --jq .state </dev/null 2>/dev/null) || return 1
+  [[ $state == active ]]
+}
+while read -r _local_ref local_oid remote_ref remote_oid; do
   # A deletion pushes no tree.
   [[ $local_oid =~ ^0+$ ]] && continue
   pushed="$pushed $local_oid"
-  tree=$(git rev-parse "$local_oid^{tree}")
-  if grep -qxF "$tree" "$stamps" 2>/dev/null; then
-    echo "pre-push: \`just quick\` already passed on tree $tree, so it does not run again."
+  if [[ $remote_ref == refs/heads/spec/* ]]; then
+    echo "pre-push: a push to ${remote_ref#refs/heads/} runs no \`just quick\`: its batch's \`just batch-check\` runs it on the combined tree."
+    continue
+  elif served "$remote_ref"; then
+    echo "pre-push: ${remote_ref#refs/heads/} has an open pull request to main that the hosted tier serves, so its hosted run runs the Quick suite and the hook judges the commits alone."
+    continue
+  fi
+  ref_base=""
+  if [[ $local_oid == "$head" && ! $remote_oid =~ ^0+$ ]] && git cat-file -e "$remote_oid^{commit}" 2>/dev/null; then
+    ref_base=$remote_oid
+    if ! git merge-base --is-ancestor "$remote_oid" "$local_oid"; then
+      echo "pre-push: the commit the remote ref holds, $remote_oid, is no ancestor of the pushed head (a rebase or another rewrite), so \`just quick\` reads the change against the branch's own base, $own."
+      ref_base=""
+    elif fork=$(git merge-base "$local_oid" "$own" 2>/dev/null) && ! git merge-base --is-ancestor "$fork" "$remote_oid"; then
+      echo "pre-push: the push brings commits of $own (a merge of it) after the commit the remote ref holds, $remote_oid, so \`just quick\` reads the change against the branch's own base, $own."
+      ref_base=""
+    fi
+  fi
+  # The ref list is this loop's input, which no command under it reads.
+  if just _quick-held "$local_oid" "${ref_base:-$own}" changed < /dev/null; then
     continue
   fi
   due=1
-  if [[ $local_oid == "$head" && ! $remote_oid =~ ^0+$ ]] && git cat-file -e "$remote_oid^{commit}" 2>/dev/null; then
-    base=$remote_oid
-    own=${GOODFETCH_QUICK_BASE:-$(branch_base)}
-    if ! git merge-base --is-ancestor "$remote_oid" "$local_oid"; then
-      echo "pre-push: the commit the remote ref holds, $remote_oid, is no ancestor of the pushed head (a rebase or another rewrite), so \`just quick\` reads the change against the branch's own base, $own."
-      base=""
-    elif fork=$(git merge-base "$local_oid" "$own" 2>/dev/null) && ! git merge-base --is-ancestor "$fork" "$remote_oid"; then
-      echo "pre-push: the push brings commits of $own (a merge of it) after the commit the remote ref holds, $remote_oid, so \`just quick\` reads the change against the branch's own base, $own."
-      base=""
-    fi
+  if [[ $local_oid == "$head" ]]; then
+    base=$ref_base
   fi
 done
 # Both checks run on every pushed head even after one failed, so one push
@@ -68,5 +103,6 @@ if ((commits)); then
   exit 1
 fi
 ((due)) || exit 0
-# The pusher's own base, when the hook keeps none.
-GOODFETCH_QUICK_BASE=${base:-${GOODFETCH_QUICK_BASE:-}} exec just quick
+# The pusher's own base, when the hook keeps none: `just quick` then reads
+# the branch's own, as the held check did.
+GOODFETCH_GATE_LAYER=pre-push GOODFETCH_QUICK_BASE=${base:-${GOODFETCH_QUICK_BASE:-}} exec just quick

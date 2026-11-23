@@ -11,9 +11,14 @@
 #           connection the deny refused, named from the deny's record.
 #
 # Where the job runs decides how (TESTING.md, Egress and hostile input):
-#   - in the job's Lima VM on the owner's machine (the pull-request tier, ADR
-#     0135): nftables rules in the VM, its kernel log the record;
-#   - on a GitHub-hosted Linux runner: the product's steps run in a network
+#   - in the job's Lima VM on the owner's machine (ADR 0135): nftables rules
+#     in the VM, its kernel log the record;
+#   - in the job's container on a standard hosted Linux runner (the hosted
+#     tier, ADR 0135's amendment of 2026-11-22): nftables rules in the
+#     container's network namespace, set from the runner, so the runner's
+#     own agent keeps its connection; the runner's kernel log the record;
+#   - on a GitHub-hosted Linux runner without the container: the product's
+#     steps run in a network
 #     namespace whose nftables rules refuse all but the allowed endpoints, so
 #     the runner's own agent keeps its connection; its kernel log the record;
 #   - on macOS without a VM there is no deny: the runner's standard user
@@ -24,7 +29,8 @@
 #     product's programs from all but loopback and the allowed endpoints;
 #     the firewall's log of dropped packets is the record (ci/egress/windows.ps1).
 # A test step after the deny runs its command through ci/vm/exec.sh in a VM,
-# or ci/egress/under-deny.sh otherwise; `xtask egress check` enforces both.
+# ci/hosted/exec.sh in the hosted tier's container, or ci/egress/under-deny.sh
+# otherwise; `xtask egress check` enforces all three.
 set -euo pipefail
 
 here=$(cd "$(dirname "$0")" && pwd)
@@ -109,7 +115,77 @@ vm_check() {
   echo "The deny refused nothing but the Egress canary."
 }
 
-### On a GitHub-hosted Linux runner: a network namespace.
+### In the hosted tier's container on a standard hosted Linux runner.
+
+container_xtask() {
+  "$root/ci/hosted/exec.sh" cargo run --quiet --locked --bin xtask -- egress "$@"
+}
+
+# A command in the container's network namespace, run from the runner, whose
+# rules the container's own root cannot see change.
+container_netns() {
+  local pid
+  pid=$(docker inspect --format '{{.State.Pid}}' "$CONTAINER")
+  sudo nsenter --target "$pid" --net -- "$@"
+}
+
+container_counters() {
+  container_netns nft --json list counters table inet goodfetch_egress
+}
+
+container_deny() {
+  local job uid
+  job=$(job_name)
+  mkdir -p "$root/$files"
+  container_xtask endpoints --job "$job" >"$root/$files/endpoints.txt"
+
+  # A host that does not resolve stays unreachable; the step that needs it fails.
+  docker exec "$CONTAINER" bash -uo pipefail -c "
+    while read -r host port; do
+      getent ahosts \"\$host\" | awk -v host=\"\$host\" -v port=\"\$port\" '{ print host, port, \$1 }' ||
+        echo \"warning: \$host did not resolve, so the job cannot reach it\" >&2
+    done </work/$files/endpoints.txt | LC_ALL=C sort -u
+  " >"$root/$files/resolved.txt"
+
+  uid=$(docker exec "$CONTAINER" id -u)
+  container_xtask rules --job "$job" --resolved "$files/resolved.txt" --uid "$uid" >"$root/$files/rules.nft"
+  if ! command -v nft >/dev/null; then
+    sudo apt-get install -y -qq nftables
+  fi
+  # The container's kernel log lines reach the runner's log.
+  sudo sysctl -q -w net.netfilter.nf_log_all_netns=1
+  container_netns nft -f "$root/$files/rules.nft"
+  awk '{ print $3, $1 }' "$root/$files/resolved.txt" |
+    docker exec --interactive --user 0 "$CONTAINER" sh -c 'cat >>/etc/hosts'
+  echo "$job" >"$EGRESS_STATE"
+  echo "Outbound traffic denied for $job but to $(wc -l <"$root/$files/endpoints.txt" | tr -d ' ') allowed endpoints."
+}
+
+container_canary() {
+  [[ -f "$EGRESS_STATE" ]] || {
+    echo "error: the deny is not in place; run ci/egress/egress.sh deny first" >&2
+    exit 2
+  }
+  container_counters >"$root/$files/canary-before.json"
+  container_xtask canary attempt --outcome "$files/canary-outcome.txt"
+  container_counters >"$root/$files/canary-after.json"
+  container_xtask canary verdict --outcome "$files/canary-outcome.txt" \
+    --before "$files/canary-before.json" --after "$files/canary-after.json"
+  echo "The Egress canary was refused."
+}
+
+container_check() {
+  if [[ ! -f "$EGRESS_STATE" ]]; then
+    echo "The deny never started, so no step ran under it."
+    return
+  fi
+  container_counters >"$root/$files/counters.json"
+  kernel_log
+  container_xtask report --counters "$files/counters.json" --log "$files/kernel.log"
+  echo "The deny refused nothing but the Egress canary."
+}
+
+### On a GitHub-hosted Linux runner without the container: a network namespace.
 
 namespace_counters() {
   sudo ip netns exec "$NAMESPACE" nft --json list counters table inet goodfetch_egress
@@ -170,10 +246,15 @@ namespace_canary() {
   echo "The Egress canary was refused."
 }
 
-namespace_check() {
-  namespace_counters >"$root/$files/counters.json"
+# The runner's kernel log, which names each connection a deny on it refused.
+kernel_log() {
   # shellcheck disable=SC2024 # the runner's user writes the copy; root reads the log
   sudo journalctl --dmesg --no-pager --output cat >"$root/$files/kernel.log"
+}
+
+namespace_check() {
+  namespace_counters >"$root/$files/counters.json"
+  kernel_log
   host_xtask report --counters "$files/counters.json" --log "$files/kernel.log"
   echo "The deny refused nothing but the Egress canary."
 }
@@ -194,7 +275,7 @@ if [[ "$backend" == windows ]]; then
   exit
 fi
 
-if [[ "$1" != deny && "$backend" != vm && ! -f "$DENY_STATE" ]]; then
+if [[ "$1" != deny && "$backend" != vm && "$backend" != container && ! -f "$DENY_STATE" ]]; then
   if [[ "$1" == check ]]; then
     echo "The deny never started, so no step ran under it."
     exit 0

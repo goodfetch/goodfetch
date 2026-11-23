@@ -49,7 +49,9 @@
 //! `GOODFETCH_FOXHOUND_ENGINE_PATH`, ADR 0090) names this executable, which
 //! the SDK starts as `attached-engine` with its environment map; the script
 //! is then `scripted-engine/script.json` under the map's `GOODFETCH_HOME`,
-//! and the record `scripted-engine/record.jsonl` beside it. A Client that
+//! the record `scripted-engine/record.jsonl` beside it, and
+//! `scripted-engine/environment.json` the environment it was started with,
+//! written before it plays. A Client that
 //! starts a Daemon's process as a Product's `daemon start` does, such as the
 //! conformance harness, starts `daemon launched` instead: it plays the same
 //! script in `socket` mode and, as a launched Daemon does, prints the
@@ -74,8 +76,8 @@ use std::process::ExitCode;
 
 use clap::{Parser, Subcommand, ValueEnum};
 use goodfetch_test_support::{
-    ATTACHED_RECORD, ATTACHED_SCRIPT, DaemonEndpoint, Ending, RuntimeFile, SCRIPTED_DAEMON_TOKEN,
-    Script, play, play_relinking,
+    ATTACHED_ENVIRONMENT, ATTACHED_RECORD, ATTACHED_SCRIPT, DaemonEndpoint, Ending, RuntimeFile,
+    SCRIPTED_DAEMON_TOKEN, Script, play, play_relinking,
 };
 use serde_json::{Value, json};
 use tungstenite::{Message, WebSocket, handshake, http};
@@ -192,6 +194,7 @@ fn run(arguments: &Arguments) -> Result<Ending, Failure> {
     let (script, record, mode) = match (&arguments.form, &arguments.script, arguments.mode) {
         (Some(Form::AttachedEngine), _, _) => {
             let home = home()?;
+            record_environment(&home.join(ATTACHED_ENVIRONMENT))?;
             (
                 home.join(ATTACHED_SCRIPT),
                 Some(home.join(ATTACHED_RECORD)),
@@ -929,6 +932,26 @@ fn home() -> Result<PathBuf, Failure> {
     let home = std::env::var_os("GOODFETCH_HOME");
     home.map(PathBuf::from)
         .ok_or_else(|| "no_home: GOODFETCH_HOME names no Goodfetch home".into())
+}
+
+/// Writes the environment this process was started with to `path`, as
+/// `ATTACHED_ENVIRONMENT` says.
+fn record_environment(path: &Path) -> Result<(), Failure> {
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "the Scripted engine records the environment its Client started it with, for the test to compare (ADR 0069)"
+    )]
+    let environment: serde_json::Map<String, Value> = std::env::vars_os()
+        .map(|(name, value)| {
+            (
+                name.to_string_lossy().into_owned(),
+                Value::String(value.to_string_lossy().into_owned()),
+            )
+        })
+        .collect();
+    let mut file = create(path)?;
+    serde_json::to_writer(&mut file, &environment)?;
+    Ok(file.flush()?)
 }
 
 fn create(path: &Path) -> Result<File, Failure> {

@@ -53,6 +53,7 @@ mod daemon;
 mod daemon_commands;
 mod daemon_log;
 mod daemon_run;
+mod doctor;
 mod domain_narrowing;
 mod egress_relay;
 mod endpoint;

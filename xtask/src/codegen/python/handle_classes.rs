@@ -24,7 +24,10 @@
 //! - A round trip, a query or a waiter whose result has one property
 //!   answers that property's value in place of the result, `None` for an
 //!   optional one that is absent, as TypeScript's and Rust's do (issue
-//!   2883): `goto` answers the `PageResponse` or `None`.
+//!   2883). One whose answer is a `PageResponse` answers the hand-written
+//!   `AsyncResponse`, `Response` in the twin, built with the page's host,
+//!   which reads its body (issue 3394): `goto` answers a `Response` or
+//!   `None`.
 //!
 //! - A parameter whose model wraps one wire value, a string, number or
 //!   boolean of a type of its own or a choice of strings, takes that value,
@@ -83,6 +86,9 @@ const HANDLE_MODULE: &str = "goodfetch_collie_client.handle";
 /// The module of the hand-written base each handle class extends: the raw
 /// call on its value (ADR 0099).
 const RAW_CALL_MODULE: &str = "goodfetch_collie_client.raw_call";
+/// The hand-written module of the `Response` a member answering a page's
+/// response returns, which reads its body through the page (ADR 0085).
+const RESPONSE_MODULE: &str = "goodfetch_collie_client.response";
 
 /// The markers module's function a listener warns of its event's markers
 /// with, read from the events module's registries.
@@ -157,6 +163,10 @@ struct Imports {
     /// The settings types its members take, from the generated settings
     /// module, with [`SETTINGS_ON_WIRE`] when there is one.
     settings: BTreeSet<&'static str>,
+    /// The classes of [`RESPONSE_MODULE`] it imports: both, when a member
+    /// answers a page's response, which it wraps in the hand-written
+    /// `Response`.
+    response: BTreeSet<&'static str>,
 }
 
 impl Imports {
@@ -544,6 +554,27 @@ fn description(layer: &Layer, member: &Member<'_>) -> Result<String> {
 }
 
 /// One member, a method of the class that holds `self._host`.
+/// The `Response` class `member` answers, when it answers a page's
+/// response, and what it returns: that class, or `None` beside it for an
+/// optional one, in place of `returns`.
+fn responded(
+    member: &Member<'_>,
+    prefix: &str,
+    returns: String,
+    imports: &mut Imports,
+) -> (Option<String>, String) {
+    if !member.responds {
+        return (None, returns);
+    }
+    imports.response.extend(["AsyncResponse", "Response"]);
+    let class = format!("{prefix}Response");
+    let returns = match &member.unwrapped {
+        Some(unwrapped) if !unwrapped.required => format!("{class} | None"),
+        _ => class.clone(),
+    };
+    (Some(class), returns)
+}
+
 fn member(
     layer: &Layer,
     member: &Member<'_>,
@@ -585,6 +616,7 @@ fn member(
         Form::Opens(opened) => format!("{prefix}{}", pascal(opened)),
         Form::Closes => "None".to_owned(),
     };
+    let (response, returns) = responded(member, prefix, returns, imports);
     let mut text = String::new();
     if let Some(deprecated) = &operation.deprecated {
         imports.deprecated = true;
@@ -640,6 +672,7 @@ fn member(
             result: &result,
             returns: &returns,
             property: property.as_deref(),
+            response: response.as_deref(),
         },
         awaits,
         &sent,
@@ -898,6 +931,10 @@ pub(super) fn handles_module(layer: &Layer, handles: &[Handle<'_>]) -> Result<St
     );
     text.push_str(&markers_import(&imports.markers));
     let _ = writeln!(text, "from {RAW_CALL_MODULE} import AsyncHandle, Handle");
+    if !imports.response.is_empty() {
+        let classes = imports.response.iter().copied().collect::<Vec<_>>();
+        let _ = writeln!(text, "from {RESPONSE_MODULE} import {}", classes.join(", "));
+    }
     if !imports.settings.is_empty() {
         let _ = writeln!(
             text,

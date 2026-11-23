@@ -40,6 +40,7 @@ use goodfetch_test_client::HomeLayout;
 use goodfetch_test_support::MESSAGE_DEADLINE;
 use goodfetch_test_support::{
     Canaries, Output, ProvingGround, SecretKind, TestEnv, browser_cache, chrome_for_testing_files,
+    cli,
 };
 use opentelemetry_proto::tonic::collector::trace::v1::ExportTraceServiceRequest;
 use prost::Message as _;
@@ -99,6 +100,26 @@ const SOURCES: [(&str, &str); 2] = [
     ("canaries.rs", include_str!("canaries.rs")),
     ("proxy.rs", include_str!("proxy.rs")),
 ];
+
+/// What `doctor` and `doctor --json` print, stdout then stderr, in `env`
+/// with `variables` set as the Run's engine had them: an output each
+/// Secret canary planted in a Run is searched in (#1206).
+pub(crate) fn doctor_output(env: &TestEnv, variables: &[(&str, &str)]) -> Vec<u8> {
+    let mut bytes = Vec::new();
+    for arguments in [&["doctor"][..], &["doctor", "--json"]] {
+        let output = variables
+            .iter()
+            .fold(
+                cli(env, COLLIE).args(arguments),
+                |command, (name, value)| command.env(name, value),
+            )
+            .run()
+            .unwrap();
+        bytes.extend_from_slice(output.stdout.as_bytes());
+        bytes.extend_from_slice(output.stderr.as_bytes());
+    }
+    bytes
+}
 
 /// The body of the test function `test` in `source`: from its `fn` line
 /// to the next item at the file's top level.
@@ -386,13 +407,13 @@ fn answer(target: &str, headers: &BTreeMap<String, String>, value: &str) -> (&'s
 /// in the Goodfetch home, starts, beside a call the engine refuses, and
 /// finishes; neither canary is in a reply, the engine's stderr, a file of
 /// the test's folder (the logs, the Run trace, run state, the Run index,
-/// the Checkpoint, the Audit log) or the OTLP export, raw or encoded, but
-/// where the test planted it.
+/// the Checkpoint, the Audit log), the OTLP export or what `doctor` then
+/// prints, raw or encoded, but where the test planted it.
 ///
 /// The OS keychain's provider is searched the same way by `secrets.rs`'s
 /// test of it, which needs the host's Secret Service.
 ///
-/// Covers: story:4-91, setting:run_state.key_reference, setting:otlp.traces_endpoint
+/// Covers: story:4-91, story:11-212, command:doctor, setting:run_state.key_reference, setting:otlp.traces_endpoint
 #[rstest]
 #[case::env(Provider::Env)]
 #[case::secretfile(Provider::SecretFile)]
@@ -444,6 +465,12 @@ fn a_key_read_through_each_provider_and_an_endpoint_token_are_in_no_output(
     let (rest, stderr) = engine.finish_with_stderr();
     replies.extend(rest);
     let exported: Vec<ExportTraceServiceRequest> = exports.try_iter().collect();
+    let variables: Vec<(&str, &str)> = configured
+        .variables
+        .iter()
+        .map(|(name, value)| (name.as_str(), value.as_str()))
+        .collect();
+    let doctor = doctor_output(&env, &variables);
 
     let replies_bytes = serde_json::to_vec(&replies).unwrap();
     let export_bytes: Vec<u8> = exported
@@ -467,6 +494,10 @@ fn a_key_read_through_each_provider_and_an_endpoint_token_are_in_no_output(
             Output::Bytes {
                 name: "OTLP export",
                 bytes: &export_bytes,
+            },
+            Output::Bytes {
+                name: "doctor",
+                bytes: &doctor,
             },
             Output::Path(env.folder()),
         ])
@@ -586,12 +617,12 @@ pub(crate) fn paths_but(folder: &Path, left_out: &Path) -> Vec<PathBuf> {
 
 /// A login on the Proving ground's `canaries` flow sets a Session cookie,
 /// a Secret canary, in a page of the Run's default Session; the browser
-/// sends it only where its flow does, and it is in no reply and no file of
-/// the test's folder once the Run finished, but the Chrome for Testing
-/// build the test copied in, Playwright's own files, which no engine
-/// writes.
+/// sends it only where its flow does, and it is in no reply, nothing
+/// `doctor` then prints and no file of the test's folder once the Run
+/// finished, but the Chrome for Testing build the test copied in,
+/// Playwright's own files, which no engine writes.
 ///
-/// Covers: story:4-91
+/// Covers: story:4-91, story:11-212, command:doctor
 #[test]
 fn a_session_cookie_a_login_sets_is_in_no_output() {
     let env = TestEnv::new();
@@ -654,12 +685,20 @@ fn a_session_cookie_a_login_sets_is_in_no_output() {
     replies.extend(rest);
     replies.extend(calls.answers.into_values());
 
+    let doctor = doctor_output(&env, &[]);
+
     let replies_bytes = serde_json::to_vec(&replies).unwrap();
     let searched = paths_but(env.folder(), &chrome_for_testing_files(&cache));
-    let mut outputs = vec![Output::Bytes {
-        name: "replies",
-        bytes: &replies_bytes,
-    }];
+    let mut outputs = vec![
+        Output::Bytes {
+            name: "replies",
+            bytes: &replies_bytes,
+        },
+        Output::Bytes {
+            name: "doctor",
+            bytes: &doctor,
+        },
+    ];
     outputs.extend(searched.iter().map(|path| Output::Path(path)));
     let leaks: Vec<String> = canaries
         .leaks(&outputs)

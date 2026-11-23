@@ -342,6 +342,7 @@ fn the_bundle_holds_each_commands_json_output() {
             "daemon.status": { "$ref": "#/$defs/DaemonStatus" },
             "daemon.stop": { "$ref": "#/$defs/DaemonStatus" },
             "daemon.uninstall": { "$ref": "#/$defs/DaemonUninstallOutput" },
+            "doctor": { "$ref": "#/$defs/DoctorReport" },
             "runs.reindex": { "$ref": "#/$defs/RunsReindexOutput" },
             "upgrade-files": { "$ref": "#/$defs/FilesUpgraded" },
         })

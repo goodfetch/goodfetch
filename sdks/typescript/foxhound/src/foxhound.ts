@@ -7,16 +7,19 @@
 // Everything else is the client package's common Connection, whose members
 // `Collie` carries under the same names.
 import type {
+  CatalogTarget,
   ConnectOptions,
   ConnectOverOptions,
   Connection,
   EngineInfo,
+  HandlerlessStartOptions,
   JSONValue,
   Limits,
   Money,
   RawCallOptions,
   RawParams,
   Run,
+  RunView,
   SettingsExplanation,
   StartOptions,
 } from "@goodfetch/collie-client";
@@ -72,6 +75,11 @@ export interface FoxhoundConnectOptions extends ConnectOptions<FoxhoundSettings>
 
 /** What starting a Run takes, with Foxhound's Limits. */
 export interface FoxhoundStartOptions extends StartOptions {
+  readonly limits?: FoxhoundLimits | undefined;
+}
+
+/** What starting a handler-less Run takes, with Foxhound's Limits. */
+export interface FoxhoundHandlerlessStartOptions extends HandlerlessStartOptions {
   readonly limits?: FoxhoundLimits | undefined;
 }
 
@@ -141,7 +149,9 @@ export class Foxhound implements Connection {
 
   /**
    * Starts Foxhound's engine as an Attached engine and completes `hello`
-   * before returning, so a missing executable (`engine_not_found`), a
+   * before returning, so a project file that cannot be read
+   * (`setting_invalid`, or `format_version_unsupported` for its version), a
+   * missing executable (`engine_not_found`), a
    * Collie engine (`not_in_product`, whose details name the engine's
    * Product and version and whose `fix` is the install command) or a
    * refused version fails here, before any other call. An aborted `signal`
@@ -179,6 +189,43 @@ export class Foxhound implements Connection {
   }
 
   /**
+   * Starts a Recipe's run, a Run with no handler in the program, and answers
+   * once it is started. Its Run ID works as `run.start`'s. With `detached`,
+   * the Run outlives the program that started it: closing its value frees
+   * only the value, `run.finish` waits for its end and `run.stop` stops it.
+   *
+   * @experimental
+   */
+  startRecipe(recipe: string, options?: FoxhoundHandlerlessStartOptions): Promise<Run> {
+    return this.#connection.startRecipe(recipe, options);
+  }
+
+  /**
+   * Starts a code-free catalog run, a Run with no handler in the program
+   * whose verbs come from the catalog (ADR 0036): an Extraction of a page by
+   * a schema, `extract`, an Agent task, `agent`, or a Plan replayed with no
+   * model call, `plan_replay`; and answers once it is started. Its Run ID
+   * works as `run.start`'s. With `detached`, the Run outlives the program
+   * that started it: closing its value frees only the value, `run.finish`
+   * waits for its end and `run.stop` stops it.
+   *
+   * @experimental
+   */
+  startCatalogRun(target: CatalogTarget, options?: FoxhoundHandlerlessStartOptions): Promise<Run> {
+    return this.#connection.startCatalogRun(target, options);
+  }
+
+  /**
+   * Opens a view of the Run `runId` names, one another program started such
+   * as a detached Run, with no round trip (ADR 0102). The view takes no
+   * writer role, and closing it frees only the view. Fails with `closed`
+   * once the Connection is closed.
+   */
+  openRun(runId: string): Promise<RunView> {
+    return this.#connection.openRun(runId);
+  }
+
+  /**
    * Starts a crawl from its seeds, and answers once its Run is started. The
    * engine then leases each work item to the program's handler as a
    * `crawl_request.handle` request, and the crawl's Run finishes once every
@@ -208,12 +255,15 @@ export class Foxhound implements Connection {
     checkCrawlStartable(crawl, options.seeds);
     await checkSeedPayloads(crawl, options.seeds);
     const settings = settingsOnWire(options.settings);
+    // The start carries the project file `connect()` read (ADR 0083).
+    const project = this.#connection.project();
     const params: CrawlStartParams = {
       ...crawlDeclaration(crawl),
       seeds: [...options.seeds],
       ...(options.runId === undefined ? {} : { runId: options.runId }),
       ...(options.tags === undefined ? {} : { tags: [...options.tags] }),
       ...(settings === undefined ? {} : { settings }),
+      ...(project === undefined ? {} : { project }),
     };
     const starting = this.#connection.startRun(
       "crawl.start",
@@ -255,7 +305,8 @@ export class Foxhound implements Connection {
    * What the Connection runs with (ADR 0083), which each Run it starts
    * inherits: each setting under `keys`, each a key or a prefix of keys
    * such as `timeout`, every one when left out, with the origin that set
-   * it too, as `goodfetch config explain` shows them. Fails with `closed`
+   * it too, as `goodfetch config explain` shows them, the project file
+   * `connect()` read as the project configuration. Fails with `closed`
    * once the Connection is closed.
    */
   explainSettings(keys?: readonly string[]): Promise<SettingsExplanation> {

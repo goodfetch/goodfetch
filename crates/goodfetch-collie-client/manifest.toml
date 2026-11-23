@@ -994,7 +994,6 @@ receiver = "(crate)"
 member = "Response"
 entry = "none"
 reason = "The response a page's request got: a navigation's document, or what `page.request` answered."
-only = "TypeScript's are generated from the catalog's types (ADR 0099)."
 words = ["response"]
 form = "type"
 
@@ -2176,3 +2175,7 @@ entries = [
   "key_value_store.keys",
 ]
 reason = "The Rust SDK has no Key-value store yet; issue 1284 adds the Run's."
+
+[[unreached]]
+entries = ["recipe.start", "catalog_run.start"]
+reason = "Issue 3396's Rust part adds `start_recipe` and `start_catalog_run`."

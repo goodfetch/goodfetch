@@ -3,10 +3,14 @@
 //! steps, and the members' tests, that the change since then reaches, by `xtask
 //! affected` and by the evidence of what each member read (`evidence`), and
 //! every check that judges the whole change; it reuses the other green
-//! results. Four of those checks give a result that follows from the tree and
-//! the host (lint, the feature combinations, the fuzz-target check and the
-//! proofs): a run on the same tree reuses theirs too, lint's once the plan has
-//! read again what lint reads besides the two (`lint`). A red result, a result
+//! results. Five of those checks give a result that follows from the tree and
+//! the host (lint, the feature combinations, the fuzz-target check, the
+//! proofs and the Journey task lists), and xtask's codegen tests from those
+//! and the base: a run on the same tree reuses theirs too, lint's once the
+//! plan has read again what lint reads besides the two (`lint`). A hosted
+//! run's units count for the steps the hosted tier owns when its record
+//! names the CI image the tree pins and this repository (`plan::Pin`), and
+//! one red on the head's tree makes the gate red. A red result, a result
 //! older than a day and a result from another host fingerprint (`host`) are
 //! never reused, a change to the gate's own inputs reruns everything, and a
 //! working tree with uncommitted changes neither reuses nor records anything.
@@ -14,8 +18,11 @@
 //!   and the `just` command of each step (`steps`), which `ci/pre-merge.sh`
 //!   follows.
 //! - **plan**: prints the `previous`, `head`, `members` and `unowned` lines,
-//!   the `stress.base` line, then each step's `<step>.action` (`run`, `part`
-//!   or `reuse`), `<step>.members` and `<step>.why` lines, which
+//!   the `stress.base` line, then each step's `<step>.action` (`run`, `part`,
+//!   `reuse`, `covered` for the Quick suite and the codegen tests, whose
+//!   tests the Pre-merge suite's units hold, `left` for a step a hosted job
+//!   leaves to the layer that owns it, or `red` for one a hosted run went red
+//!   on on this tree), `<step>.members` and `<step>.why` lines, which
 //!   `ci/pre-merge.sh` reads through `ci/output-value.sh` and follows; says
 //!   the same in words on stderr for the run's log, with the evidence that
 //!   reaches a member the selection misses; and writes the plan and the
@@ -36,6 +43,17 @@
 //!   the full run found and whatever its tree, each result of a merge since
 //!   the backstop's last green run that counted earned passes, as `earned`
 //!   lines.
+//! - **duplicates**: from every run in the records, each unit a run ran, not
+//!   reused, on a tree where an earlier run had recorded it green, naming both
+//!   layers (`duplicates`): nothing runs twice on one tree.
+//! - **quick**: whether `just quick` already passed with a key, and a run's
+//!   result, for the implementer's `just quick` and the pre-push hook
+//!   (`quick_runs`).
+//!
+//! Size: one concern, the `xtask gate` command: each subcommand's entry,
+//! and the plan's run, which reads the records (`Reader`), renders the plan
+//! and writes the carried results; each subcommand's own rules live in the
+//! modules below.
 #![expect(
     clippy::disallowed_methods,
     reason = "xtask is synchronous; the blocking-fs and blocking-process bans target async crates (STYLE.md)"
@@ -43,11 +61,13 @@
 
 mod attribution;
 mod compare;
+mod duplicates;
 mod earlier;
 mod evidence;
 mod host;
 mod lint;
 mod plan;
+mod quick_runs;
 mod runs;
 mod steps;
 
@@ -56,7 +76,6 @@ use std::ffi::OsStr;
 use std::fmt::Write as _;
 use std::path::Path;
 use std::process::ExitCode;
-use std::time::SystemTime;
 
 use anyhow::{Context as _, Result, bail};
 
@@ -67,7 +86,8 @@ use attribution::{Evidence, Judged, StressEvidence};
 use earlier::{Previous, StressBase};
 use evidence::RustInputs;
 use plan::{
-    Action, GateRun, Head, Layer, LintReads, Outcome, Planned, Step, Touched, UNOWNED, short, unit,
+    Action, GateRun, Head, Layer, LintReads, Outcome, Pin, Planned, Step, Touched, UNOWNED, short,
+    unit,
 };
 
 /// The branch whose merge base with the head is the change's base.
@@ -79,20 +99,7 @@ pub(crate) enum Status {
     Fail,
 }
 
-/// Each test's clean passes in the earned file `xtask gate plan` wrote, which
-/// `xtask stress select` takes from their counts; none when it is missing or
-/// cannot be read, and none of a member's past the age limit by now, since the
-/// stress run reads the file later than the plan that kept them.
-pub(crate) fn earned_passes(file: &Path) -> BTreeMap<String, u32> {
-    let now = SystemTime::now()
-        .duration_since(SystemTime::UNIX_EPOCH)
-        .map_or(u64::MAX, |since_the_epoch| since_the_epoch.as_secs());
-    runs::read_earned(file)
-        .into_values()
-        .filter(|earned| !plan::past_max_age(now, earned.at))
-        .flat_map(|earned| earned.passes)
-        .collect()
-}
+pub(crate) use runs::earned_passes;
 
 /// `xtask gate`'s commands.
 #[derive(clap::Subcommand)]
@@ -171,6 +178,18 @@ pub(crate) enum Command {
         #[arg(long)]
         since: Option<String>,
     },
+    /// Fails, naming both layers, on each unit a run ran, not reused, on a
+    /// tree where an earlier run had recorded it green (`duplicates`).
+    Duplicates {
+        /// The folder of the gate's records.
+        #[arg(long)]
+        records: std::path::PathBuf,
+    },
+    /// `just quick`'s runs in the gate's records (`quick_runs`).
+    Quick {
+        #[command(subcommand)]
+        command: quick_runs::Command,
+    },
 }
 
 /// What `xtask gate plan` takes.
@@ -209,6 +228,30 @@ pub(crate) struct PlanArguments {
     /// `ZIZMOR_GITHUB_TOKEN`), so a green lint is not reused.
     #[arg(long)]
     zizmor_online: bool,
+    /// The form of `just pre-merge` the run follows: a step another one's
+    /// units cover is covered only where the form runs that one.
+    #[arg(long, value_enum, default_value = "all")]
+    form: steps::Form,
+    /// The layer that plans: `hosted` for a job of the hosted tier, which
+    /// fingerprints its host by the CI image and the repository, and plans
+    /// only the hosted-owned steps.
+    #[arg(long, value_enum, default_value = "merge")]
+    layer: Layer,
+    /// The folder of the hosted runs' records that `ci/hosted-records.sh`
+    /// downloaded, whose units count for the hosted-owned steps of a head
+    /// they ran on or descend to, when they name `head_repository` and the
+    /// CI image the head's tree pins.
+    #[arg(long, requires = "head_repository")]
+    hosted_records: Option<std::path::PathBuf>,
+    /// `<owner>/<name>`: the repository whose own pull requests' hosted runs
+    /// count, the pull request's head repository in a hosted job; lint's
+    /// quarantine check reads the issues of `repository`, the base's.
+    #[arg(long, default_value = "")]
+    head_repository: String,
+    /// The hosted runner's image version, which a hosted job's fingerprint
+    /// names.
+    #[arg(long, default_value = "")]
+    runner_image: String,
     /// Where lint's quarantine check reads its quarantined tests' issues.
     #[command(flatten)]
     github: github::Arguments,
@@ -290,6 +333,10 @@ pub(crate) fn run(command: Command, environment: &Environment) -> Result<ExitCod
             let runs = runs.map_or_else(|| records.clone(), |runs| environment.path(&runs));
             return compare::compare(root, &records, &runs, &full, since.as_deref());
         }
+        Command::Duplicates { records } => {
+            return duplicates::check(&environment.path(&records));
+        }
+        Command::Quick { command } => return quick_runs::run(command, environment),
     }
     Ok(ExitCode::SUCCESS)
 }
@@ -302,18 +349,16 @@ fn plan_run(environment: &Environment, options: &PlanArguments) -> Result<()> {
     let plan_file = runs::plan_file(records, &head);
     let dirty = !git::line(root, &["status", "--porcelain"])?.is_empty();
     if dirty && !options.dry_run {
-        return plan_dirty(&plan_file);
+        return plan_dirty(&plan_file, options.form);
     }
 
     let base = git::commit(
         root,
         &git::line(root, &["merge-base", BASE_BRANCH, "HEAD"])?,
     )?;
-    let host = host::host_fingerprint(
-        root,
-        &environment.cargo,
-        &host::step_variables(&options.environment),
-    );
+    let tree = git::line(root, &["rev-parse", "--verify", "HEAD^{tree}"])?;
+    let image = host::ci_image(root, &tree).unwrap_or_default();
+    let host = plan_host(environment, options, &image);
     let members_read = WorkspaceMembers::read(&environment.cargo, root)?;
     let unowned = evidence::unowned_tests(root, &members_read)?;
     let (members, shuffled) = head_members(&members_read, &unowned);
@@ -329,10 +374,20 @@ fn plan_run(environment: &Environment, options: &PlanArguments) -> Result<()> {
         base: &base,
         members: &members,
         shuffled: &shuffled,
-        tree: &git::line(root, &["rev-parse", "--verify", "HEAD^{tree}"])?,
+        tree: &tree,
         host: &host,
         now: options.now,
         lint: LintReads::new(&lint_holds),
+        form: options.form,
+        layer: options.layer,
+        pin: Pin {
+            image: &image,
+            repository: &options.head_repository,
+        },
+    };
+    let hosted = match &options.hosted_records {
+        Some(folder) if !options.full => earlier::hosted(root, &environment.path(folder), &head)?,
+        _ => Vec::new(),
     };
     let earlier = earlier::previous(
         root,
@@ -354,11 +409,16 @@ fn plan_run(environment: &Environment, options: &PlanArguments) -> Result<()> {
         head: &head,
         target: &target,
     };
-    let (touched, beyond) = match previous {
-        Some(previous) => reader.touched_by_origin(previous)?,
-        None => (BTreeMap::new(), Vec::new()),
-    };
-    let planned = plan::plan(&gated, previous, &earlier.why_none, &touched);
+    let (touched, beyond) = reader.touched_by_origin(previous.into_iter().chain(&hosted))?;
+    let planned = plan::plan(
+        &gated,
+        &plan::Earlier {
+            previous,
+            no_previous: &earlier.why_none,
+            hosted: &hosted,
+        },
+        &touched,
+    );
     let previous_head = previous.map(|record| record.head.as_str());
     let stress_base = earlier::stress_base(root, &members_read, records, &head, &base)?;
     let machine = render(
@@ -372,6 +432,7 @@ fn plan_run(environment: &Environment, options: &PlanArguments) -> Result<()> {
     output::error(&plan_log(
         records,
         &earlier,
+        &hosted,
         &planned,
         &stress_base,
         &beyond,
@@ -380,7 +441,29 @@ fn plan_run(environment: &Environment, options: &PlanArguments) -> Result<()> {
     if options.dry_run {
         return Ok(());
     }
-    let carried = GateRun {
+    write(records, &carried(head, base, host, &planned), &machine)
+}
+
+/// The fingerprint the plan's records carry: the hosted one on the hosted
+/// layer, else the gate host's.
+fn plan_host(environment: &Environment, options: &PlanArguments, image: &str) -> String {
+    let variables = host::step_variables(&options.environment);
+    if options.layer == Layer::Hosted {
+        plan::hosted_fingerprint(
+            image,
+            &options.head_repository,
+            &options.runner_image,
+            &host::variables_digest(&variables),
+        )
+    } else {
+        host::host_fingerprint(&environment.root, &environment.cargo, &variables)
+    }
+}
+
+/// The run the plan writes: the units it carries from earlier runs and the
+/// evidence they earned.
+fn carried(head: String, base: String, host: String, planned: &[Planned]) -> GateRun {
+    GateRun {
         head,
         base,
         host,
@@ -392,8 +475,7 @@ fn plan_run(environment: &Environment, options: &PlanArguments) -> Result<()> {
             .iter()
             .flat_map(|planned| planned.earned.clone())
             .collect(),
-    };
-    write(records, &carried, &machine)
+    }
 }
 
 /// The plan's log: each record passed over for another host fingerprint,
@@ -402,11 +484,20 @@ fn plan_run(environment: &Environment, options: &PlanArguments) -> Result<()> {
 fn plan_log(
     records: &Path,
     previous: &Previous,
+    hosted: &[GateRun],
     planned: &[Planned],
     stress_base: &StressBase,
     beyond: &[String],
 ) -> String {
     let mut log = String::new();
+    for run in hosted {
+        let _ = writeln!(
+            log,
+            "Gate (ADR 0135): a hosted run's record on {} ({}) is read: its green units count for the hosted-owned steps under its CI image and repository.",
+            short(&run.head),
+            run.host
+        );
+    }
     for (other, layers) in &previous.other_hosts {
         let _ = writeln!(
             log,
@@ -446,7 +537,7 @@ fn layer_names(layers: &[Layer]) -> String {
 /// The plan of a run on a working tree with uncommitted changes: nothing
 /// it gives holds for HEAD, so every step runs in full, nothing is
 /// recorded, and an earlier plan for HEAD is dropped.
-fn plan_dirty(plan_file: &Path) -> Result<()> {
+fn plan_dirty(plan_file: &Path, form: steps::Form) -> Result<()> {
     if plan_file.exists() {
         std::fs::remove_file(plan_file)
             .with_context(|| format!("removing {}", plan_file.display()))?;
@@ -457,13 +548,15 @@ fn plan_dirty(plan_file: &Path) -> Result<()> {
     ));
     let planned: Vec<Planned> = Step::ALL
         .into_iter()
-        .map(|step| Planned {
-            step,
-            action: Action::Run {
-                why: why.to_owned(),
-            },
-            carried: BTreeMap::new(),
-            earned: BTreeMap::new(),
+        .map(|step| {
+            plan::covered(step, form).unwrap_or_else(|| Planned {
+                step,
+                action: Action::Run {
+                    why: why.to_owned(),
+                },
+                carried: BTreeMap::new(),
+                earned: BTreeMap::new(),
+            })
         })
         .collect();
     let machine = render(None, None, NO_HEAD, &BTreeSet::new(), &[], &planned);
@@ -517,16 +610,19 @@ impl Reader<'_> {
     /// What the change since each head a green result of `previous` ran on
     /// reaches, by that head, and the log's lines for the members the
     /// evidence reaches beyond the selection.
-    fn touched_by_origin(
+    fn touched_by_origin<'r>(
         &self,
-        previous: &GateRun,
+        runs: impl IntoIterator<Item = &'r GateRun>,
     ) -> Result<(BTreeMap<String, Touched>, Vec<String>)> {
-        let origins: BTreeSet<&String> = previous
-            .units
-            .values()
-            .filter(|outcome| outcome.green)
-            .map(|outcome| &outcome.origin)
-            .chain(previous.earned.values().map(|earned| &earned.origin))
+        let origins: BTreeSet<&String> = runs
+            .into_iter()
+            .flat_map(|run| {
+                run.units
+                    .values()
+                    .filter(|outcome| outcome.green)
+                    .map(|outcome| &outcome.origin)
+                    .chain(run.earned.values().map(|earned| &earned.origin))
+            })
             .collect();
         let mut rust = None;
         let mut touched = BTreeMap::new();
@@ -708,7 +804,7 @@ const NO_HEAD: &str = "none";
 /// and `unowned` lines; the `stress.base` line, the head the stress run
 /// compares this one with in place of the change's base
 /// ([`earlier::stress_base`]), `-` when it is the change's base; then each
-/// step's `<step>.action` (`run`, `part` or `reuse`), `<step>.members` and
+/// step's `<step>.action` (`run`, `part`, `reuse`, `covered`, `left` or `red`), `<step>.members` and
 /// `<step>.why` lines, with `<step>.earned`, the members that keep passes, for
 /// a step that counts them. A list is its items joined by spaces, `-` when it
 /// is empty; a value is one line.
@@ -746,18 +842,24 @@ fn render(
     for Planned {
         step,
         action,
+        carried,
         earned,
-        ..
     } in planned
     {
         let (name, units, why) = match action {
             Action::Run { why } => ("run", "-".to_owned(), why.clone()),
             Action::Part { members, why } => ("part", joined(members), why.clone()),
-            Action::Reuse { origins } => (
+            // Each head with the layer that ran it, so the gate's log names
+            // the hosted run a unit was green in (ci/hosted-records.sh names
+            // the run on each head).
+            Action::Reuse { .. } => (
                 "reuse",
                 "-".to_owned(),
-                format!("green on {}", joined(origins)),
+                format!("green on {}", origins(carried)),
             ),
+            Action::Covered { by } => ("covered", "-".to_owned(), plan::covered_why(*by)),
+            Action::Left { owner } => ("left", "-".to_owned(), plan::left_why(*owner)),
+            Action::Red { why } => ("red", "-".to_owned(), why.clone()),
         };
         if step.counts_passes() {
             let kept = earned.keys().cloned().collect();
@@ -829,6 +931,11 @@ fn describe(previous: Option<(&str, &Path)>, planned: &[Planned]) -> String {
                 origins(carried),
                 previous.map_or("-", |(previous, _)| short(previous))
             ),
+            Action::Covered { by } => format!("not run: {}", plan::covered_why(*by)),
+            Action::Left { owner } => format!("not run: {}", plan::left_why(*owner)),
+            Action::Red { why } => {
+                format!("red, not run again here: {why}, so the gate is red (ADR 0064)")
+            }
         };
         let _ = writeln!(text, "  {}: {line}", step.name());
         for (member, passes) in earned {

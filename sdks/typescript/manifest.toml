@@ -68,6 +68,34 @@ form = "opener"
 [[member]]
 package = "@goodfetch/collie"
 receiver = "Collie"
+member = "startRecipe"
+entry = "recipe.start"
+only = "Issue 3396's Rust part adds it."
+words = ["start", "recipe"]
+form = "opener"
+
+[[member]]
+package = "@goodfetch/collie"
+receiver = "Collie"
+member = "startCatalogRun"
+entry = "catalog_run.start"
+only = "Issue 3396's Rust part adds it."
+words = ["start", "catalog", "run"]
+form = "opener"
+
+[[member]]
+package = "@goodfetch/collie"
+receiver = "Collie"
+member = "openRun"
+entry = "none"
+reason = "Opens a view of a Run another program started, by its Run ID, with no round trip (ADR 0102)."
+only = "Issue 3396's Rust part adds it."
+words = ["open", "run"]
+form = "opener"
+
+[[member]]
+package = "@goodfetch/collie"
+receiver = "Collie"
 member = "explainSettings"
 entry = "config.explain"
 words = ["explain", "settings"]
@@ -115,6 +143,34 @@ receiver = "Foxhound"
 member = "start"
 entry = "run.start"
 words = ["start"]
+form = "opener"
+
+[[member]]
+package = "@goodfetch/foxhound"
+receiver = "Foxhound"
+member = "startRecipe"
+entry = "recipe.start"
+only = "Issue 3396's Rust part adds it."
+words = ["start", "recipe"]
+form = "opener"
+
+[[member]]
+package = "@goodfetch/foxhound"
+receiver = "Foxhound"
+member = "startCatalogRun"
+entry = "catalog_run.start"
+only = "Issue 3396's Rust part adds it."
+words = ["start", "catalog", "run"]
+form = "opener"
+
+[[member]]
+package = "@goodfetch/foxhound"
+receiver = "Foxhound"
+member = "openRun"
+entry = "none"
+reason = "Opens a view of a Run another program started, by its Run ID, with no round trip (ADR 0102); `Collie.openRun`'s member under the same name."
+only = "Issue 3396's Rust part adds it."
+words = ["open", "run"]
 form = "opener"
 
 [[member]]
@@ -283,6 +339,34 @@ receiver = "Connection"
 member = "start"
 entry = "run.start"
 words = ["start"]
+form = "opener"
+
+[[member]]
+package = "@goodfetch/collie-client"
+receiver = "Connection"
+member = "startRecipe"
+entry = "recipe.start"
+only = "Issue 3396's Rust part adds it."
+words = ["start", "recipe"]
+form = "opener"
+
+[[member]]
+package = "@goodfetch/collie-client"
+receiver = "Connection"
+member = "startCatalogRun"
+entry = "catalog_run.start"
+only = "Issue 3396's Rust part adds it."
+words = ["start", "catalog", "run"]
+form = "opener"
+
+[[member]]
+package = "@goodfetch/collie-client"
+receiver = "Connection"
+member = "openRun"
+entry = "none"
+reason = "Opens a view of a Run another program started, by its Run ID, with no round trip (ADR 0102)."
+only = "Issue 3396's Rust part adds it."
+words = ["open", "run"]
 form = "opener"
 
 [[member]]
@@ -543,6 +627,15 @@ member = "startRun"
 entry = "none"
 reason = "Opens a Run a Product's own start operation answers, such as Foxhound's `crawl.start`, and closes it with the Connection (ADR 0102)."
 words = ["start", "run"]
+form = "runtime"
+
+[[member]]
+package = "@goodfetch/collie-client/runtime"
+receiver = "ClientConnection"
+member = "project"
+entry = "none"
+reason = "The project file the connection read at its opening, which a Product's own start operation, such as Foxhound's `crawl.start`, carries as `run.start` does (ADR 0083)."
+words = ["project"]
 form = "runtime"
 
 [[member]]
@@ -1127,6 +1220,66 @@ form = "type"
 [[member]]
 package = "@goodfetch/collie-client"
 receiver = "(module)"
+member = "HandlerlessStartOptions"
+entry = "none"
+reason = "What starting a handler-less Run takes (ADR 0102), shaped by the SDK around the params `recipe.start` and `catalog_run.start` share."
+only = "Python takes the options as keyword arguments; issue 3396's Rust part adds its own."
+words = ["handlerless", "start", "options"]
+form = "type"
+
+[[member]]
+package = "@goodfetch/collie-client"
+receiver = "(module)"
+member = "RunView"
+entry = "none"
+reason = "The view of a Run another program started that `openRun()` opens (ADR 0102), which takes no writer role."
+only = "Issue 3396's Rust part adds it."
+words = ["run", "view"]
+form = "type"
+
+[[member]]
+package = "@goodfetch/collie-client"
+receiver = "RunView"
+member = "id"
+entry = "none"
+reason = "The Run ID the view was opened with, read without a round trip (ADR 0102)."
+only = "Issue 3396's Rust part adds it."
+words = ["id"]
+form = "read"
+
+[[member]]
+package = "@goodfetch/collie-client"
+receiver = "RunView"
+member = "close"
+entry = "none"
+reason = "Frees only the view (ADR 0102): the Run goes on."
+only = "Issue 3396's Rust part adds it."
+words = ["close"]
+form = "closer"
+
+[[member]]
+package = "@goodfetch/collie-client"
+receiver = "RunView"
+member = "[Symbol.asyncDispose]"
+entry = "none"
+reason = "The scoped form of `close()` (ADR 0078), which frees only the view."
+only = "Issue 3396's Rust part adds it."
+words = ["close"]
+form = "closer"
+
+[[member]]
+package = "@goodfetch/collie-client"
+receiver = "RunView"
+member = "constructor"
+entry = "none"
+reason = "A Connection's `openRun()` opens a view; a program never constructs one."
+only = "Python's view has no constructor a program calls, and issue 3396's Rust part adds one with none either."
+words = ["run", "view"]
+form = "read"
+
+[[member]]
+package = "@goodfetch/collie-client"
+receiver = "(module)"
 member = "ConnectOptions"
 entry = "none"
 reason = "The options of `connect()`, which no catalog entry shapes (ADR 0078)."
@@ -1311,6 +1464,123 @@ entry = "none"
 reason = "A Product's package makes it, for the method that reads the sequence; a program never constructs one."
 words = ["sequence"]
 form = "read"
+
+[[member]]
+package = "@goodfetch/collie-client"
+receiver = "(module)"
+member = "Response"
+entry = "none"
+reason = "The response a page's request got: a navigation's document, or what `page.request` answered, whose body it reads."
+words = ["response"]
+form = "type"
+
+[[member]]
+package = "@goodfetch/collie-client"
+receiver = "Response"
+member = "constructor"
+entry = "none"
+reason = "A page's handle makes it, for the member that answers a response; a program never constructs one."
+only = "Rust's `Response` has no constructor at all."
+words = ["response"]
+form = "read"
+
+[[member]]
+package = "@goodfetch/collie-client"
+receiver = "Response"
+member = "url"
+entry = "none"
+reason = "Its final URL."
+words = ["url"]
+form = "read"
+
+[[member]]
+package = "@goodfetch/collie-client"
+receiver = "Response"
+member = "status"
+entry = "none"
+reason = "Its HTTP status."
+words = ["status"]
+form = "read"
+
+[[member]]
+package = "@goodfetch/collie-client"
+receiver = "Response"
+member = "statusText"
+entry = "none"
+reason = "Its status text."
+words = ["status", "text"]
+form = "read"
+
+[[member]]
+package = "@goodfetch/collie-client"
+receiver = "Response"
+member = "ok"
+entry = "none"
+reason = "Whether its status is a success, from 200 to 299."
+words = ["ok"]
+form = "read"
+
+[[member]]
+package = "@goodfetch/collie-client"
+receiver = "Response"
+member = "headers"
+entry = "none"
+reason = "Its headers, their names lower-cased, as the browser received them."
+words = ["headers"]
+form = "read"
+
+[[member]]
+package = "@goodfetch/collie-client"
+receiver = "Response"
+member = "encoding"
+entry = "none"
+reason = "For a navigation's document, the encoding the browser decoded it with, as `document.characterSet` names it, such as `Shift_JIS` (ADR 0119); `null` for another response, and for a navigation that answered at `commit`, before its document was decoded."
+words = ["encoding"]
+form = "read"
+
+[[member]]
+package = "@goodfetch/collie-client"
+receiver = "Response"
+member = "requestId"
+entry = "none"
+reason = "The engine's ID for its request's hop."
+words = ["request", "id"]
+form = "read"
+
+[[member]]
+package = "@goodfetch/collie-client"
+receiver = "Response"
+member = "fromServiceWorker"
+entry = "none"
+reason = "Whether a site's service worker supplied it, from its own cache or through its own fetch (ADR 0121)."
+words = ["from", "service", "worker"]
+form = "read"
+
+[[member]]
+package = "@goodfetch/collie-client"
+receiver = "Response"
+member = "body"
+entry = "response.body"
+words = ["body"]
+form = "round_trip"
+
+[[member]]
+package = "@goodfetch/collie-client"
+receiver = "Response"
+member = "text"
+entry = "none"
+reason = "Its body as text, decoded with the response's own encoding (ADR 0119): a navigation's document with the one the browser decoded it with, `encoding()`; any other response with its BOM, then its `Content-Type` charset, then for HTML a `<meta>` as Chrome's prescan reads it or an XML declaration at its very start, for an XML type that declaration, and UTF-8 last."
+words = ["text"]
+form = "round_trip"
+
+[[member]]
+package = "@goodfetch/collie-client"
+receiver = "Response"
+member = "json"
+entry = "none"
+reason = "Its body parsed as JSON: decoded as UTF-8 whatever its charset, as JSON is, a leading BOM ignored."
+words = ["json"]
+form = "round_trip"
 
 [[member]]
 package = "@goodfetch/collie-client"
@@ -1897,6 +2167,31 @@ form = "opener"
 [[member]]
 package = "@goodfetch/collie-client/runtime"
 receiver = "ClientConnection"
+member = "startRecipe"
+entry = "recipe.start"
+words = ["start", "recipe"]
+form = "opener"
+
+[[member]]
+package = "@goodfetch/collie-client/runtime"
+receiver = "ClientConnection"
+member = "startCatalogRun"
+entry = "catalog_run.start"
+words = ["start", "catalog", "run"]
+form = "opener"
+
+[[member]]
+package = "@goodfetch/collie-client/runtime"
+receiver = "ClientConnection"
+member = "openRun"
+entry = "none"
+reason = "Opens a view of a Run another program started, by its Run ID, with no round trip (ADR 0102)."
+words = ["open", "run"]
+form = "opener"
+
+[[member]]
+package = "@goodfetch/collie-client/runtime"
+receiver = "ClientConnection"
 member = "explainSettings"
 entry = "config.explain"
 words = ["explain", "settings"]
@@ -2260,6 +2555,16 @@ form = "type"
 [[member]]
 package = "@goodfetch/foxhound"
 receiver = "(module)"
+member = "FoxhoundHandlerlessStartOptions"
+entry = "none"
+reason = "What starting a handler-less Run takes, with Foxhound's Limits."
+only = "Python takes the options as keyword arguments; issue 3396's Rust part adds its own."
+words = ["foxhound", "handlerless", "start", "options"]
+form = "type"
+
+[[member]]
+package = "@goodfetch/foxhound"
+receiver = "(module)"
 member = "StartCrawlOptions"
 entry = "none"
 reason = "What `Foxhound.startCrawl` takes (ADR 0093)."
@@ -2493,10 +2798,6 @@ reason = "Issue 1287 adds `run.effect`, which declares an Effect through them."
 [[unreached]]
 entries = ["page.body"]
 reason = "A Client that cannot read a page body's file streams it through `page.body`; no member streams it yet (issue 1404)."
-
-[[unreached]]
-entries = ["response.body"]
-reason = "Issue 1476 adds `ctx.response.body()`, the bytes of the response a page kept."
 
 [[unreached]]
 entries = ["key_value_store.keys"]

@@ -12,6 +12,8 @@ export type CollieWireType =
   | "AuditVerified"
   | "AxisReason"
   | "BodyHandle"
+  | "CatalogRunStartParams"
+  | "CatalogTarget"
   | "CertificateExceptionMark"
   | "CertificatePin"
   | "CertsAcceptParams"
@@ -107,6 +109,7 @@ export type CollieWireType =
   | "PressParams"
   | "PrivateEndpoint"
   | "ReachedLimit"
+  | "RecipeStartParams"
   | "RecordProvenance"
   | "RecordRead"
   | "RecordingReport"
@@ -188,6 +191,8 @@ export const collieWire: Wire<keyof CollieOperationTypes & string, keyof CollieE
     "AuditVerified": { fields: { "first_broken": "firstBroken" } },
     "AxisReason": { fields: { "call_id": "callId" } },
     "BodyHandle": { fields: { "run_id": "runId" } },
+    "CatalogRunStartParams": { fields: { "limits": ["limits", { items: { type: "RunLimit" } }], "run_id": "runId", "target": ["target", { type: "CatalogTarget" }] } },
+    "CatalogTarget": { fields: { "max_steps": "maxSteps" } },
     "CertificateExceptionMark": { fields: { "spki_sha256": "spkiSha256" } },
     "CertificatePin": { fields: { "changed_spki_sha256": "changedSpkiSha256", "pinned_at": ["pinnedAt", "time"], "run_id": "runId", "spki_sha256": "spkiSha256" } },
     "CertsAcceptParams": { fields: { "spki_sha256": "spkiSha256" } },
@@ -283,6 +288,7 @@ export const collieWire: Wire<keyof CollieOperationTypes & string, keyof CollieE
     "PressParams": { fields: { "locator": ["locator", { type: "Locator" }] } },
     "PrivateEndpoint": { fields: { "token_file": "tokenFile" } },
     "ReachedLimit": { fields: { "period": ["period", { type: "Period" }], "resets_at": ["resetsAt", "time"], "usage_kind": "usageKind" } },
+    "RecipeStartParams": { fields: { "limits": ["limits", { items: { type: "RunLimit" } }], "run_id": "runId" } },
     "RecordProvenance": { fields: { "certificate_exception": ["certificateException", { type: "CertificateExceptionMark" }], "clean_up_rules": "cleanUpRules", "origin": ["origin", { type: "ResponseOrigin" }], "payment": ["payment", { type: "PaymentMark" }], "request_id": "requestId", "robots_txt": "robotsTxt", "tier": ["tier", { type: "TierProvenance" }], "unread_fields": "unreadFields", "value_transforms": ["valueTransforms", { items: { type: "TransformProvenance" } }] } },
     "RecordRead": { fields: { "record": ["record", { type: "DatasetRecord" }] } },
     "RecordingReport": { fields: { "recorded_from": ["recordedFrom", "time"], "recorded_to": ["recordedTo", "time"], "responses_used": "responsesUsed", "written_by": "writtenBy" } },
@@ -356,6 +362,7 @@ export const collieWire: Wire<keyof CollieOperationTypes & string, keyof CollieE
     "WebSocketFrame": { fields: { "page_id": "pageId", "web_socket_id": "webSocketId" } },
   },
   params: {
+    "catalog_run.start": { type: "CatalogRunStartParams" },
     "config.explain": { type: "ConfigExplainParams" },
     "connection.set_log_level": { type: "SetLogLevelParams" },
     "dialog.accept": { type: "DialogAcceptParams" },
@@ -397,6 +404,7 @@ export const collieWire: Wire<keyof CollieOperationTypes & string, keyof CollieE
     "page.wait_for_request_finished": { type: "WaitForRequestFinishedParams" },
     "page.wait_for_response": { type: "WaitForExchangeParams" },
     "page.wait_for_url": { type: "WaitForUrlParams" },
+    "recipe.start": { type: "RecipeStartParams" },
     "response.body": { type: "ResponseBodyParams" },
     "route.abort": { type: "RouteAbortParams" },
     "route.continue": { type: "RouteOverridesParams" },
@@ -432,6 +440,7 @@ export const collieWire: Wire<keyof CollieOperationTypes & string, keyof CollieE
   results: {
     "audit.export": { type: "AuditExported" },
     "audit.verify": { type: "AuditVerified" },
+    "catalog_run.start": { type: "RunStarted" },
     "certs.list": { type: "CertsListed" },
     "config.explain": { type: "SettingsExplanation" },
     "daemon.status": { type: "DaemonState" },
@@ -450,6 +459,7 @@ export const collieWire: Wire<keyof CollieOperationTypes & string, keyof CollieE
     "page.wait_for_request": { type: "PageRequest" },
     "page.wait_for_request_finished": { type: "PageExchange" },
     "page.wait_for_response": { type: "PageExchange" },
+    "recipe.start": { type: "RunStarted" },
     "response.body": { type: "BodyHandle" },
     "route.fetch": { type: "RouteFetched" },
     "run.abort": { type: "RunReport" },

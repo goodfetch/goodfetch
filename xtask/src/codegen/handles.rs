@@ -48,6 +48,9 @@
 //!   document's response rather than a wrapper of it (issue 2517); an
 //!   optional property answers the language's none when it is absent. The
 //!   operation's own function, the wire and the result type are unchanged.
+//!   One whose answer is a `PageResponse`, its result or that property,
+//!   answers the language's hand-written `Response` in its place, which
+//!   holds the page that reads its body (ADR 0085).
 //! - An optional parameter marked `deprecation`, or a value of a
 //!   parameter's choice of strings marked so, is a deprecated form of a
 //!   member that is not deprecated itself: a language with overloads gives
@@ -256,6 +259,12 @@ pub(super) struct Member<'a> {
     /// The one property of its result, which it answers in place of the
     /// result; none when the result has no property or several.
     pub(super) unwrapped: Option<Unwrapped>,
+    /// Whether what it answers is a page's response, a [`PAGE_RESPONSE`]
+    /// or its result's one property of that type, which each language's
+    /// handle wraps in its hand-written `Response`, holding the page that
+    /// reads its body (ADR 0085); an optional property answers none when
+    /// it is absent.
+    pub(super) responds: bool,
     /// Its deprecated forms, each an overload of its own; none when the
     /// member itself is deprecated, which marks every call.
     pub(super) deprecated_forms: Vec<DeprecatedForm>,
@@ -574,6 +583,12 @@ fn unwrapped(
 
 /// The definition `property` takes: a reference, alone or beside `null`.
 fn definition_of<'l>(layer: &'l Layer, property: &Value) -> Option<&'l Value> {
+    layer.definitions.get(definition_name(property)?)
+}
+
+/// The name of the definition `property` takes: a reference, alone or
+/// beside `null`.
+fn definition_name(property: &Value) -> Option<&str> {
     let reference = match property["anyOf"].as_array() {
         Some(variants) => {
             let mut values = variants.iter().filter(|variant| variant["type"] != "null");
@@ -582,7 +597,34 @@ fn definition_of<'l>(layer: &'l Layer, property: &Value) -> Option<&'l Value> {
         }
         None => property,
     };
-    layer.definitions.get(referenced(reference)?)
+    referenced(reference)
+}
+
+/// The type of a page's response, which a member answering it wraps.
+pub(super) const PAGE_RESPONSE: &str = "PageResponse";
+
+/// Whether `operation`'s member in `form` answers a page's response
+/// ([`Member::responds`]): its result is a [`PAGE_RESPONSE`], or the one
+/// property it answers in place of the result, `unwrapped`, is one.
+fn responds(
+    layer: &Layer,
+    operation: &Operation,
+    form: &Form,
+    unwrapped: Option<&Unwrapped>,
+) -> bool {
+    if !matches!(form, Form::RoundTrip | Form::Query | Form::Waiter) {
+        return false;
+    }
+    match unwrapped {
+        None => operation.result.0 == PAGE_RESPONSE,
+        Some(unwrapped) => {
+            layer
+                .definitions
+                .get(&operation.result.0)
+                .and_then(|result| definition_name(&result["properties"][&unwrapped.property]))
+                == Some(PAGE_RESPONSE)
+        }
+    }
 }
 
 /// `schema`'s deprecation, if it marks one.
@@ -947,9 +989,11 @@ pub(super) fn handles(layer: &Layer) -> Result<Vec<Handle<'_>>> {
                 && parameters.named.is_empty();
             let form = if closes { Form::Closes } else { form };
             let unwrapped = unwrapped(layer, operation, &form, typed_by.as_ref())?;
+            let responds = responds(layer, operation, &form, unwrapped.as_ref());
             let member = Member {
                 operation,
                 name,
+                responds,
                 form,
                 deprecated_forms: deprecated_forms(layer, operation, schema, &parameters)?,
                 parameters,

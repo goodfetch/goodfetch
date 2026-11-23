@@ -40,8 +40,10 @@ fn listed(workspace: &Workspace, form: &str) -> Vec<Listed> {
 /// form's calls are spelled here, never read from `xtask gate steps`: a step
 /// that loses `--check` or `all` still runs and passes, with less of a check
 /// behind its green, so it has to fail a test. The Pre-merge suite's step
-/// runs the exercise audit after its suite.
-const ALL_HOST_CALLS: [&str; 18] = [
+/// runs the exercise audit after its suite. No full form runs the Quick
+/// suite, whose every test the Pre-merge suite runs (ADR 0135's amendment of
+/// 2026-11-22).
+const ALL_HOST_CALLS: [&str; 17] = [
     "dco",
     "commit-messages",
     "floor-guard",
@@ -52,7 +54,6 @@ const ALL_HOST_CALLS: [&str; 18] = [
     "feature-combinations",
     "fuzz-check",
     "proofs",
-    "_suite quick all",
     "_suite pre-merge all",
     "features-audit",
     "stress",
@@ -63,7 +64,7 @@ const ALL_HOST_CALLS: [&str; 18] = [
 ];
 
 /// The calls `just pre-merge` alone makes on the host, in their order.
-const CHANGED_HOST_CALLS: [&str; 18] = [
+const CHANGED_HOST_CALLS: [&str; 17] = [
     "dco",
     "commit-messages",
     "floor-guard",
@@ -74,7 +75,6 @@ const CHANGED_HOST_CALLS: [&str; 18] = [
     "feature-combinations",
     "fuzz-check",
     "proofs",
-    "_suite quick",
     "_suite pre-merge",
     "features-audit",
     "stress",
@@ -145,7 +145,7 @@ fn calls_between(setup: &[&str], calls: &[&str], last: &[&str]) -> Vec<String> {
 }
 
 /// An incremental gate's plan (ADR 0135), in `xtask gate plan`'s keys: each
-/// step of the full gate runs in full but those `actions` gives as
+/// step of the full and quick gates runs in full but those `actions` gives as
 /// `(<step>, <action>, <members>, <why>)`, and the stress run compares the
 /// head with the change's base (`stress.base=-`). A plan whose `head` is
 /// `none` records nothing.
@@ -160,9 +160,11 @@ fn plan(
     let mut text = format!(
         "previous={previous}\nhead={head}\nmembers={members}\nunowned={unowned}\nstress.base=-\n"
     );
+    let mut seen = std::collections::BTreeSet::new();
     for step in listed(workspace, "all")
         .into_iter()
-        .filter(|step| step.kind != "command")
+        .chain(listed(workspace, "quick"))
+        .filter(|step| step.kind != "command" && seen.insert(step.name.clone()))
     {
         let (action, members, why) = actions.iter().find(|(name, ..)| *name == step.name).map_or(
             ("run", "-", "no earlier run"),
@@ -449,6 +451,133 @@ fn the_quick_form_runs_the_checks_every_change_needs_and_nothing_beside() {
     );
 }
 
+/// The quick gate plans by its form and layer (ADR 0135's amendment of
+/// 2026-11-22): it reuses what its plan reuses, reruns the Quick suite's
+/// part over the members the plan names, ends red on a unit a hosted run
+/// ended red on the head's tree without running it again, and records each
+/// step it ran.
+#[test]
+fn the_quick_gate_follows_its_plan_and_records_each_step_it_runs() {
+    let workspace = Workspace::from_fixture("empty");
+    let stand_in = stand_in_just(&workspace);
+    let quick_plan = plan(
+        &workspace,
+        "earlier",
+        "planned",
+        "a b c :unowned",
+        "website/pages.spec.ts",
+        &[
+            ("lint", "reuse", "-", "green on hosted"),
+            (
+                "quick",
+                "part",
+                "a b :unowned",
+                "the tree changed since earlier",
+            ),
+            (
+                "codegen-tests",
+                "red",
+                "-",
+                "red in the hosted run on 1234567",
+            ),
+        ],
+    );
+    std::fs::write(stand_in.join("plan"), quick_plan).unwrap();
+
+    let run = pre_merge(&workspace, &stand_in, &["quick"]);
+
+    assert_eq!(run.code, Some(1), "{}", run.stderr);
+    let ran: Vec<&str> = QUICK_CALLS[..6]
+        .iter()
+        .copied()
+        .chain([
+            "test quick --shuffled-all a b website/pages.spec.ts",
+            "journeys-tasks --check",
+        ])
+        .collect();
+    assert_eq!(
+        run.calls,
+        calls_between(HOST_SETUP, &ran, &["_skips-report"])
+    );
+    assert!(
+        run.stderr
+            .contains("codegen-tests (red in the hosted run on 1234567): exit status 1"),
+        "{}",
+        run.stderr
+    );
+    assert_eq!(
+        run.gate.first().map(String::as_str),
+        Some("_gate-plan quick merge")
+    );
+    let recorded: Vec<String> = run.gate[1..].to_vec();
+    let expected: Vec<String> = [
+        "dco",
+        "commit-messages",
+        "floor-guard",
+        "commit-leaks",
+        "audit",
+        "notices",
+        "quick",
+        "journeys-tasks",
+    ]
+    .iter()
+    .map(|step| format!("_gate-record merge planned {step} pass"))
+    .collect();
+    assert_eq!(recorded, expected);
+}
+
+/// A hosted job plans by the layer `hosted`: it leaves each step another
+/// layer owns to it, and, with `GOODFETCH_GATE_ONLY`, runs that one step of
+/// its form and records it by its layer.
+#[rstest]
+#[case::every_hosted_step(None, &["lint", "_suite quick all", "journeys-tasks --check", "codegen-tests"])]
+#[case::one_step(Some("journeys-tasks"), &["journeys-tasks --check"])]
+fn a_hosted_job_runs_the_hosted_steps_and_leaves_the_others_to_their_layers(
+    #[case] only: Option<&str>,
+    #[case] ran: &[&str],
+) {
+    let workspace = Workspace::from_fixture("empty");
+    let stand_in = stand_in_just(&workspace);
+    let left: Vec<(&str, &str, &str, &str)> = QUICK_CALLS[..6]
+        .iter()
+        .map(|step| (*step, "left", "-", "the local layer owns it"))
+        .collect();
+    let hosted_plan = plan(&workspace, "none", "planned", "-", "-", &left);
+    std::fs::write(stand_in.join("plan"), hosted_plan).unwrap();
+    let mut variables = vec![("GOODFETCH_GATE_LAYER", "hosted")];
+    variables.extend(only.map(|step| ("GOODFETCH_GATE_ONLY", step)));
+
+    let run = pre_merge_with_env(&workspace, &stand_in, &["quick"], &variables);
+
+    assert_eq!(run.code, Some(0), "{}", run.stderr);
+    assert_eq!(
+        run.calls,
+        calls_between(HOST_SETUP, ran, &["_skips-report"])
+    );
+    let not_run = match only {
+        Some(step) => format!("Gate step lint: not run (this job runs {step} alone)"),
+        None => "Gate step dco: not run (the local layer owns it)".to_owned(),
+    };
+    assert!(run.stdout.contains(&not_run), "{}", run.stdout);
+    assert_eq!(
+        run.gate.first().map(String::as_str),
+        Some("_gate-plan quick hosted")
+    );
+    let names = |call: &&str| call.split(' ').next().unwrap_or(call).to_owned();
+    let recorded: Vec<String> = run.gate[1..].to_vec();
+    let expected: Vec<String> = ran
+        .iter()
+        .map(|call| {
+            let step = match names(call).as_str() {
+                "_suite" => "quick".to_owned(),
+                name => name.to_owned(),
+            };
+            format!("_gate-record hosted planned {step} pass")
+        })
+        .collect();
+    assert_eq!(recorded, expected);
+}
+
 /// The docs form runs its steps, for a change of documents alone (`xtask
 /// affected`'s `gate=docs`), in their order: no OS service, no step beside
 /// the host's.
@@ -534,7 +663,7 @@ fn a_red_check_leaves_every_other_check_of_the_quick_and_docs_forms_running(
 
 /// The steps a full gate records, in the order it records them: the host's
 /// as each ends, then the steps beside once it has waited for them.
-const RECORDED_STEPS: [&str; 25] = [
+const RECORDED_STEPS: [&str; 24] = [
     "dco",
     "commit-messages",
     "floor-guard",
@@ -545,7 +674,6 @@ const RECORDED_STEPS: [&str; 25] = [
     "feature-combinations",
     "fuzz-check",
     "proofs",
-    "quick",
     "pre-merge",
     "stress",
     "journeys-tasks",
@@ -565,7 +693,7 @@ const RECORDED_STEPS: [&str; 25] = [
 /// A full gate's calls on the host when its Pre-merge suite's tests fail
 /// outright: a green gate's, without the exercise audit, which runs only
 /// after green tests or after nextest's tests alone failed (status 100).
-const HOST_CALLS_WITHOUT_THE_AUDIT: [&str; 17] = [
+const HOST_CALLS_WITHOUT_THE_AUDIT: [&str; 16] = [
     "dco",
     "commit-messages",
     "floor-guard",
@@ -576,7 +704,6 @@ const HOST_CALLS_WITHOUT_THE_AUDIT: [&str; 17] = [
     "feature-combinations",
     "fuzz-check",
     "proofs",
-    "_suite quick all",
     "_suite pre-merge all",
     "stress",
     "journeys-tasks --check",
@@ -594,15 +721,14 @@ const HOST_CALLS_WITHOUT_THE_AUDIT: [&str; 17] = [
 /// host's calls. The
 /// cases take each way `ci/pre-merge.sh` runs a step once:
 /// each step beside, a host step run with its `just` command (`lint`;
-/// every plain host step takes that way, by its name alone), the Quick suite
-/// and the stress run with their evidence, and the Pre-merge suite, red in its
-/// tests or in its exercise audit.
+/// every plain host step takes that way, by its name alone), the stress run
+/// with its evidence, and the Pre-merge suite, red in its tests or in its
+/// exercise audit.
 #[rstest]
 #[case::perf("perf", "perf", &["perf"], &ALL_HOST_CALLS)]
 #[case::linux("linux", "linux", &["linux"], &ALL_HOST_CALLS)]
 #[case::visual("visual", "visual", &["visual"], &ALL_HOST_CALLS)]
 #[case::lint("lint", "lint", &["lint"], &ALL_HOST_CALLS)]
-#[case::quick("_suite quick all", "quick", &["quick"], &ALL_HOST_CALLS)]
 #[case::pre_merge(
     "_suite pre-merge all",
     "pre-merge",
@@ -702,8 +828,7 @@ fn one_red_step(call: &str, step: &str, recorded_red: &[&str], host_calls: &[&st
 /// merge` finds them for the failing gate's kept results (TESTING.md,
 /// Commands); a green step leaves none.
 #[rstest]
-#[case::the_quick_suites_nextest_file("_suite quick all", "quick", "nextest/quick/junit.xml")]
-#[case::the_quick_suites_vitest_file("_suite quick all", "quick", "junit/vitest.xml")]
+#[case::the_pre_merge_suites_vitest_file("_suite pre-merge all", "pre-merge", "junit/vitest.xml")]
 #[case::the_pre_merge_suites_nextest_file(
     "_suite pre-merge all",
     "pre-merge",
@@ -824,10 +949,10 @@ fn on_the_host(run: Run) -> Vec<String> {
     "`lint.action=`"
 )]
 #[case::no_members_for_a_part(
-    "quick.action=run\nquick.members=-\n",
-    "quick.action=part\n",
+    "pre-merge.action=run\npre-merge.members=-\n",
+    "pre-merge.action=part\n",
     10,
-    "`quick.members=`"
+    "`pre-merge.members=`"
 )]
 #[case::no_reason_for_a_reuse(
     "lint.action=run\nlint.members=-\nlint.why=no earlier run\n",
@@ -838,7 +963,7 @@ fn on_the_host(run: Run) -> Vec<String> {
 #[case::no_members_for_a_part_of_the_stress_run(
     "stress.action=run\nstress.members=-\n",
     "stress.action=part\n",
-    13,
+    12,
     "`stress.members=`"
 )]
 #[case::no_action_for_a_step_beside("perf.action=run\n", "", 6, "`perf.action=`")]
@@ -1191,9 +1316,9 @@ fn on_linux_a_failed_os_service_setup_stops_the_suite_before_any_step() {
 }
 
 /// A plan of the incremental gate (ADR 0135), as `xtask gate plan` prints
-/// it: perf, the Pre-merge suite and TLC reused from an earlier run on
-/// `earlier`, the Quick suite rerun for two members and the stress run for
-/// one; every other step runs.
+/// it: perf and TLC reused from an earlier run on `earlier`, the Pre-merge
+/// suite rerun for two members and the stress run for one; every other step
+/// runs.
 fn incremental_plan(workspace: &Workspace) -> String {
     plan(
         workspace,
@@ -1203,10 +1328,9 @@ fn incremental_plan(workspace: &Workspace) -> String {
         "website/pages.spec.ts",
         &[
             ("perf", "reuse", "-", "green on earlier"),
-            ("pre-merge", "reuse", "-", "green on earlier"),
             ("tlc", "reuse", "-", "green on earlier"),
             (
-                "quick",
+                "pre-merge",
                 "part",
                 "a b :unowned",
                 "the change since earlier reaches it",
@@ -1230,7 +1354,7 @@ fn the_incremental_gate_reruns_only_what_its_plan_reruns_and_records_each_result
     let run = pre_merge(&workspace, &stand_in, &["all"]);
 
     assert_eq!(run.code, Some(0), "{}", run.stderr);
-    for reused in ["perf", "_suite pre-merge all", "features-audit", "_tlc all"] {
+    for reused in ["perf", "_suite pre-merge all", "_tlc all"] {
         assert!(
             !run.calls.iter().any(|call| call == reused),
             "{reused} ran: {:?}",
@@ -1238,7 +1362,8 @@ fn the_incremental_gate_reruns_only_what_its_plan_reruns_and_records_each_result
         );
     }
     for rerun in [
-        "test quick --shuffled-all a b website/pages.spec.ts",
+        "test pre-merge --shuffled-all a b website/pages.spec.ts",
+        "features-audit",
         "stress  earlier records/planned.earned  a :unowned",
         "lint",
         "linux",
@@ -1256,14 +1381,17 @@ fn the_incremental_gate_reruns_only_what_its_plan_reruns_and_records_each_result
         "{}",
         run.stdout
     );
-    assert_eq!(run.gate.first().map(String::as_str), Some("_gate-plan"));
+    assert_eq!(
+        run.gate.first().map(String::as_str),
+        Some("_gate-plan all merge")
+    );
     let mut recorded = run.gate[1..].to_vec();
     recorded.sort();
     // Every step the plan runs, in full or in part, records its result.
     let mut expected: Vec<String> = listed(&workspace, "all")
         .into_iter()
         .filter(|step| step.kind != "command")
-        .filter(|step| !["perf", "pre-merge", "tlc"].contains(&step.name.as_str()))
+        .filter(|step| !["perf", "tlc"].contains(&step.name.as_str()))
         .map(|step| format!("_gate-record merge planned {} pass", step.name))
         .collect();
     expected.sort();
@@ -1319,15 +1447,10 @@ fn a_part_of_the_stress_run_compares_its_head_with_the_last_full_gates_too() {
     );
 }
 
-/// A failed Quick suite or stress run hands `xtask gate record` the files
-/// its crates' results are read from, and runs with none of them left from
-/// an earlier run (the test-gate audit's option 4).
+/// A failed stress run hands `xtask gate record` the files its crates'
+/// results are read from, and runs with none of them left from an earlier
+/// run (the test-gate audit's option 4).
 #[rstest]
-#[case::quick(
-    "_suite quick all",
-    "quick fail --junit target/nextest/quick/junit.xml",
-    "target/nextest/quick/junit.xml"
-)]
 #[case::stress(
     "stress",
     "stress fail --selection target/stress-selection.tsv --red-commands target/stress-red-commands.tsv --started ",
@@ -1578,9 +1701,8 @@ fn a_step_beside_still_running_when_the_gate_cannot_go_on_records_nothing() {
 
 #[rstest]
 #[case::what_changed("")]
-#[case::quick("quick")]
 #[case::docs("docs")]
-fn only_the_whole_workspace_gate_plans_and_records(#[case] form: &str) {
+fn only_the_whole_workspace_gates_plan_and_record(#[case] form: &str) {
     let workspace = Workspace::from_fixture("empty");
     let stand_in = stand_in_just(&workspace);
     std::fs::write(stand_in.join("plan"), incremental_plan(&workspace)).unwrap();

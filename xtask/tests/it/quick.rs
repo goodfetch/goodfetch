@@ -9,11 +9,14 @@
 //! when it is another branch, never the branch's own remote copy, else
 //! `origin/main`. The hook gives the commit the push's remote ref holds only
 //! when the push adds the branch's own commits on top of it, not after a
-//! rebase or a merge of the branch's base. A green run on a clean checkout records its tree, and the
-//! hook runs no `just quick` on a push of a recorded tree, so it never runs
-//! twice on one tree (`TESTING.md`, Checks by role). The hook first judges
-//! the sign-offs and subjects of the pushed commits, on every push, since a
-//! tree says nothing of them. Every step runs even after one
+//! rebase or a merge of the branch's base. A run on a clean checkout is
+//! recorded with its result, by the layer that ran it, and a run a green one
+//! already holds runs only the checks of the change's commits, while the
+//! hook runs no `just quick` on a push of heads a green run holds, so it
+//! never runs twice on one tree (`TESTING.md`, Checks by role); the record
+//! itself is `xtask gate quick`'s, tested with the gate's. The hook first
+//! judges the sign-offs and subjects of the pushed commits, on every push,
+//! since a tree says nothing of them. Every step runs even after one
 //! failed, through `ci/keep-going.sh`, and the run then names each failed step
 //! and fails. The steps run through a stand-in
 //! `just` that records each call, and `xtask affected` through a stand-in
@@ -23,6 +26,7 @@
 //! pre-push tier is repository tooling, so the module declares no Feature.
 #![cfg(unix)]
 
+use std::collections::BTreeSet;
 use std::os::unix::fs::PermissionsExt as _;
 use std::path::{Path, PathBuf};
 
@@ -34,20 +38,32 @@ use crate::workspace::Workspace;
 /// status 3 when they are `failing`'s content, and a stand-in `cargo` that
 /// appends its own to `cargo-calls` and prints `selection`'s content, a
 /// selection the repository's own `xtask affected` printed. Each appends the
-/// `GIT_DIR` it inherits to `git-dir` ([`inherited_git_dirs`]).
+/// `GIT_DIR` it inherits to `git-dir` ([`inherited_git_dirs`]). The `just`
+/// appends the record's recipes, `_quick-held` and `_quick-record`, to
+/// `quick-runs` instead ([`quick_runs`]), and `_quick-held` holds the run
+/// only when the file `held` exists.
 fn stand_ins(workspace: &Workspace) -> PathBuf {
     let folder = workspace.path().join("stand-in");
     std::fs::create_dir_all(&folder).unwrap();
     let just = format!(
         r#"#!/bin/sh
-echo "$*" >>"{calls}"
 echo "${{GIT_DIR-unset}}" >>"{git_dir}"
+case "$1" in
+  _quick-*)
+    echo "$*" >>"{quick_runs}"
+    [ "$1" != _quick-held ] || [ -f "{held}" ] || exit 1
+    exit 0
+    ;;
+esac
+echo "$*" >>"{calls}"
 if [ -f "{failing}" ] && [ "$*" = "$(cat "{failing}")" ]; then
   exit 3
 fi
 "#,
         calls = folder.join("calls").display(),
         git_dir = folder.join("git-dir").display(),
+        quick_runs = folder.join("quick-runs").display(),
+        held = folder.join("held").display(),
         failing = folder.join("failing").display(),
     );
     let cargo = format!(
@@ -72,6 +88,16 @@ cat "{selection}"
 /// it had none.
 fn inherited_git_dirs(stand_in: &Path) -> Vec<String> {
     std::fs::read_to_string(stand_in.join("git-dir"))
+        .unwrap_or_default()
+        .lines()
+        .map(str::to_owned)
+        .collect()
+}
+
+/// The calls of the record's recipes, `_quick-held` and `_quick-record`, in
+/// call order.
+fn quick_runs(stand_in: &Path) -> Vec<String> {
+    std::fs::read_to_string(stand_in.join("quick-runs"))
         .unwrap_or_default()
         .lines()
         .map(str::to_owned)
@@ -349,8 +375,7 @@ fn a_ticket_pushed_with_its_upstream_set(workspace: &Workspace) {
 /// Against its own remote copy a pushed branch changed nothing: no step
 /// would judge its commits, no test would run, and the run would still record
 /// the tree. So such a branch's change is read against `origin/main`, as when
-/// it has no upstream, and its tree is recorded once the Quick suite ran over
-/// that change.
+/// it has no upstream, and its run is held and recorded against it.
 #[test]
 fn a_pushed_branch_is_judged_against_origin_main_never_against_its_own_remote_copy() {
     let workspace = Workspace::from_fixture("empty");
@@ -376,8 +401,15 @@ fn a_pushed_branch_is_judged_against_origin_main_never_against_its_own_remote_co
             "_skips-report"
         ]
     );
-    let tree = workspace.git(&["rev-parse", "HEAD^{tree}"]);
-    assert_eq!(recorded_trees(&workspace).as_deref(), Some(tree.as_str()));
+    let head = workspace.git(&["rev-parse", "HEAD"]);
+    let head = head.trim();
+    assert_eq!(
+        quick_runs(&stand_in),
+        [
+            format!("_quick-held {head} origin/main changed"),
+            format!("_quick-record quick {head} origin/main changed pass"),
+        ]
+    );
 }
 
 /// The hook's base is the commit the push's remote ref holds, so on a pushed
@@ -430,69 +462,122 @@ fn no_step_inherits_the_git_dir_quick_was_started_with() {
     assert_eq!(inherited_git_dirs(&stand_in), ["unset"; 8]);
 }
 
-/// The file in the repository's common folder where a green run records its
-/// tree, one a line.
-fn recorded_trees(workspace: &Workspace) -> Option<String> {
-    let common = workspace.git(&["rev-parse", "--path-format=absolute", "--git-common-dir"]);
-    std::fs::read_to_string(Path::new(common.trim()).join("goodfetch-quick-green")).ok()
-}
-
-#[rstest]
-#[case::the_docs_gate("docs")]
-#[case::the_quick_suite("quick")]
-fn a_green_run_on_a_clean_checkout_records_its_tree(#[case] gate: &str) {
-    let workspace = Workspace::from_fixture("empty");
-    let stand_in = stand_ins(&workspace);
+/// A clean checkout on `ticket`, which tracks `origin/spec`, with the
+/// stand-ins ignored. Returns its head.
+fn a_clean_ticket(workspace: &Workspace) -> String {
     std::fs::write(
         workspace.path().join(".gitignore"),
         "/stand-in/\n/target/\n",
     )
     .unwrap();
-    repository_on(&workspace, "ticket");
+    repository_on(workspace, "ticket");
+    workspace.git(&["rev-parse", "HEAD"]).trim().to_owned()
+}
+
+/// A run on a clean checkout is recorded with the result of the steps after
+/// the commit checks, by the layer that ran it, `pre-push` under the hook:
+/// `all` too, in its own form. A red commit check alone leaves the tree's
+/// result green, since its commit is mended by a rewrite that keeps the tree.
+#[rstest]
+#[case::green_by_the_docs_gate("docs", "changed", None, "quick", "pass", 0)]
+#[case::green_by_the_quick_suite("quick", "changed", None, "quick", "pass", 0)]
+#[case::green_under_the_hook("quick", "changed", None, "pre-push", "pass", 0)]
+#[case::green_by_all("quick", "all", None, "quick", "pass", 0)]
+#[case::red_by_a_lint("quick", "changed", Some("lint"), "quick", "fail", 1)]
+#[case::red_by_a_commit_check_alone(
+    "quick",
+    "changed",
+    Some("dco origin/spec"),
+    "quick",
+    "pass",
+    1
+)]
+fn a_run_on_a_clean_checkout_is_recorded_with_its_trees_result(
+    #[case] gate: &str,
+    #[case] form: &str,
+    #[case] failing: Option<&str>,
+    #[case] layer: &str,
+    #[case] status: &str,
+    #[case] code: i32,
+) {
+    let args: &[&str] = if form == "all" { &["all"] } else { &[] };
+    let workspace = Workspace::from_fixture("empty");
+    let stand_in = stand_ins(&workspace);
+    let head = a_clean_ticket(&workspace);
     selection(&stand_in, gate);
+    if let Some(failing) = failing {
+        std::fs::write(stand_in.join("failing"), failing).unwrap();
+    }
+    // The hook names its layer; a run started by hand names none.
+    let variables: Vec<(&str, &str)> = if layer == "pre-push" {
+        vec![("GOODFETCH_GATE_LAYER", layer)]
+    } else {
+        Vec::new()
+    };
+
+    let run = quick_with_env(&workspace, &stand_in, args, &variables);
+
+    assert_eq!(run.code, Some(code), "{}", run.stderr);
+    assert_eq!(
+        quick_runs(&stand_in),
+        [
+            format!("_quick-held {head} origin/spec {form}"),
+            format!("_quick-record {layer} {head} origin/spec {form} {status}"),
+        ]
+    );
+}
+
+/// The tree of uncommitted changes is no commit's: the run is neither held
+/// nor recorded, and says so.
+#[test]
+fn a_run_on_uncommitted_changes_is_neither_held_nor_recorded() {
+    let workspace = Workspace::from_fixture("empty");
+    let stand_in = stand_ins(&workspace);
+    a_clean_ticket(&workspace);
+    selection(&stand_in, "quick");
+    workspace.write("new.txt", b"not committed\n");
 
     let run = quick(&workspace, &stand_in, &[]);
 
     assert_eq!(run.code, Some(0), "{}", run.stderr);
-    let tree = workspace.git(&["rev-parse", "HEAD^{tree}"]);
-    assert_eq!(recorded_trees(&workspace).as_deref(), Some(tree.as_str()));
+    assert_eq!(quick_runs(&stand_in), Vec::<String>::new());
+    assert!(
+        run.stdout.contains("neither held nor recorded"),
+        "{}",
+        run.stdout
+    );
 }
 
-#[rstest]
-#[case::a_red_step(Some("lint"), false)]
-#[case::uncommitted_changes(None, true)]
-fn a_red_run_or_a_run_on_uncommitted_changes_records_no_tree(
-    #[case] failing: Option<&str>,
-    #[case] dirty: bool,
-) {
+/// A run a green one already holds runs the compiler cache's check and the
+/// checks of the change's commits, which read more than the tree, and no
+/// lint or suite, and records nothing again.
+#[test]
+fn a_held_run_runs_the_checks_of_the_changes_commits_alone() {
     let workspace = Workspace::from_fixture("empty");
     let stand_in = stand_ins(&workspace);
-    std::fs::write(
-        workspace.path().join(".gitignore"),
-        "/stand-in/\n/target/\n",
-    )
-    .unwrap();
-    repository_on(&workspace, "ticket");
+    let head = a_clean_ticket(&workspace);
     selection(&stand_in, "quick");
-    if let Some(failing) = failing {
-        std::fs::write(stand_in.join("failing"), failing).unwrap();
-    }
-    if dirty {
-        workspace.write("new.txt", b"not committed\n");
-    }
+    std::fs::write(stand_in.join("held"), "").unwrap();
 
     let run = quick(&workspace, &stand_in, &[]);
 
+    assert_eq!(run.code, Some(0), "{}", run.stderr);
     assert_eq!(
-        run.code,
-        Some(match failing {
-            Some(_) => 1,
-            None => 0,
-        }),
-        "{}",
-        run.stderr
+        run.calls,
+        [
+            "compiler-cache",
+            "dco origin/spec",
+            "commit-messages origin/spec",
+            "floor-guard origin/spec",
+            "commit-leaks origin/spec",
+            "_skips-report"
+        ]
     );
-    assert_eq!(recorded_trees(&workspace), None);
+    assert_eq!(run.cargo_calls, Vec::<String>::new());
+    assert_eq!(
+        quick_runs(&stand_in),
+        [format!("_quick-held {head} origin/spec changed")]
+    );
 }
 
 /// A stand-in `just` for the pre-push hook: records its arguments and the
@@ -507,10 +592,23 @@ fn hook_stand_in_failing(workspace: &Workspace, failing: Option<&str>) -> PathBu
     let folder = workspace.path().join("stand-in");
     std::fs::create_dir_all(&folder).unwrap();
     let just = format!(
-        "#!/bin/sh\necho \"$* base=${{GOODFETCH_QUICK_BASE-unset}}\" >>\"{}\"\necho \"${{GIT_DIR-unset}}\" >>\"{}\"\n[ \"$1\" != \"{}\" ] || exit 1\n",
-        folder.join("calls").display(),
-        folder.join("git-dir").display(),
-        failing.unwrap_or("no recipe")
+        r#"#!/bin/sh
+echo "${{GIT_DIR-unset}}" >>"{git_dir}"
+if [ "$1" = _quick-held ]; then
+  echo "$*" >>"{quick_runs}"
+  [ -f "{held}" ] || exit 1
+  exit 0
+fi
+echo "$* base=${{GOODFETCH_QUICK_BASE-unset}}" >>"{calls}"
+[ "$1" != quick ] || echo "${{GOODFETCH_GATE_LAYER-unset}}" >"{layer}"
+[ "$1" != "{failing}" ] || exit 1
+"#,
+        calls = folder.join("calls").display(),
+        git_dir = folder.join("git-dir").display(),
+        quick_runs = folder.join("quick-runs").display(),
+        held = folder.join("held").display(),
+        layer = folder.join("layer").display(),
+        failing = failing.unwrap_or("no recipe"),
     );
     let path = folder.join("just");
     std::fs::write(&path, just).unwrap();
@@ -592,16 +690,15 @@ fn two_commits(workspace: &Workspace) -> (String, String) {
 
 /// A tree `just quick` passed on says nothing of the messages of the commits
 /// that hold it: a reworded commit keeps its tree. So the hook judges the
-/// pushed commits' sign-offs and subjects on every push, and a recorded tree
-/// spares the push `just quick` alone.
+/// pushed commits' sign-offs and subjects on every push, and a head a green
+/// run holds, against the base `just quick` would read it against, spares
+/// the push `just quick` alone.
 #[test]
-fn a_push_of_a_tree_a_green_run_recorded_checks_its_commits_and_runs_no_quick() {
+fn a_push_of_a_head_a_green_run_holds_checks_its_commits_and_runs_no_quick() {
     let workspace = Workspace::from_fixture("empty");
     let stand_in = hook_stand_in(&workspace);
     let (first, head) = two_commits(&workspace);
-    let common = workspace.git(&["rev-parse", "--path-format=absolute", "--git-common-dir"]);
-    let tree = workspace.git(&["rev-parse", "HEAD^{tree}"]);
-    std::fs::write(Path::new(common.trim()).join("goodfetch-quick-green"), tree).unwrap();
+    std::fs::write(stand_in.join("held"), "").unwrap();
 
     let run = pre_push(
         &workspace,
@@ -611,7 +708,10 @@ fn a_push_of_a_tree_a_green_run_recorded_checks_its_commits_and_runs_no_quick() 
 
     assert_eq!(run.code, Some(0), "{}", run.stderr);
     assert_eq!(run.calls, commit_checks(&head));
-    assert!(run.stdout.contains("already passed"), "{}", run.stdout);
+    assert_eq!(
+        quick_runs(&stand_in),
+        [format!("_quick-held {head} {first} changed")]
+    );
 }
 
 /// A commit that is not signed off, or whose subject is no Conventional
@@ -674,6 +774,115 @@ fn a_push_of_another_tree_runs_quick_against_the_commit_the_remote_ref_holds() {
     let mut calls = commit_checks(&head).to_vec();
     calls.push(format!("quick base={first}"));
     assert_eq!(run.calls, calls);
+    assert_eq!(
+        quick_runs(&stand_in),
+        [format!("_quick-held {head} {first} changed")]
+    );
+    let layer = std::fs::read_to_string(stand_in.join("layer")).unwrap();
+    assert_eq!(layer.trim(), "pre-push");
+}
+
+/// A run's ticket ends with no `just quick` of its own (Checks by role, the
+/// owner's decision of 2026-11-23): its push to `spec/<n>` judges the pushed
+/// commits' sign-offs and subjects alone, and the batch's `just batch-check`
+/// runs `just quick` once on the combined tree that merges.
+#[test]
+fn a_push_to_a_spec_branch_checks_its_commits_and_runs_no_quick() {
+    let workspace = Workspace::from_fixture("empty");
+    let stand_in = hook_stand_in(&workspace);
+    let (first, head) = two_commits(&workspace);
+
+    let run = pre_push(
+        &workspace,
+        &stand_in,
+        &format!("refs/heads/ticket {head} refs/heads/spec/607 {first}\n"),
+    );
+
+    assert_eq!(run.code, Some(0), "{}", run.stderr);
+    assert_eq!(run.calls, commit_checks(&head));
+    assert!(run.stdout.contains("spec/607"), "{}", run.stdout);
+}
+
+/// The push's other refs still take `just quick`: only `spec/<n>` leaves it
+/// to the batch.
+#[test]
+fn a_push_of_a_spec_branch_and_another_runs_quick_for_the_other() {
+    let workspace = Workspace::from_fixture("empty");
+    let stand_in = hook_stand_in(&workspace);
+    let (first, head) = two_commits(&workspace);
+
+    let run = pre_push(
+        &workspace,
+        &stand_in,
+        &format!(
+            "refs/heads/ticket {head} refs/heads/spec/607 {first}\nrefs/heads/ticket {head} refs/heads/ticket {first}\n"
+        ),
+    );
+
+    assert_eq!(run.code, Some(0), "{}", run.stderr);
+    let mut calls = commit_checks(&head).to_vec();
+    calls.extend(commit_checks(&head));
+    calls.push(format!("quick base={first}"));
+    assert_eq!(run.calls, calls);
+}
+
+/// A push of a batch's branch with an open pull request to `main`, while the
+/// pull-request workflow is active, judges its commits and runs no `just
+/// quick`: the hosted run the push starts runs the Quick suite (ADR 0135's
+/// amendment of 2026-11-22). Without the pull request, with the workflow off,
+/// or when GitHub cannot say, `just quick` runs as before.
+#[rstest]
+#[case::served("1", "active", false)]
+#[case::without_a_pull_request("0", "active", true)]
+#[case::with_the_workflow_off("1", "disabled_manually", true)]
+#[case::when_github_cannot_say("", "", true)]
+fn a_push_of_a_branch_the_hosted_tier_serves_judges_its_commits_alone(
+    #[case] open: &str,
+    #[case] state: &str,
+    #[case] quick: bool,
+) {
+    let workspace = Workspace::from_fixture("empty");
+    let stand_in = hook_stand_in(&workspace);
+    let gh = format!(
+        "#!/bin/sh\necho \"$*\" >>\"{asked}\"\n\
+         case \"$1 $2\" in\n\
+           'pr list') [ -n '{open}' ] || exit 1; echo '{open}' ;;\n\
+           'api repos/{{owner}}/{{repo}}/actions/workflows/pull-request.yml') [ -n '{state}' ] || exit 1; echo '{state}' ;;\n\
+         esac\n",
+        asked = stand_in.join("gh-calls").display(),
+    );
+    let path = stand_in.join("gh");
+    std::fs::write(&path, gh).unwrap();
+    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let (first, head) = two_commits(&workspace);
+    let branch = "batch/2026-11-23a";
+
+    let run = pre_push(
+        &workspace,
+        &stand_in,
+        &format!("refs/heads/{branch} {head} refs/heads/{branch} {first}\n"),
+    );
+
+    assert_eq!(run.code, Some(0), "{}", run.stderr);
+    let mut calls = commit_checks(&head).to_vec();
+    if quick {
+        calls.push(format!("quick base={first}"));
+    }
+    assert_eq!(run.calls, calls);
+    let asked = std::fs::read_to_string(stand_in.join("gh-calls")).unwrap();
+    assert!(
+        asked.starts_with(&format!(
+            "pr list --head {branch} --base main --state open --json number --jq length\n"
+        )),
+        "{asked}"
+    );
+    assert_eq!(
+        run.stdout
+            .contains("the hosted tier serves, so its hosted run runs the Quick suite"),
+        !quick,
+        "{}",
+        run.stdout
+    );
 }
 
 /// A repository whose `ticket` branch, off `main` with no upstream, added a
@@ -804,7 +1013,7 @@ fn a_base_the_pusher_names_reaches_quick_unless_the_remote_refs_commit_is_the_ba
 /// git gives the hook of a push from a linked worktree that worktree's
 /// `GIT_DIR`. `just quick` must not inherit it: a build script's `git init`
 /// (btls-sys's) would then reinitialize the repository as bare. Neither do
-/// the two checks of the commits, which build xtask.
+/// the held check and the two checks of the commits, which build xtask.
 #[test]
 fn a_push_runs_its_checks_without_the_git_dir_git_gives_the_hook() {
     let workspace = Workspace::from_fixture("empty");
@@ -820,12 +1029,12 @@ fn a_push_runs_its_checks_without_the_git_dir_git_gives_the_hook() {
     );
 
     assert_eq!(run.code, Some(0), "{}", run.stderr);
-    assert_eq!(inherited_git_dirs(&stand_in), ["unset", "unset", "unset"]);
+    assert_eq!(inherited_git_dirs(&stand_in), ["unset"; 4]);
 }
 
 /// A new remote branch holds no commit, so `just quick` takes the branch's
 /// own base: its upstream off `main` when it is another branch, else
-/// `origin/main`.
+/// `origin/main`; the held check reads the head against that base too.
 #[test]
 fn a_push_of_a_new_branch_runs_quick_against_its_own_base() {
     let workspace = Workspace::from_fixture("empty");
@@ -842,6 +1051,10 @@ fn a_push_of_a_new_branch_runs_quick_against_its_own_base() {
     let mut calls = commit_checks(&head).to_vec();
     calls.push("quick base=".to_owned());
     assert_eq!(run.calls, calls);
+    assert_eq!(
+        quick_runs(&stand_in),
+        [format!("_quick-held {head} origin/spec changed")]
+    );
 }
 
 #[test]
@@ -1261,5 +1474,115 @@ fn the_quick_suite_builds_executables_alone_when_no_selected_package_has_a_libra
     assert_eq!(
         quick_targets(&["-p", "goodfetch-proving-ground", "-p", "goodfetch-sink-s3"]),
         ["--bins"]
+    );
+}
+
+/// The tests nextest's `profile` selects in a workspace, as `<binary id>
+/// <test name>`.
+fn selected_tests(workspace: &Workspace, profile: &str) -> BTreeSet<String> {
+    let listed = workspace.cargo(&[
+        "nextest",
+        "list",
+        "--workspace",
+        "--profile",
+        profile,
+        "--message-format",
+        "json",
+    ]);
+    assert_eq!(listed.code, 0, "{}", listed.stderr);
+    let list: serde_json::Value = serde_json::from_str(&listed.stdout).unwrap();
+    let mut selected = BTreeSet::new();
+    for (binary, suite) in list["rust-suites"].as_object().unwrap() {
+        for (name, case) in suite["testcases"].as_object().unwrap() {
+            if case["filter-match"]["status"] == "matches" {
+                selected.insert(format!("{binary} {name}"));
+            }
+        }
+    }
+    selected
+}
+
+/// The repository's nextest settings with each of `profiles` keeping only
+/// its own `default-filter`: the overrides name the repository's binaries,
+/// which a fixture has none of, and nextest refuses a filter that matches
+/// no binary. The platform overrides of the Pre-merge suite's profile leave
+/// out integration tests alone (`binary_id(<crate>::it)`), none of which the
+/// Quick suite runs.
+fn default_filters_of_the_repository(profiles: &[&str]) -> String {
+    let settings = Path::new(env!("CARGO_MANIFEST_DIR")).join("../.config/nextest.toml");
+    let settings: toml::Table = std::fs::read_to_string(settings).unwrap().parse().unwrap();
+    let mut kept = toml_edit::DocumentMut::new();
+    kept["profile"] = toml_edit::table();
+    kept["profile"].as_table_mut().unwrap().set_implicit(true);
+    for profile in profiles {
+        let filter = settings["profile"][*profile]["default-filter"]
+            .as_str()
+            .unwrap_or_else(|| panic!("the {profile} profile has no default-filter"));
+        kept["profile"][*profile]["default-filter"] = toml_edit::value(filter);
+    }
+    kept.to_string()
+}
+
+/// The full gate runs no Quick suite (ADR 0135's amendment of 2026-11-22):
+/// with the repository's own nextest filters, the Pre-merge suite's profile
+/// selects every test the Quick suite's selects, the in-process tests of a
+/// library, an executable and a procedural macro, and the integration tests
+/// besides. The Quick suite's shorter time limit is no selection: a test
+/// that passes in it passes under the Pre-merge suite's longer one. Vitest's
+/// `unit` project and pytest's tests outside `tests/integration/` are the
+/// Pre-merge suite's too, which runs every project and every test.
+#[test]
+fn the_pre_merge_suite_selects_every_test_the_quick_suite_selects() {
+    let workspace = Workspace::from_fixture("empty");
+    workspace.write(
+        ".config/nextest.toml",
+        default_filters_of_the_repository(&["quick", "ci"]).as_bytes(),
+    );
+    workspace.write(
+        "Cargo.toml",
+        b"[workspace]\nmembers = [\"tool\", \"derive\"]\nresolver = \"3\"\n",
+    );
+    workspace.write(
+        "tool/Cargo.toml",
+        b"[package]\nname = \"tool\"\nversion = \"0.0.0\"\nedition = \"2024\"\npublish = false\n",
+    );
+    let unit_test =
+        |name: &str| format!("#[cfg(test)]\nmod tests {{\n    #[test]\n    fn {name}() {{}}\n}}\n");
+    workspace.write("tool/src/lib.rs", unit_test("in_the_library").as_bytes());
+    workspace.write(
+        "tool/src/main.rs",
+        format!("fn main() {{}}\n{}", unit_test("in_the_executable")).as_bytes(),
+    );
+    workspace.write(
+        "tool/tests/it.rs",
+        b"#[test]\nfn an_integration_test() {}\n",
+    );
+    workspace.write(
+        "derive/Cargo.toml",
+        b"[package]\nname = \"derive\"\nversion = \"0.0.0\"\nedition = \"2024\"\npublish = false\n\n[lib]\nproc-macro = true\n",
+    );
+    workspace.write("derive/src/lib.rs", unit_test("in_the_macro").as_bytes());
+
+    let quick = selected_tests(&workspace, "quick");
+    let pre_merge = selected_tests(&workspace, "ci");
+
+    assert_eq!(
+        quick,
+        BTreeSet::from(
+            [
+                "derive tests::in_the_macro",
+                "tool tests::in_the_library",
+                "tool::bin/tool tests::in_the_executable",
+            ]
+            .map(str::to_owned)
+        )
+    );
+    assert!(
+        quick.is_subset(&pre_merge),
+        "{quick:?} against {pre_merge:?}"
+    );
+    assert!(
+        pre_merge.contains("tool::it an_integration_test"),
+        "{pre_merge:?}"
     );
 }

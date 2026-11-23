@@ -60,7 +60,7 @@ async function collie(url: string, marks: string): Promise<Loaded> {
   await session.close();
   await run.finish();
   await connection.close();
-  return { status: navigated?.status ?? null, read: readText(evaluated) };
+  return { status: navigated?.status() ?? null, read: readText(evaluated) };
 }
 
 async function playwright(

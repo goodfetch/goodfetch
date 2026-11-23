@@ -32,6 +32,11 @@ pub const BROWSERS_PATH_VARIABLE: &str = "GOODFETCH_BROWSERS_PATH";
 /// The channel an executable came from (ADRs 0087 and 0090).
 pub const CHANNEL_VARIABLE: &str = "GOODFETCH_CHANNEL";
 
+/// The channels an executable can come from, by the names
+/// `GOODFETCH_CHANNEL` and a release build's stamp give them (ADR 0090).
+/// The engine and each SDK refuse any other name.
+pub const CHANNELS: &[&str] = &["npm", "pypi", "crates-io", "homebrew", "oci", "installer"];
+
 /// The path of Collie's executable an SDK starts as its Attached engine.
 pub const COLLIE_ENGINE_PATH_VARIABLE: &str = "GOODFETCH_COLLIE_ENGINE_PATH";
 

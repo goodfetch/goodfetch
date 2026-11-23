@@ -96,10 +96,6 @@ windows-sys = { workspace = true, optional = true, features = ["Win32_Foundation
 mimalloc = { workspace = true, optional = true, features = ["override"] }
 
 [dev-dependencies]
-# Its own executable, for the integration tests and the startup benchmarks
-# (CARGO_BIN_EXE_goodfetch-collie, ADRs 0059 and 0062), and the Trace
-# context its requests carry (tests/it/sdk/trace_context.rs).
-goodfetch-collie = { path = ".", features = ["executable", "opentelemetry"] }
 # The embedded Clean-up rules' digest and manifest, which a Run holds to by
 # default (tests/it/clean_up_rules.rs).
 goodfetch-clean-up-rules.workspace = true
@@ -159,6 +155,19 @@ zip = { workspace = true, features = ["deflate-flate2"] }
 # engine's own keychain, whose values are `SecretString`s.
 age = { workspace = true, features = ["armor"] }
 secrecy.workspace = true
+
+# Its own executable, for the integration tests and the startup benchmarks
+# (CARGO_BIN_EXE_goodfetch-collie, ADRs 0059 and 0062), and the Trace
+# context its requests carry (tests/it/sdk/trace_context.rs).
+[target.'cfg(not(goodfetch_without_opentelemetry))'.dev-dependencies]
+goodfetch-collie = { path = ".", features = ["executable", "opentelemetry"] }
+
+# Its own executable without the `opentelemetry` feature, in the build that
+# `just feature-combinations` makes with `--cfg
+# goodfetch_without_opentelemetry` (tests/it/sdk/without_opentelemetry.rs):
+# every other build of its tests takes the feature through the table above.
+[target.'cfg(goodfetch_without_opentelemetry)'.dev-dependencies]
+goodfetch-collie = { path = ".", features = ["executable"] }
 
 [target.'cfg(unix)'.dev-dependencies]
 # The `connection-used-after-fork` case forks the test and waits for its

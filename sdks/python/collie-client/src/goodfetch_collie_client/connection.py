@@ -20,6 +20,7 @@ import anyio
 from goodfetch_collie_client._framing import object_members
 from goodfetch_collie_client._once import Once
 from goodfetch_collie_client._opening_process import OpeningProcess
+from goodfetch_collie_client._project_file import ProjectTimeout
 from goodfetch_collie_client._relink import RESENT, ChannelRelinking
 from goodfetch_collie_client._rpc import (
     CallDeadline,
@@ -45,11 +46,13 @@ from goodfetch_collie_client.generated.errors import (
     ProtocolVersionUnsupportedError,
 )
 from goodfetch_collie_client.generated.models import (
+    CatalogRunStartParams,
     Form,
     HelloParams,
     Product,
     ProductVersion,
     ProtocolVersion,
+    RecipeStartParams,
     RunOrigin,
     RunStartParams,
     SetLogLevelParams,
@@ -66,7 +69,8 @@ from goodfetch_collie_client.generated.operations import (
 )
 from goodfetch_collie_client.generated.settings import DEPRECATED_SETTINGS
 from goodfetch_collie_client.goodfetch_error import GoodfetchError, runtime_message
-from goodfetch_collie_client.handle import NotGiven, not_given
+from goodfetch_collie_client.handle import NotGiven, not_given, timeout_of
+from goodfetch_collie_client.handlerless import target_on_wire
 from goodfetch_collie_client.host_logging import (
     CLIENT_LOGGER,
     RUN_LOGGER,
@@ -77,24 +81,30 @@ from goodfetch_collie_client.limits import Limits, limit_list
 from goodfetch_collie_client.listeners import MAX_LISTENER_QUEUE, ResumedEvents
 from goodfetch_collie_client.markers import warn_deprecated_settings, warn_entry
 from goodfetch_collie_client.run import AsyncRun, explain_params
+from goodfetch_collie_client.run_view import AsyncRunView
 from goodfetch_collie_client.settings import settings_on_wire
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable, Iterable, Mapping, Sequence
+    from datetime import timedelta
 
     from anyio.abc import ByteStream
     from pydantic import BaseModel, JsonValue
 
+    from goodfetch_collie_client._project_file import ConnectTimeout, ProjectFile
     from goodfetch_collie_client._relink import Reconnect
     from goodfetch_collie_client._rpc import TransportEnd
     from goodfetch_collie_client.attached_engine import AttachedEngine
     from goodfetch_collie_client.generated.models import (
+        ProjectSettings,
+        Recording,
         RunLimit,
         RunStarted,
         SettingsExplanation,
     )
     from goodfetch_collie_client.generated.settings import RunSettings
     from goodfetch_collie_client.goodfetch_error import ErrorClass
+    from goodfetch_collie_client.handlerless import CatalogTarget
 
 __all__ = ["ClientConnection", "EngineFallback", "EngineInfo", "closed_error"]
 
@@ -162,7 +172,10 @@ class EngineInfo:
     protocol_version: str
     """The protocol version `major.minor` it speaks."""
     project_file: str | None
-    """The project file the engine read, or `None` when it read none."""
+    """The project file `connect()` read and carries to the engine (ADR 0083).
+
+    By its absolute path, or `None` when it read none.
+    """
     home: str | None
     """The Goodfetch home the engine runs in.
 
@@ -226,15 +239,21 @@ class ClientConnection:
         reached: Reached = ATTACHED_ELSEWHERE,
         listener_queue: int = MAX_LISTENER_QUEUE,
         bounds: ChannelBounds | None = None,
+        project: ProjectFile | None = None,
     ) -> None:
         """Takes the transport, its engine when one started, and the code classes.
 
         `reached` says how the engine was reached, which `engine` reports;
         `listener_queue`, already checked, bounds the queue of each listener
         of its own Subscription, and `bounds`, already checked, its calls.
+        `project` is the project file `connect()` read, which each Run's
+        start and `config.explain` carry.
         """
         self._engine = engine
         self._reached = reached
+        self._project: ProjectSettings | None = (
+            None if project is None else project.carried
+        )
         self._opener = OpeningProcess()
         self._channel = Channel(transport, self, error_classes, bounds)
         self._operations = AsyncCollieOperations(self)
@@ -272,12 +291,13 @@ class ClientConnection:
         daemon: DaemonHello | None = None,
         close_timeout: float = CLOSE_TIMEOUT,
         limits: Sequence[RunLimit] = (),
-        connect_timeout: int | NotGiven | None = not_given,
+        connect_timeout: ConnectTimeout = not_given,
         connect_started_at: float | None = None,
         listener_queue: int = MAX_LISTENER_QUEUE,
         settings: Mapping[str, object] | None = None,
         bounds: ChannelBounds | None = None,
         reconnect: Reconnect | None = None,
+        project: ProjectFile | None = None,
     ) -> ClientConnection:
         """Opens a Connection over `transport`, finishing `hello` before it returns.
 
@@ -292,7 +312,8 @@ class ClientConnection:
         `listener_queue_of`, bounds the queue of each listener of its own
         Subscription; `bounds`, already checked by `bounds_of`, bound its
         calls from `hello` on, the defaults' when left out.
-        `connect_timeout`, already checked by `timeout_of`, is how many
+        `connect_timeout`, already checked by `timeout_of`, or the project
+        file's, is how many
         milliseconds `hello` waits for its answer: `timeout.connect`'s 30 s
         when left out, none for `None`, counted from `connect_started_at`,
         on anyio's clock, when given, as for a Daemon a refused one handed
@@ -303,7 +324,9 @@ class ClientConnection:
         closes the Connection before it answers `hello`, as one does for a
         token it does not take, fails it with `daemon`'s `closed_at_hello`.
         With `reconnect`, once opened, a dropped link is reached again
-        (spec 606), as `_reconnect_with` says.
+        (spec 606), as `_reconnect_with` says. `project` is the project file
+        `connect()` read (ADR 0083), which each Run's start and
+        `config.explain` carry and `engine` names; none when left out.
         """
         connection = cls(
             transport,
@@ -313,6 +336,7 @@ class ClientConnection:
             reached,
             listener_queue,
             bounds,
+            project,
         )
         try:
             # The Connection's own, for every caller: no Trace context (ADR 0132).
@@ -342,7 +366,7 @@ class ClientConnection:
         self,
         reconnect: Reconnect,
         limits: Sequence[RunLimit],
-        connect_timeout: int | NotGiven | None,
+        connect_timeout: ConnectTimeout,
     ) -> None:
         """Reaches the engine again through `reconnect` whenever the link drops.
 
@@ -511,25 +535,152 @@ class ClientConnection:
         warn_deprecated_settings(settings, DEPRECATED_SETTINGS)
         self._opener.ensure_current("run.start")
         self.ensure_open("run.start")
-        fields: dict[str, object] = {}
-        if run_id is not None:
-            fields["run_id"] = run_id
-        if tags is not None:
-            fields["tags"] = list(tags)
-        run_limits = limit_list(limits)
-        if run_limits:
-            fields["limits"] = run_limits
-        if settings is not None:
-            fields["settings"] = settings_on_wire(settings)
+        fields = _start_fields(run_id, tags, limits, settings, self._project)
         await self._follow_log_level()
         self.ensure_open("run.start")
         started = await self._operations.run_start(
             RunStartParams.model_construct(None, **fields)
         )
+        return self._held_run(started, detached=False)
+
+    async def start_recipe(
+        self,
+        recipe: str,
+        *,
+        run_id: str | None = None,
+        tags: Iterable[str] | None = None,
+        limits: Limits | None = None,
+        settings: RunSettings | None = None,
+        recording: Recording | None = None,
+        timeout: timedelta | NotGiven | None = not_given,
+        detached: bool = False,
+    ) -> AsyncRun:
+        """Starts a Recipe's run and returns once it is started (ADR 0102).
+
+        Starts a Recipe's run, a Run with no handler in the program, and answers once
+        it is started. Its Run ID works as `run.start`'s. With `detached`, the Run
+        outlives the program that started it: closing its value frees only the
+        value, `run.finish` waits for its end and `run.stop` stops it.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+
+        `recipe` is an installed Recipe's name or the path to its manifest.
+        It takes `start`'s options, and `recording`, the Response recording
+        the Run replays or records (ADR 0105); `timeout`, how long the Run
+        may last, as `timeout.run` for this Run: its setting's value when
+        left out, none for `None`, a `timedelta` sent in whole milliseconds;
+        and `detached`, with which the Run outlives its program, so closing
+        its value, or the Connection, sends no `run.abort`. A `limits`
+        amount the SDK cannot turn exactly, or a `timeout` of zero or less,
+        fails with `setting_invalid` before anything is sent.
+        """
+        warn_entry("recipe.start", EXPERIMENTAL_OPERATIONS, DEPRECATED_OPERATIONS)
+        warn_deprecated_settings(settings, DEPRECATED_SETTINGS)
+        fields = self._handlerless_fields(
+            "recipe.start", run_id, tags, limits, settings, recording, timeout, detached
+        )
+        await self._follow_log_level()
+        self.ensure_open("recipe.start")
+        started = await self._operations.recipe_start(
+            RecipeStartParams.model_construct(None, recipe=recipe, **fields)
+        )
+        return self._held_run(started, detached=detached)
+
+    async def start_catalog_run(
+        self,
+        target: CatalogTarget,
+        *,
+        run_id: str | None = None,
+        tags: Iterable[str] | None = None,
+        limits: Limits | None = None,
+        settings: RunSettings | None = None,
+        recording: Recording | None = None,
+        timeout: timedelta | NotGiven | None = not_given,
+        detached: bool = False,
+    ) -> AsyncRun:
+        """Starts a code-free catalog run and returns once it is started (ADR 0036).
+
+        Starts a code-free catalog run, a Run with no handler in the program whose
+        verbs come from the catalog (ADR 0036): an Extraction of a page by a schema,
+        `extract`, an Agent task, `agent`, or a Plan replayed with no model call,
+        `plan_replay`; and answers once it is started. Its Run ID works as
+        `run.start`'s. With `detached`, the Run outlives the program that started
+        it: closing its value frees only the value, `run.finish` waits for its end
+        and `run.stop` stops it.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+
+        `target` is an `ExtractTarget`, an `AgentTarget` or a
+        `PlanReplayTarget`. Its options are `start_recipe`'s.
+        """
+        warn_entry("catalog_run.start", EXPERIMENTAL_OPERATIONS, DEPRECATED_OPERATIONS)
+        warn_deprecated_settings(settings, DEPRECATED_SETTINGS)
+        fields = self._handlerless_fields(
+            "catalog_run.start",
+            run_id,
+            tags,
+            limits,
+            settings,
+            recording,
+            timeout,
+            detached,
+        )
+        await self._follow_log_level()
+        self.ensure_open("catalog_run.start")
+        started = await self._operations.catalog_run_start(
+            CatalogRunStartParams.model_construct(
+                None, target=target_on_wire(target), **fields
+            )
+        )
+        return self._held_run(started, detached=detached)
+
+    def _handlerless_fields(
+        self,
+        operation: str,
+        run_id: str | None,
+        tags: Iterable[str] | None,
+        limits: Limits | None,
+        settings: RunSettings | None,
+        recording: Recording | None,
+        timeout: timedelta | NotGiven | None,
+        detached: bool,
+    ) -> dict[str, object]:
+        """The fields a handler-less start sends besides its target, once open.
+
+        Raises:
+            SettingInvalidError: A `limits` amount the SDK cannot turn
+                exactly, or a `timeout` of zero or less, before anything is
+                sent.
+        """
+        self._opener.ensure_current(operation)
+        self.ensure_open(operation)
+        fields = _start_fields(run_id, tags, limits, settings, self._project)
+        if recording is not None:
+            fields["recording"] = recording
+        if not isinstance(timeout, NotGiven):
+            fields["timeout"] = timeout_of(timeout, "timeout.run")
+        if detached:
+            fields["detached"] = True
+        return fields
+
+    def _held_run(self, started: RunStarted, *, detached: bool) -> AsyncRun:
+        """The Run a start answered, held until the Connection closes."""
         _log_start(started)
-        run = AsyncRun(self, started)
+        run = AsyncRun(self, started, detached=detached)
         self._runs[run] = None
         return run
+
+    async def open_run(self, run_id: str) -> AsyncRunView:
+        """Opens a view of the Run `run_id` names, with no round trip (ADR 0102).
+
+        The Run is one another program started, such as a detached Run. The
+        view takes no writer role, and closing it frees only the view.
+
+        Raises:
+            ClosedError: The Connection is closed.
+        """
+        self.ensure_open("open_run")
+        return AsyncRunView(run_id)
 
     async def explain_settings(
         self, keys: Iterable[str] | None = None
@@ -545,11 +696,14 @@ class ClientConnection:
 
         It explains each setting under `keys`, each a key or a prefix of keys
         such as `timeout`, every one when left out, with the origin that set
-        it too. The Connection's own `settings` are what each Run it starts
-        inherits. Raises `closed` once the Connection is closed.
+        it too, the project file `connect()` read as the project
+        configuration. The Connection's own `settings` are what each Run it
+        starts inherits. Raises `closed` once the Connection is closed.
         """
         self.ensure_open("config.explain")
-        return await self._operations.config_explain(explain_params(keys))
+        return await self._operations.config_explain(
+            explain_params(keys, project=self._project)
+        )
 
     def notified(self, method: str, params: object) -> None:
         """Logs each of the engine's `$/log` events; drops any other notification."""
@@ -633,7 +787,7 @@ class ClientConnection:
         self,
         needs: Product,
         daemon: DaemonHello | None,
-        connect_timeout: int | NotGiven | None,
+        connect_timeout: ConnectTimeout,
         connect_started_at: float,
         settings: Mapping[str, object] | None,
     ) -> None:
@@ -678,7 +832,7 @@ class ClientConnection:
             product=_product_of(product),
             version=version if isinstance(version, str) else "",
             protocol_version=spoken,
-            project_file=None,
+            project_file=None if self._project is None else self._project.path,
             home=self._reached.home,
             engine_path=None if self._engine is None else self._engine.path,
             url=self._reached.url,
@@ -694,14 +848,14 @@ class ClientConnection:
     async def _hello_answer(
         self,
         params: HelloParams,
-        connect_timeout: int | NotGiven | None,
+        connect_timeout: ConnectTimeout,
         started_at: float,
     ) -> object:
         """`hello`'s answer, once it came within `connect_timeout` of `started_at`.
 
         Past it, raises `DeadlineExceededError`, its `limit` naming
-        `timeout.connect` at the run layer, given as an argument, or at its
-        default, and `waited_for` `hello` (ADR 0083).
+        `timeout.connect` and the layer that set it, and `waited_for`
+        `hello` (ADR 0083).
         """
         connect = connect_limit(connect_timeout)
         if connect is None:
@@ -879,6 +1033,33 @@ def _log_start(started: RunStarted) -> None:
             )
 
 
+def _start_fields(
+    run_id: str | None,
+    tags: Iterable[str] | None,
+    limits: Limits | None,
+    settings: RunSettings | None,
+    project: ProjectSettings | None,
+) -> dict[str, object]:
+    """The fields every start takes, each one given, and the project file read.
+
+    Raises:
+        SettingInvalidError: A `limits` amount the SDK cannot turn exactly.
+    """
+    fields: dict[str, object] = {}
+    if run_id is not None:
+        fields["run_id"] = run_id
+    if tags is not None:
+        fields["tags"] = list(tags)
+    run_limits = limit_list(limits)
+    if run_limits:
+        fields["limits"] = run_limits
+    if settings is not None:
+        fields["settings"] = settings_on_wire(settings)
+    if project is not None:
+        fields["project"] = project
+    return fields
+
+
 def _wire(params: BaseModel) -> dict[str, object]:
     """`params` as the wire spells them, a field left unset left out."""
     return params.model_dump(
@@ -892,19 +1073,25 @@ def _usage_set_params(limit: RunLimit) -> UsageSetParams:
 
 
 def connect_limit(
-    connect_timeout: int | NotGiven | None,
+    connect_timeout: ConnectTimeout,
 ) -> tuple[int, SettingLimit] | None:
     """How many milliseconds `timeout.connect` gives `hello`, and the setting.
 
     `connect_timeout`, already checked by `timeout_of`, at the run layer,
-    given as an argument, or else `timeout.connect`'s 30 s default; `None`
-    for none.
+    given as an argument, the project file's at `project_configuration`, or
+    else `timeout.connect`'s 30 s default; `None` for none.
     """
     if connect_timeout is None:
         return None
     if isinstance(connect_timeout, NotGiven):
         return CONNECT_TIMEOUT, SettingLimit(
             key="timeout.connect", value=CONNECT_TIMEOUT, layer=SettingsLayer.default
+        )
+    if isinstance(connect_timeout, ProjectTimeout):
+        return connect_timeout.value, SettingLimit(
+            key="timeout.connect",
+            value=connect_timeout.value,
+            layer=SettingsLayer.project_configuration,
         )
     return connect_timeout, SettingLimit(
         key="timeout.connect",

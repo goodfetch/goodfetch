@@ -647,7 +647,10 @@ fn leaks_of(
         .unwrap()
 }
 
-/// Covers: story:5-88, setting:proxy.server, setting:proxy.username, setting:proxy.password
+/// The proxy's password, a Secret canary, is in nothing `doctor` prints
+/// after the Run, beside the engine's own outputs.
+///
+/// Covers: story:5-88, story:11-212, command:doctor, setting:proxy.server, setting:proxy.username, setting:proxy.password
 #[cfg(unix)]
 #[rstest]
 #[case::socks5("socks5", false, true)]
@@ -728,6 +731,17 @@ fn the_credentials_of_a_socks5_proxy_reach_it_through_the_sessions_loopback_rela
     let arguments = crate::page::browser_command_lines(&env);
     let _ = engine.ask(4, "run.finish", &json!({ "run_id": "relayed" }));
     let (_, stderr) = engine.finish_with_stderr();
+    let doctor =
+        crate::canaries::doctor_output(&env, &[(PASSWORD_VARIABLE, &credentials.password)]);
+    let mut leaks = leaks_of(&canaries, env.home(), &stderr, &arguments);
+    leaks.extend(
+        canaries
+            .leaks(&[Output::Bytes {
+                name: "doctor",
+                bytes: &doctor,
+            }])
+            .unwrap(),
+    );
 
     let port = proving_ground
         .url("scope.test", "")
@@ -747,7 +761,7 @@ fn the_credentials_of_a_socks5_proxy_reach_it_through_the_sessions_loopback_rela
             &navigated["result"]["response"]["status"],
             relays.first(),
             arguments.is_empty(),
-            leaks_of(&canaries, env.home(), &stderr, &arguments),
+            leaks,
         ),
         (
             &json!(200),
@@ -2157,6 +2171,82 @@ fn a_provider_sessions_upload_is_charged_ahead_in_few_allowances_and_priced_once
             true
         ),
         "{charges} ledger charges of proxy_bytes: {used}"
+    );
+}
+
+/// After a Run that spent Usage, `usage list` shows what the engine charged
+/// to the ledger: the install Limit's `charged` is the Run's `proxy_bytes`,
+/// every allowance charged ahead settled to the bytes the proxy carried.
+///
+/// Covers: story:11-212, story:3-67, command:usage.list, operation:run.usage
+#[cfg(unix)]
+#[test]
+fn usage_list_shows_what_a_runs_proxy_bytes_charged_to_the_ledger() {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let cache = browser_cache(&env).unwrap();
+    let (address, sunk) = sink();
+    let configuration = format!(
+        "[settings.proxy.providers.list]\nservers = [{{ server = \"http://{address}\", kind = \"isp\" }}]\n"
+    );
+    let mut engine = started_listing(
+        &env,
+        &cache,
+        &proving_ground,
+        "ledgered",
+        &configuration,
+        &json!({ "proxy": { "provider": "list", "kind": "isp" } }),
+        &[a_bytes_limit()],
+    );
+
+    let page = opened(&engine.ask(2, "run.new_page", &json!({ "run_id": "ledgered" })));
+    let zeros = "A".repeat(usize::try_from(UNDER_WAY / 3 * 4).unwrap());
+    engine.send(&json!({
+        "jsonrpc": "2.0", "id": 3, "method": "page.request",
+        "params": {
+            "page_id": page.page_id,
+            "url": proving_ground.url("scope.test", "/upload"),
+            "method": "POST",
+            "post_data": zeros,
+        },
+    }));
+    let mut read = 0;
+    while read < UNDER_WAY {
+        match sunk.recv_timeout(BROWSER_DEADLINE).unwrap() {
+            Sunk::Read(bytes) => read += bytes,
+            Sunk::Opened(_) | Sunk::Ended => {}
+        }
+    }
+    engine.send(&json!({
+        "jsonrpc": "2.0", "id": 4, "method": "run.finish", "params": { "run_id": "ledgered" },
+    }));
+    let _ = std::iter::from_fn(|| engine.next()).find(|answer| answer["id"] == json!(4));
+    let used = engine.ask(5, "run.usage", &json!({ "run_id": "ledgered" }));
+    let _ = engine.finish();
+
+    let listed = cli(&env, COLLIE)
+        .args(["usage", "list", "--json"])
+        .run()
+        .unwrap();
+    let limits: Value = serde_json::from_str(&listed.stdout).unwrap_or_else(|_| panic!("{listed}"));
+    let charged: Vec<(&Value, &Value)> = limits["limits"]
+        .as_array()
+        .unwrap_or_else(|| panic!("{listed}"))
+        .iter()
+        .map(|limit| (&limit["limit"]["usage_kind"], &limit["charged"]))
+        .collect();
+    assert_eq!(
+        (
+            listed.exit,
+            used["result"]["proxy_bytes"].as_u64() >= Some(UNDER_WAY),
+            charged
+        ),
+        (
+            Some(0),
+            true,
+            vec![(&json!("proxy_bytes"), &used["result"]["proxy_bytes"])]
+        ),
+        "{used} {listed}"
     );
 }
 

@@ -22,10 +22,15 @@ if TYPE_CHECKING:
     from pydantic import JsonValue
 
     from goodfetch_collie_client.connection import EngineInfo
-    from goodfetch_collie_client.generated.models import SettingsExplanation
+    from goodfetch_collie_client.generated.models import (
+        Recording,
+        SettingsExplanation,
+    )
     from goodfetch_collie_client.generated.settings import RunSettings
+    from goodfetch_collie_client.handlerless import CatalogTarget
     from goodfetch_collie_client.limits import Limits
     from goodfetch_collie_client.run import AsyncRun, Run
+    from goodfetch_collie_client.run_view import AsyncRunView, RunView
 
 __all__ = ["AsyncConnection", "Connection"]
 
@@ -69,6 +74,72 @@ class AsyncConnection(ABC):
         Experimental: outside semver until it is promoted (ADR 0030).
 
         `settings` are the Run's own, over the Connection's (ADR 0083).
+        Raises `closed` once the Connection is closed.
+        """
+
+    @abstractmethod
+    async def start_recipe(
+        self,
+        recipe: str,
+        *,
+        run_id: str | None = None,
+        tags: Iterable[str] | None = None,
+        limits: Limits | None = None,
+        settings: RunSettings | None = None,
+        recording: Recording | None = None,
+        timeout: timedelta | NotGiven | None = not_given,
+        detached: bool = False,
+    ) -> AsyncRun:
+        """Starts a Recipe's run and returns once it is started (ADR 0102).
+
+        Starts a Recipe's run, a Run with no handler in the program, and answers once
+        it is started. Its Run ID works as `run.start`'s. With `detached`, the Run
+        outlives the program that started it: closing its value frees only the
+        value, `run.finish` waits for its end and `run.stop` stops it.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+
+        It takes `start`'s options, a Response `recording` (ADR 0105), the
+        Run's own `timeout`, `timeout.run`'s value when left out and none
+        for `None`, and `detached`. Raises `closed` once the Connection is
+        closed.
+        """
+
+    @abstractmethod
+    async def start_catalog_run(
+        self,
+        target: CatalogTarget,
+        *,
+        run_id: str | None = None,
+        tags: Iterable[str] | None = None,
+        limits: Limits | None = None,
+        settings: RunSettings | None = None,
+        recording: Recording | None = None,
+        timeout: timedelta | NotGiven | None = not_given,
+        detached: bool = False,
+    ) -> AsyncRun:
+        """Starts a code-free catalog run and returns once it is started (ADR 0036).
+
+        Starts a code-free catalog run, a Run with no handler in the program whose
+        verbs come from the catalog (ADR 0036): an Extraction of a page by a schema,
+        `extract`, an Agent task, `agent`, or a Plan replayed with no model call,
+        `plan_replay`; and answers once it is started. Its Run ID works as
+        `run.start`'s. With `detached`, the Run outlives the program that started
+        it: closing its value frees only the value, `run.finish` waits for its end
+        and `run.stop` stops it.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+
+        `target` is an `ExtractTarget`, an `AgentTarget` or a
+        `PlanReplayTarget`; its options are `start_recipe`'s.
+        """
+
+    @abstractmethod
+    async def open_run(self, run_id: str) -> AsyncRunView:
+        """Opens a view of the Run `run_id` names, with no round trip (ADR 0102).
+
+        The Run is one another program started, such as a detached Run. The
+        view takes no writer role, and closing it frees only the view.
         Raises `closed` once the Connection is closed.
         """
 
@@ -167,6 +238,59 @@ class Connection(ABC):
         `settings` are the Run's own, over the Connection's (ADR 0083).
         Raises `closed` once the Connection is closed.
         """
+
+    @abstractmethod
+    def start_recipe(
+        self,
+        recipe: str,
+        *,
+        run_id: str | None = None,
+        tags: Iterable[str] | None = None,
+        limits: Limits | None = None,
+        settings: RunSettings | None = None,
+        recording: Recording | None = None,
+        timeout: timedelta | NotGiven | None = not_given,
+        detached: bool = False,
+    ) -> Run:
+        """Starts a Recipe's run, as `AsyncConnection.start_recipe` says.
+
+        Starts a Recipe's run, a Run with no handler in the program, and answers once
+        it is started. Its Run ID works as `run.start`'s. With `detached`, the Run
+        outlives the program that started it: closing its value frees only the
+        value, `run.finish` waits for its end and `run.stop` stops it.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+
+    @abstractmethod
+    def start_catalog_run(
+        self,
+        target: CatalogTarget,
+        *,
+        run_id: str | None = None,
+        tags: Iterable[str] | None = None,
+        limits: Limits | None = None,
+        settings: RunSettings | None = None,
+        recording: Recording | None = None,
+        timeout: timedelta | NotGiven | None = not_given,
+        detached: bool = False,
+    ) -> Run:
+        """Starts a code-free catalog run, as `AsyncConnection.start_catalog_run` says.
+
+        Starts a code-free catalog run, a Run with no handler in the program whose
+        verbs come from the catalog (ADR 0036): an Extraction of a page by a schema,
+        `extract`, an Agent task, `agent`, or a Plan replayed with no model call,
+        `plan_replay`; and answers once it is started. Its Run ID works as
+        `run.start`'s. With `detached`, the Run outlives the program that started
+        it: closing its value frees only the value, `run.finish` waits for its end
+        and `run.stop` stops it.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+
+    @abstractmethod
+    def open_run(self, run_id: str) -> RunView:
+        """Opens a view of a Run by its ID, as `AsyncConnection.open_run` says."""
 
     @abstractmethod
     def call(

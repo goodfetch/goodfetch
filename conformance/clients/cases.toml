@@ -5,8 +5,11 @@
 # its own, as `modes = { sdk-rust = ["daemon"] }`, where a surface the table
 # leaves out takes every mode it has. Every surface a case lists implements
 # it in each of its modes; `xtask clients check` fails on a missing one or an
-# unknown ID. Area 11 writes the cases; each joins with the ticket whose code
-# satisfies it. Bump the version whenever a case changes.
+# unknown ID. On the `cli` surface, a case runs on its Product's executable:
+# Collie's, unless it needs what only Foxhound's has and says
+# `product = "foxhound"` (ADR 0094). Area 11 writes the cases; each joins
+# with the ticket whose code satisfies it. Bump the version whenever a case
+# changes.
 #
 # The `sdk-typescript` and `sdk-python` cases below run in the `attached`
 # mode only: the Daemon transport (#220 and area 11's Daemon ticket) adds
@@ -23,7 +26,7 @@
 
 [suite]
 name = "clients"
-version = "52"
+version = "54"
 
 [[capability]]
 name = "lifecycle"
@@ -482,6 +485,23 @@ covers = ["story:11-71", "story:11-76"]
 surfaces = ["sdk-typescript", "sdk-python", "sdk-rust"]
 modes = ["attached", "linked"]
 
+# `connect()`'s environment map (ADR 0083; issue 3118): an Attached engine
+# gets exactly the `env` map as its environment, and with none TypeScript
+# and Python pass the process environment and Rust reads it once, each
+# shown in a child process the test starts with an environment of its own,
+# so no test patches its own. A `GOODFETCH_` name off the closed list
+# (`setting_unknown`), an empty value and a value the engine cannot parse,
+# a `GOODFETCH_CHANNEL` naming no channel or a
+# `GOODFETCH_DAEMON_DRAIN_GRACE` that is no whole number of milliseconds
+# (`setting_invalid`), each fail `connect()` before any engine is reached.
+# Rust plays it linked, where the engine's Goodfetch home shows the map it
+# was given.
+[[capability.case]]
+id = "connect-takes-the-environment-map"
+covers = ["story:11-73"]
+surfaces = ["sdk-typescript", "sdk-python", "sdk-rust"]
+modes = ["attached", "linked"]
+
 [[capability]]
 name = "time"
 
@@ -692,8 +712,10 @@ modes = { sdk-typescript = ["attached"], sdk-python = ["attached"] }
 # program's active span sends that span's `traceparent`, and its
 # `tracestate` when set, in `_meta`, never Baggage, and a call made outside
 # any span sends no `_meta`; against the Scripted engine. Rust plays it
-# behind its `opentelemetry` feature, as a Daemon's client: its `daemon`
-# mode; its `linked` mode joins with issue 3405. TypeScript, with
+# behind its `opentelemetry` feature, as a Daemon's client, its `daemon`
+# mode, and in its `linked` mode, where the linked engine's request spans,
+# exported through the program's subscriber, show each call's parent
+# (issue 3405). TypeScript, with
 # `@opentelemetry/api` installed, and Python (asyncio, Trio and the sync
 # API), with `opentelemetry-api` importable, play it in both their modes
 # (issue 3404).
@@ -704,4 +726,4 @@ name = "trace-context"
 id = "trace-context"
 covers = ["story:11-138"]
 surfaces = ["sdk-typescript", "sdk-python", "sdk-rust"]
-modes = { sdk-rust = ["daemon"] }
+modes = { sdk-rust = ["daemon", "linked"] }

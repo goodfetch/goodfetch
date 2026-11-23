@@ -57,8 +57,9 @@ pub(crate) enum Owner {
     /// `just merge` on its own host, in seconds: the checks that judge the
     /// whole change.
     Local,
-    /// The pull-request tier on hosted runners. Until it exists, the gate
-    /// still runs these here.
+    /// The pull-request tier on hosted runners, on a batch, spec or fork
+    /// pull request: `just merge` reuses its units, and runs here those no
+    /// hosted run it accepts holds (ADR 0135's amendment of 2026-11-22).
     Hosted,
     /// The quiet gate host, `just preflight` or `just merge`, whichever runs
     /// first: what a noisy runner would move, perf and the stress run.
@@ -75,7 +76,7 @@ impl Owner {
     }
 
     /// The owner of `step`.
-    const fn of(step: Step) -> Self {
+    pub(crate) const fn of(step: Step) -> Self {
         if step.judges_the_whole_change() {
             Self::Local
         } else if matches!(step, Step::Perf | Step::Counts | Step::Stress) {
@@ -100,18 +101,9 @@ pub(crate) struct Entry {
 /// lint.
 const LINT_DOCUMENTS: &str = "lint-documents";
 
-/// xtask's codegen tests, `tests/` tests the Quick suite never runs, when
-/// the change reaches what only they check (`xtask affected`'s
-/// `codegen-tests=true`): the quick form's last entry, so a change to the
-/// emitter or to the protocol files their fixture copies cannot merge on the
-/// quick gate with them red (issue 2892). The full form's Pre-merge suite
-/// runs them with every other test.
-const CODEGEN_TESTS: &str = "codegen-tests";
-
 /// The entries `form` runs, in their order.
 pub(crate) fn entries(form: Form) -> Vec<Entry> {
-    // A command is part of a hosted step: the documents' lint is lint's,
-    // and the codegen tests are the Pre-merge suite's.
+    // A command is part of a hosted step: the documents' lint is lint's.
     let command = |name| Entry {
         name,
         kind: Kind::Command,
@@ -131,21 +123,25 @@ pub(crate) fn entries(form: Form) -> Vec<Entry> {
             just: just(step, form),
         });
     }
-    match form {
-        Form::Docs => entries.push(command(LINT_DOCUMENTS)),
-        Form::Quick => entries.push(command(CODEGEN_TESTS)),
-        Form::All | Form::Changed | Form::Preflight => {}
+    if form == Form::Docs {
+        entries.push(command(LINT_DOCUMENTS));
     }
     entries
 }
 
-/// Whether `form` runs `step`.
-const fn runs_in(step: Step, form: Form) -> bool {
+/// Whether `form` runs `step`. The full forms run no step another one's
+/// units cover ([`Step::covered_by`]): the Pre-merge suite holds every
+/// Quick test and xtask's codegen tests, so those two run only in the quick
+/// form.
+pub(crate) const fn runs_in(step: Step, form: Form) -> bool {
     match form {
-        Form::All | Form::Changed => true,
+        Form::All | Form::Changed => step.covered_by().is_none(),
         Form::Quick => {
             step.judges_the_whole_change()
-                || matches!(step, Step::Lint | Step::Quick | Step::JourneysTasks)
+                || matches!(
+                    step,
+                    Step::Lint | Step::Quick | Step::JourneysTasks | Step::CodegenTests
+                )
         }
         Form::Docs => step.reads_the_commits(),
         Form::Preflight => matches!(step, Step::Counts | Step::Stress),
@@ -158,6 +154,9 @@ const fn runs_in(step: Step, form: Form) -> bool {
 fn just(step: Step, form: Form) -> Vec<&'static str> {
     let mut arguments = match step {
         Step::JourneysTasks => return vec!["journeys-tasks", "--check"],
+        // It reads the change itself, and runs no test when the change
+        // reaches nothing only these tests check.
+        Step::CodegenTests => return vec!["codegen-tests"],
         // One invocation, so the listings `journeys-tests` writes serve both.
         Step::FeaturesTests => return vec!["features-tests", "clients-tests"],
         Step::Quick => vec!["_suite", "quick"],

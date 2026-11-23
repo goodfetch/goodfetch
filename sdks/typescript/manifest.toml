@@ -918,6 +918,24 @@ words = ["remove", "home"]
 form = "runtime"
 
 [[member]]
+package = "@goodfetch/collie-client/runtime"
+receiver = "(module)"
+member = "engineEnvironment"
+entry = "none"
+reason = "A test engine's environment map (ADR 0105): its home, the caller's Browser cache and the Product's engine path, every other variable left out."
+words = ["engine", "environment"]
+form = "runtime"
+
+[[member]]
+package = "@goodfetch/collie-client/runtime"
+receiver = "(module)"
+member = "isolated"
+entry = "none"
+reason = "A test's settings over the testing kit's isolations (ADR 0105): `egress.offline` on, the hosts `network.resolve` maps to loopback alone allowed, and short durations."
+words = ["isolated"]
+form = "runtime"
+
+[[member]]
 package = "@goodfetch/foxhound/testing"
 receiver = "(module)"
 member = "connectOver"

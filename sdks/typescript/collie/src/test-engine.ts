@@ -6,7 +6,12 @@ import type {
   TestEngine as ProductTestEngine,
   TestEngineOptions,
 } from "@goodfetch/collie-client/testing";
-import { makeHome, partsOf, removeHome } from "@goodfetch/collie-client/runtime";
+import {
+  COLLIE_ENGINE_PATH_VARIABLE,
+  makeHome,
+  partsOf,
+  removeHome,
+} from "@goodfetch/collie-client/runtime";
 import { Collie } from "./collie.ts";
 
 /**
@@ -31,7 +36,7 @@ export class TestEngine implements ProductTestEngine<Collie> {
   static async start(options: TestEngineOptions = {}): Promise<TestEngine> {
     const home = await makeHome();
     try {
-      const parts = partsOf(options, home);
+      const parts = partsOf(options, home, COLLIE_ENGINE_PATH_VARIABLE);
       const connection = await Collie.connect({
         env: parts.env,
         engine: "attached",

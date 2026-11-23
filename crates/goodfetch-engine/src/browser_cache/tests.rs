@@ -36,8 +36,8 @@ use crate::pinned_download::{Digest, Fetching};
 
 use super::{
     Arch, BrowserCache, BrowserChoice, BrowserSource, BuildPlatform, CHROME_FOR_TESTING,
-    CHROME_HEADLESS_SHELL, CacheError, CacheLocation, CleanUp, InstalledExecutable, MaxUnusedAge,
-    Os, PinnedArtifact, Platform, PlatformNotice, browser_source, content_digest,
+    CHROME_HEADLESS_SHELL, CacheError, CacheLocation, CacheMode, CleanUp, InstalledExecutable,
+    MaxUnusedAge, Os, PinnedArtifact, Platform, PlatformNotice, browser_source, content_digest,
     installed_browser, kept_artifacts,
 };
 
@@ -404,6 +404,90 @@ fn a_missing_build_in_a_cache_the_engine_cannot_write_is_not_installed() {
         details.fix,
         "Run `goodfetch-collie browser install` where the Browser cache is writable, such as in the image's build, or point GOODFETCH_BROWSERS_PATH at a cache that holds it"
     );
+}
+
+/// Every path under `root`, `root` itself included, with its kind, length
+/// and modification time, symbolic links unfollowed.
+fn tree(root: &Path) -> BTreeMap<PathBuf, (bool, u64, SystemTime)> {
+    let mut entries = BTreeMap::new();
+    let mut pending = vec![root.to_owned()];
+    while let Some(next) = pending.pop() {
+        let metadata = fs::symlink_metadata(&next).unwrap();
+        if metadata.is_dir() {
+            for entry in fs::read_dir(&next).unwrap() {
+                pending.push(entry.unwrap().path());
+            }
+        }
+        entries.insert(
+            next.strip_prefix(root).unwrap().to_owned(),
+            (
+                metadata.is_dir(),
+                metadata.len(),
+                metadata.modified().unwrap(),
+            ),
+        );
+    }
+    entries
+}
+
+/// The use `folder`'s entry records.
+fn used_at(folder: &Path) -> jiff::Timestamp {
+    let entry: serde_json::Value =
+        serde_json::from_slice(&fs::read(folder.join("entry.json")).unwrap()).unwrap();
+    entry["used_at"].as_str().unwrap().parse().unwrap()
+}
+
+/// A launch records its build's use in a cache it can write, and none in
+/// [`CacheMode::ReadOnly`].
+///
+/// Covers: setting:browser_cache.read_only
+#[rstest]
+#[case::read_write(CacheMode::ReadWrite, 0)]
+#[case::read_only(CacheMode::ReadOnly, 3)]
+fn a_held_build_s_use_is_recorded_unless_the_cache_is_read_only(
+    #[case] mode: CacheMode,
+    #[case] days_since_use: u64,
+) {
+    let env = TestEnv::new();
+    let cache = cache_in(&env).in_mode(mode);
+    let id = browser("141.0.7390.54-linux64");
+    let folder = lay_out(&cache, &id, days_before(&env, 3));
+
+    let prepared = goodfetch_test_support::runtime()
+        .block_on(cache.prepare(
+            &pin(id),
+            &pinned_by(),
+            &offline(),
+            now(&env),
+            &mut no_progress(),
+        ))
+        .unwrap();
+
+    assert_eq!(prepared.artifact.files(), folder.join("files"));
+    assert_eq!(used_at(&folder), days_before(&env, days_since_use));
+}
+
+/// Covers: setting:browser_cache.read_only
+#[test]
+fn a_read_only_cache_that_holds_the_pinned_build_is_left_as_it_was() {
+    let env = TestEnv::new();
+    let cache = cache_in(&env).in_mode(CacheMode::ReadOnly);
+    let id = browser("141.0.7390.54-linux64");
+    lay_out(&cache, &id, days_before(&env, 3));
+    let before = tree(cache.root());
+
+    let prepared = goodfetch_test_support::runtime()
+        .block_on(cache.prepare(
+            &pin(id),
+            &pinned_by(),
+            &offline(),
+            now(&env),
+            &mut no_progress(),
+        ))
+        .unwrap();
+    drop(prepared);
+
+    assert_eq!(tree(cache.root()), before);
 }
 
 /// Covers: error:browser_not_installed

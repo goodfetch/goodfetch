@@ -8384,6 +8384,17 @@
       ]
     },
     {
+      "id": "setting:browser_cache.read_only",
+      "kind": "setting",
+      "area": 3,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "setting:checkpoint.interval",
       "kind": "setting",
       "area": 3,

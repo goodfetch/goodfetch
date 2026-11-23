@@ -36,6 +36,7 @@ mod resume;
 mod safe_point;
 mod sent_from;
 mod staging;
+mod start_table;
 mod verdict;
 mod wal;
 

@@ -1383,3 +1383,11 @@ milestone = "M1 Core"
 journey = false
 not_journey = "part"
 status = "active"
+
+[[story]]
+id = 177
+title = "As a developer, I want a start under a Run's ID to answer as the start table says whatever came before it: `new` for a Run with no state, `run_conflict` for other inputs, `setting_not_applicable` for another value of a key its run file keeps fixed, then `run_in_use`, `resumed` or `ended` for a live, interrupted or finished Run, and `run_state_unavailable` for state it cannot read, through pauses, finishes, clean stops, crashes and power cuts, so that a crash never turns a Run into another one or starts it twice (ADRs 0060, 0102 and 0138)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"

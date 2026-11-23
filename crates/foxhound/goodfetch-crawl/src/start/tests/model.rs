@@ -736,7 +736,7 @@ impl StateMachineTest for Subject {
 
 /// Runs an Attached engine on `dependencies` as a task of `owner`, and
 /// connects to it.
-async fn attach(
+pub(super) async fn attach(
     owner: &TaskOwner,
     dependencies: goodfetch_engine::Dependencies,
 ) -> (

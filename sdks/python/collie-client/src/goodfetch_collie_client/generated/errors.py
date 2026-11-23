@@ -221,6 +221,14 @@ class ChallengeUnsolvedError(PageError):
         super().__init__(message, code="challenge_unsolved", group="page", retryable=False, **fields)
 
 
+class CheckpointBehindError(RefusedError):
+    """The Checkpoint a resume names is behind the Run's run file on this machine: a later run epoch, or the same one at a later journal position, wrote that file, so replacing it would throw away the work done since the Checkpoint and could perform its Effects again. Nothing is changed. Resume without `checkpoint` to go on from the run file, or pass `rollback` to replace it with the Checkpoint, as the Audit log records."""
+
+    def __init__(self, message: str, **fields: Unpack[ErrorFields]) -> None:
+        """Takes the message the engine rendered, and what it carries."""
+        super().__init__(message, code="checkpoint_behind", group="refused", retryable=False, **fields)
+
+
 class ClosedError(ProgramError):
     """The call was made on a value its program had closed: a Connection, or a Run, Session or Page under it. A value never reopens: connect again, or start the Run again by its Run ID."""
 
@@ -983,6 +991,7 @@ ERROR_CLASSES: Final[Mapping[str, ErrorClass]] = {
     "certificate_changed": CertificateChangedError,
     "certificate_invalid": CertificateInvalidError,
     "challenge_unsolved": ChallengeUnsolvedError,
+    "checkpoint_behind": CheckpointBehindError,
     "closed": ClosedError,
     "confinement_unavailable": ConfinementUnavailableError,
     "connection_forked": ConnectionForkedError,

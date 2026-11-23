@@ -562,7 +562,7 @@ class AsyncCollieOperations:
         return result_of(RunReport, await self._caller.call("run.report", params))
 
     async def run_resume(self, params: RunResumeParams) -> RunStarted:
-        """Resumes an interrupted Run from its committed state, its run file on this machine or the Checkpoint `checkpoint` names: it takes the Run's writer lock and the next run epoch, so every write of an earlier writer is refused, and redoes the work since that state; its recorded Clean-up rules digest is kept. A Run this engine runs already fails with `run_in_use`, as one another engine writes does; a finished one is answered as it ended, `ended`. A Run bound to another machine fails with `session_bound_to_machine`, and a Checkpoint of a format version this engine cannot read with `format_version_unsupported`.
+        """Resumes an interrupted Run from its committed state, its run file on this machine or the Checkpoint `checkpoint` names: it takes the Run's writer lock and the next run epoch, so every write of an earlier writer is refused, and redoes the work since that state; its recorded Clean-up rules digest is kept. A Run this engine runs already fails with `run_in_use`, as one another engine writes does; a finished one is answered as it ended, `ended`. A Run bound to another machine fails with `session_bound_to_machine`, a Checkpoint of a format version this engine cannot read with `format_version_unsupported`, and a Checkpoint behind the Run's run file on this machine with `checkpoint_behind`, unless `rollback` replaces that file, as the Audit log records.
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
@@ -1234,7 +1234,7 @@ class CollieOperations:
         return result_of(RunReport, self._caller.call("run.report", params))
 
     def run_resume(self, params: RunResumeParams) -> RunStarted:
-        """Resumes an interrupted Run from its committed state, its run file on this machine or the Checkpoint `checkpoint` names: it takes the Run's writer lock and the next run epoch, so every write of an earlier writer is refused, and redoes the work since that state; its recorded Clean-up rules digest is kept. A Run this engine runs already fails with `run_in_use`, as one another engine writes does; a finished one is answered as it ended, `ended`. A Run bound to another machine fails with `session_bound_to_machine`, and a Checkpoint of a format version this engine cannot read with `format_version_unsupported`.
+        """Resumes an interrupted Run from its committed state, its run file on this machine or the Checkpoint `checkpoint` names: it takes the Run's writer lock and the next run epoch, so every write of an earlier writer is refused, and redoes the work since that state; its recorded Clean-up rules digest is kept. A Run this engine runs already fails with `run_in_use`, as one another engine writes does; a finished one is answered as it ended, `ended`. A Run bound to another machine fails with `session_bound_to_machine`, a Checkpoint of a format version this engine cannot read with `format_version_unsupported`, and a Checkpoint behind the Run's run file on this machine with `checkpoint_behind`, unless `rollback` replaces that file, as the Audit log records.
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """

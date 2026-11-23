@@ -54,11 +54,11 @@ use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 use tracing::Instrument as _;
 
-use goodfetch_protocol::audit::{Actor, CERTIFICATE_EXCEPTIONS_USED};
+use goodfetch_protocol::audit::{Actor, CERTIFICATE_EXCEPTIONS_USED, RUN_ROLLED_BACK};
 use goodfetch_protocol::catalog::{Product, Setting};
 use goodfetch_protocol::checkpoint::{
     RUN_ABORTING, RUN_CHECKPOINTING, RUN_MIGRATING, RUN_STOPPING, RunAborting, RunBinding,
-    RunCheckpointing, RunMigrating, RunStopping,
+    RunCheckpointing, RunMigrating, RunStatePosition, RunStopping,
 };
 use goodfetch_protocol::connection::{ProductVersion, StoppedBy};
 use goodfetch_protocol::formats::Compatibility;
@@ -348,7 +348,7 @@ pub struct Resume {
     /// The Run's ID.
     pub run_id: RunId,
     /// The Checkpoint it resumes from, or none for its run file.
-    pub checkpoint: Option<PathBuf>,
+    pub checkpoint: Option<FromCheckpoint>,
     /// How often it writes a Checkpoint from now on.
     pub checkpoint_interval: Option<Duration>,
     /// Its `timeout.run` from now on, none when unset, counted from the
@@ -360,6 +360,17 @@ pub struct Resume {
     /// `RetryFailed`, which also returns a `finished` Run to `running`,
     /// rather than a resume (ADR 0102).
     pub retry_failed: bool,
+}
+
+/// The Checkpoint a resume makes the Run's run file here (ADR 0002).
+#[derive(Clone, Debug)]
+pub struct FromCheckpoint {
+    /// Its path on this machine.
+    pub path: PathBuf,
+    /// Who asked to roll back, as the Audit log records them, when the
+    /// Checkpoint may replace a run file here that is past it; none refuses
+    /// such a Checkpoint with `Behind` (ADR 0002's note of #2322).
+    pub rollback: Option<Origin>,
 }
 
 impl Resume {
@@ -914,6 +925,18 @@ pub enum RunError {
     /// The Run is bound to another machine (ADR 0056).
     #[error("the Run `{0}` is bound to another machine")]
     BoundToMachine(RunId),
+    /// The Checkpoint a resume gave stands behind the Run's run file here,
+    /// and the resume did not ask to roll back; nothing changed (ADR 0002's
+    /// note of #2322).
+    #[error("the Checkpoint of `{run_id}` is behind its run file here")]
+    Behind {
+        /// The Run ID.
+        run_id: RunId,
+        /// Where the Checkpoint stands.
+        checkpoint: RunStatePosition,
+        /// Where the run file here stands, past it.
+        run_file: RunStatePosition,
+    },
     /// A Checkpoint could not be written (ADR 0116); no file is left.
     #[error("a Checkpoint of `{run_id}` could not be written: {message}")]
     WriteFailed {
@@ -3490,8 +3513,11 @@ impl Runs {
     /// given, `InUse` when another engine writes it, `Format` for a state
     /// of a version this engine cannot read, `BoundToMachine` for a Run
     /// bound to another machine, `NotInProduct` for a Run that needs a
-    /// Product this engine is not, `WriteFailed` when the Checkpoint cannot
-    /// be made its run file, `Unavailable` when its state cannot be read.
+    /// Product this engine is not, `Behind` for a Checkpoint behind the
+    /// Run's run file here when the resume does not roll back,
+    /// `WriteFailed` when the Checkpoint cannot be made its run file,
+    /// `Unavailable` when its state cannot be read or a roll-back cannot
+    /// be recorded in the Audit log.
     ///
     /// # Cancel safety
     ///
@@ -3578,7 +3604,7 @@ impl Runs {
         self.commands
             .send(Command::StoredKey(
                 resume.run_id.clone(),
-                resume.checkpoint.clone(),
+                resume.checkpoint.as_ref().map(|from| from.path.clone()),
                 answer,
             ))
             .await
@@ -6444,7 +6470,11 @@ impl Registry {
         // is then not found, and starts again (ADR 0138).
         self.discard_unclean(&run_id, settings.as_ref()).await?;
         let held = self
-            .held_with_key(&run_id, checkpoint.as_deref(), stored)
+            .held_with_key(
+                &run_id,
+                checkpoint.as_ref().map(|from| from.path.as_path()),
+                stored,
+            )
             .await?;
         let folder = self.folder(&run_id);
         self.may_resume(&run_id, &held, &folder).await?;
@@ -6455,6 +6485,7 @@ impl Registry {
             Err(refused) => return Err(RunError::refused(&run_id, &folder, refused)),
         };
         let options = self.opened_with(settings.as_ref());
+        let checkpoint = checkpoint.map(|from| (from, held.position));
         let (lock, writer, state) = self
             .reopen(&run_id, held.lifecycle, checkpoint, &options)
             .await?;
@@ -6589,14 +6620,14 @@ impl Registry {
 
     /// Takes the writer role of `run_id`, `held` as its state says: its
     /// lock, which another writer's holding refuses as the Run's table says
-    /// (`WriterFound`), the Checkpoint `checkpoint` made its run file when
-    /// given, then the next run epoch, under which its writer opens and
-    /// marks it running again.
+    /// (`WriterFound`), the Checkpoint `checkpoint`, which stands where its
+    /// position says, made its run file when given, then the next run epoch,
+    /// under which its writer opens and marks it running again.
     async fn reopen(
         &mut self,
         run_id: &RunId,
         held: Lifecycle,
-        checkpoint: Option<PathBuf>,
+        checkpoint: Option<(FromCheckpoint, RunStatePosition)>,
         options: &RunStateOptions,
     ) -> Result<(File, Arc<TaskOwner>, RunState), RunError> {
         let folder = self.folder(run_id);
@@ -6650,17 +6681,22 @@ impl Registry {
                 | StartError::Stopped => RunError::Stopped,
             })?;
         let mut after = 0;
-        if let Some(checkpoint) = checkpoint {
+        if let Some((from, position)) = checkpoint {
             // The run epoch of a run file of this Run already here, which the
             // Checkpoint replaces: the resume's goes past it too.
             if let Ok(Some(_)) = self.existing(run_id).await
                 && let Ok(here) = self.held(run_id, None).await
             {
-                after = here.run_epoch;
+                after = here.position.run_epoch;
+                if here.position > position {
+                    self.roll_back(run_id, &from, position, here.position)
+                        .await?;
+                }
             }
+            let FromCheckpoint { path, .. } = from;
             let (into, vfs) = (file.clone(), self.setup.run_state.vfs.clone());
             self.owner
-                .blocking(move || checkpoint::install(&checkpoint, &into, vfs.as_deref()))
+                .blocking(move || checkpoint::install(&path, &into, vfs.as_deref()))
                 .await
                 .map_err(|error| RunError::of_write(run_id, &folder, error))?;
         }
@@ -6694,6 +6730,42 @@ impl Registry {
             .await
             .map_err(|error| RunError::of_state(run_id, &folder, error))?;
         Ok((lock, writer, state))
+    }
+
+    /// Lets the Checkpoint `from`, at `checkpoint`, replace the run file of
+    /// `run_id` here, at `run_file` past it, only when the resume asked to
+    /// roll back, as the Audit log records before anything is replaced
+    /// (ADR 0002's note of #2322).
+    async fn roll_back(
+        &self,
+        run_id: &RunId,
+        from: &FromCheckpoint,
+        checkpoint: RunStatePosition,
+        run_file: RunStatePosition,
+    ) -> Result<(), RunError> {
+        let Some(origin) = &from.rollback else {
+            return Err(RunError::Behind {
+                run_id: run_id.clone(),
+                checkpoint,
+                run_file,
+            });
+        };
+        self.setup
+            .engine
+            .audit()
+            .record(
+                origin,
+                &RUN_ROLLED_BACK,
+                json!({ "checkpoint": checkpoint, "run_file": run_file }),
+                self.setup.engine.clock().timestamp(),
+            )
+            .await
+            .map(drop)
+            .map_err(|error| RunError::Unavailable {
+                run_id: run_id.clone(),
+                folder: self.folder(run_id),
+                error: format!("the Audit log cannot record its roll-back: {error}"),
+            })
     }
 
     async fn uses(&mut self, run_id: &RunId, product: Product) {

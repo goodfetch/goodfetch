@@ -487,6 +487,12 @@ pub const PRESSING_HARDER_VALUE_SET: SharedTypeValue = kind(
     "A run set a value that presses a site harder than its default, with the setting and its value (ADR 0086).",
 );
 
+/// A Run rolled back to a Checkpoint behind its run file.
+pub const RUN_ROLLED_BACK: SharedTypeValue = kind(
+    "run_rolled_back",
+    "A resume asked to roll back replaced the Run's run file on this machine with a Checkpoint behind it, so the work done since that Checkpoint is gone: the positions of both, written before the run file is replaced (ADR 0002).",
+);
+
 /// The anchor a pruning leaves.
 pub const AUDIT_LOG_ANCHOR: SharedTypeValue = kind(
     "audit_log_anchor",
@@ -530,5 +536,6 @@ pub const ENTRIES: Entries = Entries {
         TLS_TERMINATED_UPSTREAM,
         EXPOSED_DAEMON_SET_UP,
         PRESSING_HARDER_VALUE_SET,
+        RUN_ROLLED_BACK,
     ],
 };

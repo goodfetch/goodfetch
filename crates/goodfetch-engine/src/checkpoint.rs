@@ -22,7 +22,7 @@ use std::io::{self, Read as _, Write as _};
 use std::path::{Path, PathBuf};
 
 use goodfetch_protocol::catalog::Product;
-use goodfetch_protocol::checkpoint::RunBinding;
+use goodfetch_protocol::checkpoint::{RunBinding, RunStatePosition};
 use goodfetch_protocol::formats::RUN_STATE;
 use goodfetch_protocol::run::Lifecycle;
 use rusqlite::backup::{Backup, StepResult};
@@ -165,8 +165,9 @@ pub(crate) struct Held {
     pub(crate) lifecycle: Lifecycle,
     /// What binds it, if anything.
     pub(crate) binding: Option<RunBinding>,
-    /// The run epoch of its last writer.
-    pub(crate) run_epoch: u64,
+    /// Where its state stands: the run epoch of its last writer, and the
+    /// journal position within it.
+    pub(crate) position: RunStatePosition,
     /// Its data key, wrapped, once it has one.
     pub(crate) key: Option<StoredKey>,
     /// The settings fixed for its life, as its start kept them: a JSON
@@ -200,15 +201,18 @@ pub(crate) fn read(connection: &Connection, path: &Path) -> Result<Held, RunStat
         .and_then(|mut statement| statement.query_row([RUN_STATE.name], |row| row.get(0)))
         .map_err(|error| damaged(error.to_string()))?;
     sqlite_store::check_format(&RUN_STATE, &found)?;
-    let (run_id, needs, lifecycle, binding, run_epoch, fixed_settings): (
+    let (run_id, needs, lifecycle, binding, (run_epoch, journal_position), fixed_settings): (
         String,
         String,
         String,
         Option<String>,
-        i64,
+        (i64, i64),
         String,
     ) = connection
-        .prepare_cached("SELECT run_id, needs, lifecycle, binding, epoch, fixed_settings FROM run")
+        .prepare_cached(
+            "SELECT run_id, needs, lifecycle, binding, epoch, journal_position, fixed_settings
+             FROM run",
+        )
         .and_then(|mut statement| {
             statement.query_row([], |row| {
                 Ok((
@@ -216,8 +220,8 @@ pub(crate) fn read(connection: &Connection, path: &Path) -> Result<Held, RunStat
                     row.get(1)?,
                     row.get(2)?,
                     row.get(3)?,
-                    row.get(4)?,
-                    row.get(5)?,
+                    (row.get(4)?, row.get(5)?),
+                    row.get(6)?,
                 ))
             })
         })
@@ -233,7 +237,10 @@ pub(crate) fn read(connection: &Connection, path: &Path) -> Result<Held, RunStat
             .map(|binding| serde_json::from_str(&binding))
             .transpose()
             .map_err(|error| damaged(format!("`binding`: {error}")))?,
-        run_epoch: u64::try_from(run_epoch).unwrap_or_default(),
+        position: RunStatePosition {
+            run_epoch: u64::try_from(run_epoch).unwrap_or_default(),
+            journal_position: u64::try_from(journal_position).unwrap_or_default(),
+        },
         key: run_key::stored(connection).map_err(|error| damaged(error.to_string()))?,
         fixed_settings,
     })

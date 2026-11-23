@@ -40,6 +40,8 @@ use crate::run_state::RunStateTables;
 use crate::runs::{EndedBy, Run, Start, Started};
 use crate::transport::{self, Network};
 
+mod behind;
+
 /// Starts a Collie Run its program drives: `run_id`, bound to this
 /// engine's machine when `machine` is true or to the Browser host
 /// `browser_host`, and recording the Clean-up rules digest

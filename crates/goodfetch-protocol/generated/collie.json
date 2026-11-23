@@ -7989,6 +7989,11 @@
           "arrived_in": "0.1",
           "description": "The project configuration the Client found, layer 3 (ADR 0083)."
         },
+        "rollback": {
+          "arrived_in": "0.1",
+          "description": "Whether a `checkpoint` behind the Run's run file on this machine\nreplaces it all the same, rolling the Run back to the Checkpoint, as\nthe Audit log records; by default such a Checkpoint is refused with\n`checkpoint_behind`. Without `checkpoint` it changes nothing.",
+          "type": "boolean"
+        },
         "run_id": {
           "$ref": "#/$defs/RunId",
           "arrived_in": "0.1",
@@ -10986,6 +10991,16 @@
       "group": "page",
       "json_rpc_class": -32003,
       "name": "challenge_unsolved",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "The Checkpoint a resume names is behind the Run's run file on this machine: a later run epoch, or the same one at a later journal position, wrote that file, so replacing it would throw away the work done since the Checkpoint and could perform its Effects again. Nothing is changed. Resume without `checkpoint` to go on from the run file, or pass `rollback` to replace it with the Checkpoint, as the Audit log records.",
+      "exit_code": null,
+      "group": "refused",
+      "json_rpc_class": -32002,
+      "name": "checkpoint_behind",
       "product": "collie",
       "retryable": false
     },
@@ -14440,7 +14455,7 @@
       "cancellable": false,
       "class": "idempotent_write",
       "deprecated": null,
-      "description": "Resumes an interrupted Run from its committed state, its run file on this machine or the Checkpoint `checkpoint` names: it takes the Run's writer lock and the next run epoch, so every write of an earlier writer is refused, and redoes the work since that state; its recorded Clean-up rules digest is kept. A Run this engine runs already fails with `run_in_use`, as one another engine writes does; a finished one is answered as it ended, `ended`. A Run bound to another machine fails with `session_bound_to_machine`, and a Checkpoint of a format version this engine cannot read with `format_version_unsupported`.",
+      "description": "Resumes an interrupted Run from its committed state, its run file on this machine or the Checkpoint `checkpoint` names: it takes the Run's writer lock and the next run epoch, so every write of an earlier writer is refused, and redoes the work since that state; its recorded Clean-up rules digest is kept. A Run this engine runs already fails with `run_in_use`, as one another engine writes does; a finished one is answered as it ended, `ended`. A Run bound to another machine fails with `session_bound_to_machine`, a Checkpoint of a format version this engine cannot read with `format_version_unsupported`, and a Checkpoint behind the Run's run file on this machine with `checkpoint_behind`, unless `rollback` replaces that file, as the Audit log records.",
       "events": [],
       "kind": "opener",
       "name": "run.resume",
@@ -20032,6 +20047,13 @@
       "name": "run",
       "product": "collie",
       "type": "limit_scope"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "A resume asked to roll back replaced the Run's run file on this machine with a Checkpoint behind it, so the work done since that Checkpoint is gone: the positions of both, written before the run file is replaced (ADR 0002).",
+      "name": "run_rolled_back",
+      "product": "collie",
+      "type": "audit_kind"
     },
     {
       "arrived_in": "0.1",

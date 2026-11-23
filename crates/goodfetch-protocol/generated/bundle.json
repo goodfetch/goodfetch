@@ -15029,6 +15029,11 @@
           "arrived_in": "0.1",
           "description": "The project configuration the Client found, layer 3 (ADR 0083)."
         },
+        "rollback": {
+          "arrived_in": "0.1",
+          "description": "Whether a `checkpoint` behind the Run's run file on this machine\nreplaces it all the same, rolling the Run back to the Checkpoint, as\nthe Audit log records; by default such a Checkpoint is refused with\n`checkpoint_behind`. Without `checkpoint` it changes nothing.",
+          "type": "boolean"
+        },
         "run_id": {
           "$ref": "#/$defs/RunId",
           "arrived_in": "0.1",

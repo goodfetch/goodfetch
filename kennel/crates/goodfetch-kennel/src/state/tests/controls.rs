@@ -313,6 +313,7 @@ fn resume_resumes_a_recipes_run_on_the_daemon() {
             goodfetch_protocol::checkpoint::RunResumeParams {
                 run_id: run_id("a-run"),
                 checkpoint: None,
+                rollback: false,
                 settings: Map::new(),
                 project: None,
             }

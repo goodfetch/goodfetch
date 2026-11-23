@@ -1249,6 +1249,17 @@
       ]
     },
     {
+      "id": "error:checkpoint_behind",
+      "kind": "error",
+      "area": 3,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "error:client_gone",
       "kind": "error",
       "area": 3,

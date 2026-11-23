@@ -89,6 +89,7 @@ details! {
     crate::browser_cache::ArtifactDownloadFailedDetails => ErrorCode::ARTIFACT_DOWNLOAD_FAILED,
     crate::browser_cache::ArtifactUnavailableOfflineDetails => ErrorCode::ARTIFACT_UNAVAILABLE_OFFLINE,
     crate::browser_cache::BrowserNotInstalledDetails => ErrorCode::BROWSER_NOT_INSTALLED,
+    crate::checkpoint::CheckpointBehindDetails => ErrorCode::CHECKPOINT_BEHIND,
     crate::checkpoint::FileWriteFailedDetails => ErrorCode::FILE_WRITE_FAILED,
     crate::checkpoint::FormatVersionUnsupportedDetails => ErrorCode::FORMAT_VERSION_UNSUPPORTED,
     crate::checkpoint::PathNotWritableDetails => ErrorCode::PATH_NOT_WRITABLE,

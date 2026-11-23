@@ -1,0 +1,42 @@
+# The `sample_store` Plugin kind's suite (#171): the suite of Collie's
+# sample Plugin kind (spec #130), on which the harness's process Plugin
+# target is proved against two toy Plugins until area 7's kinds bring their
+# own suites. The harness starts the Plugin, opens the plugin protocol with
+# `hello`, and runs the cases of each capability the Plugin declares for
+# `kind`, in order; a capability it does not declare is never reached and
+# stays `unproved`. `product` is the smallest Product that carries the kind,
+# whose executable runs the suite (ADR 0094). Each case ID names an exchange
+# the harness runs. Bump the version whenever a case changes.
+
+product = "collie"
+kind = "sample_store"
+
+[suite]
+name = "sample-store"
+version = "1"
+
+[[capability]]
+name = "put"
+
+[[capability.case]]
+# `sample_store.put` of a value under a key never used answers
+# `replaced: false`.
+id = "a-value-under-a-new-key-replaces-nothing"
+covers = ["story:2-51"]
+
+[[capability]]
+name = "replace"
+
+[[capability.case]]
+# A second `sample_store.put` under the same key answers `replaced: true`.
+id = "a-value-under-a-kept-key-replaces-it"
+covers = ["story:2-51"]
+
+[[capability]]
+name = "newer_params"
+
+[[capability.case]]
+# A `sample_store.put` whose params carry a field a newer engine adds is
+# answered as without it (ADRs 0077 and 0082).
+id = "params-from-a-newer-engine-are-read-without-their-unknown-field"
+covers = ["story:2-51"]

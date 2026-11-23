@@ -171,12 +171,5 @@ RUN apt-get update \
  && apt-get install -y --no-install-recommends cmake g++ \
  && rm -rf /var/lib/apt/lists/*
 
-# Python 3, which `just fetch`'s ci/lightpanda-fetch.sh and
-# ci/chrome-for-testing-fetch.sh read their pins with before the deny; uv's
-# own Python serves the tests. A layer of its own at the end, as strace's.
-RUN apt-get update \
- && apt-get install -y --no-install-recommends python3 \
- && rm -rf /var/lib/apt/lists/*
-
 ENV CI=true
 WORKDIR /work

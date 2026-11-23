@@ -12,6 +12,7 @@ Commands:
   audit            Exports and verifies the user's Audit log
   certs            Lists, accepts and forgets the certificate pins of the user's known-certificates store
   config           Shows the settings and where each value comes from
+  doctor           Checks the installation: Goodfetch home, the installed executables, the Daemon, the version it runs and the browser build a Run launches, with a fix for each finding not in order. Exits 0 whatever it finds
   daemon           Starts, stops and shows the Daemon of this executable's major, which both Products share
   runs             Works on the runs of this executable's major, of both Products
   usage            Shows, sets and raises the Limits of the user's Usage ledger, which hold every engine of the user
@@ -212,6 +213,16 @@ Options:
       --attached           Resolves in this process, as it does unless `--daemon` is given
       --color <WHEN>       When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
   -h, --help               Print help
+
+$ goodfetch-collie doctor --help
+Checks the installation: Goodfetch home, the installed executables, the Daemon, the version it runs and the browser build a Run launches, with a fix for each finding not in order. Exits 0 whatever it finds
+
+Usage: goodfetch-collie doctor [OPTIONS]
+
+Options:
+      --json          Prints the findings as JSON
+      --color <WHEN>  When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+  -h, --help          Print help
 
 $ goodfetch-collie daemon --help
 Starts, stops and shows the Daemon of this executable's major, which both Products share

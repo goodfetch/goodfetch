@@ -14942,6 +14942,7 @@
         "minimum": 0,
         "type": "integer"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -14962,6 +14963,7 @@
       "value": {
         "type": "boolean"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -14983,6 +14985,7 @@
         "minimum": 0,
         "type": "integer"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -15005,6 +15008,7 @@
         "minimum": 0,
         "type": "integer"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -15033,6 +15037,7 @@
           "stealth"
         ]
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -15065,6 +15070,7 @@
         },
         "type": "array"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -15088,6 +15094,7 @@
       "value": {
         "type": "boolean"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -15111,6 +15118,7 @@
       "value": {
         "type": "boolean"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -15134,6 +15142,7 @@
       "value": {
         "type": "boolean"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -15156,6 +15165,7 @@
         "pattern": "^https://[^/?#@\\s]+(/[^?#\\s]*)?$",
         "type": "string"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -15183,6 +15193,7 @@
           "block"
         ]
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -15205,6 +15216,7 @@
         "minimum": 0,
         "type": "integer"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -15228,6 +15240,7 @@
       "value": {
         "type": "boolean"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -15253,6 +15266,7 @@
         "minimum": 0,
         "type": "integer"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -15273,6 +15287,7 @@
       "value": {
         "type": "string"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -15298,6 +15313,7 @@
         "minimum": 0,
         "type": "integer"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -15326,6 +15342,7 @@
         },
         "type": "object"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -15353,6 +15370,7 @@
           "upstream"
         ]
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -15376,6 +15394,7 @@
       "value": {
         "type": "string"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -15399,6 +15418,7 @@
         "minimum": 1,
         "type": "integer"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -15422,6 +15442,7 @@
         "minimum": 1,
         "type": "integer"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -15445,6 +15466,7 @@
         "minimum": 1,
         "type": "integer"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -15471,6 +15493,7 @@
         },
         "type": "array"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -15495,6 +15518,11 @@
         "enum": [
           "answer",
           "detect",
+          "off"
+        ]
+      },
+      "weakening": {
+        "values": [
           "off"
         ]
       },
@@ -15524,6 +15552,7 @@
           "ask"
         ]
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -15553,6 +15582,7 @@
           "trafilatura"
         ]
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -15573,6 +15603,7 @@
       "value": {
         "type": "string"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -15595,6 +15626,7 @@
         "minimum": 0,
         "type": "integer"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -15617,6 +15649,7 @@
         "minimum": 0,
         "type": "integer"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -15641,6 +15674,7 @@
         "minimum": 0,
         "type": "integer"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -15669,6 +15703,7 @@
         },
         "type": "array"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -15695,6 +15730,7 @@
         },
         "type": "array"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -15732,6 +15768,7 @@
           }
         ]
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -15752,6 +15789,7 @@
       "value": {
         "type": "boolean"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -15775,6 +15813,7 @@
       "value": {
         "type": "boolean"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -15802,6 +15841,7 @@
         },
         "type": "array"
       },
+      "weakening": null,
       "weakens": true
     },
     {
@@ -15822,6 +15862,7 @@
       "value": {
         "type": "boolean"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -15847,6 +15888,7 @@
         "minimum": 0,
         "type": "integer"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -15872,6 +15914,7 @@
         "minimum": 0,
         "type": "integer"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -15898,6 +15941,7 @@
           "single_attempt"
         ]
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -15924,6 +15968,7 @@
           "exact"
         ]
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -15948,6 +15993,7 @@
       "value": {
         "type": "boolean"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -15972,6 +16018,7 @@
       "value": {
         "type": "boolean"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -15998,6 +16045,7 @@
         },
         "type": "array"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -16022,6 +16070,7 @@
       "value": {
         "type": "boolean"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -16046,6 +16095,7 @@
         "minimum": 0,
         "type": "integer"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -16069,6 +16119,7 @@
       "value": {
         "type": "boolean"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -16093,6 +16144,7 @@
       "value": {
         "type": "boolean"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -16123,6 +16175,7 @@
           }
         ]
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -16147,6 +16200,7 @@
         "minimum": 0,
         "type": "integer"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -16171,6 +16225,7 @@
         "minimum": 0,
         "type": "integer"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -16195,6 +16250,7 @@
         "minimum": 0,
         "type": "integer"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -16220,6 +16276,7 @@
         "minimum": 0,
         "type": "integer"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -16244,6 +16301,7 @@
         "minimum": 0,
         "type": "integer"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -16265,6 +16323,7 @@
         "minimum": 0,
         "type": "integer"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -16286,6 +16345,7 @@
         "minimum": 0,
         "type": "integer"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -16307,6 +16367,7 @@
         "minimum": 0,
         "type": "integer"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -16327,6 +16388,7 @@
       "value": {
         "type": "boolean"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -16348,6 +16410,7 @@
         "minimum": 0,
         "type": "integer"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -16369,6 +16432,7 @@
         "minimum": 0,
         "type": "integer"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -16389,6 +16453,7 @@
       "value": {
         "type": "boolean"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -16411,6 +16476,7 @@
         "minimum": 0,
         "type": "integer"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -16432,6 +16498,7 @@
         "minimum": 0,
         "type": "integer"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -16453,6 +16520,7 @@
         "minimum": 0,
         "type": "integer"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -16474,6 +16542,7 @@
         "minimum": 0,
         "type": "integer"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -16495,6 +16564,7 @@
         "minimum": 0,
         "type": "integer"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -16519,6 +16589,7 @@
         "minimum": 0,
         "type": "integer"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -16541,6 +16612,7 @@
         "minimum": 0,
         "type": "integer"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -16571,6 +16643,7 @@
           }
         ]
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -16598,6 +16671,7 @@
         "pattern": "^(https?://|data:application/http-message-signatures-directory)[ !#-\\[\\]-~]+$",
         "type": "string"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -16624,6 +16698,7 @@
         "pattern": "^(?:(?:env|keychain|secretfile|caller|bw|vault|aws-sm|gcp-sm|azure-kv|plugin):|op://)[^\\s]+$",
         "type": "string"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -16652,6 +16727,7 @@
           "always"
         ]
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -16673,6 +16749,7 @@
         "minimum": 0,
         "type": "integer"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -16694,6 +16771,7 @@
         "minimum": 0,
         "type": "integer"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -16717,6 +16795,7 @@
           "json"
         ]
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -16737,6 +16816,7 @@
       "value": {
         "type": "string"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -16761,6 +16841,7 @@
           "none"
         ]
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -16785,6 +16866,7 @@
         "minimum": 0,
         "type": "integer"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -16809,6 +16891,7 @@
         "minimum": 0,
         "type": "integer"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -16831,6 +16914,7 @@
         "minimum": 0,
         "type": "integer"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -16856,6 +16940,7 @@
         "minimum": 0,
         "type": "integer"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -16886,6 +16971,7 @@
         },
         "type": "object"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -16906,6 +16992,7 @@
       "value": {
         "type": "string"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -16926,6 +17013,7 @@
       "value": {
         "type": "string"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -16946,6 +17034,7 @@
       "value": {
         "type": "string"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -16966,6 +17055,7 @@
       "value": {
         "type": "string"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -16986,6 +17076,7 @@
       "value": {
         "type": "string"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -17009,6 +17100,7 @@
       "value": {
         "type": "boolean"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -17033,6 +17125,7 @@
         "minimum": 0,
         "type": "integer"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -17057,6 +17150,7 @@
         "minimum": 0,
         "type": "integer"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -17080,6 +17174,12 @@
       "value": {
         "enum": [
           "shared",
+          "per_daemon",
+          "run"
+        ]
+      },
+      "weakening": {
+        "values": [
           "per_daemon",
           "run"
         ]
@@ -17108,6 +17208,7 @@
       "value": {
         "type": "string"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -17134,6 +17235,7 @@
         "pattern": "^[A-Za-z]{2}$",
         "type": "string"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -17163,6 +17265,7 @@
           "mobile"
         ]
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -17189,6 +17292,7 @@
         "pattern": "^(?:(?:env|keychain|secretfile|caller|bw|vault|aws-sm|gcp-sm|azure-kv|plugin):|op://)[^\\s]+$",
         "type": "string"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -17213,6 +17317,7 @@
       "value": {
         "type": "string"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -17303,6 +17408,7 @@
         },
         "type": "object"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -17329,6 +17435,7 @@
         "pattern": "^(?i:https?|socks5h?)://[^@/?#]+/?$",
         "type": "string"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -17355,6 +17462,7 @@
         "minimum": 0,
         "type": "integer"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -17379,6 +17487,7 @@
       "value": {
         "type": "string"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -17404,6 +17513,7 @@
         "minimum": 0,
         "type": "integer"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -17429,6 +17539,7 @@
         "minimum": 0,
         "type": "integer"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -17462,6 +17573,7 @@
           }
         ]
       },
+      "weakening": null,
       "weakens": true
     },
     {
@@ -17495,6 +17607,7 @@
           }
         ]
       },
+      "weakening": null,
       "weakens": true
     },
     {
@@ -17528,6 +17641,7 @@
           }
         ]
       },
+      "weakening": null,
       "weakens": true
     },
     {
@@ -17551,6 +17665,7 @@
       "value": {
         "type": "boolean"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -17574,6 +17689,13 @@
       "value": {
         "enum": [
           "each",
+          "interval",
+          "never",
+          "off"
+        ]
+      },
+      "weakening": {
+        "values": [
           "interval",
           "never",
           "off"
@@ -17604,6 +17726,7 @@
         "minimum": 0,
         "type": "integer"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -17633,6 +17756,11 @@
           "off"
         ]
       },
+      "weakening": {
+        "values": [
+          "off"
+        ]
+      },
       "weakens": true
     },
     {
@@ -17655,6 +17783,7 @@
         "pattern": "^(?:(?:env|keychain|secretfile|caller|bw|vault|aws-sm|gcp-sm|azure-kv|plugin):|op://)[^\\s]+$",
         "type": "string"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -17678,6 +17807,7 @@
           "per_install"
         ]
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -17701,6 +17831,7 @@
       "value": {
         "type": "string"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -17725,6 +17856,7 @@
         "minimum": 0,
         "type": "integer"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -17754,6 +17886,7 @@
         "minimum": 0,
         "type": "integer"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -17774,6 +17907,7 @@
       "value": {
         "type": "string"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -17794,6 +17928,7 @@
       "value": {
         "type": "string"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -17814,6 +17949,7 @@
       "value": {
         "type": "string"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -17834,6 +17970,7 @@
       "value": {
         "type": "string"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -17854,6 +17991,7 @@
       "value": {
         "type": "string"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -17874,6 +18012,7 @@
       "value": {
         "type": "string"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -17894,6 +18033,7 @@
       "value": {
         "type": "string"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -17914,6 +18054,7 @@
       "value": {
         "type": "string"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -17934,6 +18075,7 @@
       "value": {
         "type": "boolean"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -17962,6 +18104,7 @@
         },
         "type": "array"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -17985,6 +18128,11 @@
       "value": {
         "type": "boolean"
       },
+      "weakening": {
+        "values": [
+          false
+        ]
+      },
       "weakens": true
     },
     {
@@ -18004,6 +18152,11 @@
       "scopes": [],
       "value": {
         "type": "boolean"
+      },
+      "weakening": {
+        "values": [
+          false
+        ]
       },
       "weakens": true
     },
@@ -18028,6 +18181,11 @@
       "value": {
         "type": "boolean"
       },
+      "weakening": {
+        "values": [
+          false
+        ]
+      },
       "weakens": true
     },
     {
@@ -18050,6 +18208,11 @@
       ],
       "value": {
         "type": "boolean"
+      },
+      "weakening": {
+        "values": [
+          false
+        ]
       },
       "weakens": true
     },
@@ -18074,6 +18237,11 @@
       "value": {
         "type": "boolean"
       },
+      "weakening": {
+        "values": [
+          false
+        ]
+      },
       "weakens": true
     },
     {
@@ -18097,6 +18265,11 @@
       "value": {
         "type": "boolean"
       },
+      "weakening": {
+        "values": [
+          false
+        ]
+      },
       "weakens": true
     },
     {
@@ -18119,6 +18292,11 @@
       ],
       "value": {
         "type": "boolean"
+      },
+      "weakening": {
+        "values": [
+          false
+        ]
       },
       "weakens": true
     },
@@ -18377,6 +18555,7 @@
         },
         "type": "object"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -18774,6 +18953,7 @@
           }
         ]
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -18802,6 +18982,7 @@
           "collect"
         ]
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -18825,6 +19006,7 @@
       "value": {
         "type": "boolean"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -18848,6 +19030,7 @@
         },
         "type": "array"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -18876,6 +19059,7 @@
           "clearcote"
         ]
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -18905,6 +19089,7 @@
           "engine"
         ]
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -18929,6 +19114,7 @@
       "value": {
         "type": "boolean"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -18953,6 +19139,7 @@
       "value": {
         "type": "boolean"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -18980,6 +19167,7 @@
         },
         "type": "array"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -19007,6 +19195,7 @@
         },
         "type": "array"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -19034,6 +19223,7 @@
         },
         "type": "array"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -19055,6 +19245,9 @@
         "minimum": 0,
         "type": "integer"
       },
+      "weakening": {
+        "toward": "lower"
+      },
       "weakens": true
     },
     {
@@ -19075,6 +19268,9 @@
       "value": {
         "minimum": 0,
         "type": "integer"
+      },
+      "weakening": {
+        "toward": "lower"
       },
       "weakens": true
     },
@@ -19101,6 +19297,7 @@
         "minimum": 0,
         "type": "integer"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -19126,6 +19323,7 @@
         "minimum": 0,
         "type": "integer"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -19151,6 +19349,7 @@
         "minimum": 0,
         "type": "integer"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -19176,6 +19375,7 @@
         "minimum": 0,
         "type": "integer"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -19198,6 +19398,7 @@
         "minimum": 0,
         "type": "integer"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -19223,6 +19424,7 @@
         "minimum": 0,
         "type": "integer"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -19245,6 +19447,7 @@
         "minimum": 0,
         "type": "integer"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -19271,6 +19474,7 @@
         "minimum": 0,
         "type": "integer"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -19296,6 +19500,7 @@
         "minimum": 0,
         "type": "integer"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -19321,6 +19526,7 @@
         "minimum": 0,
         "type": "integer"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -19346,6 +19552,7 @@
         "minimum": 0,
         "type": "integer"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -19371,6 +19578,7 @@
         "minimum": 0,
         "type": "integer"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -19395,6 +19603,7 @@
         "minimum": 0,
         "type": "integer"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -19420,6 +19629,7 @@
         "minimum": 0,
         "type": "integer"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -19445,6 +19655,7 @@
         "minimum": 0,
         "type": "integer"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -19470,6 +19681,7 @@
         "minimum": 0,
         "type": "integer"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -19503,6 +19715,7 @@
         },
         "type": "object"
       },
+      "weakening": null,
       "weakens": true
     },
     {
@@ -19545,6 +19758,7 @@
         },
         "type": "object"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -19571,6 +19785,7 @@
         },
         "type": "object"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -19593,6 +19808,7 @@
         "minimum": 0,
         "type": "integer"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -19613,6 +19829,7 @@
       "value": {
         "type": "boolean"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -19636,6 +19853,7 @@
         },
         "type": "array"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -19662,6 +19880,7 @@
         },
         "type": "array"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -19688,6 +19907,7 @@
         },
         "type": "array"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -19708,6 +19928,7 @@
       "value": {
         "type": "boolean"
       },
+      "weakening": null,
       "weakens": false
     }
   ],

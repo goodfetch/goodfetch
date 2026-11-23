@@ -2,19 +2,21 @@
 # and `xtask sdk-api`, ADR 0030, issue 148).
 #
 # `previous` is the commit of the previous release of the major, whose
-# projections, `--json` output types, Rust crates under semver and
-# TypeScript and Python SDK packages the checks compare with the tree's.
-# Before the first release it is a commit of `main` that stands for one;
-# each release's pull request moves it to the release's own commit.
+# projections, `--json` output types, `connection` messages, Rust crates
+# under semver and TypeScript and Python SDK packages the checks compare
+# with the tree's. Before the first release it is a commit of `main` that
+# stands for one; each release's pull request moves it to the release's own
+# commit and removes the announcements the release shipped.
 #
 # Each `[[announced]]` table names a break of a stable entry, announced for
 # the next major, by its finding's subject (`<collie|foxhound> <section>
-# <name>`, `bundle outputs <command>`, `rust <crate> <lint>` for a
-# cargo-semver-checks lint, `typescript <entry> <name>` for a TypeScript
-# entry point's declaration, or `python <module> <name>` for a Python
-# module's), and says why for the release notes. Each check
-# fails on an announcement of its own that names no break, so the list is
-# the one the release's pull request shows the owner.
+# <name>`, `bundle outputs <command>`, `collie-client connection <message>`
+# for a message of the Collie client packages' Connection, `rust <crate>
+# <lint>` for a cargo-semver-checks lint, `typescript <entry> <name>` for a
+# TypeScript entry point's declaration, or `python <module> <name>` for a
+# Python module's), and says why for the release notes. Each check fails on
+# an announcement of its own that names no break, so the list is the one
+# the release's pull request shows the owner.
 #
 #     [[announced]]
 #     entry = "foxhound operations crawl.start"

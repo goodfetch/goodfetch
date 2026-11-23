@@ -46,6 +46,7 @@ from goodfetch_test_support.journey import (
     SurfaceUnlisted,
     VariantNotProved,
     journey,
+    judge_task,
     start_journey_run,
 )
 from goodfetch_test_support.locales import TimeZoneCase, locales, time_zones
@@ -151,6 +152,7 @@ __all__ = [
     "VariantNotProved",
     "Way",
     "journey",
+    "judge_task",
     "locales",
     "play_script",
     "project_script",

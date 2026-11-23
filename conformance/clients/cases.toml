@@ -26,7 +26,7 @@
 
 [suite]
 name = "clients"
-version = "60"
+version = "61"
 
 [[capability]]
 name = "lifecycle"
@@ -235,17 +235,18 @@ modes = ["attached", "linked"]
 
 # A program's crawl (issue 1467): declared on a `Crawl` value, started on
 # Foxhound's executable, its handler served on the event loop, and its
-# Records judged by the Proving ground's oracle. TypeScript leads; the
-# Python SDK joins with issue 1468. The Rust SDK runs it `linked`, served
-# by `crawl.serve` (issue 3229).
+# Records judged by the Proving ground's oracle. The Python SDK runs it on
+# `AsyncFoxhound` and on the sync `Foxhound`, whose handler runs on the
+# Connection's thread pool (issue 1468). The Rust SDK runs it `linked`,
+# served by `crawl.serve` (issue 3229).
 [[capability]]
 name = "crawl"
 
 [[capability.case]]
 id = "crawl-catalog-program"
 covers = ["story:11-1013", "story:11-1015"]
-surfaces = ["sdk-typescript", "sdk-rust"]
-modes = { sdk-typescript = ["attached"], sdk-rust = ["linked"] }
+surfaces = ["sdk-typescript", "sdk-python", "sdk-rust"]
+modes = { sdk-typescript = ["attached"], sdk-python = ["attached"], sdk-rust = ["linked"] }
 
 # A handler's attempts (ADRs 0003 and 0093; issue 1467): a Crawl request
 # whose attempt failed is delivered again, and only the Records of the

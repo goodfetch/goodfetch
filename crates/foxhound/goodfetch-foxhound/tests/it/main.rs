@@ -173,6 +173,8 @@ mod kept_responses;
 mod kept_tree;
 mod label_pools;
 mod learned_rules;
+// Lightpanda pins no Windows build, so Windows cannot take the tier.
+#[cfg(not(windows))]
 mod light_browser;
 mod limits;
 mod navigation_gate;

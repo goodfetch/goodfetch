@@ -512,6 +512,7 @@ async fn deliver(
         }
         let starved = run.governor().waits(WorkKind::Http);
         pages.dismiss();
+        count_queued(&state, servers, &mut queued);
         // A work item leased whose Session waits to be drawn keeps the
         // crawl from idling, unless it stops: then it goes back to pending
         // uncounted, as the program's own stop counts nothing (#2178).
@@ -540,7 +541,7 @@ async fn deliver(
             .flatten();
         let room = [stop.is_some(), free, starved];
         let shown = (resolved, read.policy);
-        show(run, (&mut admission, &mut queued), shown, servers, room);
+        show(run, &mut admission, shown, servers, room);
         let settles = !settling.is_empty();
         tokio::select! {
             biased;
@@ -588,11 +589,10 @@ async fn deliver(
 
 /// Sets the crawl's live parts of its Run's progress (ADR 0102) as its
 /// `servers` stand, given whether it stops, whether a serving Connection
-/// has room and whether the governor starves it, and its count in
-/// `goodfetch.work_item.queued` as its admission's queues stand.
+/// has room and whether the governor starves it.
 fn show(
     run: &Run,
-    (admission, count): (&mut Admission, &mut Level),
+    admission: &mut Admission,
     (resolved, policy): (&Resolved, CrawlPolicy),
     servers: &mut [Serving],
     [stopping, free, starved]: [bool; 3],
@@ -603,8 +603,16 @@ fn show(
     let concurrency = policy.handler_concurrency;
     let now = run.clock().now();
     let queued = admission.queued(now, HELD_DOMAINS);
-    count.set(admission.waiting());
     progress::show(run, (&queued, now), resolved, room, (handlers, concurrency));
+}
+
+/// Sets `count`, the crawl's `goodfetch.work_item.queued`, to the
+/// Frontier's whole depth (ADR 0050's note of 2026-11-23): the work items
+/// its Run state `state` has pending, as its progress counts them, those
+/// leased to the attempts its `servers` hold left out.
+fn count_queued(state: &RunState, servers: &[Serving], count: &mut Level) {
+    let leased = servers.iter().map(|server| server.in_flight).sum();
+    count.set(usize::try_from(state.tally().pending(leased)).unwrap_or(usize::MAX));
 }
 
 /// Shows the crawl's requests by state as its Run state `state` counts

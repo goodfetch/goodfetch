@@ -1,7 +1,7 @@
 //! A crawl's work-item metrics through the engine's public interface over
 //! the in-memory network (spec #213's Seam 3), on the paused clock (ADR
-//! 0050): each work item its domain queues hold counts in
-//! `goodfetch.work_item.queued`, each attempt in `goodfetch.work_item.leased` while it
+//! 0050): each work item that waits to be leased, in its domain's queue or
+//! past it, counts in `goodfetch.work_item.queued`, each attempt in `goodfetch.work_item.leased` while it
 //! runs, and each retry in `goodfetch.work_item.retried`, on the meter the
 //! engine is given, which the Prometheus exporter the executables use
 //! renders.
@@ -61,8 +61,8 @@ fn metered() -> (
     )
 }
 
-/// Each work item waiting in its domain's queue counts in
-/// `goodfetch.work_item.queued` until it is leased: three pages of one
+/// Each work item waiting to be leased counts in
+/// `goodfetch.work_item.queued` until it is: three pages of one
 /// domain, admitted one at a time to a handler of concurrency 1, leave two,
 /// then one, then none queued, and the crawl that ended counts none.
 ///
@@ -98,6 +98,42 @@ fn a_crawl_counts_the_work_items_its_domain_queues_hold() {
         (during, value_of(&registry, "goodfetch_work_item_queued")),
         (vec![Some(2.0), Some(1.0), Some(0.0)], Some(0.0))
     );
+}
+
+/// `goodfetch.work_item.queued` counts the Frontier's whole depth, not
+/// what its domain's queue holds, at most 64 (ADR 0050's note of
+/// 2026-11-23): a hundred pages of one domain, admitted one at a time,
+/// leave 99 queued as the first is handled and 98 as the second is.
+///
+/// Covers: story:3-103
+#[test]
+fn a_crawl_counts_every_work_item_its_frontier_holds_past_its_domain_queue() {
+    let env = TestEnv::new();
+    let (engine, registry, _provider) = metered();
+    let mut during = Vec::new();
+
+    crawl_on(
+        &engine,
+        || dependencies(&env, RunStateOptions::default()),
+        async |client| {
+            client
+                .call(
+                    "crawl.start",
+                    json!({ "run_id": "deep", "seeds": seeds(100), "settings": { "crawl": { "handler": { "concurrency": 1 } } }, "labels": { "page": {} } }),
+                    &mut |_| Reply::Silent,
+                )
+                .await;
+            let mut handler = |_: &Value| {
+                during.push(value_of(&registry, "goodfetch_work_item_queued"));
+                Reply::Records(vec![json!({ "handled": true })])
+            };
+            client
+                .call("run.finish", json!({ "run_id": "deep" }), &mut handler)
+                .await
+        },
+    );
+
+    assert_eq!(during.get(..2), Some(&[Some(99.0), Some(98.0)][..]));
 }
 
 /// Covers: story:3-103

@@ -443,7 +443,7 @@ impl CrawlProgress {
         let (skipped, by_skip_reason) = ended_as(counted, &OutcomeKind::Skipped);
         let (blocked, by_block_cause) = ended_as(counted, &OutcomeKind::Blocked);
         let requests = RequestProgress {
-            pending: counted.left().saturating_sub(shown(in_flight.len())),
+            pending: counted.pending(in_flight.len()),
             fetching: 0,
             handling: 0,
             in_human_pause: 0,

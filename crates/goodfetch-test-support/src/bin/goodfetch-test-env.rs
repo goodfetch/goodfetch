@@ -316,6 +316,13 @@ fn serve(arguments: &Arguments) -> Result<(), Failure> {
     }
     drop(proving_ground);
     // The cache is writable again before its folder is removed.
+    #[cfg_attr(
+        not(unix),
+        expect(
+            dropping_copy_types,
+            reason = "off Unix no read-only cache is made, so it is always `None` of a `Copy` type"
+        )
+    )]
     drop(read_only);
     drop(env);
     Ok(())

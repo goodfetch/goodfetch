@@ -26,7 +26,7 @@
 
 [suite]
 name = "clients"
-version = "60"
+version = "61"
 
 [[capability]]
 name = "lifecycle"
@@ -409,6 +409,23 @@ id = "partial-results"
 covers = ["story:11-35"]
 surfaces = ["sdk-typescript", "sdk-python", "sdk-rust"]
 modes = { sdk-typescript = ["attached"], sdk-python = ["attached"], sdk-rust = ["daemon"] }
+
+# Complete error details (ADRs 0092 and 0114; issues 3168 and 1273): each
+# failure carries every detail its code declares. A fill whose one-time
+# code never came raises `secret_unavailable` with `failure: "no_code"`;
+# `page_navigated_during_call` raises its class, retryable, naming the
+# document the call read and the one that replaced it, which Rust reads as
+# `PageNavigatedDuringCallDetails`. Only an AI verb fails with that code,
+# and no call of this protocol has one yet (ADR 0114), so the script answers
+# it to a click: a Client reads a failure by its code, whatever call it
+# answers. Played by the Scripted engine in TypeScript and Python (asyncio,
+# Trio and the sync API), attached and as a Daemon, and as the Daemon
+# Rust's client crate reaches.
+[[capability.case]]
+id = "complete-error-details"
+covers = ["error:secret_unavailable", "error:page_navigated_during_call"]
+surfaces = ["sdk-typescript", "sdk-python", "sdk-rust"]
+modes = { sdk-rust = ["daemon"] }
 
 # Unknown values from a newer engine (ADR 0079; issue 3011): each value a
 # Client reads that no catalog of its package has is kept as received and

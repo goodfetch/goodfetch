@@ -14,6 +14,7 @@ mod cancellation;
 mod cdp_url_errors;
 mod closing;
 mod compile_fail;
+mod complete_error_details;
 mod connection;
 #[cfg(unix)]
 mod daemon;

@@ -1,28 +1,42 @@
-"""An `AsyncCrawl` on the Scripted engine (ADR 0069).
+"""An `AsyncCrawl` and a sync `Crawl` on the Scripted engine (ADR 0069).
 
 The program declares its Labels, handlers and Dataset on an `AsyncCrawl`,
 starts it on a Connection, and serves the engine's `crawl_request.handle`
-requests beside the Connection's tasks, on asyncio and on Trio. The script
-fails the test on a message it does not expect and on a step left unused.
+requests beside the Connection's tasks, on asyncio and on Trio; a sync
+`Crawl`'s handlers run on the Connection's thread pool. The script fails
+the test on a message it does not expect and on a step left unused.
 TypeScript's `crawl.test.ts` is its twin.
 """
 
 from __future__ import annotations
 
+import threading
+import time
 from typing import TYPE_CHECKING, cast
 
 import anyio
 import pytest
+from goodfetch_collie_client.generated.errors import ClosedError
 from goodfetch_collie_client.generated.models import PageField
-from goodfetch_foxhound import AsyncCrawl, AsyncCrawlContext, seed
+from goodfetch_collie_client.portal import THREAD_NAME
+from goodfetch_foxhound import (
+    AsyncCrawl,
+    AsyncCrawlContext,
+    Crawl,
+    CrawlContext,
+    seed,
+)
 from goodfetch_foxhound.crawl_run import handler_failed
-from goodfetch_foxhound.testing import async_connect_over
+from goodfetch_foxhound.testing import async_connect_over, connect_over
 from goodfetch_test_support import Finished, PlayedMessage, play_script
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from goodfetch_collie_client.generated.models import PageRead
     from goodfetch_collie_client.json_values import JSONObject
-    from goodfetch_foxhound.generated.models import DatasetRecord
+    from goodfetch_collie_client.schema import JSONSchema
+    from goodfetch_foxhound.generated.models import DatasetRecord, EnqueuedLinks
     from goodfetch_test_support import PlayedScript
 
 WAIT_SECONDS = 10.0
@@ -33,6 +47,35 @@ WAIT_POLLS = 10_000
 
 def _field(field: object) -> PageField:
     return PageField.model_validate(field)
+
+
+def _css(selector: str, attribute: str | None = None) -> PageField:
+    """The field reading the first element `selector` matches, or its `attribute`."""
+    field: dict[str, object] = {"locator": {"kind": "css", "selector": selector}}
+    if attribute is not None:
+        field["attribute"] = attribute
+    return _field(field)
+
+
+LISTING_FIELDS = {
+    "products": _field(
+        {
+            "list": {
+                "locator": {"kind": "css", "selector": "li.product a"},
+                "attribute": "href",
+            }
+        }
+    )
+}
+"""What the listing's handler reads: the link of each product."""
+PRODUCT_FIELDS = {
+    "id": _css("span.id"),
+    "name": _css("h1.name"),
+    "price": _css("span.price", "data-price"),
+}
+"""What the product's handler reads, the fields of its Record."""
+EXPECTED_RECORDS = [{"id": "P-0001", "name": "Blue kettle", "price": "12.34"}]
+"""The Records `two-page-types.json`'s crawl commits."""
 
 
 def _text(read: PageRead, field: str) -> str:
@@ -71,6 +114,26 @@ async def _answered(played: PlayedScript, count: int) -> None:
     raise AssertionError(message)
 
 
+def _waited(played: PlayedScript, done: Callable[[PlayedScript], bool]) -> None:
+    """Waits, blocking the thread, until `done` holds of what the script played."""
+    for _ in range(WAIT_POLLS):
+        if done(played):
+            return
+        time.sleep(0.001)
+    message = "the script never played what the test waits for"
+    raise AssertionError(message)
+
+
+def _sent(played: PlayedScript, method: str) -> bool:
+    """Whether the Client sent a message of `method` so far."""
+    return any(
+        isinstance(played_message, PlayedMessage)
+        and played_message.from_ == "client"
+        and cast("dict[str, object]", played_message.message).get("method") == method
+        for played_message in played.messages
+    )
+
+
 @pytest.mark.covers("story:11-1013", "story:11-1014", "story:11-1015")
 @pytest.mark.anyio
 async def test_crawls_two_page_types_into_a_dataset() -> None:
@@ -82,38 +145,14 @@ async def test_crawls_two_page_types_into_a_dataset() -> None:
 
     @crawl.handle(listing)
     async def read_listing(context: AsyncCrawlContext[None]) -> None:
-        read = await context.page.read(
-            {
-                "products": _field(
-                    {
-                        "list": {
-                            "locator": {"kind": "css", "selector": "li.product a"},
-                            "attribute": "href",
-                        }
-                    }
-                )
-            }
-        )
+        read = await context.page.read(LISTING_FIELDS)
         for href in cast("list[str]", read.values["products"]):
             await context.enqueue(href, product)
 
     @crawl.handle(product)
     async def read_product(context: AsyncCrawlContext[None]) -> None:
-        read = await context.page.read(
-            {
-                "id": _field({"locator": {"kind": "css", "selector": "span.id"}}),
-                "name": _field({"locator": {"kind": "css", "selector": "h1.name"}}),
-                "price": _field(
-                    {
-                        "locator": {"kind": "css", "selector": "span.price"},
-                        "attribute": "data-price",
-                    }
-                ),
-            }
-        )
-        record: JSONObject = {
-            field: _text(read, field) for field in ("id", "name", "price")
-        }
+        read = await context.page.read(PRODUCT_FIELDS)
+        record: JSONObject = {field: _text(read, field) for field in PRODUCT_FIELDS}
         await context.push(products, record)
 
     played = play_script("sdk-python/crawl/two-page-types.json")
@@ -133,9 +172,174 @@ async def test_crawls_two_page_types_into_a_dataset() -> None:
     await foxhound.close()
 
     assert (report.lifecycle, report.verdict) == ("finished", "verified")
-    assert [record.value for record in records] == [
-        {"id": "P-0001", "name": "Blue kettle", "price": "12.34"}
-    ]
+    assert [record.value for record in records] == EXPECTED_RECORDS
+    assert played.done() == Finished()
+
+
+@pytest.mark.covers("story:11-1013", "story:11-1015", "story:11-1025", "story:11-1104")
+def test_runs_a_sync_crawls_handlers_on_the_connections_thread_pool() -> None:
+    """The same crawl with plain-function handlers, each on a worker thread."""
+    crawl = Crawl()
+    listing = crawl.label("listing")
+    product = crawl.label("product")
+    products = crawl.dataset("products", key=["id"])
+    threads: set[str] = set()
+
+    @crawl.handle(listing)
+    def read_listing(context: CrawlContext[None]) -> None:
+        threads.add(threading.current_thread().name)
+        read = context.page.read(LISTING_FIELDS)
+        for href in cast("list[str]", read.values["products"]):
+            context.enqueue(href, product)
+
+    @crawl.handle(product)
+    def read_product(context: CrawlContext[None]) -> None:
+        threads.add(threading.current_thread().name)
+        read = context.page.read(PRODUCT_FIELDS)
+        record: JSONObject = {field: _text(read, field) for field in PRODUCT_FIELDS}
+        context.push(products, record)
+
+    played = play_script("sdk-python/crawl/two-page-types.json")
+    with connect_over(played.transport) as foxhound:
+        run = foxhound.start_crawl(
+            crawl, seeds=[seed("https://shop.test/catalog/1", listing)]
+        )
+        _waited(played, lambda played: _answers(played) >= 2)
+        report = run.finish()
+        with run.records(products) as read:
+            records = list(read)
+
+    assert (report.lifecycle, report.verdict) == ("finished", "verified")
+    assert [record.value for record in records] == EXPECTED_RECORDS
+    # Neither the program's thread nor the loop's, which reads every answer.
+    assert threads
+    assert threads.isdisjoint({threading.current_thread().name, THREAD_NAME})
+    assert played.done() == Finished()
+
+
+@pytest.mark.covers("story:11-1013", "story:11-1104")
+def test_closing_a_sync_run_cancels_its_handlers_call_and_waits_for_it() -> None:
+    """The handler's read in flight is cancelled and raises `closed`, then the abort."""
+    crawl = Crawl()
+    page = crawl.label("page")
+    raised: list[str] = []
+
+    @crawl.handle(page)
+    def read_title(context: CrawlContext[None]) -> None:
+        try:
+            context.page.read({"title": _css("h1")})
+        except ClosedError as error:
+            raised.append(str(error))
+            raise
+
+    played = play_script("sdk-python/crawl/closed-mid-attempt.json")
+    with connect_over(played.transport) as foxhound:
+        run = foxhound.start_crawl(
+            crawl, seeds=[seed("https://shop.test/a", page)], run_id="nightly"
+        )
+        _waited(played, lambda played: _sent(played, "page.read"))
+        run.close()
+
+    assert raised == ["the Run nightly is closed, which stopped the handler's attempt"]
+    assert played.done() == Finished()
+
+
+FROM_SCHEMA: JSONSchema = {
+    "type": "object",
+    "properties": {"from": {"type": "string"}},
+    "required": ["from"],
+}
+"""The Payload schema of `enqueue-links.json`'s Label, written by hand."""
+FROM_START: JSONObject = {"from": "start"}
+"""The seed's Payload."""
+FROM_LISTING: JSONObject = {"from": "listing"}
+"""The one Payload of every link the handler enqueues."""
+ENQUEUED_LINKS = [
+    {"kind": "added", "id": "2", "url": "https://shop.test/b"},
+    {"kind": "not_added", "reason": "duplicate", "url": "https://shop.test/a"},
+    {"kind": "no_link"},
+]
+"""What `enqueue-links.json`'s engine answers of each element the locator matches."""
+
+
+@pytest.mark.covers("operation:crawl_request.enqueue_links", "story:11-1018")
+@pytest.mark.anyio
+async def test_enqueues_the_links_a_locator_matches_with_one_payload() -> None:
+    """After a read and a push, one call enqueues the links: four exchanges a page."""
+    crawl = AsyncCrawl()
+    page = crawl.label("page", payload=FROM_SCHEMA)
+    titles = crawl.dataset("pages")
+    enqueued: list[EnqueuedLinks] = []
+
+    @crawl.handle(page)
+    async def read_page(context: AsyncCrawlContext[JSONObject]) -> None:
+        read = await context.page.read({"title": _css("h1")})
+        record: JSONObject = {"title": _text(read, "title")}
+        await context.push(titles, record)
+        links = await context.enqueue_links(
+            context.page.locator("ul.pages a"),
+            page,
+            FROM_LISTING,
+            exclude=["*/logout"],
+            limit=2,
+        )
+        enqueued.append(links)
+
+    played = play_script("sdk-python/crawl/enqueue-links.json")
+    foxhound = await async_connect_over(played.transport)
+
+    await foxhound.start_crawl(
+        crawl,
+        seeds=[seed("https://shop.test/a", page, FROM_START)],
+        run_id="nightly",
+    )
+    await _answered(played, 1)
+    await foxhound.close()
+
+    assert [
+        link.model_dump(mode="json", exclude_none=True)
+        for answered in enqueued
+        for link in answered.links
+    ] == ENQUEUED_LINKS
+    assert played.done() == Finished()
+
+
+@pytest.mark.covers("operation:crawl_request.enqueue_links", "story:11-1018")
+def test_enqueues_the_links_a_locator_matches_from_a_sync_handler() -> None:
+    """The same handler as a plain function, on the Connection's thread pool."""
+    crawl = Crawl()
+    page = crawl.label("page", payload=FROM_SCHEMA)
+    titles = crawl.dataset("pages")
+    enqueued: list[EnqueuedLinks] = []
+
+    @crawl.handle(page)
+    def read_page(context: CrawlContext[JSONObject]) -> None:
+        read = context.page.read({"title": _css("h1")})
+        record: JSONObject = {"title": _text(read, "title")}
+        context.push(titles, record)
+        links = context.enqueue_links(
+            context.page.locator("ul.pages a"),
+            page,
+            FROM_LISTING,
+            exclude=["*/logout"],
+            limit=2,
+        )
+        enqueued.append(links)
+
+    played = play_script("sdk-python/crawl/enqueue-links.json")
+    with connect_over(played.transport) as foxhound:
+        foxhound.start_crawl(
+            crawl,
+            seeds=[seed("https://shop.test/a", page, FROM_START)],
+            run_id="nightly",
+        )
+        _waited(played, lambda played: _answers(played) >= 1)
+
+    assert [
+        link.model_dump(mode="json", exclude_none=True)
+        for answered in enqueued
+        for link in answered.links
+    ] == ENQUEUED_LINKS
     assert played.done() == Finished()
 
 

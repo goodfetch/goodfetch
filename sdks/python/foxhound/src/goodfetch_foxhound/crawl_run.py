@@ -4,32 +4,42 @@
 engine reaches with `crawl_request.handle` requests, one per attempt at a
 work item. Each attempt runs its Label's handler as a task beside the
 Connection's, with an `AsyncCrawlContext` bound to its lease, and is
-answered once the handler returns or raises. Closing the Run cancels every
-attempt still running and waits until each is answered, so none is left
-behind. `records(dataset)` reads a Dataset's committed Records as the engine
-streams them, one per credit granted. TypeScript's `crawl-run.ts` is its
-twin.
+answered once the handler returns or raises. `Foxhound.start_crawl` opens a
+`CrawlRun`, the sync twin over an `AsyncCrawlRun` on the Connection's
+private loop, whose plain-function handlers run on that loop's thread pool
+with a `CrawlContext`. Closing the Run cancels every attempt still running,
+and each call a sync handler has in flight, and waits until each attempt is
+answered, so none is left behind. `records(dataset)` reads a Dataset's
+committed Records as the engine streams them, one per credit granted.
+TypeScript's `crawl-run.ts` is its twin.
 """
 
 from __future__ import annotations
 
 import functools
 import traceback
+import weakref
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Protocol, TypeAlias, cast
 
 import anyio
+import anyio.to_thread
 from goodfetch_collie_client.caller import result_of
+from goodfetch_collie_client.connection import closed_error
 from goodfetch_collie_client.generated.errors import ClosedError, RunNotFoundError
-from goodfetch_collie_client.generated.handles import AsyncPage
+from goodfetch_collie_client.generated.handles import AsyncPage, Page
 from goodfetch_collie_client.goodfetch_error import GoodfetchError
 from goodfetch_collie_client.listeners import spawner
 from goodfetch_collie_client.markers import warn_entry
-from goodfetch_collie_client.run import AsyncRun
+from goodfetch_collie_client.portal import CallGroup, LoopStopped
+from goodfetch_collie_client.run import AsyncRun, Run
+from goodfetch_collie_client.sequence import Sequence
 from goodfetch_collie_client.settings import settings_on_wire
 
 from goodfetch_foxhound.crawl import (
     AsyncCrawlContext,
+    Crawl,
+    CrawlContext,
     CrawlRequest,
     HandlerAttempt,
     check_startable,
@@ -47,13 +57,16 @@ from goodfetch_foxhound.generated.operations import (
     DEPRECATED_OPERATIONS,
     EXPERIMENTAL_OPERATIONS,
     AsyncFoxhoundOperations,
+    FoxhoundOperations,
 )
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable, Iterable
 
     from goodfetch_collie_client.connection import ClientConnection
-    from goodfetch_collie_client.generated.models import RunStarted
+    from goodfetch_collie_client.generated.models import RunId, RunStarted
+    from goodfetch_collie_client.handle import HandleHost
+    from goodfetch_collie_client.portal import PrivateLoop
     from goodfetch_collie_client.sequence import AsyncSequence
     from pydantic import BaseModel
 
@@ -66,7 +79,7 @@ if TYPE_CHECKING:
     ]
     """What runs one attempt on the crawl's Run its request names."""
 
-__all__ = ["AsyncCrawlRun"]
+__all__ = ["AsyncCrawlRun", "CrawlRun"]
 
 RECORD = "$/record"
 """The notification each Record `run.records` reads comes in."""
@@ -95,6 +108,14 @@ class _Attempt:
     """Set once its answer is written, or once it ended unanswered."""
     held_by: set[_Attempt] | None = None
     """The attempts of its Run, which hold it until it is answered."""
+    calls: CallGroup | None = None
+    """Its sync handler's calls, which run outside `scope`; none for an async one."""
+
+    def cancel(self) -> None:
+        """Cancels its handler, and each call its sync handler has in flight."""
+        self.scope.cancel()
+        if self.calls is not None:
+            self.calls.cancel()
 
     def end(self) -> None:
         """Marks it answered, and lets its Run forget it."""
@@ -114,7 +135,7 @@ class AsyncCrawlRun(AsyncRun):
         self,
         connection: ClientConnection,
         started: RunStarted,
-        crawl: AsyncCrawl,
+        crawl: AsyncCrawl | Crawl,
         crawls: CrawlRuns,
     ) -> None:
         """Takes its Connection, its start's answer, its crawl and the crawls' Runs."""
@@ -170,7 +191,7 @@ class AsyncCrawlRun(AsyncRun):
         self._stopping = True
         attempts = list(self._attempts)
         for attempt in attempts:
-            attempt.scope.cancel()
+            attempt.cancel()
         for attempt in attempts:
             await attempt.answered.wait()
         try:
@@ -201,13 +222,9 @@ class AsyncCrawlRun(AsyncRun):
             raise self._stopped()
         self._attempts.add(attempt)
         attempt.held_by = self._attempts
-        context = AsyncCrawlContext(
-            self._request_of(request), self._attempt_of(request)
-        )
-        handles = cast("Callable[[AsyncCrawlContext[Any]], Awaitable[None]]", handler)
         with attempt.scope:
             try:
-                await handles(context)
+                await self._run_handler(handler, request, attempt)
             except GoodfetchError:
                 raise
             except Exception as error:
@@ -215,6 +232,40 @@ class AsyncCrawlRun(AsyncRun):
             return {}
         # Only closing the Run cancels the attempt's scope.
         raise self._stopped()
+
+    async def _run_handler(
+        self,
+        handler: Callable[..., object],
+        request: CrawlRequestHandleParams,
+        attempt: _Attempt,
+    ) -> None:
+        """Runs an async handler here, or a sync one on a worker thread."""
+        crawl_request = self._request_of(request)
+        lease = self._lease_of(request)
+        page_id = request.page_id
+        if not isinstance(self._crawl, Crawl):
+            page = None if page_id is None else AsyncPage(self._host.child(page_id))
+            operations = AsyncFoxhoundOperations(self._host)
+            context = AsyncCrawlContext(crawl_request, lease, operations, page)
+            await cast("Callable[[AsyncCrawlContext[Any]], Awaitable[None]]", handler)(
+                context
+            )
+            return
+        host = _threaded.get(self)
+        if host is None:
+            message = "invariant: a sync crawl's Run has its `CrawlRun`"
+            raise RuntimeError(message)
+        sync_page = None if page_id is None else Page(host.child(page_id))
+        sync_context = CrawlContext(
+            crawl_request, lease, FoxhoundOperations(host), sync_page
+        )
+        # The thread's calls run on the loop outside the attempt's scope,
+        # which waits for the thread, so closing the Run cancels them apart.
+        attempt.calls = CallGroup(self._stopped)
+        with attempt.calls.bound():
+            await anyio.to_thread.run_sync(
+                cast("Callable[[CrawlContext[Any]], None]", handler), sync_context
+            )
 
     def _request_of(self, request: CrawlRequestHandleParams) -> CrawlRequest[Any]:
         """The crawl request the handler reads, its Payload typed by its Label."""
@@ -227,16 +278,13 @@ class AsyncCrawlRun(AsyncRun):
             payload=payload_of(self._crawl, crawl_request.label, crawl_request.payload),
         )
 
-    def _attempt_of(self, request: CrawlRequestHandleParams) -> HandlerAttempt:
-        """What the attempt's context calls the engine with, on this Run."""
-        page_id = request.page_id
+    def _lease_of(self, request: CrawlRequestHandleParams) -> HandlerAttempt:
+        """The lease the attempt's context calls the engine with, on this Run."""
         return HandlerAttempt(
             run_id=self.id,
             crawl_request_id=request.crawl_request.id,
             lease_epoch=request.lease_epoch,
             crawl=self._crawl,
-            operations=AsyncFoxhoundOperations(self._host),
-            page=None if page_id is None else AsyncPage(self._host.child(page_id)),
         )
 
     def _stopped(self) -> ClosedError:
@@ -249,6 +297,75 @@ class AsyncCrawlRun(AsyncRun):
             f"the Run {self.id} is closed, which stopped the handler's attempt",
             fix=fix,
         )
+
+
+class CrawlRun(Run):
+    """A crawl's Run of the sync API, opened by `Foxhound.start_crawl` (ADR 0102).
+
+    Any number of threads may share it. A program never constructs one.
+    Leaving a `with` block or `close()` stops each handler's attempt still
+    running, its call in flight included, then the Run.
+    """
+
+    def __init__(self, loop: PrivateLoop, run: AsyncCrawlRun) -> None:
+        """Takes its Connection's private loop and the crawl's Run it drives there.
+
+        Built on the loop as the Run opens, before the engine leases any
+        work item to its handlers, which call through it.
+        """
+        super().__init__(loop, run)
+        self._crawl_run = run
+        _threaded[run] = self._host
+
+    def records(self, dataset: Dataset[Any]) -> Sequence[DatasetRecord]:
+        """The committed Records of `dataset`, read with `for`, as the async Run's.
+
+        Reads the committed Records of one Dataset of a crawl's Run in number
+        order, from the first, or after the number `after`, which resumes a
+        reader from the last Record it handled. Each Record goes in a
+        `$/record` notification with its number, its value, its request's ID
+        and URL and when it was committed, one per credit granted with
+        `$/credit`. While the Run is live it follows the Run, sending each
+        Record once it commits; once the Run has ended, or has no live writer,
+        and every Record is sent, it answers how many it sent and the last
+        one's number. With `through`, such as the number `dataset.page`
+        answers as the last committed, it reads no Record numbered past it
+        and answers once it sent every Record through it, a live Run's
+        included. Records are read from the Run's committed state on a
+        connection of their own, so a reader that grants no credit never
+        slows the crawl. With `wall` set to `true` it reads only the Records
+        whose page was read past a Wall, which their Provenance marks, and
+        with `false` only the others (ADR 0052). A Dataset the crawl does not
+        declare fails with `dataset_unknown`.
+
+        This member reads every Record from the first; `after`, `through`
+        and `wall` are not taken yet.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+
+        Any thread may read it. Leaving a `with` block, `close()` or
+        releasing it cancel its read at once.
+
+        Raises:
+            ClosedError: The Run or its Connection is closed; nothing is sent.
+        """
+        warn_entry("run.records", EXPERIMENTAL_OPERATIONS, DEPRECATED_OPERATIONS)
+        run = self._crawl_run
+
+        async def reading() -> AsyncSequence[DatasetRecord]:
+            return run.records(dataset)
+
+        try:
+            sequence = self._loop.call(reading)
+        except LoopStopped:
+            raise closed_error("run.records") from None
+        return Sequence(self._loop, sequence, lambda: closed_error("run.records"))
+
+
+_threaded: weakref.WeakKeyDictionary[AsyncCrawlRun, HandleHost[RunId]] = (
+    weakref.WeakKeyDictionary()
+)
+"""The sync host of each Run a `CrawlRun` drives, which its handlers call through."""
 
 
 class CrawlRuns:
@@ -283,7 +400,55 @@ class CrawlRuns:
             LabelUnknownError: A seed names a Label `crawl` does not declare.
             ClosedError: The Connection is closed; nothing is sent.
         """
-        warn_entry("crawl.start", EXPERIMENTAL_OPERATIONS, DEPRECATED_OPERATIONS)
+        return await self._start(
+            crawl,
+            functools.partial(self._opened, crawl),
+            seeds=seeds,
+            run_id=run_id,
+            tags=tags,
+            settings=settings,
+        )
+
+    async def start_threaded(
+        self,
+        loop: PrivateLoop,
+        crawl: Crawl,
+        *,
+        seeds: Iterable[RequestSeed],
+        run_id: str | None,
+        tags: Iterable[str] | None,
+        settings: CrawlSettings | None,
+    ) -> CrawlRun:
+        """Starts the sync `crawl` from `seeds` on `loop`: `Foxhound.start_crawl`.
+
+        Raises:
+            LabelUnhandledError: A Label has no handler; nothing is sent.
+            LabelUnknownError: A seed names a Label `crawl` does not declare.
+            ClosedError: The Connection is closed; nothing is sent.
+        """
+        threaded: list[CrawlRun] = []
+
+        def opened(started: RunStarted) -> AsyncCrawlRun:
+            run = self._opened(crawl, started)
+            threaded.append(CrawlRun(loop, run))
+            return run
+
+        await self._start(
+            crawl, opened, seeds=seeds, run_id=run_id, tags=tags, settings=settings
+        )
+        return threaded[0]
+
+    async def _start(
+        self,
+        crawl: AsyncCrawl | Crawl,
+        opened: Callable[[RunStarted], AsyncCrawlRun],
+        *,
+        seeds: Iterable[RequestSeed],
+        run_id: str | None,
+        tags: Iterable[str] | None,
+        settings: CrawlSettings | None,
+    ) -> AsyncCrawlRun:
+        """Sends `crawl.start`, and `opened` builds the Run it answers."""
         sent_seeds = list(seeds)
         check_startable(crawl, sent_seeds)
         labels, datasets = crawl_declaration(crawl)
@@ -309,9 +474,7 @@ class CrawlRuns:
         self._starting.add(starting)
         try:
             return await self._connection.start_run(
-                "crawl.start",
-                functools.partial(operations.crawl_start, params),
-                functools.partial(self._opened, crawl),
+                "crawl.start", functools.partial(operations.crawl_start, params), opened
             )
         finally:
             self._starting.discard(starting)
@@ -342,7 +505,7 @@ class CrawlRuns:
             self._reading = (anyio.CancelScope(), anyio.Event())
             spawner()(functools.partial(self._read, *self._reading))
 
-    def _opened(self, crawl: AsyncCrawl, started: RunStarted) -> AsyncCrawlRun:
+    def _opened(self, crawl: AsyncCrawl | Crawl, started: RunStarted) -> AsyncCrawlRun:
         return AsyncCrawlRun(self._connection, started, crawl, self)
 
     async def _read(self, scope: anyio.CancelScope, ended: anyio.Event) -> None:

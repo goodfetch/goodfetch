@@ -7,6 +7,7 @@ import { describe, expect, test } from "vitest";
 import { errorOfReply, replyOfError } from "./errors.ts";
 import { isGoodfetchError } from "./goodfetch-error.ts";
 import {
+  ArtifactDownloadFailedError,
   BlockedError,
   CallCancelledError,
   collieErrorClasses,
@@ -17,6 +18,7 @@ import {
   PageError,
   ProgramError,
   SettingInvalidError,
+  type ArtifactDownloadFailedDetails,
   type CallCancelledDetails,
   type ErrorGroup,
   type HookFailedDetails,
@@ -298,6 +300,46 @@ describe("errorOfReply", () => {
     const error = new CallCancelledError("stopped by its program");
 
     expect(error.typedDetails).toBeUndefined();
+  });
+
+  // ADR 0079: a failed download's details read typed, the artifact's pinners
+  // as a list beside the failure its union flattens; its `fix` is the
+  // error's, which every error carries.
+  test("reads artifact_download_failed's pinners typed beside its failure", () => {
+    const error = errorOfReply(
+      {
+        code: -32006,
+        message: "the download of chromium failed",
+        data: {
+          code: "artifact_download_failed",
+          retryable: true,
+          artifact: { kind: "browser", name: "chromium", build: "141.0.7390.54-linux64" },
+          pinned_by: [
+            { kind: "product", name: "collie", version: "0.1.0" },
+            { kind: "plugin", name: "stealth", version: "2.0.0" },
+          ],
+          host: "storage.googleapis.com",
+          fix: "Retry, or install beforehand with `collie browser install`.",
+          failure: "http_status",
+          status: 503,
+        },
+      },
+      collieErrorClasses,
+    );
+
+    const details: Readonly<ArtifactDownloadFailedDetails> | undefined =
+      error instanceof ArtifactDownloadFailedError ? error.typedDetails : undefined;
+    expect(details).toEqual({
+      artifact: { kind: "browser", name: "chromium", build: "141.0.7390.54-linux64" },
+      pinnedBy: [
+        { kind: "product", name: "collie", version: "0.1.0" },
+        { kind: "plugin", name: "stealth", version: "2.0.0" },
+      ],
+      host: "storage.googleapis.com",
+      failure: "http_status",
+      status: 503,
+    });
+    expect(error.fix).toBe("Retry, or install beforehand with `collie browser install`.");
   });
 
   test("gives an error with no call log an empty one", () => {

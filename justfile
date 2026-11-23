@@ -1114,6 +1114,7 @@ quick-steps:
     echo "just commit-messages <base>"
     echo "just floor-guard <base>"
     echo "just commit-leaks <base>"
+    echo "# A run a green one on the same tree already holds (just _quick-held <head> <base> changed|all) runs nothing after them."
     echo "# The change's gate, its gate= line:"
     echo "cargo run --quiet --locked --bin xtask -- affected --local --since <base>"
     echo "# gate=docs: just lint-documents, and nothing after it."
@@ -1143,9 +1144,10 @@ quick-steps:
 batch-check base="origin/main":
     PATH="$(dirname "{{ just_executable() }}"):$PATH" ci/batch-check.sh {{ quote(base) }}
 
-# The Pre-merge suite on this host: the Quick suite, then the tests of what
-# changed, the stress run of new and changed tests and the static checks'
-# proofs (`all`: the whole workspace). The checks that need Linux run beside
+# The Pre-merge suite on this host: the tests of what changed, the Quick
+# suite's among them, so `all` runs no Quick suite of its own (ADR 0135's
+# amendment of 2026-11-22), the stress run of new and changed tests and the
+# static checks' proofs (`all`: the whole workspace). The checks that need Linux run beside
 # the other steps, each in its own container, with their lines marked:
 # `perf`, `linux` (the tests only Linux decides) and `visual` (the visual
 # projects in the pinned Playwright image, ADR 0073) and `windows` (the
@@ -1987,7 +1989,8 @@ hooks:
 # pre-merge docs` when it is documents alone (`xtask affected`'s
 # `gate=docs`), `just pre-merge quick` when no test reads the change
 # (`gate=quick`), and for a change a test reads `just pre-merge all`, which
-# starts with `just quick all`'s lint and Quick suite, on the pull request
+# starts with `just quick all`'s lint and runs the Quick suite's tests in its
+# Pre-merge suite, on the pull request
 # that finishes a spec (head branch `spec/<n>`, the spec's sub-issues none
 # left open once it merges, ADR 0135's note of 2026-11-13) and nowhere else,
 # and `just pre-merge quick` on any other (ADR 0135's amendments of
@@ -2131,10 +2134,8 @@ _gate-plan:
     mkdir -p target "$records"
     echo '{}' >target/gate-listing-tools.json
     # The variables that change what the steps run or how join the host
-    # fingerprint, so a result counts only for a run in the same environment;
-    # `xtask gate plan` leaves out the launcher's own (GOODFETCH_GATE_MIN_FREE_GB)
-    # and the thread and job caps the gate removes before its steps.
-    variables=$(env | grep -E '^(CI|GOODFETCH_[A-Z0-9_]+|NEXTEST_[A-Z0-9_]+|CARGO_[A-Z0-9_]+|RUST[A-Z0-9_]*|UV_[A-Z0-9_]+|NODE_[A-Z0-9_]+)=' | LC_ALL=C sort || true)
+    # fingerprint (ci/gate-variables.sh).
+    variables=$(ci/gate-variables.sh)
     # With a GitHub token in the run's environment, lint's zizmor also runs
     # its online audits, which read GitHub: such a lint is never reused.
     zizmor_token="${GH_TOKEN:-}${GITHUB_TOKEN:-}${ZIZMOR_GITHUB_TOKEN:-}"
@@ -2151,6 +2152,36 @@ _gate-plan:
 _gate-record by head step status *evidence:
     cargo run --quiet --bin xtask -- gate record --records "$(ci/gate-records.sh)" --by {{ by }} --head {{ head }} \
       --now "$(date +%s)" --step {{ step }} --status {{ status }} {{ evidence }}
+
+# Exits 0, naming the run, when `just quick` in the form `form` (`changed` or
+# `all`) already passed on `head`'s tree against `base`, on this host and in
+# this environment, within a day, as a layer recorded it in the gate's
+# records (ci/gate-records.sh; ADR 0135's amendment of 2026-11-22); exits 1,
+# saying why, when it is due. As `_gate-plan` does before it reuses a lint,
+# it reads each quarantined test's issue again.
+_quick-held head base form:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    records=$(ci/gate-records.sh)
+    variables=$(ci/gate-variables.sh)
+    zizmor_token="${GH_TOKEN:-}${GITHUB_TOKEN:-}${ZIZMOR_GITHUB_TOKEN:-}"
+    GITHUB_TOKEN="${GITHUB_TOKEN:-$(gh auth token 2>/dev/null || true)}" \
+      cargo run --quiet --bin xtask -- gate quick held --records "$records" --head "{{ head }}" \
+      --base "{{ base }}" --form {{ form }} --now "$(date +%s)" --environment "$variables" \
+      ${zizmor_token:+--zizmor-online}
+
+# Records a run of `just quick` in the form `form` on `head`'s tree against
+# `base` (`pass` or `fail`), by the layer `by` that ran it (`quick`,
+# `pre-push`), in the gate's records; nothing when the working tree is no
+# longer `head`'s or lint's zizmor read GitHub.
+_quick-record by head base form status:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    variables=$(ci/gate-variables.sh)
+    zizmor_token="${GH_TOKEN:-}${GITHUB_TOKEN:-}${ZIZMOR_GITHUB_TOKEN:-}"
+    cargo run --quiet --bin xtask -- gate quick record --records "$(ci/gate-records.sh)" --by {{ by }} \
+      --head "{{ head }}" --base "{{ base }}" --form {{ form }} --status {{ status }} --now "$(date +%s)" \
+      --environment "$variables" ${zizmor_token:+--zizmor-online}
 
 # The incremental gate's backstop (ADR 0135), daily from the gate host's
 # cron on `main`'s head, each run with that commit's own scripts: in a gate
@@ -2227,6 +2258,12 @@ test-health run ref="origin/main":
 _gate-compare full runs since="":
     cargo run --quiet --locked --bin xtask -- gate compare --records "$(ci/gate-records.sh)" \
       --runs "{{ runs }}" --full {{ full }} {{ if since == "" { "" } else { "--since " + since } }}
+
+# The duplicate-run check (ADR 0135's amendment of 2026-11-22): fails, naming
+# both layers, on each unit a run in the gate's records (ci/gate-records.sh)
+# ran, not reused, on a tree where an earlier run had recorded it green.
+duplicate-runs:
+    cargo run --quiet --locked --bin xtask -- gate duplicates --records "$(ci/gate-records.sh)"
 
 # Starts and checks the real OS services the tests use (ci/os-services.sh),
 # which `just pre-merge` runs first on a Linux host.

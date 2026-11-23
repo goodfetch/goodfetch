@@ -38,6 +38,7 @@ import {
 } from "./generated/index.ts";
 import type { Settings } from "./generated/settings.ts";
 import { timeoutOf } from "./handle.ts";
+import { readProject, type ProjectFile } from "./project-file.ts";
 import { wouldBeThePick } from "./installed-executables.ts";
 import { limitList, type Limits } from "./limits.ts";
 import type { Logger } from "./logger.ts";
@@ -127,6 +128,19 @@ export interface ConnectOptions<S = Settings> extends ConnectOverOptions<S> {
    * before any engine is reached.
    */
   readonly env?: Readonly<Record<string, string>> | undefined;
+  /**
+   * The project file to read (ADR 0083), sent to the engine as the project
+   * configuration layer of each Run the Connection starts and of its
+   * `explainSettings()`: the `goodfetch.toml` in the working directory or the
+   * nearest folder above it when left out, the file this names, a relative
+   * one from the working directory, or none for `null`. Its
+   * `timeout.connect` bounds `hello` when `timeout` is left out, and
+   * `engine().projectFile` names it. A named file that is not there, or a
+   * file that does not read as a project file, fails `connect()` with
+   * `setting_invalid` before any engine is reached, and one of a format
+   * version this Goodfetch cannot read with `format_version_unsupported`.
+   */
+  readonly project?: string | null | undefined;
 }
 
 /**
@@ -231,9 +245,10 @@ export async function openEngine<S>(
 ): Promise<ClientConnection> {
   options.signal?.throwIfAborted();
   // Read before an engine starts, so a refused option leaves none behind.
-  const common = opening(product, options);
+  const own = opening(product, options);
   const env = options.env ?? processEnvironment();
   checkDeploymentVariables(env);
+  const common = { ...own, project: await readProject(options.project, () => process.cwd()) };
   const choice = options.engine ?? "auto";
   const reach = await reachEngine(choice, {
     env,
@@ -311,7 +326,7 @@ async function pickOf(
   startedAt: number,
   common: Opening,
 ): Promise<LocalDaemonReach> {
-  const connect = connectLimit(common.timeout);
+  const connect = connectLimit(common.timeout, common.project);
   if (connect === null) {
     return handedOverTo(handedOver, null, common.signal);
   }
@@ -457,6 +472,8 @@ interface Opening {
   readonly settings: SettingsOnWire | undefined;
   readonly timeout: number | null | undefined;
   readonly logger: Logger | undefined;
+  /** The project file `connect()` read, which a Connection over a transport a test holds has none of. */
+  readonly project?: ProjectFile | undefined;
 }
 
 /**

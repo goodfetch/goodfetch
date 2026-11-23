@@ -441,6 +441,11 @@ pub struct SettingsExplanation {
     pub settings: Vec<ExplainedSetting>,
 }
 
+/// A project configuration's file, found in a folder or above it (ADR
+/// 0083), which a Client reads where it runs: the CLI, and each SDK's
+/// `connect()`.
+pub const PROJECT_CONFIGURATION_FILE: &str = "goodfetch.toml";
+
 /// A project configuration's values, which a Client reads where it runs and
 /// sends with a scope it opens (ADR 0083).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]

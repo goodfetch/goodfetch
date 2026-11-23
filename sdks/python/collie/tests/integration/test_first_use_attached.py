@@ -18,7 +18,6 @@ Scripted engine; TypeScript's
 
 import json
 import tomllib
-import urllib.request
 from collections.abc import Mapping
 from pathlib import Path
 from typing import cast
@@ -41,7 +40,6 @@ from goodfetch_test_support import (
     ClientCaseRecord,
     ProvingGround,
     Way,
-    proving_ground_routes,
     three_ways,
 )
 
@@ -95,14 +93,6 @@ def cache_of(env: Mapping[str, str]) -> str:
     return env["GOODFETCH_BROWSERS_PATH"]
 
 
-def task_start_url(proving_ground: ProvingGround, task: str) -> str:
-    """The URL the Proving ground's task `task` starts at, from its task list."""
-    tasks = f"http://{proving_ground.address}{proving_ground_routes().tasks}"
-    with urllib.request.urlopen(tasks) as answer:
-        listed = cast("dict[str, list[dict[str, str]]]", json.load(answer))
-    return next(entry["start_url"] for entry in listed["tasks"] if entry["id"] == task)
-
-
 async def first_page_failure(
     way: Way, env: Mapping[str, str], settings: RunSettings | None = None
 ) -> GoodfetchError:
@@ -139,7 +129,7 @@ async def test_downloads_the_pinned_build_from_the_mirror_and_opens_the_page(
     client_case: ClientCaseRecord,
 ) -> None:
     """The first page downloads the build into `GOODFETCH_BROWSERS_PATH`."""
-    start = await anyio.to_thread.run_sync(task_start_url, proving_ground, "statuses/1")
+    start = await anyio.to_thread.run_sync(proving_ground.start_url, "statuses/1")
     collie = await open_collie(way, env)
     run = await collie.start()
     page = await run.new_page()

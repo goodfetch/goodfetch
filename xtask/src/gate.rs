@@ -14,8 +14,9 @@
 //!   and the `just` command of each step (`steps`), which `ci/pre-merge.sh`
 //!   follows.
 //! - **plan**: prints the `previous`, `head`, `members` and `unowned` lines,
-//!   the `stress.base` line, then each step's `<step>.action` (`run`, `part`
-//!   or `reuse`), `<step>.members` and `<step>.why` lines, which
+//!   the `stress.base` line, then each step's `<step>.action` (`run`, `part`,
+//!   `reuse`, or `covered` for the Quick suite, whose tests the Pre-merge
+//!   suite's units hold), `<step>.members` and `<step>.why` lines, which
 //!   `ci/pre-merge.sh` reads through `ci/output-value.sh` and follows; says
 //!   the same in words on stderr for the run's log, with the evidence that
 //!   reaches a member the selection misses; and writes the plan and the
@@ -36,6 +37,12 @@
 //!   the full run found and whatever its tree, each result of a merge since
 //!   the backstop's last green run that counted earned passes, as `earned`
 //!   lines.
+//! - **duplicates**: from every run in the records, each unit a run ran, not
+//!   reused, on a tree where an earlier run had recorded it green, naming both
+//!   layers (`duplicates`): nothing runs twice on one tree.
+//! - **quick**: whether `just quick` already passed with a key, and a run's
+//!   result, for the implementer's `just quick` and the pre-push hook
+//!   (`quick_runs`).
 #![expect(
     clippy::disallowed_methods,
     reason = "xtask is synchronous; the blocking-fs and blocking-process bans target async crates (STYLE.md)"
@@ -43,11 +50,13 @@
 
 mod attribution;
 mod compare;
+mod duplicates;
 mod earlier;
 mod evidence;
 mod host;
 mod lint;
 mod plan;
+mod quick_runs;
 mod runs;
 mod steps;
 
@@ -56,7 +65,6 @@ use std::ffi::OsStr;
 use std::fmt::Write as _;
 use std::path::Path;
 use std::process::ExitCode;
-use std::time::SystemTime;
 
 use anyhow::{Context as _, Result, bail};
 
@@ -79,20 +87,7 @@ pub(crate) enum Status {
     Fail,
 }
 
-/// Each test's clean passes in the earned file `xtask gate plan` wrote, which
-/// `xtask stress select` takes from their counts; none when it is missing or
-/// cannot be read, and none of a member's past the age limit by now, since the
-/// stress run reads the file later than the plan that kept them.
-pub(crate) fn earned_passes(file: &Path) -> BTreeMap<String, u32> {
-    let now = SystemTime::now()
-        .duration_since(SystemTime::UNIX_EPOCH)
-        .map_or(u64::MAX, |since_the_epoch| since_the_epoch.as_secs());
-    runs::read_earned(file)
-        .into_values()
-        .filter(|earned| !plan::past_max_age(now, earned.at))
-        .flat_map(|earned| earned.passes)
-        .collect()
-}
+pub(crate) use runs::earned_passes;
 
 /// `xtask gate`'s commands.
 #[derive(clap::Subcommand)]
@@ -170,6 +165,18 @@ pub(crate) enum Command {
         /// it holds has been checked. With none, every run `full` holds counts.
         #[arg(long)]
         since: Option<String>,
+    },
+    /// Fails, naming both layers, on each unit a run ran, not reused, on a
+    /// tree where an earlier run had recorded it green (`duplicates`).
+    Duplicates {
+        /// The folder of the gate's records.
+        #[arg(long)]
+        records: std::path::PathBuf,
+    },
+    /// `just quick`'s runs in the gate's records (`quick_runs`).
+    Quick {
+        #[command(subcommand)]
+        command: quick_runs::Command,
     },
 }
 
@@ -290,6 +297,10 @@ pub(crate) fn run(command: Command, environment: &Environment) -> Result<ExitCod
             let runs = runs.map_or_else(|| records.clone(), |runs| environment.path(&runs));
             return compare::compare(root, &records, &runs, &full, since.as_deref());
         }
+        Command::Duplicates { records } => {
+            return duplicates::check(&environment.path(&records));
+        }
+        Command::Quick { command } => return quick_runs::run(command, environment),
     }
     Ok(ExitCode::SUCCESS)
 }
@@ -457,13 +468,15 @@ fn plan_dirty(plan_file: &Path) -> Result<()> {
     ));
     let planned: Vec<Planned> = Step::ALL
         .into_iter()
-        .map(|step| Planned {
-            step,
-            action: Action::Run {
-                why: why.to_owned(),
-            },
-            carried: BTreeMap::new(),
-            earned: BTreeMap::new(),
+        .map(|step| {
+            plan::covered(step).unwrap_or_else(|| Planned {
+                step,
+                action: Action::Run {
+                    why: why.to_owned(),
+                },
+                carried: BTreeMap::new(),
+                earned: BTreeMap::new(),
+            })
         })
         .collect();
     let machine = render(None, None, NO_HEAD, &BTreeSet::new(), &[], &planned);
@@ -708,7 +721,7 @@ const NO_HEAD: &str = "none";
 /// and `unowned` lines; the `stress.base` line, the head the stress run
 /// compares this one with in place of the change's base
 /// ([`earlier::stress_base`]), `-` when it is the change's base; then each
-/// step's `<step>.action` (`run`, `part` or `reuse`), `<step>.members` and
+/// step's `<step>.action` (`run`, `part`, `reuse` or `covered`), `<step>.members` and
 /// `<step>.why` lines, with `<step>.earned`, the members that keep passes, for
 /// a step that counts them. A list is its items joined by spaces, `-` when it
 /// is empty; a value is one line.
@@ -758,6 +771,7 @@ fn render(
                 "-".to_owned(),
                 format!("green on {}", joined(origins)),
             ),
+            Action::Covered { by } => ("covered", "-".to_owned(), plan::covered_why(*by)),
         };
         if step.counts_passes() {
             let kept = earned.keys().cloned().collect();
@@ -829,6 +843,7 @@ fn describe(previous: Option<(&str, &Path)>, planned: &[Planned]) -> String {
                 origins(carried),
                 previous.map_or("-", |(previous, _)| short(previous))
             ),
+            Action::Covered { by } => format!("not run: {}", plan::covered_why(*by)),
         };
         let _ = writeln!(text, "  {}: {line}", step.name());
         for (member, passes) in earned {

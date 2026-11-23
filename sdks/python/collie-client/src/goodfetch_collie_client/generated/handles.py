@@ -14,6 +14,7 @@ from goodfetch_collie_client.caller import result_of
 from goodfetch_collie_client.handle import AsyncHandleHost, HandleHost, AsyncListener, Listener, NotGiven, Subscription, not_given, timeout_of
 from goodfetch_collie_client.markers import warn_deprecated_settings, warn_entry, warn_experimental
 from goodfetch_collie_client.raw_call import AsyncHandle, Handle
+from goodfetch_collie_client.response import AsyncResponse, Response
 from goodfetch_collie_client.settings import settings_on_wire
 
 from . import models
@@ -283,23 +284,25 @@ class AsyncPage(AsyncHandle):
         warn_experimental("page.formats")
         return result_of(models.PageFormats, await self._host.call("page.formats", models.FormatsParams(page_id=self._host.id, formats=formats)))
 
-    async def go_back(self) -> models.PageResponse | None:
+    async def go_back(self) -> AsyncResponse | None:
         """Goes back one entry in the page's history and waits for its `load` event, answering the document's response, or none when there is no entry to go back to. The back/forward cache is off, so the document always loads again (ADR 0121).
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
         warn_experimental("page.go_back")
-        return result_of(models.Navigated, await self._host.call("page.go_back", models.PageParams(page_id=self._host.id))).response
+        response = result_of(models.Navigated, await self._host.call("page.go_back", models.PageParams(page_id=self._host.id))).response
+        return None if response is None else AsyncResponse(self._host, response)
 
-    async def go_forward(self) -> models.PageResponse | None:
+    async def go_forward(self) -> AsyncResponse | None:
         """Goes forward one entry in the page's history and waits for its `load` event, answering the document's response, or none when there is no entry to go forward to. The back/forward cache is off, so the document always loads again (ADR 0121).
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
         warn_experimental("page.go_forward")
-        return result_of(models.Navigated, await self._host.call("page.go_forward", models.PageParams(page_id=self._host.id))).response
+        response = result_of(models.Navigated, await self._host.call("page.go_forward", models.PageParams(page_id=self._host.id))).response
+        return None if response is None else AsyncResponse(self._host, response)
 
-    async def goto(self, url: str, *, timeout: timedelta | None | NotGiven = not_given, wait_until: Literal["commit", "domcontentloaded", "load"] | None | NotGiven = not_given) -> models.PageResponse | None:
+    async def goto(self, url: str, *, timeout: timedelta | None | NotGiven = not_given, wait_until: Literal["commit", "domcontentloaded", "load"] | None | NotGiven = not_given) -> AsyncResponse | None:
         """Navigates the page to a URL and waits for its document's `load` event, or the state `wait_until` names, answering the document's response: a 404 or a 500 is a response, a value. A file the browser downloads, such as a PDF, answers no response and emits `page.download`. A navigation that reaches no document raises `navigation_failed`, one another navigation supersedes before it committed `navigation_interrupted`, a redirect loop `too_many_redirects`, a document whose body broke off `response_truncated`, unless the navigation answered at `commit`, and one past its `timeout`, or `timeout.navigation` without one, `deadline_exceeded`.
 
         Left out, `timeout` takes the Run's `timeout.navigation`, by default `timedelta(seconds=30)`.
@@ -312,7 +315,8 @@ class AsyncPage(AsyncHandle):
             params.timeout = timeout_of(timeout, "timeout.navigation")
         if not isinstance(wait_until, NotGiven):
             params.wait_until = None if wait_until is None else models.WaitUntil(wait_until)
-        return result_of(models.Navigated, await self._host.call("page.goto", params, timeout_setting="timeout.navigation")).response
+        response = result_of(models.Navigated, await self._host.call("page.goto", params, timeout_setting="timeout.navigation")).response
+        return None if response is None else AsyncResponse(self._host, response)
 
     async def read(self, fields: dict[str, models.PageField]) -> models.PageRead:
         """Reads the named fields from the page's current document in one call and answers each one's value: a value field's from the first element its CSS or XPath locator finds, its text or one attribute, optionally a `match` group, then its Value transform; a list's from every element its locator finds; rows' from each element a base locator finds, each row one object of its fields read under that element. A value the page does not give is null, and `unread` names it with why: a row lacking a field keeps its other fields. It never waits: an absent element is an answer. It needs neither layout nor pixels, so every tier serves it, and in the browser it is one read of the page whatever the number of fields.
@@ -322,15 +326,16 @@ class AsyncPage(AsyncHandle):
         warn_experimental("page.read")
         return result_of(models.PageRead, await self._host.call("page.read", models.PageReadParams(page_id=self._host.id, fields=fields)))
 
-    async def reload(self) -> models.PageResponse | None:
+    async def reload(self) -> AsyncResponse | None:
         """Loads the page's document again and waits for its `load` event, answering the document's response: a 404 or a 500 is a response, a value. A navigation that reaches no document raises `navigation_failed`, and one another navigation supersedes before it committed `navigation_interrupted`.
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
         warn_experimental("page.reload")
-        return result_of(models.Navigated, await self._host.call("page.reload", models.PageParams(page_id=self._host.id))).response
+        response = result_of(models.Navigated, await self._host.call("page.reload", models.PageParams(page_id=self._host.id))).response
+        return None if response is None else AsyncResponse(self._host, response)
 
-    async def request(self, url: str, *, headers: dict[str, str] | None | NotGiven = not_given, max_redirects: int | None | NotGiven = not_given, method: str | None | NotGiven = not_given, post_data: str | None | NotGiven = not_given) -> models.PageResponse:
+    async def request(self, url: str, *, headers: dict[str, str] | None | NotGiven = not_given, max_redirects: int | None | NotGiven = not_given, method: str | None | NotGiven = not_given, post_data: str | None | NotGiven = not_given) -> AsyncResponse:
         """Sends a request from inside the page's Session's browser, with its cookies, through the browser-fetch tier and the page's interception (its domain policy, never its routes), from a context no service worker controls, and answers the response whatever its status, a 429 included; `response.body` reads its kept body, and raises `response_truncated` for one that broke off. A count of redirects above 19 is refused with `setting_invalid`, a chain past its count raises `too_many_redirects`, and a body whose content coding fails to decode `navigation_failed`.
 
         Experimental: outside semver until it is promoted (ADR 0030).
@@ -345,7 +350,7 @@ class AsyncPage(AsyncHandle):
             params.method = method
         if not isinstance(post_data, NotGiven):
             params.post_data = post_data
-        return result_of(models.PageResponse, await self._host.call("page.request", params))
+        return AsyncResponse(self._host, result_of(models.PageResponse, await self._host.call("page.request", params)))
 
     async def wait_for_function(self, function: str, *, arg: Any | NotGiven = not_given, polling_interval: int | None | NotGiven = not_given, timeout: timedelta | None | NotGiven = not_given, world: Literal["main", "isolated"] | None | NotGiven = not_given) -> Any | None:
         """Runs a page function in the page's main frame, as `page.evaluate` does, again at each polling interval and in each new document, until its result is truthy, and answers that result as JSON. A value outside JSON raises `page_value_invalid`, an exception thrown in the page `page_function_failed`. A main-world call is marked in the Session's Provenance. Past its `timeout`, `timeout.wait` when the call gives none, it fails with `deadline_exceeded`.
@@ -843,23 +848,25 @@ class Page(Handle):
         warn_experimental("page.formats")
         return result_of(models.PageFormats, self._host.call("page.formats", models.FormatsParams(page_id=self._host.id, formats=formats)))
 
-    def go_back(self) -> models.PageResponse | None:
+    def go_back(self) -> Response | None:
         """Goes back one entry in the page's history and waits for its `load` event, answering the document's response, or none when there is no entry to go back to. The back/forward cache is off, so the document always loads again (ADR 0121).
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
         warn_experimental("page.go_back")
-        return result_of(models.Navigated, self._host.call("page.go_back", models.PageParams(page_id=self._host.id))).response
+        response = result_of(models.Navigated, self._host.call("page.go_back", models.PageParams(page_id=self._host.id))).response
+        return None if response is None else Response(self._host, response)
 
-    def go_forward(self) -> models.PageResponse | None:
+    def go_forward(self) -> Response | None:
         """Goes forward one entry in the page's history and waits for its `load` event, answering the document's response, or none when there is no entry to go forward to. The back/forward cache is off, so the document always loads again (ADR 0121).
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
         warn_experimental("page.go_forward")
-        return result_of(models.Navigated, self._host.call("page.go_forward", models.PageParams(page_id=self._host.id))).response
+        response = result_of(models.Navigated, self._host.call("page.go_forward", models.PageParams(page_id=self._host.id))).response
+        return None if response is None else Response(self._host, response)
 
-    def goto(self, url: str, *, timeout: timedelta | None | NotGiven = not_given, wait_until: Literal["commit", "domcontentloaded", "load"] | None | NotGiven = not_given) -> models.PageResponse | None:
+    def goto(self, url: str, *, timeout: timedelta | None | NotGiven = not_given, wait_until: Literal["commit", "domcontentloaded", "load"] | None | NotGiven = not_given) -> Response | None:
         """Navigates the page to a URL and waits for its document's `load` event, or the state `wait_until` names, answering the document's response: a 404 or a 500 is a response, a value. A file the browser downloads, such as a PDF, answers no response and emits `page.download`. A navigation that reaches no document raises `navigation_failed`, one another navigation supersedes before it committed `navigation_interrupted`, a redirect loop `too_many_redirects`, a document whose body broke off `response_truncated`, unless the navigation answered at `commit`, and one past its `timeout`, or `timeout.navigation` without one, `deadline_exceeded`.
 
         Left out, `timeout` takes the Run's `timeout.navigation`, by default `timedelta(seconds=30)`.
@@ -872,7 +879,8 @@ class Page(Handle):
             params.timeout = timeout_of(timeout, "timeout.navigation")
         if not isinstance(wait_until, NotGiven):
             params.wait_until = None if wait_until is None else models.WaitUntil(wait_until)
-        return result_of(models.Navigated, self._host.call("page.goto", params, timeout_setting="timeout.navigation")).response
+        response = result_of(models.Navigated, self._host.call("page.goto", params, timeout_setting="timeout.navigation")).response
+        return None if response is None else Response(self._host, response)
 
     def read(self, fields: dict[str, models.PageField]) -> models.PageRead:
         """Reads the named fields from the page's current document in one call and answers each one's value: a value field's from the first element its CSS or XPath locator finds, its text or one attribute, optionally a `match` group, then its Value transform; a list's from every element its locator finds; rows' from each element a base locator finds, each row one object of its fields read under that element. A value the page does not give is null, and `unread` names it with why: a row lacking a field keeps its other fields. It never waits: an absent element is an answer. It needs neither layout nor pixels, so every tier serves it, and in the browser it is one read of the page whatever the number of fields.
@@ -882,15 +890,16 @@ class Page(Handle):
         warn_experimental("page.read")
         return result_of(models.PageRead, self._host.call("page.read", models.PageReadParams(page_id=self._host.id, fields=fields)))
 
-    def reload(self) -> models.PageResponse | None:
+    def reload(self) -> Response | None:
         """Loads the page's document again and waits for its `load` event, answering the document's response: a 404 or a 500 is a response, a value. A navigation that reaches no document raises `navigation_failed`, and one another navigation supersedes before it committed `navigation_interrupted`.
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
         warn_experimental("page.reload")
-        return result_of(models.Navigated, self._host.call("page.reload", models.PageParams(page_id=self._host.id))).response
+        response = result_of(models.Navigated, self._host.call("page.reload", models.PageParams(page_id=self._host.id))).response
+        return None if response is None else Response(self._host, response)
 
-    def request(self, url: str, *, headers: dict[str, str] | None | NotGiven = not_given, max_redirects: int | None | NotGiven = not_given, method: str | None | NotGiven = not_given, post_data: str | None | NotGiven = not_given) -> models.PageResponse:
+    def request(self, url: str, *, headers: dict[str, str] | None | NotGiven = not_given, max_redirects: int | None | NotGiven = not_given, method: str | None | NotGiven = not_given, post_data: str | None | NotGiven = not_given) -> Response:
         """Sends a request from inside the page's Session's browser, with its cookies, through the browser-fetch tier and the page's interception (its domain policy, never its routes), from a context no service worker controls, and answers the response whatever its status, a 429 included; `response.body` reads its kept body, and raises `response_truncated` for one that broke off. A count of redirects above 19 is refused with `setting_invalid`, a chain past its count raises `too_many_redirects`, and a body whose content coding fails to decode `navigation_failed`.
 
         Experimental: outside semver until it is promoted (ADR 0030).
@@ -905,7 +914,7 @@ class Page(Handle):
             params.method = method
         if not isinstance(post_data, NotGiven):
             params.post_data = post_data
-        return result_of(models.PageResponse, self._host.call("page.request", params))
+        return Response(self._host, result_of(models.PageResponse, self._host.call("page.request", params)))
 
     def wait_for_function(self, function: str, *, arg: Any | NotGiven = not_given, polling_interval: int | None | NotGiven = not_given, timeout: timedelta | None | NotGiven = not_given, world: Literal["main", "isolated"] | None | NotGiven = not_given) -> Any | None:
         """Runs a page function in the page's main frame, as `page.evaluate` does, again at each polling interval and in each new document, until its result is truthy, and answers that result as JSON. A value outside JSON raises `page_value_invalid`, an exception thrown in the page `page_function_failed`. A main-world call is marked in the Session's Provenance. Past its `timeout`, `timeout.wait` when the call gives none, it fails with `deadline_exceeded`.

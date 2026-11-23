@@ -547,6 +547,17 @@ pub(super) struct Attempt {
 /// The answer of an attempt that needs the crawl's HTTP tier, which could
 /// not be built: its `what` was not fetched, retried as a failed
 /// navigation.
+/// The Record stage runs once, on the answer that counts: a handled,
+/// unskipped one, when the Run has Record-stage Hooks.
+async fn record_stage_once(on: &On<'_>, answer: Answer) -> Answer {
+    match answer {
+        Answer::Handled(handled) if handled.skipped.is_none() && on.hooks.at_record_stage() => {
+            record_stage::passed(on, handled).await
+        }
+        answer => answer,
+    }
+}
+
 fn without_http_tier(what: &str) -> Answer {
     Answer::failed(AttemptFailure::named(
         NAVIGATION_FAILED.name,
@@ -651,16 +662,7 @@ pub(super) async fn attempt(
                     None,
                 ) => without_http_tier("request"),
             };
-            // The Record stage runs once, on the answer that counts.
-            let answer = match answer {
-                Answer::Handled(handled)
-                    if handled.skipped.is_none() && hooks.at_record_stage() =>
-                {
-                    record_stage::passed(&on, handled).await
-                }
-                answer => answer,
-            };
-            (answer, sampled, raced)
+            (record_stage_once(&on, answer).await, sampled, raced)
         }))
         .await;
     let (answer, sampled, (raced, transport_answered), ran) = match ran {

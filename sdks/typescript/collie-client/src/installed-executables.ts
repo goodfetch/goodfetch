@@ -25,7 +25,8 @@ export interface PickedClient {
 
 /** `browser_cache.max_unused_age`'s default, past which an executable gone from its path no longer counts. */
 const MAX_UNUSED_AGE_MS = 30 * 24 * 60 * 60 * 1000;
-const BROWSERS_PATH_VARIABLE = "GOODFETCH_BROWSERS_PATH";
+/** The variable naming the Browser cache, in place of the Goodfetch home's. */
+export const BROWSERS_PATH_VARIABLE = "GOODFETCH_BROWSERS_PATH";
 /** Every kind of the Browser cache's artifacts, which the compiler holds to the generated `ArtifactKind`. */
 const ARTIFACT_KINDS: ReadonlySet<unknown> = new Set(
   Object.keys({
@@ -279,7 +280,7 @@ async function copyPresent(cache: string, id: ArtifactId): Promise<boolean> {
 }
 
 /** The Browser cache: the one `GOODFETCH_BROWSERS_PATH` names, else `browsers` in Goodfetch home. */
-function browserCache(home: string, env: Readonly<Record<string, string>>): string {
+export function browserCache(home: string, env: Readonly<Record<string, string>>): string {
   const named = env[BROWSERS_PATH_VARIABLE];
   return named === undefined || named === "" ? join(home, "browsers") : named;
 }

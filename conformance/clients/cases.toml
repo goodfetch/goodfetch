@@ -26,7 +26,7 @@
 
 [suite]
 name = "clients"
-version = "55"
+version = "56"
 
 [[capability]]
 name = "lifecycle"
@@ -299,6 +299,22 @@ covers = ["story:11-8"]
 surfaces = ["sdk-typescript", "sdk-python"]
 modes = ["attached"]
 
+# A five-word edit ports a Collie program to Foxhound (ADRs 0090, 0097;
+# issue 1264): the installed package, the import, the connection type, the
+# executable and the engine-path variable change, and the program, its
+# Collie copy on Collie's executable and its port on Foxhound's, each in a
+# home of its own with both executables on `PATH` and both engine-path
+# variables set, prints the same: its engine, a setting, a Run started and
+# finished, `run report`, `run list` and a refused `run report` with their
+# `--json` output and exit codes. The members a Run its program drives takes
+# without a browser are the shared ones it plays; Python runs it, on the
+# sync API.
+[[capability.case]]
+id = "five-word-port"
+covers = ["story:11-297"]
+surfaces = ["sdk-python"]
+modes = ["attached"]
+
 # What a Collie engine lacks and a browser build it cannot fetch (ADRs 0087,
 # 0090, 0095, 0098 and 0115; issue 1263): Foxhound's operation and setting
 # raise `NotInProductError` (`UnavailableError`, not retryable), whose
@@ -404,11 +420,13 @@ modes = { sdk-typescript = ["attached"], sdk-python = ["attached"], sdk-rust = [
 # code no table has, and Foxhound's values of the types both Products
 # share, a Usage kind and a Limit scope, as strings.
 # Played by the Scripted engine, each value written raw, attached and as a
-# Daemon in TypeScript and Python (asyncio, Trio and the sync API).
+# Daemon in TypeScript and Python (asyncio, Trio and the sync API) and as a
+# Daemon in Rust; Rust's linked engine answers the same values from a test
+# contribution, as a newer contribution's would.
 [[capability.case]]
 id = "unknown-values-are-kept"
 covers = ["story:11-33", "story:11-188"]
-surfaces = ["sdk-typescript", "sdk-python"]
+surfaces = ["sdk-typescript", "sdk-python", "sdk-rust"]
 
 # A remote Daemon's dropped link (spec 606; issue 3174): the Client reaches
 # the Daemon again by itself, greets it with the same hello and sends again

@@ -582,12 +582,14 @@ fn a_held_run_runs_the_checks_of_the_changes_commits_alone() {
 
 /// A stand-in `just` for the pre-push hook: records its arguments and the
 /// base the hook gives `just quick`, and the `GIT_DIR` it inherits
-/// ([`inherited_git_dirs`]).
+/// ([`inherited_git_dirs`]). A stand-in `cargo` records its arguments in the
+/// same list, so the calls keep the hook's order.
 fn hook_stand_in(workspace: &Workspace) -> PathBuf {
     hook_stand_in_failing(workspace, None)
 }
 
-/// [`hook_stand_in`], whose `just` fails when it runs the recipe `failing`.
+/// [`hook_stand_in`], whose `just` fails when it runs the recipe `failing`,
+/// and whose `cargo` fails when it runs the xtask command `failing`.
 fn hook_stand_in_failing(workspace: &Workspace, failing: Option<&str>) -> PathBuf {
     let folder = workspace.path().join("stand-in");
     std::fs::create_dir_all(&folder).unwrap();
@@ -613,7 +615,27 @@ echo "$* base=${{GOODFETCH_QUICK_BASE-unset}}" >>"{calls}"
     let path = folder.join("just");
     std::fs::write(&path, just).unwrap();
     std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let cargo = format!(
+        r#"#!/bin/sh
+echo "cargo $*" >>"{calls}"
+[ "$6" != "{failing}" ] || exit 1
+"#,
+        calls = folder.join("calls").display(),
+        failing = failing.unwrap_or("no recipe"),
+    );
+    let path = folder.join("cargo");
+    std::fs::write(&path, cargo).unwrap();
+    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
     folder
+}
+
+/// The hook's static steps for a push of `head` to `spec/<n>`: the floor
+/// guard over what the push adds to `origin/main`, then the module check.
+fn spec_static_steps(head: &str) -> [String; 2] {
+    [
+        format!("floor-guard origin/main {head} base=unset"),
+        "cargo run --quiet --bin xtask -- modules".to_owned(),
+    ]
 }
 
 /// The hook's calls for the commits a push of `head` adds: their sign-offs
@@ -784,10 +806,12 @@ fn a_push_of_another_tree_runs_quick_against_the_commit_the_remote_ref_holds() {
 
 /// A run's ticket ends with no `just quick` of its own (Checks by role, the
 /// owner's decision of 2026-11-23): its push to `spec/<n>` judges the pushed
-/// commits' sign-offs and subjects alone, and the batch's `just batch-check`
-/// runs `just quick` once on the combined tree that merges.
+/// commits' sign-offs and subjects and runs the seconds-long static steps a
+/// batch's `just batch-check` would otherwise fail on, the floor guard and
+/// the module check, and the batch runs `just quick` once on the combined
+/// tree that merges.
 #[test]
-fn a_push_to_a_spec_branch_checks_its_commits_and_runs_no_quick() {
+fn a_push_to_a_spec_branch_checks_its_commits_and_static_steps_and_runs_no_quick() {
     let workspace = Workspace::from_fixture("empty");
     let stand_in = hook_stand_in(&workspace);
     let (first, head) = two_commits(&workspace);
@@ -799,8 +823,53 @@ fn a_push_to_a_spec_branch_checks_its_commits_and_runs_no_quick() {
     );
 
     assert_eq!(run.code, Some(0), "{}", run.stderr);
-    assert_eq!(run.calls, commit_checks(&head));
+    let mut calls = commit_checks(&head).to_vec();
+    calls.extend(spec_static_steps(&head));
+    assert_eq!(run.calls, calls);
     assert!(run.stdout.contains("spec/607"), "{}", run.stdout);
+}
+
+/// A red static step refuses a push to `spec/<n>`, after every check has
+/// run, so one push names every miss.
+#[rstest]
+#[case::the_floor_guard("floor-guard")]
+#[case::the_module_check("modules")]
+fn a_push_to_a_spec_branch_whose_static_step_fails_is_refused(#[case] failing: &str) {
+    let workspace = Workspace::from_fixture("empty");
+    let stand_in = hook_stand_in_failing(&workspace, Some(failing));
+    let (first, head) = two_commits(&workspace);
+
+    let run = pre_push(
+        &workspace,
+        &stand_in,
+        &format!("refs/heads/ticket {head} refs/heads/spec/607 {first}\n"),
+    );
+
+    assert_eq!(run.code, Some(1), "{}", run.stderr);
+    let mut calls = commit_checks(&head).to_vec();
+    calls.extend(spec_static_steps(&head));
+    assert_eq!(run.calls, calls);
+    assert!(run.stderr.contains("error: "), "{}", run.stderr);
+}
+
+/// The module check reads the checkout, so a push to `spec/<n>` of another
+/// commit than the checkout's runs the floor guard over that commit alone.
+#[test]
+fn a_push_to_a_spec_branch_of_another_commit_than_the_checkouts_runs_no_module_check() {
+    let workspace = Workspace::from_fixture("empty");
+    let stand_in = hook_stand_in(&workspace);
+    let (first, _head) = two_commits(&workspace);
+
+    let run = pre_push(
+        &workspace,
+        &stand_in,
+        &format!("refs/heads/other {first} refs/heads/spec/607 {NO_COMMIT}\n"),
+    );
+
+    assert_eq!(run.code, Some(0), "{}", run.stderr);
+    let mut calls = commit_checks(&first).to_vec();
+    calls.push(format!("floor-guard origin/main {first} base=unset"));
+    assert_eq!(run.calls, calls);
 }
 
 /// The push's other refs still take `just quick`: only `spec/<n>` leaves it
@@ -822,6 +891,7 @@ fn a_push_of_a_spec_branch_and_another_runs_quick_for_the_other() {
     assert_eq!(run.code, Some(0), "{}", run.stderr);
     let mut calls = commit_checks(&head).to_vec();
     calls.extend(commit_checks(&head));
+    calls.extend(spec_static_steps(&head));
     calls.push(format!("quick base={first}"));
     assert_eq!(run.calls, calls);
 }

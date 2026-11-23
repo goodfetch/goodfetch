@@ -152,5 +152,24 @@ RUN apt-get update \
  && apt-get install -y --no-install-recommends "strace=${STRACE_VERSION}" \
  && rm -rf /var/lib/apt/lists/*
 
+# systemd as the hosted job's init (ci/hosted/start.sh boots it), so the
+# user's manager runs, which `daemon install`'s tests register services with
+# and Collie's governor test runs a memory-limited scope of; with the system
+# bus and logind, whose lingering keeps that manager running. tmp.mount is
+# masked so /tmp stays on the container's disk instead of a tmpfs sized
+# from the runner's memory. A layer of its own at the end, as strace's.
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends systemd systemd-sysv dbus libpam-systemd \
+ && rm -rf /var/lib/apt/lists/* \
+ && systemctl mask tmp.mount
+
+# CMake and a C++ compiler, beside the base's C compiler: BoringSSL's CMake
+# build (`btls-sys`, goodfetch-page's TLS) and DuckDB's C++ (the `cc` crate)
+# need both, so the image builds every crate's tests. A layer of its own at
+# the end, as strace's.
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends cmake g++ \
+ && rm -rf /var/lib/apt/lists/*
+
 ENV CI=true
 WORKDIR /work

@@ -8,6 +8,7 @@ not expect, `hello` included, and on a step left unused. TypeScript's
 `collie.test.ts` is its twin.
 """
 
+import sys
 import threading
 from collections.abc import Awaitable, Mapping
 from concurrent.futures import ThreadPoolExecutor
@@ -746,6 +747,27 @@ async def test_fails_connect_on_a_goodfetch_variable_close_to_none_naming_none(
 
     assert error.code == "setting_unknown"
     assert error.details == {"key": "GOODFETCH_TELEMETRY"}
+
+
+@pytest.mark.covers("story:11-299")
+@three_ways
+async def test_reads_only_collies_engine_path_variable_never_foxhounds(
+    way: Way,
+) -> None:
+    """Foxhound's variable, a deployment variable it knows, moves no Collie program.
+
+    It names an executable file, yet the Connection looks for Collie's
+    platform wheel, which no unit test installs.
+    """
+    error = await connect_failure(
+        way, {"GOODFETCH_FOXHOUND_ENGINE_PATH": sys.executable}
+    )
+
+    assert (error.code, error.fix) == (
+        "engine_not_found",
+        "Install goodfetch-collie's platform wheel for this system, which holds "
+        "its engine, or set GOODFETCH_COLLIE_ENGINE_PATH to Collie's executable.",
+    )
 
 
 @pytest.mark.covers("story:11-2", "error:setting_invalid")

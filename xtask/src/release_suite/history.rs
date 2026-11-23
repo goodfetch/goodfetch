@@ -8,9 +8,9 @@ use std::collections::BTreeMap;
 use anyhow::{Context as _, Result};
 use serde::Deserialize;
 
-use super::cells::Rate;
 use super::time::{Month, Timestamp};
 use crate::github::{Api, List};
+use crate::rate::{Hosted, Visibility};
 use crate::workflow;
 
 /// The Release suite's workflow file.
@@ -22,6 +22,14 @@ struct RunJson {
     created_at: String,
     head_branch: Option<String>,
     head_sha: String,
+    repository: RepositoryJson,
+}
+
+/// A run's repository. GitHub gives a run's repository `private` and leaves
+/// its `visibility` out, so `private: false` is a public repository.
+#[derive(Deserialize)]
+struct RepositoryJson {
+    private: bool,
 }
 
 #[derive(Deserialize)]
@@ -51,6 +59,8 @@ pub(crate) struct Run {
     pub(crate) month: Month,
     pub(crate) branch: String,
     pub(crate) head_sha: String,
+    /// The repository's visibility when the run was read, not when it ran.
+    pub(crate) visibility: Visibility,
 }
 
 impl TryFrom<RunJson> for Run {
@@ -66,6 +76,11 @@ impl TryFrom<RunJson> for Run {
             month: Month::of(&run.created_at)?,
             branch: run.head_branch.unwrap_or_default(),
             head_sha: run.head_sha,
+            visibility: if run.repository.private {
+                Visibility::Private
+            } else {
+                Visibility::Public
+            },
         })
     }
 }
@@ -86,7 +101,7 @@ pub(crate) enum Ended {
 pub(crate) struct Job {
     pub(crate) name: String,
     /// `None` on the owner's machine, which uses no included minutes.
-    pub(crate) rate: Option<Rate>,
+    pub(crate) runner: Option<Hosted>,
     pub(crate) attempt: u32,
     /// The whole minutes it ran, once it ended after starting.
     pub(crate) minutes: Option<u32>,
@@ -126,7 +141,7 @@ impl TryFrom<JobJson> for Job {
             workflow::is_test_step(&step.name) && step.conclusion.as_deref() == Some("failure")
         });
         Ok(Self {
-            rate: Rate::of_labels(&job.labels),
+            runner: Hosted::of_labels(&job.labels),
             name: job.name,
             attempt: job.run_attempt.unwrap_or(1),
             minutes,

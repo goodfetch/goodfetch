@@ -62,3 +62,11 @@ export {
   COLLIE_EXECUTABLE,
   PRODUCT_VERSION,
 } from "./generated/connection.ts";
+export {
+  engineEnvironment,
+  isolated,
+  makeHome,
+  partsOf,
+  removeHome,
+  type TestEngineParts,
+} from "./test-engine.ts";

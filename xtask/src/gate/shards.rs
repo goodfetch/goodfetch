@@ -2,11 +2,12 @@
 //! member holds only when its shards ran the gate's own selection of that
 //! member's tests, each test once. The build job lists the archive it built,
 //! with the suite's own skips, and each shard runs one hash partition of it;
-//! this check then reads that listing and every shard's nextest JUnit file
-//! and finds:
-//! - a member the plan runs that the archive does not hold, or the other way
-//!   round (`members-differ`), and a listed test of no planned member
-//!   (`not-planned`);
+//! the members that are no crate are the build job's runners' (Vitest,
+//! Playwright and pytest, issue 3380). This check then reads that listing
+//! and every shard's nextest JUnit file and finds:
+//! - a member the plan runs that neither the archive holds nor the runners
+//!   ran, or one of those the plan does not run (`members-differ`), and a
+//!   listed test of no planned member (`not-planned`);
 //! - a listed test no shard ran (`not-run`), one two shards ran
 //!   (`run-twice`), and one a shard ran that the listing does not select
 //!   (`not-selected`), so a shard set that ran fewer tests than the
@@ -49,12 +50,17 @@ pub(crate) struct Arguments {
     /// The members the build job archived, space-separated.
     #[arg(long)]
     archived: String,
+    /// The members that are no crate, whose Vitest, Playwright and pytest
+    /// tests the build job ran in full, space-separated.
+    #[arg(long, default_value = "")]
+    runners: String,
     /// The members the gate's plan runs the Pre-merge suite of here, its
     /// `pre-merge.members` line.
     #[arg(long)]
     members: String,
-    /// One shard's nextest JUnit file, repeated for every shard.
-    #[arg(long, required = true)]
+    /// One shard's nextest JUnit file, repeated for every shard; none when
+    /// the build archived no crate.
+    #[arg(long)]
     junit: Vec<PathBuf>,
     /// One shard's insta references file (`INSTA_SNAPSHOT_REFERENCES_FILE`),
     /// repeatable; a shard whose tests read no snapshot writes none.
@@ -75,6 +81,9 @@ pub(super) struct Shard {
 pub(super) struct Judged<'a> {
     pub(super) planned: &'a BTreeSet<String>,
     pub(super) archived: &'a BTreeSet<String>,
+    /// The members the build job's runners ran, whose tests no archive
+    /// holds.
+    pub(super) runners: &'a BTreeSet<String>,
     /// Each test the listing selects, with its package.
     pub(super) listing: &'a BTreeMap<String, String>,
     pub(super) shards: &'a [Shard],
@@ -136,6 +145,7 @@ pub(crate) fn run(arguments: &Arguments, environment: &Environment) -> Result<Ex
     let (errors, notes) = judge(&Judged {
         planned: &names(&arguments.members),
         archived: &names(&arguments.archived),
+        runners: &names(&arguments.runners),
         listing: &listing,
         shards: &shards,
         snapshots: &snapshots,
@@ -219,10 +229,20 @@ pub(super) fn judge(judged: &Judged<'_>) -> (Vec<Finding>, Vec<Finding>) {
     let mut errors = Vec::new();
     let mut notes = Vec::new();
     for member in judged.planned.difference(judged.archived) {
+        if judged.runners.contains(member) {
+            continue;
+        }
         errors.push(Finding::new(
             "members-differ",
             member,
-            "the plan runs its Pre-merge suite here, but the build did not archive it",
+            "the plan runs its Pre-merge suite here, but the build neither archived it nor gave it to the runners",
+        ));
+    }
+    for member in judged.runners.difference(judged.planned) {
+        errors.push(Finding::new(
+            "members-differ",
+            member,
+            "the runners ran it, but the plan does not run its Pre-merge suite here",
         ));
     }
     for member in judged.archived.difference(judged.planned) {
@@ -298,6 +318,7 @@ mod tests {
 
     const PROTOCOL: &str = "goodfetch-protocol";
     const CRAWL: &str = "goodfetch-crawl";
+    const TYPESCRIPT: &str = "test-support/typescript";
 
     fn set(names: &[&str]) -> BTreeSet<String> {
         names.iter().map(|name| (*name).to_owned()).collect()
@@ -342,6 +363,7 @@ mod tests {
         let (errors, notes) = judge(&Judged {
             planned: &set(planned),
             archived: &set(archived),
+            runners: &BTreeSet::new(),
             listing: &listing,
             shards,
             snapshots: &snapshots,
@@ -448,6 +470,42 @@ mod tests {
                 ("not-run".to_owned(), "goodfetch-crawl::it c".to_owned()),
             ]
         );
+    }
+
+    /// A member that is no crate is the runners' (issue 3380): it counts as
+    /// run once the build gave it to them, and as missing otherwise.
+    #[rstest::rstest]
+    #[case::given_to_the_runners(&[TYPESCRIPT], &[])]
+    #[case::given_to_no_one(&[], &[TYPESCRIPT])]
+    fn a_planned_member_the_runners_run_needs_no_archive(
+        #[case] runners: &[&str],
+        #[case] missing: &[&str],
+    ) {
+        let shards = [
+            shard("1", &["goodfetch-protocol a", "goodfetch-crawl::it c"]),
+            shard("2", &["goodfetch-protocol b"]),
+        ];
+        let listing = selected();
+        let snapshots = BTreeMap::new();
+        let (errors, _) = judge(&Judged {
+            planned: &set(&[PROTOCOL, CRAWL, TYPESCRIPT]),
+            archived: &set(&[PROTOCOL, CRAWL]),
+            runners: &set(runners),
+            listing: &listing,
+            shards: &shards,
+            snapshots: &snapshots,
+            references: &BTreeSet::new(),
+            unreferenced: Unreferenced::Reject,
+        });
+        let expected: Vec<(String, String)> = missing
+            .iter()
+            .map(|member| ("members-differ".to_owned(), (*member).to_owned()))
+            .collect();
+        let found: Vec<(String, String)> = errors
+            .into_iter()
+            .map(|finding| (finding.kind.to_owned(), finding.subject))
+            .collect();
+        assert_eq!(found, expected);
     }
 
     #[rstest::rstest]

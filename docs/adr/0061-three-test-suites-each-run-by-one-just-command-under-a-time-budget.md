@@ -149,6 +149,8 @@ A budget is the median (p50) of a job's last 20 runs in its own tier, on GitHub-
 
 > Note (agent decision, as built on 2026-11-23, [#3378](https://github.com/goodfetch/goodfetch/issues/3378)): a batch's hosted Pre-merge suite, for the Rust members whose tests launch no browser, runs in up to 4 hash shards of one archive, never more shards than members (`ci/hosted/plan.sh`). With the archive's build job, the record job, lint, the three other quick cells and the Chromium build gate, a run holds at most 10 jobs at once. The build job logs the archive's size and the disks' room, which [#3373](https://github.com/goodfetch/goodfetch/issues/3373) records from the first run; the split into per-group archives lands only if that run shows the build does not fit. The cache-warming job and the pull-request jobs' restore have not landed: what goes in the 10 GB is chosen from the sizes that first run logs, and until then every hosted job builds cold and none saves or restores a cache.
 
+> Note (agent decision, as built on 2026-11-23, [#3380](https://github.com/goodfetch/goodfetch/issues/3380)): the hosted Pre-merge suite holds every member, browser members included, so the shards number at most the crates among them, up to 4; the build job runs the members that are no crate, Vitest, Playwright and pytest, unsharded. The browser shards' copy of Chrome for Testing is restored from a cache keyed by the pinned build, which only the Release suite's Linux x64 cells save, on `main`; the other caches still wait on the cache-warming job.
+
 ### Reports
 
 - **Every runner writes JUnit XML in every run, local or CI:** nextest's `junit` output in each profile, Vitest's and Playwright's `junit` reporters, and pytest's `--junitxml`.

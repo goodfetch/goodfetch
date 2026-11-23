@@ -9,7 +9,7 @@
 
 use serde_json::{Value, json};
 
-use crate::workspace::{Workspace, finding};
+use crate::workspace::{Finding, Workspace, finding};
 
 const COLLIE: &str = "crates/goodfetch-protocol/generated/collie.json";
 const FOXHOUND: &str = "crates/goodfetch-protocol/generated/foxhound.json";
@@ -86,23 +86,82 @@ fn released_with(before: impl FnOnce(&Workspace), announced: &str) -> Workspace 
     workspace
 }
 
+/// The stable entries `released` adds to both projections beside the
+/// fixture's own, one per section the fixture leaves empty.
+fn add_stable_entries(projection: &mut Value) {
+    projection["settings"]
+        .as_array_mut()
+        .unwrap()
+        .push(setting());
+    projection["handler_requests"] = json!([{
+        "name": "sample.ask",
+        "params": {"$ref": "#/$defs/SampleAsk"},
+        "result": {"$ref": "#/$defs/SampleAnswer"},
+        "stability": "stable"
+    }]);
+    projection["exit_codes"] = json!([{"code": 3, "name": "refused"}]);
+    projection["shared_type_values"] = json!([
+        {"name": "consent_required", "type": "block_cause"},
+        {"name": "consent_required", "type": "completeness_reason_code"}
+    ]);
+    entry(projection, "metrics", "goodfetch.sample.echoes")["labels"] =
+        json!([{"name": "tier", "values": ["first", "second"]}]);
+    entry(projection, "plugin_kinds", "sample_store")["stability"] = json!("stable");
+    let definitions = &mut projection["$defs"];
+    definitions["SampleAsk"] = json!({
+        "additionalProperties": false,
+        "properties": {"question": {"oneOf": [{"const": "why"}, {"const": "how"}]}},
+        "required": ["question"],
+        "type": "object"
+    });
+    definitions["SampleAnswer"] = json!({
+        "additionalProperties": false,
+        "properties": {"tone": {"oneOf": [{"const": "plain"}, {"const": "warm"}]}},
+        "required": ["tone"],
+        "type": "object"
+    });
+    definitions["SampleRefusal"] = json!({
+        "properties": {"limit": {"type": "integer"}},
+        "required": ["limit"],
+        "type": "object"
+    });
+    if let Some(refused) = projection["error_codes"]
+        .as_array_mut()
+        .unwrap()
+        .iter_mut()
+        .find(|code| code["name"] == "sample_crawl_refused")
+    {
+        refused["details"] = json!({"$ref": "#/$defs/SampleRefusal"});
+    }
+}
+
 fn released() -> Workspace {
     released_with(
         |workspace| {
             for path in [COLLIE, FOXHOUND] {
-                edit_json(workspace, path, |projection| {
-                    projection["settings"]
-                        .as_array_mut()
-                        .unwrap()
-                        .push(setting());
-                });
+                edit_json(workspace, path, add_stable_entries);
             }
             edit_json(workspace, BUNDLE, |bundle| {
                 bundle["outputs"] = json!({"daemon.status": output()});
+                bundle["command_failed"] = json!({"$ref": "#/$defs/CommandFailed"});
+                bundle["$defs"]["CommandFailed"] = json!({
+                    "properties": {"code": {"type": "string"}},
+                    "required": ["code"],
+                    "type": "object"
+                });
             });
         },
         "",
     )
+}
+
+/// The findings of a change to `subject`: one unannounced break, or none.
+fn expected(breaks: bool, subject: &str) -> Vec<Finding> {
+    if breaks {
+        vec![finding("unannounced-break", subject)]
+    } else {
+        vec![]
+    }
 }
 
 #[test]
@@ -386,15 +445,12 @@ fn an_operations_types_change_by_the_side_its_data_flows(
 
     let outcome = workspace.xtask(&["api-check"]);
 
-    let expected = if breaks {
-        vec![finding(
-            "unannounced-break",
-            "foxhound operations sample.crawl",
-        )]
-    } else {
-        vec![]
-    };
-    assert_eq!(outcome.findings(), expected, "{}", outcome.stdout);
+    assert_eq!(
+        outcome.findings(),
+        expected(breaks, "foxhound operations sample.crawl"),
+        "{}",
+        outcome.stdout
+    );
 }
 
 #[rstest::rstest]
@@ -417,15 +473,12 @@ fn a_settings_change_by_what_a_user_may_write(
 
     let outcome = workspace.xtask(&["api-check"]);
 
-    let expected = if breaks {
-        vec![finding(
-            "unannounced-break",
-            "collie settings sample.max_pages",
-        )]
-    } else {
-        vec![]
-    };
-    assert_eq!(outcome.findings(), expected, "{}", outcome.stdout);
+    assert_eq!(
+        outcome.findings(),
+        expected(breaks, "collie settings sample.max_pages"),
+        "{}",
+        outcome.stdout
+    );
 }
 
 #[test]
@@ -462,69 +515,267 @@ fn a_changed_default_of_a_setting_that_weakens_a_guarantee_is_a_break() {
     );
 }
 
+/// Each case changes a stable entry of Foxhound's projection, other than an
+/// operation's, and says whether that breaks the code written against it.
 #[rstest::rstest]
-#[case::a_label_removed(json!(["tier"]), json!([]), true)]
-#[case::a_label_added(json!([]), json!(["tier"]), false)]
-fn a_metrics_labels(#[case] before: Value, #[case] after: Value, #[case] breaks: bool) {
-    let workspace = released_with(
-        |workspace| {
-            edit_json(workspace, COLLIE, |projection| {
-                entry(projection, "metrics", "goodfetch.sample.echoes")["labels"] = before;
-            });
-        },
-        "",
+#[case::a_metric_label_removed(
+    "metrics goodfetch.sample.echoes",
+    |projection: &mut Value| { entry(projection, "metrics", "goodfetch.sample.echoes")["labels"] = json!([]); },
+    true
+)]
+#[case::a_metric_label_added(
+    "metrics goodfetch.sample.echoes",
+    |projection: &mut Value| {
+        entry(projection, "metrics", "goodfetch.sample.echoes")["labels"]
+            .as_array_mut().unwrap().push(json!({"name": "kind", "values": ["text"]}));
+    },
+    false
+)]
+#[case::a_metric_label_value_removed(
+    "metrics goodfetch.sample.echoes",
+    |projection: &mut Value| { entry(projection, "metrics", "goodfetch.sample.echoes")["labels"][0]["values"] = json!(["first"]); },
+    true
+)]
+#[case::a_metric_label_value_added(
+    "metrics goodfetch.sample.echoes",
+    |projection: &mut Value| {
+        entry(projection, "metrics", "goodfetch.sample.echoes")["labels"][0]["values"] = json!(["first", "second", "third"]);
+    },
+    false
+)]
+#[case::an_error_code_no_longer_retryable(
+    "error_codes sample_crawl_refused",
+    |projection: &mut Value| { entry(projection, "error_codes", "sample_crawl_refused")["retryable"] = json!(false); },
+    true
+)]
+#[case::an_error_codes_details_field_removed(
+    "error_codes sample_crawl_refused",
+    |projection: &mut Value| { projection["$defs"]["SampleRefusal"] = json!({"type": "object"}); },
+    true
+)]
+#[case::an_error_code_with_new_details(
+    "error_codes sample_refused",
+    |projection: &mut Value| { entry(projection, "error_codes", "sample_refused")["details"] = json!({"$ref": "#/$defs/SampleRefusal"}); },
+    false
+)]
+#[case::an_exit_code_renumbered(
+    "exit_codes refused",
+    |projection: &mut Value| { entry(projection, "exit_codes", "refused")["code"] = json!(4); },
+    true
+)]
+#[case::an_events_payload_field_removed(
+    "events sample.crawled",
+    |projection: &mut Value| { projection["$defs"]["SampleCrawled"] = json!({"type": "object"}); },
+    true
+)]
+#[case::an_events_payload_field_added(
+    "events sample.crawled",
+    |projection: &mut Value| { projection["$defs"]["SampleCrawled"]["properties"]["skipped"] = json!({"type": "integer"}); },
+    false
+)]
+#[case::a_handler_request_asking_a_new_question(
+    "handler_requests sample.ask",
+    |projection: &mut Value| { projection["$defs"]["SampleAsk"]["properties"]["question"]["oneOf"].as_array_mut().unwrap().push(json!({"const": "when"})); },
+    false
+)]
+#[case::a_handler_request_asking_one_question_less(
+    "handler_requests sample.ask",
+    |projection: &mut Value| { projection["$defs"]["SampleAsk"]["properties"]["question"]["oneOf"] = json!([{"const": "why"}]); },
+    false
+)]
+#[case::a_handler_request_asking_with_other_fields(
+    "handler_requests sample.ask",
+    |projection: &mut Value| { projection["$defs"]["SampleAsk"].as_object_mut().unwrap().remove("additionalProperties"); },
+    false
+)]
+#[case::a_handler_answer_refusing_a_tone(
+    "handler_requests sample.ask",
+    |projection: &mut Value| { projection["$defs"]["SampleAnswer"]["properties"]["tone"]["oneOf"] = json!([{"const": "plain"}]); },
+    true
+)]
+#[case::a_handler_answer_taking_another_tone(
+    "handler_requests sample.ask",
+    |projection: &mut Value| { projection["$defs"]["SampleAnswer"]["properties"]["tone"]["oneOf"].as_array_mut().unwrap().push(json!({"const": "terse"})); },
+    false
+)]
+#[case::a_handler_answer_taking_other_fields(
+    "handler_requests sample.ask",
+    |projection: &mut Value| { projection["$defs"]["SampleAnswer"].as_object_mut().unwrap().remove("additionalProperties"); },
+    false
+)]
+#[case::a_handler_answer_requiring_a_new_field(
+    "handler_requests sample.ask",
+    |projection: &mut Value| {
+        let answer = &mut projection["$defs"]["SampleAnswer"];
+        answer["properties"]["mood"] = json!({"type": "string"});
+        answer["required"] = json!(["tone", "mood"]);
+    },
+    true
+)]
+#[case::a_plugin_method_added(
+    "plugin_kinds sample_store",
+    |projection: &mut Value| {
+        let method = json!({"name": "take", "params": {"$ref": "#/$defs/SampleStorePutParams"}, "result": {"$ref": "#/$defs/SampleStorePutResult"}});
+        entry(projection, "plugin_kinds", "sample_store")["methods"].as_array_mut().unwrap().push(method);
+    },
+    true
+)]
+#[case::a_plugin_method_given_a_new_parameter(
+    "plugin_kinds sample_store",
+    |projection: &mut Value| { projection["$defs"]["SampleStorePutParams"]["properties"]["ttl"] = json!({"type": "integer"}); },
+    false
+)]
+#[case::a_shared_type_value_removed(
+    "shared_type_values completeness_reason_code.consent_required",
+    |projection: &mut Value| { projection["shared_type_values"].as_array_mut().unwrap().pop(); },
+    true
+)]
+#[case::a_shared_type_value_moved(
+    "shared_type_values completeness_reason_code.consent_required",
+    |projection: &mut Value| { projection["shared_type_values"][1]["type"] = json!("audit_kind"); },
+    true
+)]
+fn a_stable_entry_changes_by_the_side_its_data_flows(
+    #[case] subject: &str,
+    #[case] change: fn(&mut Value),
+    #[case] breaks: bool,
+) {
+    let workspace = released();
+    edit_json(&workspace, FOXHOUND, change);
+
+    let outcome = workspace.xtask(&["api-check"]);
+
+    assert_eq!(
+        outcome.findings(),
+        expected(breaks, &format!("foxhound {subject}")),
+        "{}",
+        outcome.stdout
     );
-    edit_json(&workspace, COLLIE, |projection| {
-        entry(projection, "metrics", "goodfetch.sample.echoes")["labels"] = after;
+}
+
+#[test]
+fn a_shared_type_value_added_is_an_addition() {
+    let workspace = released();
+    edit_json(&workspace, FOXHOUND, |projection| {
+        projection["shared_type_values"]
+            .as_array_mut()
+            .unwrap()
+            .push(json!({"name": "payment_required", "type": "block_cause"}));
     });
 
     let outcome = workspace.xtask(&["api-check"]);
 
-    let expected = if breaks {
-        vec![finding(
-            "unannounced-break",
-            "collie metrics goodfetch.sample.echoes",
-        )]
-    } else {
-        vec![]
-    };
-    assert_eq!(outcome.findings(), expected, "{}", outcome.stdout);
+    assert_eq!(outcome.findings(), vec![], "{}", outcome.stdout);
+    assert!(
+        outcome.notes().contains(&finding(
+            "addition",
+            "foxhound shared_type_values block_cause.payment_required"
+        )),
+        "{}",
+        outcome.stdout
+    );
+}
+
+#[test]
+fn two_entries_under_one_name_fail_rather_than_hide_one() {
+    let workspace = released();
+    edit_json(&workspace, FOXHOUND, |projection| {
+        let refused = entry(projection, "exit_codes", "refused").clone();
+        projection["exit_codes"]
+            .as_array_mut()
+            .unwrap()
+            .push(refused);
+    });
+
+    let outcome = workspace.xtask(&["api-check"]);
+
+    assert_eq!(
+        outcome.findings(),
+        vec![finding("duplicate-entry", "foxhound exit_codes refused")],
+        "{}",
+        outcome.stdout
+    );
 }
 
 #[rstest::rstest]
-#[case::a_removed_output(|outputs: &mut Value| { outputs.as_object_mut().unwrap().remove("daemon.status"); }, true)]
+#[case::a_removed_output(
+    "outputs daemon.status",
+    |bundle: &mut Value| { bundle["outputs"].as_object_mut().unwrap().remove("daemon.status"); },
+    true
+)]
 #[case::a_removed_field(
-    |outputs: &mut Value| {
-        let status = &mut outputs["daemon.status"];
+    "outputs daemon.status",
+    |bundle: &mut Value| {
+        let status = &mut bundle["outputs"]["daemon.status"];
         status["properties"].as_object_mut().unwrap().remove("pid");
         status["required"] = json!(["state"]);
     },
     true
 )]
 #[case::a_new_field(
-    |outputs: &mut Value| { outputs["daemon.status"]["properties"]["address"] = json!({"type": "string"}); },
+    "outputs daemon.status",
+    |bundle: &mut Value| { bundle["outputs"]["daemon.status"]["properties"]["address"] = json!({"type": "string"}); },
     false
 )]
 #[case::a_new_value(
-    |outputs: &mut Value| { outputs["daemon.status"]["properties"]["state"]["enum"] = json!(["running", "stopped", "starting"]); },
+    "outputs daemon.status",
+    |bundle: &mut Value| { bundle["outputs"]["daemon.status"]["properties"]["state"]["enum"] = json!(["running", "stopped", "starting"]); },
     false
 )]
-#[case::a_new_command(|outputs: &mut Value| { outputs["daemon.stop"] = json!({"type": "object"}); }, false)]
+#[case::a_new_command(
+    "outputs daemon.stop",
+    |bundle: &mut Value| { bundle["outputs"]["daemon.stop"] = json!({"type": "object"}); },
+    false
+)]
+#[case::a_failure_without_its_code(
+    "command_failed",
+    |bundle: &mut Value| { bundle["$defs"]["CommandFailed"] = json!({"type": "object"}); },
+    true
+)]
+#[case::a_failure_with_a_new_field(
+    "command_failed",
+    |bundle: &mut Value| { bundle["$defs"]["CommandFailed"]["properties"]["hint"] = json!({"type": "string"}); },
+    false
+)]
 fn a_json_outputs_change_by_what_a_reader_may_meet(
+    #[case] subject: &str,
     #[case] change: fn(&mut Value),
     #[case] breaks: bool,
 ) {
     let workspace = released();
-    edit_json(&workspace, BUNDLE, |bundle| change(&mut bundle["outputs"]));
+    edit_json(&workspace, BUNDLE, change);
 
     let outcome = workspace.xtask(&["api-check"]);
 
-    let expected = if breaks {
-        vec![finding("unannounced-break", "bundle outputs daemon.status")]
-    } else {
-        vec![]
-    };
-    assert_eq!(outcome.findings(), expected, "{}", outcome.stdout);
+    assert_eq!(
+        outcome.findings(),
+        expected(breaks, &format!("bundle {subject}")),
+        "{}",
+        outcome.stdout
+    );
+}
+
+#[test]
+fn an_announcement_without_a_reason_fails() {
+    let workspace = released_with(
+        |_| {},
+        "\n[[announced]]\nentry = \"foxhound error_codes sample_crawl_refused\"\nreason = \" \"\n",
+    );
+    edit_json(&workspace, FOXHOUND, |projection| {
+        remove(projection, "error_codes", "sample_crawl_refused");
+    });
+
+    let outcome = workspace.xtask(&["api-check"]);
+
+    assert_eq!(
+        outcome.findings(),
+        vec![finding(
+            "announcement-without-reason",
+            "foxhound error_codes sample_crawl_refused"
+        )],
+        "{}",
+        outcome.stdout
+    );
 }
 
 #[test]

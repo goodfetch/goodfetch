@@ -14,12 +14,15 @@
 //! A change is a break or an addition by the side its data flows. What a
 //! user sends (an operation's parameters, a setting's value, a handler's
 //! answer) may accept more and never less; what Goodfetch answers (results,
-//! event payloads, `--json` output) may say more, new values included, as
-//! the SDKs keep what they do not know (ADRs 0079 and 0082), and never less.
-//! Descriptions, the version an entry arrived in and its deprecation change
-//! nothing; a changed default is a break only for a setting with a value
-//! that weakens a guarantee (ADR 0030). Anything else that changed, and that
-//! the rules cannot tell apart, is a break.
+//! event payloads, error details, `--json` output) may say more, new values
+//! and fields included, as the SDKs keep what they do not know (ADRs 0079
+//! and 0082), and never less. Descriptions, the version an entry arrived in
+//! and its deprecation change nothing. A changed default is a break only
+//! when it weakens a guarantee (ADR 0030); the projection says only that a
+//! setting has a value that weakens one, not which way, so any changed
+//! default of such a setting is a break, which an announcement passes.
+//! Anything else that changed, and that the rules cannot tell apart, is a
+//! break.
 //!
 //! An entry that was Experimental may change in any way, and a break that
 //! `compat/api.toml` announces for the next major passes; each other break
@@ -34,6 +37,7 @@
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::path::Path;
 use std::process::ExitCode;
+use std::sync::LazyLock;
 
 use anyhow::{Context as _, Result, bail};
 use serde::Deserialize;
@@ -54,7 +58,8 @@ const PROJECTIONS: [(&str, &str); 2] = [
     ),
 ];
 
-/// The bundle, whose `outputs` are the `--json` output types.
+/// The bundle, whose `outputs` are the `--json` output types and
+/// `command_failed` that of every command that fails (ADR 0069).
 const BUNDLE: &str = "crates/goodfetch-protocol/generated/bundle.json";
 
 /// An entry's fields that no caller depends on.
@@ -124,8 +129,8 @@ struct Api {
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Announced {
-    /// The finding's subject: `<collie|foxhound> <section> <name>`, or
-    /// `bundle outputs <command>`.
+    /// The finding's subject: `<collie|foxhound> <section> <name>`,
+    /// `bundle outputs <command>` or `bundle command_failed`.
     entry: String,
     /// Why, as the release notes will say it.
     reason: String,
@@ -187,13 +192,16 @@ pub(crate) fn run(root: &Path) -> Result<ExitCode> {
 fn check(root: &Path) -> Result<Outcome> {
     let text = std::fs::read_to_string(root.join(API)).with_context(|| format!("reading {API}"))?;
     let api: Api = toml::from_str(&text).with_context(|| format!("parsing {API}"))?;
+    let commit = git::commit(root, &api.previous)
+        .with_context(|| format!("resolving {API}'s previous release `{}`", api.previous))?;
     let mut entries: BTreeMap<String, Changes> = BTreeMap::new();
+    let mut duplicates = BTreeSet::new();
     for (product, path) in PROJECTIONS {
-        let previous = previous_json(root, &api.previous, path)?;
+        let previous = previous_json(root, &commit, path)?;
         let current = current_json(root, path)?;
-        compare_projection(product, &previous, &current, &mut entries)?;
+        compare_projection(product, &previous, &current, &mut entries, &mut duplicates)?;
     }
-    let previous = previous_json(root, &api.previous, BUNDLE)?;
+    let previous = previous_json(root, &commit, BUNDLE)?;
     let current = current_json(root, BUNDLE)?;
     compare_outputs(&previous, &current, &mut entries);
 
@@ -202,7 +210,25 @@ fn check(root: &Path) -> Result<Outcome> {
         .iter()
         .map(|announcement| (announcement.entry.as_str(), announcement))
         .collect();
-    let mut findings = Vec::new();
+    let mut findings: Vec<Finding> = api
+        .announced
+        .iter()
+        .filter(|announcement| announcement.reason.trim().is_empty())
+        .map(|announcement| {
+            Finding::new(
+                "announcement-without-reason",
+                &announcement.entry,
+                "an announced break says why, for the release notes",
+            )
+        })
+        .collect();
+    findings.extend(duplicates.iter().map(|entry| {
+        Finding::new(
+            "duplicate-entry",
+            entry,
+            "two entries share this key, so the comparison would read one of them only",
+        )
+    }));
     let mut notes = Vec::new();
     for (entry, changes) in &entries {
         if !changes.breaks.is_empty() {
@@ -239,6 +265,7 @@ fn check(root: &Path) -> Result<Outcome> {
     Ok(Outcome { findings, notes })
 }
 
+/// `path` at `commit`, a commit's full name, which no option starts with.
 fn previous_json(root: &Path, commit: &str, path: &str) -> Result<Value> {
     let bytes = git::bytes(root, &["show", &format!("{commit}:{path}")])
         .with_context(|| format!("reading {path} at the previous release's commit {commit}"))?;
@@ -258,18 +285,9 @@ fn compare_projection(
     previous: &Value,
     current: &Value,
     entries: &mut BTreeMap<String, Changes>,
+    duplicates: &mut BTreeSet<String>,
 ) -> Result<()> {
-    let empty = Map::new();
-    let definitions = Definitions {
-        previous: previous
-            .get("$defs")
-            .and_then(Value::as_object)
-            .unwrap_or(&empty),
-        current: current
-            .get("$defs")
-            .and_then(Value::as_object)
-            .unwrap_or(&empty),
-    };
+    let definitions = Definitions::of(previous, current);
     let Some(sections) = previous.as_object() else {
         bail!("{product}'s projection is no object");
     };
@@ -277,11 +295,11 @@ fn compare_projection(
         let Some(previous_entries) = previous_entries.as_array() else {
             continue;
         };
-        let previous_entries = by_name(previous_entries);
+        let previous_entries = keyed(product, section, previous_entries, duplicates);
         let current_entries = current
             .get(section)
             .and_then(Value::as_array)
-            .map(|entries| by_name(entries))
+            .map(|entries| keyed(product, section, entries, duplicates))
             .unwrap_or_default();
         for (name, previous_entry) in &previous_entries {
             if is_experimental(previous_entry) {
@@ -316,6 +334,32 @@ fn compare_projection(
     Ok(())
 }
 
+/// A section's entries by their key: the name, which a shared type's value
+/// shares with the values of other types, so its key is `<type>.<name>`.
+/// Two entries under one key are set aside in `duplicates`, as the
+/// comparison would read one of them only.
+fn keyed<'a>(
+    product: &str,
+    section: &str,
+    entries: &'a [Value],
+    duplicates: &mut BTreeSet<String>,
+) -> BTreeMap<String, &'a Value> {
+    let mut keyed = BTreeMap::new();
+    for entry in entries {
+        let Some(name) = entry.get("name").and_then(Value::as_str) else {
+            continue;
+        };
+        let key = match (section, entry.get("type").and_then(Value::as_str)) {
+            ("shared_type_values", Some(kind)) => format!("{kind}.{name}"),
+            _ => name.to_owned(),
+        };
+        if keyed.insert(key.clone(), entry).is_some() {
+            duplicates.insert(format!("{product} {section} {key}"));
+        }
+    }
+    keyed
+}
+
 fn by_name(entries: &[Value]) -> BTreeMap<String, &Value> {
     entries
         .iter()
@@ -336,7 +380,8 @@ fn schema_side(section: &str, field: &str) -> Option<Side> {
         ("operations", "result")
         | ("events", "payload")
         | ("handler_requests", "params")
-        | ("kind_parts" | "shared_type_values", "type") => Some(Side::Output),
+        | ("error_codes", "details")
+        | ("kind_parts", "type") => Some(Side::Output),
         _ => None,
     }
 }
@@ -387,19 +432,65 @@ fn compare_entry(
                 changes.adds(field, "now true");
             }
             "methods" => compare_methods(before, after, definitions, changes),
-            _ => match (string_set(before), string_set(after)) {
-                (Some(before), Some(after)) => {
-                    for removed in before.difference(&after) {
-                        changes.breaks(field, format!("`{removed}` removed"));
-                    }
-                    for added in after.difference(&before) {
-                        changes.adds(field, format!("`{added}` added"));
-                    }
-                }
-                _ => changes.breaks(field, format!("changed from {before} to {after}")),
-            },
+            _ => compare_plain(field, before, after, changes),
         }
     }
+}
+
+/// A field that no schema describes. A list of strings, or of named objects
+/// such as a metric's labels, may gain members and never lose one, and a
+/// named object's own fields follow the same rule; anything else that
+/// changed is a break.
+fn compare_plain(at: &str, before: &Value, after: &Value, changes: &mut Changes) {
+    if before == after {
+        return;
+    }
+    if let (Some(before), Some(after)) = (string_set(before), string_set(after)) {
+        for removed in before.difference(&after) {
+            changes.breaks(at, format!("`{removed}` removed"));
+        }
+        for added in after.difference(&before) {
+            changes.adds(at, format!("`{added}` added"));
+        }
+        return;
+    }
+    if let (Some(before), Some(after)) = (named(before), named(after)) {
+        for (name, previous) in &before {
+            let at = format!("{at}.{name}");
+            match after.get(name) {
+                None => changes.breaks(&at, "removed"),
+                Some(current) => {
+                    let fields: BTreeSet<&String> = [previous, current]
+                        .into_iter()
+                        .filter_map(|member| member.as_object())
+                        .flat_map(Map::keys)
+                        .collect();
+                    for field in fields {
+                        compare_plain(
+                            &format!("{at}.{field}"),
+                            previous.get(field).unwrap_or(&Value::Null),
+                            current.get(field).unwrap_or(&Value::Null),
+                            changes,
+                        );
+                    }
+                }
+            }
+        }
+        for name in after.keys().filter(|name| !before.contains_key(*name)) {
+            changes.adds(&format!("{at}.{name}"), "added");
+        }
+        return;
+    }
+    changes.breaks(at, format!("changed from {before} to {after}"));
+}
+
+/// A list whose members are all objects with a name, by that name.
+fn named(value: &Value) -> Option<BTreeMap<String, &Value>> {
+    value
+        .as_array()?
+        .iter()
+        .map(|member| Some((member.get("name")?.as_str()?.to_owned(), member)))
+        .collect()
 }
 
 /// A Plugin kind's methods, which a plugin implements: it reads their
@@ -448,53 +539,46 @@ fn string_set(value: &Value) -> Option<BTreeSet<&str>> {
     value.as_array()?.iter().map(Value::as_str).collect()
 }
 
-/// Compares the bundle's `--json` output types, each by its command.
+/// Compares the bundle's `--json` output types: each command's, and
+/// `command_failed`, that of every command that fails.
 fn compare_outputs(previous: &Value, current: &Value, entries: &mut BTreeMap<String, Changes>) {
-    let empty = Map::new();
-    let definitions = Definitions {
-        previous: previous
-            .get("$defs")
-            .and_then(Value::as_object)
-            .unwrap_or(&empty),
-        current: current
-            .get("$defs")
-            .and_then(Value::as_object)
-            .unwrap_or(&empty),
-    };
-    let outputs = |bundle: &Value| {
-        bundle
+    let definitions = Definitions::of(previous, current);
+    let outputs = |bundle: &Value| -> BTreeMap<String, Value> {
+        let commands = bundle
             .get("outputs")
             .and_then(Value::as_object)
-            .cloned()
-            .unwrap_or_default()
+            .into_iter()
+            .flatten()
+            .map(|(command, schema)| (format!("outputs {command}"), schema.clone()));
+        let failure = bundle
+            .get("command_failed")
+            .map(|schema| ("command_failed".to_owned(), schema.clone()));
+        commands.chain(failure).collect()
     };
     let (before, after) = (outputs(previous), outputs(current));
-    for (command, previous_schema) in &before {
+    for (output, previous_schema) in &before {
         let mut changes = Changes::default();
-        match after.get(command) {
-            None => changes.breaks(command, "removed"),
+        match after.get(output) {
+            None => changes.breaks(output, "removed"),
             Some(current_schema) => {
                 Schemas::new(&definitions).compare(
                     previous_schema,
                     current_schema,
                     Side::Output,
-                    command,
+                    output,
                     &mut changes,
                 );
             }
         }
         if !changes.breaks.is_empty() || !changes.additions.is_empty() {
-            entries.insert(format!("bundle outputs {command}"), changes);
+            entries.insert(format!("bundle {output}"), changes);
         }
     }
-    for command in after
-        .keys()
-        .filter(|command| !before.contains_key(*command))
-    {
+    for output in after.keys().filter(|output| !before.contains_key(*output)) {
         entries
-            .entry(format!("bundle outputs {command}"))
+            .entry(format!("bundle {output}"))
             .or_default()
-            .adds(command, "added");
+            .adds(output, "added");
     }
 }
 
@@ -502,6 +586,22 @@ fn compare_outputs(previous: &Value, current: &Value, entries: &mut BTreeMap<Str
 struct Definitions<'a> {
     previous: &'a Map<String, Value>,
     current: &'a Map<String, Value>,
+}
+
+impl<'a> Definitions<'a> {
+    /// The `$defs` of a previous and a current file, empty where one has none.
+    fn of(previous: &'a Value, current: &'a Value) -> Self {
+        static NONE: LazyLock<Map<String, Value>> = LazyLock::new(Map::new);
+        let definitions = |file: &'a Value| {
+            file.get("$defs")
+                .and_then(Value::as_object)
+                .unwrap_or(&NONE)
+        };
+        Self {
+            previous: definitions(previous),
+            current: definitions(current),
+        }
+    }
 }
 
 /// A walk over a pair of schemas, which follows each side's references and
@@ -558,11 +658,13 @@ impl<'a> Schemas<'a> {
         if let (Some(_), Some(_)) = (reference(previous), reference(current)) {
             return self.compare(previous, current, side, at, changes);
         }
-        if previous.is_null() || current.is_null() {
-            if previous != current {
-                changes.breaks(at, "changed");
-            }
-            return;
+        match (previous.is_null(), current.is_null()) {
+            (true, true) => return,
+            // Data where there was none: what a user sends must now carry
+            // it, and what Goodfetch answers says more.
+            (true, false) => return changes.narrows(side, at, "added"),
+            (false, true) => return changes.breaks(at, "removed"),
+            (false, false) => {}
         }
         let empty = Map::new();
         let before = previous.as_object().unwrap_or(&empty);
@@ -666,8 +768,10 @@ impl<'a> Schemas<'a> {
             before.get("additionalProperties"),
             after.get("additionalProperties"),
         ) {
+            // What a user sends may accept more, and what Goodfetch answers
+            // may say more: the SDKs keep the fields they do not know.
             (Some(Value::Bool(false)), None | Some(Value::Bool(true) | Value::Object(_))) => {
-                changes.widens(side, at, "now takes other properties");
+                changes.adds(at, "now takes other properties");
             }
             (None | Some(Value::Bool(true) | Value::Object(_)), Some(Value::Bool(false))) => {
                 changes.narrows(side, at, "no longer takes other properties");
@@ -689,8 +793,8 @@ impl<'a> Schemas<'a> {
         at: &str,
         changes: &mut Changes,
     ) {
-        let before = self.variants(previous, true);
-        let after = self.variants(current, false);
+        let before = variants(previous, self.definitions.previous);
+        let after = variants(current, self.definitions.current);
         for (key, previous_variant) in &before {
             match after.get(key) {
                 None => changes.narrows(side, at, format!("`{key}` removed")),
@@ -711,29 +815,26 @@ impl<'a> Schemas<'a> {
             changes.adds(at, format!("`{key}` added"));
         }
     }
+}
 
-    fn variants(&self, schema: &Value, previous: bool) -> BTreeMap<String, Value> {
-        let alternatives = schema
-            .get("anyOf")
-            .or_else(|| schema.get("oneOf"))
-            .and_then(Value::as_array)
-            .cloned()
-            .unwrap_or_else(|| vec![schema.clone()]);
-        let definitions = if previous {
-            self.definitions.previous
-        } else {
-            self.definitions.current
-        };
-        alternatives
-            .into_iter()
-            .map(|alternative| (variant_key(&alternative, definitions), alternative))
-            .collect()
-    }
+/// A schema's `anyOf` or `oneOf` alternatives, or the schema itself, by
+/// their key, read with the `$defs` of the file the schema is from.
+fn variants(schema: &Value, definitions: &Map<String, Value>) -> BTreeMap<String, Value> {
+    let alternatives = schema
+        .get("anyOf")
+        .or_else(|| schema.get("oneOf"))
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_else(|| vec![schema.clone()]);
+    alternatives
+        .into_iter()
+        .map(|alternative| (variant_key(&alternative, definitions), alternative))
+        .collect()
 }
 
 /// A `anyOf` or `oneOf` alternative's key: the value it holds, else its tag
 /// property's value, else the definition it names, else its whole schema
-/// with its descriptions left out.
+/// without the keywords that validate nothing.
 fn variant_key(alternative: &Value, definitions: &Map<String, Value>) -> String {
     if let Some(value) = alternative.get("const") {
         return value.to_string();
@@ -751,18 +852,21 @@ fn variant_key(alternative: &Value, definitions: &Map<String, Value>) -> String 
     if let Some(name) = reference(alternative) {
         return name.to_owned();
     }
-    without_descriptions(alternative).to_string()
+    without_unchecked_keywords(alternative).to_string()
 }
 
-fn without_descriptions(value: &Value) -> Value {
+/// `value` without the `UNCHECKED_KEYWORDS`, at every depth.
+fn without_unchecked_keywords(value: &Value) -> Value {
     match value {
         Value::Object(map) => Value::Object(
             map.iter()
                 .filter(|(key, _)| !UNCHECKED_KEYWORDS.contains(&key.as_str()))
-                .map(|(key, value)| (key.clone(), without_descriptions(value)))
+                .map(|(key, value)| (key.clone(), without_unchecked_keywords(value)))
                 .collect(),
         ),
-        Value::Array(values) => Value::Array(values.iter().map(without_descriptions).collect()),
+        Value::Array(values) => {
+            Value::Array(values.iter().map(without_unchecked_keywords).collect())
+        }
         other => other.clone(),
     }
 }

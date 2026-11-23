@@ -18,6 +18,7 @@ Decided in [ADR 0066](../adr/0066-upgrades-are-tested-from-a-frozen-corpus-and-s
 - **Bump a format's version only on `main`.** A patch never changes one: `xtask release` compares a patch's `head/` versions and schemas with the `x.y.0` tag's.
 - **Freeze from the release tag.** `xtask compat freeze --tag <tag>` copies the tag's `head/`, never `main`'s, which may hold unreleased versions. The release's entry in `compat/releases.toml` records its format versions, and `xtask compat check` requires a frozen set for each.
 - **Fixtures cover the whole schema:** every property in a JSON document and a non-null value in every column. They hold synthetic data and Secret references only.
+- **A stable contract breaks only in a major** (ADR 0030). `xtask api-check` compares each Product's projection (its catalog, settings and metric names among it) and the bundle's `--json` output types with the commit `compat/api.toml` names as the previous release: before the first release a commit of `main`, then each release's own, which its pull request sets. What a user sends may accept more and what Goodfetch answers may say more; anything else that changed in a stable entry fails as `unannounced-break`, unless `compat/api.toml` announces it for the next major with a reason. An Experimental entry changes freely, and an entry that leaves Collie's catalog for Foxhound's breaks Collie's (ADR 0095).
 - **A corpus test is golden.** It reads, writes back and compares with its snapshot. A migrated SQLite store must also match a fresh store's schema. Checkpoints resume, Plans replay without a model, Recipes run and transcripts replay.
   _Why:_ "it opens" misses a misread.
 
@@ -52,7 +53,7 @@ Decided in [ADR 0066](../adr/0066-upgrades-are-tested-from-a-frozen-corpus-and-s
 
 | Check | Suite |
 |---|---|
-| Corpus golden reads, fabricated refusals of files and of `hello` in process, compatibility-function tables, `upgrade-files` from fixtures, `xtask compat check` | Quick |
+| Corpus golden reads, fabricated refusals of files and of `hello` in process, compatibility-function tables, `upgrade-files` from fixtures, `xtask compat check`, `xtask api-check` | Quick |
 | Corpus replays, handshake refusals through the conformance harness, `upgrade-files` against the binary | Pre-merge |
 | Every test that needs released artifacts: the skew matrix, rolling upgrades, older engines, two majors, the Helm upgrade | Release |
 

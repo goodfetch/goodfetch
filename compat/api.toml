@@ -1,0 +1,18 @@
+# The API breakage check's input (`xtask api-check`, ADR 0030, issue 148).
+#
+# `previous` is the commit of the previous release of the major, whose
+# projections and `--json` output types the check compares with the tree's.
+# Before the first release it is a commit of `main` that stands for one; each
+# release's pull request moves it to the release's own commit.
+#
+# Each `[[announced]]` table names a break of a stable entry, announced for
+# the next major, by its finding's subject (`<collie|foxhound> <section>
+# <name>`, or `bundle outputs <command>`), and says why for the release
+# notes. The check fails on an announcement that names no break, so the list
+# is the one the release's pull request shows the owner.
+#
+#     [[announced]]
+#     entry = "foxhound operations crawl.start"
+#     reason = "…"
+
+previous = "c20e03c8ce403cea6572374b31e081f49d990fb6"

@@ -42,7 +42,7 @@ use std::sync::LazyLock;
 use anyhow::{Context as _, Result, bail};
 use serde_json::{Map, Value};
 
-use crate::api_baseline::{self, Changes, Outcome, RUST};
+use crate::api_baseline::{self, Changes, Outcome};
 use crate::check::Finding;
 use crate::git;
 
@@ -159,7 +159,7 @@ fn check(root: &Path) -> Result<Outcome> {
     let current = current_json(root, BUNDLE)?;
     compare_outputs(&previous, &current, &mut entries);
 
-    let mut outcome = baseline.verdict(|entry| !entry.starts_with(RUST), &entries);
+    let mut outcome = baseline.verdict(|entry| !api_baseline::is_package_break(entry), &entries);
     outcome.findings.extend(duplicates.iter().map(|entry| {
         Finding::new(
             "duplicate-entry",

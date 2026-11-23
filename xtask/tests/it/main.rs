@@ -109,6 +109,7 @@ mod scan;
 mod screenshots;
 mod sdk_exports;
 mod sdk_manifests;
+mod semver_checks;
 mod size;
 mod static_pie;
 mod stress;

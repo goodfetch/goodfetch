@@ -460,7 +460,7 @@ fn add_xtask(workspace: &Workspace, records: &Path) {
 }
 
 /// The steps of `plan` that run whatever a change reaches.
-const EVERY_RUN: [&str; 12] = [
+const EVERY_RUN: [&str; 13] = [
     "dco",
     "commit-messages",
     "floor-guard",
@@ -469,6 +469,7 @@ const EVERY_RUN: [&str; 12] = [
     "notices",
     "lint",
     "feature-combinations",
+    "semver-checks",
     "fuzz-check",
     "proofs",
     "journeys-tasks",
@@ -662,7 +663,13 @@ fn a_result_for_another_head_or_a_changed_tree_is_refused() {
 }
 
 /// The checks a run on the tree of their green result reuses.
-const TREE_ONLY: [&str; 4] = ["lint", "feature-combinations", "fuzz-check", "proofs"];
+const TREE_ONLY: [&str; 5] = [
+    "lint",
+    "feature-combinations",
+    "semver-checks",
+    "fuzz-check",
+    "proofs",
+];
 
 /// The fixture as a repository whose head holds what lint reads again: a
 /// Quality register with one Exception, which expires on `expires`, and a
@@ -1386,7 +1393,7 @@ const HOSTED_OWNED_FULL: [&str; 8] = [
 /// Linux runner and `ci/linux.sh` skips on the Linux gate host, and the
 /// steps no 4-vCPU hosted job finishes within ADR 0061's 30-minute cap
 /// (#3382).
-const RUN_BY_THE_FULL_GATE: [&str; 14] = [
+const RUN_BY_THE_FULL_GATE: [&str; 15] = [
     "dco",
     "commit-messages",
     "floor-guard",
@@ -1400,6 +1407,7 @@ const RUN_BY_THE_FULL_GATE: [&str; 14] = [
     "loom",
     "windows",
     "feature-combinations",
+    "semver-checks",
     "fuzz-check",
 ];
 

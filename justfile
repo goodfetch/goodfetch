@@ -1861,6 +1861,14 @@ feature-combinations:
     RUSTFLAGS="${RUSTFLAGS:-} --cfg goodfetch_without_opentelemetry" CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-$PWD/target}/without-opentelemetry" \
       cargo nextest run --locked --package goodfetch-collie --test it -E 'test(/^sdk::without_opentelemetry::/)'
 
+# cargo-semver-checks on `goodfetch-collie-client`, `goodfetch-collie` and
+# `goodfetch-foxhound`, their testing kits included, against the previous
+# release's commit `compat/api.toml` names (ADRs 0030, 0069, issue 148).
+# It builds both trees' rustdoc, minutes, so the full gate runs it and the
+# Quick suite's `xtask api-check` does not.
+semver-checks:
+    ci/tool.sh cargo-semver-checks cargo run --quiet --bin xtask -- semver-checks
+
 # Miri over the pure-Rust `unsafe` modules that opt in through ci/miri.toml
 # (STYLE.md, `unsafe`).
 miri:

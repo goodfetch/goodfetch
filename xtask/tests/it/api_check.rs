@@ -353,6 +353,19 @@ fn an_announcement_naming_no_break_fails() {
     );
 }
 
+#[test]
+fn an_announcement_of_a_rust_crates_break_is_left_to_semver_checks() {
+    let workspace = released_with(
+        |_| {},
+        "\n[[announced]]\nentry = \"rust goodfetch-foxhound function_missing\"\nreason = \"`crawl` goes.\"\n",
+    );
+
+    let outcome = workspace.xtask(&["api-check"]);
+
+    assert_eq!(outcome.findings(), vec![], "{}", outcome.stderr);
+    assert_eq!(outcome.code, 0);
+}
+
 /// Each case changes the stable `sample.crawl`'s types in Foxhound's
 /// projection and says whether that breaks its callers.
 #[rstest::rstest]

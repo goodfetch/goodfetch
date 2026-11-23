@@ -43,6 +43,7 @@ fn meaning(failure: &ProviderFailure) -> Meaning {
         ProviderFailure::Refused { .. } => Meaning::Refused,
         ProviderFailure::Unrecognized(_) => Meaning::Unrecognized,
         ProviderFailure::Busy { .. } => panic!("no OS provider here answers that it is busy"),
+        ProviderFailure::NoCode { .. } => panic!("no OS provider here makes a one-time code"),
     }
 }
 

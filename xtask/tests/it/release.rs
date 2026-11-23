@@ -25,10 +25,12 @@ const RELEASED: [&str; 12] = [
     "uv.lock",
 ];
 
-/// The fixture committed, so `git diff` shows what the command changed.
+/// The fixture committed, so `git diff` shows what the command changed, and
+/// tagged as `1.4.0`, which a patch's formats are compared with.
 fn committed() -> Workspace {
     let workspace = Workspace::from_fixture("release");
     workspace.commit_all();
+    workspace.git(&["tag", "v1.4.0"]);
     workspace
 }
 

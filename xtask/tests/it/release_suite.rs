@@ -20,7 +20,10 @@ const OLDER: &str = "2222222222222222222222222222222222222222";
 const ISSUES: &str = "/repos/goodfetch/goodfetch/issues";
 const TRIAGE_ISSUES: &str =
     "/repos/goodfetch/goodfetch/issues?labels=needs-triage&state=all&per_page=100&page=1";
-const MILESTONES: &str = "/repos/goodfetch/goodfetch/milestones?state=open&per_page=100&page=1";
+/// The ticket of spec 130 that added the ceiling, in milestone 1: the
+/// ceiling's issue goes to that spec, in that milestone (ADR 0136).
+const CEILING_TICKET: &str = "/repos/goodfetch/goodfetch/issues/535";
+const SPEC_SUB_ISSUES: &str = "/repos/goodfetch/goodfetch/issues/130/sub_issues";
 /// The marker line of the ceiling's `needs-triage` issue.
 const CEILING_MARKER: &str = "<!-- goodfetch-results: needs-triage release-ceiling -->";
 
@@ -433,10 +436,11 @@ fn months_first_run_on_main_over_the_ceiling_on_its_own_starts_and_opens_an_issu
         &[
             (TRIAGE_ISSUES, "[]"),
             (
-                MILESTONES,
-                r#"[{"number": 1, "open_issues": 3, "due_on": null}]"#,
+                CEILING_TICKET,
+                r#"{"number": 535, "milestone": {"number": 1}, "parent_issue_url": "https://api.github.com/repos/goodfetch/goodfetch/issues/130"}"#,
             ),
-            (ISSUES, r#"{"number": 9}"#),
+            (SPEC_SUB_ISSUES, r#"{"number": 130}"#),
+            (ISSUES, r#"{"number": 9, "id": 77}"#),
         ],
     );
 
@@ -450,9 +454,11 @@ fn months_first_run_on_main_over_the_ceiling_on_its_own_starts_and_opens_an_issu
             .iter()
             .map(|request| (request.method.as_str(), request.path.as_str()))
             .collect::<Vec<_>>(),
-        vec![("POST", ISSUES)]
+        vec![("POST", ISSUES), ("POST", SPEC_SUB_ISSUES)]
     );
     assert_eq!(json(&writes[0].body)["labels"], json(r#"["needs-triage"]"#));
+    assert_eq!(json(&writes[0].body)["milestone"], 1);
+    assert_eq!(json(&writes[1].body), json(r#"{"sub_issue_id": 77}"#));
     assert_eq!(
         json(&writes[0].body)["body"]
             .as_str()

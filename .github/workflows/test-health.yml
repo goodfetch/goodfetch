@@ -117,11 +117,16 @@ jobs:
       # The scan opens and reopens flaky-test and live-check issues, and the
       # drift check needs-triage ones.
       issues: write
+      # Both find the pull request that added a test or a benchmark (ADR 0136).
+      pull-requests: read
     steps:
       - name: Check out main's head
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: main
+          # Both find the commit that added a test or a benchmark in the whole
+          # history.
+          fetch-depth: 0
           persist-credentials: false
       - name: Check out the results store
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

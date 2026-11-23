@@ -4,6 +4,7 @@
   "type": "module",
   "devDependencies": {
     "@goodfetch/test-support": "workspace:*",
+    "@microsoft/api-extractor": "7.60.1",
     "@playwright/test": "catalog:",
     "@size-limit/file": "14.2.0",
     "@stryker-mutator/core": "10.1.1",

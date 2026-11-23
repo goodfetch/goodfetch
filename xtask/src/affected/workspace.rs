@@ -49,7 +49,8 @@ pub(crate) struct Kennel {
 pub(crate) struct Model {
     pub(crate) name: String,
     pub(crate) folder: RepoPath,
-    /// The files and folders of the modules it traces.
+    /// The files and folders of the modules it traces, and the committed
+    /// traces its trace spec validates.
     pub(crate) traces: Vec<RepoPath>,
 }
 
@@ -122,7 +123,12 @@ pub(crate) fn read(cargo: &OsStr, root: &Path) -> Result<Workspace> {
             .map(|model| Model {
                 name: model.name,
                 folder: RepoPath::new(model.folder),
-                traces: model.traces.into_iter().map(RepoPath::new).collect(),
+                traces: model
+                    .traces
+                    .into_iter()
+                    .chain(model.trace_files)
+                    .map(RepoPath::new)
+                    .collect(),
             })
             .collect(),
         kennel,

@@ -24,6 +24,11 @@ pub const SUITE_VARIABLE: &str = "GOODFETCH_TEST_SUITE";
 /// The path of the test tool manifest, which `just test` writes.
 pub const TOOLS_VARIABLE: &str = "GOODFETCH_TEST_TOOLS";
 
+/// The Fault plan file a scenario's generator replays in place of
+/// generating plans, which `just simulate <scenario> --plan <file>` sets
+/// (ADR 0060).
+pub const FAULT_PLAN_VARIABLE: &str = "GOODFETCH_FAULT_PLAN";
+
 /// The path of the pinned LazyFS build, which `just lazyfs-test` sets
 /// (ADR 0060).
 pub const LAZYFS_VARIABLE: &str = "GOODFETCH_LAZYFS";
@@ -124,6 +129,7 @@ impl Variables {
             SEED_VARIABLE,
             SUITE_VARIABLE,
             TOOLS_VARIABLE,
+            FAULT_PLAN_VARIABLE,
             LAZYFS_VARIABLE,
             LAZYFS_FOLDER_VARIABLE,
             RESULT_DOCUMENTS_VARIABLE,

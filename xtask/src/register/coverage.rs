@@ -135,7 +135,15 @@ pub(crate) fn run(arguments: &Arguments, environment: &Environment) -> Result<Ex
     };
     let api = arguments.github.api(environment.token());
     let mut issues = Issues::new(&api, &arguments.github.repository);
-    issues.keep(Label::NeedsTriage, &key, &title, &body, Timestamp::now())?;
+    // The project's coverage belongs to no spec: its issue goes to triage.
+    issues.keep(
+        Label::NeedsTriage,
+        &key,
+        &title,
+        &body,
+        Timestamp::now(),
+        || Ok(None),
+    )?;
     for action in issues.actions() {
         output::line(action);
     }

@@ -7,3 +7,8 @@ traces = [
   "crates/goodfetch-engine/src/ledger/",
   "crates/goodfetch-engine/src/runs/slices.rs",
 ]
+# The trace spec, checked with trace.cfg, and the traces of real runs it
+# validates: the ledger's trace test writes each one and compares it with
+# the committed file.
+trace_spec = "TraceSlices.tla"
+trace_files = ["crates/goodfetch-engine/src/ledger/tests/trace/two-runs.ndjson"]

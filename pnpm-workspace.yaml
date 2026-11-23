@@ -31,6 +31,10 @@ overrides:
   # and three others, fixed in 6.16.1. Remove each once StrykerJS's range
   # resolves to a fixed version.
   "@stryker-mutator/core>minimatch": 11.0.3
+  # API Extractor 7.60.1 (`xtask sdk-api`, issue 148) pins minimatch 10.2.3,
+  # with the same advisory; it calls only `minimatch`, unchanged in 11.
+  # Remove once its pin is 11.0.1 or later.
+  "@microsoft/api-extractor>minimatch": 11.0.3
   "typed-rest-client>qs": 6.17.1
 
 # One version of each shared tool for every package. Playwright's entry is

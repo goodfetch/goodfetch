@@ -16,6 +16,7 @@ enum Meaning {
     Missing,
     NotConfigured,
     Refused,
+    NoCode,
     Unrecognized,
 }
 
@@ -24,6 +25,7 @@ fn meaning(failure: &ProviderFailure) -> Meaning {
         ProviderFailure::Missing => Meaning::Missing,
         ProviderFailure::NotConfigured(_) => Meaning::NotConfigured,
         ProviderFailure::Refused { .. } => Meaning::Refused,
+        ProviderFailure::NoCode { .. } => Meaning::NoCode,
         ProviderFailure::Unrecognized(_) => Meaning::Unrecognized,
         other => panic!("`bw` never answers {other:?}"),
     }
@@ -53,7 +55,7 @@ fn meaning(failure: &ProviderFailure) -> Meaning {
     "Access to this item type is restricted by organizational policy.",
     Meaning::Refused
 )]
-#[case::totp_failed("Couldn't generate TOTP code.", Meaning::Refused)]
+#[case::totp_failed("Couldn't generate TOTP code.", Meaning::NoCode)]
 #[case::unreachable(
     "FetchError: request to https://vault.example.test/identity/connect/token failed, reason: getaddrinfo ENOTFOUND vault.example.test",
     Meaning::Refused

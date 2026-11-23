@@ -11,6 +11,7 @@ import {
   failure,
   goodfetchFailure,
   judgeTask,
+  provingGroundObservations,
   provingGroundUrl,
   taskStartUrl,
   test,
@@ -186,6 +187,48 @@ describe("a page's responses on an Attached engine", () => {
     },
   );
 
+  // A program's own `goto` is outside Politeness (ADR 0086): the redirect's
+  // `Retry-After` asks for an hour, far past `timeout.navigation`, so its
+  // target answering is the proof, with no measured time (ADR 0118). A file
+  // the browser downloads answers no response and the page keeps its
+  // document, which a reload loads again (ADR 0119).
+  test(
+    "follows a redirect at once past its Retry-After and answers null for a file",
+    {
+      tags: [
+        "client_case/goto-skips-a-redirects-retry-after-and-answers-none-for-a-file",
+        "attached",
+        "story:11-84",
+        "operation:page.goto",
+      ],
+    },
+    async ({ env, provingGround, clientCase }) => {
+      const redirect = provingGroundUrl(provingGround, FETCH_EDGE, "/retry-after/302/seconds/long");
+      const target = provingGroundUrl(provingGround, FETCH_EDGE, "/target");
+      const document = await taskStartUrl(provingGround, "catalog/2");
+      const file = new URL("/files/report.pdf", await taskStartUrl(provingGround, "files/2")).href;
+      // oxlint-disable-next-line no-restricted-properties -- `Collie.connect` is the SDK's own factory (ADR 0078), not a browser's.
+      await using collie = await Collie.connect({ env });
+      const run = await collie.start();
+      const page = await run.newPage();
+
+      const followed = await page.goto(redirect);
+      await page.goto(document);
+      const downloaded = await page.goto(file);
+      const reloaded = await page.reload();
+
+      await clientCase.check("a 302 whose Retry-After asks for an hour is followed at once", () =>
+        expect([followed?.status(), followed?.url()]).toEqual([200, target]),
+      );
+      await clientCase.check("a goto to a file the browser downloads answers null", () =>
+        expect(downloaded).toBeNull(),
+      );
+      await clientCase.check("the page keeps its document, which a reload loads again", () =>
+        expect([reloaded?.status(), reloaded?.url()]).toEqual([200, document]),
+      );
+    },
+  );
+
   test(
     "decodes text with a legacy charset and JSON past a BOM, and names the URL of no JSON",
     {
@@ -281,6 +324,112 @@ describe("a page's responses on an Attached engine", () => {
       const past = await page.goForward();
 
       expect([back?.url(), forward?.url(), past]).toEqual([first, then, null]);
+    },
+  );
+});
+
+describe("page.request through the page's Session on an Attached engine", () => {
+  test.override("provingGroundSeed", 1303);
+  test.override("withBrowser", true);
+
+  test(
+    "sends the cookie a page of its Session got, through the Run's proxy",
+    {
+      tags: [
+        "client_case/page-request-sends-the-sessions-cookie-through-its-proxy",
+        "attached",
+        "story:11-87",
+        "operation:page.request",
+      ],
+    },
+    async ({ env, provingGround, clientCase }) => {
+      const openProxy = provingGround.fixtures.proxies["open"];
+      const storage = provingGroundUrl(provingGround, "scope.test", "/storage?mark=page-request");
+      const about = provingGroundUrl(provingGround, "scope.test", "/about?by=page-request");
+      // oxlint-disable-next-line no-restricted-properties -- `Collie.connect` is the SDK's own factory (ADR 0078), not a browser's.
+      await using collie = await Collie.connect({ env });
+      const run = await collie.start({ settings: { proxy: { server: `http://${openProxy}` } } });
+      const page = await run.newPage();
+      await page.goto(storage);
+
+      const response = await page.request(about);
+      await run.finish();
+      const observations = await provingGroundObservations(provingGround);
+      const sent = observations.requests
+        .filter(({ host, target }) => host === "scope.test" && target === "/about?by=page-request")
+        .map(({ cookies }) => cookies);
+
+      await clientCase.check("`page.request` from the Session answers 200", () =>
+        expect(response.status()).toBe(200),
+      );
+      await clientCase.check("it sends the cookie a page of its Session got", () =>
+        expect(sent).toEqual([[["mark", "page-request"]]]),
+      );
+      await clientCase.check("it leaves through the Run's proxy", () =>
+        expect(observations).toMatchObject({
+          relays: expect.arrayContaining([
+            expect.objectContaining({
+              proxy: "open",
+              outcome: "relayed",
+              target: expect.stringMatching(/\/about\?by=page-request$/),
+            }),
+          ]),
+        }),
+      );
+    },
+  );
+
+  test(
+    "follows its maxRedirects, answering the 3xx at 0, and refuses a count above 19",
+    {
+      tags: [
+        "client_case/page-request-follows-its-max-redirects-and-refuses-a-count-above-19",
+        "attached",
+        "story:11-87",
+        "operation:page.request",
+        "error:too_many_redirects",
+        "error:setting_invalid",
+      ],
+    },
+    async ({ env, provingGround, clientCase }) => {
+      const chain = provingGroundUrl(provingGround, FETCH_EDGE, "/redirect/hops/5");
+      // oxlint-disable-next-line no-restricted-properties -- `Collie.connect` is the SDK's own factory (ADR 0078), not a browser's.
+      await using collie = await Collie.connect({ env });
+      const run = await collie.start();
+      const page = await run.newPage();
+
+      const refused = await goodfetchFailure(page.request(chain, { maxRedirects: 20 }));
+      const unfollowed = await page.request(chain, { maxRedirects: 0 });
+      const within = await page.request(chain, { maxRedirects: 5 });
+      const past = await goodfetchFailure(page.request(chain, { maxRedirects: 3 }));
+
+      await clientCase.check("`maxRedirects` 20 is refused, naming the option", () =>
+        expect(refused).toMatchObject({
+          code: "setting_invalid",
+          details: { key: "max_redirects" },
+        }),
+      );
+      await clientCase.check("`maxRedirects` 0 answers the 3xx itself", () => {
+        expect(unfollowed.status()).toBe(302);
+        expect(unfollowed.url()).toMatch(/\/redirect\/hops\/5$/);
+        expect(unfollowed.headers()["location"]).toBe("/redirect/hops/4");
+      });
+      await clientCase.check("a chain within its count answers its last response", () => {
+        expect(within.status()).toBe(200);
+        expect(within.url()).toMatch(/\/redirect\/hops\/0$/);
+      });
+      await clientCase.check(
+        "past its count, `too_many_redirects` names the chain, its hops and the option",
+        () =>
+          expect(past).toMatchObject({
+            code: "too_many_redirects",
+            url: chain,
+            details: {
+              hops: [expect.any(String), expect.any(String), expect.any(String)],
+              limit: { kind: "option", name: "max_redirects", count: 3 },
+            },
+          }),
+      );
     },
   );
 });

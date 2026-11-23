@@ -593,6 +593,14 @@ class PageMemoryExceededError(UnavailableError):
         super().__init__(message, code="page_memory_exceeded", group="unavailable", retryable=True, **fields)
 
 
+class PageNavigatedDuringCallError(PageError):
+    """The page's main frame committed a navigation to a new document while an `act`, `observe` or `extract` ran, between the call's first read of the page and its return (an `act` until its first input), and the call did not start it: the program's own driver, the page's script, a person or an extension may have. Nothing was acted on, and no Plan entry was written. The details name the document the call read, `url`, and the one that replaced it, `navigated_to`; the fix says to await the Collie call before the program's own driver acts on the page. A retry may find the page where the call needs it."""
+
+    def __init__(self, message: str, **fields: Unpack[ErrorFields]) -> None:
+        """Takes the message the engine rendered, and what it carries."""
+        super().__init__(message, code="page_navigated_during_call", group="page", retryable=True, **fields)
+
+
 class PageValueInvalidError(ProgramError):
     """A page function's result, or its argument, holds a value outside JSON, such as a DOM node, `NaN`, `Infinity`, a function, a `Map`, a `BigInt` or a cycle, which Playwright would have turned into `undefined`, silently. The details name the first such value's path from `$`, its kind and the fix: return the JSON the program needs, such as an element's text or attribute instead of the element."""
 
@@ -858,7 +866,7 @@ class SecretInputRefusedError(RefusedError):
 
 
 class SecretUnavailableError(UnavailableError):
-    """A Secret provider gave no value for a reference: a missing variable, a locked keychain, an unreachable vault, the caller's `resolveSecret` missing or throwing, no answer within `timeout.secret`. `failure` says which, and the details name the placeholder or setting, the reference and the provider, never a value."""
+    """A Secret provider gave no value for a reference: a missing variable, a locked keychain, an unreachable vault, no one-time code (a TOTP seed the provider makes none from, or a code source's code that never arrived), the caller's `resolveSecret` missing or throwing, no answer within `timeout.secret`. `failure` says which, and the details name the placeholder or setting, the reference and the provider, never a value."""
 
     def __init__(self, message: str, **fields: Unpack[ErrorFields]) -> None:
         """Takes the message the engine rendered, and what it carries."""
@@ -1069,6 +1077,7 @@ ERROR_CLASSES: Final[Mapping[str, ErrorClass]] = {
     "page_function_failed": PageFunctionFailedError,
     "page_handler_failed": PageHandlerFailedError,
     "page_memory_exceeded": PageMemoryExceededError,
+    "page_navigated_during_call": PageNavigatedDuringCallError,
     "page_value_invalid": PageValueInvalidError,
     "path_not_writable": PathNotWritableError,
     "path_unsafe": PathUnsafeError,

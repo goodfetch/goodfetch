@@ -64,7 +64,7 @@ pub mod session_pages;
 pub mod signing_key;
 pub mod waits;
 
-use self::ai_work::NOT_VERIFIED;
+use self::ai_work::{NOT_VERIFIED, PAGE_NAVIGATED_DURING_CALL};
 use self::dialog::{
     DIALOG_ACCEPT, DIALOG_ALREADY_HANDLED, DIALOG_DISMISS, DIALOG_HANDLE, PAGE_ON_DIALOG,
 };
@@ -1924,6 +1924,7 @@ pub const ENTRIES: Entries = Entries {
         PAGE_FUNCTION_FAILED,
         PAGE_VALUE_INVALID,
         NOT_VERIFIED,
+        PAGE_NAVIGATED_DURING_CALL,
     ],
     plugin_kinds: &[],
     metrics: &[],

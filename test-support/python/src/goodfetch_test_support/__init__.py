@@ -42,10 +42,10 @@ from goodfetch_test_support.journey import (
     JourneyOther,
     JourneyRun,
     JourneyUnreadable,
-    OracleRefused,
     SurfaceUnlisted,
     VariantNotProved,
     journey,
+    judge_task,
     start_journey_run,
 )
 from goodfetch_test_support.locales import TimeZoneCase, locales, time_zones
@@ -66,6 +66,7 @@ from goodfetch_test_support.play_script import (
     play_script,
 )
 from goodfetch_test_support.proving_ground import (
+    OracleRefused,
     ProvingGround,
     ProvingGroundFixtures,
     ProvingGroundRoutes,
@@ -151,6 +152,7 @@ __all__ = [
     "VariantNotProved",
     "Way",
     "journey",
+    "judge_task",
     "locales",
     "play_script",
     "project_script",

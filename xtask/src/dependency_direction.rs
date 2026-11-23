@@ -8,6 +8,9 @@
 //!   takes it only as a dev-dependency, and `goodfetch-protocol` never takes
 //!   it, so its tests never see two copies of its types (ADR 0062's note of
 //!   2026-11-07).
+//! - Every crate takes `goodfetch-simulation`, turmoil's adapter of
+//!   `transport`, only as a dev-dependency, so only its tests run on the
+//!   Simulation (ADR 0060).
 //! - The Proving ground depends on no Goodfetch crate but
 //!   `goodfetch-test-support`, so on no engine crate, nor on
 //!   `goodfetch-conformance`, `goodfetch-protocol` or `goodfetch-test-client`
@@ -45,6 +48,7 @@ use crate::metadata::{self, Dependency, Package};
 
 const TEST_SUPPORT: &str = "goodfetch-test-support";
 const TEST_CLIENT: &str = "goodfetch-test-client";
+const SIMULATION: &str = "goodfetch-simulation";
 const CONFORMANCE: &str = "goodfetch-conformance";
 const PROTOCOL: &str = "goodfetch-protocol";
 const WORKSPACE_HACK: &str = "goodfetch-workspace-hack";
@@ -69,16 +73,7 @@ pub(crate) fn check(cargo: &OsStr, root: &Path) -> Result<Vec<Finding>> {
     for package in &packages {
         let members = || package.dependencies.iter().filter(|d| is_member(d));
         takes_none(package, members().next(), &mut findings);
-        if package.name != TEST_SUPPORT
-            && package.name != TEST_CLIENT
-            && takes_outside_dev(package, TEST_SUPPORT)
-        {
-            findings.push(Finding::new(
-                "test-support-not-dev-only",
-                &package.name,
-                format!("it takes `{TEST_SUPPORT}` outside `[dev-dependencies]`"),
-            ));
-        }
+        takes_test_crates_as_dev_only(package, &mut findings);
         if package.name == TEST_CLIENT
             && let Some(dependency) =
                 members().find(|d| d.name != PROTOCOL && d.name != TEST_SUPPORT)
@@ -166,6 +161,28 @@ fn takes_none(package: &Package, member: Option<&Dependency>, findings: &mut Vec
             code,
             &package.name,
             format!("it depends on the workspace crate `{}`", dependency.name),
+        ));
+    }
+}
+
+/// `goodfetch-test-support`, which `goodfetch-test-client` alone takes as
+/// a normal dependency, and `goodfetch-simulation`, which no crate does.
+fn takes_test_crates_as_dev_only(package: &Package, findings: &mut Vec<Finding>) {
+    if package.name != TEST_SUPPORT
+        && package.name != TEST_CLIENT
+        && takes_outside_dev(package, TEST_SUPPORT)
+    {
+        findings.push(Finding::new(
+            "test-support-not-dev-only",
+            &package.name,
+            format!("it takes `{TEST_SUPPORT}` outside `[dev-dependencies]`"),
+        ));
+    }
+    if takes_outside_dev(package, SIMULATION) {
+        findings.push(Finding::new(
+            "simulation-not-dev-only",
+            &package.name,
+            format!("it takes `{SIMULATION}` outside `[dev-dependencies]`"),
         ));
     }
 }

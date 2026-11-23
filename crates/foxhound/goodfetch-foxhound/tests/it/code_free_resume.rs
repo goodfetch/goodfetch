@@ -3,10 +3,16 @@
 //! site from memory, on the paused current-thread runtime with blocking
 //! work inline: the start's `extraction` replaces the one the Run began
 //! with, as its Datasets do, so the pages the resume fetches are read and
-//! checked by the extraction their schema was generated from.
+//! checked by the extraction their schema was generated from. Each start
+//! under the Run's ID answers as the start table says (ADR 0102), across
+//! the engine's restarts in one home.
 #![expect(
     clippy::disallowed_methods,
     reason = "the engines run on the test Clock and Entropy (ADR 0059)"
+)]
+#![expect(
+    clippy::doc_markdown,
+    reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
 )]
 
 use std::path::Path;
@@ -336,6 +342,95 @@ fn a_code_free_crawl_started_again_with_another_extraction_resumes_under_it(
                 ),
             ],
             expected,
+        )
+    );
+}
+
+/// What a start answered: its `started_as`, or its error's code.
+fn answered(reply: &Value) -> &str {
+    reply["result"]["started_as"]
+        .as_str()
+        .or_else(|| reply["error"]["data"]["code"].as_str())
+        .unwrap_or_else(|| panic!("a start answered neither: {reply}"))
+}
+
+/// Each start under the Run's ID answers as the start table says, in the
+/// table's order, across the engine's restarts in one home: `new` for a
+/// Run with no state; while it runs, `run_conflict` for other seeds, then
+/// `setting_not_applicable` for another value of a key fixed for the Run's
+/// life (`crawl.scope.strategy`), then `run_in_use`; once a stop left it
+/// interrupted, `resumed`; once it finished, `ended`; and once its run file
+/// cannot be read, `run_state_unavailable`.
+///
+/// Covers: story:3-177, error:run_conflict, error:run_in_use,
+/// error:setting_not_applicable, error:run_state_unavailable,
+/// operation:crawl.start
+#[test]
+fn each_start_under_a_run_id_answers_as_the_start_table_says_across_restarts() {
+    let env = TestEnv::new();
+    let extraction = json!({ "formats": { "links": true } });
+    let (method, began) = start(&extraction);
+    let mut other_seeds = began.clone();
+    other_seeds["seeds"] = json!([{ "url": "http://site.test/a", "label": "page" }]);
+    let mut other_scope = began.clone();
+    other_scope["settings"]["crawl"] = json!({ "scope": { "strategy": "same_domain" } });
+    let hour = Duration::from_secs(3_600);
+
+    let running = session(
+        env.home(),
+        env.start_time(),
+        env.seed(),
+        &[
+            (method, began.clone()),
+            (method, other_seeds),
+            (method, other_scope),
+            (method, began.clone()),
+            finish(),
+        ],
+    );
+    let resumed = session(
+        env.home(),
+        env.start_time() + hour,
+        env.seed(),
+        &[(method, began.clone()), finish()],
+    );
+    let ended = session(
+        env.home(),
+        env.start_time() + hour * 2,
+        env.seed(),
+        &[(method, began.clone())],
+    );
+    run_file(env.home())
+        .execute_batch("DROP TABLE run")
+        .unwrap();
+    let unreadable = session(
+        env.home(),
+        env.start_time() + hour * 3,
+        env.seed(),
+        &[(method, began)],
+    );
+
+    assert_eq!(
+        (
+            running[..4].iter().map(answered).collect::<Vec<_>>(),
+            &running[4]["result"]["lifecycle"],
+            answered(&resumed[0]),
+            &resumed[1]["result"]["lifecycle"],
+            answered(&ended[0]),
+            answered(&unreadable[0]),
+        ),
+        (
+            vec![
+                "new",
+                "run_conflict",
+                "setting_not_applicable",
+                "run_in_use"
+            ],
+            &json!("stopped"),
+            "resumed",
+            &json!("finished"),
+            "ended",
+            "run_state_unavailable",
         )
     );
 }

@@ -49,6 +49,7 @@
 //! - **quick**: whether `just quick` already passed with a key, and a run's
 //!   result, for the implementer's `just quick` and the pre-push hook
 //!   (`quick_runs`).
+//!
 //! Size: one concern, the `xtask gate` command: each subcommand's entry,
 //! and the plan's run, which reads the records (`Reader`), renders the plan
 //! and writes the carried results; each subcommand's own rules live in the

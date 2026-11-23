@@ -12,16 +12,16 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 
-use goodfetch_collie::testing::{TestEngine, TestEngineOptions};
+use goodfetch_collie::ErrorCode;
 #[cfg(unix)]
-use goodfetch_collie::{
-    ErrorCode,
-    settings::{Settings, network},
-};
+use goodfetch_collie::settings::{Settings, network};
+use goodfetch_collie::testing::{TestEngine, TestEngineOptions};
 use goodfetch_protocol::run::Lifecycle;
 #[cfg(unix)]
 use goodfetch_test_support::{ProvingGround, ReadOnlyBrowserCache, browser_cache};
-use goodfetch_test_support::{TestEnv, chrome_for_testing_files, real_time_runtime};
+use goodfetch_test_support::{
+    TestEnv, chrome_for_testing_files, empty_browser_cache, real_time_runtime,
+};
 
 /// The Proving ground's own seed for these tests.
 #[cfg(unix)]
@@ -151,4 +151,31 @@ fn a_loopback_resolve_entry_is_reached_live_any_other_host_is_refused_and_the_ca
 
     assert_eq!((status, refusal), (Some(200), ErrorCode::EGRESS_REFUSED));
     assert_eq!(tree(&cache), before);
+}
+
+#[test]
+fn with_no_browser_installed_the_first_page_fails_offline_naming_browser_install() {
+    let (env, cache) = empty_browser_cache(TestEnv::new()).unwrap();
+
+    let failure = real_time_runtime().block_on(async {
+        let engine = TestEngine::start(TestEngineOptions::new().env(env.env_os()))
+            .await
+            .unwrap();
+        let run = engine.connection().start().await.unwrap();
+        let failure = run.new_page().await.err();
+        run.finish().await.unwrap();
+        engine.close().await.unwrap();
+        failure.expect("the first page fails")
+    });
+
+    assert_eq!(
+        (failure.code(), failure.fix()),
+        (
+            ErrorCode::ARTIFACT_UNAVAILABLE_OFFLINE,
+            Some(
+                "Run `goodfetch-collie browser install` beforehand where the Browser cache is writable, or lift `egress.offline` where it was set"
+            )
+        )
+    );
+    assert_eq!(tree(&cache), BTreeMap::new());
 }

@@ -844,6 +844,16 @@ covers = ["story:11-68"]
 surfaces = ["sdk-typescript"]
 modes = ["attached"]
 
+# A schema's own validation that raises something other than the library's
+# rejection stops the call at once with `schema_validator_failed`, the
+# original as its cause, never a `value_invalid` (ADR 0082). The extraction
+# retry loop's cases join with `extract` (#1338).
+[[capability.case]]
+id = "validator-throw-fails-at-once"
+covers = ["story:11-67"]
+surfaces = ["sdk-typescript"]
+modes = ["attached"]
+
 # The host's logger (ADR 0078; issue 1269): the level of the engine's logs a
 # Connection receives follows what the program's logger records, sent in
 # `hello` and again by `connection.set_log_level` when a Run starts and the

@@ -31,6 +31,13 @@ fn names(folder: &Path) -> Vec<String> {
 }
 
 /// What a file failure details, either code's, read as one shape.
+#[cfg_attr(
+    not(unix),
+    expect(
+        dead_code,
+        reason = "only the Unix tests read a failure's OS code, side and fix"
+    )
+)]
 struct Failure {
     reason: String,
     os_code: Option<String>,
@@ -39,6 +46,13 @@ struct Failure {
     fix: String,
 }
 
+#[cfg_attr(
+    not(unix),
+    expect(
+        dead_code,
+        reason = "only the Unix tests read a failure's OS code, side and fix"
+    )
+)]
 impl Failure {
     fn reason(&self) -> &str {
         &self.reason

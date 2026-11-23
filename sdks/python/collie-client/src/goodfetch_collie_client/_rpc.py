@@ -5,7 +5,11 @@ channel runs no task of its own, so it never outlives the caller's task
 group: whichever call is waiting while nobody reads becomes the reader,
 reads until its own reply has come, resolving the others' replies on the
 way, then hands reading over to a call still waiting. A call cancelled
-while it waits sends `$/cancel` with its id. When the engine's side ends,
+while it waits sends `$/cancel` with its id. A sync call whose caller's
+thread is interrupted (`_interruption`) owes its `$/cancel` at once, and
+every later write sends the `$/cancel`s owed first, so a request sent
+after the interruption never reaches the engine ahead of them, however late
+the call's task notices its cancellation (issue 3517). When the engine's side ends,
 the owner says which error every call still waiting fails with, and every
 later call fails with it too. A stream is a call whose notifications, such
 as `$/chunk`, name its id: the reader hands each to the stream's listener,
@@ -51,6 +55,7 @@ from goodfetch_collie_client._framing import (
     encode_message,
     object_members,
 )
+from goodfetch_collie_client._interruption import when_interrupted
 from goodfetch_collie_client._relink import lost_call, lost_stream, reconnect_delay
 from goodfetch_collie_client.caller import result_of
 from goodfetch_collie_client.generated.errors import (
@@ -325,6 +330,20 @@ class _Waiter:
     """Whether notifications naming it are heard, which a drop cannot resume."""
     resume: Resumable | None = None
     """What it is sent again with, after what it read, once its link dropped."""
+    written: bool = False
+    """Whether its request was written to the current link."""
+    interrupted: bool = False
+    """Whether its sync caller's thread was interrupted (`_interruption`)."""
+    cancel_sent: bool = False
+    """Whether its `$/cancel` was written."""
+
+    @property
+    def answered(self) -> bool:
+        """Whether the engine answered it, which no `$/cancel` follows."""
+        outcome = self.outcome
+        return isinstance(outcome, _Answered) or (
+            isinstance(outcome, _Raised) and outcome.answered
+        )
 
     def settle(self, outcome: _Answered | _Raised) -> None:
         self.outcome = outcome
@@ -360,6 +379,8 @@ class Channel:
         """The calls sent and not yet answered, a cancelled one included."""
         self._queued: dict[int, _Queued] = {}
         """Each call held back, for a place or a new link, in the order it is sent."""
+        self._cancels_owed: dict[int, _Waiter] = {}
+        """Each written call whose `$/cancel` goes before the next write, in order."""
         self._cap: float = math.inf
         """How many calls may be in flight at once: as `hello` names it, if it does."""
         self._unwritten_bytes = 0
@@ -452,12 +473,16 @@ class Channel:
         self._waiting[message_id] = waiter
         if notified is not None:
             self._listeners[message_id] = notified
+        unheard = when_interrupted(lambda: self._interrupted(message_id, waiter))
         try:
             if self._held or self._queued or len(self._in_flight) >= self._cap:
                 self._enqueue(message_id, _Queued(request))
             else:
                 self._in_flight.add(message_id)
-                await self._write_bytes(request)
+                self._unwritten_bytes += len(request)
+                with anyio.CancelScope(shield=True):
+                    async with self._write_lock:
+                        await self._send_request_locked(message_id, waiter, request)
             outcome = await self._wait_answer(
                 message_id, waiter, deadline, started_at, sent
             )
@@ -467,10 +492,11 @@ class Channel:
                 # A queued call leaves the queue unsent; a sent one is cancelled.
                 if not self._unqueue(message_id) and message_id in self._in_flight:
                     with anyio.CancelScope(shield=True):
-                        await self._notify_cancel(message_id)
+                        await self._cancel(message_id, waiter)
                 self._wake_all()
             raise
         finally:
+            unheard()
             self._listeners.pop(message_id, None)
         if isinstance(outcome, _Raised):
             raise outcome.error if outcome.answered else in_call(outcome.error, method)
@@ -653,10 +679,17 @@ class Channel:
 
         Returns:
             The ids of the sent calls cancelled, whose `$/cancel` the caller
-            sends with `notify_cancelled`; a queued one is never sent.
+            sends with `notify_cancelled`; a queued one is never sent, nor
+            one whose `$/cancel` was, and those owed come first.
         """
-        cancelled = [
-            message_id for message_id in self._waiting if not self._unqueue(message_id)
+        cancelled = list(self._cancels_owed)
+        self._cancels_owed.clear()
+        cancelled += [
+            message_id
+            for message_id, waiter in self._waiting.items()
+            if not self._unqueue(message_id)
+            and not waiter.cancel_sent
+            and message_id not in cancelled
         ]
         for waiter in self._waiting.values():
             waiter.settle(_Raised(error))
@@ -829,10 +862,12 @@ class Channel:
                 del self._waiting[message_id]
                 waiter.settle(_Raised(lost_stream() if waiter.streams else lost_call()))
             else:
+                waiter.written = False
                 self._enqueue(message_id, again)
         self._queued.update(earlier)
         # A call cancelled and not answered yet holds no place on the new link.
         self._in_flight.clear()
+        self._cancels_owed.clear()
 
     def _again_of(self, message_id: int, waiter: _Waiter) -> _Queued | None:
         """What the call is sent again with on the new link, if it may be."""
@@ -1005,9 +1040,11 @@ class Channel:
                 del self._queued[message_id]
                 self._in_flight.add(message_id)
                 waiter = self._waiting.get(message_id)
-                if waiter is not None:
+                if waiter is None:
+                    await self._send_locked(queued.request)
+                else:
                     waiter.wake()
-                await self._send_locked(queued.request)
+                    await self._send_request_locked(message_id, waiter, queued.request)
                 for note in queued.notes:
                     await self._send_locked(note)
 
@@ -1050,18 +1087,83 @@ class Channel:
             async with self._write_lock:
                 await self._send_locked(data)
 
-    async def _send_locked(self, data: bytes) -> None:
-        """Sends `data`, counted as waiting, under the write lock its caller holds."""
+    async def _send_locked(self, data: bytes) -> bool:
+        """Sends `data`, counted as waiting, under the write lock its caller holds.
+
+        The `$/cancel`s owed when it starts go first.
+
+        Returns:
+            Whether `data` was written, which it is not while the link is
+            down or once the channel ends.
+        """
         try:
-            if self._ending or self._held:
-                return
-            transport = self._transport
-            try:
-                await transport.send(data)
-            except Exception as cause:
-                await self._link_broke(transport, WriteFailed(cause))
+            await self._send_cancels_owed_locked()
+            return await self._transmit_locked(data)
         finally:
             self._unwritten_bytes -= len(data)
+
+    async def _transmit_locked(self, data: bytes) -> bool:
+        """Writes `data` alone under the write lock: whether it was written."""
+        if self._ending or self._held:
+            return False
+        transport = self._transport
+        try:
+            await transport.send(data)
+        except Exception as cause:
+            await self._link_broke(transport, WriteFailed(cause))
+            return False
+        return True
+
+    async def _send_request_locked(
+        self, message_id: int, waiter: _Waiter, request: bytes
+    ) -> None:
+        """Sends the call's request under the write lock its caller holds.
+
+        A call interrupted while its request was being written owes its
+        `$/cancel` once it is.
+        """
+        waiter.written = await self._send_locked(request)
+        if waiter.interrupted:
+            self._owe_cancel(message_id, waiter)
+
+    def _interrupted(self, message_id: int, waiter: _Waiter) -> None:
+        """Its sync caller's thread was interrupted: the call owes its `$/cancel`.
+
+        Run on the loop before that thread goes on, while the call's task
+        may notice its cancellation later. A call not written yet owes it
+        once it is; one still queued is never sent, as its task takes it
+        out of the queue.
+        """
+        waiter.interrupted = True
+        self._owe_cancel(message_id, waiter)
+
+    def _owe_cancel(self, message_id: int, waiter: _Waiter) -> None:
+        """Owes the call's `$/cancel`, unless it is not written or needs none."""
+        if waiter.written and not waiter.cancel_sent and not waiter.answered:
+            self._cancels_owed.setdefault(message_id, waiter)
+
+    async def _cancel(self, message_id: int, waiter: _Waiter) -> None:
+        """Sends the call's `$/cancel`, once, after those owed before it."""
+        if waiter.cancel_sent:
+            return
+        self._cancels_owed.setdefault(message_id, waiter)
+        async with self._write_lock:
+            await self._send_cancels_owed_locked()
+
+    async def _send_cancels_owed_locked(self) -> None:
+        """Sends the `$/cancel`s owed now, in order, under the write lock.
+
+        A call answered since needs none; one owed while they are sent waits
+        for the next write, so it never goes ahead of the request being sent.
+        """
+        owed = list(self._cancels_owed.items())
+        self._cancels_owed.clear()
+        for message_id, waiter in owed:
+            waiter.cancel_sent = True
+            if not waiter.answered:
+                await self._transmit_locked(
+                    encode_message({"method": "$/cancel", "params": {"id": message_id}})
+                )
 
     async def _notify_cancel(self, message_id: int) -> None:
         if self._ending or self._held:

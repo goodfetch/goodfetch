@@ -129,6 +129,7 @@ use crate::governor::{
 };
 use crate::home::RunStateLocation;
 use crate::known_certificates::KnownCertificates;
+use crate::lease::LeaseCheck;
 use crate::ledger::{
     Change, Charged, Charging, Counted, LedgerError, Refusal, Reservation, SliceId, Unmade,
 };
@@ -221,6 +222,8 @@ pub(crate) struct RunsSetup {
     /// The composition's Clean-up rules, which choose the version each new
     /// Run holds to (ADR 0047), if it has any.
     pub(crate) clean_up: Option<Arc<dyn CleanUpVersions>>,
+    /// The send window the composition passes in, if any (ADR 0106).
+    pub(crate) send_window: Option<Arc<dyn SendWindow>>,
     /// The switchable controls the composition registered, which each new
     /// Run reports when its settings switch one off.
     pub(crate) controls: Controls,
@@ -258,6 +261,25 @@ pub(crate) trait Forwarder: Send + Sync {
 /// failure it answered; `None` when it did not answer.
 pub(crate) type ReadAnswer<'a> =
     Pin<Box<dyn Future<Output = Option<Result<Value, ErrorObject>>> + Send + 'a>>;
+
+/// ADR 0106's send window: the engine's declared Effects, which mark the
+/// bodies a Run's command counts for sent before it goes out.
+pub(crate) trait SendWindow: Send + Sync {
+    /// Marks sent, synced, each body of `run` declared through the attempt
+    /// `lease` names, or outside any attempt when it names none or is
+    /// `None`, that nothing was sent for yet, before `command` goes out.
+    ///
+    /// # Errors
+    ///
+    /// `run_state_unavailable` when the mark could not be written:
+    /// `command` must not go out.
+    fn sending<'a>(
+        &'a self,
+        run: &'a Run,
+        lease: Option<&'a dyn LeaseCheck>,
+        command: &'a str,
+    ) -> Pin<Box<dyn Future<Output = Result<(), CallError>> + Send + 'a>>;
+}
 
 /// Writes a new Run's first rows, beside the engine's own, in the
 /// transaction that records the Run.
@@ -1456,6 +1478,9 @@ struct Shared {
     attempt_writes: std::sync::OnceLock<Arc<dyn AttemptWrites>>,
     /// Its Run trace, whose one writer holds its files (ADR 0140's E5).
     trace: run_trace::RunTrace,
+    /// The send window its commands mark, which the composition passes
+    /// in, if any (ADR 0106).
+    send_window: Option<Arc<dyn SendWindow>>,
 }
 
 /// The Run trace of `run`, whose one writer every entry of the Run goes
@@ -1511,6 +1536,36 @@ impl Run {
     /// 0050).
     pub fn metrics(&self) -> &Metrics {
         &self.shared.metrics
+    }
+
+    /// Marks sent, synced, each of its declared Effects' bodies that runs
+    /// in the attempt `lease` names, or outside any attempt when it names
+    /// none or is `None`, before `command`, which may change a page or a
+    /// site, goes out (ADR 0106's window). The attempt is read only when
+    /// the Run has a body running, and nothing is marked when the
+    /// composition passes in no window.
+    ///
+    /// # Errors
+    ///
+    /// `run_state_unavailable` when the mark could not be written:
+    /// `command` must not go out.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping its future before the write began marks nothing, and
+    /// `command` must then not go out. A drop once the write was queued
+    /// may leave the bodies `sent` in the journal while the engine still
+    /// holds them open: the next mark writes only those still `open`
+    /// there, so the first command stays the one recorded.
+    pub async fn sending(
+        &self,
+        lease: Option<&dyn LeaseCheck>,
+        command: &str,
+    ) -> Result<(), CallError> {
+        match &self.shared.send_window {
+            Some(window) => window.sending(self, lease, command).await,
+            None => Ok(()),
+        }
     }
 
     /// Its share of the engine's Resource governor (ADR 0040), through
@@ -6067,6 +6122,7 @@ impl Registry {
                 crawls_robots_txt: std::sync::OnceLock::new(),
                 attempt_writes: std::sync::OnceLock::new(),
                 trace,
+                send_window: self.setup.send_window.clone(),
             }),
             owner,
             runs: self.handle(connection),

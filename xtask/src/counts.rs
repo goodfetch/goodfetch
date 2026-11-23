@@ -96,7 +96,11 @@ const B3: Family = Family {
         function: "dispatch_messages",
         empty: "no_messages",
         units: 100,
-        cells: &[(DEFAULT_CELL, ""), ("log_off", "_log_off")],
+        cells: &[
+            (DEFAULT_CELL, ""),
+            ("log_off", "_log_off"),
+            ("websocket", "_websocket"),
+        ],
     }),
     bypasses: &[],
 };

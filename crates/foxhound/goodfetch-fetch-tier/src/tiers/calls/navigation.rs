@@ -284,9 +284,18 @@ impl HopGate for Navigating {
     }
 
     /// A handler's navigation is no crawl request's own send: it takes no
-    /// token of its domain's sends, whichever hop it is.
+    /// token of its domain's sends, whichever hop it is. Once its sends
+    /// are recorded, the hop marks the attempt's declared Effects sent
+    /// before it goes out (ADR 0106's window).
     fn sending<'a>(&'a self, hop: &'a Hop, _lead: bool) -> Gating<'a, Result<(), Stop>> {
-        Box::pin(self.hand_over.sending(hop, false))
+        Box::pin(async move {
+            self.hand_over.sending(hop, false).await?;
+            self.hand_over
+                .run()
+                .sending(Some(self.hand_over.lease.as_ref()), self.operation)
+                .await
+                .map_err(Stop::failed)
+        })
     }
 
     fn answered<'a>(&'a self, hop: &'a Hop, latency: Duration) -> Gating<'a, ()> {

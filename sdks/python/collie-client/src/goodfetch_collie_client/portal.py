@@ -18,6 +18,7 @@ from typing import TYPE_CHECKING, TypeVar
 import anyio
 from anyio.from_thread import BlockingPortal
 
+from goodfetch_collie_client._interruption import Interruption
 from goodfetch_collie_client._opening_process import OpeningProcess
 from goodfetch_collie_client.goodfetch_error import BaseGoodfetchError
 
@@ -83,7 +84,9 @@ class PrivateLoop:
         `KeyboardInterrupt`, cancels the call, which sends `$/cancel`
         without waiting, and propagates unchanged (ADR 0081); the wait
         is timed, in steps of `WAIT_STEP_SECONDS`, so a Ctrl+C that lands
-        on another thread, as on Windows, still ends it. The portal
+        on another thread, as on Windows, still ends it, and before it
+        propagates, the call's `Interruption` puts that `$/cancel` ahead of
+        any request sent after it (issue 3517). The portal
         would raise an error outside `Exception` in the loop's thread too,
         which ends it, so `attempt_ended`'s comes back as a value and is
         raised here alone (ADR 0093). The portal runs `function` in a copy
@@ -101,8 +104,10 @@ class PrivateLoop:
                 (ADR 0093).
         """
         self._opener.ensure_current()
+        interruption = Interruption()
 
         async def kept() -> _T | _Raised:
+            interruption.govern()
             try:
                 return await function()
             except BaseGoodfetchError as error:
@@ -121,11 +126,30 @@ class PrivateLoop:
                 concurrent.futures.wait((future,), timeout=WAIT_STEP_SECONDS)
             result = future.result()
         except BaseException:
-            future.cancel()
+            self._interrupt(future, interruption)
             raise
         if isinstance(result, _Raised):
             raise result.error
         return result
+
+    def _interrupt(
+        self, future: concurrent.futures.Future[_T], interruption: Interruption
+    ) -> None:
+        """Interrupts the call, then cancels it, both on the loop, waiting for neither.
+
+        The caller's thread waits for the loop to run both, as it would for
+        the cancellation alone, not for the call's task to notice it.
+        """
+
+        def on_the_loop() -> None:
+            interruption.interrupt()
+            future.cancel()
+
+        try:
+            self._portal.call(on_the_loop)
+        except RuntimeError:
+            # The loop stopped, and the call's task with it.
+            return
 
     def stop(self) -> None:
         """Ends the loop once its calls are done, and joins the thread.

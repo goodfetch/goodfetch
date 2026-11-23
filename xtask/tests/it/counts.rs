@@ -503,7 +503,7 @@ fn a_b3_benchmark_that_does_a_working_copy_updates_work_fails_its_row() {
 /// and each scenario `per_message` over it per message of a hundred.
 fn summaries(bench: &str, metrics: &[&str], small: u64, large: u64) -> String {
     let mut lines = Vec::new();
-    for suffix in ["", "_log_off"] {
+    for suffix in ["", "_log_off", "_websocket"] {
         for (id, per_message) in [
             ("no_messages", 0),
             ("small_params", small),
@@ -572,11 +572,15 @@ fn a_valgrind_row_is_read_from_its_benchmark_within_its_tolerance(
     );
 
     assert_eq!(outcome.code, code, "{}\n{}", outcome.stdout, outcome.stderr);
-    assert!(
-        outcome.stdout.contains("E1.instructions [log_off]: "),
-        "{}",
-        outcome.stdout
-    );
+    for cell in ["log_off", "websocket"] {
+        assert!(
+            outcome
+                .stdout
+                .contains(&format!("E1.instructions [{cell}]: ")),
+            "{}",
+            outcome.stdout
+        );
+    }
     let mut found = outcome.findings();
     found.dedup();
     assert_eq!(

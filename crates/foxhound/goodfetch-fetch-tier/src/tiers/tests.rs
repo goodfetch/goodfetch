@@ -27,7 +27,7 @@ fn config() -> TransportConfig {
         resolve: HostMapping::default(),
         egress: Policy::new(&["*"], &[] as &[&str]).unwrap(),
         clock: Clock::system(),
-        resolver: ResolverConfiguration::name_servers([]),
+        resolver: ResolverConfiguration::name_servers([]).into(),
         local: None,
         delays: goodfetch_engine::happy_eyeballs::Delays::default(),
     }

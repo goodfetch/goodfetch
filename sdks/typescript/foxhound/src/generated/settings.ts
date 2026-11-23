@@ -1160,7 +1160,7 @@ export interface FoxhoundSettings {
      */
     readonly ai?: number;
     /**
-     * How long a stop of a Run, `run.stop` or a scope's close, waits for its next safe point before it fails with `deadline_exceeded`, the Run still stopping there: 30 s.
+     * One bound for a stop of a Run: how long `run.stop` or a scope's close waits for its next safe point before it fails with `deadline_exceeded`, the Run still stopping there, and how long that safe point then waits for each running Effect body's `effect.close` before it cuts the body short, in a drain no later than half of `daemon.drain_grace` from the drain's start: 30 s.
      *
      * `timeout.close`.
      */
@@ -2400,7 +2400,7 @@ export interface CrawlSettings {
      */
     readonly ai?: number;
     /**
-     * How long a stop of a Run, `run.stop` or a scope's close, waits for its next safe point before it fails with `deadline_exceeded`, the Run still stopping there: 30 s.
+     * One bound for a stop of a Run: how long `run.stop` or a scope's close waits for its next safe point before it fails with `deadline_exceeded`, the Run still stopping there, and how long that safe point then waits for each running Effect body's `effect.close` before it cuts the body short, in a drain no later than half of `daemon.drain_grace` from the drain's start: 30 s.
      *
      * `timeout.close`.
      */

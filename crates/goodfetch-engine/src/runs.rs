@@ -90,6 +90,7 @@ use secrecy::SecretString;
 use secrecy::zeroize::Zeroizing;
 use serde_json::{Value, json};
 use tokio::sync::{mpsc, oneshot, watch};
+use tokio::time::Instant;
 use tokio_util::sync::CancellationToken;
 
 pub use self::clean_up::{Answering, Chosen, CleanUpVersions, Fallback, Holding, RulesContext};
@@ -263,8 +264,18 @@ pub(crate) type ReadAnswer<'a> =
     Pin<Box<dyn Future<Output = Option<Result<Value, ErrorObject>>> + Send + 'a>>;
 
 /// ADR 0106's send window: the engine's declared Effects, which mark the
-/// bodies a Run's command counts for sent before it goes out.
+/// bodies a Run's command counts for sent before it goes out, and which a
+/// Run's safe point waits for.
 pub(crate) trait SendWindow: Send + Sync {
+    /// Waits for each body of `run` whose owner still holds to be judged,
+    /// at most `run`'s `timeout.close` and never past `by`, or until `run`
+    /// stops at once, then judges each body still running as cut short.
+    fn settle<'a>(
+        &'a self,
+        run: &'a Run,
+        by: Option<Instant>,
+    ) -> Pin<Box<dyn Future<Output = ()> + Send + 'a>>;
+
     /// Marks sent, synced, each body of `run` declared through the attempt
     /// `lease` names, or outside any attempt when it names none or is
     /// `None`, that nothing was sent for yet, before `command` goes out.
@@ -1233,6 +1244,17 @@ enum Cause {
     Panic,
 }
 
+/// Why the engine drains.
+#[derive(Clone, Copy, Debug)]
+enum DrainCause {
+    /// A drain was asked for: each Run waits for its declared Effects'
+    /// bodies whose owners still hold, never past `effects_by`.
+    Asked { effects_by: Instant },
+    /// A part every Run shares panicked (ADR 0148): each Run stops at
+    /// once, its report carrying the warning `engine_panicked`.
+    Panic,
+}
+
 /// What the registry is asked. The channel's blocks hold 32 commands
 /// each, of the largest one's size, so the two that carry a Run's whole
 /// start or report box it: each is sent once per Run. A command that ends
@@ -1310,7 +1332,10 @@ enum Command {
     Index(oneshot::Sender<RunIndex>),
     Discard(RunId, oneshot::Sender<Result<(), RunError>>),
     Discarded(Box<Erased>, oneshot::Sender<Result<(), RunError>>),
-    Drain(Cause, oneshot::Sender<Vec<watch::Receiver<Option<Ended>>>>),
+    Drain(
+        DrainCause,
+        oneshot::Sender<Vec<watch::Receiver<Option<Ended>>>>,
+    ),
     Storage(Arc<StorageSample>),
     StorageFailed(PathBuf),
     LastResort(LastResort),
@@ -1601,6 +1626,16 @@ impl Run {
         match &self.shared.send_window {
             Some(window) => window.sending(self, lease, command).await,
             None => Ok(()),
+        }
+    }
+
+    /// The safe point's wait for its declared Effects (ADR 0106): waits
+    /// for each body whose owner still holds to be judged, at most its
+    /// `timeout.close` and never past `by`, then judges each body still
+    /// running as cut short.
+    async fn settle_effects(&self, by: Option<Instant>) {
+        if let Some(window) = &self.shared.send_window {
+            window.settle(self, by).await;
         }
     }
 
@@ -2346,16 +2381,23 @@ impl Run {
     }
 
     /// Ends the Run as its driver says, once: its tasks stop, and its Run
-    /// report is written and given to whoever waits for it.
+    /// report is written and given to whoever waits for it. A Run that
+    /// stopped at its safe point first waits, at most its `timeout.close`,
+    /// for each declared Effect's body whose owner still holds to be
+    /// judged (ADR 0106).
     ///
     /// # Cancel safety
     ///
-    /// Dropping the future after the end was sent still ends the Run.
+    /// Dropping the future during the Effects' wait leaves the Run live;
+    /// dropping it after the end was sent still ends the Run.
     pub async fn end(&self, ending: Ending) {
         let end = match ending {
             Ending::Finished(reasons) => End::Finished(reasons),
             Ending::Failed(error) => End::Failed(error),
-            Ending::Stopped(reason) => End::Stopped(reason),
+            Ending::Stopped(reason) => {
+                self.settle_effects(None).await;
+                End::Stopped(reason)
+            }
         };
         let _ = self
             .runs
@@ -4226,28 +4268,32 @@ impl Runs {
     /// or resuming, and each live Run stops at its next safe point with a
     /// Checkpoint, `stopped` and resumable by its Run ID; answers once the
     /// engine takes no Run, with the [`Draining`] Runs, whose ends
-    /// [`Draining::ended`] waits for.
+    /// [`Draining::ended`] waits for. Each Run first waits for its declared
+    /// Effects' bodies whose owners still hold, at most its `timeout.close`
+    /// and never past `effects_by` (ADR 0106), on a task of its own, so the
+    /// registry answers meanwhile.
     ///
     /// # Cancel safety
     ///
     /// Dropping the future after it was sent still drains: the Runs stop,
     /// and only the answer is lost.
-    pub(crate) async fn drain(&self) -> Draining {
-        self.drain_for(Cause::Asked).await
+    pub(crate) async fn drain(&self, effects_by: Instant) -> Draining {
+        self.drain_for(DrainCause::Asked { effects_by }).await
     }
 
     /// Drains the engine as [`Runs::drain`] does, because a part every Run
     /// shares panicked (ADR 0148): each Run's report carries the warning
-    /// `engine_panicked`.
+    /// `engine_panicked`, and each Run stops at once, its declared
+    /// Effects' bodies still running cut short.
     ///
     /// # Cancel safety
     ///
     /// As [`Runs::drain`]'s.
     pub(crate) async fn drain_on_panic(&self) -> Draining {
-        self.drain_for(Cause::Panic).await
+        self.drain_for(DrainCause::Panic).await
     }
 
-    async fn drain_for(&self, cause: Cause) -> Draining {
+    async fn drain_for(&self, cause: DrainCause) -> Draining {
         let (answer, answered) = oneshot::channel();
         if self
             .commands
@@ -5068,16 +5114,38 @@ impl Registry {
 
     /// Takes no Run from now on, stops each live Run for the drain with a
     /// Checkpoint, warned first when `cause` is a panic, and answers the
-    /// waits for their reports.
-    async fn drain(&mut self, cause: Cause) -> Vec<watch::Receiver<Option<Ended>>> {
+    /// waits for their reports. Asked to drain, each Run is first asked to
+    /// stop at its next safe point, so it admits nothing new, and waits on
+    /// a task of its own for its declared Effects' bodies whose owners
+    /// still hold, never past `effects_by`, then asks its end.
+    async fn drain(&mut self, cause: DrainCause) -> Vec<watch::Receiver<Option<Ended>>> {
         self.draining = true;
         let ids: Vec<RunId> = self.live.keys().cloned().collect();
         let mut reports = Vec::new();
         for run_id in ids {
-            if cause == Cause::Panic {
-                self.warn_engine_panicked(&run_id).await;
-            }
-            if let Ok(report) = self.stop(&run_id, StopReason::Drain, None).await {
+            let effects_by = match cause {
+                DrainCause::Asked { effects_by } => Some(effects_by),
+                DrainCause::Panic => {
+                    self.warn_engine_panicked(&run_id).await;
+                    None
+                }
+            };
+            let waiting = effects_by.and_then(|by| {
+                let live = self.live.get(&run_id)?;
+                Some((live.run.clone()?, live.report.subscribe(), by))
+            });
+            if let Some((run, report, by)) = waiting {
+                let registry = self.runs.clone();
+                run.stop(StopReason::Drain);
+                self.for_one_run.spawn(async move {
+                    run.settle_effects(Some(by)).await;
+                    if let Some(registry) = registry.upgrade() {
+                        let end = End::Stopped(StopReason::Drain);
+                        let _ = registry.send(Command::End(run_id, end)).await;
+                    }
+                });
+                reports.push(report);
+            } else if let Ok(report) = self.stop(&run_id, StopReason::Drain, None).await {
                 reports.push(report);
             }
         }
@@ -7389,7 +7457,8 @@ struct Closing {
 }
 
 impl Closing {
-    /// Stops the Run's tasks, gives back its Slices, writes its end into
+    /// Stops the Run's tasks, judges each declared Effect's body still
+    /// running as cut short, gives back its Slices, writes its end into
     /// run state with its report, assembled there (ADR 0102), as its
     /// writer's last write, a stop's Checkpoint after it, waits for its
     /// writer and frees its lock. An end whose commit meets a full disk or
@@ -7420,6 +7489,9 @@ impl Closing {
             run.stopped_at_once(reason.clone());
         }
         run.owner.stop().await;
+        // Each declared Effect's body still running is cut short now, its
+        // judgement in the report (ADR 0106).
+        run.settle_effects(Some(clock.now())).await;
         let (stop_reason, error, finished) = match end {
             End::Finished(reasons) => (None, None, reasons),
             End::Failed(error) => (None, Some(error), Vec::new()),

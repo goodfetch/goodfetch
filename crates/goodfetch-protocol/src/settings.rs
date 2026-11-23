@@ -1079,7 +1079,7 @@ pub const TIMEOUT_CONNECT: Setting = Setting {
 /// `timeout.close` (ADRs 0080 and 0083).
 pub const TIMEOUT_CLOSE: Setting = Setting {
     name: "timeout.close",
-    description: "How long a stop of a Run, `run.stop` or a scope's close, waits for its next safe point before it fails with `deadline_exceeded`, the Run still stopping there: 30 s.",
+    description: "One bound for a stop of a Run: how long `run.stop` or a scope's close waits for its next safe point before it fails with `deadline_exceeded`, the Run still stopping there, and how long that safe point then waits for each running Effect body's `effect.close` before it cuts the body short, in a drain no later than half of `daemon.drain_grace` from the drain's start: 30 s.",
     kind: ValueKind::Duration,
     default: thirty_seconds,
     clearable: false,

@@ -8,7 +8,10 @@
 //! `open` or `sent` by a body whose attempt, Connection or engine is gone
 //! is judged as cut short at its key's next declaration, so a crash after
 //! the sent mark leaves the Effect uncertain, never run again until a
-//! person reconciles it ([`Effects::reconcile`]). Every change of an
+//! person reconciles it ([`Effects::reconcile`]). A Run that stops at a
+//! safe point first waits, at most its `timeout.close`, for each body
+//! whose owner still holds to be judged, and every body still running at
+//! a Run's end is judged then as cut short. Every change of an
 //! entry's state goes through [`lifecycle::apply`].
 //!
 //! The idempotency key a body sends is derived from a per-Run secret kept
@@ -17,6 +20,8 @@
 
 mod journal;
 pub mod lifecycle;
+#[cfg(test)]
+mod tests;
 
 pub use journal::{Report, TABLES};
 
@@ -34,12 +39,14 @@ use goodfetch_protocol::effect::{
 };
 use goodfetch_protocol::jsonrpc::ProtocolFailure;
 use goodfetch_protocol::run::{RUN_NOT_FOUND, RunDetails, RunId, UncertainEffect};
+use goodfetch_protocol::settings::TIMEOUT_CLOSE;
 use serde_json::{Value, json};
 use tokio::sync::{Mutex, MutexGuard, Notify};
+use tokio::time::Instant;
 
 use self::journal::{
     Answering, Declared, SECRET_BYTES, answer_about, declare, done, drop_entry, idempotency_key,
-    mark_sent, row, turn_uncertain,
+    interrupted, mark_sent, row, turn_uncertain,
 };
 use self::lifecycle::{EffectEvent, EffectState, InvalidEffectTransition, Next, apply};
 use crate::audit::{AuditError, Origin};
@@ -88,6 +95,37 @@ impl Book {
                 .iter()
                 .all(|answered| !answered.owner.is_alive())
     }
+
+    /// Marks every body as being judged by its Run's end, which then
+    /// writes their judgement with the book unlocked, and gives their
+    /// entries. A body already marked is marked again: an end whose write
+    /// was dropped left it for the next end to judge.
+    fn judging(&mut self) -> Vec<i64> {
+        self.bodies
+            .iter_mut()
+            .map(|body| {
+                body.judging = true;
+                body.entry
+            })
+            .collect()
+    }
+
+    /// Where the body of `entry` runs, unless its Run's end is judging it,
+    /// which leaves its row to that judgement.
+    fn running(&self, entry: i64) -> Option<usize> {
+        self.bodies
+            .iter()
+            .position(|body| body.entry == entry && !body.judging)
+    }
+
+    /// Takes out the bodies of `entries`, whose judgement was written.
+    fn judged(&mut self, entries: &[i64]) -> Vec<Body> {
+        let (judged, kept) = std::mem::take(&mut self.bodies)
+            .into_iter()
+            .partition(|body| entries.contains(&body.entry));
+        self.bodies = kept;
+        judged
+    }
 }
 
 /// A body that runs.
@@ -99,6 +137,8 @@ struct Body {
     /// The first command sent for it, and when, once one was.
     sent: Option<(String, SystemTime)>,
     owner: Owner,
+    /// Whether its Run's end is judging it, cut short.
+    judging: bool,
 }
 
 impl Body {
@@ -284,6 +324,7 @@ impl Effects {
                     repeatable,
                     sent: None,
                     owner,
+                    judging: false,
                 });
                 return Ok(EffectOpened::Perform {
                     entry: entry.to_string(),
@@ -329,7 +370,7 @@ impl Effects {
         let run = live(&run_id, context).await?;
         let run_shelf = self.shelf(&run_id).await;
         let mut book = run_shelf.book.lock().await;
-        let Some(at) = book.bodies.iter().position(|body| body.entry == number) else {
+        let Some(at) = book.running(number) else {
             drop(book);
             return closed_before(&run, &entry, number, context).await;
         };
@@ -441,6 +482,67 @@ impl Effects {
         Ok(())
     }
 
+    /// The safe point's wait (ADR 0106): waits, on `run`'s clock, for each
+    /// body of `run` whose owner still holds to be judged, at most its
+    /// `timeout.close` and never past `by`, so not at all when `by` is now,
+    /// or until `run` stops at once; then judges each body still running
+    /// as cut short: one that sent something is left uncertain, any other
+    /// dropped.
+    async fn settle_run(&self, run: &Run, by: Option<Instant>) {
+        let Some(run_shelf) = self.shelf_of(run.id()).await else {
+            return;
+        };
+        let close: Duration =
+            get_or_default(run.settings().map(RunSettings::resolved), &TIMEOUT_CLOSE);
+        let clock = run.clock();
+        let closed_by = clock.now() + close;
+        let until = by.map_or(closed_by, |by| by.min(closed_by));
+        let deadline = clock.sleep_until(until);
+        tokio::pin!(deadline);
+        loop {
+            let judged = run_shelf.judged.notified();
+            tokio::pin!(judged);
+            judged.as_mut().enable();
+            if !run_shelf
+                .book
+                .lock()
+                .await
+                .bodies
+                .iter()
+                .any(|body| body.owner.is_alive())
+            {
+                break;
+            }
+            tokio::select! {
+                () = judged => {}
+                () = clock.sleep(HOLD_CHECK) => {}
+                () = run.cancellation().cancelled() => break,
+                () = &mut deadline => break,
+            }
+        }
+        // Marked under the lock, judged with it released: a late
+        // `effect.close` leaves a marked body to this judgement, and a wait
+        // dropped during the write leaves them in the book for the Run's
+        // end to judge again.
+        let entries = run_shelf.book.lock().await.judging();
+        if entries.is_empty() {
+            return;
+        }
+        let written = entries.clone();
+        if let Err(error) = run
+            .state()
+            .write(move |connection| interrupted(connection, &written))
+            .await
+        {
+            tracing::warn!(%error, run_id = %run.id(), "the Effects still running at the Run's end were not judged: their next declaration judges them");
+        }
+        let cut = run_shelf.book.lock().await.judged(&entries);
+        for body in &cut {
+            body.owner.end_effect();
+        }
+        run_shelf.judged.notify_waiters();
+    }
+
     /// A person's `answer` about the uncertain Effect `entry` of `run`,
     /// recorded in the Audit log as `context`'s person's.
     ///
@@ -518,6 +620,14 @@ impl SendWindow for Effects {
                 state_unavailable(run.id().clone(), run.folder(), &error.to_string())
             })
         })
+    }
+
+    fn settle<'a>(
+        &'a self,
+        run: &'a Run,
+        by: Option<Instant>,
+    ) -> Pin<Box<dyn Future<Output = ()> + Send + 'a>> {
+        Box::pin(self.settle_run(run, by))
     }
 }
 

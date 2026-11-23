@@ -637,7 +637,7 @@ pub(crate) async fn serve(
                 // A drain once a handover is decided changes nothing.
                 if let Ok(EngineState::Draining) = transition(&state, EngineEvent::Drain) {
                     decide_no_more(&mut asked_of_the_loop);
-                    let until = drain_runs(&serving, &state, grace, serving.runs.drain()).await;
+                    let until = drain_runs(&serving, &state, grace, |effects_by| serving.runs.drain(effects_by)).await;
                     drop(accepts);
                     return finish_by(DaemonEnd::Drained, &connections_owner, &shared, clock, until).await;
                 }
@@ -659,7 +659,7 @@ pub(crate) async fn serve(
                     let failed = transition(&state, EngineEvent::ListenerFailed);
                     if let Ok(EngineState::Draining) = failed {
                         decide_no_more(&mut asked_of_the_loop);
-                        let until = drain_runs(&serving, &state, grace, serving.runs.drain()).await;
+                        let until = drain_runs(&serving, &state, grace, |effects_by| serving.runs.drain(effects_by)).await;
                         drop(accepts);
                         return finish_by(DaemonEnd::ListenerFailed, &connections_owner, &shared, clock, until).await;
                     }
@@ -777,7 +777,7 @@ async fn stopped_on_panic(
     serving.metrics.panicked(PanicEnded::Engine);
     decide_no_more(asked_of_the_loop);
     if draining {
-        Some(drain_runs(serving, state, grace, serving.runs.drain_on_panic()).await)
+        Some(drain_runs(serving, state, grace, |_| serving.runs.drain_on_panic()).await)
     } else {
         Some(serving.engine.clock().now() + grace)
     }
@@ -1031,21 +1031,25 @@ async fn close_all_but(
 
 /// Drains the Daemon's Runs through `drain`, waiting at most `grace` for
 /// them to stop, after which the Daemon, which was `Draining`, is
-/// `Stopping`; answers when that grace ends. Once the grace passed it asks
-/// its Runs' registry nothing more, which a panic may have wedged (ADR
-/// 0148): it counts the Runs not stopped from the drain's own answer.
-async fn drain_runs(
+/// `Stopping`; answers when that grace ends. `drain` is given the end of
+/// the grace's first half, by which each Run's wait for its declared
+/// Effects ends, leaving the second half to the Runs' ends and Checkpoints
+/// (ADR 0049's note of 2026-11-23). Once the grace passed it asks its Runs'
+/// registry nothing more, which a panic may have wedged (ADR 0148): it
+/// counts the Runs not stopped from the drain's own answer.
+async fn drain_runs<Drains: Future<Output = Draining>>(
     serving: &Serving,
     state: &watch::Sender<EngineState>,
     grace: Duration,
-    drain: impl Future<Output = Draining>,
+    drain: impl FnOnce(Instant) -> Drains,
 ) -> Instant {
     serving.metrics.draining(true);
     let clock = serving.engine.clock();
-    let until = clock.now() + grace;
+    let now = clock.now();
+    let until = now + grace;
     let mut grace_ends = std::pin::pin!(clock.sleep_until(until));
     tokio::select! {
-        draining = drain => {
+        draining = drain(now + grace / 2) => {
             tracing::info!(
                 live_runs = draining.count(),
                 "the Daemon drains: it takes no run and checkpoints each live run"

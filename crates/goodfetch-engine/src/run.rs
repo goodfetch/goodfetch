@@ -17,13 +17,14 @@
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 
+use goodfetch_protocol::audit::Actor;
 use goodfetch_protocol::catalog::Operation;
 use goodfetch_protocol::catalog::{Product, SettingScope};
 use goodfetch_protocol::checkpoint::{
-    CHECKPOINT_INTERVAL, FILE_WRITE_FAILED, FORMAT_VERSION_UNSUPPORTED, FileWriteFailedDetails,
-    FormatVersionUnsupportedDetails, RUN_CHECKPOINT, RUN_MIGRATE, RUN_PAUSE, RUN_RESUME,
-    RunCheckpointParams, RunMigrateParams, RunResumeParams, SESSION_BOUND_TO_MACHINE,
-    SessionBoundToMachineDetails, WriteSide,
+    CHECKPOINT_BEHIND, CHECKPOINT_INTERVAL, CheckpointBehindDetails, FILE_WRITE_FAILED,
+    FORMAT_VERSION_UNSUPPORTED, FileWriteFailedDetails, FormatVersionUnsupportedDetails,
+    RUN_CHECKPOINT, RUN_MIGRATE, RUN_PAUSE, RUN_RESUME, RunCheckpointParams, RunMigrateParams,
+    RunResumeParams, SESSION_BOUND_TO_MACHINE, SessionBoundToMachineDetails, WriteSide,
 };
 use goodfetch_protocol::connection::{StoppedBy, WaitedFor};
 use goodfetch_protocol::entries::operations_of;
@@ -75,8 +76,8 @@ use crate::composition::{CallContext, Handler};
 use crate::deadline::Deadline;
 use crate::product::{Identity, Requested};
 use crate::runs::{
-    Aborter, EndedBy, FixedSettingChanged, Forwarded, ListError, Resume, Resumed, RunError, Start,
-    StartError, Started, StorageExhausted, UnsupportedFolder,
+    Aborter, Behind, EndedBy, FixedSettingChanged, Forwarded, FromCheckpoint, ListError, Resume,
+    Resumed, RollbackBy, RunError, Start, StartError, Started, StorageExhausted, UnsupportedFolder,
 };
 use crate::secrets::SecretError;
 use crate::settings::{
@@ -694,6 +695,39 @@ fn stopped() -> CallError {
     )
 }
 
+/// `session_bound_to_machine` for the Run `run_id` (ADR 0056).
+fn bound_to_machine(run_id: RunId) -> CallError {
+    CallError::new(
+        &SESSION_BOUND_TO_MACHINE,
+        format!(
+            "The Run `{run_id}` is bound to the machine its Session source is on; resume it there, or serve its Session source through a Browser host."
+        ),
+        &SessionBoundToMachineDetails { run_id },
+    )
+}
+
+/// `checkpoint_behind` for a Checkpoint behind the run file here (ADR
+/// 0002's note of #2322).
+fn checkpoint_behind(behind: Behind) -> CallError {
+    let Behind {
+        run_id,
+        checkpoint,
+        run_file,
+    } = behind;
+    CallError::new(
+        &CHECKPOINT_BEHIND,
+        format!(
+            "The Checkpoint given stands behind the run file of the Run `{run_id}` on this machine, so resuming from it would lose the work done since; nothing was changed."
+        ),
+        &CheckpointBehindDetails {
+            run_id,
+            checkpoint,
+            run_file,
+            fix: "Resume without `checkpoint` to go on from the run file here, or pass `rollback` to replace it with the Checkpoint, as the Audit log records.".to_owned(),
+        },
+    )
+}
+
 /// The Error code a Run's failure answers `context`'s call with.
 pub fn run_error(error: RunError, context: &CallContext) -> CallError {
     match error {
@@ -743,13 +777,8 @@ pub fn run_error(error: RunError, context: &CallContext) -> CallError {
                 None => format_refusal(format, &found, compatibility),
             }
         }
-        RunError::BoundToMachine(run_id) => CallError::new(
-            &SESSION_BOUND_TO_MACHINE,
-            format!(
-                "The Run `{run_id}` is bound to the machine its Session source is on; resume it there, or serve its Session source through a Browser host."
-            ),
-            &SessionBoundToMachineDetails { run_id },
-        ),
+        RunError::BoundToMachine(run_id) => bound_to_machine(run_id),
+        RunError::Behind(behind) => checkpoint_behind(behind),
         RunError::WriteFailed {
             run_id,
             folder,
@@ -1218,13 +1247,18 @@ async fn resume(params: RunResumeParams, context: CallContext) -> Result<RunStar
         })
         .await
         .map_err(|error| settings_error(&error, &context))?;
-    resume_run(
-        &context,
-        params.run_id,
-        params.checkpoint.map(PathBuf::from),
-        settings,
-    )
-    .await
+    // A roll-back is recorded as the caller's (ADR 0002's note of #2322).
+    let rollback = params.rollback.then(|| RollbackBy {
+        actor: Actor::Person {
+            name: context.person(),
+        },
+        surface: context.surface(),
+    });
+    let checkpoint = params.checkpoint.map(|path| FromCheckpoint {
+        path: PathBuf::from(path),
+        rollback,
+    });
+    resume_run(&context, params.run_id, checkpoint, settings).await
 }
 
 /// Resumes the Run `run_id` from its run file, or the Checkpoint at
@@ -1239,7 +1273,7 @@ async fn resume(params: RunResumeParams, context: CallContext) -> Result<RunStar
 pub async fn resume_run(
     context: &CallContext,
     run_id: RunId,
-    checkpoint: Option<PathBuf>,
+    checkpoint: Option<FromCheckpoint>,
     settings: RunSettings,
 ) -> Result<RunStarted, CallError> {
     let resumed = context

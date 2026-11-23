@@ -283,6 +283,11 @@ prefix = "session_bound_to_machine"
 
 [[area]]
 number = 3
+kind = "error"
+prefix = "checkpoint_behind"
+
+[[area]]
+number = 3
 kind = "format"
 prefix = "run-"
 

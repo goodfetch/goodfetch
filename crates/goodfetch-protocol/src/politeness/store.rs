@@ -131,8 +131,8 @@ impl StoreUrl {
 }
 
 /// Whether `host` is this machine's loopback: `localhost` or a loopback
-/// address.
-fn is_loopback(host: &str) -> bool {
+/// address. An engine reads it too, for the address a Sentinel elects.
+pub fn is_loopback(host: &str) -> bool {
     host.eq_ignore_ascii_case("localhost")
         || host
             .parse::<IpAddr>()

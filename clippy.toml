@@ -38,6 +38,11 @@ disallowed-methods = [
   { path = "wreq::ClientBuilder::build", reason = "a wreq client opens its own sockets: only the HTTP fetch tier's `wreq` transport builds one (ADR 0060)", allow-invalid = true },
   # So does a redis client: only the Politeness store opens one (ADRs 0053 and 0060).
   { path = "redis::Client::open", reason = "a redis client opens its own sockets: only the Politeness store opens one (ADRs 0053 and 0060)", allow-invalid = true },
+  { path = "redis::sentinel::Sentinel::build", reason = "a redis client opens its own sockets: only the Politeness store opens one (ADRs 0053 and 0060)", allow-invalid = true },
+  { path = "redis::sentinel::SentinelClient::build", reason = "a redis client opens its own sockets: only the Politeness store opens one (ADRs 0053 and 0060)", allow-invalid = true },
+  { path = "redis::sentinel::SentinelClientBuilder::build", reason = "a redis client opens its own sockets: only the Politeness store opens one (ADRs 0053 and 0060)", allow-invalid = true },
+  { path = "redis::cluster::ClusterClient::new", reason = "a redis client opens its own sockets: only the Politeness store opens one (ADRs 0053 and 0060)", allow-invalid = true },
+  { path = "redis::cluster::ClusterClientBuilder::build", reason = "a redis client opens its own sockets: only the Politeness store opens one (ADRs 0053 and 0060)", allow-invalid = true },
   # Time, randomness and the environment come from their handles (ADR 0059).
   { path = "std::time::SystemTime::now", reason = "read time through the Clock handle (ADR 0059)" },
   { path = "std::time::Instant::now", reason = "read time through the Clock handle (ADR 0059)" },

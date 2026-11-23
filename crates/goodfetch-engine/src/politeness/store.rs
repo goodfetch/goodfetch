@@ -15,13 +15,25 @@
 //! Its key and script layout is a contract format whose major is frozen,
 //! as the Usage ledger's family keeps theirs (ADR 0053's Formats): every key
 //! lives under `<namespace>:politeness:<major>:`.
+//!
+//! The store is one server, a Sentinel deployment or a Cluster, as
+//! `politeness.store` names it. Its password, resolved from the setting's
+//! Secret reference (ADR 0015), never travels in clear off loopback: an
+//! address off loopback is `rediss://`, and a Sentinel's elected primary is
+//! reached over TLS whenever a password is set or a sentinel is.
 
 use std::fmt;
 use std::time::Duration;
 
 use futures_util::StreamExt as _;
-use redis::Script;
-use redis::aio::MultiplexedConnection;
+use goodfetch_protocol::politeness::store::{
+    PolitenessStoreConfiguration, StoreAddressing, StoreNamespace, StoreUrl, is_loopback,
+};
+use redis::aio::{ConnectionLike, MultiplexedConnection};
+use redis::cluster_async::ClusterConnection;
+use redis::sentinel::{Sentinel, SentinelNodeConnectionInfo};
+use redis::{ConnectionAddr, ConnectionInfo, IntoConnectionInfo as _, Script, TlsMode};
+use secrecy::{ExposeSecret as _, SecretString};
 
 /// The layout's frozen major: every key and channel lives under it, and a
 /// newer layout only adds.
@@ -59,13 +71,17 @@ pub enum Pace {
 #[derive(Debug, thiserror::Error)]
 #[non_exhaustive]
 pub enum StoreError {
-    /// A namespace that is empty, or holds a brace, which would make a hash
-    /// tag of its own and move keys across Cluster slots.
-    #[error("the Politeness store's namespace is empty or holds `{{` or `}}`")]
-    Namespace,
     /// The store could not be reached, or the connection to it dropped.
     #[error("the Politeness store is unreachable")]
     Unreachable(Party),
+    /// The store refused the engine: no password, another password, or a
+    /// user it denies a command.
+    #[error("the Politeness store refused its user or password")]
+    Refused(Party),
+    /// The primary a Sentinel elected is off loopback and reached without
+    /// TLS, which would carry every key in clear.
+    #[error("the Politeness store's Sentinel elected a primary off loopback without TLS")]
+    Plaintext,
     /// The store answered with a failure this module does not know.
     #[error("the Politeness store failed")]
     Unrecognized(Party),
@@ -89,7 +105,11 @@ impl From<redis::RedisError> for StoreError {
         let party = Party {
             category: format!("{:?}", error.kind()),
         };
-        if error.is_io_error()
+        if matches!(error.kind(), redis::ErrorKind::AuthenticationFailed)
+            || matches!(error.code(), Some("NOAUTH" | "WRONGPASS" | "NOPERM"))
+        {
+            Self::Refused(party)
+        } else if error.is_io_error()
             || error.is_connection_dropped()
             || error.is_connection_refusal()
             || error.is_timeout()
@@ -120,7 +140,8 @@ impl Scripts {
         }
     }
 
-    async fn load(&self, connection: &mut MultiplexedConnection) -> Result<(), StoreError> {
+    /// Loads each script, on every primary of a Cluster.
+    async fn load(&self, connection: &mut Connection) -> Result<(), StoreError> {
         for script in [&self.take, &self.renew, &self.give_back, &self.pace] {
             script.prepare_invoke().load_async(connection).await?;
         }
@@ -134,13 +155,12 @@ struct Layout {
 }
 
 impl Layout {
-    fn new(namespace: &str) -> Result<Self, StoreError> {
-        if namespace.is_empty() || namespace.contains(['{', '}']) {
-            return Err(StoreError::Namespace);
+    /// The layout under `namespace`, which holds no brace, so its keys'
+    /// only hash tag is their Politeness key's.
+    fn new(namespace: &StoreNamespace) -> Self {
+        Self {
+            namespace: namespace.as_str().to_owned(),
         }
-        Ok(Self {
-            namespace: namespace.to_owned(),
-        })
     }
 
     /// The name of `part` of `key`'s state, whose hash tag is the key, so
@@ -166,8 +186,11 @@ impl Layout {
 /// A connection to a Politeness store under one namespace, its scripts
 /// loaded.
 pub struct PolitenessStore {
-    client: redis::Client,
-    connection: MultiplexedConnection,
+    /// The client a key's waiters subscribe through: the server, the
+    /// primary a Sentinel elected, or a Cluster's first node, since a
+    /// Cluster carries every publication to each of its nodes.
+    subscriber: redis::Client,
+    connection: Connection,
     layout: Layout,
     scripts: Scripts,
 }
@@ -181,31 +204,34 @@ impl fmt::Debug for PolitenessStore {
 }
 
 impl PolitenessStore {
-    /// Connects to the store at `url` under `namespace` and loads its
-    /// scripts.
+    /// Connects to the store `configuration` names, with `password`, which
+    /// its Secret reference resolved to, and loads its scripts.
     ///
     /// # Errors
     ///
-    /// [`StoreError::Namespace`] for a namespace that cannot be one, else
-    /// the store's failure.
+    /// [`StoreError::Refused`] when the store refuses the user or password,
+    /// [`StoreError::Plaintext`] for a Sentinel's primary off loopback
+    /// without TLS, else the store's failure.
     ///
     /// # Cancel safety
     ///
     /// Dropping it drops the connection; scripts it loaded stay loaded.
-    #[expect(
-        clippy::disallowed_methods,
-        reason = "the Politeness store's client opens its own sockets, which the Simulation never carries (ADR 0060)"
-    )]
-    pub async fn connect(url: &str, namespace: &str) -> Result<Self, StoreError> {
-        let layout = Layout::new(namespace)?;
-        let client = redis::Client::open(url)?;
-        let mut connection = client.get_multiplexed_async_connection().await?;
+    pub async fn connect(
+        configuration: &PolitenessStoreConfiguration,
+        password: Option<&SecretString>,
+    ) -> Result<Self, StoreError> {
+        let authentication = Authentication {
+            username: configuration.username.as_deref(),
+            password,
+        };
+        let (subscriber, mut connection) =
+            reach(&configuration.addressing, &authentication).await?;
         let scripts = Scripts::new();
         scripts.load(&mut connection).await?;
         Ok(Self {
-            client,
+            subscriber,
             connection,
-            layout,
+            layout: Layout::new(&configuration.namespace),
             scripts,
         })
     }
@@ -280,7 +306,7 @@ impl PolitenessStore {
     ///
     /// Dropping it drops the subscription.
     pub async fn wakes(&self, key: &str) -> Result<Wakes, StoreError> {
-        let mut subscription = self.client.get_async_pubsub().await?;
+        let mut subscription = self.subscriber.get_async_pubsub().await?;
         subscription
             .subscribe(self.layout.name(key, "wakes"))
             .await?;
@@ -368,6 +394,124 @@ impl Wakes {
     }
 }
 
+/// The connection the store's scripts run on: one server's, or a
+/// Cluster's, which sends each call to its key's slot.
+#[derive(Clone)]
+enum Connection {
+    One(MultiplexedConnection),
+    Cluster(ClusterConnection),
+}
+
+impl ConnectionLike for Connection {
+    fn req_packed_command<'a>(
+        &'a mut self,
+        command: &'a redis::Cmd,
+    ) -> redis::RedisFuture<'a, redis::Value> {
+        match self {
+            Self::One(connection) => connection.req_packed_command(command),
+            Self::Cluster(connection) => connection.req_packed_command(command),
+        }
+    }
+
+    fn req_packed_commands<'a>(
+        &'a mut self,
+        pipeline: &'a redis::Pipeline,
+        offset: usize,
+        count: usize,
+    ) -> redis::RedisFuture<'a, Vec<redis::Value>> {
+        match self {
+            Self::One(connection) => connection.req_packed_commands(pipeline, offset, count),
+            Self::Cluster(connection) => connection.req_packed_commands(pipeline, offset, count),
+        }
+    }
+
+    fn get_db(&self) -> i64 {
+        match self {
+            Self::One(connection) => connection.get_db(),
+            Self::Cluster(connection) => connection.get_db(),
+        }
+    }
+}
+
+/// The user and password the store is reached with.
+struct Authentication<'a> {
+    username: Option<&'a str>,
+    password: Option<&'a SecretString>,
+}
+
+impl Authentication<'_> {
+    /// `settings` with this user and password.
+    fn on(&self, mut settings: redis::RedisConnectionInfo) -> redis::RedisConnectionInfo {
+        if let Some(username) = self.username {
+            settings = settings.set_username(username);
+        }
+        if let Some(password) = self.password {
+            settings = settings.set_password(password.expose_secret());
+        }
+        settings
+    }
+
+    /// `url`'s connection, with this user and password.
+    fn at(&self, url: &StoreUrl) -> Result<ConnectionInfo, StoreError> {
+        let info = url.as_str().into_connection_info()?;
+        let settings = self.on(info.redis_settings().clone());
+        Ok(info.set_redis_settings(settings))
+    }
+}
+
+/// Reaches the store `addressing` names: the client a key's waiters
+/// subscribe through, and the connection its scripts run on.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "the Politeness store's client opens its own sockets, which the Simulation never carries (ADR 0060)"
+)]
+async fn reach(
+    addressing: &StoreAddressing,
+    authentication: &Authentication<'_>,
+) -> Result<(redis::Client, Connection), StoreError> {
+    match addressing {
+        StoreAddressing::Server { url } => {
+            let client = redis::Client::open(authentication.at(url)?)?;
+            let connection = client.get_multiplexed_async_connection().await?;
+            Ok((client, Connection::One(connection)))
+        }
+        StoreAddressing::Sentinel { service, sentinels } => {
+            let mut sentinel = Sentinel::build(sentinels.iter().map(StoreUrl::as_str).collect())?;
+            let mut primary = SentinelNodeConnectionInfo::default().set_redis_connection_info(
+                authentication.on(redis::RedisConnectionInfo::default()),
+            );
+            if authentication.password.is_some() || sentinels.iter().any(StoreUrl::tls) {
+                primary = primary.set_tls_mode(TlsMode::Secure);
+            }
+            let client = sentinel.async_master_for(service, Some(&primary)).await?;
+            if plaintext_off_loopback(client.get_connection_info().addr()) {
+                return Err(StoreError::Plaintext);
+            }
+            let connection = client.get_multiplexed_async_connection().await?;
+            Ok((client, Connection::One(connection)))
+        }
+        StoreAddressing::Cluster { nodes } => {
+            let seeds = nodes
+                .iter()
+                .map(|node| authentication.at(node))
+                .collect::<Result<Vec<_>, _>>()?;
+            let cluster = redis::cluster::ClusterClient::builder(seeds.clone()).build()?;
+            let first = seeds
+                .into_iter()
+                .next()
+                .expect("invariant: a Cluster client is built from one node at least");
+            let client = redis::Client::open(first)?;
+            let connection = cluster.get_async_connection().await?;
+            Ok((client, Connection::Cluster(connection)))
+        }
+    }
+}
+
+/// Whether `address` is reached without TLS off loopback.
+fn plaintext_off_loopback(address: &ConnectionAddr) -> bool {
+    matches!(address, ConnectionAddr::Tcp(host, _port) if !is_loopback(host))
+}
+
 /// `duration` in whole milliseconds, at least 1, so a lease never expires
 /// as it is taken.
 fn milliseconds(duration: Duration) -> u64 {
@@ -378,13 +522,16 @@ fn milliseconds(duration: Duration) -> u64 {
 
 #[cfg(test)]
 mod tests {
-    use super::{Layout, StoreError};
+    use goodfetch_protocol::politeness::store::StoreNamespace;
+    use redis::ConnectionAddr;
+
+    use super::{Layout, plaintext_off_loopback};
 
     /// Every part of a key shares one hash tag, the whole key, even when
     /// the key holds a brace that would otherwise end the tag early.
     #[test]
     fn every_part_of_a_key_shares_one_hash_tag() {
-        let layout = Layout::new("crawl").unwrap();
+        let layout = Layout::new(&StoreNamespace::parse("crawl").unwrap());
 
         assert_eq!(
             layout.name("example.com", "permits"),
@@ -396,10 +543,22 @@ mod tests {
         );
     }
 
-    /// A namespace holding a brace would make a hash tag of its own.
+    /// A primary a Sentinel elects is taken without TLS on loopback only,
+    /// since every key would travel in clear (ADR 0053).
     #[test]
-    fn a_namespace_with_a_brace_or_none_is_refused() {
-        assert!(matches!(Layout::new(""), Err(StoreError::Namespace)));
-        assert!(matches!(Layout::new("a{b}"), Err(StoreError::Namespace)));
+    fn an_elected_primary_without_tls_is_taken_on_loopback_only() {
+        let tcp = |host: &str| ConnectionAddr::Tcp(host.to_owned(), 6379);
+        let tls = ConnectionAddr::TcpTls {
+            host: "valkey.example".to_owned(),
+            port: 6379,
+            insecure: false,
+            tls_params: None,
+        };
+
+        assert!(plaintext_off_loopback(&tcp("10.0.0.5")));
+        assert!(plaintext_off_loopback(&tcp("valkey.example")));
+        assert!(!plaintext_off_loopback(&tcp("127.0.0.1")));
+        assert!(!plaintext_off_loopback(&tcp("::1")));
+        assert!(!plaintext_off_loopback(&tls));
     }
 }

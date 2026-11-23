@@ -1,8 +1,3 @@
-#![expect(
-    clippy::doc_markdown,
-    reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
-)]
-
 use rstest::rstest;
 use serde_json::{Value, json};
 
@@ -191,7 +186,7 @@ fn a_namespace_is_a_name_without_braces(#[case] namespace: &str, #[case] taken: 
 fn the_store_is_set_on_the_machine_and_none_by_default() {
     assert!(matches!(POLITENESS_STORE.authority, Authority::Machine));
     assert_eq!((POLITENESS_STORE.default)(), Value::Null);
-    assert!(POLITENESS_STORE.clearable);
+    const { assert!(POLITENESS_STORE.clearable) };
     assert!(matches!(POLITENESS_STORE.kind, ValueKind::Shape(_)));
     assert_eq!(POLITENESS_STORE.unbuilt, Some("politeness_store"));
 }

@@ -1,0 +1,8 @@
+---
+source: crates/goodfetch-collie/tests/it/usage.rs
+expression: output.to_string()
+---
+exit: 0
+----- stdout -----
+limits: [{"charged":0,"held":0,"left":500,"limit":{"amount":500,"must_understand":true,"scope":{"id":"","kind":"install"},"set_by":"client","usage_kind":"requests"},"standing":"held"}]
+----- stderr -----

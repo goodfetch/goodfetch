@@ -1,0 +1,6 @@
+---
+source: crates/goodfetch-collie/tests/it/commands.rs
+expression: "progress.iter().map(Value::to_string).collect::<Vec<_>>().join(\"\\n\")"
+---
+{"data":{"lifecycle":"running","run_id":"followed"},"event":"run.axes_changed","position":2}
+{"data":{"completeness":"complete","lifecycle":"finished","run_id":"followed","verdict":"verified"},"event":"run.axes_changed","position":3}

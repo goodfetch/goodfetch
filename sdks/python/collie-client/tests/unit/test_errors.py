@@ -7,7 +7,7 @@ knows. TypeScript's `errors.test.ts` is its twin.
 from __future__ import annotations
 
 import json
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, cast
 
 import pytest
@@ -20,6 +20,7 @@ from goodfetch_collie_client.generated.errors import (
     CallCancelledError,
     HookFailedError,
     InternalError,
+    ModelUnavailableError,
     PageError,
     PageNavigatedDuringCallError,
     ProgramError,
@@ -263,6 +264,38 @@ def test_blocked_with_no_retry_after_has_none() -> None:
 
     assert isinstance(error, BlockedError)
     assert error.retry_after is None
+
+
+@pytest.mark.parametrize(
+    ("data", "retry_after"),
+    [
+        pytest.param({"retry_after": 1500}, timedelta(milliseconds=1500), id="1500 ms"),
+        pytest.param({"retry_after": None}, None, id="null"),
+        pytest.param({}, None, id="left out"),
+    ],
+)
+def test_model_unavailable_reads_its_retry_after_as_a_duration(
+    data: dict[str, object], retry_after: timedelta | None
+) -> None:
+    """How long the Model provider asks to wait (ADRs 0080 and 0101).
+
+    A duration sent in milliseconds, never a point in time; `None` when it
+    asks for no wait. The details keep it as sent.
+    """
+    error = error_of_reply(
+        {
+            "code": -32006,
+            "message": "model_unavailable",
+            "data": {"code": "model_unavailable", "reason": "rate_limited", **data},
+        },
+        ERROR_CLASSES,
+    )
+
+    assert isinstance(error, ModelUnavailableError)
+    assert (error.retry_after, error.details.get("retry_after")) == (
+        retry_after,
+        data.get("retry_after"),
+    )
 
 
 @pytest.mark.covers("story:11-48", "error:call_cancelled")

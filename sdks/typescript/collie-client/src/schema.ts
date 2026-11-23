@@ -10,6 +10,7 @@
 
 import { SchemaValidatorFailedError } from "./generated/errors.ts";
 import { pointerToken, type JSONObject, type JSONValue } from "./json.ts";
+import { thrownException } from "./thrown.ts";
 
 /** Standard Typed's inferred types (`@standard-schema/spec` 1.1.0). */
 interface StandardTypes<Input, Output> {
@@ -137,7 +138,9 @@ export async function parse<S extends Schema>(
     result = await schema["~standard"].validate(value);
   } catch (thrown) {
     // Only the library's own issues are a rejection: anything else its
-    // validation throws is the program's bug, so the call stops here.
+    // validation throws is the program's bug, so the call stops here. Zod
+    // runs a check that threw once more, asynchronously, before it rejects,
+    // so a throwing check may have run twice by now.
     throw validatorFailed(schema, thrown);
   }
   if (result.issues) {
@@ -171,8 +174,7 @@ export function wireSchema(schema: Schema): Readonly<Record<string, unknown>> {
  */
 function validatorFailed(schema: TypedSchema, thrown: unknown): SchemaValidatorFailedError {
   const title = titleOf(schema);
-  const type = thrown instanceof Error ? thrown.name : thrown === null ? "null" : typeof thrown;
-  const message = thrown instanceof Error ? thrown.message : String(thrown);
+  const { type, message } = thrownException(thrown);
   const named = title === null ? "the schema" : `the schema ${title}`;
   return new SchemaValidatorFailedError(`${named}'s own validation threw ${type}: ${message}`, {
     cause: thrown,

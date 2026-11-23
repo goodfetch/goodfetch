@@ -2391,7 +2391,7 @@
     {
       "id": "error:schema_validator_failed",
       "kind": "error",
-      "area": null,
+      "area": 11,
       "milestone": null,
       "status": "active",
       "products": [

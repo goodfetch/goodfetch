@@ -690,6 +690,8 @@ def payload_of(crawl: AsyncCrawl | Crawl, label: str, payload: JSONValue) -> obj
 
     Raises:
         SchemaRejectedError: The Label's schema rejects it.
+        SchemaValidatorFailedError: A validator of the Label's schema raised
+            something other than a rejection.
     """
     declared = _crawls[crawl].labels.get(label)
     codec = None if declared is None else _payload_codecs.get(declared.label)

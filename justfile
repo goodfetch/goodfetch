@@ -534,6 +534,7 @@ fetch:
     uv sync --frozen --all-extras
     ci/lightpanda-fetch.sh
     ci/chrome-for-testing-fetch.sh
+    ci/claude-code-fetch.sh
     ci/alpine/fetch.sh
     ci/source-build/fetch.sh
 

@@ -59,6 +59,10 @@ const COLLIE_LIST: &str = concat!(products::collie_folder!(), "/generated/skills
 /// The list of the files Foxhound's executable embeds.
 const FOXHOUND_LIST: &str = concat!(products::foxhound_folder!(), "/generated/skills.rs");
 
+/// Where each executable crate's `generated/` folder, a Claude Code plugin
+/// root, holds its manifest (story 11-239).
+const PLUGIN_MANIFEST: &str = "generated/.claude-plugin/plugin.json";
+
 /// The Agent Skills specification's limits, in characters.
 const NAME_LIMIT: usize = 64;
 const DESCRIPTION_LIMIT: usize = 1_024;
@@ -109,8 +113,43 @@ pub(super) fn files(
     Ok(files
         .into_iter()
         .chain(lists)
+        .chain(plugins(root)?)
         .filter(|(path, _)| carried(root, path))
         .collect())
+}
+
+/// Each executable crate's Claude Code plugin manifest (story 11-239),
+/// which makes its `generated/` folder, its renderings in `skills/`, a
+/// plugin named as the executable: its skills load as
+/// `<executable>:<skill>`. The version, licence and repository are the
+/// workspace's.
+fn plugins(root: &Path) -> Result<Files> {
+    let version = super::workspace_package(root, "version")?;
+    let license = super::workspace_package(root, "license")?;
+    let repository = super::workspace_package(root, "repository")?;
+    [
+        (products::COLLIE, "Agent skills for Collie, Goodfetch's Product for browser automation: drive a real browser with goodfetch-collie and read its Runs."),
+        (products::FOXHOUND, "Agent skills for Foxhound, Goodfetch's Product for crawling, which contains Collie: crawl sites and drive a real browser with goodfetch-foxhound."),
+    ]
+    .into_iter()
+    .map(|(executable, description)| {
+        let manifest = serde_json::json!({
+            "name": executable.package,
+            "version": version,
+            "description": description,
+            "author": { "name": "Goodfetch" },
+            "homepage": repository,
+            "repository": repository,
+            "license": license,
+        });
+        let mut text = serde_json::to_string_pretty(&manifest)?;
+        text.push('\n');
+        Ok((
+            format!("{}/{PLUGIN_MANIFEST}", executable.folder),
+            text.into_bytes(),
+        ))
+    })
+    .collect()
 }
 
 /// Whether the workspace at `root` holds the executable crate the generated

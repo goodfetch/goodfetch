@@ -1647,6 +1647,16 @@
       ]
     },
     {
+      "id": "error:hook_undeclared",
+      "kind": "error",
+      "area": 7,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "foxhound"
+      ]
+    },
+    {
       "id": "error:hook_unknown",
       "kind": "error",
       "area": 7,

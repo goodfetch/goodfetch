@@ -53,6 +53,7 @@ use goodfetch_protocol::foxhound::crawl::{
     CRAWL_SERVE, CRAWL_START, CrawlExtraction, CrawlStartParams, LabelDeclaration, Seed,
 };
 use goodfetch_protocol::foxhound::frontier::PAYLOAD_SCHEMA_CHANGED;
+use goodfetch_protocol::foxhound::hook::CrawlHookDeclaration;
 use goodfetch_protocol::foxhound::settings::{
     FEATURE_SWITCHED_OFF, PROVENANCE_LOG, SWITCHED_OFF_FEATURES,
 };
@@ -65,6 +66,7 @@ use goodfetch_protocol::settings::{RunOrigin, TIMEOUT_RUN};
 use crate::code_free::{self, CodeFree};
 use crate::delivery;
 use crate::enqueue;
+use crate::hooks;
 use crate::invariants::Invariants;
 use crate::labels;
 use crate::outcomes;
@@ -96,7 +98,7 @@ pub fn contribution(tiers: FetchTiers) -> Contribution {
     let retrying = crawls.clone();
     let resuming = crawls.clone();
     let redeclared = Redeclared::default();
-    let redeclaring = redeclared.clone();
+    let (redeclaring, redeclared_retry) = (redeclared.clone(), redeclared.clone());
     let pages = code_free::Pages::default();
     let [read_outcomes, read_failed_requests] = outcomes::handlers();
     let [add_seed, add_seeds] = seeding::handlers(&crawls);
@@ -130,11 +132,12 @@ pub fn contribution(tiers: FetchTiers) -> Contribution {
         .with_handler(add_seeds)
         .with_handler(read_outcomes)
         .with_handler(read_failed_requests)
-        .with_handler(retry::handler(retrying))
+        .with_handler(retry::handler(retrying, redeclared_retry))
         .with_handler(crate::dataset_list::handler())
         .with_run_state_tables(work_items::TABLES)
         .with_run_state_tables(labels::TABLES)
         .with_run_state_tables(code_free::TABLES)
+        .with_run_state_tables(hooks::TABLES)
         .with_run_state_tables(tier_choice::TABLES)
         .with_report_part(Arc::new(crate::report::CrawlParts))
         .with_report_part(Arc::new(crate::completeness::StoppedParts))
@@ -167,12 +170,14 @@ pub fn contribution(tiers: FetchTiers) -> Contribution {
 /// (ADR 0138's note of #1926), so its start declares their bound (#2117),
 /// `provenance.log` says whether it keeps a Provenance log, and its delivery
 /// opens and serves its admission, which holds a Politeness of the Run's own
-/// (#2171).
+/// (#2171), and a reopen no start declared its Hooks in code again for is
+/// refused when it has any (ADR 0104's note of #2912).
 const DRIVING: Driving = Driving {
     ended_by: EndedBy::Driver,
     defers_charges: true,
     provenance_log: Some(&PROVENANCE_LOG),
     admits: true,
+    reopen_check: Some(hooks::undeclared),
 };
 
 /// Joins the calling Connection's handler to the live crawl the params
@@ -278,7 +283,7 @@ async fn start(
             ended_by: DRIVING.ended_by,
             initialize: Some(initialize(
                 invariants,
-                (declared.clone(), datasets, recording),
+                (declared.clone(), datasets, recording, hooks.clone()),
                 keys,
                 seeding,
                 admitted,
@@ -323,8 +328,10 @@ async fn start(
         // checked (ADR 0102), its driver recording them.
         Started::Interrupted(run_id) => {
             let kept = (opening, declared, serving.payloads().clone(), extraction);
-            redeclared.keep(&run_id, kept, hooks, &crawls).await;
-            let resumed = resume_run(&context, run_id, None, settings).await?;
+            // A crawl still ending the Run keeps nothing: the reopen is then
+            // checked as no start's (ADR 0104's note of #2912).
+            let kept = redeclared.keep(&run_id, kept, hooks, &crawls).await;
+            let resumed = resume_run(&context, run_id, None, settings, kept).await?;
             limits.give(&resumed, &context).await?;
             Ok(resumed)
         }
@@ -360,15 +367,17 @@ async fn opened_settings(
     Ok(settings)
 }
 
-/// A new crawl's first rows: its `invariants`, declared Labels, Datasets
-/// and code-free extraction, then its `admitted` seeds, keyed with `keys`
-/// when its gates key work items and under the `seeding` egress policy.
+/// A new crawl's first rows: its `invariants`, declared Labels, Datasets,
+/// code-free extraction and Hooks in code, then its `admitted` seeds,
+/// keyed with `keys` when its gates key work items and under the `seeding`
+/// egress policy.
 fn initialize(
     invariants: Invariants,
-    (declared, datasets, recording): (
+    (declared, datasets, recording, hooks): (
         BTreeMap<String, LabelDeclaration>,
         Datasets,
         Option<CrawlExtraction>,
+        Vec<CrawlHookDeclaration>,
     ),
     keys: Option<Keys>,
     seeding: Policy,
@@ -379,6 +388,7 @@ fn initialize(
         labels::record(connection, &declared)?;
         datasets.record(connection)?;
         code_free::record(connection, recording.as_ref())?;
+        hooks::record(connection, &hooks)?;
         let mut positions = match keys {
             Some(keys) => work_items::Positions::keying(connection, keys)?,
             None => work_items::Positions::of(connection)?,

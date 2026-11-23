@@ -573,3 +573,174 @@ fn a_request_stage_hook_that_raises_fails_its_attempt_before_the_handler(#[case]
         )
     );
 }
+
+/// Answers a Hook's call with no change and a handler request with its
+/// page's Record.
+fn answer_hooked(params: &Value) -> Reply {
+    if is_hook(params) {
+        Reply::Records(Vec::new())
+    } else {
+        Reply::Records(vec![json!({ "page": page_of(params) })])
+    }
+}
+
+/// The Error code and details of the refusal `answer`.
+fn refusal(answer: &Value) -> (Value, Value) {
+    let mut details = answer["error"]["data"].clone();
+    let code = details["code"].take();
+    if let Some(fields) = details.as_object_mut() {
+        fields.retain(|field, _| field != "code" && field != "retryable");
+    }
+    (code, details)
+}
+
+/// `hook_undeclared`'s code and details for the Run `run_id` whose crawl
+/// declared the Hook [`stamp`].
+fn stamp_undeclared(run_id: &str) -> (Value, Value) {
+    (
+        json!("hook_undeclared"),
+        json!({
+            "run_id": run_id,
+            "hooks": [{ "name": "stamp", "stage": "before_record_commit" }],
+        }),
+    )
+}
+
+/// The start under the ID `run_id` of the one-seed crawl of the Label
+/// `page` with the Hook [`stamp`].
+fn stamped_start(run_id: &str) -> Value {
+    json!({
+        "run_id": run_id,
+        "seeds": seeds(1),
+        "labels": { "page": {} },
+        "hooks": stamp(),
+    })
+}
+
+/// `run.retry_failed` alone never reopens an ended crawl whose start
+/// declared Hooks in code, which would commit Records its Hooks never saw:
+/// it is refused with `hook_undeclared`, naming the Hooks, and nothing is
+/// re-admitted. Once a start under its ID declares them again, the retry
+/// reopens it and its Record goes through them (ADR 0104's note of #2912).
+///
+/// Covers: error:hook_undeclared, operation:run.retry_failed
+#[test]
+fn a_retry_of_a_crawl_with_hooks_waits_for_a_start_to_declare_them() {
+    let env = TestEnv::new();
+
+    let (refused, before, after, retried, hooked) = crawl(
+        || dependencies(&env, RunStateOptions::default()),
+        async |client| {
+            crawled(
+                client,
+                "retried",
+                (json!({}), json!({}), stamp()),
+                |params| {
+                    if is_hook(params) {
+                        Reply::Records(Vec::new())
+                    } else {
+                        Reply::Fails("handler_failed", false)
+                    }
+                },
+            )
+            .await;
+            let retry = json!({ "run_id": "retried" });
+            let before = work_items(&run_file(&env, "retried"));
+            let refused = client
+                .call("run.retry_failed", retry.clone(), &mut answer_hooked)
+                .await;
+            let after = work_items(&run_file(&env, "retried"));
+            client
+                .call("crawl.start", stamped_start("retried"), &mut answer_hooked)
+                .await;
+            let retried = client
+                .call("run.retry_failed", retry.clone(), &mut answer_hooked)
+                .await;
+            client.call("run.finish", retry, &mut answer_hooked).await;
+            let hooked: Vec<_> = client
+                .hooked
+                .iter()
+                .map(|params| params["hook"].clone())
+                .collect();
+            (refused, before, after, retried, hooked)
+        },
+    );
+
+    assert_eq!(
+        (
+            refusal(&refused),
+            after,
+            retried["result"].clone(),
+            hooked,
+            records(&run_file(&env, "retried")).len(),
+        ),
+        (
+            stamp_undeclared("retried"),
+            before,
+            json!({ "readmitted": 1 }),
+            vec![json!("stamp")],
+            1,
+        ),
+        "{refused}\n{retried}"
+    );
+}
+
+/// `run.resume` alone never reopens a stopped crawl whose start declared
+/// Hooks in code: it is refused with `hook_undeclared`, naming the Hooks,
+/// and the Run stays stopped. A start under its ID resumes it, and its
+/// Record goes through them (ADR 0104's note of #2912).
+///
+/// Covers: error:hook_undeclared, operation:run.resume
+#[test]
+fn a_resume_of_a_crawl_with_hooks_waits_for_a_start_to_declare_them() {
+    let env = TestEnv::new();
+
+    let (refused, stopped, finished, hooked) = crawl(
+        || dependencies(&env, RunStateOptions::default()),
+        async |client| {
+            let run = json!({ "run_id": "paused" });
+            client
+                .call("crawl.start", stamped_start("paused"), &mut |_| {
+                    Reply::Silent
+                })
+                .await;
+            client
+                .call("run.pause", run.clone(), &mut |_| Reply::Silent)
+                .await;
+            let refused = client
+                .call("run.resume", run.clone(), &mut answer_hooked)
+                .await;
+            let stopped = client
+                .call("run.report", run.clone(), &mut answer_hooked)
+                .await;
+            client
+                .call("crawl.start", stamped_start("paused"), &mut answer_hooked)
+                .await;
+            let finished = client.call("run.finish", run, &mut answer_hooked).await;
+            let hooked: Vec<_> = client
+                .hooked
+                .iter()
+                .map(|params| params["hook"].clone())
+                .collect();
+            (refused, stopped, finished, hooked)
+        },
+    );
+
+    assert_eq!(
+        (
+            refusal(&refused),
+            stopped["result"]["lifecycle"].clone(),
+            finished["result"]["lifecycle"].clone(),
+            hooked,
+            records(&run_file(&env, "paused")).len(),
+        ),
+        (
+            stamp_undeclared("paused"),
+            json!("stopped"),
+            json!("finished"),
+            vec![json!("stamp")],
+            1,
+        ),
+        "{refused}\n{stopped}"
+    );
+}

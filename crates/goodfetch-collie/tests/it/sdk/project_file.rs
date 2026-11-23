@@ -82,12 +82,19 @@ async fn explained_navigation(collie: &Collie) -> (Value, Value) {
 #[test]
 fn connect_reads_the_project_file_found_upward_from_the_working_directory() {
     let env = TestEnv::new();
-    let project = write(
+    write(
         &env.folder().join("project"),
         "goodfetch.toml",
         &navigation(45_000),
     );
-    work_in(&env.folder().join("project").join("src").join("deeper"));
+    let deeper = work_in(&env.folder().join("project").join("src").join("deeper"));
+    // The working directory as the OS gives it, with no `\\?\` prefix on
+    // Windows, which canonicalizing adds.
+    let project = deeper
+        .ancestors()
+        .nth(2)
+        .expect("two folders above")
+        .join("goodfetch.toml");
     let (subscriber, log) = goodfetch_test_support::capturing(&[("goodfetch", Level::INFO)]);
 
     let (engine, explained) = with_default(subscriber, || {
@@ -102,10 +109,7 @@ fn connect_reads_the_project_file_found_upward_from_the_working_directory() {
     let at_project = json!([45_000, "project_configuration"]);
     assert_eq!(
         (engine.project_file, explained),
-        (
-            Some(project.canonicalize().unwrap()),
-            (at_project.clone(), at_project)
-        )
+        (Some(project.clone()), (at_project.clone(), at_project))
     );
     let written = text(&log);
     let reached = written
@@ -113,10 +117,7 @@ fn connect_reads_the_project_file_found_upward_from_the_working_directory() {
         .find(|line| line.contains("INFO") && line.contains("reached its engine"))
         .unwrap_or_default();
     assert!(
-        reached.contains(&format!(
-            "project_file={:?}",
-            project.canonicalize().unwrap().display().to_string()
-        )),
+        reached.contains(&format!("project_file={:?}", project.display().to_string())),
         "{written}"
     );
 }
@@ -160,9 +161,22 @@ fn project_names_another_file_and_no_project_reads_none(
     );
     let work = work_in(&env.folder().join("work"));
     let relative = Path::new("..").join("elsewhere").join("other.toml");
+    // Made absolute against the working directory as the OS makes a path
+    // absolute: Unix keeps the `..`, Windows resolves it.
+    let from_the_working_directory = if cfg!(windows) {
+        work.parent()
+            .expect("the working directory's parent")
+            .join("elsewhere")
+            .join("other.toml")
+    } else {
+        work.join(&relative)
+    };
     let (options, reported) = match asked {
         Asked::Absolute => (options(&env).project(&elsewhere), Some(elsewhere)),
-        Asked::Relative => (options(&env).project(&relative), Some(work.join(&relative))),
+        Asked::Relative => (
+            options(&env).project(&relative),
+            Some(from_the_working_directory),
+        ),
         Asked::None => (options(&env).no_project(), None),
     };
 

@@ -108,6 +108,11 @@ count = 1
 how = "holds no value: the service manager's definitions and the Daemon's token record, no Run's value"
 
 [[writer]]
+path = "crates/goodfetch-collie/src/executable/skills.rs"
+count = 1
+how = "holds no value: `skill install` writes the skill files the executable embeds and their digest marker, no Run's value"
+
+[[writer]]
 path = "crates/goodfetch-engine/src/age_notice.rs"
 count = 1
 how = "holds no value: the date a notice was shown"

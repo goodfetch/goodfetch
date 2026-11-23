@@ -231,12 +231,13 @@ fn called_in(
 /// call names its page itself or through its locator, and decodes its
 /// params once: the guard finds the page in the pass that reads them into
 /// the handler's type.
-/// Covers: operation:page.goto, operation:locator.click
 #[rstest]
+/// Covers: operation:page.goto
 #[case::by_its_page_id(
     "page.goto",
     json!({ "page_id": SERVED, "url": "https://a.test/" }),
 )]
+/// Covers: operation:locator.click
 #[case::by_its_locator(
     "locator.click",
     json!({ "locator": { "selector": "#go", "page_id": SERVED } }),

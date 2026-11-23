@@ -716,8 +716,6 @@ fn a_program_answers_its_crawl_requests_itself() {
 /// A crawl that attaches no handler starts, for the program to answer its
 /// requests itself, but its `serve` fails at once with `label_unhandled`
 /// rather than wait on requests no handler answers.
-///
-/// Covers: error:label_unhandled
 #[test]
 fn serving_a_crawl_with_no_handler_fails_with_label_unhandled() {
     let env = TestEnv::new();
@@ -741,7 +739,7 @@ fn serving_a_crawl_with_no_handler_fails_with_label_unhandled() {
 /// A Label without a handler, beside one with a handler, fails the start,
 /// before anything is sent.
 ///
-/// Covers: story:11-1015, story:11-1016, error:label_unhandled
+/// Covers: story:11-1015, story:11-1016
 #[test]
 fn a_crawl_with_a_label_left_unhandled_is_not_started() {
     let env = TestEnv::new();
@@ -842,6 +840,7 @@ fn a_seed_of_another_crawls_label_is_refused() {
 /// Covers: story:11-1013, story:11-1015, story:11-1016, error:label_duplicate, error:label_unknown
 #[test]
 fn a_declaration_mistake_fails_at_once() {
+    let _env = TestEnv::new();
     let mut crawl = Crawl::new();
     let page = crawl.label::<Visit>("page").unwrap();
     let again = crawl.label::<Visit>("page").unwrap_err();

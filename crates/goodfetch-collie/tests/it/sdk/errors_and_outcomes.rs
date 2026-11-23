@@ -512,7 +512,9 @@ fn assert_unavailable_model_and_internal(
 /// Installs, as the process's global subscriber, which the linked engine's
 /// threads log to as the program's do, one that records every event at
 /// every level, and returns what it writes. The test runs in a process of
-/// its own, as `just test` runs every test.
+/// its own, as `just test` runs every test, and calls it before its
+/// `TestEnv`, which under `just test` installs test support's for a test
+/// with none.
 fn global_log() -> CapturedLog {
     let (subscriber, log) = capturing(&[("", Level::TRACE)]);
     tracing::subscriber::set_global_default(subscriber).unwrap();
@@ -568,8 +570,8 @@ fn an_outcome_is_returned_and_each_failure_carries_its_code_on_the_linked_engine
         RustMode::Linked,
     )
     .unwrap();
-    let env = TestEnv::new();
     let log = global_log();
+    let env = TestEnv::new();
 
     let played = real_time_runtime().block_on(played(&env));
 

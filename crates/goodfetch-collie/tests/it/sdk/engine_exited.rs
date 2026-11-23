@@ -57,7 +57,7 @@ const ENDING: Composed = Composed {
     },
 };
 
-/// Covers: story:11-24, error:engine_exited
+/// Covers: story:11-24
 #[test]
 fn the_linked_engine_ending_fails_the_call_it_leaves_unanswered_with_engine_exited() {
     let _case = ClientCaseRun::start(

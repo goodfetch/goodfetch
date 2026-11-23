@@ -363,14 +363,7 @@ where
     runtime.block_on(async {
         let dependencies = dependencies();
         let clock = dependencies.clock;
-        let unset = tracing::dispatcher::get_default(
-            tracing::Dispatch::is::<tracing::subscriber::NoSubscriber>,
-        );
-        let _subscriber = unset.then(|| {
-            tracing::subscriber::set_default(goodfetch_test_support::subscriber(move || {
-                clock.wall()
-            }))
-        });
+        let _subscriber = goodfetch_test_support::subscriber_unless_own(move || clock.wall());
         let (network, dialer) = transport::in_memory();
         let talk = async {
             let (reader, writer) = dialer.connect().await.unwrap().split();

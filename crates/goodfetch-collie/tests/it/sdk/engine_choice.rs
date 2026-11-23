@@ -633,7 +633,7 @@ fn an_unparsable_deployment_value_is_refused(
 /// 0062). A `GOODFETCH_` variable off the list, an empty one and one the
 /// engine cannot parse fail `connect()` before any engine, which would have
 /// made its home.
-/// Covers: story:11-73, error:setting_unknown, error:setting_invalid
+/// Covers: story:11-73
 #[test]
 fn connect_takes_the_environment_map() {
     let _case = ClientCaseRun::start(

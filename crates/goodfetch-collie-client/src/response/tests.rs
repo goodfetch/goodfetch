@@ -4,11 +4,19 @@
 //! charset, Chrome's `<meta>` prescan for HTML or the XML declaration for
 //! an XML type, then UTF-8; `json()` decodes UTF-8 and ignores a BOM.
 //! Covers: story:11-85
+#![expect(
+    clippy::doc_markdown,
+    reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
+)]
 
+use goodfetch_protocol::error_code::ErrorCode;
 use rstest::rstest;
 use serde_json::{Value, json};
 
 use super::decoding::{json, text};
+
+/// The URL of the response a JSON test reads.
+const URL: &str = "https://shop.test/data.json";
 
 /// 日本語 in `Shift_JIS`.
 const SHIFT_JIS: [u8; 6] = [0x93, 0xFA, 0x96, 0x7B, 0x8C, 0xEA];
@@ -123,14 +131,18 @@ fn a_body_of_another_type_reads_no_declaration_and_decodes_as_utf_8(
 fn json_ignores_a_leading_bom_and_decodes_utf_8_whatever_the_charset() {
     let body = [b"\xEF\xBB\xBF".as_slice(), "{\"name\":\"café\"}".as_bytes()].concat();
 
-    let parsed: Value = json(&body).unwrap();
+    let parsed: Value = json(&body, URL.to_owned()).unwrap();
 
     assert_eq!(parsed, json!({ "name": "café" }));
 }
 
+/// Covers: error:response_not_json
 #[test]
-fn json_of_a_body_that_is_no_json_fails() {
-    let parsed = json::<Value>(b"<html></html>");
+fn json_of_a_body_that_is_no_json_fails_with_response_not_json_naming_its_url() {
+    let refused = json::<Value>(b"<html></html>", URL.to_owned()).unwrap_err();
 
-    assert!(parsed.is_err(), "{parsed:?}");
+    assert_eq!(
+        (refused.code(), refused.url()),
+        (ErrorCode::RESPONSE_NOT_JSON, Some(URL))
+    );
 }

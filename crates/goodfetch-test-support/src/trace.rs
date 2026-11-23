@@ -5,7 +5,10 @@
 //! and the engine's outcome records (each Error code a Run recorded and no
 //! reply carries) as JSON lines into the running test's exercise record,
 //! which ADR 0072's audit reads for an in-process test over the in-memory
-//! transport. `logged` captures what `tracing` wrote while a closure ran,
+//! transport. For a test that installs none, `TestEnv` and the test
+//! runtimes install, once per process, a global subscriber that writes only
+//! those records, which the threads of a linked engine also reach.
+//! `logged` captures what `tracing` wrote while a closure ran,
 //! and [`CapturedLog`] is the writer it captures into, which a test hands
 //! to [`subscriber_writing_to`] to read what that subscriber wrote.
 #![expect(
@@ -15,7 +18,7 @@
 
 use std::fmt;
 use std::io;
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::sync::{Arc, Mutex, MutexGuard, Once, PoisonError};
 use std::time::SystemTime;
 
 use tracing_subscriber::Layer;
@@ -72,6 +75,55 @@ where
                 .with_filter(LevelFilter::INFO),
         )
         .with(exercise_layer(now))
+}
+
+/// [`subscriber`], timed by `now`, as the calling thread's default until the
+/// guard drops, unless the test installed a subscriber of its own: for a
+/// helper that serves the engine in process, whose test may capture what
+/// it logs. The global one a [`TestEnv`](crate::TestEnv) or test runtime
+/// installs for a test with none counts as none.
+///
+/// # Panics
+///
+/// Under `just test`, if the test's exercise record cannot be opened.
+pub fn subscriber_unless_own(
+    now: impl Fn() -> SystemTime + Send + Sync + Clone + 'static,
+) -> Option<tracing::subscriber::DefaultGuard> {
+    let unset = tracing::dispatcher::get_default(|dispatch| {
+        dispatch.is::<tracing::subscriber::NoSubscriber>()
+            || dispatch.is::<ProcessExerciseSubscriber>()
+    });
+    unset.then(|| tracing::subscriber::set_default(subscriber(now)))
+}
+
+/// Marks the subscriber [`install_exercise_subscriber`] installs, so
+/// [`subscriber_unless_own`] tells it from a test's own. It records nothing.
+struct ProcessExerciseSubscriber;
+
+impl<S: tracing::Subscriber> Layer<S> for ProcessExerciseSubscriber {}
+
+/// Under `just test`, once per process, installs as its global subscriber
+/// one that writes only the dispatch and outcome records into the running
+/// test's exercise record, timed at the Unix epoch, as no real time: for
+/// what a test that installs no subscriber of its own reaches, and what
+/// threads that log only to the global one reach, such as a linked
+/// engine's (ADR 0078). nextest runs each test in its own process, so the
+/// record is that test's. A process whose global subscriber is already set
+/// keeps it.
+///
+/// # Panics
+///
+/// Under `just test`, if the test's exercise record cannot be opened.
+pub(crate) fn install_exercise_subscriber() {
+    static INSTALLED: Once = Once::new();
+    INSTALLED.call_once(|| {
+        if let Some(records) = exercise_layer(|| SystemTime::UNIX_EPOCH) {
+            let subscriber = tracing_subscriber::registry()
+                .with(records)
+                .with(ProcessExerciseSubscriber.with_filter(LevelFilter::OFF));
+            let _ = tracing::subscriber::set_global_default(subscriber);
+        }
+    });
 }
 
 /// The layer of [`subscriber`] that writes the dispatch and outcome records,

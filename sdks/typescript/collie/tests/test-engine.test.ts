@@ -4,9 +4,10 @@
 // cleared environment and `egress.offline` on; a host `network.resolve`
 // maps to loopback alone is reached live and any other is refused, and
 // browsers come from the caller's Browser cache, which the engine reads and
-// never writes. Rust's `tests/it/sdk/test_engine.rs` and Python's
-// `test_test_engine.py` are its twins.
-import { chmod, lstat, readdir, stat } from "node:fs/promises";
+// never writes: the kit turns `browser_cache.read_only` on (issue 3458).
+// Rust's `tests/it/sdk/test_engine.rs` and Python's `test_test_engine.py`
+// are its twins.
+import { lstat, readdir, stat } from "node:fs/promises";
 import { join, relative, sep } from "node:path";
 import { ArtifactUnavailableOfflineError, EgressRefusedError } from "@goodfetch/collie";
 import { TestEngine } from "@goodfetch/collie/testing";
@@ -120,18 +121,13 @@ describe("a test engine", () => {
     describe("with a browser installed", () => {
       test.override("withBrowser", true);
 
-      // The caller's Browser cache is read-only here, as a prepared image's
-      // is: an engine records a build's use in a cache it can write (ADR
-      // 0098).
+      // The caller's Browser cache stays writable here: the kit's
+      // `browser_cache.read_only` alone keeps the engine from recording the
+      // build's use in it (ADR 0098).
       test(
         "reaches a loopback resolve entry live, refuses any other host, and leaves the cache unchanged",
         { tags: ["attached"] },
-        async ({ env, provingGround, skip }) => {
-          // Skipped at run time, as a skipIf would leave it out of the case
-          // list's listing on every platform; Rust's twin runs on Unix alone.
-          if (process.platform === "win32") {
-            skip("a Windows folder's mode cannot make the Browser cache read-only");
-          }
+        async ({ env, provingGround }) => {
           const callerHome = env["GOODFETCH_HOME"];
           if (callerHome === undefined) {
             throw new TypeError("the test's environment names its Goodfetch home");
@@ -142,23 +138,19 @@ describe("a test engine", () => {
           );
           const reached = await taskStartUrl(provingGround, "statuses/1");
           const before = await tree(cache);
-          await chmod(cache, 0o555);
-          let status: number | undefined;
-          let refused: unknown;
-          try {
-            await using engine = await TestEngine.start({
-              env,
-              settings: { network: { resolve: { ...resolve, [PUBLIC_HOST]: ["192.0.2.7"] } } },
-            });
-            const run = await engine.connection.start();
-            const page = await run.newPage();
+          const engine = await TestEngine.start({
+            env,
+            settings: { network: { resolve: { ...resolve, [PUBLIC_HOST]: ["192.0.2.7"] } } },
+          });
+          const run = await engine.connection.start();
+          const page = await run.newPage();
 
-            status = (await page.goto(reached))?.status();
-            refused = await failure(page.goto(provingGroundUrl(provingGround, PUBLIC_HOST, "/")));
-            await run.finish();
-          } finally {
-            await chmod(cache, 0o755);
-          }
+          const status = (await page.goto(reached))?.status();
+          const refused = await failure(
+            page.goto(provingGroundUrl(provingGround, PUBLIC_HOST, "/")),
+          );
+          await run.finish();
+          await engine.close();
 
           expect([status, refused]).toEqual([200, expect.any(EgressRefusedError)]);
           expect(await tree(cache)).toEqual(before);

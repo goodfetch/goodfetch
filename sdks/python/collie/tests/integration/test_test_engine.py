@@ -6,13 +6,13 @@ and through the sync `TestEngine`. It runs in a temporary Goodfetch home it
 removes on close, with a cleared environment and `egress.offline` on; a host
 `network.resolve` maps to loopback alone is reached live and any other is
 refused, and browsers come from the caller's Browser cache, which the engine
-reads and never writes. Rust's `tests/it/sdk/test_engine.rs` is its twin.
+reads and never writes: the kit turns `browser_cache.read_only` on (issue
+3458). Rust's `tests/it/sdk/test_engine.rs` is its twin.
 """
 
 from __future__ import annotations
 
 import os
-import sys
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -123,9 +123,6 @@ def proving_ground_seed() -> int:
     return 3398
 
 
-@pytest.mark.skipif(
-    sys.platform == "win32", reason="the cache is made read-only by its folder's mode"
-)
 @pytest.mark.parametrize("with_browser", [True])
 @three_ways
 async def test_a_loopback_resolve_entry_is_reached_any_other_host_is_refused(
@@ -133,28 +130,25 @@ async def test_a_loopback_resolve_entry_is_reached_any_other_host_is_refused(
 ) -> None:
     """Live through a loopback `resolve` entry; refused elsewhere; the cache unchanged.
 
-    The caller's Browser cache is read-only here, as a prepared image's is:
-    an engine records a build's use in a cache it can write (ADR 0098).
+    The caller's Browser cache stays writable here: the kit's
+    `browser_cache.read_only` alone keeps the engine from recording the
+    build's use in it (ADR 0098).
     """
     cache = Path(env["GOODFETCH_HOME"]) / "browsers"
     resolve = {host: [address] for host, address in proving_ground.resolve.items()}
     resolve[PUBLIC_HOST] = ["192.0.2.7"]
     reached = await anyio.to_thread.run_sync(proving_ground.start_url, "statuses/1")
     before = tree(cache)
-    cache.chmod(0o555)
-    try:
-        engine = await start(way, env, resolve)
-        run = await connection_of(way, engine).start()
-        page = await run.new_page()
+    engine = await start(way, env, resolve)
+    run = await connection_of(way, engine).start()
+    page = await run.new_page()
 
-        navigated = await page.goto(reached)
-        assert navigated is not None, "a document has a response"
-        status = response_on(way, navigated).status
-        refused = await failure(page.goto(proving_ground.url(PUBLIC_HOST, "/")))
-        await run.finish()
-        await engine.close()
-    finally:
-        cache.chmod(0o755)
+    navigated = await page.goto(reached)
+    assert navigated is not None, "a document has a response"
+    status = response_on(way, navigated).status
+    refused = await failure(page.goto(proving_ground.url(PUBLIC_HOST, "/")))
+    await run.finish()
+    await engine.close()
 
     assert (status, type(refused)) == (200, EgressRefusedError)
     assert tree(cache) == before

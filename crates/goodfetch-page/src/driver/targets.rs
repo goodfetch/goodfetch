@@ -110,8 +110,10 @@ impl PageDriver {
 }
 
 /// The mouse events of a left click at (`x`, `y`) in the page's viewport:
-/// the pointer moves there, presses and releases.
-pub(super) fn pointer_click(x: f64, y: f64) -> [input::DispatchMouseEventParams; 3] {
+/// the pointer moves there, presses and releases. The CDP module's pointer
+/// click sends them, and the Consent prompt runner's clicks until its
+/// ticket of spec #2256 moves them behind that module.
+pub(crate) fn pointer_click(x: f64, y: f64) -> [input::DispatchMouseEventParams; 3] {
     [
         (input::DispatchMouseEventType::MouseMoved, None, None),
         (

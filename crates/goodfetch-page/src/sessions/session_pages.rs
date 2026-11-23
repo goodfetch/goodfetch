@@ -19,7 +19,7 @@ use std::sync::Arc;
 use goodfetch_cdp::generated::target;
 use goodfetch_engine::events::Events;
 use goodfetch_engine::governor::Permit;
-use goodfetch_engine::runs::Run;
+use goodfetch_engine::runs::{Run, identity};
 use goodfetch_engine::settings::Values;
 use goodfetch_engine::{CallContext, CallError};
 use goodfetch_protocol::connection::ClosedValue;
@@ -32,7 +32,7 @@ use goodfetch_protocol::page::{PageId, PageOpened, SessionId};
 use goodfetch_protocol::settings::page_check::PageCheck;
 use tokio::sync::watch;
 
-use super::life::{Ending, PageLife, session_closed};
+use super::life::{Ending, PageLife, page_closed, session_closed};
 use super::lifecycle::PageEffect;
 use super::robots_txt;
 use super::{OpenPage, Session, Sessions, action_timeout, wait_deadline};
@@ -41,6 +41,7 @@ use crate::hiding::{PageHiding, Sheets};
 use crate::interception::OnDocument;
 use crate::page_events::{PageEvents, Refusals};
 use crate::page_functions::FrameScripts;
+use crate::page_owner::PageOwner;
 use crate::page_value::{Observer, Reader};
 use crate::pool::InBrowser;
 use crate::recovery::{Checking, Declared};
@@ -270,12 +271,15 @@ impl Sessions {
         let page_check = open.checking(driver.value().page_check());
         // Nothing awaits from here until the page is in the table.
         let in_browser = taken_in.kept();
+        // Its owner, under its Session's (ADR 0146).
+        let owner = PageOwner::start(&open.owner, identity(&run).span(), page_closed(&page));
         let opened = OpenPage {
             clock: run.clock(),
             run,
             session: session.clone(),
             settings,
             driver,
+            owner,
             life,
             action_timeout,
             hiding,

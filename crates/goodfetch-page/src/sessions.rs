@@ -68,6 +68,7 @@ use goodfetch_engine::run_state::{RunStateError, RunStateTables, SecretColumn, r
 use goodfetch_engine::runs::{Run, RunError, RunKeyError};
 use goodfetch_engine::secrets::Purpose;
 use goodfetch_engine::settings::{RunSettings, SettingsError, Values, setting};
+use goodfetch_engine::tasks::TaskOwner;
 use goodfetch_engine::{CallContext, CallError, RunOfCall};
 use goodfetch_protocol::browser_cache::PinnedBy;
 use goodfetch_protocol::catalog::{Authority, SettingScope};
@@ -108,6 +109,7 @@ use crate::interception::{HeldBrowser, Interception, Lookups};
 use crate::launch::Launcher;
 use crate::page_events;
 use crate::page_functions::{FrameScripts, Injections};
+use crate::page_owner::PageOwner;
 use crate::page_value::{HandlerPages, HeldPlace, PageValue, PooledSession};
 use crate::pool::{InBrowser, LocalFailure, Placement, Pool, Seat};
 use crate::proxy::{Opening, SessionProxy};
@@ -192,6 +194,9 @@ struct RunSessions {
 
 /// One Session this engine holds: opening, open, or crashed.
 struct Session {
+    /// Its owner, a child of its Run's, under which its pages' owners run
+    /// (ADR 0146).
+    owner: TaskOwner,
     run: Run,
     position: u32,
     /// Its seat in its Run's browser pool.
@@ -276,6 +281,8 @@ pub(crate) struct OpenPage {
     /// Its own settings, which it takes over its Session's and its Run's.
     pub(crate) settings: Values,
     pub(crate) driver: PageDriver,
+    /// Its owner (ADR 0146), which a click's input passes through.
+    pub(crate) owner: PageOwner,
     /// Where it is, through its table: each call on it runs through it.
     pub(crate) life: PageLife,
     /// Its Run's `timeout.action` and where it was set.
@@ -507,6 +514,7 @@ impl Sessions {
             let session = session_id(run.id(), position);
             let life = SessionLife::new(session.clone(), attributes, SessionState::Opening);
             let open = Arc::new(Session {
+                owner: run.owner().child(),
                 run: run.clone(),
                 position,
                 seat,
@@ -642,6 +650,7 @@ impl Sessions {
         // goes into the table only while its Run is there, under the lock
         // its clean-up takes it out under (#1763).
         let held = Arc::new(Session {
+            owner: run.owner().child(),
             run: run.clone(),
             position,
             seat,
@@ -1151,6 +1160,7 @@ impl Sessions {
                 ),
             };
             let held = Session {
+                owner: run.owner().child(),
                 run: run.clone(),
                 position,
                 seat,

@@ -1305,6 +1305,7 @@ impl Pages {
                 page_id: &locator.page_id,
                 session_id: &page.session,
             },
+            owner: &page.owner,
         };
         let acted = page
             .life

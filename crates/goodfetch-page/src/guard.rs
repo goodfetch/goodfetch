@@ -43,8 +43,10 @@ use goodfetch_protocol::settings::SettingLimit;
 use serde::Deserialize;
 
 use self::check::{CHECK, Seen, Step, Target};
+use crate::cdp::CdpPage;
 use crate::driver::{PageDriver, Turn, Unanswered};
 use crate::hiding::Hidden;
+use crate::page_owner::PageOwner;
 
 /// The disarm, which says where the gesture landed.
 const DISARM: &str = include_str!("guard/disarm.js");
@@ -137,6 +139,8 @@ pub(crate) struct Request<'a> {
     /// What hides elements on the page, which the guard lifts from the
     /// target: its live hiding and the Consent prompt runner's rules.
     pub(crate) hiding: Hidden<'a>,
+    /// The page's owner, which a click's input passes through (ADR 0146).
+    pub(crate) owner: &'a PageOwner,
 }
 
 /// Where a gesture landed.
@@ -236,7 +240,10 @@ async fn attempt(page: &PageDriver, request: Request<'_>, clock: &Clock) -> Resu
                     // the input that a key press makes with `settled`.
                     // Boxed, as the wait below: the action's future stays small.
                     let landed = Box::pin(watch.during(async {
-                        turn.click(x, y).await?;
+                        request
+                            .owner
+                            .pointer_click(CdpPage::of(page), x, y, turn.gesture_call())
+                            .await?;
                         landed(&mut turn).await
                     }))
                     .await?;

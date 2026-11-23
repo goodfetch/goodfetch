@@ -91,6 +91,7 @@ use self::navigation::{Ended, Expected, Followed, Navigation};
 use self::permit_waits::PermitWaits;
 pub(crate) use self::popups::{OnPopup, PopupHandler};
 pub(crate) use self::service_workers::{OnWorker, ServiceWorkers};
+pub(crate) use self::targets::pointer_click;
 use crate::borrowed::CdpUrl;
 use crate::egress_relay::EgressRelay;
 use crate::egress_relay::authority::Authority;
@@ -1102,16 +1103,11 @@ impl Turn<'_> {
         Ok(called.result.value.unwrap_or(serde_json::Value::Null))
     }
 
-    /// Moves the pointer to (`x`, `y`) in the page's viewport and clicks
-    /// there with its left button: input the page receives as trusted.
-    pub(crate) async fn click(&mut self, x: f64, y: f64) -> Result<(), CallError> {
-        for params in targets::pointer_click(x, y) {
-            self.page
-                .browser
-                .send(Some(&self.page.session), &params, &self.call)
-                .await?;
-        }
-        Ok(())
+    /// The call its commands are sent for, whose deadline bounds them and
+    /// whose codes their failures raise: a gesture's input that its Page's
+    /// owner sends while this turn is held.
+    pub(crate) fn gesture_call(&self) -> &Call {
+        &self.call
     }
 
     /// Sends one key event to the focused element.
@@ -1485,6 +1481,17 @@ impl PageDriver {
         self.browser
             .send(Some(&self.session), params, &self.browser.opening())
             .await
+    }
+
+    /// Sends `params` on the page's target within the deadline of `call`,
+    /// recorded in the Run trace; a failure raises the code of `call`: the
+    /// CDP module's primitives' commands.
+    pub(crate) async fn send<C: Command>(
+        &self,
+        params: &C,
+        call: &Call,
+    ) -> Result<C::Returns, CallError> {
+        self.browser.send(Some(&self.session), params, call).await
     }
 
     /// Sends `params` on the page's target, recorded in the Run trace,

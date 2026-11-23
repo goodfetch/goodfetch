@@ -110,7 +110,7 @@ def refuses_a_misspelled_or_string_label(crawl: AsyncCrawl) -> None:
     """A Label is a handle, never its name: a misspelling is a type error."""
     listing = crawl.label("listing")
 
-    @crawl.handle(listingg)  # type: ignore[name-defined]  # noqa: F821
+    @crawl.handle(listingg)  # type: ignore[name-defined]
     async def misspelled(ctx: AsyncCrawlContext[None]) -> None:
         del ctx
 

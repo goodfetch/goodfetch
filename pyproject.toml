@@ -98,13 +98,16 @@ ignore = ["D206", "D300"]
 
 # ASYNC109 asks async functions for no `timeout` parameter, which ADR 0080
 # gives every SDK call that takes one: the operation's own timeout, sent for
-# the engine to apply, as the generated calls take it.
+# the engine to apply, as the generated calls take it. F821 reports an
+# undefined name, which a crawl's type test writes on purpose: a misspelled
+# Label handle is a type error, and its `# type: ignore[name-defined]` says so.
 [tool.ruff.lint.per-file-ignores]
 "sdks/python/collie-client/src/goodfetch_collie_client/connection.py" = ["ASYNC109"]
 "sdks/python/collie-client/src/goodfetch_collie_client/connection_type.py" = ["ASYNC109"]
 "sdks/python/collie-client/src/goodfetch_collie_client/raw_call.py" = ["ASYNC109"]
 "sdks/python/collie/src/goodfetch_collie/collie.py" = ["ASYNC109"]
 "sdks/python/foxhound/src/goodfetch_foxhound/foxhound.py" = ["ASYNC109"]
+"sdks/python/foxhound/tests/types/crawl_types.py" = ["F821"]
 
 [tool.ruff.lint.pydocstyle]
 convention = "google"

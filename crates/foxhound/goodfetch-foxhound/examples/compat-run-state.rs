@@ -694,6 +694,7 @@ async fn bind(_: Value, context: CallContext) -> Result<Value, CallError> {
             checkpoint_interval: None,
             timeout: None,
             settings: None,
+            detached: false,
         })
         .await
         .map_err(goodfetch_engine::run::start_error)?;

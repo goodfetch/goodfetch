@@ -126,4 +126,8 @@ def main(out: Path, home: Path | None) -> None:
 
 
 if __name__ == "__main__":
+    # Python turns SIGINT into `KeyboardInterrupt` only when SIGINT is not
+    # ignored at startup, and a test runner started as a shell's background
+    # job ignores it and passes that on: the host takes Ctrl+C's way back.
+    signal.signal(signal.SIGINT, signal.default_int_handler)
     main(Path(sys.argv[1]), Path(sys.argv[2]) if len(sys.argv) > 2 else None)

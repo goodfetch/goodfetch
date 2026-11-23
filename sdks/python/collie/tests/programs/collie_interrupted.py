@@ -16,6 +16,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import signal
 import sys
 import threading
 import warnings
@@ -87,4 +88,8 @@ def main(out: Path, running: Path, way: str) -> None:
 
 
 if __name__ == "__main__":
+    # Python turns SIGINT into `KeyboardInterrupt` only when SIGINT is not
+    # ignored at startup, and a test runner started as a shell's background
+    # job ignores it and passes that on: the host takes Ctrl+C's way back.
+    signal.signal(signal.SIGINT, signal.default_int_handler)
     main(Path(sys.argv[1]), Path(sys.argv[2]), sys.argv[3])

@@ -13,6 +13,7 @@ mod advisories;
 mod affected;
 mod all_green;
 mod allure;
+mod api_check;
 mod base_console;
 mod browser_releases;
 mod budgets;
@@ -124,6 +125,10 @@ enum Command {
     /// The "all green" check: every needed job succeeded, and no earlier
     /// attempt of the run had a failed test step (ADR 0064).
     AllGreen(all_green::Arguments),
+    /// The API breakage check (ADR 0030): fails on a break of a stable
+    /// catalog entry or `--json` output type since the previous release's
+    /// commit that `compat/api.toml` names, unless the file announces it.
+    ApiCheck,
     /// Writes the release table the version check grades browser builds
     /// against, from Chromium Dash's milestone schedule and Mozilla's release
     /// calendar (ADR 0035).
@@ -595,6 +600,7 @@ fn run(command: Command, environment: &Environment) -> anyhow::Result<ExitCode> 
         Command::Advisories { command } => advisories::run(&command, environment),
         Command::Affected(arguments) => affected::run(arguments, environment),
         Command::AllGreen(arguments) => all_green::run(&arguments, environment),
+        Command::ApiCheck => api_check::run(root),
         Command::BrowserReleases(arguments) => browser_releases::run(&arguments, environment),
         Command::Budgets(arguments) => budgets::run(&arguments, environment),
         Command::Clients { command } => clients::run(&command, environment),

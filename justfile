@@ -124,6 +124,7 @@ lint-drift:
     step --after xtask xtask-sdk-manifests 'cargo run --quiet --bin xtask -- sdk-manifests'
     step --after xtask xtask-sdk-exports 'cargo run --quiet --bin xtask -- sdk-exports'
     step --after xtask xtask-compat 'cargo run --quiet --bin xtask -- compat check'
+    step --after xtask xtask-api-check 'cargo run --quiet --bin xtask -- api-check'
     steps_end
 
 # The type checks of the TypeScript and Python code, over the workspace: the

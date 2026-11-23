@@ -1063,7 +1063,9 @@ pub(crate) fn third_book() -> Value {
 
 /// Pitfall D07's acceptance test: CSV, XLSX, HTML table and Markdown
 /// Exports of Records whose later ones add fields carry every field, in
-/// first-seen order, a field a Record lacks as an empty cell; each opens in
+/// first-seen order, a field a Record lacks as an empty cell: the first
+/// Record's fields in the order it was pushed, not alphabetical, then each
+/// field a later one adds (issue 2394); each opens in
 /// a reference reader (a CSV reader, a spreadsheet library, an HTML parser,
 /// a Markdown parser) and gives the Records back, the Unicode record among
 /// them. CSV carries no BOM by default, and the XLSX sheet is named after
@@ -1076,11 +1078,16 @@ fn csv_xlsx_html_and_markdown_exports_carry_every_field_seen_in_first_seen_order
     let site = Site::start(&env);
     let mut engine = site.engine(&env);
     crawl((&mut engine, &site), "tables", 3);
-    finish(&mut engine, "tables", |page| match page {
-        1 => book(1),
-        2 => unicode_value(),
-        _ => third_book(),
-    });
+    finish_sending(
+        &mut engine,
+        "tables",
+        Sending::InItsReply,
+        |page| match page {
+            1 => r#"{"title":"Café 1","page":1}"#.to_owned(),
+            2 => unicode_value().to_string(),
+            _ => third_book().to_string(),
+        },
+    );
     let none = json!({});
     let csv = export_under(&mut engine, "tables", "csv", &none);
     let xlsx = export_under(&mut engine, "tables", "xlsx", &none);
@@ -1093,8 +1100,8 @@ fn csv_xlsx_html_and_markdown_exports_carry_every_field_seen_in_first_seen_order
     assert!(engine.finished());
 
     let columns = [
-        "page",
         "title",
+        "page",
         "astral",
         "bidi",
         "bom",

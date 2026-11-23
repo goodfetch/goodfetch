@@ -2,12 +2,10 @@
 # The rest of .github/actions/host-tools: pnpm at package.json's version, the
 # CPython builds of $RUNTIMES, a set of ci/runtimes.toml, at their pinned
 # versions, recorded in GOODFETCH_PYTHONS, then `just fetch` and the locked
-# Playwright's browsers, every download before ADR 0043's deny. With ARCHITECTURE=x64 on Apple
-# silicon, the CPython builds are x86-64, run under Rosetta 2.
+# Playwright's browsers, every download before ADR 0043's deny.
 set -euo pipefail
 
 runtimes=${RUNTIMES:-pre-merge}
-architecture=${ARCHITECTURE:-native}
 root=$(cd "$(dirname "$0")/../.." && pwd)
 environment=${GITHUB_ENV:?the runner sets GITHUB_ENV}
 
@@ -29,16 +27,7 @@ if [[ ${#lines[@]} -eq 0 ]]; then
   exit 2
 fi
 
-pythons=()
-for line in "${lines[@]}"; do
-  if [[ "$architecture" == x64 && "$(uname -s)-$(uname -m)" == Darwin-arm64 ]]; then
-    # uv names a free-threaded build `+freethreaded` in a full request.
-    if [[ "$line" == *t ]]; then line="${line%t}+freethreaded"; fi
-    pythons+=("cpython-${line}-macos-x86_64-none")
-  else
-    pythons+=("$line")
-  fi
-done
+pythons=("${lines[@]}")
 uv python install "${pythons[@]}"
 echo "GOODFETCH_PYTHONS=${pythons[*]}" >>"$environment"
 

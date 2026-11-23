@@ -1,6 +1,6 @@
 //! The Release workflow's first job (ADR 0108): it checks the commit a
-//! dispatch asks for, chooses the cells to start and, before any hosted cell
-//! starts, checks the run against the 600-minute ceiling a month, counted in
+//! dispatch asks for, chooses the cells to start, the macOS cells on `main`
+//! only, and, before any cell starts, checks the run against the 600-minute ceiling a month, counted in
 //! Linux-equivalent minutes from the month's recorded Release jobs. Only
 //! minutes that bill count: in a public repository a standard hosted runner
 //! counts none (ADR 0108's note of 2026-11-23). It writes its choice as the
@@ -12,7 +12,7 @@ use std::path::Path;
 
 use anyhow::{Context as _, Result};
 
-use super::cells::{self, Cell, LinuxJob, Runner};
+use super::cells::{self, Cell, LinuxJob};
 use super::history::{Ended, History, Run};
 use super::time::Month;
 use crate::check::Finding;
@@ -102,21 +102,17 @@ pub(crate) fn plan(api: Api<'_>, dispatch: &Dispatch<'_>) -> Result<Vec<Finding>
 
     let runs = history.runs(None)?;
     let estimates = estimates(&mut history, &runs, &this)?;
-    let hosted: Vec<Cell> = requested
+    // The requested cells this ref runs: the macOS cells run on `main` only.
+    let runnable: Vec<Cell> = requested
         .iter()
         .copied()
-        .filter(|cell| matches!(cell.runner(), Runner::Hosted(_)))
+        .filter(|cell| on_main || !cell.main_only())
         .collect();
-    let bills = hosted.iter().any(
-        |cell| matches!(cell.runner(), Runner::Hosted(runner) if runner.bills_in(this.visibility)),
-    );
-    let owner_machine: Vec<Cell> = requested
+    let bills = runnable
         .iter()
-        .copied()
-        .filter(|cell| cell.runner() == Runner::OwnerMachine && on_main)
-        .collect();
+        .any(|cell| cell.runner().bills_in(this.visibility));
     let used = used(&mut history, &runs, &this, &estimates)?;
-    let estimate: u32 = hosted.iter().map(|cell| estimates[cell]).sum();
+    let estimate: u32 = runnable.iter().map(|cell| estimates[cell]).sum();
     let main_run: u32 = estimates.values().sum();
     let count = Count {
         used,
@@ -142,9 +138,7 @@ pub(crate) fn plan(api: Api<'_>, dispatch: &Dispatch<'_>) -> Result<Vec<Finding>
 
     let started: Vec<Cell> = Cell::ALL
         .into_iter()
-        .filter(|cell| {
-            owner_machine.contains(cell) || (decision != Decision::Held && hosted.contains(cell))
-        })
+        .filter(|cell| decision != Decision::Held && runnable.contains(cell))
         .collect();
     write_outputs(
         dispatch.outputs,
@@ -173,16 +167,13 @@ pub(crate) fn plan(api: Api<'_>, dispatch: &Dispatch<'_>) -> Result<Vec<Finding>
     Ok(Vec::new())
 }
 
-/// Each hosted cell's estimate: the minutes its jobs took in the latest
-/// attempt of its latest recorded run, or one job budget before any (270
-/// for every hosted cell, ADR 0108), as its runner counts them in this
-/// run's repository.
+/// Each cell's estimate: the minutes its jobs took in the latest attempt of
+/// its latest recorded run, or one job budget before any (ADR 0108), as its
+/// runner counts them in this run's repository.
 fn estimates(history: &mut History<'_>, runs: &[Run], this: &Run) -> Result<BTreeMap<Cell, u32>> {
     let mut estimates = BTreeMap::new();
     for cell in Cell::ALL {
-        let Runner::Hosted(runner) = cell.runner() else {
-            continue;
-        };
+        let runner = cell.runner();
         let mut recorded = None;
         for run in runs.iter().filter(|run| run.id != this.id) {
             let jobs: Vec<_> = history
@@ -251,7 +242,7 @@ fn used(
     Ok(used)
 }
 
-/// Whether an earlier Release run on `main` this month started a hosted cell.
+/// Whether an earlier Release run on `main` this month started a cell.
 fn hosted_cells_started_on_main(
     history: &mut History<'_>,
     runs: &[Run],
@@ -262,10 +253,7 @@ fn hosted_cells_started_on_main(
         .filter(|run| run.id != this.id && run.month == this.month && run.branch == "main")
     {
         let started = history.jobs(run.id)?.iter().any(|job| {
-            job.ended != Ended::NotRun
-                && Cell::ALL.into_iter().any(|cell| {
-                    matches!(cell.runner(), Runner::Hosted(_)) && cell.owns_job(&job.name)
-                })
+            job.ended != Ended::NotRun && Cell::ALL.into_iter().any(|cell| cell.owns_job(&job.name))
         });
         if started {
             return Ok(true);
@@ -331,22 +319,20 @@ fn write_summary(path: &Path, summary: &Summary<'_>) -> Result<()> {
         Visibility::Private => "",
     };
     let mut text = format!(
-        "## Release suite plan\n\nCommit `{}`. Minutes that bill this month, in Linux-equivalent minutes (Linux 1, Windows 2, macOS 11{free}): {} used, this run's hosted cells estimated at {}, ceiling {CEILING} (ADR 0108).\n\n| Cell | Where | This run |\n|---|---|---|\n",
+        "## Release suite plan\n\nCommit `{}`. Minutes that bill this month, in Linux-equivalent minutes (Linux 1, Windows 2, macOS 11{free}): {} used, this run's cells estimated at {}, ceiling {CEILING} (ADR 0108).\n\n| Cell | This run |\n|---|---|\n",
         summary.commit, summary.count.used, summary.count.estimate
     );
     for cell in Cell::ALL {
-        let (place, state) = match cell.runner() {
-            Runner::Hosted(_) => ("GitHub-hosted", "held back by the ceiling"),
-            Runner::OwnerMachine => ("the owner's machine", "not run: off `main`"),
-        };
         let state = if summary.started.contains(&cell) {
             "started"
         } else if !summary.requested.contains(&cell) {
             "not asked for"
+        } else if cell.main_only() && !summary.on_main {
+            "not run: off `main`"
         } else {
-            state
+            "held back by the ceiling"
         };
-        let _ = writeln!(text, "| {} | {place} | {state} |", cell.label());
+        let _ = writeln!(text, "| {cell} | {state} |");
     }
     match summary.decision {
         Decision::Held => {

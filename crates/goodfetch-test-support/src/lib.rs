@@ -139,7 +139,7 @@ pub use cli::{
 };
 pub use colour::{ColourError, ColourProperty};
 pub use command_tree::{
-    certificate_verification_switches, command_help, command_paths, long_flags,
+    certificate_verification_switches, command_help, command_paths, long_flags, unknown_options,
 };
 pub use counting_vfs::CountingVfs;
 pub use crash_dumps::{CRASH_DUMP_VARIABLE, CrashDumps};

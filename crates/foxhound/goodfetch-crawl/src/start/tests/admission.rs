@@ -5,8 +5,9 @@
 //! domain holds under it (#2197), the rate cap's spacing and
 //! the queues' journal in the Run's file; the backoff and the `Retry-After`
 //! a handler met, which hold its domain in the Politeness the Run shares,
-//! and a `Retry-After` past `politeness.retry_after.max`, which ends the
-//! domain's requests `failed` unsent (ADR 0118).
+//! a `Retry-After` past `politeness.retry_after.max`, which ends the
+//! domain's requests `failed` unsent, and one that does not parse, which
+//! the Run trace notes (ADR 0118).
 
 use std::collections::BTreeMap;
 use std::time::Duration;
@@ -17,7 +18,12 @@ use rstest::rstest;
 use serde_json::{Value, json};
 use tokio::time::Instant;
 
-use super::{Reply, as_sent, crawl, default_dependencies, dependencies, page_of, run_file};
+use goodfetch_protocol::home::RUN_TRACE_REQUESTS;
+
+use super::{
+    RETRY_AFTER, Reply, as_sent, crawl, default_dependencies, dependencies, page_of, run_file,
+    run_folder,
+};
 
 fn seed(url: &str) -> Value {
     json!({ "url": url, "label": "page" })
@@ -697,6 +703,168 @@ fn with_politeness_off_a_retry_after_still_holds_its_domain_until_the_time_the_s
             && to_heavy[1] >= Duration::from_secs(30)
             && sent.contains(&("https://a.test/1".to_owned(), Duration::ZERO)),
         "{sent:?}"
+    );
+}
+
+/// The data of each note of a `Retry-After` that does not parse in the
+/// request log of `run_id`'s Run trace, in order; none when the Run wrote
+/// no request log.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "the test reads the Run's request log once its engine stopped, on no async worker"
+)]
+fn unparsable_retry_afters(env: &TestEnv, run_id: &str) -> Vec<Value> {
+    let log = match std::fs::read_to_string(run_folder(env, run_id).join(RUN_TRACE_REQUESTS)) {
+        Ok(log) => log,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Vec::new(),
+        Err(error) => panic!("the request log cannot be read: {error}"),
+    };
+    log.lines()
+        .map(|line| serde_json::from_str::<Value>(line).unwrap())
+        .filter(|line| line["event"] == "crawl.retry_after_unparsable")
+        .map(|line| line["data"].clone())
+        .collect()
+}
+
+/// Crawls `heavy.test`'s page at `path`, its `/2` and `a.test/1`, one
+/// handler request at a time; answers the handler requests sent, as
+/// [`sent`] does, the ID of the request of `path`, and the notes of a
+/// `Retry-After` that does not parse.
+fn crawled_at(
+    env: &TestEnv,
+    run_id: &str,
+    path: &str,
+) -> (Vec<(String, Duration)>, Value, Vec<Value>) {
+    let url = format!("https://heavy.test{path}");
+    let seeds = json!([
+        seed(&url),
+        seed("https://heavy.test/2"),
+        seed("https://a.test/1")
+    ]);
+    let mut id = Value::Null;
+    let sent = crawl(
+        || dependencies(env, RunStateOptions::default()),
+        async |client| {
+            client
+                .call(
+                    "crawl.start",
+                    json!({ "run_id": run_id, "seeds": seeds, "settings": { "crawl": { "handler": { "concurrency": 1 } } }, "labels": { "page": {} } }),
+                    &mut |_| Reply::Silent,
+                )
+                .await;
+            let mut handler = |params: &Value| {
+                if page_of(params) == url {
+                    id = params["crawl_request"]["id"].clone();
+                }
+                Reply::Records(vec![json!({ "page": page_of(params) })])
+            };
+            client
+                .call("run.finish", json!({ "run_id": run_id }), &mut handler)
+                .await;
+            sent(client)
+        },
+    );
+    (sent, id, unparsable_retry_afters(env, run_id))
+}
+
+/// A `Retry-After` that does not parse, on the 503 of a request's own
+/// document or on a redirect's 302, is noted once in the Run trace's
+/// request log, naming the request, the URL that answered, its status and
+/// the value as the site sent it; it adds no wait, so after the 503 the
+/// domain's next request waits only its first backoff (ADR 0118).
+///
+/// Covers: story:3-159
+#[rstest]
+fn a_retry_after_that_does_not_parse_is_noted_and_adds_no_wait(#[values(503, 302)] status: u16) {
+    let env = TestEnv::new();
+    let path = format!("{RETRY_AFTER}{status}/soon");
+
+    let (sent, id, notes) = crawled_at(&env, "unparsable", &path);
+
+    assert!(id.is_string(), "{sent:?}");
+    assert_eq!(
+        notes,
+        [json!({
+            "crawl_request_id": id,
+            "url": format!("https://heavy.test{path}"),
+            "status": status,
+            "retry_after": "soon",
+        })]
+    );
+    if status == 503 {
+        let at = |url: &str| {
+            sent.iter()
+                .find(|(sent, _)| sent == url)
+                .map(|(_, at)| *at)
+                .expect("the request was sent")
+        };
+        let waited = at("https://heavy.test/2")
+            .checked_sub(at(&format!("https://heavy.test{path}")))
+            .expect("the next page was sent after the 503");
+        assert!(a_first_backoff(waited), "{sent:?}");
+    }
+}
+
+/// A `Retry-After` of `0`, or of a date already past, parses: it adds no
+/// wait and the Run trace notes nothing; nor does it note one the engine
+/// does not read, on a document's 200 (ADR 0118).
+///
+/// Covers: story:3-159
+#[rstest]
+#[case::zero_on_a_503(503, "zero")]
+#[case::a_past_date_on_a_503(503, "past")]
+#[case::zero_on_a_302(302, "zero")]
+#[case::a_past_date_on_a_302(302, "past")]
+#[case::one_that_does_not_parse_on_a_200(200, "soon")]
+fn a_retry_after_that_asks_no_wait_is_not_noted(#[case] status: u16, #[case] form: &str) {
+    let env = TestEnv::new();
+
+    let (sent, _, notes) = crawled_at(&env, "no-wait", &format!("{RETRY_AFTER}{status}/{form}"));
+
+    assert!(notes.is_empty() && sent.len() == 3, "{notes:?} {sent:?}");
+}
+
+/// A sitemap's fetch follows its redirect as a page's does: a `Retry-After`
+/// on its 302 that does not parse is noted once, naming the sitemap's
+/// crawl request (ADR 0118).
+///
+/// Covers: story:3-159
+#[test]
+fn a_sitemap_s_redirect_notes_a_retry_after_that_does_not_parse() {
+    let env = TestEnv::new();
+    let url = format!("https://heavy.test{RETRY_AFTER}302/soon");
+    let seeds = json!([{ "sitemap": url, "rules": [{ "pattern": "**", "label": "page" }] }]);
+
+    crawl(
+        || dependencies(&env, RunStateOptions::default()),
+        async |client| {
+            client
+                .call(
+                    "crawl.start",
+                    json!({ "run_id": "sitemap", "seeds": seeds, "labels": { "page": {} } }),
+                    &mut |_| Reply::Silent,
+                )
+                .await;
+            client
+                .call(
+                    "run.finish",
+                    json!({ "run_id": "sitemap" }),
+                    &mut |params| Reply::Records(vec![json!({ "page": page_of(params) })]),
+                )
+                .await;
+        },
+    );
+    let notes = unparsable_retry_afters(&env, "sitemap");
+
+    assert!(
+        matches!(
+            notes.as_slice(),
+            [note] if note["crawl_request_id"].is_string()
+                && note["url"] == url
+                && note["status"] == 302
+                && note["retry_after"] == "soon"
+        ),
+        "{notes:?}"
     );
 }
 

@@ -147,6 +147,7 @@ use crate::work_items::{self, Again, Changed, Failure, Leased, Unsuccessful};
 use goodfetch_protocol::foxhound::progress::{HELD_DOMAINS, InFlightPhase, InFlightRequest};
 
 mod attempt;
+mod document_answer;
 mod failure;
 mod merged;
 
@@ -874,6 +875,7 @@ impl Fetching<'_> {
         let label = leased.crawl_request.label.as_str();
         std::sync::Arc::new(HandOver {
             of_run: std::sync::Arc::clone(of_run),
+            crawl_request: leased.crawl_request.id.clone(),
             domain_key: leased.waiting.key.clone(),
             second_copies,
             lease: handler_lease(of_run, (leased, lease, watch), &self.in_flight),

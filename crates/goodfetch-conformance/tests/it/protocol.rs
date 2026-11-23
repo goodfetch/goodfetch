@@ -631,6 +631,37 @@ fn the_start_table_of_a_crawl_is_proved_against_foxhound() {
     );
 }
 
+/// ADR 0003's fencing passes against Foxhound's executable as an Attached
+/// engine: once a second copy resumed the Run's Checkpoint at the next
+/// run epoch, a destination that compares and sets refuses the first
+/// copy's Checkpoints and Exports.
+///
+/// Covers: story:3-43
+#[test]
+fn the_fenced_copy_has_its_writes_refused_against_foxhound() {
+    let env = TestEnv::new();
+    let copy = LocalCopy::start(&env, env.seed()).unwrap();
+    let proving_ground = ProvingGround::local(&copy.address().to_string());
+    let target = target(&env, Tool::Foxhound, EngineMode::Attached);
+
+    let document =
+        run_protocol_suite(&ProtocolSuite::two_copies(), &target, &proving_ground).unwrap();
+    crate::keep(&document, "two-copies-foxhound");
+
+    assert_eq!(
+        (outcomes(&document), case_outcomes(&document)),
+        (
+            vec![("run.resume", Outcome::Proved)],
+            vec![(
+                "the-fenced-copy-has-its-checkpoints-and-exports-refused-where-the-destination-compares-and-sets",
+                CaseOutcome::Passed
+            )]
+        ),
+        "{}",
+        serde_json::to_string_pretty(&document).unwrap()
+    );
+}
+
 /// The protocol suite's `engine.info` case with Foxhound as its Product, as
 /// a suite whose contract needs Foxhound declares it.
 fn foxhound_suite() -> ProtocolSuite {

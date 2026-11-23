@@ -47,7 +47,9 @@
 //! contribution records since no browser runs here, and a Download's file
 //! it keeps, which its Checkpoints carry, the robots.txt copies of two
 //! origins its program's navigation read, one the site answered, one it
-//! never did, whose program sets a progress
+//! never did, whose Effect journal holds an order its program declared
+//! and closed, beside an Effect left sent by a body no engine runs any
+//! more, which that contribution records, whose program sets a progress
 //! message, which `run.checkpoint` checkpoints and
 //! `run.pause` pauses with a Checkpoint.
 //! It writes each Run's file, as SQL text, into the folder given as the
@@ -250,6 +252,25 @@ fn scenario() -> Vec<Value> {
             json!({ "run_id": "unclean", "settings": { "run_state": { "durability": "off" } } }),
         ),
         call(5, "compat.bound", json!({})),
+        // An Effect left sent by a body no engine runs any more, beside an
+        // order its program declared and closed, entry 2 since the journal
+        // holds one: a resume checks the order and reports the other as
+        // uncertain (story 3-34).
+        call(
+            21,
+            "compat.effects",
+            json!({ "run_id": "paused", "sent": "label" }),
+        ),
+        call(
+            22,
+            "effect.open",
+            json!({ "run_id": "paused", "key": "order" }),
+        ),
+        call(
+            23,
+            "effect.close",
+            json!({ "run_id": "paused", "entry": "2", "outcome": { "ended": "returned", "output": { "order": "placed" } } }),
+        ),
         call(
             6,
             "run.set_progress_message",
@@ -311,13 +332,15 @@ async fn keyed(params: Value, context: CallContext) -> Result<Value, CallError> 
 
 /// Stores the Effect journal's Run secret in a live Run's run state, fixed,
 /// since a real one is random and the set must be the same at each write,
-/// and two entries no call of a Client's leaves yet, since no window marks
-/// a command sent here and no operation answers about an uncertain Effect:
-/// one left uncertain after its first command went out, and one a person
-/// answered "it happened" about (ADR 0106).
+/// and entries no call of a Client's leaves yet, since no window marks a
+/// command sent here and no operation answers about an uncertain Effect:
+/// with `sent`, one entry of that key whose first command went out and
+/// whose body no engine runs any more; otherwise one left uncertain after
+/// its first command went out, and one a person answered "it happened"
+/// about (ADR 0106).
 const EFFECTS: Operation = Operation {
     name: "compat.effects",
-    description: "Stores a fixed Effect secret and an uncertain and a reconciled Effect.",
+    description: "Stores a fixed Effect secret and a sent, or an uncertain and a reconciled, Effect.",
     ..BOUND
 };
 
@@ -325,9 +348,18 @@ async fn effects(params: Value, context: CallContext) -> Result<Value, CallError
     let run_id = RunId::parse(params["run_id"].as_str().unwrap_or_default()).expect("a Run ID");
     let run = context.runs().live(run_id).await.expect("the Run is live");
     let secret: Vec<u8> = (0..32).map(|byte: u8| byte.wrapping_mul(53)).collect();
+    let sent = params["sent"].as_str().map(str::to_owned);
     run.state()
         .write(move |connection| {
             connection.execute("INSERT INTO effect_secret (id, secret) VALUES (1, ?1)", [secret])?;
+            if let Some(key) = sent {
+                connection.execute(
+                    "INSERT INTO effect_journal (namespace, key, repeatable, state, first_command, since) \
+                     VALUES ('', ?1, 0, 'sent', 'Input.dispatchMouseEvent', '2026-01-05T09:00:01Z')",
+                    [key],
+                )?;
+                return Ok(());
+            }
             connection.execute(
                 "INSERT INTO effect_journal (namespace, key, repeatable, state, reason, first_command, since) \
                  VALUES ('', 'refund', 0, 'uncertain', 'interrupted', 'Input.dispatchMouseEvent', '2026-01-05T09:00:01Z')",

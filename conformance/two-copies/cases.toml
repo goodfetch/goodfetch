@@ -1,0 +1,29 @@
+# ADR 0003's fencing of a Run's two copies (#2348, stories 3-34 and
+# 3-43): a crawl checkpoints on the target and exports its Dataset; a
+# second copy, a second Attached engine on a Goodfetch home of its own,
+# resumes that Checkpoint at the next run epoch, checkpoints and exports;
+# then the first copy, which nothing stopped, checkpoints and exports
+# again. Every Checkpoint and Export goes to the harness's stand-in
+# destination, which compares and sets the run epoch each answer carries:
+# the first copy's land until the second copy's do, then are refused.
+# Exports and their run epoch are Foxhound's, so the suite announces
+# Foxhound and runs on its executable (ADR 0094), against the Proving
+# ground's plain host on the `http` tier, answering each handler request
+# with one Record. A Daemon's further Connections reach the same engine,
+# so only an Attached target has a second copy. `goodfetch-conformance`
+# runs it as it runs the protocol suite (`conformance/protocol/cases.toml`):
+# every case in order over one Connection it opens with `hello`. Bump the
+# version whenever a case changes.
+
+product = "foxhound"
+
+[suite]
+name = "two-copies"
+version = "1"
+
+[[capability]]
+name = "run.resume"
+
+[[capability.case]]
+id = "the-fenced-copy-has-its-checkpoints-and-exports-refused-where-the-destination-compares-and-sets"
+covers = ["story:3-43", "operation:run.resume", "operation:run.export", "operation:run.checkpoint"]

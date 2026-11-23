@@ -459,53 +459,27 @@ fn a_paused_run_survives_a_restart_and_resumes_at_the_next_run_epoch() {
     );
 }
 
-/// A destination that keeps one Checkpoint per Run and compares and sets
-/// its run epoch: one older than the one it holds is refused (ADR 0003).
-#[derive(Default)]
-struct CompareAndSetStore {
-    held: BTreeMap<String, u64>,
-    landed: Vec<(String, u64)>,
-    refused: Vec<(String, u64)>,
-}
-
-impl CompareAndSetStore {
-    fn offer(&mut self, checkpoint: &Value) {
-        let run_id = checkpoint["run_id"].as_str().unwrap().to_owned();
-        let epoch = checkpoint["run_epoch"].as_u64().unwrap();
-        let held = self.held.get(&run_id).copied().unwrap_or_default();
-        if epoch >= held {
-            self.held.insert(run_id.clone(), epoch);
-            self.landed.push((run_id, epoch));
-        } else {
-            self.refused.push((run_id, epoch));
-        }
-    }
-}
-
 /// Two copies of one Run: the first checkpoints, the second resumes from
-/// that Checkpoint in another home and redoes what the first committed
-/// after it, then both write Checkpoints to a compare-and-set store, where
-/// only the current run epoch's land.
-/// Covers: story:3-34, story:3-43, operation:run.resume
+/// that Checkpoint in another home at the next run epoch and redoes what
+/// the first committed after it. The fencing of the first copy's writes
+/// is conformance's two-copies case (`conformance/two-copies/cases.toml`).
+/// Covers: story:3-34, operation:run.resume
 #[test]
-fn a_run_resumed_on_another_machine_redoes_the_work_since_its_checkpoint_and_fences_the_old_copy() {
+fn a_run_resumed_on_another_machine_redoes_the_work_since_its_checkpoint() {
     let (first, second) = (TestEnv::new(), TestEnv::new());
     let moved = first.folder().join("moved.sqlite");
     let location = moved.display().to_string();
 
-    let (store, resumed) = two_machines(&first, &second, |mut old, mut new| async move {
-        let mut store = CompareAndSetStore::default();
+    let resumed = two_machines(&first, &second, |mut old, mut new| async move {
         old.ok(2, "test.keep", json!({ "run_id": "moved" })).await;
         old.ok(3, "test.note", json!({ "run_id": "moved", "value": 1 }))
             .await;
-        let taken = old
-            .ok(
-                4,
-                "run.checkpoint",
-                json!({ "run_id": "moved", "location": location }),
-            )
-            .await;
-        store.offer(&taken);
+        old.ok(
+            4,
+            "run.checkpoint",
+            json!({ "run_id": "moved", "location": location }),
+        )
+        .await;
         old.ok(5, "test.note", json!({ "run_id": "moved", "value": 2 }))
             .await;
         let resumed = new
@@ -515,17 +489,9 @@ fn a_run_resumed_on_another_machine_redoes_the_work_since_its_checkpoint_and_fen
                 json!({ "run_id": "moved", "checkpoint": location }),
             )
             .await;
-        store.offer(
-            &new.ok(3, "run.checkpoint", json!({ "run_id": "moved" }))
-                .await,
-        );
-        store.offer(
-            &old.ok(6, "run.checkpoint", json!({ "run_id": "moved" }))
-                .await,
-        );
-        new.ok(4, "run.finish", json!({ "run_id": "moved" })).await;
-        old.ok(7, "run.finish", json!({ "run_id": "moved" })).await;
-        (store, resumed)
+        new.ok(3, "run.finish", json!({ "run_id": "moved" })).await;
+        old.ok(6, "run.finish", json!({ "run_id": "moved" })).await;
+        resumed
     });
 
     let resumed_file = run_folder(&second, "moved").join("run.sqlite");
@@ -534,16 +500,8 @@ fn a_run_resumed_on_another_machine_redoes_the_work_since_its_checkpoint_and_fen
             resumed["started_as"].clone(),
             notes(&resumed_file),
             run_row(&resumed_file)["epoch"].clone(),
-            store.landed,
-            store.refused,
         ),
-        (
-            json!("resumed"),
-            vec![1],
-            json!(2),
-            vec![("moved".to_owned(), 1), ("moved".to_owned(), 2)],
-            vec![("moved".to_owned(), 1)],
-        )
+        (json!("resumed"), vec![1], json!(2))
     );
 }
 

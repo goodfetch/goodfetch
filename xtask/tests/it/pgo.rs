@@ -206,6 +206,80 @@ fn an_undefined_symbol_in_a_response_file_reaches_zigs_cc_as_a_linker_option() {
     );
 }
 
+/// The start files and options rustc passes for an executable at a fixed
+/// base, as it does on `aarch64-unknown-linux-musl`, whose specification
+/// offers no static-PIE.
+const FIXED_BASE: &[&str] = &[
+    "-static",
+    "-no-pie",
+    "-nostartfiles",
+    "/rust/self-contained/crt1.o",
+    "/rust/self-contained/crti.o",
+    "/rust/self-contained/crtbegin.o",
+    "main.rcgu.o",
+    "/rust/self-contained/crtend.o",
+    "/rust/self-contained/crtn.o",
+    "-o",
+    "main",
+];
+
+/// The same link as a static-PIE, as rustc asks for one on
+/// `x86_64-unknown-linux-musl`.
+const STATIC_PIE: &[&str] = &[
+    "-static-pie",
+    "-nostartfiles",
+    "/rust/self-contained/rcrt1.o",
+    "/rust/self-contained/crti.o",
+    "/rust/self-contained/crtbeginS.o",
+    "main.rcgu.o",
+    "/rust/self-contained/crtendS.o",
+    "/rust/self-contained/crtn.o",
+    "-o",
+    "main",
+];
+
+/// rustc links an executable at a fixed base on a musl target whose
+/// specification offers no static-PIE, though it compiles the code
+/// position-independent; link-cc makes it the static-PIE rustc asks for on
+/// `x86_64-unknown-linux-musl`, with the position-independent start files,
+/// then links it as one.
+#[test]
+fn a_fixed_base_executable_links_as_a_static_pie() {
+    let linker = Linker::new();
+
+    linker.link(FIXED_BASE, &[]);
+
+    let mut expected = STATIC_PIE.to_vec();
+    expected.push("-pie");
+    assert_eq!(linker.asked("cc"), expected);
+    assert_eq!(
+        linker.asked("zig").last().map(String::as_str),
+        Some("pack-relative-relocs")
+    );
+}
+
+/// The fixed-base link's arguments in a response file are rewritten in a
+/// copy, one argument a line.
+#[test]
+fn a_fixed_base_executable_in_a_response_file_links_as_a_static_pie() {
+    let linker = Linker::new();
+    let response = linker.workspace.path().join("linker-arguments");
+    let written = format!("{}\n", FIXED_BASE.join("\n"));
+    std::fs::write(&response, &written).unwrap();
+
+    linker.link(&[&format!("@{}", response.display())], &[]);
+
+    let asked = linker.asked("cc");
+    let copied: Vec<String> = STATIC_PIE.iter().map(|line| format!("  {line}")).collect();
+    assert_eq!(asked[1..asked.len() - 1], copied);
+    assert_eq!(asked.last().map(String::as_str), Some("-pie"));
+    assert_eq!(
+        std::fs::read_to_string(&response).unwrap(),
+        written,
+        "rustc's own response file is left as it wrote it"
+    );
+}
+
 /// With an order file, the static-PIE's LLD lays its sections out in the
 /// file's order, and writes the map that places them beside the
 /// executable. An anonymous constant (`.rodata..L*`, `.data.rel.ro..L*`)

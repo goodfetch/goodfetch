@@ -154,6 +154,69 @@ fn a_runs_own_run_timeout_is_refused_before_it_begins() {
     );
 }
 
+/// `hello`'s result names each `timeout.*` setting the Product honours as
+/// it resolved at the Connection's layers, the `hello`'s own over the
+/// user configuration over the default, and leaves out one that resolves
+/// no timeout: the bound a Client puts on a call it queues with no timeout
+/// of its own (ADR 0038's note of 2026-11-21; issue 3193).
+#[rstest]
+#[case::without_own_settings(None, json!([5_000, "user_configuration", null]))]
+#[case::with_own_settings(
+    Some(json!({ "timeout": { "navigation": 7_000 } })),
+    json!([7_000, "run", "settings"])
+)]
+fn an_accepted_hello_names_each_timeout_its_connections_layers_resolve(
+    #[case] own: Option<Value>,
+    #[case] navigation: Value,
+) {
+    let env = TestEnv::new();
+    write(
+        &env,
+        "configuration.toml",
+        "version = \"0.1\"\n\n[settings]\ntimeout.navigation = 5000\n",
+    );
+    let said = own.map_or_else(|| hello("collie", "0.1"), hello_setting);
+
+    let answered = attached_on(
+        &engine_with(Product::Collie, None),
+        &env,
+        |mut client| async move {
+            client.send(&[said]).await;
+            client.next().await.unwrap()
+        },
+    );
+
+    let timeouts = answered["result"]["timeouts"].as_array().cloned();
+    let named = |key: &str| {
+        timeouts
+            .iter()
+            .flatten()
+            .find(|limit| limit["key"] == key)
+            .map(|limit| {
+                json!([
+                    limit["value"],
+                    limit["layer"],
+                    limit.get("origin").unwrap_or(&Value::Null)
+                ])
+            })
+    };
+    assert_eq!(
+        (
+            named("timeout.navigation"),
+            named("timeout.wait"),
+            named("timeout.run"),
+            named("timeout.handler"),
+        ),
+        (
+            Some(navigation),
+            Some(json!([30_000, "default", null])),
+            None,
+            None
+        ),
+        "{answered}"
+    );
+}
+
 /// The three states of a Run's own settings over its Connection's: what
 /// it leaves out it inherits, its `null` clears, its value sets; and a
 /// live Run explains the settings it opened with.

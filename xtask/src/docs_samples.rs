@@ -32,7 +32,7 @@
 mod blocks;
 mod names;
 mod origin;
-mod render;
+pub(crate) mod render;
 
 use std::collections::BTreeSet;
 use std::path::Path;

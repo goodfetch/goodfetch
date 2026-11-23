@@ -306,6 +306,31 @@ form = "opener"
 [[member]]
 crate = "goodfetch-collie-client"
 receiver = "ClientConnection"
+member = "start_recipe"
+entry = "recipe.start"
+words = ["start", "recipe"]
+form = "opener"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "ClientConnection"
+member = "start_catalog_run"
+entry = "catalog_run.start"
+words = ["start", "catalog", "run"]
+form = "opener"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "ClientConnection"
+member = "open_run"
+entry = "none"
+reason = "Opens a view of a Run another program started, by its Run ID, with no round trip (ADR 0102)."
+words = ["open", "run"]
+form = "opener"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "ClientConnection"
 member = "explain_settings"
 entry = "config.explain"
 words = ["explain", "settings"]
@@ -381,6 +406,31 @@ receiver = "Connection"
 member = "start"
 entry = "run.start"
 words = ["start"]
+form = "opener"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "Connection"
+member = "start_recipe"
+entry = "recipe.start"
+words = ["start", "recipe"]
+form = "opener"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "Connection"
+member = "start_catalog_run"
+entry = "catalog_run.start"
+words = ["start", "catalog", "run"]
+form = "opener"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "Connection"
+member = "open_run"
+entry = "none"
+reason = "Opens a view of a Run another program started, by its Run ID, with no round trip (ADR 0102)."
+words = ["open", "run"]
 form = "opener"
 
 [[member]]
@@ -1270,6 +1320,115 @@ form = "read"
 [[member]]
 crate = "goodfetch-collie-client"
 receiver = "(crate)"
+member = "HandlerlessStart"
+entry = "none"
+reason = "The start of a Run with no handler in the program, a Recipe's run (`recipe.start`) or a code-free catalog run (`catalog_run.start`), which awaiting sends."
+only = "Rust's call is a builder the program awaits (ADR 0081); TypeScript's start takes `HandlerlessStartOptions`, Python's keyword arguments."
+words = ["handlerless", "start"]
+form = "type"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "HandlerlessStart"
+member = "run_id"
+entry = "none"
+reason = "Names the Run for good, as `crate::Start::run_id` does."
+words = ["run", "id"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "HandlerlessStart"
+member = "tags"
+entry = "none"
+reason = "Tags the Run, in place of any tags given before (ADR 0036)."
+words = ["tags"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "HandlerlessStart"
+member = "limits"
+entry = "none"
+reason = "Sets the Run's own `limits`, in place of any given before, as `crate::Start::limits` does."
+words = ["limits"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "HandlerlessStart"
+member = "settings"
+entry = "none"
+reason = "Sets the Run's own settings, in place of any given before, as `crate::Start::settings` does."
+words = ["settings"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "HandlerlessStart"
+member = "recording"
+entry = "none"
+reason = "Sets the Response recording the Run replays or records (ADR 0105)."
+words = ["recording"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "HandlerlessStart"
+member = "timeout"
+entry = "none"
+reason = "Bounds how long the Run may last, as `timeout.run` for this Run, sent in whole milliseconds, rounded up; its setting's value bounds it when neither this nor `HandlerlessStart::no_timeout` is given."
+words = ["timeout"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "HandlerlessStart"
+member = "no_timeout"
+entry = "none"
+reason = "Lets the Run last as long as it takes, whatever `timeout.run` says."
+words = ["no", "timeout"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "HandlerlessStart"
+member = "detached"
+entry = "none"
+reason = "Lets the Run outlive the program that started it (ADR 0102): closing its value, or the Connection, then sends no `run.abort` and frees only the value, `run.finish` waits for its end and `run.stop` stops it."
+words = ["detached"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "(crate)"
+member = "RunView"
+entry = "none"
+reason = "The view of a Run another program started that `open_run` opens (ADR 0102), which takes no writer role."
+words = ["run", "view"]
+form = "type"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "RunView"
+member = "id"
+entry = "none"
+reason = "The Run ID the view was opened with, read without a round trip (ADR 0102)."
+words = ["id"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "RunView"
+member = "close"
+entry = "none"
+reason = "Frees only the view (ADR 0102): the Run goes on."
+words = ["close"]
+form = "closer"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "(crate)"
 member = "TraceContextSource"
 entry = "none"
 reason = "Reads the host program's current Trace context, which each request the Connection sends carries (ADR 0132)."
@@ -1460,6 +1619,31 @@ form = "opener"
 [[member]]
 crate = "goodfetch-collie-client"
 receiver = "blocking::ClientConnection"
+member = "start_recipe"
+entry = "recipe.start"
+words = ["start", "recipe"]
+form = "opener"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "blocking::ClientConnection"
+member = "start_catalog_run"
+entry = "catalog_run.start"
+words = ["start", "catalog", "run"]
+form = "opener"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "blocking::ClientConnection"
+member = "open_run"
+entry = "none"
+reason = "Opens a view of a Run another program started, by its Run ID, with no round trip (ADR 0102)."
+words = ["open", "run"]
+form = "opener"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "blocking::ClientConnection"
 member = "explain_settings"
 entry = "config.explain"
 words = ["explain", "settings"]
@@ -1508,6 +1692,31 @@ receiver = "blocking::Connection"
 member = "start"
 entry = "run.start"
 words = ["start"]
+form = "opener"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "blocking::Connection"
+member = "start_recipe"
+entry = "recipe.start"
+words = ["start", "recipe"]
+form = "opener"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "blocking::Connection"
+member = "start_catalog_run"
+entry = "catalog_run.start"
+words = ["start", "catalog", "run"]
+form = "opener"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "blocking::Connection"
+member = "open_run"
+entry = "none"
+reason = "Opens a view of a Run another program started, by its Run ID, with no round trip (ADR 0102)."
+words = ["open", "run"]
 form = "opener"
 
 [[member]]
@@ -1876,6 +2085,96 @@ form = "opener"
 
 [[member]]
 crate = "goodfetch-collie-client"
+receiver = "blocking"
+member = "HandlerlessStart"
+entry = "none"
+reason = "The start of a Run with no handler in the program, a Recipe's run or a code-free catalog run."
+words = ["handlerless", "start"]
+form = "type"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "blocking::HandlerlessStart"
+member = "run_id"
+entry = "none"
+reason = "Names the Run for good, as `crate::HandlerlessStart::run_id` does."
+words = ["run", "id"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "blocking::HandlerlessStart"
+member = "tags"
+entry = "none"
+reason = "Tags the Run, as `crate::HandlerlessStart::tags` does."
+words = ["tags"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "blocking::HandlerlessStart"
+member = "limits"
+entry = "none"
+reason = "Sets the Run's own Limits, as `crate::HandlerlessStart::limits` does."
+words = ["limits"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "blocking::HandlerlessStart"
+member = "settings"
+entry = "none"
+reason = "Sets the Run's own settings, as `crate::HandlerlessStart::settings` does."
+words = ["settings"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "blocking::HandlerlessStart"
+member = "recording"
+entry = "none"
+reason = "Sets the Response recording the Run replays or records, as `crate::HandlerlessStart::recording` does."
+words = ["recording"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "blocking::HandlerlessStart"
+member = "timeout"
+entry = "none"
+reason = "Bounds how long the Run may last, as `crate::HandlerlessStart::timeout` does."
+words = ["timeout"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "blocking::HandlerlessStart"
+member = "no_timeout"
+entry = "none"
+reason = "Lets the Run last as long as it takes, as `crate::HandlerlessStart::no_timeout` does."
+words = ["no", "timeout"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "blocking::HandlerlessStart"
+member = "detached"
+entry = "none"
+reason = "Lets the Run outlive the program that started it, as `crate::HandlerlessStart::detached` does."
+words = ["detached"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "blocking::HandlerlessStart"
+member = "send"
+entry = "none"
+reason = "Starts the Run and blocks the calling thread until it is started."
+words = ["send"]
+form = "opener"
+
+[[member]]
+crate = "goodfetch-collie-client"
 receiver = "file_saving"
 member = "FileSaving"
 entry = "none"
@@ -2017,6 +2316,78 @@ entry = "none"
 reason = "The settings as `scope`'s `settings` member carries them, nested by the keys' segments: a Run's start's, or a connection's `hello`'s."
 words = ["within"]
 form = "read"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "testing"
+member = "TestEngineOptions"
+entry = "none"
+reason = "What a Product's test engine starts with (ADR 0105): the connection's settings over the kit's, the environment map it reads the caller's browsers and engine from, and the project file it reads."
+words = ["test", "engine", "options"]
+form = "type"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "testing::TestEngineOptions"
+member = "new"
+entry = "none"
+reason = "The kit's isolations alone: no settings of the test's, the process's environment, and no project file."
+words = ["new"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "testing::TestEngineOptions"
+member = "settings"
+entry = "none"
+reason = "The connection's settings over the kit's: the hosts `network.resolve` maps to loopback alone are the hosts its Runs reach, live, and a key it gives takes the place of the kit's."
+words = ["settings"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "testing::TestEngineOptions"
+member = "env"
+entry = "none"
+reason = "The environment map the kit reads `GOODFETCH_HOME`, `GOODFETCH_BROWSERS_PATH` and its Product's engine-path variable from, and no other, in place of the process's own."
+words = ["env"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "testing::TestEngineOptions"
+member = "project"
+entry = "none"
+reason = "The project file the test engine reads (ADR 0083), in place of none."
+words = ["project"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "testing"
+member = "TestEngine"
+entry = "none"
+reason = "What every Product's test engine is (ADR 0105): its Product's connection, and a close that removes its temporary Goodfetch home."
+words = ["test", "engine"]
+form = "type"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "testing::TestEngine"
+member = "connection"
+entry = "none"
+reason = "The Product's connection to the test engine, on which the code under test runs unchanged."
+words = ["connection"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "testing::TestEngine"
+member = "close"
+entry = "none"
+reason = "Closes the connection, then removes the temporary Goodfetch home."
+words = ["close"]
+form = "closer"
 
 [[member]]
 crate = "goodfetch-collie-client"
@@ -2175,7 +2546,3 @@ entries = [
   "key_value_store.keys",
 ]
 reason = "The Rust SDK has no Key-value store yet; issue 1284 adds the Run's."
-
-[[unreached]]
-entries = ["recipe.start", "catalog_run.start"]
-reason = "Issue 3396's Rust part adds `start_recipe` and `start_catalog_run`."

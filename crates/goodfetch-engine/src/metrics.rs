@@ -18,8 +18,8 @@ use goodfetch_protocol::governor::{
 use goodfetch_protocol::ops::{
     BROWSER_LABEL, BROWSER_MEMORY, BROWSER_RECYCLED, BROWSER_RUNNING, CLIENT_CONNECTED,
     COMPLETENESS_LABEL, COUNTED_WORK, COUNTED_WORK_PATH_LABEL, COUNTED_WORK_WORK_LABEL,
-    DAEMON_DRAINING, ENGINE_PANICS, LIFECYCLE_LABEL, PANIC_ENDED_LABEL, RECYCLE_REASON_LABEL,
-    RUN_ACTIVE, RUN_ENDED, RUN_KIND_LABEL, SURFACE_LABEL, VERDICT_LABEL,
+    DAEMON_DRAINING, DAEMON_HEAP, ENGINE_PANICS, LIFECYCLE_LABEL, PANIC_ENDED_LABEL,
+    RECYCLE_REASON_LABEL, RUN_ACTIVE, RUN_ENDED, RUN_KIND_LABEL, SURFACE_LABEL, VERDICT_LABEL,
 };
 use goodfetch_protocol::run::{RunKind, RunReport};
 use goodfetch_protocol::storage::{
@@ -129,6 +129,18 @@ impl Metrics {
                             KeyValue::new(COUNTED_WORK_WORK_LABEL.name, row.work()),
                         ],
                     );
+                }
+            })
+            .build();
+        // Read at each collection, as `daemon.status` reads it; nothing to
+        // observe where no allocator counts (#1769).
+        meter
+            .u64_observable_gauge(DAEMON_HEAP.name)
+            .with_description(DAEMON_HEAP.description)
+            .with_unit(DAEMON_HEAP.unit)
+            .with_callback(|observer: &dyn AsyncInstrument<u64>| {
+                if let Some(held) = crate::heap::live() {
+                    observer.observe(held, &[]);
                 }
             })
             .build();

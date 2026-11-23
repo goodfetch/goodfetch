@@ -359,7 +359,8 @@ fn a_removed_skill_leaves_the_inventory() {
 }
 
 /// The check reads the skill files in process, so a skill added without
-/// regenerating the inventory fails it.
+/// regenerating the inventory fails it, beside the rendering of the
+/// fixture's Collie crate.
 #[test]
 fn the_check_fails_on_a_skill_the_inventory_lacks() {
     let workspace = Workspace::from_fixture("codegen");
@@ -370,7 +371,13 @@ fn the_check_fails_on_a_skill_the_inventory_lacks() {
 
     assert_eq!(
         outcome.findings(),
-        vec![finding("drift", "features/inventory.json")]
+        vec![
+            finding(
+                "drift",
+                "crates/goodfetch-collie/generated/skills/browse-pages/SKILL.md"
+            ),
+            finding("drift", "features/inventory.json"),
+        ]
     );
     assert_eq!(outcome.code, 1);
 }

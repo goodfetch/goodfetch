@@ -208,6 +208,7 @@ fn call_cancelled_details_keep_who_and_what_a_newer_engine_names() {
 }
 
 #[rstest]
+#[case::person(StoppedBy::Person, "person")]
 #[case::client(StoppedBy::Client, "client")]
 #[case::program(StoppedBy::Program, "program")]
 #[case::browser(StoppedBy::Browser, "browser")]

@@ -167,6 +167,18 @@ threads-required = "num-test-threads"
 filter = "binary_id(goodfetch-foxhound-compile-fail::it) & test(/^compile_fail::/)"
 threads-required = "num-test-threads"
 
+# The build of goodfetch-collie from source in a clean container (story
+# 11-280), in the Release suite alone: six builds of the crate's whole
+# dependency graph in one target folder, five stopped at a build script,
+# keeping every core busy. On the server at a load of 15 with six jobs, the
+# graph took 148 s up to BoringSSL's build script and 172 s more to the
+# end. It runs alone, as the soak does, under a cap of its own: a 2-vCPU
+# hosted runner takes several times that.
+[[profile.default.overrides]]
+filter = "binary_id(goodfetch-collie::it) & test(/^source_build::/)"
+threads-required = "num-test-threads"
+slow-timeout = { period = "60s", terminate-after = 60 }
+
 [[profile.default.overrides]]
 filter = "binary_id(xtask::it) & (test(/^codegen::/) | test(/^compat::/) | test(/^feature_generators::/) | test(/^perf_build::/) | test(/^stress::/) | test(/^test_tools::/))"
 test-group = "fixture-builds"

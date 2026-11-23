@@ -422,6 +422,11 @@ pub enum StopReason {
         /// Who stopped it.
         #[schemars(extend("arrived_in" = "0.1"))]
         by: StoppedBy,
+        /// Whom the aborting Client acts for (ADR 0031), set when `by` is
+        /// `person`.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[schemars(extend("arrived_in" = "0.1"))]
+        person: Option<String>,
     },
     /// It was paused: checkpointed and stopped, to be resumed by its Run ID
     /// (RT-11).

@@ -10,9 +10,9 @@ use rstest::rstest;
 use super::host::{REMOVED_BY_THE_GATE, step_variables};
 use super::plan::{
     Action, Earlier, EarnedPasses, GateRun, Head, Layer, LintReads, MAX_AGE, Outcome, Pin, Planned,
-    Step, Touched, UNOWNED, gate_input, hosted_fingerprint, narrowed, plan, unit,
+    Touched, UNOWNED, gate_input, hosted_fingerprint, narrowed, plan, unit,
 };
-use super::steps::{self, Form, Kind, Owner, entries};
+use super::steps::{self, Form, Kind, Owner, Step, entries};
 use super::{plan_value, render, runs};
 use crate::affected::{Job, RepoPath};
 
@@ -1173,6 +1173,7 @@ const BESIDE_STEPS: [&str; 8] = [
 #[rstest]
 #[case::all(Form::All)]
 #[case::quick(Form::Quick)]
+#[case::batch(Form::Batch)]
 #[case::docs(Form::Docs)]
 #[case::preflight(Form::Preflight)]
 fn each_entry_has_the_owner_the_table_of_owning_layers_names(#[case] form: Form) {
@@ -1335,8 +1336,9 @@ const HOSTED_QUICK: [Step; 4] = [
 ];
 
 /// A hosted job's record of a run on `EARLIER` whose every unit of a step
-/// the hosted tier owns passed on `tree`, its fingerprint naming `image` and
-/// `repository`.
+/// the hosted tier owns passed on `tree`, but the Pre-merge suite's, which
+/// would cover the Quick suite's ([`hosted_batch_run`] holds some), its
+/// fingerprint naming `image` and `repository`.
 fn hosted_run(image: &str, repository: &str, tree: &str) -> GateRun {
     let outcome = Outcome {
         tree: tree.to_owned(),
@@ -1346,7 +1348,7 @@ fn hosted_run(image: &str, repository: &str, tree: &str) -> GateRun {
     let mut units = BTreeMap::new();
     for step in Step::ALL
         .into_iter()
-        .filter(|step| Owner::of(*step) == Owner::Hosted)
+        .filter(|step| Owner::of(*step) == Owner::Hosted && *step != Step::PreMerge)
     {
         if step.per_member() {
             for member in members() {
@@ -1647,6 +1649,7 @@ fn the_hosted_layer_leaves_each_step_to_its_owner() {
 #[case::all(Form::All, true)]
 #[case::preflight(Form::Preflight, true)]
 #[case::quick(Form::Quick, false)]
+#[case::batch(Form::Batch, true)]
 fn the_codegen_tests_are_covered_where_the_pre_merge_suite_runs(
     #[case] form: Form,
     #[case] covered: bool,
@@ -1669,6 +1672,234 @@ fn the_codegen_tests_are_covered_where_the_pre_merge_suite_runs(
         entries(form)
             .iter()
             .any(|entry| entry.name == "codegen-tests"),
-        form == Form::Quick
+        matches!(form, Form::Quick | Form::Batch)
     );
+}
+
+/// A batch's form is the quick form's steps and the Pre-merge suite over
+/// the whole workspace, in the gate's order (ADR 0135's note of 2026-11-21).
+#[test]
+fn the_batch_form_runs_the_quick_forms_steps_and_the_pre_merge_suite() {
+    let quick: Vec<&str> = entries(Form::Quick)
+        .iter()
+        .map(|entry| entry.name)
+        .collect();
+    let batch = entries(Form::Batch);
+    let names: Vec<&str> = batch.iter().map(|entry| entry.name).collect();
+
+    let mut expected = quick.clone();
+    let after_quick = quick.iter().position(|name| *name == "quick").unwrap() + 1;
+    expected.insert(after_quick, "pre-merge");
+    assert_eq!(names, expected);
+    let pre_merge = batch
+        .iter()
+        .find(|entry| entry.name == "pre-merge")
+        .unwrap();
+    assert_eq!(pre_merge.just, ["_suite", "pre-merge", "all"]);
+    assert_eq!(pre_merge.owner, Owner::Hosted);
+}
+
+/// A crate whose tests launch no browser and use no OS service.
+const BROWSERLESS: &str = "goodfetch-protocol";
+/// Another, so a plan of the two names both.
+const BROWSERLESS_TOO: &str = "goodfetch-crawl";
+
+/// The case's members with two crates whose tests launch no browser, and
+/// the shuffling runners' members among them.
+fn batch_members() -> (BTreeSet<String>, BTreeSet<String>) {
+    let mut all = members();
+    all.extend([BROWSERLESS.to_owned(), BROWSERLESS_TOO.to_owned()]);
+    let shuffled = BTreeSet::from([
+        "test-support/typescript".to_owned(),
+        "sdks/python/collie-client".to_owned(),
+    ]);
+    (all, shuffled)
+}
+
+/// The plan of `layer` in `form` for a head of [`batch_members`], from
+/// `hosted` runs, the change since them reaching nothing.
+fn planned_for_a_batch((form, layer): (Form, Layer), hosted: &[GateRun]) -> Vec<Planned> {
+    let (members, shuffled) = batch_members();
+    let lint_holds = || Ok(());
+    let head = Head {
+        base: BASE,
+        members: &members,
+        shuffled: &shuffled,
+        tree: HEAD_TREE,
+        host: HOST,
+        now: NOW,
+        lint: LintReads::new(&lint_holds),
+        form,
+        layer,
+        pin: PIN,
+    };
+    plan(
+        &head,
+        &earlier(None, hosted),
+        &touched_since_earlier(Touched::default()),
+    )
+}
+
+/// A hosted record on the head's tree whose Pre-merge units of `held`
+/// passed, with the quick form's hosted units of the other members.
+fn hosted_batch_run(held: &[&str]) -> GateRun {
+    let (members, _) = batch_members();
+    let mut run = hosted_run(IMAGE, REPOSITORY, HEAD_TREE);
+    let outcome = Outcome {
+        tree: HEAD_TREE.to_owned(),
+        by: Layer::Hosted,
+        ..green(EARLIER)
+    };
+    for member in &members {
+        if held.contains(&member.as_str()) {
+            run.units
+                .insert(unit(Step::PreMerge, Some(member)), outcome.clone());
+        } else {
+            run.units
+                .insert(unit(Step::Quick, Some(member)), outcome.clone());
+        }
+    }
+    run
+}
+
+fn planned_step(plan: &[Planned], step: Step) -> &Planned {
+    plan.iter()
+        .find(|planned| planned.step == step)
+        .expect("every step is planned")
+}
+
+/// A batch's hosted run runs the Pre-merge suite of the members whose tests
+/// launch no browser and use no OS service, and those members' Quick units
+/// are covered by it: the hosted quick job runs only the others' (spec
+/// #3373). xtask's tests do launch one, so its codegen tests still run.
+#[test]
+fn a_batchs_hosted_run_runs_the_pre_merge_suite_of_the_members_that_launch_no_browser() {
+    let plan = planned_for_a_batch((Form::Batch, Layer::Hosted), &[]);
+
+    let browserless = BTreeSet::from([BROWSERLESS.to_owned(), BROWSERLESS_TOO.to_owned()]);
+    assert!(
+        matches!(action(&plan, Step::PreMerge), Action::Part { members, .. } if members == &browserless),
+        "{:?}",
+        action(&plan, Step::PreMerge)
+    );
+    let (all, _) = batch_members();
+    let others: BTreeSet<String> = all.difference(&browserless).cloned().collect();
+    assert!(
+        matches!(
+            action(&plan, Step::Quick),
+            Action::Part { members, why } if members == &others && why.contains("covered by pre-merge")
+        ),
+        "{:?}",
+        action(&plan, Step::Quick)
+    );
+    assert!(
+        matches!(action(&plan, Step::CodegenTests), Action::Run { .. }),
+        "{:?}",
+        action(&plan, Step::CodegenTests)
+    );
+}
+
+/// `just merge` on the quick form takes a member's hosted Pre-merge unit
+/// green on the tree for its Quick unit, and carries it into its record;
+/// the other members reuse their hosted Quick units.
+#[test]
+fn the_merge_covers_each_quick_unit_a_hosted_pre_merge_unit_holds() {
+    let hosted = [hosted_batch_run(&[BROWSERLESS, BROWSERLESS_TOO])];
+
+    let plan = planned_for_a_batch((Form::Quick, Layer::Merge), &hosted);
+
+    let quick = planned_step(&plan, Step::Quick);
+    assert!(
+        matches!(&quick.action, Action::Reuse { .. }),
+        "{:?}",
+        quick.action
+    );
+    assert!(
+        !quick
+            .carried
+            .contains_key(&unit(Step::Quick, Some(BROWSERLESS))),
+        "{:?}",
+        quick.carried
+    );
+    let pre_merge = planned_step(&plan, Step::PreMerge);
+    for member in [BROWSERLESS, BROWSERLESS_TOO] {
+        assert_eq!(
+            pre_merge
+                .carried
+                .get(&unit(Step::PreMerge, Some(member)))
+                .map(|outcome| outcome.by),
+            Some(Layer::Hosted),
+            "{member}"
+        );
+    }
+}
+
+/// Once every member's hosted Pre-merge unit holds, the Quick suite and
+/// xtask's codegen tests are covered: xtask's Pre-merge unit runs them.
+#[test]
+fn the_quick_suite_and_the_codegen_tests_are_covered_once_every_pre_merge_unit_holds() {
+    let (members, _) = batch_members();
+    let every: Vec<&str> = members.iter().map(String::as_str).collect();
+    let hosted = [hosted_batch_run(&every)];
+
+    let plan = planned_for_a_batch((Form::Quick, Layer::Merge), &hosted);
+
+    for step in [Step::Quick, Step::CodegenTests] {
+        assert_eq!(
+            action(&plan, step),
+            &Action::Covered { by: Step::PreMerge },
+            "{step:?}"
+        );
+    }
+}
+
+/// A hosted Pre-merge unit red on the head's tree is the gate's verdict
+/// (ADR 0064): the quick form, which runs no Pre-merge suite, is red on its
+/// Quick suite, and runs neither again.
+#[test]
+fn a_red_hosted_pre_merge_unit_makes_the_quick_gate_red() {
+    let mut hosted = hosted_batch_run(&[BROWSERLESS, BROWSERLESS_TOO]);
+    hosted
+        .units
+        .get_mut(&unit(Step::PreMerge, Some(BROWSERLESS)))
+        .unwrap()
+        .green = false;
+
+    let plan = planned_for_a_batch((Form::Quick, Layer::Merge), &[hosted]);
+
+    for step in [Step::PreMerge, Step::Quick] {
+        assert!(
+            matches!(action(&plan, step), Action::Red { why } if why.contains("goodfetch-protocol: red in the hosted run")),
+            "{step:?}: {:?}",
+            action(&plan, step)
+        );
+    }
+}
+
+/// Every crate whose tests nextest's profile names as launching the pinned
+/// browser is one the hosted Pre-merge shards leave out.
+#[test]
+fn each_crate_nextest_names_as_launching_the_browser_is_left_out_of_the_hosted_shards() {
+    let manifest = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+    let profile = std::fs::read_to_string(manifest.join("../.config/nextest.toml")).unwrap();
+
+    // The override of the cells without the pinned build names each test
+    // that launches it or reads which build launches.
+    let (_, browser) = profile
+        .split_once("target_env = \"musl\")))'")
+        .expect("the override of the cells without the pinned build");
+    let (browser, _) = browser.split_once("\"\"\"\n\n").unwrap();
+    let named: BTreeSet<&str> = browser
+        .split("binary_id(")
+        .skip(1)
+        .filter_map(|rest| rest.split([':', ')']).next())
+        .collect();
+
+    assert!(named.contains("goodfetch-collie"), "{named:?}");
+    for name in named {
+        assert!(
+            super::plan::BROWSER_OR_SERVICE_CRATES.contains(&name),
+            "{name} is named by .config/nextest.toml, so its tests may launch a browser"
+        );
+    }
 }

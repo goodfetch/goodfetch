@@ -6,14 +6,17 @@
 //! in-memory one an engine in the same process serves (ADR 0060). The
 //! Connection takes its runtime as a value, and [`Call`] and [`Query`] are
 //! the builders every call goes through (ADR 0081). A [`Run`] is what a
-//! Connection starts; it and the handles it opens, [`Session`], [`Page`]
+//! Connection starts, or a [`HandlerlessStart`] starts with no handler in
+//! the program, and a [`RunView`] names one another program started; a
+//! Run and the handles it opens, [`Session`], [`Page`]
 //! and [`Locator`], have the members the catalog gives them, one form per
 //! declared kind (ADR 0099), and [`blocking`] repeats the API for a
 //! program that does not use async. [`file_saving`] writes a file to the
 //! program's path whole or not at all (ADR 0116). Each request carries the
 //! Trace context a [`TraceContextSource`] reads (ADR 0132). AI work's
 //! [`AiWorkResult`] keeps how it [`Ended`], its Verdict and its model's
-//! claim apart (ADRs 0079 and 0117). The SDK crates
+//! claim apart (ADRs 0079 and 0117). [`testing`] is the testing kit's
+//! shared part, which each Product's kit re-exports (ADR 0105). The SDK crates
 //! build on it; it depends on neither of them, on any Foxhound crate nor on
 //! any OpenTelemetry crate.
 
@@ -33,6 +36,7 @@ mod field_values;
 pub mod file_saving;
 mod generated;
 mod handler;
+mod handlerless;
 mod host;
 mod limits;
 mod line;
@@ -46,9 +50,11 @@ mod relink;
 mod response;
 mod rpc;
 mod run;
+mod run_view;
 mod schema;
 pub mod settings;
 mod sync;
+pub mod testing;
 mod trace_context;
 pub mod transport;
 mod write_queue;
@@ -66,11 +72,13 @@ pub use generated::events;
 pub use generated::handles::{Locator, Page, Run, Session, WebSocket, WebSocketEvent};
 pub use goodfetch_protocol::error_code::{ErrorCode, ErrorDetails};
 pub use handler::{HandlerCall, HandlerRequests};
+pub use handlerless::HandlerlessStart;
 pub use limits::{Limits, Money, MoneyError, UsageKind};
 pub use listener_queue::ListenerQueue;
 pub use raw_call::RawCall;
 pub use response::{Exchange, Response};
 pub use run::Start;
+pub use run_view::RunView;
 pub use schema::{Schema, SchemaError};
 /// The `schemars` whose `JsonSchema` a [`Schema`] derives from, re-exported
 /// so that a program's derive is the SDK's version (ADR 0082).

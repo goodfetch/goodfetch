@@ -11,23 +11,34 @@
 
 use std::process::ExitCode;
 
-use super::catalog_commands::{Joined, Joining, command_words};
+use super::catalog_commands::{Joined, Joining};
 use super::daemon::Machine;
 use super::engine_choice::{EngineChoice, EngineFlags};
 use super::exit_codes;
 use super::operation::run_operation;
 use super::output::{self, Human};
+use super::prompts::Prompt;
 use clap::Subcommand;
 use goodfetch_engine::{Dependencies, Engine};
 use goodfetch_protocol::catalog::{ErrorGroup, Operation};
-use goodfetch_protocol::cli::{CommandError, CommandFailed};
-use goodfetch_protocol::connection::PERSON_REQUIRED;
 use goodfetch_protocol::jsonrpc::ProtocolFailure;
 use goodfetch_protocol::tls::{
     CERTS_ACCEPT, CERTS_FORGET, CERTS_LIST, CertificatePin, CertsAcceptParams, CertsForgetParams,
     CertsListed,
 };
-use serde_json::{Map, Value, json};
+use serde_json::{Value, json};
+
+/// The prompt that pins a host's changed key.
+const ACCEPT: Prompt = Prompt {
+    operation: &CERTS_ACCEPT,
+    elsewhere: None,
+};
+
+/// The prompt that removes a host's pin.
+const FORGET: Prompt = Prompt {
+    operation: &CERTS_FORGET,
+    elsewhere: None,
+};
 
 // The `certs` group's commands: the catalog's `certs` commands, listed
 // first, then its own. No doc comment: clap would make it the group's help.
@@ -117,8 +128,8 @@ fn accept(
     json: bool,
     human: &Human,
 ) -> ExitCode {
-    if json || !human.can_ask() {
-        return person_required(&CERTS_ACCEPT, json, human);
+    if let Err(exit) = ACCEPT.person_present(json, human) {
+        return exit;
     }
     let pin = match pin_of(engine, forked(&mut dependencies), reach, host, human) {
         Ok(pin) => pin,
@@ -143,11 +154,12 @@ fn accept(
         .spki_sha256
         .unwrap_or_else(|| "an unreadable pin".to_owned());
     let question = format!(
-        "The key of {} changed from {pinned} to {changed}. Pin {changed} in its place? [y/N]",
+        "The key of {} changed from {pinned} to {changed}. Pin {changed} in its place?",
         pin.host
     );
-    let Some(yes) = asked(&question, human) else {
-        return person_required(&CERTS_ACCEPT, false, human);
+    let yes = match ACCEPT.ask(&question, None, human) {
+        Ok(yes) => yes,
+        Err(exit) => return exit,
     };
     if !yes {
         output::line("The pin was not changed.");
@@ -177,8 +189,8 @@ fn forget(
     json: bool,
     human: &Human,
 ) -> ExitCode {
-    if json || !human.can_ask() {
-        return person_required(&CERTS_FORGET, json, human);
+    if let Err(exit) = FORGET.person_present(json, human) {
+        return exit;
     }
     let pin = match pin_of(engine, forked(&mut dependencies), reach, host, human) {
         Ok(pin) => pin,
@@ -190,16 +202,17 @@ fn forget(
     };
     let question = match &pin.spki_sha256 {
         Some(pinned) => format!(
-            "Remove the pin {pinned} of {}? Its next connection under trust on first use pins again. [y/N]",
+            "Remove the pin {pinned} of {}? Its next connection under trust on first use pins again.",
             pin.host
         ),
         None => format!(
-            "Remove the unreadable pin of {}? Its next connection under trust on first use pins again. [y/N]",
+            "Remove the unreadable pin of {}? Its next connection under trust on first use pins again.",
             pin.host
         ),
     };
-    let Some(yes) = asked(&question, human) else {
-        return person_required(&CERTS_FORGET, false, human);
+    let yes = match FORGET.ask(&question, None, human) {
+        Ok(yes) => yes,
+        Err(exit) => return exit,
     };
     if !yes {
         output::line("The pin was kept.");
@@ -214,13 +227,6 @@ fn forget(
         json!(params),
         human,
     )
-}
-
-/// The person's answer to `question`, yes or not; none when stdin is no
-/// terminal, where no person answers.
-fn asked(question: &str, human: &Human) -> Option<bool> {
-    let answer = human.ask(question)?;
-    Some(matches!(answer.to_ascii_lowercase().as_str(), "y" | "yes"))
 }
 
 /// What a second call on an Attached engine runs on: `dependencies`' own,
@@ -286,37 +292,4 @@ fn answered(
         }
         Err(exit) => exit,
     }
-}
-
-/// Refuses `operation`, a person's answer, with `person_required`: as JSON
-/// under `--json`, else on stderr.
-fn person_required(operation: &Operation, json: bool, human: &Human) -> ExitCode {
-    let command = command_words(operation.name);
-    let message = format!(
-        "`{command}` is a person's answer, asked at a terminal: run it in one without `--json`"
-    );
-    if json {
-        output::json(&CommandFailed {
-            error: CommandError {
-                code: PERSON_REQUIRED.name.to_owned(),
-                group: PERSON_REQUIRED.group,
-                retryable: PERSON_REQUIRED.retryable,
-                message,
-                operation: Some(operation.name.to_owned()),
-                details: Map::new(),
-            },
-        });
-    } else {
-        human.failure(
-            &message,
-            &[
-                ("code", PERSON_REQUIRED.name.to_owned()),
-                ("retryable", PERSON_REQUIRED.retryable.to_string()),
-            ],
-        );
-    }
-    ExitCode::from(exit_codes::of_error(
-        PERSON_REQUIRED.name,
-        PERSON_REQUIRED.group,
-    ))
 }

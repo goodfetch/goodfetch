@@ -429,6 +429,11 @@ impl ClientConnection {
         self.0.sender.in_opener()
     }
 
+    /// Whether the Connection's `close()` has ended.
+    pub(crate) fn is_closed(&self) -> bool {
+        self.0.closed.load(Ordering::Acquire)
+    }
+
     /// The handle the calls of the Connection's handles go through.
     pub(crate) fn sender(&self) -> Sender {
         self.0.sender.clone()

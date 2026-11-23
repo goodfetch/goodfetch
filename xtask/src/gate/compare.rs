@@ -11,8 +11,8 @@ use std::process::ExitCode;
 use anyhow::{Context as _, Result};
 use serde::Serialize;
 
-use super::plan::Step;
 use super::runs;
+use super::steps::Step;
 use crate::git;
 use crate::output;
 

@@ -740,8 +740,14 @@ answer, which its sync twin's reads answer from."""
 class AsyncRun(AsyncRunMembers):
     """A Run of the async API."""
 
-    def __init__(self, connection: RunHost, started: RunStarted) -> None:
-        """Takes its Connection and the engine's answer to its start."""
+    def __init__(
+        self, connection: RunHost, started: RunStarted, *, detached: bool = False
+    ) -> None:
+        """Takes its Connection and the engine's answer to its start.
+
+        A `detached` start's Run outlives its program (ADR 0102): closing its
+        value then stops nothing.
+        """
         scope = _RunScope(started.run_id.root)
         if started.lifecycle != Lifecycle.running:
             # A start that found its Run ended: closing it stops nothing.
@@ -751,6 +757,7 @@ class AsyncRun(AsyncRunMembers):
         _held[self] = (host, started)
         self._connection = connection
         self._scope = scope
+        self._detached = detached
         self._closing = Once()
         self.key_value_store = AsyncKeyValueStore(
             lambda prefix: host.read(KEYS, keys_params(self.id, prefix), key_of)
@@ -832,7 +839,8 @@ class AsyncRun(AsyncRunMembers):
 
         A Run still running is stopped with `run.abort`, resumable by its Run
         ID, and the Run report it answers is not returned; one no longer
-        running is closed with nothing sent.
+        running, or started `detached`, which outlives its program, is
+        closed with nothing sent.
 
         Stops a Run at its next safe point, `stopped` and `incomplete`: no attempt in
         flight commits, and its work items return to pending. Answers its Run
@@ -852,11 +860,11 @@ class AsyncRun(AsyncRunMembers):
         self._scope.raise_failures_within(None)
 
     async def _close(self) -> None:
-        was_running = self._scope.state == "running"
+        stops = self._scope.state == "running" and not self._detached
         self._scope.state = "closed"
         try:
             await self._scope.order.settled()
-            if was_running and self._connection.reachable():
+            if stops and self._connection.reachable():
                 await self._connection.call(
                     "run.abort", RunAbortParams(run_id=RunId(self.id))
                 )
@@ -973,7 +981,7 @@ class Run(RunMembers):
         """Closes the Run; idempotent.
 
         A Run still running is stopped with `run.abort`, resumable by its Run
-        ID, as `AsyncRun.close` says.
+        ID, unless it was started `detached`, as `AsyncRun.close` says.
 
         Stops a Run at its next safe point, `stopped` and `incomplete`: no attempt in
         flight commits, and its work items return to pending. Answers its Run

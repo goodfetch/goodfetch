@@ -1,0 +1,66 @@
+{
+  "description": "A Collie Client reaches a remote Daemon, an Exposed Daemon, and starts a Run carrying the project file it read, which sets `tls.trusted_cas`. There the project file has only the run layer's authority, so the Daemon refuses the start with `setting_locked` at `project_configuration` (ADR 0083; story 11-75). A test replaces `/work/goodfetch.toml` with the path of the file its Client read.",
+  "steps": [
+    {
+      "expect": {
+        "method": "hello",
+        "params": {
+          "protocol_version": "0.1",
+          "surface": "sdk_typescript",
+          "form": "typescript",
+          "needs": "collie",
+          "product_version": "0.0.0",
+          "log_level": "off",
+          "token": "endpoint-token-canary-5f0e9b27c4d1"
+        }
+      }
+    },
+    {
+      "reply": {
+        "result": {
+          "protocol_version": "0.1",
+          "product": "collie",
+          "product_version": "0.0.0",
+          "engine_instance": "0123456789abcdef"
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "run.start",
+        "params": {
+          "project": {
+            "path": "/work/goodfetch.toml",
+            "settings": {
+              "tls": {
+                "trusted_cas": {
+                  "intranet.example": ["/etc/ssl/intranet-ca.pem"]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "reply": {
+        "error": {
+          "code": -32002,
+          "message": "`tls.trusted_cas` in project_configuration is refused: a project file sent to an Exposed Daemon has only the run layer's authority there: set `tls.trusted_cas` in the Daemon's own Operator policy or configuration, on its machine",
+          "data": {
+            "code": "setting_locked",
+            "retryable": false,
+            "key": "tls.trusted_cas",
+            "layer": "project_configuration",
+            "limit": {
+              "key": "tls.trusted_cas",
+              "value": {},
+              "layer": "default"
+            },
+            "fix": "a project file sent to an Exposed Daemon has only the run layer's authority there: set `tls.trusted_cas` in the Daemon's own Operator policy or configuration, on its machine"
+          }
+        }
+      }
+    }
+  ]
+}

@@ -126,7 +126,8 @@ pub struct EngineInfo {
     pub version: ProductVersion,
     /// The protocol version `major.minor` it speaks.
     pub protocol_version: ProtocolVersion,
-    /// The project file the engine read, or `None` when it read none.
+    /// The project file the connection read and carries to the engine
+    /// (ADR 0083), as found or named, or `None` when it read none.
     pub project_file: Option<PathBuf>,
     /// The Goodfetch home the engine runs in, or `None` for a remote
     /// Daemon, whose home is its own machine's.

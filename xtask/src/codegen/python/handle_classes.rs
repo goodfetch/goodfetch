@@ -21,6 +21,10 @@
 //!   sends nothing.
 //! - A result typed by the fields its call declares (ADR 0147) is the
 //!   result's model: Python's type system has no mapped types.
+//! - A round trip, a query or a waiter whose result has one property
+//!   answers that property's value in place of the result, `None` for an
+//!   optional one that is absent, as TypeScript's and Rust's do (issue
+//!   2883): `goto` answers the `PageResponse` or `None`.
 //!
 //! - A parameter whose model wraps one wire value, a string, number or
 //!   boolean of a type of its own or a choice of strings, takes that value,
@@ -68,7 +72,10 @@ use super::settings::{
 };
 use super::{CALLER_MODULE, deprecated_decorator, docstring, header, markers_import, warnings};
 
+mod answered;
 mod listeners;
+
+use answered::{Returned, answered, returned};
 
 /// The hand-written module of Collie's client package that declares what a
 /// generated handle reaches its engine through.
@@ -536,23 +543,6 @@ fn description(layer: &Layer, member: &Member<'_>) -> Result<String> {
         }))
 }
 
-/// The member's call on its host, `awaits` before it, sending `sent`.
-///
-/// A call's own timeout also bounds its wait in the Client's queue under
-/// the engine's cap on calls in flight, failing naming its setting
-/// (ADR 0038; issue 3188).
-fn host_call(member: &Member<'_>, awaits: &str, sent: &str) -> String {
-    let deadline = member
-        .timeout_setting
-        .as_ref()
-        .map(|setting| format!(", timeout_setting={setting:?}"))
-        .unwrap_or_default();
-    format!(
-        "{awaits}self._host.call({:?}, {sent}{deadline})",
-        member.operation.name
-    )
-}
-
 /// One member, a method of the class that holds `self._host`.
 fn member(
     layer: &Layer,
@@ -586,9 +576,12 @@ fn member(
         awaits,
         ..
     } = mode;
+    let answered = answered(layer, member, imports)?;
     let result = imports.model(result);
     let returns = match &member.form {
-        Form::RoundTrip | Form::Query | Form::Waiter => result.clone(),
+        Form::RoundTrip | Form::Query | Form::Waiter => answered
+            .as_ref()
+            .map_or_else(|| result.clone(), |(returns, _)| returns.clone()),
         Form::Opens(opened) => format!("{prefix}{}", pascal(opened)),
         Form::Closes => "None".to_owned(),
     };
@@ -640,25 +633,17 @@ fn member(
         &mut imports.markers,
     ));
     let sent = build(&signature, "params", &mut text);
-    let call = host_call(member, awaits, &sent);
-    match &member.form {
-        Form::RoundTrip | Form::Query | Form::Waiter => {
-            let _ = writeln!(text, "        return result_of({result}, {call})");
-        }
-        Form::Opens(opened) => {
-            let _ = writeln!(
-                text,
-                "        opened = result_of({result}, {call})\n        return {returns}(self._host.child(opened.{opened}_id))"
-            );
-        }
-        Form::Closes => {
-            let _ = writeln!(
-                text,
-                "        {awaits}self._host.close({:?}, {sent})",
-                operation.name
-            );
-        }
-    }
+    let property = answered.map(|(_, property)| property);
+    text.push_str(&returned(
+        member,
+        Returned {
+            result: &result,
+            returns: &returns,
+            property: property.as_deref(),
+        },
+        awaits,
+        &sent,
+    ));
     Ok(text)
 }
 

@@ -549,7 +549,7 @@ describe("a Channel serving the engine's requests", () => {
       await settled();
 
       expect({ reason: signals[0]?.reason, written: engine.written }).toEqual({
-        reason: expect.objectContaining({ code: "call_cancelled", details: { by: "engine" } }),
+        reason: expect.objectContaining({ code: "call_cancelled", details: { by: "client" } }),
         written: [
           {
             jsonrpc: "2.0",
@@ -557,7 +557,7 @@ describe("a Channel serving the engine's requests", () => {
             error: {
               code: -32006,
               message: "the engine cancelled its request",
-              data: { code: "call_cancelled", retryable: false, by: "engine" },
+              data: { code: "call_cancelled", retryable: false, by: "client" },
             },
           },
         ],

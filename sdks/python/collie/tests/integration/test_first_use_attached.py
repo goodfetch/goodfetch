@@ -148,8 +148,8 @@ async def test_downloads_the_pinned_build_from_the_mirror_and_opens_the_page(
     await collie.close()
 
     with client_case.check("the first page opened on the downloaded build"):
-        assert navigated.response is not None
-        assert navigated.response.status == 200
+        assert navigated is not None
+        assert navigated.status == 200
     with client_case.check("the build is in the cache GOODFETCH_BROWSERS_PATH names"):
         entry = (
             Path(cache_of(env))

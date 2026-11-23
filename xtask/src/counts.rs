@@ -34,6 +34,7 @@ mod register;
 mod strace;
 
 use std::collections::BTreeMap;
+use std::ffi::OsStr;
 use std::num::NonZeroUsize;
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode, Stdio};
@@ -131,11 +132,17 @@ const VALGRIND_OUT: &str = "target/counts";
 /// benchmark, under its family's name.
 const EXECUTABLES_OUT: &str = "target/counts/executables";
 
-/// The `cfg` of the build a row is read in under Callgrind, and the name of
-/// that build's folder in the workspace's target folder: the wire's
-/// functions are never inlined there, so that Callgrind names them in
+/// The variable on which the build scripts of `goodfetch-engine` and
+/// `goodfetch-fetch-tier`, the only readers of `goodfetch_callgrind_names`,
+/// set that `cfg` on their own crate, named after it: the build a row is
+/// read in under Callgrind sets it, and the wire's functions are never
+/// inlined there, so that Callgrind names them in
 /// `E1.handled_page_wire_share` (ADR 0140).
-const CALLGRIND_NAMES: &str = "goodfetch_callgrind_names";
+const CALLGRIND_NAMES_VARIABLE: &str = "GOODFETCH_CALLGRIND_NAMES";
+
+/// The folder, in the workspace's target folder, that the build setting
+/// [`CALLGRIND_NAMES_VARIABLE`] builds in, named after the `cfg`.
+const CALLGRIND_NAMES_FOLDER: &str = "goodfetch_callgrind_names";
 
 /// One counted row of the register.
 struct Row {
@@ -1664,6 +1671,9 @@ fn run_valgrind_target(
         .arg(format!("*::{}::*", benchmark.function))
         .current_dir(&environment.root)
         .env("GUNGRAUN_HOME", &gungraun_home)
+        // Its rows are read in the build `just perf` measures, with the
+        // wire's functions inlined, whatever the shell exports.
+        .env_remove(CALLGRIND_NAMES_VARIABLE)
         .stderr(Stdio::inherit());
     if let Some(plant) = plant {
         command.env(PLANT_VARIABLE, plant);
@@ -1745,29 +1755,16 @@ fn executables(
 /// Builds `family`'s target and answers its executable: in the benchmarks'
 /// profile when it runs `optimized`, as what it reads under Valgrind is
 /// read in the build `just perf` measures, else in the dev profile.
-///
-/// The optimized build also sets [`CALLGRIND_NAMES`], under which the wire's
-/// functions are never inlined so that Callgrind names them, in a build
-/// folder of its own: the product, and every other benchmark, keep them
-/// inlined. A `RUSTFLAGS` in the environment would replace the setting, and
-/// the run would then fail on a wire function it never saw entered.
 fn build(family: &Family, optimized: bool, environment: &Environment) -> Result<PathBuf> {
-    let mut command = crate::child_cargo::command(&environment.cargo);
-    command
-        .args(["build", "--message-format", "json-render-diagnostics"])
-        .args(["-p", family.package, "--example", family.target]);
-    if optimized {
-        let folder = crate::metadata::target_directory(&environment.cargo, &environment.root)?
-            .join(CALLGRIND_NAMES);
-        command
-            .args(["--profile", "bench", "--target-dir"])
-            .arg(folder)
-            .args([
-                "--config",
-                &format!("build.rustflags = [\"--cfg\", \"{CALLGRIND_NAMES}\"]"),
-            ]);
-    }
-    let output = command
+    let folder = if optimized {
+        Some(
+            crate::metadata::target_directory(&environment.cargo, &environment.root)?
+                .join(CALLGRIND_NAMES_FOLDER),
+        )
+    } else {
+        None
+    };
+    let output = build_command(family, folder.as_deref(), &environment.cargo)
         .current_dir(&environment.root)
         .stderr(Stdio::inherit())
         .output()
@@ -1794,6 +1791,38 @@ fn build(family: &Family, optimized: bool, environment: &Environment) -> Result<
     std::fs::copy(&built, &own)
         .with_context(|| format!("copying {} to {}", built.display(), own.display()))?;
     Ok(own)
+}
+
+/// The Cargo command that builds `family`'s example: in the benchmarks'
+/// profile, in `optimized_in`, when that folder is given, else in the dev
+/// profile.
+///
+/// The optimized build also sets [`CALLGRIND_NAMES_VARIABLE`], on which the
+/// build scripts of `goodfetch-engine` and `goodfetch-fetch-tier` set
+/// `goodfetch_callgrind_names` on those two crates alone: the wire's
+/// functions are never inlined there, so that Callgrind names them. It
+/// builds in a folder of its own, [`CALLGRIND_NAMES_FOLDER`], because Cargo
+/// keeps one copy of a crate per profile and folder: in `cargo bench`'s
+/// folder, which builds the readers without it, the two builds would
+/// rebuild in turn the readers and the workspace's crates above them on
+/// every run. Every other crate gets no flag of its own, so its compiler
+/// call is `cargo bench`'s and sccache serves it from that build. The
+/// product, and every other benchmark, keep the wire's functions inlined.
+/// The dev build runs without the variable too, whatever the shell exports.
+fn build_command(family: &Family, optimized_in: Option<&Path>, cargo: &OsStr) -> Command {
+    let mut command = crate::child_cargo::command(cargo);
+    command
+        .args(["build", "--message-format", "json-render-diagnostics"])
+        .args(["-p", family.package, "--example", family.target]);
+    if let Some(folder) = optimized_in {
+        command
+            .args(["--profile", "bench", "--target-dir"])
+            .arg(folder)
+            .env(CALLGRIND_NAMES_VARIABLE, "1");
+    } else {
+        command.env_remove(CALLGRIND_NAMES_VARIABLE);
+    }
+    command
 }
 
 /// What `executable` counted, each extra unit of `plant` done: its rows

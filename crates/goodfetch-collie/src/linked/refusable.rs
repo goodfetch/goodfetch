@@ -68,11 +68,11 @@ impl Refusable {
                 self.home.as_ref(),
                 self.hello.clone(),
                 timeout,
-                self.asked.listener_queue,
+                &self.asked,
             )
             .await;
             let refused = match opened {
-                Ok(opened) => return opened.limited(self.asked.limits).await,
+                Ok(opened) => return opened.reached(self.asked).await,
                 Err(error) => past_deadline(self.asked.timeout, error),
             };
             let (Some(handed_over), Some(home)) = (daemon.pid(), self.home.as_ref()) else {

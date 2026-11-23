@@ -151,6 +151,24 @@ form = "read"
 [[member]]
 crate = "goodfetch-collie"
 receiver = "ConnectOptions"
+member = "project"
+entry = "none"
+reason = "Reads the project file `path` (ADR 0083) in place of the `goodfetch.toml` found upward from the working directory; one that is not there or does not read fails the connect before any engine is reached."
+words = ["project"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-collie"
+receiver = "ConnectOptions"
+member = "no_project"
+entry = "none"
+reason = "Reads no project file (ADR 0083): the connection's Runs and its `explain_settings()` have no layer 3."
+words = ["no", "project"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-collie"
+receiver = "ConnectOptions"
 member = "max_listener_queue"
 entry = "none"
 reason = "How many unread events each stream of a Session's events holds (ADR 0081), in place of 1,024: a stream left unread past it loses only its own events, hands those it held, then ends with `listener_events_lost`, while the other streams go on."

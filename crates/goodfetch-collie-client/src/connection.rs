@@ -27,7 +27,7 @@ use goodfetch_protocol::error_code::ErrorCode;
 use goodfetch_protocol::jsonrpc::META;
 use goodfetch_protocol::log::{CONNECTION_SET_LOG_LEVEL, LogLevel, LogLevelSet, SetLogLevelParams};
 use goodfetch_protocol::page::{BodyHandle, CHUNK, Chunk};
-use goodfetch_protocol::settings::TIMEOUT_CLOSE;
+use goodfetch_protocol::settings::{ProjectSettings, TIMEOUT_CLOSE};
 use serde::Serialize;
 use serde::de::{DeserializeOwned, Error as _};
 use serde_json::Value;
@@ -155,6 +155,9 @@ struct Inner {
     /// `hello`'s, then each one a start told it, which a remote Daemon
     /// reached again is greeted with.
     log_level: Arc<Mutex<LogLevel>>,
+    /// The project file its program read (ADR 0083), which each Run's
+    /// start and its own `config.explain` carry, if it read one.
+    project: Option<ProjectSettings>,
     /// Whether a close has returned, after which closing again does
     /// nothing, even when that close timed out with a task still running.
     closed: AtomicBool,
@@ -190,6 +193,7 @@ impl ClientConnection {
             ConnectTimeout::Off,
             ListenerQueue::DEFAULT,
             None,
+            None,
         )
         .await
     }
@@ -197,9 +201,11 @@ impl ClientConnection {
     /// Opens a Connection as [`ClientConnection::open`] does, waiting for
     /// `hello`'s answer within `timeout` (ADR 0083); past it, the
     /// Connection is closed. Each stream of its own Subscription, such as a
-    /// Session's, holds at most `listener_queue` unread events. Each call,
-    /// `hello`'s included, carries the Trace context `trace_context_source`
-    /// reads on the thread that makes it, and none without it (ADR 0132).
+    /// Session's, holds at most `listener_queue` unread events. Each Run it
+    /// starts and its own `config.explain` carry `project`, the project
+    /// file its program read, if any (ADR 0083). Each call, `hello`'s
+    /// included, carries the Trace context `trace_context_source` reads on
+    /// the thread that makes it, and none without it (ADR 0132).
     ///
     /// # Errors
     ///
@@ -208,6 +214,10 @@ impl ClientConnection {
     /// Exposed Daemon's WebSocket handshake, and `hello`'s answer did not
     /// both come within `timeout`, its `limit` naming `timeout.connect`
     /// and the layer that set it, and `waited_for` `hello`.
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "what a Product's connect() opens a Connection with, each the program's own or the opening's: bundled, they would only travel together to this one call"
+    )]
     pub async fn open_within(
         runtime: ConnectionRuntime,
         network: &Network,
@@ -215,6 +225,7 @@ impl ClientConnection {
         hello: HelloParams,
         timeout: ConnectTimeout,
         listener_queue: ListenerQueue,
+        project: Option<ProjectSettings>,
         trace_context_source: Option<Arc<dyn TraceContextSource>>,
     ) -> Result<(Self, HelloResult), Error> {
         timeout.check()?;
@@ -272,6 +283,7 @@ impl ClientConnection {
             handed: TaskTracker::new(),
             runs: Mutex::new(Vec::new()),
             log_level: Arc::clone(&log_level),
+            project,
             closed: AtomicBool::new(false),
             _runtime: owned,
         }));
@@ -753,6 +765,14 @@ impl ClientConnection {
         );
         // The task ends without sending only when the runtime shut down.
         ended.recv().unwrap_or_else(|_| Err(Error::closed()))
+    }
+
+    /// The project file it carries (ADR 0083), the one its program read,
+    /// as layer 3 of each Run it starts and of its own `config.explain`,
+    /// if it read one.
+    #[must_use]
+    pub fn project(&self) -> Option<&ProjectSettings> {
+        self.0.project.as_ref()
     }
 
     /// The level its engine was last told, held.

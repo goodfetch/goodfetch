@@ -513,7 +513,7 @@ function clientBounds(settings: SettingsOnWire | undefined): Readonly<Record<str
 }
 
 /** The process's own environment, its unset entries left out. */
-function processEnvironment(): Record<string, string> {
+export function processEnvironment(): Record<string, string> {
   return Object.fromEntries(
     Object.entries(process.env).filter(
       (entry): entry is [string, string] => entry[1] !== undefined,

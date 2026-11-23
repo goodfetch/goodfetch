@@ -783,6 +783,141 @@ words = ["connect", "over"]
 form = "opener"
 
 [[member]]
+package = "@goodfetch/collie/testing"
+receiver = "(module)"
+member = "TestEngine"
+entry = "none"
+reason = "A real Collie engine for a test (ADR 0105), an Attached engine in a temporary Goodfetch home with a cleared environment, `egress.offline` on and short durations, its browsers from the caller's Browser cache."
+words = ["test", "engine"]
+form = "type"
+
+[[member]]
+package = "@goodfetch/collie/testing"
+receiver = "TestEngine"
+member = "start"
+entry = "none"
+reason = "Starts the test engine with the client package's `TestEngineOptions` and answers it, open."
+words = ["start"]
+form = "opener"
+
+[[member]]
+package = "@goodfetch/collie/testing"
+receiver = "TestEngine"
+member = "connection"
+entry = "none"
+reason = "The `Collie` connected to the test engine, on which the code under test runs unchanged."
+words = ["connection"]
+form = "read"
+
+[[member]]
+package = "@goodfetch/collie/testing"
+receiver = "TestEngine"
+member = "close"
+entry = "none"
+reason = "Closes the connection, then removes the temporary Goodfetch home."
+words = ["close"]
+form = "closer"
+
+[[member]]
+package = "@goodfetch/collie/testing"
+receiver = "TestEngine"
+member = "[Symbol.asyncDispose]"
+entry = "none"
+reason = "The scoped form of `close()` (ADR 0078)."
+words = ["close"]
+form = "closer"
+
+[[member]]
+package = "@goodfetch/collie/testing"
+receiver = "(module)"
+member = "TestEngineOptions"
+entry = "none"
+reason = "The client package's `TestEngineOptions`, re-exported: what a test engine starts with (ADR 0105)."
+words = ["test", "engine", "options"]
+form = "type"
+
+[[member]]
+package = "@goodfetch/collie-client/testing"
+receiver = "(module)"
+member = "TestEngineOptions"
+entry = "none"
+reason = "What a test engine starts with (ADR 0105): the connection's settings over the kit's, the environment map the kit reads, and the project file to read."
+words = ["test", "engine", "options"]
+form = "type"
+
+[[member]]
+package = "@goodfetch/collie-client/testing"
+receiver = "(module)"
+member = "TestEngine"
+entry = "none"
+reason = "The interface every Product's test engine implements (ADR 0105), whose connection is the Product's own Connection type."
+words = ["test", "engine"]
+form = "type"
+
+[[member]]
+package = "@goodfetch/collie-client/testing"
+receiver = "TestEngine"
+member = "connection"
+entry = "none"
+reason = "The Product's connection to the test engine, on which the code under test runs unchanged."
+words = ["connection"]
+form = "read"
+
+[[member]]
+package = "@goodfetch/collie-client/testing"
+receiver = "TestEngine"
+member = "close"
+entry = "none"
+reason = "Closes the connection, then removes the temporary Goodfetch home."
+words = ["close"]
+form = "closer"
+
+[[member]]
+package = "@goodfetch/collie-client/testing"
+receiver = "TestEngine"
+member = "[Symbol.asyncDispose]"
+entry = "none"
+reason = "The scoped form of `close()` (ADR 0078)."
+words = ["close"]
+form = "closer"
+
+[[member]]
+package = "@goodfetch/collie-client/runtime"
+receiver = "(module)"
+member = "partsOf"
+entry = "none"
+reason = "What a Product's testing kit connects its test engine with (ADR 0105): its environment map, settings and project file."
+words = ["parts", "of"]
+form = "runtime"
+
+[[member]]
+package = "@goodfetch/collie-client/runtime"
+receiver = "(module)"
+member = "TestEngineParts"
+entry = "none"
+reason = "What `partsOf()` answers a Product's testing kit."
+words = ["test", "engine", "parts"]
+form = "type"
+
+[[member]]
+package = "@goodfetch/collie-client/runtime"
+receiver = "(module)"
+member = "makeHome"
+entry = "none"
+reason = "Makes a test engine's temporary Goodfetch home (ADR 0105)."
+words = ["make", "home"]
+form = "runtime"
+
+[[member]]
+package = "@goodfetch/collie-client/runtime"
+receiver = "(module)"
+member = "removeHome"
+entry = "none"
+reason = "Removes a test engine's temporary Goodfetch home and all it holds."
+words = ["remove", "home"]
+form = "runtime"
+
+[[member]]
 package = "@goodfetch/foxhound/testing"
 receiver = "(module)"
 member = "connectOver"

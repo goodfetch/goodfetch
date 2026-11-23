@@ -30,6 +30,7 @@ mod extraction;
 mod files;
 mod forward_proxy;
 mod generator;
+mod google_hosts;
 mod handmade;
 mod hostile;
 mod html;

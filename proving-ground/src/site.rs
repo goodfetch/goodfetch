@@ -33,6 +33,7 @@ use crate::encodings;
 use crate::exchange::{Reply, Request};
 use crate::extraction;
 use crate::files;
+use crate::google_hosts;
 use crate::handmade;
 use crate::hostile;
 use crate::languages;
@@ -156,6 +157,7 @@ impl Site {
                 page_load::HOST,
             ])
             .chain(page_load::AD_HOSTS)
+            .chain(google_hosts::HOSTS)
             .map(|host| (host.to_owned(), None))
             .collect();
         hosts.extend(
@@ -345,6 +347,9 @@ impl Site {
             return reply;
         }
         if let Some(reply) = page_load::respond(self.port, &name, request) {
+            return reply;
+        }
+        if let Some(reply) = google_hosts::respond(&name, request) {
             return reply;
         }
         if name == model::HOST {

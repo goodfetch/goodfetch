@@ -36,6 +36,7 @@ mod fetch_edge;
 mod fields;
 mod files;
 mod forward_proxy;
+mod google_hosts;
 mod hostile;
 mod identity;
 mod incidents;

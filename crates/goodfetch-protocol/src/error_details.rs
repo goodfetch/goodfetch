@@ -124,6 +124,7 @@ details! {
     crate::foxhound::dataset::DatasetKeyInvalidDetails => foxhound::DATASET_KEY_INVALID,
     crate::foxhound::dataset::DatasetUnknownDetails => foxhound::DATASET_UNKNOWN,
     crate::foxhound::dataset::RecordInvalidDetails => foxhound::RECORD_INVALID,
+    crate::foxhound::export::SheetCapacityExceededDetails => foxhound::SHEET_CAPACITY_EXCEEDED,
     crate::foxhound::fetch::BrowserRequiredDetails => foxhound::BROWSER_REQUIRED,
     crate::foxhound::fetch::ResponseNotDocumentDetails => foxhound::RESPONSE_NOT_DOCUMENT,
     crate::foxhound::frontier::PayloadInvalidDetails => foxhound::PAYLOAD_INVALID,

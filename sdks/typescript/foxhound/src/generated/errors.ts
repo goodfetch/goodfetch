@@ -264,6 +264,15 @@ export class SampleCrawlRefusedError extends RefusedError<"sample_crawl_refused"
 }
 
 /**
+ * An XLSX Export's one sheet would hold more than Excel opens: more than 1,048,576 rows, the header row included, more than 16,384 columns, or a cell, a column's name included, longer than 32,767 characters, counted in UTF-16 code units as Excel counts them. Nothing was written, and no file is left in the Run's folder. The details name the Dataset, the capacity passed (`rows`, `columns` or `cell_length`), the Dataset's figure and the most a sheet holds. Export the Dataset as `csv`, `jsonl` or `parquet`, which hold any number of rows, columns and characters.
+ */
+export class SheetCapacityExceededError extends ProgramError<"sheet_capacity_exceeded"> {
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, name: "SheetCapacityExceededError", code: "sheet_capacity_exceeded", group: "program", retryable: false });
+  }
+}
+
+/**
  * The call would stage one more admission (an enqueue, an `enqueueLinks` call or a seed added through `ctx.run`) with an attempt that already staged `crawl.max_staged_enqueues` of them, which the attempt holds in the engine's memory until it commits. Nothing was staged. Enqueue many links with one `enqueueLinks` call, or raise the setting, which `limit` names.
  */
 export class StagingFullError extends ProgramError<"staging_full"> {
@@ -302,6 +311,7 @@ export const foxhoundErrorClasses: Readonly<Record<string, ErrorClass>> = {
   response_unavailable: ResponseUnavailableError,
   retry_requested: RetryRequestedError,
   sample_crawl_refused: SampleCrawlRefusedError,
+  sheet_capacity_exceeded: SheetCapacityExceededError,
   staging_full: StagingFullError,
 };
 
@@ -335,9 +345,10 @@ export type FoxhoundErrorCode =
   | "response_unavailable"
   | "retry_requested"
   | "sample_crawl_refused"
+  | "sheet_capacity_exceeded"
   | "staging_full";
 
-const foxhoundErrorCodes: ReadonlySet<string> = new Set<FoxhoundErrorCode>(["attempt_ended", "browser_required", "client_gone", "dataset_duplicate", "dataset_key_invalid", "dataset_unknown", "effect_staging_refused", "handler_failed", "handler_lost", "hook_duplicate", "hook_ineffective", "hook_undeclared", "hook_unknown", "label_duplicate", "label_unhandled", "label_unknown", "lease_lost", "payload_invalid", "payload_schema_changed", "query_failed", "query_invalid", "query_memory_exceeded", "record_invalid", "response_not_document", "response_not_ok", "response_unavailable", "retry_requested", "sample_crawl_refused", "staging_full"]);
+const foxhoundErrorCodes: ReadonlySet<string> = new Set<FoxhoundErrorCode>(["attempt_ended", "browser_required", "client_gone", "dataset_duplicate", "dataset_key_invalid", "dataset_unknown", "effect_staging_refused", "handler_failed", "handler_lost", "hook_duplicate", "hook_ineffective", "hook_undeclared", "hook_unknown", "label_duplicate", "label_unhandled", "label_unknown", "lease_lost", "payload_invalid", "payload_schema_changed", "query_failed", "query_invalid", "query_memory_exceeded", "record_invalid", "response_not_document", "response_not_ok", "response_unavailable", "retry_requested", "sample_crawl_refused", "sheet_capacity_exceeded", "staging_full"]);
 
 /** An error with one of the Error codes Foxhound raises, which its `code` narrows to the code's class. */
 export type FoxhoundError =
@@ -370,6 +381,7 @@ export type FoxhoundError =
   | ResponseUnavailableError
   | RetryRequestedError
   | SampleCrawlRefusedError
+  | SheetCapacityExceededError
   | StagingFullError;
 
 /** Whether `value` is an error with one of the Error codes Foxhound raises, from any copy of the package. */

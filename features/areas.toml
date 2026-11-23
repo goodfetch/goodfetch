@@ -1665,6 +1665,12 @@ number = 6
 kind = "setting"
 prefix = "export."
 
+# The refusal of an XLSX Export past what a sheet holds (#1678).
+[[area]]
+number = 6
+kind = "error"
+prefix = "sheet_"
+
 # Area 6, Collection, Foxhound: the crawl's scope (#840).
 [[area]]
 number = 6

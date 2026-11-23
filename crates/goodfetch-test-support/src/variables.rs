@@ -55,6 +55,10 @@ pub const RECORDS_VARIABLE: &str = "GOODFETCH_TEST_RECORDS";
 /// tries the first, then the second.
 pub const DNS_NAMESPACE_VARIABLE: &str = "GOODFETCH_TEST_DNS_NAMESPACE";
 
+/// The folder `ci/toxiproxy-fetch.sh` downloads the tests' copy of Toxiproxy
+/// into, `~/.cache/goodfetch/toxiproxy` when unset.
+pub const TOXIPROXY_DOWNLOADS_VARIABLE: &str = "GOODFETCH_TOXIPROXY_DOWNLOADS";
+
 /// The most Callgrind children a counts benchmark runs at once, below its
 /// own bound of half the cores, at most eight: `xtask counts
 /// --callgrind-at-once` sets it, or the host's environment does (#2520).
@@ -133,6 +137,7 @@ impl Variables {
             CALLGRIND_AT_ONCE_VARIABLE,
             PLAYWRIGHT_BROWSERS_VARIABLE,
             NO_GUI_SESSION_VARIABLE,
+            TOXIPROXY_DOWNLOADS_VARIABLE,
         ]
         .into_iter()
         .chain(USER_FOLDER_VARIABLES)

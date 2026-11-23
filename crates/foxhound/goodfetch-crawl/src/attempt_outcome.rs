@@ -120,7 +120,7 @@ impl Outcome {
                         connection,
                         (&work_item, lease_epoch),
                         refused(refusal),
-                        &ended_at,
+                        ended_at,
                         &mut changed,
                     )?,
                     None => Ended::LeaseLost,
@@ -135,7 +135,7 @@ impl Outcome {
                 connection,
                 (&work_item, lease_epoch),
                 unsuccessful,
-                &ended_at,
+                ended_at,
                 &mut changed,
             )?,
             Ending::Sitemap {
@@ -175,7 +175,7 @@ pub(crate) fn end(
     connection: &Connection,
     (work_item, lease_epoch): (&str, u64),
     unsuccessful: Unsuccessful,
-    ended_at: &SystemTime,
+    ended_at: SystemTime,
     changed: &mut Changed,
 ) -> rusqlite::Result<Ended> {
     let (recorded, again) = match &unsuccessful {

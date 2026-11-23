@@ -9,7 +9,8 @@
 //! Run report adds, `progress` what its progress adds, and `session_pool` the Session of its Session pool that
 //! serves each attempt, and `fetch` the tier that fetches a crawl
 //! request's document, `sql_tab` the SQL tab's `dataset.query`, and `hook`
-//! the Error codes a crawl's Hooks in code fail with; `error_code` holds
+//! the Error codes a crawl's Hooks in code fail with, and `sink` a crawl's
+//! Sinks' settings and Guarantee classes; `error_code` holds
 //! every Foxhound Error code as a value of the shared `ErrorCode`.
 
 pub mod block;
@@ -28,6 +29,7 @@ pub mod rejections;
 pub mod report;
 pub mod session_pool;
 pub mod settings;
+pub mod sink;
 pub mod sql_tab;
 pub mod usage;
 
@@ -153,6 +155,7 @@ pub const ENTRIES: Entries = Entries {
             params: schema_of::<SamplePageFilterAdmitParams>,
             result: schema_of::<SamplePageFilterAdmitResult>,
         }],
+        chosen_by: None,
         stability: Stability::Experimental,
         arrived_in: ARRIVED_IN,
     }],

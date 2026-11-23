@@ -33,7 +33,7 @@ members = [{ entry = "run.start" }]
 pages = ["docs/runs.md"]
 
 [[obligation]]
-text = "Already navigated: the handler runs once the request's navigation has happened, so a route set on this page applies from its next navigation."
+text = "Already navigated. The handler runs once the request's navigation has happened, so a route set on this page applies from its next navigation."
 opens = true
 members = [{ receiver = "CrawlContext", member = "page" }]
 

@@ -139,6 +139,36 @@ fn a_run_takes_its_connections_values_beneath_its_own() {
     );
 }
 
+/// A crawl's Sinks are its Run's, set on the Run or its connection: a
+/// Label, which only carries a site's identity (ADR 0093), refuses them.
+///
+/// Covers: setting:sinks, error:setting_not_applicable
+#[test]
+fn a_label_refuses_the_sinks_a_run_and_its_connection_take() {
+    let sinks = || {
+        json!({ "sinks": { "warehouse": {
+            "type": "sqlite",
+            "datasets": ["products"],
+            "destination": "env:SINK_SQLITE_PATH",
+        } } })
+    };
+
+    let at_label = refused(sinks(), SettingScope::Label).map(|(code, key, _)| (code, key));
+
+    assert_eq!(
+        (
+            at_label,
+            refused(sinks(), SettingScope::Run),
+            refused(sinks(), SettingScope::Connection),
+        ),
+        (
+            Some(("setting_not_applicable", "sinks".to_owned())),
+            None,
+            None
+        )
+    );
+}
+
 /// Covers: story:11-72
 #[test]
 fn a_run_on_a_connection_without_settings_keeps_its_own_as_given() {

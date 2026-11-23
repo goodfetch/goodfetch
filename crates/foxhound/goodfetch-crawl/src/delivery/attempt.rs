@@ -147,12 +147,14 @@ use crate::work_items::{Fetched, Leased};
 mod decoy;
 mod hook_call;
 mod learning;
+mod permit;
 mod race;
 mod record_stage;
 mod site_preferences;
 mod sitemap_fetch;
 
 pub(super) use learning::{Lessons, learns};
+use permit::Permitting;
 use site_preferences::{escaped_refusal, share_robots_txt};
 
 /// The Error code of a page the site refused, which Collie's page raises
@@ -257,6 +259,10 @@ pub(super) struct Tiering {
     /// Where an escalation draws the Session it runs again in, when the
     /// attempt's Session sends from its own transport (#2416).
     escalating: Option<Escalating>,
+    /// Where the attempt asks for its request's Permit once its
+    /// before-request Hooks returned, when its crawl takes each Permit
+    /// then (#2905); none when it was taken as the request was leased.
+    permit: Option<Permitting>,
 }
 
 /// What an attempt whose Session sends from its own transport asks the
@@ -302,7 +308,15 @@ impl Tiering {
             transport: None,
             site_files: None,
             escalating: None,
+            permit: None,
         }
+    }
+
+    /// The same, asking through `permit` for its request's Permit once its
+    /// before-request Hooks returned, when given (#2905).
+    pub(super) fn permitting(mut self, permit: Option<Asking>) -> Self {
+        self.permit = permit.map(Permitting::through);
+        self
     }
 
     /// The same, its Session sending from `sends_from`, and a sample's
@@ -604,6 +618,7 @@ pub(super) async fn attempt(
     let (moved, refused) = (OnceLock::new(), OnceLock::new());
     let escalated = OnceLock::new();
     let on = On {
+        permit: tiering.permit.as_ref(),
         document: &document,
         escalated_to: &escalated,
         sent_at: &sent_at,
@@ -850,6 +865,9 @@ struct On<'a> {
     /// in, as that Session runs in the browser, set once its attempt
     /// escalated from a Session's own transport (#2416).
     escalated_to: &'a OnceLock<(ServingSession, PooledSession)>,
+    /// Where it asks for its request's Permit once its before-request
+    /// Hooks returned, when its crawl takes each Permit then (#2905).
+    permit: Option<&'a Permitting>,
 }
 
 impl On<'_> {
@@ -934,12 +952,17 @@ impl On<'_> {
 
     /// The attempt through the Hooks in code of each of `stages` in turn
     /// ([`hook_call::ended_in_stage`]): `None` once every call returned,
-    /// else how the first that did not ended the attempt.
+    /// else how the first that did not ended the attempt. Stages before a
+    /// request then take its Permit, in a crawl that takes it after them
+    /// ([`On::permitted`]).
     async fn ended_in(&self, stages: &[CrawlHookStage]) -> Option<Answer> {
         for stage in stages {
             if let Some(ended) = hook_call::ended_in_stage(self, stage).await {
                 return Some(ended);
             }
+        }
+        if stages.contains(&CrawlHookStage::BeforeRequest) {
+            return self.permitted().await;
         }
         None
     }
@@ -1559,10 +1582,10 @@ impl On<'_> {
             label: &leased.crawl_request.label,
             domain_key: &leased.waiting.key,
             second_copies: &tiering.second_copies,
-            // No work item declares an Effect before area 9's Effect
-            // journal (ADR 0106), and no crawl request is a Paid fetch
-            // before ADR 0045's.
-            declares_effect: false,
+            // A work item that declared an Effect is never hedged or
+            // coalesced from then on (ADR 0106); no crawl request is a
+            // Paid fetch before ADR 0045's.
+            declares_effect: lease.declares_effect(),
             paid: false,
         };
         let tiers = &tiering.tiers;

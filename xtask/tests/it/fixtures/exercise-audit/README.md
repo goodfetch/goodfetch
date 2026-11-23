@@ -15,7 +15,9 @@ removes or changes one record to show the failure it catches.
 - The integration test `refuses_a_text_the_stand_in_rejects` asserts
   `error:sample_refused` and `event:sample.echoed` itself and never reaches
   `rpc`: its record holds no dispatch record, which the audit allows. Unlike
-  a unit test, it must still leave a record.
+  a unit test, it must still leave a record. The `dispatch-missing` cases
+  add an `attached-engine` command record with exit code 0 to a record
+  with no dispatch record: an engine served the test with its JSON log off.
 - `crates/goodfetch-protocol/generated/catalog.json` holds the exit code of
   `exit:not_installed`.
 - `junit/nextest.xml` lists the tests that ran: all but

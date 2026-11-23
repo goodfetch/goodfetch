@@ -10587,6 +10587,809 @@
       "arrived_in": "0.1",
       "authority": "every",
       "clearable": false,
+      "default": {},
+      "deprecated": null,
+      "description": "The Sinks a crawl's Run delivers its Records to, each by its name, as `sinks.<name>.*`: `type`, the catalog destination, left out for a program's own Sink handler of that name; `datasets`, the Datasets it receives; `mode`, `append` (the default), `upsert`, `insert_only`, `replace` or `history`; `key`, the fields a keyed mode uses, each Dataset's own key when left out; `deliver`, `records`, `files` or `both`; `destination`, the Secret reference of its DSN, URL or credentials, a value given in its place being refused with `setting_invalid`; `target`, its table, collection, index, topic, queue, sheet or object prefix; and `files`, `schema`, `rate`, `batch`, `webhook`, `embedding` and `image`, which only some types take. Every delivery carries its delivery ID, the Record's Dataset and number and the run epoch. None by default. Set on a connection or a crawl's Run, from code, the project file, the CLI or a Recipe; a Label refuses it with `setting_not_applicable`.",
+      "fixed_for_run": false,
+      "name": "sinks",
+      "product": "foxhound",
+      "products": [
+        "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run"
+      ],
+      "value": {
+        "additionalProperties": {
+          "additionalProperties": false,
+          "description": "One Sink, the entry of its name in `sinks` (ADRs 0026, 0103 and 0104):\nthe keys every Sink type shares.",
+          "properties": {
+            "batch": {
+              "additionalProperties": false,
+              "arrived_in": "0.1",
+              "description": "Its batch sizing: the destination's preset when left out.",
+              "properties": {
+                "max_bytes": {
+                  "arrived_in": "0.1",
+                  "description": "How many bytes one write holds at most.",
+                  "format": "uint64",
+                  "minimum": 0,
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                },
+                "max_records": {
+                  "arrived_in": "0.1",
+                  "description": "How many Records one write holds at most.",
+                  "format": "uint64",
+                  "minimum": 0,
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                }
+              },
+              "type": [
+                "object",
+                "null"
+              ]
+            },
+            "datasets": {
+              "arrived_in": "0.1",
+              "description": "The names of the Datasets it receives.",
+              "items": {
+                "type": "string"
+              },
+              "minItems": 1,
+              "type": "array"
+            },
+            "deliver": {
+              "anyOf": [
+                {
+                  "description": "What a Sink delivers (ADR 0026).",
+                  "oneOf": [
+                    {
+                      "const": "records",
+                      "description": "Rows or messages, while the Run goes.",
+                      "type": "string"
+                    },
+                    {
+                      "const": "files",
+                      "description": "Numbered Export parts.",
+                      "type": "string"
+                    },
+                    {
+                      "const": "both",
+                      "description": "Both.",
+                      "type": "string"
+                    }
+                  ]
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "arrived_in": "0.1",
+              "description": "What it delivers: Records for a row or message destination, files\nfor a file destination, when left out. Spec #582 spells it `as`,\nwhich Python cannot name a key of a `TypedDict`."
+            },
+            "destination": {
+              "arrived_in": "0.1",
+              "description": "The Secret reference of its DSN, URL or credentials, never the value\nitself; required with a `type`.",
+              "pattern": "^(?:(?:env|keychain|secretfile|caller|bw|vault|aws-sm|gcp-sm|azure-kv|plugin):|op://)[^\\s]+$",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "embedding": {
+              "additionalProperties": false,
+              "arrived_in": "0.1",
+              "description": "A vector store Sink's embedding.",
+              "properties": {
+                "chunk_chars": {
+                  "arrived_in": "0.1",
+                  "description": "How many characters a chunk holds at most: 2,000 when left out.",
+                  "format": "uint64",
+                  "minimum": 0,
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                },
+                "fields": {
+                  "arrived_in": "0.1",
+                  "description": "The Record's fields whose text is embedded.",
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": [
+                    "array",
+                    "null"
+                  ]
+                },
+                "model": {
+                  "arrived_in": "0.1",
+                  "description": "The Model provider's model that embeds the chunks.",
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "type": [
+                "object",
+                "null"
+              ]
+            },
+            "files": {
+              "additionalProperties": false,
+              "arrived_in": "0.1",
+              "description": "Its Files mode.",
+              "properties": {
+                "compression": {
+                  "anyOf": [
+                    {
+                      "description": "How an Export's bytes are compressed: the whole file, once written in\nits format.",
+                      "oneOf": [
+                        {
+                          "const": "none",
+                          "description": "Not compressed.",
+                          "type": "string"
+                        },
+                        {
+                          "const": "gzip",
+                          "description": "One gzip member (RFC 1952).",
+                          "type": "string"
+                        },
+                        {
+                          "const": "zstd",
+                          "description": "One Zstandard frame (RFC 8878).",
+                          "type": "string"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "arrived_in": "0.1",
+                  "description": "The parts' compression: Zstandard when left out."
+                },
+                "format": {
+                  "anyOf": [
+                    {
+                      "description": "An Export's format, named, never inferred from a file name (ADR 0103).",
+                      "oneOf": [
+                        {
+                          "const": "json",
+                          "description": "One JSON array of the Records' values, indented as\n`export.json.indent` says.",
+                          "type": "string"
+                        },
+                        {
+                          "const": "jsonl",
+                          "description": "One Record's value per line, each line ended by a line feed.",
+                          "type": "string"
+                        },
+                        {
+                          "const": "csv",
+                          "description": "RFC 4180 CSV: a header row of the fields seen, then one row per\nRecord, each line ended by CR LF.",
+                          "type": "string"
+                        },
+                        {
+                          "const": "xlsx",
+                          "description": "One XLSX workbook of one sheet: a header row of the fields seen,\nthen one row per Record.",
+                          "type": "string"
+                        },
+                        {
+                          "const": "html_table",
+                          "description": "One HTML document holding one table: a header row of the fields\nseen, then one row per Record.",
+                          "type": "string"
+                        },
+                        {
+                          "const": "markdown",
+                          "description": "One GitHub Flavored Markdown table: a header row of the fields seen,\nthen one row per Record.",
+                          "type": "string"
+                        },
+                        {
+                          "const": "xml",
+                          "description": "One XML document: a root element named by `export.xml.root` holding\none element per Record named by `export.xml.record`, each field an\nelement of its name (`field` with a `name` attribute where its name\nis no XML name), an object's fields as elements, an array's values\nas `item` elements, and `null` an empty element with\n`xsi:nil=\"true\"`.",
+                          "type": "string"
+                        },
+                        {
+                          "const": "parquet",
+                          "description": "One Apache Parquet file of one column per field seen, typed: a\ncolumn whose values are all `true` or `false` is boolean, all whole\nnumbers a 64-bit integer, all numbers a 64-bit float, and any other\na string holding each cell's text, every column nullable.",
+                          "type": "string"
+                        },
+                        {
+                          "const": "avro",
+                          "description": "One Apache Avro object container file of one record per Record,\nwith one field per field seen, typed as Parquet's columns are, each\nfield's name made a valid Avro name with the field's own in its\n`doc`.",
+                          "type": "string"
+                        },
+                        {
+                          "const": "arrow_ipc",
+                          "description": "One Apache Arrow IPC file of one column per field seen, typed as\nParquet's columns are.",
+                          "type": "string"
+                        },
+                        {
+                          "const": "rss",
+                          "description": "One RSS 2.0 feed named after the Dataset, of one item per Record,\nits title, link, date and summary taken from the fields the\n`export.feed.*` settings name.",
+                          "type": "string"
+                        },
+                        {
+                          "const": "atom",
+                          "description": "One Atom feed named after the Dataset, of one entry per Record, its\ntitle, link, date and summary taken from the fields the\n`export.feed.*` settings name.",
+                          "type": "string"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "arrived_in": "0.1",
+                  "description": "The parts' Export format: JSONL when left out."
+                },
+                "part": {
+                  "additionalProperties": false,
+                  "arrived_in": "0.1",
+                  "description": "When a part rolls.",
+                  "properties": {
+                    "max_age": {
+                      "arrived_in": "0.1",
+                      "description": "How long, in milliseconds, a part stays open at most: 5 minutes\nwhen left out.",
+                      "format": "uint64",
+                      "minimum": 0,
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
+                    },
+                    "max_bytes": {
+                      "arrived_in": "0.1",
+                      "description": "How many bytes a part holds at most: 256 MiB when left out.",
+                      "format": "uint64",
+                      "minimum": 0,
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
+                    },
+                    "max_records": {
+                      "arrived_in": "0.1",
+                      "description": "How many Records a part holds at most: 100,000 when left out.",
+                      "format": "uint64",
+                      "minimum": 0,
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
+                    }
+                  },
+                  "type": [
+                    "object",
+                    "null"
+                  ]
+                }
+              },
+              "type": [
+                "object",
+                "null"
+              ]
+            },
+            "image": {
+              "arrived_in": "0.1",
+              "description": "A Bridge Sink's image digest, which an Operator policy must name.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "key": {
+              "arrived_in": "0.1",
+              "description": "The fields a keyed mode uses: each Dataset's own key when left out.",
+              "items": {
+                "type": "string"
+              },
+              "type": [
+                "array",
+                "null"
+              ]
+            },
+            "mode": {
+              "anyOf": [
+                {
+                  "description": "How a Sink writes the Records it receives (ADR 0026), keyed on its own\n`key` or else each Dataset's (ADR 0103).",
+                  "oneOf": [
+                    {
+                      "const": "append",
+                      "description": "Each Record is added.",
+                      "type": "string"
+                    },
+                    {
+                      "const": "upsert",
+                      "description": "A Record replaces the one of its key, or is added.",
+                      "type": "string"
+                    },
+                    {
+                      "const": "insert_only",
+                      "description": "A Record is added unless one of its key is there.",
+                      "type": "string"
+                    },
+                    {
+                      "const": "replace",
+                      "description": "The Records are written apart, then swapped in at once.",
+                      "type": "string"
+                    },
+                    {
+                      "const": "history",
+                      "description": "Each Record of a key is kept as a version, valid from and to.",
+                      "type": "string"
+                    }
+                  ]
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "arrived_in": "0.1",
+              "description": "How it writes them: `append` when left out ([`Self::write_mode`])."
+            },
+            "rate": {
+              "additionalProperties": false,
+              "arrived_in": "0.1",
+              "description": "Its token bucket: the destination's preset when left out.",
+              "properties": {
+                "burst": {
+                  "arrived_in": "0.1",
+                  "description": "How many writes may go at once, the bucket's size.",
+                  "format": "uint64",
+                  "minimum": 0,
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                },
+                "per_second": {
+                  "arrived_in": "0.1",
+                  "description": "How many writes a second.",
+                  "format": "uint64",
+                  "minimum": 0,
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                }
+              },
+              "type": [
+                "object",
+                "null"
+              ]
+            },
+            "schema": {
+              "additionalProperties": false,
+              "arrived_in": "0.1",
+              "description": "How its destination's schema follows the Records.",
+              "properties": {
+                "contract": {
+                  "anyOf": [
+                    {
+                      "description": "What a Sink does with a field its destination's columns do not hold\n(ADR 0026, dlt's contracts).",
+                      "oneOf": [
+                        {
+                          "const": "evolve",
+                          "description": "The columns grow to hold it.",
+                          "type": "string"
+                        },
+                        {
+                          "const": "freeze",
+                          "description": "The Record is refused.",
+                          "type": "string"
+                        },
+                        {
+                          "const": "discard_row",
+                          "description": "The Record is left out.",
+                          "type": "string"
+                        },
+                        {
+                          "const": "discard_value",
+                          "description": "The field is left out.",
+                          "type": "string"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "arrived_in": "0.1",
+                  "description": "Its contract: `evolve` when left out."
+                },
+                "flatten": {
+                  "arrived_in": "0.1",
+                  "description": "Whether nested values are flattened into dotted columns rather than\nkept in the destination's own JSON type: off when left out.",
+                  "type": [
+                    "boolean",
+                    "null"
+                  ]
+                }
+              },
+              "type": [
+                "object",
+                "null"
+              ]
+            },
+            "target": {
+              "arrived_in": "0.1",
+              "description": "Its table, collection, index, topic, queue, sheet or object prefix:\nthe type's own when left out.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "type": {
+              "anyOf": [
+                {
+                  "description": "The catalog destination a Sink delivers to (ADR 0026).",
+                  "oneOf": [
+                    {
+                      "const": "postgres",
+                      "description": "PostgreSQL.",
+                      "type": "string"
+                    },
+                    {
+                      "const": "pgvector",
+                      "description": "PostgreSQL with pgvector.",
+                      "type": "string"
+                    },
+                    {
+                      "const": "supabase",
+                      "description": "Supabase.",
+                      "type": "string"
+                    },
+                    {
+                      "const": "mysql",
+                      "description": "MySQL or MariaDB.",
+                      "type": "string"
+                    },
+                    {
+                      "const": "sqlserver",
+                      "description": "SQL Server.",
+                      "type": "string"
+                    },
+                    {
+                      "const": "sqlite",
+                      "description": "SQLite, in the binary.",
+                      "type": "string"
+                    },
+                    {
+                      "const": "mongodb",
+                      "description": "MongoDB.",
+                      "type": "string"
+                    },
+                    {
+                      "const": "elasticsearch",
+                      "description": "Elasticsearch.",
+                      "type": "string"
+                    },
+                    {
+                      "const": "opensearch",
+                      "description": "OpenSearch.",
+                      "type": "string"
+                    },
+                    {
+                      "const": "redis",
+                      "description": "Redis keys.",
+                      "type": "string"
+                    },
+                    {
+                      "const": "snowflake",
+                      "description": "Snowflake.",
+                      "type": "string"
+                    },
+                    {
+                      "const": "bigquery",
+                      "description": "BigQuery.",
+                      "type": "string"
+                    },
+                    {
+                      "const": "redshift",
+                      "description": "Redshift.",
+                      "type": "string"
+                    },
+                    {
+                      "const": "clickhouse",
+                      "description": "ClickHouse.",
+                      "type": "string"
+                    },
+                    {
+                      "const": "databricks",
+                      "description": "Databricks and Delta.",
+                      "type": "string"
+                    },
+                    {
+                      "const": "iceberg",
+                      "description": "Iceberg, through its REST catalog.",
+                      "type": "string"
+                    },
+                    {
+                      "const": "duckdb",
+                      "description": "DuckDB.",
+                      "type": "string"
+                    },
+                    {
+                      "const": "motherduck",
+                      "description": "MotherDuck.",
+                      "type": "string"
+                    },
+                    {
+                      "const": "qdrant",
+                      "description": "Qdrant.",
+                      "type": "string"
+                    },
+                    {
+                      "const": "pinecone",
+                      "description": "Pinecone.",
+                      "type": "string"
+                    },
+                    {
+                      "const": "weaviate",
+                      "description": "Weaviate.",
+                      "type": "string"
+                    },
+                    {
+                      "const": "milvus",
+                      "description": "Milvus.",
+                      "type": "string"
+                    },
+                    {
+                      "const": "chroma",
+                      "description": "Chroma.",
+                      "type": "string"
+                    },
+                    {
+                      "const": "lancedb",
+                      "description": "LanceDB.",
+                      "type": "string"
+                    },
+                    {
+                      "const": "s3",
+                      "description": "An S3-compatible object store.",
+                      "type": "string"
+                    },
+                    {
+                      "const": "gcs",
+                      "description": "Google Cloud Storage.",
+                      "type": "string"
+                    },
+                    {
+                      "const": "azure_blob",
+                      "description": "Azure Blob Storage.",
+                      "type": "string"
+                    },
+                    {
+                      "const": "sftp",
+                      "description": "SFTP.",
+                      "type": "string"
+                    },
+                    {
+                      "const": "ftp",
+                      "description": "FTP or FTPS.",
+                      "type": "string"
+                    },
+                    {
+                      "const": "google_drive",
+                      "description": "Google Drive.",
+                      "type": "string"
+                    },
+                    {
+                      "const": "google_sheets",
+                      "description": "Google Sheets.",
+                      "type": "string"
+                    },
+                    {
+                      "const": "dropbox",
+                      "description": "Dropbox.",
+                      "type": "string"
+                    },
+                    {
+                      "const": "onedrive",
+                      "description": "OneDrive or SharePoint.",
+                      "type": "string"
+                    },
+                    {
+                      "const": "box",
+                      "description": "Box.",
+                      "type": "string"
+                    },
+                    {
+                      "const": "airtable",
+                      "description": "Airtable.",
+                      "type": "string"
+                    },
+                    {
+                      "const": "notion",
+                      "description": "Notion.",
+                      "type": "string"
+                    },
+                    {
+                      "const": "kafka",
+                      "description": "Kafka or Redpanda.",
+                      "type": "string"
+                    },
+                    {
+                      "const": "sqs",
+                      "description": "Amazon SQS.",
+                      "type": "string"
+                    },
+                    {
+                      "const": "sns",
+                      "description": "Amazon SNS.",
+                      "type": "string"
+                    },
+                    {
+                      "const": "kinesis",
+                      "description": "Amazon Kinesis.",
+                      "type": "string"
+                    },
+                    {
+                      "const": "firehose",
+                      "description": "Amazon Data Firehose.",
+                      "type": "string"
+                    },
+                    {
+                      "const": "pubsub",
+                      "description": "Google Pub/Sub.",
+                      "type": "string"
+                    },
+                    {
+                      "const": "service_bus",
+                      "description": "Azure Service Bus.",
+                      "type": "string"
+                    },
+                    {
+                      "const": "event_hubs",
+                      "description": "Azure Event Hubs.",
+                      "type": "string"
+                    },
+                    {
+                      "const": "rabbitmq",
+                      "description": "RabbitMQ.",
+                      "type": "string"
+                    },
+                    {
+                      "const": "nats",
+                      "description": "NATS JetStream.",
+                      "type": "string"
+                    },
+                    {
+                      "const": "redis_streams",
+                      "description": "Redis Streams.",
+                      "type": "string"
+                    },
+                    {
+                      "const": "smtp",
+                      "description": "SMTP.",
+                      "type": "string"
+                    },
+                    {
+                      "const": "ses",
+                      "description": "Amazon SES.",
+                      "type": "string"
+                    },
+                    {
+                      "const": "resend",
+                      "description": "Resend.",
+                      "type": "string"
+                    },
+                    {
+                      "const": "postmark",
+                      "description": "Postmark.",
+                      "type": "string"
+                    },
+                    {
+                      "const": "sendgrid",
+                      "description": "SendGrid.",
+                      "type": "string"
+                    },
+                    {
+                      "const": "mailgun",
+                      "description": "Mailgun.",
+                      "type": "string"
+                    },
+                    {
+                      "const": "webhook",
+                      "description": "A signed webhook (Standard Webhooks).",
+                      "type": "string"
+                    },
+                    {
+                      "const": "airbyte",
+                      "description": "A Bridge Sink running an Airbyte destination image.",
+                      "type": "string"
+                    },
+                    {
+                      "const": "singer",
+                      "description": "A Bridge Sink running a Singer target.",
+                      "type": "string"
+                    }
+                  ]
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "arrived_in": "0.1",
+              "description": "The catalog destination it delivers to; left out for a program's own\nSink handler of the entry's name."
+            },
+            "webhook": {
+              "additionalProperties": false,
+              "arrived_in": "0.1",
+              "description": "A webhook Sink's keys.",
+              "properties": {
+                "max_batch_bytes": {
+                  "arrived_in": "0.1",
+                  "description": "How many bytes of Records one request carries at most: 256 KB when\nleft out.",
+                  "format": "uint64",
+                  "minimum": 0,
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                },
+                "payload": {
+                  "anyOf": [
+                    {
+                      "description": "What a webhook Sink's request carries (ADR 0026).",
+                      "oneOf": [
+                        {
+                          "const": "batch",
+                          "description": "The Records themselves.",
+                          "type": "string"
+                        },
+                        {
+                          "const": "thin",
+                          "description": "A record range and a URL to fetch it from.",
+                          "type": "string"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "arrived_in": "0.1",
+                  "description": "What a request carries: `batch` when left out."
+                },
+                "signing_secret": {
+                  "arrived_in": "0.1",
+                  "description": "The Secret reference of the key each request is signed with.",
+                  "pattern": "^(?:(?:env|keychain|secretfile|caller|bw|vault|aws-sm|gcp-sm|azure-kv|plugin):|op://)[^\\s]+$",
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "type": [
+                "object",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "datasets"
+          ],
+          "type": "object"
+        },
+        "type": "object"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": false,
       "default": false,
       "deprecated": null,
       "description": "Whether, while `site_preferences.respect_robots_txt` is off, each Record of a crawl request its origin's robots.txt disallows carries `robots_txt: \"ignored\"` in its Provenance, so that what was taken against a site's stated preferences can be found. Off by default, robots.txt is then not read for it. On, each origin's robots.txt is read once from the copy the user's runs share, and each request costs one match against it.",

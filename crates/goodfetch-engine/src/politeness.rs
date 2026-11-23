@@ -58,6 +58,7 @@ use delegation::FileBackend;
 
 mod delegation;
 mod memory;
+pub mod store;
 
 pub use memory::MemoryTables;
 

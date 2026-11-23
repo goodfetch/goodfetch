@@ -3418,6 +3418,17 @@ export interface HelloParams {
    */
   form?: Form | null;
   /**
+   * The program's SDK handlers, their names by Plugin kind, as
+   * `connect()` registers them (ADR 0104). The only handler of a kind
+   * that one setting chooses becomes that setting's value at the
+   * connection scope, with the origin `registered`, beneath every
+   * other run-layer value. A kind the engine's Product lacks refuses
+   * the `hello`.
+   */
+  handlers?: {
+    [k: string]: string[];
+  };
+  /**
    * On a Kennel's `hello` (surface `kennel`), asks a Daemon to count the
    * Connection as a Client that keeps it alive, holding off its idle
    * stop and a handover to its major's pick as every other surface's

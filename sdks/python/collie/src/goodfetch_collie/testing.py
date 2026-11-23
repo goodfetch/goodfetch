@@ -58,6 +58,9 @@ class AsyncTestEngine:
     closes it.
     """
 
+    __test__ = False
+    """Not a test class, though a test module imports it: pytest never collects it."""
+
     def __init__(self, connection: AsyncCollie, home: str) -> None:
         """Takes the open connection and the temporary home it removes on close."""
         self._connection = connection
@@ -142,6 +145,9 @@ class TestEngine:
 
     Opened by `start()`; `with` closes it.
     """
+
+    __test__ = False
+    """Not a test class, though a test module imports it: pytest never collects it."""
 
     def __init__(self, connection: Collie, home: str) -> None:
         """Takes the open connection and the temporary home it removes on close."""

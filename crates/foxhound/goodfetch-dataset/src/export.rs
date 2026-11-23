@@ -209,6 +209,9 @@ async fn options(
             recipe: None,
             settings: params.settings.clone(),
             origin: Some(RunOrigin::Settings),
+            // An export takes the call's own settings, never the
+            // Connection's, and so none of its `registered` values.
+            registered: serde_json::Map::new(),
             acting_for_model: context.surface().acts_for_model(),
             exposed: context.exposed(),
         })

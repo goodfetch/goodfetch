@@ -810,7 +810,7 @@ impl Stored {
                         connection,
                         (&work_item, lease_epoch),
                         unsuccessful,
-                        &ended_at,
+                        ended_at,
                         &mut changed,
                     )?;
                     Ok((ended, changed.with_sitemaps(connection)?))
@@ -850,7 +850,7 @@ impl Stored {
                                 &id,
                                 leased.lease_epoch,
                                 Unsuccessful::Failed(failure.clone()),
-                                &ended_at,
+                                ended_at,
                                 &mut changed,
                             )?;
                         }
@@ -929,7 +929,7 @@ impl Stored {
                     connection,
                     &unwritten,
                     retry_max,
-                    &ended_at,
+                    ended_at,
                     &mut changed,
                 )?;
                 let short = if intake.close_if_drained(connection)? {

@@ -79,6 +79,12 @@ impl Hooks {
         place(stage).map_or(&[], |place| &self.chains[place])
     }
 
+    /// Whether any Hook runs before a request is sent, so each request's
+    /// Permit is taken after it (#2905).
+    pub(crate) fn before_request(&self) -> bool {
+        !self.chain(&CrawlHookStage::BeforeRequest).is_empty()
+    }
+
     /// Whether any Hook runs at the Record stage.
     pub(crate) fn at_record_stage(&self) -> bool {
         !self.chain(&CrawlHookStage::BeforeRecordCommit).is_empty()

@@ -45,6 +45,7 @@ mod start;
 // `without_opentelemetry` alone. `trace_context` stays in every build, as
 // `xtask clients` requires of a client case's tests.
 mod trace_context;
+mod unknown_values;
 #[cfg(not(feature = "opentelemetry"))]
 mod without_opentelemetry;
 

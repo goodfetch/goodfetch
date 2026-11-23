@@ -164,6 +164,7 @@ fn a_seed_its_labels_schema_refuses_fails_the_start() {
 /// Covers: story:11-1014, error:setting_not_applicable
 #[test]
 fn a_run_wide_key_in_a_labels_settings_fails_its_declaration_at_once() {
+    let _env = TestEnv::new();
     let mut crawl = Crawl::new();
     let refused = crawl
         .label(

@@ -4,7 +4,7 @@ on:
 permissions: {}
 jobs:
   quick:
-    runs-on: [self-hosted, owner-machine]
+    runs-on: ubuntu-24.04
     steps:
       - name: Start the VM
         run: ci/vm/start.sh read-only

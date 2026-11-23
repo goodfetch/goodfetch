@@ -170,6 +170,16 @@ pub trait HopGate: Send + Sync {
     /// Waits until `until` before `hop` is sent.
     fn wait_until<'a>(&'a self, hop: &'a Hop, until: SystemTime) -> Gating<'a, ()>;
 
+    /// Notes that `hop`'s answer of `status`, a redirect or a refresh stub
+    /// the chain follows, carried a `Retry-After` of `value` that does not
+    /// parse, which adds no wait (ADR 0118).
+    fn unparsable_retry_after<'a>(
+        &'a self,
+        hop: &'a Hop,
+        status: u16,
+        value: &'a str,
+    ) -> Gating<'a, ()>;
+
     /// Records that `hop`, the first included, is sent now: its request's
     /// start, from which its domain's delay counts (ADR 0086), later than
     /// its admission by whatever ran between them. `lead` is the chain's
@@ -419,8 +429,13 @@ where
                     following.max,
                 )));
             }
-            if let Some(until) = retry_after(&fetched, following, clock)? {
-                gate.wait_until(&next, until).await;
+            match retry_after(&fetched, following, clock)? {
+                Asked::Until(until) => gate.wait_until(&next, until).await,
+                Asked::Unparsable(value) => {
+                    gate.unparsable_retry_after(&hop, fetched.status, value)
+                        .await;
+                }
+                Asked::Nothing => {}
             }
             match gate.admit(&next).await {
                 Ok(admitted) => permit = Some(admitted),
@@ -544,33 +559,45 @@ fn header<'a>(headers: &'a [(String, String)], name: &str) -> Option<&'a str> {
         .map(|(_, value)| value.as_str())
 }
 
-/// The time a redirect's `Retry-After` asks its next hop to wait for, read
-/// on `clock`; `None` for no wait, or when the crawl waits for none.
+/// What a redirect's `Retry-After` asks of its next hop.
+enum Asked<'f> {
+    /// No wait: none was sent, it asks for none, or the crawl waits for
+    /// none.
+    Nothing,
+    /// A wait until this time.
+    Until(SystemTime),
+    /// A value that does not parse, which adds no wait (ADR 0118).
+    Unparsable(&'f str),
+}
+
+/// What a redirect's `Retry-After` asks its next hop to wait for, read on
+/// `clock`; nothing when the crawl waits for none, which reads no value.
 ///
 /// # Errors
 ///
 /// `response_unavailable` with the redirect's status and the time, when it
 /// is further away than the crawl waits.
-fn retry_after(
-    fetched: &Fetched,
+fn retry_after<'f>(
+    fetched: &'f Fetched,
     following: &Following,
     clock: &Clock,
-) -> Result<Option<SystemTime>, Stop> {
+) -> Result<Asked<'f>, Stop> {
     let (Some(value), Some(bound)) = (
         header(&fetched.headers, "retry-after"),
         following.retry_after_max,
     ) else {
-        return Ok(None);
+        return Ok(Asked::Nothing);
     };
     let now = clock.wall();
-    let RetryAfter::Until(until) = retry_after::read(value, header(&fetched.headers, "date"), now)
-    else {
-        return Ok(None);
+    let until = match retry_after::read(value, header(&fetched.headers, "date"), now) {
+        RetryAfter::Until(until) => until,
+        RetryAfter::NoWait => return Ok(Asked::Nothing),
+        RetryAfter::Unparsable => return Ok(Asked::Unparsable(value)),
     };
     if until.duration_since(now).is_ok_and(|wait| wait > bound) {
         return Err(Stop::failed(unavailable(fetched, until)));
     }
-    Ok(Some(until))
+    Ok(Asked::Until(until))
 }
 
 /// The `fix` of a 3xx that is not followed.

@@ -70,8 +70,8 @@ fn failed(workspace: &Workspace, github: &GitHub, extra: &[&str]) -> crate::work
     workspace.xtask(&arguments)
 }
 
-/// A failed cell on the owner's machine is diagnosed there (ADR 0108), so
-/// each runner's jobs take the tests of their own OS and architecture.
+/// A failed cell is diagnosed on the runner label it ran on, so each
+/// runner's jobs take the tests of their own OS and architecture.
 #[rstest]
 #[case::os(&["--os", "macos"])]
 #[case::architecture(&["--os", "linux", "--arch", "arm64"])]

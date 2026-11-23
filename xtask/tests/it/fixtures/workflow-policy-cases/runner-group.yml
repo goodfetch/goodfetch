@@ -1,0 +1,9 @@
+name: extra
+on: push
+permissions: {}
+jobs:
+  build:
+    runs-on:
+      group: big-runners
+    steps:
+      - run: echo group

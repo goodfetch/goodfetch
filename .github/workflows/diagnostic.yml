@@ -10,9 +10,9 @@
 #
 # While the repository is private, a hosted diagnostic run counts toward test
 # health's 1,000 minutes and is skipped once the month leaves no room for the
-# 10 minutes of each of its hosted jobs (ADRs 0064 and 0108); a cell of the
-# owner's machine is diagnosed there
-# and counts nothing. Failures of the Release suite's Linux arm64 and Windows
+# 10 minutes of each of its hosted Linux jobs (ADRs 0064 and 0108). A failed
+# macOS cell is rerun on the standard hosted macOS label it ran on, outside
+# the ceiling as that cell is (#3385). Failures of the Release suite's Linux arm64 and Windows
 # cells get no diagnostic job yet, and a hosted rerun takes the host-tools
 # action's default runtimes, ci/runtimes.toml's pre-merge set, not a musl
 # cell's or each Node.js line's.
@@ -41,8 +41,10 @@ jobs:
       admitted: ${{ steps.ceiling.outputs.admitted }}
       hosted-count: ${{ steps.hosted.outputs.count }}
       hosted: ${{ steps.hosted.outputs.matrix }}
-      owner-machine-count: ${{ steps.owner-machine.outputs.count }}
-      owner-machine: ${{ steps.owner-machine.outputs.matrix }}
+      macos-arm64-count: ${{ steps.macos-arm64.outputs.count }}
+      macos-arm64: ${{ steps.macos-arm64.outputs.matrix }}
+      macos-x64-count: ${{ steps.macos-x64.outputs.count }}
+      macos-x64: ${{ steps.macos-x64.outputs.matrix }}
     steps:
       - name: Check out main's head
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -74,32 +76,46 @@ jobs:
           cargo run --quiet --locked --bin xtask -- results failed --repository "$GITHUB_REPOSITORY"
           --run-id "$RUN" --attempt "$ATTEMPT" --artifacts target/artifacts --os linux --arch x64
           | tee -a "$GITHUB_OUTPUT"
-      - name: Choose the failed tests of the owner's machine
-        id: owner-machine
+      - name: Choose the failed tests of macOS arm64
+        id: macos-arm64
         env:
           GITHUB_TOKEN: ${{ github.token }}
           RUN: ${{ github.event.workflow_run.id }}
           ATTEMPT: ${{ github.event.workflow_run.run_attempt }}
         run: >-
           cargo run --quiet --locked --bin xtask -- results failed --repository "$GITHUB_REPOSITORY"
-          --run-id "$RUN" --attempt "$ATTEMPT" --artifacts target/artifacts --os macos
+          --run-id "$RUN" --attempt "$ATTEMPT" --artifacts target/artifacts --os macos --arch arm64
+          | tee -a "$GITHUB_OUTPUT"
+      - name: Choose the failed tests of macOS x64
+        id: macos-x64
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          RUN: ${{ github.event.workflow_run.id }}
+          ATTEMPT: ${{ github.event.workflow_run.run_attempt }}
+        run: >-
+          cargo run --quiet --locked --bin xtask -- results failed --repository "$GITHUB_REPOSITORY"
+          --run-id "$RUN" --attempt "$ATTEMPT" --artifacts target/artifacts --os macos --arch x64
           | tee -a "$GITHUB_OUTPUT"
       # Room for every hosted job's 10-minute timeout, or none starts.
       - name: Check the month's minutes against the ceiling
         id: ceiling
         env:
           HOSTED_COUNT: ${{ steps.hosted.outputs.count }}
+          # This run's repository visibility decides which minutes bill.
+          GITHUB_TOKEN: ${{ github.token }}
         run: >-
           cargo run --quiet --locked --bin xtask -- results ceiling --store test-results
           --run diagnostic --jobs "$HOSTED_COUNT" --today "$(date -u +%F)"
           --summary "$GITHUB_STEP_SUMMARY"
+          --repository "$GITHUB_REPOSITORY" --run-id "$GITHUB_RUN_ID"
           | tee -a "$GITHUB_OUTPUT"
       - name: Name the failed tests left undiagnosed
         env:
           HOSTED_LEFT_OUT: ${{ steps.hosted.outputs.left_out }}
-          OWNER_MACHINE_LEFT_OUT: ${{ steps.owner-machine.outputs.left_out }}
+          MACOS_ARM64_LEFT_OUT: ${{ steps.macos-arm64.outputs.left_out }}
+          MACOS_X64_LEFT_OUT: ${{ steps.macos-x64.outputs.left_out }}
         run: |
-          left_out=$((HOSTED_LEFT_OUT + OWNER_MACHINE_LEFT_OUT))
+          left_out=$((HOSTED_LEFT_OUT + MACOS_ARM64_LEFT_OUT + MACOS_X64_LEFT_OUT))
           if [[ $left_out -gt 0 ]]; then
             echo "### $left_out failed tests past the first 20 get no diagnostic run" >>"$GITHUB_STEP_SUMMARY"
           fi
@@ -157,20 +173,24 @@ jobs:
           path: target/junit/
           if-no-files-found: ignore
 
-  # A failed macOS cell of a Release run on `main` is diagnosed on the owner's
-  # machine, where it ran (ADR 0108); it counts no minutes.
-  rerun-owner-machine:
-    name: rerun (owner's machine)
+  # A failed macOS cell is diagnosed on the standard hosted label it ran on,
+  # outside the deny as that cell runs (ADR 0043's amendment of 2026-11-22,
+  # #3385).
+  rerun-macos-arm64:
+    name: rerun (macOS arm64)
     needs: select
-    if: github.event.workflow_run.head_branch == 'main' && needs.select.outputs.owner-machine-count != '0'
-    runs-on: [self-hosted, owner-machine]
+    if: needs.select.outputs.macos-arm64-count != '0'
+    runs-on: macos-15
     timeout-minutes: 10
     strategy:
       fail-fast: false
-      max-parallel: 1
-      matrix: ${{ fromJSON(needs.select.outputs.owner-machine) }}
+      max-parallel: 4
+      matrix: ${{ fromJSON(needs.select.outputs.macos-arm64) }}
     permissions:
       contents: read
+    env:
+      # As the Release suite's macOS cells (issue 3224).
+      GOODFETCH_TEST_NO_GUI_SESSION: "1"
     steps:
       - name: Check out the commit the failed run tested
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -180,7 +200,56 @@ jobs:
       - name: Install the tools and dependencies
         uses: ./.github/actions/host-tools # zizmor: ignore[self-repository] actionlint lacks the $/ form
         with:
-          target: ${{ matrix.arch == 'x64' && 'x86_64-apple-darwin' || 'aarch64-apple-darwin' }}
+          target: aarch64-apple-darwin
+      - name: Set up the OS services the tests use
+        run: ci/os-services.sh setup
+      - name: "Test: the failed test, 20 times"
+        env:
+          TEST: ${{ matrix.test }}
+        run: just repeat 20 --test "$TEST"
+      - name: Record the job's context beside its JUnit files
+        if: always()
+        run: ci/junit-context.sh 20
+      - name: Summarize the failed tests
+        if: always()
+        run: ci/junit-summary.sh
+      - name: Scan the job's outputs for secrets before they upload
+        id: leaks
+        if: always()
+        run: ci/leaks.sh target/junit/
+      - name: Upload the JUnit files
+        if: always() && steps.leaks.outcome == 'success'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: junit-${{ matrix.suite }}-diagnostic-${{ matrix.os }}-${{ matrix.arch }}${{ matrix.runtime && format('-{0}', matrix.runtime) || '' }}-${{ strategy.job-index }}
+          path: target/junit/
+          if-no-files-found: ignore
+
+  rerun-macos-x64:
+    name: rerun (macOS x64)
+    needs: select
+    if: needs.select.outputs.macos-x64-count != '0'
+    runs-on: macos-15-intel
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      max-parallel: 4
+      matrix: ${{ fromJSON(needs.select.outputs.macos-x64) }}
+    permissions:
+      contents: read
+    env:
+      # As the Release suite's macOS cells (issue 3224).
+      GOODFETCH_TEST_NO_GUI_SESSION: "1"
+    steps:
+      - name: Check out the commit the failed run tested
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ matrix.commit }}
+          persist-credentials: false
+      - name: Install the tools and dependencies
+        uses: ./.github/actions/host-tools # zizmor: ignore[self-repository] actionlint lacks the $/ form
+        with:
+          target: x86_64-apple-darwin
       - name: Set up the OS services the tests use
         run: ci/os-services.sh setup
       - name: "Test: the failed test, 20 times"

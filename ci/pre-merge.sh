@@ -41,7 +41,9 @@
 # advisories, notices) run first, before the steps
 # beside, so their reds show in the gate's first minute; the other checks of
 # the whole change (lint, the SDK crates' features, the fuzz targets, the
-# proofs) run before the suites; the stress run of the new and changed tests
+# proofs), then the MSRV build, in its own `target/msrv/`, run before the
+# suites, so a red one shows before hours of suites and stress runs (issue
+# 2040); the stress run of the new and changed tests
 # (`just stress`) runs after the Pre-merge suite, whose build its listings
 # reuse. In the full gate it takes the tests new and changed since the last
 # full gate's head, when a test reads what merged since (the plan's

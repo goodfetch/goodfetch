@@ -1,8 +1,0 @@
-name: unresolved
-on: push
-permissions: {}
-jobs:
-  build:
-    runs-on: ${{ inputs.runner }}
-    steps:
-      - run: echo unresolved

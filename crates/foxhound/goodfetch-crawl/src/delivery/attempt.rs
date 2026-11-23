@@ -93,6 +93,7 @@ use goodfetch_engine::egress::Policy;
 use goodfetch_engine::lease::{LeaseCheck, LeaseEnded, PermitWait};
 use goodfetch_engine::metrics::Counted;
 use goodfetch_engine::response_limits::Limits;
+use goodfetch_engine::retry_after::RetryAfter;
 use goodfetch_engine::runs::Run;
 use goodfetch_engine::settings::Resolved;
 use goodfetch_fetch_tier::{
@@ -128,6 +129,7 @@ use goodfetch_session_pool::{Effect, PoolKey, PoolSettings, SendsFrom};
 use serde_json::{Map, Value};
 use tokio::sync::{Mutex, oneshot};
 
+use super::document_answer;
 use super::failure::{AttemptFailure, Why};
 use super::watch::{self, Watch};
 use crate::code_free::CodeFree;
@@ -664,8 +666,10 @@ pub(super) async fn attempt(
             false,
         ),
     };
+    let document = document.into_inner().filter(|_| ran);
+    note_unparsable_retry_after(&run, &hand_over, document.as_ref()).await;
     Attempt {
-        document: document.into_inner().filter(|_| ran),
+        document,
         handed_at: sent_at.into_inner().filter(|_| ran),
         moved: ran && moved.into_inner().is_some(),
         refused: ran && refused.into_inner().is_some(),
@@ -681,6 +685,32 @@ pub(super) async fn attempt(
         answer,
         sampled,
         raced,
+    }
+}
+
+/// Notes in `run`'s Run trace, through the attempt's `hand_over`, the
+/// `Retry-After` of `document`, the answer to its crawl request's own
+/// document when the engine fetched one, when it does not parse and the
+/// engine reads it: on a 429, 502, 503 or 504 of the site's, never on one
+/// the Run's proxy gave itself (ADR 0118). Once per such response, which
+/// adds no wait.
+async fn note_unparsable_retry_after(
+    run: &Run,
+    hand_over: &HandOver,
+    document: Option<&PageResponse>,
+) {
+    let Some(response) = document.filter(|response| response.headers.contains_key("retry-after"))
+    else {
+        return;
+    };
+    let proxied = run
+        .settings()
+        .is_some_and(|settings| super::proxied(settings.resolved()));
+    let asked = document_answer::asked(response, proxied, run.clock().wall());
+    if let Some((value, RetryAfter::Unparsable)) = asked.retry_after {
+        hand_over
+            .unparsable_retry_after(&response.url, response.status, value)
+            .await;
     }
 }
 

@@ -2552,7 +2552,7 @@
     },
     {
       "arrived_in": "0.1",
-      "description": "The crawls' work items waiting in their per-domain queues to be admitted, each queue holding at most 64; those still in the Frontier past that bound are not counted.",
+      "description": "The crawls' work items waiting to be leased: the Frontier's whole depth, in their per-domain queues and past them.",
       "instrument": "up_down_counter",
       "labels": [],
       "name": "goodfetch.work_item.queued",

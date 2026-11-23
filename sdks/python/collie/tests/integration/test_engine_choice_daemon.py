@@ -70,3 +70,24 @@ async def test_takes_an_environment_whose_only_engine_path_is_foxhounds(
         None,
         daemon.socket,
     )
+
+
+@pytest.mark.covers("story:3-2")
+@three_ways
+async def test_two_scripts_open_at_once_share_the_running_daemon(
+    way: Way, env: Mapping[str, str], daemon: Daemon, test_env: TestEnv
+) -> None:
+    """One script finds the Daemon running, the other has it configured.
+
+    Both stay open at once on the one Daemon, and neither starts an engine.
+    """
+    found = await open_collie(way, env)
+    configured = await open_collie(way, env, engine="daemon")
+    engines = [found.engine, configured.engine]
+    await found.close()
+    await configured.close()
+
+    assert [
+        (engine.kind, engine.product, engine.home, engine.engine_path, engine.url)
+        for engine in engines
+    ] == [("daemon", Product.collie, str(test_env.home), None, daemon.socket)] * 2

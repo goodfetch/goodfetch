@@ -4,7 +4,7 @@ on:
 permissions: {}
 jobs:
   quick:
-    runs-on: [self-hosted, owner-machine]
+    runs-on: ubuntu-24.04
     steps:
       - name: Check out
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -24,7 +24,7 @@ jobs:
         if: always()
         run: ci/vm/stop.sh
   all-green:
-    runs-on: [self-hosted, owner-machine]
+    runs-on: ubuntu-24.04
     steps:
       - name: Judge the run
         run: ci/vm/exec.sh cargo run -p xtask -- all-green

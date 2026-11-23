@@ -7,11 +7,8 @@
 //! what the script holds. Each Run is detached, so closing its value and
 //! the Connection sends no `run.abort`: the Daemon keeps the Run once its
 //! program is gone. A view `open_run` opens sends nothing either, opening
-//! or closing.
-#![expect(
-    clippy::doc_markdown,
-    reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
-)]
+//! or closing. The Scripted engine leaves no exercise record of what it
+//! plays, so the CLI's handler-less start test declares the two starts.
 
 use std::num::NonZeroUsize;
 use std::time::Duration;
@@ -39,7 +36,6 @@ fn id(text: &str) -> RunId {
 /// Each start sends every option given, closing stops no detached Run, and
 /// a view opens by the Run's ID with no round trip until the Connection
 /// closes.
-/// Covers: operation:recipe.start, operation:catalog_run.start
 #[test]
 fn a_handlerless_start_takes_every_option_and_leaves_its_detached_run() {
     let env = TestEnv::new();

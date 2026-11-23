@@ -67,6 +67,8 @@ export type TestSupportErrorCode =
   | "client_case_untagged"
   /** A smoke script declares no Client conformance case on a `// cases:` line (ADR 0069). */
   | "smoke_cases_missing"
+  /** A smoke script's `// remote daemon:` line names no corpus script and token (ADR 0069). */
+  | "smoke_remote_daemon_invalid"
   /** `GOODFETCH_RUNTIME_SET` names no set of `ci/runtimes.toml`, or the file cannot be read (ADR 0069). */
   | "runtime_set_unknown"
   /** A runtime of the smoke scripts' set is not on `PATH` (ADR 0069). */

@@ -21,8 +21,9 @@
 //!   the `stress.base` line, then each step's `<step>.action` (`run`, `part`,
 //!   `reuse`, `covered` for the Quick suite and the codegen tests, whose
 //!   tests the Pre-merge suite's units hold, `left` for a step a hosted job
-//!   leaves to the layer that owns it, or `red` for one a hosted run went red
-//!   on on this tree), `<step>.members` and `<step>.why` lines, which
+//!   leaves to the layer that owns it, or the Release cell to its own steps,
+//!   or `red` for one a hosted run went red on on this tree), `<step>.members`
+//!   and `<step>.why` lines, which
 //!   `ci/pre-merge.sh` reads through `ci/output-value.sh` and follows; says
 //!   the same in words on stderr for the run's log, with the evidence that
 //!   reaches a member the selection misses; and writes the plan and the
@@ -67,6 +68,7 @@ mod lint;
 mod plan;
 mod quick_runs;
 mod record;
+mod release;
 mod runs;
 mod shards;
 mod steps;
@@ -266,16 +268,14 @@ fn plan_run(environment: &Environment, options: &PlanArguments) -> Result<()> {
         return plan_dirty(&plan_file, options.form);
     }
 
-    let base = git::commit(
-        root,
-        &git::line(root, &["merge-base", BASE_BRANCH, "HEAD"])?,
-    )?;
+    let base = plan_base(root, options.layer, &head)?;
     let tree = git::line(root, &["rev-parse", "--verify", "HEAD^{tree}"])?;
     let image = host::ci_image(root, &tree).unwrap_or_default();
     let host = plan_host(environment, options, &image);
     let members_read = WorkspaceMembers::read(&environment.cargo, root)?;
     let unowned = evidence::unowned_tests(root, &members_read)?;
     let (members, shuffled) = head_members(&members_read, &unowned);
+    let release_differs = release::differing(options.layer, root, &members_read, &shuffled)?;
     let lint = lint::Reads {
         root,
         now: options.now,
@@ -298,6 +298,7 @@ fn plan_run(environment: &Environment, options: &PlanArguments) -> Result<()> {
             image: &image,
             repository: &options.head_repository,
         },
+        release_differs: &release_differs,
     };
     let hosted = match &options.hosted_records {
         Some(folder) if !options.full => earlier::hosted(root, &environment.path(folder), &head)?,
@@ -323,7 +324,11 @@ fn plan_run(environment: &Environment, options: &PlanArguments) -> Result<()> {
         head: &head,
         target: &target,
     };
-    let (touched, beyond) = reader.touched_by_origin(previous.into_iter().chain(&hosted))?;
+    // The Release suite reads a result of its own tree alone, whose change
+    // since its head is none; the other heads may not even be fetched.
+    let of_tree = (options.layer == Layer::Release).then_some(tree.as_str());
+    let (touched, beyond) =
+        reader.touched_by_origin(previous.into_iter().chain(&hosted), of_tree)?;
     let planned = plan::plan(
         &gated,
         &plan::Earlier {
@@ -356,6 +361,18 @@ fn plan_run(environment: &Environment, options: &PlanArguments) -> Result<()> {
         return Ok(());
     }
     write(records, &carried(head, base, host, &planned), &machine)
+}
+
+/// The commit the head's change starts from: its merge base with `main`, or
+/// on the layer `release` the head itself, since the Release suite tests a
+/// commit of `main` on its own, with no change to compare and no
+/// `origin/main` in its checkout.
+fn plan_base(root: &Path, layer: Layer, head: &str) -> Result<String> {
+    if layer == Layer::Release {
+        return Ok(head.to_owned());
+    }
+    let base = git::line(root, &["merge-base", BASE_BRANCH, "HEAD"])?;
+    Ok(git::commit(root, &base)?)
 }
 
 /// The fingerprint the plan's records carry: the hosted one on the hosted
@@ -527,15 +544,23 @@ impl Reader<'_> {
     fn touched_by_origin<'r>(
         &self,
         runs: impl IntoIterator<Item = &'r GateRun>,
+        of_tree: Option<&str>,
     ) -> Result<(BTreeMap<String, Touched>, Vec<String>)> {
         let origins: BTreeSet<&String> = runs
             .into_iter()
             .flat_map(|run| {
                 run.units
                     .values()
-                    .filter(|outcome| outcome.green)
+                    .filter(|outcome| {
+                        outcome.green && of_tree.is_none_or(|tree| outcome.tree == tree)
+                    })
                     .map(|outcome| &outcome.origin)
-                    .chain(run.earned.values().map(|earned| &earned.origin))
+                    .chain(
+                        run.earned
+                            .values()
+                            .filter(|_| of_tree.is_none())
+                            .map(|earned| &earned.origin),
+                    )
             })
             .collect();
         let mut rust = None;
@@ -772,7 +797,7 @@ fn render(
                 format!("green on {}", origins(carried)),
             ),
             Action::Covered { by } => ("covered", "-".to_owned(), plan::covered_why(*by)),
-            Action::Left { owner } => ("left", "-".to_owned(), plan::left_why(*owner)),
+            Action::Left { owner, by } => ("left", "-".to_owned(), plan::left_why(*owner, *by)),
             Action::Red { why } => ("red", "-".to_owned(), why.clone()),
         };
         if step.counts_passes() {
@@ -846,7 +871,7 @@ fn describe(previous: Option<(&str, &Path)>, planned: &[Planned]) -> String {
                 previous.map_or("-", |(previous, _)| short(previous))
             ),
             Action::Covered { by } => format!("not run: {}", plan::covered_why(*by)),
-            Action::Left { owner } => format!("not run: {}", plan::left_why(*owner)),
+            Action::Left { owner, by } => format!("not run: {}", plan::left_why(*owner, *by)),
             Action::Red { why } => {
                 format!("red, not run again here: {why}, so the gate is red (ADR 0064)")
             }

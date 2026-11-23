@@ -12,6 +12,8 @@ use encoding_rs::{Encoding, UTF_8};
 use goodfetch_encoding::{Kind, content_type, declared};
 use serde::de::DeserializeOwned;
 
+use crate::error::Error;
+
 /// `body` as text: decoded with `document`, the label of the encoding a
 /// navigation's document was decoded with, when it names one; otherwise
 /// with the encoding `body` and its `Content-Type` value `content_type`
@@ -24,11 +26,13 @@ pub(super) fn text(body: &[u8], document: Option<&str>, content_type: Option<&st
     text.into_owned()
 }
 
-/// `body` as JSON: decoded as UTF-8 whatever its charset, a leading BOM
-/// ignored, a byte that does not decode read as U+FFFD.
-pub(super) fn json<T: DeserializeOwned>(body: &[u8]) -> Result<T, serde_json::Error> {
+/// `body`, the body of the response from `url`, as JSON: decoded as UTF-8
+/// whatever its charset, a leading BOM ignored, a byte that does not
+/// decode read as U+FFFD; `response_not_json` naming `url` when it is not
+/// JSON, or not the JSON `T` reads.
+pub(super) fn json<T: DeserializeOwned>(body: &[u8], url: String) -> Result<T, Error> {
     let (text, _) = UTF_8.decode_with_bom_removal(body);
-    serde_json::from_str(&text)
+    serde_json::from_str(&text).map_err(|source| Error::response_not_json(url, source))
 }
 
 /// The encoding `body`, whose `Content-Type` value is `value`, declares,

@@ -1,7 +1,7 @@
 # The frozen R&D lab's own CI (ADR 0032): it runs only when `rnd/` changes
-# and is never a required check, so this workflow may filter on paths. Like
-# every pull-request job while the repository is private, it runs on the
-# owner's machine in a throwaway VM (ADR 0135).
+# and is never a required check, so this workflow may filter on paths. It
+# runs in the hosted tier's job container on a standard hosted runner
+# (ci/hosted/start.sh, #3385).
 name: lab
 
 on:
@@ -18,7 +18,7 @@ jobs:
   lab:
     name: lab
     if: github.event.pull_request.head.repo.full_name == github.repository
-    runs-on: [self-hosted, owner-machine]
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     permissions:
       contents: read
@@ -27,12 +27,17 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - name: Start the VM
-        run: ci/vm/start.sh read-only
+      - name: Restore the CI image of the tree's Containerfile
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/goodfetch/ci-image
+          key: pull-request-ci-image-Linux-${{ hashFiles('ci/image/Containerfile') }}
+      - name: Start the job's container
+        run: ci/hosted/start.sh
       - name: Set up the OS services the tests use
-        run: ci/vm/exec.sh ci/os-services.sh setup
+        run: ci/hosted/exec.sh ci/os-services.sh setup
       - name: "Test: pnpm lab ci"
-        run: ci/vm/exec.sh bash -c "cd rnd/lab && pnpm install --frozen-lockfile && pnpm lab ci"
+        run: ci/hosted/exec.sh bash -c "cd rnd/lab && pnpm install --frozen-lockfile && pnpm lab ci"
       # Every CI job uploads its JUnit files, pass or fail (TESTING.md,
       # Sharding, caching and reports).
       - name: Record the job's context beside its JUnit files
@@ -40,11 +45,11 @@ jobs:
         run: ci/junit-context.sh
       - name: Summarize the failed tests
         if: always()
-        run: ci/junit-summary.sh vm
+        run: ci/junit-summary.sh container
       - name: Scan the job's outputs for secrets before they upload
         id: leaks
         if: always()
-        run: ci/vm/exec.sh ci/leaks.sh target/junit/
+        run: ci/hosted/exec.sh ci/leaks.sh target/junit/
       - name: Upload the JUnit files
         if: always() && steps.leaks.outcome == 'success'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -52,6 +57,3 @@ jobs:
           name: junit-lab-pull-request-linux-x64-1
           path: target/junit/
           if-no-files-found: ignore
-      - name: Destroy the VM
-        if: always()
-        run: ci/vm/stop.sh

@@ -1,0 +1,9 @@
+name: extra
+on: push
+permissions: {}
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - run: echo tag

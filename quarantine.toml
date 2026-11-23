@@ -19,6 +19,6 @@
 
 [[test]]
 runner = "nextest"
-id = "xtask::bin/xtask rss::page_cache::tests::each_mode_leaves_the_executable_s_pages_where_it_says"
-issue = 3301
+id = "goodfetch-foxhound::it navigation_gate::a_handler_waiting_for_a_permit_is_not_timed_out_and_its_wait_is_named"
+issue = 3495
 date = 2026-11-23

@@ -16,6 +16,7 @@ use serde_json::{Map, Value};
 use tokio::time::Instant;
 
 use super::attempt::Answer;
+use super::document_answer;
 use super::failure::{RETRY_AFTER, Why};
 use crate::run_state::{Ran, StateError, Stored};
 use crate::work_items::{Changed, Failure};
@@ -23,10 +24,6 @@ use crate::work_items::{Changed, Failure};
 /// The `fix` of a request a site's `Retry-After` holds further away than
 /// the Run waits (ADR 0118).
 pub(super) const RETRY_AFTER_FIX: &str = "The site asked for no request to its domain before `retry_after`, further away than `politeness.retry_after.max`: re-admit the request with `run.retry_failed` once the site is back, or raise `politeness.retry_after.max` for the crawl to wait that long.";
-
-/// The header a proxy names its own errors in (RFC 9209), lower-cased as a
-/// response's headers are.
-const PROXY_STATUS: &str = "proxy-status";
 
 /// What an attempt's ending says of its domain (ADRs 0021, 0053, 0086 and
 /// 0118; the `backoff_classes` rule): what its handler's failure says
@@ -112,19 +109,14 @@ fn document_ending(
     now: Instant,
     wall: SystemTime,
 ) -> Ended {
-    let header = |name: &str| response.headers.get(name).map(String::as_str);
-    let met = Met::Response {
-        status: response.status,
-        proxy_status: header(PROXY_STATUS),
-        forwarded: proxied && response.url.starts_with("http:"),
+    let asked = document_answer::asked(response, proxied, wall);
+    let until = || match asked.retry_after? {
+        (_, RetryAfter::Until(until)) => Some(at(until, now, wall)),
+        (_, RetryAfter::NoWait | RetryAfter::Unparsable) => None,
     };
-    let asked = || match retry_after::read(header("retry-after")?, header("date"), wall) {
-        RetryAfter::Until(until) => Some(at(until, now, wall)),
-        RetryAfter::NoWait | RetryAfter::Unparsable => None,
-    };
-    match class(met) {
-        Class::TooManyRequests => Ended::TooManyRequests(asked()),
-        Class::BackOff => Ended::BackOff(asked()),
+    match asked.class {
+        Class::TooManyRequests => Ended::TooManyRequests(until()),
+        Class::BackOff => Ended::BackOff(until()),
         Class::Done | Class::ProxyRefusal => Ended::Done,
     }
 }

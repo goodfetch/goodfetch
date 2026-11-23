@@ -256,7 +256,7 @@ fn refusal(output: &Output, json: bool) -> (Value, Value, String) {
 /// `4`, its `fix` names the interactive command and the Kennel, and the
 /// Limit stays as it was.
 ///
-/// Covers: story:3-75, story:11-210, command:usage.raise, error:person_required, exit:refused
+/// Covers: story:3-75, story:11-210, command:usage.raise, exit:refused
 #[rstest::rstest]
 #[case::under_json(true, Some("y\n"))]
 #[case::from_a_pipe(false, Some("y\n"))]
@@ -301,7 +301,7 @@ fn usage_raise_is_refused_where_no_person_answers(#[case] json: bool, #[case] st
 /// `usage raise --json` is refused at a terminal too: a person answers
 /// the prompt, never a program reading its JSON. It asks nothing.
 ///
-/// Covers: story:11-210, command:usage.raise, error:person_required
+/// Covers: story:11-210, command:usage.raise
 #[test]
 fn usage_raise_under_json_is_refused_at_a_terminal() {
     let env = TestEnv::new();

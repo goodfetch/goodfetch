@@ -66,14 +66,16 @@ fn a_setting_a_hello_refuses_reads_in_its_declared_form(#[case] form: &str, #[ca
 /// policy's key is locked by its default, and the project file's own key
 /// is not applicable.
 ///
-/// Covers: story:11-72, error:setting_locked, error:setting_not_applicable
+/// Covers: story:11-72
 #[rstest]
+/// Covers: error:setting_locked
 #[case::operator_policy(
     json!({ "wall": { "denied_domains": ["a.test"] } }),
     "setting_locked",
     "wall.denied_domains",
     "Operator policy"
 )]
+/// Covers: error:setting_not_applicable
 #[case::project_file(
     json!({ "timeout": { "connect": 1_000 } }),
     "setting_not_applicable",
@@ -233,9 +235,11 @@ fn config_explain_shows_the_connections_settings_beneath_the_runs() {
 /// given with values to resolve, which the Run would not read, with
 /// `invalid_params`.
 ///
-/// Covers: operation:config.explain, error:run_not_found, error:run_id_invalid
+/// Covers: operation:config.explain
 #[rstest]
+/// Covers: error:run_not_found
 #[case::not_live(json!({ "run_id": "ended" }), "run_not_found")]
+/// Covers: error:run_id_invalid
 #[case::not_a_run_id(json!({ "run_id": "not a Run ID" }), "run_id_invalid")]
 #[case::with_run_values(
     json!({ "run_id": "ended", "settings": { "timeout": { "wait": 1000 } } }),
@@ -519,20 +523,23 @@ fn config_explain_names_a_clients_own_call_bounds(#[case] surface: &str) {
 /// the `hello`: from a surface whose Client has no such bound, and a value
 /// that is no whole number from 1 (issues 2518, 3188 and 3189).
 ///
-/// Covers: setting:connection.max_pending_calls, setting:connection.max_listener_queue, error:setting_not_applicable, error:setting_invalid
+/// Covers: setting:connection.max_pending_calls, setting:connection.max_listener_queue
 #[rstest]
+/// Covers: error:setting_not_applicable
 #[case::a_python_client_on_its_listeners(
     "sdk_python",
     json!({ "connection": { "max_listener_queue": 5 } }),
     "setting_not_applicable",
     "connection.max_listener_queue"
 )]
+/// Covers: error:setting_not_applicable
 #[case::a_rust_program_on_its_listeners(
     "rust",
     json!({ "connection": { "max_listener_queue": 5 } }),
     "setting_not_applicable",
     "connection.max_listener_queue"
 )]
+/// Covers: error:setting_invalid
 #[case::zero_from_the_typescript_client(
     "sdk_typescript",
     json!({ "connection": { "max_pending_calls": 0 } }),

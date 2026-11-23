@@ -8,7 +8,9 @@
 //! six seeds, one with a Payload of a Label declared with its schema, beside
 //! one declared without, one the Frontier answers `duplicate`,
 //! one sent as a `POST` with a body under a declared key and one
-//! `crawl.max_segment_repeats` refuses, under a scope of every host
+//! `crawl.max_segment_repeats` refuses, with a Hook in code scoped to a
+//! Label none of its requests has, which its run file keeps declared,
+//! under a scope of every host
 //! narrowed by an `include` and an `exclude` pattern and under a depth and
 //! a request bound, and eleven more seeds on `list.test`, three pairs of
 //! items with and without `ref`, three offsets of one listing and a guide
@@ -157,6 +159,9 @@ fn scenario() -> Vec<Value> {
                     },
                     { "name": "links" },
                 ],
+                // A Hook in code its run file keeps declared, scoped to a
+                // Label none of its requests has, so the engine never calls it.
+                "hooks": [{ "name": "audit", "stage": "page_ready", "labels": ["archived"] }],
                 "seeds": [
                     { "url": "https://shop.test/", "label": "home", "payload": { "depth": 0 } },
                     { "url": "https://shop.test/broken", "label": "product" },

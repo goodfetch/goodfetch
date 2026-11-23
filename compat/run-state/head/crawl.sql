@@ -70,6 +70,7 @@ CREATE TABLE declared_hooks (
             position INTEGER NOT NULL PRIMARY KEY,
             declaration TEXT NOT NULL
         ) STRICT;
+INSERT INTO "declared_hooks" VALUES(0,'{"name":"audit","stage":"page_ready","labels":["archived"]}');
 CREATE TABLE domains (
             key TEXT NOT NULL PRIMARY KEY,
             ready_at INTEGER,

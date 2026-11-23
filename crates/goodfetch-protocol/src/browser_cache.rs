@@ -1,7 +1,7 @@
 //! The Browser cache's contracts (ADRs 0024, 0043, 0098 and 0115): the
 //! Pinned artifacts a Product version names, the entry each one keeps in the
 //! cache, the Error codes of a missing build, the download's progress event,
-//! `browser_cache.max_unused_age`, `browser.mirror`, and what `browser install` and `browsers
+//! `browser_cache.max_unused_age`, `browser_cache.read_only`, `browser.mirror`, and what `browser install` and `browsers
 //! clean` print under `--json` (ADR 0069). Collie carries them, since Collie
 //! launches browsers (ADR 0088).
 //!
@@ -304,6 +304,26 @@ pub const MAX_UNUSED_AGE: Setting = Setting {
     arrived_in: ARRIVED_IN,
 };
 
+fn not_read_only() -> serde_json::Value {
+    serde_json::json!(false)
+}
+
+/// `browser_cache.read_only` (issue 3458), which each Product's testing kit
+/// turns on for its test engines (ADR 0105).
+pub const READ_ONLY: Setting = Setting {
+    name: "browser_cache.read_only",
+    description: "Whether a Run's Chromium launches only read the Browser cache: `false` by default. When on, a build with its pinned digest is launched with no use recorded, a build of the wrong digest is refused with `browser_not_installed` and left in place, and a missing build is never downloaded: `artifact_unavailable_offline` under `egress.offline`, `browser_not_installed` otherwise. The engine then writes no file of its own in the cache, its write check's included; the browser still writes in its build's files as it does at every launch. Each Product's testing kit turns it on, so a test leaves the caller's cache as it found it.",
+    kind: ValueKind::Boolean,
+    default: not_read_only,
+    clearable: false,
+    authority: Authority::Every,
+    weakens: None,
+    fixed_for_run: false,
+    unbuilt: None,
+    deprecated: None,
+    arrived_in: ARRIVED_IN,
+};
+
 /// Where Chrome for Testing publishes its builds: a pinned build's URL is
 /// `<storage>/<build>/<platform>/<archive>-<platform>.zip` below it.
 pub const CHROME_FOR_TESTING_STORAGE: &str =
@@ -457,7 +477,7 @@ pub const ENTRIES: Entries = Entries {
     ],
     plugin_kinds: &[],
     metrics: &[],
-    settings: &[MAX_UNUSED_AGE, BROWSER_MIRROR],
+    settings: &[MAX_UNUSED_AGE, READ_ONLY, BROWSER_MIRROR],
     hook_stages: &[],
     shared_type_values: &[],
 };

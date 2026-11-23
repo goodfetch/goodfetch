@@ -24,7 +24,8 @@ use goodfetch_counted_work::CountedWork;
 use goodfetch_engine::CallError;
 use goodfetch_engine::browser_cache::{
     BrowserCache, BrowserChoice, BrowserSource, BuildPlatform, CHROME_HEADLESS_SHELL,
-    CacheLocation, HeldArtifact, Pins, Platform, PlatformNotice, browser_source, installed_browser,
+    CacheLocation, CacheMode, HeldArtifact, Pins, Platform, PlatformNotice, browser_source,
+    installed_browser,
 };
 use goodfetch_engine::children::Children;
 use goodfetch_engine::deadline::Deadline;
@@ -39,7 +40,7 @@ use goodfetch_engine::sandbox_probe::{self, Probed};
 use goodfetch_engine::settings::{Resolved, RunSettings, get_or_default};
 use goodfetch_engine::transport;
 use goodfetch_protocol::browser_cache::{
-    BROWSER_NOT_INSTALLED, BrowserNotInstalledDetails, MissingBrowser,
+    BROWSER_NOT_INSTALLED, BrowserNotInstalledDetails, MissingBrowser, READ_ONLY,
 };
 use goodfetch_protocol::page::{
     BROWSER_HEADLESS, BROWSER_HEADLESS_SHELL, BROWSER_LAUNCH_FAILED, BrowserExit,
@@ -218,10 +219,12 @@ async fn executable(
             } else {
                 (name, "chrome_for_testing")
             };
+            let read_only = get_or_default(run.settings().map(RunSettings::resolved), &READ_ONLY);
             let cache = BrowserCache::new(
                 &CacheLocation::new(home.root(), home.browsers_path().map(Path::to_path_buf)),
                 run.owner().blocking_threads(),
-            );
+            )
+            .in_mode(CacheMode::of(read_only));
             let pinned = pins.browser(name, platform).ok_or_else(|| {
                 CallError::new(
                     &BROWSER_NOT_INSTALLED,

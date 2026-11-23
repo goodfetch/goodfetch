@@ -3,9 +3,9 @@
 //! starts with, and [`TestEngine`], what every Product's test engine is.
 //! A Product's kit starts the engine, linked in the test's process, in a
 //! temporary Goodfetch home with a cleared environment, `egress.offline`
-//! on, short durations and no project file unless the test names one;
-//! every host its `network.resolve` maps to loopback alone is the only one
-//! a Run's requests reach, live.
+//! and `browser_cache.read_only` on, short durations and no project file
+//! unless the test names one; every host its `network.resolve` maps to
+//! loopback alone is the only one a Run's requests reach, live.
 
 use std::collections::BTreeMap;
 use std::ffi::OsString;
@@ -17,7 +17,7 @@ use std::time::Duration;
 use serde_json::Value;
 
 use crate::error::Error;
-use crate::settings::{Settings, egress, network, timeout};
+use crate::settings::{Settings, browser_cache, egress, network, timeout};
 
 /// How long the test engine's calls wait where the catalog's defaults wait
 /// 30 s: a page's actions, navigations, waits and first bytes, and a Run's
@@ -118,10 +118,13 @@ pub trait TestEngine<C> {
 
 /// `settings` over the kit's isolations: `egress.offline` on, the hosts
 /// `network.resolve` maps to loopback alone as the only hosts allowed and
-/// the private hosts a page may reach, and the short durations.
+/// the private hosts a page may reach, `browser_cache.read_only` on, so
+/// the caller's Browser cache is left as the test found it (issue 3458),
+/// and the short durations.
 fn isolated(settings: Settings) -> Settings {
     let loopback = loopback_hosts(settings.given(network::RESOLVE.name()));
     settings
+        .or_set(browser_cache::READ_ONLY, true)
         .or_set(egress::OFFLINE, true)
         .or_set(egress::ALLOWED_DOMAINS, loopback.clone())
         .or_set(egress::PRIVATE_RANGES, loopback)
@@ -205,6 +208,7 @@ mod tests {
     fn with_no_resolve_no_host_is_allowed_and_the_durations_are_short() {
         let wire = wire(TestEngineOptions::new());
 
+        assert_eq!(wire["browser_cache"]["read_only"], json!(true));
         assert_eq!(wire["egress"]["allowed_domains"], json!([]));
         assert_eq!(wire["egress"]["private_ranges"], json!([]));
         for key in ["action", "navigation", "wait", "first_byte", "close"] {
@@ -217,10 +221,12 @@ mod tests {
         let settings = Settings::new()
             .set(egress::OFFLINE, false)
             .set(egress::ALLOWED_DOMAINS, vec!["*".to_owned()])
-            .set(timeout::NAVIGATION, Duration::from_secs(60));
+            .set(timeout::NAVIGATION, Duration::from_secs(60))
+            .set(browser_cache::READ_ONLY, false);
 
         let wire = wire(TestEngineOptions::new().settings(settings));
 
+        assert_eq!(wire["browser_cache"]["read_only"], json!(false));
         assert_eq!(wire["egress"]["offline"], json!(false));
         assert_eq!(wire["egress"]["allowed_domains"], json!(["*"]));
         assert_eq!(wire["timeout"]["navigation"], json!(60_000));

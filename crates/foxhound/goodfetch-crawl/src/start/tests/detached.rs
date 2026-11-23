@@ -79,6 +79,15 @@ fn a_crawl_start_with_a_schedules_reserved_tag_is_invalid_params() {
     "hooks",
     "`hooks`"
 )]
+#[case::request_stage_hooks(
+    json!({
+        "detached": true,
+        "extraction": extraction(),
+        "hooks": [{ "name": "sign", "stage": "before_request" }],
+    }),
+    "hooks",
+    "`hooks`"
+)]
 #[case::attached(
     json!({ "detached": true, "extraction": extraction() }),
     "engine",

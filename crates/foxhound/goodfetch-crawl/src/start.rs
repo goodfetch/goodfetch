@@ -65,7 +65,6 @@ use goodfetch_protocol::settings::{RunOrigin, TIMEOUT_RUN};
 use crate::code_free::{self, CodeFree};
 use crate::delivery;
 use crate::enqueue;
-use crate::hooks;
 use crate::invariants::Invariants;
 use crate::labels;
 use crate::outcomes;
@@ -242,7 +241,6 @@ async fn start(
     let work = context.runs().metrics().counted_work().clone();
     let pages = code_free::declare(&mut params, &pages, &work).await?;
     let settings = opened_settings(&mut params, &context).await?;
-    hooks::check(&params.hooks)?;
     let label_settings = goodfetch_fetch_tier::LabelSettings::of(&params.labels)?;
     servable::check(settings.resolved(), &label_settings)?;
     let fragments = labels::Fragments::of(settings.resolved(), &label_settings);

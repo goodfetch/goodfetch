@@ -8,11 +8,12 @@ use serde_json::{Map, Value, json};
 use super::{Calling, raised};
 use crate::delivery::failure::Why;
 
-/// What a Record-stage call sends, borrowed from the attempt, is written
-/// as `crawl_hook.handle`'s params are, so the program reads it as them.
+/// What a call sends, borrowed from the attempt, is written as
+/// `crawl_hook.handle`'s params are, so the program reads it as them: with
+/// its Record at the Record stage, and with none at a request's stage.
 #[test]
-fn a_record_stage_call_sends_crawl_hook_handles_params() {
-    let params = CrawlHookHandleParams {
+fn a_hook_call_sends_crawl_hook_handles_params() {
+    let at_record_stage = CrawlHookHandleParams {
         run_id: RunId::parse("run-1").unwrap(),
         hook: "stamp".to_owned(),
         stage: CrawlHookStage::BeforeRecordCommit,
@@ -31,19 +32,30 @@ fn a_record_stage_call_sends_crawl_hook_handles_params() {
             data: json!({ "name": "Kettle" }),
         }),
     };
-    let calling = Calling {
-        run_id: &params.run_id,
-        hook: &params.hook,
-        stage: params.stage.clone(),
-        crawl_request: &params.crawl_request,
-        attempt: params.attempt,
-        lease_epoch: params.lease_epoch,
-        record: params.record.as_ref().unwrap(),
+    let at_request_stage = CrawlHookHandleParams {
+        stage: CrawlHookStage::BeforeRequest,
+        record: None,
+        ..at_record_stage.clone()
+    };
+    let calling = |params: &CrawlHookHandleParams| {
+        serde_json::to_value(Calling {
+            run_id: &params.run_id,
+            hook: &params.hook,
+            stage: &params.stage,
+            crawl_request: &params.crawl_request,
+            attempt: params.attempt,
+            lease_epoch: params.lease_epoch,
+            record: params.record.as_ref(),
+        })
+        .unwrap()
     };
 
     assert_eq!(
-        serde_json::to_value(&calling).unwrap(),
-        serde_json::to_value(&params).unwrap()
+        (calling(&at_record_stage), calling(&at_request_stage)),
+        (
+            serde_json::to_value(&at_record_stage).unwrap(),
+            serde_json::to_value(&at_request_stage).unwrap()
+        )
     );
 }
 
@@ -90,8 +102,8 @@ fn a_hooks_failure_is_the_attempts_hook_failed(
     #[case] why: Why,
 ) {
     let failure = raised(
-        "stamp",
-        "detail",
+        &CrawlHookStage::BeforeRecordCommit,
+        ("stamp", "detail"),
         (code.to_owned(), retryable),
         "the write lost",
         &details(given),

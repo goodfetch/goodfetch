@@ -8,7 +8,7 @@ use goodfetch_protocol::foxhound::hook::{CrawlHookDeclaration, CrawlHookStage};
 use goodfetch_protocol::settings::{RunOrigin, SettingsLayer};
 use serde_json::{Value, json};
 
-use super::{Hooks, check};
+use super::Hooks;
 
 fn resolved(run: Value) -> Resolved {
     let Value::Object(run) = run else {
@@ -109,21 +109,66 @@ fn a_hook_waits_under_its_labels_timeout_else_the_runs() {
     );
 }
 
-/// A start declaring a Hook at a stage this engine does not run Hooks in
-/// code at yet is refused with `invalid_params`; the Record stage passes.
+/// Each stage's chain holds its own Hooks, in the order declared, each
+/// reaching the requests of its Labels only; a stage none is declared at,
+/// or none reaches for a Label, has none to call.
 #[test]
-fn a_hook_at_a_stage_not_run_yet_is_refused() {
-    let refused = check(&[
-        hook("stamp", CrawlHookStage::BeforeRecordCommit, None),
-        hook("sign", CrawlHookStage::BeforeRequest, None),
-    ])
-    .unwrap_err();
+fn each_request_and_page_stage_keeps_its_hooks_in_order_scoped_by_label() {
+    let detail: Option<&[&str]> = Some(&["detail"]);
+    let hooks = Hooks::of(
+        vec![
+            hook("sign", CrawlHookStage::BeforeRequest, None),
+            hook("look", CrawlHookStage::AfterResponse, detail),
+            hook("seal", CrawlHookStage::BeforeRequest, detail),
+            hook("ready", CrawlHookStage::PageReady, None),
+            hook("stamp", CrawlHookStage::BeforeRecordCommit, None),
+        ],
+        &resolved(json!({})),
+        &LabelSettings::default(),
+    );
+    let names = |stage, label| -> Vec<_> {
+        hooks
+            .on_request(&stage, label)
+            .map(|hook| hook.name.as_str())
+            .collect()
+    };
 
     assert_eq!(
         (
-            refused.code(),
-            check(&[hook("stamp", CrawlHookStage::BeforeRecordCommit, None)]).is_ok(),
+            names(CrawlHookStage::BeforeRequest, "detail"),
+            names(CrawlHookStage::BeforeRequest, "list"),
+            names(CrawlHookStage::AfterResponse, "list"),
+            names(CrawlHookStage::BeforeNavigation, "detail"),
+            names(CrawlHookStage::PageReady, "list"),
         ),
-        ("invalid_params", true)
+        (
+            vec!["sign", "seal"],
+            vec!["sign"],
+            Vec::<&str>::new(),
+            Vec::<&str>::new(),
+            vec!["ready"],
+        )
+    );
+}
+
+/// A navigation Hook makes its Labels navigate in order: a request of a
+/// Label one reaches does not race its first request against its
+/// navigation.
+#[test]
+fn a_navigation_hook_marks_the_labels_it_reaches() {
+    let hooks = |declared| Hooks::of(declared, &resolved(json!({})), &LabelSettings::default());
+    let steering = hooks(vec![
+        hook("sign", CrawlHookStage::BeforeRequest, None),
+        hook("steer", CrawlHookStage::AfterNavigation, Some(&["detail"])),
+    ]);
+    let everywhere = hooks(vec![hook("steer", CrawlHookStage::BeforeNavigation, None)]);
+
+    assert_eq!(
+        (
+            steering.navigates("detail"),
+            steering.navigates("list"),
+            everywhere.navigates("list"),
+        ),
+        (true, false, true)
     );
 }

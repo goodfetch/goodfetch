@@ -23,6 +23,7 @@ use goodfetch_fetch_tier::{
 };
 use goodfetch_protocol::foxhound::crawl::CrawlRequest;
 use goodfetch_protocol::foxhound::fetch::FetchTier;
+use goodfetch_protocol::foxhound::hook::CrawlHookStage;
 use goodfetch_protocol::page::{PageId, PageResponse};
 use goodfetch_protocol::usage::REQUESTS;
 use goodfetch_session_pool::SendsFrom;
@@ -51,6 +52,11 @@ impl On<'_> {
         raced: &Raced,
     ) -> (Answer, (Option<(Raced, Duration)>, bool)) {
         let (run, leased, lease) = (self.run, self.leased, self.lease);
+        // The race is one fetch of the request: its before-request Hooks run
+        // once, before either side leaves (ADR 0104).
+        if let Some(answer) = self.stages(&[CrawlHookStage::BeforeRequest]).await {
+            return (answer, (None, false));
+        }
         let tiers = &tiering.tiers;
         let (first, http) = match self.sent_from(tiering, http) {
             Ok(sent_from) => sent_from,

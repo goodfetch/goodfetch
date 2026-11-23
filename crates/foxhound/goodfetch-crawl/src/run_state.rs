@@ -60,6 +60,7 @@ use goodfetch_session_pool::{
 };
 use rusqlite::Connection;
 
+use crate::hooks::Hooks;
 use crate::labels;
 use crate::tier_choice::{AttemptPlan, Sampled, TierChoices, Unit, Weighed};
 use crate::tier_race::Latencies;
@@ -153,6 +154,10 @@ pub(crate) struct Drawing<'a> {
     /// The Run's `fetch.http_from`, which a Label's own setting overrides.
     pub(crate) http_from: HttpFrom,
     pub(crate) races: bool,
+    /// The Run's Hooks in code: a Label a navigation Hook reaches never
+    /// races, as a race's winning page may come with no navigation (ADR
+    /// 0104).
+    pub(crate) hooks: &'a Hooks,
     /// Whether the Run's crawl requests read site files, robots.txt or the
     /// AI-use signal files, and the Run has a transport to read them with.
     pub(crate) reads_site_files: bool,
@@ -781,7 +786,11 @@ impl RunState {
         let chosen = match choosing {
             None => Chosen::Planned(AttemptPlan::Sitemap),
             Some(Choosing::Engine) if keeps_fragment => Chosen::Planned(browser),
-            Some(Choosing::Engine) if drawing.races && !to_browser => Chosen::Racing(learned()),
+            Some(Choosing::Engine)
+                if drawing.races && !to_browser && !drawing.hooks.navigates(&request.label) =>
+            {
+                Chosen::Racing(learned())
+            }
             Some(Choosing::Forced(choice)) => Chosen::Planned(AttemptPlan::On(choice)),
             Some(Choosing::Engine) if to_browser => Chosen::Planned(browser),
             Some(Choosing::Engine) => Chosen::Planned(learned()),

@@ -57,6 +57,7 @@ export {
   projectScript,
   scriptedEngineClientMethods,
   scriptedEngineEnv,
+  scriptedEngineEnvironment,
   type Product,
 } from "./product-env.ts";
 export {

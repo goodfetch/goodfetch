@@ -23,7 +23,7 @@
 
 [suite]
 name = "clients"
-version = "51"
+version = "52"
 
 [[capability]]
 name = "lifecycle"
@@ -479,6 +479,23 @@ modes = ["attached", "linked"]
 [[capability.case]]
 id = "settings-refusals-say-how-to-fix"
 covers = ["story:11-71", "story:11-76"]
+surfaces = ["sdk-typescript", "sdk-python", "sdk-rust"]
+modes = ["attached", "linked"]
+
+# `connect()`'s environment map (ADR 0083; issue 3118): an Attached engine
+# gets exactly the `env` map as its environment, and with none TypeScript
+# and Python pass the process environment and Rust reads it once, each
+# shown in a child process the test starts with an environment of its own,
+# so no test patches its own. A `GOODFETCH_` name off the closed list
+# (`setting_unknown`), an empty value and a value the engine cannot parse,
+# a `GOODFETCH_CHANNEL` naming no channel or a
+# `GOODFETCH_DAEMON_DRAIN_GRACE` that is no whole number of milliseconds
+# (`setting_invalid`), each fail `connect()` before any engine is reached.
+# Rust plays it linked, where the engine's Goodfetch home shows the map it
+# was given.
+[[capability.case]]
+id = "connect-takes-the-environment-map"
+covers = ["story:11-73"]
 surfaces = ["sdk-typescript", "sdk-python", "sdk-rust"]
 modes = ["attached", "linked"]
 

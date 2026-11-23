@@ -1,0 +1,8 @@
+---
+source: crates/goodfetch-collie/tests/it/service_manager.rs
+expression: json.to_string()
+---
+exit: 0
+----- stdout -----
+{"pid":null,"major":"0.0","product":null,"version":null,"address":null,"service":{"manager":"systemd","name":"[SERVICE_NAME]","socket":"[SOCKET_FOLDER]/daemon.sock","executable":"[EXECUTABLE_COPY]","files":["[USER_UNITS]/[SERVICE_NAME].socket","[USER_UNITS]/[SERVICE_NAME].service"]}}
+----- stderr -----

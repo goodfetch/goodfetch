@@ -339,6 +339,16 @@ impl Page {
         crate::blocking::RawCall::new(self.inner.call(operation), self.inner.host.connection())
     }
 
+    /// Its `session`, which every answer that opens a `page` names,
+    /// answered without a call: a clone of the `session` that opened or told
+    /// of it, or of the one its opener keeps (ADRs 0078, 0092).
+    #[must_use]
+    pub fn session(&self) -> Session {
+        Session {
+            inner: self.inner.session(),
+        }
+    }
+
     /// Closes the page, a popup as any other: its calls in flight raise `call_cancelled` naming the program, it emits `close`, and a later call on it raises `closed`, while closing it again changes nothing. Its `beforeunload` handlers do not run unless `run_before_unload` is set: the page then closes once they let it, a dialog they raise going to its dialog handlers, and the call answers without waiting for that.
     ///
     /// Experimental: outside semver until it is promoted (ADR 0030).

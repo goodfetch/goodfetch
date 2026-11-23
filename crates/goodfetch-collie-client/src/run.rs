@@ -13,7 +13,7 @@ use std::pin::Pin;
 use std::sync::Arc;
 
 use goodfetch_protocol::catalog::SettingScope;
-use goodfetch_protocol::page::PageId;
+use goodfetch_protocol::page::{PageId, SessionId};
 use goodfetch_protocol::run::{
     RUN_PROGRESS_READ, RUN_START, RunId, RunProgress, RunStartParams, RunStarted, StartedAs, Tags,
 };
@@ -25,8 +25,8 @@ use crate::call::Query;
 use crate::connection::ClientConnection;
 use crate::error::Error;
 use crate::event_stream::EventStream;
-use crate::generated::handles::{Page, Run};
-use crate::host::{HeldRun, Host};
+use crate::generated::handles::{Page, Run, Session};
+use crate::host::{HeldRun, Host, Kept};
 use crate::limits::Limits;
 use crate::logging::{self, engine_log_level};
 use crate::settings::Settings;
@@ -157,6 +157,7 @@ impl ClientConnection {
             Ok(Run {
                 host: Host::run(held),
                 opened: Arc::new(started),
+                sessions: Kept::default(),
             })
         }
     }
@@ -262,14 +263,20 @@ impl Run {
         EventStream::from_items(progress::Following::new(self.host.clone()))
     }
 
-    /// The handle of the Run's page `page_id`, which the engine opened
-    /// rather than the program, such as the page a Product serves a crawl
-    /// attempt's document on (ADR 0093). It sends nothing, and dropping it
-    /// leaves the page open: what opened the page closes it.
+    /// The handle of the Run's page `page_id` in its Session `session_id`,
+    /// which the engine opened rather than the program, such as the page a
+    /// Product serves a crawl attempt's document on (ADR 0093). It sends
+    /// nothing, and dropping it leaves the page open: what opened the page
+    /// closes it. Its [`Page::session`] is the one the Run keeps of that
+    /// ID, which its other pages there share.
     #[must_use]
-    pub fn page_of(&self, page_id: PageId) -> Page {
+    pub fn page_of(&self, page_id: PageId, session_id: SessionId) -> Page {
+        let session = self.sessions.share(session_id, |id| Session {
+            host: self.host.reached(id),
+        });
         Page {
-            host: self.host.reached(page_id),
+            host: session.host.reached(page_id),
+            session,
         }
     }
 

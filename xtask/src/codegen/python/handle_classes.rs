@@ -80,6 +80,7 @@ use super::settings::{
 use super::{CALLER_MODULE, deprecated_decorator, docstring, header, markers_import, warnings};
 
 mod answered;
+mod holders;
 mod listeners;
 mod setting_values;
 
@@ -852,15 +853,7 @@ fn classes(
             text.push_str(&member(layer, held, &handle.id, mode, imports)?);
         }
     }
-    // A handle with reads is built with the answer that opened it, which
-    // they answer from.
-    let own_constructor = match &handle.reads {
-        None => constructor.trim_end().to_owned(),
-        Some(reads) => format!(
-            "\n    def __init__(self, host: {host}, opened: {}) -> None:\n        \"\"\"Takes what it reaches its engine through and the answer that opened it; a program never constructs one.\"\"\"\n        self._host = host\n        self._opened = opened",
-            imports.model(&reads.opened)
-        ),
-    };
+    let own_constructor = holders::constructor(handle, &host, mode, imports);
     let _ = write!(
         text,
         "\n\nclass {class}({}):\n    \"\"\"A `{}` a program holds: the members the catalog gives it (ADR 0099).\"\"\"\n{own_constructor}\n        super().__init__(host, {:?}, {:?})\n",
@@ -882,6 +875,7 @@ fn classes(
             name = sub_object.name
         );
     }
+    text.push_str(&holders::members(handle, mode, imports));
     for held in &handle.members {
         text.push('\n');
         text.push_str(&member(layer, held, &handle.id, mode, imports)?);

@@ -210,7 +210,7 @@ fn backports_lists_the_labelled_commits_the_branch_lacks() {
 }
 
 #[test]
-fn backports_counts_a_fix_cherry_picked_with_changes_as_the_branchs() {
+fn backports_counts_a_fix_cherry_picked_with_changes_as_on_the_branch() {
     let line = line();
     let workspace = &line.workspace;
     workspace.git(&["switch", "--quiet", "release/1.3"]);

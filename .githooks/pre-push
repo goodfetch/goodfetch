@@ -21,6 +21,11 @@
 # on it reuses nothing (ADR 0135). Each records the commits it judged green
 # in the gate's records, so neither this hook nor `just merge` judges one of
 # them again; a reworded commit is another commit, and is judged.
+#
+# A push to `spec/<n>`, a run's ticket, runs no `just quick`: the batch that
+# holds the spec's pull request runs it once on the combined tree (`just
+# batch-check`; TESTING.md, Checks by role, the owner's decision of
+# 2026-11-23). Its commits are judged all the same.
 set -euo pipefail
 # git gives this hook the push's GIT_DIR (a linked worktree's), and a build
 # script's `git init` under `just quick` (btls-sys's) would then reinitialize
@@ -34,10 +39,14 @@ head=$(git rev-parse HEAD)
 base=""
 due=0
 pushed=""
-while read -r _local_ref local_oid _remote_ref remote_oid; do
+while read -r _local_ref local_oid remote_ref remote_oid; do
   # A deletion pushes no tree.
   [[ $local_oid =~ ^0+$ ]] && continue
   pushed="$pushed $local_oid"
+  if [[ $remote_ref == refs/heads/spec/* ]]; then
+    echo "pre-push: a push to ${remote_ref#refs/heads/} runs no \`just quick\`: its batch's \`just batch-check\` runs it on the combined tree."
+    continue
+  fi
   tree=$(git rev-parse "$local_oid^{tree}")
   if grep -qxF "$tree" "$stamps" 2>/dev/null; then
     echo "pre-push: \`just quick\` already passed on tree $tree, so it does not run again."

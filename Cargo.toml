@@ -172,8 +172,9 @@ goodfetch-cdp = { path = "crates/goodfetch-cdp" }
 goodfetch-clean-up-rules = { path = "crates/goodfetch-clean-up-rules" }
 # Collie's client crate, no engine (spec #606, ADR 0095): the Connection,
 # its transports and `Call<T>`; it depends on neither SDK crate nor any
-# Foxhound crate.
-goodfetch-collie-client = { path = "crates/goodfetch-collie-client" }
+# Foxhound crate. Both SDK crates take it at exactly their own version, so
+# their values are one type (ADR 0095); `xtask release prepare` repins it.
+goodfetch-collie-client = { path = "crates/goodfetch-collie-client", version = "=0.0.0" }
 goodfetch-collie = { path = "crates/goodfetch-collie" }
 # Counted work (ADR 0140): the counts, and each primitive's counted function.
 goodfetch-counted-work = { path = "crates/goodfetch-counted-work" }

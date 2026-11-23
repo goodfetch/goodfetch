@@ -888,11 +888,11 @@ pub const WORK_ITEM_LEASED: Metric = Metric {
     arrived_in: ARRIVED_IN,
 };
 
-/// `goodfetch.work_item.queued`: the crawls' work items waiting in their
-/// per-domain queues (ADR 0050).
+/// `goodfetch.work_item.queued`: the crawls' work items waiting to be
+/// leased, the Frontier's whole depth (ADR 0050).
 pub const WORK_ITEM_QUEUED: Metric = Metric {
     name: "goodfetch.work_item.queued",
-    description: "The crawls' work items waiting in their per-domain queues to be admitted, each queue holding at most 64; those still in the Frontier past that bound are not counted.",
+    description: "The crawls' work items waiting to be leased: the Frontier's whole depth, in their per-domain queues and past them.",
     instrument: Instrument::UpDownCounter,
     unit: "{work_item}",
     labels: &[],

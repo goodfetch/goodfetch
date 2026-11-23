@@ -231,8 +231,7 @@ pub trait Gate: Send {
     }
 
     /// How many requests wait in it, of every key, those of a key at its
-    /// concurrency included: what `goodfetch.work_item.queued` counts (ADR
-    /// 0050), kept as they come and go. None by default.
+    /// concurrency included, kept as they come and go. None by default.
     fn waiting(&self) -> usize {
         0
     }
@@ -516,11 +515,6 @@ impl Admission {
     /// group with at most `sample` keys, as [`Gate::queued`] says.
     pub fn queued(&mut self, now: Instant, sample: usize) -> Vec<QueuedGroup> {
         self.gate.queued(now, sample)
-    }
-
-    /// How many requests wait in its gate, as [`Gate::waiting`] says.
-    pub fn waiting(&self) -> usize {
-        self.gate.waiting()
     }
 
     /// The key a request to `url` waits under.

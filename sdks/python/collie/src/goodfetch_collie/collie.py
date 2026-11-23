@@ -126,7 +126,8 @@ class AsyncCollie(AsyncConnection):
         returns at once. An amount the SDK cannot turn exactly, a `timeout`
         of zero or less, a `max_listener_queue` that is no whole number of 1
         or more, a refused `engine` or `GOODFETCH_URL`, or a deployment
-        variable set but empty or not Unicode (`setting_invalid`), a
+        variable set but empty, not Unicode or unparsable by the engine
+        (`setting_invalid`), a
         `GOODFETCH_` variable off the closed list (`setting_unknown`, naming
         the closest), a missing executable (`engine_not_found`), a Daemon
         nothing reaches or that refuses its token (`daemon_unreachable`), a
@@ -365,7 +366,8 @@ class Collie(Connection):
         returns at once. An amount the SDK cannot turn exactly, a `timeout`
         of zero or less, a `max_listener_queue` that is no whole number of 1
         or more, a refused `engine` or `GOODFETCH_URL`, or a deployment
-        variable set but empty or not Unicode (`setting_invalid`), a
+        variable set but empty, not Unicode or unparsable by the engine
+        (`setting_invalid`), a
         `GOODFETCH_` variable off the closed list (`setting_unknown`, naming
         the closest), a missing executable (`engine_not_found`), a Daemon
         nothing reaches or that refuses its token (`daemon_unreachable`), a

@@ -50,6 +50,16 @@ export const DEPLOYMENT_VARIABLES = [
   "GOODFETCH_URL",
 ] as const;
 
+/** The channels an executable can come from, the names `GOODFETCH_CHANNEL` takes (ADR 0090). */
+export const CHANNELS = [
+  "npm",
+  "pypi",
+  "crates-io",
+  "homebrew",
+  "oci",
+  "installer",
+] as const;
+
 /** The project configuration's file `connect()` reads, found in the working directory or the nearest folder above it (ADR 0083). */
 export const PROJECT_FILE = "goodfetch.toml";
 

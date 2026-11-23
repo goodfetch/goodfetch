@@ -573,6 +573,12 @@ impl WorkItemLease {
         self.0.leases.staging.pushed(&self.0.work_item, epoch)
     }
 
+    /// Whether its work item declared an Effect, in this attempt or an
+    /// earlier one (ADR 0106).
+    pub(crate) fn declares_effect(&self) -> bool {
+        self.0.leases.staging.declares_effect(&self.0.work_item)
+    }
+
     /// Discards what its attempt staged and did not commit.
     fn discard(&self) {
         let epoch = self.0.state.borrow().lease.epoch();

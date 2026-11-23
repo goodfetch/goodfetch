@@ -6,250 +6,9 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use super::steps::{self, Form, Owner};
+use super::steps::{self, Form, Owner, Reach, Step};
 use crate::affected::{Job, RepoPath, Selection};
 use crate::products;
-
-/// A step of `just pre-merge all` that the gate records, declared in the
-/// order `ci/pre-merge.sh` starts them (`steps`): the checks that judge the
-/// whole change in seconds first, so the gate's log opens with their
-/// verdicts, then those beside the host's, then the host's others. A red
-/// step ends no gate: every step runs and records its result.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
-pub(crate) enum Step {
-    Dco,
-    CommitMessages,
-    FloorGuard,
-    CommitLeaks,
-    Audit,
-    Notices,
-    Perf,
-    Counts,
-    Linux,
-    Visual,
-    Tlc,
-    Miri,
-    Loom,
-    Windows,
-    Lint,
-    FeatureCombinations,
-    FuzzCheck,
-    Proofs,
-    Quick,
-    PreMerge,
-    Stress,
-    JourneysTasks,
-    FeaturesTests,
-    Kennel,
-    Msrv,
-    /// xtask's codegen tests, `tests/` tests the Quick suite never runs, when
-    /// the change reaches what only they check (`xtask affected`'s
-    /// `codegen-tests=true`): the quick form's last step, so a change to the
-    /// emitter or to the protocol files their fixture copies cannot merge on
-    /// the quick gate with them red (issue 2892). The full forms' Pre-merge
-    /// suite runs them with every other test.
-    CodegenTests,
-}
-
-/// What a step's result depends on, besides the gate's own inputs.
-#[derive(Clone, Copy)]
-enum Reach {
-    /// A check that judges the whole change and takes seconds or minutes:
-    /// every run reruns it.
-    Always,
-    /// A check whose result follows from the tree and the host: it reruns on
-    /// another tree, whatever the change reaches. Lint's also follows from
-    /// the day and GitHub, which the plan reads again ([`LintReads`]).
-    Tree,
-    /// The step runs when the selection runs this job of the pull-request
-    /// tier.
-    Job(Job),
-    /// The step builds every crate.
-    Crates,
-    /// The step runs the tests of each member separately: a crate's, a pnpm
-    /// or a uv package's.
-    Members,
-}
-
-impl Step {
-    /// Every step, in the order `ci/pre-merge.sh` starts them.
-    pub(crate) const ALL: [Self; 26] = [
-        Self::Dco,
-        Self::CommitMessages,
-        Self::FloorGuard,
-        Self::CommitLeaks,
-        Self::Audit,
-        Self::Notices,
-        Self::Perf,
-        Self::Counts,
-        Self::Linux,
-        Self::Visual,
-        Self::Tlc,
-        Self::Miri,
-        Self::Loom,
-        Self::Windows,
-        Self::Lint,
-        Self::FeatureCombinations,
-        Self::FuzzCheck,
-        Self::Proofs,
-        Self::Quick,
-        Self::PreMerge,
-        Self::Stress,
-        Self::JourneysTasks,
-        Self::FeaturesTests,
-        Self::Kennel,
-        Self::Msrv,
-        Self::CodegenTests,
-    ];
-
-    /// The step's name in the plan, the record and `ci/pre-merge.sh`.
-    pub(crate) const fn name(self) -> &'static str {
-        match self {
-            Self::Dco => "dco",
-            Self::CommitMessages => "commit-messages",
-            Self::FloorGuard => "floor-guard",
-            Self::Lint => "lint",
-            Self::FeatureCombinations => "feature-combinations",
-            Self::Audit => "audit",
-            Self::CommitLeaks => "commit-leaks",
-            Self::FuzzCheck => "fuzz-check",
-            Self::Proofs => "proofs",
-            Self::JourneysTasks => "journeys-tasks",
-            Self::FeaturesTests => "features-tests",
-            Self::Notices => "notices",
-            Self::Perf => "perf",
-            Self::Counts => "counts",
-            Self::Linux => "linux",
-            Self::Visual => "visual",
-            Self::Quick => "quick",
-            Self::PreMerge => "pre-merge",
-            Self::Stress => "stress",
-            Self::Tlc => "tlc",
-            Self::Msrv => "msrv",
-            Self::Miri => "miri",
-            Self::Loom => "loom",
-            Self::Windows => "windows",
-            Self::Kennel => "kennel",
-            Self::CodegenTests => "codegen-tests",
-        }
-    }
-
-    pub(crate) fn from_name(name: &str) -> Option<Self> {
-        Self::ALL.into_iter().find(|step| step.name() == name)
-    }
-
-    const fn reach(self) -> Reach {
-        match self {
-            Self::Dco
-            | Self::CommitMessages
-            | Self::FloorGuard
-            | Self::Audit
-            | Self::CommitLeaks
-            | Self::FeaturesTests
-            | Self::Notices => Reach::Always,
-            // The Journey task lists follow from the tree's Proving ground,
-            // and the codegen tests from the tree and its base.
-            Self::Lint
-            | Self::FeatureCombinations
-            | Self::FuzzCheck
-            | Self::Proofs
-            | Self::JourneysTasks
-            | Self::CodegenTests => Reach::Tree,
-            // The counted rows read the benchmarks perf reads, and judge them
-            // against the register's limits, never against the base.
-            Self::Perf | Self::Counts => Reach::Job(Job::Perf),
-            // On a Linux host the Pre-merge suite runs these tests itself;
-            // elsewhere they are a slice of it, in a container.
-            Self::Linux => Reach::Job(Job::PreMerge),
-            Self::Visual => Reach::Job(Job::Visual),
-            Self::Tlc => Reach::Job(Job::Tlc),
-            Self::Kennel => Reach::Job(Job::Kennel),
-            Self::Msrv | Self::Miri | Self::Loom | Self::Windows => Reach::Crates,
-            Self::Quick | Self::PreMerge | Self::Stress => Reach::Members,
-        }
-    }
-
-    /// Whether the step reads only the change's commits and the bar, which
-    /// every form of the gate runs first, the docs form's included.
-    pub(crate) const fn reads_the_commits(self) -> bool {
-        matches!(
-            self,
-            Self::Dco | Self::CommitMessages | Self::FloorGuard | Self::CommitLeaks
-        )
-    }
-
-    /// Whether the step judges the whole change in seconds: those that read
-    /// its commits, the advisories and the notices, which the gate runs
-    /// before any build and any step beside the host's.
-    pub(crate) const fn judges_the_whole_change(self) -> bool {
-        self.reads_the_commits() || matches!(self, Self::Audit | Self::Notices)
-    }
-
-    /// Whether the step runs beside the host's: those that need Linux, in
-    /// a container of their own where the host is not Linux, TLC, Miri
-    /// (#2090's F7) and loom (#2200), and the Windows build under Wine
-    /// (#2767), in a container of its own. Each builds and writes in
-    /// folders of its own (`target/tlc/`, `target/miri/`, `target/loom/`,
-    /// `target/windows/`), and its verdict follows from the
-    /// tree and its pinned tools, whatever runs beside it; what it shares
-    /// with the host's steps, it only reads or waits for (ADR 0135's note
-    /// of 2026-11-13). The Kennel's
-    /// check stays on the host, after the suites: it builds the test tools
-    /// into the build folder the suites' own are in, with the features of
-    /// its own build (`kennel/scripts/check.sh`), so beside them each could
-    /// replace an executable under the other's tests.
-    pub(crate) const fn beside(self) -> bool {
-        matches!(
-            self,
-            Self::Perf
-                | Self::Counts
-                | Self::Linux
-                | Self::Visual
-                | Self::Tlc
-                | Self::Miri
-                | Self::Loom
-                | Self::Windows
-        )
-    }
-
-    /// The step whose units hold this one's, member by member: the Pre-merge
-    /// suite's selection of a member holds every Quick test of it, so where
-    /// the full gate runs or reuses a member's Pre-merge unit, which it does
-    /// for every member, its Quick unit is covered and never runs beside it
-    /// (ADR 0135's amendment of 2026-11-22).
-    /// The Pre-merge suite runs xtask's codegen tests with every other test,
-    /// so they are covered alike.
-    pub(crate) const fn covered_by(self) -> Option<Self> {
-        match self {
-            Self::Quick | Self::CodegenTests => Some(Self::PreMerge),
-            _ => None,
-        }
-    }
-
-    /// Whether the step runs each member's tests separately.
-    pub(crate) const fn per_member(self) -> bool {
-        matches!(self.reach(), Reach::Members)
-    }
-
-    /// Whether the step runs Vitest, Playwright and pytest, which order
-    /// their tests by the head's seed (TESTING.md, Before merge).
-    const fn orders_by_the_head(self) -> bool {
-        matches!(self, Self::Quick | Self::PreMerge | Self::Stress)
-    }
-
-    /// Whether the step asks each test for a count of clean passes, which a
-    /// red run may leave part way ([`EarnedPasses`]).
-    pub(crate) const fn counts_passes(self) -> bool {
-        matches!(self, Self::Stress)
-    }
-
-    /// Whether the step compares the head with the change's base (the merge
-    /// base with `origin/main`), so its result holds only for that base. The
-    /// codegen tests run only when the change since the base reaches them.
-    const fn reads_the_base(self) -> bool {
-        matches!(self, Self::Perf | Self::Stress | Self::CodegenTests)
-    }
-}
 
 /// The paths whose change reruns every step in full, but those [`NARROWED`]
 /// names: the gate's own commands and scripts, the tools' versions and
@@ -750,22 +509,151 @@ pub(crate) fn plan(
     earlier: &Earlier<'_>,
     touched: &BTreeMap<String, Touched>,
 ) -> Vec<Planned> {
+    // The hosted tier runs no Pre-merge suite of a member whose tests launch
+    // a browser or use an OS service: `just merge` runs those.
+    let unhosted: BTreeSet<String> = if head.layer == Layer::Hosted {
+        head.members
+            .iter()
+            .filter(|member| !launches_no_browser(head, member))
+            .cloned()
+            .collect()
+    } else {
+        BTreeSet::new()
+    };
+    let mut pre_merge = plan_step(Step::PreMerge, head, earlier, touched, &unhosted);
+    if let Action::Part { why, .. } = &mut pre_merge.action
+        && !unhosted.is_empty()
+    {
+        why.push_str(
+            "; the members whose tests launch a browser or use an OS service run on the gate host",
+        );
+    }
+    let in_hand = held_by(&pre_merge, head);
     Step::ALL
         .into_iter()
-        .map(|step| plan_step(step, head, earlier, touched))
+        .map(|step| {
+            if step == Step::PreMerge {
+                pre_merge.clone()
+            } else if step.covered_by() == Some(Step::PreMerge) {
+                plan_covered(step, (head, earlier, touched), &pre_merge, &in_hand)
+            } else {
+                plan_step(step, head, earlier, touched, &BTreeSet::new())
+            }
+        })
         .collect()
 }
 
-/// One step's action for `head`, as [`plan`] says.
+/// The crates whose tests launch Chrome for Testing or use an OS service
+/// (ADR 0059's extra loopback addresses, the Secret Service, `tc netem`, the
+/// user's service manager): the hosted tier's Pre-merge shards run none of
+/// their tests until its browser shards do (spec #3373). A crate whose
+/// tests come to launch the browser joins it: `.config/nextest.toml` names
+/// each such test for the cells without the pinned build, and a unit test
+/// holds every crate it names here.
+pub(crate) const BROWSER_OR_SERVICE_CRATES: [&str; 10] = [
+    "goodfetch-collie",
+    "goodfetch-collie-client",
+    "goodfetch-conformance",
+    "goodfetch-engine",
+    "goodfetch-fetch-tier",
+    "goodfetch-foxhound",
+    "goodfetch-page",
+    "goodfetch-proving-ground",
+    "goodfetch-test-support",
+    XTASK,
+];
+
+/// Whether `member`'s tests launch no browser and use no OS service: a
+/// crate outside [`BROWSER_OR_SERVICE_CRATES`]. Vitest's, Playwright's and
+/// pytest's members drive the Products, so none is.
+fn launches_no_browser(head: &Head<'_>, member: &str) -> bool {
+    !head.shuffled.contains(member)
+        && member != UNOWNED
+        && !BROWSER_OR_SERVICE_CRATES.contains(&member)
+}
+
+/// The members whose Pre-merge unit this run holds: those it carries, and
+/// those it runs where the form runs the Pre-merge suite.
+fn held_by(pre_merge: &Planned, head: &Head<'_>) -> BTreeSet<String> {
+    let runs_here = steps::runs_in(Step::PreMerge, head.form);
+    head.members
+        .iter()
+        .filter(|member| {
+            pre_merge
+                .carried
+                .contains_key(&unit(Step::PreMerge, Some(member)))
+                || (runs_here
+                    && match &pre_merge.action {
+                        Action::Run { .. } => {
+                            head.layer != Layer::Hosted || launches_no_browser(head, member)
+                        }
+                        Action::Part { members, .. } => members.contains(*member),
+                        _ => false,
+                    })
+        })
+        .cloned()
+        .collect()
+}
+
+/// The plan of a step the Pre-merge suite's units cover ([`Step::covered_by`]):
+/// covered in full where the form runs that suite for every member, else
+/// member by member, by the members whose Pre-merge unit the run holds
+/// (`in_hand`). Red when the Pre-merge suite's plan is: a hosted unit red on
+/// the head's tree is the gate's verdict (ADR 0064).
+fn plan_covered(
+    step: Step,
+    (head, earlier, touched): (&Head<'_>, &Earlier<'_>, &BTreeMap<String, Touched>),
+    pre_merge: &Planned,
+    in_hand: &BTreeSet<String>,
+) -> Planned {
+    if head.layer != Layer::Hosted
+        && let Some(planned) = covered(step, head.form)
+    {
+        return planned;
+    }
+    if let Action::Red { why } = &pre_merge.action {
+        return carrying_nothing(
+            step,
+            Action::Red {
+                why: format!("{} is red: {why}", Step::PreMerge.name()),
+            },
+        );
+    }
+    let all_held = !head.members.is_empty() && head.members.iter().all(|m| in_hand.contains(m));
+    let covered_here = if step.per_member() {
+        all_held
+    } else {
+        // xtask's Pre-merge unit runs its codegen tests.
+        in_hand.contains(XTASK)
+    };
+    if covered_here {
+        return carrying_nothing(step, Action::Covered { by: Step::PreMerge });
+    }
+    let skipped = if step.per_member() {
+        in_hand.clone()
+    } else {
+        BTreeSet::new()
+    };
+    let mut planned = plan_step(step, head, earlier, touched, &skipped);
+    if let Action::Part { why, .. } = &mut planned.action
+        && !skipped.is_empty()
+    {
+        why.push_str("; the others' tests are covered by ");
+        why.push_str(Step::PreMerge.name());
+        why.push_str(", whose unit of each the run holds");
+    }
+    planned
+}
+
+/// One step's action for `head`, as [`plan`] says, judging every member but
+/// those of `skipped`, which it neither runs nor carries.
 fn plan_step(
     step: Step,
     head: &Head<'_>,
     earlier: &Earlier<'_>,
     touched: &BTreeMap<String, Touched>,
+    skipped: &BTreeSet<String>,
 ) -> Planned {
-    if let Some(planned) = covered(step, head.form) {
-        return planned;
-    }
     let owner = Owner::of(step);
     if head.layer == Layer::Hosted && owner != Owner::Hosted {
         return carrying_nothing(step, Action::Left { owner });
@@ -791,7 +679,11 @@ fn plan_step(
     let mut red = Vec::new();
     let mut carried = BTreeMap::new();
     let mut earned = BTreeMap::new();
-    for member in head.members {
+    for member in head
+        .members
+        .iter()
+        .filter(|member| !skipped.contains(*member))
+    {
         match judge(Some(member)) {
             Ok(outcome) => {
                 carried.insert(unit(step, Some(member)), outcome);

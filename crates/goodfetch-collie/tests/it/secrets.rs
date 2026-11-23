@@ -47,6 +47,17 @@ fn planted(env: &TestEnv) -> (Canaries, String, String) {
 /// The replies of an Attached engine started with `variables`, to a `run.start`
 /// of `run_id` and, when it started, its `run.finish`.
 fn started(env: &TestEnv, variables: &[(&str, &str)], run_id: &str) -> Vec<Value> {
+    started_ending(env, variables, run_id, Attached::finish)
+}
+
+/// As [`started`], the engine ended by `end`: [`Attached::finish_unlogged`]
+/// for one that refuses its configuration and so writes no JSON log.
+fn started_ending(
+    env: &TestEnv,
+    variables: &[(&str, &str)],
+    run_id: &str,
+    end: fn(Attached) -> (Vec<Value>, bool),
+) -> Vec<Value> {
     let mut engine = Attached::start_with(env, COLLIE, MESSAGE_DEADLINE, |command| {
         for (name, value) in variables {
             command.env(name, value);
@@ -58,7 +69,7 @@ fn started(env: &TestEnv, variables: &[(&str, &str)], run_id: &str) -> Vec<Value
     if replies[0].get("result").is_some() {
         replies.push(engine.ask(2, "run.finish", &json!({ "run_id": run_id })));
     }
-    let (rest, _) = engine.finish();
+    let (rest, _) = end(engine);
     replies.extend(rest);
     replies
 }
@@ -90,7 +101,7 @@ fn a_raw_value_as_the_key_reference_is_refused_with_setting_invalid_naming_no_va
     let configuration = HomeLayout::of(env.home()).user_configuration();
     canaries.record_planted(&id, &configuration.display().to_string());
 
-    let replies = started(&env, &[], "raw");
+    let replies = started_ending(&env, &[], "raw", Attached::finish_unlogged);
 
     assert_eq!(
         (

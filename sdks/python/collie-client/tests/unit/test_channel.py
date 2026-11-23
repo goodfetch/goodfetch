@@ -16,7 +16,7 @@ import anyio
 import anyio.lowlevel
 import pytest
 from anyio.abc import ByteStream
-from goodfetch_collie_client._rpc import Channel, TransportEnd
+from goodfetch_collie_client._rpc import Channel, ServedRequest, TransportEnd
 from goodfetch_collie_client.generated.errors import CallCancelledError
 
 if TYPE_CHECKING:
@@ -63,6 +63,10 @@ class _Owner:
 
     def notified(self, method: str, params: object) -> None:
         del method, params
+
+    def serves(self, request: ServedRequest) -> bool:
+        del request
+        return False
 
 
 @pytest.mark.anyio

@@ -1,5 +1,6 @@
 use std::collections::BTreeSet;
 
+use crate::catalog::ValueKind;
 use crate::entries::MODULES;
 
 /// Covers: story:3-86
@@ -8,12 +9,17 @@ fn every_key_of_the_schema_names_its_area_first() {
     let without_area: Vec<&str> = MODULES
         .iter()
         .flat_map(|entries| entries.settings)
-        .map(|setting| setting.name)
-        .filter(|name| {
-            let segments: Vec<&str> = name.split('.').collect();
+        .filter(|setting| {
+            let segments: Vec<&str> = setting.name.split('.').collect();
+            // A map's entries name the next segment, as `sinks.<name>`.
+            let least = if matches!(setting.kind, ValueKind::Map(_)) {
+                1
+            } else {
+                2
+            };
             // snake_case: a lowercase letter first, then lowercase letters,
             // digits and underscores, as `egress.rotation_block.ipv4`.
-            segments.len() < 2
+            segments.len() < least
                 || segments.iter().any(|segment| {
                     !segment.starts_with(|first: char| first.is_ascii_lowercase())
                         || !segment.bytes().all(|byte| {
@@ -21,6 +27,7 @@ fn every_key_of_the_schema_names_its_area_first() {
                         })
                 })
         })
+        .map(|setting| setting.name)
         .collect();
 
     assert_eq!(without_area, Vec::<&str>::new());

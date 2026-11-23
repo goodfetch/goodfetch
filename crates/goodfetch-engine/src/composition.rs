@@ -104,6 +104,9 @@ pub(crate) struct ConnectionContext {
     /// engine accepted: the run layer at the connection scope, beneath
     /// each Run's own (ADR 0083); set with the surface.
     pub(crate) settings: OnceLock<Map<String, Value>>,
+    /// The run layer's `registered` values its `hello`'s SDK handlers give,
+    /// beneath every other run-layer value (ADR 0104); set with the surface.
+    pub(crate) registered: OnceLock<Map<String, Value>>,
     /// The driver of each kind of Run that has one, which a resume starts
     /// again.
     pub(crate) drivers: Arc<BTreeMap<RunKind, Driver>>,
@@ -253,6 +256,15 @@ impl CallContext {
     pub fn connection_settings(&self) -> &Map<String, Value> {
         self.connection
             .settings
+            .get()
+            .expect("invariant: a call runs only on a Connection whose `hello` was answered")
+    }
+
+    /// The run layer's `registered` values the Connection's SDK handlers
+    /// give, by dotted key: empty when none has one (ADR 0104).
+    pub fn registered_settings(&self) -> &Map<String, Value> {
+        self.connection
+            .registered
             .get()
             .expect("invariant: a call runs only on a Connection whose `hello` was answered")
     }

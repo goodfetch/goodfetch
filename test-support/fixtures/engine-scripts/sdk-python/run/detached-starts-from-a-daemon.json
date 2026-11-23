@@ -1,5 +1,5 @@
 {
-  "description": "A Python Client's hello accepted by a Collie Daemon, its token carried, then the handler-less starts (ADRs 0036 and 0102): the Recipe `shop-prices` started with every start option, its Run ID, tags, Limits, settings, recording, timeout and `detached`, and a code-free catalog run of each target kind, `extract`, `agent` and `plan_replay`, each with every field it takes, its JSON values sent as written, detached too, one with no timeout. The Client then closes with no `run.abort`, since a detached Run outlives its program: the Daemon keeps each Run once the Client is gone. TypeScript's `run/detached-starts-from-a-daemon.json` is its twin.",
+  "description": "A Python Client's hello accepted by a Collie Daemon, its token carried, then the handler-less starts (ADRs 0036 and 0102): the Recipe `shop-prices` started with every start option, its Run ID, tags, Limits, settings, recording, timeout and `detached`, and a code-free catalog run of each target kind, `extract`, `agent` and `plan_replay`, each with every field it takes, its JSON values sent as written, detached too, one with no timeout. Between them, the Recipe started under the Run ID `weekly-prices`, which resumes it, and a Plan replay under `checkout-done`, which finds it ended (ADR 0102). The Client then closes with no `run.abort`, since a detached Run outlives its program: the Daemon keeps each Run once the Client is gone. TypeScript's `run/detached-starts-from-a-daemon.json` is its twin.",
   "steps": [
     {
       "expect": {
@@ -89,6 +89,49 @@
           "lifecycle": "running",
           "needs": "collie",
           "started_as": "new"
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "recipe.start",
+        "params": {
+          "recipe": "shop-prices",
+          "run_id": "weekly-prices",
+          "detached": true
+        }
+      }
+    },
+    {
+      "reply": {
+        "result": {
+          "run_id": "weekly-prices",
+          "lifecycle": "running",
+          "needs": "collie",
+          "started_as": "resumed"
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "catalog_run.start",
+        "params": {
+          "target": {
+            "kind": "plan_replay",
+            "plan": "plans/checkout.json"
+          },
+          "run_id": "checkout-done",
+          "detached": true
+        }
+      }
+    },
+    {
+      "reply": {
+        "result": {
+          "run_id": "checkout-done",
+          "lifecycle": "finished",
+          "needs": "collie",
+          "started_as": "ended"
         }
       }
     },

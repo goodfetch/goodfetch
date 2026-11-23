@@ -1,0 +1,30 @@
+[package]
+name = "goodfetch-sink"
+description = "Foxhound's Sinks: the delivery contract every Sink keeps (a delivery ID and the run epoch on every write, ADRs 0003, 0008 and 0026), the delivery driver above every Sink (ADR 0129) and the in-binary SQLite Sink."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dependencies]
+# The committed Records a delivery reads, through the Dataset's own query.
+goodfetch-dataset.workspace = true
+# The Guarantee class a probe reports, the protocol's own (ADR 0026).
+goodfetch-protocol.workspace = true
+# A Record's commit time, written RFC 3339 into the destination.
+jiff.workspace = true
+rusqlite.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+goodfetch-workspace-hack.workspace = true
+
+[dev-dependencies]
+goodfetch-test-support.workspace = true
+rstest.workspace = true
+tempfile.workspace = true
+
+[lints]
+workspace = true

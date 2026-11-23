@@ -33,8 +33,16 @@ channel whose link drops reaches its engine again instead of ending (spec
 ahead of all, then sends again by its id each call in flight that may be,
 a read or an idempotent write, a resumable stream after what it read, and
 fails every other one with `connection_lost`. Since no task of its own
-reads, a drop is seen once a call reads or writes. TypeScript's `rpc.ts` is
-its twin; served requests come with the ticket that uses them.
+reads, a drop is seen once a call reads or writes.
+
+The engine's own requests, such as Foxhound's `crawl_request.handle` (ADR
+0093), go to the owner, which runs each where it runs its work and answers
+it through its `ServedRequest`; one it does not serve is answered as
+JSON-RPC's unknown method, so the engine never waits on it. The engine's
+`$/cancel` naming one of them, whose ids are counted apart from the
+Client's calls, stops it and answers `call_cancelled`; the channel's end
+and a dropped link stop every one, unanswered. TypeScript's `rpc.ts` is its
+twin.
 """
 
 from __future__ import annotations
@@ -49,6 +57,7 @@ from goodfetch_collie_client._framing import (
     Failure,
     Invalid,
     LineReader,
+    MessageId,
     Notification,
     Request,
     Result,
@@ -62,8 +71,10 @@ from goodfetch_collie_client.generated.errors import (
     ERROR_GROUP_CLASSES,
     ERROR_GROUP_OF_PROTOCOL_FAILURE,
     ERROR_GROUP_OF_WIRE_CLASS,
+    CallCancelledError,
     ConnectionOverloadedError,
     DeadlineExceededError,
+    InternalError,
     SettingInvalidError,
 )
 from goodfetch_collie_client.generated.models import (
@@ -72,25 +83,30 @@ from goodfetch_collie_client.generated.models import (
     SettingLimit,
     SettingsLayer,
 )
-from goodfetch_collie_client.goodfetch_error import GoodfetchError, in_call
+from goodfetch_collie_client.goodfetch_error import (
+    BaseGoodfetchError,
+    GoodfetchError,
+    in_call,
+)
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Mapping
+    from collections.abc import Awaitable, Callable, Mapping
 
     from anyio.abc import ByteStream
 
     from goodfetch_collie_client._relink import ChannelRelinking, Resumable
     from goodfetch_collie_client.generated.errors import ErrorGroup
-    from goodfetch_collie_client.goodfetch_error import (
-        BaseGoodfetchError,
-        ErrorClass,
-        ErrorFields,
-    )
+    from goodfetch_collie_client.goodfetch_error import ErrorClass, ErrorFields
 
 _Field = TypeVar("_Field")
 
 METHOD_NOT_FOUND = -32601
 """JSON-RPC's code for a method the receiver does not serve."""
+
+_WIRE_CLASS_OF_GROUP: dict[ErrorGroup, int] = {
+    group: wire for wire, group in ERROR_GROUP_OF_WIRE_CLASS.items()
+}
+"""The JSON-RPC error code each group is answered with, its wire class (ADR 0038)."""
 
 
 @dataclass(frozen=True)
@@ -261,6 +277,54 @@ class ChannelOwner(Protocol):
         """
         ...
 
+    def serves(self, request: ServedRequest) -> bool:
+        """Whether it serves the engine's `request`, which it then answers.
+
+        It starts `request.serve` where it runs its work and returns; it
+        runs on the reading task, so it must not block. A request it does
+        not serve is answered as JSON-RPC's unknown method.
+        """
+        ...
+
+
+class ServedRequest:
+    """A request the engine sent, which the Client serves and answers once."""
+
+    def __init__(
+        self,
+        request: Request,
+        answer: Callable[[ServedRequest, Mapping[str, object]], Awaitable[None]],
+    ) -> None:
+        """Takes the request and how its answer reaches the engine."""
+        self.id: MessageId = request.id
+        """Its id, counted apart from the Client's calls."""
+        self.method = request.method
+        """Its method, such as `crawl_request.handle`."""
+        self.params = request.params
+        """Its params, as the engine sent them."""
+        self._answer = answer
+        self._scope = anyio.CancelScope()
+
+    async def serve(self, work: Callable[[], Awaitable[object]]) -> None:
+        """Runs `work` and answers the engine with what it returns or raises.
+
+        A Goodfetch error is answered as itself, any other exception as
+        `internal`, a bug in what served it. The engine's `$/cancel`, the
+        channel's end or a dropped link cancels `work`, and nothing more is
+        answered then.
+        """
+        with self._scope:
+            try:
+                result = await work()
+            except (BaseGoodfetchError, Exception) as error:
+                await self._answer(self, {"error": reply_of_error(error)})
+                return
+            await self._answer(self, {"result": result})
+
+    def stop(self) -> None:
+        """Cancels its work, whose answer the engine no longer reads."""
+        self._scope.cancel()
+
 
 @dataclass(frozen=True)
 class _Answered:
@@ -386,6 +450,8 @@ class Channel:
         self._unwritten_bytes = 0
         """The bytes queued or waiting to be written, a message being written too."""
         self._listeners: dict[int, Callable[[str, object], None]] = {}
+        self._serving: dict[MessageId, ServedRequest] = {}
+        """Each request of the engine's being served, by its id, until answered."""
         self._drainers: list[_Waiter] = []
         self._reading = False
         self._reader_scope: anyio.CancelScope | None = None
@@ -796,34 +862,82 @@ class Channel:
                 await self._drain()
 
     async def _read_chunk(self, chunk: bytes) -> InvalidLine | None:
-        """Settles the replies `chunk` ends and hands its notifications over.
+        """Settles the replies `chunk` ends and hands its messages over.
 
         Returns:
             The end of a line that is not one JSON-RPC message, if one is.
         """
-        unserved: list[Request] = []
+        answers: list[Mapping[str, object]] = []
         for line in self._lines.feed(chunk):
             if isinstance(line, Invalid):
                 return InvalidLine(line.line)
             if isinstance(line, Result | Failure):
                 self._settle(line)
             elif isinstance(line, Request):
-                unserved.append(line)
+                unserved = self._serve(line)
+                if unserved is not None:
+                    answers.append(unserved)
+            elif line.method == "$/cancel":
+                cancelled = self._cancel_served(line.params)
+                if cancelled is not None:
+                    answers.append(cancelled)
             else:
                 self._hand_over(line)
-        # A notification no stream listens to, such as `$/cancel`, needs no answer.
-        for request in unserved:
+        for answer in answers:
             with anyio.CancelScope(shield=True):
-                await self._write(
-                    {
-                        "id": request.id,
-                        "error": {
-                            "code": METHOD_NOT_FOUND,
-                            "message": f"this Client serves no {request.method}",
-                        },
-                    }
-                )
+                await self._write(answer)
         return None
+
+    def _serve(self, request: Request) -> Mapping[str, object] | None:
+        """Hands the engine's `request` to the owner: the answer if it serves none."""
+        served = ServedRequest(request, self._answer_served)
+        self._serving[request.id] = served
+        if self._owner.serves(served):
+            return None
+        del self._serving[request.id]
+        return {
+            "id": request.id,
+            "error": {
+                "code": METHOD_NOT_FOUND,
+                "message": f"this Client serves no {request.method}",
+            },
+        }
+
+    def _cancel_served(self, params: object) -> Mapping[str, object] | None:
+        """Stops the served request the engine's `$/cancel` names: its answer.
+
+        The engine cancels as the requesting Client, so `by` is `client`
+        (ADR 0113). A `$/cancel` naming no request being served, such as
+        one answered already, needs no answer.
+        """
+        members = object_members(params)
+        served_id = None if members is None else members.get("id")
+        if isinstance(served_id, bool) or not isinstance(served_id, str | int | float):
+            return None
+        served = self._serving.pop(served_id, None)
+        if served is None:
+            return None
+        served.stop()
+        cancelled = CallCancelledError(
+            "the engine cancelled its request", details={"by": "client"}
+        )
+        return {"id": served.id, "error": reply_of_error(cancelled)}
+
+    async def _answer_served(
+        self, served: ServedRequest, answer: Mapping[str, object]
+    ) -> None:
+        """Sends a served request's answer, unless it was stopped first."""
+        if self._serving.get(served.id) is not served:
+            return
+        del self._serving[served.id]
+        await self._write({"id": served.id, **answer})
+
+    def _stop_served(self) -> None:
+        """Stops every request being served: no answer reaches the engine any more."""
+        serving = list(self._serving.values())
+        self._serving.clear()
+        for served in serving:
+            served.stop()
 
     async def _link_broke(self, transport: ByteStream, end: TransportEnd) -> None:
         """Ends the channel as `transport` ended, or reaches the engine again.
@@ -868,6 +982,8 @@ class Channel:
         # A call cancelled and not answered yet holds no place on the new link.
         self._in_flight.clear()
         self._cancels_owed.clear()
+        # The engine's requests on the old link are answered on none.
+        self._stop_served()
 
     def _again_of(self, message_id: int, waiter: _Waiter) -> _Queued | None:
         """What the call is sent again with on the new link, if it may be."""
@@ -1191,6 +1307,7 @@ class Channel:
             for message_id in list(self._queued):
                 self._unqueue(message_id)
             self._in_flight.clear()
+            self._stop_served()
             self._drop = None
             self._held = False
             self._ended.set()
@@ -1239,6 +1356,50 @@ def error_of_reply(
         retryable=retryable is True,
         **fields,
     )
+
+
+def reply_of_error(error: BaseException) -> dict[str, object]:
+    """The JSON-RPC `error` a request the engine sent is answered with.
+
+    `error` is what serving it failed with; one that is no Goodfetch error
+    is a bug in what served it, answered `internal`. The inverse of
+    `error_of_reply`.
+    """
+    failure = (
+        error
+        if isinstance(error, BaseGoodfetchError)
+        else InternalError(
+            str(error), code="internal", group="internal", retryable=False
+        )
+    )
+    data: dict[str, object] = {
+        **failure.details,
+        "code": failure.code,
+        "retryable": failure.retryable,
+    }
+    fields: dict[str, object] = {
+        "fix": failure.fix,
+        "operation": failure.operation,
+        "call_id": failure.call_id,
+        "run_id": failure.run_id,
+        "target": failure.target,
+        "url": failure.url,
+        "observed": failure.observed,
+        "limit": None
+        if failure.limit is None
+        else failure.limit.model_dump(mode="json", by_alias=True, exclude_none=True),
+        "call_log": failure.call_log or None,
+        "usage": None
+        if failure.usage is None
+        else failure.usage.model_dump(mode="json", by_alias=True, exclude_none=True),
+        "agent_task": failure.agent_task,
+    }
+    data.update({key: value for key, value in fields.items() if value is not None})
+    return {
+        "code": _WIRE_CLASS_OF_GROUP[failure.group],
+        "message": str(failure),
+        "data": data,
+    }
 
 
 def _text(value: object) -> str | None:

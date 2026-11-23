@@ -12,9 +12,8 @@ import {
   RunEndedError,
   RunIdInvalidError,
   RunInUseError,
-  type Logger,
 } from "@goodfetch/collie";
-import { failure, scriptedEngineEnv, test } from "@goodfetch/test-support";
+import { failure, scriptedEngineEnv, startRecordingLogger, test } from "@goodfetch/test-support";
 import { describe, expect } from "vitest";
 
 describe("A start on the Scripted engine as the Attached engine", () => {
@@ -31,7 +30,7 @@ describe("A start on the Scripted engine as the Attached engine", () => {
     },
     async ({ testEnv, clientCase }) => {
       const env = scriptedEngineEnv(testEnv, "collie", "run/start-reaches-its-run.json");
-      const { logger, logged, stderr } = recordingLogger();
+      const { logger, logged, stderr } = startRecordingLogger();
       // oxlint-disable-next-line no-restricted-properties -- `Collie.connect` is the SDK's own factory (ADR 0078), not a browser's.
       const collie = await Collie.connect({ env, logger });
 
@@ -152,39 +151,3 @@ describe("A start on an Attached engine", () => {
     },
   );
 });
-
-type Logged = readonly [level: "info" | "warn", message: string, fields: unknown];
-
-/**
- * A host logger that keeps what the SDK logs at info and warning, and apart
- * the engine's stderr lines, which a failed play writes. It leaves out the
- * engine `connect()` reached, logged at info with its `EngineInfo`, which
- * engine-choice.test.ts checks.
- */
-function recordingLogger(): {
-  readonly logger: Logger;
-  readonly logged: Logged[];
-  readonly stderr: string[];
-} {
-  const logged: Logged[] = [];
-  const stderr: string[] = [];
-  const logger: Logger = {
-    // It asks for none of the engine's log events: `hello` says `off`, as the script expects.
-    level: "off",
-    debug: () => {},
-    info: (message, fields) => {
-      if (fields?.["engine"] === undefined) {
-        logged.push(["info", message, fields]);
-      }
-    },
-    warn: (message, fields) => {
-      if (fields?.["source"] === "engine stderr") {
-        stderr.push(message);
-      } else {
-        logged.push(["warn", message, fields]);
-      }
-    },
-    error: () => {},
-  };
-  return { logger, logged, stderr };
-}

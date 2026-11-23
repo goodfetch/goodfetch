@@ -1,0 +1,39 @@
+# The Toxiproxy server release the tests put between real engines, the
+# Politeness store and Group members, to cut, slow, partition and heal one
+# link (ADR 0060). ci/toxiproxy-fetch.sh (part of `just fetch`) downloads
+# this machine's platform's `asset` from the release's GitHub assets into the
+# tests' copy, $GOODFETCH_TOXIPROXY_DOWNLOADS or ~/.cache/goodfetch/toxiproxy,
+# as `<version>/<asset>`, before the outbound-traffic deny, and fails on one
+# whose SHA-256 differs from its pin below. `goodfetch-test-support`'s
+# `Toxiproxy::start` reads this file for the copy's path; no test downloads
+# it.
+#
+# Licence: MIT, "Copyright (c) 2014 Shopify" (the repository's LICENSE).
+# The copy runs in tests alone: it is never committed or shipped in a
+# Product, so no Product's notices name it.
+#
+# To move the pin, in one pull request: set `version` to the release tag of
+# Shopify/toxiproxy, then each platform's `sha256` to its asset's SHA-256
+# from that release's `checksums.txt`.
+
+version = "v2.13.0"
+
+[platforms.linux-x64]
+asset = "toxiproxy-server-linux-amd64"
+sha256 = "bf529e8bb9a05cd293f45a3f1d0aa66ff9469680dcdca7e0ebeae21f1b83de89"
+
+[platforms.linux-arm64]
+asset = "toxiproxy-server-linux-arm64"
+sha256 = "9a7e2db359153772f26f9382adf5cd7305ee9d4cb2d4956922b5df38fe16c37e"
+
+[platforms.mac-arm64]
+asset = "toxiproxy-server-darwin-arm64"
+sha256 = "21e5d0cbfc4af6e9967f617ee7a1645fa26181220fee3961630311a8de14705c"
+
+[platforms.mac-x64]
+asset = "toxiproxy-server-darwin-amd64"
+sha256 = "d41cf6ce269a3ea113461e54139881f901955ed11dabb60861217b69a4c8176f"
+
+[platforms.windows-x64]
+asset = "toxiproxy-server-windows-amd64.exe"
+sha256 = "04b710eefd7690c89f7cc67289e3e14618f1ff3c26e4a5f752a34a879b895bab"

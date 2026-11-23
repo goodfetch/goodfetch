@@ -47,7 +47,7 @@ fn the_pages_schema_is_generated_from_the_formats_request_and_a_pages_record_hol
         "links": [{ "url": "http://site.test/b", "href": "/b", "text": "B", "rel": [] }],
     }));
     let at = point_in_time::from_rfc3339("2026-10-26T10:00:00Z").unwrap();
-    let record = record_of(page, Some(200), &at, Map::new());
+    let record = record_of(page, Some(200), at, Map::new());
     let mut without_links = record.clone();
     without_links.as_object_mut().unwrap().remove("links");
     let mut with_html = record.clone();
@@ -197,7 +197,7 @@ fn the_pages_schema_holds_each_fields_type() {
         let mut fields = Map::new();
         fields.insert("name".to_owned(), name);
         fields.insert("price".to_owned(), price);
-        record_of(page.clone(), Some(200), &at, fields)
+        record_of(page.clone(), Some(200), at, fields)
     };
     let mut without_price = with(json!("Delta kite"), json!(1099.98));
     without_price.as_object_mut().unwrap().remove("price");
@@ -316,7 +316,7 @@ fn a_pages_record_holds_the_pages_text_where_the_page_read_it() {
     let mut fields = Map::new();
     fields.insert("name".to_owned(), json!("Delta kite"));
 
-    let record = record_of(page, None, &at, fields);
+    let record = record_of(page, None, at, fields);
 
     assert_eq!(
         record,

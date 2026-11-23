@@ -22,6 +22,7 @@ use goodfetch_protocol::home::RUN_TRACE_PROVENANCE;
 use goodfetch_test_client::Attached;
 use goodfetch_test_client::HomeLayout;
 use goodfetch_test_support::{ProvingGround, ReceivedRequests, TestEnv};
+use rstest::rstest;
 use serde_json::{Value, json};
 
 use crate::attached;
@@ -69,12 +70,13 @@ struct Crawl {
 }
 
 /// Starts each of `crawls` on `engine`, answers every handler request
-/// with no Record, calling `before_answer` with its URL first, and lets
-/// each Run finish; answers each `run.finish` reply, in `crawls`' order.
+/// with what `handler` makes of its params, calling `engine` itself when
+/// it needs, and lets each Run finish; answers each `run.finish` reply,
+/// in `crawls`' order.
 fn crawl_together(
     engine: &mut Attached,
     crawls: &[Crawl],
-    before_answer: &mut impl FnMut(&str),
+    handler: &mut impl FnMut(&mut Attached, &Value) -> Value,
 ) -> Vec<Value> {
     for crawl in crawls {
         engine.send(&json!({
@@ -89,10 +91,10 @@ fn crawl_together(
             .expect("the engine closed before the Runs ended");
         let id = message["id"].as_str().unwrap_or_default().to_owned();
         if message["method"] == "crawl_request.handle" {
-            before_answer(message["params"]["crawl_request"]["url"].as_str().unwrap());
-            engine.send(
-                &json!({ "jsonrpc": "2.0", "id": message["id"], "result": { "records": [] } }),
-            );
+            let mut reply = handler(engine, &message["params"]);
+            reply["jsonrpc"] = json!("2.0");
+            reply["id"] = message["id"].clone();
+            engine.send(&reply);
         } else if let Some(run_id) = id.strip_prefix("start ") {
             assert!(message.get("result").is_some(), "{message}");
             engine.send(&json!({
@@ -108,6 +110,62 @@ fn crawl_together(
         }
     }
     finished
+}
+
+/// A handler's answer with no Record.
+fn no_record() -> Value {
+    json!({ "result": { "records": [] } })
+}
+
+/// A handler's answer that asks for its attempt to run again.
+fn retry() -> Value {
+    json!({ "error": {
+        "code": -32003, "message": "try again",
+        "data": { "code": "retry_requested", "retryable": true },
+    } })
+}
+
+/// Declares the Effect `order` through the attempt `handle` gave, and
+/// closes it as returned before anything was sent for it: from then on,
+/// its work item declares an Effect (ADR 0106).
+fn declare_an_effect(engine: &mut Attached, handle: &Value) {
+    let opened = engine.call(
+        "open",
+        "effect.open",
+        &json!({
+            "run_id": handle["run_id"],
+            "key": "order",
+            "attempt": {
+                "crawl_request_id": handle["crawl_request"]["id"],
+                "lease_epoch": handle["lease_epoch"],
+            },
+        }),
+        &mut |_| None,
+    );
+    assert_eq!(opened["result"]["answer"], "perform", "{opened}");
+    let closed = engine.call(
+        "close",
+        "effect.close",
+        &json!({
+            "run_id": handle["run_id"],
+            "entry": opened["result"]["entry"],
+            "outcome": { "ended": "returned" },
+        }),
+        &mut |_| None,
+    );
+    assert_eq!(closed["result"]["judged"], "done", "{closed}");
+}
+
+/// Adds `seed` to the crawl `run_id` from outside any attempt, so it stays
+/// whatever the attempt that adds it answers.
+fn add_seed(engine: &mut Attached, run_id: &Value, seed: &Value) {
+    let added = engine.call(
+        "seed",
+        "run.add_seed",
+        &json!({ "run_id": run_id, "seed": seed }),
+        &mut |_| None,
+    );
+    assert!(added.get("result").is_some(), "{added}");
 }
 
 /// The requests the Proving ground saw for `target` on `pacing.test`,
@@ -217,10 +275,11 @@ fn a_slow_get_is_hedged_on_a_new_connection_and_a_post_never_is() {
                 }),
             ),
         }],
-        &mut |url| {
-            if url == last_quick {
+        &mut |_, handle| {
+            if handle["crawl_request"]["url"] == last_quick {
                 proving_ground.set_time_step(SLOW).unwrap();
             }
+            no_record()
         },
     );
     assert!(engine.finished());
@@ -248,6 +307,85 @@ fn a_slow_get_is_hedged_on_a_new_connection_and_a_post_never_is() {
             vec![json!(slow_get)],
             &json!(23)
         ),
+    );
+}
+
+/// A work item that declared an Effect is never hedged (ADRs 0040 and
+/// 0106). Its first attempt, quick and alone, declares one, adds twenty
+/// quick seeds that go first and a slow GET of its own that declares none,
+/// then asks to run again; the quick answers give the route its latency,
+/// then the site slows down. Its retry sends its slow GET once, while the
+/// slow GET of the work item with no Effect after it is hedged.
+///
+/// Covers: story:3-63, setting:fetch.hedge.enabled, operation:effect.open
+#[test]
+fn a_work_item_that_declared_an_effect_sends_a_slow_get_once() {
+    let env = TestEnv::new();
+    env.user_configuration(TWO_FETCHES);
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let mut engine = crate::site::engine_on(&env, &proving_ground);
+    let declares = proving_ground.url("pacing.test", "/articles/7?slow=effect");
+    let declares_none = proving_ground.url("pacing.test", "/articles/8?slow=read");
+    let last_quick = proving_ground.url("pacing.test", "/articles/1?quick=20");
+    let mut handled = Vec::new();
+
+    let finished = crawl_together(
+        &mut engine,
+        &[Crawl {
+            run_id: "hedged",
+            seeds: vec![json!({ "url": declares, "label": "article" })],
+            settings: fetched_over_http(
+                &proving_ground,
+                &json!({
+                    "fetch": { "hedge": { "enabled": true, "max_percent": 100 } },
+                    "crawl": { "handler": { "concurrency": 1 } },
+                }),
+            ),
+        }],
+        &mut |engine, handle| {
+            let url = &handle["crawl_request"]["url"];
+            handled.push(url.clone());
+            if *url == declares && handle["attempt"] == 1 {
+                declare_an_effect(engine, handle);
+                for number in 1..=20 {
+                    let quick =
+                        proving_ground.url("pacing.test", &format!("/articles/1?quick={number}"));
+                    add_seed(
+                        engine,
+                        &handle["run_id"],
+                        &json!({ "url": quick, "label": "article", "key": format!("quick-{number}"), "priority": 1 }),
+                    );
+                }
+                add_seed(
+                    engine,
+                    &handle["run_id"],
+                    &json!({ "url": declares_none, "label": "article" }),
+                );
+                return retry();
+            }
+            if *url == last_quick {
+                proving_ground.set_time_step(SLOW).unwrap();
+            }
+            no_record()
+        },
+    );
+    assert!(engine.finished());
+
+    let hedges: Vec<Value> = provenance(&env, "hedged", "hedged")
+        .into_iter()
+        .map(|entry| entry["url"].clone())
+        .collect();
+    let slowed = handled.iter().position(|url| *url == last_quick);
+    assert_eq!(
+        (
+            &finished[0]["result"]["lifecycle"],
+            // The retry ran once the site was slow.
+            handled.iter().rposition(|url| *url == declares) > slowed,
+            connections_for(&proving_ground, "/articles/7?slow=effect").len(),
+            connections_for(&proving_ground, "/articles/8?slow=read").len(),
+            hedges,
+        ),
+        (&json!("finished"), true, 2, 2, vec![json!(declares_none)]),
     );
 }
 
@@ -281,7 +419,7 @@ fn identical_gets_in_flight_from_one_session_reach_the_site_once() {
                 }),
             ),
         }],
-        &mut |_| {},
+        &mut |_, _| no_record(),
     );
     assert!(engine.finished());
 
@@ -296,6 +434,71 @@ fn identical_gets_in_flight_from_one_session_reach_the_site_once() {
                 .collect::<Vec<_>>(),
         ),
         (&json!("finished"), 1, vec![json!(url)]),
+    );
+}
+
+/// Identical GETs in flight from one Session each reach the site when one
+/// comes from a work item that declared an Effect, and share one response
+/// when neither did (ADRs 0040 and 0106). The seed's first attempt, alone,
+/// declares an Effect or not, slows the site down, adds a seed of the same
+/// URL and asks to run again: its retry and the added seed are then in
+/// flight together.
+///
+/// Covers: story:3-64, setting:fetch.coalesce, operation:effect.open
+#[rstest]
+#[case::from_a_work_item_that_declared_an_effect(true, 3, 0)]
+#[case::from_work_items_that_declared_none(false, 2, 1)]
+fn identical_gets_share_a_response_only_when_no_effect_was_declared(
+    #[case] declares: bool,
+    #[case] requests: usize,
+    #[case] shared: usize,
+) {
+    let env = TestEnv::new();
+    env.user_configuration(TWO_FETCHES);
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let mut engine = crate::site::engine_on(&env, &proving_ground);
+    let url = proving_ground.url("pacing.test", "/articles/9");
+    let mut first = true;
+
+    let finished = crawl_together(
+        &mut engine,
+        &[Crawl {
+            run_id: "shared",
+            seeds: vec![json!({ "url": url, "label": "article", "key": "retried" })],
+            settings: fetched_over_http(
+                &proving_ground,
+                &json!({
+                    "crawl": { "handler": { "concurrency": 2 } },
+                    "session": { "pool": { "max_size": 1 } },
+                }),
+            ),
+        }],
+        &mut |engine, handle| {
+            if !first {
+                return no_record();
+            }
+            first = false;
+            if declares {
+                declare_an_effect(engine, handle);
+            }
+            proving_ground.set_time_step(SLOW).unwrap();
+            add_seed(
+                engine,
+                &handle["run_id"],
+                &json!({ "url": url, "label": "article", "key": "added" }),
+            );
+            retry()
+        },
+    );
+    assert!(engine.finished());
+
+    assert_eq!(
+        (
+            &finished[0]["result"]["lifecycle"],
+            connections_for(&proving_ground, "/articles/9").len(),
+            provenance(&env, "shared", "response_shared").len(),
+        ),
+        (&json!("finished"), requests, shared),
     );
 }
 
@@ -351,7 +554,7 @@ fn identical_gets_from_two_sessions_or_two_runs_each_reach_the_site() {
                 settings: fetched_over_http(&proving_ground, &one_session),
             },
         ],
-        &mut |_| {},
+        &mut |_, _| no_record(),
     );
     assert!(engine.finished());
 

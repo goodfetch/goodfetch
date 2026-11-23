@@ -359,6 +359,7 @@ async fn opened_settings(
             recipe: None,
             settings: run_layer(&params.settings, context)?,
             origin: Some(RunOrigin::Settings),
+            registered: context.registered_settings().clone(),
             acting_for_model: context.surface().acts_for_model(),
             exposed: context.exposed(),
         })

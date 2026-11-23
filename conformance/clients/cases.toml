@@ -26,7 +26,7 @@
 
 [suite]
 name = "clients"
-version = "60"
+version = "62"
 
 [[capability]]
 name = "lifecycle"
@@ -458,6 +458,27 @@ covers = ["story:11-126", "story:11-127"]
 surfaces = ["sdk-typescript", "sdk-python", "sdk-rust"]
 modes = ["attached", "linked"]
 
+# The handler-less starts (ADRs 0036 and 0102; issues 3396 and 3397):
+# `startRecipe` (`start_recipe`) and `startCatalogRun` (`start_catalog_run`)
+# send every start option they are given, a Run ID resuming an interrupted
+# Run, logged at info, or returning a finished one ended, logged at warning,
+# through the host's logger, and `openRun` (`open_run`) opens a view by its
+# Run ID with no message. On the Scripted engine as a Daemon, each start is
+# `detached` and each target kind is started, and closing a value or the
+# Connection sends no `run.abort`; on it as the Attached engine, a start is
+# not detached, so closing its value aborts it. Rust's linked engine runs no
+# Recipe or code-free target yet (`run_target_unbuilt`), so Rust plays it
+# linked as far as that engine goes: `Tags` refuses more than 16 tags or one
+# over 64 characters before anything is sent, each start reaches the engine
+# carrying them, and `open_run` opens a view. A tag list past its bounds is
+# no message the corpus may hold, so its `invalid_params` plays on the
+# engine of the same commit in TypeScript and Python, as an Attached engine
+# and as the Daemon.
+[[capability.case]]
+id = "handlerless-starts"
+covers = ["story:11-131"]
+surfaces = ["sdk-typescript", "sdk-python", "sdk-rust"]
+
 # How a Run ends and what it does meanwhile (ADRs 0029 and 0102; issue
 # 1282): `finish()` answers the whole Run report and `stop()` the Run
 # stopped as an abort by its program, with its Checkpoint; a Run that ended
@@ -825,3 +846,20 @@ id = "selector-loop-starts-the-engine"
 covers = ["story:11-58"]
 surfaces = ["sdk-python"]
 modes = { sdk-python = ["attached"] }
+
+[[capability]]
+name = "testing-kit"
+
+# The testing kit's `TestEngine` (ADRs 0069 and 0105; issue 3399), on the
+# executable of the same commit: an Attached engine in TypeScript and Python,
+# the engine linked in Rust. Its `connection` is the Product's own connection
+# type, on which the code under test finishes a Run; the engine runs in a
+# temporary Goodfetch home of its own, removed on close. In the `daemon`
+# mode a Daemon runs in the caller's home: the same code finishes a Run on
+# the Daemon's connection and on the test engine's, which reaches its own
+# engine, never that Daemon. Python plays it three ways (asyncio, Trio and
+# the sync `TestEngine`).
+[[capability.case]]
+id = "test-engine-runs-the-code-under-test"
+covers = ["story:11-156", "story:11-157", "story:11-168"]
+surfaces = ["sdk-typescript", "sdk-python", "sdk-rust"]

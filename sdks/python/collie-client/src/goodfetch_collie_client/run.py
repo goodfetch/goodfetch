@@ -769,6 +769,23 @@ class AsyncRun(AsyncRunMembers):
         """Its Run ID."""
         return self._scope.id
 
+    def _read(
+        self,
+        operation: str,
+        params: Mapping[str, object],
+        item_of: Callable[[str, object], _Item | None],
+    ) -> AsyncSequence[_Item]:
+        """Sends the Sequence `operation` on the Run, read with `async for`.
+
+        For a Product's own Run, such as Foxhound's crawl Run, whose reads,
+        such as `run.records`, the Collie client package does not generate.
+
+        Raises:
+            ClosedError: The Run is closed; nothing is sent.
+            RuntimeError: No asyncio or Trio loop runs on this thread.
+        """
+        return _held[self][0].read(operation, params, item_of)
+
     async def explain_settings(
         self, keys: Iterable[str] | None = None
     ) -> SettingsExplanation:

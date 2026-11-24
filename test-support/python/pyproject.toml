@@ -8,13 +8,17 @@ classifiers = ["Private :: Do Not Upload"]
 dependencies = [
     "anyio>=4.15.1",
     "jsonschema>=4.26.0",
-    "langchain-core>=1.8.4",
     "packaging>=26.3",
     "pydantic>=2.14.1,<3",
     "pytest>=9.1.1",
     "pytest-run-parallel>=0.10.0",
     "trio>=0.35.0",
 ]
+
+[project.optional-dependencies]
+# What `goodfetch_test_support.langchain_model` imports, which the plugin
+# does not: the workspace's `langchain` group installs it (issue 3738).
+langchain = ["langchain-core>=1.8.4"]
 
 # Every pytest run in the uv workspace loads the plugin.
 [project.entry-points.pytest11]

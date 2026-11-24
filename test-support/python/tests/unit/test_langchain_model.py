@@ -5,7 +5,17 @@ with its own scripted model. `GenericFakeChatModel` lacks `bind_tools`, which
 the loop calls first; test support's `BindToolsChatModel` adds it.
 """
 
+import sysconfig
+
 import pytest
+
+if sysconfig.get_config_var("Py_GIL_DISABLED"):
+    pytest.skip(
+        "orjson, which LangChain needs, has no free-threaded build, so the "
+        "free-threaded lines install no LangChain (issue 3738)",
+        allow_module_level=True,
+    )
+
 from goodfetch_test_support.langchain_model import (
     BindToolsChatModel,
     UnboundToolCalled,

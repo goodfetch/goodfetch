@@ -197,7 +197,11 @@ case "$part" in
       echo "CPython $python"
       # pytest exits 5 when it collects no test, as before any Python test exists.
       code=0
-      uv run --frozen --python "$python" pytest -n auto "${pytest_order[@]}" \
+      # A free-threaded line leaves out LangChain, as ci/host/fetch.sh
+      # installed it (issue 3738).
+      groups=()
+      case "$python" in *t) groups=(--no-group langchain) ;; esac
+      uv run --frozen --python "$python" ${groups[@]+"${groups[@]}"} pytest -n auto "${pytest_order[@]}" \
         --junitxml="target/junit/pytest-$python.xml" ${skip_pytest[@]+"${skip_pytest[@]}"} || code=$?
       [[ $code -eq 0 || $code -eq 5 ]] || status=$code
     done

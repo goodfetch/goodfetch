@@ -6,6 +6,10 @@
     clippy::doc_markdown,
     reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
 )]
+#![expect(
+    clippy::disallowed_types,
+    reason = "the handlers note what they saw on the test's own side, which loom does not model (ADR 0060)"
+)]
 
 use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex};
@@ -102,7 +106,8 @@ fn seeds_with_and_without_a_payload_and_a_post_with_a_body_start_one_crawl() {
     let listing = crawl.label::<()>("listing").unwrap();
     let product = crawl.label::<Listed>("product").unwrap();
     let order = crawl.label::<()>("order").unwrap();
-    let (on_listing, on_product, on_order) = (seen.clone(), seen.clone(), seen.clone());
+    let (on_listing, on_product, on_order) =
+        (Arc::clone(&seen), Arc::clone(&seen), Arc::clone(&seen));
     crawl
         .handle(&listing, move |ctx: CrawlContext<()>| async move {
             see(&on_listing, &ctx, Value::Null);
@@ -176,7 +181,7 @@ fn two_seeds_of_one_key_are_one_crawl_request() {
     let seen: Seen = Arc::default();
     let mut crawl = Crawl::new();
     let listing = crawl.label::<()>("listing").unwrap();
-    let on_listing = seen.clone();
+    let on_listing = Arc::clone(&seen);
     crawl
         .handle(&listing, move |ctx: CrawlContext<()>| async move {
             see(&on_listing, &ctx, Value::Null);
@@ -226,7 +231,7 @@ fn a_sitemap_seed_routes_each_entry_to_the_label_of_its_first_matching_rule() {
     let mut labels = Vec::new();
     for name in ["book", "shelf", "author"] {
         let label = crawl.label::<()>(name).unwrap();
-        let on_label = seen.clone();
+        let on_label = Arc::clone(&seen);
         crawl
             .handle(&label, move |ctx: CrawlContext<()>| async move {
                 see(&on_label, &ctx, Value::Null);

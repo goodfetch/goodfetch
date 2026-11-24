@@ -1,0 +1,5 @@
+version = "0.1"
+lowest_minor = 0
+
+[settings]
+sinks = { "example.test" = { datasets = ["products"], destination = "env:AIRBYTE_CONFIG", image = "airbyte/destination-postgres@sha256:0f1e2d3c4b5a69788796a5b4c3d2e1f00f1e2d3c4b5a69788796a5b4c3d2e1f0", type = "airbyte" } }

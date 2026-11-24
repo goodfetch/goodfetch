@@ -171,6 +171,8 @@ impl ClientCaseRun {
             case: self.case.clone(),
             capability: self.capability.clone(),
             mode: Some(self.mode.as_str().to_owned()),
+            blocking: None,
+            unreachable: Vec::new(),
             platform: Platform {
                 os: std::env::consts::OS.to_owned(),
                 arch: std::env::consts::ARCH.to_owned(),

@@ -1,0 +1,22 @@
+{
+  "description": "In gate mode, a case whose vendor was unreachable both ways is inconclusive, even when every check held: an outage never counts as a pass (ADR 0064)",
+  "gate": true,
+  "cases": [
+    {
+      "entries": [
+        {
+          "blocking": "on",
+          "unreachable": ["challenge vendor"],
+          "checks": [true]
+        },
+        {
+          "blocking": "off",
+          "unreachable": ["challenge vendor"],
+          "checks": [true]
+        }
+      ]
+    }
+  ],
+  "case_outcomes": ["inconclusive"],
+  "outcome": "unproved"
+}

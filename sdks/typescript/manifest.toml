@@ -559,6 +559,15 @@ form = "type"
 [[member]]
 package = "@goodfetch/collie-client/runtime"
 receiver = "(module)"
+member = "thrownException"
+entry = "none"
+reason = "The type and message of what a program's own code threw, which `handler_failed` and `schema_validator_failed` name (ADRs 0079 and 0082)."
+words = ["thrown", "exception"]
+form = "runtime"
+
+[[member]]
+package = "@goodfetch/collie-client/runtime"
+receiver = "(module)"
 member = "wireSchema"
 entry = "none"
 reason = "The JSON Schema the engine receives for a schema, such as a Label's Payload schema (ADR 0082): a typed one's input side as draft 2020-12, a hand-written one as it is."
@@ -1022,6 +1031,15 @@ member = "retryAfterOf"
 entry = "none"
 reason = "The point in time an error's details name as `retry_after`, the time the site's `Retry-After` asks for (ADRs 0092 and 0118), which the generated class of each code whose details declare one reads as its `retryAfter`, Foxhound's among them."
 words = ["retry", "after", "of"]
+form = "read"
+
+[[member]]
+package = "@goodfetch/collie-client/generated"
+receiver = "(module)"
+member = "retryAfterDurationOf"
+entry = "none"
+reason = "The duration in milliseconds an error's details name as `retry_after`, how long a Model provider asks to wait (ADRs 0080 and 0101), which the generated class of each code whose details declare one reads as its `retryAfter`."
+words = ["retry", "after", "duration", "of"]
 form = "read"
 
 [[member]]

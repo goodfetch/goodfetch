@@ -45,13 +45,16 @@ const LOG_DEADLINE: Duration = Duration::from_secs(60);
 pub(crate) const ANY_PORT: &str = "127.0.0.1:0";
 
 /// Whether `endpoint` is where a Daemon configured with [`ANY_PORT`] serves:
-/// loopback, on a port it took, which is not its default one.
+/// loopback, on a port it took, which is not the default one of the
+/// executable's Product version.
 pub(crate) fn took_a_free_port(endpoint: &DaemonEndpoint) -> bool {
-    let default = (goodfetch_protocol::daemon::ADDRESS.default)();
+    let version =
+        goodfetch_protocol::connection::ProductVersion::parse(env!("CARGO_PKG_VERSION")).unwrap();
+    let default = goodfetch_protocol::daemon::default_address(&version);
     matches!(endpoint, DaemonEndpoint::Tcp(bound)
         if bound.ip() == Ipv4Addr::LOCALHOST
             && bound.port() != 0
-            && default.as_str() != Some(bound.to_string().as_str()))
+            && *bound != default)
 }
 
 /// A foreground Daemon the test started, with its stdout's lines read on a

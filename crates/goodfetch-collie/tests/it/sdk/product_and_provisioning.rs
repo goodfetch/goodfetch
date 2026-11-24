@@ -78,9 +78,10 @@ fn build() -> Value {
     json!({"kind": "browser", "name": "chrome-for-testing", "build": CHROME_FOR_TESTING_BUILD})
 }
 
-/// The Product version that pins it.
+/// What pins it: the Product version alone, in a list that also names the
+/// Plugins using a Plugin runtime (ADR 0115).
 fn pinned_by() -> Value {
-    json!({"product": "collie", "product_version": VERSION})
+    json!([{"kind": "product", "name": "collie", "version": VERSION}])
 }
 
 /// The build and what pins it, as each provisioning error's message names

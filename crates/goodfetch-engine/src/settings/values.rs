@@ -2,18 +2,22 @@
 //! writes them (a file's table, a Run's `settings`, a Recipe's manifest):
 //! each path is walked until it names a key, a name may hold several
 //! segments (`"crawl.retry"`), and a key's value is checked against its
-//! kind. The product check comes first (ADR 0087): a key only the other
+//! kind, a Session source's `domains` against the Public Suffix List as
+//! well (ADR 0056). The product check comes first (ADR 0087): a key only the other
 //! Product honours is kept aside, unapplied, in a configuration file, which
 //! both Products share, and refused with `not_in_product` anywhere else.
 
 use std::collections::BTreeMap;
 
-use goodfetch_protocol::catalog::Product;
-use goodfetch_protocol::settings::{RunOrigin, SettingsLayer};
+use goodfetch_protocol::catalog::{Product, Setting};
+use goodfetch_protocol::secrets::placeholders::SECRETS_PLACEHOLDERS;
+use goodfetch_protocol::settings::session_source::SessionSource;
+use goodfetch_protocol::settings::{RunOrigin, SESSION_SOURCE, SettingsLayer};
 use serde_json::{Map, Value};
 
 use super::error::SettingsError;
 use super::keys::{self, Key};
+use crate::host_name;
 
 /// Who gave a value: where a run-layer value came from, whether a Client
 /// acting for a model gave it, and whether it has only the run layer's
@@ -44,7 +48,8 @@ impl Values {
     /// # Errors
     ///
     /// `setting_unknown` for a key no Product knows, `setting_invalid` for
-    /// a value not of its key's kind, and, outside configuration,
+    /// a value not of its key's kind or a Session source domain below its
+    /// registrable domain, and, outside configuration,
     /// `not_in_product` for a key `engine` lacks.
     pub fn read(
         layer: SettingsLayer,
@@ -166,6 +171,57 @@ fn leaf(
         layer: Some(layer),
         reason,
     })?;
+    if name == SESSION_SOURCE.name
+        && let Ok(source) = serde_json::from_value::<SessionSource>(value.clone())
+    {
+        check_session_source(&source, Some(layer))?;
+    }
     values.applied.insert(name, value.clone());
     Ok(())
+}
+
+/// Checks that each of `source`'s `domains` is a registrable domain (ADR
+/// 0056), an address or a host the Public Suffix List gives none: the rule
+/// `session.source` meets in every layer, and a Session's own `source`
+/// meets where the Session opens, `source` set in `layer`.
+///
+/// # Errors
+///
+/// [`SettingsError::NotRegistrable`] for the first domain that lies below
+/// its registrable domain, naming that registrable domain.
+pub fn check_session_source(
+    source: &SessionSource,
+    layer: Option<SettingsLayer>,
+) -> Result<(), SettingsError> {
+    source.domains().iter().try_for_each(|domain| {
+        let Some(key) = host_name::key(domain) else {
+            return Ok(());
+        };
+        match host_name::registrable(&key) {
+            Some(registrable) if registrable != key => Err(SettingsError::NotRegistrable {
+                key: SESSION_SOURCE.name.to_owned(),
+                layer,
+                domain: domain.clone(),
+                registrable: registrable.to_owned(),
+            }),
+            _ => Ok(()),
+        }
+    })
+}
+
+/// `value`, given for `setting` by a nearer layer or scope, over `below`,
+/// the value beneath it: `value` whole, but for `secrets.placeholders`,
+/// which binds each placeholder on its own, nearest winning (ADR 0092),
+/// so a placeholder `value` leaves out keeps `below`'s binding.
+pub(crate) fn over(setting: &Setting, below: &Value, value: &Value) -> Value {
+    match (below, value) {
+        (Value::Object(below), Value::Object(nearer))
+            if setting.name == SECRETS_PLACEHOLDERS.name =>
+        {
+            let mut bound = below.clone();
+            bound.extend(nearer.clone());
+            Value::Object(bound)
+        }
+        _ => value.clone(),
+    }
 }

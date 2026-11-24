@@ -6,11 +6,11 @@ use serde::Deserialize;
 use serde_json::{Map, json};
 
 use super::{
-    CapabilityFacts, CaseCheck, CaseEntry, CaseFacts, CaseOutcome, CheckOutcome, CheckResult,
-    ConformanceDocument, ConformanceHeader, Difference, Evidence, Executable, JourneyDocument,
-    JourneyFacts, JourneyOutcome, JourneyPart, LoadedDocument, OracleAnswer, OracleOutcome,
-    Outcome, Platform, ProvingGroundCopy, ReadError, ResultDocument, StepOutcome, StepResult,
-    Suite, Target, TargetIdentity, TaskResult, read, read_journey_document,
+    Blocking, CapabilityFacts, CaseCheck, CaseEntry, CaseFacts, CaseOutcome, CheckOutcome,
+    CheckResult, ConformanceDocument, ConformanceHeader, Difference, Evidence, Executable,
+    JourneyDocument, JourneyFacts, JourneyOutcome, JourneyPart, LoadedDocument, OracleAnswer,
+    OracleOutcome, Outcome, Platform, ProvingGroundCopy, ReadError, ResultDocument, StepOutcome,
+    StepResult, Suite, Target, TargetIdentity, TaskResult, read, read_journey_document,
 };
 use crate::catalog::Product;
 use crate::journey::{
@@ -40,6 +40,9 @@ struct JourneyVector {
 struct ConformanceVector {
     #[expect(dead_code, reason = "the vector's own explanation, read by people")]
     description: String,
+    /// Whether the document is a gate run's (ADR 0047).
+    #[serde(default)]
+    gate: bool,
     cases: Vec<VectorCase>,
     case_outcomes: Vec<CaseOutcome>,
     outcome: Outcome,
@@ -101,6 +104,12 @@ struct VectorCase {
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct VectorEntry {
+    #[serde(default)]
+    mode: Option<String>,
+    #[serde(default)]
+    blocking: Option<Blocking>,
+    #[serde(default)]
+    unreachable: Vec<String>,
     checks: Vec<bool>,
 }
 
@@ -291,6 +300,7 @@ fn header() -> ConformanceHeader {
         runtime: "rust".to_owned(),
         proving_ground: proving_ground(),
         online: false,
+        gate: false,
     }
 }
 
@@ -307,7 +317,9 @@ fn conformance_facts(cases: &[VectorCase]) -> CapabilityFacts {
                     .entries
                     .iter()
                     .map(|entry| CaseEntry {
-                        mode: None,
+                        mode: entry.mode.clone(),
+                        blocking: entry.blocking,
+                        unreachable: entry.unreachable.clone(),
                         checks: entry
                             .checks
                             .iter()
@@ -344,7 +356,13 @@ fn the_conformance_constructor_gives_each_vectors_outcomes(
 ) {
     let vector: ConformanceVector = read_vector(&path);
 
-    let document = ConformanceDocument::new(header(), vec![conformance_facts(&vector.cases)]);
+    let document = ConformanceDocument::new(
+        ConformanceHeader {
+            gate: vector.gate,
+            ..header()
+        },
+        vec![conformance_facts(&vector.cases)],
+    );
 
     let capability = &document.capabilities()[0];
     let case_outcomes: Vec<CaseOutcome> = capability
@@ -356,6 +374,51 @@ fn the_conformance_constructor_gives_each_vectors_outcomes(
         (capability.outcome(), case_outcomes),
         (vector.outcome, vector.case_outcomes)
     );
+}
+
+/// A failed case blocks the run on the local copy and, on the online copy,
+/// only in gate mode, where a case failed both ways is inconclusive and
+/// blocks nothing (ADRs 0043 and 0047).
+#[rstest]
+#[case::a_failure_on_the_local_copy(false, false, json!([{ "checks": [false] }]), true)]
+#[case::a_pass_on_the_local_copy(false, false, json!([{ "checks": [true] }]), false)]
+#[case::an_online_failure_outside_gate_mode(true, false, json!([{ "checks": [false] }]), false)]
+#[case::a_failure_marked_blocking_on_outside_gate_mode(
+    false,
+    false,
+    json!([{ "blocking": "on", "checks": [false] }]),
+    true
+)]
+#[case::a_failure_only_with_blocking_on_in_gate_mode(
+    true,
+    true,
+    json!([{ "blocking": "on", "checks": [false] }, { "blocking": "off", "checks": [true] }]),
+    true
+)]
+#[case::a_failure_both_ways_in_gate_mode(
+    true,
+    true,
+    json!([{ "blocking": "on", "checks": [false] }, { "blocking": "off", "checks": [false] }]),
+    false
+)]
+fn a_failed_case_blocks_unless_it_is_an_online_result_outside_gate_mode(
+    #[case] online: bool,
+    #[case] gate: bool,
+    #[case] entries: serde_json::Value,
+    #[case] blocks: bool,
+) {
+    let case: VectorCase = serde_json::from_value(json!({ "entries": entries })).unwrap();
+
+    let document = ConformanceDocument::new(
+        ConformanceHeader {
+            online,
+            gate,
+            ..header()
+        },
+        vec![conformance_facts(&[case])],
+    );
+
+    assert_eq!(document.blocks(), blocks);
 }
 
 #[test]
@@ -552,6 +615,8 @@ fn the_reader_refuses_a_case_stored_as_passed_beside_a_failed_check() {
                 covers: Vec::new(),
                 entries: vec![CaseEntry {
                     mode: None,
+                    blocking: None,
+                    unreachable: Vec::new(),
                     checks: vec![CaseCheck {
                         name: "the oracle answers verified".to_owned(),
                         passed: false,

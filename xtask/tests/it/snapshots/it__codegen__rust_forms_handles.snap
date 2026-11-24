@@ -11,6 +11,7 @@ expression: "workspace.read_text(&format!(\"{RUST_CLIENT}/src/generated/handles.
 pub struct Run {
     pub(crate) host: crate::host::Host<::goodfetch_protocol::forms::RunId>,
     pub(crate) opened: ::std::sync::Arc<::goodfetch_protocol::forms::RunStarted>,
+    pub(crate) sessions: crate::host::Kept<::goodfetch_protocol::forms::SessionId, Session>,
 }
 
 impl Run {
@@ -29,13 +30,14 @@ impl Run {
         self.host.raw(operation, "run", "run_id")
     }
 
-    /// Opens a page in the Run.
+    /// Opens a page in the Run's default Session.
     ///
     /// # Errors
     ///
     /// Once sent, `closed` when its handle or the Connection is closed, the engine's error, `deadline_exceeded` once its timeout runs out, and `internal` when its reply does not fit its type.
     pub fn new_page(&self) -> crate::Call<Page, ::goodfetch_protocol::forms::NewPageParams> {
         let host = self.host.clone();
+        let sessions = self.sessions.clone();
         let call: crate::Call<
             ::goodfetch_protocol::forms::PageOpened,
             ::goodfetch_protocol::forms::NewPageParams,
@@ -46,8 +48,14 @@ impl Run {
                 viewport: None,
             },
         );
-        call.map(move |opened| Page {
-            host: host.child(opened.page_id),
+        call.map(move |opened| {
+            let session = sessions.share(opened.session_id, |id| Session {
+                host: host.reached(id),
+            });
+            Page {
+                host: session.host.child(opened.page_id),
+                session,
+            }
         })
     }
 
@@ -61,6 +69,51 @@ impl Run {
     #[must_use]
     pub fn label(&self) -> String {
         ::std::borrow::ToOwned::to_owned(&self.opened.label)
+    }
+}
+
+/// A `session` a program holds: the members the catalog gives it (ADR 0099).
+#[derive(Clone, Debug)]
+pub struct Session {
+    pub(crate) host: crate::host::Host<::goodfetch_protocol::forms::SessionId>,
+}
+
+impl Session {
+    /// Its ID, which names it to the engine.
+    #[must_use]
+    pub fn id(&self) -> &::goodfetch_protocol::forms::SessionId {
+        self.host.id()
+    }
+
+    /// The raw call of `operation`, an operation of `session` the SDK may not
+    /// generate (ADR 0099), its params and its result the wire's JSON in
+    /// snake case: its ID fills `session_id`. An operation of another namespace
+    /// fails with `invalid_params` before it is sent, as a call on a
+    /// closed value does with `closed`. It is never retried.
+    pub fn call(&self, operation: &str) -> crate::RawCall {
+        self.host.raw(operation, "session", "session_id")
+    }
+
+    /// Opens a page in the Session.
+    ///
+    /// # Errors
+    ///
+    /// Once sent, `closed` when its handle or the Connection is closed, the engine's error, `deadline_exceeded` once its timeout runs out, and `internal` when its reply does not fit its type.
+    pub fn new_page(&self) -> crate::Call<Page, ::goodfetch_protocol::forms::SessionParams> {
+        let session = self.clone();
+        let call: crate::Call<
+            ::goodfetch_protocol::forms::PageOpened,
+            ::goodfetch_protocol::forms::SessionParams,
+        > = self.host.call(
+            "session.new_page",
+            ::goodfetch_protocol::forms::SessionParams {
+                session_id: self.host.id().clone(),
+            },
+        );
+        call.map(move |opened| Page {
+            host: session.host.child(opened.page_id),
+            session,
+        })
     }
 }
 
@@ -112,6 +165,7 @@ impl PageKeyboard {
 #[derive(Clone, Debug)]
 pub struct Page {
     pub(crate) host: crate::host::Host<::goodfetch_protocol::forms::PageId>,
+    pub(crate) session: Session,
 }
 
 impl Page {
@@ -136,6 +190,14 @@ impl Page {
         PageKeyboard {
             host: self.host.clone(),
         }
+    }
+
+    /// Its `session`, which every answer that opens a `page` names,
+    /// answered without a call: a clone of the `session` that opened or told
+    /// of it, or of the one its opener keeps (ADRs 0078, 0092).
+    #[must_use]
+    pub fn session(&self) -> Session {
+        self.session.clone()
     }
 
     /// Closes the page.

@@ -7,6 +7,19 @@ from __future__ import annotations
 
 from typing import Literal, TypeAlias
 
+BlockCause: TypeAlias = Literal["challenge", "captcha", "rate_limit", "ip_block", "payment_required", "consent_required"] | str
+"""Why a site refused a page (ADR 0035), on the wire as written.
+
+A value this package does not know, which a newer engine may send, is kept as received (ADR 0079).
+
+- `challenge`: A page that checks the browser before it lets it through.
+- `captcha`: A page that asks a person to prove they are human.
+- `rate_limit`: The site refused because too many requests came too fast.
+- `ip_block`: The site refused the address the request came from.
+- `payment_required`: The site asked to be paid for the page (ADR 0045).
+- `consent_required`: A wall that asks for consent before it shows the page (ADR 0048).
+"""
+
 CancelledBy: TypeAlias = Literal["person", "client", "program", "browser"] | str
 """Who stopped a call that `call_cancelled` ended (ADR 0113): the
 vocabulary of an Agent's `abort` (ADR 0100), plus `browser`, open
@@ -41,6 +54,34 @@ A value this package does not know, which a newer engine may send, is kept as re
 - `browser`: Its page's browser.
 - `run`: Its Run, stopped.
 - `connection`: Its Connection.
+"""
+
+ModelUnavailableReason: TypeAlias = Literal["unreachable", "server_error", "rate_limited"] | str
+"""Why a Model provider could not answer (ADR 0101), open (ADR 0079).
+
+A value this package does not know, which a newer engine may send, is kept as received (ADR 0079).
+
+- `unreachable`: The provider could not be reached, or a call to the program's own provider was dropped unanswered.
+- `server_error`: The provider failed with a 5xx.
+- `rate_limited`: The provider kept rate limiting the calls.
+"""
+
+ReportedHookStage: TypeAlias = Literal["before_request", "after_response", "before_navigation", "after_navigation", "page_ready", "before_record_commit", "request_ended"] | str
+"""The stage a Hook that raised ran at, as `hook_failed` reports it, by
+the catalog's name (ADR 0104): a crawl's Hooks in code run at the stages
+whose answer changes the work, and Plugins and Script Hooks also at the
+observe-only `request_ended`. A Run's lifecycle stage reads as a stage
+this reader does not know, its name kept.
+
+A value this package does not know, which a newer engine may send, is kept as received (ADR 0079).
+
+- `before_request`: Before each fetch of a request, its retries included.
+- `after_response`: After the request's final response, redirects followed.
+- `before_navigation`: Before a navigation to the request's URL, on the tiers that navigate.
+- `after_navigation`: After that navigation.
+- `page_ready`: Just before the handler, with its page, on every tier.
+- `before_record_commit`: Before each Record the attempt staged commits.
+- `request_ended`: Once a crawl request ended, with its outcome; observe-only.
 """
 
 Verdict: TypeAlias = Literal["verified", "rejected", "needs_review"] | str

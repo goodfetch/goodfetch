@@ -14,13 +14,16 @@
 //! Connection is not reached, which leaves its capability `unproved`.
 //!
 //! The Cloud-readiness suite's gateway target kind (`gateway`) reaches a
-//! gateway by address over the same Connections.
+//! gateway by address over the same Connections, and the process Plugin
+//! target (`plugin`) drives a Plugin of any kind over the plugin protocol
+//! on its stdio (ADR 0033).
 
 mod cases;
 mod connection;
 mod fabricated;
 mod foxhound;
 mod gateway;
+mod plugin;
 mod target;
 
 use goodfetch_protocol::case_log::CaseLogEntry;
@@ -28,7 +31,8 @@ use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::connection::{HELLO, HelloParams, HelloResult, Surface};
 use goodfetch_protocol::daemon::STOP;
 use goodfetch_protocol::result_document::{
-    CaseCheck, ConformanceDocument, ConformanceHeader, Evidence, Suite, Target, TargetIdentity,
+    Blocking, CaseCheck, ConformanceDocument, ConformanceHeader, Evidence, Suite, Target,
+    TargetIdentity,
 };
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -40,10 +44,11 @@ pub use self::gateway::{
     GatewayAddress, GatewayAddressError, GatewaySuite, GatewaySuiteError, GatewayTarget,
     run_gateway_suite,
 };
+pub use self::plugin::{PluginSuite, PluginSuiteError, PluginTarget, run_plugin_suite};
 pub use self::target::{EngineMode, EngineTarget, StartError};
-use crate::case_list::{CaseList, DeclaredCapability};
+use crate::case_list::{CaseList, DeclaredCapability, DeclaredCase};
 use crate::host::{RUNTIME, platform};
-use crate::proving_ground::{ProvingGround, ProvingGroundError};
+use crate::proving_ground::{ProvingGround, ProvingGroundError, TaskList};
 use crate::writer::{WriteError, write_document};
 
 /// The protocol suite's case list, embedded so the suite runs wherever the
@@ -288,6 +293,13 @@ pub enum ProtocolSuiteError {
     /// The case log did not become a document.
     #[error(transparent)]
     Write(#[from] WriteError),
+    /// The Goodfetch home of gate mode's run with blocking off could not be
+    /// set up.
+    #[error("setting up the home of the run with blocking off: {source}")]
+    BlockingOffHome {
+        /// Why.
+        source: std::io::Error,
+    },
 }
 
 /// The variable of the target's environment that holds the password of the
@@ -314,84 +326,91 @@ pub fn run_protocol_suite(
     proving_ground: &ProvingGround,
 ) -> Result<ConformanceDocument, ProtocolSuiteError> {
     let task_list = proving_ground.task_list()?;
-    let reached = Site::of(&task_list, proving_ground)?;
-    // The harness gives the target the password of the Proving ground's
-    // proxies, which a case's Session reads through the `env:` Secret
-    // provider, as a program's own environment would hold it.
-    let mut given = target.clone();
-    if let Some(credentials) = reached.proxy_credentials() {
-        given.environment.insert(
-            PROXY_PASSWORD_VARIABLE.to_owned(),
-            credentials.password.clone(),
-        );
+    let mut run = SuiteRun::start(suite.product, target, Site::of(&task_list, proving_ground)?)?;
+    for (capability, declared) in declared_cases(suite) {
+        run.take(capability, declared);
     }
-    let target = &given;
-    let mut connection = Connection::new(target::Started::start(target)?);
-    let hello = match hello(&mut connection, suite.product) {
-        Ok(hello) => hello,
+    let ran = run.finish()?;
+    let header = header(suite, target, &ran.hello, task_list, proving_ground);
+    Ok(write_document(header, &suite.cases, &ran.log)?)
+}
+
+/// The folder, in the target's, of the Goodfetch home the second run of
+/// gate mode starts the target on.
+const BLOCKING_OFF_HOME: &str = "gate-blocking-off";
+
+/// Runs `suite` as [`run_protocol_suite`] does, in gate mode (ADR 0047):
+/// on the target as given, with Filter-list blocking on, and on a second
+/// engine started on a Goodfetch home of the target's own, configured as
+/// the target's is, with every Run's Filter lists off. The two runs are
+/// interleaved: each case runs with blocking on, then at once with it off,
+/// before the next, so both meet the outside world as it is at that
+/// moment, and a vendor's outage falls on both runs of a case or on
+/// neither far more often than on one alone. The document keeps each
+/// case's entry of each run, marked with its blocking, and says it is a
+/// gate run, so a case that fails only with blocking on fails, and the
+/// document blocks.
+///
+/// # Errors
+///
+/// As [`run_protocol_suite`]'s, for either run, and when the second run's
+/// home cannot be set up.
+pub fn run_protocol_suite_in_gate_mode(
+    suite: &ProtocolSuite,
+    target: &EngineTarget,
+    proving_ground: &ProvingGround,
+) -> Result<ConformanceDocument, ProtocolSuiteError> {
+    let task_list = proving_ground.task_list()?;
+    // The second home is set up first, so it holds the target's
+    // configuration as given, not as the first run's cases left it.
+    let elsewhere = target
+        .on_a_home_of_its_own(BLOCKING_OFF_HOME)
+        .map_err(|source| ProtocolSuiteError::BlockingOffHome { source })?;
+    let on_site = Site::of(&task_list, proving_ground)?.with_blocking(Blocking::On);
+    let off_site = Site::of(&task_list, proving_ground)?.with_blocking(Blocking::Off);
+    let mut on = SuiteRun::start(suite.product, target, on_site)?;
+    let mut off = match SuiteRun::start(suite.product, &elsewhere, off_site) {
+        Ok(off) => off,
         Err(refused) => {
-            if matches!(refused, ProtocolSuiteError::OtherProduct { .. }) {
-                // The refusal is the failure reported; closing the target
-                // stops a Daemon that does not take the stop either.
-                drop(stop(&mut connection, target.mode));
-            }
-            connection.close();
+            // The refusal is the failure reported; the first engine still
+            // stops.
+            drop(on.finish());
             return Err(refused);
         }
     };
-    let opening = connection.take_exchanged();
-    let mut log = Vec::new();
-    let mut gone = None;
-    for capability in &suite.cases.capabilities {
-        for declared in &capability.cases {
-            if gone.is_some() {
-                break;
-            }
-            let case = Case::of(&declared.id).expect("invariant: a read suite names known cases");
-            let mut checks = Checks::default();
-            let ran = case.run(&mut connection, target, &hello, &reached, &mut checks);
-            checks.checks.extend(reached.take_unread());
-            checks.checks.extend(connection.take_unanswered());
-            if let Err(why) = ran {
-                checks.checks.push(CaseCheck {
-                    name: format!("the target answers the case's calls ({why})"),
-                    passed: false,
-                });
-                gone = Some(why);
-            }
-            let mut messages = connection.take_exchanged();
-            if case == Case::Hello {
-                messages.splice(0..0, opening.iter().cloned());
-            }
-            log.push(CaseLogEntry {
-                case: declared.id.clone(),
-                capability: capability.name.clone(),
-                mode: Some(target.mode.as_str().to_owned()),
-                platform: platform(),
-                runtime: RUNTIME.to_owned(),
-                checks: checks.checks,
-                evidence: Evidence {
-                    messages,
-                    oracle_answers: checks.oracle_answers,
-                    ..Evidence::default()
-                },
-            });
-        }
+    for (capability, declared) in declared_cases(suite) {
+        on.take(capability, declared);
+        off.take(capability, declared);
     }
-    // A Connection that only fell silent may still take the stop, which its
-    // failed case already reports when it does not; a Daemon that answered
-    // every case must take it.
-    let stopped = match gone {
-        None => stop(&mut connection, target.mode),
-        Some(Gone::Silent(_)) => {
-            drop(stop(&mut connection, target.mode));
-            Ok(())
-        }
-        Some(_) => Ok(()),
-    };
-    connection.close();
-    stopped.map_err(|reason| ProtocolSuiteError::NotStopped { reason })?;
+    // Both engines stop before either's failure to stop is reported.
+    let (on, off) = (on.finish(), off.finish());
+    let (on, off) = (on?, off?);
+    let mut log = on.log;
+    log.extend(off.log);
     let header = ConformanceHeader {
+        gate: true,
+        ..header(suite, target, &on.hello, task_list, proving_ground)
+    };
+    Ok(write_document(header, &suite.cases, &log)?)
+}
+
+/// What one run of a suite's cases left: the target's `hello`, and the case
+/// log.
+struct Ran {
+    hello: HelloResult,
+    log: Vec<CaseLogEntry>,
+}
+
+/// The header of `suite`'s document, run on `target`, which answered
+/// `hello`, against `proving_ground`, which served `task_list`.
+fn header(
+    suite: &ProtocolSuite,
+    target: &EngineTarget,
+    hello: &HelloResult,
+    task_list: TaskList,
+    proving_ground: &ProvingGround,
+) -> ConformanceHeader {
+    ConformanceHeader {
         suite: suite.cases.suite.clone(),
         target: Target {
             name: target
@@ -406,8 +425,156 @@ pub fn run_protocol_suite(
         runtime: RUNTIME.to_owned(),
         proving_ground: task_list.proving_ground,
         online: proving_ground.is_online(),
-    };
-    Ok(write_document(header, &suite.cases, &log)?)
+        gate: false,
+    }
+}
+
+/// Each case `suite` declares, in its case list's order, with its
+/// capability's name.
+fn declared_cases(suite: &ProtocolSuite) -> impl Iterator<Item = (&str, &DeclaredCase)> {
+    suite.cases.capabilities.iter().flat_map(|capability| {
+        capability
+            .cases
+            .iter()
+            .map(|declared| (capability.name.as_str(), declared))
+    })
+}
+
+/// One run of a suite's cases on a target, over one Connection, against a
+/// site: it starts, takes the cases one at a time, so gate mode can
+/// interleave two runs, and finishes with their case log.
+struct SuiteRun {
+    /// The target as started, with the Proving ground's proxy password.
+    target: EngineTarget,
+    reached: Site,
+    connection: Connection,
+    hello: HelloResult,
+    /// What `hello` exchanged, which the `hello` case's evidence opens with.
+    opening: Vec<Value>,
+    /// Why the Connection is gone, after which no case runs.
+    gone: Option<Gone>,
+    log: Vec<CaseLogEntry>,
+}
+
+impl SuiteRun {
+    /// Starts `target` and opens its Connection with `hello`, announcing
+    /// `product`, for cases run against `reached`.
+    ///
+    /// # Errors
+    ///
+    /// When the target cannot be reached, refuses or misreads `hello`, or
+    /// runs as another Product.
+    fn start(
+        product: Product,
+        target: &EngineTarget,
+        reached: Site,
+    ) -> Result<Self, ProtocolSuiteError> {
+        // The harness gives the target the password of the Proving ground's
+        // proxies, which a case's Session reads through the `env:` Secret
+        // provider, as a program's own environment would hold it.
+        let mut target = target.clone();
+        if let Some(credentials) = reached.proxy_credentials() {
+            target.environment.insert(
+                PROXY_PASSWORD_VARIABLE.to_owned(),
+                credentials.password.clone(),
+            );
+        }
+        let mut connection = Connection::new(target::Started::start(&target)?);
+        let hello = match hello(&mut connection, product) {
+            Ok(hello) => hello,
+            Err(refused) => {
+                if matches!(refused, ProtocolSuiteError::OtherProduct { .. }) {
+                    // The refusal is the failure reported; closing the
+                    // target stops a Daemon that does not take the stop
+                    // either.
+                    drop(stop(&mut connection, target.mode));
+                }
+                connection.close();
+                return Err(refused);
+            }
+        };
+        let opening = connection.take_exchanged();
+        Ok(Self {
+            target,
+            reached,
+            connection,
+            hello,
+            opening,
+            gone: None,
+            log: Vec::new(),
+        })
+    }
+
+    /// Runs `declared`, a case of `capability`, and logs it with the site's
+    /// Filter-list blocking; once the Connection is gone, it runs nothing.
+    fn take(&mut self, capability: &str, declared: &DeclaredCase) {
+        if self.gone.is_some() {
+            return;
+        }
+        let case = Case::of(&declared.id).expect("invariant: a read suite names known cases");
+        let mut checks = Checks::default();
+        let ran = case.run(
+            &mut self.connection,
+            &self.target,
+            &self.hello,
+            &self.reached,
+            &mut checks,
+        );
+        checks.checks.extend(self.reached.take_unread());
+        checks.checks.extend(self.connection.take_unanswered());
+        if let Err(why) = ran {
+            checks.checks.push(CaseCheck {
+                name: format!("the target answers the case's calls ({why})"),
+                passed: false,
+            });
+            self.gone = Some(why);
+        }
+        let mut messages = self.connection.take_exchanged();
+        if case == Case::Hello {
+            messages.splice(0..0, self.opening.iter().cloned());
+        }
+        self.log.push(CaseLogEntry {
+            case: declared.id.clone(),
+            capability: capability.to_owned(),
+            mode: Some(self.target.mode.as_str().to_owned()),
+            blocking: self.reached.blocking(),
+            unreachable: Vec::new(),
+            platform: platform(),
+            runtime: RUNTIME.to_owned(),
+            checks: checks.checks,
+            evidence: Evidence {
+                messages,
+                oracle_answers: checks.oracle_answers,
+                ..Evidence::default()
+            },
+        });
+    }
+
+    /// Stops a Daemon the harness started and closes the target.
+    ///
+    /// # Errors
+    ///
+    /// [`ProtocolSuiteError::NotStopped`] when a Daemon that answered every
+    /// case does not take the stop.
+    fn finish(mut self) -> Result<Ran, ProtocolSuiteError> {
+        // A Connection that only fell silent may still take the stop, which
+        // its failed case already reports when it does not; a Daemon that
+        // answered every case must take it.
+        let stopped = match self.gone {
+            None => stop(&mut self.connection, self.target.mode),
+            Some(Gone::Silent(_)) => {
+                drop(stop(&mut self.connection, self.target.mode));
+                Ok(())
+            }
+            Some(_) => Ok(()),
+        };
+        self.connection.close();
+        stopped.map_err(|reason| ProtocolSuiteError::NotStopped { reason })?;
+        Ok(Ran {
+            hello: self.hello,
+            log: self.log,
+        })
+    }
 }
 
 /// Stops a Daemon the harness started, over its open Connection, so it

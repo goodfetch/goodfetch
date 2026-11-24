@@ -2,7 +2,7 @@
 // generates from the forms catalog (ADR 0099): `tsc` fails on a wrong one,
 // and oxlint's `no-deprecated` on a deprecated use without its directive.
 import { expectTypeOf } from "vitest";
-import type { Locator, Page, PageKeyboard, Run } from "./generated/handles.ts";
+import type { Locator, Page, PageKeyboard, Run, Session } from "./generated/handles.ts";
 import type {
   Acted,
   Navigated,
@@ -82,6 +82,12 @@ void page.waitForReady({ poll: anyPoll });
 // A `new` member returns the value it opens, which closes with its scope.
 expectTypeOf(run.newPage).returns.toEqualTypeOf<Promise<Page>>();
 expectTypeOf<Page>().toExtend<AsyncDisposable>();
+
+// A page answers the Session every answer that opens it names, at once, by
+// a sync method that takes nothing (ADR 0078).
+expectTypeOf(page.session).parameters.toEqualTypeOf<[]>();
+expectTypeOf(page.session).returns.toEqualTypeOf<Session>();
+expectTypeOf(page.session().newPage).returns.toEqualTypeOf<Promise<Page>>();
 
 // A read answers at once, by a sync method, the value of the answer that
 // opened its handle: it sends nothing, so it has no options.

@@ -1,7 +1,8 @@
 //! goodfetch-conformance's integration tests (Seam 3 of the Proving ground
 //! and conformance spec, Pre-merge): the writer that turns a case log into a
 //! result document, the result document of each kind against its schema,
-//! and the self-test suite against a running Proving ground.
+//! the self-test suite against a running Proving ground, and the suites
+//! run against engines over the protocol and against process Plugins.
 #![expect(
     clippy::disallowed_methods,
     reason = "these tests start processes and threads and read files outside any async worker"
@@ -13,11 +14,13 @@
 
 mod case_log;
 mod client_case;
+mod gate;
 mod harness_failures;
 mod journey_document;
 mod journey_run;
 mod keep;
 mod page;
+mod plugin;
 mod protocol;
 mod read_command;
 mod refusals;

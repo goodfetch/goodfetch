@@ -512,6 +512,12 @@ export interface Settings {
   };
   readonly secrets?: {
     /**
+     * Each Secret placeholder's binding, as `secrets.placeholders.<name>`: `reference`, the Secret reference its value comes from, with `totp: true` when that value is a TOTP seed whose current code is typed, or `code_source`, the email or SMS code source its one-time code comes from; and `domains`, required, the registrable domains its value may go to, each with its subdomains, `*` only when written. A host below a registrable domain, such as `www.example.com`, is refused with `setting_invalid` naming the domain. `secret("name")` in code and `%name%` in an AI instruction name the placeholder, and the nearest of a Session, its Run and the connection that binds it wins. None by default. A Recipe declares names and never binds one, and a Client acting for a model never sets one: either's value is `setting_locked`.
+     *
+     * `secrets.placeholders`.
+     */
+    readonly placeholders?: { readonly [key: string]: { readonly domains: readonly string[]; readonly reference: string; readonly totp?: boolean } | { readonly codeSource: string; readonly domains: readonly string[] } };
+    /**
      * The Secret references a Run resolves again at each use, such as a rotating token's. Any other reference is resolved once for each placeholder it fills and its value reused for the rest of the Run, its domain binding checked at each use; none by default.
      *
      * `secrets.resolve_each_use`.
@@ -1230,6 +1236,12 @@ export interface RunSettings {
   };
   readonly secrets?: {
     /**
+     * Each Secret placeholder's binding, as `secrets.placeholders.<name>`: `reference`, the Secret reference its value comes from, with `totp: true` when that value is a TOTP seed whose current code is typed, or `code_source`, the email or SMS code source its one-time code comes from; and `domains`, required, the registrable domains its value may go to, each with its subdomains, `*` only when written. A host below a registrable domain, such as `www.example.com`, is refused with `setting_invalid` naming the domain. `secret("name")` in code and `%name%` in an AI instruction name the placeholder, and the nearest of a Session, its Run and the connection that binds it wins. None by default. A Recipe declares names and never binds one, and a Client acting for a model never sets one: either's value is `setting_locked`.
+     *
+     * `secrets.placeholders`.
+     */
+    readonly placeholders?: { readonly [key: string]: { readonly domains: readonly string[]; readonly reference: string; readonly totp?: boolean } | { readonly codeSource: string; readonly domains: readonly string[] } };
+    /**
      * The Secret references a Run resolves again at each use, such as a rotating token's. Any other reference is resolved once for each placeholder it fills and its value reused for the rest of the Run, its domain binding checked at each use; none by default.
      *
      * `secrets.resolve_each_use`.
@@ -1592,6 +1604,14 @@ export interface SessionSettings {
      */
     readonly username?: string | null;
   };
+  readonly secrets?: {
+    /**
+     * Each Secret placeholder's binding, as `secrets.placeholders.<name>`: `reference`, the Secret reference its value comes from, with `totp: true` when that value is a TOTP seed whose current code is typed, or `code_source`, the email or SMS code source its one-time code comes from; and `domains`, required, the registrable domains its value may go to, each with its subdomains, `*` only when written. A host below a registrable domain, such as `www.example.com`, is refused with `setting_invalid` naming the domain. `secret("name")` in code and `%name%` in an AI instruction name the placeholder, and the nearest of a Session, its Run and the connection that binds it wins. None by default. A Recipe declares names and never binds one, and a Client acting for a model never sets one: either's value is `setting_locked`.
+     *
+     * `secrets.placeholders`.
+     */
+    readonly placeholders?: { readonly [key: string]: { readonly domains: readonly string[]; readonly reference: string; readonly totp?: boolean } | { readonly codeSource: string; readonly domains: readonly string[] } };
+  };
   readonly session?: {
     /**
      * The Page check every page of a Session is judged against once its navigation reached its document: `login_page` and `expected_page`, each optional and each a page match, a URL glob or regular expression, a CSS or XPath selector, or a text. A page matching its login page raises `logged_out` from the call that waited for its navigation; one matching neither, when an expected page is given, raises `page_check_failed`. None by default: the built-in detector then judges a page a login page when the navigation was redirected to a login path, or when the page shows one password field outside a login path, and Provenance marks each page it judged as weakly checked. Set at a Run, a connection or a Session's own `settings`.
@@ -1882,6 +1902,7 @@ const SPELLING: Spelling = {
   }],
   secrets: ["secrets", {
     byReference: "by_reference",
+    placeholders: { setting: "placeholders", value: { values: { fields: { "code_source": "codeSource" } } } },
     resolveEachUse: "resolve_each_use",
   }],
   security: ["security", {

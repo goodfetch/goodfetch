@@ -3,6 +3,9 @@
     {
       "arrived_in": "0.1",
       "description": "The host has addresses only in an IP family the Session holds no local address of, such as IPv6 addresses for a Session bound to an IPv4 address. Add a local address of that family to the run's local addresses, or reach the host another way.",
+      "details": {
+        "$ref": "#/$defs/AddressFamilyUnavailableDetails"
+      },
       "exit_code": null,
       "group": "unavailable",
       "json_rpc_class": -32006,
@@ -13,6 +16,9 @@
     {
       "arrived_in": "0.1",
       "description": "A pinned download the call needed failed: the network, an HTTP status, or bytes whose digest is not the pinned one. Retry, or install beforehand with the Product's `browser install`, or point `GOODFETCH_BROWSERS_PATH` at a prepared cache.",
+      "details": {
+        "$ref": "#/$defs/ArtifactDownloadFailedDetails"
+      },
       "exit_code": null,
       "group": "unavailable",
       "json_rpc_class": -32006,
@@ -23,6 +29,9 @@
     {
       "arrived_in": "0.1",
       "description": "The `offline` setting refused a pinned download the call needed. Run the Product's `browser install` beforehand where the cache is writable, point `GOODFETCH_BROWSERS_PATH` at a prepared cache, or lift `offline` where it was set.",
+      "details": {
+        "$ref": "#/$defs/ArtifactUnavailableOfflineDetails"
+      },
       "exit_code": null,
       "group": "refused",
       "json_rpc_class": -32002,
@@ -43,6 +52,9 @@
     {
       "arrived_in": "0.1",
       "description": "The site refused the document a navigation reached with a Block cause the engine cannot get past, such as a rate limit, an IP block or a challenge: raised by the call that waited for that navigation, or else by the page's next call. The Session stays open with its cookies, never replaced, and nothing waits on the site's `Retry-After`: the program decides whether to wait, open another Session or pause for a person. The details name the cause, the URL, the status and `retry_after`, the time the site asked for or `null`.",
+      "details": {
+        "$ref": "#/$defs/BlockedDetails"
+      },
       "exit_code": null,
       "group": "page",
       "json_rpc_class": -32003,
@@ -53,6 +65,9 @@
     {
       "arrived_in": "0.1",
       "description": "The Run's folder holds no body of this ID: the Run or the body is unknown, or the ID is not a body's.",
+      "details": {
+        "$ref": "#/$defs/BodyNotFoundDetails"
+      },
       "exit_code": null,
       "group": "program",
       "json_rpc_class": -32001,
@@ -63,6 +78,9 @@
     {
       "arrived_in": "0.1",
       "description": "The browser no longer holds the response's body, as after the page navigated away or once its buffer evicted it, or the response has none, as a redirect's: the engine keeps a body only for a response obtained through `page.wait_for_request_finished`, `route.fetch` or `page.request`, which the fix names. Where Playwright and Puppeteer say \"Request content was evicted from inspector cache\". A retry finds the body gone all the same.",
+      "details": {
+        "$ref": "#/$defs/BodyUnavailableDetails"
+      },
       "exit_code": null,
       "group": "unavailable",
       "json_rpc_class": -32006,
@@ -93,6 +111,9 @@
     {
       "arrived_in": "0.1",
       "description": "The browser's build is installed, but it did not start or did not open the page: it exited, or its connection refused or fell silent. The details name its executable and how it ended.",
+      "details": {
+        "$ref": "#/$defs/BrowserLaunchFailedDetails"
+      },
       "exit_code": null,
       "group": "unavailable",
       "json_rpc_class": -32006,
@@ -103,6 +124,9 @@
     {
       "arrived_in": "0.1",
       "description": "The Session would launch the full Chrome for Testing build headless on macOS from a process with no GUI session, such as a `LaunchAgent` in the Background session or an SSH login, where that build cannot start. Nothing was launched. Set `browser.headless_shell: true` to launch the headless shell, or run the engine in a login session.",
+      "details": {
+        "$ref": "#/$defs/BrowserNeedsGuiSessionDetails"
+      },
       "exit_code": null,
       "group": "unavailable",
       "json_rpc_class": -32006,
@@ -113,6 +137,9 @@
     {
       "arrived_in": "0.1",
       "description": "The browser build a launch needs is not in the Browser cache and the engine cannot write that cache, such as an image's read-only `GOODFETCH_BROWSERS_PATH`; or a browser named by channel or path is not there. Run the Product's `browser install` where the cache is writable, install the browser of that channel, or correct the path.",
+      "details": {
+        "$ref": "#/$defs/BrowserNotInstalledDetails"
+      },
       "exit_code": null,
       "group": "unavailable",
       "json_rpc_class": -32006,
@@ -123,6 +150,9 @@
     {
       "arrived_in": "0.1",
       "description": "A handler's call on a page its forced fetch tier serves from a document, which that tier cannot serve exactly, such as a click, `evaluate` or a wait for content the document lacks: under a forced tier nothing escalates to the browser. The details name `fetch.tier`, the tier, the Label that forced it when one did, and the call; the fix names `fetch.tier: auto` or `browser`, and for a wait also content the page may simply lack. A request's own document that declares no encoding and is not UTF-8, which only the browser's guess reads, fails the same way under a forced tier (ADR 0119), its call `fetch.encoding` and its fix naming `fetch.encoding` and `fetch.tier`. So does a crawl request with a method other than `GET` or a body on a forced `light_browser`, which sends neither, its call `crawl_request.method` or `crawl_request.body`.",
+      "details": {
+        "$ref": "#/$defs/BrowserRequiredDetails"
+      },
       "exit_code": null,
       "group": "program",
       "json_rpc_class": -32001,
@@ -133,6 +163,9 @@
     {
       "arrived_in": "0.1",
       "description": "Chromium's sandbox cannot start on this host, so the engine launches no browser. `environment` names what refuses it (Docker's or containerd's default seccomp profile, Kubernetes' `RuntimeDefault`, Ubuntu's AppArmor restriction on unprivileged user namespaces, or `unknown` for a refusal the probe does not recognise, which the message names), and `fix` the fix; an Operator policy may instead switch `security.browser_sandbox` off, which the run reports.",
+      "details": {
+        "$ref": "#/$defs/BrowserSandboxUnavailableDetails"
+      },
       "exit_code": null,
       "group": "unavailable",
       "json_rpc_class": -32006,
@@ -156,6 +189,9 @@
     {
       "arrived_in": "0.1",
       "description": "A capability this engine cannot provide where a setting asks for it, such as a Session opening from a Session source of a kind this engine does not read: the details name the setting, the layer that set it and what it asked for, and its fix names the value that does without it.",
+      "details": {
+        "$ref": "#/$defs/CapabilityUnavailableDetails"
+      },
       "exit_code": null,
       "group": "unavailable",
       "json_rpc_class": -32006,
@@ -166,6 +202,9 @@
     {
       "arrived_in": "0.1",
       "description": "A `cdp_url` Session source names an address ADR 0056's rules refuse, before any connection: a private address from a value that is not Operator-configured, loopback from a Client acting for a model (its project configuration included) or a Recipe, or a private address under `egress.no_private_endpoints`. The details name the address without its query or credentials, the settings layer that gave it, the rule, the address it resolved to and the fix: set the address in Operator policy or in user configuration, or give a public address.",
+      "details": {
+        "$ref": "#/$defs/CdpUrlNotAllowedDetails"
+      },
       "exit_code": null,
       "group": "refused",
       "json_rpc_class": -32002,
@@ -176,6 +215,9 @@
     {
       "arrived_in": "0.1",
       "description": "Something answered at a `cdp_url` Session source's address, but no browser speaks CDP there: an HTTP status and content type, a WebSocket that refused the upgrade, a CDP target that is not a browser (`page`, `node`, `worker`), or a product the engine does not drive, which `observed` says. The details name the address without its query or credentials, the settings layer that gave it and the fix: give the browser's endpoint, `http://host:port` or `ws://…/devtools/browser/<id>`, and when the same host serves `/json/version`, the browser address found there, which `browser_url` holds.",
+      "details": {
+        "$ref": "#/$defs/CdpUrlNotBrowserDetails"
+      },
       "exit_code": null,
       "group": "program",
       "json_rpc_class": -32001,
@@ -186,6 +228,9 @@
     {
       "arrived_in": "0.1",
       "description": "A `cdp_url` Session source's address answered 401 or 403 to the HTTP request or the WebSocket upgrade. The details name the address without its query or credentials, the settings layer that gave it, the status, each header name sent with its Secret reference, never its value, and the fix: check the Secret references in `headers`.",
+      "details": {
+        "$ref": "#/$defs/CdpUrlUnauthorizedDetails"
+      },
       "exit_code": null,
       "group": "refused",
       "json_rpc_class": -32002,
@@ -196,6 +241,9 @@
     {
       "arrived_in": "0.1",
       "description": "Nothing answered at a `cdp_url` Session source's address when the call that opens the Session connected to it: its name did not resolve, the connection was refused or reset, or TLS failed. It fails at once, never waiting for the address. The details name the address without its query or credentials, the settings layer that gave it, the failure and the fix: start the browser with remote debugging on that port, or correct the address.",
+      "details": {
+        "$ref": "#/$defs/CdpUrlUnreachableDetails"
+      },
       "exit_code": null,
       "group": "unavailable",
       "json_rpc_class": -32006,
@@ -206,6 +254,9 @@
     {
       "arrived_in": "0.1",
       "description": "A pinned host presented a certificate whose public key is not its pin, or its pin row cannot be read, so nothing was sent to it, nor is for the rest of the run. The details carry the host, both SHA-256 hashes and the fix: a person accepts the new key with `certs accept` in an interactive prompt, which no agent, Recipe or `--json` command can do.",
+      "details": {
+        "$ref": "#/$defs/CertificateChangedDetails"
+      },
       "exit_code": null,
       "group": "refused",
       "json_rpc_class": -32002,
@@ -216,6 +267,9 @@
     {
       "arrived_in": "0.1",
       "description": "A host's certificate failed verification and no exception covers its domain, so nothing was sent to it. The details name the host, the failure (`expired`, `not_yet_valid`, `unknown_issuer`, `name_mismatch`, `self_signed`, `revoked`, or another failure as text) and, in `fix`, the setting that makes an exception for that domain.",
+      "details": {
+        "$ref": "#/$defs/CertificateInvalidDetails"
+      },
       "exit_code": null,
       "group": "page",
       "json_rpc_class": -32003,
@@ -236,6 +290,9 @@
     {
       "arrived_in": "0.1",
       "description": "The Checkpoint a resume names is behind the Run's run file on this machine: a later run epoch, or the same one at a later journal position, wrote that file, so replacing it would throw away the work done since the Checkpoint and could perform its Effects again. Nothing is changed. Resume without `checkpoint` to go on from the run file, or pass `rollback` to replace it with the Checkpoint, as the Audit log records.",
+      "details": {
+        "$ref": "#/$defs/CheckpointBehindDetails"
+      },
       "exit_code": null,
       "group": "refused",
       "json_rpc_class": -32002,
@@ -296,6 +353,9 @@
     {
       "arrived_in": "0.1",
       "description": "The Connection already holds as many calls waiting for their answer, or as many bytes waiting to be written to the engine, as its bounds allow, so the call was refused at once and never sent; the calls made before it go on. The details name the bound, `pending_calls` or `queued_write_bytes`, and its value. Wait for earlier calls to end, or raise `connection.max_pending_calls` or `connection.max_queued_write_bytes` in `connect()`'s `settings`.",
+      "details": {
+        "$ref": "#/$defs/ConnectionOverloadedDetails"
+      },
       "exit_code": null,
       "group": "refused",
       "json_rpc_class": -32002,
@@ -306,6 +366,9 @@
     {
       "arrived_in": "0.1",
       "description": "The foreground Daemon is draining on `SIGTERM`: it takes no run and checkpoints every live run as resumable, then exits. Start or resume the run on the Daemon that replaces it.",
+      "details": {
+        "$ref": "#/$defs/DaemonDrainingDetails"
+      },
       "exit_code": null,
       "group": "unavailable",
       "json_rpc_class": -32006,
@@ -316,6 +379,9 @@
     {
       "arrived_in": "0.1",
       "description": "No Daemon could be reached, so nothing was called: nothing answers where `GOODFETCH_URL` or its runtime file says it listens, it closed the Connection before it answered `hello`, as one does for a wrong `GOODFETCH_TOKEN`, it went away while the command connected, or its files cannot be read or its major's pick cannot be started. The message says which, and the `fix` what to do.",
+      "details": {
+        "$ref": "#/$defs/DaemonUnreachableDetails"
+      },
       "exit_code": null,
       "group": "unavailable",
       "json_rpc_class": -32006,
@@ -326,6 +392,9 @@
     {
       "arrived_in": "0.1",
       "description": "The crawl declares a second Dataset of a name it already declares, so it was not started. The details name the Dataset. Give each Dataset its own name.",
+      "details": {
+        "$ref": "#/$defs/DatasetDuplicateDetails"
+      },
       "exit_code": null,
       "group": "program",
       "json_rpc_class": -32001,
@@ -336,6 +405,9 @@
     {
       "arrived_in": "0.1",
       "description": "A Dataset's key names a field that is no top-level field its JSON Schema requires, so a Record could lack it and the crawl was not started (`reason` `not_required`, naming the field); or a start under the ID of a Run changes the key of a Dataset that holds Records, so the Run did no work and a Sink's upsert never mixes two identities (`reason` `changed`, naming both keys). The details name the Dataset. Key a Dataset only by fields its schema requires, and keep its key for the Run's life or start a new Run.",
+      "details": {
+        "$ref": "#/$defs/DatasetKeyInvalidDetails"
+      },
       "exit_code": null,
       "group": "program",
       "json_rpc_class": -32001,
@@ -346,6 +418,9 @@
     {
       "arrived_in": "0.1",
       "description": "A Record was pushed into a Dataset the crawl does not declare, such as another crawl's, so it was not staged; `run.records` read such a Dataset, so nothing was read; or a start under the ID of a Run whose Dataset holds Records no longer declares it, a renamed one included, so the Run did no work and no Record is orphaned. The details name the Dataset and those the crawl declares. Declare the Dataset again, or start a new Run.",
+      "details": {
+        "$ref": "#/$defs/DatasetUnknownDetails"
+      },
       "exit_code": null,
       "group": "program",
       "json_rpc_class": -32001,
@@ -356,6 +431,9 @@
     {
       "arrived_in": "0.1",
       "description": "The call's deadline passed before what it waited for came, such as a response's first byte or a navigation. Its `limit` names the timeout's setting, its value and the layer that set it: raise that setting, or wait for the right thing.",
+      "details": {
+        "$ref": "#/$defs/DeadlineExceededDetails"
+      },
       "exit_code": null,
       "group": "deadline_exceeded",
       "json_rpc_class": -32005,
@@ -366,6 +444,9 @@
     {
       "arrived_in": "0.1",
       "description": "A `detached` start of a Run that would die with its Connection, so no Run started: an Attached or linked engine ends with its Connection, and a Run whose handler is in the program waits on it. The details name what keeps the Run from detaching, `engine` or the key that gives it a handler in the program, and the fix.",
+      "details": {
+        "$ref": "#/$defs/DetachUnsupportedDetails"
+      },
       "exit_code": null,
       "group": "program",
       "json_rpc_class": -32001,
@@ -376,6 +457,9 @@
     {
       "arrived_in": "0.1",
       "description": "The dialog was answered already, by an earlier `accept` or `dismiss`, or it closed, its handler having ended or the dialog having got its default: the first answer stands and this one changed nothing.",
+      "details": {
+        "$ref": "#/$defs/DialogAlreadyHandledDetails"
+      },
       "exit_code": null,
       "group": "program",
       "json_rpc_class": -32001,
@@ -386,6 +470,9 @@
     {
       "arrived_in": "0.1",
       "description": "The program runs on an edge runtime, Cloudflare Workers, Vercel's edge runtime or Deno Deploy, which ends what it runs with its request, and asked for code the engine would call after it: a crawl's handlers, an SDK handler, a Hook in code or a lent page. Nothing was sent. Run that code as a Recipe on the Daemon, and start or poll its Run from the edge function.",
+      "details": {
+        "$ref": "#/$defs/EdgeHandlersUnsupportedDetails"
+      },
       "exit_code": null,
       "group": "program",
       "json_rpc_class": -32001,
@@ -446,6 +533,9 @@
     {
       "arrived_in": "0.1",
       "description": "The run's egress policy refused a request before it connected: a host the domain policy does not allow, an address that is not globally reachable, or a scheme no request may use. The details name the URL, the rule, the address when there is one and the setting that would allow it.",
+      "details": {
+        "$ref": "#/$defs/EgressRefusedDetails"
+      },
       "exit_code": null,
       "group": "refused",
       "json_rpc_class": -32002,
@@ -456,6 +546,9 @@
     {
       "arrived_in": "0.1",
       "description": "The engine ended before its Connection was closed, so the call has no answer. An Attached engine's details carry its exit code or signal and the last 64 KiB of its stderr; a linked engine's carry none.",
+      "details": {
+        "$ref": "#/$defs/EngineExitedDetails"
+      },
       "exit_code": null,
       "group": "unavailable",
       "json_rpc_class": -32006,
@@ -486,6 +579,9 @@
     {
       "arrived_in": "0.1",
       "description": "A bug in Goodfetch made the engine panic, which ended what `ended` names and only that: for `call`, this call, while its Connection, its Run and its Page go on. Making the same call again is likely to hit the same bug. Report it with the crash report `crash_report` names, a file in the engine's crash-report folder on its machine.",
+      "details": {
+        "$ref": "#/$defs/EnginePanickedDetails"
+      },
       "exit_code": null,
       "group": "internal",
       "json_rpc_class": -32007,
@@ -506,6 +602,9 @@
     {
       "arrived_in": "0.1",
       "description": "Windows refused to start the file: Smart App Control, or another App Control policy, blocks executables without a signature or reputation it trusts. Goodfetch never re-signs a file it did not build. For a browser, use the Goodfetch Chromium or an installed Chrome by channel; otherwise turn Smart App Control off, or ask the device's administrator to allow the file.",
+      "details": {
+        "$ref": "#/$defs/ExecutableBlockedBySmartAppControlDetails"
+      },
       "exit_code": null,
       "group": "refused",
       "json_rpc_class": -32002,
@@ -516,6 +615,9 @@
     {
       "arrived_in": "0.1",
       "description": "The bytes of a file could not be written: no space or quota left, or an I/O error, or any failure where the engine keeps its files. No partial file is left. Free space where the files go, or ask the Daemon's operator, then make the same call again.",
+      "details": {
+        "$ref": "#/$defs/FileWriteFailedDetails"
+      },
       "exit_code": 14,
       "group": "unavailable",
       "json_rpc_class": -32006,
@@ -526,6 +628,9 @@
     {
       "arrived_in": "0.1",
       "description": "A file, such as a run state or a Checkpoint, is of a format version this engine cannot read: a newer minor or major, written by a newer engine, which `fix` says to upgrade to, or an older major, which `upgrade-files` upgrades. The file is left as it is.",
+      "details": {
+        "$ref": "#/$defs/FormatVersionUnsupportedDetails"
+      },
       "exit_code": null,
       "group": "unavailable",
       "json_rpc_class": -32006,
@@ -536,6 +641,9 @@
     {
       "arrived_in": "0.1",
       "description": "The program's handler failed with its own error, such as an exception; the attempt committed nothing. It is retried only when `crawl.retry.handler_failed` is on, since a bug fails the same way every time.",
+      "details": {
+        "$ref": "#/$defs/HandlerFailedDetails"
+      },
       "exit_code": null,
       "group": "program",
       "json_rpc_class": -32001,
@@ -556,6 +664,9 @@
     {
       "arrived_in": "0.1",
       "description": "A header value the engine would send holds a CR, an LF or a NUL, which could end the header and start another, so it is refused before it reaches the wire or the browser. The details name the header and the character, never the value. Remove the character from the value.",
+      "details": {
+        "$ref": "#/$defs/HeaderValueInvalidDetails"
+      },
       "exit_code": null,
       "group": "program",
       "json_rpc_class": -32001,
@@ -566,6 +677,9 @@
     {
       "arrived_in": "0.1",
       "description": "The crawl declares a second Hook of a name one of its Hooks already carries, so the declaration failed at once, with no I/O: a name identifies one Hook, in `hook_failed`, in the Run trace and for a test's `runHook`. The details name the Hook and its stage. Give each Hook its own `name`.",
+      "details": {
+        "$ref": "#/$defs/HookDuplicateDetails"
+      },
       "exit_code": null,
       "group": "program",
       "json_rpc_class": -32001,
@@ -576,6 +690,9 @@
     {
       "arrived_in": "0.1",
       "description": "A Hook raised, so its work failed: an attempt commits nothing, and one that failed at the Record stage commits none of what it staged. The message always names the exception. The details name the stage, the Hook, the request's Label (`null` at a lifecycle stage or outside a crawl), the exception's type, message and stack, and the Goodfetch code raised inside (`null` for the program's own exception). A wrapped code is retried when its own retryable flag says so; in a crawl, the program's own exception only when `crawl.retry.handler_failed` is on, since a bug fails the same way every time, and either retry draws on `crawl.retry.max`.",
+      "details": {
+        "$ref": "#/$defs/HookFailedDetails"
+      },
       "exit_code": null,
       "group": "program",
       "json_rpc_class": -32001,
@@ -586,6 +703,9 @@
     {
       "arrived_in": "0.1",
       "description": "A Hook can never run, so nothing was done: its `labels` or `datasets` list is empty, which fails at once with no I/O, or, when the Run starts, it is a navigation Hook all of whose Labels force a tier that does not navigate (`http`, `discovered_api` or `browser_fetch`) through `fetch.tier`, so the Run was not started. The details name the Hook and its stage. Scope it to a Label or Dataset it can see, or let one of its Labels navigate.",
+      "details": {
+        "$ref": "#/$defs/HookIneffectiveDetails"
+      },
       "exit_code": null,
       "group": "program",
       "json_rpc_class": -32001,
@@ -596,6 +716,9 @@
     {
       "arrived_in": "0.1",
       "description": "`run.resume` or `run.retry_failed` would reopen a Run whose crawl declared Hooks in code, which run in its program and which no start under its ID declared again, so the Run was not reopened and nothing was done: its Hooks would be skipped. The details name the Run and the Hooks its run file records. Resume the Run with `crawl.start` and its Run ID from the program that declares them; to retry an ended Run's failures, call `crawl.start` with its Run ID first, then `run.retry_failed`. `crawl.start` takes no Checkpoint yet, so a Checkpoint of such a Run cannot be resumed.",
+      "details": {
+        "$ref": "#/$defs/HookUndeclaredDetails"
+      },
       "exit_code": null,
       "group": "program",
       "json_rpc_class": -32001,
@@ -606,6 +729,9 @@
     {
       "arrived_in": "0.1",
       "description": "A test's `runHook` names a Hook the crawl does not hold, so no Hook ran. The details name the Hook asked for and the closest name the crawl holds, if it holds any. Use a name the crawl's Hooks carry, which `name` sets.",
+      "details": {
+        "$ref": "#/$defs/HookUnknownDetails"
+      },
       "exit_code": null,
       "group": "program",
       "json_rpc_class": -32001,
@@ -616,6 +742,9 @@
     {
       "arrived_in": "0.1",
       "description": "A bug in Goodfetch: an object such as a Session or a page received an event its state cannot receive. Report it with the object, the state and the event its details carry.",
+      "details": {
+        "$ref": "#/$defs/InternalDetails"
+      },
       "exit_code": null,
       "group": "internal",
       "json_rpc_class": -32007,
@@ -646,6 +775,9 @@
     {
       "arrived_in": "0.1",
       "description": "A seed, an enqueue or a handler names a Label the crawl does not declare, such as another crawl's, so nothing was done; or a resume finds pending requests of a Label the crawl no longer declares, so the Run did no work; or `run.retry_failed` finds requests to retry of such a Label, so none was re-admitted. The details name the Label and those the crawl declares. Declare the Label on this crawl, or use one it declares.",
+      "details": {
+        "$ref": "#/$defs/LabelUnknownDetails"
+      },
       "exit_code": null,
       "group": "program",
       "json_rpc_class": -32001,
@@ -666,6 +798,9 @@
     {
       "arrived_in": "0.1",
       "description": "A newer engine wrote a Limit this engine cannot evaluate, and it may cover the run; the details name it. Upgrade the engine.",
+      "details": {
+        "$ref": "#/$defs/LimitNotUnderstoodDetails"
+      },
       "exit_code": null,
       "group": "refused",
       "json_rpc_class": -32002,
@@ -676,6 +811,9 @@
     {
       "arrived_in": "0.1",
       "description": "A start that names an existing Run gave a Limit above the Run's Limit as it stands; the details name its Usage kind, its currency, the amount given and the one standing. A program only lowers a Limit: ask a person to raise it.",
+      "details": {
+        "$ref": "#/$defs/LimitRaiseRefusedDetails"
+      },
       "exit_code": null,
       "group": "refused",
       "json_rpc_class": -32002,
@@ -686,6 +824,9 @@
     {
       "arrived_in": "0.1",
       "description": "A Limit that covers the run has nothing left in its period; the details name its scope, its Usage kind, its period and when it starts again. Wait for the next period, or ask a person to raise it.",
+      "details": {
+        "$ref": "#/$defs/ReachedLimit"
+      },
       "exit_code": 16,
       "group": "refused",
       "json_rpc_class": -32002,
@@ -696,6 +837,9 @@
     {
       "arrived_in": "0.1",
       "description": "A listener the program registered with `on` on a value whose events the engine publishes on its event stream, such as a Session's, held more events than its queue takes, the bound set where the Connection opens, 1,024 by default, so the SDK removed it once it got the events it held. Only that listener loses events: the Connection's Subscription and its other listeners go on. Its details name the event and how many events the listener lost: make the listener return sooner, or raise the bound, and listen again.",
+      "details": {
+        "$ref": "#/$defs/ListenerEventsLostDetails"
+      },
       "exit_code": null,
       "group": "unavailable",
       "json_rpc_class": -32006,
@@ -716,6 +860,9 @@
     {
       "arrived_in": "0.1",
       "description": "`egress.local_addresses` yields no address this host can send from: a listed address the host does not hold, an interface it does not have or that holds no address, or an IPv6 prefix with none of the host's addresses in it and, on Linux, not routed locally with `net.ipv6.ip_nonlocal_bind` on; or a Session whose browser this engine does not launch on this machine (a Borrowed browser, a third-party CDP browser, a Browser host's) or whose `https://` proxy the egress relay does not chain through. The binding is never ignored: assign the address, correct the value, route the prefix to the host, or open the Session on a browser the engine launches here.",
+      "details": {
+        "$ref": "#/$defs/LocalAddressUnavailableDetails"
+      },
       "exit_code": null,
       "group": "unavailable",
       "json_rpc_class": -32006,
@@ -726,6 +873,9 @@
     {
       "arrived_in": "0.1",
       "description": "The document the navigation reached is a login page, even one answered with a 200: the Session's login is lost, judged by its Page check's `login_page`, or by the built-in detector when it declares none. The page stays on the login page, the Session open with its cookies. The details name the URL, the status and what judged it.",
+      "details": {
+        "$ref": "#/$defs/LoggedOutDetails"
+      },
       "exit_code": null,
       "group": "page",
       "json_rpc_class": -32003,
@@ -735,7 +885,23 @@
     },
     {
       "arrived_in": "0.1",
+      "description": "The Model provider could not answer for now: it could not be reached, it failed with a 5xx, or it kept rate limiting the calls, after the engine's retries. The details name the `reason` and `retry_after`, how long the provider asked to wait before trying again, in milliseconds, or `null` when it asked for no wait. Retry later, or name another model.",
+      "details": {
+        "$ref": "#/$defs/ModelUnavailableDetails"
+      },
+      "exit_code": null,
+      "group": "unavailable",
+      "json_rpc_class": -32006,
+      "name": "model_unavailable",
+      "product": "collie",
+      "retryable": true
+    },
+    {
+      "arrived_in": "0.1",
       "description": "The engine's own resolver got no usable answer for the host name: its name servers timed out, refused the query, failed or could not be reached. Check the name servers of the system's resolver configuration, or map the name with the `resolve` setting.",
+      "details": {
+        "$ref": "#/$defs/NameLookupFailedDetails"
+      },
       "exit_code": null,
       "group": "unavailable",
       "json_rpc_class": -32006,
@@ -746,6 +912,9 @@
     {
       "arrived_in": "0.1",
       "description": "The resolver found no address for the host name. The engine's own resolver, used on Linux and for Sessions with a local address, reads the system's resolver configuration and hosts file but asks neither NSS modules (such as a directory service or a VPN client's) nor multicast DNS, so a name only they resolve, such as a `.local` name, fails here. Map such a name to its address with the `resolve` setting, or correct the name.",
+      "details": {
+        "$ref": "#/$defs/NameNotResolvedDetails"
+      },
       "exit_code": null,
       "group": "unavailable",
       "json_rpc_class": -32006,
@@ -756,6 +925,9 @@
     {
       "arrived_in": "0.1",
       "description": "The navigation reached no document: the browser's network error, such as `net::ERR_NAME_NOT_RESOLVED`, is in the details, or the browser failed it for a reason it did not name.",
+      "details": {
+        "$ref": "#/$defs/NavigationFailedDetails"
+      },
       "exit_code": null,
       "group": "page",
       "json_rpc_class": -32003,
@@ -766,6 +938,9 @@
     {
       "arrived_in": "0.1",
       "description": "Another navigation of the page started before this one committed, so this one reached no document: the page went where the other took it.",
+      "details": {
+        "$ref": "#/$defs/NavigationInterruptedDetails"
+      },
       "exit_code": null,
       "group": "page",
       "json_rpc_class": -32003,
@@ -776,6 +951,9 @@
     {
       "arrived_in": "0.1",
       "description": "The call asks a Daemon about itself, and this engine is an Attached engine. Ask the Daemon of the major, found through its runtime file, or run `daemon status`.",
+      "details": {
+        "$ref": "#/$defs/NotADaemonDetails"
+      },
       "exit_code": null,
       "group": "program",
       "json_rpc_class": -32001,
@@ -786,6 +964,9 @@
     {
       "arrived_in": "0.1",
       "description": "The running engine's Product does not carry what was asked: a Client that needs Foxhound reached a Collie engine, or a call, a setting or a value only Foxhound carries reached one. Run it with Foxhound, which contains everything Collie does, or connect to a Foxhound engine.",
+      "details": {
+        "$ref": "#/$defs/NotInProductDetails"
+      },
       "exit_code": 10,
       "group": "unavailable",
       "json_rpc_class": -32006,
@@ -809,6 +990,9 @@
     {
       "arrived_in": "0.1",
       "description": "The document the navigation reached is neither the expected page nor the login page of its Session's Page check, `session.page_check`, whatever its HTTP status: a page the program did not mean to reach, such as an error page or a layout the site changed. The page stays on that document. The details name its URL and status.",
+      "details": {
+        "$ref": "#/$defs/PageCheckFailedDetails"
+      },
       "exit_code": null,
       "group": "page",
       "json_rpc_class": -32003,
@@ -819,6 +1003,9 @@
     {
       "arrived_in": "0.1",
       "description": "The page's renderer crashed, or its browser process was lost while the call ran; `browser_exit` says how the browser ended when it is what was lost. The page is gone: open another.",
+      "details": {
+        "$ref": "#/$defs/PageCrashedDetails"
+      },
       "exit_code": null,
       "group": "unavailable",
       "json_rpc_class": -32006,
@@ -839,6 +1026,9 @@
     {
       "arrived_in": "0.1",
       "description": "A page function threw in the page, or did not parse, or is an expression given an argument, which only a function takes. The details give the error's name, its message and the page's stack. A page function sees only the page and its one argument, never the program's variables, so a `ReferenceError`'s fix names the argument: pass the value in it.",
+      "details": {
+        "$ref": "#/$defs/PageFunctionFailedDetails"
+      },
       "exit_code": null,
       "group": "program",
       "json_rpc_class": -32001,
@@ -849,6 +1039,9 @@
     {
       "arrived_in": "0.1",
       "description": "A handler the program gave a page failed, such as a route's handler that threw: its request was aborted unless it was answered already, never sent half-changed, and its route was removed; a dialog handler's dialog got its default and the handler was removed. Raised by the call that waited on that request, such as the `goto` whose document it was, or by the call the dialog blocked, or else by the next call on its page. The details name the handler, the URL of the request or of the dialog's document, and what the failure said.",
+      "details": {
+        "$ref": "#/$defs/PageHandlerFailedDetails"
+      },
       "exit_code": null,
       "group": "program",
       "json_rpc_class": -32001,
@@ -859,6 +1052,9 @@
     {
       "arrived_in": "0.1",
       "description": "Memory was critical and the page held more than `governor.browser.page_memory_cap`, so the Resource governor ended it once no call on it was in flight. The page is gone: open another and try again, which the governor admits once memory frees up.",
+      "details": {
+        "$ref": "#/$defs/PageMemoryExceededDetails"
+      },
       "exit_code": null,
       "group": "unavailable",
       "json_rpc_class": -32006,
@@ -869,6 +1065,9 @@
     {
       "arrived_in": "0.1",
       "description": "The page's main frame committed a navigation to a new document while an `act`, `observe` or `extract` ran, between the call's first read of the page and its return (an `act` until its first input), and the call did not start it: the program's own driver, the page's script, a person or an extension may have. Nothing was acted on, and no Plan entry was written. The details name the document the call read, `url`, and the one that replaced it, `navigated_to`; the fix says to await the Collie call before the program's own driver acts on the page. A retry may find the page where the call needs it.",
+      "details": {
+        "$ref": "#/$defs/PageNavigatedDuringCallDetails"
+      },
       "exit_code": null,
       "group": "page",
       "json_rpc_class": -32003,
@@ -879,6 +1078,9 @@
     {
       "arrived_in": "0.1",
       "description": "A page function's result, or its argument, holds a value outside JSON, such as a DOM node, `NaN`, `Infinity`, a function, a `Map`, a `BigInt` or a cycle, which Playwright would have turned into `undefined`, silently. The details name the first such value's path from `$`, its kind and the fix: return the JSON the program needs, such as an element's text or attribute instead of the element.",
+      "details": {
+        "$ref": "#/$defs/PageValueInvalidDetails"
+      },
       "exit_code": null,
       "group": "program",
       "json_rpc_class": -32001,
@@ -889,6 +1091,9 @@
     {
       "arrived_in": "0.1",
       "description": "The path the program chose cannot be written for a reason the path causes: permission denied, a read-only filesystem, a folder at the path, a file where a parent folder should be, a name the filesystem refuses, a file too large for that filesystem, or a path not found once its parents are made. No partial file is left. Change the path.",
+      "details": {
+        "$ref": "#/$defs/PathNotWritableDetails"
+      },
       "exit_code": 13,
       "group": "program",
       "json_rpc_class": -32001,
@@ -899,6 +1104,9 @@
     {
       "arrived_in": "0.1",
       "description": "A name or path from outside input would leave the folder the engine writes it in, or is no safe file name on Linux, macOS or Windows: a `..` or `.` part, an absolute, drive, UNC, verbatim or device path, a name Windows reserves for a device, an alternate data stream, a character Windows forbids or a control character, a trailing dot or space, a part longer than 255 bytes, an empty part or a name that is not in Unicode's composed form. It is refused on every OS alike. The details name it and its hazard.",
+      "details": {
+        "$ref": "#/$defs/PathUnsafeDetails"
+      },
       "exit_code": null,
       "group": "program",
       "json_rpc_class": -32001,
@@ -909,6 +1117,9 @@
     {
       "arrived_in": "0.1",
       "description": "A URL pattern the engine cannot match: a regular expression with look-around, a back-reference or another construct outside the `regex` crate's syntax, or a glob with nested or unmatched braces. The details name the construct; match the URL with a predicate instead, which runs in the program.",
+      "details": {
+        "$ref": "#/$defs/PatternUnsupportedDetails"
+      },
       "exit_code": null,
       "group": "program",
       "json_rpc_class": -32001,
@@ -919,6 +1130,9 @@
     {
       "arrived_in": "0.1",
       "description": "A crawl request's Payload was refused when it was enqueued, as a seed, an added seed or a handler's enqueue: it does not fit its Label's JSON Schema, each issue named by its path, or its JSON is longer than `crawl.payload.max_size`, which `limit` names. Nothing was added. Large content goes to the Key-value store, and the Payload carries its key.",
+      "details": {
+        "$ref": "#/$defs/PayloadInvalidDetails"
+      },
       "exit_code": null,
       "group": "program",
       "json_rpc_class": -32001,
@@ -929,6 +1143,9 @@
     {
       "arrived_in": "0.1",
       "description": "The crawl now declares a Label's Payload JSON Schema that the Run did not begin with, and Payloads of that Label's pending requests fail it, so the Run was not resumed and did no work. The details name the Label, how many pending Payloads fail out of how many, and the first failure. Give the new field a default in the schema, or start a new Run: a Payload is never migrated silently.",
+      "details": {
+        "$ref": "#/$defs/PayloadSchemaChangedDetails"
+      },
       "exit_code": null,
       "group": "program",
       "json_rpc_class": -32001,
@@ -959,6 +1176,9 @@
     {
       "arrived_in": "0.1",
       "description": "The Operator policy's digest changed since it was read, as by a hand edit, so nothing was written; `fix` says to read it again.",
+      "details": {
+        "$ref": "#/$defs/PolicyConflictDetails"
+      },
       "exit_code": null,
       "group": "refused",
       "json_rpc_class": -32002,
@@ -969,6 +1189,9 @@
     {
       "arrived_in": "0.1",
       "description": "The engine does not speak the protocol version the Client's `hello` names: it accepts its own major with the same or an older minor. Upgrade the older side.",
+      "details": {
+        "$ref": "#/$defs/ProtocolVersionUnsupportedDetails"
+      },
       "exit_code": 11,
       "group": "unavailable",
       "json_rpc_class": -32006,
@@ -979,6 +1202,9 @@
     {
       "arrived_in": "0.1",
       "description": "The Session's proxy answered `407 Proxy Authentication Required`: the Session gave it no credentials, or it refused those of `proxy.username` and `proxy.password`. The details name the proxy and the username, never the password. Fix the credentials; retrying with the same ones fails the same way.",
+      "details": {
+        "$ref": "#/$defs/ProxyAuthFailedDetails"
+      },
       "exit_code": null,
       "group": "refused",
       "json_rpc_class": -32002,
@@ -989,6 +1215,9 @@
     {
       "arrived_in": "0.1",
       "description": "The Session's Proxy provider answered through its proxy with a failure of its own: its traffic quota or balance is spent (`quota_exhausted`), the Session's sticky exit is gone (`sticky_session_expired`), or a failure Goodfetch does not recognize (`unrecognized`, whose text is logged, never returned). The details name the provider, the proxy and the failure, never the credentials. A provider's refusal of the credentials is `proxy_auth_failed` instead. Retry later, or open a new Session for a new exit.",
+      "details": {
+        "$ref": "#/$defs/ProxyProviderUnavailableDetails"
+      },
       "exit_code": null,
       "group": "unavailable",
       "json_rpc_class": -32006,
@@ -999,6 +1228,9 @@
     {
       "arrived_in": "0.1",
       "description": "The engine could not open the loopback relay a Session's proxy goes through, such as when the machine has no free local port: the proxy itself was never tried. The details name the proxy, never its credentials, and the local error. Retry once the machine frees ports or file descriptors.",
+      "details": {
+        "$ref": "#/$defs/ProxyRelayUnavailableDetails"
+      },
       "exit_code": null,
       "group": "unavailable",
       "json_rpc_class": -32006,
@@ -1009,6 +1241,9 @@
     {
       "arrived_in": "0.1",
       "description": "The Session's proxy could not be reached, its TLS failed, or it refused the tunnel or the request with an error of its own: the details name the proxy, never its credentials, and the browser's network error when it named one. It is the proxy's failure, never the site's and never `navigation_failed`: retry later, or through another proxy.",
+      "details": {
+        "$ref": "#/$defs/ProxyUnavailableDetails"
+      },
       "exit_code": null,
       "group": "unavailable",
       "json_rpc_class": -32006,
@@ -1029,6 +1264,9 @@
     {
       "arrived_in": "0.1",
       "description": "The SQL tab did not run the statement: it does not parse, names a table, column or function that does not exist or a run the query did not select, is not one `SELECT` or `WITH` statement (a write, `ATTACH`, `INSTALL`, `LOAD` or `COPY`), or reads a file or URL, which the SQL tab never reaches. The details say which. Read only the selected runs' tables, and select the run first.",
+      "details": {
+        "$ref": "#/$defs/QueryInvalidDetails"
+      },
       "exit_code": null,
       "group": "program",
       "json_rpc_class": -32001,
@@ -1039,6 +1277,9 @@
     {
       "arrived_in": "0.1",
       "description": "The query needed more memory than `dataset.query.memory_limit`, so it was stopped. The details name the setting, its value and its layer. Aggregate or filter sooner, select fewer runs, or raise `dataset.query.memory_limit`.",
+      "details": {
+        "$ref": "#/$defs/QueryMemoryExceededDetails"
+      },
       "exit_code": null,
       "group": "program",
       "json_rpc_class": -32001,
@@ -1049,6 +1290,9 @@
     {
       "arrived_in": "0.1",
       "description": "A Record is no JSON object, fails its Dataset's JSON Schema, or lacks a field of its Dataset's key, so it was not staged. The details name the Dataset and each such Record by its position, from 0, among the Records pushed together, or the first such Record by its position among those of the handler's answer, with each of its issues by its path, a JSON Pointer into the Record. Caught in the handler, the attempt keeps its other outputs; escaping it, the request ends `failed` and is not retried, since the same Record fails the same way.",
+      "details": {
+        "$ref": "#/$defs/RecordInvalidDetails"
+      },
       "exit_code": null,
       "group": "program",
       "json_rpc_class": -32001,
@@ -1059,6 +1303,9 @@
     {
       "arrived_in": "0.1",
       "description": "The engine ran out of memory or storage for the Run: it checkpointed and stopped it, or refused to start it where its run file would go. The details name the `resource`. Resume it once memory or space frees up, on an engine with a larger allowance, or with lower ceilings.",
+      "details": {
+        "$ref": "#/$defs/ResourcesExhaustedDetails"
+      },
       "exit_code": 15,
       "group": "unavailable",
       "json_rpc_class": -32006,
@@ -1069,6 +1316,9 @@
     {
       "arrived_in": "0.1",
       "description": "A body or JSON the engine read from outside passed one of its limits, so the engine stopped reading it: more decoded bytes than `network.max_body_size`, more decoded bytes per received byte than `network.max_decompression_ratio` once past 1 MiB, or JSON nested deeper than `network.max_json_depth`. The details name the URL, the setting and its value; raise the setting for a site you trust.",
+      "details": {
+        "$ref": "#/$defs/ResponseLimitExceededDetails"
+      },
       "exit_code": null,
       "group": "page",
       "json_rpc_class": -32003,
@@ -1079,6 +1329,9 @@
     {
       "arrived_in": "0.1",
       "description": "A handler's call that reads, waits on or acts on the document of a page whose accepted response is not an HTML document, such as a PDF its Label's `crawl.content_types` lists: a locator, `content()`, `formats`, `evaluate`, a screenshot or an AI verb. It fails at once on every tier and never escalates. The details name the response's content type and the call; the fix names `ctx.response`, which holds the body.",
+      "details": {
+        "$ref": "#/$defs/ResponseNotDocumentDetails"
+      },
       "exit_code": null,
       "group": "program",
       "json_rpc_class": -32001,
@@ -1109,6 +1362,9 @@
     {
       "arrived_in": "0.1",
       "description": "The response's body broke off before its end: shorter than its `Content-Length`, a chunked body without its last chunk, or a stream the server or the connection ended. A navigation waiting for `domcontentloaded` or `load` raises it for its main document; one that answered at `commit` leaves it to the body's read. The details name the URL and the bytes received and expected.",
+      "details": {
+        "$ref": "#/$defs/ResponseTruncatedDetails"
+      },
       "exit_code": null,
       "group": "page",
       "json_rpc_class": -32003,
@@ -1119,6 +1375,9 @@
     {
       "arrived_in": "0.1",
       "description": "The site is failing for now: its 5xx or 408 response stayed after the retries ran out, or its `Retry-After` asked for a time further away than `politeness.retry_after.max`, so nothing is sent to its domain before then and nothing waits for it. A request whose start could not be recorded for its domain's Politeness is held unsent with it too, since its delay could not be kept. The details name the response's `status` (`null` for a request held unsent), the time the site asked for as `retry_after` when it asked, and a `fix`. `run.retry_failed` re-admits the request once the site is back.",
+      "details": {
+        "$ref": "#/$defs/ResponseUnavailableDetails"
+      },
       "exit_code": null,
       "group": "page",
       "json_rpc_class": -32003,
@@ -1139,6 +1398,9 @@
     {
       "arrived_in": "0.1",
       "description": "The route's request was answered already, by an earlier `continue`, `fulfill`, `abort` or `fallback`, or its handler ended: the first answer stands and this one changed nothing.",
+      "details": {
+        "$ref": "#/$defs/RouteAlreadyHandledDetails"
+      },
       "exit_code": null,
       "group": "program",
       "json_rpc_class": -32001,
@@ -1149,6 +1411,9 @@
     {
       "arrived_in": "0.1",
       "description": "Another engine holds the Run's writer lock, and the owner the Run index names did not say it took the action: it did not answer, and may still be taking it, or does not own the Run. The engine retried the lock 5 times over about a second; the writer may end, so try again later.",
+      "details": {
+        "$ref": "#/$defs/RunDetails"
+      },
       "exit_code": null,
       "group": "refused",
       "json_rpc_class": -32002,
@@ -1159,6 +1424,9 @@
     {
       "arrived_in": "0.1",
       "description": "The Run ID names a Run started with other inputs, or by another caller; the details list each difference. Start under another Run ID.",
+      "details": {
+        "$ref": "#/$defs/RunConflictDetails"
+      },
       "exit_code": null,
       "group": "program",
       "json_rpc_class": -32001,
@@ -1169,6 +1437,9 @@
     {
       "arrived_in": "0.1",
       "description": "The Run ended `finished`, so it takes no new work, such as a page or a Session it would open: start a Run under a new Run ID. The details name the Run.",
+      "details": {
+        "$ref": "#/$defs/RunDetails"
+      },
       "exit_code": null,
       "group": "program",
       "json_rpc_class": -32001,
@@ -1179,6 +1450,9 @@
     {
       "arrived_in": "0.1",
       "description": "The Run ID is not one the engine takes: lowercase letters, digits, `.`, `_` and `-`, at most 128, starting and ending with a letter or a digit, never a name Windows reserves for a device.",
+      "details": {
+        "$ref": "#/$defs/RunIdInvalidDetails"
+      },
       "exit_code": null,
       "group": "program",
       "json_rpc_class": -32001,
@@ -1189,6 +1463,9 @@
     {
       "arrived_in": "0.1",
       "description": "Another engine holds the Run's writer lock, so this one cannot write the Run; the other may end.",
+      "details": {
+        "$ref": "#/$defs/RunDetails"
+      },
       "exit_code": null,
       "group": "refused",
       "json_rpc_class": -32002,
@@ -1199,6 +1476,9 @@
     {
       "arrived_in": "0.1",
       "description": "The Run has no live writer and has not ended, as after a crash, so it has no report and none comes: a start with its Run ID resumes it. The details name the Run.",
+      "details": {
+        "$ref": "#/$defs/RunInterruptedDetails"
+      },
       "exit_code": null,
       "group": "unavailable",
       "json_rpc_class": -32006,
@@ -1209,6 +1489,9 @@
     {
       "arrived_in": "0.1",
       "description": "A resumed Run's data key does not open under the key-encryption key `run_state.key_reference` names, such as a Checkpoint moved to a machine whose own key is another: the key that wrapped it never travels with the Checkpoint. The details name the Run, the setting, the reference resolved and the reference that wrapped the key, never a value. Name the key that wrapped it, in project configuration or configuration, and resume again.",
+      "details": {
+        "$ref": "#/$defs/RunKeyMismatchDetails"
+      },
       "exit_code": null,
       "group": "unavailable",
       "json_rpc_class": -32006,
@@ -1219,6 +1502,9 @@
     {
       "arrived_in": "0.1",
       "description": "The engine still runs the Run, so it cannot be discarded: stop it first with `run.stop` or `run.abort`, or let it finish, then discard it. The details name the Run.",
+      "details": {
+        "$ref": "#/$defs/RunDetails"
+      },
       "exit_code": null,
       "group": "program",
       "json_rpc_class": -32001,
@@ -1229,6 +1515,9 @@
     {
       "arrived_in": "0.1",
       "description": "No Run has this Run ID: the Run index does not list it.",
+      "details": {
+        "$ref": "#/$defs/RunDetails"
+      },
       "exit_code": null,
       "group": "program",
       "json_rpc_class": -32001,
@@ -1239,6 +1528,9 @@
     {
       "arrived_in": "0.1",
       "description": "The action was forwarded to this engine as the Run's owner, and this engine does not own the Run: the Run index named an engine that has since ended or restarted. The engine that forwarded it retries the Run's writer lock.",
+      "details": {
+        "$ref": "#/$defs/RunDetails"
+      },
       "exit_code": null,
       "group": "refused",
       "json_rpc_class": -32002,
@@ -1249,6 +1541,9 @@
     {
       "arrived_in": "0.1",
       "description": "The Run's folder is on a network filesystem (NFS, which EFS and Filestore are, or SMB, which Azure Files is) or on a FUSE mount of object storage, whose locking SQLite cannot rely on, so the engine keeps no run state there. The details name the Run, its folder, the `filesystem` and the `fix`: a `run_state.location` on a local disk or a block volume.",
+      "details": {
+        "$ref": "#/$defs/RunStateFilesystemUnsupportedDetails"
+      },
       "exit_code": null,
       "group": "unavailable",
       "json_rpc_class": -32006,
@@ -1259,6 +1554,9 @@
     {
       "arrived_in": "0.1",
       "description": "The Run's state is missing, damaged or cannot be written at its location; the details give the path. The engine never starts afresh under that Run ID.",
+      "details": {
+        "$ref": "#/$defs/RunDetails"
+      },
       "exit_code": null,
       "group": "unavailable",
       "json_rpc_class": -32006,
@@ -1269,6 +1567,9 @@
     {
       "arrived_in": "0.1",
       "description": "This engine does not run what the start names yet, a Recipe's run or a code-free catalog run's target, so it starts no Run: the details name the start and the target's kind.",
+      "details": {
+        "$ref": "#/$defs/RunTargetUnbuiltDetails"
+      },
       "exit_code": null,
       "group": "unavailable",
       "json_rpc_class": -32006,
@@ -1298,7 +1599,23 @@
     },
     {
       "arrived_in": "0.1",
+      "description": "A schema's own validation, run by the SDK in the program's process, raised something other than a rejection, so the call stopped at once: only the library's own rejection (Standard Schema issues, Pydantic's `ValidationError`) is one, and a bug is never retried or reported as a value the schema refused. The message always names the exception, and the original is the error's cause. The details name the schema by its JSON Schema `title` (`null` without one), the field path where known (`null` otherwise), and the exception's type and message. Fix the validator so that it rejects with the library's own issue, or never raises.",
+      "details": {
+        "$ref": "#/$defs/SchemaValidatorFailedDetails"
+      },
+      "exit_code": null,
+      "group": "program",
+      "json_rpc_class": -32001,
+      "name": "schema_validator_failed",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
       "description": "A Secret placeholder's value would go to a domain outside its binding's `domains`: the field's frame or the request's URL. The details name the placeholder, the reference and the domain, never a value.",
+      "details": {
+        "$ref": "#/$defs/SecretDomainNotAllowedDetails"
+      },
       "exit_code": null,
       "group": "refused",
       "json_rpc_class": -32002,
@@ -1309,6 +1626,9 @@
     {
       "arrived_in": "0.1",
       "description": "A Secret placeholder's value would be typed or sent where other code may read it, or to a host reached through an invalid-certificate exception, so it was not resolved. The details name the placeholder, the reference, the domain and the `reason`, never a value.",
+      "details": {
+        "$ref": "#/$defs/SecretInputRefusedDetails"
+      },
       "exit_code": null,
       "group": "refused",
       "json_rpc_class": -32002,
@@ -1319,6 +1639,9 @@
     {
       "arrived_in": "0.1",
       "description": "A Secret provider gave no value for a reference: a missing variable, a locked keychain, an unreachable vault, no one-time code (a TOTP seed the provider makes none from, or a code source's code that never arrived), the caller's `resolveSecret` missing or throwing, no answer within `timeout.secret`. `failure` says which, and the details name the placeholder or setting, the reference and the provider, never a value.",
+      "details": {
+        "$ref": "#/$defs/SecretUnavailableDetails"
+      },
       "exit_code": null,
       "group": "unavailable",
       "json_rpc_class": -32006,
@@ -1329,6 +1652,9 @@
     {
       "arrived_in": "0.1",
       "description": "No scope binds the Secret placeholder a call names. `bound` lists the placeholders bound, never a value.",
+      "details": {
+        "$ref": "#/$defs/SecretUnboundDetails"
+      },
       "exit_code": null,
       "group": "program",
       "json_rpc_class": -32001,
@@ -1339,6 +1665,9 @@
     {
       "arrived_in": "0.1",
       "description": "The Run is bound to the machine its Session source is on, and this is another machine: its login would reach sites from a new IP under the same cookies. Resume it on its own machine, or serve its Session source through a Browser host.",
+      "details": {
+        "$ref": "#/$defs/SessionBoundToMachineDetails"
+      },
       "exit_code": null,
       "group": "refused",
       "json_rpc_class": -32002,
@@ -1349,6 +1678,9 @@
     {
       "arrived_in": "0.1",
       "description": "A value of the wrong type or out of the setting's own range, an empty or unparsable deployment variable, or a settings file that does not parse.",
+      "details": {
+        "$ref": "#/$defs/SettingInvalidDetails"
+      },
       "exit_code": null,
       "group": "program",
       "json_rpc_class": -32001,
@@ -1359,6 +1691,9 @@
     {
       "arrived_in": "0.1",
       "description": "A value a lower layer locked or capped, outside a Recipe's exposed bounds, or one only a lower layer may set or widen, such as `tls.trusted_cas` from a run. `limit` names the setting and the layer that holds it.",
+      "details": {
+        "$ref": "#/$defs/SettingLockedDetails"
+      },
       "exit_code": null,
       "group": "refused",
       "json_rpc_class": -32002,
@@ -1369,6 +1704,9 @@
     {
       "arrived_in": "0.1",
       "description": "A setting given where it cannot take effect: in a layer that may not hold it, such as `browser_cache.max_unused_age` outside user configuration and an Operator policy, or on a Run it does not apply to, such as a crawl's setting on a Collie Run.",
+      "details": {
+        "$ref": "#/$defs/SettingNotApplicableDetails"
+      },
       "exit_code": null,
       "group": "program",
       "json_rpc_class": -32001,
@@ -1379,6 +1717,9 @@
     {
       "arrived_in": "0.1",
       "description": "A key no Product knows, or an unknown `GOODFETCH_` variable. The message names the closest valid one.",
+      "details": {
+        "$ref": "#/$defs/SettingUnknownDetails"
+      },
       "exit_code": null,
       "group": "program",
       "json_rpc_class": -32001,
@@ -1388,7 +1729,23 @@
     },
     {
       "arrived_in": "0.1",
+      "description": "An XLSX Export's one sheet would hold more than Excel opens: more than 1,048,576 rows, the header row included, more than 16,384 columns, or a cell, a column's name included, longer than 32,767 characters, counted in UTF-16 code units as Excel counts them. Nothing was written, and no file is left in the Run's folder. The details name the Dataset, the capacity passed (`rows`, `columns` or `cell_length`), the Dataset's figure and the most a sheet holds. Export the Dataset as `csv`, `jsonl` or `parquet`, which hold any number of rows, columns and characters.",
+      "details": {
+        "$ref": "#/$defs/SheetCapacityExceededDetails"
+      },
+      "exit_code": null,
+      "group": "program",
+      "json_rpc_class": -32001,
+      "name": "sheet_capacity_exceeded",
+      "product": "foxhound",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
       "description": "The site's preferences refused the navigation or the request before it left, or refused the document once its response arrived, leaving the page on a blank document: its robots.txt disallows the URL (`robots_txt`), its `Crawl-delay` asks for more than the crawl allows (`crawl_delay`), or a use signal it sends refuses the crawl's Purpose (`use_signals`). Only a crawl handler's page asks a site's preferences; a page a program opens never raises it. The details name the URL and the reason.",
+      "details": {
+        "$ref": "#/$defs/SitePreferencesRefusedDetails"
+      },
       "exit_code": null,
       "group": "refused",
       "json_rpc_class": -32002,
@@ -1409,6 +1766,9 @@
     {
       "arrived_in": "0.1",
       "description": "The call would stage one more admission (an enqueue, an `enqueueLinks` call or a seed added through `ctx.run`) with an attempt that already staged `crawl.max_staged_enqueues` of them, which the attempt holds in the engine's memory until it commits. Nothing was staged. Enqueue many links with one `enqueueLinks` call, or raise the setting, which `limit` names.",
+      "details": {
+        "$ref": "#/$defs/StagingFullDetails"
+      },
       "exit_code": null,
       "group": "program",
       "json_rpc_class": -32001,
@@ -1419,6 +1779,9 @@
     {
       "arrived_in": "0.1",
       "description": "The locator still matched several elements when the action's timeout passed, so the action did nothing. The details list every match, each with a locator that reaches it alone, and `limit` names the timeout's setting; a longer timeout would not fix the locator.",
+      "details": {
+        "$ref": "#/$defs/TargetNotUniqueDetails"
+      },
       "exit_code": null,
       "group": "page",
       "json_rpc_class": -32003,
@@ -1429,6 +1792,9 @@
     {
       "arrived_in": "0.1",
       "description": "The Connection already has as many calls in flight as the engine serves on one, which `max` gives, so the engine refused this call at once and did nothing for it; the calls in flight go on, and the engine still reads their `$/cancel`, their `$/credit` and the replies to its own requests. Make the call again once an earlier call ended, cancel the calls no longer needed, or open another Connection.",
+      "details": {
+        "$ref": "#/$defs/TooManyCallsDetails"
+      },
       "exit_code": null,
       "group": "refused",
       "json_rpc_class": -32002,
@@ -1439,6 +1805,9 @@
     {
       "arrived_in": "0.1",
       "description": "The navigation followed as many redirects as it may and was redirected again, as a redirect loop is: the browser's count is 20 requests in a navigation's chain, its first included, so Chromium follows 19 redirects. The details name the first URL, the hops followed and the count. A retry meets the same chain.",
+      "details": {
+        "$ref": "#/$defs/TooManyRedirectsDetails"
+      },
       "exit_code": null,
       "group": "page",
       "json_rpc_class": -32003,
@@ -1459,6 +1828,9 @@
     {
       "arrived_in": "0.1",
       "description": "The Key-value store refused the key or its value: a key must be 1 to 512 Unicode scalar values with no control character, and a value any JSON but null, which `get` answers for an absent key; remove a key with `delete`. Bytes are read with `getBytes` and JSON with `get`, never the other way. The SDK refuses a value that is not JSON before sending it, and a value the call's Standard Schema rejects, sent or read; a JSON Schema written by hand types the value as JSON and checks nothing. The details name the key, say which was refused and, for a value's content, its path as a JSON Pointer.",
+      "details": {
+        "$ref": "#/$defs/ValueInvalidDetails"
+      },
       "exit_code": null,
       "group": "program",
       "json_rpc_class": -32001,
@@ -4204,7 +4576,7 @@
       "cancellable": true,
       "class": "idempotent_write",
       "deprecated": null,
-      "description": "Writes an Export of one Dataset of a crawl's Run: the Records it committed when the call is made, in number order, in the format named, as its `format` value says: a table (`csv`, `xlsx`, `html_table`, `markdown`, and typed, `parquet`, `avro` and `arrow_ipc`) has one column per field seen in any of its Records, in first-seen order, and one row per Record. Every text Export is UTF-8 with no BOM unless `export.csv.bom` puts one on CSV, characters written as themselves (a character XML 1.0 cannot hold as U+FFFD in XML and feeds) and each value as it was committed: a table cell holds a string as its text, a number, `true` or `false` as JSON writes it, nothing for `null` or a field its Record lacks, and an object or array as its JSON text, or, in CSV under `export.csv.nested: flatten`, an object's fields in dotted columns. A Record whose page was read past a Wall carries its Wall marker, `{kind, vendor?}` as its Provenance holds it, as a `#wall` field in every format but the feeds, where it is a category of the scheme `urn:goodfetch:wall` naming its kind; `wall` set to `true` writes only those Records, `false` only the others. `compression` `gzip` or `zstd` compresses the whole file. Its `settings` and `project` are the run layer and the project configuration its `export.*` settings resolve under; a value the format cannot take fails with `setting_invalid`. Answers the Export, with its Record count, its last Record's number, its size, its SHA-256 and the run epoch of the Run's state it was written from, only once its file is whole in the Run's folder, where `export.save_as` and `export.stream` read it. Records committed after the call starts are not in it. A write the engine's storage refuses fails with `file_write_failed`, side `engine`, leaving no unfinished file, as does a call while that storage is at the `critical` level, before any byte is written. A Dataset the crawl does not declare fails with `dataset_unknown`.",
+      "description": "Writes an Export of one Dataset of a crawl's Run: the Records it committed when the call is made, in number order, in the format named, as its `format` value says: a table (`csv`, `xlsx`, `html_table`, `markdown`, and typed, `parquet`, `avro` and `arrow_ipc`) has one column per field seen in any of its Records, in first-seen order, and one row per Record. Every text Export is UTF-8 with no BOM unless `export.csv.bom` puts one on CSV, characters written as themselves (a character XML 1.0 cannot hold as U+FFFD in XML and feeds) and each value as it was committed: a table cell holds a string as its text, a number, `true` or `false` as JSON writes it, nothing for `null` or a field its Record lacks, and an object or array as its JSON text, or, in CSV under `export.csv.nested: flatten`, an object's fields in dotted columns. A Record whose page was read past a Wall carries its Wall marker, `{kind, vendor?}` as its Provenance holds it, as a `#wall` field in every format but the feeds, where it is a category of the scheme `urn:goodfetch:wall` naming its kind; `wall` set to `true` writes only those Records, `false` only the others. `compression` `gzip` or `zstd` compresses the whole file. Its `settings` and `project` are the run layer and the project configuration its `export.*` settings resolve under; a value the format cannot take fails with `setting_invalid`. Answers the Export, with its Record count, its last Record's number, its size, its SHA-256 and the run epoch of the Run's state it was written from, only once its file is whole in the Run's folder, where `export.save_as` and `export.stream` read it. Records committed after the call starts are not in it. A write the engine's storage refuses fails with `file_write_failed`, side `engine`, leaving no unfinished file, as does a call while that storage is at the `critical` level, before any byte is written. A Dataset the crawl does not declare fails with `dataset_unknown`; an `xlsx` sheet past Excel's limits, with `sheet_capacity_exceeded`.",
       "events": [],
       "kind": "round_trip",
       "name": "run.export",
@@ -4955,6 +5327,7 @@
         "minimum": 0,
         "type": "integer"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -4975,6 +5348,7 @@
       "value": {
         "type": "boolean"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -4996,6 +5370,7 @@
         "minimum": 0,
         "type": "integer"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -5018,6 +5393,7 @@
         "minimum": 0,
         "type": "integer"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -5046,6 +5422,7 @@
           "stealth"
         ]
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -5078,6 +5455,7 @@
         },
         "type": "array"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -5101,6 +5479,7 @@
       "value": {
         "type": "boolean"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -5124,6 +5503,7 @@
       "value": {
         "type": "boolean"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -5147,6 +5527,7 @@
       "value": {
         "type": "boolean"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -5169,6 +5550,7 @@
         "pattern": "^https://[^/?#@\\s]+(/[^?#\\s]*)?$",
         "type": "string"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -5196,6 +5578,7 @@
           "block"
         ]
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -5218,6 +5601,7 @@
         "minimum": 0,
         "type": "integer"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -5241,6 +5625,7 @@
       "value": {
         "type": "boolean"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -5266,6 +5651,7 @@
         "minimum": 0,
         "type": "integer"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -5286,6 +5672,7 @@
       "value": {
         "type": "string"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -5311,6 +5698,7 @@
         "minimum": 0,
         "type": "integer"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -5339,6 +5727,7 @@
         },
         "type": "object"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -5366,6 +5755,7 @@
           "upstream"
         ]
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -5389,6 +5779,7 @@
       "value": {
         "type": "string"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -5412,6 +5803,7 @@
         "minimum": 1,
         "type": "integer"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -5435,6 +5827,7 @@
         "minimum": 1,
         "type": "integer"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -5458,6 +5851,7 @@
         "minimum": 1,
         "type": "integer"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -5484,6 +5878,7 @@
         },
         "type": "array"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -5508,6 +5903,11 @@
         "enum": [
           "answer",
           "detect",
+          "off"
+        ]
+      },
+      "weakening": {
+        "values": [
           "off"
         ]
       },
@@ -5537,6 +5937,7 @@
           "ask"
         ]
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -5566,6 +5967,7 @@
           "trafilatura"
         ]
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -5595,6 +5997,7 @@
         },
         "type": "array"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -5620,6 +6023,7 @@
         },
         "type": "object"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -5645,6 +6049,7 @@
           "round_robin"
         ]
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -5671,6 +6076,7 @@
         },
         "type": "array"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -5694,6 +6100,7 @@
         "minimum": 0,
         "type": "integer"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -5716,6 +6123,7 @@
       "value": {
         "type": "boolean"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -5739,6 +6147,7 @@
       "value": {
         "type": "boolean"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -5762,6 +6171,7 @@
         "minimum": 0,
         "type": "integer"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -5785,6 +6195,7 @@
         "minimum": 0,
         "type": "integer"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -5808,6 +6219,7 @@
         "minimum": 0,
         "type": "integer"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -5831,6 +6243,7 @@
         "minimum": 0,
         "type": "integer"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -5854,6 +6267,7 @@
         "minimum": 0,
         "type": "integer"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -5877,6 +6291,7 @@
         "minimum": 0,
         "type": "integer"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -5900,6 +6315,7 @@
         "minimum": 0,
         "type": "integer"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -5941,6 +6357,7 @@
         },
         "type": "array"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -5964,6 +6381,7 @@
         "minimum": 0,
         "type": "integer"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -5986,6 +6404,7 @@
       "value": {
         "type": "boolean"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -6009,6 +6428,7 @@
       "value": {
         "type": "boolean"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -6032,6 +6452,7 @@
         "minimum": 0,
         "type": "integer"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -6055,6 +6476,7 @@
         "minimum": 0,
         "type": "integer"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -6080,6 +6502,7 @@
         },
         "type": "array"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -6105,6 +6528,7 @@
         },
         "type": "array"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -6132,6 +6556,7 @@
           "all"
         ]
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -6152,6 +6577,7 @@
       "value": {
         "type": "string"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -6174,6 +6600,7 @@
         "minimum": 0,
         "type": "integer"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -6196,6 +6623,7 @@
         "minimum": 0,
         "type": "integer"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -6219,6 +6647,7 @@
         "minimum": 0,
         "type": "integer"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -6242,6 +6671,7 @@
         "minimum": 0,
         "type": "integer"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -6264,6 +6694,11 @@
       "value": {
         "type": "boolean"
       },
+      "weakening": {
+        "values": [
+          false
+        ]
+      },
       "weakens": true
     },
     {
@@ -6283,6 +6718,7 @@
       "value": {
         "type": "boolean"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -6302,6 +6738,7 @@
       "value": {
         "type": "boolean"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -6326,6 +6763,7 @@
         "minimum": 0,
         "type": "integer"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -6354,6 +6792,7 @@
         },
         "type": "array"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -6380,6 +6819,7 @@
         },
         "type": "array"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -6417,6 +6857,7 @@
           }
         ]
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -6437,6 +6878,7 @@
       "value": {
         "type": "boolean"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -6460,6 +6902,7 @@
       "value": {
         "type": "boolean"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -6487,6 +6930,7 @@
         },
         "type": "array"
       },
+      "weakening": null,
       "weakens": true
     },
     {
@@ -6507,6 +6951,7 @@
       "value": {
         "type": "boolean"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -6532,6 +6977,7 @@
         "minimum": 0,
         "type": "integer"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -6557,6 +7003,7 @@
         "minimum": 0,
         "type": "integer"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -6579,6 +7026,7 @@
       "value": {
         "type": "boolean"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -6601,6 +7049,7 @@
       "value": {
         "type": "string"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -6626,6 +7075,7 @@
           "flatten"
         ]
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -6648,6 +7098,7 @@
       "value": {
         "type": "string"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -6670,6 +7121,7 @@
       "value": {
         "type": "string"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -6692,6 +7144,7 @@
       "value": {
         "type": "string"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -6714,6 +7167,7 @@
       "value": {
         "type": "string"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -6737,6 +7191,7 @@
         "minimum": 0,
         "type": "integer"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -6763,6 +7218,7 @@
           "none"
         ]
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -6785,6 +7241,7 @@
       "value": {
         "type": "string"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -6807,6 +7264,7 @@
       "value": {
         "type": "string"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -6829,6 +7287,7 @@
       "value": {
         "type": "string"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -6855,6 +7314,7 @@
           "single_attempt"
         ]
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -6881,6 +7341,7 @@
           "exact"
         ]
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -6902,6 +7363,11 @@
       ],
       "value": {
         "type": "boolean"
+      },
+      "weakening": {
+        "values": [
+          false
+        ]
       },
       "weakens": true
     },
@@ -6925,6 +7391,7 @@
       "value": {
         "type": "boolean"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -6948,6 +7415,7 @@
       "value": {
         "type": "string"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -6970,6 +7438,7 @@
       "value": {
         "type": "boolean"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -6993,6 +7462,7 @@
         "minimum": 0,
         "type": "integer"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -7017,6 +7487,11 @@
         "enum": [
           "browser",
           "learned",
+          "transport"
+        ]
+      },
+      "weakening": {
+        "values": [
           "transport"
         ]
       },
@@ -7046,6 +7521,7 @@
         },
         "type": "array"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -7068,6 +7544,7 @@
       "value": {
         "type": "boolean"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -7091,6 +7568,7 @@
         "minimum": 0,
         "type": "integer"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -7115,6 +7593,7 @@
         "minimum": 0,
         "type": "integer"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -7137,6 +7616,9 @@
       "value": {
         "minimum": 0,
         "type": "integer"
+      },
+      "weakening": {
+        "toward": "lower"
       },
       "weakens": true
     },
@@ -7180,6 +7662,7 @@
         ],
         "type": "object"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -7210,6 +7693,7 @@
           "browser"
         ]
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -7232,6 +7716,7 @@
       "value": {
         "type": "boolean"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -7256,6 +7741,7 @@
       "value": {
         "type": "boolean"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -7280,6 +7766,7 @@
       "value": {
         "type": "boolean"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -7306,6 +7793,7 @@
         },
         "type": "array"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -7330,6 +7818,7 @@
       "value": {
         "type": "boolean"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -7354,6 +7843,7 @@
         "minimum": 0,
         "type": "integer"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -7377,6 +7867,7 @@
       "value": {
         "type": "boolean"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -7401,6 +7892,7 @@
       "value": {
         "type": "boolean"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -7422,6 +7914,11 @@
       ],
       "value": {
         "type": "boolean"
+      },
+      "weakening": {
+        "values": [
+          false
+        ]
       },
       "weakens": true
     },
@@ -7453,6 +7950,7 @@
           }
         ]
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -7477,6 +7975,7 @@
         "minimum": 0,
         "type": "integer"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -7501,6 +8000,7 @@
         "minimum": 0,
         "type": "integer"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -7525,6 +8025,7 @@
         "minimum": 0,
         "type": "integer"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -7550,6 +8051,7 @@
         "minimum": 0,
         "type": "integer"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -7574,6 +8076,7 @@
         "minimum": 0,
         "type": "integer"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -7595,6 +8098,7 @@
         "minimum": 0,
         "type": "integer"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -7616,6 +8120,7 @@
         "minimum": 0,
         "type": "integer"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -7637,6 +8142,7 @@
         "minimum": 0,
         "type": "integer"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -7657,6 +8163,7 @@
       "value": {
         "type": "boolean"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -7678,6 +8185,7 @@
         "minimum": 0,
         "type": "integer"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -7699,6 +8207,7 @@
         "minimum": 0,
         "type": "integer"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -7719,6 +8228,7 @@
       "value": {
         "type": "boolean"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -7741,6 +8251,7 @@
         "minimum": 0,
         "type": "integer"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -7762,6 +8273,7 @@
         "minimum": 0,
         "type": "integer"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -7783,6 +8295,7 @@
         "minimum": 0,
         "type": "integer"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -7804,6 +8317,7 @@
         "minimum": 0,
         "type": "integer"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -7825,6 +8339,7 @@
         "minimum": 0,
         "type": "integer"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -7849,6 +8364,7 @@
         "minimum": 0,
         "type": "integer"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -7871,6 +8387,7 @@
         "minimum": 0,
         "type": "integer"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -7901,6 +8418,7 @@
           }
         ]
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -7928,6 +8446,7 @@
         "pattern": "^(https?://|data:application/http-message-signatures-directory)[ !#-\\[\\]-~]+$",
         "type": "string"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -7954,6 +8473,7 @@
         "pattern": "^(?:(?:env|keychain|secretfile|caller|bw|vault|aws-sm|gcp-sm|azure-kv|plugin):|op://)[^\\s]+$",
         "type": "string"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -7982,6 +8502,7 @@
           "always"
         ]
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -8003,6 +8524,7 @@
         "minimum": 0,
         "type": "integer"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -8024,6 +8546,7 @@
         "minimum": 0,
         "type": "integer"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -8047,6 +8570,7 @@
           "json"
         ]
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -8067,6 +8591,7 @@
       "value": {
         "type": "string"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -8091,6 +8616,7 @@
           "none"
         ]
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -8115,6 +8641,7 @@
         "minimum": 0,
         "type": "integer"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -8139,6 +8666,7 @@
         "minimum": 0,
         "type": "integer"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -8161,6 +8689,7 @@
         "minimum": 0,
         "type": "integer"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -8186,6 +8715,7 @@
         "minimum": 0,
         "type": "integer"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -8216,6 +8746,7 @@
         },
         "type": "object"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -8236,6 +8767,7 @@
       "value": {
         "type": "string"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -8256,6 +8788,7 @@
       "value": {
         "type": "string"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -8276,6 +8809,7 @@
       "value": {
         "type": "string"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -8296,6 +8830,7 @@
       "value": {
         "type": "string"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -8316,6 +8851,7 @@
       "value": {
         "type": "string"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -8338,6 +8874,7 @@
         },
         "type": "object"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -8363,6 +8900,7 @@
         },
         "type": "array"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -8385,6 +8923,7 @@
         },
         "type": "object"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -8408,6 +8947,7 @@
         "pattern": "^(0|[1-9][0-9]*)(\\.[0-9]+)? [A-Z]{3}$",
         "type": "string"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -8429,6 +8969,11 @@
       ],
       "value": {
         "type": "boolean"
+      },
+      "weakening": {
+        "values": [
+          false
+        ]
       },
       "weakens": true
     },
@@ -8454,6 +8999,9 @@
         "minimum": 0,
         "type": "integer"
       },
+      "weakening": {
+        "toward": "lower"
+      },
       "weakens": true
     },
     {
@@ -8478,6 +9026,9 @@
         "minimum": 0,
         "type": "integer"
       },
+      "weakening": {
+        "toward": "lower"
+      },
       "weakens": true
     },
     {
@@ -8501,6 +9052,7 @@
       "value": {
         "type": "boolean"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -8523,6 +9075,7 @@
       "value": {
         "type": "boolean"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -8546,6 +9099,7 @@
         "minimum": 0,
         "type": "integer"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -8568,6 +9122,9 @@
       "value": {
         "minimum": 0,
         "type": "integer"
+      },
+      "weakening": {
+        "toward": "higher"
       },
       "weakens": true
     },
@@ -8593,6 +9150,9 @@
         "minimum": 0,
         "type": "integer"
       },
+      "weakening": {
+        "toward": "lower"
+      },
       "weakens": true
     },
     {
@@ -8616,6 +9176,7 @@
         "minimum": 0,
         "type": "integer"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -8640,6 +9201,7 @@
         "minimum": 0,
         "type": "integer"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -8664,6 +9226,7 @@
         "minimum": 0,
         "type": "integer"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -8688,6 +9251,7 @@
         "minimum": 0,
         "type": "integer"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -8711,6 +9275,12 @@
       "value": {
         "enum": [
           "shared",
+          "per_daemon",
+          "run"
+        ]
+      },
+      "weakening": {
+        "values": [
           "per_daemon",
           "run"
         ]
@@ -8850,6 +9420,7 @@
         ],
         "type": "object"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -8871,6 +9442,11 @@
       ],
       "value": {
         "type": "boolean"
+      },
+      "weakening": {
+        "values": [
+          false
+        ]
       },
       "weakens": true
     },
@@ -8896,6 +9472,7 @@
       "value": {
         "type": "string"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -8922,6 +9499,7 @@
         "pattern": "^[A-Za-z]{2}$",
         "type": "string"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -8951,6 +9529,7 @@
           "mobile"
         ]
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -8977,6 +9556,7 @@
         "pattern": "^(?:(?:env|keychain|secretfile|caller|bw|vault|aws-sm|gcp-sm|azure-kv|plugin):|op://)[^\\s]+$",
         "type": "string"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -9001,6 +9581,7 @@
       "value": {
         "type": "string"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -9091,6 +9672,7 @@
         },
         "type": "object"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -9117,6 +9699,7 @@
         "pattern": "^(?i:https?|socks5h?)://[^@/?#]+/?$",
         "type": "string"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -9143,6 +9726,7 @@
         "minimum": 0,
         "type": "integer"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -9167,6 +9751,7 @@
       "value": {
         "type": "string"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -9192,6 +9777,7 @@
         "minimum": 0,
         "type": "integer"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -9217,6 +9803,7 @@
         "minimum": 0,
         "type": "integer"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -9250,6 +9837,7 @@
           }
         ]
       },
+      "weakening": null,
       "weakens": true
     },
     {
@@ -9283,6 +9871,7 @@
           }
         ]
       },
+      "weakening": null,
       "weakens": true
     },
     {
@@ -9316,6 +9905,7 @@
           }
         ]
       },
+      "weakening": null,
       "weakens": true
     },
     {
@@ -9339,6 +9929,7 @@
       "value": {
         "type": "boolean"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -9362,6 +9953,13 @@
       "value": {
         "enum": [
           "each",
+          "interval",
+          "never",
+          "off"
+        ]
+      },
+      "weakening": {
+        "values": [
           "interval",
           "never",
           "off"
@@ -9392,6 +9990,7 @@
         "minimum": 0,
         "type": "integer"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -9421,6 +10020,11 @@
           "off"
         ]
       },
+      "weakening": {
+        "values": [
+          "off"
+        ]
+      },
       "weakens": true
     },
     {
@@ -9443,6 +10047,7 @@
         "pattern": "^(?:(?:env|keychain|secretfile|caller|bw|vault|aws-sm|gcp-sm|azure-kv|plugin):|op://)[^\\s]+$",
         "type": "string"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -9466,6 +10071,7 @@
           "per_install"
         ]
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -9489,6 +10095,7 @@
       "value": {
         "type": "string"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -9513,6 +10120,7 @@
         "minimum": 0,
         "type": "integer"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -9542,6 +10150,7 @@
         "minimum": 0,
         "type": "integer"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -9562,6 +10171,7 @@
       "value": {
         "type": "string"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -9582,6 +10192,7 @@
       "value": {
         "type": "string"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -9602,6 +10213,7 @@
       "value": {
         "type": "string"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -9622,6 +10234,7 @@
       "value": {
         "type": "string"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -9642,6 +10255,7 @@
       "value": {
         "type": "string"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -9662,6 +10276,7 @@
       "value": {
         "type": "string"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -9682,6 +10297,7 @@
       "value": {
         "type": "string"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -9702,6 +10318,7 @@
       "value": {
         "type": "string"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -9722,6 +10339,85 @@
       "value": {
         "type": "boolean"
       },
+      "weakening": null,
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "not_by_recipe_or_model",
+      "clearable": false,
+      "default": {},
+      "deprecated": null,
+      "description": "Each Secret placeholder's binding, as `secrets.placeholders.<name>`: `reference`, the Secret reference its value comes from, with `totp: true` when that value is a TOTP seed whose current code is typed, or `code_source`, the email or SMS code source its one-time code comes from; and `domains`, required, the registrable domains its value may go to, each with its subdomains, `*` only when written. A host below a registrable domain, such as `www.example.com`, is refused with `setting_invalid` naming the domain. `secret(\"name\")` in code and `%name%` in an AI instruction name the placeholder, and the nearest of a Session, its Run and the connection that binds it wins. None by default. A Recipe declares names and never binds one, and a Client acting for a model never sets one: either's value is `setting_locked`.",
+      "fixed_for_run": false,
+      "name": "secrets.placeholders",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run",
+        "session"
+      ],
+      "value": {
+        "additionalProperties": {
+          "oneOf": [
+            {
+              "additionalProperties": false,
+              "properties": {
+                "domains": {
+                  "description": "The registrable domains, each with its subdomains, its value may go to; `*` for every domain, only when written.",
+                  "items": {
+                    "type": "string"
+                  },
+                  "minItems": 1,
+                  "type": "array"
+                },
+                "reference": {
+                  "description": "The Secret reference its value comes from, such as `env:GITHUB_PASSWORD`.",
+                  "pattern": "^(?:(?:env|keychain|secretfile|caller|bw|vault|aws-sm|gcp-sm|azure-kv|plugin):|op://)[^\\s]+$",
+                  "type": "string"
+                },
+                "totp": {
+                  "description": "Whether the reference's value is a TOTP seed, whose current code is typed in its place.",
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "reference",
+                "domains"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "code_source": {
+                  "description": "The email or SMS code source its one-time code comes from.",
+                  "type": "string"
+                },
+                "domains": {
+                  "description": "The registrable domains, each with its subdomains, its value may go to; `*` for every domain, only when written.",
+                  "items": {
+                    "type": "string"
+                  },
+                  "minItems": 1,
+                  "type": "array"
+                }
+              },
+              "required": [
+                "code_source",
+                "domains"
+              ],
+              "type": "object"
+            }
+          ]
+        },
+        "type": "object"
+      },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -9750,6 +10446,7 @@
         },
         "type": "array"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -9773,6 +10470,11 @@
       "value": {
         "type": "boolean"
       },
+      "weakening": {
+        "values": [
+          false
+        ]
+      },
       "weakens": true
     },
     {
@@ -9792,6 +10494,11 @@
       "scopes": [],
       "value": {
         "type": "boolean"
+      },
+      "weakening": {
+        "values": [
+          false
+        ]
       },
       "weakens": true
     },
@@ -9816,6 +10523,11 @@
       "value": {
         "type": "boolean"
       },
+      "weakening": {
+        "values": [
+          false
+        ]
+      },
       "weakens": true
     },
     {
@@ -9838,6 +10550,11 @@
       ],
       "value": {
         "type": "boolean"
+      },
+      "weakening": {
+        "values": [
+          false
+        ]
       },
       "weakens": true
     },
@@ -9862,6 +10579,11 @@
       "value": {
         "type": "boolean"
       },
+      "weakening": {
+        "values": [
+          false
+        ]
+      },
       "weakens": true
     },
     {
@@ -9885,6 +10607,11 @@
       "value": {
         "type": "boolean"
       },
+      "weakening": {
+        "values": [
+          false
+        ]
+      },
       "weakens": true
     },
     {
@@ -9907,6 +10634,11 @@
       ],
       "value": {
         "type": "boolean"
+      },
+      "weakening": {
+        "values": [
+          false
+        ]
       },
       "weakens": true
     },
@@ -10165,6 +10897,7 @@
         },
         "type": "object"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -10190,6 +10923,7 @@
           "none"
         ]
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -10215,6 +10949,7 @@
           "eager"
         ]
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -10239,6 +10974,7 @@
         "minimum": 0,
         "type": "integer"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -10262,6 +10998,7 @@
         "minimum": 0,
         "type": "integer"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -10285,6 +11022,7 @@
         "minimum": 0,
         "type": "integer"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -10308,6 +11046,7 @@
         "minimum": 0,
         "type": "integer"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -10331,6 +11070,7 @@
         "minimum": 0,
         "type": "integer"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -10728,6 +11468,7 @@
           }
         ]
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -11531,6 +12272,7 @@
         },
         "type": "object"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -11553,6 +12295,7 @@
       "value": {
         "type": "boolean"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -11577,6 +12320,7 @@
         "minimum": 0,
         "type": "integer"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -11605,6 +12349,7 @@
           "collect"
         ]
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -11626,6 +12371,11 @@
       ],
       "value": {
         "type": "boolean"
+      },
+      "weakening": {
+        "values": [
+          false
+        ]
       },
       "weakens": true
     },
@@ -11650,6 +12400,7 @@
       "value": {
         "type": "boolean"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -11672,6 +12423,7 @@
       "value": {
         "type": "string"
       },
+      "weakening": null,
       "weakens": true
     },
     {
@@ -11695,6 +12447,7 @@
         },
         "type": "array"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -11723,6 +12476,7 @@
           "clearcote"
         ]
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -11752,6 +12506,7 @@
           "engine"
         ]
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -11776,6 +12531,7 @@
       "value": {
         "type": "boolean"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -11800,6 +12556,7 @@
       "value": {
         "type": "boolean"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -11827,6 +12584,7 @@
         },
         "type": "array"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -11854,6 +12612,7 @@
         },
         "type": "array"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -11881,6 +12640,7 @@
         },
         "type": "array"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -11902,6 +12662,9 @@
         "minimum": 0,
         "type": "integer"
       },
+      "weakening": {
+        "toward": "lower"
+      },
       "weakens": true
     },
     {
@@ -11922,6 +12685,9 @@
       "value": {
         "minimum": 0,
         "type": "integer"
+      },
+      "weakening": {
+        "toward": "lower"
       },
       "weakens": true
     },
@@ -11948,6 +12714,7 @@
         "minimum": 0,
         "type": "integer"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -11973,6 +12740,7 @@
         "minimum": 0,
         "type": "integer"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -11998,6 +12766,7 @@
         "minimum": 0,
         "type": "integer"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -12023,6 +12792,7 @@
         "minimum": 0,
         "type": "integer"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -12045,6 +12815,7 @@
         "minimum": 0,
         "type": "integer"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -12069,6 +12840,7 @@
         "minimum": 0,
         "type": "integer"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -12094,6 +12866,7 @@
         "minimum": 0,
         "type": "integer"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -12118,6 +12891,7 @@
         "minimum": 0,
         "type": "integer"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -12140,6 +12914,7 @@
         "minimum": 0,
         "type": "integer"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -12166,6 +12941,7 @@
         "minimum": 0,
         "type": "integer"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -12191,6 +12967,7 @@
         "minimum": 0,
         "type": "integer"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -12216,6 +12993,7 @@
         "minimum": 0,
         "type": "integer"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -12241,6 +13019,7 @@
         "minimum": 0,
         "type": "integer"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -12266,6 +13045,7 @@
         "minimum": 0,
         "type": "integer"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -12290,6 +13070,7 @@
         "minimum": 0,
         "type": "integer"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -12315,6 +13096,7 @@
         "minimum": 0,
         "type": "integer"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -12340,6 +13122,7 @@
         "minimum": 0,
         "type": "integer"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -12365,6 +13148,7 @@
         "minimum": 0,
         "type": "integer"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -12398,6 +13182,7 @@
         },
         "type": "object"
       },
+      "weakening": null,
       "weakens": true
     },
     {
@@ -12440,6 +13225,7 @@
         },
         "type": "object"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -12466,6 +13252,7 @@
         },
         "type": "object"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -12488,6 +13275,7 @@
         "minimum": 0,
         "type": "integer"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -12508,6 +13296,7 @@
       "value": {
         "type": "boolean"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -12531,6 +13320,7 @@
         },
         "type": "array"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -12557,6 +13347,7 @@
         },
         "type": "array"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -12583,6 +13374,7 @@
         },
         "type": "array"
       },
+      "weakening": null,
       "weakens": false
     },
     {
@@ -12603,6 +13395,7 @@
       "value": {
         "type": "boolean"
       },
+      "weakening": null,
       "weakens": false
     }
   ],

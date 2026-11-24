@@ -1,0 +1,11 @@
+[package]
+name = "goodfetch-engine"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[dev-dependencies]
+goodfetch-scripted-model = { path = "../goodfetch-scripted-model" }
+
+[dependencies]
+goodfetch-workspace-hack = { path = "../goodfetch-workspace-hack" }

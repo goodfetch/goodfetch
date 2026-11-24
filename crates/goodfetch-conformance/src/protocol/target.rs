@@ -7,6 +7,10 @@
 //! gives, at most [`START_DEADLINE`], so a target that stays silent fails
 //! its case instead of holding the harness.
 //!
+//! A process Plugin (ADR 0033) is started from its executable and arguments
+//! with the plugin protocol's cookie in its environment, and spoken to over
+//! its stdio.
+//!
 //! A gateway (ADR 0096) is reached by address instead: its `http` or `https`
 //! origin, whose WebSocket at `/protocol` (`ws` or `wss`, TLS checked
 //! against Mozilla's roots and any certificate the target trusts) carries
@@ -45,8 +49,10 @@ use tungstenite::client::IntoClientRequest as _;
 use tungstenite::{Message, WebSocket};
 
 use goodfetch_protocol::daemon::{DaemonEndpoint, DaemonRuntimeFile};
+use goodfetch_protocol::plugin;
 
 use super::gateway::GatewayTarget;
+use super::plugin::PluginTarget;
 
 /// How long the harness waits for each line the target writes, for the
 /// Daemon to be ready and for the target to exit once the suite ends.
@@ -75,6 +81,40 @@ pub struct EngineTarget {
     pub environment: BTreeMap<String, String>,
     /// The folder it runs in.
     pub folder: PathBuf,
+}
+
+impl EngineTarget {
+    /// The target on a Goodfetch home of its own, the folder `name` in the
+    /// target's folder, configured as the target's home is: each version's
+    /// `configuration.toml` is copied into it.
+    ///
+    /// # Errors
+    ///
+    /// When the home cannot be made or the configuration copied.
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "the synchronous harness copies its target's configuration into a home of its own before starting it, outside any async worker"
+    )]
+    pub(crate) fn on_a_home_of_its_own(&self, name: &str) -> io::Result<Self> {
+        let home = self.folder.join(name);
+        std::fs::create_dir_all(&home)?;
+        if let Some(here) = self.environment.get("GOODFETCH_HOME") {
+            for version in std::fs::read_dir(here)? {
+                let version = version?;
+                let configuration = version.path().join("configuration.toml");
+                if configuration.is_file() {
+                    let there = home.join(version.file_name());
+                    std::fs::create_dir_all(&there)?;
+                    std::fs::copy(&configuration, there.join("configuration.toml"))?;
+                }
+            }
+        }
+        let mut elsewhere = self.clone();
+        elsewhere
+            .environment
+            .insert("GOODFETCH_HOME".to_owned(), home.display().to_string());
+        Ok(elsewhere)
+    }
 }
 
 /// How the harness reaches a target.
@@ -212,6 +252,39 @@ impl Started {
             }
             EngineMode::Daemon => Self::connect_daemon(child, stdout),
         }
+    }
+
+    /// Starts the process Plugin `target` and opens its Connection over its
+    /// stdio, before any `hello`: its environment holds exactly the
+    /// target's variables and the plugin protocol's cookie.
+    pub(crate) fn plugin(target: &PluginTarget) -> Result<Self, StartError> {
+        let mut child = Command::new(&target.executable)
+            .args(&target.arguments)
+            .env_clear()
+            .envs(&target.environment)
+            .env(plugin::COOKIE_VARIABLE, plugin::COOKIE)
+            .current_dir(&target.folder)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .spawn()
+            .map_err(|source| StartError::Spawn {
+                executable: target.executable.clone(),
+                source,
+            })?;
+        let stdout = child
+            .stdout
+            .take()
+            .expect("invariant: the Plugin's stdout is piped");
+        let stdin = child.stdin.take();
+        Ok(Self {
+            child: Some(child),
+            link: Link::Stdin(stdin),
+            lines: read_lines(stdout),
+            exited: None,
+            token: None,
+            endpoint: None,
+        })
     }
 
     /// Reads the runtime file the Daemon prints once ready and connects to

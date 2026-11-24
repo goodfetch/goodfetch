@@ -404,7 +404,7 @@ status = "active"
 
 [[story]]
 id = 51
-title = "As a developer, I want `secret(\"name\")` in code and `%name%` in an AI instruction to name a Secret placeholder that `secrets.<name>` binds, at the connection, a Run or a Session, nearest winning, so that each Session can log in to its own account (ADR 0092, SC-08)."
+title = "As a developer, I want `secret(\"name\")` in code and `%name%` in an AI instruction to name a Secret placeholder that `secrets.placeholders.<name>` binds, at the connection, a Run or a Session, nearest winning, so that each Session can log in to its own account (ADR 0092, SC-08)."
 milestone = "M3 Browser automation"
 journey = true
 status = "active"

@@ -76,7 +76,8 @@ use crate::environment::Environment;
 use crate::features;
 use emit::JOURNEY_FILES;
 use goodfetch_protocol::catalog::Product;
-use goodfetch_protocol::naming;
+use goodfetch_protocol::connection::ProductVersion;
+use goodfetch_protocol::{daemon, naming};
 use layer::Layer;
 pub(crate) use members::{HandleMember, handle_entries, handle_members};
 pub(crate) use naming::{camel, pascal, rust_snake, rust_type, snake};
@@ -379,17 +380,19 @@ impl Plan {
 /// Everything `xtask codegen` writes at `root`, with the executables' files
 /// `executables` gives.
 fn plan(cargo: &OsStr, root: &Path, executables: executables::Files) -> Result<Plan> {
+    let version = product_version(root)?;
     let emitted = emitter::emit(cargo, root)?;
     let bundle: Value =
         serde_json::from_slice(&emitted.bundle).context("reading the emitted bundle")?;
-    let catalog: Value =
+    let mut catalog: Value =
         serde_json::from_slice(&emitted.catalog).context("reading the emitted catalog")?;
+    settle_daemon_address(&mut catalog, &version)?;
 
     let mut files = compat::refusals::files(&emitted.bundle)?;
     files.insert(format!("{PROTOCOL_GENERATED}/bundle.json"), emitted.bundle);
     files.insert(
         format!("{PROTOCOL_GENERATED}/catalog.json"),
-        emitted.catalog,
+        json_text(&catalog)?,
     );
 
     let collie = projection::project(&catalog, &bundle, Product::Collie)?;
@@ -446,7 +449,6 @@ fn plan(cargo: &OsStr, root: &Path, executables: executables::Files) -> Result<P
     files.extend(facts::files(cargo, root)?);
     files.extend(cdp::generate(root)?);
 
-    let version = product_version(root)?;
     files.extend(rust_files(root, &bundle, &collie, &foxhound, &version)?);
     let mut externals = Vec::new();
     let mut python_fields = Vec::new();
@@ -818,10 +820,41 @@ pub(crate) fn run(arguments: Arguments, environment: &Environment) -> Result<Exi
     Ok(ExitCode::SUCCESS)
 }
 
-/// The Product version the workspace carries: the root manifest's
-/// `[workspace.package] version`, which every crate takes (ADR 0030).
+/// The Product version the released crates carry, as Collie's executable
+/// crate states it: the root manifest's `[workspace.package] version` while
+/// it takes the workspace's, its own once `xtask release prepare` set it,
+/// the internal crates keeping the workspace's `0.0.x` (ADR 0030).
 fn product_version(root: &Path) -> Result<String> {
-    workspace_package(root, "version")
+    let path = root.join(crate::products::COLLIE.folder).join("Cargo.toml");
+    let manifest: toml::Table = toml::from_str(
+        &std::fs::read_to_string(&path).with_context(|| format!("reading {}", path.display()))?,
+    )
+    .with_context(|| format!("reading {}", path.display()))?;
+    match manifest
+        .get("package")
+        .and_then(|package| package.get("version"))
+    {
+        Some(toml::Value::String(version)) => Ok(version.clone()),
+        _ => workspace_package(root, "version"),
+    }
+}
+
+/// Gives `catalog`'s `daemon.address` the default of the Product version
+/// `version`, where its release listens, in place of the one
+/// `goodfetch-protocol` emitted from its own `0.0.x` (ADR 0030); none in a
+/// catalog without that setting.
+fn settle_daemon_address(catalog: &mut Value, version: &str) -> Result<()> {
+    let version = ProductVersion::parse(version)
+        .with_context(|| format!("the Product version {version} is no semver"))?;
+    let setting = catalog["settings"].as_array_mut().and_then(|settings| {
+        settings
+            .iter_mut()
+            .find(|setting| setting["name"] == daemon::ADDRESS.name)
+    });
+    if let Some(setting) = setting {
+        setting["default"] = Value::String(daemon::default_address(&version).to_string());
+    }
+    Ok(())
 }
 
 /// The root manifest's `[workspace.package]` string `key`, which every
@@ -839,4 +872,61 @@ fn workspace_package(root: &Path, key: &str) -> Result<String> {
         .and_then(toml::Value::as_str)
         .map(str::to_owned)
         .with_context(|| format!("{} has no `[workspace.package] {key}`", path.display()))
+}
+
+#[cfg(test)]
+mod tests {
+    use goodfetch_test_support::TestEnv;
+    use rstest::rstest;
+
+    use serde_json::json;
+
+    use super::{product_version, settle_daemon_address};
+    use crate::products;
+
+    /// Both SDKs' `PRODUCT_VERSION` is the released crates' version: the
+    /// workspace's `0.0.x` until `xtask release prepare` sets theirs, and
+    /// the new version after, though the workspace's stays (issue 2876).
+    #[rstest]
+    #[case::before_a_release("version.workspace = true", "0.0.0")]
+    #[case::after_its_preparation("version = \"1.4.0-rc.2\"", "1.4.0-rc.2")]
+    fn the_product_version_is_the_released_crates(#[case] version: &str, #[case] expected: &str) {
+        let env = TestEnv::new();
+        let root = env.folder();
+        std::fs::write(
+            root.join("Cargo.toml"),
+            "[workspace]\n\n[workspace.package]\nversion = \"0.0.0\"\n",
+        )
+        .unwrap();
+        let collie = root.join(products::COLLIE.folder);
+        std::fs::create_dir_all(&collie).unwrap();
+        std::fs::write(
+            collie.join("Cargo.toml"),
+            format!("[package]\nname = \"goodfetch-collie\"\n{version}\n"),
+        )
+        .unwrap();
+
+        assert_eq!(product_version(root).unwrap(), expected);
+    }
+
+    /// The catalog lists `daemon.address`'s default for the released
+    /// crates' Product version, which the executable listens on, and not
+    /// for `goodfetch-protocol`'s own `0.0.x` (issue 2876).
+    #[rstest]
+    #[case::a_release("1.4.0", "127.0.0.1:7901")]
+    #[case::a_preview("0.3.0-rc.1", "127.0.0.1:7603")]
+    fn the_daemon_address_default_is_the_product_versions(
+        #[case] version: &str,
+        #[case] expected: &str,
+    ) {
+        let mut catalog = json!({ "settings": [
+            { "name": "daemon.port_file", "default": "daemon.port" },
+            { "name": "daemon.address", "default": "127.0.0.1:7600" },
+        ]});
+
+        settle_daemon_address(&mut catalog, version).unwrap();
+
+        assert_eq!(catalog["settings"][1]["default"], expected);
+        assert_eq!(catalog["settings"][0]["default"], "daemon.port");
+    }
 }

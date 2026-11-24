@@ -42,10 +42,13 @@ use std::borrow::Cow;
 use std::sync::{Arc, PoisonError, RwLock, RwLockReadGuard, RwLockWriteGuard, TryLockError};
 
 use aho_corasick::{AhoCorasick, MatchKind};
+use indexmap::IndexMap;
 use secrecy::zeroize::Zeroizing;
 use secrecy::{ExposeSecret as _, SecretString};
+use serde::de::{self, Deserialize, Deserializer, MapAccess, SeqAccess, Visitor};
 use serde::{Serialize, Serializer};
 use serde_json::Value;
+use serde_json::value::RawValue;
 use subtle::ConstantTimeEq as _;
 
 /// The length, in characters, under which a value is masked only where it
@@ -430,6 +433,27 @@ impl Masks {
         }
     }
 
+    /// `json`'s text written as [`Masks::json`] writes its value, but each
+    /// object's members in the order `json` wrote them, which a [`Value`]
+    /// sorts: a member keeps its place under its masked name, and of two
+    /// members given one name, by `json` or by the mask, the first's place
+    /// keeps the later's value.
+    pub fn json_text(&self, json: &RawValue, scope: Scope) -> String {
+        let mut deserializer = serde_json::Deserializer::from_str(json.get());
+        // Its depth is bounded where it was made, past `serde_json`'s own
+        // limit for a code-free page's structured data.
+        deserializer.disable_recursion_limit();
+        let value = Ordered::deserialize(&mut deserializer)
+            .expect("invariant: a raw JSON value reads as a JSON value");
+        let state = self.read();
+        let automaton = state.automaton(scope);
+        serde_json::to_string(&MaskedOrdered {
+            value: &value,
+            automaton,
+        })
+        .expect("invariant: a JSON value encodes")
+    }
+
     /// `line`, one JSON message, masked as `scope` says and still one JSON
     /// message: masked as text, or string by string where a value's raw
     /// form spanned the message's own syntax. A line no mask changed comes
@@ -604,6 +628,117 @@ impl Serialize for MaskedJson<'_> {
                 )
             }
             Value::Null | Value::Bool(_) | Value::Number(_) => value.serialize(serializer),
+        }
+    }
+}
+
+/// A JSON value read with each object's members in the order written, as
+/// [`Masks::json_text`] reads it: a number as a [`Value`] holds it, and of
+/// two members of one name, the first's place with the later's value.
+enum Ordered {
+    Scalar(Value),
+    String(String),
+    Array(Vec<Ordered>),
+    Object(IndexMap<String, Ordered>),
+}
+
+impl<'de> Deserialize<'de> for Ordered {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        deserializer.deserialize_any(OrderedVisitor)
+    }
+}
+
+struct OrderedVisitor;
+
+impl<'de> Visitor<'de> for OrderedVisitor {
+    type Value = Ordered;
+
+    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("a JSON value")
+    }
+
+    fn visit_bool<E: de::Error>(self, value: bool) -> Result<Ordered, E> {
+        Ok(Ordered::Scalar(Value::Bool(value)))
+    }
+
+    fn visit_i64<E: de::Error>(self, value: i64) -> Result<Ordered, E> {
+        Ok(Ordered::Scalar(Value::from(value)))
+    }
+
+    fn visit_u64<E: de::Error>(self, value: u64) -> Result<Ordered, E> {
+        Ok(Ordered::Scalar(Value::from(value)))
+    }
+
+    fn visit_f64<E: de::Error>(self, value: f64) -> Result<Ordered, E> {
+        Ok(Ordered::Scalar(Value::from(value)))
+    }
+
+    fn visit_str<E: de::Error>(self, value: &str) -> Result<Ordered, E> {
+        Ok(Ordered::String(value.to_owned()))
+    }
+
+    fn visit_string<E: de::Error>(self, value: String) -> Result<Ordered, E> {
+        Ok(Ordered::String(value))
+    }
+
+    fn visit_unit<E: de::Error>(self) -> Result<Ordered, E> {
+        Ok(Ordered::Scalar(Value::Null))
+    }
+
+    fn visit_seq<A: SeqAccess<'de>>(self, mut items: A) -> Result<Ordered, A::Error> {
+        let mut read = Vec::with_capacity(items.size_hint().unwrap_or(0));
+        while let Some(item) = items.next_element()? {
+            read.push(item);
+        }
+        Ok(Ordered::Array(read))
+    }
+
+    fn visit_map<A: MapAccess<'de>>(self, mut members: A) -> Result<Ordered, A::Error> {
+        let mut read = IndexMap::with_capacity(members.size_hint().unwrap_or(0));
+        while let Some((name, member)) = members.next_entry::<String, Ordered>()? {
+            read.insert(name, member);
+        }
+        Ok(Ordered::Object(read))
+    }
+}
+
+/// An [`Ordered`] value as [`Masks::json_text`] writes it: each string
+/// through `automaton`, when one masks the scope, and an object's members
+/// in their order under their masked names.
+struct MaskedOrdered<'a> {
+    value: &'a Ordered,
+    automaton: Option<&'a Automaton>,
+}
+
+impl MaskedOrdered<'_> {
+    fn masked<'t>(&self, text: &'t str) -> Cow<'t, str> {
+        match self.automaton {
+            None => Cow::Borrowed(text),
+            Some(automaton) => utf8(automaton.replace(text.as_bytes()), text),
+        }
+    }
+}
+
+impl Serialize for MaskedOrdered<'_> {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        let Self { value, automaton } = *self;
+        let within = |value| Self { value, automaton };
+        match value {
+            Ordered::Scalar(scalar) => scalar.serialize(serializer),
+            Ordered::String(text) => serializer.serialize_str(&self.masked(text)),
+            Ordered::Array(items) => serializer.collect_seq(items.iter().map(within)),
+            Ordered::Object(members) => {
+                let mut named: IndexMap<Cow<'_, str>, &Ordered> =
+                    IndexMap::with_capacity(members.len());
+                for (name, member) in members {
+                    named.insert(self.masked(name), member);
+                }
+                serializer.collect_map(
+                    named
+                        .iter()
+                        .map(|(name, member)| (name.as_ref(), within(member))),
+                )
+            }
         }
     }
 }

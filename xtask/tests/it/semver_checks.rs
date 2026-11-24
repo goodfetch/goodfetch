@@ -5,7 +5,8 @@
 //! previous release. A break fails unless `compat/api.toml` announces it for
 //! the next major as `rust <crate> <lint>`; an addition and a deprecation
 //! pass. The tests run the pinned cargo-semver-checks on a workspace of
-//! three small crates under the Products' crates' names.
+//! three small crates under the Products' crates' names, and the protocol
+//! crate that two of them depend on by path.
 //! Covers: story:1-30
 
 use crate::workspace::{Workspace, finding};
@@ -15,53 +16,96 @@ const API: &str = "compat/api.toml";
 const CLIENT: &str = "crates/goodfetch-collie-client/src/lib.rs";
 const COLLIE: &str = "crates/goodfetch-collie/src/lib.rs";
 const FOXHOUND: &str = "crates/foxhound/goodfetch-foxhound/src/lib.rs";
+const PROTOCOL: &str = "crates/goodfetch-protocol/src/lib.rs";
 
-/// A crate's manifest, with the features it declares.
-fn manifest(name: &str, features: &str) -> String {
+/// Collie's crate: a stable function, a handle with an Experimental method
+/// and an Experimental function, each marked by the paragraph ADR 0099
+/// gives rustdoc, and the testing kit.
+const COLLIE_SOURCE: &str = "//! Collie.
+
+/// Opens a page.
+pub fn open() {}
+
+/// Collie's handle.
+pub struct Collie;
+
+impl Collie {
+    /// Starts a Recipe's run.
+    ///
+    /// Experimental: outside semver until it is promoted (ADR 0030).
+    pub fn start_recipe(&self, recipe: &str) -> usize {
+        recipe.len()
+    }
+}
+
+/// Replays a Plan.
+///
+/// Experimental: outside semver until it is promoted (ADR 0030).
+pub fn replay() {}
+
+/// The testing kit.
+#[cfg(feature = \"test-util\")]
+pub mod testing {
+    /// A test engine.
+    pub fn engine() {}
+}
+";
+
+/// A crate's manifest, with the features and the dependencies it declares.
+fn manifest(name: &str, features: &str, dependencies: &str) -> String {
     format!(
-        "[package]\nname = \"{name}\"\nversion = \"0.0.0\"\nedition = \"2024\"\npublish = false\n\n[features]\n{features}"
+        "[package]\nname = \"{name}\"\nversion = \"0.0.0\"\nedition = \"2024\"\npublish = false\n\n[features]\n{features}\n[dependencies]\n{dependencies}"
     )
 }
 
-/// The three crates, Collie's with its testing kit behind `test-util`,
-/// committed as the previous release `compat/api.toml` names, with
-/// `announced` as its announced breaks.
+/// The protocol crate's dependency, by path from a crate under `crates/`.
+const ON_PROTOCOL: &str = "goodfetch-protocol = { path = \"../goodfetch-protocol\" }\n";
+
+/// The three crates, Collie's with its testing kit behind `test-util`, and
+/// the protocol crate the client and Collie's take by path, committed as the
+/// previous release `compat/api.toml` names, with `announced` as its
+/// announced breaks.
 fn released(announced: &str) -> Workspace {
     let workspace = Workspace::from_fixture("empty");
     workspace.write(
         "Cargo.toml",
-        b"[workspace]\nresolver = \"3\"\nmembers = [\n  \"crates/goodfetch-collie-client\",\n  \"crates/goodfetch-collie\",\n  \"crates/foxhound/goodfetch-foxhound\",\n]\n",
+        b"[workspace]\nresolver = \"3\"\nmembers = [\n  \"crates/goodfetch-protocol\",\n  \"crates/goodfetch-collie-client\",\n  \"crates/goodfetch-collie\",\n  \"crates/foxhound/goodfetch-foxhound\",\n]\n",
     );
-    for (folder, name, features) in [
+    for (folder, name, features, dependencies) in [
+        ("crates/goodfetch-protocol", "goodfetch-protocol", "", ""),
         (
             "crates/goodfetch-collie-client",
             "goodfetch-collie-client",
             "",
+            ON_PROTOCOL,
         ),
         (
             "crates/goodfetch-collie",
             "goodfetch-collie",
             "test-util = []\n",
+            ON_PROTOCOL,
         ),
         (
             "crates/foxhound/goodfetch-foxhound",
             "goodfetch-foxhound",
             "",
+            "",
         ),
     ] {
         workspace.write(
             &format!("{folder}/Cargo.toml"),
-            manifest(name, features).as_bytes(),
+            manifest(name, features, dependencies).as_bytes(),
         );
     }
+    workspace.write(
+        PROTOCOL,
+        b"//! The protocol.\n\n/// The protocol's version.\npub const VERSION: u32 = 1;\n",
+    );
     workspace.write(
         CLIENT,
         b"//! The client.\n\n/// Connects.\npub fn connect() {}\n\n/// Closes.\npub fn close() {}\n",
     );
-    workspace.write(
-        COLLIE,
-        b"//! Collie.\n\n/// Opens a page.\npub fn open() {}\n\n/// The testing kit.\n#[cfg(feature = \"test-util\")]\npub mod testing {\n    /// A test engine.\n    pub fn engine() {}\n}\n",
-    );
+    workspace.write(COLLIE, COLLIE_SOURCE.as_bytes());
     workspace.write(
         FOXHOUND,
         b"//! Foxhound.\n\n/// Starts a crawl.\npub fn crawl() {}\n",
@@ -125,12 +169,97 @@ fn an_added_item_and_a_deprecation_pass() {
 }
 
 #[test]
+fn a_crate_compiles_against_what_its_path_dependency_gained_since_the_previous_release() {
+    // The protocol crate gains a module in a file of its own, which Collie's
+    // imports: rustdoc resolves imports, not function bodies. The client,
+    // checked first, builds the protocol crate of both sides, the previous
+    // release's last.
+    let workspace = released("");
+    workspace.append(PROTOCOL, "\npub mod store;\n");
+    workspace.write(
+        "crates/goodfetch-protocol/src/store.rs",
+        b"//! The store.\n\n/// Keeps a record.\npub fn keep() {}\n",
+    );
+    workspace.edit(
+        COLLIE,
+        "//! Collie.\n",
+        "//! Collie.\n\nuse goodfetch_protocol::store::keep;\n",
+    );
+    workspace.edit(
+        COLLIE,
+        "pub fn open() {}\n",
+        "pub fn open() {\n    keep();\n}\n",
+    );
+
+    let outcome = workspace.xtask(&["semver-checks"]);
+
+    assert_eq!(
+        outcome.findings(),
+        vec![],
+        "{}\n{}",
+        outcome.stdout,
+        outcome.stderr
+    );
+    assert_eq!(outcome.code, 0, "{}", outcome.stderr);
+}
+
+#[test]
+fn an_experimental_item_changes_and_goes_freely() {
+    let workspace = released("");
+    workspace.edit(
+        COLLIE,
+        "pub fn start_recipe(&self, recipe: &str) -> usize {\n        recipe.len()\n",
+        "pub fn start_recipe(&self, recipe: &str, detached: bool) -> bool {\n        detached || recipe.is_empty()\n",
+    );
+    workspace.edit(
+        COLLIE,
+        "/// Replays a Plan.\n///\n/// Experimental: outside semver until it is promoted (ADR 0030).\npub fn replay() {}\n",
+        "",
+    );
+
+    let outcome = workspace.xtask(&["semver-checks"]);
+
+    assert_eq!(
+        outcome.findings(),
+        vec![],
+        "{}\n{}",
+        outcome.stdout,
+        outcome.stderr
+    );
+    assert_eq!(outcome.code, 0);
+}
+
+#[test]
+fn a_stable_item_made_experimental_is_a_break() {
+    let workspace = released("");
+    workspace.edit(
+        COLLIE,
+        "/// Opens a page.\n",
+        "/// Opens a page.\n///\n/// Experimental: outside semver until it is promoted (ADR 0030).\n",
+    );
+
+    let outcome = workspace.xtask(&["semver-checks"]);
+
+    assert_eq!(
+        outcome.findings(),
+        vec![finding(
+            "unannounced-break",
+            "rust goodfetch-collie function_now_doc_hidden"
+        )],
+        "{}\n{}",
+        outcome.stdout,
+        outcome.stderr
+    );
+    assert_eq!(outcome.code, 1);
+}
+
+#[test]
 fn a_copy_of_a_crate_elsewhere_in_the_repository_is_not_compared() {
     // The repository holds such copies in test fixtures and proofs.
     let workspace = released("");
     workspace.write(
         "fixtures/goodfetch-collie/Cargo.toml",
-        manifest("goodfetch-collie", "").as_bytes(),
+        manifest("goodfetch-collie", "", "").as_bytes(),
     );
     workspace.write("fixtures/goodfetch-collie/src/lib.rs", b"");
     workspace.commit_all();

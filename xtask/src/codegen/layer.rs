@@ -14,6 +14,9 @@ use serde_json::{Map, Value};
 
 use super::projection;
 
+mod lifted_fields;
+mod shared_values;
+
 /// The generators' input file name for `product`'s layer.
 pub(super) fn input_name(product: Product) -> &'static str {
     match product {
@@ -174,13 +177,39 @@ pub(super) struct ErrorCode {
     pub(super) details: Option<TypeName>,
 }
 
+/// What a code's details name as `retry_after`, which its class reads as
+/// its own field.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum RetryAfter {
+    /// The time a site's `Retry-After` asks for (ADRs 0092 and 0118).
+    PointInTime,
+    /// How long a Model provider asks to wait, in milliseconds (ADR 0101).
+    Duration,
+}
+
 impl ErrorCode {
-    /// Whether the code's details name `retry_after` as a point in time,
-    /// which its class reads as its own field.
-    pub(super) fn retry_after_is_point_in_time(&self) -> bool {
-        goodfetch_protocol::error_details::RETRY_AFTER_POINT_IN_TIME
-            .iter()
-            .any(|code| code.as_str() == self.name)
+    /// What the code's details name as `retry_after`, if anything its class
+    /// reads.
+    pub(super) fn retry_after(&self) -> Option<RetryAfter> {
+        use goodfetch_protocol::error_details::{RETRY_AFTER_DURATION, RETRY_AFTER_POINT_IN_TIME};
+        let lists = |codes: &[goodfetch_protocol::error_code::ErrorCode]| {
+            codes.iter().any(|code| code.as_str() == self.name)
+        };
+        if lists(RETRY_AFTER_POINT_IN_TIME) {
+            Some(RetryAfter::PointInTime)
+        } else if lists(RETRY_AFTER_DURATION) {
+            Some(RetryAfter::Duration)
+        } else {
+            None
+        }
+    }
+
+    /// The type its own class reads its details as. A code named like its
+    /// group has no class of its own: it is raised as its group's class,
+    /// which every code the SDK does not know falls back to, so its details
+    /// stay a map there, though their type is generated.
+    pub(super) fn class_details(&self) -> Option<&TypeName> {
+        self.details.as_ref().filter(|_| self.name != self.group)
     }
 }
 
@@ -400,12 +429,12 @@ pub(super) struct Layer {
 }
 
 impl Layer {
-    /// Whether any of the layer's Error codes reads `retry_after` as a point
-    /// in time, so its errors module needs the helper that reads it.
-    pub(super) fn reads_retry_after(&self) -> bool {
+    /// Whether any of the layer's Error codes reads `retry_after` as `kind`,
+    /// so its errors module needs the helper that reads it.
+    pub(super) fn reads_retry_after(&self, kind: RetryAfter) -> bool {
         self.error_codes
             .iter()
-            .any(ErrorCode::retry_after_is_point_in_time)
+            .any(|code| code.retry_after() == Some(kind))
     }
 
     /// The layer of `product`'s package: Collie's entries for Collie's client
@@ -436,6 +465,11 @@ impl Layer {
                     }
                 }
                 without_meta(&mut definitions);
+                lifted_fields::without_lifted_fields(
+                    &mut definitions,
+                    details_types(&collie.error_codes),
+                )?;
+                shared_values::with_own_values(&mut definitions, &collie.shared_type_values);
                 definitions.sort_keys();
                 let shared_types = shared_types(&collie.shared_type_values, |_| true, |_| false);
                 for group in &mut collie.error_groups {
@@ -494,6 +528,7 @@ impl Layer {
             .into_iter()
             .filter(|entry| own(entry.product))
             .collect();
+        lifted_fields::without_lifted_fields(&mut all.definitions, details_types(&error_codes))?;
         let plugin_kinds: Vec<PluginKind> = all
             .plugin_kinds
             .into_iter()
@@ -524,9 +559,22 @@ impl Layer {
             &kind_parts,
         );
         let reached = projection::reached(&roots, &all.definitions)?;
-        let (collie_types, own_types): (BTreeSet<String>, BTreeSet<String>) = reached
-            .into_iter()
-            .partition(|name| collie.definitions.contains_key(name));
+        // A value union both Products share that Foxhound adds values to
+        // stays Foxhound's, with every value, where Collie's names its own.
+        let extended_unions: BTreeSet<String> = shared_types
+            .iter()
+            .filter(|shared| shared.extends_collie)
+            .map(|shared| super::pascal(&shared.name))
+            .filter(|name| {
+                all.definitions
+                    .get(name)
+                    .is_some_and(shared_values::is_value_union)
+            })
+            .collect();
+        let (collie_types, own_types): (BTreeSet<String>, BTreeSet<String>) =
+            reached.into_iter().partition(|name| {
+                collie.definitions.contains_key(name) && !extended_unions.contains(name)
+            });
         Ok(Self {
             product: Product::Foxhound,
             protocol_version: all.protocol_version,
@@ -618,6 +666,14 @@ fn without_meta(definitions: &mut Map<String, Value>) {
             properties.remove(META);
         }
     }
+}
+
+/// The names of the types `codes` read their details as.
+fn details_types(codes: &[ErrorCode]) -> impl Iterator<Item = &str> {
+    codes
+        .iter()
+        .filter_map(|code| code.details.as_ref())
+        .map(|name| name.0.as_str())
 }
 
 /// A value whose `$ref`s are every type the entries name.

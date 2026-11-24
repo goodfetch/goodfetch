@@ -21,6 +21,7 @@ mod cli;
 mod cli_json;
 #[cfg(target_os = "linux")]
 mod dns_namespace;
+mod downloads;
 mod endpoints;
 mod exercise_record;
 mod extra_loopback;

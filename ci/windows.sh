@@ -115,6 +115,15 @@ common=$(git rev-parse --path-format=absolute --git-common-dir)
 environment=(--env GIT_CONFIG_COUNT=1 --env GIT_CONFIG_KEY_0=safe.directory --env GIT_CONFIG_VALUE_0='*'
   --env CARGO_TARGET_DIR=/var/tmp/target --env CARGO_INCREMENTAL=0 --env "GOODFETCH_WINE_SKIPS=$wine_skips")
 [[ -z "${CARGO_BUILD_JOBS:-}" ]] || environment+=(--env "CARGO_BUILD_JOBS=$CARGO_BUILD_JOBS")
+# Windows' copies of the pinned Toxiproxy and Claude Code, which tests under
+# Wine start, fetched beside this machine's (`just fetch`) and read through
+# Wine's drive path; they test nothing, so their fetch may retry (ADR 0064).
+toxiproxy="${GOODFETCH_TOXIPROXY_DOWNLOADS:-$HOME/.cache/goodfetch/toxiproxy}"
+claude_code="${GOODFETCH_CLAUDE_CODE_DOWNLOADS:-$HOME/.cache/goodfetch/claude-code}"
+ci/toxiproxy-fetch.sh windows-x64
+ci/claude-code-fetch.sh win32-x64
+mounts+=(--volume "$toxiproxy:$toxiproxy:ro" --volume "$claude_code:$claude_code:ro")
+environment+=(--env "GOODFETCH_TOXIPROXY_DOWNLOADS=Z:$toxiproxy" --env "GOODFETCH_CLAUDE_CODE_DOWNLOADS=Z:$claude_code")
 exec "$engine" run --rm --init --platform linux/amd64 "${mounts[@]}" --workdir "$root" \
   --volume goodfetch-windows-cargo:/usr/local/cargo/registry \
   "${environment[@]}" "$image" ci/windows.sh in-container "$@"

@@ -235,6 +235,62 @@ pub(crate) fn raw_tls(
     }
 }
 
+/// How a TLS connection to `host` that the server refuses ends, for a
+/// client that sends `request` in one write with the last flight of its
+/// handshake, as a TLS 1.3 client may without waiting for the server: the
+/// TLS error it reads, or its socket's error before one, then what its
+/// socket reads after it, `Ok(0)` for an orderly close.
+pub(crate) fn refused_tls(
+    address: &str,
+    host: &str,
+    config: Arc<ClientConfig>,
+    request: &[u8],
+) -> (
+    Result<rustls::Error, std::io::ErrorKind>,
+    Result<usize, std::io::ErrorKind>,
+) {
+    let name = ServerName::try_from(host.to_owned()).expect("a server name");
+    let mut connection = ClientConnection::new(config, name).expect("a TLS client");
+    let mut socket = TcpStream::connect(address).expect("the Proving ground accepts");
+    socket
+        .set_read_timeout(Some(Duration::from_secs(10)))
+        .expect("a read timeout");
+    while connection.is_handshaking() {
+        if connection.wants_write() {
+            connection
+                .write_tls(&mut socket)
+                .expect("a handshake write");
+        } else {
+            connection.read_tls(&mut socket).expect("a handshake read");
+            connection
+                .process_new_packets()
+                .expect("the server's side of the handshake");
+        }
+    }
+    connection
+        .writer()
+        .write_all(request)
+        .expect("the request is queued");
+    let mut flight = Vec::new();
+    while connection.wants_write() {
+        connection.write_tls(&mut flight).expect("a queued record");
+    }
+    socket.write_all(&flight).expect("the last flight is sent");
+    let refusal = loop {
+        match connection.read_tls(&mut socket) {
+            Ok(0) => break Err(std::io::ErrorKind::UnexpectedEof),
+            Ok(_) => {
+                if let Err(error) = connection.process_new_packets() {
+                    break Ok(error);
+                }
+            }
+            Err(error) => break Err(error.kind()),
+        }
+    };
+    let after = socket.read(&mut [0; 4096]).map_err(|error| error.kind());
+    (refusal, after)
+}
+
 /// An HTTP/2 response's status and body.
 pub(crate) struct Http2Answer {
     pub(crate) status: u16,

@@ -1,7 +1,8 @@
 //! The settings files' versions (ADRs 0030, 0066 and 0098): each generated
 //! refusal case of the Operator policy and user configuration through its
-//! reader, the lowest minor a newer engine raises, and an Operator policy
-//! found only for an older major. Versions are fabricated: no build carries
+//! reader, the lowest minor a newer engine raises, an Operator policy
+//! found only for an older major, and the defaults that follow the Product
+//! version. Versions are fabricated: no build carries
 //! a version override (ADR 0059), so each engine here is a Product version
 //! the reader is given.
 #![expect(
@@ -11,6 +12,7 @@
 
 use goodfetch_protocol::catalog::{Product, ProtocolVersion};
 use goodfetch_protocol::connection::ProductVersion;
+use goodfetch_protocol::daemon::ADDRESS;
 use goodfetch_protocol::formats::{Compatibility, USER_CONFIGURATION};
 use goodfetch_protocol::refusals::RefusalCase;
 use goodfetch_protocol::settings::SettingsLayer;
@@ -20,7 +22,10 @@ use serde_json::json;
 
 use super::engine;
 use crate::home::Home;
-use crate::settings::{SettingsError, SettingsFiles, operator_policy, set, user_configuration};
+use crate::settings::{
+    Opening, Settings, SettingsError, SettingsFiles, operator_policy, set, user_configuration,
+};
+use crate::tasks::{BlockingPolicy, TaskOwner};
 
 fn version(text: &str) -> ProductVersion {
     ProductVersion::parse(text).unwrap()
@@ -245,5 +250,38 @@ fn a_preview_finds_an_older_previews_operator_policy_without_listing_goodfetch_h
     assert!(
         matches!(loaded, Err(SettingsError::OlderMajorPolicy { ref major, .. }) if major == "0.1"),
         "{loaded:?}"
+    );
+}
+
+/// `daemon.address`'s default follows the Product version of the
+/// executable that reads the settings, never the version of the internal
+/// crate that declares it, which stays at `0.0.x` (ADR 0030, issue 2876):
+/// port 7900 plus a release's major, 7600 plus a preview's minor, both in
+/// the machine's settings `daemon run` reads and in a scope's, which
+/// `config explain` shows.
+#[rstest]
+#[case::a_release("1.4.0", "127.0.0.1:7901")]
+#[case::a_release_candidate("2.0.0-rc.1", "127.0.0.1:7902")]
+#[case::a_preview("0.3.0", "127.0.0.1:7603")]
+fn the_daemon_address_default_follows_the_product_version(
+    #[case] product: &str,
+    #[case] expected: &str,
+) {
+    let home = tempfile::tempdir().unwrap();
+    let files = SettingsFiles::of(&Home::new(home.path().to_owned()), &version(product));
+
+    let machine = files.machine_settings(Product::Collie).unwrap();
+    let scope = goodfetch_test_support::runtime().block_on(async {
+        let owner = TaskOwner::root(BlockingPolicy::Inline);
+        let settings = Settings::new(files, Product::Collie, owner.child());
+        settings.open_asked(Opening::default()).await.unwrap().0
+    });
+
+    assert_eq!(
+        (
+            machine.get::<&str>(&ADDRESS),
+            scope.resolved().get::<&str>(&ADDRESS)
+        ),
+        (expected, expected)
     );
 }

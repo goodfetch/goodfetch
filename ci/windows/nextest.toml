@@ -25,7 +25,11 @@ leak-timeout = { period = "2s", result = "fail" }
 # Proving ground starts slower the more such tests run at once. The 158
 # tests that missed its 30 s start deadline in a full run (issue 2916), run
 # on their own once at each count: 25 missed it at 16 at once, none at 8 or
-# 4, and 8 took the least time. This group holds their binaries' tests. The
+# 4, and 8 took the least time. This group holds their binaries' tests, and
+# those that start a Daemon or an Attached engine and missed the same
+# deadline in the full gate's runs of 2026-11-24 (pull request 3326): the
+# conformance suites' binary and three of Collie's modules, whose fuzzed
+# calls over stdio start an engine for each case. The
 # repository's groups come first, so a test one of them holds keeps that
 # group's cap and runs beside these 8.
 [test-groups]
@@ -36,5 +40,7 @@ filter = """
 binary_id(goodfetch-fetch-tier::it) | binary_id(goodfetch-foxhound::it)
 | (binary_id(goodfetch-secret-providers::it) & test(/^clouds::/))
 | (binary_id(goodfetch-test-support::it) & test(/^canaries::/))
+| binary_id(goodfetch-conformance::it)
+| (binary_id(goodfetch-collie::it) & test(/^(exit_codes|invalid_calls|sdk::product_and_provisioning)::/))
 """
 test-group = "@tool:goodfetch-windows:start-deadline"

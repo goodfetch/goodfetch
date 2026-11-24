@@ -29,7 +29,17 @@ class AsyncRun(AsyncHandle):
         """Takes what it reaches its engine through and the answer that opened it; a program never constructs one."""
         self._host = host
         self._opened = opened
+        self._sessions: dict[str, tuple[AsyncHandleHost[models.SessionId], AsyncSession]] = {}
         super().__init__(host, "run", "run_id")
+
+    def _kept_session(self, session_id: models.SessionId) -> tuple[AsyncHandleHost[models.SessionId], AsyncSession]:
+        """The `session` of ID `session_id`, with its host: built the first time an answer names it, shared after."""
+        kept = self._sessions.get(session_id.root)
+        if kept is None:
+            host = self._host.child(session_id)
+            kept = (host, AsyncSession(host))
+            self._sessions[session_id.root] = kept
+        return kept
 
     async def abort(self, *, forwarded: bool | NotGiven = not_given) -> models.RunReport:
         """Stops a Run at its next safe point, `stopped` and `incomplete`: no attempt in flight commits, and its work items return to pending. Answers its Run report; an ended Run's report is answered as it is. A Run whose engine died is stopped by this engine, which takes its writer role at the next run epoch; a Run another engine writes is stopped by that engine, the owner the Run index names.
@@ -93,7 +103,8 @@ class AsyncRun(AsyncHandle):
             warn_deprecated_settings(settings, DEPRECATED_SETTINGS)
             params.settings = settings_on_wire(settings)
         opened = result_of(models.PageOpened, await self._host.call("run.new_page", params))
-        return AsyncPage(self._host.child(opened.page_id))
+        host, session = self._kept_session(opened.session_id)
+        return AsyncPage(host.child(opened.page_id), session)
 
     async def new_session(self, *, settings: SessionSettings | NotGiven = not_given, source: SessionSourceSavedIdentity | SessionSourceStateFile | SessionSourceCookieHeader | SessionSourceProfileDirectory | SessionSourceInstalledBrowser | SessionSourceRunningBrowser | SessionSourceCDPURL | None | NotGiven = not_given) -> AsyncSession:
         """Opens a Session of the Run's own: its own browser context, with its own cookies, storage, identity and proxy, sharing the Run's browser process, so two Sessions of a Run never share a login. It opens from `source`, or else from the Run's `session.source`, or fresh; `session.source` in its own `settings` is refused with `setting_not_applicable`. The Run's first Session launches its browser, so a missing browser build raises its code from this call.
@@ -192,7 +203,7 @@ class AsyncSession(AsyncHandle):
             warn_deprecated_settings(settings, DEPRECATED_SETTINGS)
             params.settings = settings_on_wire(settings)
         opened = result_of(models.PageOpened, await self._host.call("session.new_page", params))
-        return AsyncPage(self._host.child(opened.page_id))
+        return AsyncPage(self._host.child(opened.page_id), self)
 
     async def pages(self) -> list[models.PageId]:
         """Lists the Session's open pages, in the order they opened: those the program opened and the popups its pages opened. Once the Session is closed, it raises `closed`.
@@ -213,7 +224,7 @@ class AsyncSession(AsyncHandle):
         """
         warn_experimental("session.on")
         warn_entry("session.page", EXPERIMENTAL_EVENTS, DEPRECATED_EVENTS)
-        return self._host.listen_published("session.on", models.SessionOnParams(session_id=self._host.id, event=models.SessionEventName("page")), "session.page", "session_id", models.PageOpened, lambda opened: listener(AsyncPage(self._host.child(opened.page_id))))
+        return self._host.listen_published("session.on", models.SessionOnParams(session_id=self._host.id, event=models.SessionEventName("page")), "session.page", "session_id", models.PageOpened, lambda opened: listener(AsyncPage(self._host.child(opened.page_id), self)))
 
     async def __aenter__(self) -> Self:
         """Holds it for an `async with` block, which closes it."""
@@ -244,10 +255,16 @@ _PAGE_EVENTS: dict[str, tuple[str, type[BaseModel]]] = {
 class AsyncPage(AsyncHandle):
     """A `page` a program holds: the members the catalog gives it (ADR 0099)."""
 
-    def __init__(self, host: AsyncHandleHost[models.PageId]) -> None:
-        """Takes what it reaches its engine through; a program never constructs one."""
+    def __init__(self, host: AsyncHandleHost[models.PageId], session: AsyncSession) -> None:
+        """Takes what it reaches its engine through and the `session` it holds; a program never constructs one."""
         self._host = host
+        self._session = session
         super().__init__(host, "page", "page_id")
+
+    @property
+    def session(self) -> AsyncSession:
+        """Its `session`, which every answer that opens a `page` names, answered without a call: the `session` that opened or told of it, or the one its opener keeps (ADRs 0078, 0092)."""
+        return self._session
 
     async def close(self, *, run_before_unload: bool | None | NotGiven = not_given) -> None:
         """Closes the page, a popup as any other: its calls in flight raise `call_cancelled` naming the program, it emits `close`, and a later call on it raises `closed`, while closing it again changes nothing. Its `beforeunload` handlers do not run unless `run_before_unload` is set: the page then closes once they let it, a dialog they raise going to its dialog handlers, and the call answers without waiting for that.
@@ -609,7 +626,17 @@ class Run(Handle):
         """Takes what it reaches its engine through and the answer that opened it; a program never constructs one."""
         self._host = host
         self._opened = opened
+        self._sessions: dict[str, tuple[HandleHost[models.SessionId], Session]] = {}
         super().__init__(host, "run", "run_id")
+
+    def _kept_session(self, session_id: models.SessionId) -> tuple[HandleHost[models.SessionId], Session]:
+        """The `session` of ID `session_id`, with its host: built the first time an answer names it, shared after."""
+        kept = self._sessions.get(session_id.root)
+        if kept is None:
+            host = self._host.child(session_id)
+            kept = (host, Session(host))
+            self._sessions[session_id.root] = kept
+        return kept
 
     def abort(self, *, forwarded: bool | NotGiven = not_given) -> models.RunReport:
         """Stops a Run at its next safe point, `stopped` and `incomplete`: no attempt in flight commits, and its work items return to pending. Answers its Run report; an ended Run's report is answered as it is. A Run whose engine died is stopped by this engine, which takes its writer role at the next run epoch; a Run another engine writes is stopped by that engine, the owner the Run index names.
@@ -673,7 +700,8 @@ class Run(Handle):
             warn_deprecated_settings(settings, DEPRECATED_SETTINGS)
             params.settings = settings_on_wire(settings)
         opened = result_of(models.PageOpened, self._host.call("run.new_page", params))
-        return Page(self._host.child(opened.page_id))
+        host, session = self._kept_session(opened.session_id)
+        return Page(host.child(opened.page_id), session)
 
     def new_session(self, *, settings: SessionSettings | NotGiven = not_given, source: SessionSourceSavedIdentity | SessionSourceStateFile | SessionSourceCookieHeader | SessionSourceProfileDirectory | SessionSourceInstalledBrowser | SessionSourceRunningBrowser | SessionSourceCDPURL | None | NotGiven = not_given) -> Session:
         """Opens a Session of the Run's own: its own browser context, with its own cookies, storage, identity and proxy, sharing the Run's browser process, so two Sessions of a Run never share a login. It opens from `source`, or else from the Run's `session.source`, or fresh; `session.source` in its own `settings` is refused with `setting_not_applicable`. The Run's first Session launches its browser, so a missing browser build raises its code from this call.
@@ -772,7 +800,7 @@ class Session(Handle):
             warn_deprecated_settings(settings, DEPRECATED_SETTINGS)
             params.settings = settings_on_wire(settings)
         opened = result_of(models.PageOpened, self._host.call("session.new_page", params))
-        return Page(self._host.child(opened.page_id))
+        return Page(self._host.child(opened.page_id), self)
 
     def pages(self) -> list[models.PageId]:
         """Lists the Session's open pages, in the order they opened: those the program opened and the popups its pages opened. Once the Session is closed, it raises `closed`.
@@ -793,7 +821,7 @@ class Session(Handle):
         """
         warn_experimental("session.on")
         warn_entry("session.page", EXPERIMENTAL_EVENTS, DEPRECATED_EVENTS)
-        return self._host.listen_published("session.on", models.SessionOnParams(session_id=self._host.id, event=models.SessionEventName("page")), "session.page", "session_id", models.PageOpened, lambda opened: listener(Page(self._host.child(opened.page_id))))
+        return self._host.listen_published("session.on", models.SessionOnParams(session_id=self._host.id, event=models.SessionEventName("page")), "session.page", "session_id", models.PageOpened, lambda opened: listener(Page(self._host.child(opened.page_id), self)))
 
     def __enter__(self) -> Self:
         """Holds it for a `with` block, which closes it."""
@@ -807,10 +835,16 @@ class Session(Handle):
 class Page(Handle):
     """A `page` a program holds: the members the catalog gives it (ADR 0099)."""
 
-    def __init__(self, host: HandleHost[models.PageId]) -> None:
-        """Takes what it reaches its engine through; a program never constructs one."""
+    def __init__(self, host: HandleHost[models.PageId], session: Session) -> None:
+        """Takes what it reaches its engine through and the `session` it holds; a program never constructs one."""
         self._host = host
+        self._session = session
         super().__init__(host, "page", "page_id")
+
+    @property
+    def session(self) -> Session:
+        """Its `session`, which every answer that opens a `page` names, answered without a call: the `session` that opened or told of it, or the one its opener keeps (ADRs 0078, 0092)."""
+        return self._session
 
     def close(self, *, run_before_unload: bool | None | NotGiven = not_given) -> None:
         """Closes the page, a popup as any other: its calls in flight raise `call_cancelled` naming the program, it emits `close`, and a later call on it raises `closed`, while closing it again changes nothing. Its `beforeunload` handlers do not run unless `run_before_unload` is set: the page then closes once they let it, a dialog they raise going to its dialog handlers, and the call answers without waiting for that.

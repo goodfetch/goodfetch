@@ -14,6 +14,7 @@ use crate::catalog::{
 };
 use crate::connection::WaitedFor;
 use crate::foxhound::crawl::{CrawlRequest, PushedRecord};
+use crate::hook::ReportedHookStage;
 use crate::open_value::UnknownValue;
 use crate::run::RunId;
 
@@ -85,6 +86,21 @@ impl CrawlHookStage {
             Self::BeforeRecordCommit => "answer of a `before_record_commit` Hook",
             Self::Unknown(_) => "answer of a Hook",
         })
+    }
+}
+
+impl From<&CrawlHookStage> for ReportedHookStage {
+    /// The stage as `hook_failed` reports it.
+    fn from(stage: &CrawlHookStage) -> Self {
+        match stage {
+            CrawlHookStage::BeforeRequest => Self::BeforeRequest,
+            CrawlHookStage::AfterResponse => Self::AfterResponse,
+            CrawlHookStage::BeforeNavigation => Self::BeforeNavigation,
+            CrawlHookStage::AfterNavigation => Self::AfterNavigation,
+            CrawlHookStage::PageReady => Self::PageReady,
+            CrawlHookStage::BeforeRecordCommit => Self::BeforeRecordCommit,
+            CrawlHookStage::Unknown(stage) => Self::Unknown(stage.clone()),
+        }
     }
 }
 

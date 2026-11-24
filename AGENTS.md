@@ -37,7 +37,7 @@ The quality bar lives in the Quality register of [`TESTING.md`](TESTING.md#quali
 
 Traps that break things, each explained in `STYLE.md`:
 
-- Write to stdout or stderr only from the protocol transport, the CLI's output writer and the `tracing` subscriber's writer; everything else logs through `tracing`. Stdout is the JSON-RPC channel when the binary is an Attached engine started by an SDK, or the stdio MCP server. Test-only executables are exceptions: `goodfetch-scripted-engine` (ADR 0069), `goodfetch-test-env` (ADR 0062) and the counts benchmarks that `xtask counts` reads (`examples/counts.rs` of `goodfetch-engine`, `goodfetch-page` and `goodfetch-foxhound`, and the last's `examples/counts-extraction.rs`, ADR 0140) write their own stdout, and none ships in a Product.
+- Write to stdout or stderr only from the protocol transport, the CLI's output writer and the `tracing` subscriber's writer; everything else logs through `tracing`. Stdout is the JSON-RPC channel when the binary is an Attached engine started by an SDK, or the stdio MCP server. Test-only executables are exceptions: `goodfetch-scripted-engine` (ADR 0069), `goodfetch-test-env` (ADR 0062), `goodfetch-toy-plugin` (ADR 0033) and the counts benchmarks that `xtask counts` reads (`examples/counts.rs` of `goodfetch-engine`, `goodfetch-page` and `goodfetch-foxhound`, and the last's `examples/counts-extraction.rs`, ADR 0140) write their own stdout, and none ships in a Product.
 - Change contracts in `goodfetch-protocol`'s Rust types, then run `xtask codegen` and commit its output in the same change; generated code (`generated/` folders, the committed JSON Schema bundle and catalog file) is never edited by hand.
 - Spawn every task through its owner's tracker, never with a bare `tokio::spawn` or `spawn_blocking`. Outside tests, return an error or `expect("invariant: …")` rather than `unwrap()`. Silence a lint with `#[expect(lint, reason = "…")]`, never `#[allow]`.
 - Make a capability a setting, never a Cargo feature. Outside `crates/foxhound/`, only `xtask` depends on a crate inside it (ADR 0087).
@@ -45,7 +45,7 @@ Traps that break things, each explained in `STYLE.md`:
 
 ## Merging
 
-CI runs locally (ADR 0135); GitHub Actions runs the Release suite and, for a batch's, a spec's or a fork's pull request, the hosted tier's quick-form steps, whose records `just merge` reuses (ADR 0135's notes of 2026-11-23).
+CI runs locally (ADR 0135); GitHub Actions runs the Release suite and, for a batch's, a spec's or a fork's pull request, the pull-request workflow's hosted tier, whose records `just merge` reuses (ADR 0135's notes of 2026-11-23).
 
 - Merge a pull request only with `just merge <number>`: it gates the pull request's head in a clean, locked worktree and merges only when the gate passes. A head without `main`'s tip needs no refresh first: the gate merges the tip in, pushes that merge to the pull request's branch and gates it (ADR 0135's amendment of 2026-11-17); a head that conflicts with the tip is refused. After a red gate, pull the branch before the next push. While the owner rents it, `just merge` runs on the Hetzner server (ADR 0135's amendment of 2026-10-22).
 - `just merge` refuses, before it holds anything, a pull request whose merge would close other issues than its body's `Closes #<n>` lines name, one issue a line, or whose commit messages name an issue after a closing keyword that no such line names; a batch's `Part of #<n>` lines close nothing (ADR 0135's note of 2026-11-22).
@@ -53,10 +53,10 @@ CI runs locally (ADR 0135); GitHub Actions runs the Release suite and, for a bat
 - Before `just merge` of the pull request that finishes a spec, which takes the full gate, run `just preflight` on its head in its own worktree.
 - The backstop has a switch, `ci/gate-backstop.state` (`on` or `off`), which only the owner changes; it is off (ADR 0135's amendment of 2026-11-10 on the backstop's switch). While it is on, `just merge` refuses once 10 merges have landed on `main` since the backstop's last green run, and only the owner passes `--past-cap` (ADR 0135's amendment of 2026-11-04); while it is off, that cap counts nothing.
 - In a stack of pull requests, merge the bottom one first.
-- Combine every ready pull request into one batch branch and run `just merge` once, whatever gate each would take, so the gate host runs one gate where it would run dozens (ADR 0135's note of 2026-11-21).
+- Combine every ready pull request into one batch branch and run `just merge` once, whatever gate each would take, so the gate host runs one gate where it would run dozens (ADR 0135's note of 2026-11-21). Start a batch once about 8 pull requests are ready: a red gate costs every member a cycle (the owner's decision of 2026-11-23, ADR 0136's note of that day).
 - Before `just merge` of a batch branch, run `just batch-check` in its worktree: the installs, then `just quick` once over the batch's whole change, which a run's tickets no longer run themselves (the owner's decision of 2026-11-23).
 - Dispatch the Release suite with `just release-ci`. On `main`, name the hosted cells: the default, `all`, includes the macOS cells, which queue for the unregistered `owner-machine` runner and fail after 24 hours.
-- Keep every other workflow disabled: when a merge brings a new workflow file to `main`, disable it in the repository's Actions settings unless an ADR turns it on.
+- Keep every workflow but the Release suite and the pull-request workflow disabled: when a merge brings a new workflow file to `main`, disable it in the repository's Actions settings unless an ADR turns it on.
 - Change a repository setting only together with the text that records it: open the pull request amending the ADR or this file when the setting changes, never after.
 
 ## Authorship

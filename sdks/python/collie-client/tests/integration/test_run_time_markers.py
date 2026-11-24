@@ -50,7 +50,7 @@ echo()
 
 
 LISTENED_TWICE = """
-from goodfetch_collie_client.generated.handles import Page
+from goodfetch_collie_client.generated.handles import Page, Session
 
 
 class Host:
@@ -60,7 +60,7 @@ class Host:
         return None
 
 
-page = Page(Host())
+page = Page(Host(), Session(Host()))
 page.on("console", print)
 page.on("console", print)
 """

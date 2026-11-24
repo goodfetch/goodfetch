@@ -61,6 +61,10 @@ for report in target/nextest/*/junit.xml; do
   profile=$(basename "$(dirname "$report")")
   cp "$report" "target/junit/nextest-$profile.xml"
 done
+# The container runs as root, and the host's steps after it write in
+# target/junit/ too (ci/junit-context.sh's context.json): it goes back to the
+# workspace's owner, with what the pinned Playwright image wrote there.
+chown -R --reference=/work target/junit
 
 if [[ "${GOODFETCH_CACHE_MODE:-}" == writable && $status -eq 0 ]]; then
   # Each folder is replaced whole, through a temporary name, so a failed save

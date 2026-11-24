@@ -11,7 +11,7 @@ product = "collie"
 
 [suite]
 name = "page"
-version = "40"
+version = "41"
 
 [[capability]]
 name = "sessions.default"
@@ -34,6 +34,10 @@ covers = ["story:5-60", "operation:session.close", "operation:session.new_page",
 [[capability.case]]
 id = "session-source-in-a-sessions-own-settings-is-not-applicable-and-the-runs-is-the-default-beneath"
 covers = ["story:5-62", "operation:run.new_session", "error:setting_not_applicable", "error:capability_unavailable"]
+
+[[capability.case]]
+id = "a-session-source-domain-below-its-registrable-domain-is-setting-invalid-naming-it"
+covers = ["story:5-62", "setting:session.source", "error:setting_invalid", "operation:run.start"]
 
 [[capability.case]]
 id = "new-work-on-a-finished-run-raises-run-ended"

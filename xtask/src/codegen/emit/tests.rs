@@ -271,6 +271,28 @@ fn the_catalog_records_each_settings_products_from_its_mark_and_its_authority(
     );
 }
 
+/// The weakening direction the API breakage check reads (issue 148).
+#[rstest]
+#[case::a_choice("consent.handling", json!({ "values": ["off"] }))]
+#[case::a_count_off_at_zero("storage.low_free", json!({ "toward": "lower" }))]
+#[case::a_map_with_no_order("tls.accept_invalid_certs", serde_json::Value::Null)]
+#[case::a_setting_that_never_weakens("timeout.navigation", serde_json::Value::Null)]
+fn a_settings_entry_says_which_way_its_values_weaken(
+    #[case] key: &str,
+    #[case] weakening: serde_json::Value,
+) {
+    let catalog = emit().catalog;
+
+    let entry = catalog["settings"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|setting| setting["name"] == key)
+        .unwrap();
+
+    assert_eq!(entry["weakening"], weakening);
+}
+
 #[test]
 fn a_settings_entry_carries_its_values_schema_and_default() {
     let catalog = emit().catalog;
@@ -396,14 +418,18 @@ fn the_bundle_holds_the_type_a_failed_command_prints_under_json() {
 }
 
 /// An Error code whose details the SDKs read typed names its details type
-/// (ADR 0079); a code whose details they still read as a map names none.
+/// (ADR 0079), a group-named one too; a code without details names none.
 #[rstest]
 #[case::typed("call_cancelled", Some(json!({ "$ref": "#/$defs/CallCancelledDetails" })))]
 #[case::typed_through_the_wire_table(
     "not_verified",
     Some(json!({ "$ref": "#/$defs/NotVerifiedDetails" }))
 )]
-#[case::read_as_a_map("deadline_exceeded", None)]
+#[case::group_named(
+    "deadline_exceeded",
+    Some(json!({ "$ref": "#/$defs/DeadlineExceededDetails" }))
+)]
+#[case::without_details("client_gone", None)]
 fn an_error_code_names_the_details_type_the_sdks_read_typed(
     #[case] code: &str,
     #[case] details: Option<serde_json::Value>,

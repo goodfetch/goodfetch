@@ -64,6 +64,21 @@ pub const DNS_NAMESPACE_VARIABLE: &str = "GOODFETCH_TEST_DNS_NAMESPACE";
 /// into, `~/.cache/goodfetch/toxiproxy` when unset.
 pub const TOXIPROXY_DOWNLOADS_VARIABLE: &str = "GOODFETCH_TOXIPROXY_DOWNLOADS";
 
+/// The variable naming the folder `ci/claude-code-fetch.sh` downloads the
+/// tests' copy of Claude Code into, `~/.cache/goodfetch/claude-code` by
+/// default.
+pub const CLAUDE_CODE_DOWNLOADS_VARIABLE: &str = "GOODFETCH_CLAUDE_CODE_DOWNLOADS";
+
+/// The variable naming the folder `ci/lightpanda-fetch.sh` downloads the
+/// tests' copy of Lightpanda into, `~/.cache/goodfetch/lightpanda` by
+/// default.
+pub const LIGHTPANDA_DOWNLOADS_VARIABLE: &str = "GOODFETCH_LIGHTPANDA_DOWNLOADS";
+
+/// The variable naming the folder `ci/chrome-for-testing-fetch.sh`
+/// downloads the tests' copy of the pinned Chrome for Testing build's
+/// archive into, `~/.cache/goodfetch/chrome-for-testing` by default.
+pub const CHROME_FOR_TESTING_DOWNLOADS_VARIABLE: &str = "GOODFETCH_CHROME_FOR_TESTING_DOWNLOADS";
+
 /// The most Callgrind children a counts benchmark runs at once, below its
 /// own bound of half the cores, at most eight: `xtask counts
 /// --callgrind-at-once` sets it, or the host's environment does (#2520).
@@ -144,6 +159,9 @@ impl Variables {
             PLAYWRIGHT_BROWSERS_VARIABLE,
             NO_GUI_SESSION_VARIABLE,
             TOXIPROXY_DOWNLOADS_VARIABLE,
+            CLAUDE_CODE_DOWNLOADS_VARIABLE,
+            LIGHTPANDA_DOWNLOADS_VARIABLE,
+            CHROME_FOR_TESTING_DOWNLOADS_VARIABLE,
         ]
         .into_iter()
         .chain(USER_FOLDER_VARIABLES)

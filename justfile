@@ -527,6 +527,9 @@ fetch:
     cargo fetch --locked --manifest-path xtask/compare-fastcrw/Cargo.toml
     cargo fetch --locked --manifest-path xtask/compare-crawlberg/Cargo.toml
     cargo fetch --locked --manifest-path xtask/compare-chromiumoxide/Cargo.toml
+    # The Rust advisories' proof (ci/proofs/run.sh) runs cargo-deny offline
+    # over this fixture, which locks a crate no workspace takes.
+    cargo fetch --locked --manifest-path ci/proofs/advisories/Cargo.toml
     pnpm install --frozen-lockfile --dir xtask/compare-crawlee
     pnpm install --frozen-lockfile --dir xtask/compare-collie-arms
     uv sync --frozen --directory xtask/compare-scrapy
@@ -1645,6 +1648,15 @@ tlc-self-test:
 # Downloads LazyFS's pinned source archives, before the outbound-traffic deny.
 lazyfs-fetch:
     cargo run --quiet --bin xtask -- lazyfs fetch
+
+# Keeps the released artifacts compat/releases.toml lists, both Products'
+# files of each release with their attestation bundles, and Sigstore's
+# trusted root in target/artifacts/<the list's SHA-256>/, each checked by
+# its SHA-256 and by `gh attestation verify` offline, and prints the set's
+# versions.json: the current build alone while nothing is released (ADR 0066).
+# Downloads before the outbound-traffic deny; a second run uses the kept set.
+artifacts:
+    cargo run --quiet --bin xtask -- artifacts fetch
 
 # Linux, with cmake, a C++17 compiler and libfuse3's headers
 # (ci/host/lazyfs.sh installs them on a runner); it builds nothing again

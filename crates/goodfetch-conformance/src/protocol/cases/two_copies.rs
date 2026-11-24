@@ -198,34 +198,14 @@ fn second_copy(
 /// target's, configured as the target's home is; none when the target is
 /// a Daemon, whose further Connections reach the same engine. A failure to
 /// set the home up fails the case with its error.
-#[expect(
-    clippy::disallowed_methods,
-    reason = "the harness is synchronous and runs no async worker"
-)]
 fn elsewhere(target: &EngineTarget) -> Result<Option<EngineTarget>, Gone> {
     if target.mode != EngineMode::Attached {
         return Ok(None);
     }
-    let failed =
-        |error: std::io::Error| Gone::Failed(format!("setting up the second home: {error}"));
-    let home = target.folder.join("two-copies-elsewhere");
-    std::fs::create_dir_all(&home).map_err(failed)?;
-    if let Some(here) = target.environment.get("GOODFETCH_HOME") {
-        for version in std::fs::read_dir(here).map_err(failed)? {
-            let version = version.map_err(failed)?;
-            let configuration = version.path().join("configuration.toml");
-            if configuration.is_file() {
-                let there = home.join(version.file_name());
-                std::fs::create_dir_all(&there).map_err(failed)?;
-                std::fs::copy(&configuration, there.join("configuration.toml")).map_err(failed)?;
-            }
-        }
-    }
-    let mut elsewhere = target.clone();
-    elsewhere
-        .environment
-        .insert("GOODFETCH_HOME".to_owned(), home.display().to_string());
-    Ok(Some(elsewhere))
+    target
+        .on_a_home_of_its_own("two-copies-elsewhere")
+        .map(Some)
+        .map_err(|error| Gone::Failed(format!("setting up the second home: {error}")))
 }
 
 /// Starts the crawl of one page of the Proving ground's plain host,

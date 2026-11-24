@@ -497,7 +497,10 @@ fn delivered(
 ) -> Result<Delivered, serde_json::Error> {
     let mut params = CrawlRequestHandleParams::deserialize(call.params())?;
     let payload = params.crawl_request.payload.take().unwrap_or(Value::Null);
-    let page = params.page_id.clone().map(|page_id| run.page_of(page_id));
+    let page = params
+        .page_id
+        .clone()
+        .map(|page_id| run.page_of(page_id, params.session.id.clone()));
     let attempt = Arc::new(Attempt::new(
         connection.clone(),
         page,

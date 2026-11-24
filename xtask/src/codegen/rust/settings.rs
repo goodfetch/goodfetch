@@ -29,6 +29,7 @@ use goodfetch_protocol::foxhound::fetch::SAMPLE_REFRESH_SHAPE;
 use goodfetch_protocol::foxhound::frontier::PATH_BUDGET_SHAPE;
 use goodfetch_protocol::foxhound::sink::SINK_SHAPE;
 use goodfetch_protocol::run::durability::BATCH_THRESHOLD_SHAPE;
+use goodfetch_protocol::secrets::placeholders::BOUND_PLACEHOLDER_SHAPE;
 use goodfetch_protocol::settings::page_check::PAGE_CHECK_SHAPE;
 use goodfetch_protocol::settings::session_source::SESSION_SOURCE_SHAPE;
 use goodfetch_protocol::tls::CLIENT_CERTIFICATE_SHAPE;
@@ -45,7 +46,7 @@ use super::{HEADER, Setter, comment};
 /// `ValueKind::Shape`), by the shape: rustc checks the path when the crate
 /// builds, and the shape's own `check` reads that type. A new shape a key
 /// takes fails the generation until it is listed here.
-const SHAPES: [(&ValueShape, &str); 8] = [
+const SHAPES: [(&ValueShape, &str); 9] = [
     (
         &LOCAL_ADDRESSES_SHAPE,
         "::goodfetch_protocol::egress::LocalAddresses",
@@ -77,6 +78,10 @@ const SHAPES: [(&ValueShape, &str); 8] = [
     (
         &CLIENT_CERTIFICATE_SHAPE,
         "::goodfetch_protocol::tls::ClientCertificateConfiguration",
+    ),
+    (
+        &BOUND_PLACEHOLDER_SHAPE,
+        "::goodfetch_protocol::secrets::placeholders::BoundPlaceholder",
     ),
 ];
 

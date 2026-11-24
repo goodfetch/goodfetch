@@ -2990,6 +2990,7 @@ dependencies = [
  "jiff",
  "jsonschema",
  "proptest",
+ "psl",
  "regex",
  "rstest",
  "schemars",
@@ -3067,6 +3068,23 @@ version = "0.0.0"
 dependencies = [
  "goodfetch-workspace-hack",
  "tokio",
+]
+
+[[package]]
+name = "goodfetch-scripted-model"
+version = "0.0.0"
+dependencies = [
+ "futures-util",
+ "goodfetch-engine",
+ "goodfetch-model-provider",
+ "goodfetch-protocol",
+ "goodfetch-test-client",
+ "goodfetch-test-support",
+ "goodfetch-workspace-hack",
+ "rstest",
+ "serde_json",
+ "tokio",
+ "tokio-util",
 ]
 
 [[package]]
@@ -8594,6 +8612,7 @@ version = "0.0.0"
 dependencies = [
  "anyhow",
  "clap",
+ "data-encoding",
  "flate2",
  "glob",
  "goodfetch-counted-work",

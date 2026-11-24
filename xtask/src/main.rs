@@ -15,12 +15,14 @@ mod all_green;
 mod allure;
 mod api_baseline;
 mod api_check;
+mod artifacts;
 mod base_console;
 mod browser_releases;
 mod budgets;
 mod ceiling;
 mod check;
 mod child_cargo;
+mod chromium;
 mod clients;
 mod codegen;
 mod commit_messages;
@@ -133,6 +135,13 @@ enum Command {
     /// catalog entry or `--json` output type since the previous release's
     /// commit that `compat/api.toml` names, unless the file announces it.
     ApiCheck,
+    /// The released artifacts of `compat/releases.toml`, both Products'
+    /// files of each release, kept by digest with their verified attestation
+    /// for the skew and upgrade tests (ADR 0066).
+    Artifacts {
+        #[command(subcommand)]
+        command: artifacts::Command,
+    },
     /// Writes the release table the version check grades browser builds
     /// against, from Chromium Dash's milestone schedule and Mozilla's release
     /// calendar (ADR 0035).
@@ -142,6 +151,11 @@ enum Command {
     /// tier, read from the results store, is past its budget in TESTING.md;
     /// never fails.
     Budgets(budgets::Arguments),
+    /// The Goodfetch Chromium's gate tooling (ADR 0074).
+    Chromium {
+        #[command(subcommand)]
+        command: chromium::Command,
+    },
     /// The Client conformance case list under `conformance/clients/` (ADR
     /// 0069).
     Clients {
@@ -544,6 +558,18 @@ enum ResultsCommand {
         #[arg(long)]
         store: PathBuf,
     },
+    /// Writes each conformance document's Live check result as one test
+    /// case of a JUnit file, `conformance <suite> <target>[ gate]`: failed,
+    /// skipped (inconclusive) or passed (ADR 0064).
+    LiveCheck {
+        /// A conformance document from a run against the online Proving
+        /// ground.
+        #[arg(long = "document", required = true)]
+        documents: Vec<PathBuf>,
+        /// The JUnit file to write, in the job's `live` tier artifact.
+        #[arg(long)]
+        junit: PathBuf,
+    },
     /// Prints `<run> <attempt>` for every attempt of the finished runs the
     /// store lacks, for the daily ingest (ADR 0135).
     Pending {
@@ -618,8 +644,10 @@ fn run(command: Command, environment: &Environment) -> anyhow::Result<ExitCode> 
         Command::Affected(arguments) => affected::run(arguments, environment),
         Command::AllGreen(arguments) => all_green::run(&arguments, environment),
         Command::ApiCheck => api_check::run(root),
+        Command::Artifacts { command } => artifacts::run(&command, environment),
         Command::BrowserReleases(arguments) => browser_releases::run(&arguments, environment),
         Command::Budgets(arguments) => budgets::run(&arguments, environment),
+        Command::Chromium { command } => chromium::run(&command, environment),
         Command::Clients { command } => clients::run(&command, environment),
         Command::Codegen(arguments) => codegen::run(arguments, environment),
         Command::CommitMessages {
@@ -742,6 +770,11 @@ fn run_results(command: ResultsCommand, environment: &Environment) -> anyhow::Re
             let artifacts = path(&attempt.artifacts);
             let written = results::ingest(&attempt.source(environment, &artifacts), &path(&store))?;
             output::line(&format!("wrote {}", written.display()));
+            Ok(ExitCode::SUCCESS)
+        }
+        ResultsCommand::LiveCheck { documents, junit } => {
+            let documents: Vec<PathBuf> = documents.iter().map(path).collect();
+            results::write_live_checks(&documents, &path(&junit))?;
             Ok(ExitCode::SUCCESS)
         }
         ResultsCommand::Pending {

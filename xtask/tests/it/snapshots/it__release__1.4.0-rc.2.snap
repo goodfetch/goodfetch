@@ -7,32 +7,68 @@ expression: changes(&workspace)
 @@ -7 +7 @@ name = "goodfetch-collie"
 -version = "0.0.0"
 +version = "1.4.0-rc.2"
-@@ -15 +15 @@ name = "goodfetch-collie-client"
+@@ -16 +16 @@ name = "goodfetch-collie-client"
 -version = "0.0.0"
 +version = "1.4.0-rc.2"
-@@ -26 +26 @@ name = "goodfetch-foxhound"
+@@ -27 +27 @@ name = "goodfetch-foxhound"
 -version = "0.0.0"
 +version = "1.4.0-rc.2"
 --- a/Cargo.toml
 +++ b/Cargo.toml
-@@ -11 +11 @@ publish = false
+@@ -11,2 +11,2 @@ publish = false
 -goodfetch-collie-client = { path = "crates/goodfetch-collie-client", version = "=0.0.0" }
+-goodfetch-engine = { path = "crates/goodfetch-engine" }
 +goodfetch-collie-client = { path = "crates/goodfetch-collie-client", version = "=1.4.0-rc.2" }
++goodfetch-engine = { path = "crates/goodfetch-engine", version = "0.0.0" }
 --- a/crates/foxhound/goodfetch-foxhound/Cargo.toml
 +++ b/crates/foxhound/goodfetch-foxhound/Cargo.toml
 @@ -3 +3 @@ name = "goodfetch-foxhound"
 -version.workspace = true
 +version = "1.4.0-rc.2"
+@@ -5 +5 @@ edition.workspace = true
+-publish.workspace = true
++publish = true
+@@ -8 +8 @@ publish.workspace = true
+-goodfetch-collie = { path = "../../goodfetch-collie" }
++goodfetch-collie = { path = "../../goodfetch-collie", version = "=1.4.0-rc.2" }
+@@ -11 +11 @@ goodfetch-collie = { path = "../../goodfetch-collie" }
+-goodfetch-engine = { path = "../../goodfetch-engine" }
++goodfetch-engine = { path = "../../goodfetch-engine", version = "0.0.0" }
+@@ -14 +14 @@ goodfetch-engine = { path = "../../goodfetch-engine" }
+-goodfetch-engine = { workspace = true, features = ["test-util"] }
++goodfetch-engine = { path = "../../goodfetch-engine", features = ["test-util"] }
+--- a/crates/foxhound/goodfetch-foxhound/tests/libraries/connection-library/Cargo.toml
++++ b/crates/foxhound/goodfetch-foxhound/tests/libraries/connection-library/Cargo.toml
+@@ -10 +10 @@ publish = false
+-goodfetch-collie-client = { version = "0.0", path = "../../../../../goodfetch-collie-client" }
++goodfetch-collie-client = { version = "^1.4.0-rc.2", path = "../../../../../goodfetch-collie-client" }
 --- a/crates/goodfetch-collie-client/Cargo.toml
 +++ b/crates/goodfetch-collie-client/Cargo.toml
 @@ -3 +3 @@ name = "goodfetch-collie-client"
 -version.workspace = true
 +version = "1.4.0-rc.2"
+@@ -5 +5 @@ edition.workspace = true
+-publish.workspace = true
++publish = true
+@@ -8 +8 @@ publish.workspace = true
+-goodfetch-engine = { path = "../goodfetch-engine" }
++goodfetch-engine = { path = "../goodfetch-engine", version = "0.0.0" }
+@@ -13 +13 @@ goodfetch-engine = { path = "../goodfetch-engine" }
+-goodfetch-engine.workspace = true
++goodfetch-engine = { path = "../goodfetch-engine" }
 --- a/crates/goodfetch-collie/Cargo.toml
 +++ b/crates/goodfetch-collie/Cargo.toml
 @@ -3 +3 @@ name = "goodfetch-collie"
 -version.workspace = true
 +version = "1.4.0-rc.2"
+@@ -5 +5 @@ edition.workspace = true
+-publish.workspace = true
++publish = true
+--- a/crates/goodfetch-engine/Cargo.toml
++++ b/crates/goodfetch-engine/Cargo.toml
+@@ -5 +5 @@ edition.workspace = true
+-publish.workspace = true
++publish = true
 --- a/sdks/python/collie-client/pyproject.toml
 +++ b/sdks/python/collie-client/pyproject.toml
 @@ -3 +3 @@ name = "goodfetch-collie-client"

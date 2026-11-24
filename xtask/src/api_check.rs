@@ -18,11 +18,15 @@
 //! and fields included, as the SDKs keep what they do not know (ADRs 0079
 //! and 0082), and never less. Descriptions, the version an entry arrived in
 //! and its deprecation change nothing. A changed default is a break only
-//! when it weakens a guarantee (ADR 0030); the projection says only that a
-//! setting has a value that weakens one, not which way, so any changed
-//! default of such a setting is a break, which an announcement passes.
-//! Anything else that changed, and that the rules cannot tell apart, is a
-//! break.
+//! when it weakens a guarantee (ADR 0030): when it moves toward the values
+//! that weaken one, as the previous release's `weakening` says, and, where
+//! that says no direction, whenever it changes ([`defaults`]). Anything else that
+//! changed, and that the rules cannot tell apart, is a break.
+//!
+//! The Collie client packages carry, beside Collie's projection, the
+//! bundle's `connection` section, which is compared too ([`connection`]);
+//! their code, generated and hand-written, is `xtask sdk-api`'s and `xtask
+//! semver-checks`'.
 //!
 //! An entry that was Experimental may change in any way, and a break that
 //! `compat/api.toml` announces for the next major passes; each other break
@@ -45,6 +49,9 @@ use serde_json::{Map, Value};
 use crate::api_baseline::{self, Changes, Outcome};
 use crate::check::Finding;
 use crate::git;
+
+mod connection;
+mod defaults;
 
 /// Each Product's projection of the catalog.
 const PROJECTIONS: [(&str, &str); 2] = [
@@ -120,6 +127,9 @@ enum Side {
     Input,
     /// Goodfetch sends it and the user reads it: it may say more.
     Output,
+    /// Both peers send it and read it, as a Connection's `$/cancel`: it may
+    /// neither narrow nor widen.
+    Both,
 }
 
 /// The contracts' changes by the side their data flows.
@@ -127,7 +137,7 @@ impl Changes {
     /// `breaks` on the side that may not narrow, `adds` on the other.
     fn narrows(&mut self, side: Side, at: &str, what: impl std::fmt::Display) {
         match side {
-            Side::Input => self.breaks(at, what),
+            Side::Input | Side::Both => self.breaks(at, what),
             Side::Output => self.adds(at, what),
         }
     }
@@ -136,7 +146,7 @@ impl Changes {
     fn widens(&mut self, side: Side, at: &str, what: impl std::fmt::Display) {
         match side {
             Side::Input => self.adds(at, what),
-            Side::Output => self.breaks(at, what),
+            Side::Output | Side::Both => self.breaks(at, what),
         }
     }
 }
@@ -158,6 +168,7 @@ fn check(root: &Path) -> Result<Outcome> {
     let previous = previous_json(root, commit, BUNDLE)?;
     let current = current_json(root, BUNDLE)?;
     compare_outputs(&previous, &current, &mut entries);
+    connection::compare(&previous, &current, &mut entries);
 
     let mut outcome = baseline.verdict(|entry| !api_baseline::is_package_break(entry), &entries);
     outcome.findings.extend(duplicates.iter().map(|entry| {
@@ -321,18 +332,11 @@ fn compare_entry(
         match field.as_str() {
             "stability" => changes.breaks(field, format!("made {after} from {before}")),
             "default" if section == "settings" => {
-                if current.get("weakens") == Some(&Value::Bool(true)) {
-                    changes.breaks(
-                        field,
-                        format!("changed from {before} to {after} on a setting with a value that weakens a guarantee"),
-                    );
-                } else {
-                    changes.adds(
-                        field,
-                        format!("changed from {before} to {after}, a tuning default"),
-                    );
-                }
+                defaults::compare(previous, current, before, after, changes);
             }
+            // A release from before the projection carried the direction
+            // published none: the field's arrival changes no promise.
+            "weakening" if section == "settings" && !previous.contains_key(field) => {}
             "cancellable" | "clearable" if after == &Value::Bool(true) => {
                 changes.adds(field, "now true");
             }
@@ -643,7 +647,7 @@ impl<'a> Schemas<'a> {
             .filter(|name| !previous_properties.contains_key(*name))
         {
             let field = format!("{at}.{name}");
-            if side == Side::Input && current_required.contains(name) {
+            if side != Side::Output && current_required.contains(name) {
                 changes.breaks(&field, "added as required");
             } else {
                 changes.adds(&field, "added");

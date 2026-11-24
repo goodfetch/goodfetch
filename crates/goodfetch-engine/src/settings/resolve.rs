@@ -34,7 +34,7 @@ use serde_json::Value;
 use super::error::SettingsError;
 use super::hosts;
 use super::keys::{self, Key};
-use super::values::{Given, Values};
+use super::values::{Given, Values, over};
 
 /// An Operator policy: what it sets, locks and caps.
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -129,10 +129,11 @@ impl Recipe {
     }
 }
 
-/// The defaults an engine chose for its host in place of the catalog's,
-/// such as the encrypted local file's `run_state.key_reference` on a host
-/// with no OS keychain; still the default layer's, as `config explain`
-/// shows them.
+/// The defaults an engine gives in place of the catalog's: those it chose
+/// for its host, such as the encrypted local file's
+/// `run_state.key_reference` on a host with no OS keychain, and those of
+/// its Product version, such as `daemon.address`'s port; still the default
+/// layer's, as `config explain` shows them.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct HostDefaults(BTreeMap<&'static str, Value>);
 
@@ -1148,7 +1149,7 @@ fn take(
             format!("give `{name}` a value within the Recipe's bounds"),
         ));
     }
-    state.effective.value = value.clone();
+    state.effective.value = over(key.setting, &state.effective.value, value);
     state.effective.layer = layer;
     state.effective.origin = given.origin;
     state.effective.preset = None;

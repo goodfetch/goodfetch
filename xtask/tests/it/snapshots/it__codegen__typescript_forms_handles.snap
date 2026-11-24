@@ -26,6 +26,7 @@ export class Run extends Handle {
 
   readonly #host: HandleHost<types.RunId, CollieOperationTypes>;
   readonly #opened: types.RunStarted;
+  readonly #sessions = new Map<types.SessionId, readonly [HandleHost<types.SessionId, CollieOperationTypes>, Session]>();
 
   /** @internal The engine's answer, or the handle that builds it, makes one; a program never constructs one. */
   constructor(host: HandleHost<types.RunId, CollieOperationTypes>, opened: types.RunStarted) {
@@ -34,12 +35,24 @@ export class Run extends Handle {
     this.#opened = opened;
   }
 
+  /** The `session` of ID `id`, with its host: built the first time an answer names it, shared after. */
+  #keptSession(id: types.SessionId): readonly [HandleHost<types.SessionId, CollieOperationTypes>, Session] {
+    let kept = this.#sessions.get(id);
+    if (kept === undefined) {
+      const host = this.#host.child(id);
+      kept = [host, new Session(host)];
+      this.#sessions.set(id, kept);
+    }
+    return kept;
+  }
+
   /**
-   * Opens a page in the Run.
+   * Opens a page in the Run's default Session.
    */
   async newPage(options: { readonly viewport?: types.NewPageParams["viewport"] | undefined } = {}): Promise<Page> {
     const opened = await this.#host.call("run.new_page", defined({ runId: this.#host.id, viewport: options.viewport }), {});
-    return new Page(this.#host.child(opened.pageId));
+    const [host, session] = this.#keptSession(opened.sessionId);
+    return new Page(host.child(opened.pageId), session);
   }
 
   /**
@@ -54,6 +67,36 @@ export class Run extends Handle {
    */
   label(): types.RunStarted["label"] {
     return this.#opened.label;
+  }
+}
+
+let idInSession: (handle: Session) => types.SessionId;
+
+/** @internal The ID `handle`'s calls carry, for a Product's package whose own calls name it (ADR 0093); never for programs. */
+export function idOfSession(handle: Session): types.SessionId {
+  return idInSession(handle);
+}
+
+/** A `session` a program holds: the members the catalog gives it (ADR 0099). */
+export class Session extends Handle {
+  static {
+    idInSession = (handle) => handle.#host.id;
+  }
+
+  readonly #host: HandleHost<types.SessionId, CollieOperationTypes>;
+
+  /** @internal The engine's answer, or the handle that builds it, makes one; a program never constructs one. */
+  constructor(host: HandleHost<types.SessionId, CollieOperationTypes>) {
+    super(host, "session", "session_id", { type: "SessionId" });
+    this.#host = host;
+  }
+
+  /**
+   * Opens a page in the Session.
+   */
+  async newPage(): Promise<Page> {
+    const opened = await this.#host.call("session.new_page", { sessionId: this.#host.id }, {});
+    return new Page(this.#host.child(opened.pageId), this);
   }
 }
 
@@ -93,14 +136,21 @@ export class Page extends Handle implements AsyncDisposable {
   }
 
   readonly #host: HandleHost<types.PageId, CollieOperationTypes>;
+  readonly #session: Session;
   /** Its `keyboard`. */
   readonly keyboard: PageKeyboard;
 
   /** @internal The engine's answer, or the handle that builds it, makes one; a program never constructs one. */
-  constructor(host: HandleHost<types.PageId, CollieOperationTypes>) {
+  constructor(host: HandleHost<types.PageId, CollieOperationTypes>, session: Session) {
     super(host, "page", "page_id", { type: "PageId" });
     this.#host = host;
+    this.#session = session;
     this.keyboard = new PageKeyboard(host);
+  }
+
+  /** Its `session`, which every answer that opens a `page` names, answered without a call: the `session` that opened or told of it, or the one its opener keeps (ADRs 0078, 0092). */
+  session(): Session {
+    return this.#session;
   }
 
   /**

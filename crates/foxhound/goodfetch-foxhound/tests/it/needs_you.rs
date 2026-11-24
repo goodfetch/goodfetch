@@ -59,7 +59,7 @@ const ANSWERS: &[ItemPrompt] = &[ItemPrompt {
     answers: &[ItemAnswer {
         label: "Settle it",
         operation: &TOY_SETTLE,
-        input: None,
+        input: |_| None,
         confirmation: |item, _| {
             Ok(Confirmation {
                 question: format!("Settle {}?", item.id),
@@ -69,7 +69,7 @@ const ANSWERS: &[ItemPrompt] = &[ItemPrompt {
             })
         },
     }],
-    outside: None,
+    outside: |_| None,
 }];
 
 /// The toy's source: its one question, until it is settled.

@@ -67,6 +67,13 @@ fn replace(file: &Path, contents: &str) {
     std::fs::rename(&staged, file).unwrap();
 }
 
+/// The certificate file and key file `files` replaced by `renewed`'s, as
+/// a renewal replaces them while the Daemon serves.
+pub(crate) fn renew([certificate_file, key_file]: &[PathBuf; 2], renewed: &Certificate) {
+    replace(certificate_file, &renewed.file);
+    replace(key_file, &renewed.key_file);
+}
+
 /// A `daemon run` on loopback that serves TLS with `served`, once it
 /// serves; its address; and its certificate file and key file.
 pub(crate) fn serving_tls(
@@ -116,7 +123,7 @@ fn connected(
 /// The certificate the Daemon at `address` presents to a Client trusting
 /// `trusted`, and its reply to that Client's `hello` with `token`, over
 /// newline-delimited JSON-RPC.
-fn hello_over_lines(
+pub(crate) fn hello_over_lines(
     address: SocketAddr,
     trusted: &CertificateDer<'static>,
     token: &str,
@@ -204,7 +211,7 @@ fn hello_over_websocket(
 fn an_exposed_daemon_serves_over_tls_and_a_renewed_certificate_with_no_restart() {
     let env = TestEnv::new();
     let (first, renewed) = (Certificate::generated(), Certificate::generated());
-    let (mut daemon, address, [certificate_file, key_file]) = serving_tls(&env, &first);
+    let (mut daemon, address, files) = serving_tls(&env, &first);
     let token = token(&env);
 
     let (before, opened) = hello_over_lines(address, &first.trusted, &token);
@@ -223,8 +230,7 @@ fn an_exposed_daemon_serves_over_tls_and_a_renewed_certificate_with_no_restart()
             port = address.port(),
         ),
     );
-    replace(&certificate_file, &renewed.file);
-    replace(&key_file, &renewed.key_file);
+    renew(&files, &renewed);
     let (after, reopened) = hello_over_lines(address, &renewed.trusted, &token);
     let exited = daemon.terminate();
 

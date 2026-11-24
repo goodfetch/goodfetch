@@ -234,6 +234,9 @@ pub struct Resolved {
     policy_version: Option<String>,
     /// Whether a Recipe's layer took part.
     recipe_run: bool,
+    /// Whether the Client that opened the Run reached an Exposed Daemon's
+    /// address (ADR 0049).
+    exposed: bool,
 }
 
 impl Resolved {
@@ -389,6 +392,21 @@ impl Resolved {
     /// Whether the Run is a Recipe's.
     pub fn recipe_run(&self) -> bool {
         self.recipe_run
+    }
+
+    /// Whether the Client that opened the Run reached an Exposed Daemon's
+    /// address (ADR 0049), whose loopback is not the program's own machine
+    /// (ADR 0056).
+    pub fn on_an_exposed_daemon(&self) -> bool {
+        self.exposed
+    }
+
+    /// The same, opened by a Client that reached an Exposed Daemon's
+    /// address.
+    #[must_use]
+    pub(crate) fn opened_on_an_exposed_daemon(mut self) -> Self {
+        self.exposed = true;
+        self
     }
 
     /// The version of the Operator policy it resolved under.
@@ -747,6 +765,7 @@ pub fn resolve(layers: &Layers, engine: Product, run: Product) -> Result<Resolve
         unapplied: unapplied(layers),
         policy_version: layers.operator_policy.version.clone(),
         recipe_run: layers.recipe.is_some(),
+        exposed: false,
     })
 }
 

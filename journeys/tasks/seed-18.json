@@ -1838,6 +1838,24 @@
       "id": "locales/2",
       "kind": "crawl",
       "start_url": "http://2.locales.test/notices"
+    },
+    {
+      "description": "Open this search results page at each of the Proving ground's time steps, from 0 to the last of the task's, and return one Record per result it shows at any step, with the fields `id` (the result's `data-id`), `url`, `title` and `snippet`.",
+      "digest": "2903b27f849d6f96d4ababc03d3bc9dd4c79d785d98d1538af50d46fc40d6320",
+      "family": "search",
+      "id": "search/1",
+      "kind": "watch",
+      "start_url": "http://1.search.test/search?q=paper%20kite",
+      "time_steps": 4
+    },
+    {
+      "description": "Ask this SearXNG search for its results at each of the Proving ground's time steps, from 0 to the last of the task's, and return one Record per result it answers at any step, with the fields `id` (the last part of the result's URL), `url`, `title` and `snippet`.",
+      "digest": "299c72c0e9b96496569d860cd4fcd9a25032255549fa61efe557aa58c6968b3d",
+      "family": "search",
+      "id": "search/2",
+      "kind": "watch",
+      "start_url": "http://2.search.test/search?q=salt%20marsh&format=json",
+      "time_steps": 4
     }
   ]
 }

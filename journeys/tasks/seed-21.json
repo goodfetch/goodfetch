@@ -1838,6 +1838,24 @@
       "id": "locales/2",
       "kind": "crawl",
       "start_url": "http://2.locales.test/notices"
+    },
+    {
+      "description": "Open this search results page at each of the Proving ground's time steps, from 0 to the last of the task's, and return one Record per result it shows at any step, with the fields `id` (the result's `data-id`), `url`, `title` and `snippet`.",
+      "digest": "f9f618fc4d6d2212403116be2266e6e2e000286ecccd75392cb3b53f24333509",
+      "family": "search",
+      "id": "search/1",
+      "kind": "watch",
+      "start_url": "http://1.search.test/search?q=stone%20bridge",
+      "time_steps": 4
+    },
+    {
+      "description": "Ask this SearXNG search for its results at each of the Proving ground's time steps, from 0 to the last of the task's, and return one Record per result it answers at any step, with the fields `id` (the last part of the result's URL), `url`, `title` and `snippet`.",
+      "digest": "97c027a9b7a5b81227ceb2c37faa1bc68885895ccc7a741e1e542c6ed82beca0",
+      "family": "search",
+      "id": "search/2",
+      "kind": "watch",
+      "start_url": "http://2.search.test/search?q=harbour%20crane&format=json",
+      "time_steps": 4
     }
   ]
 }

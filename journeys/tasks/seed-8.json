@@ -1838,6 +1838,24 @@
       "id": "locales/2",
       "kind": "crawl",
       "start_url": "http://2.locales.test/notices"
+    },
+    {
+      "description": "Open this search results page at each of the Proving ground's time steps, from 0 to the last of the task's, and return one Record per result it shows at any step, with the fields `id` (the result's `data-id`), `url`, `title` and `snippet`.",
+      "digest": "ff2ad95a866d2e39df6a8b81dfac92825bbde2da9b6b37077f9bf1e0625d4e6b",
+      "family": "search",
+      "id": "search/1",
+      "kind": "watch",
+      "start_url": "http://1.search.test/search?q=salt%20marsh",
+      "time_steps": 4
+    },
+    {
+      "description": "Ask this SearXNG search for its results at each of the Proving ground's time steps, from 0 to the last of the task's, and return one Record per result it answers at any step, with the fields `id` (the last part of the result's URL), `url`, `title` and `snippet`.",
+      "digest": "90fb17c5fdf69ba7ff4b0b14524c978a5d92949c0d2ee0545a1881d2c1c67863",
+      "family": "search",
+      "id": "search/2",
+      "kind": "watch",
+      "start_url": "http://2.search.test/search?q=tide%20mill&format=json",
+      "time_steps": 4
     }
   ]
 }

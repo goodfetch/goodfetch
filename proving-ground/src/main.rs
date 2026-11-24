@@ -69,6 +69,7 @@ mod rendered;
 mod replay;
 mod robots;
 mod schedule;
+mod search;
 mod server;
 mod site;
 mod solvers;

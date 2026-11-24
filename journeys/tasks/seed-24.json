@@ -1838,6 +1838,24 @@
       "id": "locales/2",
       "kind": "crawl",
       "start_url": "http://2.locales.test/notices"
+    },
+    {
+      "description": "Open this search results page at each of the Proving ground's time steps, from 0 to the last of the task's, and return one Record per result it shows at any step, with the fields `id` (the result's `data-id`), `url`, `title` and `snippet`.",
+      "digest": "c9a7e129dd7ada5bb5b80a0c2c2e80a13e9296f1f15abd46bb88b1d49fda68a9",
+      "family": "search",
+      "id": "search/1",
+      "kind": "watch",
+      "start_url": "http://1.search.test/search?q=salt%20marsh",
+      "time_steps": 4
+    },
+    {
+      "description": "Ask this SearXNG search for its results at each of the Proving ground's time steps, from 0 to the last of the task's, and return one Record per result it answers at any step, with the fields `id` (the last part of the result's URL), `url`, `title` and `snippet`.",
+      "digest": "cbd1e61c7e36b2e36781c7b84be37579aa29ad0273e6f9f4bd0f3e081919334b",
+      "family": "search",
+      "id": "search/2",
+      "kind": "watch",
+      "start_url": "http://2.search.test/search?q=stone%20bridge&format=json",
+      "time_steps": 4
     }
   ]
 }

@@ -1838,6 +1838,24 @@
       "id": "locales/2",
       "kind": "crawl",
       "start_url": "http://2.locales.test/notices"
+    },
+    {
+      "description": "Open this search results page at each of the Proving ground's time steps, from 0 to the last of the task's, and return one Record per result it shows at any step, with the fields `id` (the result's `data-id`), `url`, `title` and `snippet`.",
+      "digest": "a684de24e4f7f6c7468778f7d67af54ff0919bceaa5cfa5ca4baaa7fdf218b96",
+      "family": "search",
+      "id": "search/1",
+      "kind": "watch",
+      "start_url": "http://1.search.test/search?q=paper%20kite",
+      "time_steps": 4
+    },
+    {
+      "description": "Ask this SearXNG search for its results at each of the Proving ground's time steps, from 0 to the last of the task's, and return one Record per result it answers at any step, with the fields `id` (the last part of the result's URL), `url`, `title` and `snippet`.",
+      "digest": "ddf59d0ecfa13cfe0ec3eb0044ab9666976b3ddf1ea9526bee15337f474b2a91",
+      "family": "search",
+      "id": "search/2",
+      "kind": "watch",
+      "start_url": "http://2.search.test/search?q=stone%20bridge&format=json",
+      "time_steps": 4
     }
   ]
 }

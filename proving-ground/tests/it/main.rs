@@ -76,6 +76,7 @@ mod rungs;
 mod scale;
 mod schedule;
 mod scope;
+mod search;
 mod sensor_solver;
 mod serve;
 mod service_worker_challenge;

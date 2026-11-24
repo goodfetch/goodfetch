@@ -20,13 +20,14 @@ use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::connection::Surface;
 use goodfetch_test_support::{
     AuditUnreadable, DaemonEndpoint, Endpoint, EndpointRunner, Hello, Listener, ListenerAddress,
-    ListenerKind, Rule, TestEnv,
+    ListenerKind, ListenerTls, Rule, TestEnv,
 };
 use serde_json::{Value, json};
 use tungstenite::handshake::client::generate_key;
 use tungstenite::{Message, WebSocket};
 
 use crate::daemon_run::{ANY_PORT, Foreground, token};
+use crate::tls::{Certificate, SERVER_NAME, serving_tls};
 
 const COLLIE: &str = env!("CARGO_BIN_EXE_goodfetch-collie");
 
@@ -56,6 +57,7 @@ fn reason(rule: Rule) -> Option<&'static str> {
         Rule::OriginForeign => "origin_foreign",
         Rule::OriginMissing => "origin_missing",
         Rule::HelloNotFirst => "hello_not_first",
+        Rule::PlainWhereTlsConfigured => "tls_required",
         Rule::ProbesAnswerStatusOnly
         | Rule::TokenExpired
         | Rule::TokenRevoked
@@ -76,15 +78,17 @@ fn listener_name(kind: ListenerKind) -> &'static str {
     }
 }
 
-/// The Daemon's WebSocket and its address, read as the endpoint table's
-/// two columns: each passes every row, each refusal logged with its
-/// listener and reason.
+/// The Daemon's WebSocket and its address, terminating TLS, read as the
+/// endpoint table's two columns: each passes every row, a Connection in
+/// plain among them, each refusal logged with its listener and reason.
 ///
 /// Covers: story:3-13, command:daemon.run
 #[test]
 fn the_daemons_websocket_and_the_exposed_daemon_pass_their_endpoint_table_rows() {
     let env = TestEnv::new();
-    let (mut daemon, address) = exposed(&env);
+    let certificate = Certificate::generated();
+    let (mut daemon, address, _files) = serving_tls(&env, &certificate);
+    let tls = ListenerTls::new(SERVER_NAME, certificate.trusted.to_vec());
     let token = token(&env);
     let hello = Hello::new(hello_params().as_object().unwrap().clone(), "token");
     let listeners = [
@@ -105,7 +109,11 @@ fn the_daemons_websocket_and_the_exposed_daemon_pass_their_endpoint_table_rows()
             token,
         ),
     ]
-    .map(|listener| listener.with_other_listener_token("a-private-endpoints-token"));
+    .map(|listener| {
+        listener
+            .with_other_listener_token("a-private-endpoints-token")
+            .over_tls(tls.clone())
+    });
 
     let ran = listeners.map(|listener| {
         let verifier = |kind: ListenerKind, rule: Rule| -> Result<bool, AuditUnreadable> {

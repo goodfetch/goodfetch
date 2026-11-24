@@ -225,6 +225,11 @@
           "type": "string"
         },
         {
+          "const": "plain_where_tls_configured",
+          "description": "A connection opens in plain, with the valid `hello` or handshake,\nwhere the listener terminates TLS.",
+          "type": "string"
+        },
+        {
           "const": "probes_answer_status_only",
           "description": "The ops listener's probes answer with a status and no body.",
           "type": "string"

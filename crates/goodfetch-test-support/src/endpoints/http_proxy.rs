@@ -9,18 +9,20 @@ use std::net::SocketAddr;
 
 use data_encoding::BASE64;
 
-use super::connection::{Connection, ListenerAddress, is_closed, is_silent};
+use super::connection::{Connection, ListenerAddress, ListenerTls, is_closed, is_silent};
 use super::http::parse;
 use super::runner::Observed;
 
-/// Sends a `CONNECT` to `target` through the proxy at `address`, with
-/// `credentials`, a username and a password, if any, and reads its answer.
+/// Sends a `CONNECT` to `target` through the proxy at `address`, over `tls`
+/// if any, with `credentials`, a username and a password, if any, and reads
+/// its answer.
 pub(super) fn attempt(
     address: SocketAddr,
+    tls: Option<&ListenerTls>,
     target: &str,
     credentials: Option<(&str, &str)>,
 ) -> Observed {
-    let mut connection = match Connection::open(&ListenerAddress::Tcp(address)) {
+    let mut connection = match Connection::open(&ListenerAddress::Tcp(address), tls) {
         Ok(connection) => connection,
         Err(error) => {
             return Observed::Unreachable {

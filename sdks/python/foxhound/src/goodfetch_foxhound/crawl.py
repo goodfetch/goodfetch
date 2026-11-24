@@ -21,6 +21,7 @@ import weakref
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Generic, TypeVar, cast, final, overload
 
+from goodfetch_collie_client.generated.models import KeyValueStoreAttempt
 from goodfetch_collie_client.generated.models import Locator as LocatorId
 from goodfetch_collie_client.json_values import non_json
 from goodfetch_collie_client.markers import warn_entry
@@ -72,6 +73,10 @@ if TYPE_CHECKING:
     )
     from goodfetch_collie_client.generated.models import PageId
     from goodfetch_collie_client.json_values import JSONObject, JSONValue
+    from goodfetch_collie_client.key_value_store import (
+        AsyncKeyValueStore,
+        KeyValueStore,
+    )
     from goodfetch_collie_client.schema import JSONSchema
 
     from goodfetch_foxhound.generated.models import (
@@ -86,8 +91,10 @@ if TYPE_CHECKING:
     from goodfetch_foxhound.generated.settings import LabelSettings
 
 __all__ = [
+    "AsyncAttemptRun",
     "AsyncCrawl",
     "AsyncCrawlContext",
+    "AttemptRun",
     "Crawl",
     "CrawlContext",
     "CrawlRequest",
@@ -188,6 +195,12 @@ class HandlerAttempt:
             "crawl_request_id": self.crawl_request_id,
             "lease_epoch": self.lease_epoch,
         }
+
+    def key_value_store_attempt(self) -> KeyValueStoreAttempt:
+        """What names it in each call of its Run's Key-value store."""
+        return KeyValueStoreAttempt(
+            crawl_request_id=self.crawl_request_id, lease_epoch=self.lease_epoch
+        )
 
     def enqueue_params(
         self, url: str, label: Label[Any], payload: object, options: dict[str, object]
@@ -371,6 +384,66 @@ class _Push:
 
 
 @final
+class AsyncAttemptRun:
+    """A crawl's Run bound to one attempt of an `AsyncCrawl` handler: `ctx.run`.
+
+    What is written through it is staged with the attempt, so it commits
+    with the attempt's Records and enqueues when the handler returns, and is
+    discarded with them when the attempt ends any other way (ADRs 0093 and
+    0103).
+
+    The trap: the program's own Run value, the one `start_crawl` answered,
+    captured by a handler from the code around it, is not bound. What a
+    handler writes through it commits at once, outside the attempt's lease,
+    and again on every attempt that runs the handler, discarded ones
+    included. Write through it only state that must outlive a failed
+    attempt. A program never constructs one.
+    """
+
+    def __init__(self, run_id: str, key_value_store: AsyncKeyValueStore) -> None:
+        """Takes the Run's ID and its Key-value store bound to the attempt."""
+        self._id = run_id
+        self.key_value_store = key_value_store
+        """The Run's Key-value store, its writes staged with the attempt.
+
+        A read sees the attempt's own writes first; other attempts and the
+        program's own Run value see them once they commit, and `keys` lists
+        committed keys only. Once the attempt ends, each call fails.
+        """
+
+    @property
+    def id(self) -> str:
+        """The Run's ID, read without a round trip."""
+        return self._id
+
+
+@final
+class AttemptRun:
+    """A crawl's Run bound to one attempt of a `Crawl` handler: `ctx.run`.
+
+    What is written through it is staged with the attempt, and the program's
+    own Run value, captured by a handler, is not bound, as `AsyncAttemptRun`
+    says. A program never constructs one.
+    """
+
+    def __init__(self, run_id: str, key_value_store: KeyValueStore) -> None:
+        """Takes the Run's ID and its Key-value store bound to the attempt."""
+        self._id = run_id
+        self.key_value_store = key_value_store
+        """The Run's Key-value store, its writes staged with the attempt.
+
+        A read sees the attempt's own writes first; other attempts and the
+        program's own Run value see them once they commit, and `keys` lists
+        committed keys only. Once the attempt ends, each call fails.
+        """
+
+    @property
+    def id(self) -> str:
+        """The Run's ID, read without a round trip."""
+        return self._id
+
+
+@final
 class AsyncCrawlContext(Generic[P]):
     """What an `AsyncCrawl` handler's attempt at one work item holds (ADR 0093).
 
@@ -382,12 +455,14 @@ class AsyncCrawlContext(Generic[P]):
         self,
         request: CrawlRequest[P],
         attempt: HandlerAttempt,
+        run: AsyncAttemptRun,
         operations: AsyncFoxhoundOperations,
         page: AsyncPage | None,
     ) -> None:
-        """Takes the attempt's request and lease, its Run's calls and its page."""
+        """Takes the attempt's request, lease and Run, that Run's calls and its page."""
         self._request = request
         self._attempt = attempt
+        self._run = run
         self._operations = operations
         self._page = page
 
@@ -395,6 +470,14 @@ class AsyncCrawlContext(Generic[P]):
     def request(self) -> CrawlRequest[P]:
         """The crawl request the attempt handles, its Payload typed by its Label."""
         return self._request
+
+    @property
+    def run(self) -> AsyncAttemptRun:
+        """The crawl's Run bound to this attempt, not the program's own Run value.
+
+        Its Key-value store's writes are staged with the attempt (ADR 0093).
+        """
+        return self._run
 
     @property
     def page(self) -> AsyncPage:
@@ -662,12 +745,14 @@ class CrawlContext(Generic[P]):
         self,
         request: CrawlRequest[P],
         attempt: HandlerAttempt,
+        run: AttemptRun,
         operations: FoxhoundOperations,
         page: Page | None,
     ) -> None:
-        """Takes the attempt's request and lease, its Run's calls and its page."""
+        """Takes the attempt's request, lease and Run, that Run's calls and its page."""
         self._request = request
         self._attempt = attempt
+        self._run = run
         self._operations = operations
         self._page = page
 
@@ -675,6 +760,14 @@ class CrawlContext(Generic[P]):
     def request(self) -> CrawlRequest[P]:
         """The crawl request the attempt handles, its Payload typed by its Label."""
         return self._request
+
+    @property
+    def run(self) -> AttemptRun:
+        """The crawl's Run bound to this attempt, not the program's own Run value.
+
+        Its Key-value store's writes are staged with the attempt (ADR 0093).
+        """
+        return self._run
 
     @property
     def page(self) -> Page:

@@ -11,7 +11,7 @@ import { platform } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { AdapterSlot } from "./adapter.ts";
-import { loadCampaign, type Campaign, type CampaignAdapter } from "./campaign.ts";
+import { loadCampaign, type Campaign, type CampaignAdapter, type Row } from "./campaign.ts";
 import {
   countStatuses,
   mergeUsage,
@@ -57,7 +57,7 @@ import { parserOf } from "./schema.ts";
 
 /** The repository's root, whose bench sources the provenance fingerprints. */
 const repository = fileURLToPath(new URL("../..", import.meta.url));
-const sources = ["bench/src", "bench/hosts"] as const;
+const sources = ["bench/src", "bench/hosts", "bench/adapters"] as const;
 
 /** A run's standing: complete, or why its figures cannot be compared. */
 export type RunStatus = "complete" | "noisy_host" | "invalid_provenance";
@@ -90,8 +90,20 @@ export interface RunRecord {
     readonly order: readonly string[];
     readonly noisy: boolean;
   }[];
+  /** Each adapter's row, and the Product and settings it said it ran with. */
+  readonly adapters: readonly AdapterRow[];
   readonly cells: readonly Cell[];
   readonly totals: Counts;
+}
+
+/** One adapter as the run ran it: a matched row's marks are its settings (ADRs 0023 and 0025). */
+export interface AdapterRow {
+  readonly id: string;
+  /** The Product it drove, as its `hello` named it (ADR 0094); null for a competitor's tool. */
+  readonly product: string | null;
+  readonly row: Row;
+  /** The settings it answered `prepare` with; null when it answered none or never started. */
+  readonly settings: Readonly<Record<string, unknown>> | null;
 }
 
 /** What an adapter answers to `run`. */
@@ -148,6 +160,9 @@ interface RunContext {
   readonly probes: ReadonlySet<Probe>;
   readonly book: MetricBook;
   readonly record: (attempt: Attempt) => Promise<void>;
+  readonly rows: ReadonlyMap<string, Row>;
+  /** Each adapter's Product and settings, from the first of its slots that started. */
+  readonly ran: Map<string, Pick<AdapterRow, "product" | "settings">>;
 }
 
 function messageOf(error: unknown): string {
@@ -376,6 +391,15 @@ async function runCell(input: {
   return { cellId, adapter, task: task.id, block, passed, attempts, windowMs };
 }
 
+/** The row of the campaign's adapter `id`. */
+function rowOf(context: RunContext, id: string): Row {
+  const row = context.rows.get(id);
+  if (row === undefined) {
+    throw new Error(`invariant: the campaign gives its adapter ${id} a row`);
+  }
+  return row;
+}
+
 /** Runs one adapter's cells in one block, on one adapter slot sampled for its whole life. */
 async function runAdapterBlock(input: {
   readonly context: RunContext;
@@ -392,6 +416,7 @@ async function runAdapterBlock(input: {
     prepare: {
       proving_ground: { address: context.ground.address },
       concurrency: campaign.concurrency,
+      row: rowOf(context, adapter.id),
     },
     maxRestarts: campaign.max_restarts,
     concurrency: campaign.concurrency,
@@ -410,6 +435,9 @@ async function runAdapterBlock(input: {
     // The samplers stop before the adapter, so their last sample still sees its tree.
     usages = await Promise.all(samplers.map(async (sampler) => await sampler.stop()));
     await slot.close();
+    if (slot.generation >= 0 && !context.ran.has(adapter.id)) {
+      context.ran.set(adapter.id, { product: slot.product, settings: slot.settings });
+    }
   }
   const usage = mergeUsage(usages);
   const verifiedInBlock = runs
@@ -493,6 +521,8 @@ export async function runCampaign(input: RunInput): Promise<RunResult> {
       writes = writes.then(async () => await appendFile(journal, `${JSON.stringify(one)}\n`));
       await writes;
     },
+    rows: loaded.rows,
+    ran: new Map(),
   };
 
   const blocks: { block: number; order: string[]; noisy: boolean }[] = [];
@@ -551,6 +581,12 @@ export async function runCampaign(input: RunInput): Promise<RunResult> {
     },
     metric_availability: context.book.availability,
     blocks,
+    adapters: campaign.adapters.map((adapter) => ({
+      id: adapter.id,
+      product: context.ran.get(adapter.id)?.product ?? null,
+      row: rowOf(context, adapter.id),
+      settings: context.ran.get(adapter.id)?.settings ?? null,
+    })),
     cells,
     totals: countStatuses(attempts),
   };

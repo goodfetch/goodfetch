@@ -1,0 +1,33 @@
+{
+  "id": "goodfetch-smoke",
+  "host_class": { "requested": "local-dev", "allow_downgrade": false },
+  "order_seed": 7,
+  "blocks": 1,
+  "warmup": 0,
+  "iterations": 1,
+  "concurrency": 1,
+  "timeout_ms": 60000,
+  "max_duration_ms": 300000,
+  "max_restarts": 0,
+  "adapters": [
+    {
+      "id": "stub",
+      "command": ["node", "../stub-adapter.ts"],
+      "configuration": "stub-configuration.json"
+    },
+    {
+      "id": "collie",
+      "command": ["node", "../../adapters/goodfetch/src/adapter.ts", "--product", "collie"]
+    },
+    {
+      "id": "collie-matched",
+      "command": ["node", "../../adapters/goodfetch/src/adapter.ts", "--product", "collie"],
+      "matched": { "against": "stub", "settings": { "live_view.hiding": "off" } }
+    },
+    {
+      "id": "foxhound",
+      "command": ["node", "../../adapters/goodfetch/src/adapter.ts", "--product", "foxhound"]
+    }
+  ],
+  "tasks": ["catalog/1", "catalog/2"]
+}

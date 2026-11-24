@@ -51,7 +51,9 @@ pub(crate) fn reason(rule: Rule) -> Option<&'static str> {
         Rule::HostForeign => "host_foreign",
         Rule::OriginForeign => "origin_foreign",
         Rule::HelloNotFirst => "hello_not_first",
-        Rule::OriginMissing | Rule::ProbesAnswerStatusOnly => return None,
+        Rule::OriginMissing | Rule::PlainWhereTlsConfigured | Rule::ProbesAnswerStatusOnly => {
+            return None;
+        }
     })
 }
 

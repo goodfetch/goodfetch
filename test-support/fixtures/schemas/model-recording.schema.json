@@ -30,6 +30,14 @@
           "default": null,
           "description": "The JSON body, which matches in canonical form; absent, the request\nhas no body."
         },
+        "headers": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "default": {},
+          "description": "The headers the recording keeps, those of ADR 0065's allowlist, such\nas the version header the adapter sends on purpose: kept for review\nand the provider check, never matched on.",
+          "type": "object"
+        },
         "method": {
           "description": "`POST`, `GET`, …, in any case.",
           "type": "string"

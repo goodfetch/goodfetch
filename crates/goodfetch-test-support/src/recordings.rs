@@ -75,6 +75,11 @@ pub struct RecordedRequest {
     pub method: String,
     /// The path with its query, which matches exactly: `/v1/chat/completions`.
     pub path: String,
+    /// The headers the recording keeps, those of ADR 0065's allowlist, such
+    /// as the version header the adapter sends on purpose: kept for review
+    /// and the provider check, never matched on.
+    #[serde(default)]
+    pub headers: BTreeMap<String, String>,
     /// The JSON body, which matches in canonical form; absent, the request
     /// has no body.
     #[serde(default)]

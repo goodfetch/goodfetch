@@ -1,0 +1,10 @@
+error[E0425]: cannot find value `prodcts` in this scope
+  --> tests/ui/datasets/misspelled_dataset.rs:14:23
+   |
+14 |     let _ = ctx.push(&prodcts, &product).await;
+   |                       ^^^^^^^
+   |
+help: a local variable with a similar name exists
+   |
+14 |     let _ = ctx.push(&products, &product).await;
+   |                           +

@@ -6,8 +6,11 @@ use std::fmt;
 use std::marker::PhantomData;
 use std::sync::Arc;
 
-use goodfetch_collie_client::{Error, Schema, SchemaError};
+use goodfetch_collie_client::{Error, Schema, SchemaError, to_json};
 use goodfetch_protocol::foxhound::crawl::{RequestSeed, SitemapRule, SitemapSeed};
+use goodfetch_protocol::foxhound::dataset::{
+    InvalidRecord, RECORD_INVALID, RecordData, RecordInvalidDetails, RecordIssue,
+};
 use goodfetch_protocol::foxhound::frontier::{
     HttpBody, HttpMethod, PAYLOAD_INVALID, PayloadInvalidDetails, PayloadIssue,
 };
@@ -15,6 +18,7 @@ use serde::Serialize;
 use serde::de::DeserializeOwned;
 use serde_json::Value;
 
+use super::declaration::RecordEncoder;
 use super::{CrawlId, payload_invalid};
 
 /// A Label a crawl declares (ADR 0093), whose requests carry a Payload of
@@ -71,6 +75,8 @@ impl<P> fmt::Debug for Label<P> {
 pub struct Dataset<I> {
     pub(super) name: Arc<str>,
     pub(super) crawl: CrawlId,
+    /// How a push writes its Records, when its declaration gives a schema.
+    pub(super) encoder: Option<RecordEncoder<I>>,
     pub(super) record: PhantomData<fn(I)>,
 }
 
@@ -81,11 +87,26 @@ impl<I> Dataset<I> {
     }
 }
 
+impl<I: Serialize> Dataset<I> {
+    /// `record` as the JSON a push sends, or the `record_invalid` that
+    /// refuses it before anything is sent: one that is not JSON, and, by
+    /// the Dataset's schema, one that does not read back as given.
+    pub(super) fn encode(&self, record: &I) -> Result<RecordData, Error> {
+        let json = match &self.encoder {
+            Some(encode) => encode(record),
+            None => to_json(record),
+        }
+        .map_err(|error| record_refused(&self.name, &error))?;
+        Ok(RecordData::of(&json).expect("invariant: a JSON value writes as JSON"))
+    }
+}
+
 impl<I> Clone for Dataset<I> {
     fn clone(&self) -> Self {
         Self {
             name: Arc::clone(&self.name),
             crawl: self.crawl,
+            encoder: self.encoder.clone(),
             record: PhantomData,
         }
     }
@@ -265,6 +286,34 @@ fn payload_refused(label: &str, error: &SchemaError) -> Error {
             limit: None,
             size: None,
             max_size: None,
+        },
+    )
+}
+
+/// The `record_invalid` of the one Record a push into `dataset` gives,
+/// refused before anything was sent: it is not JSON, or its schema does
+/// not read it back as given; the details name it at position 0 and the
+/// issue by its JSON Pointer, as the engine's own.
+fn record_refused(dataset: &str, error: &SchemaError) -> Error {
+    let path = match error {
+        SchemaError::NotJson { path, .. } | SchemaError::ChangesOnReadBack { path, .. } => {
+            path.clone()
+        }
+        _ => String::new(),
+    };
+    Error::of_sdk(
+        &RECORD_INVALID,
+        &format!("the Dataset `{dataset}` did not stage the Record: {error}"),
+        "Push a Record that is JSON and that its type's `Deserialize` reads back as it was given.",
+        &RecordInvalidDetails {
+            dataset: dataset.to_owned(),
+            records: vec![InvalidRecord {
+                position: 0,
+                issues: vec![RecordIssue {
+                    path,
+                    message: error.to_string(),
+                }],
+            }],
         },
     )
 }

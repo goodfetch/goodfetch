@@ -10,9 +10,8 @@ use goodfetch_protocol::foxhound::crawl::{
     ATTEMPT_ENDED, CrawlRequestHandleParams, RETRY_REQUESTED,
 };
 use goodfetch_protocol::foxhound::dataset::{
-    CRAWL_REQUEST_PUSH, CrawlRequestPushParams, CrawlRequestPushed, RecordData,
+    CRAWL_REQUEST_PUSH, CrawlRequestPushParams, CrawlRequestPushed,
 };
-use goodfetch_protocol::foxhound::error_code;
 use goodfetch_protocol::foxhound::fetch::{RESPONSE_NOT_DOCUMENT, ResponseNotDocumentDetails};
 use goodfetch_protocol::run::RunId;
 use serde::Serialize;
@@ -283,12 +282,15 @@ impl<P> CrawlContext<P> {
     ///
     /// This pushes the one Record `record` into `dataset`
     /// (`crawl_request.push`), which commits once the handler returns
-    /// `Ok`.
+    /// `Ok`. The SDK checks it before sending it: a Record that is not
+    /// JSON, such as one holding NaN, or that the Dataset's schema does not
+    /// read back as given, is refused at position 0 and nothing is sent.
     ///
     /// # Errors
     ///
-    /// `record_invalid` for a Record that does not serialize or that its
-    /// Dataset refuses, `dataset_unknown` for a Dataset the crawl does not
+    /// `record_invalid` for a Record that is not JSON, that its schema does
+    /// not read back as given or that its Dataset refuses, naming its
+    /// issues, `dataset_unknown` for a Dataset the crawl does not
     /// declare, and `attempt_ended` once the attempt has ended.
     ///
     /// # Cancel safety
@@ -302,15 +304,13 @@ impl<P> CrawlContext<P> {
         // The connection encodes a call's params as a `Value`, which sorts
         // the Record's fields: the order `record` writes them is not kept
         // yet (issue 2394's follow-up).
-        let params = RecordData::of(record)
-            .map_err(|error| Error::of_program(Box::new(error), error_code::RECORD_INVALID))
-            .map(|record| CrawlRequestPushParams {
-                run_id: self.attempt.params.run_id.clone(),
-                crawl_request_id: self.attempt.params.crawl_request.id.clone(),
-                lease_epoch: self.attempt.params.lease_epoch,
-                dataset: dataset.name.to_string(),
-                records: vec![record],
-            });
+        let params = dataset.encode(record).map(|record| CrawlRequestPushParams {
+            run_id: self.attempt.params.run_id.clone(),
+            crawl_request_id: self.attempt.params.crawl_request.id.clone(),
+            lease_epoch: self.attempt.params.lease_epoch,
+            dataset: dataset.name.to_string(),
+            records: vec![record],
+        });
         let pushed = Arc::clone(&self.attempt)
             .call::<CrawlRequestPushed, _>(CRAWL_REQUEST_PUSH.name, params);
         async move { pushed.await.map(drop) }

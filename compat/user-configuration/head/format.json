@@ -485,7 +485,7 @@
             "additionalProperties": false,
             "properties": {
               "address": {
-                "description": "Where `daemon run`, the foreground Daemon, listens, as `host:port`: `127.0.0.1` on port 7900 plus the major (7600 plus the minor during `0.y` previews). Port 0 takes a free port, which its log names. Only a loopback address, until the Daemon terminates TLS. Set in user configuration or an Operator policy, or for `daemon run` through `GOODFETCH_DAEMON_ADDRESS`.",
+                "description": "Where `daemon run`, the foreground Daemon, listens, as `host:port`: `127.0.0.1` on port 7900 plus the major (7600 plus the minor during `0.y` previews). Port 0 takes a free port, which its log names. An address other than loopback needs `daemon.tls.cert_file` and `daemon.tls.key_file`, or `daemon.tls.upstream`, so no token crosses a network in clear. Set in user configuration or an Operator policy, or for `daemon run` through `GOODFETCH_DAEMON_ADDRESS`.",
                 "type": "string"
               },
               "drain_grace": {
@@ -497,6 +497,46 @@
                 "description": "How long a Daemon with no connected Client waits before it stops: 10 minutes. `daemon start --keep-alive`, a held Schedule and an installed service keep it running. Set in user configuration or an Operator policy only.",
                 "minimum": 0,
                 "type": "integer"
+              },
+              "tls": {
+                "additionalProperties": false,
+                "properties": {
+                  "cert_file": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "The certificate chain `daemon run`, the foreground Daemon, serves TLS with on `daemon.address`, a PEM or DER file, set together with `daemon.tls.key_file`. With both set, every Connection opens with a TLS handshake, its JSON-RPC lines and its WebSocket alike, and one that does not is closed and recorded in the Audit log; a replaced file is read again at the next Connection, with no restart. Unset by default, which limits `daemon.address` to loopback unless `daemon.tls.upstream` is set. Set in user configuration or an Operator policy."
+                  },
+                  "key_file": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "The private key of `daemon.tls.cert_file`'s certificate, a PEM file (PKCS #8, PKCS #1 or SEC 1) or a DER file, set together with it. A replaced file is read again at the next Connection, with no restart. Unset by default. Set in user configuration or an Operator policy."
+                  },
+                  "upstream": {
+                    "description": "Whether TLS is terminated in front of `daemon run`, the foreground Daemon, by an ingress or a reverse proxy, which lets `daemon.address` be other than loopback with no `daemon.tls.cert_file`. The Daemon then serves in plain, still requires its token, checks each WebSocket handshake's `Host` and `Origin`, and reads `X-Forwarded-Host` and `X-Forwarded-Proto` only from the addresses `daemon.trusted_proxies` lists. `false` by default, and refused together with the TLS files. A Daemon started with it records `tls_terminated_upstream` in the Audit log. Set in user configuration or an Operator policy.",
+                    "type": "boolean"
+                  }
+                },
+                "type": "object"
+              },
+              "trusted_proxies": {
+                "description": "The proxies in front of `daemon run`, the foreground Daemon, whose `X-Forwarded-Host` and `X-Forwarded-Proto` it reads under `daemon.tls.upstream`: IP addresses and CIDR ranges such as `10.0.0.0/8`, matched on a Connection's peer address. From a listed proxy, `X-Forwarded-Proto: https` makes a WebSocket handshake's `Origin` one over `https`, and with it the name `X-Forwarded-Host` gives is one the Daemon answers to; each header's first value counts. From any other address both are ignored, and `Forwarded` and `X-Forwarded-For` are never read. Empty by default, and refused without `daemon.tls.upstream`. Set in user configuration or an Operator policy.",
+                "items": {
+                  "description": "A CIDR range such as `10.0.0.0/8`, or an IP address such as `192.0.2.7`.",
+                  "type": "string"
+                },
+                "type": "array"
               }
             },
             "type": "object"

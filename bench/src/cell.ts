@@ -96,7 +96,7 @@ function zero(): Record<AttemptStatus, number> {
 }
 
 /** How many of `attempts` ended with each status. */
-export function countStatuses(attempts: readonly Attempt[]): Counts {
+export function countStatuses(attempts: readonly { readonly status: AttemptStatus }[]): Counts {
   const counts = zero();
   for (const one of attempts) {
     counts[one.status] += 1;

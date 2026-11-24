@@ -7,10 +7,12 @@
 mod cells;
 mod history;
 mod plan;
+mod skew;
 mod time;
 mod verdict;
 
 pub(crate) use cells::Cell;
+pub(crate) use skew::SKEW_JOBS;
 
 use std::path::PathBuf;
 use std::process::ExitCode;

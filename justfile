@@ -337,14 +337,18 @@ features-audit scope="ran" verdict=exercise_audit:
 # `--engine <path>` runs them against that executable, for both Products.
 # `--tag <tag>` (with `--engine`) runs the tag's own Journey tests and helpers,
 # checked out in a temporary worktree that is removed afterwards.
+# `--junit <folder>` moves each runner's JUnit file there as `<runner>.xml`,
+# pass or fail, from the tree the tests ran in.
 [positional-arguments]
 journeys *arguments:
     #!/usr/bin/env bash
     set -euo pipefail
     just="{{ just_executable() }}"
-    select=() engine="" tag=""
+    select=() engine="" tag="" junit=""
     while [[ $# -gt 0 ]]; do
       case "$1" in
+        --junit) junit="${2:?--junit takes a folder}"; shift 2 ;;
+        --junit=*) junit="${1#--junit=}"; shift ;;
         --engine) engine="${2:?--engine takes a path}"; shift 2 ;;
         --engine=*) engine="${1#--engine=}"; shift ;;
         --tag) tag="${2:?--tag takes a tag}"; select+=(--tag "$tag"); shift 2 ;;
@@ -386,15 +390,29 @@ journeys *arguments:
       [[ -x "$GOODFETCH_TEST_ENGINE" ]] || { echo "error: $engine is not an executable" >&2; exit 2; }
       export GOODFETCH_TEST_ENGINE
     fi
-    if [[ -z "$tag" ]]; then
-      "$just" test pre-merge
-    else
+    reports=(nextest/ci/junit.xml junit/{vitest,playwright,pytest}.xml)
+    if [[ -n "$junit" ]]; then
+      mkdir -p "$junit"
+      junit=$(cd "$junit" && pwd)
+    fi
+    if [[ -n "$tag" ]]; then
       git worktree add --quiet --detach "$tree" "$tag^{commit}"
       cd "$tree"
       pnpm install --frozen-lockfile
       uv sync --frozen --all-extras
-      "$just" test pre-merge
+    elif [[ -n "$junit" ]]; then
+      rm -f "${reports[@]/#/target/}"
     fi
+    status=0
+    "$just" test pre-merge || status=$?
+    if [[ -n "$junit" ]]; then
+      for report in "${reports[@]}"; do
+        runner=$(basename "$report" .xml)
+        [[ "$runner" != junit ]] || runner=nextest
+        if [[ -f "target/$report" ]]; then mv "target/$report" "$junit/$runner.xml"; fi
+      done
+    fi
+    exit "$status"
 
 # What the changed packages declare and miss (ADR 0072): the Features each
 # crate, npm package and Python package `xtask affected` selects declares,

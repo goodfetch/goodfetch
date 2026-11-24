@@ -404,6 +404,64 @@ fn chosen_cells_alone_start_and_are_estimated() {
     assert_eq!(outputs["estimate"], "585");
 }
 
+/// The skew jobs of the tested commit (ADR 0066), which belong to the Linux
+/// x64 glibc cell: a job's name starts with the cell's.
+#[rstest]
+#[case::the_cell_starts(&[], HEAD, r#"["current","1.2"]"#)]
+#[case::the_tested_commit_names_them(&["--commit", OLDER], OLDER, r#"["current","1.2"]"#)]
+#[case::another_cell_starts(&["--cells", "windows-x64"], HEAD, "[]")]
+#[case::the_commit_holds_no_skew_jobs(&["--commit", OLDER], HEAD, "[]")]
+fn skew_jobs_are_the_tested_commits_when_the_linux_x64_glibc_cell_starts(
+    #[case] flags: &[&str],
+    #[case] holder: &str,
+    #[case] expected: &str,
+) {
+    let workspace = Workspace::from_fixture("empty");
+    let compared = format!("{REPOSITORY}/compare/{OLDER}...{HEAD}");
+    let held = format!("{REPOSITORY}/contents/ci/release/skew-jobs.json?ref={holder}");
+    let github = serve_in(
+        Visibility::Public,
+        "main",
+        vec![],
+        &[
+            (compared.as_str(), r#"{"status": "ahead"}"#),
+            (
+                held.as_str(),
+                r#"{"jobs": [{"name": "current", "minutes": 35}, {"name": "1.2"}], "awaiting": [{"check": "collie-mcp", "issue": 1452}]}"#,
+            ),
+        ],
+    );
+
+    let outcome = plan(&workspace, &github, MAIN, flags);
+
+    assert_eq!(outcome.code, 0);
+    assert_eq!(outputs(&workspace)["skew"], expected);
+}
+
+/// The contents interface serves the file itself, not its JSON description,
+/// only under its raw media type.
+#[test]
+fn skew_jobs_file_is_asked_for_as_raw_content() {
+    let workspace = Workspace::from_fixture("empty");
+    let path = format!("{REPOSITORY}/contents/ci/release/skew-jobs.json?ref={HEAD}");
+    let github = serve_in(
+        Visibility::Public,
+        "main",
+        vec![],
+        &[(path.as_str(), r#"{"jobs": []}"#)],
+    );
+
+    plan(&workspace, &github, MAIN, &[]);
+
+    let accepted: Vec<String> = github
+        .requests()
+        .into_iter()
+        .filter(|request| request.path == path)
+        .filter_map(|request| request.accept)
+        .collect();
+    assert_eq!(accepted, ["application/vnd.github.raw+json"]);
+}
+
 #[test]
 fn unknown_cell_reaches_no_plan() {
     let workspace = Workspace::from_fixture("empty");

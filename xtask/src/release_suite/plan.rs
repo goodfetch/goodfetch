@@ -14,6 +14,7 @@ use anyhow::{Context as _, Result};
 
 use super::cells::{self, Cell, LinuxJob};
 use super::history::{Ended, History, Run};
+use super::skew;
 use super::time::Month;
 use crate::check::Finding;
 use crate::github::Api;
@@ -145,10 +146,17 @@ pub(crate) fn plan(api: Api<'_>, dispatch: &Dispatch<'_>) -> Result<Vec<Finding>
         .into_iter()
         .filter(|cell| decision != Decision::Held && runnable.contains(cell))
         .collect();
+    // ADR 0066: skew runs on Linux x64 (glibc) alone, as jobs of that cell.
+    let skew_jobs = if started.contains(&Cell::LinuxX64Gnu) {
+        skew::jobs(api, dispatch.repository, &commit)?
+    } else {
+        Vec::new()
+    };
     write_outputs(
         dispatch.outputs,
         &commit,
         &started,
+        &skew_jobs,
         decision,
         &count,
         this.month,
@@ -268,11 +276,12 @@ fn hosted_cells_started_on_main(
 }
 
 /// The job's outputs, which the cells' jobs read: the commit, the started
-/// cells, each Linux job's matrix, and the count.
+/// cells, each Linux job's matrix, the skew jobs' names, and the count.
 fn write_outputs(
     path: &Path,
     commit: &str,
     started: &[Cell],
+    skew_jobs: &[String],
     decision: Decision,
     count: &Count,
     month: Month,
@@ -295,6 +304,11 @@ fn write_outputs(
             serde_json::to_string(&matrix).context("writing a Linux matrix")?
         );
     }
+    let _ = writeln!(
+        text,
+        "skew={}",
+        serde_json::to_string(skew_jobs).context("writing the skew jobs")?
+    );
     let _ = write!(
         text,
         "held={}\nused={}\nestimate={}\nneeded={}\nmonth-turns={}\n",

@@ -23,8 +23,8 @@ use crate::check::Finding;
 use crate::journeys::{VariantId, is_surface};
 use crate::products::Product;
 
-/// The generated jobs, which the Release suite's plan reads.
-pub(crate) const JOBS: &str = "ci/release/skew-jobs.json";
+/// The generated jobs' file.
+pub(crate) use crate::release_suite::SKEW_JOBS as JOBS;
 
 /// The checks each older minor takes.
 const CHECKS: &str = "compat/skew-checks.toml";

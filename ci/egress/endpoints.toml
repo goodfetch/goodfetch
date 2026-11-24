@@ -66,6 +66,9 @@ job = "update-screenshots.yml#update"
 job = "release-suite.yml#linux-x64"
 
 [[deny]]
+job = "release-suite.yml#skew"
+
+[[deny]]
 job = "release-suite.yml#linux-arm64"
 
 [[deny]]

@@ -59,8 +59,27 @@ impl Api<'_> {
     /// As [`Api::get`], but `None` when GitHub answers 404: the document does
     /// not exist, or the token cannot see it.
     pub(crate) fn find<T: DeserializeOwned>(&self, path: &str) -> Result<Option<T>> {
+        self.find_accepting(path, "application/vnd.github+json")
+    }
+
+    /// The JSON file at `path` of `repository` at `commit`, or `None` when
+    /// the commit holds none. Its raw media type asks for the file itself,
+    /// instead of the document that describes it.
+    pub(crate) fn find_file<T: DeserializeOwned>(
+        &self,
+        repository: &str,
+        path: &str,
+        commit: &str,
+    ) -> Result<Option<T>> {
+        self.find_accepting(
+            &format!("/repos/{repository}/contents/{path}?ref={commit}"),
+            "application/vnd.github.raw+json",
+        )
+    }
+
+    fn find_accepting<T: DeserializeOwned>(&self, path: &str, accept: &str) -> Result<Option<T>> {
         let url = self.url(path);
-        match self.headers(ureq::get(&url)).call() {
+        match self.headers_accepting(ureq::get(&url), accept).call() {
             Ok(mut response) => response
                 .body_mut()
                 .read_json()

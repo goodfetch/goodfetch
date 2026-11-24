@@ -1,0 +1,14 @@
+{
+  "class": "reference",
+  "description": "Dedicated Linux bare-metal host for published figures (ADR 0025), declined while Goodfetch has no revenue (ADR 0076).",
+  "gates": [
+    { "id": "git_clean", "equals": true },
+    { "id": "os", "equals": "linux" },
+    { "id": "virtualized", "equals": false },
+    { "id": "cpu_governor", "equals": "performance" },
+    { "id": "load_per_cpu_1m", "max": 0.1 },
+    { "id": "memory_free_percent", "min": 30 },
+    { "id": "thermal_warning", "equals": false },
+    { "id": "foreign_cpu_percent", "max": 10 }
+  ]
+}

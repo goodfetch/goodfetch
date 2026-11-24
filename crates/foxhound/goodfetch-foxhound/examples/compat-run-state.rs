@@ -70,7 +70,6 @@
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
 use std::time::{Duration, UNIX_EPOCH};
 
 use goodfetch_engine::clock::Clock;
@@ -86,7 +85,6 @@ use goodfetch_engine::transport::{self, Network};
 use goodfetch_engine::{
     CallContext, CallError, Channel, Contribution, Dependencies, Engine, Handler, Identity,
 };
-use goodfetch_fetch_tier::FetchTiers;
 use goodfetch_frontier::PageSeen;
 use goodfetch_protocol::catalog::{
     Operation, OperationClass, OperationKind, Product, Reach, Stability, schema_of,
@@ -113,7 +111,7 @@ const SITE_LATENCY: Duration = Duration::from_secs(1);
 fn scenario() -> Vec<Value> {
     // Every host a request of the crawls names, so that no name is looked
     // up: a lookup takes real time, which the paused clock does not keep.
-    let (fetch, network) = site::settings(&[
+    let (fetch, network) = goodfetch_memory_site::settings([
         "shop.test",
         "api.test",
         "guarded.test",
@@ -970,6 +968,14 @@ fn dump_run_files(runs: &Path, folder: &Path) -> Result<(), Box<dyn std::error::
     Ok(())
 }
 
+/// The engine's fetch tiers, serving the Memory site of [`site::page`]
+/// [`SITE_LATENCY`] after each request.
+fn tiers() -> goodfetch_fetch_tier::FetchTiers {
+    goodfetch_memory_site::MemorySite::new(site::page)
+        .with_latency(SITE_LATENCY)
+        .tiers()
+}
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let folder = PathBuf::from(
         std::env::args_os()
@@ -982,8 +988,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         product_version: version.clone(),
         channel: Channel::CratesIo,
     };
-    let tiers = FetchTiers::serving(Arc::new(site::Site::new(SITE_LATENCY, &[])));
-    let composition = goodfetch_foxhound::composition_with(tiers).with(bound());
+    let composition = goodfetch_foxhound::composition_with(tiers()).with(bound());
     let engine = Engine::new(identity, &composition)?;
     let home = tempfile::tempdir()?;
     // The folder of the engine's own pinned version, not of the workspace's.

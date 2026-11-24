@@ -348,12 +348,6 @@ pub(crate) fn default_dependencies(env: &TestEnv, run_state: RunStateOptions) ->
     }
 }
 
-/// The address the harness maps each seed's host to: a public one, which
-/// the egress policy lets through with nothing weakened, and which no
-/// connection reaches, since the engine's fetch tiers serve from memory
-/// ([`engine`]).
-const SITE_ADDRESS: &str = "93.184.216.34";
-
 thread_local! {
     /// The site settings the test's last `crawl.start` went out with, which
     /// its later resumes go out with too: a resume's settings are the
@@ -366,8 +360,8 @@ thread_local! {
 /// that declares no Dataset declares `pages`, which the harness pushes
 /// every Record into; one that sets no `fetch.tier` forces `http`, the one
 /// tier an engine with no browser pages serves every request on; and one
-/// that sets no `network.resolve` maps each seed's host to
-/// [`SITE_ADDRESS`], so no name is looked up. A `run.resume` or a
+/// that sets no `network.resolve` maps each seed's host to the Memory
+/// site's address, so no name is looked up. A `run.resume` or a
 /// `run.retry_failed` that sets neither goes out with the last
 /// `crawl.start`'s.
 pub(crate) fn as_sent(method: &str, mut params: Value) -> Value {
@@ -393,15 +387,16 @@ pub(crate) fn as_sent(method: &str, mut params: Value) -> Value {
         params["settings"]["fetch"]["tier"] = json!("http");
     }
     if params["settings"]["network"].get("resolve").is_none() {
-        let hosts: serde_json::Map<String, Value> = params["seeds"]
+        let hosts: Vec<String> = params["seeds"]
             .as_array()
             .into_iter()
             .flatten()
             .filter_map(|seed| seed["url"].as_str().or_else(|| seed["sitemap"].as_str()))
             .filter_map(|url| url.split("://").nth(1)?.split(['/', ':', '?', '#']).next())
-            .map(|host| (host.to_owned(), json!([SITE_ADDRESS])))
+            .map(str::to_owned)
             .collect();
-        params["settings"]["network"]["resolve"] = Value::Object(hosts);
+        params["settings"]["network"]["resolve"] =
+            goodfetch_memory_site::resolve(hosts.iter().map(String::as_str));
     }
     SITE_SETTINGS.set(Some((
         params["settings"]["fetch"]["tier"].clone(),
@@ -410,7 +405,7 @@ pub(crate) fn as_sent(method: &str, mut params: Value) -> Value {
     params
 }
 
-/// The path of the one sitemap [`Site`] serves, which lists
+/// The path of the one sitemap [`page`]'s site serves, which lists
 /// the first three pages [`seeds`] names.
 pub(crate) const SITEMAP: &str = "/sitemap.xml";
 
@@ -436,55 +431,28 @@ fn retry_after(path: &str) -> Option<(u16, &'static str)> {
     Some((status.parse().ok()?, value))
 }
 
-/// The site every crawl of the harness fetches from memory, through the
-/// fetch tiers' test seam: every URL but [`SITEMAP`], [`PANICS`] and
-/// [`RETRY_AFTER`]'s answers one small document, and no site has a
-/// robots.txt.
-struct Site;
-
-/// A body sent whole in one chunk.
-struct Whole(Option<bytes::Bytes>);
-
-impl goodfetch_fetch_tier::Body for Whole {
-    fn chunk(&mut self) -> goodfetch_fetch_tier::Sending<'_, Option<bytes::Bytes>> {
-        Box::pin(std::future::ready(Ok(self.0.take())))
-    }
-}
-
-impl goodfetch_fetch_tier::Transport for Site {
-    fn send<'a>(
-        &'a self,
-        hop: &'a goodfetch_fetch_tier::Hop,
-        _reuse: goodfetch_fetch_tier::Reuse,
-    ) -> goodfetch_fetch_tier::Sending<'a, goodfetch_fetch_tier::Sent> {
-        const PAGE: &str = "<!doctype html><html><head><title>Page</title></head><body><h1>Page</h1></body></html>";
-        let path = hop.url.path();
-        let asked = retry_after(path);
-        let (status, content_type, body) = match (path, asked) {
-            (PANICS, _) => panic!("the test's site panics in the attempt that fetches {PANICS}"),
-            ("/robots.txt", _) => (404, "text/html; charset=utf-8", ""),
-            (SITEMAP, _) => (200, "application/xml", SITEMAP_XML),
-            (_, Some((status, _))) => (status, "text/html; charset=utf-8", PAGE),
-            _ => (200, "text/html; charset=utf-8", PAGE),
-        };
-        let mut headers = vec![
-            ("content-type".to_owned(), content_type.to_owned()),
-            ("content-length".to_owned(), body.len().to_string()),
-        ];
-        if let Some((status, value)) = asked {
-            headers.push(("retry-after".to_owned(), value.to_owned()));
+/// The page of the site every crawl of the harness fetches from memory, a
+/// Memory site with no robots.txt, at `url`: every URL but [`SITEMAP`],
+/// [`PANICS`] and [`RETRY_AFTER`]'s answers one small document.
+fn page(url: &goodfetch_memory_site::Url) -> goodfetch_memory_site::Page {
+    use goodfetch_memory_site::Page;
+    const PAGE: &str =
+        "<!doctype html><html><head><title>Page</title></head><body><h1>Page</h1></body></html>";
+    let path = url.path();
+    match (path, retry_after(path)) {
+        (PANICS, _) => panic!("the test's site panics in the attempt that fetches {PANICS}"),
+        (SITEMAP, _) => Page::new(200, "application/xml", SITEMAP_XML),
+        (_, Some((status, value))) => {
+            let page = Page::html(PAGE)
+                .with_status(status)
+                .with_header("retry-after", value);
             if (300..400).contains(&status) {
-                headers.push(("location".to_owned(), "/target".to_owned()));
+                page.with_header("location", "/target")
+            } else {
+                page
             }
         }
-        Box::pin(std::future::ready(Ok(goodfetch_fetch_tier::Sent {
-            status,
-            headers,
-            body: Box::new(Whole(Some(bytes::Bytes::from_static(body.as_bytes())))),
-            reused: false,
-            decoded: false,
-            certificate_exception: None,
-        })))
+        _ => Page::html(PAGE),
     }
 }
 
@@ -498,14 +466,15 @@ const SITEMAP_XML: &str = concat!(
     "</urlset>",
 );
 
-/// The fetch tiers of the harness's engine, serving [`Site`] from memory.
+/// The fetch tiers of the harness's engine, serving [`page`]'s site from
+/// memory.
 pub(crate) fn tiers() -> goodfetch_fetch_tier::FetchTiers {
-    goodfetch_fetch_tier::FetchTiers::serving(std::sync::Arc::new(Site))
+    goodfetch_memory_site::MemorySite::new(page).tiers()
 }
 
 /// A Foxhound engine composed of the engine's operations, the Frontier's
 /// per-domain queues, the Session pool's and the Datasets' tables and the
-/// crawl's, fetching [`Site`] from memory.
+/// crawl's, fetching [`page`]'s site from memory.
 pub(crate) fn engine() -> Engine {
     let identity = Identity {
         product: Product::Foxhound,

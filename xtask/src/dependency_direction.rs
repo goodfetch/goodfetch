@@ -62,11 +62,12 @@ const TEST_SUPPORT: &str = "goodfetch-test-support";
 const TEST_CLIENT: &str = "goodfetch-test-client";
 /// The test adapter crates (ADR 0125): each implements a Goodfetch
 /// interface for tests. The pull request that adds one adds it here.
-const TEST_ADAPTERS: [&str; 4] = [
+const TEST_ADAPTERS: [&str; 5] = [
     "goodfetch-simulation",
     "goodfetch-scripted-model",
     "goodfetch-recording-gate",
     "goodfetch-stub-gateway",
+    "goodfetch-memory-site",
 ];
 const CONFORMANCE: &str = "goodfetch-conformance";
 const PROTOCOL: &str = "goodfetch-protocol";

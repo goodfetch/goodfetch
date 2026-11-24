@@ -20,7 +20,7 @@ use rstest::rstest;
 use serde_json::{Value, json};
 use sha2::{Digest as _, Sha256, Sha512};
 
-use crate::proving_ground::ProvingGround;
+use crate::proving_ground::{ProvingGround, submission};
 
 const SEED: u64 = 168;
 
@@ -698,4 +698,137 @@ fn an_edge_configuration_that_cannot_hold_is_refused_at_the_start(
     let stderr = refused(&arguments, &[("EDGE_SECRET", "the-edge-secret")]);
 
     assert!(stderr.contains(named), "{stderr}");
+}
+
+/// The `challenges` tasks of the task list: each one's id and start URL.
+fn challenge_tasks(proving_ground: &ProvingGround) -> Vec<(String, String)> {
+    proving_ground.tasks()["tasks"]
+        .as_array()
+        .expect("`tasks` is an array")
+        .iter()
+        .filter(|task| task["family"] == "challenges")
+        .map(|task| {
+            let text = |field: &str| task[field].as_str().expect("a string").to_owned();
+            (text("id"), text("start_url"))
+        })
+        .collect()
+}
+
+/// Covers: story:2-38, story:2-49
+#[test]
+fn the_online_copy_lists_one_challenge_task_per_configured_vendor() {
+    let env = TestEnv::new();
+    let proving_ground = online(
+        &env,
+        &format!("{ALTCHA}\n[anubis]\nsecret_env = \"ALTCHA_KEY\"\n"),
+        ("ALTCHA_KEY", "the-key"),
+    );
+
+    let tasks = challenge_tasks(&proving_ground);
+
+    assert_eq!(
+        tasks,
+        [
+            (
+                "challenges/5".to_owned(),
+                proving_ground.url(HOST, "/altcha")
+            ),
+            (
+                "challenges/6".to_owned(),
+                proving_ground.url(HOST, "/anubis")
+            ),
+        ]
+    );
+}
+
+#[test]
+fn the_local_copy_lists_no_challenge_task() {
+    let proving_ground = ProvingGround::start(SEED);
+
+    let tasks = challenge_tasks(&proving_ground);
+
+    assert!(tasks.is_empty(), "{tasks:?}");
+}
+
+/// Passes ALTCHA's challenge as its widget would, or posts a wrong
+/// solution when `solved` is false.
+fn take_altcha(proving_ground: &ProvingGround, solved: bool) {
+    let challenge = proving_ground
+        .get(&proving_ground.url(HOST, "/altcha/challenge"))
+        .json();
+    let number = solve(&challenge) + u64::from(!solved);
+    post_altcha(proving_ground, &altcha_payload(&challenge, number));
+}
+
+/// Covers: story:2-38, story:2-49
+#[rstest]
+#[case::passed(&[true], "verified", json!("passed"))]
+#[case::failed(&[false], "false_success", json!("failed"))]
+#[case::passed_after_failing(&[false, true], "verified", json!("passed"))]
+#[case::failed_after_passing(&[true, false], "false_success", json!("failed"))]
+fn the_vendors_latest_verdict_judges_the_challenge_task(
+    #[case] attempts: &[bool],
+    #[case] outcome: &str,
+    #[case] verdict: Value,
+) {
+    let env = TestEnv::new();
+    let proving_ground = online(&env, ALTCHA, ("ALTCHA_KEY", "the-key"));
+    for solved in attempts {
+        take_altcha(&proving_ground, *solved);
+    }
+
+    let answer = proving_ground.judge(&submission("challenges/5", "success", &[]));
+
+    assert_eq!(answer["outcome"], outcome, "{answer}");
+    assert_eq!(answer["verdict"]["outcome"], verdict, "{answer}");
+}
+
+/// Covers: story:2-38, story:2-49
+#[test]
+fn a_failed_verdict_is_a_finding_naming_the_vendors_reason() {
+    let env = TestEnv::new();
+    let proving_ground = online(&env, ALTCHA, ("ALTCHA_KEY", "the-key"));
+    take_altcha(&proving_ground, false);
+
+    let answer = proving_ground.judge(&submission("challenges/5", "success", &[]));
+
+    assert_eq!(
+        answer["findings"],
+        json!([{
+            "check": "vendor_verdict",
+            "at": "/altcha/verify",
+            "observed": { "vendor": "altcha", "outcome": "failed", "reason": "wrong_solution" },
+        }]),
+        "{answer}"
+    );
+}
+
+/// Covers: story:2-38, story:2-49
+#[test]
+fn an_inconclusive_verdict_never_verifies_the_challenge_task() {
+    let env = TestEnv::new();
+    let proving_ground = online(
+        &env,
+        "[anubis]\nsecret_env = \"ANUBIS_KEY\"\n",
+        ("ANUBIS_KEY", "the-key"),
+    );
+    proving_ground.get(&proving_ground.url(HOST, "/anubis"));
+
+    let answer = proving_ground.judge(&submission("challenges/6", "success", &[]));
+
+    assert_eq!(answer["outcome"], "false_success", "{answer}");
+    assert_eq!(answer["verdict"]["outcome"], "inconclusive", "{answer}");
+}
+
+/// Covers: story:2-38, story:2-49
+#[test]
+fn a_challenge_task_the_vendor_never_judged_fails_with_no_verdict() {
+    let env = TestEnv::new();
+    let proving_ground = online(&env, ALTCHA, ("ALTCHA_KEY", "the-key"));
+
+    let answer = proving_ground.judge(&submission("challenges/5", "success", &[]));
+
+    assert_eq!(answer["outcome"], "false_success", "{answer}");
+    assert_eq!(answer["verdict"], Value::Null, "{answer}");
+    assert_eq!(answer["findings"][0]["observed"], "no_verdict", "{answer}");
 }

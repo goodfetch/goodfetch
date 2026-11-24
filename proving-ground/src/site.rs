@@ -27,6 +27,7 @@ use crate::browser_builds::{self, BrowserBuilds};
 use crate::browser_pages;
 use crate::catalog;
 use crate::certificates;
+use crate::challenges;
 use crate::clean_up;
 use crate::codecs;
 use crate::consent;
@@ -198,9 +199,14 @@ impl Site {
         hosts
     }
 
-    /// Every family's tasks, as this `serve` lists them.
+    /// Every family's tasks, as this `serve` lists them: the online copy
+    /// adds its vendors' challenges.
     fn tasks(&self) -> Vec<Task> {
-        Self::every_task(self.seed, Some(self.port))
+        let mut tasks = Self::every_task(self.seed, Some(self.port));
+        if let Some(online) = &self.online {
+            tasks.extend(challenges::tasks(online, Some(self.port)));
+        }
+        tasks
     }
 
     /// Every family's tasks for `seed`, in the task list's order, their start
@@ -726,6 +732,13 @@ impl Site {
                 let answer = oracle::judge(expected, submission, &effects, &requests, findings)
                     .refuted_by(self.reported(&task.entry.id));
                 let answer = answer.refuted_by(browser_pages::findings(&task.entry.id, &requests));
+                if let Some(online) = &self.online
+                    && task.entry.family == challenges::FAMILY
+                {
+                    let answer =
+                        challenges::judge(&task.entry.id, answer, online, &self.observations);
+                    return Reply::json(StatusCode::OK, &answer);
+                }
                 if task.entry.family == access::FAMILY {
                     let answer = access::judge(&task.entry.id, answer, &self.observations);
                     return Reply::json(StatusCode::OK, &answer);

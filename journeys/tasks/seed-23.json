@@ -791,6 +791,14 @@
       "start_url": "http://2.protection.test/captcha"
     },
     {
+      "description": "Extract the article behind this page's Turnstile widget as one Record with the fields `id` and `title`. The page takes the token a solver-service stand-in answers for its site key and URL.",
+      "digest": "8a9f71c22be9ab52435017f0c7352e60523890622ac4a8a5472a448049709b85",
+      "family": "protection",
+      "id": "protection/3",
+      "kind": "extract",
+      "start_url": "http://3.protection.test/turnstile"
+    },
+    {
       "description": "Fetch this page over HTTP and the page it links to in the browser, in one Session, and return each page's Record with the fields `id` and `code`. The server compares the fingerprints of the two requests.",
       "digest": "06abf652cb00d38cbece4ec6f66460cf078c7242b2e5f448625d115c3ea6fbcb",
       "family": "access",

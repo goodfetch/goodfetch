@@ -70,6 +70,7 @@ mod robots;
 mod schedule;
 mod server;
 mod site;
+mod solvers;
 mod sync;
 mod tap;
 mod task;

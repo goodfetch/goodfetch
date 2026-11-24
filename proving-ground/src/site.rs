@@ -6,9 +6,10 @@
 //! (`PUT /limited-proxy-hold`), certificate authority
 //! (`GET /certificate-authority`), observations (`GET /observations`), the
 //! replay proxy's refusals (`GET /replay`), the Fake model's calls
-//! (`GET /model-calls`) and the revocation of the portal's sessions
-//! (`POST /revoke-sessions`), which a harness asks for while a tool is
-//! stopped.
+//! (`GET /model-calls`), the solver-service stand-ins' accounts
+//! (`POST /solver-accounts`) and calls (`GET /solver-calls`), and the
+//! revocation of the portal's sessions (`POST /revoke-sessions`), which a
+//! harness asks for while a tool is stopped.
 
 use crate::interface::ROUTES;
 use std::collections::BTreeMap;
@@ -57,6 +58,7 @@ use crate::raw_site;
 use crate::rendered;
 use crate::replay::{self, Refusals};
 use crate::schedule;
+use crate::solvers::{self, Solvers};
 use crate::task::{Task, TaskList};
 use crate::version::VERSION;
 
@@ -74,6 +76,7 @@ pub(crate) struct Site {
     portal: Portal,
     model: FakeModel,
     refusals: Refusals,
+    solvers: Solvers,
     /// What the Crawl families saw crawls do.
     crawl: Families,
     /// The files `browser-builds.test` serves.
@@ -137,6 +140,7 @@ impl Site {
             portal: Portal::new(seed),
             model: FakeModel::new(seed),
             refusals: Refusals::default(),
+            solvers: Solvers::default(),
             crawl: Families::new(),
             builds,
             online,
@@ -181,6 +185,7 @@ impl Site {
             ])
             .chain(page_load::AD_HOSTS)
             .chain(google_hosts::HOSTS)
+            .chain(solvers::hosts())
             .map(|host| (host.to_owned(), None))
             .collect();
         hosts.extend(
@@ -382,6 +387,9 @@ impl Site {
         if let Some(reply) = google_hosts::respond(&name, request) {
             return reply;
         }
+        if let Some(reply) = self.solvers.respond(self.seed, &name, request) {
+            return reply;
+        }
         if let Some(reply) = fonts::respond(&name, request) {
             return reply;
         }
@@ -451,6 +459,8 @@ impl Site {
             (&Method::PUT, "/limited-proxy-hold") => self.set_limited_hold(request.body),
             (&Method::POST, "/canaries") => self.plant(request),
             (&Method::GET, "/canaries") => self.canaries.document(),
+            (&Method::POST, "/solver-accounts") => self.open_solver_account(request),
+            (&Method::GET, "/solver-calls") => self.solvers.document(),
             (&Method::POST, "/revoke-sessions") => {
                 self.portal.revoke();
                 Reply::no_content()
@@ -532,6 +542,16 @@ impl Site {
             Ok(plant) => self.canaries.plant(self.seed, &plant),
             Err(_) => Reply::error(StatusCode::BAD_REQUEST, "malformed_plant"),
         }
+    }
+
+    /// Opens an account on a solver-service stand-in for a harness on a
+    /// loopback address, never for a request from elsewhere, so the online
+    /// copy hands out no key.
+    fn open_solver_account(&self, request: &Request<'_>) -> Reply {
+        if !request.peer.is_loopback() {
+            return Reply::error(StatusCode::FORBIDDEN, "solver_account_refused");
+        }
+        self.solvers.open(self.seed, request.body)
     }
 
     /// Records each planted Secret canary a request carries in its target,

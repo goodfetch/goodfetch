@@ -267,7 +267,7 @@ impl Site {
     }
 
     /// Answers one request as [`Self::respond`] does, with how long the
-    /// server holds the reply first, which only a Crawl family asks for.
+    /// server holds the reply first, if it does.
     pub(crate) fn respond_held(
         &self,
         host: &str,
@@ -291,6 +291,7 @@ impl Site {
         }
         let held = browser_pages::hold(&name, request.path)
             .or_else(|| access::hold(&name, request.path))
+            .or_else(|| self.solvers.hold(&name, request))
             .map(crawl::Held::after);
         (self.respond(host, request), held)
     }

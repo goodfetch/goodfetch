@@ -4,7 +4,7 @@
 use std::net::IpAddr;
 
 use hyper::body::Bytes;
-use hyper::{Method, StatusCode};
+use hyper::{HeaderMap, Method, StatusCode};
 use serde::Serialize;
 
 use crate::client_hello::ClientHello;
@@ -19,6 +19,8 @@ pub(crate) struct Request<'a> {
     pub(crate) cookies: &'a str,
     /// The `Authorization` header, empty when the request has none.
     pub(crate) authorization: &'a str,
+    /// Every header of the request.
+    pub(crate) headers: &'a HeaderMap,
     pub(crate) body: &'a Bytes,
     /// The address the request came from, as the site sees it.
     pub(crate) peer: IpAddr,

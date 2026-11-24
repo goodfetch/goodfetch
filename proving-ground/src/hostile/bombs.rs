@@ -409,12 +409,15 @@ mod tests {
     /// A `GET` of `path`, with no query, cookie or body.
     fn get(path: &str) -> Request<'_> {
         static EMPTY: hyper::body::Bytes = hyper::body::Bytes::new();
+        static NO_HEADERS: std::sync::LazyLock<hyper::HeaderMap> =
+            std::sync::LazyLock::new(hyper::HeaderMap::new);
         Request {
             method: &Method::GET,
             path,
             query: "",
             cookies: "",
             authorization: "",
+            headers: &NO_HEADERS,
             body: &EMPTY,
             peer: std::net::IpAddr::from([127, 0, 0, 1]),
             tls: None,

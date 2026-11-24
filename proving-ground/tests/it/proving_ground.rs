@@ -402,15 +402,30 @@ impl ProvingGround {
     /// Posts JSON to a URL on one of the Proving ground's host names, as a
     /// page's script does.
     pub(crate) fn post_json(&self, url: &str, value: &Value) -> Answer {
-        let rest = url.strip_prefix("http://").expect("an http URL");
-        let (host, path) = rest.split_at(rest.find('/').unwrap_or(rest.len()));
-        let response = self
+        self.post_json_with_headers(url, &[], value)
+    }
+
+    /// Posts JSON as [`Self::post_json`] does, sending `headers` after
+    /// `Host`.
+    pub(crate) fn post_json_with_headers(
+        &self,
+        url: &str,
+        headers: &[(&str, &str)],
+        value: &Value,
+    ) -> Answer {
+        let (host, path) = split(url);
+        let mut request = self
             .agent
             .post(format!("http://{}{path}", self.address))
-            .header("host", host)
-            .send_json(value)
-            .expect("the Proving ground answers");
-        Self::answer(response)
+            .header("host", host);
+        for (name, value) in headers {
+            request = request.header(*name, *value);
+        }
+        Self::answer(
+            request
+                .send_json(value)
+                .expect("the Proving ground answers"),
+        )
     }
 
     /// The oracle's verdict on a submitted result, which it must answer

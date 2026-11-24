@@ -222,6 +222,7 @@ mod tests {
                 query: "",
                 cookies: "",
                 authorization: "",
+                headers: &hyper::HeaderMap::new(),
                 body: &EMPTY,
                 peer: std::net::IpAddr::from([127, 0, 0, 1]),
                 tls: None,

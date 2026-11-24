@@ -44,7 +44,7 @@ pub(super) fn raise(
 ) -> ExitCode {
     let asked = RAISE
         .person_present(json, human)
-        .and_then(|()| RAISE.ask(&format!("{}?", question(params)), None, human));
+        .and_then(|()| RAISE.ask(&question(params), None, human));
     match asked {
         Ok(true) => {}
         Ok(false) => {
@@ -76,7 +76,16 @@ pub(super) fn raise(
 }
 
 /// The question the prompt asks: which Limit, raised to what.
-fn question(params: &UsageRaiseParams) -> String {
+pub(super) fn question(params: &UsageRaiseParams) -> String {
+    format!(
+        "Raise the {} to {}?",
+        limit(params),
+        amount(params.amount, params.currency.as_deref())
+    )
+}
+
+/// The Limit `params` names.
+pub(super) fn limit(params: &UsageRaiseParams) -> String {
     let scope_id = params
         .scope_id
         .as_ref()
@@ -92,14 +101,19 @@ fn question(params: &UsageRaiseParams) -> String {
         .as_ref()
         .map(|period| format!(" per {} in {}", period.every.as_str(), period.time_zone))
         .unwrap_or_default();
-    let amount = match &params.currency {
-        Some(currency) => format!("{} millionths of {currency}", params.amount),
-        None => params.amount.to_string(),
-    };
     format!(
-        "Raise the {}{scope_id} Limit on {}{currency}{period} to {amount}",
+        "{}{scope_id} Limit on {}{currency}{period}",
         params.scope, params.usage_kind
     )
+}
+
+/// How much a Limit allows: `amount` of its Usage kind, or millionths of
+/// its `currency`.
+pub(super) fn amount(amount: u64, currency: Option<&str>) -> String {
+    match currency {
+        Some(currency) => format!("{amount} millionths of {currency}"),
+        None => amount.to_string(),
+    }
 }
 
 /// A period as `--period` takes it: JSON, such as

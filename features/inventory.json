@@ -491,6 +491,17 @@
       ]
     },
     {
+      "id": "command:needs-you.answer",
+      "kind": "command",
+      "area": 12,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "command:needs-you.dismiss",
       "kind": "command",
       "area": 12,
@@ -16454,11 +16465,33 @@
       ]
     },
     {
+      "id": "story:12-139",
+      "kind": "story",
+      "area": 12,
+      "milestone": "M3 Browser automation",
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "story:12-14",
       "kind": "story",
       "area": 12,
       "milestone": "M1 Core",
       "status": "retired",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "story:12-140",
+      "kind": "story",
+      "area": 12,
+      "milestone": "M3 Browser automation",
+      "status": "active",
       "products": [
         "collie",
         "foxhound"

@@ -33,6 +33,7 @@ use super::{
 const FOXHOUNDS_CATALOG: OwnCommands = OwnCommands {
     commands: &[],
     members: foxhounds_catalog_members,
+    answers: &[],
 };
 
 pub(super) fn foxhounds_catalog_members(group: clap::Command) -> clap::Command {

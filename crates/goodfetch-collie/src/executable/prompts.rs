@@ -7,7 +7,10 @@
 //! gives the answer. A prompt asks its question once: a prompt that widens
 //! what the person takes on prints its warning once before it, and no
 //! confirmation loop follows (ADR 0052). Each person-only command adds a
-//! call to [`Prompt::ask`], never a loop of its own.
+//! call to [`Prompt::ask`], never a loop of its own, but `needs-you answer`
+//! (the `needs_you` module), which reads what the person types beside the
+//! list's changes: it refuses, words its questions and reads a yes as
+//! [`refused`], [`confirmation`] and [`yes`] do.
 
 use std::process::ExitCode;
 
@@ -55,46 +58,67 @@ impl Prompt {
             human.warning(warning);
         }
         let answer = human
-            .ask(&format!("{question} [y/N]"))
+            .ask(&confirmation(question))
             .ok_or_else(|| self.refused(false, human))?;
         Ok(yes(&answer))
     }
 
-    /// The `person_required` refusal: one `CommandFailed` on stdout under
-    /// `--json`, else on stderr.
+    /// The `person_required` refusal of the prompt.
     fn refused(&self, json: bool, human: &Human) -> ExitCode {
         let command = command_words(self.operation.name);
-        let elsewhere = self
-            .elsewhere
-            .map(|elsewhere| format!(", or {elsewhere}"))
-            .unwrap_or_default();
-        let mut details = Map::new();
-        details.insert(
-            "fix".to_owned(),
-            Value::from(format!(
-                "Run `{command}` in a terminal, without `--json`{elsewhere}."
-            )),
-        );
-        let failed = CommandFailed {
-            error: CommandError {
-                code: PERSON_REQUIRED.name.to_owned(),
-                group: PERSON_REQUIRED.group,
-                retryable: PERSON_REQUIRED.retryable,
-                message: format!("`{command}` is a person's answer, asked at a terminal"),
-                operation: Some(self.operation.name.to_owned()),
-                details,
-            },
-        };
-        output::failed(&failed, json, human);
-        ExitCode::from(exit_codes::of_error(
-            PERSON_REQUIRED.name,
-            PERSON_REQUIRED.group,
-        ))
+        refused(
+            &command,
+            self.elsewhere,
+            Some(self.operation),
+            (json, human),
+        )
     }
+}
+
+/// The `person_required` refusal of `command`, which calls `operation` where
+/// it calls one only, its `fix` naming the command and wherever else,
+/// `elsewhere`, a person gives its answer: one `CommandFailed` on stdout
+/// under `--json`, else on stderr.
+pub(super) fn refused(
+    command: &str,
+    elsewhere: Option<&str>,
+    operation: Option<&Operation>,
+    (json, human): (bool, &Human),
+) -> ExitCode {
+    let elsewhere = elsewhere
+        .map(|elsewhere| format!(", or {elsewhere}"))
+        .unwrap_or_default();
+    let mut details = Map::new();
+    details.insert(
+        "fix".to_owned(),
+        Value::from(format!(
+            "Run `{command}` in a terminal, without `--json`{elsewhere}."
+        )),
+    );
+    let failed = CommandFailed {
+        error: CommandError {
+            code: PERSON_REQUIRED.name.to_owned(),
+            group: PERSON_REQUIRED.group,
+            retryable: PERSON_REQUIRED.retryable,
+            message: format!("`{command}` is a person's answer, asked at a terminal"),
+            operation: operation.map(|operation| operation.name.to_owned()),
+            details,
+        },
+    };
+    output::failed(&failed, json, human);
+    ExitCode::from(exit_codes::of_error(
+        PERSON_REQUIRED.name,
+        PERSON_REQUIRED.group,
+    ))
+}
+
+/// `question` as a prompt asks it, with the default its answer takes.
+pub(super) fn confirmation(question: &str) -> String {
+    format!("{question} [y/N]")
 }
 
 /// Whether `answer` is a yes: `y` or `yes`, in any case. Anything else,
 /// an empty line too, is the prompt's default, no.
-fn yes(answer: &str) -> bool {
+pub(super) fn yes(answer: &str) -> bool {
     matches!(answer.to_ascii_lowercase().as_str(), "y" | "yes")
 }

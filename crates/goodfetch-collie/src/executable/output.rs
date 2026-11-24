@@ -329,16 +329,15 @@ impl Human {
         if !self.can_ask() {
             return None;
         }
-        #[expect(
-            clippy::disallowed_methods,
-            reason = "a person-only prompt reads the person's answer from stdin"
-        )]
-        let stdin = std::io::stdin();
+        self.prompt(question);
+        Some(read_answer().unwrap_or_default())
+    }
+
+    /// Writes `question` on stderr, the cursor after it, where the person
+    /// types their answer.
+    pub(super) fn prompt(&self, question: &str) {
         let question = styled(self.colour_stderr, Style::Strong, question);
         write_stderr(format!("{question} ").as_bytes());
-        let mut answer = String::new();
-        let _ = stdin.read_line(&mut answer);
-        Some(answer.trim().to_owned())
     }
 
     /// Writes `warning: text` on stderr, the label styled.
@@ -378,6 +377,21 @@ impl Human {
         Progress {
             shown: self.progress,
         }
+    }
+}
+
+/// What a person typed at a prompt, a line of stdin without its ends' white
+/// space, waiting for it; none once stdin ended.
+pub(super) fn read_answer() -> Option<String> {
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "a person-only prompt reads the person's answer from stdin"
+    )]
+    let stdin = std::io::stdin();
+    let mut answer = String::new();
+    match stdin.read_line(&mut answer) {
+        Ok(0) | Err(_) => None,
+        Ok(_) => Some(answer.trim().to_owned()),
     }
 }
 

@@ -160,17 +160,17 @@ fn certs_list_refuses_a_store_of_a_newer_major() {
 }
 
 /// The expired host, pinned by the OS user.
-const HOST: &str = "expired.certificates.test";
+pub(crate) const HOST: &str = "expired.certificates.test";
 
 /// The SHA-256 of "the caller's key", in base64, computed apart.
-const PINNED: &str = "sha256/ACwLaIK/Nlbggk81BpIt0Z2eZrh9gHln/WS7pnwGge0=";
+pub(crate) const PINNED: &str = "sha256/ACwLaIK/Nlbggk81BpIt0Z2eZrh9gHln/WS7pnwGge0=";
 
 /// The SHA-256 of "the changed key", in base64, computed apart.
-const CHANGED: &str = "sha256/1jlINei1T2GB2iKNenHQJy1POCDvVjQqkhrCm156RBk=";
+pub(crate) const CHANGED: &str = "sha256/1jlINei1T2GB2iKNenHQJy1POCDvVjQqkhrCm156RBk=";
 
 /// The shared store, with the key that stopped the caller's pinned host
 /// waiting to be accepted.
-fn changed_store(env: &TestEnv) -> KnownCertificates {
+pub(crate) fn changed_store(env: &TestEnv) -> KnownCertificates {
     let store = shared_store(env);
     goodfetch_test_support::runtime().block_on(async {
         store
@@ -189,7 +189,7 @@ fn changed_store(env: &TestEnv) -> KnownCertificates {
 
 /// The caller's pin of the expired host, and the change waiting for it, as
 /// `certs list --json` shows them; none when it has no pin.
-fn pin_of_host(env: &TestEnv) -> Option<(Value, Value)> {
+pub(crate) fn pin_of_host(env: &TestEnv) -> Option<(Value, Value)> {
     let listed = cli(env, COLLIE)
         .args(["certs", "list", "--json"])
         .run()

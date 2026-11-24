@@ -130,6 +130,7 @@ fn command_line(product: Product) -> (Command, Generated) {
         Product::Foxhound => OwnCommands {
             commands: &[],
             members: crate::executable::tests::foxhounds_catalog_members,
+            answers: &[],
         },
     };
     let generated = Generated::beside(product, own, &Command::new("goodfetch"));

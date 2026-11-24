@@ -70,6 +70,7 @@ use self::messages::{ANSWER, Action, BINDING, DETECTING, Message, Outcome, RESTA
 pub(crate) use self::walls::Walls;
 use self::walls::{Approval, Wall};
 use crate::driver::{Child, ChildKind, GUARD_WORLD, OnChild, PageDriver};
+use crate::gesture_order::PointerAsks;
 use crate::guard::{self, Element, Readiness};
 use crate::hiding::{Part, Sheets};
 use crate::interception::{ConsentHandling, domain_key};
@@ -125,7 +126,7 @@ impl Consent {
     pub(crate) async fn start(
         &self,
         page_id: &PageId,
-        driver: &PageDriver,
+        (driver, pointer): (&PageDriver, PointerAsks),
         run: &Run,
         sheets: &Arc<Sheets>,
     ) -> Result<OnChild, CallError> {
@@ -170,6 +171,7 @@ impl Consent {
             .await;
         let shared = Arc::new(Shared {
             driver: driver.clone(),
+            pointer,
             run: run.clone(),
             clock: run.clock(),
             runner: Arc::clone(runner),
@@ -226,6 +228,8 @@ pub(crate) async fn first_pass_found(driver: &PageDriver, work: &CountedWork) ->
 /// it answers, who approved accepting a wall, and the walls it leaves.
 struct Shared {
     driver: PageDriver,
+    /// Where it asks for the page's pointer, which each click holds.
+    pointer: PointerAsks,
     run: Run,
     clock: Clock,
     runner: Arc<Runner>,
@@ -612,7 +616,9 @@ async fn click(shared: &Shared, frame: &Frame, handle: u64) -> bool {
         if remaining.is_zero() {
             return false;
         }
-        let gesture = driver.gesture().await;
+        let Some(pointer) = shared.pointer.lent().await else {
+            return false;
+        };
         let slice = remaining.min(SLICE);
         // A frame that goes away with its document may never answer: the
         // pointer is not held past the check's own slice and some grace.
@@ -644,7 +650,7 @@ async fn click(shared: &Shared, frame: &Frame, handle: u64) -> bool {
                         .await
                         .unwrap_or(true);
                 shared.sheets.restore().await;
-                drop(gesture);
+                drop(pointer);
                 if landed {
                     return true;
                 }

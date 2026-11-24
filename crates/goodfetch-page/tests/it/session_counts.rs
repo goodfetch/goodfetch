@@ -163,8 +163,8 @@ fn a_sessions_actions_count_each_check_and_their_commands_by_kind() {
         .map(|row| counted.count(row)),
         [10, 4, 8]
     );
-    // Only a click asks its Page's owner yet (issue 3253), once an attempt.
-    assert_eq!(counted.count(Row::ActionOwnerRoundTrips), 2);
+    // Each attempt asks its Page's owner for its turn, once.
+    assert_eq!(counted.count(Row::ActionOwnerRoundTrips), 6);
 }
 
 /// A plant adds one unit of its row per command, which takes the row past

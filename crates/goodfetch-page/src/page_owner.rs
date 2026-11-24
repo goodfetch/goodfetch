@@ -2,9 +2,9 @@
 //! takes what is asked of its Page and runs the work that waits on the
 //! browser as its own child tasks, each answering its caller, so that its
 //! loop never awaits the browser or the program. Spec #2256 moves a Page's
-//! operations and state into it ticket by ticket; a click's pointer input
-//! is the first, sent while its caller holds the page's turn, so gestures
-//! keep their arrival order (ADR 0085).
+//! operations and state into it ticket by ticket. It holds the Page's
+//! Gesture order ([`GestureOrder`]) and grants each Gesture its turn, in
+//! arrival order (ADR 0085); the Gesture's call then sends its input.
 //!
 //! A panic of one of its tasks closes its Page alone (ADR 0148): the owner
 //! keeps `engine_panicked`, naming the Page, which each ask in flight and
@@ -22,8 +22,8 @@ use goodfetch_protocol::page::PageId;
 use tokio::sync::{mpsc, oneshot, watch};
 use tracing::Instrument as _;
 
-use crate::cdp::CdpPage;
-use crate::errors::{Call, page_panicked};
+use crate::errors::page_panicked;
+use crate::gesture_order::{GestureOrder, GestureTurn};
 use crate::interception::PageInterception;
 use crate::page_events::PageEvents;
 
@@ -73,16 +73,8 @@ pub(crate) struct PageOwners(
 
 /// One thing asked of a Page's owner, with where its answer goes.
 enum Ask {
-    /// A click's pointer input at (`x`, `y`), sent on `page` for `call`,
-    /// in `span`, the caller's.
-    PointerClick {
-        page: CdpPage,
-        x: f64,
-        y: f64,
-        call: Call,
-        span: tracing::Span,
-        answer: oneshot::Sender<Result<(), CallError>>,
-    },
+    /// A Gesture's turn.
+    Turn(oneshot::Sender<GestureTurn>),
 }
 
 /// Where the owner's loop keeps what a panic of one of its tasks raises:
@@ -95,17 +87,17 @@ struct Panicked {
 }
 
 impl PageOwner {
-    /// Starts the owner of the Page `page_id`, holding `parts`, as a child
-    /// of `session`, its Session's owner, its loop in `span`, its Run's,
-    /// counting on `metrics`, its Run's; once it has gone, each ask raises
-    /// `closed`, or `engine_panicked` after a panic of one of its tasks. It
-    /// ends once its Session's owner is cancelled, once one of its tasks
-    /// panicked, or once every clone of what this answers has gone, after
-    /// its child tasks.
+    /// Starts the owner of the Page `page_id`, holding `parts` and the
+    /// Gesture order `order`, as a child of `session`, its Session's owner,
+    /// its loop in `span`, its Run's, counting on `metrics`, its Run's; once
+    /// it has gone, each ask raises `closed`, or `engine_panicked` after a
+    /// panic of one of its tasks. It ends once its Session's owner is
+    /// cancelled, once one of its tasks panicked, or once every clone of
+    /// what this answers has gone, after its child tasks.
     pub(crate) fn start(
         session: &TaskStarter,
         span: &tracing::Span,
-        (page_id, parts): (&PageId, PageParts),
+        (page_id, parts, order): (&PageId, PageParts, GestureOrder),
         closed: CallError,
         metrics: &Metrics,
     ) -> Self {
@@ -113,7 +105,7 @@ impl PageOwner {
             session.child(),
             session,
             span,
-            (page_id, parts),
+            (page_id, parts, order),
             closed,
             metrics,
         )
@@ -124,7 +116,7 @@ impl PageOwner {
         owner: TaskOwner,
         session: &TaskStarter,
         span: &tracing::Span,
-        (page_id, parts): (&PageId, PageParts),
+        (page_id, parts, order): (&PageId, PageParts, GestureOrder),
         closed: CallError,
         metrics: &Metrics,
     ) -> Self {
@@ -135,7 +127,7 @@ impl PageOwner {
             page_id: page_id.clone(),
             metrics: metrics.clone(),
         };
-        session.spawn(serve(owner, mailbox, panic).instrument(span.clone()));
+        session.spawn(serve(owner, mailbox, order, panic).instrument(span.clone()));
         Self {
             parts: Arc::new(parts),
             asks,
@@ -155,42 +147,25 @@ impl PageOwner {
         &self.parts.interception
     }
 
-    /// Clicks at (`x`, `y`) in the viewport of `page`, through the owner:
-    /// [`CdpPage::pointer_click`] for `call`, as a child task of the owner,
-    /// in the caller's span. One round trip to the owner, counted on
-    /// `C3.owner_round_trips`.
+    /// Waits for a Gesture's turn on the Page, in arrival order. One round
+    /// trip to the owner, counted on `C3.owner_round_trips`.
     ///
     /// # Errors
     ///
-    /// What the click raises; once the owner has gone, `closed`, or
-    /// `engine_panicked` when a panic of one of its tasks closed it.
+    /// Once the owner has gone, `closed`, or `engine_panicked` when a panic
+    /// of one of its tasks closed it.
     ///
     /// # Cancel safety
     ///
-    /// Dropping the future stops the click: none of its later events is
-    /// sent.
-    pub(crate) async fn pointer_click(
-        &self,
-        page: CdpPage,
-        x: f64,
-        y: f64,
-        call: &Call,
-    ) -> Result<(), CallError> {
+    /// Dropping the future gives up the place in the order.
+    pub(crate) async fn turn(&self) -> Result<GestureTurn, CallError> {
         self.work.count(Row::ActionOwnerRoundTrips);
         let (answer, answered) = oneshot::channel();
-        let ask = Ask::PointerClick {
-            page,
-            x,
-            y,
-            call: call.clone(),
-            span: tracing::Span::current(),
-            answer,
-        };
-        if self.asks.send(ask).await.is_err() {
+        if self.asks.send(Ask::Turn(answer)).await.is_err() {
             return Err(self.gone().await);
         }
         match answered.await {
-            Ok(clicked) => clicked,
+            Ok(turn) => Ok(turn),
             Err(_) => Err(self.gone().await),
         }
     }
@@ -285,15 +260,20 @@ impl PageOwners {
     }
 }
 
-/// The owner's loop: it takes each ask in turn and starts its work, never
-/// awaiting it, until `owner` is cancelled, one of its tasks panicked, which
-/// `panic` keeps, or every [`PageOwner`] has gone, then stops its child
-/// tasks.
-async fn serve(owner: TaskOwner, mut mailbox: mpsc::Receiver<Ask>, panic: Panicked) {
+/// The owner's loop: it takes in each ask, and each change of the Gesture
+/// order `order`, as it comes, never awaiting the browser, until `owner` is
+/// cancelled, one of its tasks panicked, which `panic` keeps, or every
+/// [`PageOwner`] has gone, then stops its child tasks.
+async fn serve(
+    owner: TaskOwner,
+    mut mailbox: mpsc::Receiver<Ask>,
+    mut order: GestureOrder,
+    panic: Panicked,
+) {
     let panicked = owner.panicked();
     tokio::pin!(panicked);
     loop {
-        let ask = tokio::select! {
+        tokio::select! {
             biased;
             () = &mut panicked => {
                 let error = page_panicked(
@@ -305,44 +285,16 @@ async fn serve(owner: TaskOwner, mut mailbox: mpsc::Receiver<Ask>, panic: Panick
                 break;
             }
             () = owner.cancelled() => break,
+            () = order.changed() => {}
             ask = mailbox.recv() => match ask {
-                Some(ask) => ask,
+                Some(Ask::Turn(answer)) => order.ask(answer),
                 None => break,
             },
-        };
-        start(&owner, ask);
-    }
-    owner.stop().await;
-}
-
-/// Starts the work `ask` asks for as a child task of `owner`, which
-/// answers it, and stops once its caller has gone or `owner` is cancelled.
-fn start(owner: &TaskOwner, ask: Ask) {
-    match ask {
-        Ask::PointerClick {
-            page,
-            x,
-            y,
-            call,
-            span,
-            mut answer,
-        } => {
-            let stopped = owner.child_token();
-            owner.spawn(
-                async move {
-                    tokio::select! {
-                        biased;
-                        () = stopped.cancelled() => {}
-                        () = answer.closed() => {}
-                        clicked = page.pointer_click(x, y, &call) => {
-                            let _ = answer.send(clicked);
-                        }
-                    }
-                }
-                .instrument(span),
-            );
         }
     }
+    // What waits for its turn has gone with the page.
+    drop(order);
+    owner.stop().await;
 }
 
 #[cfg(test)]

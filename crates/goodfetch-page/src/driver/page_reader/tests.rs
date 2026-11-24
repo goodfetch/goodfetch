@@ -1,10 +1,13 @@
 //! The model-based test of a Page's owner (spec #2256, seam 3; TESTING.md,
-//! Model-based tests), at the parts it holds so far: its one reader and its
-//! events. Parts of the page subscribe on the page's session or on a
-//! frame's, early or late, and leave; `page.on("request")` listeners start
-//! and end, and waits for a request arm; the browser sends events or
-//! requests on any session still attached, detaches a frame, or detaches
-//! the page; and the page closes, in any order, against a browser played in
+//! Model-based tests), at the parts it holds so far: its one reader, its
+//! events and its Gesture order. Parts of the page subscribe on the page's
+//! session or on a frame's, early or late, and leave; `page.on("request")`
+//! listeners start and end, and waits for a request arm; Gestures ask for
+//! the turn, come to between two of their checks, and end or are cut, while
+//! what clicks on the page beside them asks for the pointer and gives it
+//! back; the browser sends events or requests on any session still
+//! attached, detaches a frame, or detaches the page; the page closes; and
+//! its Session's owner ends, in any order, against a browser played in
 //! process and a live Run. After each step, synced by a command whose
 //! answer the browser sends after its events ([`super::PageReader::after_events`])
 //! and by a listener of the test's own that heard the step's requests:
@@ -20,6 +23,12 @@
 //!   armed, or raises `closed` once the page closed first, or at once when
 //!   it closed before; a page whose target detached leaves its waits
 //!   waiting until it closes, so no call is left unanswered;
+//! - the Gestures got the turn in the order they asked for it, one at a
+//!   time, whatever else the page did; the pointer is at one holder at a
+//!   time, lent while no Gesture has the turn or as the one that has it
+//!   comes to between two checks; and once the Session's owner ended, each
+//!   ask still waiting, and each later one, raises `closed`;
+//! - each Gesture asked the owner once (`C3.owner_round_trips`);
 //! - each event the browser sent visited one reader of the connection, the
 //!   page's, when it is listed under the event's session
 //!   (`C1.event_visits`).
@@ -45,6 +54,7 @@ use tokio::runtime::Runtime;
 
 use crate::driver::PageDriver;
 use crate::driver::replay::{self, Played, SESSION};
+use crate::gesture_order::{GestureOrder, GestureTurn, LentPointer, PointerAsks};
 use crate::interception::Interception;
 use crate::interception::tests::hold_page;
 use crate::live_run::LiveRun;
@@ -94,6 +104,143 @@ enum Transition {
     DetachPage,
     /// The page closes, as its Session takes it out.
     Close,
+    /// A step of the page's Gesture order.
+    Order(OrderStep),
+}
+
+#[derive(Clone, Debug)]
+enum OrderStep {
+    /// A Gesture asks for the turn.
+    Gesture,
+    /// The Gesture whose turn it is comes to between two of its checks.
+    BetweenChecks,
+    /// A Gesture ends, or is cut while it waits.
+    EndGesture(Index),
+    /// What clicks on the page beside the Gestures asks for its pointer.
+    AskPointer,
+    /// What asked for the pointer gives it back, or gives up its wait.
+    LeavePointer(Index),
+    /// The Session's owner, and the Page's under it, ends.
+    EndOwner,
+}
+
+/// How an ask for the turn or the pointer stands.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Asked {
+    Waiting,
+    Held,
+    /// The page's owner, or the page, went first: it raised `closed`.
+    Refused,
+}
+
+/// What the model expects of the Gesture order: each ask for the turn and
+/// for the pointer, the oldest first.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+struct Order {
+    turns: Vec<Asked>,
+    pointers: Vec<Asked>,
+    /// Whether the Gesture whose turn it is waits for the pointer it lent.
+    lending: bool,
+    /// Whether the page's owner ended.
+    ended: bool,
+    /// How many Gestures asked the page's owner for the turn.
+    asks: u64,
+}
+
+impl Order {
+    /// The steps to choose from, each with its weight.
+    fn steps(&self) -> Vec<(u32, BoxedStrategy<OrderStep>)> {
+        let index = any::<Index>;
+        let mut steps = vec![
+            (12, Just(OrderStep::Gesture).boxed()),
+            (6, Just(OrderStep::AskPointer).boxed()),
+        ];
+        if !self.turns.is_empty() {
+            steps.push((6, index().prop_map(OrderStep::EndGesture).boxed()));
+        }
+        if !self.pointers.is_empty() {
+            steps.push((6, index().prop_map(OrderStep::LeavePointer).boxed()));
+        }
+        for (weight, step) in [(6, OrderStep::BetweenChecks), (1, OrderStep::EndOwner)] {
+            if self.allows(&step) {
+                steps.push((weight, Just(step).boxed()));
+            }
+        }
+        steps
+    }
+
+    fn allows(&self, step: &OrderStep) -> bool {
+        match step {
+            OrderStep::Gesture | OrderStep::AskPointer => true,
+            OrderStep::BetweenChecks => self.running() && !self.lending,
+            OrderStep::EndGesture(_) => !self.turns.is_empty(),
+            OrderStep::LeavePointer(_) => !self.pointers.is_empty(),
+            OrderStep::EndOwner => !self.ended,
+        }
+    }
+
+    /// Takes in `step`, the page open or, when `closed`, not.
+    fn take(&mut self, step: &OrderStep, closed: bool) {
+        match step {
+            OrderStep::Gesture if closed => self.turns.push(Asked::Refused),
+            OrderStep::Gesture => {
+                self.asks += 1;
+                self.turns.push(Asked::Waiting);
+            }
+            OrderStep::BetweenChecks => {
+                self.lending = Self::grant(&mut self.pointers);
+                return;
+            }
+            OrderStep::EndGesture(index) => {
+                self.turns.remove(index.index(self.turns.len()));
+            }
+            OrderStep::AskPointer => self.pointers.push(Asked::Waiting),
+            OrderStep::LeavePointer(index) => {
+                self.pointers.remove(index.index(self.pointers.len()));
+            }
+            OrderStep::EndOwner => self.ended = true,
+        }
+        self.settle();
+    }
+
+    /// Grants the oldest ask of `asks` still waiting, and answers whether
+    /// one was.
+    fn grant(asks: &mut [Asked]) -> bool {
+        let oldest = asks.iter_mut().find(|asked| **asked == Asked::Waiting);
+        oldest.map(|asked| *asked = Asked::Held).is_some()
+    }
+
+    fn refuse(asks: &mut [Asked]) {
+        for asked in asks {
+            if *asked == Asked::Waiting {
+                *asked = Asked::Refused;
+            }
+        }
+    }
+
+    fn running(&self) -> bool {
+        self.turns.contains(&Asked::Held)
+    }
+
+    /// Grants what can be, once something asked, ended or was given back.
+    fn settle(&mut self) {
+        if self.ended {
+            Self::refuse(&mut self.turns);
+            // A Gesture whose turn it was keeps the pointer, and lends it.
+            if !self.running() {
+                Self::refuse(&mut self.pointers);
+            }
+        }
+        if self.pointers.contains(&Asked::Held) {
+            // One that ended with its pointer lent lends it no more.
+            self.lending &= self.running();
+            return;
+        }
+        self.lending = false;
+        if !self.running() && !Self::grant(&mut self.turns) {
+            Self::grant(&mut self.pointers);
+        }
+    }
 }
 
 /// What the model expects of one part.
@@ -149,6 +296,7 @@ struct Reference {
     listeners: Vec<Heard>,
     waits: Vec<Waited>,
     frames: [Frame; FRAMES],
+    order: Order,
     page_detached: bool,
     closed: bool,
     /// How many events the browser sent, which names the next one.
@@ -254,15 +402,24 @@ impl ReferenceStateMachine for Reference {
         if !state.page_detached {
             options.push(Just(Transition::DetachPage).boxed());
         }
+        // Half the steps act on the Gesture order, and few end the page or
+        // its owner, so the few cases of the Quick suite hold several
+        // Gestures waiting at once.
+        let order = prop::strategy::Union::new_weighted(state.order.steps());
+        let mut groups = vec![
+            (24, prop::strategy::Union::new(options).boxed()),
+            (30, order.prop_map(Transition::Order).boxed()),
+        ];
         if !state.closed {
-            options.push(Just(Transition::Close).boxed());
+            groups.push((1, Just(Transition::Close).boxed()));
         }
-        prop::strategy::Union::new(options).boxed()
+        prop::strategy::Union::new_weighted(groups).boxed()
     }
 
     fn preconditions(state: &Self, transition: &Transition) -> bool {
         match transition {
             Transition::Subscribe(_) | Transition::Listen | Transition::Wait => true,
+            Transition::Order(step) => state.order.allows(step),
             Transition::Leave(_) => !state.parts.is_empty(),
             Transition::Unlisten(_) => !state.listeners.is_empty(),
             Transition::Send(on, _) => state.attached(*on),
@@ -361,6 +518,7 @@ impl ReferenceStateMachine for Reference {
                     }
                 }
             }
+            Transition::Order(step) => state.order.take(step, state.closed),
         }
         state
     }
@@ -491,7 +649,59 @@ impl Wait {
     }
 }
 
+/// How many times a step polls what asked and lets the page's owner run:
+/// more than the steps one change of the order takes to reach everyone.
+const SETTLED: usize = 8;
+
+/// A Gesture's call, or what asked for the pointer, as far as it came.
+enum Asking<T> {
+    /// It waits for its answer, or for the pointer it lent.
+    Waiting {
+        future: Pin<Box<dyn Future<Output = Option<T>>>>,
+        lending: bool,
+    },
+    Held(T),
+    Refused,
+}
+
+impl<T: 'static> Asking<T> {
+    fn of(asked: impl Future<Output = Option<T>> + 'static) -> Self {
+        Self::Waiting {
+            future: Box::pin(asked),
+            lending: false,
+        }
+    }
+
+    /// Takes its answer once it has one.
+    fn take(&mut self) {
+        let Self::Waiting { future, .. } = self else {
+            return;
+        };
+        if let Some(answered) = future.as_mut().now_or_never() {
+            *self = answered.map_or(Self::Refused, Self::Held);
+        }
+    }
+
+    fn asked(&self) -> Asked {
+        match self {
+            Self::Waiting { lending: false, .. } => Asked::Waiting,
+            // A Gesture lends the pointer within its turn.
+            Self::Waiting { lending: true, .. } | Self::Held(_) => Asked::Held,
+            Self::Refused => Asked::Refused,
+        }
+    }
+}
+
 struct Subject {
+    /// The page's owner, as a call that reached it before the page closed
+    /// holds it.
+    owner: PageOwner,
+    /// Where the Consent prompt runner asks for the page's pointer.
+    pointer: PointerAsks,
+    gestures: Vec<Asking<GestureTurn>>,
+    pointers: Vec<Asking<LentPointer>>,
+    /// Where the page's owner counts its asks.
+    owner_work: CountedWork,
     work: CountedWork,
     connection: Connection,
     played: Played,
@@ -508,7 +718,7 @@ struct Subject {
     closed: bool,
     /// How many events the browser sent, which names the next one.
     sent: usize,
-    _session: TaskOwner,
+    session: TaskOwner,
     _live: LiveRun,
     _env: TestEnv,
     runtime: Runtime,
@@ -550,6 +760,71 @@ impl Subject {
         });
     }
 
+    /// Takes `step` of the page's Gesture order.
+    fn order_step(&mut self, step: &OrderStep) {
+        match step {
+            OrderStep::Gesture => {
+                let owner = (!self.closed).then(|| self.owner.clone());
+                self.gestures.push(Asking::of(async move {
+                    match owner?.turn().await {
+                        Ok(turn) => Some(turn),
+                        Err(error) => {
+                            assert_eq!(error.code(), CLOSED.name, "{error:?}");
+                            None
+                        }
+                    }
+                }));
+            }
+            OrderStep::BetweenChecks => {
+                let running = self
+                    .gestures
+                    .iter_mut()
+                    .find(|gesture| matches!(gesture, Asking::Held(_)))
+                    .expect("invariant: the model's running Gesture has the turn");
+                if let Asking::Held(mut turn) = std::mem::replace(running, Asking::Refused) {
+                    *running = Asking::Waiting {
+                        future: Box::pin(async move {
+                            turn.lend_pointer().await;
+                            Some(turn)
+                        }),
+                        lending: true,
+                    };
+                }
+            }
+            OrderStep::EndGesture(index) => {
+                self.gestures.remove(index.index(self.gestures.len()));
+            }
+            OrderStep::AskPointer => {
+                let pointer = self.pointer.clone();
+                self.pointers
+                    .push(Asking::of(async move { pointer.lent().await }));
+            }
+            OrderStep::LeavePointer(index) => {
+                self.pointers.remove(index.index(self.pointers.len()));
+            }
+            OrderStep::EndOwner => self.session.cancel(),
+        }
+    }
+
+    /// Polls each Gesture and each ask for the pointer, the oldest first,
+    /// letting the page's owner run between, until the order's last change
+    /// reached them.
+    fn settle(&mut self) {
+        let Self {
+            runtime,
+            gestures,
+            pointers,
+            ..
+        } = self;
+        runtime.block_on(async {
+            for _ in 0..SETTLED {
+                gestures.iter_mut().for_each(Asking::take);
+                pointers.iter_mut().for_each(Asking::take);
+                tokio::task::yield_now().await;
+            }
+        });
+    }
+
     /// Waits until the page's events took in `count` more requests, which
     /// the test's own listener hears.
     fn heard(&mut self, count: usize) {
@@ -585,7 +860,10 @@ impl StateMachineTest for Subject {
         let reading = driver.reading(None);
         let session = TaskOwner::root(BlockingPolicy::Inline);
         let owners = PageOwners::default();
-        let sync = runtime.block_on(async {
+        let metrics = Metrics::default();
+        let owner_work = metrics.counted_work().clone();
+        let (order, pointer) = GestureOrder::new();
+        let (sync, owner) = runtime.block_on(async {
             let events = started(&page_id(), &driver, &live);
             let sync = events.listen(PageEventName::Request);
             let interception = Interception::default();
@@ -603,14 +881,19 @@ impl StateMachineTest for Subject {
             let owner = PageOwner::start(
                 &session,
                 &tracing::Span::none(),
-                (&page_id(), parts),
+                (&page_id(), parts, order),
                 closed,
-                &Metrics::default(),
+                &metrics,
             );
-            owners.kept(page_id(), owner);
-            sync
+            owners.kept(page_id(), owner.clone());
+            (sync, owner)
         });
         Self {
+            owner,
+            pointer,
+            gestures: Vec::new(),
+            pointers: Vec::new(),
+            owner_work,
             work,
             connection,
             played,
@@ -625,7 +908,7 @@ impl StateMachineTest for Subject {
             waits: Vec::new(),
             closed: false,
             sent: 0,
-            _session: session,
+            session,
             _live: live,
             _env: env,
             runtime,
@@ -720,7 +1003,9 @@ impl StateMachineTest for Subject {
                 subject.owners.close(&[page_id()]);
                 subject.closed = true;
             }
+            Transition::Order(step) => subject.order_step(&step),
         }
+        subject.settle();
         for part in &mut subject.parts {
             part.take();
         }
@@ -753,6 +1038,17 @@ impl StateMachineTest for Subject {
         assert_eq!(heard, reference.listeners, "what each listener heard");
         let waited: Vec<_> = subject.waits.iter().map(Wait::waited).collect();
         assert_eq!(waited, reference.waits, "how each wait stands");
+        let order = Order {
+            turns: subject.gestures.iter().map(Asking::asked).collect(),
+            pointers: subject.pointers.iter().map(Asking::asked).collect(),
+            lending: subject
+                .gestures
+                .iter()
+                .any(|gesture| matches!(gesture, Asking::Waiting { lending: true, .. })),
+            ended: reference.order.ended,
+            asks: subject.owner_work.read(Row::ActionOwnerRoundTrips),
+        };
+        assert_eq!(order, reference.order, "the Gesture order");
         assert_eq!(
             subject.work.read(Row::CdpEventVisits),
             reference.visits,
@@ -765,7 +1061,7 @@ prop_state_machine! {
     #![proptest_config(goodfetch_test_support::proptest_config())]
 
     #[test]
-    fn a_pages_owner_hands_each_part_listener_and_wait_what_its_page_sent_until_it_closed(
-        sequential 1..24 => Subject
+    fn a_pages_owner_hands_on_what_its_page_sent_until_it_closed_and_grants_gestures_their_turn_in_order(
+        sequential 8..32 => Subject
     );
 }

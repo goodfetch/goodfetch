@@ -6,10 +6,10 @@
 //! action; and editable too for `fill`. A click or a key press that starts
 //! a navigation of the page answers once that navigation's document
 //! committed, or once it ended without one (ADR 0085), within
-//! `timeout.navigation`, the page's turn and pointer let go of meanwhile. Each check and the arming of the
-//! interception listener are one round trip into the guard's isolated
-//! world, and stability is waited for only while an animation or a
-//! transition runs. The locator is resolved again at every check, so a
+//! `timeout.navigation`, the page's turn, and the pointer with it, let go
+//! of meanwhile. Each check and the arming of the interception listener are
+//! one round trip into the guard's isolated world, and stability is waited
+//! for only while an animation or a transition runs. The locator is resolved again at every check, so a
 //! re-render that replaces its element changes nothing. A target live
 //! hiding hid has its rule lifted for the Session, and is looked at again
 //! at once (ADR 0047). At the deadline the last observation decides: still
@@ -141,7 +141,7 @@ pub(crate) struct Request<'a> {
     /// What hides elements on the page, which the guard lifts from the
     /// target: its live hiding and the Consent prompt runner's rules.
     pub(crate) hiding: Hidden<'a>,
-    /// The page's owner, which a click's input passes through (ADR 0146).
+    /// The page's owner, which grants the action its turn (ADR 0146).
     pub(crate) owner: &'a PageOwner,
     /// The page's send window, which the action's first input marks before
     /// it goes out (ADR 0106).
@@ -233,9 +233,13 @@ async fn attempt(page: &PageDriver, request: Request<'_>, clock: &Clock) -> Resu
     let page = &page.counting(request.action.commands());
     let started = clock.now();
     let end = started + request.window.left();
-    let mut turn = page.turn(request.operation).await;
+    let mut turn = page.turn(request.operation, request.owner.turn().await?);
     let mut last = Seen::waiting(Step::Attached, "the action waited its turn on the page");
     loop {
+        // The pointer is the turn's from the check that arms the listener
+        // to the disarm, and lent between two checks to the Consent prompt
+        // runner's clicks.
+        turn.lend_pointer().await;
         let remaining = end.saturating_duration_since(clock.now());
         if remaining.is_zero() {
             let elapsed = clock.now() - started + request.window.spent;
@@ -251,10 +255,6 @@ async fn attempt(page: &PageDriver, request: Request<'_>, clock: &Clock) -> Resu
             request.action.kind(),
             remaining.min(SLICE),
         );
-        // Held from the check that arms the listener to the disarm, and let
-        // go of when the target is not ready, so the Consent prompt
-        // runner's clicks come between two checks.
-        let gesture = page.gesture().await;
         let seen = match turn.check(CHECK, argument).await {
             Ok(value) => Seen::read(&value).map_err(|error| unreadable(&value, &error))?,
             Err(Unanswered::WorldGone) => continue,
@@ -268,11 +268,11 @@ async fn attempt(page: &PageDriver, request: Request<'_>, clock: &Clock) -> Resu
                     // The disarm is the round trip into the renderer after
                     // the input that a key press makes with `settled`.
                     // Boxed, as the wait below: the action's future stays small.
-                    let clicked = click(request.owner, page, &mut turn, (x, y));
+                    let clicked = click(page, &mut turn, (x, y));
                     let landed = Box::pin(watch.during(clicked)).await?;
                     match landed {
                         Landed::Landed => {
-                            drop((gesture, turn));
+                            drop(turn);
                             Box::pin(page.settle_gesture(watch)).await;
                             return Ok(());
                         }
@@ -304,7 +304,7 @@ async fn attempt(page: &PageDriver, request: Request<'_>, clock: &Clock) -> Resu
                         settled(&mut turn).await
                     }))
                     .await?;
-                    drop((gesture, turn));
+                    drop(turn);
                     Box::pin(page.settle_gesture(watch)).await;
                     return Ok(());
                 }
@@ -327,7 +327,6 @@ async fn attempt(page: &PageDriver, request: Request<'_>, clock: &Clock) -> Resu
             }
             waiting @ Seen::Waiting { .. } => last = waiting,
         }
-        drop(gesture);
     }
 }
 
@@ -361,7 +360,7 @@ pub(crate) enum Readiness {
 
 /// Checks `element` for a click, waiting in the page for at most `slice`;
 /// a ready element has the guard's listener armed. The caller holds the
-/// page's [`PageDriver::gesture`] from this check to [`landed_on`].
+/// page's lent pointer from this check to [`landed_on`].
 pub(crate) async fn check_element(
     page: &PageDriver,
     element: &Element<'_>,
@@ -414,16 +413,14 @@ async fn settled(turn: &mut Turn<'_>) -> Result<(), CallError> {
     }
 }
 
-/// Clicks at the point `(x, y)` through the page's owner, then reads where
-/// the click landed.
+/// Clicks at the point `(x, y)`, then reads where the click landed.
 async fn click(
-    owner: &PageOwner,
     page: &PageDriver,
     turn: &mut Turn<'_>,
     (x, y): (f64, f64),
 ) -> Result<Landed, CallError> {
-    owner
-        .pointer_click(CdpPage::of(page), x, y, turn.gesture_call())
+    CdpPage::of(page)
+        .pointer_click(x, y, turn.gesture_call())
         .await?;
     landed(turn).await
 }

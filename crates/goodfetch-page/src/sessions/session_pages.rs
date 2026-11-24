@@ -39,6 +39,7 @@ use super::{
     OpenPage, Session, Sessions, action_timeout, events_run, interception_run, wait_deadline,
 };
 use crate::driver::{OnChild, OnPopup, PageDriver, PopupHandler, SessionEgress};
+use crate::gesture_order::{GestureOrder, PointerAsks};
 use crate::hiding::{PageHiding, Sheets};
 use crate::interception::{OnDocument, PageInterception};
 use crate::page_events::{PageEvents, Refusals};
@@ -283,13 +284,16 @@ impl Sessions {
         taken_in.events = Some(events);
         self.dialogs
             .start(page.clone(), driver.clone(), &run, driver.events());
+        // The runner clicks on the page while it is taken in, before its
+        // owner starts and lends it the pointer.
+        let (order, pointer) = GestureOrder::new();
         let (hiding, sheets, routed) = self
             .hold(
                 (&mut taken_in, session),
                 &driver,
                 &run,
                 &open.settings,
-                (refusals, in_frames),
+                (refusals, in_frames, pointer),
             )
             .await?;
         let mut state = self.state.lock().await;
@@ -305,7 +309,7 @@ impl Sessions {
         let owner = PageOwner::start(
             &open.owner,
             identity(&run).span(),
-            (&page, parts),
+            (&page, parts, order),
             page_closed(&page),
             run.metrics(),
         );
@@ -363,7 +367,7 @@ impl Sessions {
         driver: &PageDriver,
         run: &Run,
         settings: &Values,
-        (refusals, in_frames): (Refusals, Vec<OnChild>),
+        (refusals, in_frames, pointer): (Refusals, Vec<OnChild>, PointerAsks),
     ) -> Result<(Option<Arc<PageHiding>>, Arc<Sheets>, watch::Receiver<usize>), CallError> {
         let page = &taken_in.page.clone();
         // A page a program opened reads robots.txt for each document its
@@ -390,7 +394,10 @@ impl Sessions {
             .hiding
             .start(page, session, driver, run, &held.clean_up, &sheets)
             .await?;
-        let consent = self.consent.start(page, driver, run, &sheets).await?;
+        let consent = self
+            .consent
+            .start(page, (driver, pointer), run, &sheets)
+            .await?;
         // Each out-of-process frame and dedicated worker waits until the
         // interception holds it, the runner prepared it and the page's
         // other parts took it in.

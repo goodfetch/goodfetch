@@ -80,7 +80,7 @@ use goodfetch_protocol::page::{
 use goodfetch_protocol::settings::{
     TIMEOUT_ACTION, TIMEOUT_CLOSE, TIMEOUT_LAUNCH, TIMEOUT_NAVIGATION,
 };
-use tokio::sync::{Mutex, MutexGuard, OnceCell, watch};
+use tokio::sync::{Mutex, OnceCell, watch};
 use tokio_util::sync::CancellationToken;
 
 pub(crate) use self::carry::{Carried, Origins, Watcher};
@@ -102,6 +102,7 @@ use crate::errors::{
     self, Call, call_error, interrupted, network_error, renderer_crashed, too_many_redirects,
     truncated,
 };
+use crate::gesture_order::GestureTurn;
 use crate::launch::{Launcher, launch};
 use crate::page_value::{self, PageValue};
 use crate::proxy::{PROXY_STATUS, Party, ProxyPermit, SessionProxy, party, proxy_error};
@@ -328,8 +329,7 @@ impl PageDriver {
             started: Arc::new(watch::Sender::new(0)),
             navigating: Arc::new(watch::Sender::new(0)),
             spent: Duration::ZERO,
-            turn: Arc::new(Mutex::new(None)),
-            gesture: Arc::new(Mutex::new(())),
+            guard_world: Arc::new(watch::Sender::new(None)),
             value: PageValue::empty(),
             waits: None,
             reader: None,
@@ -955,8 +955,7 @@ impl<B: Connect> SessionDriver<B> {
             started: Arc::new(watch::Sender::new(0)),
             navigating: Arc::new(watch::Sender::new(0)),
             spent: Duration::ZERO,
-            turn: Arc::new(Mutex::new(None)),
-            gesture: Arc::new(Mutex::new(())),
+            guard_world: Arc::new(watch::Sender::new(None)),
             value: PageValue::empty(),
             waits: None,
             reader: None,
@@ -1037,15 +1036,9 @@ pub(crate) struct PageDriver {
     /// How many navigations the engine started on the page, by which one
     /// the browser cancelled is known to be superseded.
     started: Arc<watch::Sender<u64>>,
-    /// The page's input order (ADR 0085): a gesture holds it from its first
-    /// command to its last, and waiters take it in arrival order, as Tokio
-    /// grants its lock (`STYLE.md`'s one exception to holding a lock across
-    /// `.await`). It keeps the guard's world in the current document, once
-    /// one was made.
-    turn: Arc<Mutex<Option<runtime::ExecutionContextId>>>,
-    /// The page's pointer, held from a check that arms the guard's listener
-    /// to its disarm, so no two gestures interleave (`targets`).
-    gesture: Arc<Mutex<()>>,
+    /// The guard's world in the main frame's current document, once one was
+    /// made there.
+    guard_world: Arc<watch::Sender<Option<runtime::ExecutionContextId>>>,
     /// How many navigation calls wait on the page now: a request the
     /// navigation gate refuses raises from them, or else is recorded.
     navigating: Arc<watch::Sender<u32>>,
@@ -1079,11 +1072,11 @@ impl Drop for NavigationCall<'_> {
     }
 }
 
-/// A gesture's turn on its page: its commands, sent while no other
-/// gesture's are.
+/// A gesture's turn on its page, granted by the page's owner: its
+/// commands, sent while no other gesture's are.
 pub(crate) struct Turn<'page> {
     page: &'page PageDriver,
-    world: MutexGuard<'page, Option<runtime::ExecutionContextId>>,
+    granted: GestureTurn,
     call: Call,
 }
 
@@ -1105,7 +1098,7 @@ impl Turn<'_> {
         function: &str,
         argument: serde_json::Value,
     ) -> Result<serde_json::Value, Unanswered> {
-        let context = self.world().await?;
+        let context = self.page.guard_world(&self.call).await?;
         self.called(function, argument, context).await
     }
 
@@ -1118,7 +1111,7 @@ impl Turn<'_> {
         check: &str,
         argument: serde_json::Value,
     ) -> Result<serde_json::Value, Unanswered> {
-        let context = self.world().await?;
+        let context = self.page.guard_world(&self.call).await?;
         let work = self.page.work();
         work.count(Row::ActionCheckCommands);
         work.count(Row::ActionScriptSends);
@@ -1133,7 +1126,14 @@ impl Turn<'_> {
         argument: serde_json::Value,
         context: runtime::ExecutionContextId,
     ) -> Result<serde_json::Value, Unanswered> {
-        let called = self.send(&world::call(function, argument, context)).await?;
+        let called = self
+            .page
+            .send_in_guard_world(
+                &world::call(function, argument, context),
+                context,
+                &self.call,
+            )
+            .await?;
         if let Some(thrown) = called.exception_details {
             return Err(Unanswered::Failed(CallError::protocol(
                 ProtocolFailure::InternalError,
@@ -1144,10 +1144,19 @@ impl Turn<'_> {
     }
 
     /// The call its commands are sent for, whose deadline bounds them and
-    /// whose codes their failures raise: a gesture's input that its Page's
-    /// owner sends while this turn is held.
+    /// whose codes their failures raise.
     pub(crate) fn gesture_call(&self) -> &Call {
         &self.call
+    }
+
+    /// Lends the page's pointer between two of the gesture's checks
+    /// ([`GestureTurn::lend_pointer`]).
+    ///
+    /// # Cancel safety
+    ///
+    /// That of [`GestureTurn::lend_pointer`].
+    pub(crate) async fn lend_pointer(&mut self) {
+        self.granted.lend_pointer().await;
     }
 
     /// Sends one key event to the focused element.
@@ -1176,48 +1185,6 @@ impl Turn<'_> {
             )
             .await
             .map(|_| ())
-    }
-
-    /// The context of the guard's isolated world in the page's main frame,
-    /// made on first use in each document.
-    async fn world(&mut self) -> Result<runtime::ExecutionContextId, Unanswered> {
-        if let Some(context) = *self.world {
-            return Ok(context);
-        }
-        let made = self.send(&isolated_world(self.page.frame.clone())).await?;
-        *self.world = Some(made.execution_context_id);
-        Ok(made.execution_context_id)
-    }
-
-    /// The encoding the main frame's document was decoded with, read in
-    /// the guard's world.
-    async fn document_encoding(&mut self) -> Result<Option<String>, Unanswered> {
-        let context = self.world().await?;
-        let evaluated = self.send(&encoding_read(context)).await?;
-        Ok(encoding_of(evaluated))
-    }
-
-    /// Sends a command of the guard's world, a lost document being
-    /// [`Unanswered::WorldGone`].
-    async fn send<C: Command>(&mut self, params: &C) -> Result<C::Returns, Unanswered> {
-        match self
-            .page
-            .browser
-            .try_send(Some(&self.page.session), params)
-            .await
-        {
-            Ok(returned) => Ok(returned),
-            Err(Failure::Refused {
-                refusal: Refusal::ContextGone,
-                ..
-            }) => {
-                *self.world = None;
-                Err(Unanswered::WorldGone)
-            }
-            Err(failure) => Err(Unanswered::Failed(
-                self.page.browser.failed(&self.call, &failure).await,
-            )),
-        }
     }
 }
 
@@ -1716,17 +1683,73 @@ impl PageDriver {
         &self.browser.work
     }
 
-    /// Waits for the page's turn, in arrival order, for the gesture
-    /// `operation`, whose failures raise its codes.
-    ///
-    /// # Cancel safety
-    ///
-    /// Dropping the future gives up the place in the order.
-    pub(crate) async fn turn(&self, operation: &'static str) -> Turn<'_> {
+    /// The turn `granted` to the gesture `operation`, whose failures raise
+    /// its codes.
+    pub(crate) fn turn(&self, operation: &'static str, granted: GestureTurn) -> Turn<'_> {
         Turn {
             page: self,
-            world: self.turn.lock().await,
+            granted,
             call: Call::Action { operation },
+        }
+    }
+
+    /// The context of the guard's isolated world in the page's main frame,
+    /// made for `call` on first use in each document.
+    async fn guard_world(&self, call: &Call) -> Result<runtime::ExecutionContextId, Unanswered> {
+        if let Some(context) = *self.guard_world.borrow() {
+            return Ok(context);
+        }
+        let made = self
+            .browser
+            .try_send(Some(&self.session), &isolated_world(self.frame.clone()))
+            .await;
+        match made {
+            Ok(made) => {
+                self.guard_world
+                    .send_replace(Some(made.execution_context_id));
+                Ok(made.execution_context_id)
+            }
+            Err(failure) => Err(self.unanswered(&failure, call).await),
+        }
+    }
+
+    /// Sends `params` for `call`, a command of the guard's world, whose
+    /// context is `context`; a lost document is [`Unanswered::WorldGone`],
+    /// its world no longer kept.
+    async fn send_in_guard_world<C: Command>(
+        &self,
+        params: &C,
+        context: runtime::ExecutionContextId,
+        call: &Call,
+    ) -> Result<C::Returns, Unanswered> {
+        match self.browser.try_send(Some(&self.session), params).await {
+            Ok(returned) => Ok(returned),
+            Err(failure) => {
+                let unanswered = self.unanswered(&failure, call).await;
+                if matches!(unanswered, Unanswered::WorldGone) {
+                    // Another command may have made the next document's.
+                    self.guard_world.send_if_modified(|kept| {
+                        let gone = *kept == Some(context);
+                        if gone {
+                            *kept = None;
+                        }
+                        gone
+                    });
+                }
+                Err(unanswered)
+            }
+        }
+    }
+
+    /// Why a command of the guard's world, sent for `call`, did not answer,
+    /// from its `failure`.
+    async fn unanswered(&self, failure: &Failure, call: &Call) -> Unanswered {
+        match failure {
+            Failure::Refused {
+                refusal: Refusal::ContextGone,
+                ..
+            } => Unanswered::WorldGone,
+            failure => Unanswered::Failed(self.browser.failed(call, failure).await),
         }
     }
 
@@ -1936,38 +1959,17 @@ impl PageDriver {
 
     /// The encoding the main frame's document was decoded with, read in
     /// the guard's world; none when the frame holds no document that names
-    /// one. The world is the one the page's turn keeps when no gesture
-    /// holds the turn, so that the next gesture finds it made; otherwise
-    /// the browser gives the read the same world by its name.
+    /// one. The next gesture finds the world made.
     async fn document_encoding(&self, call: &Call) -> Result<Option<String>, CallError> {
-        let Ok(world) = self.turn.try_lock() else {
-            let made = self
-                .browser
-                .send(
-                    Some(&self.session),
-                    &isolated_world(self.frame.clone()),
-                    call,
-                )
-                .await?;
-            let evaluated = self
-                .browser
-                .send(
-                    Some(&self.session),
-                    &encoding_read(made.execution_context_id),
-                    call,
-                )
-                .await?;
-            return Ok(encoding_of(evaluated));
-        };
-        let mut turn = Turn {
-            page: self,
-            world,
-            call: call.clone(),
-        };
         // A world kept from the document before is gone: made again once.
         for _ in 0..2 {
-            match turn.document_encoding().await {
-                Ok(encoding) => return Ok(encoding),
+            let read = async {
+                let context = self.guard_world(call).await?;
+                self.send_in_guard_world(&encoding_read(context), context, call)
+                    .await
+            };
+            match read.await {
+                Ok(evaluated) => return Ok(encoding_of(evaluated)),
                 Err(Unanswered::WorldGone) => {}
                 Err(Unanswered::Failed(error)) => return Err(error),
             }

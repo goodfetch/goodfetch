@@ -1,15 +1,13 @@
 //! What the Consent prompt runner drives besides a locator action (ADR
 //! 0048): a page's frames' own targets, attached under the page, by their
-//! sessions; calls into a world on any of them; the page's pointer, which
-//! a locator action and the runner share for each gesture, a locator
-//! action waiting for its target letting go of it between checks; and a trusted
-//! click at a point of the page's viewport, wherever in its frames it lies.
+//! sessions; calls into a world on any of them; and a trusted click at a
+//! point of the page's viewport, wherever in its frames it lies, sent while
+//! the page's pointer is lent to the runner (`gesture_order`).
 
 use goodfetch_cdp::generated::{input, runtime};
 use goodfetch_cdp::{Command, Failure, Refusal, SessionId as TargetSession, Subscription};
 use goodfetch_engine::CallError;
 use goodfetch_protocol::jsonrpc::ProtocolFailure;
-use tokio::sync::MutexGuard;
 
 use super::{PageDriver, Unanswered, world};
 
@@ -78,15 +76,6 @@ impl PageDriver {
                 format!("an engine script's call failed: {failure}"),
             ))),
         }
-    }
-
-    /// The page's pointer, held for one gesture.
-    ///
-    /// # Cancel safety
-    ///
-    /// Dropping the future gives up the place in the order.
-    pub(crate) async fn gesture(&self) -> MutexGuard<'_, ()> {
-        self.gesture.lock().await
     }
 
     /// Clicks at (`x`, `y`) in the page's viewport with the left button, as

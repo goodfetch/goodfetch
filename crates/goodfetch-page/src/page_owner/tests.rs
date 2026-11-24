@@ -9,6 +9,7 @@ use goodfetch_test_support::{TestEnv, runtime};
 use serde_json::{Value, json};
 
 use super::{PageOwner, PageParts};
+use crate::gesture_order::GestureOrder;
 use crate::interception::Interception;
 use crate::interception::tests::hold_page;
 use crate::live_run::{LiveRun, Served, played_page};
@@ -76,7 +77,7 @@ fn a_panic_of_one_of_its_tasks_closes_the_page_with_engine_panicked() {
                 owner,
                 &session,
                 &tracing::Span::none(),
-                (&page_id, parts),
+                (&page_id, parts, GestureOrder::new().0),
                 page_closed(&page_id),
                 &Metrics::default(),
             );
@@ -108,7 +109,7 @@ fn an_ask_whose_owner_ended_without_a_panic_raises_closed() {
         let page = PageOwner::start(
             &session,
             &tracing::Span::none(),
-            (&page_id, parts),
+            (&page_id, parts, GestureOrder::new().0),
             page_closed(&page_id),
             &Metrics::default(),
         );

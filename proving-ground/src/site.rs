@@ -40,6 +40,7 @@ use crate::login::canaries::{self, Canaries, Plant};
 use crate::login::{self, Logins};
 use crate::model::{self, Answers, FakeModel, Subject};
 use crate::observation::{self, Observations, Recorded, Report};
+use crate::online::{self, Online};
 use crate::oracle::{self, Finding, Submission};
 use crate::page_load;
 use crate::portal::{self, Portal};
@@ -70,6 +71,9 @@ pub(crate) struct Site {
     crawl: Families,
     /// The files `browser-builds.test` serves.
     builds: BrowserBuilds,
+    /// The online copy's vendors, which `challenges.test` carries; `None`
+    /// on the local copy.
+    online: Option<Online>,
 }
 
 /// The Proving ground's time step, as `PUT /time-step` sets it.
@@ -107,6 +111,7 @@ impl Site {
         pems: Pems,
         observations: Arc<Observations>,
         builds: BrowserBuilds,
+        online: Option<Online>,
     ) -> Self {
         Self {
             seed,
@@ -121,6 +126,7 @@ impl Site {
             refusals: Refusals::default(),
             crawl: Families::new(),
             builds,
+            online,
         }
     }
 
@@ -154,6 +160,7 @@ impl Site {
                 consent::HOST,
                 consent::FRAME_HOST,
                 page_load::HOST,
+                online::HOST,
             ])
             .chain(page_load::AD_HOSTS)
             .map(|host| (host.to_owned(), None))
@@ -347,8 +354,9 @@ impl Site {
         if let Some(reply) = page_load::respond(self.port, &name, request) {
             return reply;
         }
-        if name == model::HOST {
-            // The Fake model answers its own paths (`Self::model`).
+        if name == model::HOST || name == online::HOST {
+            // The Fake model answers its own paths (`Self::model`), and the
+            // online copy its vendors' (`Self::challenge`).
             return Reply::not_found();
         }
         if replay::serves(&name) {
@@ -590,6 +598,28 @@ impl Site {
             })
             .collect();
         self.model.answer(target, body, &subjects)
+    }
+
+    /// The online copy's answer to a request on `challenges.test` to
+    /// `path`, recording the vendor's verdict it read; `None` on the local
+    /// copy, for another host or a path of no configured vendor, which
+    /// [`Self::respond`] answers.
+    pub(crate) async fn challenge(
+        &self,
+        method: &Method,
+        host: &str,
+        path: &str,
+        body: &Bytes,
+    ) -> Option<Reply> {
+        let online = self.online.as_ref()?;
+        if observation::host_name(host) != online::HOST {
+            return None;
+        }
+        let (reply, verdict) = online.respond(method, path, body).await?;
+        if let Some(verdict) = verdict {
+            self.observations.record(host, Recorded::Verdict(verdict));
+        }
+        Some(reply)
     }
 
     /// Answers a request to an archived host on its own name, as through a

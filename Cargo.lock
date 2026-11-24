@@ -3048,6 +3048,7 @@ dependencies = [
  "ureq",
  "url",
  "web-bot-auth",
+ "webpki-roots",
 ]
 
 [[package]]

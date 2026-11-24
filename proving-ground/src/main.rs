@@ -47,6 +47,7 @@ mod model;
 mod network;
 mod network_fixture;
 mod observation;
+mod online;
 mod oracle;
 mod output;
 mod page_load;
@@ -68,15 +69,17 @@ mod totp;
 mod version;
 
 use std::net::{Ipv4Addr, SocketAddr};
+use std::path::Path;
 
 use anyhow::{Context as _, Result, bail};
 use clap::Parser as _;
 
 use crate::browser_builds::BrowserBuilds;
-use crate::command::{Command, NetworkProfile, Serve, Shaper, Tasks};
+use crate::command::{Command, Copy, NetworkProfile, Serve, Shaper, Tasks};
 use crate::interface::ServeLine;
 use crate::network::{Loss, Network, Profile};
 use crate::network_fixture::NetworkFixtures;
+use crate::online::Online;
 use crate::server::{Server, StopSignal};
 use crate::site::Site;
 use crate::task::TaskList;
@@ -100,23 +103,49 @@ fn run(serve: &Serve) -> Result<()> {
         .context("building the Tokio runtime")?;
     let Serve {
         seed,
+        copy,
         address,
         network_profile,
         loss,
         shaper,
         ref browser_builds,
-        ..
+        ref online_config,
     } = *serve;
     let builds = match browser_builds {
         Some(folder) => BrowserBuilds::read(folder)?,
         None => BrowserBuilds::default(),
+    };
+    let online = match (copy, online_config) {
+        (Copy::Online, Some(path)) => Some(online(path)?),
+        (Copy::Online, None) => bail!("the online copy needs --online-config"),
+        (Copy::Local, Some(_)) => bail!("the local copy takes no --online-config"),
+        (Copy::Local, None) => None,
     };
     runtime.block_on(shape_and_serve(
         seed,
         address,
         (network_profile, loss, shaper),
         builds,
+        online,
     ))
+}
+
+/// The online copy of the configuration at `path`, each vendor's secret
+/// read from the variable its section names.
+fn online(path: &Path) -> Result<Online> {
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "`serve` reads its online configuration once, on its main thread, before its runtime starts"
+    )]
+    let text = std::fs::read_to_string(path)
+        .with_context(|| format!("reading the online configuration {}", path.display()))?;
+    let config = online::Config::parse(&text)?;
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "main is the one reader of the environment (ADR 0059): the vendors' secrets"
+    )]
+    let secret = |name: &str| std::env::var(name).ok();
+    Online::new(&config, secret)
 }
 
 /// Listens for the stop signals, shapes and calibrates the network, binds
@@ -128,6 +157,7 @@ async fn shape_and_serve(
     address: SocketAddr,
     (network_profile, loss, shaper): (NetworkProfile, Loss, Shaper),
     builds: BrowserBuilds,
+    online: Option<Online>,
 ) -> Result<()> {
     let stop_signal = StopSignal::listen()?;
     let profile = match network_profile.round_trip() {
@@ -138,7 +168,7 @@ async fn shape_and_serve(
     let (network, server) = match (profile, shaper) {
         (None, _) => (
             Network::unshaped(),
-            Server::bind(address, None, seed, builds).await?,
+            Server::bind(address, None, seed, builds, online).await?,
         ),
         (Some(profile), Shaper::Proxy) => {
             let network = Network::proxy(profile, seed, address).await?;
@@ -146,11 +176,11 @@ async fn shape_and_serve(
             let behind = SocketAddr::from((Ipv4Addr::LOCALHOST, 0));
             (
                 network,
-                Server::bind(behind, reached_on, seed, builds).await?,
+                Server::bind(behind, reached_on, seed, builds, online).await?,
             )
         }
         (Some(profile), Shaper::Netem) => {
-            let server = Server::bind(address, None, seed, builds).await?;
+            let server = Server::bind(address, None, seed, builds, online).await?;
             (
                 Network::netem(profile, server.address().port()).await?,
                 server,

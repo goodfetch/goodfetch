@@ -59,14 +59,22 @@ pub(crate) struct Serve {
     /// every request `404`.
     #[arg(long)]
     pub(crate) browser_builds: Option<PathBuf>,
+    /// The online copy's vendors, a TOML file with one section per vendor
+    /// it carries (`online.rs`); required by `--copy online`, refused by
+    /// `--copy local`.
+    #[arg(long)]
+    pub(crate) online_config: Option<PathBuf>,
 }
 
-/// Which copy of the Proving ground runs (spec #152). The online copy is
-/// #168's.
+/// Which copy of the Proving ground runs (spec #152).
 #[derive(Clone, Copy, ValueEnum)]
 pub(crate) enum Copy {
     /// The local copy, which every published speed figure and every test uses.
     Local,
+    /// The online copy (#168), behind real vendor protections on a domain
+    /// Goodfetch owns, which verifies each vendor's verdict on the server
+    /// side.
+    Online,
 }
 
 /// The added round-trip time on every connection (ADR 0025's profiles).

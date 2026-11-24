@@ -48,6 +48,7 @@ mod html;
 mod interface;
 mod languages;
 mod linger;
+mod locales;
 mod login;
 mod markdown;
 mod model;

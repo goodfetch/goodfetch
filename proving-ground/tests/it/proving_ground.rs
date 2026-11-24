@@ -80,6 +80,15 @@ impl Answer {
             .map(|(_, value)| value.as_str())
     }
 
+    /// The value of each header `name` the response has.
+    pub(crate) fn every_header(&self, name: &str) -> Vec<&str> {
+        self.headers
+            .iter()
+            .filter(|(header, _)| header.eq_ignore_ascii_case(name))
+            .map(|(_, value)| value.as_str())
+            .collect()
+    }
+
     /// The `name=value` pair of the cookie `name` the response sets.
     pub(crate) fn cookie(&self, name: &str) -> Option<String> {
         self.headers

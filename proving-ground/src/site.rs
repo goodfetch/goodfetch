@@ -43,6 +43,7 @@ use crate::google_hosts;
 use crate::handmade;
 use crate::hostile;
 use crate::languages;
+use crate::locales;
 use crate::login::canaries::{self, Canaries, Plant};
 use crate::login::{self, Logins};
 use crate::model::{self, Answers, FakeModel, Subject};
@@ -102,10 +103,11 @@ struct LimitedHold {
 
 /// The families' own host names, each family's tasks served on
 /// `<ordinal>.<host>`.
-const FAMILY_HOSTS: [&str; 5] = [
+const FAMILY_HOSTS: [&str; 6] = [
     catalog::HOST,
     rendered::HOST,
     login::HOST,
+    locales::HOST,
     quotes::HOST,
     schedule::HOST,
 ];
@@ -245,6 +247,7 @@ impl Site {
         tasks.extend(hostile::tasks(seed, port));
         tasks.extend(canaries::tasks(seed, port));
         tasks.extend(quotes::tasks(seed, port));
+        tasks.extend(locales::tasks(seed, port));
         tasks
     }
 
@@ -432,6 +435,7 @@ impl Site {
                     },
                     request,
                 ),
+                locales::HOST => locales::respond(self.seed, request),
                 quotes::HOST => quotes::respond(self.seed, request),
                 _ => schedule::respond(self.seed, self.observations.time_step(), request),
             };

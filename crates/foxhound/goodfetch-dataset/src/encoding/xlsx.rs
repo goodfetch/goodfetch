@@ -7,14 +7,63 @@
 //! that would start such an escape as `_x005F_`. The ZIP is written as a
 //! stream, its entries deflated, each dated 1980-01-01 so the same Records
 //! give the same bytes, and its sheet's bytes handed on a row at a time.
+//! A sheet that would pass what Excel opens, in rows, columns or one
+//! cell's length, is refused before any byte is written.
 
 use std::io::Write;
 
+use goodfetch_protocol::foxhound::export::SheetCapacity;
 use zip::write::{SimpleFileOptions, StreamWriter};
 use zip::{CompressionMethod, DateTime, ZipWriter};
 
-use super::columns::Cell;
+use super::columns::{Cell, Columns};
 use super::written::Written;
+
+/// An XLSX Export's one sheet would hold more than Excel opens.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
+#[error(
+    "the sheet would hold {figure} {}, past the {} Excel opens",
+    unit(self.capacity),
+    self.capacity.maximum()
+)]
+pub(crate) struct SheetCapacityExceeded {
+    /// The capacity it passes.
+    pub(crate) capacity: SheetCapacity,
+    /// The Dataset's figure for it: the sheet's rows, the header row
+    /// included, its columns, or its longest cell's length in UTF-16 code
+    /// units.
+    pub(crate) figure: u64,
+}
+
+/// What `capacity` counts, for the refusal's message.
+fn unit(capacity: SheetCapacity) -> &'static str {
+    match capacity {
+        SheetCapacity::Rows => "rows",
+        SheetCapacity::Columns => "columns",
+        SheetCapacity::CellLength => "characters in one cell",
+    }
+}
+
+/// Whether a sheet of `columns`, a header row then a row per Record they
+/// saw, fits what Excel opens: its rows, then its columns, then its longest
+/// cell.
+pub(crate) fn fits(columns: &Columns) -> Result<(), SheetCapacityExceeded> {
+    let figures = [
+        (SheetCapacity::Rows, columns.records().saturating_add(1)),
+        (
+            SheetCapacity::Columns,
+            u64::try_from(columns.names().len()).unwrap_or(u64::MAX),
+        ),
+        (SheetCapacity::CellLength, columns.longest()),
+    ];
+    match figures
+        .into_iter()
+        .find(|&(capacity, figure)| figure > capacity.maximum())
+    {
+        Some((capacity, figure)) => Err(SheetCapacityExceeded { capacity, figure }),
+        None => Ok(()),
+    }
+}
 
 const CONTENT_TYPES: &str = concat!(
     r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>"#,
@@ -240,7 +289,35 @@ fn starts_escape(text: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{escape, letters};
+    use goodfetch_protocol::foxhound::export::SheetCapacity;
+    use rstest::rstest;
+
+    use super::{SheetCapacityExceeded, escape, fits, letters};
+    use crate::encoding::{Columns, Nested};
+
+    /// A sheet holds 1,048,576 rows, its header row included: 1,048,575
+    /// Records fit and one more is refused, naming the rows it would hold.
+    /// The whole Export's refusal is `write_export`'s test in `tests/it`, as
+    /// a run file of a million Records outlasts the Quick suite.
+    #[rstest]
+    #[case::at_the_capacity(1_048_575, Ok(()))]
+    #[case::one_past_it(
+        1_048_576,
+        Err(SheetCapacityExceeded { capacity: SheetCapacity::Rows, figure: 1_048_577 })
+    )]
+    fn a_sheet_holds_a_header_and_1_048_575_records(
+        #[case] records: u32,
+        #[case] expected: Result<(), SheetCapacityExceeded>,
+    ) {
+        let mut columns = Columns::new(Nested::Json);
+        for _ in 0..records {
+            columns.see("{}");
+        }
+
+        let fitted = fits(&columns);
+
+        assert_eq!(fitted, expected);
+    }
 
     #[test]
     fn a_column_is_named_by_its_letters() {

@@ -12,7 +12,9 @@
 //! target that speaks Goodfetch's JSON-RPC protocol, started from its
 //! executable taken by path, and so does each generated refusal case's
 //! fabricated `hello` (ADR 0066). The Cloud-readiness suite's gateway cases
-//! run against a gateway reached by address (ADR 0096).
+//! run against a gateway reached by address (ADR 0096), and each Plugin
+//! kind's suite against a process Plugin, which proves the capabilities the
+//! Plugin declares one at a time (ADR 0033).
 
 mod canaries;
 mod case_list;
@@ -28,8 +30,9 @@ pub use client_case::{ClientCaseError, ClientCaseRun, RustMode};
 pub use protocol::{
     EngineMode, EngineTarget, FabricatedHelloError, FabricatedHelloOutcome, GatewayAddress,
     GatewayAddressError, GatewaySuite, GatewaySuiteError, GatewayTarget, PROXY_PASSWORD_VARIABLE,
-    ProtocolSuite, ProtocolSuiteError, StartError, SuiteError, run_gateway_suite,
-    run_protocol_suite, run_protocol_suite_in_gate_mode, send_fabricated_hello,
+    PluginSuite, PluginSuiteError, PluginTarget, ProtocolSuite, ProtocolSuiteError, StartError,
+    SuiteError, run_gateway_suite, run_plugin_suite, run_protocol_suite,
+    run_protocol_suite_in_gate_mode, send_fabricated_hello,
 };
 pub use proving_ground::{
     ProvingGround, ProvingGroundError, ProxyCredentials, Submission, Task, TaskAccount, TaskList,

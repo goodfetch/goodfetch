@@ -47,7 +47,9 @@ pub(crate) use self::feed::FeedFields;
 use self::feed::{Feed, Flavor};
 use self::html::HtmlTable;
 use self::markdown::Markdown;
+pub(crate) use self::xlsx::SheetCapacityExceeded;
 use self::xlsx::Xlsx;
+pub(crate) use self::xlsx::fits as sheet_fits;
 use self::xml::Xml;
 
 /// The longest name a sheet may have.

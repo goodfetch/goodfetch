@@ -14,13 +14,16 @@
 //! Connection is not reached, which leaves its capability `unproved`.
 //!
 //! The Cloud-readiness suite's gateway target kind (`gateway`) reaches a
-//! gateway by address over the same Connections.
+//! gateway by address over the same Connections, and the process Plugin
+//! target (`plugin`) drives a Plugin of any kind over the plugin protocol
+//! on its stdio (ADR 0033).
 
 mod cases;
 mod connection;
 mod fabricated;
 mod foxhound;
 mod gateway;
+mod plugin;
 mod target;
 
 use goodfetch_protocol::case_log::CaseLogEntry;
@@ -41,6 +44,7 @@ pub use self::gateway::{
     GatewayAddress, GatewayAddressError, GatewaySuite, GatewaySuiteError, GatewayTarget,
     run_gateway_suite,
 };
+pub use self::plugin::{PluginSuite, PluginSuiteError, PluginTarget, run_plugin_suite};
 pub use self::target::{EngineMode, EngineTarget, StartError};
 use crate::case_list::{CaseList, DeclaredCapability, DeclaredCase};
 use crate::host::{RUNTIME, platform};

@@ -18,6 +18,10 @@ pub(crate) struct Package {
     pub(crate) manifest_path: PathBuf,
     pub(crate) dependencies: Vec<Dependency>,
     pub(crate) targets: Vec<Target>,
+    /// The registries it may be published to: none, an empty list, for
+    /// `publish = false`; any, `None`, when `publish` is unset.
+    #[serde(default)]
+    pub(crate) publish: Option<Vec<String>>,
     /// `[package.metadata]`.
     #[serde(default)]
     metadata: Option<PackageMetadata>,

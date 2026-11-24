@@ -4,6 +4,7 @@
 )]
 
 use std::fmt;
+use std::time::Duration;
 
 use goodfetch_protocol::block::BlockCause;
 use goodfetch_protocol::catalog::ErrorGroup;
@@ -11,6 +12,7 @@ use goodfetch_protocol::checkpoint::PathNotWritableDetails;
 use goodfetch_protocol::error_code::ErrorCode;
 use goodfetch_protocol::hook::HookFailedDetails;
 use goodfetch_protocol::jsonrpc::{ErrorData, ErrorObject};
+use goodfetch_protocol::model::{ModelUnavailableDetails, ModelUnavailableReason};
 use goodfetch_protocol::page::BlockedDetails;
 use goodfetch_protocol::page::ai_work::PageNavigatedDuringCallDetails;
 use goodfetch_protocol::secrets::{SecretFailure, SecretUnavailableDetails};
@@ -109,6 +111,38 @@ fn a_blocked_answer_with_foxhounds_decoy_cause_reads_it_as_unknown() {
         panic!("{:?} is a cause Collie knows", details.cause);
     };
     assert_eq!(cause.as_str(), "decoy");
+}
+
+/// ADRs 0080 and 0101: how long a Model provider asks to wait reads as a
+/// `Duration`, never a point in time, and as none when it asks for no wait.
+///
+/// Covers: error:model_unavailable
+#[test]
+fn a_model_unavailable_answer_reads_its_retry_after_as_a_duration() {
+    let waiting = answer(
+        "model_unavailable",
+        ErrorGroup::Unavailable,
+        &json!({ "reason": "rate_limited", "retry_after": 1500 }),
+    );
+    let not_waiting = answer(
+        "model_unavailable",
+        ErrorGroup::Unavailable,
+        &json!({ "reason": "unreachable", "retry_after": null }),
+    );
+
+    assert_eq!(waiting.code(), ErrorCode::MODEL_UNAVAILABLE);
+    assert_eq!(
+        [waiting, not_waiting].map(|error| error
+            .details::<ModelUnavailableDetails>()
+            .map(|details| (details.reason, details.retry_after))),
+        [
+            Some((
+                ModelUnavailableReason::RateLimited,
+                Some(Duration::from_millis(1500))
+            )),
+            Some((ModelUnavailableReason::Unreachable, None)),
+        ]
+    );
 }
 
 /// Covers: story:11-36, error:page_navigated_during_call

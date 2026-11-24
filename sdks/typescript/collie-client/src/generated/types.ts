@@ -69,6 +69,13 @@ export type Surface =
  */
 export type PageId = string;
 /**
+ * An IP family.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "IpFamily".
+ */
+export type IpFamily = "ipv4" | "ipv6";
+/**
  * What set the Memory allowance: the tightest of them (ADR 0040).
  *
  * This interface was referenced by `CollieTypes`'s JSON-Schema
@@ -97,6 +104,41 @@ export type PointInTime = Date;
  */
 export type LimitSetter = "person" | "managed_policy" | "client";
 /**
+ * What `artifact_download_failed` details.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "ArtifactDownloadFailedDetails".
+ */
+export type ArtifactDownloadFailedDetails = {
+  /**
+   * The artifact.
+   */
+  artifact: ArtifactId;
+  /**
+   * The host it came from, never a full URL.
+   */
+  host: string;
+  /**
+   * What pins it: the Product version, or for a Plugin's runtime the
+   * installed Plugins that use it.
+   */
+  pinnedBy: Pinner[];
+} & (
+  | {
+      failure: "network";
+    }
+  | {
+      failure: "http_status";
+      /**
+       * Its status.
+       */
+      status: number;
+    }
+  | {
+      failure: "digest_mismatch";
+    }
+);
+/**
  * What a Pinned artifact is (ADR 0098: the clean-up's rule covers every
  * kind). An entry of a kind the engine does not know is one it cannot read,
  * and keeps.
@@ -106,6 +148,52 @@ export type LimitSetter = "person" | "managed_policy" | "client";
  */
 export type ArtifactKind =
   "browser" | "driver" | "executable_copy" | "engine_executable" | "clean_up_rules" | "mouse_movements";
+/**
+ * What pins an artifact, as an error's details name it, by its `kind`: a
+ * Product version, or an installed Plugin that uses a Plugin runtime (ADRs
+ * 0098 and 0115).
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "Pinner".
+ */
+export type Pinner =
+  | {
+      kind: "product";
+      /**
+       * The Product.
+       */
+      name: Product;
+      /**
+       * Its Product version.
+       */
+      version: ProductVersion;
+    }
+  | {
+      kind: "plugin";
+      /**
+       * The Plugin's name.
+       */
+      name: string;
+      /**
+       * Its version.
+       */
+      version: string;
+    };
+/**
+ * One of Goodfetch's two Products (ADR 0084), by its mark as the catalog
+ * writes it.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "Product".
+ */
+export type Product = "collie" | "foxhound";
+/**
+ * A Product version, `major.minor.patch` with an optional pre-release (ADR 0090).
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "ProductVersion".
+ */
+export type ProductVersion = string;
 /**
  * The format, with its default options.
  *
@@ -129,12 +217,87 @@ export type SettingsLayer =
  */
 export type RunId = string;
 /**
+ * Why a site refused a page (ADR 0035), on the wire as written.
+ *
+ * A value this package does not know, which a newer engine may send, is kept as received (ADR 0079).
+ *
+ * - `challenge`: A page that checks the browser before it lets it through.
+ * - `captcha`: A page that asks a person to prove they are human.
+ * - `rate_limit`: The site refused because too many requests came too fast.
+ * - `ip_block`: The site refused the address the request came from.
+ * - `payment_required`: The site asked to be paid for the page (ADR 0045).
+ * - `consent_required`: A wall that asks for consent before it shows the page (ADR 0048).
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "BlockCause".
+ */
+export type BlockCause =
+  "challenge" | "captcha" | "rate_limit" | "ip_block" | "payment_required" | "consent_required" | (string & {});
+/**
  * A browser family, as ADR 0056 names them.
  *
  * This interface was referenced by `CollieTypes`'s JSON-Schema
  * via the `definition` "BrowserName".
  */
 export type BrowserName = "chrome" | "edge" | "brave" | "chromium" | "firefox" | "safari";
+/**
+ * A browser the engine looked for and did not find.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "MissingBrowser".
+ */
+export type MissingBrowser =
+  | {
+      /**
+       * The build.
+       */
+      artifact: ArtifactId;
+      /**
+       * The Browser cache's path.
+       */
+      cache: string;
+      kind: "pinned";
+      /**
+       * What pins the build: the Product version alone.
+       */
+      pinnedBy: Pinner[];
+    }
+  | {
+      /**
+       * The channel.
+       */
+      channel: ChromeChannel;
+      kind: "channel";
+      /**
+       * Where the engine looked for it.
+       */
+      lookedIn: string[];
+    }
+  | {
+      kind: "path";
+      /**
+       * The path.
+       */
+      path: string;
+    };
+/**
+ * A channel of Google Chrome (ADR 0024: an installed Chrome can be named by
+ * its channel).
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "ChromeChannel".
+ */
+export type ChromeChannel = "stable" | "beta" | "dev" | "canary";
+/**
+ * What refuses the user namespace Chromium's sandbox starts in, on a host
+ * where a fix exists or the probe does not recognise the refusal (ADR
+ * 0049).
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "SandboxEnvironment".
+ */
+export type SandboxEnvironment =
+  "docker_default_seccomp" | "kubernetes_runtime_default" | "apparmor_userns" | "unknown";
 /**
  * Who stopped a call that `call_cancelled` ended (ADR 0113): the
  * vocabulary of an Agent's `abort` (ADR 0100), plus `browser`, open
@@ -258,12 +421,42 @@ export type CatalogTarget =
       plan: string;
     };
 /**
+ * Why nothing at a `cdp_url`'s address answered.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "CdpUrlConnectFailure".
+ */
+export type CdpUrlConnectFailure = "name_not_resolved" | "connection_refused" | "connection_reset" | "tls_failed";
+/**
+ * The rule of ADR 0056's that refused a `cdp_url`'s address.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "CdpUrlRule".
+ */
+export type CdpUrlRule = "loopback" | "private_address";
+/**
  * The kind of an invalid-certificate exception (ADR 0042).
  *
  * This interface was referenced by `CollieTypes`'s JSON-Schema
  * via the `definition` "CertificateExceptionKind".
  */
 export type CertificateExceptionKind = "trust_on_first_use" | "any";
+/**
+ * How a certificate failed verification: a failure the wire names, or
+ * another one as text.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "CertificateFailure".
+ */
+export type CertificateFailure = KnownCertificateFailure | string;
+/**
+ * How a certificate failed verification, as the wire names it.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "KnownCertificateFailure".
+ */
+export type KnownCertificateFailure =
+  "expired" | "not_yet_valid" | "unknown_issuer" | "name_mismatch" | "self_signed" | "revoked";
 /**
  * What a model said of the work it was given (ADR 0100): a signal, never
  * proof.
@@ -292,6 +485,14 @@ export type Completeness = "complete" | "incomplete" | "unverified";
  * via the `definition` "RunOrigin".
  */
 export type RunOrigin = "argument" | "settings" | "flag" | "form" | "registered";
+/**
+ * A Connection's own bound on what it holds, as `connection_overloaded`
+ * names it.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "OverloadedBound".
+ */
+export type OverloadedBound = "pending_calls" | "queued_write_bytes";
 /**
  * A social network whose profiles the page links to.
  *
@@ -323,21 +524,6 @@ export type DaemonEndpoint =
  */
 export type Unready =
   "draining" | "run_state_not_writable" | "browsers_missing" | "governor_last_resort" | "storage_critical";
-/**
- * One of Goodfetch's two Products (ADR 0084), by its mark as the catalog
- * writes it.
- *
- * This interface was referenced by `CollieTypes`'s JSON-Schema
- * via the `definition` "Product".
- */
-export type Product = "collie" | "foxhound";
-/**
- * A Product version, `major.minor.patch` with an optional pre-release (ADR 0090).
- *
- * This interface was referenced by `CollieTypes`'s JSON-Schema
- * via the `definition` "ProductVersion".
- */
-export type ProductVersion = string;
 /**
  * Where a document's encoding came from, in the order the tiers look
  * (ADR 0119).
@@ -419,6 +605,17 @@ export type ValueTransform = "text" | "match" | "number" | "currency" | "date" |
  */
 export type WallKind = "paywall" | "consent_wall" | "ad_blocker_wall";
 /**
+ * What a call past its deadline waited for, as `deadline_exceeded` names
+ * it: a value of a type both Products share, open as ADR 0099 has such
+ * types, so Foxhound adds its own (`goodfetch_protocol::foxhound`'s) and a
+ * reader keeps one it does not know. Each of Collie's values is an
+ * associated constant.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "WaitedFor".
+ */
+export type WaitedFor = string;
+/**
  * A dialog's kind, as Playwright's `dialog.type()` names it.
  *
  * This interface was referenced by `CollieTypes`'s JSON-Schema
@@ -440,6 +637,13 @@ export type DialogId = string;
  * via the `definition` "DownloadId".
  */
 export type DownloadId = string;
+/**
+ * The edge runtime a program runs on (ADR 0049), told by its marker.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "EdgeRuntime".
+ */
+export type EdgeRuntime = "cloudflare_workers" | "vercel_edge" | "deno_deploy";
 /**
  * How an Effect's body ended.
  *
@@ -542,6 +746,13 @@ export type EffectOpened =
       reconciledBy: string;
     };
 /**
+ * The rule of the egress policy that refused a request.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "EgressRule".
+ */
+export type EgressRule = "domain_policy" | "private_address" | "scheme";
+/**
  * A state of the element a locator matches (Playwright's `waitFor`).
  *
  * This interface was referenced by `CollieTypes`'s JSON-Schema
@@ -562,6 +773,13 @@ export type ProtocolVersion = string;
  * via the `definition` "EngineInstance".
  */
 export type EngineInstance = string;
+/**
+ * What a panic in the engine ended (ADR 0148).
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "PanicEnded".
+ */
+export type PanicEnded = "call" | "attempt" | "page" | "session" | "browser" | "run" | "connection" | "engine";
 /**
  * The engine's step that raised a Human pause.
  *
@@ -704,6 +922,13 @@ export type FieldTransform =
       timeZone?: string | null;
     };
 /**
+ * Whose storage a write failed on (ADR 0116).
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "WriteSide".
+ */
+export type WriteSide = "engine" | "program";
+/**
  * The form a Client's user writes names in (ADR 0099), which the engine
  * renders the names and targets of its messages in.
  *
@@ -754,6 +979,13 @@ export type WaitUntil = "commit" | "domcontentloaded" | "load";
  * via the `definition` "GovernorLevel".
  */
 export type GovernorLevel = "normal" | "pressure" | "critical";
+/**
+ * A character no header value may hold.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "HeaderCharacter".
+ */
+export type HeaderCharacter = "cr" | "lf" | "nul";
 /**
  * The level of the engine's log events a Connection receives: those at
  * it and above; `off`, the default, receives none.
@@ -823,6 +1055,14 @@ export type PauseOrigin =
       step: EngineStep;
     };
 /**
+ * What judged a page: the Session's own Page check, or the built-in
+ * detector of a Session that declares none (ADR 0006).
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "JudgedBy".
+ */
+export type JudgedBy = "page_check" | "built_in";
+/**
  * Bytes the Key-value store keeps, in Base64 (RFC 4648, with padding).
  *
  * This interface was referenced by `CollieTypes`'s JSON-Schema
@@ -837,6 +1077,13 @@ export type KeyValueStoreContent = string;
  */
 export type Lifecycle = "running" | "stopped" | "finished" | "failed";
 /**
+ * The setting whose limit a body or JSON passed.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "LimitSetting".
+ */
+export type LimitSetting = "network.max_body_size" | "network.max_decompression_ratio" | "network.max_json_depth";
+/**
  * What the engine that read a Limit makes of it.
  *
  * This interface was referenced by `CollieTypes`'s JSON-Schema
@@ -850,6 +1097,19 @@ export type LimitStanding = "held" | "foxhound" | "not_understood";
  * via the `definition` "LoadState".
  */
 export type LoadState = "domcontentloaded" | "load" | "networkidle";
+/**
+ * Why `egress.local_addresses` yields no usable address.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "LocalAddressFailure".
+ */
+export type LocalAddressFailure =
+  | "not_held"
+  | "unknown_interface"
+  | "interface_without_address"
+  | "prefix_unusable"
+  | "not_launched_here"
+  | "proxy_not_relayed";
 /**
  * Whether the extractor found the document's main content.
  *
@@ -871,6 +1131,26 @@ export type MediaKind = "video" | "audio";
  * via the `definition` "MicrodataValue".
  */
 export type MicrodataValue = string | MicrodataItem;
+/**
+ * Why a Model provider could not answer (ADR 0101), open (ADR 0079).
+ *
+ * A value this package does not know, which a newer engine may send, is kept as received (ADR 0079).
+ *
+ * - `unreachable`: The provider could not be reached, or a call to the program's own provider was dropped unanswered.
+ * - `server_error`: The provider failed with a 5xx.
+ * - `rate_limited`: The provider kept rate limiting the calls.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "ModelUnavailableReason".
+ */
+export type ModelUnavailableReason = "unreachable" | "server_error" | "rate_limited" | (string & {});
+/**
+ * Which resolver the engine asked for a name.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "NameResolver".
+ */
+export type NameResolver = "engine" | "system";
 /**
  * What `needs_you.changed` carries: one change of the list.
  *
@@ -1102,6 +1382,13 @@ export type PageEventName =
  */
 export type PageField = ValueField | ListField | RowsField;
 /**
+ * The handlers a program gives a page, which `page_handler_failed` names.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "PageHandler".
+ */
+export type PageHandler = "route" | "dialog";
+/**
  * A URL pattern the engine matches (ADR 0081): a glob as Playwright reads
  * one, or a regular expression in the `regex` crate's syntax. A predicate
  * runs in the program, which routes every URL and falls back for the
@@ -1125,6 +1412,63 @@ export type UrlMatcher =
        */
       pattern: string;
     };
+/**
+ * Which way a value outside JSON was going.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "PageValueDirection".
+ */
+export type PageValueDirection = "result" | "argument";
+/**
+ * The kind of a value outside JSON (ADR 0085).
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "PageValueKind".
+ */
+export type PageValueKind =
+  | "node"
+  | "window"
+  | "not_a_number"
+  | "infinity"
+  | "bigint"
+  | "symbol"
+  | "function"
+  | "cycle"
+  | "map"
+  | "set"
+  | "date"
+  | "regexp"
+  | "error"
+  | "object";
+/**
+ * What makes a name or path unsafe.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "PathHazard".
+ */
+export type PathHazard =
+  | "parent_traversal"
+  | "absolute"
+  | "drive"
+  | "verbatim"
+  | "device_namespace"
+  | "unc"
+  | "reserved_name"
+  | "trailing_dot_or_space"
+  | "alternate_data_stream"
+  | "forbidden_character"
+  | "control_character"
+  | "normalisation"
+  | "overlong"
+  | "dot_name"
+  | "separator";
+/**
+ * A construct of a URL pattern the engine's matcher cannot read (ADR 0081).
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "PatternConstruct".
+ */
+export type PatternConstruct = "look_around" | "backreference" | "nested_braces" | "unmatched_brace" | "other";
 /**
  * What became of a Run's new Plan versions (ADR 0091).
  *
@@ -1155,6 +1499,59 @@ export type PressureSource = "memory" | "host_memory" | "cpu" | "tokio";
  */
 export type ProgressMessage = string;
 /**
+ * What a Proxy provider's failure was, as its adapter read it.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "ProxyProviderFailure".
+ */
+export type ProxyProviderFailure = "quota_exhausted" | "sticky_session_expired" | "unrecognized";
+/**
+ * The count of redirects a fetch follows at most, and what set it (ADR
+ * 0118).
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "RedirectLimit".
+ */
+export type RedirectLimit =
+  | {
+      /**
+       * The requests the chain may hold, its first included: 20, one
+       * more than the redirects followed, which `hops` lists.
+       */
+      count: number;
+      kind: "browser";
+    }
+  | {
+      /**
+       * The redirects it allows, the chain's first request left out.
+       */
+      count: number;
+      kind: "setting";
+      /**
+       * The setting's key.
+       */
+      name: string;
+    }
+  | {
+      /**
+       * The redirects it allows, the chain's first request left out.
+       */
+      count: number;
+      kind: "option";
+      /**
+       * The option's name.
+       */
+      name: string;
+    };
+/**
+ * What a `value_invalid` refused: the key itself, or the value given for
+ * it.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "Refused".
+ */
+export type Refused = "key" | "value";
+/**
  * A resource the governor can run out of (ADR 0122).
  *
  * This interface was referenced by `CollieTypes`'s JSON-Schema
@@ -1177,6 +1574,13 @@ export type RouteId = string;
  * via the `definition` "StoppedBy".
  */
 export type StoppedBy = "person" | "client" | "program" | "browser";
+/**
+ * An input of a start that differs from the Run's.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "StartInput".
+ */
+export type StartInput = "product" | "kind" | "caller" | "seeds";
 /**
  * What kind of Run it is: a Collie Run its program drives, or a crawl
  * (ADR 0102), which its start's inputs name.
@@ -1316,6 +1720,28 @@ export type RunWriter = "live" | "none";
  */
 export type StartedAs = "new" | "resumed" | "ended";
 /**
+ * The kind of filesystem a run folder was refused on (ADR 0049).
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "RunStateFilesystem".
+ */
+export type RunStateFilesystem = "nfs" | "smb" | "fuse_object_storage";
+/**
+ * What a resolution failed on, which `secret_unavailable` carries.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "SecretFailure".
+ */
+export type SecretFailure =
+  "missing" | "not_configured" | "provider_failed" | "resolver_failed" | "timed_out" | "no_code";
+/**
+ * Why a value may not go where it would.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "SecretInputRefusedReason".
+ */
+export type SecretInputRefusedReason = "invalid_certificate_exception";
+/**
  * What a crawl starts from (ADR 0093): a request, or a sitemap seed, which
  * seeds the entries of a site's sitemaps.
  *
@@ -1330,6 +1756,29 @@ export type Seed = RequestSeed | SitemapSeed;
  * via the `definition` "SessionEventName".
  */
 export type SessionEventName = "page";
+/**
+ * Which of a site's preferences refused a navigation (ADR 0086, as ADR
+ * 0093 amends it).
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "SitePreference".
+ */
+export type SitePreference = "robots_txt" | "crawl_delay" | "use_signals";
+/**
+ * Why `value_invalid` refused a key or a value.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "ValueInvalidReason".
+ */
+export type ValueInvalidReason =
+  | "key_empty"
+  | "key_too_long"
+  | "key_control_character"
+  | "value_null"
+  | "value_bytes"
+  | "value_json"
+  | "value_not_json"
+  | "value_schema";
 
 /**
  * The root of the layer's types, which holds no value of its own.
@@ -1368,6 +1817,22 @@ export interface AddInitScriptParams {
    * The page.
    */
   pageId: PageId;
+}
+/**
+ * What `address_family_unavailable` details.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "AddressFamilyUnavailableDetails".
+ */
+export interface AddressFamilyUnavailableDetails {
+  /**
+   * The one family the Session holds a local address of.
+   */
+  held: IpFamily;
+  /**
+   * The host name.
+   */
+  name: string;
 }
 /**
  * A Limit that applies to a Run (ADRs 0041 and 0101): its scope's kind and
@@ -1468,6 +1933,27 @@ export interface ArtifactId {
    * Its name, such as `chrome-for-testing`.
    */
   name: string;
+}
+/**
+ * What `artifact_unavailable_offline` details.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "ArtifactUnavailableOfflineDetails".
+ */
+export interface ArtifactUnavailableOfflineDetails {
+  /**
+   * The artifact.
+   */
+  artifact: ArtifactId;
+  /**
+   * The Browser cache's path.
+   */
+  cache: string;
+  /**
+   * What pins it: the Product version, or for a Plugin's runtime the
+   * installed Plugins that use it.
+   */
+  pinnedBy: Pinner[];
 }
 /**
  * What `audit.export` takes: nothing.
@@ -1606,6 +2092,33 @@ export interface AxisReason {
   message: string;
 }
 /**
+ * What `blocked` details (ADRs 0092 and 0118), their cause Collie's
+ * `BlockCause`, or `Cause` as Foxhound reads them
+ * (`foxhound::block::BlockedDetails`).
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "BlockedDetails".
+ */
+export interface BlockedDetails {
+  /**
+   * The Block cause, kept as received by an SDK that does not know it
+   * (ADR 0079).
+   */
+  cause: BlockCause;
+  /**
+   * The time the site's `Retry-After` asks for, in RFC 3339, read in
+   * either of its forms; `null` when it asks for none. The engine never
+   * waits on it for a program's own navigation.
+   */
+  retryAfter?: Date | null;
+  /**
+   * Its HTTP status; `null` for a document never fetched, as a crawl
+   * request's page reached through a suspected trap link, a decoy a
+   * browser tier never opens (ADR 0035).
+   */
+  status?: number | null;
+}
+/**
  * A page body as a handle: its ID, the file that holds it and its size.
  *
  * This interface was referenced by `CollieTypes`'s JSON-Schema
@@ -1628,6 +2141,93 @@ export interface BodyHandle {
    * Its size in bytes.
    */
   size: number;
+}
+/**
+ * What `body_not_found` details.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "BodyNotFoundDetails".
+ */
+export interface BodyNotFoundDetails {
+  /**
+   * The body's ID.
+   */
+  body: string;
+}
+/**
+ * What `body_unavailable` details.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "BodyUnavailableDetails".
+ */
+export interface BodyUnavailableDetails {
+  /**
+   * The request.
+   */
+  requestId: string;
+}
+/**
+ * How a browser process ended (ADR 0113).
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "BrowserExit".
+ */
+export interface BrowserExit {
+  /**
+   * Its exit status, when it exited.
+   */
+  code?: number | null;
+  /**
+   * The signal that ended it, when one did.
+   */
+  signal?: number | null;
+}
+/**
+ * What `browser_launch_failed` details.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "BrowserLaunchFailedDetails".
+ */
+export interface BrowserLaunchFailedDetails {
+  /**
+   * The browser's executable.
+   */
+  executable: string;
+  /**
+   * How it ended, when it exited before it was ready.
+   */
+  exit?: BrowserExit | null;
+}
+/**
+ * What `browser_needs_gui_session` details.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "BrowserNeedsGuiSessionDetails".
+ */
+export interface BrowserNeedsGuiSessionDetails {}
+/**
+ * What `browser_not_installed` details.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "BrowserNotInstalledDetails".
+ */
+export interface BrowserNotInstalledDetails {
+  /**
+   * What was missing.
+   */
+  missing: MissingBrowser;
+}
+/**
+ * What `browser_sandbox_unavailable` details.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "BrowserSandboxUnavailableDetails".
+ */
+export interface BrowserSandboxUnavailableDetails {
+  /**
+   * What refuses the sandbox.
+   */
+  environment: SandboxEnvironment;
 }
 /**
  * What `call_cancelled` details (ADR 0113).
@@ -1661,6 +2261,26 @@ export interface CancelParams {
    * The call's id.
    */
   id: RequestId;
+}
+/**
+ * What `capability_unavailable` details.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "CapabilityUnavailableDetails".
+ */
+export interface CapabilityUnavailableDetails {
+  /**
+   * The setting that asks for it.
+   */
+  key: string;
+  /**
+   * What it asks for, such as a Session source's kind.
+   */
+  kind: string;
+  /**
+   * The layer that set it.
+   */
+  layer: SettingsLayer;
 }
 /**
  * What `catalog_run.start` takes.
@@ -1774,6 +2394,108 @@ export interface Recording {
   path: string;
 }
 /**
+ * What `cdp_url_not_allowed` details.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "CdpUrlNotAllowedDetails".
+ */
+export interface CdpUrlNotAllowedDetails {
+  /**
+   * The address it resolved to that the rule refused.
+   */
+  address: string;
+  /**
+   * The settings layer that gave it.
+   */
+  layer: SettingsLayer;
+  /**
+   * The rule that refused it.
+   */
+  rule: CdpUrlRule;
+  /**
+   * The setting that refused it, or whose value would allow it, when one
+   * does.
+   */
+  setting?: string | null;
+}
+/**
+ * What `cdp_url_not_browser` details.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "CdpUrlNotBrowserDetails".
+ */
+export interface CdpUrlNotBrowserDetails {
+  /**
+   * The browser's address the same host's `/json/version` lists, when
+   * it serves one.
+   */
+  browserURL?: string | null;
+  /**
+   * The settings layer that gave it.
+   */
+  layer: SettingsLayer;
+}
+/**
+ * What `cdp_url_unauthorized` details.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "CdpUrlUnauthorizedDetails".
+ */
+export interface CdpUrlUnauthorizedDetails {
+  /**
+   * Each header name sent, with the Secret reference its value came
+   * from; never the value.
+   */
+  headers: {
+    [k: string]: string;
+  };
+  /**
+   * The settings layer that gave it.
+   */
+  layer: SettingsLayer;
+  /**
+   * The status it answered, 401 or 403.
+   */
+  status: number;
+}
+/**
+ * What `cdp_url_unreachable` details.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "CdpUrlUnreachableDetails".
+ */
+export interface CdpUrlUnreachableDetails {
+  /**
+   * Why nothing answered.
+   */
+  failure: CdpUrlConnectFailure;
+  /**
+   * The settings layer that gave it.
+   */
+  layer: SettingsLayer;
+}
+/**
+ * What `certificate_changed` details.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "CertificateChangedDetails".
+ */
+export interface CertificateChangedDetails {
+  /**
+   * The host, as the URL parser leaves it.
+   */
+  host: string;
+  /**
+   * The SHA-256 of the pinned key, as `sha256/` and its standard
+   * base64; none when its pin row cannot be read.
+   */
+  pinnedSpkiSha256?: string | null;
+  /**
+   * The SHA-256 of the key the host presented, written the same way.
+   */
+  presentedSpkiSha256: string;
+}
+/**
  * The invalid-certificate exception a Record's document was fetched
  * under (ADR 0042, pitfall H03).
  *
@@ -1790,6 +2512,22 @@ export interface CertificateExceptionMark {
    * `sha256/<base64>`, the known-certificates store's spelling.
    */
   spkiSha256: string;
+}
+/**
+ * What `certificate_invalid` details.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "CertificateInvalidDetails".
+ */
+export interface CertificateInvalidDetails {
+  /**
+   * How it failed.
+   */
+  failure: CertificateFailure;
+  /**
+   * The host whose certificate failed, as the request named it.
+   */
+  host: string;
 }
 /**
  * One pin of the known-certificates store, as `certs.list` answers it and
@@ -1932,6 +2670,39 @@ export interface Checkpoint {
   time: PointInTime;
 }
 /**
+ * What `checkpoint_behind` details.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "CheckpointBehindDetails".
+ */
+export interface CheckpointBehindDetails {
+  /**
+   * Where the Checkpoint stands.
+   */
+  checkpoint: RunStatePosition;
+  /**
+   * Where the run file on this machine stands, past the Checkpoint.
+   */
+  runFile: RunStatePosition;
+}
+/**
+ * Where a Run's state stands: the run epoch of its last writer, then the
+ * journal position within it, compared in that order.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "RunStatePosition".
+ */
+export interface RunStatePosition {
+  /**
+   * How many commits of the run file it holds.
+   */
+  journalPosition: number;
+  /**
+   * The run epoch of the writer whose commits it holds.
+   */
+  runEpoch: number;
+}
+/**
  * What `$/chunk` carries: the next bytes of the body a call reads.
  *
  * This interface was referenced by `CollieTypes`'s JSON-Schema
@@ -2069,6 +2840,23 @@ export interface ConfigExplainParams {
   settings?: {
     [k: string]: unknown;
   };
+}
+/**
+ * What `connection_overloaded` names: the Connection's own bound the call
+ * would pass, and its value. The Client raises it, never the engine.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "ConnectionOverloadedDetails".
+ */
+export interface ConnectionOverloadedDetails {
+  /**
+   * The bound reached.
+   */
+  bound: OverloadedBound;
+  /**
+   * Its value: a number of calls, or of bytes.
+   */
+  value: number;
 }
 /**
  * What `needs_you.allow_consent_domain` answers.
@@ -2295,6 +3083,13 @@ export interface CreditParams {
   id: RequestId;
 }
 /**
+ * What `daemon_draining` details.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "DaemonDrainingDetails".
+ */
+export interface DaemonDrainingDetails {}
+/**
  * What `daemon.health` answers: what the ops listener's `/livez` and
  * `/readyz` check (ADR 0050). In a Daemon group, readiness ignores the
  * Lead Daemon's reachability.
@@ -2384,6 +3179,13 @@ export interface DaemonStopping {
    */
   liveRuns: number;
 }
+/**
+ * What `daemon_unreachable` details.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "DaemonUnreachableDetails".
+ */
+export interface DaemonUnreachableDetails {}
 /**
  * One committed Record of a Dataset, as a reader reads it (ADR 0103).
  *
@@ -2637,6 +3439,60 @@ export interface WallMarker {
   vendor?: string | null;
 }
 /**
+ * What `deadline_exceeded` details.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "DeadlineExceededDetails".
+ */
+export interface DeadlineExceededDetails {
+  /**
+   * How long the call waited, in milliseconds.
+   */
+  elapsed: number;
+  /**
+   * The enclosing call whose timeout ended it, when that call's end came
+   * before its own (ADR 0080): `limit` is then that call's timeout.
+   * Absent when its own timeout ended it.
+   */
+  endedBy?: EnclosingCall | null;
+  /**
+   * What it waited for, such as `first_byte` or `navigation`.
+   */
+  waitedFor: WaitedFor;
+}
+/**
+ * The enclosing call a timeout belongs to, as `deadline_exceeded`'s
+ * `ended_by` names it (ADR 0080): the calls made inside a call inherit its
+ * end, so none outlasts it.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "EnclosingCall".
+ */
+export interface EnclosingCall {
+  /**
+   * Its request's id on its Connection.
+   */
+  callId: RequestId;
+  /**
+   * Its operation, such as `crawl_request.handle`.
+   */
+  operation: string;
+}
+/**
+ * What `detach_unsupported`'s details hold.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "DetachUnsupportedDetails".
+ */
+export interface DetachUnsupportedDetails {
+  /**
+   * What keeps the Run from detaching: `engine`, the Connection's
+   * engine, which is no Daemon, or the key of the start that gives the
+   * Run a handler in the program.
+   */
+  key: string;
+}
+/**
  * A dialog as its handler sees it.
  *
  * This interface was referenced by `CollieTypes`'s JSON-Schema
@@ -2671,6 +3527,18 @@ export interface DialogAcceptParams {
    * The text a prompt returns; its default value when absent.
    */
   promptText?: string | null;
+}
+/**
+ * What `dialog_already_handled` details.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "DialogAlreadyHandledDetails".
+ */
+export interface DialogAlreadyHandledDetails {
+  /**
+   * The dialog answered already.
+   */
+  dialogId: DialogId;
 }
 /**
  * What an answer to a dialog answers once the page closed the dialog.
@@ -2796,6 +3664,18 @@ export interface DownloadSaved {
   written: boolean;
 }
 /**
+ * What `edge_handlers_unsupported` details.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "EdgeHandlersUnsupportedDetails".
+ */
+export interface EdgeHandlersUnsupportedDetails {
+  /**
+   * The edge runtime the program runs on.
+   */
+  runtime: EdgeRuntime;
+}
+/**
  * The crawl attempt an Effect is declared through: a handler's `ctx.run`,
  * which is bound to its attempt (ADR 0093).
  *
@@ -2901,6 +3781,28 @@ export interface EffectOpenParams {
   runId: RunId;
 }
 /**
+ * What `egress_refused` details.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "EgressRefusedDetails".
+ */
+export interface EgressRefusedDetails {
+  /**
+   * The address the connection would have used, when the rule judged
+   * one.
+   */
+  address?: string | null;
+  /**
+   * The rule that refused it.
+   */
+  rule: EgressRule;
+  /**
+   * The setting whose value would allow the request; none when no
+   * setting would, as for a URL that does not parse.
+   */
+  setting?: string | null;
+}
+/**
  * An Error code a Run's ending raises, with its message and details.
  *
  * This interface was referenced by `CollieTypes`'s JSON-Schema
@@ -2921,6 +3823,30 @@ export interface EndingError {
    * What it says, for people.
    */
   message: string;
+}
+/**
+ * The evidence `engine_exited` carries of how the engine ended (ADR
+ * 0078). Each field is always sent: a linked engine, which runs in the
+ * program's own process, has no exit code or signal, both `null`, and no
+ * stderr of its own, an empty tail.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "EngineExitedDetails".
+ */
+export interface EngineExitedDetails {
+  /**
+   * The engine's exit code; `null` when a signal ended it, or when it
+   * is linked.
+   */
+  exitCode?: number | null;
+  /**
+   * The signal that ended it, such as `SIGKILL`.
+   */
+  signal?: string | null;
+  /**
+   * The last 64 KiB of its stderr, cut where a character starts.
+   */
+  stderrTail: string;
 }
 /**
  * What `engine.info` answers.
@@ -2953,6 +3879,27 @@ export interface EngineInfo {
  * via the `definition` "EngineInfoParams".
  */
 export interface EngineInfoParams {}
+/**
+ * What `engine_panicked` details: what ended, never the panic's own text,
+ * which stays in the crash report.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "EnginePanickedDetails".
+ */
+export interface EnginePanickedDetails {
+  /**
+   * The crash report's file name, when one was written.
+   */
+  crashReport?: string | null;
+  /**
+   * What the panic ended.
+   */
+  ended: PanicEnded;
+  /**
+   * The ID of what ended, when it has one, such as a Run's.
+   */
+  id?: string | null;
+}
 /**
  * What `$/enqueued` carries: the answer of each seed of one `$/seeds`
  * batch, in the batch's order.
@@ -3116,6 +4063,18 @@ export interface LastRead {
   position: Position;
 }
 /**
+ * What `executable_blocked_by_smart_app_control` details.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "ExecutableBlockedBySmartAppControlDetails".
+ */
+export interface ExecutableBlockedBySmartAppControlDetails {
+  /**
+   * The path of the file Windows refused to start.
+   */
+  file: string;
+}
+/**
  * One setting as `config explain` shows it.
  *
  * This interface was referenced by `CollieTypes`'s JSON-Schema
@@ -3263,6 +4222,32 @@ export interface FieldMatch {
   pattern: string;
 }
 /**
+ * What `file_write_failed` details.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "FileWriteFailedDetails".
+ */
+export interface FileWriteFailedDetails {
+  /**
+   * The OS's own name for the error, such as `ENOSPC`, or none.
+   */
+  osCode?: string | null;
+  /**
+   * On the engine's side, the folder where it keeps the Run; on the
+   * program's, its path as given.
+   */
+  path?: string | null;
+  /**
+   * Why, as Rust's `io::ErrorKind` name in `snake_case`, such as
+   * `storage_full` or `read_only_filesystem`, or `other`.
+   */
+  reason: string;
+  /**
+   * Whose storage failed.
+   */
+  side: WriteSide;
+}
+/**
  * What `locator.fill` takes: the locator whose field it fills, and the
  * text.
  *
@@ -3278,6 +4263,26 @@ export interface FillParams {
    * The text the field holds afterwards; an empty text clears it.
    */
   value: string;
+}
+/**
+ * What `format_version_unsupported` details.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "FormatVersionUnsupportedDetails".
+ */
+export interface FormatVersionUnsupportedDetails {
+  /**
+   * The format's name.
+   */
+  format: string;
+  /**
+   * The file's version.
+   */
+  found: string;
+  /**
+   * The version this engine reads up to.
+   */
+  supported: string;
 }
 /**
  * What `page.formats` takes: the page, and the formats it asks for.
@@ -3395,6 +4400,22 @@ export interface GotoParams {
    * When the navigation answers; `load` when absent.
    */
   waitUntil?: WaitUntil | null;
+}
+/**
+ * What `header_value_invalid` details.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "HeaderValueInvalidDetails".
+ */
+export interface HeaderValueInvalidDetails {
+  /**
+   * The first character its value may not hold.
+   */
+  character: HeaderCharacter;
+  /**
+   * The header's name.
+   */
+  name: string;
 }
 /**
  * What a `hello` says.
@@ -3651,6 +4672,27 @@ export interface Image {
  * via the `definition` "InitScriptEnded".
  */
 export interface InitScriptEnded {}
+/**
+ * What `internal` details: the object whose table refused the event, its
+ * state and the event, as the engine names them.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "InternalDetails".
+ */
+export interface InternalDetails {
+  /**
+   * The event refused.
+   */
+  event: string;
+  /**
+   * The object, such as `session` or `page`.
+   */
+  object: string;
+  /**
+   * Its state.
+   */
+  state: string;
+}
 /**
  * The crawl attempt a Key-value store call is made through: a handler's
  * `ctx.run`, which is bound to its attempt (ADR 0093). Only a crawl's Run
@@ -3925,6 +4967,44 @@ export interface Limit {
   usageKind: string;
 }
 /**
+ * What `limit_not_understood` details: the Limit this engine cannot
+ * evaluate.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "LimitNotUnderstoodDetails".
+ */
+export interface LimitNotUnderstoodDetails {
+  /**
+   * The Limit.
+   */
+  limit: Limit;
+}
+/**
+ * What `limit_raise_refused` details: the Limit a start gave above the
+ * Run's Limit as it stands.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "LimitRaiseRefusedDetails".
+ */
+export interface LimitRaiseRefusedDetails {
+  /**
+   * Its currency, an ISO 4217 code; none for a count.
+   */
+  currency?: string | null;
+  /**
+   * The amount the start gave.
+   */
+  given: number;
+  /**
+   * The amount of the Limit as it stands.
+   */
+  standing: number;
+  /**
+   * The Usage kind of the Limit.
+   */
+  usageKind: string;
+}
+/**
  * One Limit with the Usage counted against it in its current period.
  *
  * This interface was referenced by `CollieTypes`'s JSON-Schema
@@ -4042,6 +5122,44 @@ export interface ValueField {
    * Its Value transform: `text` by default.
    */
   transform?: FieldTransform;
+}
+/**
+ * What `listener_events_lost` names: the event the listener took, and how
+ * many of them it lost once its queue was full.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "ListenerEventsLostDetails".
+ */
+export interface ListenerEventsLostDetails {
+  /**
+   * The event, such as `session.page`.
+   */
+  event: string;
+  /**
+   * How many of its events the listener lost.
+   */
+  lost: number;
+}
+/**
+ * What `local_address_unavailable` details.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "LocalAddressUnavailableDetails".
+ */
+export interface LocalAddressUnavailableDetails {
+  /**
+   * The address, interface or prefix that yields nothing, as the
+   * setting writes it.
+   */
+  entry: string;
+  /**
+   * Why it yields nothing.
+   */
+  failure: LocalAddressFailure;
+  /**
+   * The setting it comes from: `egress.local_addresses`.
+   */
+  setting: string;
 }
 /**
  * What `locator.evaluate_all` takes: the locator, the function's source,
@@ -4172,6 +5290,22 @@ export interface LogEvent {
  * via the `definition` "LogLevelSet".
  */
 export interface LogLevelSet {}
+/**
+ * What `logged_out` details.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "LoggedOutDetails".
+ */
+export interface LoggedOutDetails {
+  /**
+   * What judged it a login page.
+   */
+  judgedBy: JudgedBy;
+  /**
+   * Its HTTP status.
+   */
+  status: number;
+}
 /**
  * A media source of the page: a `<video src>`, an `<audio src>` or a
  * `<source src>` of either, in document order.
@@ -4422,6 +5556,25 @@ export interface UsageAmount {
   currency?: string | null;
 }
 /**
+ * What `model_unavailable` details (ADR 0101).
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "ModelUnavailableDetails".
+ */
+export interface ModelUnavailableDetails {
+  /**
+   * Why the provider could not answer.
+   */
+  reason: ModelUnavailableReason;
+  /**
+   * How long the provider asked to wait before the next call, from its
+   * answer's `Retry-After` or its own rate-limit reset: a duration, not a
+   * point in time, in whole milliseconds on the wire; `null` when it
+   * asked for no wait.
+   */
+  retryAfter?: number | null;
+}
+/**
  * The Usage of a Run's model calls (ADR 0101): their counts and price,
  * and the same per Model reference.
  *
@@ -4473,6 +5626,43 @@ export interface ModelUsage {
    * counts.
    */
   tokens: number;
+}
+/**
+ * What `name_lookup_failed` details.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "NameLookupFailedDetails".
+ */
+export interface NameLookupFailedDetails {
+  /**
+   * The host name asked for.
+   */
+  name: string;
+  /**
+   * The resolver whose name servers failed.
+   */
+  resolver: NameResolver;
+}
+/**
+ * What `name_not_resolved` details.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "NameNotResolvedDetails".
+ */
+export interface NameNotResolvedDetails {
+  /**
+   * Whether the name is a `.local` name, which multicast DNS answers on
+   * most networks and the engine's own resolver never asks it.
+   */
+  multicastDnsName: boolean;
+  /**
+   * The host name asked for.
+   */
+  name: string;
+  /**
+   * The resolver that found no address.
+   */
+  resolver: NameResolver;
 }
 /**
  * What a navigation answers: the document's response, or none for a
@@ -4533,6 +5723,26 @@ export interface PageResponse {
    */
   url: string;
 }
+/**
+ * What `navigation_failed` details.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "NavigationFailedDetails".
+ */
+export interface NavigationFailedDetails {
+  /**
+   * The browser's network error, such as `net::ERR_NAME_NOT_RESOLVED`,
+   * when the browser named one.
+   */
+  error?: string | null;
+}
+/**
+ * What `navigation_interrupted` details.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "NavigationInterruptedDetails".
+ */
+export interface NavigationInterruptedDetails {}
 /**
  * What `needs_you.allow_consent_domain` takes.
  *
@@ -4777,6 +5987,49 @@ export interface NewSessionParams {
   source?: SessionSource | null;
 }
 /**
+ * What `not_a_daemon` details.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "NotADaemonDetails".
+ */
+export interface NotADaemonDetails {}
+/**
+ * What `not_in_product` details.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "NotInProductDetails".
+ */
+export interface NotInProductDetails {
+  /**
+   * Whether the refusing engine is a Daemon handing over to its major's
+   * pick, which a Client of the major waits for and connects to (ADR
+   * 0098).
+   */
+  handover?: boolean;
+  /**
+   * The command that installs the Product `needs` from the engine's own
+   * channel, which `fix` names; none behind Goodfetch Cloud's gateway,
+   * where an install would not help (ADR 0096).
+   */
+  install?: string | null;
+  /**
+   * The Product that carries what was asked.
+   */
+  needs: Product;
+  /**
+   * The running engine's Product.
+   */
+  product: Product;
+  /**
+   * The running engine's Product version.
+   */
+  productVersion: ProductVersion;
+  /**
+   * What was asked, such as an operation's name; `None` for a `hello`.
+   */
+  requested?: string | null;
+}
+/**
  * A Limit flagged *must understand* that a Run's engine cannot evaluate,
  * as the Run stopped for it names it (ADR 0041): its scope, Usage kind,
  * currency and period as the ledger holds them.
@@ -4938,6 +6191,24 @@ export interface PageBodyRead {
   size: number;
 }
 /**
+ * What `page_check_failed` details.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "PageCheckFailedDetails".
+ */
+export interface PageCheckFailedDetails {
+  /**
+   * Whether the document is marked `noindex`, by a `noindex` or `none`
+   * directive in its `X-Robots-Tag` header or a robots `meta` element:
+   * a crawl takes such a page for a decoy (ADR 0035).
+   */
+  noindex: boolean;
+  /**
+   * Its HTTP status.
+   */
+  status: number;
+}
+/**
  * What `page.close` takes: the page, and whether its `beforeunload`
  * handlers run.
  *
@@ -4962,6 +6233,19 @@ export interface PageCloseParams {
  * via the `definition` "PageClosed".
  */
 export interface PageClosed {}
+/**
+ * What `page_crashed` details.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "PageCrashedDetails".
+ */
+export interface PageCrashedDetails {
+  /**
+   * How the browser process ended, when it is what was lost; none for a
+   * renderer's crash alone.
+   */
+  browserExit?: BrowserExit | null;
+}
 /**
  * What `page.download` reports: a navigation of a page that the browser
  * turned into a download.
@@ -5201,6 +6485,73 @@ export interface Table {
   headerRows: string[][];
 }
 /**
+ * What `page_function_failed` details.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "PageFunctionFailedDetails".
+ */
+export interface PageFunctionFailedDetails {
+  /**
+   * What the page said, or why the engine refused the function.
+   */
+  message: string;
+  /**
+   * The thrown error's name, such as `ReferenceError`; absent for a
+   * thrown value that is no error, and for an expression given an
+   * argument.
+   */
+  name?: string | null;
+  /**
+   * The page's stack, when it gave one.
+   */
+  stack?: string | null;
+}
+/**
+ * What `page_handler_failed` details.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "PageHandlerFailedDetails".
+ */
+export interface PageHandlerFailedDetails {
+  /**
+   * What its failure said.
+   */
+  failure: string;
+  /**
+   * The handler that failed.
+   */
+  handler: PageHandler;
+}
+/**
+ * What `page_memory_exceeded` details.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "PageMemoryExceededDetails".
+ */
+export interface PageMemoryExceededDetails {
+  /**
+   * What it held when measured, in bytes: its JavaScript heap and the
+   * buffers it held.
+   */
+  memory: number;
+  /**
+   * The page the governor ended.
+   */
+  pageId: PageId;
+}
+/**
+ * What `page_navigated_during_call` details.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "PageNavigatedDuringCallDetails".
+ */
+export interface PageNavigatedDuringCallDetails {
+  /**
+   * The document that replaced it.
+   */
+  navigatedTo: string;
+}
+/**
  * What `page.on_dialog` takes: the page whose dialogs its handler
  * answers.
  *
@@ -5380,6 +6731,31 @@ export interface PageRouteParams {
   url: UrlMatcher;
 }
 /**
+ * What `page_value_invalid` details.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "PageValueInvalidDetails".
+ */
+export interface PageValueInvalidDetails {
+  /**
+   * Its constructor's name, when it has one, such as `HTMLDivElement`.
+   */
+  constructor?: string | null;
+  /**
+   * Whether the value was the result or the argument.
+   */
+  direction: PageValueDirection;
+  /**
+   * Its kind.
+   */
+  kind: PageValueKind;
+  /**
+   * Where the first value outside JSON is, from `$`, the whole value,
+   * such as `$.rows[2].cell`.
+   */
+  path: string;
+}
+/**
  * What `page.web_socket` reports: a WebSocket the page opened, whose
  * frames and close follow as `web_socket.*` events.
  *
@@ -5399,6 +6775,59 @@ export interface PageWebSocket {
    * The browser's ID for the socket, which its events name.
    */
   webSocketId: string;
+}
+/**
+ * What `path_not_writable` details (ADR 0116).
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "PathNotWritableDetails".
+ */
+export interface PathNotWritableDetails {
+  /**
+   * The OS's own name for the error, such as `EACCES`, or none.
+   */
+  osCode?: string | null;
+  /**
+   * The program's path, as given.
+   */
+  path: string;
+  /**
+   * Why, as Rust's `io::ErrorKind` name in `snake_case`, such as
+   * `permission_denied` or `is_a_directory`.
+   */
+  reason: string;
+}
+/**
+ * What `path_unsafe` details.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "PathUnsafeDetails".
+ */
+export interface PathUnsafeDetails {
+  /**
+   * What makes it unsafe.
+   */
+  hazard: PathHazard;
+  /**
+   * The name or path, as given.
+   */
+  name: string;
+}
+/**
+ * What `pattern_unsupported` details.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "PatternUnsupportedDetails".
+ */
+export interface PatternUnsupportedDetails {
+  /**
+   * The construct the engine cannot read.
+   */
+  construct: PatternConstruct;
+  /**
+   * The pattern as the call passed it.
+   */
+  pattern: string;
 }
 /**
  * What a Run did with its Plan file (ADR 0091).
@@ -5466,6 +6895,22 @@ export interface PolicyChange {
   value: {
     [k: string]: unknown;
   };
+}
+/**
+ * What `policy_conflict` details.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "PolicyConflictDetails".
+ */
+export interface PolicyConflictDetails {
+  /**
+   * The file's digest now.
+   */
+  current: string;
+  /**
+   * The digest the write was made against.
+   */
+  digest: string;
 }
 /**
  * What `config.policy_read` takes: nothing.
@@ -5556,6 +7001,44 @@ export interface PressParams {
   locator: Locator;
 }
 /**
+ * What `protocol_version_unsupported` details.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "ProtocolVersionUnsupportedDetails".
+ */
+export interface ProtocolVersionUnsupportedDetails {
+  /**
+   * The protocol version the Client's `hello` named.
+   */
+  clientProtocolVersion: ProtocolVersion;
+  /**
+   * The protocol version the engine speaks.
+   */
+  engineProtocolVersion: ProtocolVersion;
+  /**
+   * Whether the refusing engine is a Daemon handing over to its major's
+   * pick, which a Client of the major waits for and connects to (ADR
+   * 0098).
+   */
+  handover?: boolean;
+}
+/**
+ * What `proxy_auth_failed` details.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "ProxyAuthFailedDetails".
+ */
+export interface ProxyAuthFailedDetails {
+  /**
+   * The proxy, `scheme://host:port`, without its credentials.
+   */
+  proxy: string;
+  /**
+   * The username the Session gave, if it gave one.
+   */
+  username?: string | null;
+}
+/**
  * The bytes a Run sent and received through proxies of one proxy kind.
  *
  * This interface was referenced by `CollieTypes`'s JSON-Schema
@@ -5570,6 +7053,60 @@ export interface ProxyKindBytes {
    * The proxy kind, such as `residential`.
    */
   kind: string;
+}
+/**
+ * What `proxy_provider_unavailable` details.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "ProxyProviderUnavailableDetails".
+ */
+export interface ProxyProviderUnavailableDetails {
+  /**
+   * The failure.
+   */
+  failure: ProxyProviderFailure;
+  /**
+   * The Proxy provider, as `proxy.provider` names it.
+   */
+  provider: string;
+  /**
+   * The proxy, `scheme://host:port`, without its credentials.
+   */
+  proxy: string;
+}
+/**
+ * What `proxy_relay_unavailable` details.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "ProxyRelayUnavailableDetails".
+ */
+export interface ProxyRelayUnavailableDetails {
+  /**
+   * The local error that kept the relay from opening.
+   */
+  error: string;
+  /**
+   * The proxy, `scheme://host:port`, without its credentials.
+   */
+  proxy: string;
+}
+/**
+ * What `proxy_unavailable` details.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "ProxyUnavailableDetails".
+ */
+export interface ProxyUnavailableDetails {
+  /**
+   * The browser's network error, such as
+   * `net::ERR_TUNNEL_CONNECTION_FAILED`, or the proxy's own error its
+   * `Proxy-Status` names.
+   */
+  error?: string | null;
+  /**
+   * The proxy, `scheme://host:port`, without its credentials.
+   */
+  proxy: string;
 }
 /**
  * A key directory's entry of one key: its public JSON Web Key, named by
@@ -5813,6 +7350,27 @@ export interface RequestSeed {
   url: string;
 }
 /**
+ * What `resources_exhausted` details (ADRs 0040 and 0122).
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "ResourcesExhaustedDetails".
+ */
+export interface ResourcesExhaustedDetails {
+  /**
+   * For storage, the space left on that filesystem, in bytes.
+   */
+  freeBytes?: number | null;
+  /**
+   * For storage, the folder on the full filesystem; none where the
+   * engine has no folder of its own.
+   */
+  path?: string | null;
+  /**
+   * The resource that ran out.
+   */
+  resource: Resource;
+}
+/**
  * What `response.body` takes: the page, the request whose response's
  * body it reads, and how long it waits for that request to end.
  *
@@ -5835,6 +7393,39 @@ export interface ResponseBodyParams {
    * 0080).
    */
   timeout?: number | null;
+}
+/**
+ * What `response_limit_exceeded` details.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "ResponseLimitExceededDetails".
+ */
+export interface ResponseLimitExceededDetails {
+  /**
+   * The setting's value the body passed.
+   */
+  limit: number;
+  /**
+   * The setting whose limit it passed.
+   */
+  setting: LimitSetting;
+}
+/**
+ * What `response_truncated` details.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "ResponseTruncatedDetails".
+ */
+export interface ResponseTruncatedDetails {
+  /**
+   * The bytes its `Content-Length` declared, as sent; none when it
+   * declared no length, as a chunked body does not.
+   */
+  expected?: number | null;
+  /**
+   * The bytes of its body that arrived, as the browser decoded them.
+   */
+  received: number;
 }
 /**
  * What `events.resync` gives: the current state, from which the stream
@@ -5892,6 +7483,18 @@ export interface RouteAbortParams {
   errorCode?: AbortReason | null;
   /**
    * The request.
+   */
+  routeId: RouteId;
+}
+/**
+ * What `route_already_handled` details.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "RouteAlreadyHandledDetails".
+ */
+export interface RouteAlreadyHandledDetails {
+  /**
+   * The request answered already.
    */
   routeId: RouteId;
 }
@@ -6148,6 +7751,31 @@ export interface RunCheckpointing {
   runId: RunId;
 }
 /**
+ * What `run_conflict` details.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "RunConflictDetails".
+ */
+export interface RunConflictDetails {
+  /**
+   * Each input that differs from the Run's.
+   */
+  differences: StartInput[];
+}
+/**
+ * What `run_not_found`, `run_in_use`, `run_busy`, `run_not_owned`, `run_live` and
+ * `run_state_unavailable` detail.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "RunDetails".
+ */
+export interface RunDetails {
+  /**
+   * The Run's folder, when the engine knows it.
+   */
+  path?: string | null;
+}
+/**
  * What `run.discard` answers: the Run it discarded (ADRs 0001 and 0036).
  *
  * This interface was referenced by `CollieTypes`'s JSON-Schema
@@ -6178,6 +7806,18 @@ export interface RunFinishParams {
    * call fails with `deadline_exceeded` and only the wait ends.
    */
   timeout?: number | null;
+}
+/**
+ * What `run_id_invalid` details.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "RunIdInvalidDetails".
+ */
+export interface RunIdInvalidDetails {
+  /**
+   * The pattern a Run ID matches.
+   */
+  pattern: string;
 }
 /**
  * One row of the Run index (ADR 0031): a Run, where its state is, its three
@@ -6253,6 +7893,34 @@ export interface RunIndexRow {
    * Its Verdict, once it ended.
    */
   verdict?: Verdict | null;
+}
+/**
+ * What `run_interrupted`'s details hold.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "RunInterruptedDetails".
+ */
+export interface RunInterruptedDetails {}
+/**
+ * What `run_key_mismatch` details.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "RunKeyMismatchDetails".
+ */
+export interface RunKeyMismatchDetails {
+  /**
+   * The Secret reference the resume resolved.
+   */
+  reference: string;
+  /**
+   * The setting that names the key-encryption key,
+   * `run_state.key_reference`.
+   */
+  setting: string;
+  /**
+   * The Secret reference of the key that wrapped the data key.
+   */
+  wrappedBy: string;
 }
 /**
  * What `run.list` answers: the rows of its filter, in its order.
@@ -6849,6 +8517,22 @@ export interface RunStartedAs {
   startedAs: StartedAs;
 }
 /**
+ * What `run_state_filesystem_unsupported` details.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "RunStateFilesystemUnsupportedDetails".
+ */
+export interface RunStateFilesystemUnsupportedDetails {
+  /**
+   * The filesystem the folder is on.
+   */
+  filesystem: RunStateFilesystem;
+  /**
+   * The Run's folder.
+   */
+  path: string;
+}
+/**
  * What `run.stop` takes: the Run, and how long the call waits for its
  * safe point.
  *
@@ -6884,6 +8568,13 @@ export interface RunStopping {
    */
   runId: RunId;
 }
+/**
+ * What `run_target_unbuilt`'s details hold.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "RunTargetUnbuiltDetails".
+ */
+export interface RunTargetUnbuiltDetails {}
 /**
  * What `sample.echo` repeats.
  *
@@ -6947,6 +8638,121 @@ export interface SampleStorePutResult {
    * Whether a value was already kept under the key.
    */
   replaced: boolean;
+}
+/**
+ * What `schema_validator_failed` details: the schema, where in the value,
+ * and the exception, as `hook_failed`'s details name a Hook's.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "SchemaValidatorFailedDetails".
+ */
+export interface SchemaValidatorFailedDetails {
+  /**
+   * The exception's message.
+   */
+  exceptionMessage: string;
+  /**
+   * The exception's type name.
+   */
+  exceptionType: string;
+  /**
+   * Where in the value the validator ran, a JSON Pointer (RFC 6901),
+   * or none when the library does not say.
+   */
+  path?: string | null;
+  /**
+   * The schema's JSON Schema `title`, or none when it has none.
+   */
+  schema?: string | null;
+}
+/**
+ * What `secret_domain_not_allowed` details.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "SecretDomainNotAllowedDetails".
+ */
+export interface SecretDomainNotAllowedDetails {
+  /**
+   * The host the value would have gone to.
+   */
+  domain: string;
+  /**
+   * The binding's domains.
+   */
+  domains: string[];
+  /**
+   * The placeholder.
+   */
+  placeholder: string;
+  /**
+   * The Secret reference.
+   */
+  reference: string;
+}
+/**
+ * What `secret_input_refused` details.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "SecretInputRefusedDetails".
+ */
+export interface SecretInputRefusedDetails {
+  /**
+   * The host the value would have gone to.
+   */
+  domain: string;
+  /**
+   * The placeholder.
+   */
+  placeholder: string;
+  /**
+   * Why it may not go there.
+   */
+  reason: SecretInputRefusedReason;
+  /**
+   * The Secret reference.
+   */
+  reference: string;
+}
+/**
+ * What `secret_unavailable` details.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "SecretUnavailableDetails".
+ */
+export interface SecretUnavailableDetails {
+  /**
+   * What failed.
+   */
+  failure: SecretFailure;
+  /**
+   * The Secret placeholder the value was for, or the setting's key where
+   * no placeholder names it.
+   */
+  placeholder: string;
+  /**
+   * The provider, by its scheme, such as `env`.
+   */
+  provider: string;
+  /**
+   * The Secret reference.
+   */
+  reference: string;
+}
+/**
+ * What `secret_unbound` details.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "SecretUnboundDetails".
+ */
+export interface SecretUnboundDetails {
+  /**
+   * The placeholders the scopes bind, never a value.
+   */
+  bound: string[];
+  /**
+   * The placeholder no scope binds.
+   */
+  placeholder: string;
 }
 /**
  * A sitemap seed (ADRs 0093 and 0120; CO-10): `sitemap` names a sitemap,
@@ -7015,6 +8821,13 @@ export interface SeedBatch {
    */
   seeds?: Seed[];
 }
+/**
+ * What `session_bound_to_machine` details.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "SessionBoundToMachineDetails".
+ */
+export interface SessionBoundToMachineDetails {}
 /**
  * What `session.close` answers once the Session is closed.
  *
@@ -7111,6 +8924,79 @@ export interface SetLogLevelParams {
    * The Connection's new level.
    */
   logLevel: LogLevel;
+}
+/**
+ * What `setting_invalid` details.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "SettingInvalidDetails".
+ */
+export interface SettingInvalidDetails {
+  /**
+   * The key or variable, or the file's path when the file does not
+   * parse.
+   */
+  key: string;
+  /**
+   * The layer that held it; `None` for a variable of the environment.
+   */
+  layer?: SettingsLayer | null;
+  /**
+   * What is wrong with it.
+   */
+  reason: string;
+}
+/**
+ * What `setting_locked` details.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "SettingLockedDetails".
+ */
+export interface SettingLockedDetails {
+  /**
+   * The key.
+   */
+  key: string;
+  /**
+   * The layer whose value was refused.
+   */
+  layer: SettingsLayer;
+}
+/**
+ * What `setting_not_applicable` details.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "SettingNotApplicableDetails".
+ */
+export interface SettingNotApplicableDetails {
+  /**
+   * The key.
+   */
+  key: string;
+  /**
+   * The layer that held it.
+   */
+  layer: SettingsLayer;
+}
+/**
+ * What `setting_unknown` details.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "SettingUnknownDetails".
+ */
+export interface SettingUnknownDetails {
+  /**
+   * The closest known key or variable, when one is close.
+   */
+  closest?: string | null;
+  /**
+   * The key or variable as written.
+   */
+  key: string;
+  /**
+   * The layer that held it; `None` for a variable of the environment.
+   */
+  layer?: SettingsLayer | null;
 }
 /**
  * What `config.explain` answers and `config explain --json` prints:
@@ -7263,6 +9149,18 @@ export interface SigningKeyDirectoryParams {
   validFor?: number | null;
 }
 /**
+ * What `site_preferences_refused` details.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "SitePreferencesRefusedDetails".
+ */
+export interface SitePreferencesRefusedDetails {
+  /**
+   * The preference that refused it.
+   */
+  reason: SitePreference;
+}
+/**
  * What `events.subscribe` answers when its subscription ends without the
  * Client cancelling it: the engine stopped.
  *
@@ -7303,6 +9201,69 @@ export interface SystemInfo {
    * The reading that holds it above `normal`; none at `normal`.
    */
   pressureSource?: PressureSource | null;
+}
+/**
+ * One element an ambiguous locator matched.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "TargetMatch".
+ */
+export interface TargetMatch {
+  /**
+   * The element as its opening tag and the start of its text, such as
+   * `<button id="target">Target</button>`.
+   */
+  element: string;
+  /**
+   * A locator that reaches it alone, in the caller's language (ADR
+   * 0079), such as `page.locator('#target').nth(1)`.
+   */
+  locator: string;
+}
+/**
+ * What `target_not_unique` details.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "TargetNotUniqueDetails".
+ */
+export interface TargetNotUniqueDetails {
+  /**
+   * How long the action waited, in milliseconds.
+   */
+  elapsed: number;
+  /**
+   * Every element it matched at the last observation.
+   */
+  matches: TargetMatch[];
+}
+/**
+ * What `too_many_calls` names: how many calls in flight the engine serves
+ * on one Connection.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "TooManyCallsDetails".
+ */
+export interface TooManyCallsDetails {
+  /**
+   * How many calls one Connection keeps in flight.
+   */
+  max: number;
+}
+/**
+ * What `too_many_redirects` details.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "TooManyRedirectsDetails".
+ */
+export interface TooManyRedirectsDetails {
+  /**
+   * The URL each redirect followed led to, in order.
+   */
+  hops: string[];
+  /**
+   * The count it went past, and what set it.
+   */
+  limit: RedirectLimit;
 }
 /**
  * What `usage.list` takes.
@@ -7435,6 +9396,31 @@ export interface UserWriteParams {
    * The changes, made in order, in one write.
    */
   changes: UserChange[];
+}
+/**
+ * What `value_invalid` details.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "ValueInvalidDetails".
+ */
+export interface ValueInvalidDetails {
+  /**
+   * The key, as the call gave it.
+   */
+  key: string;
+  /**
+   * Where in the value the refusal is, a JSON Pointer (RFC 6901), for
+   * `value_not_json` and `value_schema`.
+   */
+  path?: string | null;
+  /**
+   * Why.
+   */
+  reason: ValueInvalidReason;
+  /**
+   * Whether the key itself or its value was refused.
+   */
+  refused: Refused;
 }
 /**
  * What `locator.wait_for_count` takes: the locator and the count its

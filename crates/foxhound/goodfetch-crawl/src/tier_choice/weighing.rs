@@ -74,7 +74,7 @@ fn canonical(records: &[PushedRecord], removed: &BTreeSet<String>) -> Vec<String
     let mut texts: Vec<String> = records
         .iter()
         .map(|record| {
-            let mut data = record.data.clone();
+            let mut data = record.data.value();
             if let Value::Object(fields) = &mut data {
                 fields.retain(|name, _| !removed.contains(name));
             }

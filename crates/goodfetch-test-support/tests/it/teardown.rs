@@ -148,6 +148,79 @@ fn a_child_left_alive_after_teardown_fails_the_test() {
     );
 }
 
+/// A process running from the test's home that test support did not start,
+/// as a CLI command starts the home's Daemon in a process group of its own,
+/// escapes the record: once the test asks, its teardown finds it there,
+/// stops it and fails the test, naming it (issue 1797).
+#[cfg(target_os = "linux")]
+#[test]
+fn a_process_left_running_from_the_home_is_stopped_and_fails_the_teardown() {
+    use std::os::unix::process::{CommandExt as _, ExitStatusExt as _};
+
+    // The executable `sleep` resolves to, since the failure names a process
+    // by its executable's file name, not the name it was started by.
+    let sleep = std::fs::canonicalize("/bin/sleep").unwrap();
+    let mut folder = None;
+    let mut started = None;
+
+    let failure = catch_unwind(AssertUnwindSafe(|| {
+        let env = TestEnv::new();
+        env.fail_on_processes_from_home();
+        folder = Some(env.folder().to_owned());
+        let child = std::process::Command::new(&sleep)
+            .arg("600")
+            .current_dir(env.home())
+            .process_group(0)
+            .spawn()
+            .unwrap();
+        started = Some(child);
+        drop(env);
+    }));
+
+    let mut child = started.unwrap();
+    let pid = child.id();
+    let ended = (0..1000).find_map(|_| {
+        let ended = child.try_wait().unwrap();
+        if ended.is_none() {
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        ended
+    });
+    if ended.is_none() {
+        child.kill().unwrap();
+        child.wait().unwrap();
+    }
+    std::fs::remove_dir_all(folder.unwrap()).unwrap();
+    let alive = failure.unwrap_err().downcast::<ProcessesAlive>().unwrap();
+    assert_eq!(
+        (alive.programs, ended.and_then(|status| status.signal())),
+        (
+            vec![format!(
+                "{} (process {pid}, running from the home)",
+                sleep.file_name().unwrap().display()
+            )],
+            Some(9)
+        )
+    );
+}
+
+/// A test that asks for the check, and whose process that ran from its home
+/// ended, passes its teardown.
+#[cfg(target_os = "linux")]
+#[test]
+fn a_home_nothing_runs_from_passes_the_teardown() {
+    let env = TestEnv::new();
+    env.fail_on_processes_from_home();
+    let mut command = env.process_command("/bin/sh");
+    command.args(["-c", "exit 0"]).current_dir(env.home());
+    let ended = env.spawn(&mut command).unwrap();
+    assert!(ended.close_stdin_and_wait().unwrap().success());
+
+    let teardown = catch_unwind(AssertUnwindSafe(|| drop(env)));
+
+    assert!(teardown.is_ok());
+}
+
 #[test]
 fn a_dump_a_child_writes_in_the_crash_dump_folder_fails_teardown_naming_it() {
     let mut folder = None;

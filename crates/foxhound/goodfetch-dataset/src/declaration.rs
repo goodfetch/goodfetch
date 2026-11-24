@@ -28,7 +28,7 @@ use goodfetch_protocol::foxhound::crawl::PushedRecord;
 use goodfetch_protocol::foxhound::dataset::{
     DATASET_DUPLICATE, DATASET_KEY_INVALID, DATASET_UNKNOWN, DatasetDeclaration,
     DatasetDuplicateDetails, DatasetKeyInvalidDetails, DatasetUnknownDetails, InvalidRecord,
-    KeyRefused, RECORD_INVALID, RecordInvalidDetails, RecordIssue,
+    KeyRefused, RECORD_INVALID, RecordData, RecordInvalidDetails, RecordIssue,
 };
 use goodfetch_protocol::jsonrpc::ProtocolFailure;
 use rusqlite::Connection;
@@ -346,7 +346,7 @@ impl Datasets {
     pub fn check_pushed(
         &self,
         dataset: &str,
-        records: Vec<Value>,
+        records: Vec<RecordData>,
         work: &CountedWork,
     ) -> Result<Checked, Refused> {
         let found = self.declared(dataset).map_err(|error| Refused {
@@ -585,13 +585,14 @@ fn required(schema: &Value) -> Vec<&str> {
 }
 
 /// Each way `data` does not hold for `declaration`, under its schema's
-/// `validator`.
+/// `validator`, `record` read from its text.
 fn issues(
     declaration: &DatasetDeclaration,
     validator: Option<&jsonschema::Validator>,
-    data: &Value,
+    record: &RecordData,
     work: &CountedWork,
 ) -> Vec<RecordIssue> {
+    let data = record.value();
     let Some(object) = data.as_object() else {
         return vec![RecordIssue {
             path: String::new(),
@@ -605,7 +606,7 @@ fn issues(
             };
             work.count(Row::RecordValidations);
             validator
-                .iter_errors(data)
+                .iter_errors(&data)
                 .map(|error| RecordIssue {
                     path: error.instance_path().to_string(),
                     message: error.to_string(),

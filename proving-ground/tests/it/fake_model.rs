@@ -51,9 +51,29 @@ fn path(format: Format, stream: bool) -> &'static str {
     }
 }
 
-/// A request of `format` whose one user message is `prompt`.
+/// A request of `format` whose one user message is `prompt`, asking for the
+/// price.
 fn request(format: Format, prompt: &str, stream: bool, asking: Asking) -> Value {
-    let schema = price_schema();
+    request_for(
+        format,
+        prompt,
+        stream,
+        asking,
+        "record_price",
+        &price_schema(),
+    )
+}
+
+/// A request of `format` whose one user message is `prompt`, offering the
+/// tool `tool` or asking for structured output, each with `schema`.
+fn request_for(
+    format: Format,
+    prompt: &str,
+    stream: bool,
+    asking: Asking,
+    tool: &str,
+    schema: &Value,
+) -> Value {
     let mut body = match format {
         Format::OpenAi => json!({
             "model": "fake-model",
@@ -74,14 +94,14 @@ fn request(format: Format, prompt: &str, stream: bool, asking: Asking) -> Value 
         (_, Asking::Text) => json!({}),
         (Format::OpenAi, Asking::Tool) => json!({ "tools": [{
             "type": "function",
-            "function": { "name": "record_price", "parameters": schema },
+            "function": { "name": tool, "parameters": schema },
         }] }),
         (Format::Anthropic, Asking::Tool) => json!({ "tools": [{
-            "name": "record_price",
+            "name": tool,
             "input_schema": schema,
         }] }),
         (Format::Gemini, Asking::Tool) => json!({ "tools": [{ "functionDeclarations": [{
-            "name": "record_price",
+            "name": tool,
             "parameters": schema,
         }] }] }),
         (Format::OpenAi, Asking::Structured) => json!({ "response_format": {
@@ -755,4 +775,677 @@ fn a_fault_task_is_answered_normally_by_the_oracle() {
     }));
 
     assert_eq!(verdict["outcome"], "verified", "{verdict}");
+}
+
+// The forms the AI verbs ask for (#2338). Each request shows the task's page
+// as the engine's prompt does, an `ai` aria snapshot with element
+// references. The test gives each element its reference itself, so an
+// answer naming the right element names the reference the test gave it.
+
+/// The task whose page holds nothing its instruction asks for.
+const NOTHING_FITS: &str = "agent/10";
+
+/// The references the snapshot gives the demo page's elements.
+const STARTER_PRICE: &str = "e6";
+const PRO_PRICE: &str = "e9";
+const FULL_NAME: &str = "e11";
+const WORK_EMAIL: &str = "e12";
+const PLAN: &str = "e13";
+const CONSENT: &str = "e14";
+const BOOK: &str = "e15";
+const DELETE: &str = "e16";
+
+/// The AI verbs, each asking by the schema its request carries.
+#[derive(Clone, Copy, Debug)]
+enum Verb {
+    Observe,
+    Act,
+    /// Compiled `extract`, asking for each field's locator.
+    Locators,
+    /// One step of `page.agent`.
+    Step,
+}
+
+impl Verb {
+    fn tool(self) -> &'static str {
+        match self {
+            Self::Observe => "observe",
+            Self::Act => "act",
+            Self::Locators => "write_locators",
+            Self::Step => "agent_step",
+        }
+    }
+
+    fn schema(self) -> Value {
+        let action = json!({
+            "type": "object",
+            "properties": {
+                "method": { "type": "string" },
+                "element": { "type": "string" },
+                "arguments": { "type": "array", "items": {} },
+            },
+        });
+        match self {
+            Self::Observe => json!({
+                "type": "object",
+                "properties": { "candidates": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "element": { "type": "string" },
+                            "description": { "type": "string" },
+                        },
+                    },
+                } },
+            }),
+            Self::Act => {
+                let mut action = action;
+                action["type"] = json!(["object", "null"]);
+                json!({ "type": "object", "properties": { "action": action } })
+            }
+            Self::Locators => json!({
+                "type": "object",
+                "properties": { "locators": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "field": { "type": "string" },
+                            "element": { "type": "string" },
+                        },
+                    },
+                } },
+            }),
+            Self::Step => json!({
+                "type": "object",
+                "properties": {
+                    "message": { "type": "string" },
+                    "actions": { "type": "array", "items": action },
+                },
+            }),
+        }
+    }
+}
+
+/// The start page of `task` at the current time step.
+fn start_page(proving_ground: &ProvingGround, task: &str) -> String {
+    let url = proving_ground.task(task)["start_url"]
+        .as_str()
+        .expect("a start URL")
+        .to_owned();
+    proving_ground.get(&url).body
+}
+
+/// The demo page of `task` at the current time step as an `ai` aria
+/// snapshot, with the prices and buttons the page shows.
+fn snapshot(proving_ground: &ProvingGround, task: &str) -> String {
+    let page = start_page(proving_ground, task);
+    let price = |plan: &str| {
+        Regex::new(&format!(r#"data-plan="{plan}">([0-9]+)<"#))
+            .expect("a valid pattern")
+            .captures(&page)
+            .expect("the page shows the plan's price")[1]
+            .to_owned()
+    };
+    let (starter, pro) = (price("starter"), price("pro"));
+    let mut lines = vec![
+        "- table:".to_owned(),
+        "  - row \"Plan Price per month\":".to_owned(),
+        "    - columnheader \"Plan\" [ref=e3]".to_owned(),
+        "    - columnheader \"Price per month\" [ref=e4]".to_owned(),
+        format!("  - row \"Starter {starter}\":"),
+        "    - cell \"Starter\" [ref=e5]".to_owned(),
+        format!("    - cell \"{starter}\" [ref={STARTER_PRICE}]"),
+        format!("  - row \"Pro {pro}\":"),
+        "    - cell \"Pro\" [ref=e8]".to_owned(),
+        format!("    - cell \"{pro}\" [ref={PRO_PRICE}]"),
+        format!("- textbox \"Full name\" [ref={FULL_NAME}]"),
+        format!("- textbox \"Work email\" [ref={WORK_EMAIL}]"),
+        format!("- combobox \"Plan\" [ref={PLAN}]:"),
+        "  - option \"Starter\"".to_owned(),
+        "  - option \"Pro\"".to_owned(),
+        format!("- checkbox \"I agree to be contacted\" [ref={CONSENT}]"),
+    ];
+    if page.contains("Delete my account") {
+        lines.push(format!("- button \"Delete my account\" [ref={DELETE}]"));
+    }
+    lines.push(format!(
+        "- button \"Book the demo\" [ref={BOOK}] [cursor=pointer]"
+    ));
+    lines.join("\n")
+}
+
+/// The prompt an AI verb sends for `task`: its description, then the page.
+fn page_prompt(proving_ground: &ProvingGround, task: &str) -> String {
+    format!(
+        "{}\n\nThe page:\n{}",
+        prompt(proving_ground, task),
+        snapshot(proving_ground, task)
+    )
+}
+
+fn verb_request(format: Format, prompt: &str, stream: bool, asking: Asking, verb: Verb) -> Value {
+    request_for(format, prompt, stream, asking, verb.tool(), &verb.schema())
+}
+
+/// The JSON a verb's answer carries: the tool's arguments, else the text.
+fn verb_answer(format: Format, stream: bool, answer: &str) -> Value {
+    let reading = read(format, stream, answer);
+    let json = reading
+        .tool
+        .map_or(reading.text, |(_, arguments)| arguments);
+    serde_json::from_str(&json).unwrap_or_else(|_| panic!("the answer is JSON: {answer}"))
+}
+
+/// Asks the Fake model about `task` in the form `verb` asks for, the page
+/// in the prompt, and reads the JSON it answers.
+fn ask_verb(
+    proving_ground: &ProvingGround,
+    task: &str,
+    verb: Verb,
+    format: Format,
+    stream: bool,
+    asking: Asking,
+) -> Value {
+    let body = verb_request(
+        format,
+        &page_prompt(proving_ground, task),
+        stream,
+        asking,
+        verb,
+    );
+    let (status, answer) = complete_call(proving_ground, path(format, stream), &body);
+    assert_eq!(status, 200, "{answer}");
+    verb_answer(format, stream, &answer)
+}
+
+/// Covers: story:2-81
+#[rstest]
+#[case::openai(Format::OpenAi, false, Asking::Structured)]
+#[case::openai_streamed(Format::OpenAi, true, Asking::Structured)]
+#[case::openai_tool(Format::OpenAi, false, Asking::Tool)]
+#[case::anthropic(Format::Anthropic, false, Asking::Structured)]
+#[case::anthropic_streamed(Format::Anthropic, true, Asking::Structured)]
+#[case::anthropic_tool(Format::Anthropic, false, Asking::Tool)]
+#[case::gemini(Format::Gemini, false, Asking::Structured)]
+#[case::gemini_streamed(Format::Gemini, true, Asking::Structured)]
+#[case::gemini_tool(Format::Gemini, true, Asking::Tool)]
+fn observe_answers_a_candidate_naming_the_tasks_target(
+    #[case] format: Format,
+    #[case] stream: bool,
+    #[case] asking: Asking,
+) {
+    let proving_ground = ProvingGround::start(SEED);
+
+    let answer = ask_verb(
+        &proving_ground,
+        "agent/2",
+        Verb::Observe,
+        format,
+        stream,
+        asking,
+    );
+
+    let candidates = answer["candidates"].as_array().expect("candidates");
+    assert_eq!(candidates.len(), 1, "{answer}");
+    assert_eq!(candidates[0]["element"], PRO_PRICE, "{answer}");
+    assert!(
+        candidates[0]["description"]
+            .as_str()
+            .is_some_and(|description| !description.is_empty()),
+        "{answer}"
+    );
+}
+
+/// Covers: story:2-81
+#[rstest]
+#[case::openai(Format::OpenAi, false, Asking::Tool)]
+#[case::openai_structured(Format::OpenAi, true, Asking::Structured)]
+#[case::anthropic(Format::Anthropic, false, Asking::Tool)]
+#[case::anthropic_streamed(Format::Anthropic, true, Asking::Tool)]
+#[case::gemini(Format::Gemini, false, Asking::Tool)]
+#[case::gemini_structured(Format::Gemini, true, Asking::Structured)]
+fn act_answers_one_action_on_the_tasks_target(
+    #[case] format: Format,
+    #[case] stream: bool,
+    #[case] asking: Asking,
+) {
+    let proving_ground = ProvingGround::start(SEED);
+
+    let answer = ask_verb(
+        &proving_ground,
+        "agent/1",
+        Verb::Act,
+        format,
+        stream,
+        asking,
+    );
+
+    assert_eq!(
+        answer["action"],
+        json!({ "method": "click", "element": BOOK, "arguments": [] }),
+        "{answer}"
+    );
+}
+
+/// The price is on the page; the Record's `id` is not, so it has no
+/// locator.
+///
+/// Covers: story:2-81
+#[rstest]
+#[case::openai(Format::OpenAi, false, Asking::Structured)]
+#[case::openai_tool(Format::OpenAi, true, Asking::Tool)]
+#[case::anthropic(Format::Anthropic, false, Asking::Structured)]
+#[case::anthropic_tool(Format::Anthropic, true, Asking::Tool)]
+#[case::gemini(Format::Gemini, false, Asking::Structured)]
+#[case::gemini_tool(Format::Gemini, false, Asking::Tool)]
+fn compiled_extract_answers_a_locator_for_each_field_the_page_shows(
+    #[case] format: Format,
+    #[case] stream: bool,
+    #[case] asking: Asking,
+) {
+    let proving_ground = ProvingGround::start(SEED);
+
+    let answer = ask_verb(
+        &proving_ground,
+        "agent/2",
+        Verb::Locators,
+        format,
+        stream,
+        asking,
+    );
+
+    assert_eq!(
+        answer["locators"],
+        json!([{ "field": "price", "element": PRO_PRICE }]),
+        "{answer}"
+    );
+}
+
+/// The turns of an Agent loop that took `taken` steps: the prompt, then
+/// each step's tool call and its result.
+fn agent_turns(format: Format, prompt: &str, taken: usize) -> Value {
+    let tool = Verb::Step.tool();
+    let mut turns = vec![match format {
+        Format::Gemini => json!({ "role": "user", "parts": [{ "text": prompt }] }),
+        Format::OpenAi | Format::Anthropic => json!({ "role": "user", "content": prompt }),
+    }];
+    for step in 0..taken {
+        let id = format!("call_{step}");
+        turns.extend(match format {
+            Format::OpenAi => [
+                json!({ "role": "assistant", "content": null, "tool_calls": [{
+                    "id": id, "type": "function",
+                    "function": { "name": tool, "arguments": "{}" },
+                }] }),
+                json!({ "role": "tool", "tool_call_id": id, "content": "done" }),
+            ],
+            Format::Anthropic => [
+                json!({ "role": "assistant", "content": [{
+                    "type": "tool_use", "id": id, "name": tool, "input": {},
+                }] }),
+                json!({ "role": "user", "content": [{
+                    "type": "tool_result", "tool_use_id": id, "content": "done",
+                }] }),
+            ],
+            Format::Gemini => [
+                json!({ "role": "model", "parts": [{ "functionCall": { "name": tool, "args": {} } }] }),
+                json!({ "role": "user", "parts": [{
+                    "functionResponse": { "name": tool, "response": { "result": "done" } },
+                }] }),
+            ],
+        });
+    }
+    Value::Array(turns)
+}
+
+/// Asks for the next step of an Agent loop on `task` that took `taken`
+/// steps, and reads its first action.
+fn agent_step(
+    proving_ground: &ProvingGround,
+    task: &str,
+    format: Format,
+    stream: bool,
+    taken: usize,
+) -> Value {
+    let mut body = verb_request(format, "", stream, Asking::Tool, Verb::Step);
+    let key = if matches!(format, Format::Gemini) {
+        "contents"
+    } else {
+        "messages"
+    };
+    body[key] = agent_turns(format, &page_prompt(proving_ground, task), taken);
+    let (status, answer) = complete_call(proving_ground, path(format, stream), &body);
+    assert_eq!(status, 200, "{answer}");
+    let step = verb_answer(format, stream, &answer);
+    assert!(
+        step["message"]
+            .as_str()
+            .is_some_and(|message| !message.is_empty()),
+        "{answer}"
+    );
+    step["actions"][0].clone()
+}
+
+/// The booking the description of `agent/1` asks for, one action a step.
+fn booking_steps() -> [Value; 5] {
+    [
+        json!({ "method": "fill", "element": FULL_NAME, "arguments": ["Ada Lovelace"] }),
+        json!({ "method": "fill", "element": WORK_EMAIL, "arguments": ["ada@example.test"] }),
+        json!({ "method": "select_option", "element": PLAN, "arguments": ["pro"] }),
+        json!({ "method": "check", "element": CONSENT, "arguments": [] }),
+        json!({ "method": "click", "element": BOOK, "arguments": [] }),
+    ]
+}
+
+/// Each call answers the step after those the request's turns took.
+///
+/// Covers: story:2-81
+#[rstest]
+#[case::openai(Format::OpenAi, false, 0)]
+#[case::openai_streamed(Format::OpenAi, true, 2)]
+#[case::anthropic(Format::Anthropic, false, 1)]
+#[case::anthropic_streamed(Format::Anthropic, true, 3)]
+#[case::gemini(Format::Gemini, false, 4)]
+#[case::gemini_streamed(Format::Gemini, true, 0)]
+fn an_agent_request_answers_the_next_step(
+    #[case] format: Format,
+    #[case] stream: bool,
+    #[case] taken: usize,
+) {
+    let proving_ground = ProvingGround::start(SEED);
+
+    let action = agent_step(&proving_ground, "agent/1", format, stream, taken);
+
+    assert_eq!(action, booking_steps()[taken]);
+}
+
+/// Covers: story:2-81
+#[rstest]
+#[case::once_booked(5)]
+#[case::after_its_end(7)]
+fn the_agent_steps_end_with_done(#[case] taken: usize) {
+    let proving_ground = ProvingGround::start(SEED);
+
+    let action = agent_step(&proving_ground, "agent/1", Format::OpenAi, false, taken);
+
+    assert_eq!(action["method"], "done", "{action}");
+}
+
+/// Covers: story:2-81
+#[test]
+fn an_agent_step_that_reads_a_price_ends_with_the_tasks_record() {
+    let proving_ground = ProvingGround::start(SEED);
+    let price = page_price(&proving_ground, "agent/2");
+
+    let action = agent_step(&proving_ground, "agent/2", Format::Anthropic, false, 0);
+
+    assert_eq!(action["method"], "done", "{action}");
+    assert_eq!(
+        action["arguments"],
+        json!([{ "records": [{ "id": "S-0", "price": price }] }]),
+        "{action}"
+    );
+}
+
+/// The elements are the same, but the page changes with the time step: the
+/// Pro price changes at step 3, and a delete control takes the booking
+/// button's place at step 2.
+///
+/// Covers: story:2-81
+#[rstest]
+#[case::price_change("agent/2", 3, Verb::Observe, "/candidates/0/element", PRO_PRICE)]
+#[case::price_change_locator("agent/2", 3, Verb::Locators, "/locators/0/element", PRO_PRICE)]
+#[case::decoy_swap("agent/1", 2, Verb::Act, "/action/element", BOOK)]
+fn a_verb_answer_follows_the_time_step(
+    #[case] task: &str,
+    #[case] step: u64,
+    #[case] verb: Verb,
+    #[case] pointer: &str,
+    #[case] element: &str,
+) {
+    let proving_ground = ProvingGround::start(SEED);
+    proving_ground.set_time_step(&json!(step));
+
+    let answer = ask_verb(
+        &proving_ground,
+        task,
+        verb,
+        Format::OpenAi,
+        false,
+        Asking::Tool,
+    );
+
+    assert_eq!(answer.pointer(pointer), Some(&json!(element)), "{answer}");
+}
+
+/// A prompt that shows no element references gets the element's selector on
+/// the page at that time step: its renamed `id` at step 1.
+///
+/// Covers: story:2-81
+#[rstest]
+#[case::baseline(0)]
+#[case::relabel(1)]
+fn without_references_an_answer_names_the_elements_selector(#[case] step: u64) {
+    let proving_ground = ProvingGround::start(SEED);
+    proving_ground.set_time_step(&json!(step));
+    let page = start_page(&proving_ground, "agent/1");
+    let id = Regex::new(r#"<button id="([^"]+)"[^>]*type="submit">Book the demo"#)
+        .expect("a valid pattern")
+        .captures(&page)
+        .expect("the page has its booking button")[1]
+        .to_owned();
+    let body = verb_request(
+        Format::OpenAi,
+        &prompt(&proving_ground, "agent/1"),
+        false,
+        Asking::Tool,
+        Verb::Act,
+    );
+
+    let (status, answer) = complete_call(&proving_ground, path(Format::OpenAi, false), &body);
+
+    assert_eq!(status, 200, "{answer}");
+    let answer = verb_answer(Format::OpenAi, false, &answer);
+    assert_eq!(answer["action"]["element"], format!("#{id}"), "{answer}");
+}
+
+/// Covers: story:2-81
+#[test]
+fn where_nothing_fits_observe_answers_no_candidate() {
+    let proving_ground = ProvingGround::start(SEED);
+
+    let answer = ask_verb(
+        &proving_ground,
+        NOTHING_FITS,
+        Verb::Observe,
+        Format::OpenAi,
+        false,
+        Asking::Structured,
+    );
+
+    assert_eq!(answer, json!({ "candidates": [] }));
+}
+
+/// Covers: story:2-81
+#[rstest]
+#[case::openai(Format::OpenAi)]
+#[case::anthropic(Format::Anthropic)]
+#[case::gemini(Format::Gemini)]
+fn where_nothing_fits_act_answers_no_action(#[case] format: Format) {
+    let proving_ground = ProvingGround::start(SEED);
+
+    let answer = ask_verb(
+        &proving_ground,
+        NOTHING_FITS,
+        Verb::Act,
+        format,
+        false,
+        Asking::Structured,
+    );
+
+    assert_eq!(answer, json!({ "action": null }));
+}
+
+/// Covers: story:2-81
+#[test]
+fn where_nothing_fits_the_agent_gives_up() {
+    let proving_ground = ProvingGround::start(SEED);
+
+    let action = agent_step(&proving_ground, NOTHING_FITS, Format::Gemini, false, 0);
+
+    assert_eq!(action["method"], "give_up", "{action}");
+}
+
+/// The task whose page holds nothing that fits is a refusal: nothing
+/// carried out, and a reported failure.
+///
+/// Covers: story:2-81
+#[test]
+fn the_task_where_nothing_fits_is_verified_by_a_refusal() {
+    let proving_ground = ProvingGround::start(SEED);
+
+    let verdict =
+        proving_ground.judge(&json!({ "task": NOTHING_FITS, "status": "failure", "records": [] }));
+
+    assert_eq!(verdict["outcome"], "verified", "{verdict}");
+}
+
+/// Covers: story:2-81
+#[rstest]
+#[case::openai(Format::OpenAi, Verb::Observe)]
+#[case::anthropic(Format::Anthropic, Verb::Locators)]
+#[case::gemini(Format::Gemini, Verb::Step)]
+fn the_same_verb_request_seed_and_time_step_get_the_same_answer(
+    #[case] format: Format,
+    #[case] verb: Verb,
+) {
+    let first = ProvingGround::start(SEED);
+    let second = ProvingGround::start(SEED);
+    first.set_time_step(&json!(3));
+    second.set_time_step(&json!(3));
+    let body = verb_request(
+        format,
+        &page_prompt(&first, "agent/2"),
+        true,
+        Asking::Tool,
+        verb,
+    );
+    let answer = complete_call(&first, path(format, true), &body);
+
+    let again = complete_call(&second, path(format, true), &body);
+
+    assert_eq!(answer, again);
+}
+
+/// The output count is a quarter of the characters of the answer's text,
+/// rounded up, as the call's usage and the Fake model's record say.
+///
+/// Covers: story:2-81
+#[rstest]
+#[case::openai(Format::OpenAi, false)]
+#[case::openai_streamed(Format::OpenAi, true)]
+#[case::anthropic(Format::Anthropic, false)]
+#[case::anthropic_streamed(Format::Anthropic, true)]
+#[case::gemini(Format::Gemini, false)]
+#[case::gemini_streamed(Format::Gemini, true)]
+fn the_token_count_covers_a_verb_answer(#[case] format: Format, #[case] stream: bool) {
+    let proving_ground = ProvingGround::start(SEED);
+    let body = verb_request(
+        format,
+        &page_prompt(&proving_ground, "agent/2"),
+        stream,
+        Asking::Structured,
+        Verb::Observe,
+    );
+
+    let (status, answer) = complete_call(&proving_ground, path(format, stream), &body);
+
+    assert_eq!(status, 200, "{answer}");
+    let reading = read(format, stream, &answer);
+    assert!(reading.text.contains(PRO_PRICE), "{answer}");
+    let expected = u64::try_from(reading.text.chars().count().div_ceil(4)).expect("a count");
+    assert_eq!(reading.output_tokens, expected, "{answer}");
+    let calls = proving_ground.control("/model-calls").json();
+    assert_eq!(calls["calls"][0]["output_tokens"], expected, "{calls}");
+}
+
+/// Covers: story:2-81
+#[rstest]
+#[case::openai(Format::OpenAi)]
+#[case::anthropic(Format::Anthropic)]
+#[case::gemini(Format::Gemini)]
+fn a_rate_limit_fault_applies_to_a_verb_answer(#[case] format: Format) {
+    let proving_ground = ProvingGround::start(SEED);
+    let body = verb_request(
+        format,
+        &page_prompt(&proving_ground, RATE_LIMIT),
+        false,
+        Asking::Tool,
+        Verb::Act,
+    );
+
+    let response = call(
+        &proving_ground,
+        path(format, false),
+        &body,
+        Duration::from_secs(30),
+    )
+    .expect("the Fake model answers");
+
+    assert_eq!(response.status, 429);
+    assert_eq!(response.retry_after.as_deref(), Some("1"));
+}
+
+/// Covers: story:2-81
+#[rstest]
+#[case::openai(Format::OpenAi, Asking::Tool)]
+#[case::anthropic(Format::Anthropic, Asking::Structured)]
+#[case::gemini(Format::Gemini, Asking::Structured)]
+fn a_malformed_json_fault_applies_to_a_verb_answer(#[case] format: Format, #[case] asking: Asking) {
+    let proving_ground = ProvingGround::start(SEED);
+    let body = verb_request(
+        format,
+        &page_prompt(&proving_ground, MALFORMED_JSON),
+        false,
+        asking,
+        Verb::Observe,
+    );
+
+    let (status, answer) = complete_call(&proving_ground, path(format, false), &body);
+
+    assert_eq!(status, 200, "{answer}");
+    let reading = read(format, false, &answer);
+    let output = reading
+        .tool
+        .map_or(reading.text, |(_, arguments)| arguments);
+    assert!(output.contains("candidates"), "{answer}");
+    assert!(serde_json::from_str::<Value>(&output).is_err(), "{answer}");
+}
+
+/// A wrong but plausible answer names the Starter plan's price where the
+/// task asks for the Pro plan's.
+///
+/// Covers: story:2-81
+#[rstest]
+#[case::observe(Verb::Observe, "/candidates/0/element")]
+#[case::locators(Verb::Locators, "/locators/0/element")]
+fn a_wrong_answer_fault_names_a_plausible_wrong_element(#[case] verb: Verb, #[case] pointer: &str) {
+    let proving_ground = ProvingGround::start(SEED);
+
+    let answer = ask_verb(
+        &proving_ground,
+        WRONG_ANSWER,
+        verb,
+        Format::Anthropic,
+        false,
+        Asking::Tool,
+    );
+
+    assert_eq!(
+        answer.pointer(pointer),
+        Some(&json!(STARTER_PRICE)),
+        "{answer}"
+    );
 }

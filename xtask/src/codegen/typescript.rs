@@ -27,6 +27,7 @@ use super::{Generated, TypesFile};
 mod answered;
 mod errors;
 mod holders;
+mod intersections;
 mod listeners;
 mod markers;
 mod operation;
@@ -70,6 +71,7 @@ pub(super) fn generate(layer: &Layer) -> Result<Generated> {
     wire::camel_fields(&mut input)?;
     super::open_values::typescript_input(&mut input);
     super::open_values::unknown_members(&mut input, None)?;
+    intersections::fields_beside_members_as_intersections(&mut input);
     // The header comes first, then the imports, then the generator's
     // output, which has no banner of its own.
     let prefix = if replaced.is_empty() {

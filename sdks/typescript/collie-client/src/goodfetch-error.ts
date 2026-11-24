@@ -138,6 +138,20 @@ export function retryAfterOf(details: Readonly<Record<string, unknown>> | undefi
 }
 
 /**
+ * The duration a code's `details` name as `retry_after`, how long a Model
+ * provider asks to wait before trying again, in milliseconds; `null` when
+ * they name none or a value that is no count of milliseconds. The classes of
+ * the codes whose details declare it read their `retryAfter` with it (ADRs
+ * 0080 and 0101).
+ */
+export function retryAfterDurationOf(
+  details: Readonly<Record<string, unknown>> | undefined,
+): number | null {
+  const sent = details?.["retry_after"];
+  return typeof sent === "number" && Number.isInteger(sent) && sent >= 0 ? sent : null;
+}
+
+/**
  * A code's `details` as the type `Details` its class reads them as (ADR
  * 0079), or `undefined` when they lack one of the fields `required` names,
  * as those of an error a program builds without details do. A type that

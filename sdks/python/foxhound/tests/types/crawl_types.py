@@ -75,6 +75,32 @@ def types_each_record_by_its_dataset(crawl: Crawl) -> None:
     assert_type(crawl.dataset("raw", schema={"type": "object"}), "Dataset[JSONObject]")
 
 
+def pushes_only_records_of_a_datasets_type(
+    ctx: CrawlContext[None], products: Dataset[Product]
+) -> None:
+    """A misspelled Dataset, a missing field and another Record are refused.
+
+    A key is a name, which no type ties to a model's fields: one that names
+    no field fails its declaration with `dataset_key_invalid`.
+    """
+    ctx.push(products, Product(id="p-1"))
+    ctx.push(products, [Product(id="p-1"), Product(id="p-2")])
+    ctx.push(productss, Product(id="p-1"))  # type: ignore[name-defined]
+    ctx.push("products", Product(id="p-1"))  # type: ignore[arg-type]
+    ctx.push(products, Product())  # type: ignore[call-arg]
+    ctx.push(products, Shelf(number=1))  # type: ignore[misc]
+
+
+async def pushes_only_records_of_a_datasets_type_in_async_code(
+    ctx: AsyncCrawlContext[None], products: Dataset[Product]
+) -> None:
+    """The async context's `push` takes the same Records."""
+    await ctx.push(products, Product(id="p-1"))
+    await ctx.push(productss, Product(id="p-1"))  # type: ignore[name-defined]
+    await ctx.push(products, Product())  # type: ignore[call-arg]
+    await ctx.push(products, Shelf(number=1))  # type: ignore[misc]
+
+
 def types_a_sync_crawls_handlers(crawl: Crawl) -> None:
     """A plain function takes the sync context, its Payload typed alike."""
     shelf = crawl.label("shelf", payload=Shelf)

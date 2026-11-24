@@ -2479,6 +2479,15 @@ product = "foxhound"
 status = "active"
 
 [[story]]
+id = 1021
+title = "As a developer, I want `enqueueLinks(locator, label, payload?, { include, exclude, limit, priority })` to take a Payload or a function of the link that returns a Payload or null, and to answer `added` and `notAdded` with `no_link` and `skipped_by_payload`, Rust folding both forms into one name `enqueue_links` by ADR 0099's one-name rule **(shape)**, so that one call follows every link a locator matches (ADRs 0093, 0099)."
+milestone = "M2 Client surfaces"
+journey = false
+not_journey = "part"
+product = "foxhound"
+status = "active"
+
+[[story]]
 id = 1023
 title = "As a developer, I want no transform function on `enqueue`, URL rewriting to be a Hook's work, and the Frontier's identity (method, URL key, body hash) to be replaceable by `key`, so that one rule decides when two Crawl requests are the same (ADRs 0093, 0120)."
 milestone = "M2 Client surfaces"

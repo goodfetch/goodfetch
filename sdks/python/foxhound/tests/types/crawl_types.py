@@ -30,6 +30,7 @@ if TYPE_CHECKING:
         Foxhound,
         Label,
     )
+    from goodfetch_foxhound.generated.models import MatchedLink
     from pydantic import BaseModel
 
     class Shelf(BaseModel):
@@ -194,6 +195,40 @@ async def enqueues_a_payload_only_of_its_labels_type(
     await ctx.enqueue("/shelf/2", shelf, {"number": 2})  # type: ignore[arg-type]
     await ctx.enqueue("/next", listing, Shelf(number=2))  # type: ignore[misc]
     await ctx.enqueue_links(ctx.page.locator("a.shelf"), shelf)  # type: ignore[arg-type]
+
+
+async def enqueues_links_with_a_payload_function(
+    ctx: AsyncCrawlContext[None], shelf: Label[Shelf], book: Label[JSONObject]
+) -> None:
+    """`enqueue_links` takes a function of each link, plain or `async`, as Payload."""
+
+    def shelf_of(link: MatchedLink) -> Shelf | None:
+        return None if link.href is None else Shelf(number=len(link.text))
+
+    async def book_of(link: MatchedLink) -> JSONObject | None:
+        return {"from": link.text}
+
+    def number_of(link: MatchedLink) -> int:
+        return len(link.text)
+
+    await ctx.enqueue_links(ctx.page.locator("a.shelf"), shelf, shelf_of, limit=2)
+    await ctx.enqueue_links(ctx.page.locator("a.book"), book, book_of)
+    await ctx.enqueue_links(ctx.page.locator("a.shelf"), shelf, number_of)  # type: ignore[arg-type]
+
+
+def enqueues_links_with_a_payload_function_in_sync_code(
+    ctx: CrawlContext[None], shelf: Label[Shelf]
+) -> None:
+    """The sync context's Payload function is a plain function."""
+
+    def shelf_of(link: MatchedLink) -> Shelf | None:
+        return None if link.href is None else Shelf(number=len(link.text))
+
+    async def later(link: MatchedLink) -> Shelf | None:
+        return shelf_of(link)
+
+    ctx.enqueue_links(ctx.page.locator("a.shelf"), shelf, shelf_of)
+    ctx.enqueue_links(ctx.page.locator("a.shelf"), shelf, later)  # type: ignore[arg-type]
 
 
 def enqueues_a_payload_only_of_its_labels_type_in_sync_code(

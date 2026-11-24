@@ -2807,6 +2807,26 @@ form = "type"
 [[member]]
 package = "@goodfetch/foxhound"
 receiver = "(module)"
+member = "LinkPayload"
+entry = "none"
+reason = "The Payload function `context.enqueueLinks` takes, which answers each matched link's Payload, or `null` to leave it out, from what `crawl_request.links` read (ADR 0093)."
+only = "Rust's `enqueue_links` takes one Payload for every link."
+words = ["link", "payload"]
+form = "type"
+
+[[member]]
+package = "@goodfetch/foxhound"
+receiver = "(module)"
+member = "LinksPayload"
+entry = "none"
+reason = "What `context.enqueueLinks` takes after its Label: one Payload for every link or a `LinkPayload` function, nothing for a Label without a Payload."
+only = "Rust's `enqueue_links` takes one Payload for every link."
+words = ["links", "payload"]
+form = "type"
+
+[[member]]
+package = "@goodfetch/foxhound"
+receiver = "(module)"
 member = "Handler"
 entry = "none"
 reason = "What handles one Label's pages, for each `crawl_request.handle` (ADR 0093)."
@@ -2980,7 +3000,7 @@ reason = "A handler process of `workers=N` offers its handler with it (ADR 0024)
 
 [[unreached]]
 entries = ["crawl_request.links"]
-reason = "What `enqueueLinks`'s Payload function reads for each link; the member takes one Payload for every link, so nothing reads it yet."
+reason = "What `enqueueLinks` sends itself, before `crawl_request.enqueue_links`, when it is given a `LinkPayload` function: the function reads each link it answers, so it has no member of its own."
 
 [[unreached]]
 entries = ["dataset.list", "dataset.page", "dataset.query"]

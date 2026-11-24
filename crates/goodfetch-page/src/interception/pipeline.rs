@@ -27,7 +27,7 @@ use goodfetch_engine::http_client;
 use goodfetch_engine::mask::Masks;
 use goodfetch_engine::response_limits::Limits;
 use goodfetch_engine::run_trace::RequestLog;
-use goodfetch_engine::runs::{Run, run_trace};
+use goodfetch_engine::runs::outcome::record_outcome;
 use goodfetch_protocol::connection::CLOSED;
 use goodfetch_protocol::jsonrpc::ErrorData;
 use goodfetch_protocol::page::events::RequestFailure;
@@ -50,7 +50,7 @@ use super::hops;
 use super::lookups::Lookups;
 use super::routes::Route;
 use super::steps::{self, Blocking, Overrides, Stopped, entries};
-use super::{PageState, lock};
+use super::{PageState, RunPowers, lock};
 use crate::driver::{PageDriver, cdp_response};
 use crate::errors::{gate_failure, gate_refused};
 use crate::page_events::{Refusals, is_navigation, post_data, resource_type};
@@ -108,7 +108,7 @@ pub(super) struct PageContext {
     blocking: Blocking,
     /// The refusals the page's requests then carry.
     refusals: Refusals,
-    run: Run,
+    run: RunPowers,
     /// The requests a `fetch` sent on, waiting for their response to be
     /// paused, by the interception's ID, each with its network ID: a
     /// request that fails first, or a target that goes, drops its waiter.
@@ -190,7 +190,7 @@ impl PageContext {
         policy: Policy,
         blocking: Blocking,
         refusals: Refusals,
-        run: Run,
+        run: RunPowers,
     ) -> Self {
         Self {
             driver,
@@ -207,7 +207,7 @@ impl PageContext {
             permit: Mutex::new(None),
             proxy_permit: Mutex::new(None),
             lookups: None,
-            log: Arc::new(RequestLog::new(run_trace(&run))),
+            log: Arc::new(RequestLog::new(&run.lists.trace)),
             run,
         }
     }
@@ -288,7 +288,7 @@ pub(super) async fn dispatch(mut events: Subscription, context: Arc<PageContext>
         }
         if let Some(required) = event.read::<fetch::AuthRequiredEvent>() {
             let context = Arc::clone(&context);
-            let run = context.run.clone();
+            let run = context.run.identity().clone();
             run.spawn(async move { context.authenticate(required).await });
             continue;
         }
@@ -303,7 +303,7 @@ pub(super) async fn dispatch(mut events: Subscription, context: Arc<PageContext>
             continue;
         }
         let context = Arc::clone(&context);
-        let run = context.run.clone();
+        let run = context.run.identity().clone();
         run.spawn(async move {
             if at_response {
                 // A response no `fetch` waits for goes on as it came, once
@@ -526,7 +526,7 @@ impl PageContext {
             id: route.call.clone(),
             route_id: route_id.clone(),
             page_id: self.sender.page_id().cloned(),
-            request: held.view(self.run.secrets().mask().masks()),
+            request: held.view(self.run.secrets.mask().masks()),
         };
         let Ok(mut sent) = route
             .client
@@ -596,7 +596,7 @@ impl PageContext {
                 // or the target; the Run's end stops the wait too.
                 let paused = tokio::select! {
                     paused = responded => paused.ok(),
-                    () = self.run.cancellation().cancelled() => None,
+                    () = self.run.identity().owner().cancelled() => None,
                 };
                 lock(&self.responses).remove(&id);
                 match paused {
@@ -668,7 +668,7 @@ impl PageContext {
     ) -> (Result<Reply, CallError>, Taken) {
         let headers =
             cdp_response::paused_headers(paused.response_headers.as_deref().unwrap_or_default());
-        let limits = Limits::of_run(self.run.settings());
+        let limits = Limits::of_run(self.run.identity().settings());
         let url = &paused.request.url;
         if let Err(refused) = paused_body::declared_within_limits(url, &headers, &limits) {
             return (Err(refused), Taken::Nothing);
@@ -772,7 +772,7 @@ impl PageContext {
             Arc::clone(&self.state),
             held.url().to_owned(),
         );
-        self.run.spawn(async move {
+        self.run.identity().spawn(async move {
             if let Err(ClientRequestError::Failed { message, .. }) = sent.answer().await {
                 route.fail(handler_failed(&url, &message));
                 state.routes.remove(&route);
@@ -967,7 +967,7 @@ impl PageContext {
         if held.navigation {
             self.state.leave(withheld.clone());
         }
-        self.run.record_outcome(withheld.code());
+        record_outcome(self.run.identity(), withheld.code());
         self.fail(
             &held.paused.request_id,
             network::ErrorReason::BlockedByClient,
@@ -1139,7 +1139,7 @@ impl PageContext {
             )
         });
         if refused {
-            self.run.spawn(permit.refused());
+            self.run.identity().spawn(permit.refused());
         }
     }
 
@@ -1541,7 +1541,7 @@ impl PageContext {
             );
             refusals.refuse_navigation(&paused.request.url, error.clone());
             // The Run trace holds the Error code no reply carries (ADR 0072).
-            self.run.record_outcome(error.code());
+            record_outcome(self.run.identity(), error.code());
         }
         self.fulfill(
             &paused.request_id,
@@ -1656,7 +1656,7 @@ impl PageContext {
     /// `refusal`, in the sender's request log, as a request that no call
     /// waited for failed, and its Error code in the Run's outcome record.
     fn record_refusal(&self, url: &str, method: &str, refusal: ErrorData) {
-        self.run.record_outcome(&refusal.code);
+        record_outcome(self.run.identity(), &refusal.code);
         let (log, failed) = (
             Arc::clone(&self.log),
             RequestFailed {
@@ -1666,10 +1666,11 @@ impl PageContext {
             },
         );
         self.run
+            .identity()
             .metrics()
             .counted_work()
             .count(Row::InterceptedSpawns);
-        self.run.spawn(async move {
+        self.run.identity().spawn(async move {
             if let Err(error) = log.request_failed(&failed).await {
                 tracing::warn!(%error, "the Run trace did not take a refused request");
             }
@@ -1685,6 +1686,7 @@ impl PageContext {
         };
         if failure.is_some() {
             self.run
+                .identity()
                 .metrics()
                 .counted_work()
                 .count(Row::InterceptedSpawns);
@@ -1697,7 +1699,7 @@ impl PageContext {
             failure,
         };
         let log = Arc::clone(log);
-        self.run.spawn(async move {
+        self.run.identity().spawn(async move {
             if let Err(error) = log.service_worker_request(&request).await {
                 tracing::warn!(%error, "the Run trace did not take a service worker's request");
             }

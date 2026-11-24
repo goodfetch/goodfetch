@@ -66,7 +66,9 @@ use goodfetch_engine::request_signing::{KeyError, RequestSigner};
 use goodfetch_engine::run::{secret_error, settings_error};
 use goodfetch_engine::run_key::Sealed;
 use goodfetch_engine::run_state::{RunStateError, RunStateTables, SecretColumn, run_row};
-use goodfetch_engine::runs::{Run, RunError, RunKeyError};
+use goodfetch_engine::runs::{
+    self, Run, RunError, RunKeyError, governor, identity, keys, run_trace, warnings,
+};
 use goodfetch_engine::secrets::Purpose;
 use goodfetch_engine::settings::{RunSettings, SettingsError, Values, setting};
 use goodfetch_engine::tasks::TaskOwner;
@@ -106,7 +108,7 @@ use crate::driver::{PageDriver, SessionEgress, Visibility, counted_as_opening};
 use crate::egress_relay::{self, EgressRelay};
 use crate::errors::{cancelled, invalid_transition};
 use crate::hiding::{Hiding, PageHiding};
-use crate::interception::{HeldBrowser, Interception, Lookups};
+use crate::interception::{HeldBrowser, Interception, Lookups, RunPowers};
 use crate::launch::Launcher;
 use crate::page_events;
 use crate::page_functions::{FrameScripts, Injections};
@@ -372,6 +374,19 @@ fn parse_session_id(session: &SessionId) -> Option<(RunId, u32)> {
         return None;
     }
     Some((RunId::parse(run).ok()?, position.parse().ok()?))
+}
+
+/// The identity and the powers of `run` its pages' interception takes
+/// (ADR 0145).
+pub(crate) fn interception_run(run: &Run) -> RunPowers {
+    RunPowers::new(
+        identity(run).clone(),
+        runs::state(run).clone(),
+        run_trace(run).clone(),
+        warnings(run).clone(),
+        keys(run).secrets().clone(),
+        governor(run).clone(),
+    )
 }
 
 /// The failure of a read or write of `run`'s state.

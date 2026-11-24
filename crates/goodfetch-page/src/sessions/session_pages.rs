@@ -35,7 +35,7 @@ use tokio::sync::watch;
 use super::life::{Ending, PageLife, page_closed, session_closed};
 use super::lifecycle::PageEffect;
 use super::robots_txt;
-use super::{OpenPage, Session, Sessions, action_timeout, wait_deadline};
+use super::{OpenPage, Session, Sessions, action_timeout, interception_run, wait_deadline};
 use crate::driver::{OnChild, OnPopup, PageDriver, PopupHandler, SessionEgress};
 use crate::hiding::{PageHiding, Sheets};
 use crate::interception::{OnDocument, PageInterception};
@@ -358,7 +358,14 @@ impl Sessions {
             .map(|reader| Arc::new(reader) as Arc<dyn OnDocument>);
         let held = self
             .interception
-            .start(page, session, driver, run, settings, (refusals, reader))
+            .start(
+                page,
+                session,
+                driver,
+                &interception_run(run),
+                settings,
+                (refusals, reader),
+            )
             .await?;
         taken_in.interception = Some(held.page);
         // Live hiding and the Consent prompt runner share each document's

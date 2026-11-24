@@ -57,7 +57,7 @@ use goodfetch_clean_up_rules::consent::{self as bundle, Runner, World};
 use goodfetch_counted_work::{CountedWork, Row};
 use goodfetch_engine::CallError;
 use goodfetch_engine::clock::Clock;
-use goodfetch_engine::runs::Run;
+use goodfetch_engine::runs::{Run, identity};
 use goodfetch_protocol::page::PageId;
 use goodfetch_protocol::settings::{
     CAPABILITY_UNAVAILABLE, CONSENT_DOMAINS, CONSENT_ON_WALL, CapabilityUnavailableDetails,
@@ -129,7 +129,7 @@ impl Consent {
         run: &Run,
         sheets: &Arc<Sheets>,
     ) -> Result<OnChild, CallError> {
-        let answering = match ConsentHandling::of(run) {
+        let answering = match ConsentHandling::of(identity(run)) {
             ConsentHandling::Answer => true,
             ConsentHandling::Detect => false,
             // Nothing judges a wall, so `consent.on_wall` asks nothing either.

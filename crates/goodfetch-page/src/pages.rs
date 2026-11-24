@@ -55,7 +55,7 @@ use goodfetch_engine::hostile_input::check_headers;
 use goodfetch_engine::ledger::{ChargeError, Refusal as LedgerRefusal};
 use goodfetch_engine::response_limits::Limits;
 use goodfetch_engine::run::{limit_not_understood, limit_reached};
-use goodfetch_engine::runs::Run;
+use goodfetch_engine::runs::{Run, identity};
 use goodfetch_engine::settings::RunSettings;
 use goodfetch_engine::{CallContext, CallError, Contribution, Enclose, Guard, Handler, named};
 use goodfetch_extractor::{BuiltIn, Serialization};
@@ -121,7 +121,7 @@ use crate::page_value::{
 };
 use crate::proxy;
 use crate::recovery;
-use crate::sessions::{self, EngineWork, OpenPage, PageEvent, Sessions};
+use crate::sessions::{self, EngineWork, OpenPage, PageEvent, Sessions, interception_run};
 use crate::trace;
 use crate::url_pattern::UrlPattern;
 
@@ -1049,7 +1049,7 @@ impl BrowserPages for Opener {
             let steps = self
                 .pages
                 .interception
-                .engine_requests_of(&session, &run, &own)
+                .engine_requests_of(&session, &interception_run(&run), &own)
                 .await?;
             let limits = Limits::of_run(run.settings());
             let headers: BTreeMap<String, String> = request.headers.iter().cloned().collect();
@@ -1143,14 +1143,18 @@ impl BrowserPages for Opener {
         label: Option<BuiltIn>,
     ) -> Opening<'a, Option<Arc<dyn ServedFormatsAhead>>> {
         Box::pin(async move {
-            let cosmetic = self.pages.interception.served_cosmetic(run).await;
+            let cosmetic = self
+                .pages
+                .interception
+                .served_cosmetic(&interception_run(run))
+                .await;
             let reader = served_formats::ServedFormatsReader::of(run, request, label, cosmetic);
             Some(Arc::new(reader) as Arc<dyn ServedFormatsAhead>)
         })
     }
 
     fn prepare_served_formats(&self, run: &Run) {
-        let (pages, preparing) = (self.pages.clone(), run.clone());
+        let (pages, preparing) = (self.pages.clone(), interception_run(run));
         run.spawn(async move {
             drop(pages.interception.served_cosmetic(&preparing).await);
         });
@@ -1631,7 +1635,7 @@ impl Pages {
         // With `consent.handling: off` no runner looks, so there is nothing
         // to ask (#2434).
         if navigated
-            && ConsentHandling::of(&page.run) != ConsentHandling::Off
+            && ConsentHandling::of(identity(&page.run)) != ConsentHandling::Off
             && crate::consent::first_pass_found(&page.driver, page.run.metrics().counted_work())
                 .await
         {
@@ -1750,7 +1754,9 @@ impl Pages {
             let cosmetic = if clean_up::reads_nothing(&request) {
                 None
             } else {
-                self.interception.served_cosmetic(&served.run).await
+                self.interception
+                    .served_cosmetic(&interception_run(&served.run))
+                    .await
             };
             let work = served.run.metrics().counted_work().clone();
             let read = move |kept: Option<&ParsedHtml>| {

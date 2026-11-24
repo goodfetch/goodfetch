@@ -50,9 +50,12 @@ use goodfetch_engine::clock::{self, Clock};
 use goodfetch_engine::home::Home;
 use goodfetch_engine::pinned_download::{Digest, Fetching};
 use goodfetch_engine::response_limits::Limits;
-use goodfetch_engine::run_state::run_row;
+use goodfetch_engine::run_identity::RunIdentity;
+use goodfetch_engine::run_state::{RunState, run_row};
+use goodfetch_engine::run_trace::RunTrace;
 use goodfetch_engine::runs::{
-    Answering, Chosen, CleanUpVersions, Fallback, Holding, RulesContext, Run,
+    self, Answering, Chosen, CleanUpVersions, Fallback, Holding, ReportWarnings, RulesContext, Run,
+    identity, run_trace, warnings,
 };
 use goodfetch_engine::settings::{Resolved, RunSettings, get_or_default};
 use goodfetch_engine::tasks::{TaskOwner, TaskStarter};
@@ -105,7 +108,7 @@ pub(crate) struct Versions {
     this: Weak<Versions>,
     /// Whether a Run's own settings turn a Filter list on, so that its
     /// lists start loading as it starts: the interception's choice.
-    needs_lists: fn(&Run) -> bool,
+    needs_lists: fn(&RunIdentity) -> bool,
     home: OnceLock<Home>,
     /// Each version loaded or loading, by digest: the loads of one digest
     /// wait on its cell, never on a lock held while it compiles; a load that
@@ -145,6 +148,30 @@ fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
 pub(crate) struct HeldLists {
     pub(crate) digest: String,
     pub(crate) lists: Arc<FilterLists>,
+}
+
+/// What loading a live Run's Filter lists uses of it (ADR 0145): its
+/// identity; its state, which records the digest it holds to; its Run
+/// trace, whose Provenance records a fallback; and its report's warnings.
+/// Cloning it is four reference counts.
+#[derive(Clone)]
+pub(crate) struct ListsRun {
+    pub(crate) identity: RunIdentity,
+    pub(crate) state: RunState,
+    pub(crate) trace: RunTrace,
+    pub(crate) warnings: ReportWarnings,
+}
+
+impl ListsRun {
+    /// What loading `run`'s Filter lists uses of it.
+    pub(crate) fn of(run: &Run) -> Self {
+        Self {
+            identity: identity(run).clone(),
+            state: runs::state(run).clone(),
+            trace: run_trace(run).clone(),
+            warnings: warnings(run).clone(),
+        }
+    }
 }
 
 /// One version of the Clean-up rules: its digest and its manifest.
@@ -491,7 +518,7 @@ impl Versions {
     /// The engine's versions, none loaded yet, which start loading a
     /// Run's lists as it starts when `needs_lists` says its settings turn
     /// one on.
-    pub(crate) fn new(needs_lists: fn(&Run) -> bool) -> Arc<Self> {
+    pub(crate) fn new(needs_lists: fn(&RunIdentity) -> bool) -> Arc<Self> {
         Arc::new_cyclic(|this| Self {
             this: Weak::clone(this),
             needs_lists,
@@ -560,7 +587,7 @@ impl Versions {
 
     /// Records the version `run` holds to once it started or resumed, and
     /// holds its files in the Browser cache while the Run lives.
-    async fn record(&self, run: &Run, holding: Holding, context: RulesContext<'_>) {
+    async fn record(&self, run: &ListsRun, holding: Holding, context: RulesContext<'_>) {
         self.remember(context.home);
         let Some(recorded) = recorded_digest(run).await else {
             return;
@@ -617,7 +644,7 @@ impl Versions {
             entry["fallback"] = json!({ "reason": fallback.reason, "message": fallback.message });
             entry["recorded"] = json!(recorded);
         }
-        trace::provenance(run, entry).await;
+        trace::provenance_in(&run.trace, entry).await;
         if let Some(fallback) = fallback {
             warn_of(run, &fallback).await;
         }
@@ -632,7 +659,7 @@ impl Versions {
                 sessions: Vec::new(),
                 folder: None,
             };
-            if let Err(error) = run.warn_once(warning).await {
+            if let Err(error) = run.warnings.warn_once(warning).await {
                 tracing::warn!(%error, "the warning of the Run's Clean-up rules was not kept");
             }
         }
@@ -641,8 +668,8 @@ impl Versions {
     /// `run` holds to the version of `digest`, whose files `artifact` holds
     /// in the Browser cache, until it ends; the Runs that ended let theirs
     /// go.
-    fn hold(&self, run: &Run, digest: &str, artifact: Option<HeldArtifact>) {
-        held_by(&mut lock(&self.holding), run, digest, artifact);
+    fn hold(&self, run: &ListsRun, digest: &str, artifact: Option<HeldArtifact>) {
+        held_by(&mut lock(&self.holding), &run.identity, digest, artifact);
     }
 
     /// Starts loading the Filter lists `run` holds to on one of its tasks
@@ -650,42 +677,43 @@ impl Versions {
     /// loaded, or loading, instead of starting the load (#2688). A Session
     /// that turns one on in a Run that turns them all off loads them on its
     /// first page.
-    fn load_ahead(&self, run: &Run) {
-        if !(self.needs_lists)(run) {
+    fn load_ahead(&self, run: &ListsRun) {
+        if !(self.needs_lists)(&run.identity) {
             return;
         }
         let Some(versions) = self.this.upgrade() else {
             return;
         };
         let loading = run.clone();
-        run.owner().spawn(async move {
-            drop(versions.lists(&loading, loading.owner()).await);
+        run.identity.owner().spawn(async move {
+            drop(versions.lists(&loading).await);
         });
     }
 
     /// `run`, whose version of `digest` did not load, holds to the embedded
     /// part from now on; whether this call moved it there, which only one of
     /// the Run's pages that asked at once does.
-    fn fall_back(&self, run: &Run, digest: &str) -> bool {
+    fn fall_back(&self, run: &ListsRun, digest: &str) -> bool {
         let mut holding = lock(&self.holding);
         if holding
-            .get(run.id())
+            .get(run.identity.id())
             .is_some_and(|held| held.digest != digest)
         {
             return false;
         }
-        held_by(&mut holding, run, EMBEDDED_DIGEST, None);
+        held_by(&mut holding, &run.identity, EMBEDDED_DIGEST, None);
         true
     }
 
     /// The Filter lists `run`'s pages match: the version it holds to,
-    /// loaded once for every Run that holds to it, through `owner`'s
+    /// loaded once for every Run that holds to it, through its owner's
     /// blocking tasks; the embedded part, recorded in Provenance and warned
     /// of once, however many of its pages asked at once, when its files no
     /// longer read. Each comes with its digest.
-    pub(crate) async fn lists(&self, run: &Run, owner: &TaskStarter) -> HeldLists {
+    pub(crate) async fn lists(&self, run: &ListsRun) -> HeldLists {
+        let owner = run.identity.owner();
         let held = lock(&self.holding)
-            .get(run.id())
+            .get(run.identity.id())
             .map(|held| (held.digest.clone(), held.artifact.clone()));
         let (digest, artifact) = match held {
             Some(held) => held,
@@ -703,8 +731,8 @@ impl Versions {
                 Err(failure) if self.fall_back(run, &digest) => {
                     let fallback =
                         fallback(&format!("the Run's Clean-up rules, {digest},"), &failure);
-                    trace::provenance(
-                        run,
+                    trace::provenance_in(
+                        &run.trace,
                         json!({
                             "action": "clean_up_rules",
                             "digest": EMBEDDED_DIGEST,
@@ -803,13 +831,13 @@ impl Versions {
         &self,
         digest: &str,
         artifact: Option<Arc<HeldArtifact>>,
-        run: &Run,
+        run: &ListsRun,
         owner: &TaskStarter,
     ) -> Result<FilterLists, Unobtained> {
         let found = match (artifact, self.home.get()) {
             (Some(artifact), _) => Some(artifact.files()),
             (None, Some(home)) => Kept::in_home(home, owner.child())
-                .cached(digest, now_of(run.clock()))
+                .cached(digest, now_of(run.identity.clock()))
                 .await
                 .map(|(_, held)| held.files()),
             (None, None) => None,
@@ -844,7 +872,7 @@ impl Versions {
 /// ended let theirs go.
 fn held_by(
     holding: &mut BTreeMap<RunId, Held>,
-    run: &Run,
+    run: &RunIdentity,
     digest: &str,
     artifact: Option<HeldArtifact>,
 ) {
@@ -852,7 +880,7 @@ fn held_by(
     holding.insert(
         run.id().clone(),
         Held {
-            live: run.cancellation().clone(),
+            live: run.owner().child_token(),
             digest: digest.to_owned(),
             artifact: artifact.map(Arc::new),
         },
@@ -861,7 +889,7 @@ fn held_by(
 
 /// Warns in `run`'s report, once, that its Clean-up rules are not the
 /// version asked for, for `fallback`.
-async fn warn_of(run: &Run, fallback: &Fallback) {
+async fn warn_of(run: &ListsRun, fallback: &Fallback) {
     let warning = RunWarning {
         code: CLEAN_UP_RULES_FALLBACK.to_owned(),
         message: format!(
@@ -871,7 +899,7 @@ async fn warn_of(run: &Run, fallback: &Fallback) {
         sessions: Vec::new(),
         folder: None,
     };
-    if let Err(error) = run.warn_once(warning).await {
+    if let Err(error) = run.warnings.warn_once(warning).await {
         tracing::warn!(%error, "the warning of the Run's Clean-up rules was not kept");
     }
 }
@@ -942,8 +970,8 @@ async fn known(
 
 /// The Clean-up rules digest `run`'s state records; none, and the failure
 /// logged, when its state does not read.
-async fn recorded_digest(run: &Run) -> Option<String> {
-    match run.state().read(run_row::clean_up_digest).await {
+async fn recorded_digest(run: &ListsRun) -> Option<String> {
+    match run.state.read(run_row::clean_up_digest).await {
         Ok(digest) => digest,
         Err(error) => {
             tracing::warn!(%error, "the Run's state did not read its Clean-up rules' digest: none is recorded for it");
@@ -963,7 +991,8 @@ impl CleanUpVersions for Versions {
         holding: Holding,
         context: RulesContext<'a>,
     ) -> Answering<'a, ()> {
-        Box::pin(self.record(run, holding, context))
+        let run = ListsRun::of(run);
+        Box::pin(async move { self.record(&run, holding, context).await })
     }
 }
 

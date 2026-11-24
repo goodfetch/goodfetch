@@ -104,9 +104,13 @@ use goodfetch_clean_up_rules::rules::FilterLists;
 use goodfetch_engine::CallError;
 use goodfetch_engine::client::Client;
 use goodfetch_engine::egress::{self, Navigator, Policy, RequestKind};
+use goodfetch_engine::governor::RunGovernor;
 use goodfetch_engine::request_signing::RequestSigner;
-use goodfetch_engine::run_trace::RequestLog;
-use goodfetch_engine::runs::{Run, run_trace};
+use goodfetch_engine::run_identity::RunIdentity;
+use goodfetch_engine::run_state::RunState;
+use goodfetch_engine::run_trace::{RequestLog, RunTrace};
+use goodfetch_engine::runs::ReportWarnings;
+use goodfetch_engine::secrets::RunSecrets;
 use goodfetch_engine::settings::{RunSettings, Values};
 use goodfetch_protocol::jsonrpc::RequestId;
 use goodfetch_protocol::page::route::{RouteId, UrlMatcher};
@@ -129,7 +133,7 @@ use self::navigations::{NavigatingPage, Pending, PendingNavigation};
 use self::pipeline::{PageContext, Sender};
 pub(crate) use self::routes::Armed;
 use self::routes::{Route, RouteTable};
-use crate::clean_up_versions::Versions;
+use crate::clean_up_versions::{ListsRun, Versions};
 use crate::driver::{Child, ChildKind, OnChild, OnWorker, PageDriver, ServiceWorkers};
 use crate::page_events::Refusals;
 use crate::page_value::OwnFetch;
@@ -146,6 +150,47 @@ enum Worker {
     Service,
     /// A site's shared worker.
     Shared,
+}
+
+/// What the interception uses of a live Run (ADR 0145): what loading its
+/// Filter lists uses, its identity among them; its Secrets, which a held
+/// request's view is masked by; and its part of the Resource governor,
+/// whose samples empty its host cache. Cloning it is six reference counts.
+#[derive(Clone)]
+pub(crate) struct RunPowers {
+    pub(crate) lists: ListsRun,
+    pub(crate) secrets: RunSecrets,
+    pub(crate) governor: RunGovernor,
+}
+
+impl RunPowers {
+    /// The identity and the powers of a Run that its pages' interception
+    /// takes: its state, its trace and its warnings for the Filter lists'
+    /// versions, its secrets to mask, and its governor's samples.
+    pub(crate) fn new(
+        identity: RunIdentity,
+        state: RunState,
+        trace: RunTrace,
+        warnings: ReportWarnings,
+        secrets: RunSecrets,
+        governor: RunGovernor,
+    ) -> Self {
+        Self {
+            lists: ListsRun {
+                identity,
+                state,
+                trace,
+                warnings,
+            },
+            secrets,
+            governor,
+        }
+    }
+
+    /// The Run's identity.
+    pub(crate) fn identity(&self) -> &RunIdentity {
+        &self.lists.identity
+    }
 }
 
 /// Whose requests a route answers.
@@ -441,10 +486,10 @@ impl Cosmetic {
     fn of(
         blocking: &steps::Blocking,
         version: Option<String>,
-        run: &Run,
+        run: &RunPowers,
         hosts: &HostCaches,
     ) -> Option<Self> {
-        if ConsentHandling::of(run) == ConsentHandling::Off {
+        if ConsentHandling::of(run.identity()) == ConsentHandling::Off {
             return None;
         }
         blocking
@@ -589,16 +634,16 @@ impl Interception {
         page_id: &PageId,
         session: &SessionId,
         driver: &PageDriver,
-        run: &Run,
+        run: &RunPowers,
         own: &Values,
         (refusals, on_document): (Refusals, Option<Arc<dyn OnDocument>>),
     ) -> Result<HeldPage, CallError> {
-        let policy = policy_of(run)?;
-        let resolved = run.settings().map(RunSettings::resolved);
+        let policy = policy_of(run.identity())?;
+        let resolved = run.identity().settings().map(RunSettings::resolved);
         let choices = clean_up::choices(resolved, own);
         let blocked = (!choices.block_resources.is_empty())
             .then(|| clean_up::effective(resolved, own, &BROWSER_BLOCK_RESOURCES).to_string());
-        let (blocking, version) = self.shared.clean_up.blocking(choices, run).await;
+        let (blocking, version) = self.shared.clean_up.blocking(choices, &run.lists).await;
         let clean_up = PageCleanUp {
             cosmetic: Cosmetic::of(&blocking, version, run, &self.shared.hosts),
             live_hiding: clean_up::live_hiding(resolved, own),
@@ -629,7 +674,7 @@ impl Interception {
                 lists_on: blocking.lists.is_some(),
                 retrying: AtomicBool::new(false),
                 lists_blocked: AtomicU64::new(0),
-                learned: self.shared.learned(run.id()),
+                learned: self.shared.learned(run.identity().id()),
                 cosmetic: clean_up.cosmetic.clone(),
                 engine_requests: EngineRequests {
                     policy: policy.clone(),
@@ -688,7 +733,7 @@ impl Interception {
             )
             .with_lookups(lookups),
         );
-        run.spawn(pipeline::dispatch(events, context));
+        run.identity().spawn(pipeline::dispatch(events, context));
         Ok(HeldPage {
             page,
             clean_up,
@@ -710,7 +755,7 @@ impl Interception {
         page_id: &PageId,
         (state, answers): (&Arc<PageState>, Answers),
         page: &PageDriver,
-        run: &Run,
+        run: &RunPowers,
         (policy, lookups): (Policy, Option<Arc<Lookups>>),
         blocking: steps::Blocking,
     ) -> OnChild {
@@ -764,7 +809,7 @@ impl Interception {
                     .with_lookups(lookups)
                     .with_document(&url),
                 );
-                run.spawn(pipeline::dispatch(events, context));
+                run.identity().spawn(pipeline::dispatch(events, context));
                 true
             })
         })
@@ -781,7 +826,7 @@ impl Interception {
         &self,
         (session, worker): (&SessionId, Worker),
         page: &PageDriver,
-        run: &Run,
+        run: &RunPowers,
         (policy, lookups): (Policy, Option<Arc<Lookups>>),
         blocking: steps::Blocking,
     ) -> OnWorker {
@@ -815,8 +860,10 @@ impl Interception {
                         tables.signing.get(&session).cloned(),
                     )
                 };
-                let log = Arc::new(RequestLog::new(run_trace(&run)));
-                let driver = driver.with_egress(egress).with_value(value, run.clock());
+                let log = Arc::new(RequestLog::new(&run.lists.trace));
+                let driver = driver
+                    .with_egress(egress)
+                    .with_value(value, run.identity().clock());
                 let events = driver.events();
                 if let Err(error) = pause_requests(&driver).await {
                     tracing::warn!(%error, ?worker, "a worker's requests could not be paused, so it does not run");
@@ -837,7 +884,7 @@ impl Interception {
                     lists_on: blocking.lists.is_some(),
                     retrying: AtomicBool::new(false),
                     lists_blocked: AtomicU64::new(0),
-                    learned: shared.learned(run.id()),
+                    learned: shared.learned(run.identity().id()),
                     cosmetic: None,
                     engine_requests: EngineRequests {
                         policy: policy.clone(),
@@ -862,7 +909,7 @@ impl Interception {
                     )
                     .with_lookups(lookups),
                 );
-                run.spawn(async move {
+                run.identity().spawn(async move {
                     tokio::select! {
                         () = gone.cancelled() => {}
                         () = pipeline::dispatch(events, context) => {}
@@ -880,11 +927,12 @@ impl Interception {
     ///
     /// They are made on the Run's first served document and held until the
     /// Run ends, so its Filter lists are compiled once for it.
-    pub(crate) async fn served_cosmetic(&self, run: &Run) -> Option<Cosmetic> {
+    pub(crate) async fn served_cosmetic(&self, run: &RunPowers) -> Option<Cosmetic> {
+        let identity = run.identity();
         // A fetch tier already sent the served document's request, so the
         // lists' cosmetic rules are all it would take from them: under
         // `off` it takes nothing, and the lists are not loaded for it.
-        if ConsentHandling::of(run) == ConsentHandling::Off {
+        if ConsentHandling::of(identity) == ConsentHandling::Off {
             return None;
         }
         let cell = {
@@ -892,9 +940,9 @@ impl Interception {
             served.retain(|_, held| !held.live.is_cancelled());
             Arc::clone(
                 &served
-                    .entry(run.id().clone())
+                    .entry(identity.id().clone())
                     .or_insert_with(|| ServedCosmetic {
-                        live: run.cancellation().clone(),
+                        live: identity.owner().child_token(),
                         cosmetic: Arc::default(),
                     })
                     .cosmetic,
@@ -902,10 +950,10 @@ impl Interception {
         };
         cell.get_or_init(|| async {
             let choices = clean_up::choices(
-                run.settings().map(RunSettings::resolved),
+                identity.settings().map(RunSettings::resolved),
                 &Values::default(),
             );
-            let (blocking, version) = self.shared.clean_up.blocking(choices, run).await;
+            let (blocking, version) = self.shared.clean_up.blocking(choices, &run.lists).await;
             Cosmetic::of(&blocking, version, run, &self.shared.hosts)
         })
         .await
@@ -917,7 +965,7 @@ impl Interception {
     /// since few people block images or fonts (ADRs 0047, 0117). It warns
     /// in `standard` and `stealth`, never in `identified`; until area 8's
     /// Access mode setting, every Session is `standard`.
-    async fn warn_of_blocked_resources(&self, session: &SessionId, run: &Run, blocked: &str) {
+    async fn warn_of_blocked_resources(&self, session: &SessionId, run: &RunPowers, blocked: &str) {
         if !lock(&self.shared.tables).warned.insert(session.clone()) {
             return;
         }
@@ -930,7 +978,7 @@ impl Interception {
             sessions: vec![session.0.clone()],
             folder: None,
         };
-        if let Err(error) = run.warn(warning).await {
+        if let Err(error) = run.lists.warnings.warn(warning).await {
             tracing::warn!(%error, "the warning of `browser.block_resources` was not kept");
         }
     }
@@ -993,12 +1041,12 @@ impl Interception {
     pub(crate) async fn engine_requests_of(
         &self,
         session: &SessionId,
-        run: &Run,
+        run: &RunPowers,
         own: &Values,
     ) -> Result<EngineRequests, CallError> {
-        let policy = policy_of(run)?;
-        let choices = clean_up::choices(run.settings().map(RunSettings::resolved), own);
-        let (blocking, _) = self.shared.clean_up.blocking(choices, run).await;
+        let policy = policy_of(run.identity())?;
+        let choices = clean_up::choices(run.identity().settings().map(RunSettings::resolved), own);
+        let (blocking, _) = self.shared.clean_up.blocking(choices, &run.lists).await;
         let signing = lock(&self.shared.tables).signing.get(session).cloned();
         Ok(EngineRequests {
             policy,
@@ -1245,7 +1293,7 @@ fn patterns() -> Vec<fetch::RequestPattern> {
 /// # Errors
 ///
 /// `setting_invalid` for a domain list of the Run's that holds no host.
-fn policy_of(run: &Run) -> Result<Policy, CallError> {
+fn policy_of(run: &RunIdentity) -> Result<Policy, CallError> {
     match run.settings() {
         Some(settings) => Policy::of(settings.resolved()),
         None => Policy::new(&["*"], &[] as &[&str]),

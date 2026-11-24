@@ -1,5 +1,7 @@
 use goodfetch_protocol::jsonrpc::{ProtocolFailure, RequestId};
 use rstest::rstest;
+use serde::Deserialize;
+use serde_json::value::RawValue;
 
 use super::{DecodeError, Frame, Framer, Incoming, MAX_DEPTH};
 
@@ -246,10 +248,24 @@ fn a_reply_reads_its_result_from_its_line() {
     );
 }
 
-/// A handler's answer keeps each Record's fields in the order its program
-/// wrote them, which a parsed `Value` would sort.
+/// A reply's result read into a type that keeps a raw JSON value, as a
+/// handler's answer keeps each Record's data: the value is its text,
+/// its fields in the order written, which a parsed `Value` would sort.
 #[test]
-fn records_in_a_reply_keep_their_fields_in_the_order_written() {
+fn a_raw_value_in_a_reply_keeps_its_fields_in_the_order_written() {
+    #[derive(Deserialize)]
+    #[serde(deny_unknown_fields)]
+    struct Answer {
+        records: Vec<Kept>,
+    }
+
+    #[derive(Deserialize)]
+    #[serde(deny_unknown_fields)]
+    struct Kept {
+        dataset: String,
+        data: Box<RawValue>,
+    }
+
     let Ok(Incoming::Reply {
         answer: Ok(result), ..
     }) = decode(
@@ -259,13 +275,12 @@ fn records_in_a_reply_keep_their_fields_in_the_order_written() {
         panic!("no result");
     };
 
-    let handled = result
-        .read::<goodfetch_protocol::foxhound::crawl::CrawlRequestHandled>()
-        .unwrap();
+    let answer = result.read::<Answer>().unwrap();
+    let kept = &answer.records[0];
 
     assert_eq!(
-        handled.records[0].data.json(),
-        r#"{"title":"Dune","price":9}"#
+        (kept.dataset.as_str(), kept.data.get()),
+        ("books", r#"{"title":"Dune","price":9}"#)
     );
 }
 

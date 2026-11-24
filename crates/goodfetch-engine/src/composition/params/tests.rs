@@ -5,6 +5,7 @@ use goodfetch_counted_work::{CountedWork, Row};
 use goodfetch_protocol::page::read::PageReadParams;
 use rstest::rstest;
 use serde::Deserialize;
+use serde_json::value::RawValue;
 
 use super::Arrived;
 use crate::trace::Ids;
@@ -48,24 +49,30 @@ fn params_read_as_their_type_without_their_meta() {
     );
 }
 
-/// A push's Records keep their fields in the order their program wrote
-/// them through the strict read, which a parsed `Value` would sort.
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Kept {
+    dataset: String,
+    records: Vec<Box<RawValue>>,
+}
+
+/// Raw JSON values in the params, as a push's Records, keep their fields
+/// in the order written through the strict read, at every depth, which a
+/// parsed `Value` would sort.
 #[test]
-fn records_in_a_push_keep_their_fields_in_the_order_written() {
+fn raw_values_in_params_keep_their_fields_in_the_order_written() {
     let work = CountedWork::default();
     let arrived = Arrived::new(
-        Some(
-            r#"{"run_id":"run-1","crawl_request_id":"r1","lease_epoch":1,"dataset":"books","records":[{"title":"Dune","price":9}]}"#,
-        ),
+        Some(r#"{"dataset":"books","records":[{"title":"Dune","price":9}]}"#),
         &work,
     );
 
-    let pushed = arrived
-        .params()
-        .read::<goodfetch_protocol::foxhound::dataset::CrawlRequestPushParams>()
-        .unwrap();
+    let kept = arrived.params().read::<Kept>().unwrap();
 
-    assert_eq!(pushed.records[0].json(), r#"{"title":"Dune","price":9}"#);
+    assert_eq!(
+        (kept.dataset.as_str(), kept.records[0].get()),
+        ("books", r#"{"title":"Dune","price":9}"#)
+    );
 }
 
 /// A struct or a map reads only from an object, at every depth, which

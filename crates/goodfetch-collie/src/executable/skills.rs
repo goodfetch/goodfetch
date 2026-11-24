@@ -154,13 +154,16 @@ impl SkillCommand {
     }
 }
 
-/// The skills folder of `host`, from the folder of the install's scope.
-fn skills_folder(host: SkillHost) -> &'static str {
-    match host {
-        SkillHost::ClaudeCode => ".claude/skills",
-        SkillHost::Codex | SkillHost::Agents => ".agents/skills",
-        SkillHost::Cursor => ".cursor/skills",
-    }
+/// The skills folder of `host` in `base`, the folder of the install's
+/// scope: `skills` in the host's own folder, joined one name at a time so
+/// that the path takes the platform's separator throughout.
+fn skills_folder(base: &Path, host: SkillHost) -> PathBuf {
+    let host_folder = match host {
+        SkillHost::ClaudeCode => ".claude",
+        SkillHost::Codex | SkillHost::Agents => ".agents",
+        SkillHost::Cursor => ".cursor",
+    };
+    base.join(host_folder).join("skills")
 }
 
 /// Installs `skills` for `host` at `scope`: in the working folder, or in
@@ -190,7 +193,7 @@ fn install(
         );
         return ExitCode::FAILURE;
     };
-    let folder = base.join(skills_folder(host));
+    let folder = skills_folder(&base, host);
     let installed = match install_into(skills, &folder) {
         Ok(installed) => installed,
         Err(Refused::Taken(path)) => {

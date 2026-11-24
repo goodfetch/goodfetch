@@ -362,6 +362,46 @@ form = "type"
 
 [[member]]
 crate = "goodfetch-foxhound"
+receiver = "(crate)"
+member = "DatasetDeclaration"
+entry = "none"
+reason = "A Dataset as `crawl.dataset` declares it, with its Record schema and its key (ADRs 0099 and 0103)."
+only = "TypeScript's `crawl.dataset` takes its Dataset options, `DatasetOptions`, as a plain object beside the name."
+words = ["dataset", "declaration"]
+form = "type"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "DatasetDeclaration"
+member = "new"
+entry = "none"
+reason = "The Dataset of a name, with neither a Record schema nor a key, built with no round trip (ADR 0099)."
+only = "TypeScript's `crawl.dataset` takes the name itself."
+words = ["new"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "DatasetDeclaration"
+member = "schema"
+entry = "none"
+reason = "The schema each Record is checked against, in the program before it is sent and by the engine (ADR 0103)."
+only = "TypeScript's is the `schema` field of `DatasetSchemaOptions`."
+words = ["schema"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "DatasetDeclaration"
+member = "key"
+entry = "none"
+reason = "The top-level fields that name a Record of the Dataset (ADR 0103)."
+only = "TypeScript's is the `key` field of `DatasetOptions`."
+words = ["key"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-foxhound"
 receiver = "LabelDeclaration"
 member = "new"
 entry = "none"

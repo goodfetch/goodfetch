@@ -28,7 +28,7 @@ use goodfetch_protocol::foxhound::crawl::{
     Seed as SeedRequest, Seeds,
 };
 use goodfetch_protocol::foxhound::dataset::{
-    DATASET_DUPLICATE, DatasetDeclaration, DatasetDuplicateDetails,
+    DATASET_DUPLICATE, DatasetDeclaration as WireDataset, DatasetDuplicateDetails,
 };
 use goodfetch_protocol::foxhound::error_code;
 use goodfetch_protocol::foxhound::report::CrawlRunReport;
@@ -50,7 +50,7 @@ mod tests;
 
 use context::{Attempt, Ending, retry_requested};
 pub use context::{CrawlContext, Enqueue, EnqueueLinks, LinkPayload};
-pub use declaration::LabelDeclaration;
+pub use declaration::{DatasetDeclaration, LabelDeclaration};
 use handles::Seeded;
 pub use handles::{Dataset, Label, Seed};
 pub use run::{CrawlCall, CrawlRun};
@@ -122,7 +122,7 @@ pub struct Crawl<'a> {
     id: CrawlId,
     /// Each Label in the order declared.
     labels: Vec<Declared<'a>>,
-    datasets: Vec<DatasetDeclaration>,
+    datasets: Vec<WireDataset>,
 }
 
 /// A Label a crawl declares: its name, what `crawl.start` declares it
@@ -257,14 +257,24 @@ impl<'a> Crawl<'a> {
         Ok(())
     }
 
-    /// Declares the Dataset `name`, whose Records are of type `I`, and
-    /// returns it, the handle a handler pushes Records into.
+    /// Declares a Dataset, whose Records are of type `I`, and returns it,
+    /// the handle a handler pushes Records into: a bare name,
+    /// `crawl.dataset::<I>(name)`, which takes any JSON object, or a
+    /// [`DatasetDeclaration`] with the schema of its Records and its key
+    /// (ADRs 0099 and 0103). A push into it takes an `I`, so the compiler
+    /// refuses another type.
     ///
     /// # Errors
     ///
-    /// `dataset_duplicate` when the crawl already declares a Dataset
-    /// `name`.
-    pub fn dataset<I>(&mut self, name: &str) -> Result<Dataset<I>, Error> {
+    /// `dataset_duplicate` when the crawl already declares a Dataset of its
+    /// name, and `dataset_key_invalid` for a key naming a field that is no
+    /// top-level field its schema requires; neither declares it.
+    pub fn dataset<I>(
+        &mut self,
+        declaration: impl Into<DatasetDeclaration<I>>,
+    ) -> Result<Dataset<I>, Error> {
+        let declaration = declaration.into();
+        let name = declaration.name();
         if self.datasets.iter().any(|declared| declared.name == name) {
             return Err(Error::of_sdk(
                 &DATASET_DUPLICATE,
@@ -275,14 +285,13 @@ impl<'a> Crawl<'a> {
                 },
             ));
         }
-        self.datasets.push(DatasetDeclaration {
-            name: name.to_owned(),
-            schema: None,
-            key: Vec::new(),
-        });
+        let (wire, encoder) = declaration.into_parts()?;
+        let name = Arc::from(wire.name.as_str());
+        self.datasets.push(wire);
         Ok(Dataset {
-            name: Arc::from(name),
+            name,
             crawl: self.id,
+            encoder,
             record: PhantomData,
         })
     }

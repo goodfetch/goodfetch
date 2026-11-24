@@ -53,6 +53,12 @@ struct Visited {
 /// What a connection that reaches the Proving ground on a forced `http`
 /// tier opens with.
 pub(super) fn options(env: &TestEnv, site: &ProvingGround) -> ConnectOptions {
+    super::options(env).settings(site_settings(site))
+}
+
+/// The settings that reach the Proving ground `site` on a forced `http`
+/// tier, which a test adds its own to.
+pub(super) fn site_settings(site: &ProvingGround) -> Settings {
     let resolve: BTreeMap<String, Vec<String>> = site
         .description()
         .resolve
@@ -60,12 +66,10 @@ pub(super) fn options(env: &TestEnv, site: &ProvingGround) -> ConnectOptions {
         .map(|(host, address)| (host.clone(), vec![address.clone()]))
         .collect();
     let hosts: Vec<String> = resolve.keys().cloned().collect();
-    super::options(env).settings(
-        Settings::new()
-            .set(network::RESOLVE, resolve)
-            .set(egress::PRIVATE_RANGES, hosts)
-            .set(fetch::TIER, fetch::Tier::Http),
-    )
+    Settings::new()
+        .set(network::RESOLVE, resolve)
+        .set(egress::PRIVATE_RANGES, hosts)
+        .set(fetch::TIER, fetch::Tier::Http)
 }
 
 /// The tracer crawl: each page pushes a Record, and the seed enqueues
@@ -316,7 +320,7 @@ fn a_panic_in_a_handler_fails_its_request_with_handler_failed_and_serve_goes_on(
 }
 
 /// How many requests `counts` lists under `name`.
-fn count(counts: &[CountOf], name: &str) -> u64 {
+pub(super) fn count(counts: &[CountOf], name: &str) -> u64 {
     counts
         .iter()
         .find(|counted| counted.name == name)

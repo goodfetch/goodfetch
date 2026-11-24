@@ -50,8 +50,8 @@ mod sync;
 
 pub use composition::{composition, composition_with};
 pub use crawl::{
-    Crawl, CrawlCall, CrawlContext, CrawlRun, Dataset, Enqueue, EnqueueLinks, Label,
-    LabelDeclaration, LinkPayload, Seed, StartCrawl,
+    Crawl, CrawlCall, CrawlContext, CrawlRun, Dataset, DatasetDeclaration, Enqueue, EnqueueLinks,
+    Label, LabelDeclaration, LinkPayload, Seed, StartCrawl,
 };
 pub use foxhound::{Foxhound, PAID_FETCHES};
 pub use goodfetch_collie::{

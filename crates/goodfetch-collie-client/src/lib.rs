@@ -79,7 +79,7 @@ pub use raw_call::RawCall;
 pub use response::{Exchange, Response};
 pub use run::Start;
 pub use run_view::RunView;
-pub use schema::{Schema, SchemaError};
+pub use schema::{Schema, SchemaError, to_json};
 /// The `schemars` whose `JsonSchema` a [`Schema`] derives from, re-exported
 /// so that a program's derive is the SDK's version (ADR 0082).
 pub use schemars;

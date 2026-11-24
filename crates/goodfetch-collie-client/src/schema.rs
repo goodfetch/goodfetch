@@ -189,6 +189,29 @@ impl<T> fmt::Debug for Schema<T> {
     }
 }
 
+/// `value` as JSON, by the checked serializer a [`Schema`] encodes with,
+/// for a value sent without a schema: what `serde_json` would turn into
+/// `null` or a string key is refused instead.
+///
+/// # Errors
+///
+/// [`SchemaError::NotJson`], naming its JSON Pointer, when something in
+/// `value` is not JSON (NaN, an infinity, a map key that is not a string,
+/// an integer past 64 bits, a `Serialize` that fails).
+///
+/// # Examples
+///
+/// ```
+/// use goodfetch_collie_client::{SchemaError, to_json};
+///
+/// let pages = to_json(&serde_json::json!({ "pages": 3 })).map(|json| json["pages"].clone());
+/// assert_eq!(pages, Ok(serde_json::json!(3)));
+/// assert!(matches!(to_json(&[1.0, f64::NAN]), Err(SchemaError::NotJson { path, .. }) if path == "/1"));
+/// ```
+pub fn to_json<T: Serialize + ?Sized>(value: &T) -> Result<Value, SchemaError> {
+    encode::to_json(value)
+}
+
 /// Why a [`Schema`] refused a value or a document.
 #[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
 #[non_exhaustive]

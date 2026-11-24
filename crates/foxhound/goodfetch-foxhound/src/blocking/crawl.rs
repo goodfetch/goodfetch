@@ -18,7 +18,7 @@ use serde::Serialize;
 use serde::de::DeserializeOwned;
 
 use super::{Foxhound, Run, blocking};
-use crate::{Dataset, Label, LabelDeclaration, LinkPayload, Seed};
+use crate::{Dataset, DatasetDeclaration, Label, LabelDeclaration, LinkPayload, Seed};
 
 /// A crawl the program declares, as [`crate::Crawl`], whose handlers are
 /// plain functions and whose [`Crawl::serve`] blocks. It holds no
@@ -88,13 +88,17 @@ impl Crawl {
         self.inner.label(declaration)
     }
 
-    /// Declares the Dataset `name`, as [`crate::Crawl::dataset`] does.
+    /// Declares a Dataset, by a bare name or a [`DatasetDeclaration`], as
+    /// [`crate::Crawl::dataset`] does.
     ///
     /// # Errors
     ///
     /// As [`crate::Crawl::dataset`].
-    pub fn dataset<I>(&mut self, name: &str) -> Result<Dataset<I>, Error> {
-        self.inner.dataset(name)
+    pub fn dataset<I>(
+        &mut self,
+        declaration: impl Into<DatasetDeclaration<I>>,
+    ) -> Result<Dataset<I>, Error> {
+        self.inner.dataset(declaration)
     }
 
     /// Attaches `handler` to `label`, as [`crate::Crawl::handle`] does:

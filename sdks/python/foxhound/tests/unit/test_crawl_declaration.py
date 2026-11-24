@@ -3,8 +3,10 @@
 The crawls here are declared at module scope, before any Connection exists,
 as a program declares its own. A wiring mistake fails at once: a second
 Label of one name or a second handler with `label_duplicate`, another
-crawl's Label with `label_unknown`, and, before a Run starts, a Label
-without a handler with `label_unhandled`. TypeScript's twin is the wiring
+crawl's Label with `label_unknown`, a second Dataset of one name with
+`dataset_duplicate`, a key on a field its schema does not require with
+`dataset_key_invalid`, and, before a Run starts, a Label without a handler
+with `label_unhandled`. TypeScript's twin is the wiring
 mistakes of `src/crawl.test.ts` of `@goodfetch/foxhound`.
 """
 
@@ -27,6 +29,8 @@ from goodfetch_foxhound.crawl import (
     sitemap,
 )
 from goodfetch_foxhound.generated.errors import (
+    DatasetDuplicateError,
+    DatasetKeyInvalidError,
     LabelDuplicateError,
     LabelUnhandledError,
     LabelUnknownError,
@@ -160,6 +164,41 @@ def test_declares_each_dataset_with_its_schema_and_key() -> None:
         ],
         [DatasetDeclaration(name="pages")],
     )
+
+
+class Edition(BaseModel):
+    """A Record whose title it may lack."""
+
+    isbn: str
+    title: str | None = None
+
+
+@pytest.mark.covers(
+    "story:11-1057", "error:dataset_duplicate", "error:dataset_key_invalid"
+)
+def test_refuses_a_second_dataset_and_a_key_its_schema_does_not_require() -> None:
+    """Each is refused as it is declared, and the crawl declares the others alone."""
+    crawl = Crawl()
+    crawl.dataset("books")
+
+    with pytest.raises(DatasetDuplicateError) as duplicate:
+        crawl.dataset("books", schema=Edition)
+    with pytest.raises(DatasetKeyInvalidError) as not_required:
+        crawl.dataset("editions", schema=Edition, key=["title"])
+    crawl.dataset("editions", schema=Edition, key=["isbn"])
+    # Without a schema, a Dataset takes any JSON object, so its key is
+    # checked on each Record.
+    crawl.dataset("notes", key=["page"])
+
+    assert (duplicate.value.details, not_required.value.details) == (
+        {"dataset": "books"},
+        {"dataset": "editions", "reason": "not_required", "field": "title"},
+    )
+    assert [declaration.name for declaration in crawl_declaration(crawl)[1]] == [
+        "books",
+        "editions",
+        "notes",
+    ]
 
 
 @pytest.mark.covers("error:label_duplicate")

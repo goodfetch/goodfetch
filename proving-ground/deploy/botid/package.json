@@ -1,0 +1,9 @@
+{
+  "name": "goodfetch-proving-ground-botid",
+  "private": true,
+  "description": "The online copy's Vercel BotID host (#168): /botid and its server-side check, which forwards BotID's verdict to the copy.",
+  "type": "module",
+  "dependencies": {
+    "botid": "1.5.13"
+  }
+}

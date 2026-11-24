@@ -68,6 +68,7 @@ httpdate.workspace = true
 proptest.workspace = true
 regex.workspace = true
 rstest.workspace = true
+serde-saphyr.workspace = true
 sha1.workspace = true
 socket2.workspace = true
 tokio = { workspace = true, features = ["test-util"] }

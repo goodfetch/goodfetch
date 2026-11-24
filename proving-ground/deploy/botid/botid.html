@@ -1,0 +1,29 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>botid</title>
+    <script type="module">
+      // Vercel BotID's client (#168), which marks the protected request
+      // `POST /botid/verify` for its server-side check. Its package is
+      // written for a bundler that replaces `process.env.NODE_ENV`; this
+      // page has none, so it sets the production value itself.
+      import { initBotId } from "https://cdn.jsdelivr.net/npm/botid@1.5.13/dist/client/core/index.mjs";
+
+      globalThis.process ??= { env: { NODE_ENV: "production" } };
+      initBotId({ protect: [{ path: "/botid/verify", method: "POST" }] });
+      // BotID marks only fetch and XMLHttpRequest calls, so the form posts
+      // through fetch and shows the verdict page it answers.
+      document.querySelector("form").addEventListener("submit", async (event) => {
+        event.preventDefault();
+        const answer = await fetch("/botid/verify", { method: "POST" });
+        document.documentElement.innerHTML = await answer.text();
+      });
+    </script>
+  </head>
+  <body>
+    <form method="post" action="/botid/verify">
+      <button type="submit">Continue</button>
+    </form>
+  </body>
+</html>

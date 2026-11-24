@@ -183,3 +183,7 @@ reason = "It reads the vendor names of the two public watchlists, webappanalyzer
 [[outside]]
 job = "codeql.yml#analyze"
 reason = "CodeQL reads the sources without building them (`build-mode: none`) and runs none of the product (ADR 0067); it is skipped while the repository is private."
+
+[[outside]]
+job = "proving-ground-online.yml#deploy"
+reason = "It builds the Proving ground at a release tag and ships it, with Anubis and cloudflared, to the online copy's host over SSH and BotID's page to Vercel (#168, ADR 0032); it runs none of the product."

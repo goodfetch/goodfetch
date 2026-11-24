@@ -1,0 +1,24 @@
+# The online copy (#168): `serve --copy online` on loopback, which only the
+# tunnel and Anubis reach. deploy.sh installs it; its secrets, each one the
+# configuration names, are in online.env, written from the protected
+# environment.
+[Unit]
+Description=Goodfetch Proving ground, online copy
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+ExecStart=/opt/goodfetch-proving-ground/goodfetch-proving-ground serve --seed 168 --copy online --online-config /opt/goodfetch-proving-ground/online.toml --address 127.0.0.1:8920 --network-profile none
+EnvironmentFile=/etc/goodfetch-proving-ground/online.env
+DynamicUser=yes
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+CapabilityBoundingSet=
+
+[Install]
+WantedBy=multi-user.target

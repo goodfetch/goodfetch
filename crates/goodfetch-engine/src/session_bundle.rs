@@ -8,6 +8,7 @@
 //! within the [`Limits`] the caller allows. Every failure names the Secret
 //! reference given as the key, never its value.
 
+use std::fmt;
 use std::io::{Read as _, Write as _};
 use std::iter;
 use std::str::FromStr;
@@ -64,6 +65,12 @@ impl FromStr for PublicKey {
         x25519::Recipient::from_str(text.trim())
             .map(Self)
             .map_err(|_| NotAPublicKey)
+    }
+}
+
+impl fmt::Display for PublicKey {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.0.fmt(formatter)
     }
 }
 

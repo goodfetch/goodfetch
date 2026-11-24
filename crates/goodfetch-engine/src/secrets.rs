@@ -38,6 +38,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use goodfetch_protocol::audit::{Actor, SECRET_REFERENCE_USED};
+use goodfetch_protocol::catalog::SharedTypeValue;
 use goodfetch_protocol::page::access_mode::IDENTIFIED_SIGNING_KEY;
 use goodfetch_protocol::run::RunId;
 use goodfetch_protocol::secret_reference::{Provider, SecretReference};
@@ -48,7 +49,7 @@ use goodfetch_protocol::secrets::{
 };
 use goodfetch_protocol::settings::SettingsLayer;
 use secrecy::{ExposeSecret as _, SecretString};
-use serde_json::json;
+use serde_json::{Value, json};
 use subtle::ConstantTimeEq as _;
 
 pub use keychain::Keychain;
@@ -981,19 +982,31 @@ impl RunSecrets {
             "reference": reference.as_str(),
             "domain": purpose.domain,
         });
-        let now = self.0.secrets.0.clock.timestamp();
-        self.0
-            .secrets
-            .0
-            .audit
-            .record(&origin, &SECRET_REFERENCE_USED, details, now)
+        self.audit(&origin, &SECRET_REFERENCE_USED, details)
             .await
-            .map(|_| ())
             .map_err(|source| SecretError::Unrecorded {
                 placeholder: purpose.placeholder.to_owned(),
                 reference: reference.clone(),
                 source,
             })
+    }
+
+    /// Records `kind` by `origin` with `details` in the Audit log every
+    /// resolution is recorded in.
+    pub(crate) async fn audit(
+        &self,
+        origin: &Origin,
+        kind: &'static SharedTypeValue,
+        details: Value,
+    ) -> Result<(), AuditError> {
+        let now = self.0.secrets.0.clock.timestamp();
+        self.0
+            .secrets
+            .0
+            .audit
+            .record(origin, kind, details, now)
+            .await
+            .map(|_| ())
     }
 }
 

@@ -11,6 +11,7 @@ import type {
   Locator,
   Page,
   SchemaInput,
+  SchemaOutput,
   TypedSchema,
 } from "@goodfetch/collie-client";
 import { nonJSON, parse, wireSchema, type SchemaIssue } from "@goodfetch/collie-client/runtime";
@@ -21,6 +22,7 @@ import type {
   Enqueued,
   EnqueuedLinks,
   HttpBody,
+  InvalidRecord,
   LabelDeclaration,
   MatchedLink,
   RequestSeed,
@@ -28,10 +30,13 @@ import type {
   SitemapSeed,
 } from "./generated/index.ts";
 import {
+  DatasetDuplicateError,
+  DatasetKeyInvalidError,
   LabelDuplicateError,
   LabelUnhandledError,
   LabelUnknownError,
   PayloadInvalidError,
+  RecordInvalidError,
 } from "./generated/errors.ts";
 import { settingsOnWire, type LabelSettings } from "./generated/settings.ts";
 
@@ -95,26 +100,132 @@ export type PayloadThen<P extends object | undefined, O> = [P] extends [undefine
   ? [options?: O]
   : [payload: P, options?: O];
 
-/** What `crawl.dataset` takes. */
+/**
+ * A Dataset's Record schema (ADR 0103): a typed one whose input is an
+ * object, Standard Schema with Standard JSON Schema such as Zod's, or a
+ * JSON Schema written by hand.
+ */
+export type RecordSchema = TypedSchema<object, unknown> | JSONSchema;
+
+/** What a handler pushes into a Dataset of schema `S`: its input type, or a JSON object for a hand-written one. */
+export type RecordInput<S extends RecordSchema> = S extends TypedSchema
+  ? SchemaInput<S>
+  : JSONObject;
+
+/** What a reader reads from a Dataset of schema `S`: its output type, or a JSON object for a hand-written one. */
+export type RecordOutput<S extends RecordSchema> = S extends TypedSchema
+  ? SchemaOutput<S>
+  : JSONObject;
+
+/** What `crawl.dataset` takes for a Dataset whose Records are of type `I`. */
 export interface DatasetOptions<I extends object> {
-  /** The fields whose values name a Record: a Record pushed again under the same key replaces it (ADR 0103). */
+  /**
+   * The fields whose values name a Record: a Record pushed again under the
+   * same key replaces it (ADR 0103). Under a schema, each is a top-level
+   * field the schema requires.
+   */
   readonly key?: readonly (keyof I & string)[] | undefined;
 }
 
+/** What `crawl.dataset` takes for a Dataset of the Record schema `S`. */
+export interface DatasetSchemaOptions<S extends RecordSchema> extends DatasetOptions<
+  RecordInput<S>
+> {
+  /**
+   * The schema of its Records (ADR 0103): a handler's `push` parses each
+   * Record with it first, and the engine checks it again as JSON Schema.
+   */
+  readonly schema: S;
+}
+
+/** Each Dataset's Record schema, set once when it is declared; a Dataset without one has none. */
+const recordSchemas = new WeakMap<Dataset<object, unknown>, RecordSchema>();
+
 /**
  * A named collection of Records a crawl's handlers push (ADR 0103). `I` is
- * the type of each Record.
+ * the type of each Record a handler pushes, and `O` the type a reader
+ * reads it back as, its schema's output.
  */
-export class Dataset<I extends object> {
+export class Dataset<I extends object, O = I> {
   /** Tells a `Dataset<A>` from a `Dataset<B>` to the type checker; never set. */
   declare private readonly record: I;
+  /** Tells a Dataset's output type to the type checker; never set. */
+  declare private readonly output: O;
   /** Its name, unique in its Crawl. */
   readonly name: string;
 
   /** @internal `crawl.dataset` declares a Dataset; a program never constructs one. */
-  constructor(name: string) {
+  constructor(name: string, schema: RecordSchema | undefined) {
     this.name = name;
+    if (schema !== undefined) recordSchemas.set(this, schema);
   }
+}
+
+/** The Records of one push as a handler's `push` checked them in the program (ADR 0103). */
+export interface CheckedRecords {
+  /** Those that hold, in order, each with its position in the push. */
+  readonly held: readonly { readonly position: number; readonly record: WireObject }[];
+  /** Those that do not, in order, each with its position in the push and its issues. */
+  readonly refused: readonly InvalidRecord[];
+}
+
+/**
+ * Checks each of `records`, pushed together into `dataset`, before any is
+ * sent: a Record that is not JSON, or that the Dataset's typed schema's own
+ * parse refuses, is refused with each issue's path (ADR 0103). A
+ * hand-written JSON Schema has no parse in the program: the engine checks
+ * it alone, so no Record is checked twice against one JSON Schema.
+ */
+export async function checkRecords(
+  dataset: Dataset<object, unknown>,
+  records: readonly unknown[],
+): Promise<CheckedRecords> {
+  const schema = recordSchemas.get(dataset);
+  const held: { position: number; record: WireObject }[] = [];
+  const refused: InvalidRecord[] = [];
+  for (const [position, record] of records.entries()) {
+    const found = nonJSON(record);
+    if (found !== undefined) {
+      refused.push({
+        position,
+        issues: [{ path: found.path, message: `${found.found} is not JSON` }],
+      });
+      continue;
+    }
+    if (schema !== undefined) {
+      // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- `nonJSON` found nothing that is not JSON.
+      const parsed = await parse(schema, record as JSONObject);
+      if ("issues" in parsed) {
+        refused.push({
+          position,
+          issues: parsed.issues.map(({ path, message }) => ({ path, message })),
+        });
+        continue;
+      }
+    }
+    // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- `push` types each Record as an object, and `nonJSON` found nothing that is not JSON.
+    held.push({ position, record: wireObject(record as object) });
+  }
+  return { held, refused };
+}
+
+/**
+ * The `record_invalid` of `refused`, the Records of one push into the
+ * Dataset `dataset` that do not hold, in position order, whether the
+ * program or the engine refused them.
+ */
+export function recordsRefused(
+  dataset: string,
+  refused: readonly InvalidRecord[],
+): RecordInvalidError {
+  const named = refused.map(
+    ({ position, issues }) =>
+      `the Record at ${String(position)}: ${issues.map(({ path, message }) => `${path || "its root"}: ${message}`).join(", ")}`,
+  );
+  return new RecordInvalidError(`the Dataset ${dataset} did not stage ${named.join("; ")}`, {
+    fix: "Push Records its Dataset's schema accepts, made of JSON values only, each holding every field of its Dataset's key.",
+    details: { dataset, records: refused },
+  });
 }
 
 /** What `context.enqueue` and `seed` take besides the URL, the Label and the Payload. */
@@ -265,15 +376,20 @@ export interface CrawlContext {
    * position in the list and each of its issues by its path. An attempt
    * that already ended fails with `attempt_ended`.
    *
-   * Each Record is typed from `dataset` alone (ADRs 0103 and 0147). A
-   * handler that catches `record_invalid` keeps what it staged, this
-   * push's other Records included. An empty list is never sent: it pushes
+   * Each Record is typed from `dataset` alone (ADRs 0103 and 0147). Each
+   * is checked in the program first: one that is not JSON, or that the
+   * Dataset's typed schema's own parse refuses, is never sent, and the
+   * call fails with `record_invalid` once the others are staged, naming
+   * each refused Record by its position, the engine's refusals included.
+   * A handler that catches `record_invalid` keeps what it staged, this
+   * push's other Records included; one that lets it escape fails its
+   * request, which is not retried. An empty list is never sent: it pushes
    * nothing and sends no message, so it does not fail.
    *
    * @experimental
    */
-  push<I extends object>(
-    dataset: Dataset<I>,
+  push<I extends object, O>(
+    dataset: Dataset<I, O>,
     records: NoInfer<I> | readonly NoInfer<I>[],
   ): Promise<void>;
 }
@@ -354,13 +470,36 @@ export class Crawl {
     declared.handler = handler;
   }
 
-  /** Declares the Dataset `name`, whose Records are of type `I`. */
-  dataset<I extends object>(name: string, options: DatasetOptions<I> = {}): Dataset<I> {
+  /**
+   * Declares the Dataset `name` (ADR 0103), whose Records are of `schema`'s
+   * input type, read back as its output type, or of type `I` without a
+   * schema, which takes any JSON object. It does no I/O. A second Dataset
+   * of one name fails with `dataset_duplicate`, and a key on a field that
+   * is no top-level field the schema requires with `dataset_key_invalid`.
+   */
+  dataset<S extends RecordSchema>(
+    name: string,
+    options: DatasetSchemaOptions<S>,
+  ): Dataset<RecordInput<S>, RecordOutput<S>>;
+  dataset<I extends object = JSONObject>(name: string, options?: DatasetOptions<I>): Dataset<I>;
+  dataset(
+    name: string,
+    options: DatasetOptions<JSONObject> & { readonly schema?: RecordSchema } = {},
+  ): Dataset<object, unknown> {
+    if (this.#datasets.has(name)) {
+      throw new DatasetDuplicateError(`the Crawl already declares the Dataset ${name}`, {
+        fix: "Declare each Dataset once, and use the Dataset the first `crawl.dataset` returned.",
+        details: { dataset: name },
+      });
+    }
+    const schema = options.schema === undefined ? undefined : wireSchema(options.schema);
+    if (schema !== undefined) checkKey(name, schema, options.key ?? []);
     this.#datasets.set(name, {
       name,
+      ...(schema === undefined ? {} : { schema }),
       ...(options.key === undefined ? {} : { key: [...options.key] }),
     });
-    return new Dataset<I>(name);
+    return new Dataset(name, options.schema);
   }
 
   /** The declaration of `label`, which must be the very Label this crawl's `crawl.label` returned. */
@@ -408,6 +547,25 @@ export class Crawl {
     const datasets = [...this.#datasets.values()];
     return { labels, ...(datasets.length === 0 ? {} : { datasets }) };
   }
+}
+
+/**
+ * Fails with `dataset_key_invalid` when `key`, the key of the Dataset
+ * `dataset`, names a field that is no top-level field its JSON Schema
+ * `schema` requires, so a Record could lack it, as the engine refuses it.
+ */
+function checkKey(dataset: string, schema: WireObject, key: readonly string[]): void {
+  const { required } = schema;
+  const requires = Array.isArray(required) ? required : [];
+  const field = key.find((name) => !requires.includes(name));
+  if (field === undefined) return;
+  throw new DatasetKeyInvalidError(
+    `the Dataset ${dataset}'s key names ${field}, which is no top-level field its schema requires`,
+    {
+      fix: "Key a Dataset only by fields its schema requires, or require the field in its schema.",
+      details: { dataset, reason: "not_required", field },
+    },
+  );
 }
 
 /** The Labels and Datasets `crawl.start` declares for `crawl`. */

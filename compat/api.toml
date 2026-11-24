@@ -175,3 +175,11 @@ reason = "`crawl_request.enqueue` names the attempt's page, `page_id`, in place 
 [[announced]]
 entry = "python goodfetch_foxhound.generated.models EnqueueDocument"
 reason = "`crawl_request.enqueue` no longer carries a document, so its type leaves: the engine reads the base URL of the attempt's page itself (issue 1471)."
+
+[[announced]]
+entry = "typescript @goodfetch/foxhound Crawl"
+reason = "`crawl.dataset` takes a schema, whose input and output type the Dataset's Records, and refuses a second Dataset of one name or a key on a field the schema does not require as it is declared (issue 1486)."
+
+[[announced]]
+entry = "typescript @goodfetch/foxhound Dataset"
+reason = "A Dataset carries its schema's output type beside its Records' input type, `Dataset<I, O = I>` (issue 1486)."

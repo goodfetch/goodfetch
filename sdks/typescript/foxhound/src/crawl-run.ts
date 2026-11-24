@@ -28,19 +28,24 @@ import {
 } from "@goodfetch/collie-client/runtime";
 import {
   checkPayload,
+  checkRecords,
   declaredLabel,
   enqueueLinksOptions,
   handlerOf,
   isLinkPayload,
   payloadAndOptions,
   payloadOf,
+  recordsRefused,
   requestOptions,
-  wireObject,
   type Crawl,
   type CrawlContext,
   type Dataset,
 } from "./crawl.ts";
-import { HandlerFailedError, ResponseNotDocumentError } from "./generated/errors.ts";
+import {
+  HandlerFailedError,
+  RecordInvalidError,
+  ResponseNotDocumentError,
+} from "./generated/errors.ts";
 import {
   foxhoundOperations,
   type CrawlRequestEnqueueLinksParams,
@@ -129,8 +134,8 @@ export class CrawlRun extends Run {
    *
    * @experimental
    */
-  records<I extends object>(
-    dataset: Dataset<I>,
+  records<I extends object, O>(
+    dataset: Dataset<I, O>,
     options: RecordsOptions = {},
   ): Sequence<DatasetRecord> {
     warnEntry(foxhoundOperations, "run.records");
@@ -293,18 +298,41 @@ export class CrawlRun extends Run {
         warnEntry(foxhoundOperations, "crawl_request.push");
         signal.throwIfAborted();
         // A Record is a JSON object, never a list, so a list is the Records of one push.
-        const [first, ...rest] = Array.isArray(records) ? records : [records];
-        // An empty list pushes no Record, so it sends nothing.
-        if (first === undefined) return;
-        await calls.call(
-          "crawl_request.push",
-          {
-            ...attempt,
-            dataset: dataset.name,
-            records: [wireObject(first), ...rest.map(wireObject)],
-          },
-          options,
-        );
+        const pushed: readonly unknown[] = Array.isArray(records) ? records : [records];
+        const { held, refused } = await checkRecords(dataset, pushed);
+        const [first, ...rest] = held;
+        // A push left with no Record to send, an empty list's, sends nothing.
+        if (first === undefined) {
+          if (refused.length > 0) throw recordsRefused(dataset.name, refused);
+          return;
+        }
+        try {
+          await calls.call(
+            "crawl_request.push",
+            {
+              ...attempt,
+              dataset: dataset.name,
+              records: [first.record, ...rest.map(({ record }) => record)],
+            },
+            options,
+          );
+        } catch (error) {
+          // The engine names a Record by its position among those sent.
+          if (refused.length === 0 || !(error instanceof RecordInvalidError)) throw error;
+          const sent = error.typedDetails?.records ?? [];
+          const all = [
+            ...refused,
+            ...sent.map(({ position, issues }) => ({
+              position: held[position]?.position ?? position,
+              issues,
+            })),
+          ];
+          throw recordsRefused(
+            dataset.name,
+            all.toSorted((a, b) => a.position - b.position),
+          );
+        }
+        if (refused.length > 0) throw recordsRefused(dataset.name, refused);
       },
     };
   }

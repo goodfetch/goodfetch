@@ -19,6 +19,7 @@ import {
   type DatasetRecord,
   type EnqueuedLinks,
 } from "./index.ts";
+import { crawlDeclaration } from "./crawl.ts";
 import { connectOver } from "./testing.ts";
 
 describe("a Crawl", () => {
@@ -485,6 +486,62 @@ describe("a Crawl's wiring mistakes", () => {
       );
     },
   );
+
+  test(
+    "refuses a second Dataset of one name with dataset_duplicate, and a key on a field its schema does not require with dataset_key_invalid, as they are declared",
+    { tags: ["story:11-1057", "error:dataset_duplicate", "error:dataset_key_invalid"] },
+    () => {
+      const shelf = new Crawl();
+      const edition = z.object({ isbn: z.string(), title: z.string().optional() });
+      shelf.dataset("books");
+
+      expect(() => shelf.dataset("books")).toThrow(
+        expect.objectContaining({ code: "dataset_duplicate", details: { dataset: "books" } }),
+      );
+      expect(() => shelf.dataset("editions", { schema: edition, key: ["title"] })).toThrow(
+        expect.objectContaining({
+          code: "dataset_key_invalid",
+          details: { dataset: "editions", reason: "not_required", field: "title" },
+        }),
+      );
+      const editions = shelf.dataset("editions", { schema: edition, key: ["isbn"] });
+      // Without a schema, a Dataset takes any JSON object, so its key is checked on each Record.
+      const notes = shelf.dataset("notes", { key: ["page"] });
+
+      expect([editions.name, notes.name]).toEqual(["editions", "notes"]);
+      expect(crawlDeclaration(shelf).datasets).toEqual([
+        { name: "books" },
+        {
+          name: "editions",
+          schema: expect.objectContaining({ required: ["isbn"] }),
+          key: ["isbn"],
+        },
+        { name: "notes", key: ["page"] },
+      ]);
+    },
+  );
+
+  test("types a Dataset's Records from its schema, refusing a missing field and a key on no field", () => {
+    const shelf = new Crawl();
+    const editions = shelf.dataset("editions", {
+      schema: z.object({ isbn: z.string(), pages: z.number() }),
+      key: ["isbn"],
+    });
+    const shelves = z.object({ isbn: z.string() });
+    expect(() =>
+      // @ts-expect-error -- `shelf` is no field of an edition, so it keys no Dataset of them.
+      shelf.dataset("shelves", { schema: shelves, key: ["shelf"] }),
+    ).toThrow(expect.objectContaining({ code: "dataset_key_invalid" }));
+
+    // Compiles only while a Dataset's Records take its schema's input type.
+    shelf.handle(shelf.label("page"), async (context) => {
+      await context.push(editions, { isbn: "978-0", pages: 12 });
+      // @ts-expect-error -- the Record lacks the schema's `pages`.
+      await context.push(editions, { isbn: "978-0" });
+      // @ts-expect-error -- no Dataset handle of that name exists: a misspelled one fails to compile.
+      await context.push(editoins, { isbn: "978-0", pages: 12 });
+    });
+  });
 
   test(
     "refuses to start a crawl with a Label left without a handler with label_unhandled, sending nothing",

@@ -52,6 +52,7 @@ import {
   type SubmittedError,
   type ToolStatus,
 } from "./proving-ground.ts";
+import type { Declared } from "./registry.ts";
 import { sampleProcessTree, type TreeSampler, type TreeUsage } from "./resources.ts";
 import { parserOf } from "./schema.ts";
 
@@ -70,6 +71,8 @@ export interface RunRecord {
   readonly finished_at: string;
   readonly status: RunStatus;
   readonly campaign: { readonly id: string; readonly sha256: string; readonly document: Campaign };
+  /** The decisions and claims the campaign declared, as dated before the run measured anything. */
+  readonly declared: Declared;
   readonly provenance: Provenance;
   /** The bench sources that changed while the run ran. */
   readonly changed_sources: readonly string[];
@@ -465,9 +468,9 @@ export interface RunResult {
 
 /**
  * Runs the campaign at `campaignPath` against the Proving ground and writes
- * `run.json` and `attempts.jsonl` in a new folder under `out`. A campaign task
- * the Proving ground does not list, or a refused host, fails before anything
- * runs or is written.
+ * `run.json` and `attempts.jsonl` in a new folder under `out`. A refused
+ * registry, a campaign task the Proving ground does not list, or a refused
+ * host fails before anything runs or is written.
  */
 export async function runCampaign(input: RunInput): Promise<RunResult> {
   const loaded = await loadCampaign(input.campaignPath);
@@ -566,6 +569,7 @@ export async function runCampaign(input: RunInput): Promise<RunResult> {
     finished_at: new Date().toISOString(),
     status,
     campaign: { id: campaign.id, sha256: loaded.sha256, document: campaign },
+    declared: loaded.declared,
     provenance,
     changed_sources: changed,
     proving_ground: {

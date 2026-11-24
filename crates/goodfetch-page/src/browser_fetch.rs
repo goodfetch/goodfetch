@@ -50,13 +50,14 @@ use goodfetch_protocol::page::{
     PageResponse, RedirectLimit, TOO_MANY_REDIRECTS, TooManyRedirectsDetails,
 };
 
+use crate::cdp::{AuthChallenge, CdpPage, PausedId, RequestHeaders};
 use crate::driver::PageDriver;
 use crate::driver::cdp_response::{
     bodiless, coded, cut_after_sent_on, cut_though_finished, declared_length, encoded_bytes,
     from_the_network, paused_headers, paused_status, redirects, whole_body,
 };
 use crate::errors::{gate_refused, network_error};
-use crate::interception::{EngineRequests, Overrides, authentication};
+use crate::interception::{EngineRequest, EngineRequests, Overrides, authentication};
 use crate::page_value::{Navigation, NavigationKind, Permit};
 use crate::paused_body::{declared_within_limits, streamed};
 
@@ -341,7 +342,13 @@ impl<'a> Load<'a> {
             .clone()
             .unwrap_or_else(|| paused.request.url.clone());
         self.chain.push(url.clone());
-        match self.sender.send_on(&paused, &overrides) {
+        let request = EngineRequest {
+            id: &PausedId::new(paused.request_id.clone()),
+            url: &paused.request.url,
+            method: &paused.request.method,
+            headers: RequestHeaders::of(&paused.request.headers),
+        };
+        match self.sender.send_on(&request, &overrides) {
             Ok(command) => {
                 // Step 6: the page's navigation gate, for each hop.
                 let navigation = Navigation {
@@ -364,7 +371,7 @@ impl<'a> Load<'a> {
                         return Some(Err(gate_refused(&navigation.url, &refusal)));
                     }
                 }
-                self.send(&command).await;
+                self.send(&command.into_params()).await;
                 // The gate that admitted it hears it leave (ADR 0086).
                 self.driver.sent(&navigation.url).await;
                 None
@@ -643,18 +650,20 @@ impl<'a> Load<'a> {
     /// `proxy_auth_failed`, which ends the load, when the Session's proxy
     /// refused them or asked for some it does not have (ADR 0053).
     async fn authenticate(&mut self, required: fetch::AuthRequiredEvent) -> Option<CallError> {
-        let challenged = authentication::answer(self.driver, &required, || {
+        let challenge = AuthChallenge::of(required);
+        let challenged = authentication::answer(self.driver, &challenge, || {
             std::mem::replace(&mut self.authenticated, true)
         });
-        self.send(&fetch::ContinueWithAuthParams {
-            request_id: required.request_id,
-            auth_challenge_response: challenged.response,
-        })
-        .await;
+        if let Err(failure) = CdpPage::of(self.driver)
+            .continue_with_auth(challenge.id(), challenged.response)
+            .await
+        {
+            tracing::debug!(%failure, "a paused request went before the command reached it");
+        }
         // The load's hop leaves only now, with the credentials: its gate
         // hears that send too (ADR 0086).
         if challenged.credentials_given {
-            self.driver.sent(&required.request.url).await;
+            self.driver.sent(challenge.url()).await;
         }
         challenged.refused
     }

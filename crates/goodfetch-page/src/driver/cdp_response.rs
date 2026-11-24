@@ -214,13 +214,10 @@ pub(crate) struct PastAMessage;
 /// # Cancel safety
 ///
 /// Dropping the future loses the read; the response stays paused.
-pub(crate) async fn whole_body(
-    driver: &PageDriver,
-    id: &fetch::RequestId,
-) -> Result<Vec<u8>, PastAMessage> {
+pub(crate) async fn whole_body(driver: &PageDriver, id: &str) -> Result<Vec<u8>, PastAMessage> {
     let read = match driver
         .command(&fetch::GetResponseBodyParams {
-            request_id: id.clone(),
+            request_id: id.to_owned(),
         })
         .await
     {

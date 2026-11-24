@@ -6,15 +6,15 @@
 //! `proxy_auth_failed`. A site's own 401 goes on as the browser would answer
 //! it with no credentials.
 
-use goodfetch_cdp::generated::fetch;
 use goodfetch_engine::CallError;
 
+use crate::cdp::{AuthAnswer, AuthChallenge};
 use crate::driver::PageDriver;
 
 /// The answer to one challenge.
 pub(crate) struct Challenged {
     /// What the browser is told.
-    pub(crate) response: fetch::AuthChallengeResponse,
+    pub(crate) response: AuthAnswer,
     /// Whether it gives the Session's credentials: the request leaves only
     /// once the browser has them.
     pub(crate) credentials_given: bool,
@@ -30,48 +30,35 @@ pub(crate) struct Challenged {
 /// challenge.
 pub(crate) fn answer(
     driver: &PageDriver,
-    required: &fetch::AuthRequiredEvent,
+    required: &AuthChallenge,
     given_before: impl FnOnce() -> bool,
 ) -> Challenged {
-    let proxied = required.auth_challenge.source == Some(fetch::AuthChallengeSource::Proxy)
-        && (driver.proxy().is_some() || driver.relay().is_some());
+    let proxied = required.by_proxy() && (driver.proxy().is_some() || driver.relay().is_some());
     if !proxied {
         return Challenged {
-            response: response(fetch::AuthChallengeResponseResponse::Default, None),
+            response: AuthAnswer::Default,
             credentials_given: false,
             refused: None,
         };
     }
     let seen = given_before();
     match driver.proxy_credentials() {
-        Some(credentials) if !seen => Challenged {
-            response: response(
-                fetch::AuthChallengeResponseResponse::ProvideCredentials,
-                Some(credentials),
-            ),
+        Some((username, password)) if !seen => Challenged {
+            response: AuthAnswer::ProvideCredentials {
+                username: username.to_owned(),
+                password: password.to_owned(),
+            },
             credentials_given: true,
             refused: None,
         },
         // Behind the relay, a second 407 is the upstream proxy's refusal of
         // the Session's credentials, which the relay passed on.
         _ => Challenged {
-            response: response(fetch::AuthChallengeResponseResponse::CancelAuth, None),
+            response: AuthAnswer::Cancel,
             credentials_given: false,
             refused: driver
                 .proxy()
-                .map(|proxy| proxy.auth_failed(&required.request.url)),
+                .map(|proxy| proxy.auth_failed(required.url())),
         },
-    }
-}
-
-/// The answer `kind`, with `credentials` when it gives some.
-fn response(
-    kind: fetch::AuthChallengeResponseResponse,
-    credentials: Option<(&str, &str)>,
-) -> fetch::AuthChallengeResponse {
-    fetch::AuthChallengeResponse {
-        response: kind,
-        username: credentials.map(|(username, _)| username.to_owned()),
-        password: credentials.map(|(_, password)| password.to_owned()),
     }
 }

@@ -6,29 +6,25 @@
 //! and refuses them with `egress_refused` (`rule: "scheme"`); a hop to
 //! HTTP is judged at step 3 as its request leaves.
 
-use goodfetch_cdp::generated::fetch;
 use goodfetch_engine::egress::{self, Judgment, Policy, Refused, RequestKind};
 use goodfetch_protocol::egress::EgressRule;
 use url::Url;
 
 use crate::driver::cdp_response;
 
-/// The refusal of the redirect answered to `url` with `status` and
-/// `headers`, when its `Location` names a scheme no request may use; a
-/// `Location` the browser cannot follow it fails itself.
+/// The refusal of the redirect answered to `url` with `status` and the
+/// `Location` header `location`, when it names a scheme no request may
+/// use; a `Location` the browser cannot follow it fails itself.
 pub(super) fn redirect(
     url: &str,
     status: u16,
-    headers: &[fetch::HeaderEntry],
+    location: Option<&str>,
     policy: &Policy,
 ) -> Option<Refused> {
     if !cdp_response::redirects(status) {
         return None;
     }
-    let location = headers
-        .iter()
-        .find(|header| header.name.eq_ignore_ascii_case("location"))?;
-    let target = Url::parse(url).ok()?.join(location.value.trim()).ok()?;
+    let target = Url::parse(url).ok()?.join(location?.trim()).ok()?;
     by_scheme(target.as_str(), policy)
 }
 

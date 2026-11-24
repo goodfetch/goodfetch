@@ -79,7 +79,6 @@ use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::{Duration, SystemTime};
 
-use data_encoding::BASE64;
 use goodfetch_cdp::generated::{network, page, runtime};
 use goodfetch_cdp::{NetError, SessionId as TargetSession, Subscription, SubscriptionEnd};
 use goodfetch_counted_work::{CountedWork, Row};
@@ -87,7 +86,6 @@ use goodfetch_engine::clock::Clock;
 use goodfetch_engine::deadline::Deadline;
 use goodfetch_engine::events::Events;
 use goodfetch_engine::events::{Envelope, EventData};
-use goodfetch_engine::mask::{Masks, Scope};
 use goodfetch_engine::response_limits::{LimitExceeded, Limits};
 use goodfetch_engine::rpc::send_events;
 use goodfetch_engine::run_trace::RequestLog;
@@ -124,6 +122,7 @@ use self::latest::Latest;
 use self::requests::Requests;
 use self::runtime_values::{console_message, web_error};
 use self::waiters::{Armed, answer_armed};
+use crate::cdp::{is_navigation, post_data, resource_type};
 use crate::driver::cdp_response::{bytes_of, cut_by, declared_length, headers, response_of};
 use crate::driver::{Child, ChildKind, OnChild, PageDriver, browser_id, hop_id};
 use crate::page_value::{Kept, ObservedResponse, Observer};
@@ -1636,38 +1635,6 @@ fn answer_waiters(
             let _ = waiter.answer.send(answer);
         }
     });
-}
-
-/// A request's body in Base64, from its entries' bytes or else its text,
-/// with every value `masks` masks in what a call returns replaced by its
-/// `%name%` before it is encoded: a Secret a form sent is masked in the
-/// body itself, however the form encoded it (ADR 0092).
-pub(crate) fn post_data(request: &network::Request, masks: &Masks) -> Option<String> {
-    let bytes = if let Some(entries) = &request.post_data_entries {
-        let mut bytes = Vec::new();
-        for entry in entries {
-            bytes.extend(BASE64.decode(entry.bytes.as_deref()?.as_bytes()).ok()?);
-        }
-        bytes
-    } else {
-        request.post_data.as_ref()?.as_bytes().to_vec()
-    };
-    Some(BASE64.encode(&masks.apply_bytes(&bytes, Scope::Returned)))
-}
-
-/// What a request loads, as Playwright's `resourceType()` names it: the
-/// browser's name in lowercase, such as `document` or `xhr`.
-pub(crate) fn resource_type(resource_type: network::ResourceType) -> String {
-    serde_json::to_value(resource_type)
-        .ok()
-        .and_then(|name| name.as_str().map(str::to_ascii_lowercase))
-        .unwrap_or_else(|| "other".to_owned())
-}
-
-/// Whether a request of `resource_type` loads a frame's document, the main
-/// frame's or an iframe's, as Playwright's `isNavigationRequest()` says.
-pub(crate) fn is_navigation(resource_type: Option<network::ResourceType>) -> bool {
-    resource_type == Some(network::ResourceType::Document)
 }
 
 /// One frame of the socket `web_socket_id`: text, or bytes in Base64,

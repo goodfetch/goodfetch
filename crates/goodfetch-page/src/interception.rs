@@ -96,8 +96,6 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, Weak};
 
 use data_encoding::BASE64;
-use goodfetch_cdp::NetError;
-use goodfetch_cdp::generated::{fetch, network};
 use goodfetch_clean_up_rules::matching::{Choices, ResourceKind};
 use goodfetch_clean_up_rules::removal::HostCache;
 use goodfetch_clean_up_rules::rules::FilterLists;
@@ -126,6 +124,8 @@ use tokio_util::sync::CancellationToken;
 
 use self::answers::Answers;
 pub(crate) use self::answers::{Answer, Fulfillment, Overrides, Reply};
+// The values steps 3 to 8 build, which `steps` takes from its parent so the
+// benchmark's scenarios hand it their own.
 use self::clean_up::CleanUp;
 use self::hosts::HostCaches;
 pub(crate) use self::lookups::{HeldBrowser, Lookups};
@@ -133,6 +133,7 @@ use self::navigations::{NavigatingPage, Pending, PendingNavigation};
 use self::pipeline::{PageContext, Sender};
 pub(crate) use self::routes::Armed;
 use self::routes::{Route, RouteTable};
+use crate::cdp::{CdpPage, ContinueRequest, Fulfill, Header, NetError, PausedId, RequestHeaders};
 use crate::clean_up_versions::{ListsRun, Versions};
 use crate::driver::{Child, ChildKind, OnChild, OnWorker, PageDriver, ServiceWorkers};
 use crate::page_events::Refusals;
@@ -406,6 +407,15 @@ pub(crate) struct EngineRequests {
     signing: Option<Arc<RequestSigner>>,
 }
 
+/// A request the engine sent itself, paused at `id`, as the browser sent
+/// it.
+pub(crate) struct EngineRequest<'a> {
+    pub(crate) id: &'a PausedId,
+    pub(crate) url: &'a str,
+    pub(crate) method: &'a str,
+    pub(crate) headers: RequestHeaders<'a>,
+}
+
 impl EngineRequests {
     /// Steps 3 to 7 for the request `paused`, sent with `overrides`, and
     /// step 8's command, which pauses its response; its source is its own
@@ -419,19 +429,16 @@ impl EngineRequests {
     /// further, and its caller fails it.
     pub(crate) fn send_on(
         &self,
-        paused: &fetch::RequestPausedEvent,
+        paused: &EngineRequest<'_>,
         overrides: &Overrides,
-    ) -> Result<fetch::ContinueRequestParams, CallError> {
-        let url = overrides.url.as_deref().unwrap_or(&paused.request.url);
+    ) -> Result<ContinueRequest, CallError> {
+        let url = overrides.url.as_deref().unwrap_or(paused.url);
         let request = steps::Paused {
-            id: &paused.request_id,
+            id: paused.id,
             url,
-            method: overrides
-                .method
-                .as_deref()
-                .unwrap_or(&paused.request.method),
+            method: overrides.method.as_deref().unwrap_or(paused.method),
             overrides,
-            headers: &paused.request.headers,
+            headers: paused.headers,
             kind: ResourceKind::Xhr,
             source_url: url,
             egress: RequestKind::Page,
@@ -685,9 +692,12 @@ impl Interception {
             });
             (state, lookups)
         };
-        let page = PageInterception::joined(page_id, &state);
-        let events = driver.events();
-        pause_requests(driver).await?;
+        let (page, cdp) = (
+            PageInterception::joined(page_id, &state),
+            CdpPage::of(driver),
+        );
+        let events = cdp.paused_events(true);
+        cdp.pause_requests_opening().await?;
         let workers = match clean_up::effective(resolved, own, &BROWSER_SERVICE_WORKERS).as_str() {
             Some(BLOCK) => ServiceWorkers::Block,
             _ => ServiceWorkers::Allow(self.workers_of(
@@ -779,20 +789,15 @@ impl Interception {
                 let Some((frame, url)) = frame else {
                     return true;
                 };
-                let events = frame.events();
-                let enabled = frame
-                    .command(&fetch::EnableParams {
-                        patterns: Some(patterns()),
-                        handle_auth_requests: frame.answers_authentication().then_some(true),
-                    })
-                    .await;
-                if let Err(failure) = enabled {
+                let cdp = CdpPage::of(&frame);
+                let events = cdp.paused_events(false);
+                if let Err(failure) = cdp.pause_requests().await {
                     tracing::warn!(%failure, "an out-of-process frame's requests could not be paused, so it does not run");
                     return false;
                 }
                 // Its WebSockets, which no interception sees, are judged as
                 // they open.
-                if let Err(failure) = frame.command(&network::EnableParams::default()).await {
+                if let Err(failure) = cdp.follow_web_sockets().await {
                     tracing::debug!(%failure, "an out-of-process frame went before its WebSockets were followed");
                 }
                 let context = Arc::new(
@@ -864,8 +869,9 @@ impl Interception {
                 let driver = driver
                     .with_egress(egress)
                     .with_value(value, run.identity().clock());
-                let events = driver.events();
-                if let Err(error) = pause_requests(&driver).await {
+                let cdp = CdpPage::of(&driver);
+                let events = cdp.paused_events(false);
+                if let Err(error) = cdp.pause_requests_opening().await {
                     tracing::warn!(%error, ?worker, "a worker's requests could not be paused, so it does not run");
                     return false;
                 }
@@ -1249,42 +1255,6 @@ impl Drop for OwnFetchSent {
             *lock(&state.own) = None;
         }
     }
-}
-
-/// Pauses the requests of `driver`'s page or service worker at
-/// [`patterns`]: an HTTP or HTTPS proxy's 407 reaches the engine too, which
-/// answers it with the Session's credentials (SA-22).
-///
-/// # Errors
-///
-/// The code of opening a page when the browser refuses.
-async fn pause_requests(driver: &PageDriver) -> Result<(), CallError> {
-    driver
-        .opening_command(&fetch::EnableParams {
-            patterns: Some(patterns()),
-            handle_auth_requests: driver.answers_authentication().then_some(true),
-        })
-        .await
-        .map(drop)
-}
-
-/// What a target's requests pause at: every request before it leaves, and
-/// a document's response, whose redirect the egress policy judges (a
-/// `Location` to a scheme no request may use sends no request of its own)
-/// and a navigation gate judges before the page renders it.
-fn patterns() -> Vec<fetch::RequestPattern> {
-    let stage = |resource_type, request_stage| fetch::RequestPattern {
-        url_pattern: Some("*".to_owned()),
-        resource_type,
-        request_stage: Some(request_stage),
-    };
-    vec![
-        stage(None, fetch::RequestStage::Request),
-        stage(
-            Some(network::ResourceType::Document),
-            fetch::RequestStage::Response,
-        ),
-    ]
 }
 
 /// The domain policy of `run`'s pages, every host's when it has no

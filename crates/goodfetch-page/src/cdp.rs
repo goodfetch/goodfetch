@@ -14,9 +14,28 @@
 //! | Primitive | CDP | `WebDriver BiDi` | Playwright's driver |
 //! |---|---|---|---|
 //! | [`CdpPage::pointer_click`]: a left click at a point of the page's viewport, as trusted input | `Input.dispatchMouseEvent` ×3: `mouseMoved`, `mousePressed` and `mouseReleased` | one `input.performActions` with a `pointer` source: `pointerMove`, `pointerDown` and `pointerUp` | `mouseClick` |
+//! | [`CdpPage::paused_events`]: what the interception follows of the page's events, each read once | `Fetch.requestPaused`, `Fetch.authRequired`, `Network.loadingFailed`, `Network.webSocketCreated`, `Page.loadEventFired`, `Page.frameStartedNavigating`, and `Page.frameScheduledNavigation` or `Page.frameRequestedNavigation` | `network.beforeRequestSent` and `network.responseStarted` while blocked, `network.authRequired`, `network.fetchError`, `browsingContext.load` and `browsingContext.navigationStarted`; a scheduled navigation and a WebSocket's opening are Chromium only | `route`, `requestFailed`, `webSocket`, and a frame's `navigated` and `loadstate`; a scheduled navigation is Chromium only |
+//! | [`CdpPage::pause_requests_opening`] and [`CdpPage::pause_requests`]: every request paused before it leaves, a document's response too, and the challenges the page answers | `Fetch.enable` with a request-stage pattern, a response-stage one for documents, and `handleAuthRequests` | `network.addIntercept` at `beforeRequestSent`, `responseStarted` and `authRequired` | `setNetworkInterceptionPatterns`; a paused response is Chromium only |
+//! | [`CdpPage::follow_web_sockets`]: the WebSockets the page opens reported | `Network.enable` | `session.subscribe` to the `network` module | none: the driver reports a page's WebSockets itself |
+//! | [`CdpPage::continue_request`]: a paused request sent on, each given part replacing its own | `Fetch.continueRequest` | `network.continueRequest` | `Route.continue` |
+//! | [`CdpPage::fulfill`]: a paused request answered with the engine's response | `Fetch.fulfillRequest` | `network.provideResponse` | `Route.fulfill` |
+//! | [`CdpPage::fail`]: a paused request failed with a network error | `Fetch.failRequest` | `network.failRequest` | `Route.abort` |
+//! | [`CdpPage::continue_with_auth`]: a challenge answered by default, with credentials, or cancelled | `Fetch.continueWithAuth` | `network.continueWithAuth` | none: the driver answers with the context's `httpCredentials` |
+//! | [`CdpPage::continue_response`]: a paused response sent on as it came | `Fetch.continueResponse` | `network.continueResponse` | none: Chromium only, as Playwright pauses no response |
+//! | [`CdpPage::cookie_names`]: the names of the cookies a request to a URL would carry | `Network.getCookies` | `storage.getCookies` | `BrowserContext.cookies` |
+
+mod paused;
+mod requests;
 
 use goodfetch_engine::CallError;
 
+pub(crate) use goodfetch_cdp::NetError;
+
+pub(crate) use self::paused::{
+    AuthAnswer, AuthChallenge, InterceptionEvent, InterceptionEvents, LoadingFailed, NetworkId,
+    PausedRequest, is_navigation, post_data, resource_type,
+};
+pub(crate) use self::requests::{ContinueRequest, Fulfill, Header, PausedId, RequestHeaders};
 use crate::driver::{PageDriver, pointer_click};
 use crate::errors::Call;
 

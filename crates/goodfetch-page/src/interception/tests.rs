@@ -5,7 +5,6 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
-use goodfetch_cdp::generated::network;
 use goodfetch_clean_up_rules::matching::ResourceKind;
 use goodfetch_clean_up_rules::never_block::NeverBlock;
 use goodfetch_engine::CallError;
@@ -15,12 +14,13 @@ use goodfetch_engine::request_signing::RequestSigner;
 use goodfetch_protocol::connection::CLOSED;
 use goodfetch_protocol::page::{PageId, SessionId};
 use secrecy::SecretString;
-use serde_json::json;
+use serde_json::{Map, Value, json};
 
 use super::navigations::PendingNavigation;
 use super::{
     EngineRequests, Interception, Learned, LeftFailure, PageInterception, PageState, lock, steps,
 };
+use crate::cdp::{PausedId, RequestHeaders};
 use crate::page_value::Permit;
 
 /// The interception state of a page or a service worker of the Session
@@ -181,18 +181,18 @@ fn signer() -> RequestSigner {
 /// `signing`; none when it is sent on with its own.
 fn sent_headers(
     url: &str,
-    headers: &network::Headers,
+    headers: &Map<String, Value>,
     overrides: &steps::Overrides,
     signing: Option<&RequestSigner>,
 ) -> Option<Vec<(String, String)>> {
     let state = state_of(&Interception::default(), &page_and_session().1, None);
-    let request_id = "request-1".to_owned();
+    let request_id = PausedId::new("request-1".to_owned());
     let paused = steps::Paused {
         id: &request_id,
         url,
         method: "GET",
         overrides,
-        headers,
+        headers: RequestHeaders::of(headers),
         kind: ResourceKind::Xhr,
         source_url: url,
         egress: RequestKind::Page,

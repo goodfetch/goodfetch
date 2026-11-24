@@ -57,14 +57,14 @@ pub(crate) fn declared_within_limits(
 /// `response_truncated` for a stream that broke off.
 pub(crate) async fn streamed(
     driver: &PageDriver,
-    id: &fetch::RequestId,
+    id: &str,
     url: &str,
     declared: Option<u64>,
     limits: &Limits,
 ) -> Result<Vec<u8>, CallError> {
     let stream = match driver
         .command(&fetch::TakeResponseBodyAsStreamParams {
-            request_id: id.clone(),
+            request_id: id.to_owned(),
         })
         .await
     {

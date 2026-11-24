@@ -29,6 +29,9 @@ proptest.workspace = true
 proptest-state-machine.workspace = true
 regex.workspace = true
 rusqlite.workspace = true
+# The endpoint table's runner reaches a listener that terminates TLS over
+# TLS, trusting only its certificate (ADR 0049).
+rustls = { workspace = true, features = ["ring", "std", "tls12"] }
 schemars.workspace = true
 serde.workspace = true
 serde_json.workspace = true
@@ -81,6 +84,8 @@ runs = ["goodfetch-collie", "goodfetch-foxhound", "goodfetch-proving-ground"]
 ignored = ["bindgen"]
 
 [dev-dependencies]
+# The fixture listeners that terminate TLS sign their own certificate.
+rcgen = { workspace = true, features = ["ring"] }
 rstest.workspace = true
 
 [lints]

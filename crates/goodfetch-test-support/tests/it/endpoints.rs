@@ -10,7 +10,7 @@ mod listeners;
 
 use goodfetch_test_support::{
     AuditUnreadable, Endpoint, EndpointRunError, EndpointRunner, Expected, Failure, Hello,
-    Listener, ListenerAddress, ListenerKind, Observed, RowFailure, Rule,
+    Listener, ListenerAddress, ListenerKind, ListenerTls, Observed, RowFailure, Rule,
 };
 use rstest::rstest;
 
@@ -47,6 +47,11 @@ fn json_rpc(kind: ListenerKind, address: ListenerAddress) -> Listener {
     .with_expired_token(EXPIRED_TOKEN)
     .with_revoked_token(REVOKED_TOKEN)
     .with_scoped_elsewhere_token(SCOPED_ELSEWHERE_TOKEN)
+}
+
+/// A fixture listener's TLS as its Clients reach it, trusting `trusted`.
+fn tls(trusted: Vec<u8>) -> ListenerTls {
+    ListenerTls::new(listeners::SERVER_NAME, trusted)
 }
 
 fn verifier(mut log: AuditLog) -> impl FnMut(ListenerKind, Rule) -> Result<bool, AuditUnreadable> {
@@ -179,8 +184,8 @@ fn websocket(address: std::net::SocketAddr) -> Listener {
 
 #[test]
 fn a_permissive_websocket_listener_fails_every_row_of_its_column() {
-    let (address, log) = listeners::websocket(Behaviour::Permissive);
-    let listener = websocket(address);
+    let (address, log, trusted) = listeners::websocket_over_tls(Behaviour::Permissive);
+    let listener = websocket(address).over_tls(tls(trusted));
 
     let result = EndpointRunner::new(verifier(log)).run(&listener);
 
@@ -204,14 +209,19 @@ fn a_permissive_websocket_listener_fails_every_row_of_its_column() {
             unexpected(Rule::OriginForeign, forbidden, Observed::Replied),
             unexpected(Rule::OriginMissing, forbidden, Observed::Replied),
             unexpected(Rule::HelloNotFirst, Expected::Closed, Observed::Replied),
+            unexpected(
+                Rule::PlainWhereTlsConfigured,
+                Expected::Closed,
+                Observed::Replied
+            ),
         ]
     );
 }
 
 #[test]
 fn a_strict_websocket_listener_passes() {
-    let (address, log) = listeners::websocket(Behaviour::Strict);
-    let listener = websocket(address);
+    let (address, log, trusted) = listeners::websocket_over_tls(Behaviour::Strict);
+    let listener = websocket(address).over_tls(tls(trusted));
 
     let result = EndpointRunner::new(verifier(log)).run(&listener);
 
@@ -239,7 +249,6 @@ fn a_websocket_listener_refusing_the_valid_handshake_fails_the_control() {
 #[rstest]
 #[case::daemon_socket(ListenerKind::DaemonSocket)]
 #[case::private_endpoint(ListenerKind::PrivateEndpoint)]
-#[case::exposed_daemon(ListenerKind::ExposedDaemon)]
 fn a_strict_json_rpc_listener_on_tcp_passes(#[case] kind: ListenerKind) {
     let (address, log) = listeners::json_rpc_on_tcp(Behaviour::Strict);
     let listener = json_rpc(kind, ListenerAddress::Tcp(address));
@@ -247,6 +256,54 @@ fn a_strict_json_rpc_listener_on_tcp_passes(#[case] kind: ListenerKind) {
     let result = EndpointRunner::new(verifier(log)).run(&listener);
 
     assert_eq!(result, Ok(()));
+}
+
+#[test]
+fn a_strict_exposed_daemon_over_tls_passes() {
+    let (address, log, trusted) = listeners::json_rpc_over_tls(Behaviour::Strict);
+    let listener =
+        json_rpc(ListenerKind::ExposedDaemon, ListenerAddress::Tcp(address)).over_tls(tls(trusted));
+
+    let result = EndpointRunner::new(verifier(log)).run(&listener);
+
+    assert_eq!(result, Ok(()));
+}
+
+#[test]
+fn a_permissive_exposed_daemon_over_tls_fails_every_row_of_its_column() {
+    let (address, log, trusted) = listeners::json_rpc_over_tls(Behaviour::Permissive);
+    let listener =
+        json_rpc(ListenerKind::ExposedDaemon, ListenerAddress::Tcp(address)).over_tls(tls(trusted));
+
+    let result = EndpointRunner::new(verifier(log)).run(&listener);
+
+    assert_eq!(
+        failures(result),
+        [
+            Rule::TokenMissing,
+            Rule::TokenWrong,
+            Rule::TokenFromAnotherListener,
+            Rule::HelloNotFirst,
+            Rule::PlainWhereTlsConfigured
+        ]
+        .map(|rule| unexpected(rule, Expected::Closed, Observed::Replied))
+    );
+}
+
+#[test]
+fn a_row_connecting_in_plain_fails_without_the_listeners_tls() {
+    let (address, log) = listeners::json_rpc_on_tcp(Behaviour::Strict);
+    let listener = json_rpc(ListenerKind::ExposedDaemon, ListenerAddress::Tcp(address));
+
+    let result = EndpointRunner::new(verifier(log)).run(&listener);
+
+    assert_eq!(
+        failures(result),
+        vec![RowFailure {
+            rule: Rule::PlainWhereTlsConfigured,
+            failure: Failure::TlsNotGiven
+        }]
+    );
 }
 
 #[cfg(unix)]

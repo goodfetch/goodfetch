@@ -34,18 +34,18 @@ const COLLIE: &str = env!("CARGO_BIN_EXE_goodfetch-collie");
 
 /// The name the Daemon's certificates are for, which its Clients reach it
 /// by.
-const SERVER_NAME: &str = "localhost";
+pub(crate) const SERVER_NAME: &str = "localhost";
 
 /// A self-signed certificate for [`SERVER_NAME`]: its file and its key's,
 /// PEM, and the certificate as a Client trusts it.
-struct Certificate {
+pub(crate) struct Certificate {
     file: String,
     key_file: String,
-    trusted: CertificateDer<'static>,
+    pub(crate) trusted: CertificateDer<'static>,
 }
 
 impl Certificate {
-    fn generated() -> Self {
+    pub(crate) fn generated() -> Self {
         let key = rcgen::KeyPair::generate().unwrap();
         let certificate = rcgen::CertificateParams::new(vec![SERVER_NAME.to_owned()])
             .unwrap()
@@ -69,7 +69,10 @@ fn replace(file: &Path, contents: &str) {
 
 /// A `daemon run` on loopback that serves TLS with `served`, once it
 /// serves; its address; and its certificate file and key file.
-fn serving_tls(env: &TestEnv, served: &Certificate) -> (Foreground, SocketAddr, [PathBuf; 2]) {
+pub(crate) fn serving_tls(
+    env: &TestEnv,
+    served: &Certificate,
+) -> (Foreground, SocketAddr, [PathBuf; 2]) {
     let files = ["daemon.crt", "daemon.key"].map(|name| env.folder().join(name));
     replace(&files[0], &served.file);
     replace(&files[1], &served.key_file);

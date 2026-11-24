@@ -12,7 +12,7 @@ mod runner;
 mod table;
 mod websocket;
 
-pub use connection::ListenerAddress;
+pub use connection::{ListenerAddress, ListenerTls};
 pub use runner::{
     AuditUnreadable, AuditVerifier, Endpoint, EndpointRunError, EndpointRunner, Failure, Hello,
     Listener, Observed, RowFailure,

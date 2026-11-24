@@ -579,6 +579,7 @@ async fn answer(
                         query: parts.uri.query().unwrap_or_default(),
                         cookies: &cookies,
                         authorization: header(AUTHORIZATION).unwrap_or_default(),
+                        headers: &parts.headers,
                         body: &body,
                         peer,
                         tls,

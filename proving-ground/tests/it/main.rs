@@ -74,6 +74,7 @@ mod rungs;
 mod scale;
 mod schedule;
 mod scope;
+mod sensor_solver;
 mod serve;
 mod sitemap_seed;
 mod sitemaps;

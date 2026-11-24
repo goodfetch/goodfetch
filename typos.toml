@@ -30,5 +30,6 @@ extend-exclude = ["rnd/", "vendor/", "crates/goodfetch-cdp/protocol.json", "crat
 # typed in the order of work and ADR 0037's note (« best pratice »), and
 # their French answers and options quoted in the ADRs (« Je confirme »,
 # « L'ADR 0048 reste tel quel », « fais comme tu recommandes et vas-y »). And the public key of RFC 9421's
-# Ed25519 test key (Appendix B.1.4) in Base64url, which tests sign with.
-extend-ignore-re = ["ThreatMetrix", "online-metrix", "\\bmis-", "\\bPNGs\\b", "look-alikes", "\\bnd-(router|neighbor)-", "\\bndJson", "(?i)\\bcaf(\\\\u|%C3)", "\\bCaf&eacute;", "für alle", "ses raisons", "\\bgrant_univeral_access\\b", "Alle (akzeptieren|ablehnen)", "LevelOptin", "\\bFebruar\\b", "\\bIST\\b", "\\bwriteable::Writeable\\b", "(?m)^    (\"[A-Z]{2}\", )*\"[A-Z]{2}\",$", "best pratice would build it", "Je confirme", "L'ADR 0048 reste tel quel", "fais comme tu recommandes et vas-y", "JrQLj5P_89iXES9-vFgrIy29clF9CC_oPPsw3c5D0bs"]
+# Ed25519 test key (Appendix B.1.4) in Base64url, which tests sign with. And
+# Akamai's `_abck` cookie, which the sensor page sets (#1539).
+extend-ignore-re = ["(?i)abck","ThreatMetrix", "online-metrix", "\\bmis-", "\\bPNGs\\b", "look-alikes", "\\bnd-(router|neighbor)-", "\\bndJson", "(?i)\\bcaf(\\\\u|%C3)", "\\bCaf&eacute;", "für alle", "ses raisons", "\\bgrant_univeral_access\\b", "Alle (akzeptieren|ablehnen)", "LevelOptin", "\\bFebruar\\b", "\\bIST\\b", "\\bwriteable::Writeable\\b", "(?m)^    (\"[A-Z]{2}\", )*\"[A-Z]{2}\",$", "best pratice would build it", "Je confirme", "L'ADR 0048 reste tel quel", "fais comme tu recommandes et vas-y", "JrQLj5P_89iXES9-vFgrIy29clF9CC_oPPsw3c5D0bs"]

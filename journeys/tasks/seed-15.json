@@ -799,6 +799,14 @@
       "start_url": "http://3.protection.test/turnstile"
     },
     {
+      "description": "Extract the article behind this page's sensor check as one Record with the fields `id` and `title`. The page takes the sensor data a solver-service stand-in answers for its URL, cookies, script and client.",
+      "digest": "f9e2acfa9e5693e5015d4ca63bf3c1ffb7950d2b822095bdaee92c8aef1b3465",
+      "family": "protection",
+      "id": "protection/4",
+      "kind": "extract",
+      "start_url": "http://4.protection.test/sensor"
+    },
+    {
       "description": "Fetch this page over HTTP and the page it links to in the browser, in one Session, and return each page's Record with the fields `id` and `code`. The server compares the fingerprints of the two requests.",
       "digest": "7cd61a7c733f6499d694365ec6af7870f5cbd954ac11308386e57e0de033b6bc",
       "family": "access",

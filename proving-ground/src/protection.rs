@@ -5,10 +5,13 @@
 //! each page and the fingerprint of every request, and refutes a Record of a
 //! page no tier cleared. The local CAPTCHA holds an article behind a code a
 //! person reads off an image. The Turnstile page holds one behind a token the
-//! solver-service stand-ins (`solvers`) answer its widget's task with.
+//! solver-service stand-ins (`solvers`) answer its widget's task with, and
+//! the sensor page behind the sensor data they answer.
 
+mod sensor;
 mod turnstile;
 
+pub(crate) use sensor::{Sensed, data as sensor_data, hash, script_hash};
 pub(crate) use turnstile::token as turnstile_token;
 
 use std::fmt::Write as _;
@@ -28,7 +31,7 @@ pub(crate) const HOST: &str = "protection.test";
 const FAMILY: &str = "protection";
 
 /// How many tasks the family has.
-const TASKS: u32 = 3;
+const TASKS: u32 = 4;
 
 /// The tier-move site's task.
 pub(crate) const TIER_MOVE_TASK: &str = "protection/1";
@@ -55,12 +58,16 @@ const CAPTCHA_PLACE: u64 = 4;
 const CAPTCHA_TOKEN_PLACE: u64 = 5;
 const SITE_KEY_PLACE: u64 = 6;
 const TURNSTILE_COOKIE_PLACE: u64 = 7;
+const SENSOR_PLACE: u64 = 8;
 
 /// The CAPTCHA's article, numbered after the tier-move site's.
 const CAPTCHA_ARTICLE: u64 = ARTICLES + 1;
 
 /// The Turnstile page's article, numbered after the CAPTCHA's.
 const TURNSTILE_ARTICLE: u64 = ARTICLES + 2;
+
+/// The sensor page's article, numbered after the Turnstile page's.
+const SENSOR_ARTICLE: u64 = ARTICLES + 3;
 
 const ADJECTIVES: [&str; 8] = [
     "Quiet", "Hidden", "Northern", "Patient", "Restless", "Silver", "Sunken", "Winding",
@@ -233,7 +240,13 @@ pub(crate) fn respond(
                 None,
             ),
         },
-        _ => (Reply::not_found(), None),
+        _ => {
+            let article = || article_page(seed, SENSOR_ARTICLE, "the sensor");
+            (
+                sensor::respond(seed, host, request, article).unwrap_or_else(Reply::not_found),
+                None,
+            )
+        }
     })
 }
 
@@ -370,6 +383,21 @@ pub(crate) fn tasks(seed: u64, port: Option<u16>) -> Vec<Task> {
                     solver-service stand-in answers for its site key and URL.",
             },
             expected: Expected::records(vec![record(TURNSTILE_ARTICLE)]),
+        },
+        Task {
+            host: task::task_host(4, HOST),
+            entry: Entry {
+                account: None,
+                time_steps: None,
+                id: format!("{FAMILY}/4"),
+                family: FAMILY,
+                kind: Kind::Extract,
+                start_url: format!("{}{}", origin(4), sensor::PATH),
+                description: "Extract the article behind this page's sensor check as one \
+                    Record with the fields `id` and `title`. The page takes the sensor data a \
+                    solver-service stand-in answers for its URL, cookies, script and client.",
+            },
+            expected: Expected::records(vec![record(SENSOR_ARTICLE)]),
         },
     ]
 }

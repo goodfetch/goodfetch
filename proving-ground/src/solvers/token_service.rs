@@ -7,6 +7,8 @@ use hyper::StatusCode;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
+use super::Failed;
+
 /// The user agent each service says it solved the widget with.
 const USER_AGENT: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36";
 
@@ -38,13 +40,6 @@ pub(super) enum Refusal {
     SiteKey,
     /// It polls a task that is not the account's.
     Task,
-}
-
-/// An error a service answers, with its status.
-#[derive(Clone)]
-pub(super) struct Failed {
-    pub(super) status: StatusCode,
-    pub(super) body: Value,
 }
 
 impl Service {
@@ -89,14 +84,7 @@ impl Service {
     /// 2Captcha, as its own are.
     pub(super) fn task_id(self, number: u64, high: u64, low: u64) -> Value {
         match self {
-            Self::Capsolver => json!(format!(
-                "{:08x}-{:04x}-4{:03x}-{:04x}-{:012x}",
-                high >> 32,
-                (high >> 16) & 0xFFFF,
-                high & 0xFFF,
-                0x8000 | (low >> 50),
-                low & 0xFFFF_FFFF_FFFF
-            )),
+            Self::Capsolver => json!(super::uuid(high, low)),
             Self::TwoCaptcha => json!(70_000_000_000 + number),
             Self::Capmonster => json!(407_533_072 + number),
         }

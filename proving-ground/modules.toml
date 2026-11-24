@@ -119,9 +119,11 @@ schema = []
 verbs = []
 
 [submodules.protection]
+sensor = []
 turnstile = []
 
 [submodules.solvers]
+sensor_service = []
 token_service = []
 
 [submodules.portal]

@@ -555,12 +555,28 @@ The dated collection of Filter lists, the rules that recognise and answer Consen
 _Avoid_: rule set, list bundle
 
 **Live view**:
-A Session's browser shown to a person while it works, which that person can take control of during a Human pause.
+A Session's browser shown to a person while it works, through a channel of the protocol that the published viewer component or another Client shows, or in the real window on the person's own desktop; that person can take control of it during a Human pause.
 _Avoid_: screencast, stream, remote desktop
+
+**Control lock**:
+The hold one person takes on a Session in the Live view during a Human pause, so that only that person sends input to it while any number of others watch.
+_Avoid_: takeover (for the lock), mutex, driver seat
+
+**Live view grant**:
+A short-lived token by which a page of a developer's own opens one Session's Live view, to watch or to act, from the origins it names; its holder is not a person.
+_Avoid_: share link, embed token, live URL
 
 **Run trace**:
 The recording of what a run's Sessions did, such as their screens, page snapshots and network traffic, kept so a person can replay it.
 _Avoid_: session recording, replay (for the recording), video
+
+**Timeline**:
+A run's Run trace read step by step: each call, Human pause and Effect with what the page showed at that step.
+_Avoid_: replay, trace viewer, history
+
+**Failure group**:
+The failures, across runs, that share one cause (an Error code, an operation, a target and a page address pattern), counted together and shown by one representative step.
+_Avoid_: error cluster, issue, bucket
 
 **Gesture**:
 A call that sends input to a page or navigates it, such as a click, a key press or a navigation; the engine runs one page's gestures one at a time.
@@ -737,6 +753,30 @@ _Avoid_: robots (for all of them), policy, rules
 **Audit log**:
 The tamper-evident record of the security and compliance events of a run, a Daemon or a Daemon group, such as secret uses, confirmations and overrides. The Effect journal prevents repeated Effects; the Audit log answers who did what.
 _Avoid_: journal (alone), event log, history
+
+**Account**:
+What a Daemon with accounts knows its person by, holding that person's passkeys; on a Daemon without accounts the OS user is the person and has no Account.
+_Avoid_: user, login, profile
+
+**Accounts store**:
+The file of a Daemon with accounts that holds its Account and what checks that Account's passkeys, recovery codes and Named tokens, and never a value that signs anyone in.
+_Avoid_: people store, user database
+
+**Person check**:
+The check of a person's passkey over a Connection, which makes that person the Connection's Checked person for a limited time.
+_Avoid_: sign-in, login, session (a Session is a browsing identity)
+
+**Checked person**:
+The person a Person check put on a Connection, held for that Connection alone and lost when the Daemon restarts.
+_Avoid_: signed-in user, authenticated session
+
+**Step-up**:
+A fresh passkey answer asked for one write that approves, such as confirming or reconciling an Effect or raising a Limit, and good for that one request alone.
+_Avoid_: re-authentication, sudo mode, MFA prompt
+
+**Named token**:
+A credential a person creates for a program, limited in what it may do and in time, shown once and revocable; not the Daemon's own token.
+_Avoid_: API key, personal access token
 
 **Secret canary**:
 A recognisable fake secret, cookie or token planted in a test; finding it anywhere that must not hold secrets proves a leak.

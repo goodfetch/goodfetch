@@ -155,3 +155,7 @@ reason = "An Error code joins Foxhound's catalog, `sheet_capacity_exceeded` (iss
 [[announced]]
 entry = "typescript @goodfetch/foxhound/generated FoxhoundSettings"
 reason = "`secrets` gains `placeholders`, which binds each Secret placeholder to a reference and its registrable domains (issue 654)."
+
+[[announced]]
+entry = "typescript @goodfetch/foxhound StartCrawlOptions"
+reason = "`seeds` takes a sitemap seed beside a request seed, its type widening from `RequestSeed` to `Seed` (issue 1471): code that reads a seed back from the options needs the sitemap seed's case."

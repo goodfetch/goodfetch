@@ -38,10 +38,10 @@ use super::robots_txt;
 use super::{OpenPage, Session, Sessions, action_timeout, wait_deadline};
 use crate::driver::{OnChild, OnPopup, PageDriver, PopupHandler, SessionEgress};
 use crate::hiding::{PageHiding, Sheets};
-use crate::interception::OnDocument;
+use crate::interception::{OnDocument, PageInterception};
 use crate::page_events::{PageEvents, Refusals};
 use crate::page_functions::FrameScripts;
-use crate::page_owner::PageOwner;
+use crate::page_owner::{PageOwner, PageParts};
 use crate::page_value::{Observer, Reader};
 use crate::pool::InBrowser;
 use crate::recovery::{Checking, Declared};
@@ -78,16 +78,25 @@ struct TakenIn<'a> {
     run: Run,
     /// Its place in its browser, until it is kept.
     in_browser: Option<InBrowser>,
+    /// Its side of the interception, once the interception holds it.
+    interception: Option<PageInterception>,
 }
 
 impl TakenIn<'_> {
     /// The page goes into its Session's table with nothing awaited first,
     /// where its close, its Session's end or its Run's takes it out:
-    /// answers its place in its browser.
-    fn kept(mut self) -> InBrowser {
-        self.in_browser
+    /// answers its place in its browser and its side of the interception,
+    /// which its owner holds.
+    fn kept(mut self) -> (InBrowser, PageInterception) {
+        let in_browser = self
+            .in_browser
             .take()
-            .expect("invariant: a page being taken in holds its place until it is kept")
+            .expect("invariant: a page being taken in holds its place until it is kept");
+        let interception = self
+            .interception
+            .take()
+            .expect("invariant: a page is kept once the interception holds it");
+        (in_browser, interception)
     }
 }
 
@@ -99,7 +108,9 @@ impl Drop for TakenIn<'_> {
         let pages = std::slice::from_ref(&self.page);
         self.sessions.events.close(pages);
         self.sessions.dialogs.close(pages);
-        self.sessions.interception.close_pages(pages);
+        if let Some(interception) = &self.interception {
+            interception.close();
+        }
         let driver = self.driver.clone();
         self.run.spawn(async move {
             driver.close().await;
@@ -229,12 +240,13 @@ impl Sessions {
         let action_timeout = action_timeout(&run);
         let page = self.next_page_id().await;
         let browser = in_browser.browser();
-        let taken_in = TakenIn {
+        let mut taken_in = TakenIn {
             sessions: self,
             page: page.clone(),
             driver: driver.clone(),
             run: run.clone(),
             in_browser: Some(in_browser),
+            interception: None,
         };
         // The page's events are read from before its requests pause, so
         // every request of the page is followed.
@@ -258,7 +270,7 @@ impl Sessions {
             .start(page.clone(), driver.clone(), &run, driver.events());
         let (hiding, sheets, routed) = self
             .hold(
-                (&page, session),
+                (&mut taken_in, session),
                 &driver,
                 &run,
                 &open.settings,
@@ -273,15 +285,16 @@ impl Sessions {
         let life = PageLife::new(page.clone(), driver.value().lease().cloned(), routed);
         let page_check = open.checking(driver.value().page_check());
         // Nothing awaits from here until the page is in the table.
-        let in_browser = taken_in.kept();
+        let (in_browser, interception) = taken_in.kept();
         // Its owner, under its Session's (ADR 0146).
         let owner = PageOwner::start(
             &open.owner,
             identity(&run).span(),
-            &page,
+            (&page, PageParts { interception }),
             page_closed(&page),
             run.metrics(),
         );
+        self.page_owners.kept(page.clone(), owner.clone());
         let opened = OpenPage {
             clock: run.clock(),
             run,
@@ -321,21 +334,23 @@ impl Sessions {
         Ok(page)
     }
 
-    /// Puts the page `page` of the Session `session`, which `driver` drives
-    /// with the Session's own `settings`, under the interception, live
-    /// hiding and the Consent prompt runner, each of its out-of-process
-    /// frames and dedicated workers held by them, and then by `in_frames`,
-    /// before it runs; answers its live hiding, the documents' hiding
+    /// Puts the page `taken_in` takes in, of the Session `session`, which
+    /// `driver` drives with the Session's own `settings`, under the
+    /// interception, live hiding and the Consent prompt runner, each of its
+    /// out-of-process frames and dedicated workers held by them, and then
+    /// by `in_frames`, before it runs; `taken_in` then holds its side of
+    /// the interception. Answers its live hiding, the documents' hiding
     /// sheets it shares with the runner, and how many of its requests wait
     /// on a route handler now.
     async fn hold(
         &self,
-        (page, session): (&PageId, &SessionId),
+        (taken_in, session): (&mut TakenIn<'_>, &SessionId),
         driver: &PageDriver,
         run: &Run,
         settings: &Values,
         (refusals, in_frames): (Refusals, Vec<OnChild>),
     ) -> Result<(Option<Arc<PageHiding>>, Arc<Sheets>, watch::Receiver<usize>), CallError> {
+        let page = &taken_in.page.clone();
         // A page a program opened reads robots.txt for each document its
         // main frame receives, beside its navigation, never before it (ADR
         // 0086).
@@ -345,6 +360,7 @@ impl Sessions {
             .interception
             .start(page, session, driver, run, settings, (refusals, reader))
             .await?;
+        taken_in.interception = Some(held.page);
         // Live hiding and the Consent prompt runner share each document's
         // one hiding sheet.
         let sheets = Arc::new(Sheets::new(driver.clone(), run));

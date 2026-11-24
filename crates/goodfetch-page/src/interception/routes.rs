@@ -102,6 +102,11 @@ impl RouteTable {
         lock(&self.routes).clear();
         self.closed.send_replace(true);
     }
+
+    /// Whether it closed.
+    pub(super) fn is_closed(&self) -> bool {
+        *self.closed.borrow()
+    }
 }
 
 /// An armed route, as its subscription holds it: dropped, it takes the

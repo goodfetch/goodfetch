@@ -110,7 +110,7 @@ use crate::interception::{HeldBrowser, Interception, Lookups};
 use crate::launch::Launcher;
 use crate::page_events;
 use crate::page_functions::{FrameScripts, Injections};
-use crate::page_owner::PageOwner;
+use crate::page_owner::{PageOwner, PageOwners};
 use crate::page_value::{HandlerPages, HeldPlace, PageValue, PooledSession};
 use crate::pool::{InBrowser, LocalFailure, Placement, Pool, Seat};
 use crate::proxy::{Opening, SessionProxy};
@@ -163,6 +163,8 @@ pub(crate) struct Sessions {
     handler_pages: Arc<dyn HandlerPages>,
     /// How many calls listen to each Session's `page` event.
     page_listeners: session_pages::PageListeners,
+    /// Each open page's owner, by its ID.
+    page_owners: PageOwners,
 }
 
 #[derive(Default)]
@@ -477,7 +479,14 @@ impl Sessions {
             dialogs,
             handler_pages,
             page_listeners: session_pages::PageListeners::default(),
+            page_owners: PageOwners::default(),
         }
+    }
+
+    /// Each open page's owner, by its ID, which a call that acts as it
+    /// arrives reads.
+    pub(crate) fn page_owners(&self) -> &PageOwners {
+        &self.page_owners
     }
 
     /// The request a Session's browser sends for a document, read from
@@ -561,7 +570,7 @@ impl Sessions {
         if let Err(error) = open.seat.open().await {
             life.open_failed(error.clone())?;
             self.state.lock().await.sessions.remove(&session);
-            self.interception.close_session(&session, &[]);
+            self.interception.close_session(&session);
             return Err(error);
         }
         match life.apply(SessionEvent::SourceReady, None)? {
@@ -994,7 +1003,8 @@ impl Sessions {
         };
         self.events.close(&pages);
         self.dialogs.close(&pages);
-        self.interception.close_session(session, &pages);
+        self.page_owners.close(&pages);
+        self.interception.close_session(session);
         self.hiding.close(session).await;
         if open.life.pooled() {
             return Ok(());
@@ -1268,7 +1278,8 @@ impl Sessions {
                 let pages = pages.remove(session).unwrap_or_default();
                 sessions.events.close(&pages);
                 sessions.dialogs.close(&pages);
-                sessions.interception.close_session(session, &pages);
+                sessions.page_owners.close(&pages);
+                sessions.interception.close_session(session);
                 sessions.hiding.close(session).await;
             }
         });

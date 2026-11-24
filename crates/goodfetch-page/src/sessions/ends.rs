@@ -87,7 +87,7 @@ impl Sessions {
                 drop(state);
                 self.events.close(pages);
                 self.dialogs.close(pages);
-                self.interception.close_pages(pages);
+                self.page_owners.close(pages);
             }
             // A crashed page releases what is left, its admission and its
             // place in its browser, and stays `Crashed`: its later calls
@@ -121,7 +121,7 @@ impl Sessions {
         drop(state);
         self.events.close(pages);
         self.dialogs.close(pages);
-        self.interception.close_pages(pages);
+        self.page_owners.close(pages);
     }
 
     /// The Session `open` takes the loss `lost` of its browser `browser`: a

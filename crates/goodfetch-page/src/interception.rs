@@ -44,14 +44,14 @@
 //! ([`Interception::answer`]), so a handler's answer is always read before
 //! its reply that it ended. A handler that fails leaves its failure on its
 //! page, which the call waiting on the request, or else the next call on
-//! the page, raises ([`Interception::take_failure`]); one that fails on a
+//! the page, raises ([`PageInterception::take_failure`]); one that fails on a
 //! service worker's request, which belongs to no page, leaves it on its
 //! Session, for the next call on any of its pages.
 //!
 //! A request the engine sends itself from a page's Session, as
 //! `page.request` does through the browser-fetch tier, passes steps 3 to 8
-//! as the page's Session chose them ([`Interception::engine_requests`]), never a
-//! route.
+//! as the page's Session chose them ([`PageInterception::engine_requests`]),
+//! never a route.
 //!
 //! Step 4's Filter lists are off for a page while it loads once more with
 //! blocking off, and for every page's requests from a document on a domain
@@ -64,8 +64,12 @@
 //! Session, is held as a service worker is, before it runs: a frame's
 //! requests pass its page's pipeline, a shared worker's its Session's.
 //!
-//! Size: the one table of the pages, Sessions and workers the interception
-//! holds, and how each is put under it; the pipeline, its steps, routes,
+//! Each page's side of the interception is its own value, which its owner
+//! holds ([`PageInterception`], ADR 0146): no table keyed by a page's ID
+//! holds it.
+//!
+//! Size: the one table of the Sessions the interception holds, each page's
+//! side and each worker's, and how each is put under it; the pipeline, its steps, routes,
 //! answers, hops, pending navigations and the lookups of a browser no
 //! relay is under are in their own modules.
 #![expect(
@@ -85,7 +89,7 @@ mod pipeline;
 mod routes;
 mod steps;
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -121,7 +125,7 @@ pub(crate) use self::answers::{Answer, Fulfillment, Overrides, Reply};
 use self::clean_up::CleanUp;
 use self::hosts::HostCaches;
 pub(crate) use self::lookups::{HeldBrowser, Lookups};
-use self::navigations::{NavigatingPage, Pending};
+use self::navigations::{NavigatingPage, Pending, PendingNavigation};
 use self::pipeline::{PageContext, Sender};
 pub(crate) use self::routes::Armed;
 use self::routes::{Route, RouteTable};
@@ -145,10 +149,10 @@ enum Worker {
 }
 
 /// Whose requests a route answers.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy)]
 pub(crate) enum Scope<'a> {
     /// One page's.
-    Page(&'a PageId),
+    Page(&'a PageInterception),
     /// Every page's of a Session, after their own routes.
     Session(&'a SessionId),
 }
@@ -245,7 +249,6 @@ pub(crate) enum Lists {
 
 #[derive(Default)]
 struct Tables {
-    pages: BTreeMap<PageId, Arc<PageState>>,
     sessions: BTreeMap<SessionId, Arc<RouteTable>>,
     /// Each Session's pending navigations, which its service workers'
     /// requests may carry.
@@ -289,6 +292,8 @@ pub(super) struct PageState {
     engine_requests: EngineRequests,
     /// Its Session's pending navigations.
     pending: Arc<Pending>,
+    /// Its main frame's navigation, while one is pending.
+    navigation: PendingNavigation,
     /// What a service worker's request carrying one of its navigations is
     /// admitted and refused through; none for a service worker's own.
     navigating: Option<NavigatingPage>,
@@ -469,9 +474,20 @@ pub(crate) struct PageCleanUp {
 /// runs, and how many of its requests, its out-of-process frames'
 /// included, wait on a route handler now.
 pub(crate) struct HeldPage {
+    pub(crate) page: PageInterception,
     pub(crate) clean_up: PageCleanUp,
     pub(crate) children: OnChild,
     pub(crate) routed: watch::Receiver<usize>,
+}
+
+/// A page's side of the interception, as its owner holds it (ADR 0146):
+/// its routes, its Filter lists' state, its handlers' failures and its
+/// pending navigation. Clones share it. Once closed, it answers as for a
+/// page the interception does not hold.
+#[derive(Clone)]
+pub(crate) struct PageInterception {
+    state: Arc<PageState>,
+    page_id: PageId,
 }
 
 impl PageState {
@@ -601,6 +617,7 @@ impl Interception {
                 routes: Arc::default(),
                 session,
                 pending,
+                navigation: PendingNavigation::default(),
                 navigating: Some(NavigatingPage {
                     driver: driver.clone(),
                     refusals: refusals.clone(),
@@ -621,9 +638,9 @@ impl Interception {
                 },
                 on_document,
             });
-            tables.pages.insert(page_id.clone(), Arc::clone(&state));
             (state, lookups)
         };
+        let page = PageInterception::joined(page_id, &state);
         let events = driver.events();
         pause_requests(driver).await?;
         let workers = match clean_up::effective(resolved, own, &BROWSER_SERVICE_WORKERS).as_str() {
@@ -673,6 +690,7 @@ impl Interception {
         );
         run.spawn(pipeline::dispatch(events, context));
         Ok(HeldPage {
+            page,
             clean_up,
             children,
             routed: routed.subscribe(),
@@ -808,6 +826,7 @@ impl Interception {
                     routes: Arc::default(),
                     session: routes,
                     pending,
+                    navigation: PendingNavigation::default(),
                     navigating: None,
                     // A worker belongs to no page: its handlers' failures
                     // wait on its Session.
@@ -852,57 +871,6 @@ impl Interception {
                 true
             })
         })
-    }
-
-    /// What step 4's Filter lists do for the page `page_id`'s document at
-    /// `url`; [`Lists::Off`] for a page the interception does not hold.
-    pub(crate) fn lists_for(&self, page_id: &PageId, url: &str) -> Lists {
-        let Some(state) = lock(&self.shared.tables).pages.get(page_id).cloned() else {
-            return Lists::Off;
-        };
-        if !state.lists_on {
-            Lists::Off
-        } else if state.learned.holds(url) {
-            Lists::LearnedOff
-        } else {
-            Lists::On
-        }
-    }
-
-    /// How many of the page `page_id`'s requests the Filter lists blocked
-    /// so far.
-    pub(crate) fn lists_blocked(&self, page_id: &PageId) -> u64 {
-        lock(&self.shared.tables)
-            .pages
-            .get(page_id)
-            .map_or(0, |state| state.lists_blocked.load(Ordering::Acquire))
-    }
-
-    /// Turns the Filter lists off for every request of the page `page_id`,
-    /// as it loads once more with blocking off, until the [`ListsOff`]
-    /// answered goes.
-    pub(crate) fn lists_off(&self, page_id: &PageId) -> ListsOff {
-        let state = lock(&self.shared.tables).pages.get(page_id).cloned();
-        if let Some(state) = &state {
-            state.retrying.store(true, Ordering::Release);
-        }
-        ListsOff(state)
-    }
-
-    /// Learns blocking off for the domain of `url` for every page of the
-    /// page `page_id`'s Run (ADR 0047), and answers that domain.
-    pub(crate) fn learn_off(&self, page_id: &PageId, url: &str) -> Option<String> {
-        let domain = domain_key(url)?;
-        let state = lock(&self.shared.tables).pages.get(page_id).cloned()?;
-        lock(&state.learned.0).insert(domain.clone());
-        Some(domain)
-    }
-
-    /// The cosmetic rules of the page `page_id`'s Session, when any of its
-    /// Filter lists is on.
-    pub(crate) fn cosmetic(&self, page_id: &PageId) -> Option<Cosmetic> {
-        let state = lock(&self.shared.tables).pages.get(page_id).cloned()?;
-        state.cosmetic.clone()
     }
 
     /// The cosmetic rules a document a fetch tier served `run` is read with,
@@ -987,16 +955,14 @@ impl Interception {
             UrlMatcher::Glob { pattern } => UrlPattern::glob(pattern)?,
             UrlMatcher::Regex { pattern } => UrlPattern::regex(pattern)?,
         };
-        let tables = lock(&self.shared.tables);
         let table = match scope {
-            Scope::Page(page) => tables
-                .pages
-                .get(page)
-                .map(|state| Arc::clone(&state.routes)),
-            Scope::Session(session) => tables.sessions.get(session).map(Arc::clone),
+            Scope::Page(page) => page.held().map(|state| Arc::clone(&state.routes)),
+            Scope::Session(session) => lock(&self.shared.tables)
+                .sessions
+                .get(session)
+                .map(Arc::clone),
         }
         .ok_or_else(|| closed(scope))?;
-        drop(tables);
         Ok(table.arm(Route::new(pattern, client.clone(), call.clone())))
     }
 
@@ -1041,37 +1007,121 @@ impl Interception {
         })
     }
 
-    /// Steps 3 to 8 of the page `page_id`'s pipeline, for a request the
-    /// engine sends itself from its Session.
+    /// Whether a page of the Session `session` started a main-frame
+    /// navigation, whoever started it, that its `load` has not ended.
+    pub(crate) fn navigation_pending(&self, session: &SessionId) -> bool {
+        lock(&self.shared.tables)
+            .pending
+            .get(session)
+            .is_some_and(|pending| pending.any())
+    }
+
+    /// Takes the Session `session` out of the interception, as it or its
+    /// Run ends, once its pages' sides closed: every Session route ends its
+    /// subscription.
+    pub(crate) fn close_session(&self, session: &SessionId) {
+        let mut tables = lock(&self.shared.tables);
+        if let Some(table) = tables.sessions.remove(session) {
+            table.close();
+        }
+        tables.pending.remove(session);
+        tables.failures.remove(session);
+        tables.interception_only.remove(session);
+        tables.signing.remove(session);
+    }
+}
+
+impl PageInterception {
+    /// The page `page_id`'s side, `state`, listed among its Session's
+    /// pages, whose navigations its service workers' requests may carry.
+    fn joined(page_id: &PageId, state: &Arc<PageState>) -> Self {
+        state.pending.join(state);
+        Self {
+            state: Arc::clone(state),
+            page_id: page_id.clone(),
+        }
+    }
+
+    /// Its page's side of the interception, until it closed.
+    fn held(&self) -> Option<&Arc<PageState>> {
+        (!self.state.routes.is_closed()).then_some(&self.state)
+    }
+
+    /// What step 4's Filter lists do for its page's document at `url`;
+    /// [`Lists::Off`] once it closed.
+    pub(crate) fn lists_for(&self, url: &str) -> Lists {
+        let Some(state) = self.held() else {
+            return Lists::Off;
+        };
+        if !state.lists_on {
+            Lists::Off
+        } else if state.learned.holds(url) {
+            Lists::LearnedOff
+        } else {
+            Lists::On
+        }
+    }
+
+    /// How many of its page's requests the Filter lists blocked so far.
+    pub(crate) fn lists_blocked(&self) -> u64 {
+        self.held()
+            .map_or(0, |state| state.lists_blocked.load(Ordering::Acquire))
+    }
+
+    /// Turns the Filter lists off for every request of its page, as it
+    /// loads once more with blocking off, until the [`ListsOff`] answered
+    /// goes.
+    pub(crate) fn lists_off(&self) -> ListsOff {
+        let state = self.held().cloned();
+        if let Some(state) = &state {
+            state.retrying.store(true, Ordering::Release);
+        }
+        ListsOff(state)
+    }
+
+    /// Learns blocking off for the domain of `url` for every page of its
+    /// page's Run (ADR 0047), and answers that domain.
+    pub(crate) fn learn_off(&self, url: &str) -> Option<String> {
+        let domain = domain_key(url)?;
+        let state = self.held()?;
+        lock(&state.learned.0).insert(domain.clone());
+        Some(domain)
+    }
+
+    /// The cosmetic rules of its page's Session, when any of its Filter
+    /// lists is on.
+    pub(crate) fn cosmetic(&self) -> Option<Cosmetic> {
+        self.held()?.cosmetic.clone()
+    }
+
+    /// Steps 3 to 8 of its page's pipeline, for a request the engine sends
+    /// itself from its Session.
     ///
     /// # Errors
     ///
-    /// `closed` for a page the interception does not hold.
-    pub(crate) fn engine_requests(&self, page_id: &PageId) -> Result<EngineRequests, CallError> {
-        lock(&self.shared.tables)
-            .pages
-            .get(page_id)
+    /// `closed` once it closed.
+    pub(crate) fn engine_requests(&self) -> Result<EngineRequests, CallError> {
+        self.held()
             .map(|state| state.engine_requests.clone())
-            .ok_or_else(|| closed(Scope::Page(page_id)))
+            .ok_or_else(|| closed(Scope::Page(self)))
     }
 
-    /// Lets the main frame of the page `page_id` load a `file:` URL, as
-    /// `navigator` asked, until the [`FilesAllowed`] answered goes: the
-    /// navigation call's hops are then judged as the call's (the `file:`
-    /// rule, spec #564).
-    pub(crate) fn allow_files(&self, page_id: &PageId, navigator: Navigator) -> FilesAllowed {
-        let state = lock(&self.shared.tables).pages.get(page_id).cloned();
+    /// Lets its page's main frame load a `file:` URL, as `navigator` asked,
+    /// until the [`FilesAllowed`] answered goes: the navigation call's hops
+    /// are then judged as the call's (the `file:` rule, spec #564).
+    pub(crate) fn allow_files(&self, navigator: Navigator) -> FilesAllowed {
+        let state = self.held().cloned();
         if let Some(state) = &state {
             *lock(&state.files) = Some(navigator);
         }
         FilesAllowed(state)
     }
 
-    /// Has the main frame of the page `page_id` fetch `own`'s document
-    /// with its method and body, until the [`OwnFetchSent`] answered goes:
-    /// each request for its URL that no redirect sent, the load once more
-    /// with blocking off included. A bodiless `GET` changes nothing.
-    pub(crate) fn send_own(&self, page_id: &PageId, own: OwnFetch<'_>) -> OwnFetchSent {
+    /// Has its page's main frame fetch `own`'s document with its method and
+    /// body, until the [`OwnFetchSent`] answered goes: each request for its
+    /// URL that no redirect sent, the load once more with blocking off
+    /// included. A bodiless `GET` changes nothing.
+    pub(crate) fn send_own(&self, own: OwnFetch<'_>) -> OwnFetchSent {
         if own.is_bodiless_get() {
             return OwnFetchSent(None);
         }
@@ -1080,7 +1130,7 @@ impl Interception {
             return OwnFetchSent(None);
         };
         url.set_fragment(None);
-        let state = lock(&self.shared.tables).pages.get(page_id).cloned();
+        let state = self.held().cloned();
         if let Some(state) = &state {
             *lock(&state.own) = Some(OwnSent {
                 url,
@@ -1094,72 +1144,38 @@ impl Interception {
         OwnFetchSent(state)
     }
 
-    /// Judges whether the `javascript:` URL `url` may run in the main frame
-    /// of the page `page_id`, whose document is at `document_url`: only
-    /// where the page's domain policy allows that document's origin (ADR
-    /// 0014).
+    /// Judges whether the `javascript:` URL `url` may run in its page's
+    /// main frame, whose document is at `document_url`: only where the
+    /// page's domain policy allows that document's origin (ADR 0014).
     ///
     /// # Errors
     ///
-    /// `egress_refused` when the policy refuses it, and `closed` for a page
-    /// the interception does not hold.
-    pub(crate) fn judge_javascript(
-        &self,
-        page_id: &PageId,
-        url: &str,
-        document_url: &str,
-    ) -> Result<(), CallError> {
-        let requests = self.engine_requests(page_id)?;
+    /// `egress_refused` when the policy refuses it, and `closed` once it
+    /// closed.
+    pub(crate) fn judge_javascript(&self, url: &str, document_url: &str) -> Result<(), CallError> {
+        let requests = self.engine_requests()?;
         egress::judge_javascript(url, document_url, &requests.policy)
             .map_err(|refused| refused.error())
     }
 
-    /// Whether a page of the Session `session` started a main-frame
-    /// navigation, whoever started it, that its `load` has not ended.
-    pub(crate) fn navigation_pending(&self, session: &SessionId) -> bool {
-        lock(&self.shared.tables)
-            .pending
-            .get(session)
-            .is_some_and(|pending| pending.any())
-    }
-
-    /// The failure a handler left on the page `page_id` for its next call,
-    /// or else on its Session (a Session route's, on a service worker's
-    /// request), taken.
-    pub(crate) fn take_failure(&self, page_id: &PageId) -> Option<CallError> {
-        let state = lock(&self.shared.tables).pages.get(page_id).cloned()?;
+    /// The failure a handler left on its page for its next call, or else
+    /// on its Session (a Session route's, on a service worker's request),
+    /// taken.
+    pub(crate) fn take_failure(&self) -> Option<CallError> {
+        let state = self.held()?;
         let own = lock(&state.failure).take();
         own.or_else(|| lock(&state.session_failure).take())
     }
 
-    /// Takes the pages `pages` out of the interception, as each ends: their
-    /// own routes' subscriptions end, and a navigation pending on one,
-    /// whose `load` never comes now, gives back the permit a service
-    /// worker's request took for it. Their Session's routes stay with its
-    /// other pages.
-    pub(crate) fn close_pages(&self, pages: &[PageId]) {
-        let mut tables = lock(&self.shared.tables);
-        for page in pages {
-            if let Some(state) = tables.pages.remove(page) {
-                state.routes.close();
-                state.pending.ended(page);
-            }
+    /// Closes it, as its page ends: its own routes' subscriptions end, and
+    /// a navigation pending on its page, whose `load` never comes now,
+    /// gives back the permit a service worker's request took for it. Its
+    /// Session's routes stay with its other pages.
+    pub(crate) fn close(&self) {
+        if self.held().is_some() {
+            self.state.routes.close();
+            self.state.navigation.ended();
         }
-    }
-
-    /// Takes the Session `session` and its pages `pages` out of the
-    /// interception, as the Session or its Run ends: every route of theirs
-    /// ends its subscription.
-    pub(crate) fn close_session(&self, session: &SessionId, pages: &[PageId]) {
-        self.close_pages(pages);
-        let mut tables = lock(&self.shared.tables);
-        if let Some(table) = tables.sessions.remove(session) {
-            table.close();
-        }
-        tables.pending.remove(session);
-        tables.failures.remove(session);
-        tables.interception_only.remove(session);
-        tables.signing.remove(session);
     }
 }
 
@@ -1256,8 +1272,8 @@ fn policy_of(run: &Run) -> Result<Policy, CallError> {
 fn closed(scope: Scope<'_>) -> CallError {
     let (message, details) = match scope {
         Scope::Page(page) => (
-            format!("the page `{}` is closed, or its Run ended", page.0),
-            serde_json::json!({ "page_id": page }),
+            format!("the page `{}` is closed, or its Run ended", page.page_id.0),
+            serde_json::json!({ "page_id": page.page_id }),
         ),
         Scope::Session(session) => (
             format!("the Session `{}` is closed, or its Run ended", session.0),

@@ -77,7 +77,7 @@ impl Pages {
             url: &response.url,
             domain,
         };
-        match self.interception.lists_for(page_id, &response.url) {
+        match page.owner.interception().lists_for(&response.url) {
             Lists::On => {
                 if let Some(reason) = reason(block.as_ref(), judged, *touched) {
                     return self
@@ -122,7 +122,7 @@ impl Pages {
             Destination::Reload | Destination::Back | Destination::Forward => Destination::Reload,
         };
         let deadline = page.driver.navigation_deadline(first.timeout)?;
-        let lists_off = self.interception.lists_off(page_id);
+        let lists_off = page.owner.interception().lists_off();
         let navigated = page
             .life
             .call(
@@ -131,7 +131,7 @@ impl Pages {
                     .navigate(again, first.wait_until, deadline.as_ref()),
             )
             .await;
-        let navigated = match self.left_failure(page_id) {
+        let navigated = match self.left_failure(page, page_id) {
             Some(failure) => Err(failure),
             None => navigated,
         };
@@ -205,7 +205,7 @@ impl Pages {
         passed: bool,
     ) {
         let domain = if passed {
-            self.interception.learn_off(page_id, url)
+            page.owner.interception().learn_off(url)
         } else {
             interception::domain_key(url)
         };

@@ -114,6 +114,7 @@ use crate::interception::{
 use crate::launch::Launcher;
 use crate::page_events::{self, Requested};
 use crate::page_functions::{self, InitScripts, Injection, Matches, Pending, Registered};
+use crate::page_owner::PageOwners;
 use crate::page_value::{
     BrowserPages, EngineFetch, EngineFetched, FetchedBody, HandlerPages, HeldPlace, Opening,
     OwnFetch, PageValue, PooledSession, ProgramPages, ServedFormatsAhead,
@@ -191,7 +192,10 @@ pub fn contribution_with(
     let contribution = with_session_handlers(contribution, &pages.sessions);
     let contribution = with_locator_handlers(contribution, &pages);
     let contribution = with_event_handlers(contribution, &pages);
-    let contribution = with_route_handlers(contribution, &pages.interception);
+    let contribution = with_route_handlers(
+        contribution,
+        (&pages.interception, pages.sessions.page_owners()),
+    );
     let contribution = with_dialog_handlers(contribution, &pages.dialogs);
     let contribution = with_function_handlers(contribution, &pages);
     let contribution = waits::with_wait_handlers(contribution, &pages);
@@ -512,17 +516,26 @@ fn with_session_handlers(contribution: Contribution, sessions: &Sessions) -> Con
 /// Adds the handlers of `page.route` and `session.route`, each arming its
 /// route when its call arrives, and of the answers to their requests, each
 /// delivered when its call arrives.
-fn with_route_handlers(contribution: Contribution, interception: &Interception) -> Contribution {
+fn with_route_handlers(
+    contribution: Contribution,
+    (interception, owners): (&Interception, &PageOwners),
+) -> Contribution {
     let (paging, sessioning) = (interception.clone(), interception.clone());
+    let owners = owners.clone();
     let contribution = contribution
         .with_handler(Handler::new(
             &PAGE_ROUTE,
             move |params: PageRouteParams, context: CallContext| {
-                let armed = paging.arm(
-                    Scope::Page(&params.page_id),
-                    &params.url,
-                    context.client(),
-                    context.id(),
+                let armed = owners.get(&params.page_id).map_or_else(
+                    || Err(sessions::page_closed(&params.page_id)),
+                    |owner| {
+                        paging.arm(
+                            Scope::Page(owner.interception()),
+                            &params.url,
+                            context.client(),
+                            context.id(),
+                        )
+                    },
                 );
                 async move { armed?.ended().await }
             },
@@ -959,7 +972,7 @@ impl BrowserPages for Opener {
             // Its document is fetched with the crawl request's method and
             // body for as long as the navigation goes on, its request charged
             // at its admission already.
-            let sent = self.pages.interception.send_own(&page_id, own);
+            let sent = page.owner.interception().send_own(own);
             let navigated = self
                 .pages
                 .navigate(
@@ -1240,8 +1253,7 @@ impl Pages {
             match egress::navigation(url, navigator).map_err(|refused| refused.error())? {
                 egress::Destination::JavaScript => {
                     let document = page.driver.document_url().await?;
-                    self.interception
-                        .judge_javascript(page_id, url, &document)?;
+                    page.owner.interception().judge_javascript(url, &document)?;
                 }
                 egress::Destination::Network if charge == Charge::OneRequest => {
                     charge_request(&page.run, context).await?;
@@ -1253,10 +1265,10 @@ impl Pages {
         }
         let _files = navigator
             .reads_files()
-            .then(|| self.interception.allow_files(page_id, navigator));
+            .then(|| page.owner.interception().allow_files(navigator));
         let events = context.events();
         let deadline = page.driver.navigation_deadline(timeout)?;
-        let blocked_before = self.interception.lists_blocked(page_id);
+        let blocked_before = page.owner.interception().lists_blocked();
         if navigating == Navigating::Program {
             page.sending(destination.operation()).await?;
         }
@@ -1274,7 +1286,7 @@ impl Pages {
         // A failure the interception left while the navigation ran, such
         // as a route's handler failing on its document, is the
         // navigation's.
-        if let Some(failure) = self.left_failure(page_id) {
+        if let Some(failure) = self.left_failure(&page, page_id) {
             return Err(failure);
         }
         let Some(response) = arrival::arrived(page_id, navigated?, events).await else {
@@ -1300,7 +1312,7 @@ impl Pages {
             operation,
         )
         .await?;
-        let touched = self.interception.lists_blocked(page_id) > blocked_before;
+        let touched = page.owner.interception().lists_blocked() > blocked_before;
         if let Some(block) = &block
             && !(touched && block.checks_the_browser())
         {
@@ -1397,7 +1409,7 @@ impl Pages {
             })
             .await?;
         tracing::Span::current().record("run_id", page.run.id().as_str());
-        let steps = self.interception.engine_requests(&params.page_id)?;
+        let steps = page.owner.interception().engine_requests()?;
         let events = self.events.get(&params.page_id)?;
         let limits = Limits::of_run(page.run.settings());
         let request = browser_fetch::Request {
@@ -1595,7 +1607,7 @@ impl Pages {
     /// for reached (ADR 0092).
     async fn opened(&self, page_id: &PageId) -> Result<OpenPage, CallError> {
         let page = self.sessions.page(page_id).await?;
-        if let Some(failure) = self.left_failure(page_id) {
+        if let Some(failure) = self.left_failure(&page, page_id) {
             return Err(failure);
         }
         self.consent_verdict(page_id, &page, false).await?;
@@ -1692,11 +1704,12 @@ impl Pages {
         self.judge_unjudged(&page, page_id, Some(operation)).await
     }
 
-    /// The failure a route's handler, or else a dialog handler, left on the
-    /// page `page_id` for the call it blocked or its next call.
-    fn left_failure(&self, page_id: &PageId) -> Option<CallError> {
-        self.interception
-            .take_failure(page_id)
+    /// The failure a route's handler, or else a dialog handler, left on
+    /// `page`, the page `page_id`, for the call it blocked or its next call.
+    fn left_failure(&self, page: &OpenPage, page_id: &PageId) -> Option<CallError> {
+        page.owner
+            .interception()
+            .take_failure()
             .or_else(|| self.dialogs.take_failure(page_id))
     }
 
@@ -1793,7 +1806,7 @@ impl Pages {
             &page.settings,
         );
         let measure = clean_up::ShareMeasure::of(page.run.settings().map(RunSettings::resolved));
-        let cosmetic = self.interception.cosmetic(&params.page_id);
+        let cosmetic = page.owner.interception().cosmetic();
         let hidden = page.sheets.runner_hidden();
         let work = page.run.metrics().counted_work().clone();
         let (formats, read) = page

@@ -11,6 +11,7 @@
 //! each later one raises, and which the Session's watch of the Page awaits
 //! to close it. A panic of its loop itself is told to its Session's owner.
 
+use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use goodfetch_counted_work::{CountedWork, Row};
@@ -23,6 +24,7 @@ use tracing::Instrument as _;
 
 use crate::cdp::CdpPage;
 use crate::errors::{Call, page_panicked};
+use crate::interception::PageInterception;
 
 /// How many asks wait for a Page's owner at most: a caller past them waits
 /// for room.
@@ -32,6 +34,8 @@ const ASKS: usize = 32;
 /// share one owner.
 #[derive(Clone)]
 pub(crate) struct PageOwner {
+    /// The Page's state the owner holds, which its clones share.
+    parts: Arc<PageParts>,
     asks: mpsc::Sender<Ask>,
     /// What an ask raises once the owner has gone: the page's `closed`.
     closed: Arc<CallError>,
@@ -41,6 +45,26 @@ pub(crate) struct PageOwner {
     /// `C3.owner_round_trips`).
     work: CountedWork,
 }
+
+/// The Page's state its owner holds, one part at a time as spec #2256
+/// moves it from the engine-wide tables.
+pub(crate) struct PageParts {
+    /// Its side of the interception: its Routes, its Filter lists' state,
+    /// its handlers' failures and its pending navigation.
+    pub(crate) interception: PageInterception,
+}
+
+/// The open Pages' owners, by their ID: the index from ID to handle (ADR
+/// 0146), written when a Page is kept and when it ends, which a call that
+/// acts as it arrives, before anything is awaited, reads. Clones share it.
+#[derive(Clone, Default)]
+pub(crate) struct PageOwners(
+    #[expect(
+        clippy::disallowed_types,
+        reason = "one map read and changed for one operation, never across another lock or an `.await`; a page is listed under the Sessions lock, which is never taken under this one, so there is no lock order to test under loom (ADR 0060)"
+    )]
+    Arc<std::sync::Mutex<BTreeMap<PageId, PageOwner>>>,
+);
 
 /// One thing asked of a Page's owner, with where its answer goes.
 enum Ask {
@@ -66,21 +90,28 @@ struct Panicked {
 }
 
 impl PageOwner {
-    /// Starts the owner of the Page `page_id` as a child of `session`, its
-    /// Session's owner, its loop in `span`, its Run's, counting on
-    /// `metrics`, its Run's; once it has gone, each ask raises `closed`, or
-    /// `engine_panicked` after a panic of one of its tasks. It ends once its
-    /// Session's owner is cancelled, once one of its tasks panicked, or
-    /// once every clone of what this answers has gone, after its child
-    /// tasks.
+    /// Starts the owner of the Page `page_id`, holding `parts`, as a child
+    /// of `session`, its Session's owner, its loop in `span`, its Run's,
+    /// counting on `metrics`, its Run's; once it has gone, each ask raises
+    /// `closed`, or `engine_panicked` after a panic of one of its tasks. It
+    /// ends once its Session's owner is cancelled, once one of its tasks
+    /// panicked, or once every clone of what this answers has gone, after
+    /// its child tasks.
     pub(crate) fn start(
         session: &TaskStarter,
         span: &tracing::Span,
-        page_id: &PageId,
+        (page_id, parts): (&PageId, PageParts),
         closed: CallError,
         metrics: &Metrics,
     ) -> Self {
-        Self::serving(session.child(), session, span, page_id, closed, metrics)
+        Self::serving(
+            session.child(),
+            session,
+            span,
+            (page_id, parts),
+            closed,
+            metrics,
+        )
     }
 
     /// The owner [`PageOwner::start`] starts, whose tasks `owner` owns.
@@ -88,7 +119,7 @@ impl PageOwner {
         owner: TaskOwner,
         session: &TaskStarter,
         span: &tracing::Span,
-        page_id: &PageId,
+        (page_id, parts): (&PageId, PageParts),
         closed: CallError,
         metrics: &Metrics,
     ) -> Self {
@@ -101,11 +132,17 @@ impl PageOwner {
         };
         session.spawn(serve(owner, mailbox, panic).instrument(span.clone()));
         Self {
+            parts: Arc::new(parts),
             asks,
             closed: Arc::new(closed),
             panicked,
             work: metrics.counted_work().clone(),
         }
+    }
+
+    /// Its Page's side of the interception.
+    pub(crate) fn interception(&self) -> &PageInterception {
+        &self.parts.interception
     }
 
     /// Clicks at (`x`, `y`) in the viewport of `page`, through the owner:
@@ -175,6 +212,37 @@ impl PageOwner {
             .borrow()
             .clone()
             .unwrap_or_else(|| CallError::clone(&self.closed))
+    }
+}
+
+impl PageOwners {
+    /// Locks the index, whose holders never panic while they hold it.
+    fn held(&self) -> std::sync::MutexGuard<'_, BTreeMap<PageId, PageOwner>> {
+        self.0
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+
+    /// Lists `owner`, the owner of the Page `page_id`, kept now.
+    pub(crate) fn kept(&self, page_id: PageId, owner: PageOwner) {
+        self.held().insert(page_id, owner);
+    }
+
+    /// The owner of the open Page `page_id`.
+    pub(crate) fn get(&self, page_id: &PageId) -> Option<PageOwner> {
+        self.held().get(page_id).cloned()
+    }
+
+    /// Takes the Pages `pages` out, as each ends: each one's side of the
+    /// interception closes.
+    pub(crate) fn close(&self, pages: &[PageId]) {
+        let ended: Vec<PageOwner> = {
+            let mut held = self.held();
+            pages.iter().filter_map(|page| held.remove(page)).collect()
+        };
+        for owner in &ended {
+            owner.interception().close();
+        }
     }
 }
 

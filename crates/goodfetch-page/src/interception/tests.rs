@@ -17,7 +17,10 @@ use goodfetch_protocol::page::{PageId, SessionId};
 use secrecy::SecretString;
 use serde_json::json;
 
-use super::{EngineRequests, Interception, Learned, LeftFailure, PageState, lock, steps};
+use super::navigations::PendingNavigation;
+use super::{
+    EngineRequests, Interception, Learned, LeftFailure, PageInterception, PageState, lock, steps,
+};
 use crate::page_value::Permit;
 
 /// The interception state of a page or a service worker of the Session
@@ -49,6 +52,7 @@ fn state_of(
             signing: None,
         },
         pending,
+        navigation: PendingNavigation::default(),
         navigating: None,
         files: Mutex::new(None),
         own: Mutex::new(None),
@@ -60,18 +64,20 @@ fn state_of(
     }
 }
 
-/// Puts the page `page` of the Session `session` in `interception`'s
-/// tables, as its start does once the browser paused its requests.
-fn hold_page(interception: &Interception, page: &PageId, session: &SessionId) -> Arc<PageState> {
+/// The side of the interception of the page `page` of the Session
+/// `session`, held as its start holds it once the browser paused its
+/// requests.
+pub(crate) fn hold_page(
+    interception: &Interception,
+    page: &PageId,
+    session: &SessionId,
+) -> PageInterception {
     let state = Arc::new(state_of(
         interception,
         session,
         Some(LeftFailure::default()),
     ));
-    lock(&interception.shared.tables)
-        .pages
-        .insert(page.clone(), Arc::clone(&state));
-    state
+    PageInterception::joined(page, &state)
 }
 
 /// The page and Session the tests hold.
@@ -90,27 +96,41 @@ fn a_page_that_closes_before_load_gives_back_its_navigations_permit() {
     let interception = Interception::default();
     let (page, session) = page_and_session();
     interception.open_session(&session);
-    let state = hold_page(&interception, &page, &session);
-    state
-        .pending
-        .started(&page, "http://a.test/#top", &Arc::downgrade(&state));
-    let carried = state.pending.take("http://a.test/");
+    let held = hold_page(&interception, &page, &session);
+    held.state.navigation.started("http://a.test/#top");
+    let carried = held.state.pending.take("http://a.test/");
     let released = Arc::new(AtomicBool::new(false));
     let releasing = Arc::clone(&released);
-    state.pending.hold(
-        &page,
-        Permit::new(move || releasing.store(true, Ordering::SeqCst)),
-    );
+    held.state
+        .navigation
+        .hold(Permit::new(move || releasing.store(true, Ordering::SeqCst)));
 
-    interception.close_pages(std::slice::from_ref(&page));
+    held.close();
 
     assert_eq!(
         (
-            carried.map(|(page, _)| page),
-            released.load(Ordering::SeqCst)
+            carried.is_some_and(|carried| Arc::ptr_eq(&carried, &held.state)),
+            released.load(Ordering::SeqCst),
+            held.state.pending.any(),
         ),
-        (Some(page), true)
+        (true, true, false)
     );
+}
+
+/// A service worker's request to a page's pending navigation takes it
+/// once: a second request to its URL carries none.
+#[test]
+fn a_pending_navigation_is_taken_once() {
+    let interception = Interception::default();
+    let (page, session) = page_and_session();
+    interception.open_session(&session);
+    let held = hold_page(&interception, &page, &session);
+    held.state.navigation.started("http://a.test/");
+
+    let first = held.state.pending.take("http://a.test/#top");
+    let second = held.state.pending.take("http://a.test/");
+
+    assert_eq!((first.is_some(), second.is_some()), (true, false));
 }
 
 /// A Session route's handler that fails on a service worker's request,
@@ -121,7 +141,7 @@ fn a_failure_on_a_service_workers_request_waits_for_the_sessions_next_call() {
     let interception = Interception::default();
     let (page, session) = page_and_session();
     interception.open_session(&session);
-    hold_page(&interception, &page, &session);
+    let held = hold_page(&interception, &page, &session);
     let worker = state_of(&interception, &session, None);
 
     worker.leave(CallError::new(
@@ -132,10 +152,8 @@ fn a_failure_on_a_service_workers_request_waits_for_the_sessions_next_call() {
 
     assert_eq!(
         (
-            interception
-                .take_failure(&page)
-                .map(|failure| failure.code()),
-            interception.take_failure(&page).is_none(),
+            held.take_failure().map(|failure| failure.code()),
+            held.take_failure().is_none(),
         ),
         (Some(CLOSED.name), true)
     );

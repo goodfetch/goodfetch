@@ -239,22 +239,16 @@ pub(super) async fn dispatch(mut events: Subscription, context: Arc<PageContext>
             // The navigation's last hop ends with the page's `load`.
             drop(lock(&context.permit).take());
             drop(lock(&context.proxy_permit).take());
-            if let Some(page_id) = context.sender.page_id() {
-                context.state.pending.ended(page_id);
-            }
+            context.state.navigation.ended();
             continue;
         }
         if let Some(started) = event.read::<page::FrameStartedNavigatingEvent>() {
-            if let Some(page_id) = context.sender.page_id()
+            if context.sender.page_id().is_some()
                 && &started.frame_id == context.driver.main_frame()
                 && started.navigation_type
                     != page::FrameStartedNavigatingNavigationType::SameDocument
             {
-                context.state.pending.started(
-                    page_id,
-                    &started.url,
-                    &Arc::downgrade(&context.state),
-                );
+                context.state.navigation.started(&started.url);
             }
             continue;
         }
@@ -1226,13 +1220,12 @@ impl PageContext {
         {
             return Ok(None);
         }
-        let Some((page, carried)) = self.state.pending.take(held.url()) else {
+        let Some(carried) = self.state.pending.take(held.url()) else {
             return Ok(None);
         };
-        let carried = carried.upgrade();
         let driver = carried
+            .navigating
             .as_ref()
-            .and_then(|state| state.navigating.as_ref())
             .map_or(&self.driver, |navigating| &navigating.driver);
         let navigation = Navigation {
             url: held.url().to_owned(),
@@ -1240,11 +1233,11 @@ impl PageContext {
             kind: NavigationKind::ServiceWorker,
         };
         match driver.admit(&navigation).await {
-            Ok(Some(permit)) => self.state.pending.hold(&page, permit),
+            Ok(Some(permit)) => carried.navigation.hold(permit),
             Ok(None) => {}
-            Err(refusal) => return Err((refusal, carried)),
+            Err(refusal) => return Err((refusal, Some(carried))),
         }
-        Ok(carried)
+        Ok(Some(carried))
     }
 
     /// Aborts `held`, which the page's navigation gate refused, and answers

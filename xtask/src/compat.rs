@@ -13,6 +13,8 @@
 //! version, storage and schema as the registry gave them.
 //!
 //! `refusals` writes each registered format's generated refusal cases.
+//!
+//! `jobs` writes the Release suite's skew jobs, one set per released minor.
 #![expect(
     clippy::disallowed_methods,
     reason = "xtask is synchronous; the blocking-fs ban targets async crates (STYLE.md)"
@@ -20,6 +22,7 @@
 
 mod coverage;
 mod frozen;
+pub(crate) mod jobs;
 pub(crate) mod refusals;
 mod registry;
 mod sql;
@@ -460,6 +463,11 @@ pub(crate) enum Command {
     /// one file per case under `crates/goodfetch-protocol/generated/refusals/`,
     /// which `xtask codegen --check` holds to the registry.
     Refusals,
+    /// Writes the Release suite's skew jobs, `ci/release/skew-jobs.json`,
+    /// which `xtask codegen --check` holds to `compat/releases.toml`,
+    /// `compat/skew-checks.toml` and `compat/skew-exclusions.toml`. Notes a
+    /// job whose estimate passes the job budget.
+    Jobs,
 }
 
 pub(crate) fn run(command: Command, environment: &Environment) -> Result<ExitCode> {
@@ -476,6 +484,18 @@ pub(crate) fn run(command: Command, environment: &Environment) -> Result<ExitCod
         }
         Command::Refusals => {
             write_refusals(root)?;
+            Ok(ExitCode::SUCCESS)
+        }
+        Command::Jobs => {
+            let jobs = jobs::jobs(root, &crate::product_version::read(root)?)?;
+            let path = root.join(jobs::JOBS);
+            if let Some(parent) = path.parent() {
+                std::fs::create_dir_all(parent)
+                    .with_context(|| format!("creating {}", parent.display()))?;
+            }
+            std::fs::write(&path, jobs.text()?)
+                .with_context(|| format!("writing {}", path.display()))?;
+            check::note(&jobs.over_budget());
             Ok(ExitCode::SUCCESS)
         }
         Command::Freeze { tag } => {

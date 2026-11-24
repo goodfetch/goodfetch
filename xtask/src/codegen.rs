@@ -22,6 +22,8 @@
 //! `goodfetch-engine`, from IANA's special-purpose registries committed
 //! beside it with their date (ADR 0067), and the label values of
 //! `goodfetch.counted_work`, from `goodfetch-counted-work`'s rows (ADR 0140).
+//! It writes the Release suite's skew jobs, as `xtask compat jobs` does
+//! (ADR 0066).
 //!
 //! `--check` regenerates in memory what `xtask codegen` writes itself and
 //! fails on any difference. It runs neither outside generator: the output of
@@ -74,6 +76,7 @@ use crate::check::Finding;
 use crate::compat;
 use crate::environment::Environment;
 use crate::features;
+use crate::product_version;
 use emit::JOURNEY_FILES;
 use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::connection::ProductVersion;
@@ -380,7 +383,7 @@ impl Plan {
 /// Everything `xtask codegen` writes at `root`, with the executables' files
 /// `executables` gives.
 fn plan(cargo: &OsStr, root: &Path, executables: executables::Files) -> Result<Plan> {
-    let version = product_version(root)?;
+    let version = product_version::read(root)?;
     let emitted = emitter::emit(cargo, root)?;
     let bundle: Value =
         serde_json::from_slice(&emitted.bundle).context("reading the emitted bundle")?;
@@ -481,6 +484,11 @@ fn plan(cargo: &OsStr, root: &Path, executables: executables::Files) -> Result<P
         deprecated_settings::generate(&catalog, &python_fields)?.into_bytes(),
     );
     helpers::add(&bundle, &mut files, &mut externals)?;
+    // The Release suite's skew jobs (ADR 0066).
+    files.insert(
+        compat::jobs::JOBS.to_owned(),
+        compat::jobs::jobs(root, &version)?.text()?,
+    );
     Ok(Plan { files, externals })
 }
 
@@ -820,25 +828,6 @@ pub(crate) fn run(arguments: Arguments, environment: &Environment) -> Result<Exi
     Ok(ExitCode::SUCCESS)
 }
 
-/// The Product version the released crates carry, as Collie's executable
-/// crate states it: the root manifest's `[workspace.package] version` while
-/// it takes the workspace's, its own once `xtask release prepare` set it,
-/// the internal crates keeping the workspace's `0.0.x` (ADR 0030).
-fn product_version(root: &Path) -> Result<String> {
-    let path = root.join(crate::products::COLLIE.folder).join("Cargo.toml");
-    let manifest: toml::Table = toml::from_str(
-        &std::fs::read_to_string(&path).with_context(|| format!("reading {}", path.display()))?,
-    )
-    .with_context(|| format!("reading {}", path.display()))?;
-    match manifest
-        .get("package")
-        .and_then(|package| package.get("version"))
-    {
-        Some(toml::Value::String(version)) => Ok(version.clone()),
-        _ => workspace_package(root, "version"),
-    }
-}
-
 /// Gives `catalog`'s `daemon.address` the default of the Product version
 /// `version`, where its release listens, in place of the one
 /// `goodfetch-protocol` emitted from its own `0.0.x` (ADR 0030); none in a
@@ -857,57 +846,13 @@ fn settle_daemon_address(catalog: &mut Value, version: &str) -> Result<()> {
     Ok(())
 }
 
-/// The root manifest's `[workspace.package]` string `key`, which every
-/// crate takes.
-fn workspace_package(root: &Path, key: &str) -> Result<String> {
-    let path = root.join("Cargo.toml");
-    let manifest: toml::Table = toml::from_str(
-        &std::fs::read_to_string(&path).with_context(|| format!("reading {}", path.display()))?,
-    )
-    .with_context(|| format!("reading {}", path.display()))?;
-    manifest
-        .get("workspace")
-        .and_then(|workspace| workspace.get("package"))
-        .and_then(|package| package.get(key))
-        .and_then(toml::Value::as_str)
-        .map(str::to_owned)
-        .with_context(|| format!("{} has no `[workspace.package] {key}`", path.display()))
-}
-
 #[cfg(test)]
 mod tests {
-    use goodfetch_test_support::TestEnv;
     use rstest::rstest;
 
     use serde_json::json;
 
-    use super::{product_version, settle_daemon_address};
-    use crate::products;
-
-    /// Both SDKs' `PRODUCT_VERSION` is the released crates' version: the
-    /// workspace's `0.0.x` until `xtask release prepare` sets theirs, and
-    /// the new version after, though the workspace's stays (issue 2876).
-    #[rstest]
-    #[case::before_a_release("version.workspace = true", "0.0.0")]
-    #[case::after_its_preparation("version = \"1.4.0-rc.2\"", "1.4.0-rc.2")]
-    fn the_product_version_is_the_released_crates(#[case] version: &str, #[case] expected: &str) {
-        let env = TestEnv::new();
-        let root = env.folder();
-        std::fs::write(
-            root.join("Cargo.toml"),
-            "[workspace]\n\n[workspace.package]\nversion = \"0.0.0\"\n",
-        )
-        .unwrap();
-        let collie = root.join(products::COLLIE.folder);
-        std::fs::create_dir_all(&collie).unwrap();
-        std::fs::write(
-            collie.join("Cargo.toml"),
-            format!("[package]\nname = \"goodfetch-collie\"\n{version}\n"),
-        )
-        .unwrap();
-
-        assert_eq!(product_version(root).unwrap(), expected);
-    }
+    use super::settle_daemon_address;
 
     /// The catalog lists `daemon.address`'s default for the released
     /// crates' Product version, which the executable listens on, and not

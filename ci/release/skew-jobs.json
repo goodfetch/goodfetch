@@ -1,0 +1,138 @@
+{
+  "jobs": [
+    {
+      "name": "current",
+      "version": null,
+      "tag": null,
+      "minutes": 35,
+      "steps": [
+        {
+          "checks": [
+            "collie-cli"
+          ],
+          "executable": "goodfetch-collie",
+          "stdio": false,
+          "journeys": [
+            "--product",
+            "collie",
+            "--surface",
+            "cli"
+          ]
+        },
+        {
+          "checks": [
+            "foxhound-cli"
+          ],
+          "executable": "goodfetch-foxhound",
+          "stdio": false,
+          "journeys": [
+            "--product",
+            "foxhound",
+            "--surface",
+            "cli",
+            "--surface",
+            "foxhound-cli"
+          ]
+        }
+      ]
+    }
+  ],
+  "awaiting": [
+    {
+      "check": "collie-sdk-typescript",
+      "issue": 688
+    },
+    {
+      "check": "collie-sdk-python",
+      "issue": 688
+    },
+    {
+      "check": "collie-sdk-rust",
+      "issue": 688
+    },
+    {
+      "check": "collie-mcp",
+      "issue": 1452
+    },
+    {
+      "check": "collie-sdk-typescript-stdio",
+      "issue": 688
+    },
+    {
+      "check": "collie-sdk-python-stdio",
+      "issue": 688
+    },
+    {
+      "check": "collie-sdk-rust-stdio",
+      "issue": 688
+    },
+    {
+      "check": "foxhound-sdk-typescript",
+      "issue": 1509
+    },
+    {
+      "check": "foxhound-sdk-python",
+      "issue": 1509
+    },
+    {
+      "check": "foxhound-sdk-rust",
+      "issue": 1509
+    },
+    {
+      "check": "foxhound-mcp",
+      "issue": 1517
+    },
+    {
+      "check": "foxhound-sdk-typescript-stdio",
+      "issue": 1509
+    },
+    {
+      "check": "foxhound-sdk-python-stdio",
+      "issue": 1509
+    },
+    {
+      "check": "foxhound-sdk-rust-stdio",
+      "issue": 1509
+    },
+    {
+      "check": "older-engine-current-browser-host",
+      "issue": 755
+    },
+    {
+      "check": "current-engine-older-browser-host",
+      "issue": 755
+    },
+    {
+      "check": "collie-plugins",
+      "issue": 1082
+    },
+    {
+      "check": "foxhound-plugins",
+      "issue": 597
+    },
+    {
+      "check": "rolling-upgrade-lead-last",
+      "issue": 436
+    },
+    {
+      "check": "rolling-upgrade-lead-first",
+      "issue": 436
+    },
+    {
+      "check": "helm-upgrade",
+      "issue": 438
+    },
+    {
+      "check": "collie-older-engine",
+      "issue": 439
+    },
+    {
+      "check": "foxhound-older-engine",
+      "issue": 439
+    },
+    {
+      "check": "two-majors",
+      "issue": 983
+    }
+  ]
+}

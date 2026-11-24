@@ -9,9 +9,11 @@
 //! no test carries is reported: it stays `unproved` until its test lands.
 
 use std::collections::BTreeMap;
+use std::fmt;
+use std::str::FromStr;
 
 use goodfetch_protocol::catalog::Product;
-use goodfetch_protocol::journey::{Journey, Milestone, Status, Surface};
+use goodfetch_protocol::journey::{Journey, JourneyId, Milestone, Status, Surface};
 
 use crate::check::Finding;
 
@@ -47,6 +49,15 @@ impl Variant<'_> {
     pub(super) fn id(&self) -> String {
         format!("{}@{}", self.journey.id, self.surface)
     }
+
+    /// The Product whose executable it drives.
+    pub(super) fn product(&self) -> Product {
+        if self.surface == FOXHOUND_CLI {
+            Product::Foxhound
+        } else {
+            self.journey.product
+        }
+    }
 }
 
 /// Every variant of `journey`, retired or not, in its surfaces' order, then
@@ -75,8 +86,59 @@ pub(super) fn of(journey: &Journey) -> Vec<Variant<'_>> {
 
 /// Whether `name` is a surface a variant can run on: one of ADR 0063's, or
 /// `foxhound-cli`.
-pub(super) fn is_surface(name: &str) -> bool {
+pub(crate) fn is_surface(name: &str) -> bool {
     name == FOXHOUND_CLI || Surface::from_name(name).is_some()
+}
+
+/// A variant's ID, `J-NNN@<surface>`, whatever catalog holds it.
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, serde::Deserialize)]
+#[serde(try_from = "String")]
+pub(crate) struct VariantId {
+    journey: JourneyId,
+    surface: String,
+}
+
+impl VariantId {
+    pub(crate) fn surface(&self) -> &str {
+        &self.surface
+    }
+
+    pub(super) fn names(&self, variant: &Variant<'_>) -> bool {
+        variant.journey.id == self.journey && variant.surface == self.surface
+    }
+}
+
+impl fmt::Display for VariantId {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(formatter, "{}@{}", self.journey, self.surface)
+    }
+}
+
+impl TryFrom<String> for VariantId {
+    type Error = String;
+
+    fn try_from(text: String) -> Result<Self, String> {
+        text.parse()
+    }
+}
+
+impl FromStr for VariantId {
+    type Err = String;
+
+    fn from_str(text: &str) -> Result<Self, String> {
+        let (journey, surface) = text
+            .split_once('@')
+            .ok_or_else(|| format!("`{text}` is no variant ID, `J-NNN@<surface>`"))?;
+        if !is_surface(surface) {
+            return Err(format!(
+                "`{surface}` is no surface of ADR 0063, nor `foxhound-cli`"
+            ));
+        }
+        Ok(Self {
+            journey: JourneyId::try_from(journey.to_owned()).map_err(|error| error.to_string())?,
+            surface: surface.to_owned(),
+        })
+    }
 }
 
 /// The rule's findings over the catalog's Journeys, and the ID of each

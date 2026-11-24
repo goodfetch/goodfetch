@@ -22,7 +22,7 @@ use crate::environment::Environment;
 use crate::github::{self, Api};
 use crate::rate::Visibility;
 
-pub(crate) use plan::{Dispatch, plan};
+pub(crate) use plan::{Dispatch, JOB_BUDGET_MINUTES, plan};
 
 /// Whether every cell is green on `commit`, across its dispatches.
 pub(crate) fn verdict(api: Api<'_>, repository: &str, commit: &str) -> Result<Vec<Finding>> {

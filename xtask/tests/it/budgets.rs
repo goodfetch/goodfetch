@@ -206,6 +206,38 @@ fn median_past_the_budget_opens_an_issue() {
     assert_eq!(github.writes().len(), 1);
 }
 
+/// A released minor whose skew checks pass the job budget opens its issue,
+/// and no minor is dropped (ADR 0066).
+#[test]
+fn skew_job_past_its_budget_opens_its_own_issue() {
+    let attempts: Vec<Attempt> = (1..=20)
+        .map(|run| {
+            let job = |name, minutes| named_job(name, HOSTED, minutes, started_at(run));
+            run_of(
+                RELEASE_SUITE,
+                "workflow_dispatch",
+                run,
+                vec![
+                    job("linux-x64-gnu skew 1.1", 44),
+                    job("linux-x64-gnu skew 1.2", 46),
+                ],
+            )
+        })
+        .collect();
+    let workspace = workspace_with(&attempts);
+    let github = github("[]");
+
+    let outcome = budgets(&workspace, &github);
+
+    assert_eq!(outcome.code, 0, "{}", outcome.stderr);
+    assert_eq!(
+        markers(&github.writes()),
+        [
+            "<!-- goodfetch-results: needs-triage time-budget job release-suite.yml linux-x64-gnu skew 1.2 -->"
+        ]
+    );
+}
+
 /// Cells on the owner's machine keep the 90-minute job cap and stay out of
 /// the Release budgets (TESTING.md, Time budgets).
 #[test]

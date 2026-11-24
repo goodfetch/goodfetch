@@ -77,7 +77,8 @@ http1 = ["chunked"]
 http2 = []
 
 [submodules.online]
-consent = []
+config = []
+consent = ["config"]
 
 [submodules.access]
 consistency = ["versions"]

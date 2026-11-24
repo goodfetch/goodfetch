@@ -171,3 +171,7 @@ reason = "The reason an enqueue gives for a URL it did not add is an open enumer
 [[announced]]
 entry = "typescript @goodfetch/foxhound/generated NotAddedReason"
 reason = "The reason an enqueue gives for a URL it did not add is an open enumeration (ADR 0079): a reason a newer engine adds reads as received instead of failing the answer (issue 1471)."
+
+[[announced]]
+entry = "typescript @goodfetch/foxhound StartCrawlOptions"
+reason = "`seeds` takes a sitemap seed beside a request seed, its type widening from `RequestSeed` to `Seed` (issue 1471): code that reads a seed back from the options needs the sitemap seed's case."

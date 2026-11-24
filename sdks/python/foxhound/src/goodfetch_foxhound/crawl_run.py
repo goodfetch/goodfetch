@@ -76,7 +76,7 @@ if TYPE_CHECKING:
     from pydantic import BaseModel
 
     from goodfetch_foxhound.crawl import AsyncCrawl, Dataset
-    from goodfetch_foxhound.generated.models import RequestSeed
+    from goodfetch_foxhound.generated.models import RequestSeed, SitemapSeed
     from goodfetch_foxhound.generated.settings import CrawlSettings
 
     _Handle: TypeAlias = Callable[
@@ -434,7 +434,7 @@ class CrawlRuns:
         self,
         crawl: AsyncCrawl,
         *,
-        seeds: Iterable[RequestSeed],
+        seeds: Iterable[RequestSeed | SitemapSeed],
         run_id: str | None,
         tags: Iterable[str] | None,
         settings: CrawlSettings | None,
@@ -460,7 +460,7 @@ class CrawlRuns:
         loop: PrivateLoop,
         crawl: Crawl,
         *,
-        seeds: Iterable[RequestSeed],
+        seeds: Iterable[RequestSeed | SitemapSeed],
         run_id: str | None,
         tags: Iterable[str] | None,
         settings: CrawlSettings | None,
@@ -489,7 +489,7 @@ class CrawlRuns:
         crawl: AsyncCrawl | Crawl,
         opened: Callable[[RunStarted], AsyncCrawlRun],
         *,
-        seeds: Iterable[RequestSeed],
+        seeds: Iterable[RequestSeed | SitemapSeed],
         run_id: str | None,
         tags: Iterable[str] | None,
         settings: CrawlSettings | None,

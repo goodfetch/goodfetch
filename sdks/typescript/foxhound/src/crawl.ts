@@ -23,6 +23,8 @@ import type {
   HttpBody,
   LabelDeclaration,
   RequestSeed,
+  Seed,
+  SitemapSeed,
 } from "./generated/index.ts";
 import {
   LabelDuplicateError,
@@ -268,7 +270,7 @@ interface Declared {
 let declarationOf: (crawl: Crawl) => Pick<CrawlStartParams, "labels" | "datasets">;
 let handlerIn: (crawl: Crawl, label: string) => Handler | undefined;
 let declaredIn: (crawl: Crawl, label: Label<object | undefined>) => string;
-let checkStartable: (crawl: Crawl, seeds: readonly RequestSeed[]) => void;
+let checkStartable: (crawl: Crawl, seeds: readonly Seed[]) => void;
 let labelNamed: (crawl: Crawl, name: string) => Label<object | undefined> | undefined;
 
 /**
@@ -343,10 +345,11 @@ export class Crawl {
   }
 
   /**
-   * Fails when a Label has no handler, or a seed names a Label this crawl
-   * does not declare: by name, since a seed carries its Label's name only.
+   * Fails when a Label has no handler, or a seed or a sitemap seed's rule
+   * names a Label this crawl does not declare: by name, since a seed
+   * carries its Label's name only.
    */
-  #checkStartable(seeds: readonly RequestSeed[]): void {
+  #checkStartable(seeds: readonly Seed[]): void {
     for (const [name, { handler }] of this.#labels) {
       if (handler === undefined) {
         throw new LabelUnhandledError(`the Crawl attaches no handler to the Label ${name}`, {
@@ -355,8 +358,8 @@ export class Crawl {
         });
       }
     }
-    const unknown = seeds.find(({ label }) => !this.#labels.has(label));
-    if (unknown !== undefined) throw this.#unknown(unknown.label);
+    const unknown = seeds.flatMap(labelsOf).find((label) => !this.#labels.has(label));
+    if (unknown !== undefined) throw this.#unknown(unknown);
   }
 
   #unknown(name: string): LabelUnknownError {
@@ -391,23 +394,32 @@ export function crawlDeclaration(crawl: Crawl): Pick<CrawlStartParams, "labels" 
  * handler (`label_unhandled`) or a seed names a Label it does not declare by name
  * (`label_unknown`).
  */
-export function checkCrawlStartable(crawl: Crawl, seeds: readonly RequestSeed[]): void {
+export function checkCrawlStartable(crawl: Crawl, seeds: readonly Seed[]): void {
   checkStartable(crawl, seeds);
 }
 
 /**
  * Fails with `payload_invalid`, before anything is sent, when a seed's
  * Payload is refused by its Label's schema's own parse; `seeds` name only
- * Labels `crawl` declares, as `checkCrawlStartable` checked.
+ * Labels `crawl` declares, as `checkCrawlStartable` checked. A sitemap
+ * seed carries no Payload.
  */
-export async function checkSeedPayloads(
-  crawl: Crawl,
-  seeds: readonly RequestSeed[],
-): Promise<void> {
-  for (const { label, payload } of seeds) {
-    const declared = labelNamed(crawl, label);
-    if (declared !== undefined) await checkPayload(declared, payload);
+export async function checkSeedPayloads(crawl: Crawl, seeds: readonly Seed[]): Promise<void> {
+  for (const sent of seeds) {
+    if (isSitemap(sent)) continue;
+    const declared = labelNamed(crawl, sent.label);
+    if (declared !== undefined) await checkPayload(declared, sent.payload);
   }
+}
+
+/** Whether `sent` is a sitemap seed rather than a request. */
+function isSitemap(sent: Seed): sent is SitemapSeed {
+  return "sitemap" in sent;
+}
+
+/** The names of the Labels `sent` gives its requests: a request's own, or each of a sitemap seed's rules'. */
+function labelsOf(sent: Seed): string[] {
+  return isSitemap(sent) ? sent.rules.map(({ label }) => label) : [sent.label];
 }
 
 /** The name of `label`, which `crawl` must declare; another crawl's Label fails with `label_unknown`. */
@@ -433,6 +445,26 @@ export function seed<P extends object | undefined>(
 ): RequestSeed {
   const { payload, options = {} } = payloadAndOptions(label, rest);
   return { url, label: label.name, ...payloadOf(label, payload), ...requestOptions(options) };
+}
+
+/**
+ * A sitemap seed of a crawl: the entries of `url`'s sitemaps (ADR 0093).
+ * `url` names a sitemap, or a site's robots.txt, whose `Sitemap:` lines
+ * are read, and nested sitemap indexes are followed. Each `[pattern,
+ * label]` of `rules`, in order, is a glob as `crawl.scope.include` takes
+ * one and the Label it gives the entries it matches: the first that
+ * matches an entry picks its Label, and an entry no rule matches is not
+ * added, with `no_rule`. A sitemap entry carries no Payload, so a rule's
+ * Label takes none. The engine reads the sitemap once the Run is running.
+ */
+export function sitemap(
+  url: string,
+  rules: Iterable<readonly [pattern: string, label: Label]>,
+): SitemapSeed {
+  return {
+    sitemap: url,
+    rules: Array.from(rules, ([pattern, label]) => ({ pattern, label: label.name })),
+  };
 }
 
 /**

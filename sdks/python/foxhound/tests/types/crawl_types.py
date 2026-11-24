@@ -16,7 +16,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, assert_type
 
-from goodfetch_foxhound import CrawlRun, seed
+from goodfetch_foxhound import CrawlRun, seed, sitemap
 
 if TYPE_CHECKING:
     from goodfetch_collie_client.json_values import JSONObject
@@ -158,6 +158,25 @@ def takes_a_payload_only_of_its_labels_type(crawl: Crawl) -> None:
     seed("https://shop.test/shelf/1", shelf)  # type: ignore[arg-type]
     seed("https://shop.test/", listing, Shelf(number=1))  # type: ignore[misc]
     seed("https://shop.test/book/1", book, "9780000000001")  # type: ignore[call-overload]
+
+
+async def starts_from_a_sitemap_whose_rules_take_labels_without_a_payload(
+    foxhound: AsyncFoxhound, crawl: AsyncCrawl
+) -> None:
+    """A sitemap entry carries no Payload, so a rule's Label takes none.
+
+    A sitemap seed goes beside request seeds in one start.
+    """
+    listing = crawl.label("listing")
+    shelf = crawl.label("shelf", payload=Shelf)
+    await foxhound.start_crawl(
+        crawl,
+        seeds=[
+            seed("https://shop.test/", listing),
+            sitemap("https://shop.test/sitemap.xml", [("**/listing/*", listing)]),
+        ],
+    )
+    sitemap("https://shop.test/sitemap.xml", [("**/shelf/*", shelf)])  # type: ignore[list-item]
 
 
 async def enqueues_a_payload_only_of_its_labels_type(

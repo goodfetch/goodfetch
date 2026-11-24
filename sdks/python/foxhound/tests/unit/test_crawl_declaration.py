@@ -24,6 +24,7 @@ from goodfetch_foxhound.crawl import (
     declared_label,
     handler_of,
     seed,
+    sitemap,
 )
 from goodfetch_foxhound.generated.errors import (
     LabelDuplicateError,
@@ -240,5 +241,20 @@ def test_refuses_to_start_a_crawl_from_a_seed_of_a_label_it_does_not_declare() -
     with pytest.raises(LabelUnknownError) as refused:
         check_startable(pages, seeds)
     check_startable(pages, [RequestSeed(url="https://shop.test/a", label="page")])
+
+    assert refused.value.details == {"label": "detail", "declared": ["page"]}
+
+
+@pytest.mark.covers("story:11-1019", "error:label_unknown")
+def test_refuses_to_start_a_crawl_from_a_sitemap_rule_of_another_crawls_label() -> None:
+    """A sitemap seed's rules name their Labels, which the crawl must declare."""
+    detail = Crawl().label("detail")
+    sitemap_url = "https://shop.test/sitemap.xml"
+
+    with pytest.raises(LabelUnknownError) as refused:
+        check_startable(
+            pages, [sitemap(sitemap_url, [("**", page), ("**/d/*", detail)])]
+        )
+    check_startable(pages, [sitemap(sitemap_url, [("**", page)])])
 
     assert refused.value.details == {"label": "detail", "declared": ["page"]}

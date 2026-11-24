@@ -16,6 +16,7 @@ from goodfetch_foxhound.generated.models import (
     CrawlRequestOutcomes,
     Enqueued,
     Enqueued1,
+    Enqueued2,
 )
 
 
@@ -27,6 +28,21 @@ def test_a_result_that_is_one_of_several_models_reads_as_the_one_it_carries() ->
 
     assert enqueued.root == Enqueued1(
         kind="added", id="2", url="https://shop.test/products/2"
+    )
+
+
+def test_a_refusal_of_a_newer_reason_reads_as_its_string() -> None:
+    """A reason this package does not know stays the refusal, as sent."""
+    sent = {
+        "kind": "not_added",
+        "reason": "a_newer_reason",
+        "url": "https://shop.test/",
+    }
+
+    enqueued = result_of(Enqueued, sent)
+
+    assert enqueued.root == Enqueued2(
+        kind="not_added", reason="a_newer_reason", url="https://shop.test/"
     )
 
 

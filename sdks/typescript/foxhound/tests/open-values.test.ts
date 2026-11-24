@@ -1,6 +1,7 @@
-// A newer engine's values (ADR 0079): an outcome kind, skip reason, Block
-// cause, Hook stage, Verdict, Usage kind or Limit scope this package does not
-// know reads as the string the engine sent, typed by its open enumeration,
+// A newer engine's values (ADR 0079): an outcome kind, skip reason, enqueue
+// refusal's reason, Block cause, Hook stage, Verdict, Usage kind or Limit
+// scope this package does not know reads as the string the engine sent,
+// typed by its open enumeration,
 // a member of an open tagged union it does not know reads as its `unknown`
 // member with the tag it received, and an unknown Verdict is never
 // `verified`. Foxhound's values of a type both Products share reach a Collie
@@ -15,6 +16,7 @@ import { describe, expect, expectTypeOf, test } from "vitest";
 import type {
   BlockCause,
   CrawlHookStage,
+  NotAddedReason,
   OutcomeKind,
   SkipReason,
 } from "../src/generated/types.ts";
@@ -112,6 +114,7 @@ describe("a value a newer engine adds", () => {
   test("types each open enumeration as its values or any other string", () => {
     expectTypeOf<"a_newer_value">().toExtend<OutcomeKind>();
     expectTypeOf<"a_newer_value">().toExtend<SkipReason>();
+    expectTypeOf<"a_newer_value">().toExtend<NotAddedReason>();
     expectTypeOf<"a_newer_value">().toExtend<BlockCause>();
     expectTypeOf<"a_newer_value">().toExtend<CrawlHookStage>();
     expectTypeOf<"a_newer_value">().toExtend<Verdict>();

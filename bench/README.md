@@ -18,3 +18,8 @@ The benchmark harness and its TypeScript targets (ADRs 0025 and 0071), moved fro
   ```sh
   node bench/src/cli.ts run <campaign.json> --proving-ground <address> --out <folder>
   ```
+
+- `src/registry.ts`: decisions and claims (ADR 0025), declared before measuring, as JSON documents in a registry folder's `decisions/` and `claims/`. A decision names its options (each one adapter), its baseline, its primary metric, its contract gates, its minimum effect Δ and its fixed rule; a claim names its decision, metric, comparator, direction and Δ. A campaign's `registry` names the folder and the decisions it measures: the whole registry is checked, and nothing in it may be dated after now, before anything runs (`registry_refused`). The run record keeps what it declared with its dates, so evidence from a run that did not declare a claim, or started before it, is refused. Editorial text carries no measured figure.
+- `src/stats.ts`, `src/verdict.ts` and `src/comparison.ts`: verdicts. Each option is paired with the baseline by block and task, and the per-pair log ratios give one of eight mechanical outcomes from the seeded block bootstrap, with at least five pairs and more when they scatter, Hodges–Lehmann and the exact signed-rank test beside it. A failed contract gate blocks the verdict whatever the effect.
+- `src/statistics.ts`: an attempt set's counts and latencies, the verified rate with its 95% Wilson interval, pass^k, the bound a zero count can claim at its trial count, and Evaluations' regression statistic, in percentage points of verified rate against a baseline (ADR 0065).
+- `src/ledger.ts`: the results ledger, each run beside a person's classification of it, as the lab's.

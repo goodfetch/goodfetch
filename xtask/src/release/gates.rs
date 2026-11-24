@@ -118,8 +118,9 @@ pub(super) fn patch(root: &Path, commit: &str, version: &ProductVersion) -> Resu
 }
 
 /// A stable `x.y.0` is the last candidate's commit plus one commit that only
-/// sets versions, `prepare`'s change, and adds the changelog, the release
-/// notes page in `website/` and `bench/results/<version>/` (ADR 0032).
+/// sets versions, `prepare`'s change and the generated files it changes,
+/// and adds the changelog, the release notes page in `website/` and
+/// `bench/results/<version>/` (ADR 0032).
 fn stable_commit(root: &Path, version: &ProductVersion, commit: &str) -> Result<Vec<Finding>> {
     let commit = git::commit(root, commit)?;
     let parent = git::commit(root, &format!("{commit}^"))?;
@@ -173,6 +174,9 @@ fn stable_commit(root: &Path, version: &ProductVersion, commit: &str) -> Result<
             }
             None => match status {
                 "A" | "M" if path == "CHANGELOG.md" => true,
+                // The release runs `xtask codegen` after `prepare`, and the
+                // pull request's `codegen --check` holds what it wrote.
+                "M" => is_generated(path),
                 "A" if is_site_page(path) => {
                     pages.push(path);
                     continue;
@@ -198,6 +202,15 @@ fn not_allowed(path: &str) -> Finding {
         path,
         "the stable version commit may only set versions and add the changelog, one release notes page and the version's benchmark results (ADR 0032)",
     )
+}
+
+/// Whether `path` is in a `generated/` folder, which only `xtask codegen`
+/// writes.
+fn is_generated(path: &str) -> bool {
+    path.split('/')
+        .rev()
+        .skip(1)
+        .any(|folder| folder == "generated")
 }
 
 /// Whether `path` is a page of the documentation site, which the release

@@ -77,6 +77,8 @@ rusqlite = { workspace = true, features = ["hooks"] }
 rustls = { workspace = true, features = ["ring", "std", "tls12"] }
 # The encrypted local file (`secretfile:`, spec #564).
 age.workspace = true
+# Standard Webhooks' `v1` signatures, HMAC-SHA256 (ADR 0017).
+hmac.workspace = true
 # The OS keychain's API (`keychain:`, ADR 0015); each OS's store is below.
 keyring-core.workspace = true
 # The registrable domain a person adds to `consent.domains` (ADRs 0004 and 0048).

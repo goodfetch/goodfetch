@@ -691,7 +691,7 @@ status = "active"
 
 [[story]]
 id = 88
-title = "As a developer receiving Notifications, I want each delivery signed under Standard Webhooks (HMAC-SHA256 `v1` by default, ed25519 `v1a` as an option, several signatures during a rotation, the run epoch in the signed body), and verification helpers that reject a timestamp more than five minutes off, so that my receiver knows a delivery is genuine (ADR 0017)."
+title = "As a developer receiving Notifications, I want each delivery signed under Standard Webhooks (HMAC-SHA256 `v1` by default, ed25519 `v2a` as an option, several signatures during a rotation, the run epoch in the signed body), and verification helpers that reject a timestamp more than five minutes off, so that my receiver knows a delivery is genuine (ADR 0017)."
 milestone = "M4 Everything else"
 journey = false
 not_journey = "part"

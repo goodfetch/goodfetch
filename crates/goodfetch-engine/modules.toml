@@ -88,6 +88,7 @@ trace = ["entropy", "run_trace"]
 transition = []
 transport = []
 upgrade = ["home", "ledger"]
+webhook_signing = ["hostile_input"]
 wire = []
 
 # Which of `tls`'s own modules may import which.

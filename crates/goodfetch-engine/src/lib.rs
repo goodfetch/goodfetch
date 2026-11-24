@@ -96,6 +96,7 @@ pub mod transition;
 pub mod transport;
 pub mod upgrade;
 mod usage;
+pub mod webhook_signing;
 mod wire;
 
 pub use call_error::{CallError, named};

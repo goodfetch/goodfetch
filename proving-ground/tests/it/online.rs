@@ -1,10 +1,11 @@
 //! The online copy (#168): `serve --copy online` reads its vendors from
 //! `--online-config` and their secrets from the environment, carries each
-//! configured vendor's challenge on `challenges.test`, and verifies each
-//! token on the server side at the vendor's verification endpoint, here a
-//! local stand-in, recording the vendor's own verdict in the observations
+//! configured vendor's challenge on `challenges.test`, and judges each on
+//! the server side, recording the vendor's own verdict in the observations
 //! the oracle reads: passed, failed, or inconclusive when the vendor cannot
-//! say, never a pass.
+//! say, never a pass. A token vendor's endpoint is a local stand-in; the
+//! tests solve ALTCHA's challenges, sign Anubis's cookies and send the
+//! edge's headers as those vendors would.
 
 use std::io::{BufRead as _, BufReader, Read as _, Write as _};
 use std::net::SocketAddr;
@@ -12,9 +13,12 @@ use std::process::{Command, Stdio};
 use std::sync::mpsc::{self, Receiver};
 use std::time::Duration;
 
+use data_encoding::{BASE64, BASE64URL_NOPAD, HEXLOWER};
 use goodfetch_test_support::{LOOPBACK_PORT_0, TestEnv, UNSHAPED, serve_arguments};
+use hmac::{Hmac, Mac as _};
 use rstest::rstest;
 use serde_json::{Value, json};
+use sha2::{Digest as _, Sha256, Sha512};
 
 use crate::proving_ground::ProvingGround;
 
@@ -398,4 +402,300 @@ fn the_online_copy_needs_its_configuration_and_the_local_copy_takes_none() {
 
     assert!(without.contains("--online-config"), "{without}");
     assert!(with.contains("--online-config"), "{with}");
+}
+
+/// ALTCHA's configuration: a small `max_number`, so a test solves fast.
+const ALTCHA: &str = "[altcha]\nsecret_env = \"ALTCHA_KEY\"\nmax_number = 1000\n";
+
+fn hmac_sha256_hex(key: &str, text: &str) -> String {
+    let mut mac = Hmac::<Sha256>::new_from_slice(key.as_bytes()).expect("a key of any length");
+    mac.update(text.as_bytes());
+    HEXLOWER.encode(&mac.finalize().into_bytes())
+}
+
+fn sha256_hex(text: &str) -> String {
+    HEXLOWER.encode(&Sha256::digest(text.as_bytes()))
+}
+
+/// The `altcha` field the widget posts: its solution as base64 JSON.
+fn altcha_payload(challenge: &Value, number: u64) -> String {
+    let solution = json!({
+        "algorithm": challenge["algorithm"],
+        "challenge": challenge["challenge"],
+        "number": number,
+        "salt": challenge["salt"],
+        "signature": challenge["signature"],
+    });
+    BASE64.encode(solution.to_string().as_bytes())
+}
+
+/// Solves an ALTCHA challenge as its widget does: the number whose hash
+/// with the salt is the challenge.
+fn solve(challenge: &Value) -> u64 {
+    let salt = challenge["salt"].as_str().expect("a salt");
+    let target = challenge["challenge"].as_str().expect("a challenge");
+    let most = challenge["maxnumber"].as_u64().expect("a maximum");
+    (0..=most)
+        .find(|number| sha256_hex(&format!("{salt}{number}")) == target)
+        .expect("the challenge has a solution")
+}
+
+/// A challenge the test signs itself with ALTCHA's key, never issued.
+fn forged_challenge(salt: &str, number: u64) -> Value {
+    let challenge = sha256_hex(&format!("{salt}{number}"));
+    json!({
+        "algorithm": "SHA-256",
+        "signature": hmac_sha256_hex("the-key", &challenge),
+        "challenge": challenge,
+        "salt": salt,
+        "maxnumber": 1000,
+    })
+}
+
+fn post_altcha(proving_ground: &ProvingGround, payload: &str) -> u16 {
+    proving_ground
+        .post_form(
+            &proving_ground.url(HOST, "/altcha/verify"),
+            &[("altcha", payload)],
+            None,
+        )
+        .status
+}
+
+/// Covers: story:2-38, story:2-49
+#[test]
+fn an_altcha_challenge_the_copy_issued_and_the_tool_solved_passes_once() {
+    let env = TestEnv::new();
+    let proving_ground = online(&env, ALTCHA, ("ALTCHA_KEY", "the-key"));
+
+    let page = proving_ground.get(&proving_ground.url(HOST, "/altcha"));
+    let challenge = proving_ground
+        .get(&proving_ground.url(HOST, "/altcha/challenge"))
+        .json();
+    let payload = altcha_payload(&challenge, solve(&challenge));
+    let first = post_altcha(&proving_ground, &payload);
+    let replayed = post_altcha(&proving_ground, &payload);
+
+    let signed = challenge["challenge"].as_str().expect("a challenge");
+    assert!(
+        page.body.contains(r#"challengeurl="/altcha/challenge""#),
+        "{}",
+        page.body
+    );
+    assert_eq!(challenge["algorithm"], "SHA-256");
+    assert_eq!(challenge["maxnumber"], 1000);
+    assert_eq!(challenge["signature"], hmac_sha256_hex("the-key", signed));
+    assert_eq!((first, replayed), (200, 200));
+    assert_eq!(
+        verdicts(&proving_ground),
+        json!([
+            { "task": null, "vendor": "altcha", "outcome": "passed" },
+            { "task": null, "vendor": "altcha", "outcome": "failed", "reason": "unknown_challenge" },
+        ])
+    );
+}
+
+/// Covers: story:2-38, story:2-49
+#[rstest]
+#[case::wrong_number("wrong_solution")]
+#[case::another_key("bad_signature")]
+#[case::expired("expired")]
+#[case::never_issued("unknown_challenge")]
+#[case::not_base64("malformed_solution")]
+fn an_altcha_solution_that_does_not_hold_fails(#[case] reason: &str) {
+    let env = TestEnv::new();
+    let proving_ground = online(&env, ALTCHA, ("ALTCHA_KEY", "the-key"));
+    let issued = proving_ground
+        .get(&proving_ground.url(HOST, "/altcha/challenge"))
+        .json();
+    let number = solve(&issued);
+    let payload = match reason {
+        "wrong_solution" => altcha_payload(&issued, number + 1),
+        "bad_signature" => {
+            let mut other = issued.clone();
+            other["signature"] = json!(hmac_sha256_hex("another-key", &sha256_hex("x")));
+            altcha_payload(&other, number)
+        }
+        "expired" => altcha_payload(&forged_challenge("0a1b2c?expires=1", 7), 7),
+        "unknown_challenge" => {
+            let salt = format!("0a1b2c?expires={}", unix_seconds() + 600);
+            altcha_payload(&forged_challenge(&salt, 7), 7)
+        }
+        _ => "not base64!".to_owned(),
+    };
+
+    post_altcha(&proving_ground, &payload);
+
+    assert_eq!(
+        verdicts(&proving_ground),
+        json!([{ "task": null, "vendor": "altcha", "outcome": "failed", "reason": reason }])
+    );
+}
+
+fn unix_seconds() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .expect("a clock after 1970")
+        .as_secs()
+}
+
+/// An HS512 JSON Web Token of `claims`, as Anubis signs its cookie, with
+/// `key` and the header's algorithm `algorithm`.
+fn jwt(key: &str, algorithm: &str, claims: &Value) -> String {
+    let header = BASE64URL_NOPAD.encode(
+        json!({ "alg": algorithm, "typ": "JWT" })
+            .to_string()
+            .as_bytes(),
+    );
+    let payload = BASE64URL_NOPAD.encode(claims.to_string().as_bytes());
+    let mut mac = Hmac::<Sha512>::new_from_slice(key.as_bytes()).expect("a key of any length");
+    mac.update(format!("{header}.{payload}").as_bytes());
+    let signature = BASE64URL_NOPAD.encode(&mac.finalize().into_bytes());
+    format!("{header}.{payload}.{signature}")
+}
+
+/// Covers: story:2-38, story:2-49
+#[rstest]
+#[case::through_anubis("the-key", "HS512", 3600, json!({ "vendor": "anubis", "outcome": "passed" }))]
+#[case::forged("another-key", "HS512", 3600, json!({ "vendor": "anubis", "outcome": "failed", "reason": "invalid_cookie" }))]
+#[case::unsigned("the-key", "none", 3600, json!({ "vendor": "anubis", "outcome": "failed", "reason": "invalid_cookie" }))]
+#[case::expired("the-key", "HS512", -60, json!({ "vendor": "anubis", "outcome": "failed", "reason": "expired_cookie" }))]
+fn anubis_cookie_is_verified_with_its_key_and_expiry(
+    #[case] key: &str,
+    #[case] algorithm: &str,
+    #[case] lifetime: i64,
+    #[case] verdict: Value,
+) {
+    let env = TestEnv::new();
+    let proving_ground = online(
+        &env,
+        "[anubis]\nsecret_env = \"ANUBIS_KEY\"\n",
+        ("ANUBIS_KEY", "the-key"),
+    );
+    let now = i64::try_from(unix_seconds()).expect("a time in range");
+    let cookie = jwt(
+        key,
+        algorithm,
+        &json!({ "challenge": "c", "iat": now, "nbf": now - 60, "exp": now + lifetime }),
+    );
+
+    let page = proving_ground.get_with_cookie(
+        &proving_ground.url(HOST, "/anubis"),
+        Some(&format!("techaro.lol-anubis-auth={cookie}")),
+    );
+
+    let mut expected = json!({ "task": null });
+    expected
+        .as_object_mut()
+        .expect("an object")
+        .extend(verdict.as_object().expect("an object").clone());
+    assert_eq!(page.status, 200);
+    assert_eq!(verdicts(&proving_ground), json!([expected]));
+}
+
+/// Covers: story:2-38, story:2-49
+#[test]
+fn a_request_that_did_not_come_through_anubis_is_inconclusive() {
+    let env = TestEnv::new();
+    let proving_ground = online(
+        &env,
+        "[anubis]\nsecret_env = \"ANUBIS_KEY\"\n",
+        ("ANUBIS_KEY", "the-key"),
+    );
+
+    proving_ground.get(&proving_ground.url(HOST, "/anubis"));
+
+    assert_eq!(
+        verdicts(&proving_ground),
+        json!([{ "task": null, "vendor": "anubis", "outcome": "inconclusive", "reason": "not_through_anubis" }])
+    );
+}
+
+/// The edge vendors, behind the edge whose secret is `the-edge-secret`.
+const EDGE: &str =
+    "[edge]\nsecret_env = \"EDGE_SECRET\"\n\n[cloudflare_bot_score]\n\n[aws_waf]\n\n[botid]\n";
+
+const EDGE_HEADER: &str = "x-proving-ground-edge";
+
+/// Covers: story:2-38, story:2-49
+#[rstest]
+#[case::human_score("cloudflare_bot_score", "x-proving-ground-cf-bot-score", "85", json!({ "outcome": "passed", "score": 85.0 }))]
+#[case::bot_score("cloudflare_bot_score", "x-proving-ground-cf-bot-score", "2", json!({ "outcome": "failed", "score": 2.0, "reason": "score_below_threshold" }))]
+#[case::not_a_score("cloudflare_bot_score", "x-proving-ground-cf-bot-score", "high", json!({ "outcome": "inconclusive", "reason": "malformed_edge_verdict" }))]
+#[case::no_bot_label("aws_waf", "x-amzn-waf-bot-control", "none", json!({ "outcome": "passed" }))]
+#[case::bot_labels("aws_waf", "x-amzn-waf-bot-control", "awswaf:managed:aws:bot-control:signal:automated_browser", json!({ "outcome": "failed", "reason": "awswaf:managed:aws:bot-control:signal:automated_browser" }))]
+#[case::human("botid", "x-proving-ground-botid", "human", json!({ "outcome": "passed" }))]
+#[case::bot("botid", "x-proving-ground-botid", "bot", json!({ "outcome": "failed", "reason": "bot" }))]
+#[case::bypassed("botid", "x-proving-ground-botid", "bypassed", json!({ "outcome": "inconclusive", "reason": "bypassed" }))]
+fn an_edge_vendors_verdict_is_read_from_the_edges_header(
+    #[case] vendor: &str,
+    #[case] header: &str,
+    #[case] value: &str,
+    #[case] verdict: Value,
+) {
+    let env = TestEnv::new();
+    let proving_ground = online(&env, EDGE, ("EDGE_SECRET", "the-edge-secret"));
+
+    let page = proving_ground.get(&proving_ground.url(HOST, &format!("/{vendor}")));
+    let answer = proving_ground.post_form_with_headers(
+        &proving_ground.url(HOST, &format!("/{vendor}/verify")),
+        &[],
+        &[(EDGE_HEADER, "the-edge-secret"), (header, value)],
+    );
+
+    let mut expected = json!({ "task": null, "vendor": vendor });
+    expected
+        .as_object_mut()
+        .expect("an object")
+        .extend(verdict.as_object().expect("an object").clone());
+    assert_eq!((page.status, answer.status), (200, 200));
+    assert_eq!(verdicts(&proving_ground), json!([expected]));
+}
+
+/// Covers: story:2-38, story:2-49
+#[rstest]
+#[case::no_edge_secret(None, Some("85"), "not_from_edge")]
+#[case::wrong_edge_secret(Some("a-guess"), Some("85"), "not_from_edge")]
+#[case::no_verdict(Some("the-edge-secret"), None, "no_edge_verdict")]
+fn an_edge_verdict_the_edge_did_not_send_is_inconclusive(
+    #[case] secret: Option<&str>,
+    #[case] score: Option<&str>,
+    #[case] reason: &str,
+) {
+    let env = TestEnv::new();
+    let proving_ground = online(&env, EDGE, ("EDGE_SECRET", "the-edge-secret"));
+    let headers: Vec<(&str, &str)> = secret
+        .map(|secret| (EDGE_HEADER, secret))
+        .into_iter()
+        .chain(score.map(|score| ("x-proving-ground-cf-bot-score", score)))
+        .collect();
+
+    proving_ground.post_form_with_headers(
+        &proving_ground.url(HOST, "/cloudflare_bot_score/verify"),
+        &[],
+        &headers,
+    );
+
+    assert_eq!(
+        verdicts(&proving_ground),
+        json!([{ "task": null, "vendor": "cloudflare_bot_score", "outcome": "inconclusive", "reason": reason }])
+    );
+}
+
+#[rstest]
+#[case::edge_vendor_without_edge("[botid]\n", "[edge]")]
+#[case::score_outside_cloudflare(
+    "[edge]\nsecret_env = \"EDGE_SECRET\"\n\n[aws_waf]\nmin_score = 30\n",
+    "min_score"
+)]
+fn an_edge_configuration_that_cannot_hold_is_refused_at_the_start(
+    #[case] config: &str,
+    #[case] named: &str,
+) {
+    let env = TestEnv::new();
+    let arguments = online_arguments(&env, config);
+
+    let stderr = refused(&arguments, &[("EDGE_SECRET", "the-edge-secret")]);
+
+    assert!(stderr.contains(named), "{stderr}");
 }

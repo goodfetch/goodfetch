@@ -556,7 +556,13 @@ async fn answer(
                 return model_response(answer).await;
             }
             if let Some(reply) = site
-                .challenge(&parts.method, &host, parts.uri.path(), &body)
+                .challenge(
+                    &parts.method,
+                    &host,
+                    parts.uri.path(),
+                    &parts.headers,
+                    &body,
+                )
                 .await
             {
                 (reply, None)

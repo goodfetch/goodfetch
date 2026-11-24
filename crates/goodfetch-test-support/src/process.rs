@@ -5,6 +5,7 @@
 use std::cell::{RefCell, RefMut};
 use std::fmt;
 use std::io::{self, Read as _};
+use std::path::Path;
 use std::process::{Child, ChildStdout, ExitStatus};
 use std::rc::Rc;
 use std::sync::mpsc;
@@ -43,6 +44,105 @@ impl ProcessTracker {
             }
         }
         alive
+    }
+}
+
+/// How long a process running from a test's home has to end on its own at
+/// teardown before it is killed: one whose stop was asked, such as a Daemon
+/// whose `daemon stop` answered once it released its serving lock, may
+/// still be exiting.
+#[cfg(target_os = "linux")]
+const FROM_HOME_DEADLINE: Duration = Duration::from_secs(5);
+
+/// Kills every process running from `home`, its executable or its working
+/// folder inside it, once [`FROM_HOME_DEADLINE`] passed without it ending,
+/// and returns each one as `<program> (process <pid>, running from the
+/// home)`: a process test support did not start, so not in the record,
+/// such as the Daemon a CLI command starts in a process group of its own
+/// (issue 1797). It reads `/proc`, so it runs on Linux only.
+#[cfg(target_os = "linux")]
+#[expect(
+    clippy::disallowed_methods,
+    reason = "a test helper polls for processes outside any async worker (ADR 0062)"
+)]
+pub(crate) fn stop_running_from(home: &Path) -> Vec<String> {
+    // `/proc` names each path resolved; a home that cannot be is searched
+    // as it is.
+    let home = home.canonicalize().unwrap_or_else(|_| home.to_owned());
+    let mut running = running_from(&home);
+    let mut waited = Duration::ZERO;
+    while !running.is_empty() && waited < FROM_HOME_DEADLINE {
+        std::thread::sleep(STOP_POLL);
+        waited += STOP_POLL;
+        running = running_from(&home);
+    }
+    running
+        .into_iter()
+        .map(|(pid, program)| {
+            // A failed kill is that of one that ended meanwhile; the test
+            // fails either way.
+            let _ = signal_process(pid, "KILL");
+            format!("{program} (process {pid}, running from the home)")
+        })
+        .collect()
+}
+
+#[cfg(not(target_os = "linux"))]
+pub(crate) fn stop_running_from(_home: &Path) -> Vec<String> {
+    Vec::new()
+}
+
+/// Each live process whose executable or working folder lies in `home`,
+/// with its executable's file name, the test's own process aside.
+#[cfg(target_os = "linux")]
+#[expect(
+    clippy::disallowed_methods,
+    reason = "a test helper lists `/proc` outside any async worker (ADR 0062)"
+)]
+fn running_from(home: &Path) -> Vec<(u32, String)> {
+    let Ok(entries) = std::fs::read_dir("/proc") else {
+        return Vec::new();
+    };
+    let own = std::process::id();
+    let mut running: Vec<(u32, String)> = entries
+        .flatten()
+        .filter_map(|entry| {
+            let pid: u32 = entry.file_name().to_str()?.parse().ok()?;
+            // A process that ended, a zombie included, has no executable
+            // to read, nor one of another user.
+            let executable = std::fs::read_link(entry.path().join("exe")).ok()?;
+            let folder = std::fs::read_link(entry.path().join("cwd")).ok();
+            let from_home = executable.starts_with(home)
+                || folder.is_some_and(|folder| folder.starts_with(home));
+            (pid != own && from_home).then(|| {
+                let program = executable
+                    .file_name()
+                    .map_or_else(String::new, |name| name.to_string_lossy().into_owned());
+                (pid, program)
+            })
+        })
+        .collect();
+    running.sort_unstable();
+    running
+}
+
+/// Sends the process `pid` the signal `name` (`TERM`, `KILL`…) through
+/// `kill`.
+#[cfg(unix)]
+#[expect(
+    clippy::disallowed_methods,
+    reason = "a test helper's blocking `kill`, run outside any async worker (ADR 0062)"
+)]
+fn signal_process(pid: u32, name: &str) -> io::Result<()> {
+    let status = std::process::Command::new("kill")
+        .args([format!("-{name}").as_str(), &pid.to_string()])
+        .status()?;
+    if status.success() {
+        Ok(())
+    } else {
+        Err(io::Error::other(format!(
+            "`kill -{name} {pid}` failed: {status}"
+        )))
     }
 }
 
@@ -177,22 +277,9 @@ impl Process {
     }
 
     #[cfg(unix)]
-    #[expect(
-        clippy::disallowed_methods,
-        reason = "a test helper's blocking `kill`, run outside any async worker (ADR 0062)"
-    )]
     fn signal(&self, name: &str) -> io::Result<()> {
-        let pid = self.child().id().to_string();
-        let status = std::process::Command::new("kill")
-            .args([format!("-{name}").as_str(), &pid])
-            .status()?;
-        if status.success() {
-            Ok(())
-        } else {
-            Err(io::Error::other(format!(
-                "`kill -{name} {pid}` failed: {status}"
-            )))
-        }
+        let pid = self.child().id();
+        signal_process(pid, name)
     }
 }
 
@@ -215,7 +302,7 @@ impl fmt::Display for ProcessesAlive {
 }
 
 /// How often [`Process::wait_within`] looks at whether its process has
-/// exited.
+/// exited, and the teardown at whether a process still runs from the home.
 const STOP_POLL: Duration = Duration::from_millis(10);
 
 /// How long `reported_address` waits for the first line.

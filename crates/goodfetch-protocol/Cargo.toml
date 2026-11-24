@@ -13,6 +13,8 @@ publish.workspace = true
 data-encoding.workspace = true
 # The Browser cache entry's RFC 3339 times.
 jiff.workspace = true
+# The registrable domains a Secret placeholder's binding lists (ADR 0092).
+psl.workspace = true
 schemars.workspace = true
 serde.workspace = true
 # A pushed Record's data is kept as the JSON text its program wrote, its

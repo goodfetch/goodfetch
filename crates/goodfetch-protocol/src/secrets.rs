@@ -12,6 +12,8 @@ use crate::catalog::{
 };
 use crate::run::RunId;
 
+pub mod placeholders;
+
 const ARRIVED_IN: ProtocolVersion = ProtocolVersion { major: 0, minor: 1 };
 
 /// What a resolution failed on, which `secret_unavailable` carries.
@@ -455,6 +457,7 @@ pub const ENTRIES: Entries = Entries {
         SECRET_PROVIDERS_GCP_SM_ENDPOINT,
         SECRET_PROVIDERS_AZURE_KV_ENDPOINT,
         SECRET_PROVIDERS_AZURE_KV_AUTHORITY,
+        placeholders::SECRETS_PLACEHOLDERS,
     ],
     hook_stages: &[],
     shared_type_values: &[],

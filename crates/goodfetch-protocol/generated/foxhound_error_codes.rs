@@ -140,10 +140,15 @@ pub const RETRY_REQUESTED: ErrorCode = ErrorCode::from_static("retry_requested")
 /// The sample crawl refused its pages.
 pub const SAMPLE_CRAWL_REFUSED: ErrorCode = ErrorCode::from_static("sample_crawl_refused");
 
+/// `sheet_capacity_exceeded`, in the `program` group, not retryable.
+///
+/// An XLSX Export's one sheet would hold more than Excel opens: more than 1,048,576 rows, the header row included, more than 16,384 columns, or a cell, a column's name included, longer than 32,767 characters, counted in UTF-16 code units as Excel counts them. Nothing was written, and no file is left in the Run's folder. The details name the Dataset, the capacity passed (`rows`, `columns` or `cell_length`), the Dataset's figure and the most a sheet holds. Export the Dataset as `csv`, `jsonl` or `parquet`, which hold any number of rows, columns and characters.
+pub const SHEET_CAPACITY_EXCEEDED: ErrorCode = ErrorCode::from_static("sheet_capacity_exceeded");
+
 /// `staging_full`, in the `program` group, not retryable.
 ///
 /// The call would stage one more admission (an enqueue, an `enqueueLinks` call or a seed added through `ctx.run`) with an attempt that already staged `crawl.max_staged_enqueues` of them, which the attempt holds in the engine's memory until it commits. Nothing was staged. Enqueue many links with one `enqueueLinks` call, or raise the setting, which `limit` names.
 pub const STAGING_FULL: ErrorCode = ErrorCode::from_static("staging_full");
 
 /// Every Error code only Foxhound's catalog carries, in the catalog's order.
-pub const ALL: &[ErrorCode] = &[ATTEMPT_ENDED, BROWSER_REQUIRED, CLIENT_GONE, DATASET_DUPLICATE, DATASET_KEY_INVALID, DATASET_UNKNOWN, EFFECT_STAGING_REFUSED, HANDLER_FAILED, HANDLER_LOST, HOOK_DUPLICATE, HOOK_INEFFECTIVE, HOOK_UNDECLARED, HOOK_UNKNOWN, LABEL_DUPLICATE, LABEL_UNHANDLED, LABEL_UNKNOWN, LEASE_LOST, PAYLOAD_INVALID, PAYLOAD_SCHEMA_CHANGED, QUERY_FAILED, QUERY_INVALID, QUERY_MEMORY_EXCEEDED, RECORD_INVALID, RESPONSE_NOT_DOCUMENT, RESPONSE_NOT_OK, RESPONSE_UNAVAILABLE, RETRY_REQUESTED, SAMPLE_CRAWL_REFUSED, STAGING_FULL];
+pub const ALL: &[ErrorCode] = &[ATTEMPT_ENDED, BROWSER_REQUIRED, CLIENT_GONE, DATASET_DUPLICATE, DATASET_KEY_INVALID, DATASET_UNKNOWN, EFFECT_STAGING_REFUSED, HANDLER_FAILED, HANDLER_LOST, HOOK_DUPLICATE, HOOK_INEFFECTIVE, HOOK_UNDECLARED, HOOK_UNKNOWN, LABEL_DUPLICATE, LABEL_UNHANDLED, LABEL_UNKNOWN, LEASE_LOST, PAYLOAD_INVALID, PAYLOAD_SCHEMA_CHANGED, QUERY_FAILED, QUERY_INVALID, QUERY_MEMORY_EXCEEDED, RECORD_INVALID, RESPONSE_NOT_DOCUMENT, RESPONSE_NOT_OK, RESPONSE_UNAVAILABLE, RETRY_REQUESTED, SAMPLE_CRAWL_REFUSED, SHEET_CAPACITY_EXCEEDED, STAGING_FULL];

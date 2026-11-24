@@ -9,9 +9,11 @@ from enum import StrEnum
 from typing import Annotated, Any, Literal
 
 from goodfetch_collie_client.generated.open_values import (
+    BlockCause,
     CancelledBy,
     Claim,
     ClosedValue,
+    ModelUnavailableReason,
     ReportedHookStage,
     Verdict,
 )
@@ -207,6 +209,80 @@ class AxisReason(BaseModel):
     """What it says, for people."""
 
 
+class BlockedDetails(BaseModel):
+    """
+    What `blocked` details (ADRs 0092 and 0118), their cause Collie's
+    `BlockCause`, or `Cause` as Foxhound reads them
+    (`foxhound::block::BlockedDetails`).
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        arbitrary_types_allowed=True,
+    )
+    cause: BlockCause
+    """
+    The Block cause, kept as received by an SDK that does not know it
+    (ADR 0079).
+    """
+    retry_after: PointInTime | None = None
+    """
+    The time the site's `Retry-After` asks for, in RFC 3339, read in
+    either of its forms; `null` when it asks for none. The engine never
+    waits on it for a program's own navigation.
+    """
+    status: Annotated[int | None, Field(ge=0, le=65535)] = None
+    """
+    Its HTTP status; `null` for a document never fetched, as a crawl
+    request's page reached through a suspected trap link, a decoy a
+    browser tier never opens (ADR 0035).
+    """
+
+
+class BodyNotFoundDetails(BaseModel):
+    """What `body_not_found` details."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    body: str
+    """The body's ID."""
+
+
+class BodyUnavailableDetails(BaseModel):
+    """What `body_unavailable` details."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    request_id: str
+    """The request."""
+
+
+class BrowserExit(BaseModel):
+    """How a browser process ended (ADR 0113)."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    code: int | None = None
+    """Its exit status, when it exited."""
+    signal: int | None = None
+    """The signal that ended it, when one did."""
+
+
+class BrowserLaunchFailedDetails(BaseModel):
+    """What `browser_launch_failed` details."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    executable: str
+    """The browser's executable."""
+    exit: BrowserExit | None = None
+    """How it ended, when it exited before it was ready."""
+
+
 class BrowserName(StrEnum):
     """A browser family, as ADR 0056 names them."""
 
@@ -222,6 +298,14 @@ class BrowserName(StrEnum):
     """Firefox."""
     safari = "safari"
     """Safari."""
+
+
+class BrowserNeedsGuiSessionDetails(BaseModel):
+    """What `browser_needs_gui_session` details."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
 
 
 class CallCancelledDetails(BaseModel):
@@ -298,6 +382,51 @@ class CatalogTarget(RootModel[CatalogTarget1 | CatalogTarget2 | CatalogTarget3])
     """
 
 
+class CdpUrlConnectFailure(StrEnum):
+    """Why nothing at a `cdp_url`'s address answered."""
+
+    name_not_resolved = "name_not_resolved"
+    """The address's name did not resolve."""
+    connection_refused = "connection_refused"
+    """The connection was refused: nothing listens on that port."""
+    connection_reset = "connection_reset"
+    """The connection was reset before an answer."""
+    tls_failed = "tls_failed"
+    """The TLS handshake failed."""
+
+
+class CdpUrlRule(StrEnum):
+    """The rule of ADR 0056's that refused a `cdp_url`'s address."""
+
+    loopback = "loopback"
+    """
+    Loopback, from a value that may not use it: a Client acting for a
+    model's, its project configuration's included, or a Recipe's.
+    """
+    private_address = "private_address"
+    """
+    An address that is not globally reachable, from a value that is not
+    Operator-configured, or under `egress.no_private_endpoints`.
+    """
+
+
+class CertificateChangedDetails(BaseModel):
+    """What `certificate_changed` details."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    host: str
+    """The host, as the URL parser leaves it."""
+    pinned_spki_sha256: str | None = None
+    """
+    The SHA-256 of the pinned key, as `sha256/` and its standard
+    base64; none when its pin row cannot be read.
+    """
+    presented_spki_sha256: str
+    """The SHA-256 of the key the host presented, written the same way."""
+
+
 class CertificateExceptionKind(StrEnum):
     """The kind of an invalid-certificate exception (ADR 0042)."""
 
@@ -368,6 +497,22 @@ class CertsListParams(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+
+
+class ChromeChannel(StrEnum):
+    """
+    A channel of Google Chrome (ADR 0024: an installed Chrome can be named by
+    its channel).
+    """
+
+    stable = "stable"
+    """Chrome."""
+    beta = "beta"
+    """Chrome Beta."""
+    dev = "dev"
+    """Chrome Dev."""
+    canary = "canary"
+    """Chrome Canary."""
 
 
 class Completeness(StrEnum):
@@ -446,6 +591,14 @@ class CpuReading(BaseModel):
     """The Tokio workers' busy time since the last sample, in percent."""
 
 
+class DaemonDrainingDetails(BaseModel):
+    """What `daemon_draining` details."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+
+
 class DaemonEndpoint1(BaseModel):
     """A Unix socket's path."""
 
@@ -489,6 +642,28 @@ class DaemonStopping(BaseModel):
     )
     live_runs: Annotated[int, Field(ge=0)]
     """How many live Runs it stops, each resumable from its own state."""
+
+
+class DaemonUnreachableDetails(BaseModel):
+    """What `daemon_unreachable` details."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+
+
+class DetachUnsupportedDetails(BaseModel):
+    """What `detach_unsupported`'s details hold."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    key: str
+    """
+    What keeps the Run from detaching: `engine`, the Connection's
+    engine, which is no Daemon, or the key of the start that gives the
+    Run a handler in the program.
+    """
 
 
 class DialogAnswered(BaseModel):
@@ -579,6 +754,20 @@ class DownloadSaved(BaseModel):
     `$/chunk` notifications before this answer carried every byte, and
     the SDK writes the path.
     """
+
+
+class EdgeRuntime(StrEnum):
+    """The edge runtime a program runs on (ADR 0049), told by its marker."""
+
+    cloudflare_workers = "cloudflare_workers"
+    """
+    Cloudflare Workers (`workerd`), whose `navigator.userAgent` is
+    `Cloudflare-Workers`.
+    """
+    vercel_edge = "vercel_edge"
+    """Vercel's edge runtime, which sets the `EdgeRuntime` global."""
+    deno_deploy = "deno_deploy"
+    """Deno Deploy, whose environment holds `DENO_DEPLOYMENT_ID`."""
 
 
 class EffectAttempt(BaseModel):
@@ -728,6 +917,20 @@ class EffectOutcome(RootModel[EffectOutcome1 | EffectOutcome2 | EffectOutcome3])
     """How an Effect's body ended."""
 
 
+class EgressRule(StrEnum):
+    """The rule of the egress policy that refused a request."""
+
+    domain_policy = "domain_policy"
+    """
+    `egress.allowed_domains` does not list the host, or
+    `egress.blocked_domains` does, or the request could not be judged.
+    """
+    private_address = "private_address"
+    """The address the connection would use is not globally reachable."""
+    scheme = "scheme"
+    """The URL's scheme is one no request may use."""
+
+
 class ElementState(StrEnum):
     """A state of the element a locator matches (Playwright's `waitFor`)."""
 
@@ -791,6 +994,28 @@ class EndingError(BaseModel):
     """The code's own details."""
     message: str
     """What it says, for people."""
+
+
+class EngineExitedDetails(BaseModel):
+    """
+    The evidence `engine_exited` carries of how the engine ended (ADR
+    0078). Each field is always sent: a linked engine, which runs in the
+    program's own process, has no exit code or signal, both `null`, and no
+    stderr of its own, an empty tail.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    exit_code: int | None = None
+    """
+    The engine's exit code; `null` when a signal ended it, or when it
+    is linked.
+    """
+    signal: str | None = None
+    """The signal that ended it, such as `SIGKILL`."""
+    stderr_tail: str
+    """The last 64 KiB of its stderr, cut where a character starts."""
 
 
 class EngineInfoParams(BaseModel):
@@ -857,6 +1082,16 @@ class Evaluated(BaseModel):
     )
     value: Any | None = None
     """The result as JSON; absent when it was `undefined`."""
+
+
+class ExecutableBlockedBySmartAppControlDetails(BaseModel):
+    """What `executable_blocked_by_smart_app_control` details."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    file: str
+    """The path of the file Windows refused to start."""
 
 
 class FetchTier(StrEnum):
@@ -1032,6 +1267,20 @@ class Form(StrEnum):
     """
 
 
+class FormatVersionUnsupportedDetails(BaseModel):
+    """What `format_version_unsupported` details."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    format: str
+    """The format's name."""
+    found: str
+    """The file's version."""
+    supported: str
+    """The version this engine reads up to."""
+
+
 class GovernorLevel(StrEnum):
     """How loaded the engine is, as its governor judges it."""
 
@@ -1041,6 +1290,29 @@ class GovernorLevel(StrEnum):
     """A reading passed `governor.pressure`: concurrency drops."""
     critical = "critical"
     """Memory passed `governor.critical`, or the host's is critical."""
+
+
+class HeaderCharacter(StrEnum):
+    """A character no header value may hold."""
+
+    cr = "cr"
+    """A carriage return, U+000D."""
+    lf = "lf"
+    """A line feed, U+000A."""
+    nul = "nul"
+    """A NUL, U+0000."""
+
+
+class HeaderValueInvalidDetails(BaseModel):
+    """What `header_value_invalid` details."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    character: HeaderCharacter
+    """The first character its value may not hold."""
+    name: str
+    """The header's name."""
 
 
 class HookFailedDetails(BaseModel):
@@ -1141,6 +1413,44 @@ class InitScriptEnded(BaseModel):
     )
 
 
+class InternalDetails(BaseModel):
+    """
+    What `internal` details: the object whose table refused the event, its
+    state and the event, as the engine names them.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    event: str
+    """The event refused."""
+    object: str
+    """The object, such as `session` or `page`."""
+    state: str
+    """Its state."""
+
+
+class IpFamily(StrEnum):
+    """An IP family."""
+
+    ipv4 = "ipv4"
+    """IPv4."""
+    ipv6 = "ipv6"
+    """IPv6."""
+
+
+class JudgedBy(StrEnum):
+    """
+    What judged a page: the Session's own Page check, or the built-in
+    detector of a Session that declares none (ADR 0006).
+    """
+
+    page_check = "page_check"
+    """The Session's `session.page_check`."""
+    built_in = "built_in"
+    """The built-in detector, whose pages are weakly checked."""
+
+
 class KeyValueStoreAttempt(BaseModel):
     """
     The crawl attempt a Key-value store call is made through: a handler's
@@ -1233,6 +1543,23 @@ class KindUsage(BaseModel):
     """The Usage kind, a value of a type both Products share."""
 
 
+class KnownCertificateFailure(StrEnum):
+    """How a certificate failed verification, as the wire names it."""
+
+    expired = "expired"
+    """Its validity has ended."""
+    not_yet_valid = "not_yet_valid"
+    """Its validity has not begun."""
+    unknown_issuer = "unknown_issuer"
+    """It chains to no authority trusted for the host."""
+    name_mismatch = "name_mismatch"
+    """It does not name the host."""
+    self_signed = "self_signed"
+    """Its own key signed it."""
+    revoked = "revoked"
+    """Its issuer revoked it."""
+
+
 class Lifecycle(StrEnum):
     """Where a Run is (ADR 0029)."""
 
@@ -1247,6 +1574,25 @@ class Lifecycle(StrEnum):
     """It reached its end."""
     failed = "failed"
     """An error in the engine or the program's code ended it."""
+
+
+class LimitRaiseRefusedDetails(BaseModel):
+    """
+    What `limit_raise_refused` details: the Limit a start gave above the
+    Run's Limit as it stands.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    currency: str | None = None
+    """Its currency, an ISO 4217 code; none for a count."""
+    given: Annotated[int, Field(ge=0)]
+    """The amount the start gave."""
+    standing: Annotated[int, Field(ge=0)]
+    """The amount of the Limit as it stands."""
+    usage_kind: str
+    """The Usage kind of the Limit."""
 
 
 class LimitScope(BaseModel):
@@ -1279,6 +1625,17 @@ class LimitSetter(StrEnum):
     """A managed Operator policy."""
     client = "client"
     """A Client, which only adds a Limit of its own."""
+
+
+class LimitSetting(StrEnum):
+    """The setting whose limit a body or JSON passed."""
+
+    network_max_body_size = "network.max_body_size"
+    """`network.max_body_size`."""
+    network_max_decompression_ratio = "network.max_decompression_ratio"
+    """`network.max_decompression_ratio`."""
+    network_max_json_depth = "network.max_json_depth"
+    """`network.max_json_depth`."""
 
 
 class LimitStanding(StrEnum):
@@ -1317,6 +1674,21 @@ class Link(BaseModel):
     """
 
 
+class ListenerEventsLostDetails(BaseModel):
+    """
+    What `listener_events_lost` names: the event the listener took, and how
+    many of them it lost once its queue was full.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    event: str
+    """The event, such as `session.page`."""
+    lost: Annotated[int, Field(ge=0)]
+    """How many of its events the listener lost."""
+
+
 class LoadState(StrEnum):
     """A state the page's document reaches (Playwright's `LoadState`)."""
 
@@ -1330,6 +1702,52 @@ class LoadState(StrEnum):
     for 500 ms since, WebSocket and server-sent-event connections left
     out.
     """
+
+
+class LocalAddressFailure(StrEnum):
+    """Why `egress.local_addresses` yields no usable address."""
+
+    not_held = "not_held"
+    """A listed address is none the host can send from."""
+    unknown_interface = "unknown_interface"
+    """No interface has this name."""
+    interface_without_address = "interface_without_address"
+    """The interface holds no address."""
+    prefix_unusable = "prefix_unusable"
+    """
+    The prefix holds none of the host's addresses, and the host does not
+    let a socket bind any address of it.
+    """
+    not_launched_here = "not_launched_here"
+    """
+    The Session's browser is not one this engine launches on this
+    machine: a Borrowed browser, a third-party CDP browser, or a Browser
+    host's, whose connections no address of this machine can be claimed
+    for (ADRs 0044 and 0056).
+    """
+    proxy_not_relayed = "proxy_not_relayed"
+    """
+    The Session's proxy is one the egress relay does not chain through
+    (an `https://` proxy), so its browser would connect to it from an
+    address the OS chooses.
+    """
+
+
+class LocalAddressUnavailableDetails(BaseModel):
+    """What `local_address_unavailable` details."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    entry: str
+    """
+    The address, interface or prefix that yields nothing, as the
+    setting writes it.
+    """
+    failure: LocalAddressFailure
+    """Why it yields nothing."""
+    setting: str
+    """The setting it comes from: `egress.local_addresses`."""
 
 
 class LogLevel(StrEnum):
@@ -1358,6 +1776,18 @@ class LogLevelSet(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+
+
+class LoggedOutDetails(BaseModel):
+    """What `logged_out` details."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    judged_by: JudgedBy
+    """What judged it a login page."""
+    status: Annotated[int, Field(ge=0, le=65535)]
+    """Its HTTP status."""
 
 
 class MainContent(StrEnum):
@@ -1450,6 +1880,81 @@ class MetaTag(BaseModel):
     """Its `property`, else its `name`, as written, such as `og:title`."""
 
 
+class MissingBrowser2(BaseModel):
+    """An installed Chrome named by its channel."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    channel: ChromeChannel
+    """The channel."""
+    kind: Literal["channel"]
+    looked_in: list[str]
+    """Where the engine looked for it."""
+
+
+class MissingBrowser3(BaseModel):
+    """A browser named by its path."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    kind: Literal["path"]
+    path: str
+    """The path."""
+
+
+class ModelUnavailableDetails(BaseModel):
+    """What `model_unavailable` details (ADR 0101)."""
+
+    model_config = ConfigDict(
+        extra="allow",
+        arbitrary_types_allowed=True,
+    )
+    reason: ModelUnavailableReason
+    """Why the provider could not answer."""
+    retry_after: Annotated[int | None, Field(ge=0)] = None
+    """
+    How long the provider asked to wait before the next call, from its
+    answer's `Retry-After` or its own rate-limit reset: a duration, not a
+    point in time, in whole milliseconds on the wire; `null` when it
+    asked for no wait.
+    """
+
+
+class NameResolver(StrEnum):
+    """Which resolver the engine asked for a name."""
+
+    engine = "engine"
+    """
+    The engine's own resolver, which reads the system's resolver
+    configuration and hosts file and asks its name servers itself.
+    """
+    system = "system"
+    """The operating system's resolver, on macOS and Windows."""
+
+
+class NavigationFailedDetails(BaseModel):
+    """What `navigation_failed` details."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    error: str | None = None
+    """
+    The browser's network error, such as `net::ERR_NAME_NOT_RESOLVED`,
+    when the browser named one.
+    """
+
+
+class NavigationInterruptedDetails(BaseModel):
+    """What `navigation_interrupted` details."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+
+
 class NeedsYouAllowConsentDomainParams(BaseModel):
     """What `needs_you.allow_consent_domain` takes."""
 
@@ -1535,6 +2040,14 @@ class NeedsYouRemoveRefetchDomainParams(BaseModel):
     When only `*` covers the domain in its layer, the registrable
     domains that replace `*` there, the domain itself not among them.
     """
+
+
+class NotADaemonDetails(BaseModel):
+    """What `not_a_daemon` details."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
 
 
 class NotAddedReason(StrEnum):
@@ -1627,6 +2140,24 @@ class NothingDone3(BaseModel):
     reason: Literal["nothing_pending"]
 
 
+class OverloadedBound(StrEnum):
+    """
+    A Connection's own bound on what it holds, as `connection_overloaded`
+    names it.
+    """
+
+    pending_calls = "pending_calls"
+    """
+    `connection.max_pending_calls`: the calls waiting for their answer,
+    sent or queued.
+    """
+    queued_write_bytes = "queued_write_bytes"
+    """
+    `connection.max_queued_write_bytes`: the bytes waiting to be written
+    to the engine.
+    """
+
+
 class PageBodyRead(BaseModel):
     """What `page.body` answers once it sent the last chunk."""
 
@@ -1637,12 +2168,41 @@ class PageBodyRead(BaseModel):
     """The body's size in bytes."""
 
 
+class PageCheckFailedDetails(BaseModel):
+    """What `page_check_failed` details."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    noindex: bool
+    """
+    Whether the document is marked `noindex`, by a `noindex` or `none`
+    directive in its `X-Robots-Tag` header or a robots `meta` element:
+    a crawl takes such a page for a decoy (ADR 0035).
+    """
+    status: Annotated[int, Field(ge=0, le=65535)]
+    """Its HTTP status."""
+
+
 class PageClosed(BaseModel):
     """What `page.close` answers."""
 
     model_config = ConfigDict(
         extra="allow",
     )
+
+
+class PageCrashedDetails(BaseModel):
+    """What `page_crashed` details."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    browser_exit: BrowserExit | None = None
+    """
+    How the browser process ended, when it is what was lost; none for a
+    renderer's crash alone.
+    """
 
 
 class PageEventName(StrEnum):
@@ -1677,9 +2237,73 @@ class PageEventName(StrEnum):
     """`page.popup`."""
 
 
+class PageFunctionFailedDetails(BaseModel):
+    """What `page_function_failed` details."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    message: str
+    """What the page said, or why the engine refused the function."""
+    name: str | None = None
+    """
+    The thrown error's name, such as `ReferenceError`; absent for a
+    thrown value that is no error, and for an expression given an
+    argument.
+    """
+    stack: str | None = None
+    """The page's stack, when it gave one."""
+
+
+class PageHandler(StrEnum):
+    """The handlers a program gives a page, which `page_handler_failed` names."""
+
+    route = "route"
+    """A route's handler."""
+    dialog = "dialog"
+    """A dialog handler."""
+
+
+class PageHandlerFailedDetails(BaseModel):
+    """What `page_handler_failed` details."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    failure: str
+    """What its failure said."""
+    handler: PageHandler
+    """The handler that failed."""
+
+
 class PageId(RootModel[str]):
     root: str
     """A page of a Run, named by the engine when it opens it."""
+
+
+class PageMemoryExceededDetails(BaseModel):
+    """What `page_memory_exceeded` details."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    memory: Annotated[int, Field(ge=0)]
+    """
+    What it held when measured, in bytes: its JavaScript heap and the
+    buffers it held.
+    """
+    page_id: PageId
+    """The page the governor ended."""
+
+
+class PageNavigatedDuringCallDetails(BaseModel):
+    """What `page_navigated_during_call` details."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    navigated_to: str
+    """The document that replaced it."""
 
 
 class PageOnDialogParams(BaseModel):
@@ -1788,6 +2412,51 @@ class PageResponse(BaseModel):
     """Its final URL."""
 
 
+class PageValueDirection(StrEnum):
+    """Which way a value outside JSON was going."""
+
+    result = "result"
+    """The page function's result, checked in the page."""
+    argument = "argument"
+    """Its argument, refused before it is sent."""
+
+
+class PageValueKind(StrEnum):
+    """The kind of a value outside JSON (ADR 0085)."""
+
+    node = "node"
+    """A DOM node, such as an element or a document."""
+    window = "window"
+    """A window, such as `window` itself."""
+    not_a_number = "not_a_number"
+    """`NaN`."""
+    infinity = "infinity"
+    """`Infinity` or `-Infinity`."""
+    bigint = "bigint"
+    """A `BigInt`."""
+    symbol = "symbol"
+    """A `Symbol`."""
+    function = "function"
+    """A function."""
+    cycle = "cycle"
+    """An object reached again inside itself."""
+    map = "map"
+    """A `Map`."""
+    set = "set"
+    """A `Set`."""
+    date = "date"
+    """A `Date`."""
+    regexp = "regexp"
+    """A `RegExp`."""
+    error = "error"
+    """An `Error`."""
+    object = "object"
+    """
+    Any other object whose prototype is not `Object`'s, such as a
+    class's instance, a typed array or a promise inside a result.
+    """
+
+
 class PageWebSocket(BaseModel):
     """
     What `page.web_socket` reports: a WebSocket the page opened, whose
@@ -1803,6 +2472,130 @@ class PageWebSocket(BaseModel):
     """Its URL."""
     web_socket_id: str
     """The browser's ID for the socket, which its events name."""
+
+
+class PanicEnded(StrEnum):
+    """What a panic in the engine ended (ADR 0148)."""
+
+    call = "call"
+    """One call; its Connection goes on."""
+    attempt = "attempt"
+    """One attempt of a crawl."""
+    page = "page"
+    """A Page."""
+    session = "session"
+    """A Session, with its Pages."""
+    browser = "browser"
+    """A browser, treated as crashed."""
+    run = "run"
+    """A Run, which ends `failed`."""
+    connection = "connection"
+    """A Connection, which ends as when its Client goes away."""
+    engine = "engine"
+    """The engine, which stops."""
+
+
+class PathHazard(StrEnum):
+    """What makes a name or path unsafe."""
+
+    parent_traversal = "parent_traversal"
+    """A `..` part, which climbs out of the folder."""
+    absolute = "absolute"
+    """A path from the root."""
+    drive = "drive"
+    """A Windows drive, absolute or drive-relative."""
+    verbatim = "verbatim"
+    """A Windows verbatim path, `\\\\?\\`."""
+    device_namespace = "device_namespace"
+    """A Windows device path, `\\\\.\\`."""
+    unc = "unc"
+    """A Windows UNC path."""
+    reserved_name = "reserved_name"
+    """A name Windows reserves for a device, with or without an extension."""
+    trailing_dot_or_space = "trailing_dot_or_space"
+    """A trailing dot or space, which Windows removes."""
+    alternate_data_stream = "alternate_data_stream"
+    """An NTFS alternate data stream, after a colon."""
+    forbidden_character = "forbidden_character"
+    """A character Windows forbids in a name: `<`, `>`, `"`, `|`, `?` or `*`."""
+    control_character = "control_character"
+    """A control character or a NUL."""
+    normalisation = "normalisation"
+    """
+    A name not in Unicode's composed form (NFC), which APFS opens as the
+    composed name it equals.
+    """
+    overlong = "overlong"
+    """A part longer than the 255 bytes a file system's name holds."""
+    dot_name = "dot_name"
+    """An empty part, or a `.` part."""
+    separator = "separator"
+    """A folder separator where one name alone is taken."""
+
+
+class PathNotWritableDetails(BaseModel):
+    """What `path_not_writable` details (ADR 0116)."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    os_code: str | None = None
+    """The OS's own name for the error, such as `EACCES`, or none."""
+    path: str
+    """The program's path, as given."""
+    reason: str
+    """
+    Why, as Rust's `io::ErrorKind` name in `snake_case`, such as
+    `permission_denied` or `is_a_directory`.
+    """
+
+
+class PathUnsafeDetails(BaseModel):
+    """What `path_unsafe` details."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    hazard: PathHazard
+    """What makes it unsafe."""
+    name: str
+    """The name or path, as given."""
+
+
+class PatternConstruct(StrEnum):
+    """A construct of a URL pattern the engine's matcher cannot read (ADR 0081)."""
+
+    look_around = "look_around"
+    """A regular expression's look-ahead or look-behind, such as `(?=x)`."""
+    backreference = "backreference"
+    """A regular expression's back-reference, such as `\\1`."""
+    nested_braces = "nested_braces"
+    """
+    A glob's `{` inside another `{…}` group, which Playwright refuses
+    too.
+    """
+    unmatched_brace = "unmatched_brace"
+    """
+    A glob's `{` with no `}`, or `}` with no `{`, which Playwright
+    refuses too.
+    """
+    other = "other"
+    """
+    Any other construct outside the `regex` crate's syntax, or a
+    regular expression too large to compile; the message names it.
+    """
+
+
+class PatternUnsupportedDetails(BaseModel):
+    """What `pattern_unsupported` details."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    construct_: Annotated[PatternConstruct, Field(alias="construct")]
+    """The construct the engine cannot read."""
+    pattern: str
+    """The pattern as the call passed it."""
 
 
 class PauseOrigin1(BaseModel):
@@ -1882,6 +2675,19 @@ class Phone(BaseModel):
     """The number as written: its `tel:` link's number, else the text's."""
 
 
+class Pinner2(BaseModel):
+    """An installed Plugin, for the Plugin runtime it uses."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    kind: Literal["plugin"]
+    name: str
+    """The Plugin's name."""
+    version: str
+    """Its version."""
+
+
 class PlanStatus(StrEnum):
     """What became of a Run's new Plan versions (ADR 0091)."""
 
@@ -1910,6 +2716,18 @@ class PluginRun(BaseModel):
     """Its name."""
     network_level: str
     """The network level it ran at."""
+
+
+class PolicyConflictDetails(BaseModel):
+    """What `policy_conflict` details."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    current: str
+    """The file's digest now."""
+    digest: str
+    """The digest the write was made against."""
 
 
 class PolicyReadParams(BaseModel):
@@ -2033,6 +2851,36 @@ class ProtocolVersion(RootModel[str]):
     """A version `major.minor` (ADR 0030)."""
 
 
+class ProtocolVersionUnsupportedDetails(BaseModel):
+    """What `protocol_version_unsupported` details."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    client_protocol_version: ProtocolVersion
+    """The protocol version the Client's `hello` named."""
+    engine_protocol_version: ProtocolVersion
+    """The protocol version the engine speaks."""
+    handover: bool | None = None
+    """
+    Whether the refusing engine is a Daemon handing over to its major's
+    pick, which a Client of the major waits for and connects to (ADR
+    0098).
+    """
+
+
+class ProxyAuthFailedDetails(BaseModel):
+    """What `proxy_auth_failed` details."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    proxy: str
+    """The proxy, `scheme://host:port`, without its credentials."""
+    username: str | None = None
+    """The username the Session gave, if it gave one."""
+
+
 class ProxyKindBytes(BaseModel):
     """The bytes a Run sent and received through proxies of one proxy kind."""
 
@@ -2043,6 +2891,59 @@ class ProxyKindBytes(BaseModel):
     """The bytes."""
     kind: str
     """The proxy kind, such as `residential`."""
+
+
+class ProxyProviderFailure(StrEnum):
+    """What a Proxy provider's failure was, as its adapter read it."""
+
+    quota_exhausted = "quota_exhausted"
+    """The account's traffic quota or balance is spent."""
+    sticky_session_expired = "sticky_session_expired"
+    """The Session's sticky exit is gone."""
+    unrecognized = "unrecognized"
+    """A failure the adapter does not recognize."""
+
+
+class ProxyProviderUnavailableDetails(BaseModel):
+    """What `proxy_provider_unavailable` details."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    failure: ProxyProviderFailure
+    """The failure."""
+    provider: str
+    """The Proxy provider, as `proxy.provider` names it."""
+    proxy: str
+    """The proxy, `scheme://host:port`, without its credentials."""
+
+
+class ProxyRelayUnavailableDetails(BaseModel):
+    """What `proxy_relay_unavailable` details."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    error: str
+    """The local error that kept the relay from opening."""
+    proxy: str
+    """The proxy, `scheme://host:port`, without its credentials."""
+
+
+class ProxyUnavailableDetails(BaseModel):
+    """What `proxy_unavailable` details."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    error: str | None = None
+    """
+    The browser's network error, such as
+    `net::ERR_TUNNEL_CONNECTION_FAILED`, or the proxy's own error its
+    `Proxy-Status` names.
+    """
+    proxy: str
+    """The proxy, `scheme://host:port`, without its credentials."""
 
 
 class PublicSigningKey(BaseModel):
@@ -2111,6 +3012,73 @@ class RecordingReport(BaseModel):
     """How many recorded responses it used."""
     written_by: str | None = None
     """The engine that wrote them."""
+
+
+class RedirectLimit1(BaseModel):
+    """
+    The browser's own count, 20 requests in a navigation's chain, its
+    first included, which a navigation cannot change: it follows 19
+    redirects (ADR 0118).
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    count: Annotated[int, Field(ge=0)]
+    """
+    The requests the chain may hold, its first included: 20, one
+    more than the redirects followed, which `hops` lists.
+    """
+    kind: Literal["browser"]
+
+
+class RedirectLimit2(BaseModel):
+    """A setting, such as `fetch.redirect.max`, at its resolved value."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    count: Annotated[int, Field(ge=0)]
+    """The redirects it allows, the chain's first request left out."""
+    kind: Literal["setting"]
+    name: str
+    """The setting's key."""
+
+
+class RedirectLimit3(BaseModel):
+    """
+    A call's option, such as `page.request`'s `max_redirects`, by its
+    canonical name (ADR 0099).
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    count: Annotated[int, Field(ge=0)]
+    """The redirects it allows, the chain's first request left out."""
+    kind: Literal["option"]
+    name: str
+    """The option's name."""
+
+
+class RedirectLimit(RootModel[RedirectLimit1 | RedirectLimit2 | RedirectLimit3]):
+    root: RedirectLimit1 | RedirectLimit2 | RedirectLimit3
+    """
+    The count of redirects a fetch follows at most, and what set it (ADR
+    0118).
+    """
+
+
+class Refused(StrEnum):
+    """
+    What a `value_invalid` refused: the key itself, or the value given for
+    it.
+    """
+
+    key = "key"
+    """The key."""
+    value_ = "value"
+    """The value."""
 
 
 class Reported(BaseModel):
@@ -2202,6 +3170,23 @@ class Resource(StrEnum):
     """A filesystem the Run writes to."""
 
 
+class ResourcesExhaustedDetails(BaseModel):
+    """What `resources_exhausted` details (ADRs 0040 and 0122)."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    free_bytes: Annotated[int | None, Field(ge=0)] = None
+    """For storage, the space left on that filesystem, in bytes."""
+    path: str | None = None
+    """
+    For storage, the folder on the full filesystem; none where the
+    engine has no folder of its own.
+    """
+    resource: Resource
+    """The resource that ran out."""
+
+
 class ResponseBodyParams(BaseModel):
     """
     What `response.body` takes: the page, the request whose response's
@@ -2222,6 +3207,18 @@ class ResponseBodyParams(BaseModel):
     `null` for none, though an enclosing timeout still applies (ADR
     0080).
     """
+
+
+class ResponseLimitExceededDetails(BaseModel):
+    """What `response_limit_exceeded` details."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    limit: Annotated[int, Field(ge=0)]
+    """The setting's value the body passed."""
+    setting: LimitSetting
+    """The setting whose limit it passed."""
 
 
 class ResponseOrigin1(BaseModel):
@@ -2251,6 +3248,21 @@ class ResponseOrigin2(BaseModel):
 class ResponseOrigin(RootModel[ResponseOrigin1 | ResponseOrigin2]):
     root: ResponseOrigin1 | ResponseOrigin2
     """What answered a Record's request in place of the network."""
+
+
+class ResponseTruncatedDetails(BaseModel):
+    """What `response_truncated` details."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    expected: Annotated[int | None, Field(ge=0)] = None
+    """
+    The bytes its `Content-Length` declared, as sent; none when it
+    declared no length, as a chunked body does not.
+    """
+    received: Annotated[int, Field(ge=0)]
+    """The bytes of its body that arrived, as the browser decoded them."""
 
 
 class RobotsTxtMark(StrEnum):
@@ -2381,9 +3393,57 @@ class RouteRequest(BaseModel):
     """Its URL."""
 
 
+class RunDetails(BaseModel):
+    """
+    What `run_not_found`, `run_in_use`, `run_busy`, `run_not_owned`, `run_live` and
+    `run_state_unavailable` detail.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    path: str | None = None
+    """The Run's folder, when the engine knows it."""
+
+
 class RunId(RootModel[str]):
     root: Annotated[str, Field(pattern="^[a-z0-9]([a-z0-9._-]{0,126}[a-z0-9])?$")]
     """A Run ID (ADR 0036): lowercase letters, digits, `.`, `_` and `-`, starting and ending with a letter or a digit, never a name Windows reserves for a device."""
+
+
+class RunIdInvalidDetails(BaseModel):
+    """What `run_id_invalid` details."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    pattern: str
+    """The pattern a Run ID matches."""
+
+
+class RunInterruptedDetails(BaseModel):
+    """What `run_interrupted`'s details hold."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+
+
+class RunKeyMismatchDetails(BaseModel):
+    """What `run_key_mismatch` details."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    reference: str
+    """The Secret reference the resume resolved."""
+    setting: str
+    """
+    The setting that names the key-encryption key,
+    `run_state.key_reference`.
+    """
+    wrapped_by: str
+    """The Secret reference of the key that wrapped the data key."""
 
 
 class RunKind(StrEnum):
@@ -2597,6 +3657,47 @@ class RunSortKey(StrEnum):
     """Its Completeness."""
 
 
+class RunStateFilesystem(StrEnum):
+    """The kind of filesystem a run folder was refused on (ADR 0049)."""
+
+    nfs = "nfs"
+    """NFS, which EFS, Filestore and Azure Files' NFS shares are."""
+    smb = "smb"
+    """SMB or CIFS, which Azure Files' SMB shares are."""
+    fuse_object_storage = "fuse_object_storage"
+    """
+    A FUSE mount of an object store, such as `s3fs`, Mountpoint for
+    Amazon S3, `gcsfuse` or `BlobFuse`; the message names its tool.
+    """
+
+
+class RunStateFilesystemUnsupportedDetails(BaseModel):
+    """What `run_state_filesystem_unsupported` details."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    filesystem: RunStateFilesystem
+    """The filesystem the folder is on."""
+    path: str
+    """The Run's folder."""
+
+
+class RunStatePosition(BaseModel):
+    """
+    Where a Run's state stands: the run epoch of its last writer, then the
+    journal position within it, compared in that order.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    journal_position: Annotated[int, Field(ge=0)]
+    """How many commits of the run file it holds."""
+    run_epoch: Annotated[int, Field(ge=0)]
+    """The run epoch of the writer whose commits it holds."""
+
+
 class RunStopParams(BaseModel):
     """
     What `run.stop` takes: the Run, and how long the call waits for its
@@ -2615,6 +3716,14 @@ class RunStopParams(BaseModel):
     (ADR 0080). Past it, the call fails with `deadline_exceeded` and the
     Run still stops at its next safe point.
     """
+
+
+class RunTargetUnbuiltDetails(BaseModel):
+    """What `run_target_unbuilt`'s details hold."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
 
 
 class RunTrigger(StrEnum):
@@ -2716,6 +3825,141 @@ class SampleStorePutResult(BaseModel):
     """Whether a value was already kept under the key."""
 
 
+class SandboxEnvironment(StrEnum):
+    """
+    What refuses the user namespace Chromium's sandbox starts in, on a host
+    where a fix exists or the probe does not recognise the refusal (ADR
+    0049).
+    """
+
+    docker_default_seccomp = "docker_default_seccomp"
+    """
+    Docker's or containerd's default seccomp profile, which refuses
+    `CLONE_NEWUSER`.
+    """
+    kubernetes_runtime_default = "kubernetes_runtime_default"
+    """
+    Kubernetes' `RuntimeDefault` seccomp profile, the container
+    runtime's default.
+    """
+    apparmor_userns = "apparmor_userns"
+    """
+    Ubuntu's AppArmor restriction on unprivileged user namespaces, with
+    no profile that gives the browser one.
+    """
+    unknown = "unknown"
+    """
+    A refusal the probe does not recognise, such as
+    `user.max_user_namespaces` at 0; the message names what it met.
+    """
+
+
+class SchemaValidatorFailedDetails(BaseModel):
+    """
+    What `schema_validator_failed` details: the schema, where in the value,
+    and the exception, as `hook_failed`'s details name a Hook's.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    exception_message: str
+    """The exception's message."""
+    exception_type: str
+    """The exception's type name."""
+    path: str | None = None
+    """
+    Where in the value the validator ran, a JSON Pointer (RFC 6901),
+    or none when the library does not say.
+    """
+    schema_: Annotated[str | None, Field(alias="schema")] = None
+    """The schema's JSON Schema `title`, or none when it has none."""
+
+
+class SecretDomainNotAllowedDetails(BaseModel):
+    """What `secret_domain_not_allowed` details."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    domain: str
+    """The host the value would have gone to."""
+    domains: list[str]
+    """The binding's domains."""
+    placeholder: str
+    """The placeholder."""
+    reference: str
+    """The Secret reference."""
+
+
+class SecretFailure(StrEnum):
+    """What a resolution failed on, which `secret_unavailable` carries."""
+
+    missing = "missing"
+    """
+    The provider holds no value for the reference, such as an unset
+    variable.
+    """
+    not_configured = "not_configured"
+    """
+    The engine has no such provider, or its `secret_providers.<scheme>.*`
+    configuration does not let it answer.
+    """
+    provider_failed = "provider_failed"
+    """The provider failed in a way the engine does not know."""
+    resolver_failed = "resolver_failed"
+    """The caller's `resolveSecret` is missing, threw or gave no answer."""
+    timed_out = "timed_out"
+    """The provider gave no answer within `timeout.secret`."""
+    no_code = "no_code"
+    """
+    No one-time code came: a provider made none from the reference,
+    such as a TOTP seed it cannot read, or a code source's code never
+    arrived (ADR 0092).
+    """
+
+
+class SecretInputRefusedReason(StrEnum):
+    """Why a value may not go where it would."""
+
+    invalid_certificate_exception = "invalid_certificate_exception"
+    """
+    The receiving host was reached through an invalid-certificate
+    exception (ADR 0042), so whoever holds its key may not be the site.
+    """
+
+
+class SecretUnavailableDetails(BaseModel):
+    """What `secret_unavailable` details."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    failure: SecretFailure
+    """What failed."""
+    placeholder: str
+    """
+    The Secret placeholder the value was for, or the setting's key where
+    no placeholder names it.
+    """
+    provider: str
+    """The provider, by its scheme, such as `env`."""
+    reference: str
+    """The Secret reference."""
+
+
+class SecretUnboundDetails(BaseModel):
+    """What `secret_unbound` details."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    bound: list[str]
+    """The placeholders the scopes bind, never a value."""
+    placeholder: str
+    """The placeholder no scope binds."""
+
+
 class SeedsKept(BaseModel):
     """How many seeds one reason kept from a handler."""
 
@@ -2729,6 +3973,14 @@ class SeedsKept(BaseModel):
     The reason: an enqueue's not-added reason, a skip reason, an Error
     code or a Block cause.
     """
+
+
+class SessionBoundToMachineDetails(BaseModel):
+    """What `session_bound_to_machine` details."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
 
 
 class SessionClosed(BaseModel):
@@ -3063,6 +4315,36 @@ class SigningKeyDirectoryParams(BaseModel):
     """
 
 
+class SitePreference(StrEnum):
+    """
+    Which of a site's preferences refused a navigation (ADR 0086, as ADR
+    0093 amends it).
+    """
+
+    robots_txt = "robots_txt"
+    """The site's robots.txt disallows the URL."""
+    crawl_delay = "crawl_delay"
+    """
+    The site's robots.txt `Crawl-delay` asks for a wait longer than the
+    crawl allows.
+    """
+    use_signals = "use_signals"
+    """
+    A use signal the site sends (aipref's `Content-Usage` header,
+    `TDMRep`'s headers, RSL's `Link`) refuses the crawl's Purpose.
+    """
+
+
+class SitePreferencesRefusedDetails(BaseModel):
+    """What `site_preferences_refused` details."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    reason: SitePreference
+    """The preference that refused it."""
+
+
 class SitemapRule(BaseModel):
     """
     One rule of a sitemap seed: a URL pattern, a glob as
@@ -3148,6 +4430,19 @@ class SortOrder(StrEnum):
     """Smallest first."""
     descending = "descending"
     """Largest first: the newest first, when sorting by time."""
+
+
+class StartInput(StrEnum):
+    """An input of a start that differs from the Run's."""
+
+    product = "product"
+    """The Product the Run needs."""
+    kind = "kind"
+    """A crawl or a Collie Run."""
+    caller = "caller"
+    """Who started it."""
+    seeds = "seeds"
+    """A crawl's seeds."""
 
 
 class StartedAs(StrEnum):
@@ -3399,6 +4694,36 @@ class Tags(RootModel[list[Tag]]):
     """A Run's tags, in the order given."""
 
 
+class TargetMatch(BaseModel):
+    """One element an ambiguous locator matched."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    element: str
+    """
+    The element as its opening tag and the start of its text, such as
+    `<button id="target">Target</button>`.
+    """
+    locator: str
+    """
+    A locator that reaches it alone, in the caller's language (ADR
+    0079), such as `page.locator('#target').nth(1)`.
+    """
+
+
+class TargetNotUniqueDetails(BaseModel):
+    """What `target_not_unique` details."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    elapsed: Annotated[int, Field(ge=0)]
+    """How long the action waited, in milliseconds."""
+    matches: list[TargetMatch]
+    """Every element it matched at the last observation."""
+
+
 class TierChosen(StrEnum):
     """How the tier of a Record's document was chosen (ADRs 0023 and 0093)."""
 
@@ -3458,6 +4783,31 @@ class TimeRange(BaseModel):
     """Its first point, included."""
     until: PointInTime | None = None
     """The point it ends before, excluded."""
+
+
+class TooManyCallsDetails(BaseModel):
+    """
+    What `too_many_calls` names: how many calls in flight the engine serves
+    on one Connection.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    max: Annotated[int, Field(ge=0)]
+    """How many calls one Connection keeps in flight."""
+
+
+class TooManyRedirectsDetails(BaseModel):
+    """What `too_many_redirects` details."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    hops: list[str]
+    """The URL each redirect followed led to, in order."""
+    limit: RedirectLimit
+    """The count it went past, and what set it."""
 
 
 class UncertainEffect(BaseModel):
@@ -3641,6 +4991,34 @@ class ValueField(BaseModel):
     """Its Value transform: `text` by default."""
 
 
+class ValueInvalidReason(StrEnum):
+    """Why `value_invalid` refused a key or a value."""
+
+    key_empty = "key_empty"
+    """The key is empty."""
+    key_too_long = "key_too_long"
+    """The key holds more than 512 Unicode scalar values."""
+    key_control_character = "key_control_character"
+    """The key holds a control character."""
+    value_null = "value_null"
+    """The value is null, which `get` answers for an absent key."""
+    value_bytes = "value_bytes"
+    """The key holds bytes, which `get_bytes` reads, not `get`."""
+    value_json = "value_json"
+    """The key holds JSON, which `get` reads, not `get_bytes`."""
+    value_not_json = "value_not_json"
+    """
+    The value given holds something that is not JSON, at `path`: the
+    SDK refuses it before sending (ADR 0082).
+    """
+    value_schema = "value_schema"
+    """
+    The value given, or the one stored, is rejected by the Standard
+    Schema the call named, first at `path`: the SDK's own check through
+    the schema's parse (ADR 0082).
+    """
+
+
 class ValueTransform(StrEnum):
     """One of the engine's closed list of Value transforms (ADR 0123)."""
 
@@ -3764,6 +5142,17 @@ class WaitUntil(StrEnum):
     """Once the document fired `DOMContentLoaded`."""
     load = "load"
     """Once the document fired `load`."""
+
+
+class WaitedFor(RootModel[str]):
+    root: str
+    """
+    What a call past its deadline waited for, as `deadline_exceeded` names
+    it: a value of a type both Products share, open as ADR 0099 has such
+    types, so Foxhound adds its own (`goodfetch_protocol::foxhound`'s) and a
+    reader keeps one it does not know. Each of Collie's values is an
+    associated constant.
+    """
 
 
 class WallDomainDenied(BaseModel):
@@ -3902,6 +5291,15 @@ class World(StrEnum):
     """
 
 
+class WriteSide(StrEnum):
+    """Whose storage a write failed on (ADR 0116)."""
+
+    engine = "engine"
+    """Where the engine keeps its files."""
+    program = "program"
+    """The program's machine."""
+
+
 class Actor3(BaseModel):
     """A Client, by the surface its `hello` named."""
 
@@ -3938,6 +5336,18 @@ class AddInitScriptParams(BaseModel):
     """The page."""
 
 
+class AddressFamilyUnavailableDetails(BaseModel):
+    """What `address_family_unavailable` details."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    held: IpFamily
+    """The one family the Session holds a local address of."""
+    name: str
+    """The host name."""
+
+
 class ArtifactId(BaseModel):
     """Which Pinned artifact: its kind, its name and its build."""
 
@@ -3968,6 +5378,16 @@ class BodyHandle(BaseModel):
     """Its size in bytes."""
 
 
+class BrowserSandboxUnavailableDetails(BaseModel):
+    """What `browser_sandbox_unavailable` details."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    environment: SandboxEnvironment
+    """What refuses the sandbox."""
+
+
 class CancelParams(BaseModel):
     """What `$/cancel` names: the call to stop."""
 
@@ -3976,6 +5396,103 @@ class CancelParams(BaseModel):
     )
     id: RequestId
     """The call's id."""
+
+
+class CapabilityUnavailableDetails(BaseModel):
+    """What `capability_unavailable` details."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    key: str
+    """The setting that asks for it."""
+    kind: str
+    """What it asks for, such as a Session source's kind."""
+    layer: SettingsLayer
+    """The layer that set it."""
+
+
+class CdpUrlNotAllowedDetails(BaseModel):
+    """What `cdp_url_not_allowed` details."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    address: str
+    """The address it resolved to that the rule refused."""
+    layer: SettingsLayer
+    """The settings layer that gave it."""
+    rule: CdpUrlRule
+    """The rule that refused it."""
+    setting: str | None = None
+    """
+    The setting that refused it, or whose value would allow it, when one
+    does.
+    """
+
+
+class CdpUrlNotBrowserDetails(BaseModel):
+    """What `cdp_url_not_browser` details."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    browser_url: str | None = None
+    """
+    The browser's address the same host's `/json/version` lists, when
+    it serves one.
+    """
+    layer: SettingsLayer
+    """The settings layer that gave it."""
+
+
+class CdpUrlUnauthorizedDetails(BaseModel):
+    """What `cdp_url_unauthorized` details."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    headers: dict[str, str]
+    """
+    Each header name sent, with the Secret reference its value came
+    from; never the value.
+    """
+    layer: SettingsLayer
+    """The settings layer that gave it."""
+    status: Annotated[int, Field(ge=0, le=65535)]
+    """The status it answered, 401 or 403."""
+
+
+class CdpUrlUnreachableDetails(BaseModel):
+    """What `cdp_url_unreachable` details."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    failure: CdpUrlConnectFailure
+    """Why nothing answered."""
+    layer: SettingsLayer
+    """The settings layer that gave it."""
+
+
+class CertificateFailure(RootModel[KnownCertificateFailure | str]):
+    root: KnownCertificateFailure | str
+    """
+    How a certificate failed verification: a failure the wire names, or
+    another one as text.
+    """
+
+
+class CertificateInvalidDetails(BaseModel):
+    """What `certificate_invalid` details."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    failure: CertificateFailure
+    """How it failed."""
+    host: str
+    """The host whose certificate failed, as the request named it."""
 
 
 class CertificatePin(BaseModel):
@@ -4056,6 +5573,18 @@ class Checkpoint(BaseModel):
     """When it was taken."""
 
 
+class CheckpointBehindDetails(BaseModel):
+    """What `checkpoint_behind` details."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    checkpoint: RunStatePosition
+    """Where the Checkpoint stands."""
+    run_file: RunStatePosition
+    """Where the run file on this machine stands, past the Checkpoint."""
+
+
 class Chunk(BaseModel):
     """What `$/chunk` carries: the next bytes of the body a call reads."""
 
@@ -4121,6 +5650,21 @@ class ConfigExplainParams(BaseModel):
     Run-layer values to explain with, as a Run's `settings` would give
     them.
     """
+
+
+class ConnectionOverloadedDetails(BaseModel):
+    """
+    What `connection_overloaded` names: the Connection's own bound the call
+    would pass, and its value. The Client raises it, never the engine.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    bound: OverloadedBound
+    """The bound reached."""
+    value: Annotated[int, Field(ge=0)]
+    """Its value: a number of calls, or of bytes."""
 
 
 class ConsentDomainAllowed(BaseModel):
@@ -4283,6 +5827,16 @@ class DialogAcceptParams(BaseModel):
     """The text a prompt returns; its default value when absent."""
 
 
+class DialogAlreadyHandledDetails(BaseModel):
+    """What `dialog_already_handled` details."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    dialog_id: DialogId
+    """The dialog answered already."""
+
+
 class DialogDismissParams(BaseModel):
     """What `dialog.dismiss` takes: the dialog."""
 
@@ -4326,6 +5880,16 @@ class DownloadProgress(BaseModel):
     """The bytes received so far."""
     total_bytes: Annotated[int | None, Field(ge=0)] = None
     """The bytes the answer announced, when it did."""
+
+
+class EdgeHandlersUnsupportedDetails(BaseModel):
+    """What `edge_handlers_unsupported` details."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    runtime: EdgeRuntime
+    """The edge runtime the program runs on."""
 
 
 class EffectCloseParams(BaseModel):
@@ -4407,6 +5971,42 @@ class EffectOpenParams(BaseModel):
     """The Run whose Effect journal keeps the Effect."""
 
 
+class EgressRefusedDetails(BaseModel):
+    """What `egress_refused` details."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    address: str | None = None
+    """
+    The address the connection would have used, when the rule judged
+    one.
+    """
+    rule: EgressRule
+    """The rule that refused it."""
+    setting: str | None = None
+    """
+    The setting whose value would allow the request; none when no
+    setting would, as for a URL that does not parse.
+    """
+
+
+class EnclosingCall(BaseModel):
+    """
+    The enclosing call a timeout belongs to, as `deadline_exceeded`'s
+    `ended_by` names it (ADR 0080): the calls made inside a call inherit its
+    end, so none outlasts it.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    call_id: RequestId
+    """Its request's id on its Connection."""
+    operation: str
+    """Its operation, such as `crawl_request.handle`."""
+
+
 class EncodingProvenance(BaseModel):
     """
     The encoding a Record's document was read in, and where it came from
@@ -4439,6 +6039,23 @@ class EngineInfo(BaseModel):
     """The engine's Product version."""
     protocol_version: ProtocolVersion
     """The protocol version the engine speaks."""
+
+
+class EnginePanickedDetails(BaseModel):
+    """
+    What `engine_panicked` details: what ended, never the panic's own text,
+    which stays in the crash report.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    crash_report: str | None = None
+    """The crash report's file name, when one was written."""
+    ended: PanicEnded
+    """What the panic ended."""
+    id: str | None = None
+    """The ID of what ended, when it has one, such as a Run's."""
 
 
 class Enqueued2(BaseModel):
@@ -4566,6 +6183,28 @@ class ExportedAuditEntry(BaseModel):
     """
     time: PointInTime
     """When it was recorded."""
+
+
+class FileWriteFailedDetails(BaseModel):
+    """What `file_write_failed` details."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    os_code: str | None = None
+    """The OS's own name for the error, such as `ENOSPC`, or none."""
+    path: str | None = None
+    """
+    On the engine's side, the folder where it keeps the Run; on the
+    program's, its path as given.
+    """
+    reason: str
+    """
+    Why, as Rust's `io::ErrorKind` name in `snake_case`, such as
+    `storage_full` or `read_only_filesystem`, or `other`.
+    """
+    side: WriteSide
+    """Whose storage failed."""
 
 
 class GotoParams(BaseModel):
@@ -5073,6 +6712,35 @@ class ModelUsage(BaseModel):
     """
 
 
+class NameLookupFailedDetails(BaseModel):
+    """What `name_lookup_failed` details."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    name: str
+    """The host name asked for."""
+    resolver: NameResolver
+    """The resolver whose name servers failed."""
+
+
+class NameNotResolvedDetails(BaseModel):
+    """What `name_not_resolved` details."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    multicast_dns_name: bool
+    """
+    Whether the name is a `.local` name, which multicast DNS answers on
+    most networks and the engine's own resolver never asks it.
+    """
+    name: str
+    """The host name asked for."""
+    resolver: NameResolver
+    """The resolver that found no address."""
+
+
 class Navigated(BaseModel):
     """
     What a navigation answers: the document's response, or none for a
@@ -5209,6 +6877,34 @@ class NewSessionPageParams(BaseModel):
     it; the Session's Access mode, Identity profile and proxy only its
     opening sets.
     """
+
+
+class NotInProductDetails(BaseModel):
+    """What `not_in_product` details."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    handover: bool | None = None
+    """
+    Whether the refusing engine is a Daemon handing over to its major's
+    pick, which a Client of the major waits for and connects to (ADR
+    0098).
+    """
+    install: str | None = None
+    """
+    The command that installs the Product `needs` from the engine's own
+    channel, which `fix` names; none behind Goodfetch Cloud's gateway,
+    where an install would not help (ADR 0096).
+    """
+    needs: Product
+    """The Product that carries what was asked."""
+    product: Product
+    """The running engine's Product."""
+    product_version: ProductVersion
+    """The running engine's Product version."""
+    requested: str | None = None
+    """What was asked, such as an operation's name; `None` for a `hello`."""
 
 
 class NotVerifiedDetails(BaseModel):
@@ -5414,6 +7110,25 @@ class PageRouteParams(BaseModel):
     """The URLs it answers."""
 
 
+class PageValueInvalidDetails(BaseModel):
+    """What `page_value_invalid` details."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    constructor: str | None = None
+    """Its constructor's name, when it has one, such as `HTMLDivElement`."""
+    direction: PageValueDirection
+    """Whether the value was the result or the argument."""
+    kind: PageValueKind
+    """Its kind."""
+    path: str
+    """
+    Where the first value outside JSON is, from `$`, the whole value,
+    such as `$.rows[2].cell`.
+    """
+
+
 class Period(BaseModel):
     """
     The period a Limit counts over, in an explicit IANA time zone, so that
@@ -5427,6 +7142,28 @@ class Period(BaseModel):
     """How long it counts."""
     time_zone: str
     """The IANA time zone its midnights are in, such as `Europe/Paris`."""
+
+
+class Pinner1(BaseModel):
+    """A Product version."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    kind: Literal["product"]
+    name: Product
+    """The Product."""
+    version: ProductVersion
+    """Its Product version."""
+
+
+class Pinner(RootModel[Pinner1 | Pinner2]):
+    root: Pinner1 | Pinner2
+    """
+    What pins an artifact, as an error's details name it, by its `kind`: a
+    Product version, or an installed Plugin that uses a Plugin runtime (ADRs
+    0098 and 0115).
+    """
 
 
 class PlanReport(BaseModel):
@@ -5599,6 +7336,16 @@ class RouteAbortParams(BaseModel):
     """The request."""
 
 
+class RouteAlreadyHandledDetails(BaseModel):
+    """What `route_already_handled` details."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    route_id: RouteId
+    """The request answered already."""
+
+
 class RouteFulfillParams(BaseModel):
     """
     What `route.fulfill` takes: the request, and the response the program
@@ -5738,6 +7485,16 @@ class RunCheckpointing(BaseModel):
     """The run epoch the Checkpoint is taken under."""
     run_id: RunId
     """The Run's ID."""
+
+
+class RunConflictDetails(BaseModel):
+    """What `run_conflict` details."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    differences: list[StartInput]
+    """Each input that differs from the Run's."""
 
 
 class RunDiscarded(BaseModel):
@@ -5902,6 +7659,22 @@ class RunStorage(BaseModel):
     """The level."""
 
 
+class SecretInputRefusedDetails(BaseModel):
+    """What `secret_input_refused` details."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    domain: str
+    """The host the value would have gone to."""
+    placeholder: str
+    """The placeholder."""
+    reason: SecretInputRefusedReason
+    """Why it may not go there."""
+    reference: str
+    """The Secret reference."""
+
+
 class Seed(RootModel[RequestSeed | SitemapSeed]):
     root: RequestSeed | SitemapSeed
     """
@@ -5988,6 +7761,23 @@ class SessionSource(
     """Where a Session's login comes from (ADR 0056): exactly one kind."""
 
 
+class SettingInvalidDetails(BaseModel):
+    """What `setting_invalid` details."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    key: str
+    """
+    The key or variable, or the file's path when the file does not
+    parse.
+    """
+    layer: SettingsLayer | None = None
+    """The layer that held it; `None` for a variable of the environment."""
+    reason: str
+    """What is wrong with it."""
+
+
 class SettingLimit(BaseModel):
     """
     A setting that decided an outcome: its key, its value, the layer that
@@ -6010,6 +7800,44 @@ class SettingLimit(BaseModel):
     """
     value: Any
     """Its value."""
+
+
+class SettingLockedDetails(BaseModel):
+    """What `setting_locked` details."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    key: str
+    """The key."""
+    layer: SettingsLayer
+    """The layer whose value was refused."""
+
+
+class SettingNotApplicableDetails(BaseModel):
+    """What `setting_not_applicable` details."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    key: str
+    """The key."""
+    layer: SettingsLayer
+    """The layer that held it."""
+
+
+class SettingUnknownDetails(BaseModel):
+    """What `setting_unknown` details."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    closest: str | None = None
+    """The closest known key or variable, when one is close."""
+    key: str
+    """The key or variable as written."""
+    layer: SettingsLayer | None = None
+    """The layer that held it; `None` for a variable of the environment."""
 
 
 class SettingsFile(BaseModel):
@@ -6256,6 +8084,25 @@ class UsageSetParams(BaseModel):
     """The Usage kind it caps."""
 
 
+class ValueInvalidDetails(BaseModel):
+    """What `value_invalid` details."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    key: str
+    """The key, as the call gave it."""
+    path: str | None = None
+    """
+    Where in the value the refusal is, a JSON Pointer (RFC 6901), for
+    `value_not_json` and `value_schema`.
+    """
+    reason: ValueInvalidReason
+    """Why."""
+    refused: Refused
+    """Whether the key itself or its value was refused."""
+
+
 class WaitForCountParams(BaseModel):
     """
     What `locator.wait_for_count` takes: the locator and the count its
@@ -6339,6 +8186,94 @@ class AppliedLimit(BaseModel):
     """The Usage kind it caps."""
 
 
+class ArtifactDownloadFailedDetails1(BaseModel):
+    """No answer, or a connection that broke."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    artifact: ArtifactId
+    """The artifact."""
+    host: str
+    """The host it came from, never a full URL."""
+    pinned_by: list[Pinner]
+    """
+    What pins it: the Product version, or for a Plugin's runtime the
+    installed Plugins that use it.
+    """
+    failure: Literal["network"]
+
+
+class ArtifactDownloadFailedDetails2(BaseModel):
+    """An answer other than `200 OK`."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    artifact: ArtifactId
+    """The artifact."""
+    host: str
+    """The host it came from, never a full URL."""
+    pinned_by: list[Pinner]
+    """
+    What pins it: the Product version, or for a Plugin's runtime the
+    installed Plugins that use it.
+    """
+    failure: Literal["http_status"]
+    status: Annotated[int, Field(ge=0, le=65535)]
+    """Its status."""
+
+
+class ArtifactDownloadFailedDetails3(BaseModel):
+    """Bytes whose digest is not the pinned one."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    artifact: ArtifactId
+    """The artifact."""
+    host: str
+    """The host it came from, never a full URL."""
+    pinned_by: list[Pinner]
+    """
+    What pins it: the Product version, or for a Plugin's runtime the
+    installed Plugins that use it.
+    """
+    failure: Literal["digest_mismatch"]
+
+
+class ArtifactDownloadFailedDetails(
+    RootModel[
+        ArtifactDownloadFailedDetails1
+        | ArtifactDownloadFailedDetails2
+        | ArtifactDownloadFailedDetails3
+    ]
+):
+    root: (
+        ArtifactDownloadFailedDetails1
+        | ArtifactDownloadFailedDetails2
+        | ArtifactDownloadFailedDetails3
+    )
+    """What `artifact_download_failed` details."""
+
+
+class ArtifactUnavailableOfflineDetails(BaseModel):
+    """What `artifact_unavailable_offline` details."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    artifact: ArtifactId
+    """The artifact."""
+    cache: str
+    """The Browser cache's path."""
+    pinned_by: list[Pinner]
+    """
+    What pins it: the Product version, or for a Plugin's runtime the
+    installed Plugins that use it.
+    """
+
+
 class AuditExported(BaseModel):
     """What `audit.export` answers."""
 
@@ -6396,6 +8331,24 @@ class ClickParams(BaseModel):
     )
     locator: Locator
     """The locator."""
+
+
+class DeadlineExceededDetails(BaseModel):
+    """What `deadline_exceeded` details."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    elapsed: Annotated[int, Field(ge=0)]
+    """How long the call waited, in milliseconds."""
+    ended_by: EnclosingCall | None = None
+    """
+    The enclosing call whose timeout ended it, when that call's end came
+    before its own (ADR 0080): `limit` is then that call's timeout.
+    Absent when its own timeout ended it.
+    """
+    waited_for: WaitedFor
+    """What it waited for, such as `first_byte` or `navigation`."""
 
 
 class EventBatch(BaseModel):
@@ -6638,6 +8591,19 @@ class Limit(BaseModel):
     """The Usage kind it caps, a value of a type both Products share."""
 
 
+class LimitNotUnderstoodDetails(BaseModel):
+    """
+    What `limit_not_understood` details: the Limit this engine cannot
+    evaluate.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    limit: Limit
+    """The Limit."""
+
+
 class LimitUsage(BaseModel):
     """One Limit with the Usage counted against it in its current period."""
 
@@ -6667,6 +8633,26 @@ class LimitUsage(BaseModel):
     """When the next period starts; none for a Limit without one."""
     standing: LimitStanding
     """What the engine that read it makes of it."""
+
+
+class MissingBrowser1(BaseModel):
+    """A pinned build absent from a cache the engine cannot write."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    artifact: ArtifactId
+    """The build."""
+    cache: str
+    """The Browser cache's path."""
+    kind: Literal["pinned"]
+    pinned_by: list[Pinner]
+    """What pins the build: the Product version alone."""
+
+
+class MissingBrowser(RootModel[MissingBrowser1 | MissingBrowser2 | MissingBrowser3]):
+    root: MissingBrowser1 | MissingBrowser2 | MissingBrowser3
+    """A browser the engine looked for and did not find."""
 
 
 class ModelAllowance(BaseModel):
@@ -7173,6 +9159,16 @@ class UsageListResult(BaseModel):
     )
     limits: list[LimitUsage]
     """Every Limit of the Usage ledger, by scope, with its Usage."""
+
+
+class BrowserNotInstalledDetails(BaseModel):
+    """What `browser_not_installed` details."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    missing: MissingBrowser
+    """What was missing."""
 
 
 class DatasetRecord(BaseModel):

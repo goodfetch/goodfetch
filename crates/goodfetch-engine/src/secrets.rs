@@ -41,6 +41,7 @@ use goodfetch_protocol::audit::{Actor, SECRET_REFERENCE_USED};
 use goodfetch_protocol::page::access_mode::IDENTIFIED_SIGNING_KEY;
 use goodfetch_protocol::run::RunId;
 use goodfetch_protocol::secret_reference::{Provider, SecretReference};
+use goodfetch_protocol::secrets::placeholders::{BoundPlaceholder, SECRETS_PLACEHOLDERS};
 use goodfetch_protocol::secrets::{
     KEY_REFERENCE_IN_FILE, KEY_REFERENCE_IN_KEYCHAIN, RUN_STATE_KEY_REFERENCE,
     SECRETS_RESOLVE_EACH_USE, SecretFailure, SecretInputRefusedReason,
@@ -223,6 +224,28 @@ fn defaults_where(available: bool) -> HostDefaults {
     }
 }
 
+/// The binding `settings`, a scope's, give the Secret placeholder
+/// `placeholder`, nearest winning (ADR 0092).
+///
+/// # Errors
+///
+/// [`SecretError::Unbound`] when no scope binds it, listing the
+/// placeholders bound and never a value.
+pub fn binding(settings: &Resolved, placeholder: &str) -> Result<BoundPlaceholder, SecretError> {
+    let bound = settings
+        .value(&SECRETS_PLACEHOLDERS)
+        .as_object()
+        .expect("invariant: `secrets.placeholders` reads as a table");
+    let Some(binding) = bound.get(placeholder) else {
+        return Err(SecretError::Unbound {
+            placeholder: placeholder.to_owned(),
+            bound: bound.keys().cloned().collect(),
+        });
+    };
+    Ok(BoundPlaceholder::read(binding)
+        .expect("invariant: each layer checked its bindings when it read them"))
+}
+
 /// What a value is resolved for: the name it is used under, where it goes
 /// and the Run it is used in.
 #[derive(Clone, Copy, Debug)]
@@ -247,6 +270,14 @@ pub struct Purpose<'a> {
 #[derive(Debug, thiserror::Error)]
 #[non_exhaustive]
 pub enum SecretError {
+    /// No scope binds the placeholder: `secret_unbound`.
+    #[error("no scope binds the Secret placeholder `{placeholder}`; bind it in `secrets.placeholders` of the connection, the Run or the Session (bound: {})", bound.join(", "))]
+    Unbound {
+        /// The placeholder.
+        placeholder: String,
+        /// The placeholders bound, never a value.
+        bound: Vec<String>,
+    },
     /// The provider gave no value: `secret_unavailable`.
     #[error(
         "the Secret reference `{reference}` for `{placeholder}` gave no value ({}): {fix}",

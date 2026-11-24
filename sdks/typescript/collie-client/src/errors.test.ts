@@ -7,6 +7,7 @@ import { describe, expect, test } from "vitest";
 import { errorOfReply, replyOfError } from "./errors.ts";
 import { isGoodfetchError } from "./goodfetch-error.ts";
 import {
+  ArtifactDownloadFailedError,
   BlockedError,
   CallCancelledError,
   collieErrorClasses,
@@ -14,12 +15,16 @@ import {
   HookFailedError,
   InternalError,
   isCollieError,
+  ModelUnavailableError,
   PageError,
+  PageNavigatedDuringCallError,
   ProgramError,
   SettingInvalidError,
+  type ArtifactDownloadFailedDetails,
   type CallCancelledDetails,
   type ErrorGroup,
   type HookFailedDetails,
+  type PageNavigatedDuringCallDetails,
 } from "./generated/index.ts";
 
 interface CatalogCode {
@@ -221,6 +226,35 @@ describe("errorOfReply", () => {
     }).toEqual({ retryAfter, sent });
   });
 
+  // ADRs 0080 and 0101: `model_unavailable`'s `retry_after` is how long the
+  // Model provider asks to wait, a duration in milliseconds, never a point
+  // in time; `null` when it asks for no wait.
+  test.for([
+    { sent: 1500, retryAfter: 1500 },
+    { sent: null, retryAfter: null },
+    { sent: undefined, retryAfter: null },
+  ])("reads model_unavailable's retry_after $sent as a duration", ({ sent, retryAfter }) => {
+    const error = errorOfReply(
+      {
+        code: -32006,
+        message: "model_unavailable",
+        data: {
+          code: "model_unavailable",
+          retryable: true,
+          reason: "rate_limited",
+          retry_after: sent,
+        },
+      },
+      collieErrorClasses,
+    );
+
+    expect(error).toBeInstanceOf(ModelUnavailableError);
+    expect({
+      retryAfter: error instanceof ModelUnavailableError ? error.retryAfter : "not unavailable",
+      sent: error.details["retry_after"],
+    }).toEqual({ retryAfter, sent });
+  });
+
   // ADRs 0079 and 0113: a call another task stopped reads who stopped it,
   // what closed under it and whom the stopping Client acts for, typed; a
   // value a newer engine names reaches the program unchanged.
@@ -298,6 +332,69 @@ describe("errorOfReply", () => {
     const error = new CallCancelledError("stopped by its program");
 
     expect(error.typedDetails).toBeUndefined();
+  });
+
+  // ADR 0079: a failed download's details read typed, the artifact's pinners
+  // as a list beside the failure its union flattens; its `fix` is the
+  // error's, which every error carries.
+  test("reads artifact_download_failed's pinners typed beside its failure", () => {
+    const error = errorOfReply(
+      {
+        code: -32006,
+        message: "the download of chromium failed",
+        data: {
+          code: "artifact_download_failed",
+          retryable: true,
+          artifact: { kind: "browser", name: "chromium", build: "141.0.7390.54-linux64" },
+          pinned_by: [
+            { kind: "product", name: "collie", version: "0.1.0" },
+            { kind: "plugin", name: "stealth", version: "2.0.0" },
+          ],
+          host: "storage.googleapis.com",
+          fix: "Retry, or install beforehand with `collie browser install`.",
+          failure: "http_status",
+          status: 503,
+        },
+      },
+      collieErrorClasses,
+    );
+
+    const details: Readonly<ArtifactDownloadFailedDetails> | undefined =
+      error instanceof ArtifactDownloadFailedError ? error.typedDetails : undefined;
+    expect(details).toEqual({
+      artifact: { kind: "browser", name: "chromium", build: "141.0.7390.54-linux64" },
+      pinnedBy: [
+        { kind: "product", name: "collie", version: "0.1.0" },
+        { kind: "plugin", name: "stealth", version: "2.0.0" },
+      ],
+      host: "storage.googleapis.com",
+      failure: "http_status",
+      status: 503,
+    });
+    expect(error.fix).toBe("Retry, or install beforehand with `collie browser install`.");
+  });
+
+  // ADR 0079: a page that navigated during a call reads only where it went
+  // as its details; the page it left is the error's `url`.
+  test("reads page_navigated_during_call's details as where the page went", () => {
+    const error = errorOfReply(
+      {
+        code: -32003,
+        message: "the page navigated during the call",
+        data: {
+          code: "page_navigated_during_call",
+          retryable: true,
+          url: "https://example.com/cart",
+          navigated_to: "https://example.com/login",
+        },
+      },
+      collieErrorClasses,
+    );
+
+    const details: Readonly<PageNavigatedDuringCallDetails> | undefined =
+      error instanceof PageNavigatedDuringCallError ? error.typedDetails : undefined;
+    expect(details).toEqual({ navigatedTo: "https://example.com/login" });
+    expect(error.url).toBe("https://example.com/cart");
   });
 
   test("gives an error with no call log an empty one", () => {

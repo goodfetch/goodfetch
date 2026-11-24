@@ -8,7 +8,7 @@ only the seven groups and the codes' classes come from the catalog.
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Protocol, TypedDict, TypeVar
 
 from goodfetch_collie_client.point_in_time import point_in_time
@@ -25,6 +25,7 @@ __all__ = [
     "ErrorClass",
     "ErrorFields",
     "GoodfetchError",
+    "retry_after_duration_of",
     "retry_after_of",
 ]
 
@@ -187,6 +188,20 @@ def retry_after_of(details: Mapping[str, object]) -> datetime | None:
     """
     sent = point_in_time(details.get("retry_after"))
     return sent if isinstance(sent, datetime) else None
+
+
+def retry_after_duration_of(details: Mapping[str, object]) -> timedelta | None:
+    """The duration `details` name as `retry_after`.
+
+    How long a Model provider asks to wait before trying again (ADRs 0080
+    and 0101), sent in milliseconds; `None` when they name none, or a value
+    that is no count of milliseconds. The classes of the codes whose
+    details declare it read their `retry_after` with it.
+    """
+    sent = details.get("retry_after")
+    if isinstance(sent, bool) or not isinstance(sent, int) or sent < 0:
+        return None
+    return timedelta(milliseconds=sent)
 
 
 class ErrorClass(Protocol):

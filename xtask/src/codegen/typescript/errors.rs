@@ -12,7 +12,7 @@ use goodfetch_protocol::catalog::Product;
 use serde_json::Value;
 
 use super::{CLIENT_PACKAGE, HEADER, doc, type_imports, wire};
-use crate::codegen::layer::{ErrorCode, Layer, Stability};
+use crate::codegen::layer::{ErrorCode, Layer, RetryAfter, Stability};
 use crate::codegen::naming::{camel, pascal};
 
 /// The hand-written module of Collie's client package that declares the
@@ -23,6 +23,25 @@ const GOODFETCH_ERROR_MODULE: &str = "../goodfetch-error.ts";
 /// The doc of `retryAfter` on the class of a code whose details name
 /// `retry_after` as a point in time (ADRs 0092 and 0118).
 const RETRY_AFTER_DOC: &str = "  /**\n   * When the site's `Retry-After` asks to be tried again: a point in time in\n   * UTC, not a duration; `null` when it asks for none. The details keep it\n   * as sent, as `retry_after`.\n   */\n";
+
+/// The doc of `retryAfter` on the class of a code whose details name
+/// `retry_after` as a duration (ADR 0101).
+const RETRY_AFTER_DURATION_DOC: &str = "  /**\n   * How long the Model provider asks to wait before trying again: a duration\n   * in milliseconds, not a point in time; `null` when it asks for no wait.\n   * The details keep it as sent, as `retry_after`.\n   */\n";
+
+/// The field and the constructor line that read a code's `retryAfter`, as
+/// `kind` says its details name it.
+fn retry_after(kind: RetryAfter) -> (String, &'static str) {
+    match kind {
+        RetryAfter::PointInTime => (
+            format!("{RETRY_AFTER_DOC}  readonly retryAfter: Date | null;\n\n"),
+            "\n    this.retryAfter = retryAfterOf(fields.details);",
+        ),
+        RetryAfter::Duration => (
+            format!("{RETRY_AFTER_DURATION_DOC}  readonly retryAfter: number | null;\n\n"),
+            "\n    this.retryAfter = retryAfterDurationOf(fields.details);",
+        ),
+    }
+}
 
 fn group_class(group: &str) -> String {
     format!("{}Error", pascal(group))
@@ -43,9 +62,9 @@ struct DetailsReading<'a> {
 }
 
 /// The typed details of `code`'s class, when the catalog names its details
-/// type.
+/// type and the code has a class of its own.
 fn typed_details<'a>(layer: &'a Layer, code: &'a ErrorCode) -> Result<Option<DetailsReading<'a>>> {
-    let Some(name) = code.details.as_ref().map(|name| name.0.as_str()) else {
+    let Some(name) = code.class_details().map(|name| name.0.as_str()) else {
         return Ok(None);
     };
     let through = if wire::converts(layer, name)? {
@@ -116,8 +135,11 @@ pub(super) fn errors(layer: &Layer) -> Result<String> {
                 .map(|code| group_class(&code.group))
                 .collect();
             imported.extend(["isCollieError".to_owned(), "isGoodfetchError".to_owned()]);
-            if layer.reads_retry_after() {
+            if layer.reads_retry_after(RetryAfter::PointInTime) {
                 imported.insert("retryAfterOf".to_owned());
+            }
+            if layer.reads_retry_after(RetryAfter::Duration) {
+                imported.insert("retryAfterDurationOf".to_owned());
             }
             if !detail_types.is_empty() {
                 imported.insert("detailsOf".to_owned());
@@ -140,12 +162,6 @@ pub(super) fn errors(layer: &Layer) -> Result<String> {
         // A code named like its group is raised as its group's class,
         // which every code the registry lacks falls back to.
         if code.name == code.group {
-            if typed.is_some() {
-                bail!(
-                    "`{}` is raised as its group's class, which cannot read its details typed",
-                    code.name
-                );
-            }
             members.push(format!("{group}<{:?}>", code.name));
             continue;
         }
@@ -174,7 +190,7 @@ fn collie_header(layer: &Layer, detail_types: &BTreeSet<String>, wire_import: &s
     let mut text = String::new();
     let _ = write!(
         text,
-        "import {{\n  detailsOf,\n  GoodfetchError,\n  isGoodfetchError,\n  retryAfterOf,\n  type ErrorClass,\n  type ErrorFields,\n  type ErrorIdentity,\n  type ErrorLimit,\n}} from \"{GOODFETCH_ERROR_MODULE}\";\n{}{wire_import}\nexport {{\n  detailsOf,\n  GoodfetchError,\n  isGoodfetchError,\n  retryAfterOf,\n  type ErrorClass,\n  type ErrorFields,\n  type ErrorIdentity,\n  type ErrorLimit,\n}};\n\n/** The seven groups of Error codes, named for their remedy (ADR 0079). */\nexport type ErrorGroup = {};\n",
+        "import {{\n  detailsOf,\n  GoodfetchError,\n  isGoodfetchError,\n  retryAfterDurationOf,\n  retryAfterOf,\n  type ErrorClass,\n  type ErrorFields,\n  type ErrorIdentity,\n  type ErrorLimit,\n}} from \"{GOODFETCH_ERROR_MODULE}\";\n{}{wire_import}\nexport {{\n  detailsOf,\n  GoodfetchError,\n  isGoodfetchError,\n  retryAfterDurationOf,\n  retryAfterOf,\n  type ErrorClass,\n  type ErrorFields,\n  type ErrorIdentity,\n  type ErrorLimit,\n}};\n\n/** The seven groups of Error codes, named for their remedy (ADR 0079). */\nexport type ErrorGroup = {};\n",
         type_imports(layer, detail_types),
         layer
             .error_groups
@@ -217,8 +233,8 @@ fn collie_header(layer: &Layer, detail_types: &BTreeSet<String>, wire_import: &s
 }
 
 /// The class `class` of one Error code, on its group's class `group`, which
-/// reads its `retryAfter` when its details name one as a point in time, and
-/// its `typedDetails` when the catalog names their type.
+/// reads its `retryAfter` when its details name one, as a point in time or
+/// a duration, and its `typedDetails` when the catalog names their type.
 fn error_class(
     code: &ErrorCode,
     typed: Option<&DetailsReading<'_>>,
@@ -228,12 +244,10 @@ fn error_class(
     let mut text = format!("\n{}", doc("", &code.description, Stability::Stable, None));
     let mut field = String::new();
     let mut set = String::new();
-    if code.retry_after_is_point_in_time() {
-        let _ = write!(
-            field,
-            "{RETRY_AFTER_DOC}  readonly retryAfter: Date | null;\n\n"
-        );
-        set.push_str("\n    this.retryAfter = retryAfterOf(fields.details);");
+    if let Some(kind) = code.retry_after() {
+        let (declared, read) = retry_after(kind);
+        field.push_str(&declared);
+        set.push_str(read);
     }
     if let Some(typed) = typed {
         let name = typed.name;

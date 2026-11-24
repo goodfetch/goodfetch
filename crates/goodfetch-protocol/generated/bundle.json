@@ -183,6 +183,26 @@
       ],
       "type": "object"
     },
+    "AddressFamilyUnavailableDetails": {
+      "description": "What `address_family_unavailable` details.",
+      "properties": {
+        "held": {
+          "$ref": "#/$defs/IpFamily",
+          "arrived_in": "0.1",
+          "description": "The one family the Session holds a local address of."
+        },
+        "name": {
+          "arrived_in": "0.1",
+          "description": "The host name.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "held"
+      ],
+      "type": "object"
+    },
     "AllowanceSource": {
       "description": "What set the Memory allowance: the tightest of them (ADR 0040).",
       "oneOf": [
@@ -311,6 +331,91 @@
       ],
       "type": "object"
     },
+    "ArtifactDownloadFailedDetails": {
+      "description": "What `artifact_download_failed` details.",
+      "oneOf": [
+        {
+          "description": "No answer, or a connection that broke.",
+          "properties": {
+            "failure": {
+              "const": "network",
+              "type": "string"
+            }
+          },
+          "required": [
+            "failure"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "An answer other than `200 OK`.",
+          "properties": {
+            "failure": {
+              "const": "http_status",
+              "type": "string"
+            },
+            "status": {
+              "arrived_in": "0.1",
+              "description": "Its status.",
+              "format": "uint16",
+              "maximum": 65535,
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "failure",
+            "status"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Bytes whose digest is not the pinned one.",
+          "properties": {
+            "failure": {
+              "const": "digest_mismatch",
+              "type": "string"
+            }
+          },
+          "required": [
+            "failure"
+          ],
+          "type": "object"
+        }
+      ],
+      "properties": {
+        "artifact": {
+          "$ref": "#/$defs/ArtifactId",
+          "arrived_in": "0.1",
+          "description": "The artifact."
+        },
+        "fix": {
+          "arrived_in": "0.1",
+          "description": "What to do instead.",
+          "type": "string"
+        },
+        "host": {
+          "arrived_in": "0.1",
+          "description": "The host it came from, never a full URL.",
+          "type": "string"
+        },
+        "pinned_by": {
+          "arrived_in": "0.1",
+          "description": "What pins it: the Product version, or for a Plugin's runtime the\ninstalled Plugins that use it.",
+          "items": {
+            "$ref": "#/$defs/Pinner"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "artifact",
+        "pinned_by",
+        "host",
+        "fix"
+      ],
+      "type": "object"
+    },
     "ArtifactId": {
       "description": "Which Pinned artifact: its kind, its name and its build.",
       "properties": {
@@ -371,6 +476,47 @@
           "type": "string"
         }
       ]
+    },
+    "ArtifactUnavailableOfflineDetails": {
+      "description": "What `artifact_unavailable_offline` details.",
+      "properties": {
+        "artifact": {
+          "$ref": "#/$defs/ArtifactId",
+          "arrived_in": "0.1",
+          "description": "The artifact."
+        },
+        "cache": {
+          "arrived_in": "0.1",
+          "description": "The Browser cache's path.",
+          "type": "string"
+        },
+        "fix": {
+          "arrived_in": "0.1",
+          "description": "What to do instead.",
+          "type": "string"
+        },
+        "limit": {
+          "$ref": "#/$defs/SettingLimit",
+          "arrived_in": "0.1",
+          "description": "The setting that refused it: `offline`, its value and its layer."
+        },
+        "pinned_by": {
+          "arrived_in": "0.1",
+          "description": "What pins it: the Product version, or for a Plugin's runtime the\ninstalled Plugins that use it.",
+          "items": {
+            "$ref": "#/$defs/Pinner"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "artifact",
+        "pinned_by",
+        "cache",
+        "limit",
+        "fix"
+      ],
+      "type": "object"
     },
     "Asked": {
       "const": true,
@@ -659,6 +805,47 @@
       ],
       "open": true
     },
+    "BlockedDetails": {
+      "description": "What `blocked` details (ADRs 0092 and 0118), their cause Collie's\n`BlockCause`, or `Cause` as Foxhound reads them\n(`foxhound::block::BlockedDetails`).",
+      "properties": {
+        "cause": {
+          "$ref": "#/$defs/BlockCause",
+          "arrived_in": "0.1",
+          "description": "The Block cause, kept as received by an SDK that does not know it\n(ADR 0079)."
+        },
+        "retry_after": {
+          "arrived_in": "0.1",
+          "default": null,
+          "description": "The time the site's `Retry-After` asks for, in RFC 3339, read in\neither of its forms; `null` when it asks for none. The engine never\nwaits on it for a program's own navigation.",
+          "format": "date-time",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "status": {
+          "arrived_in": "0.1",
+          "description": "Its HTTP status; `null` for a document never fetched, as a crawl\nrequest's page reached through a suspected trap link, a decoy a\nbrowser tier never opens (ADR 0035).",
+          "format": "uint16",
+          "maximum": 65535,
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "url": {
+          "arrived_in": "0.1",
+          "description": "The URL of the document that met it.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "cause",
+        "url"
+      ],
+      "type": "object"
+    },
     "Blocking": {
       "description": "Whether a gate mode's entry ran with Filter-list blocking on or off\n(ADR 0047).",
       "oneOf": [
@@ -706,6 +893,52 @@
         "body",
         "path",
         "size"
+      ],
+      "type": "object"
+    },
+    "BodyNotFoundDetails": {
+      "description": "What `body_not_found` details.",
+      "properties": {
+        "body": {
+          "arrived_in": "0.1",
+          "description": "The body's ID.",
+          "type": "string"
+        },
+        "run_id": {
+          "$ref": "#/$defs/RunId",
+          "arrived_in": "0.1",
+          "description": "The Run."
+        }
+      },
+      "required": [
+        "run_id",
+        "body"
+      ],
+      "type": "object"
+    },
+    "BodyUnavailableDetails": {
+      "description": "What `body_unavailable` details.",
+      "properties": {
+        "fix": {
+          "arrived_in": "0.1",
+          "description": "What keeps a body readable: obtaining the response through\n`page.wait_for_request_finished`, in the caller's spelling.",
+          "type": "string"
+        },
+        "request_id": {
+          "arrived_in": "0.1",
+          "description": "The request.",
+          "type": "string"
+        },
+        "url": {
+          "arrived_in": "0.1",
+          "description": "The response's URL; empty for a request the page never sent.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "url",
+        "request_id",
+        "fix"
       ],
       "type": "object"
     },
@@ -793,6 +1026,30 @@
       ],
       "type": "object"
     },
+    "BrowserExit": {
+      "description": "How a browser process ended (ADR 0113).",
+      "properties": {
+        "code": {
+          "arrived_in": "0.1",
+          "description": "Its exit status, when it exited.",
+          "format": "int32",
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "signal": {
+          "arrived_in": "0.1",
+          "description": "The signal that ended it, when one did.",
+          "format": "int32",
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
     "BrowserInstalled": {
       "description": "What `browser install --json` prints (spec #608).",
       "properties": {
@@ -807,6 +1064,32 @@
       },
       "required": [
         "builds"
+      ],
+      "type": "object"
+    },
+    "BrowserLaunchFailedDetails": {
+      "description": "What `browser_launch_failed` details.",
+      "properties": {
+        "executable": {
+          "arrived_in": "0.1",
+          "description": "The browser's executable.",
+          "type": "string"
+        },
+        "exit": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/BrowserExit"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "How it ended, when it exited before it was ready."
+        }
+      },
+      "required": [
+        "executable"
       ],
       "type": "object"
     },
@@ -844,6 +1127,100 @@
           "type": "string"
         }
       ]
+    },
+    "BrowserNeedsGuiSessionDetails": {
+      "description": "What `browser_needs_gui_session` details.",
+      "properties": {
+        "fix": {
+          "arrived_in": "0.1",
+          "description": "What to do instead: the setting that launches the headless shell.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "fix"
+      ],
+      "type": "object"
+    },
+    "BrowserNotInstalledDetails": {
+      "description": "What `browser_not_installed` details.",
+      "properties": {
+        "fix": {
+          "arrived_in": "0.1",
+          "description": "What to do instead.",
+          "type": "string"
+        },
+        "missing": {
+          "$ref": "#/$defs/MissingBrowser",
+          "arrived_in": "0.1",
+          "description": "What was missing."
+        }
+      },
+      "required": [
+        "missing",
+        "fix"
+      ],
+      "type": "object"
+    },
+    "BrowserRequiredDetails": {
+      "description": "What `browser_required` details (ADR 0093).",
+      "properties": {
+        "call": {
+          "arrived_in": "0.1",
+          "description": "The call the tier cannot serve exactly, by its operation's name, or\nthe setting that judges the request's own document in its place:\n`session.page_check` for a page its markup cannot judge, and\n`fetch.encoding` for one only a guess could decode; or the part of\nthe crawl request the tier cannot send: `crawl_request.method` for\na method other than `GET`, and `crawl_request.body` for a body.",
+          "type": "string"
+        },
+        "fix": {
+          "arrived_in": "0.1",
+          "description": "What serves it: another tier, and for a wait also content the page\nmay simply lack.",
+          "type": "string"
+        },
+        "key": {
+          "arrived_in": "0.1",
+          "description": "The setting that forced the tier: `fetch.tier`.",
+          "type": "string"
+        },
+        "label": {
+          "arrived_in": "0.1",
+          "description": "The Label whose requests it forced, when it was set on one.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "tier": {
+          "$ref": "#/$defs/FetchTier",
+          "arrived_in": "0.1",
+          "description": "The tier it forced."
+        }
+      },
+      "required": [
+        "key",
+        "tier",
+        "call",
+        "fix"
+      ],
+      "type": "object"
+    },
+    "BrowserSandboxUnavailableDetails": {
+      "description": "What `browser_sandbox_unavailable` details.",
+      "properties": {
+        "environment": {
+          "$ref": "#/$defs/SandboxEnvironment",
+          "arrived_in": "0.1",
+          "description": "What refuses the sandbox."
+        },
+        "fix": {
+          "arrived_in": "0.1",
+          "description": "The fix for that environment.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "environment",
+        "fix"
+      ],
+      "type": "object"
     },
     "CallCancelledDetails": {
       "description": "What `call_cancelled` details (ADR 0113).",
@@ -940,6 +1317,38 @@
         "name",
         "outcome",
         "cases"
+      ],
+      "type": "object"
+    },
+    "CapabilityUnavailableDetails": {
+      "description": "What `capability_unavailable` details.",
+      "properties": {
+        "fix": {
+          "arrived_in": "0.1",
+          "description": "The value that does without it.",
+          "type": "string"
+        },
+        "key": {
+          "arrived_in": "0.1",
+          "description": "The setting that asks for it.",
+          "type": "string"
+        },
+        "kind": {
+          "arrived_in": "0.1",
+          "description": "What it asks for, such as a Session source's kind.",
+          "type": "string"
+        },
+        "layer": {
+          "$ref": "#/$defs/SettingsLayer",
+          "arrived_in": "0.1",
+          "description": "The layer that set it."
+        }
+      },
+      "required": [
+        "key",
+        "layer",
+        "kind",
+        "fix"
       ],
       "type": "object"
     },
@@ -1323,6 +1732,242 @@
         }
       ]
     },
+    "CdpUrlConnectFailure": {
+      "description": "Why nothing at a `cdp_url`'s address answered.",
+      "oneOf": [
+        {
+          "const": "name_not_resolved",
+          "description": "The address's name did not resolve.",
+          "type": "string"
+        },
+        {
+          "const": "connection_refused",
+          "description": "The connection was refused: nothing listens on that port.",
+          "type": "string"
+        },
+        {
+          "const": "connection_reset",
+          "description": "The connection was reset before an answer.",
+          "type": "string"
+        },
+        {
+          "const": "tls_failed",
+          "description": "The TLS handshake failed.",
+          "type": "string"
+        }
+      ]
+    },
+    "CdpUrlNotAllowedDetails": {
+      "description": "What `cdp_url_not_allowed` details.",
+      "properties": {
+        "address": {
+          "arrived_in": "0.1",
+          "description": "The address it resolved to that the rule refused.",
+          "type": "string"
+        },
+        "fix": {
+          "arrived_in": "0.1",
+          "description": "What would allow it.",
+          "type": "string"
+        },
+        "layer": {
+          "$ref": "#/$defs/SettingsLayer",
+          "arrived_in": "0.1",
+          "description": "The settings layer that gave it."
+        },
+        "rule": {
+          "$ref": "#/$defs/CdpUrlRule",
+          "arrived_in": "0.1",
+          "description": "The rule that refused it."
+        },
+        "setting": {
+          "arrived_in": "0.1",
+          "description": "The setting that refused it, or whose value would allow it, when one\ndoes.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "url": {
+          "arrived_in": "0.1",
+          "description": "The `cdp_url`, without its query string or any credentials in it.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "url",
+        "layer",
+        "rule",
+        "address",
+        "fix"
+      ],
+      "type": "object"
+    },
+    "CdpUrlNotBrowserDetails": {
+      "description": "What `cdp_url_not_browser` details.",
+      "properties": {
+        "browser_url": {
+          "arrived_in": "0.1",
+          "description": "The browser's address the same host's `/json/version` lists, when\nit serves one.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "fix": {
+          "arrived_in": "0.1",
+          "description": "The address to give instead.",
+          "type": "string"
+        },
+        "layer": {
+          "$ref": "#/$defs/SettingsLayer",
+          "arrived_in": "0.1",
+          "description": "The settings layer that gave it."
+        },
+        "observed": {
+          "arrived_in": "0.1",
+          "description": "What answered: an HTTP status and content type, a WebSocket that\nrefused the upgrade, a CDP target that is not a browser, or a\nproduct the engine does not drive.",
+          "type": "string"
+        },
+        "url": {
+          "arrived_in": "0.1",
+          "description": "The `cdp_url`, without its query string or any credentials in it.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "url",
+        "layer",
+        "observed",
+        "fix"
+      ],
+      "type": "object"
+    },
+    "CdpUrlRule": {
+      "description": "The rule of ADR 0056's that refused a `cdp_url`'s address.",
+      "oneOf": [
+        {
+          "const": "loopback",
+          "description": "Loopback, from a value that may not use it: a Client acting for a\nmodel's, its project configuration's included, or a Recipe's.",
+          "type": "string"
+        },
+        {
+          "const": "private_address",
+          "description": "An address that is not globally reachable, from a value that is not\nOperator-configured, or under `egress.no_private_endpoints`.",
+          "type": "string"
+        }
+      ]
+    },
+    "CdpUrlUnauthorizedDetails": {
+      "description": "What `cdp_url_unauthorized` details.",
+      "properties": {
+        "fix": {
+          "arrived_in": "0.1",
+          "description": "What to check.",
+          "type": "string"
+        },
+        "headers": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "arrived_in": "0.1",
+          "description": "Each header name sent, with the Secret reference its value came\nfrom; never the value.",
+          "type": "object"
+        },
+        "layer": {
+          "$ref": "#/$defs/SettingsLayer",
+          "arrived_in": "0.1",
+          "description": "The settings layer that gave it."
+        },
+        "status": {
+          "arrived_in": "0.1",
+          "description": "The status it answered, 401 or 403.",
+          "format": "uint16",
+          "maximum": 65535,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "url": {
+          "arrived_in": "0.1",
+          "description": "The `cdp_url`, without its query string or any credentials in it.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "url",
+        "layer",
+        "status",
+        "headers",
+        "fix"
+      ],
+      "type": "object"
+    },
+    "CdpUrlUnreachableDetails": {
+      "description": "What `cdp_url_unreachable` details.",
+      "properties": {
+        "failure": {
+          "$ref": "#/$defs/CdpUrlConnectFailure",
+          "arrived_in": "0.1",
+          "description": "Why nothing answered."
+        },
+        "fix": {
+          "arrived_in": "0.1",
+          "description": "What would let it answer.",
+          "type": "string"
+        },
+        "layer": {
+          "$ref": "#/$defs/SettingsLayer",
+          "arrived_in": "0.1",
+          "description": "The settings layer that gave it."
+        },
+        "url": {
+          "arrived_in": "0.1",
+          "description": "The `cdp_url`, without its query string or any credentials in it.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "url",
+        "layer",
+        "failure",
+        "fix"
+      ],
+      "type": "object"
+    },
+    "CertificateChangedDetails": {
+      "description": "What `certificate_changed` details.",
+      "properties": {
+        "fix": {
+          "arrived_in": "0.1",
+          "description": "What a person does to let the host through again.",
+          "type": "string"
+        },
+        "host": {
+          "arrived_in": "0.1",
+          "description": "The host, as the URL parser leaves it.",
+          "type": "string"
+        },
+        "pinned_spki_sha256": {
+          "arrived_in": "0.1",
+          "description": "The SHA-256 of the pinned key, as `sha256/` and its standard\nbase64; none when its pin row cannot be read.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "presented_spki_sha256": {
+          "arrived_in": "0.1",
+          "description": "The SHA-256 of the key the host presented, written the same way.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "host",
+        "presented_spki_sha256",
+        "fix"
+      ],
+      "type": "object"
+    },
     "CertificateExceptionKind": {
       "description": "The kind of an invalid-certificate exception (ADR 0042).",
       "oneOf": [
@@ -1355,6 +2000,45 @@
       "required": [
         "kind",
         "spki_sha256"
+      ],
+      "type": "object"
+    },
+    "CertificateFailure": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/KnownCertificateFailure",
+          "description": "A failure the wire names."
+        },
+        {
+          "description": "Any other failure, as the verifier described it.",
+          "type": "string"
+        }
+      ],
+      "description": "How a certificate failed verification: a failure the wire names, or\nanother one as text."
+    },
+    "CertificateInvalidDetails": {
+      "description": "What `certificate_invalid` details.",
+      "properties": {
+        "failure": {
+          "$ref": "#/$defs/CertificateFailure",
+          "arrived_in": "0.1",
+          "description": "How it failed."
+        },
+        "fix": {
+          "arrived_in": "0.1",
+          "description": "The setting that makes an exception for the host's domain, and\nwhere it is set.",
+          "type": "string"
+        },
+        "host": {
+          "arrived_in": "0.1",
+          "description": "The host whose certificate failed, as the request named it.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "host",
+        "failure",
+        "fix"
       ],
       "type": "object"
     },
@@ -1641,6 +2325,63 @@
         "time"
       ],
       "type": "object"
+    },
+    "CheckpointBehindDetails": {
+      "description": "What `checkpoint_behind` details.",
+      "properties": {
+        "checkpoint": {
+          "$ref": "#/$defs/RunStatePosition",
+          "arrived_in": "0.1",
+          "description": "Where the Checkpoint stands."
+        },
+        "fix": {
+          "arrived_in": "0.1",
+          "description": "What to do: resume without `checkpoint`, or roll back.",
+          "type": "string"
+        },
+        "run_file": {
+          "$ref": "#/$defs/RunStatePosition",
+          "arrived_in": "0.1",
+          "description": "Where the run file on this machine stands, past the Checkpoint."
+        },
+        "run_id": {
+          "$ref": "#/$defs/RunId",
+          "arrived_in": "0.1",
+          "description": "The Run's ID."
+        }
+      },
+      "required": [
+        "run_id",
+        "checkpoint",
+        "run_file",
+        "fix"
+      ],
+      "type": "object"
+    },
+    "ChromeChannel": {
+      "description": "A channel of Google Chrome (ADR 0024: an installed Chrome can be named by\nits channel).",
+      "oneOf": [
+        {
+          "const": "stable",
+          "description": "Chrome.",
+          "type": "string"
+        },
+        {
+          "const": "beta",
+          "description": "Chrome Beta.",
+          "type": "string"
+        },
+        {
+          "const": "dev",
+          "description": "Chrome Dev.",
+          "type": "string"
+        },
+        {
+          "const": "canary",
+          "description": "Chrome Canary.",
+          "type": "string"
+        }
+      ]
     },
     "Chunk": {
       "additionalProperties": false,
@@ -2017,6 +2758,28 @@
         "proving_ground",
         "online",
         "capabilities"
+      ],
+      "type": "object"
+    },
+    "ConnectionOverloadedDetails": {
+      "description": "What `connection_overloaded` names: the Connection's own bound the call\nwould pass, and its value. The Client raises it, never the engine.",
+      "properties": {
+        "bound": {
+          "$ref": "#/$defs/OverloadedBound",
+          "arrived_in": "0.1",
+          "description": "The bound reached."
+        },
+        "value": {
+          "arrived_in": "0.1",
+          "description": "Its value: a number of calls, or of bytes.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "bound",
+        "value"
       ],
       "type": "object"
     },
@@ -3684,6 +4447,20 @@
       ],
       "type": "object"
     },
+    "DaemonDrainingDetails": {
+      "description": "What `daemon_draining` details.",
+      "properties": {
+        "run_id": {
+          "arrived_in": "0.1",
+          "description": "The Run ID of the run refused, when the call named one.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
     "DaemonEndpoint": {
       "description": "Where a Daemon or an Attached engine's private endpoint listens (ADR\n0024): a `0600` Unix socket on macOS and Linux, loopback TCP on\nWindows.",
       "oneOf": [
@@ -3963,6 +4740,20 @@
       },
       "type": "object"
     },
+    "DaemonUnreachableDetails": {
+      "description": "What `daemon_unreachable` details.",
+      "properties": {
+        "fix": {
+          "arrived_in": "0.1",
+          "description": "What to do, such as starting the Daemon `GOODFETCH_URL` names or\nchecking `GOODFETCH_TOKEN`.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "fix"
+      ],
+      "type": "object"
+    },
     "DatasetDeclaration": {
       "additionalProperties": false,
       "description": "One Dataset a crawl declares (ADR 0103): its name, the JSON Schema its\nRecords are checked against, and the top-level fields that identify one\nRecord.",
@@ -3987,6 +4778,86 @@
       },
       "required": [
         "name"
+      ],
+      "type": "object"
+    },
+    "DatasetDuplicateDetails": {
+      "description": "What `dataset_duplicate` details.",
+      "properties": {
+        "dataset": {
+          "arrived_in": "0.1",
+          "description": "The Dataset's name.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "dataset"
+      ],
+      "type": "object"
+    },
+    "DatasetKeyInvalidDetails": {
+      "description": "What `dataset_key_invalid` details.",
+      "oneOf": [
+        {
+          "description": "The key names a field that is no top-level field its schema\nrequires, as the Dataset is declared.",
+          "properties": {
+            "field": {
+              "arrived_in": "0.1",
+              "description": "That field.",
+              "type": "string"
+            },
+            "reason": {
+              "const": "not_required",
+              "type": "string"
+            }
+          },
+          "required": [
+            "reason",
+            "field"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "At a resume, the key of a Dataset that holds Records differs from\nthe one the Run began with.",
+          "properties": {
+            "began_with": {
+              "arrived_in": "0.1",
+              "description": "The key the Run began with.",
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "key": {
+              "arrived_in": "0.1",
+              "description": "The key the crawl declares now.",
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "reason": {
+              "const": "changed",
+              "type": "string"
+            }
+          },
+          "required": [
+            "reason",
+            "key",
+            "began_with"
+          ],
+          "type": "object"
+        }
+      ],
+      "properties": {
+        "dataset": {
+          "arrived_in": "0.1",
+          "description": "The Dataset's name.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "dataset"
       ],
       "type": "object"
     },
@@ -4360,6 +5231,97 @@
       ],
       "type": "object"
     },
+    "DatasetUnknownDetails": {
+      "description": "What `dataset_unknown` details.",
+      "properties": {
+        "dataset": {
+          "arrived_in": "0.1",
+          "description": "The Dataset's name.",
+          "type": "string"
+        },
+        "declared": {
+          "arrived_in": "0.1",
+          "description": "The names of the Datasets the crawl declares, in order.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "dataset",
+        "declared"
+      ],
+      "type": "object"
+    },
+    "DeadlineExceededDetails": {
+      "description": "What `deadline_exceeded` details.",
+      "properties": {
+        "elapsed": {
+          "arrived_in": "0.1",
+          "description": "How long the call waited, in milliseconds.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "ended_by": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/EnclosingCall"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "The enclosing call whose timeout ended it, when that call's end came\nbefore its own (ADR 0080): `limit` is then that call's timeout.\nAbsent when its own timeout ended it."
+        },
+        "limit": {
+          "$ref": "#/$defs/SettingLimit",
+          "arrived_in": "0.1",
+          "description": "The timeout's setting, its value in milliseconds and the layer that\nset it."
+        },
+        "observed": {
+          "arrived_in": "0.1",
+          "description": "The last state seen before it ended, such as a navigation under way\non its page, when the engine saw one.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "waited_for": {
+          "$ref": "#/$defs/WaitedFor",
+          "arrived_in": "0.1",
+          "description": "What it waited for, such as `first_byte` or `navigation`."
+        }
+      },
+      "required": [
+        "limit",
+        "elapsed",
+        "waited_for"
+      ],
+      "type": "object"
+    },
+    "DetachUnsupportedDetails": {
+      "description": "What `detach_unsupported`'s details hold.",
+      "properties": {
+        "fix": {
+          "arrived_in": "0.1",
+          "description": "How to start it detached, or how to start it without `detached`.",
+          "type": "string"
+        },
+        "key": {
+          "arrived_in": "0.1",
+          "description": "What keeps the Run from detaching: `engine`, the Connection's\nengine, which is no Daemon, or the key of the start that gives the\nRun a handler in the program.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "key",
+        "fix"
+      ],
+      "type": "object"
+    },
     "Dialog": {
       "description": "A dialog as its handler sees it.",
       "properties": {
@@ -4406,6 +5368,20 @@
             "string",
             "null"
           ]
+        }
+      },
+      "required": [
+        "dialog_id"
+      ],
+      "type": "object"
+    },
+    "DialogAlreadyHandledDetails": {
+      "description": "What `dialog_already_handled` details.",
+      "properties": {
+        "dialog_id": {
+          "$ref": "#/$defs/DialogId",
+          "arrived_in": "0.1",
+          "description": "The dialog answered already."
         }
       },
       "required": [
@@ -4656,6 +5632,46 @@
         "written"
       ],
       "type": "object"
+    },
+    "EdgeHandlersUnsupportedDetails": {
+      "description": "What `edge_handlers_unsupported` details.",
+      "properties": {
+        "operation": {
+          "arrived_in": "0.1",
+          "description": "The call that asked for the handlers, by its catalog name, such as\n`crawl.start`.",
+          "type": "string"
+        },
+        "runtime": {
+          "$ref": "#/$defs/EdgeRuntime",
+          "arrived_in": "0.1",
+          "description": "The edge runtime the program runs on."
+        }
+      },
+      "required": [
+        "runtime",
+        "operation"
+      ],
+      "type": "object"
+    },
+    "EdgeRuntime": {
+      "description": "The edge runtime a program runs on (ADR 0049), told by its marker.",
+      "oneOf": [
+        {
+          "const": "cloudflare_workers",
+          "description": "Cloudflare Workers (`workerd`), whose `navigator.userAgent` is\n`Cloudflare-Workers`.",
+          "type": "string"
+        },
+        {
+          "const": "vercel_edge",
+          "description": "Vercel's edge runtime, which sets the `EdgeRuntime` global.",
+          "type": "string"
+        },
+        {
+          "const": "deno_deploy",
+          "description": "Deno Deploy, whose environment holds `DENO_DEPLOYMENT_ID`.",
+          "type": "string"
+        }
+      ]
     },
     "EffectAttempt": {
       "additionalProperties": false,
@@ -4950,6 +5966,62 @@
         }
       ]
     },
+    "EgressRefusedDetails": {
+      "description": "What `egress_refused` details.",
+      "properties": {
+        "address": {
+          "arrived_in": "0.1",
+          "description": "The address the connection would have used, when the rule judged\none.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "rule": {
+          "$ref": "#/$defs/EgressRule",
+          "arrived_in": "0.1",
+          "description": "The rule that refused it."
+        },
+        "setting": {
+          "arrived_in": "0.1",
+          "description": "The setting whose value would allow the request; none when no\nsetting would, as for a URL that does not parse.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "url": {
+          "arrived_in": "0.1",
+          "description": "The URL of the request refused, as the run gave it.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "url",
+        "rule"
+      ],
+      "type": "object"
+    },
+    "EgressRule": {
+      "description": "The rule of the egress policy that refused a request.",
+      "oneOf": [
+        {
+          "const": "domain_policy",
+          "description": "`egress.allowed_domains` does not list the host, or\n`egress.blocked_domains` does, or the request could not be judged.",
+          "type": "string"
+        },
+        {
+          "const": "private_address",
+          "description": "The address the connection would use is not globally reachable.",
+          "type": "string"
+        },
+        {
+          "const": "scheme",
+          "description": "The URL's scheme is one no request may use.",
+          "type": "string"
+        }
+      ]
+    },
     "ElementState": {
       "description": "A state of the element a locator matches (Playwright's `waitFor`).",
       "oneOf": [
@@ -4993,6 +6065,26 @@
       "required": [
         "value",
         "text"
+      ],
+      "type": "object"
+    },
+    "EnclosingCall": {
+      "description": "The enclosing call a timeout belongs to, as `deadline_exceeded`'s\n`ended_by` names it (ADR 0080): the calls made inside a call inherit its\nend, so none outlasts it.",
+      "properties": {
+        "call_id": {
+          "$ref": "#/$defs/RequestId",
+          "arrived_in": "0.1",
+          "description": "Its request's id on its Connection."
+        },
+        "operation": {
+          "arrived_in": "0.1",
+          "description": "Its operation, such as `crawl_request.handle`.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "operation",
+        "call_id"
       ],
       "type": "object"
     },
@@ -5083,6 +6175,37 @@
       ],
       "type": "object"
     },
+    "EngineExitedDetails": {
+      "description": "The evidence `engine_exited` carries of how the engine ended (ADR\n0078). Each field is always sent: a linked engine, which runs in the\nprogram's own process, has no exit code or signal, both `null`, and no\nstderr of its own, an empty tail.",
+      "properties": {
+        "exit_code": {
+          "arrived_in": "0.1",
+          "description": "The engine's exit code; `null` when a signal ended it, or when it\nis linked.",
+          "format": "int32",
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "signal": {
+          "arrived_in": "0.1",
+          "description": "The signal that ended it, such as `SIGKILL`.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "stderr_tail": {
+          "arrived_in": "0.1",
+          "description": "The last 64 KiB of its stderr, cut where a character starts.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "stderr_tail"
+      ],
+      "type": "object"
+    },
     "EngineInfo": {
       "description": "What `engine.info` answers.",
       "properties": {
@@ -5132,6 +6255,36 @@
       "description": "One engine process, new each time an engine starts: the positions of its events count within it. A Client compares it for equality only.",
       "minLength": 1,
       "type": "string"
+    },
+    "EnginePanickedDetails": {
+      "description": "What `engine_panicked` details: what ended, never the panic's own text,\nwhich stays in the crash report.",
+      "properties": {
+        "crash_report": {
+          "arrived_in": "0.1",
+          "description": "The crash report's file name, when one was written.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "ended": {
+          "$ref": "#/$defs/PanicEnded",
+          "arrived_in": "0.1",
+          "description": "What the panic ended."
+        },
+        "id": {
+          "arrived_in": "0.1",
+          "description": "The ID of what ended, when it has one, such as a Run's.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "ended"
+      ],
+      "type": "object"
     },
     "EngineStep": {
       "description": "The engine's step that raised a Human pause.",
@@ -5674,6 +6827,20 @@
       "required": [
         "product",
         "version"
+      ],
+      "type": "object"
+    },
+    "ExecutableBlockedBySmartAppControlDetails": {
+      "description": "What `executable_blocked_by_smart_app_control` details.",
+      "properties": {
+        "file": {
+          "arrived_in": "0.1",
+          "description": "The path of the file Windows refused to start.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "file"
       ],
       "type": "object"
     },
@@ -6431,6 +7598,42 @@
         }
       ]
     },
+    "FileWriteFailedDetails": {
+      "description": "What `file_write_failed` details.",
+      "properties": {
+        "os_code": {
+          "arrived_in": "0.1",
+          "description": "The OS's own name for the error, such as `ENOSPC`, or none.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "path": {
+          "arrived_in": "0.1",
+          "description": "On the engine's side, the folder where it keeps the Run; on the\nprogram's, its path as given.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "reason": {
+          "arrived_in": "0.1",
+          "description": "Why, as Rust's `io::ErrorKind` name in `snake_case`, such as\n`storage_full` or `read_only_filesystem`, or `other`.",
+          "type": "string"
+        },
+        "side": {
+          "$ref": "#/$defs/WriteSide",
+          "arrived_in": "0.1",
+          "description": "Whose storage failed."
+        }
+      },
+      "required": [
+        "reason",
+        "side"
+      ],
+      "type": "object"
+    },
     "FilesUpgraded": {
       "description": "What `upgrade-files --json` prints (spec #608): the files of the new\nmajor's copy, by their path in Goodfetch home; every list empty when\nGoodfetch home holds no older major's files.",
       "properties": {
@@ -6595,6 +7798,38 @@
       "description": "A registered format's version, `major.minor` (ADRs 0030 and 0066).",
       "pattern": "^(0|[1-9][0-9]{0,8})\\.(0|[1-9][0-9]{0,8})$",
       "type": "string"
+    },
+    "FormatVersionUnsupportedDetails": {
+      "description": "What `format_version_unsupported` details.",
+      "properties": {
+        "fix": {
+          "arrived_in": "0.1",
+          "description": "What to do: upgrade the engine, or run `upgrade-files`.",
+          "type": "string"
+        },
+        "format": {
+          "arrived_in": "0.1",
+          "description": "The format's name.",
+          "type": "string"
+        },
+        "found": {
+          "arrived_in": "0.1",
+          "description": "The file's version.",
+          "type": "string"
+        },
+        "supported": {
+          "arrived_in": "0.1",
+          "description": "The version this engine reads up to.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "format",
+        "found",
+        "supported",
+        "fix"
+      ],
+      "type": "object"
     },
     "FormatsParams": {
       "additionalProperties": false,
@@ -6829,6 +8064,32 @@
         }
       ]
     },
+    "HandlerFailedDetails": {
+      "description": "What `handler_failed` details: the exception the handler failed with\n(ADR 0109).",
+      "properties": {
+        "exception_message": {
+          "arrived_in": "0.1",
+          "description": "The exception's message.",
+          "type": "string"
+        },
+        "exception_stack": {
+          "arrived_in": "0.1",
+          "description": "The frames of the program's code, as one text; empty from Rust.",
+          "type": "string"
+        },
+        "exception_type": {
+          "arrived_in": "0.1",
+          "description": "The exception's type name: `BoxError` or `panic` from Rust (ADR\n0109).",
+          "type": "string"
+        }
+      },
+      "required": [
+        "exception_type",
+        "exception_message",
+        "exception_stack"
+      ],
+      "type": "object"
+    },
     "HandlerSkip": {
       "additionalProperties": false,
       "description": "A handler's skip of its request: `ctx.skip(message)` (ADR 0093).",
@@ -6841,6 +8102,46 @@
       },
       "required": [
         "message"
+      ],
+      "type": "object"
+    },
+    "HeaderCharacter": {
+      "description": "A character no header value may hold.",
+      "oneOf": [
+        {
+          "const": "cr",
+          "description": "A carriage return, U+000D.",
+          "type": "string"
+        },
+        {
+          "const": "lf",
+          "description": "A line feed, U+000A.",
+          "type": "string"
+        },
+        {
+          "const": "nul",
+          "description": "A NUL, U+0000.",
+          "type": "string"
+        }
+      ]
+    },
+    "HeaderValueInvalidDetails": {
+      "description": "What `header_value_invalid` details.",
+      "properties": {
+        "character": {
+          "$ref": "#/$defs/HeaderCharacter",
+          "arrived_in": "0.1",
+          "description": "The first character its value may not hold."
+        },
+        "name": {
+          "arrived_in": "0.1",
+          "description": "The header's name.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "character"
       ],
       "type": "object"
     },
@@ -7057,6 +8358,26 @@
       ],
       "type": "object"
     },
+    "HookDuplicateDetails": {
+      "description": "What `hook_duplicate` details.",
+      "properties": {
+        "hook": {
+          "arrived_in": "0.1",
+          "description": "The name both Hooks carry.",
+          "type": "string"
+        },
+        "stage": {
+          "arrived_in": "0.1",
+          "description": "The stage of the second Hook, the one refused.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "hook",
+        "stage"
+      ],
+      "type": "object"
+    },
     "HookFailedDetails": {
       "description": "What `hook_failed` details: the Hook, and the exception as\n`handler_failed`'s details name a handler's (ADR 0079's notes of\n2026-10-24 and 2026-10-27).",
       "properties": {
@@ -7108,6 +8429,71 @@
         "exception_type",
         "exception_message",
         "exception_stack"
+      ],
+      "type": "object"
+    },
+    "HookIneffectiveDetails": {
+      "description": "What `hook_ineffective` details.",
+      "properties": {
+        "hook": {
+          "arrived_in": "0.1",
+          "description": "The Hook refused.",
+          "type": "string"
+        },
+        "stage": {
+          "arrived_in": "0.1",
+          "description": "Its stage.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "hook",
+        "stage"
+      ],
+      "type": "object"
+    },
+    "HookUndeclaredDetails": {
+      "description": "What `hook_undeclared` details.",
+      "properties": {
+        "hooks": {
+          "arrived_in": "0.1",
+          "description": "The Hooks in code its run file records, as its crawl declared them:\ntheir names, stages and scopes, never their code.",
+          "items": {
+            "$ref": "#/$defs/CrawlHookDeclaration"
+          },
+          "type": "array"
+        },
+        "run_id": {
+          "$ref": "#/$defs/RunId",
+          "arrived_in": "0.1",
+          "description": "The Run not reopened."
+        }
+      },
+      "required": [
+        "run_id",
+        "hooks"
+      ],
+      "type": "object"
+    },
+    "HookUnknownDetails": {
+      "description": "What `hook_unknown` details.",
+      "properties": {
+        "closest": {
+          "arrived_in": "0.1",
+          "description": "The closest name the crawl's Hooks carry, or none when it has no\nHook.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "hook": {
+          "arrived_in": "0.1",
+          "description": "The name asked for.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "hook"
       ],
       "type": "object"
     },
@@ -7560,6 +8946,72 @@
       ],
       "type": "object"
     },
+    "InternalDetails": {
+      "description": "What `internal` details: the object whose table refused the event, its\nstate and the event, as the engine names them.",
+      "properties": {
+        "event": {
+          "arrived_in": "0.1",
+          "description": "The event refused.",
+          "type": "string"
+        },
+        "object": {
+          "arrived_in": "0.1",
+          "description": "The object, such as `session` or `page`.",
+          "type": "string"
+        },
+        "state": {
+          "arrived_in": "0.1",
+          "description": "Its state.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "object",
+        "state",
+        "event"
+      ],
+      "type": "object"
+    },
+    "InvalidRecord": {
+      "description": "One Record that does not hold for its Dataset, as `record_invalid`\nnames it.",
+      "properties": {
+        "issues": {
+          "arrived_in": "0.1",
+          "description": "Each way it does not hold, at least one.",
+          "items": {
+            "$ref": "#/$defs/RecordIssue"
+          },
+          "type": "array"
+        },
+        "position": {
+          "arrived_in": "0.1",
+          "description": "Its position, from 0, among the Records pushed together, or among\nthose of the handler's answer.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "position",
+        "issues"
+      ],
+      "type": "object"
+    },
+    "IpFamily": {
+      "description": "An IP family.",
+      "oneOf": [
+        {
+          "const": "ipv4",
+          "description": "IPv4.",
+          "type": "string"
+        },
+        {
+          "const": "ipv6",
+          "description": "IPv6.",
+          "type": "string"
+        }
+      ]
+    },
     "Journey": {
       "additionalProperties": false,
       "description": "One Journey: a goal a person reaches through its Product's public\nsurfaces, written as steps from a starting state to an outcome checked\nfrom outside the engine (ADR 0063).",
@@ -7788,6 +9240,21 @@
     "JsonRpcVersion": {
       "const": "2.0",
       "description": "JSON-RPC's version, always \"2.0\"."
+    },
+    "JudgedBy": {
+      "description": "What judged a page: the Session's own Page check, or the built-in\ndetector of a Session that declares none (ADR 0006).",
+      "oneOf": [
+        {
+          "const": "page_check",
+          "description": "The Session's `session.page_check`.",
+          "type": "string"
+        },
+        {
+          "const": "built_in",
+          "description": "The built-in detector, whose pages are weakly checked.",
+          "type": "string"
+        }
+      ]
     },
     "KeyValueStoreAttempt": {
       "additionalProperties": false,
@@ -8148,6 +9615,41 @@
       ],
       "type": "object"
     },
+    "KnownCertificateFailure": {
+      "description": "How a certificate failed verification, as the wire names it.",
+      "oneOf": [
+        {
+          "const": "expired",
+          "description": "Its validity has ended.",
+          "type": "string"
+        },
+        {
+          "const": "not_yet_valid",
+          "description": "Its validity has not begun.",
+          "type": "string"
+        },
+        {
+          "const": "unknown_issuer",
+          "description": "It chains to no authority trusted for the host.",
+          "type": "string"
+        },
+        {
+          "const": "name_mismatch",
+          "description": "It does not name the host.",
+          "type": "string"
+        },
+        {
+          "const": "self_signed",
+          "description": "Its own key signed it.",
+          "type": "string"
+        },
+        {
+          "const": "revoked",
+          "description": "Its issuer revoked it.",
+          "type": "string"
+        }
+      ]
+    },
     "LabelDeclaration": {
       "additionalProperties": false,
       "description": "One Label a crawl declares (ADRs 0082 and 0093): its Payload's schema\nand the settings its requests take over the Run's.",
@@ -8163,6 +9665,29 @@
           "type": "object"
         }
       },
+      "type": "object"
+    },
+    "LabelUnknownDetails": {
+      "description": "What `label_unknown` details.",
+      "properties": {
+        "declared": {
+          "arrived_in": "0.1",
+          "description": "The names of the Labels the crawl declares, in order.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "label": {
+          "arrived_in": "0.1",
+          "description": "The Label's name.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "label",
+        "declared"
+      ],
       "type": "object"
     },
     "LastRead": {
@@ -8367,6 +9892,58 @@
       ],
       "type": "object"
     },
+    "LimitNotUnderstoodDetails": {
+      "description": "What `limit_not_understood` details: the Limit this engine cannot\nevaluate.",
+      "properties": {
+        "limit": {
+          "$ref": "#/$defs/Limit",
+          "arrived_in": "0.1",
+          "description": "The Limit."
+        }
+      },
+      "required": [
+        "limit"
+      ],
+      "type": "object"
+    },
+    "LimitRaiseRefusedDetails": {
+      "description": "What `limit_raise_refused` details: the Limit a start gave above the\nRun's Limit as it stands.",
+      "properties": {
+        "currency": {
+          "arrived_in": "0.1",
+          "description": "Its currency, an ISO 4217 code; none for a count.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "given": {
+          "arrived_in": "0.1",
+          "description": "The amount the start gave.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "standing": {
+          "arrived_in": "0.1",
+          "description": "The amount of the Limit as it stands.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "usage_kind": {
+          "arrived_in": "0.1",
+          "description": "The Usage kind of the Limit.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "usage_kind",
+        "given",
+        "standing"
+      ],
+      "type": "object"
+    },
     "LimitScope": {
       "description": "What a Limit is on: a scope kind, a value of a type both Products share\n(`install`, `daemon`, `person`, `token`, `connection`, and Foxhound's\n`partitioned_crawl`), and which one of its kind (ADR 0041). A kind this\nreader does not know is kept as it is.",
       "properties": {
@@ -8403,6 +9980,26 @@
         {
           "const": "client",
           "description": "A Client, which only adds a Limit of its own.",
+          "type": "string"
+        }
+      ]
+    },
+    "LimitSetting": {
+      "description": "The setting whose limit a body or JSON passed.",
+      "oneOf": [
+        {
+          "const": "network.max_body_size",
+          "description": "`network.max_body_size`.",
+          "type": "string"
+        },
+        {
+          "const": "network.max_decompression_ratio",
+          "description": "`network.max_decompression_ratio`.",
+          "type": "string"
+        },
+        {
+          "const": "network.max_json_depth",
+          "description": "`network.max_json_depth`.",
           "type": "string"
         }
       ]
@@ -8556,6 +10153,28 @@
       ],
       "type": "object"
     },
+    "ListenerEventsLostDetails": {
+      "description": "What `listener_events_lost` names: the event the listener took, and how\nmany of them it lost once its queue was full.",
+      "properties": {
+        "event": {
+          "arrived_in": "0.1",
+          "description": "The event, such as `session.page`.",
+          "type": "string"
+        },
+        "lost": {
+          "arrived_in": "0.1",
+          "description": "How many of its events the listener lost.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "event",
+        "lost"
+      ],
+      "type": "object"
+    },
     "LoadState": {
       "description": "A state the page's document reaches (Playwright's `LoadState`).",
       "oneOf": [
@@ -8575,6 +10194,67 @@
           "type": "string"
         }
       ]
+    },
+    "LocalAddressFailure": {
+      "description": "Why `egress.local_addresses` yields no usable address.",
+      "oneOf": [
+        {
+          "const": "not_held",
+          "description": "A listed address is none the host can send from.",
+          "type": "string"
+        },
+        {
+          "const": "unknown_interface",
+          "description": "No interface has this name.",
+          "type": "string"
+        },
+        {
+          "const": "interface_without_address",
+          "description": "The interface holds no address.",
+          "type": "string"
+        },
+        {
+          "const": "prefix_unusable",
+          "description": "The prefix holds none of the host's addresses, and the host does not\nlet a socket bind any address of it.",
+          "type": "string"
+        },
+        {
+          "const": "not_launched_here",
+          "description": "The Session's browser is not one this engine launches on this\nmachine: a Borrowed browser, a third-party CDP browser, or a Browser\nhost's, whose connections no address of this machine can be claimed\nfor (ADRs 0044 and 0056).",
+          "type": "string"
+        },
+        {
+          "const": "proxy_not_relayed",
+          "description": "The Session's proxy is one the egress relay does not chain through\n(an `https://` proxy), so its browser would connect to it from an\naddress the OS chooses.",
+          "type": "string"
+        }
+      ]
+    },
+    "LocalAddressUnavailableDetails": {
+      "description": "What `local_address_unavailable` details.",
+      "properties": {
+        "entry": {
+          "arrived_in": "0.1",
+          "description": "The address, interface or prefix that yields nothing, as the\nsetting writes it.",
+          "type": "string"
+        },
+        "failure": {
+          "$ref": "#/$defs/LocalAddressFailure",
+          "arrived_in": "0.1",
+          "description": "Why it yields nothing."
+        },
+        "setting": {
+          "arrived_in": "0.1",
+          "description": "The setting it comes from: `egress.local_addresses`.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "entry",
+        "failure",
+        "setting"
+      ],
+      "type": "object"
     },
     "Locator": {
       "additionalProperties": false,
@@ -8820,6 +10500,35 @@
     "LogLevelSet": {
       "additionalProperties": false,
       "description": "What `connection.set_log_level` answers: nothing more.",
+      "type": "object"
+    },
+    "LoggedOutDetails": {
+      "description": "What `logged_out` details.",
+      "properties": {
+        "judged_by": {
+          "$ref": "#/$defs/JudgedBy",
+          "arrived_in": "0.1",
+          "description": "What judged it a login page."
+        },
+        "status": {
+          "arrived_in": "0.1",
+          "description": "Its HTTP status.",
+          "format": "uint16",
+          "maximum": 65535,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "url": {
+          "arrived_in": "0.1",
+          "description": "The URL of the login page the navigation reached.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "url",
+        "status",
+        "judged_by"
+      ],
       "type": "object"
     },
     "MainContent": {
@@ -9277,6 +10986,92 @@
           "const": "M4",
           "description": "The fourth milestone.",
           "type": "string"
+        }
+      ]
+    },
+    "MissingBrowser": {
+      "description": "A browser the engine looked for and did not find.",
+      "oneOf": [
+        {
+          "description": "A pinned build absent from a cache the engine cannot write.",
+          "properties": {
+            "artifact": {
+              "$ref": "#/$defs/ArtifactId",
+              "arrived_in": "0.1",
+              "description": "The build."
+            },
+            "cache": {
+              "arrived_in": "0.1",
+              "description": "The Browser cache's path.",
+              "type": "string"
+            },
+            "kind": {
+              "const": "pinned",
+              "type": "string"
+            },
+            "pinned_by": {
+              "arrived_in": "0.1",
+              "description": "What pins the build: the Product version alone.",
+              "items": {
+                "$ref": "#/$defs/Pinner"
+              },
+              "type": "array"
+            }
+          },
+          "required": [
+            "kind",
+            "artifact",
+            "pinned_by",
+            "cache"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "An installed Chrome named by its channel.",
+          "properties": {
+            "channel": {
+              "$ref": "#/$defs/ChromeChannel",
+              "arrived_in": "0.1",
+              "description": "The channel."
+            },
+            "kind": {
+              "const": "channel",
+              "type": "string"
+            },
+            "looked_in": {
+              "arrived_in": "0.1",
+              "description": "Where the engine looked for it.",
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            }
+          },
+          "required": [
+            "kind",
+            "channel",
+            "looked_in"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "A browser named by its path.",
+          "properties": {
+            "kind": {
+              "const": "path",
+              "type": "string"
+            },
+            "path": {
+              "arrived_in": "0.1",
+              "description": "The path.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "path"
+          ],
+          "type": "object"
         }
       ]
     },
@@ -9807,6 +11602,52 @@
         }
       ]
     },
+    "ModelUnavailableDetails": {
+      "description": "What `model_unavailable` details (ADR 0101).",
+      "properties": {
+        "reason": {
+          "$ref": "#/$defs/ModelUnavailableReason",
+          "arrived_in": "0.1",
+          "description": "Why the provider could not answer."
+        },
+        "retry_after": {
+          "arrived_in": "0.1",
+          "default": null,
+          "description": "How long the provider asked to wait before the next call, from its\nanswer's `Retry-After` or its own rate-limit reset: a duration, not a\npoint in time, in whole milliseconds on the wire; `null` when it\nasked for no wait.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "reason"
+      ],
+      "type": "object"
+    },
+    "ModelUnavailableReason": {
+      "description": "Why a Model provider could not answer (ADR 0101), open (ADR 0079).",
+      "oneOf": [
+        {
+          "const": "unreachable",
+          "description": "The provider could not be reached, or a call to the program's own\nprovider was dropped unanswered.",
+          "type": "string"
+        },
+        {
+          "const": "server_error",
+          "description": "The provider failed with a 5xx.",
+          "type": "string"
+        },
+        {
+          "const": "rate_limited",
+          "description": "The provider kept rate limiting the calls.",
+          "type": "string"
+        }
+      ],
+      "open": true
+    },
     "ModelUsage": {
       "description": "The Usage of a Run's model calls (ADR 0101): their counts and price,\nand the same per Model reference.",
       "properties": {
@@ -9891,6 +11732,67 @@
       ],
       "type": "object"
     },
+    "NameLookupFailedDetails": {
+      "description": "What `name_lookup_failed` details.",
+      "properties": {
+        "name": {
+          "arrived_in": "0.1",
+          "description": "The host name asked for.",
+          "type": "string"
+        },
+        "resolver": {
+          "$ref": "#/$defs/NameResolver",
+          "arrived_in": "0.1",
+          "description": "The resolver whose name servers failed."
+        }
+      },
+      "required": [
+        "name",
+        "resolver"
+      ],
+      "type": "object"
+    },
+    "NameNotResolvedDetails": {
+      "description": "What `name_not_resolved` details.",
+      "properties": {
+        "multicast_dns_name": {
+          "arrived_in": "0.1",
+          "description": "Whether the name is a `.local` name, which multicast DNS answers on\nmost networks and the engine's own resolver never asks it.",
+          "type": "boolean"
+        },
+        "name": {
+          "arrived_in": "0.1",
+          "description": "The host name asked for.",
+          "type": "string"
+        },
+        "resolver": {
+          "$ref": "#/$defs/NameResolver",
+          "arrived_in": "0.1",
+          "description": "The resolver that found no address."
+        }
+      },
+      "required": [
+        "name",
+        "resolver",
+        "multicast_dns_name"
+      ],
+      "type": "object"
+    },
+    "NameResolver": {
+      "description": "Which resolver the engine asked for a name.",
+      "oneOf": [
+        {
+          "const": "engine",
+          "description": "The engine's own resolver, which reads the system's resolver\nconfiguration and hosts file and asks its name servers itself.",
+          "type": "string"
+        },
+        {
+          "const": "system",
+          "description": "The operating system's resolver, on macOS and Windows.",
+          "type": "string"
+        }
+      ]
+    },
     "Navigated": {
       "description": "What a navigation answers: the document's response, or none for a\nnavigation within the same document, to a URL no server answers, such as\n`about:blank`, to a file the browser downloads instead of showing, which\n`page.download` reports, or back or forward from the last entry of the\npage's history. A 404 or a 500 is a response, a value.",
       "properties": {
@@ -9907,6 +11809,42 @@
           "description": "The document's response."
         }
       },
+      "type": "object"
+    },
+    "NavigationFailedDetails": {
+      "description": "What `navigation_failed` details.",
+      "properties": {
+        "error": {
+          "arrived_in": "0.1",
+          "description": "The browser's network error, such as `net::ERR_NAME_NOT_RESOLVED`,\nwhen the browser named one.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "url": {
+          "arrived_in": "0.1",
+          "description": "The URL the navigation went to; none when the page's history, which\nnames it for a reload or a step back or forward, did not read.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "NavigationInterruptedDetails": {
+      "description": "What `navigation_interrupted` details.",
+      "properties": {
+        "url": {
+          "arrived_in": "0.1",
+          "description": "The URL of the navigation that was superseded.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "url"
+      ],
       "type": "object"
     },
     "NeedsYouAllowConsentDomainParams": {
@@ -10289,6 +12227,20 @@
       ],
       "type": "object"
     },
+    "NotADaemonDetails": {
+      "description": "What `not_a_daemon` details.",
+      "properties": {
+        "operation": {
+          "arrived_in": "0.1",
+          "description": "The operation called.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "operation"
+      ],
+      "type": "object"
+    },
     "NotAddedAtCommit": {
       "description": "A request an attempt's enqueue, `enqueueLinks` call or seed answered\n`added`, with its ID, that the attempt's commit did not add (ADR 0093):\nthe commit admits each staged request again on the run file as it then\nstands, and another attempt's commit may have added the request\nmeanwhile, or a rule learned since refuses it. Its ID names no crawl\nrequest.",
       "properties": {
@@ -10417,6 +12369,59 @@
           "type": "string"
         }
       ]
+    },
+    "NotInProductDetails": {
+      "description": "What `not_in_product` details.",
+      "properties": {
+        "fix": {
+          "arrived_in": "0.1",
+          "description": "What to do instead.",
+          "type": "string"
+        },
+        "handover": {
+          "arrived_in": "0.1",
+          "description": "Whether the refusing engine is a Daemon handing over to its major's\npick, which a Client of the major waits for and connects to (ADR\n0098).",
+          "type": "boolean"
+        },
+        "install": {
+          "arrived_in": "0.1",
+          "description": "The command that installs the Product `needs` from the engine's own\nchannel, which `fix` names; none behind Goodfetch Cloud's gateway,\nwhere an install would not help (ADR 0096).",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "needs": {
+          "$ref": "#/$defs/Product",
+          "arrived_in": "0.1",
+          "description": "The Product that carries what was asked."
+        },
+        "product": {
+          "$ref": "#/$defs/Product",
+          "arrived_in": "0.1",
+          "description": "The running engine's Product."
+        },
+        "product_version": {
+          "$ref": "#/$defs/ProductVersion",
+          "arrived_in": "0.1",
+          "description": "The running engine's Product version."
+        },
+        "requested": {
+          "arrived_in": "0.1",
+          "description": "What was asked, such as an operation's name; `None` for a `hello`.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "product",
+        "product_version",
+        "needs",
+        "fix"
+      ],
+      "type": "object"
     },
     "NotUnderstoodLimit": {
       "description": "A Limit flagged *must understand* that a Run's engine cannot evaluate,\nas the Run stopped for it names it (ADR 0041): its scope, Usage kind,\ncurrency and period as the ledger holds them.",
@@ -10777,6 +12782,21 @@
       ],
       "description": "Where `run.outcomes` starts: after a position, or from the next commit."
     },
+    "OverloadedBound": {
+      "description": "A Connection's own bound on what it holds, as `connection_overloaded`\nnames it.",
+      "oneOf": [
+        {
+          "const": "pending_calls",
+          "description": "`connection.max_pending_calls`: the calls waiting for their answer,\nsent or queued.",
+          "type": "string"
+        },
+        {
+          "const": "queued_write_bytes",
+          "description": "`connection.max_queued_write_bytes`: the bytes waiting to be written\nto the engine.",
+          "type": "string"
+        }
+      ]
+    },
     "PageBodyParams": {
       "additionalProperties": false,
       "description": "What `page.body` takes: the body to read.",
@@ -10819,6 +12839,35 @@
       ],
       "type": "object"
     },
+    "PageCheckFailedDetails": {
+      "description": "What `page_check_failed` details.",
+      "properties": {
+        "noindex": {
+          "arrived_in": "0.1",
+          "description": "Whether the document is marked `noindex`, by a `noindex` or `none`\ndirective in its `X-Robots-Tag` header or a robots `meta` element:\na crawl takes such a page for a decoy (ADR 0035).",
+          "type": "boolean"
+        },
+        "status": {
+          "arrived_in": "0.1",
+          "description": "Its HTTP status.",
+          "format": "uint16",
+          "maximum": 65535,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "url": {
+          "arrived_in": "0.1",
+          "description": "The URL of the document the navigation reached.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "url",
+        "status",
+        "noindex"
+      ],
+      "type": "object"
+    },
     "PageCloseParams": {
       "additionalProperties": false,
       "description": "What `page.close` takes: the page, and whether its `beforeunload`\nhandlers run.",
@@ -10848,6 +12897,24 @@
     },
     "PageClosed": {
       "description": "What `page.close` answers.",
+      "type": "object"
+    },
+    "PageCrashedDetails": {
+      "description": "What `page_crashed` details.",
+      "properties": {
+        "browser_exit": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/BrowserExit"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "How the browser process ended, when it is what was lost; none for a\nrenderer's crash alone."
+        }
+      },
       "type": "object"
     },
     "PageDownload": {
@@ -11074,9 +13141,136 @@
       ],
       "type": "object"
     },
+    "PageFunctionFailedDetails": {
+      "description": "What `page_function_failed` details.",
+      "properties": {
+        "fix": {
+          "arrived_in": "0.1",
+          "description": "What to do instead, when the engine knows: a `ReferenceError`'s\nfix names the argument, which is all a page function sees of the\nprogram.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "message": {
+          "arrived_in": "0.1",
+          "description": "What the page said, or why the engine refused the function.",
+          "type": "string"
+        },
+        "name": {
+          "arrived_in": "0.1",
+          "description": "The thrown error's name, such as `ReferenceError`; absent for a\nthrown value that is no error, and for an expression given an\nargument.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "stack": {
+          "arrived_in": "0.1",
+          "description": "The page's stack, when it gave one.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "message"
+      ],
+      "type": "object"
+    },
+    "PageHandler": {
+      "description": "The handlers a program gives a page, which `page_handler_failed` names.",
+      "oneOf": [
+        {
+          "const": "route",
+          "description": "A route's handler.",
+          "type": "string"
+        },
+        {
+          "const": "dialog",
+          "description": "A dialog handler.",
+          "type": "string"
+        }
+      ]
+    },
+    "PageHandlerFailedDetails": {
+      "description": "What `page_handler_failed` details.",
+      "properties": {
+        "failure": {
+          "arrived_in": "0.1",
+          "description": "What its failure said.",
+          "type": "string"
+        },
+        "handler": {
+          "$ref": "#/$defs/PageHandler",
+          "arrived_in": "0.1",
+          "description": "The handler that failed."
+        },
+        "url": {
+          "arrived_in": "0.1",
+          "description": "The URL of the request it was answering, or of the document whose\ndialog it was answering.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "handler",
+        "url",
+        "failure"
+      ],
+      "type": "object"
+    },
     "PageId": {
       "description": "A page of a Run, named by the engine when it opens it.",
       "type": "string"
+    },
+    "PageMemoryExceededDetails": {
+      "description": "What `page_memory_exceeded` details.",
+      "properties": {
+        "limit": {
+          "$ref": "#/$defs/SettingLimit",
+          "arrived_in": "0.1",
+          "description": "`governor.browser.page_memory_cap`, with its value and layer (ADR\n0079)."
+        },
+        "memory": {
+          "arrived_in": "0.1",
+          "description": "What it held when measured, in bytes: its JavaScript heap and the\nbuffers it held.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "page_id": {
+          "$ref": "#/$defs/PageId",
+          "arrived_in": "0.1",
+          "description": "The page the governor ended."
+        }
+      },
+      "required": [
+        "page_id",
+        "memory",
+        "limit"
+      ],
+      "type": "object"
+    },
+    "PageNavigatedDuringCallDetails": {
+      "description": "What `page_navigated_during_call` details.",
+      "properties": {
+        "navigated_to": {
+          "arrived_in": "0.1",
+          "description": "The document that replaced it.",
+          "type": "string"
+        },
+        "url": {
+          "arrived_in": "0.1",
+          "description": "The document the call read.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "url",
+        "navigated_to"
+      ],
+      "type": "object"
     },
     "PageOnDialogParams": {
       "additionalProperties": false,
@@ -11472,6 +13666,136 @@
       ],
       "type": "object"
     },
+    "PageValueDirection": {
+      "description": "Which way a value outside JSON was going.",
+      "oneOf": [
+        {
+          "const": "result",
+          "description": "The page function's result, checked in the page.",
+          "type": "string"
+        },
+        {
+          "const": "argument",
+          "description": "Its argument, refused before it is sent.",
+          "type": "string"
+        }
+      ]
+    },
+    "PageValueInvalidDetails": {
+      "description": "What `page_value_invalid` details.",
+      "properties": {
+        "constructor": {
+          "arrived_in": "0.1",
+          "description": "Its constructor's name, when it has one, such as `HTMLDivElement`.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "direction": {
+          "$ref": "#/$defs/PageValueDirection",
+          "arrived_in": "0.1",
+          "description": "Whether the value was the result or the argument."
+        },
+        "fix": {
+          "arrived_in": "0.1",
+          "description": "What to do instead.",
+          "type": "string"
+        },
+        "kind": {
+          "$ref": "#/$defs/PageValueKind",
+          "arrived_in": "0.1",
+          "description": "Its kind."
+        },
+        "path": {
+          "arrived_in": "0.1",
+          "description": "Where the first value outside JSON is, from `$`, the whole value,\nsuch as `$.rows[2].cell`.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "direction",
+        "path",
+        "kind",
+        "fix"
+      ],
+      "type": "object"
+    },
+    "PageValueKind": {
+      "description": "The kind of a value outside JSON (ADR 0085).",
+      "oneOf": [
+        {
+          "const": "node",
+          "description": "A DOM node, such as an element or a document.",
+          "type": "string"
+        },
+        {
+          "const": "window",
+          "description": "A window, such as `window` itself.",
+          "type": "string"
+        },
+        {
+          "const": "not_a_number",
+          "description": "`NaN`.",
+          "type": "string"
+        },
+        {
+          "const": "infinity",
+          "description": "`Infinity` or `-Infinity`.",
+          "type": "string"
+        },
+        {
+          "const": "bigint",
+          "description": "A `BigInt`.",
+          "type": "string"
+        },
+        {
+          "const": "symbol",
+          "description": "A `Symbol`.",
+          "type": "string"
+        },
+        {
+          "const": "function",
+          "description": "A function.",
+          "type": "string"
+        },
+        {
+          "const": "cycle",
+          "description": "An object reached again inside itself.",
+          "type": "string"
+        },
+        {
+          "const": "map",
+          "description": "A `Map`.",
+          "type": "string"
+        },
+        {
+          "const": "set",
+          "description": "A `Set`.",
+          "type": "string"
+        },
+        {
+          "const": "date",
+          "description": "A `Date`.",
+          "type": "string"
+        },
+        {
+          "const": "regexp",
+          "description": "A `RegExp`.",
+          "type": "string"
+        },
+        {
+          "const": "error",
+          "description": "An `Error`.",
+          "type": "string"
+        },
+        {
+          "const": "object",
+          "description": "Any other object whose prototype is not `Object`'s, such as a\nclass's instance, a typed array or a promise inside a result.",
+          "type": "string"
+        }
+      ]
+    },
     "PageWebSocket": {
       "description": "What `page.web_socket` reports: a WebSocket the page opened, whose\nframes and close follow as `web_socket.*` events.",
       "properties": {
@@ -11495,6 +13819,241 @@
         "page_id",
         "web_socket_id",
         "url"
+      ],
+      "type": "object"
+    },
+    "PanicEnded": {
+      "description": "What a panic in the engine ended (ADR 0148).",
+      "oneOf": [
+        {
+          "const": "call",
+          "description": "One call; its Connection goes on.",
+          "type": "string"
+        },
+        {
+          "const": "attempt",
+          "description": "One attempt of a crawl.",
+          "type": "string"
+        },
+        {
+          "const": "page",
+          "description": "A Page.",
+          "type": "string"
+        },
+        {
+          "const": "session",
+          "description": "A Session, with its Pages.",
+          "type": "string"
+        },
+        {
+          "const": "browser",
+          "description": "A browser, treated as crashed.",
+          "type": "string"
+        },
+        {
+          "const": "run",
+          "description": "A Run, which ends `failed`.",
+          "type": "string"
+        },
+        {
+          "const": "connection",
+          "description": "A Connection, which ends as when its Client goes away.",
+          "type": "string"
+        },
+        {
+          "const": "engine",
+          "description": "The engine, which stops.",
+          "type": "string"
+        }
+      ]
+    },
+    "PathHazard": {
+      "description": "What makes a name or path unsafe.",
+      "oneOf": [
+        {
+          "const": "parent_traversal",
+          "description": "A `..` part, which climbs out of the folder.",
+          "type": "string"
+        },
+        {
+          "const": "absolute",
+          "description": "A path from the root.",
+          "type": "string"
+        },
+        {
+          "const": "drive",
+          "description": "A Windows drive, absolute or drive-relative.",
+          "type": "string"
+        },
+        {
+          "const": "verbatim",
+          "description": "A Windows verbatim path, `\\\\?\\`.",
+          "type": "string"
+        },
+        {
+          "const": "device_namespace",
+          "description": "A Windows device path, `\\\\.\\`.",
+          "type": "string"
+        },
+        {
+          "const": "unc",
+          "description": "A Windows UNC path.",
+          "type": "string"
+        },
+        {
+          "const": "reserved_name",
+          "description": "A name Windows reserves for a device, with or without an extension.",
+          "type": "string"
+        },
+        {
+          "const": "trailing_dot_or_space",
+          "description": "A trailing dot or space, which Windows removes.",
+          "type": "string"
+        },
+        {
+          "const": "alternate_data_stream",
+          "description": "An NTFS alternate data stream, after a colon.",
+          "type": "string"
+        },
+        {
+          "const": "forbidden_character",
+          "description": "A character Windows forbids in a name: `<`, `>`, `\"`, `|`, `?` or `*`.",
+          "type": "string"
+        },
+        {
+          "const": "control_character",
+          "description": "A control character or a NUL.",
+          "type": "string"
+        },
+        {
+          "const": "normalisation",
+          "description": "A name not in Unicode's composed form (NFC), which APFS opens as the\ncomposed name it equals.",
+          "type": "string"
+        },
+        {
+          "const": "overlong",
+          "description": "A part longer than the 255 bytes a file system's name holds.",
+          "type": "string"
+        },
+        {
+          "const": "dot_name",
+          "description": "An empty part, or a `.` part.",
+          "type": "string"
+        },
+        {
+          "const": "separator",
+          "description": "A folder separator where one name alone is taken.",
+          "type": "string"
+        }
+      ]
+    },
+    "PathNotWritableDetails": {
+      "description": "What `path_not_writable` details (ADR 0116).",
+      "properties": {
+        "fix": {
+          "arrived_in": "0.1",
+          "description": "What to change in the path argument.",
+          "type": "string"
+        },
+        "os_code": {
+          "arrived_in": "0.1",
+          "description": "The OS's own name for the error, such as `EACCES`, or none.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "path": {
+          "arrived_in": "0.1",
+          "description": "The program's path, as given.",
+          "type": "string"
+        },
+        "reason": {
+          "arrived_in": "0.1",
+          "description": "Why, as Rust's `io::ErrorKind` name in `snake_case`, such as\n`permission_denied` or `is_a_directory`.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "reason",
+        "path",
+        "fix"
+      ],
+      "type": "object"
+    },
+    "PathUnsafeDetails": {
+      "description": "What `path_unsafe` details.",
+      "properties": {
+        "hazard": {
+          "$ref": "#/$defs/PathHazard",
+          "arrived_in": "0.1",
+          "description": "What makes it unsafe."
+        },
+        "name": {
+          "arrived_in": "0.1",
+          "description": "The name or path, as given.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "hazard"
+      ],
+      "type": "object"
+    },
+    "PatternConstruct": {
+      "description": "A construct of a URL pattern the engine's matcher cannot read (ADR 0081).",
+      "oneOf": [
+        {
+          "const": "look_around",
+          "description": "A regular expression's look-ahead or look-behind, such as `(?=x)`.",
+          "type": "string"
+        },
+        {
+          "const": "backreference",
+          "description": "A regular expression's back-reference, such as `\\1`.",
+          "type": "string"
+        },
+        {
+          "const": "nested_braces",
+          "description": "A glob's `{` inside another `{…}` group, which Playwright refuses\ntoo.",
+          "type": "string"
+        },
+        {
+          "const": "unmatched_brace",
+          "description": "A glob's `{` with no `}`, or `}` with no `{`, which Playwright\nrefuses too.",
+          "type": "string"
+        },
+        {
+          "const": "other",
+          "description": "Any other construct outside the `regex` crate's syntax, or a\nregular expression too large to compile; the message names it.",
+          "type": "string"
+        }
+      ]
+    },
+    "PatternUnsupportedDetails": {
+      "description": "What `pattern_unsupported` details.",
+      "properties": {
+        "construct": {
+          "$ref": "#/$defs/PatternConstruct",
+          "arrived_in": "0.1",
+          "description": "The construct the engine cannot read."
+        },
+        "fix": {
+          "arrived_in": "0.1",
+          "description": "What to do instead.",
+          "type": "string"
+        },
+        "pattern": {
+          "arrived_in": "0.1",
+          "description": "The pattern as the call passed it.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "pattern",
+        "construct",
+        "fix"
       ],
       "type": "object"
     },
@@ -11534,6 +14093,121 @@
           "type": "object"
         }
       ]
+    },
+    "PayloadInvalidDetails": {
+      "description": "What `payload_invalid` details.",
+      "properties": {
+        "issues": {
+          "arrived_in": "0.1",
+          "description": "Each way it does not fit the Label's JSON Schema; none when it is\ntoo long.",
+          "items": {
+            "$ref": "#/$defs/PayloadIssue"
+          },
+          "type": "array"
+        },
+        "label": {
+          "arrived_in": "0.1",
+          "description": "The Label the Payload was enqueued under.",
+          "type": "string"
+        },
+        "limit": {
+          "arrived_in": "0.1",
+          "description": "The setting it is longer than, `crawl.payload.max_size`.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "max_size": {
+          "arrived_in": "0.1",
+          "description": "The setting's value, when it is too long.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "size": {
+          "arrived_in": "0.1",
+          "description": "Its JSON's length in bytes, when it is too long.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "label"
+      ],
+      "type": "object"
+    },
+    "PayloadIssue": {
+      "description": "One way a Payload does not fit its Label's JSON Schema.",
+      "properties": {
+        "message": {
+          "arrived_in": "0.1",
+          "description": "What is wrong there.",
+          "type": "string"
+        },
+        "path": {
+          "arrived_in": "0.1",
+          "description": "Where in the Payload, a JSON Pointer: empty for the Payload itself.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "path",
+        "message"
+      ],
+      "type": "object"
+    },
+    "PayloadSchemaChangedDetails": {
+      "description": "What `payload_schema_changed` details.",
+      "properties": {
+        "crawl_request_id": {
+          "arrived_in": "0.1",
+          "description": "The first failing request's ID.",
+          "type": "string"
+        },
+        "failing": {
+          "arrived_in": "0.1",
+          "description": "How many of its pending requests' Payloads fail the new schema.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "issues": {
+          "arrived_in": "0.1",
+          "description": "How its Payload fails the new schema.",
+          "items": {
+            "$ref": "#/$defs/PayloadIssue"
+          },
+          "type": "array"
+        },
+        "label": {
+          "arrived_in": "0.1",
+          "description": "The Label whose Payload schema changed.",
+          "type": "string"
+        },
+        "pending": {
+          "arrived_in": "0.1",
+          "description": "How many of its requests are pending.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "label",
+        "failing",
+        "pending",
+        "crawl_request_id",
+        "issues"
+      ],
+      "type": "object"
     },
     "PaymentMark": {
       "description": "The payment of a Paid fetch, as a Record's Provenance marks it (ADR\n0045).",
@@ -11709,6 +14383,61 @@
       ],
       "type": "object"
     },
+    "Pinner": {
+      "description": "What pins an artifact, as an error's details name it, by its `kind`: a\nProduct version, or an installed Plugin that uses a Plugin runtime (ADRs\n0098 and 0115).",
+      "oneOf": [
+        {
+          "description": "A Product version.",
+          "properties": {
+            "kind": {
+              "const": "product",
+              "type": "string"
+            },
+            "name": {
+              "$ref": "#/$defs/Product",
+              "arrived_in": "0.1",
+              "description": "The Product."
+            },
+            "version": {
+              "$ref": "#/$defs/ProductVersion",
+              "arrived_in": "0.1",
+              "description": "Its Product version."
+            }
+          },
+          "required": [
+            "kind",
+            "name",
+            "version"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "An installed Plugin, for the Plugin runtime it uses.",
+          "properties": {
+            "kind": {
+              "const": "plugin",
+              "type": "string"
+            },
+            "name": {
+              "arrived_in": "0.1",
+              "description": "The Plugin's name.",
+              "type": "string"
+            },
+            "version": {
+              "arrived_in": "0.1",
+              "description": "Its version.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "name",
+            "version"
+          ],
+          "type": "object"
+        }
+      ]
+    },
     "PlanReport": {
       "description": "What a Run did with its Plan file (ADR 0091).",
       "properties": {
@@ -11849,6 +14578,32 @@
         "table",
         "key",
         "value"
+      ],
+      "type": "object"
+    },
+    "PolicyConflictDetails": {
+      "description": "What `policy_conflict` details.",
+      "properties": {
+        "current": {
+          "arrived_in": "0.1",
+          "description": "The file's digest now.",
+          "type": "string"
+        },
+        "digest": {
+          "arrived_in": "0.1",
+          "description": "The digest the write was made against.",
+          "type": "string"
+        },
+        "fix": {
+          "arrived_in": "0.1",
+          "description": "What to do instead.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "digest",
+        "current",
+        "fix"
       ],
       "type": "object"
     },
@@ -12158,6 +14913,37 @@
       "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$",
       "type": "string"
     },
+    "ProtocolVersionUnsupportedDetails": {
+      "description": "What `protocol_version_unsupported` details.",
+      "properties": {
+        "client_protocol_version": {
+          "$ref": "#/$defs/ProtocolVersion",
+          "arrived_in": "0.1",
+          "description": "The protocol version the Client's `hello` named."
+        },
+        "engine_protocol_version": {
+          "$ref": "#/$defs/ProtocolVersion",
+          "arrived_in": "0.1",
+          "description": "The protocol version the engine speaks."
+        },
+        "fix": {
+          "arrived_in": "0.1",
+          "description": "What to upgrade: the error's `fix` (ADR 0079).",
+          "type": "string"
+        },
+        "handover": {
+          "arrived_in": "0.1",
+          "description": "Whether the refusing engine is a Daemon handing over to its major's\npick, which a Client of the major waits for and connects to (ADR\n0098).",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "engine_protocol_version",
+        "client_protocol_version",
+        "fix"
+      ],
+      "type": "object"
+    },
     "ProvingGround": {
       "additionalProperties": false,
       "description": "The Proving ground data a Journey starts from.",
@@ -12203,6 +14989,34 @@
       ],
       "type": "object"
     },
+    "ProxyAuthFailedDetails": {
+      "description": "What `proxy_auth_failed` details.",
+      "properties": {
+        "proxy": {
+          "arrived_in": "0.1",
+          "description": "The proxy, `scheme://host:port`, without its credentials.",
+          "type": "string"
+        },
+        "url": {
+          "arrived_in": "0.1",
+          "description": "The URL the request went to.",
+          "type": "string"
+        },
+        "username": {
+          "arrived_in": "0.1",
+          "description": "The username the Session gave, if it gave one.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "proxy",
+        "url"
+      ],
+      "type": "object"
+    },
     "ProxyKindBytes": {
       "description": "The bytes a Run sent and received through proxies of one proxy kind.",
       "properties": {
@@ -12222,6 +15036,80 @@
       "required": [
         "kind",
         "bytes"
+      ],
+      "type": "object"
+    },
+    "ProxyProviderFailure": {
+      "description": "What a Proxy provider's failure was, as its adapter read it.",
+      "oneOf": [
+        {
+          "const": "quota_exhausted",
+          "description": "The account's traffic quota or balance is spent.",
+          "type": "string"
+        },
+        {
+          "const": "sticky_session_expired",
+          "description": "The Session's sticky exit is gone.",
+          "type": "string"
+        },
+        {
+          "const": "unrecognized",
+          "description": "A failure the adapter does not recognize.",
+          "type": "string"
+        }
+      ]
+    },
+    "ProxyProviderUnavailableDetails": {
+      "description": "What `proxy_provider_unavailable` details.",
+      "properties": {
+        "failure": {
+          "$ref": "#/$defs/ProxyProviderFailure",
+          "arrived_in": "0.1",
+          "description": "The failure."
+        },
+        "provider": {
+          "arrived_in": "0.1",
+          "description": "The Proxy provider, as `proxy.provider` names it.",
+          "type": "string"
+        },
+        "proxy": {
+          "arrived_in": "0.1",
+          "description": "The proxy, `scheme://host:port`, without its credentials.",
+          "type": "string"
+        },
+        "url": {
+          "arrived_in": "0.1",
+          "description": "The URL the request went to.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "provider",
+        "proxy",
+        "failure"
+      ],
+      "type": "object"
+    },
+    "ProxyRelayUnavailableDetails": {
+      "description": "What `proxy_relay_unavailable` details.",
+      "properties": {
+        "error": {
+          "arrived_in": "0.1",
+          "description": "The local error that kept the relay from opening.",
+          "type": "string"
+        },
+        "proxy": {
+          "arrived_in": "0.1",
+          "description": "The proxy, `scheme://host:port`, without its credentials.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "proxy",
+        "error"
       ],
       "type": "object"
     },
@@ -12254,6 +15142,36 @@
           "type": "string"
         }
       ]
+    },
+    "ProxyUnavailableDetails": {
+      "description": "What `proxy_unavailable` details.",
+      "properties": {
+        "error": {
+          "arrived_in": "0.1",
+          "description": "The browser's network error, such as\n`net::ERR_TUNNEL_CONNECTION_FAILED`, or the proxy's own error its\n`Proxy-Status` names.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "proxy": {
+          "arrived_in": "0.1",
+          "description": "The proxy, `scheme://host:port`, without its credentials.",
+          "type": "string"
+        },
+        "url": {
+          "arrived_in": "0.1",
+          "description": "The URL the request went to; none when the proxy failed the\nSession's open, before any request.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "proxy"
+      ],
+      "type": "object"
     },
     "PublicSigningKey": {
       "description": "A key directory's entry of one key: its public JSON Web Key, named by\nits thumbprint.",
@@ -12326,6 +15244,64 @@
         "type"
       ],
       "type": "object"
+    },
+    "QueryInvalidDetails": {
+      "description": "What `query_invalid` details.",
+      "properties": {
+        "reason": {
+          "$ref": "#/$defs/QueryRefusal",
+          "arrived_in": "0.1",
+          "description": "Why the statement was refused."
+        }
+      },
+      "required": [
+        "reason"
+      ],
+      "type": "object"
+    },
+    "QueryMemoryExceededDetails": {
+      "description": "What `query_memory_exceeded` details.",
+      "properties": {
+        "limit": {
+          "$ref": "#/$defs/SettingLimit",
+          "arrived_in": "0.1",
+          "description": "`dataset.query.memory_limit`, its value in bytes and its layer."
+        }
+      },
+      "required": [
+        "limit"
+      ],
+      "type": "object"
+    },
+    "QueryRefusal": {
+      "description": "Why `query_invalid` refused a statement.",
+      "oneOf": [
+        {
+          "const": "syntax",
+          "description": "It does not parse.",
+          "type": "string"
+        },
+        {
+          "const": "unknown_name",
+          "description": "It names a table, column, function or type that does not exist.",
+          "type": "string"
+        },
+        {
+          "const": "not_a_read",
+          "description": "It is not one `SELECT` or `WITH` statement.",
+          "type": "string"
+        },
+        {
+          "const": "run_not_selected",
+          "description": "It names a run the query did not select.",
+          "type": "string"
+        },
+        {
+          "const": "outside_read",
+          "description": "It reads a file or URL.",
+          "type": "string"
+        }
+      ]
     },
     "Reached": {
       "description": "What `page.wait_for_url`, `page.wait_for_load_state` and\n`locator.wait_for` answer once the state they waited for came.",
@@ -12495,6 +15471,29 @@
           "description": "The Wall marker a Record carries or not; absent takes both."
         }
       },
+      "type": "object"
+    },
+    "RecordInvalidDetails": {
+      "description": "What `record_invalid` details.",
+      "properties": {
+        "dataset": {
+          "arrived_in": "0.1",
+          "description": "The Dataset's name.",
+          "type": "string"
+        },
+        "records": {
+          "arrived_in": "0.1",
+          "description": "Each Record that does not hold, in position order, at least one.",
+          "items": {
+            "$ref": "#/$defs/InvalidRecord"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "dataset",
+        "records"
+      ],
       "type": "object"
     },
     "RecordIssue": {
@@ -12810,6 +15809,86 @@
       ],
       "type": "object"
     },
+    "RedirectLimit": {
+      "description": "The count of redirects a fetch follows at most, and what set it (ADR\n0118).",
+      "oneOf": [
+        {
+          "description": "The browser's own count, 20 requests in a navigation's chain, its\nfirst included, which a navigation cannot change: it follows 19\nredirects (ADR 0118).",
+          "properties": {
+            "count": {
+              "arrived_in": "0.1",
+              "description": "The requests the chain may hold, its first included: 20, one\nmore than the redirects followed, which `hops` lists.",
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "kind": {
+              "const": "browser",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "count"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "A setting, such as `fetch.redirect.max`, at its resolved value.",
+          "properties": {
+            "count": {
+              "arrived_in": "0.1",
+              "description": "The redirects it allows, the chain's first request left out.",
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "kind": {
+              "const": "setting",
+              "type": "string"
+            },
+            "name": {
+              "arrived_in": "0.1",
+              "description": "The setting's key.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "name",
+            "count"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "A call's option, such as `page.request`'s `max_redirects`, by its\ncanonical name (ADR 0099).",
+          "properties": {
+            "count": {
+              "arrived_in": "0.1",
+              "description": "The redirects it allows, the chain's first request left out.",
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "kind": {
+              "const": "option",
+              "type": "string"
+            },
+            "name": {
+              "arrived_in": "0.1",
+              "description": "The option's name.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "name",
+            "count"
+          ],
+          "type": "object"
+        }
+      ]
+    },
     "RefetchDomainRemoved": {
       "description": "What `needs_you.remove_refetch_domain` answers.",
       "properties": {
@@ -12850,6 +15929,21 @@
         "domains"
       ],
       "type": "object"
+    },
+    "Refused": {
+      "description": "What a `value_invalid` refused: the key itself, or the value given for\nit.",
+      "oneOf": [
+        {
+          "const": "key",
+          "description": "The key.",
+          "type": "string"
+        },
+        {
+          "const": "value",
+          "description": "The value.",
+          "type": "string"
+        }
+      ]
     },
     "RejectedRecord": {
       "description": "One entry of a Dataset's rejection table.",
@@ -13431,6 +16525,68 @@
         }
       ]
     },
+    "ResourcesExhaustedDetails": {
+      "description": "What `resources_exhausted` details (ADRs 0040 and 0122).",
+      "properties": {
+        "fix": {
+          "arrived_in": "0.1",
+          "description": "What to do: the folder to free, or the setting to lower, then a\nstart with the Run's ID.",
+          "type": "string"
+        },
+        "free_bytes": {
+          "arrived_in": "0.1",
+          "description": "For storage, the space left on that filesystem, in bytes.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "limit": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SettingLimit"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "For storage, the setting that set the level, with its value and\nlayer (ADR 0079)."
+        },
+        "path": {
+          "arrived_in": "0.1",
+          "description": "For storage, the folder on the full filesystem; none where the\nengine has no folder of its own.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "resource": {
+          "$ref": "#/$defs/Resource",
+          "arrived_in": "0.1",
+          "description": "The resource that ran out."
+        },
+        "run_id": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RunId"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "The Run, when one was stopped or refused."
+        }
+      },
+      "required": [
+        "resource",
+        "fix"
+      ],
+      "type": "object"
+    },
     "Response": {
       "additionalProperties": false,
       "description": "The reply to a call that succeeded.",
@@ -13490,6 +16646,60 @@
       ],
       "type": "object"
     },
+    "ResponseLimitExceededDetails": {
+      "description": "What `response_limit_exceeded` details.",
+      "properties": {
+        "limit": {
+          "arrived_in": "0.1",
+          "description": "The setting's value the body passed.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "setting": {
+          "$ref": "#/$defs/LimitSetting",
+          "arrived_in": "0.1",
+          "description": "The setting whose limit it passed."
+        },
+        "url": {
+          "arrived_in": "0.1",
+          "description": "The URL whose body passed the limit.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "url",
+        "setting",
+        "limit"
+      ],
+      "type": "object"
+    },
+    "ResponseNotDocumentDetails": {
+      "description": "What `response_not_document` details (ADR 0119).",
+      "properties": {
+        "call": {
+          "arrived_in": "0.1",
+          "description": "The call on the document, by its operation's name.",
+          "type": "string"
+        },
+        "content_type": {
+          "arrived_in": "0.1",
+          "description": "The response's content type, as its `Content-Type` names it.",
+          "type": "string"
+        },
+        "fix": {
+          "arrived_in": "0.1",
+          "description": "What reads such a response: the handler's `ctx.response`.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "content_type",
+        "call",
+        "fix"
+      ],
+      "type": "object"
+    },
     "ResponseOrigin": {
       "description": "What answered a Record's request in place of the network.",
       "oneOf": [
@@ -13532,6 +16742,81 @@
           "type": "object"
         }
       ]
+    },
+    "ResponseTruncatedDetails": {
+      "description": "What `response_truncated` details.",
+      "properties": {
+        "expected": {
+          "arrived_in": "0.1",
+          "description": "The bytes its `Content-Length` declared, as sent; none when it\ndeclared no length, as a chunked body does not.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "received": {
+          "arrived_in": "0.1",
+          "description": "The bytes of its body that arrived, as the browser decoded them.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "url": {
+          "arrived_in": "0.1",
+          "description": "The URL of the response that was cut.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "url",
+        "received"
+      ],
+      "type": "object"
+    },
+    "ResponseUnavailableDetails": {
+      "description": "What `response_unavailable` details (ADR 0118).",
+      "properties": {
+        "fix": {
+          "arrived_in": "0.1",
+          "description": "What to do about it, such as re-admitting the request once the site\nis back.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "retry_after": {
+          "arrived_in": "0.1",
+          "default": null,
+          "description": "The time the site's `Retry-After` asks for, in RFC 3339, read in\neither of its forms; `null` when it asks for none.",
+          "format": "date-time",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "status": {
+          "arrived_in": "0.1",
+          "description": "The response's HTTP status; `null` for a request held unsent.",
+          "format": "uint16",
+          "maximum": 65535,
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "url": {
+          "arrived_in": "0.1",
+          "description": "The URL of the request; absent for a request Politeness held unsent.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
     },
     "ResultDocument": {
       "description": "One result document, of either kind.",
@@ -13642,6 +16927,20 @@
           "$ref": "#/$defs/RouteId",
           "arrived_in": "0.1",
           "description": "The request."
+        }
+      },
+      "required": [
+        "route_id"
+      ],
+      "type": "object"
+    },
+    "RouteAlreadyHandledDetails": {
+      "description": "What `route_already_handled` details.",
+      "properties": {
+        "route_id": {
+          "$ref": "#/$defs/RouteId",
+          "arrived_in": "0.1",
+          "description": "The request answered already."
         }
       },
       "required": [
@@ -14180,6 +17479,51 @@
       ],
       "type": "object"
     },
+    "RunConflictDetails": {
+      "description": "What `run_conflict` details.",
+      "properties": {
+        "differences": {
+          "arrived_in": "0.1",
+          "description": "Each input that differs from the Run's.",
+          "items": {
+            "$ref": "#/$defs/StartInput"
+          },
+          "type": "array"
+        },
+        "run_id": {
+          "$ref": "#/$defs/RunId",
+          "arrived_in": "0.1",
+          "description": "The Run ID."
+        }
+      },
+      "required": [
+        "run_id",
+        "differences"
+      ],
+      "type": "object"
+    },
+    "RunDetails": {
+      "description": "What `run_not_found`, `run_in_use`, `run_busy`, `run_not_owned`, `run_live` and\n`run_state_unavailable` detail.",
+      "properties": {
+        "path": {
+          "arrived_in": "0.1",
+          "description": "The Run's folder, when the engine knows it.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "run_id": {
+          "$ref": "#/$defs/RunId",
+          "arrived_in": "0.1",
+          "description": "The Run ID."
+        }
+      },
+      "required": [
+        "run_id"
+      ],
+      "type": "object"
+    },
     "RunDiscarded": {
       "description": "What `run.discard` answers: the Run it discarded (ADRs 0001 and 0036).",
       "properties": {
@@ -14323,6 +17667,20 @@
       "pattern": "^[a-z0-9]([a-z0-9._-]{0,126}[a-z0-9])?$",
       "type": "string"
     },
+    "RunIdInvalidDetails": {
+      "description": "What `run_id_invalid` details.",
+      "properties": {
+        "pattern": {
+          "arrived_in": "0.1",
+          "description": "The pattern a Run ID matches.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "pattern"
+      ],
+      "type": "object"
+    },
     "RunIndexRow": {
       "description": "One row of the Run index (ADR 0031): a Run, where its state is, its three\naxes and, while it is live, the engine that owns it.",
       "properties": {
@@ -14436,6 +17794,64 @@
         "started_at",
         "presence",
         "replayed"
+      ],
+      "type": "object"
+    },
+    "RunInterruptedDetails": {
+      "description": "What `run_interrupted`'s details hold.",
+      "properties": {
+        "fix": {
+          "arrived_in": "0.1",
+          "description": "What resumes it: a start with its Run ID.",
+          "type": "string"
+        },
+        "run_id": {
+          "$ref": "#/$defs/RunId",
+          "arrived_in": "0.1",
+          "description": "The Run."
+        }
+      },
+      "required": [
+        "run_id",
+        "fix"
+      ],
+      "type": "object"
+    },
+    "RunKeyMismatchDetails": {
+      "description": "What `run_key_mismatch` details.",
+      "properties": {
+        "fix": {
+          "arrived_in": "0.1",
+          "description": "What makes the resume open it.",
+          "type": "string"
+        },
+        "reference": {
+          "arrived_in": "0.1",
+          "description": "The Secret reference the resume resolved.",
+          "type": "string"
+        },
+        "run_id": {
+          "$ref": "#/$defs/RunId",
+          "arrived_in": "0.1",
+          "description": "The Run."
+        },
+        "setting": {
+          "arrived_in": "0.1",
+          "description": "The setting that names the key-encryption key,\n`run_state.key_reference`.",
+          "type": "string"
+        },
+        "wrapped_by": {
+          "arrived_in": "0.1",
+          "description": "The Secret reference of the key that wrapped the data key.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "run_id",
+        "setting",
+        "reference",
+        "wrapped_by",
+        "fix"
       ],
       "type": "object"
     },
@@ -15611,6 +19027,82 @@
       ],
       "type": "object"
     },
+    "RunStateFilesystem": {
+      "description": "The kind of filesystem a run folder was refused on (ADR 0049).",
+      "oneOf": [
+        {
+          "const": "nfs",
+          "description": "NFS, which EFS, Filestore and Azure Files' NFS shares are.",
+          "type": "string"
+        },
+        {
+          "const": "smb",
+          "description": "SMB or CIFS, which Azure Files' SMB shares are.",
+          "type": "string"
+        },
+        {
+          "const": "fuse_object_storage",
+          "description": "A FUSE mount of an object store, such as `s3fs`, Mountpoint for\nAmazon S3, `gcsfuse` or `BlobFuse`; the message names its tool.",
+          "type": "string"
+        }
+      ]
+    },
+    "RunStateFilesystemUnsupportedDetails": {
+      "description": "What `run_state_filesystem_unsupported` details.",
+      "properties": {
+        "filesystem": {
+          "$ref": "#/$defs/RunStateFilesystem",
+          "arrived_in": "0.1",
+          "description": "The filesystem the folder is on."
+        },
+        "fix": {
+          "arrived_in": "0.1",
+          "description": "How to keep the Run's state where the engine can.",
+          "type": "string"
+        },
+        "path": {
+          "arrived_in": "0.1",
+          "description": "The Run's folder.",
+          "type": "string"
+        },
+        "run_id": {
+          "$ref": "#/$defs/RunId",
+          "arrived_in": "0.1",
+          "description": "The Run ID."
+        }
+      },
+      "required": [
+        "run_id",
+        "path",
+        "filesystem",
+        "fix"
+      ],
+      "type": "object"
+    },
+    "RunStatePosition": {
+      "description": "Where a Run's state stands: the run epoch of its last writer, then the\njournal position within it, compared in that order.",
+      "properties": {
+        "journal_position": {
+          "arrived_in": "0.1",
+          "description": "How many commits of the run file it holds.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "run_epoch": {
+          "arrived_in": "0.1",
+          "description": "The run epoch of the writer whose commits it holds.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "run_epoch",
+        "journal_position"
+      ],
+      "type": "object"
+    },
     "RunStateRow": {
       "description": "One row of a Run's run state about itself: its `run` table (ADR 0002).",
       "properties": {
@@ -15840,6 +19332,26 @@
         "level",
         "folder",
         "free_bytes"
+      ],
+      "type": "object"
+    },
+    "RunTargetUnbuiltDetails": {
+      "description": "What `run_target_unbuilt`'s details hold.",
+      "properties": {
+        "operation": {
+          "arrived_in": "0.1",
+          "description": "The start: `recipe.start` or `catalog_run.start`.",
+          "type": "string"
+        },
+        "target": {
+          "arrived_in": "0.1",
+          "description": "The target's kind: `recipe`, or the code-free target's `kind`.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "operation",
+        "target"
       ],
       "type": "object"
     },
@@ -16222,6 +19734,240 @@
       ],
       "type": "object"
     },
+    "SandboxEnvironment": {
+      "description": "What refuses the user namespace Chromium's sandbox starts in, on a host\nwhere a fix exists or the probe does not recognise the refusal (ADR\n0049).",
+      "oneOf": [
+        {
+          "const": "docker_default_seccomp",
+          "description": "Docker's or containerd's default seccomp profile, which refuses\n`CLONE_NEWUSER`.",
+          "type": "string"
+        },
+        {
+          "const": "kubernetes_runtime_default",
+          "description": "Kubernetes' `RuntimeDefault` seccomp profile, the container\nruntime's default.",
+          "type": "string"
+        },
+        {
+          "const": "apparmor_userns",
+          "description": "Ubuntu's AppArmor restriction on unprivileged user namespaces, with\nno profile that gives the browser one.",
+          "type": "string"
+        },
+        {
+          "const": "unknown",
+          "description": "A refusal the probe does not recognise, such as\n`user.max_user_namespaces` at 0; the message names what it met.",
+          "type": "string"
+        }
+      ]
+    },
+    "SchemaValidatorFailedDetails": {
+      "description": "What `schema_validator_failed` details: the schema, where in the value,\nand the exception, as `hook_failed`'s details name a Hook's.",
+      "properties": {
+        "exception_message": {
+          "arrived_in": "0.1",
+          "description": "The exception's message.",
+          "type": "string"
+        },
+        "exception_type": {
+          "arrived_in": "0.1",
+          "description": "The exception's type name.",
+          "type": "string"
+        },
+        "path": {
+          "arrived_in": "0.1",
+          "description": "Where in the value the validator ran, a JSON Pointer (RFC 6901),\nor none when the library does not say.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "schema": {
+          "arrived_in": "0.1",
+          "description": "The schema's JSON Schema `title`, or none when it has none.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "exception_type",
+        "exception_message"
+      ],
+      "type": "object"
+    },
+    "SecretDomainNotAllowedDetails": {
+      "description": "What `secret_domain_not_allowed` details.",
+      "properties": {
+        "domain": {
+          "arrived_in": "0.1",
+          "description": "The host the value would have gone to.",
+          "type": "string"
+        },
+        "domains": {
+          "arrived_in": "0.1",
+          "description": "The binding's domains.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "placeholder": {
+          "arrived_in": "0.1",
+          "description": "The placeholder.",
+          "type": "string"
+        },
+        "reference": {
+          "arrived_in": "0.1",
+          "description": "The Secret reference.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "placeholder",
+        "reference",
+        "domain",
+        "domains"
+      ],
+      "type": "object"
+    },
+    "SecretFailure": {
+      "description": "What a resolution failed on, which `secret_unavailable` carries.",
+      "oneOf": [
+        {
+          "const": "missing",
+          "description": "The provider holds no value for the reference, such as an unset\nvariable.",
+          "type": "string"
+        },
+        {
+          "const": "not_configured",
+          "description": "The engine has no such provider, or its `secret_providers.<scheme>.*`\nconfiguration does not let it answer.",
+          "type": "string"
+        },
+        {
+          "const": "provider_failed",
+          "description": "The provider failed in a way the engine does not know.",
+          "type": "string"
+        },
+        {
+          "const": "resolver_failed",
+          "description": "The caller's `resolveSecret` is missing, threw or gave no answer.",
+          "type": "string"
+        },
+        {
+          "const": "timed_out",
+          "description": "The provider gave no answer within `timeout.secret`.",
+          "type": "string"
+        },
+        {
+          "const": "no_code",
+          "description": "No one-time code came: a provider made none from the reference,\nsuch as a TOTP seed it cannot read, or a code source's code never\narrived (ADR 0092).",
+          "type": "string"
+        }
+      ]
+    },
+    "SecretInputRefusedDetails": {
+      "description": "What `secret_input_refused` details.",
+      "properties": {
+        "domain": {
+          "arrived_in": "0.1",
+          "description": "The host the value would have gone to.",
+          "type": "string"
+        },
+        "placeholder": {
+          "arrived_in": "0.1",
+          "description": "The placeholder.",
+          "type": "string"
+        },
+        "reason": {
+          "$ref": "#/$defs/SecretInputRefusedReason",
+          "arrived_in": "0.1",
+          "description": "Why it may not go there."
+        },
+        "reference": {
+          "arrived_in": "0.1",
+          "description": "The Secret reference.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "placeholder",
+        "reference",
+        "domain",
+        "reason"
+      ],
+      "type": "object"
+    },
+    "SecretInputRefusedReason": {
+      "description": "Why a value may not go where it would.",
+      "oneOf": [
+        {
+          "const": "invalid_certificate_exception",
+          "description": "The receiving host was reached through an invalid-certificate\nexception (ADR 0042), so whoever holds its key may not be the site.",
+          "type": "string"
+        }
+      ]
+    },
+    "SecretUnavailableDetails": {
+      "description": "What `secret_unavailable` details.",
+      "properties": {
+        "failure": {
+          "$ref": "#/$defs/SecretFailure",
+          "arrived_in": "0.1",
+          "description": "What failed."
+        },
+        "fix": {
+          "arrived_in": "0.1",
+          "description": "What makes the reference resolve.",
+          "type": "string"
+        },
+        "placeholder": {
+          "arrived_in": "0.1",
+          "description": "The Secret placeholder the value was for, or the setting's key where\nno placeholder names it.",
+          "type": "string"
+        },
+        "provider": {
+          "arrived_in": "0.1",
+          "description": "The provider, by its scheme, such as `env`.",
+          "type": "string"
+        },
+        "reference": {
+          "arrived_in": "0.1",
+          "description": "The Secret reference.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "placeholder",
+        "reference",
+        "provider",
+        "failure",
+        "fix"
+      ],
+      "type": "object"
+    },
+    "SecretUnboundDetails": {
+      "description": "What `secret_unbound` details.",
+      "properties": {
+        "bound": {
+          "arrived_in": "0.1",
+          "description": "The placeholders the scopes bind, never a value.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "placeholder": {
+          "arrived_in": "0.1",
+          "description": "The placeholder no scope binds.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "placeholder",
+        "bound"
+      ],
+      "type": "object"
+    },
     "Seed": {
       "anyOf": [
         {
@@ -16360,6 +20106,20 @@
         "id",
         "proxy_tier",
         "revalidate"
+      ],
+      "type": "object"
+    },
+    "SessionBoundToMachineDetails": {
+      "description": "What `session_bound_to_machine` details.",
+      "properties": {
+        "run_id": {
+          "$ref": "#/$defs/RunId",
+          "arrived_in": "0.1",
+          "description": "The Run's ID."
+        }
+      },
+      "required": [
+        "run_id"
       ],
       "type": "object"
     },
@@ -16801,6 +20561,58 @@
       ],
       "type": "object"
     },
+    "SettingInvalidDetails": {
+      "description": "What `setting_invalid` details.",
+      "properties": {
+        "fix": {
+          "arrived_in": "0.1",
+          "description": "What to give instead, such as the null form that sets no timeout.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "key": {
+          "arrived_in": "0.1",
+          "description": "The key or variable, or the file's path when the file does not\nparse.",
+          "type": "string"
+        },
+        "layer": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SettingsLayer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "The layer that held it; `None` for a variable of the environment."
+        },
+        "limit": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SettingLimit"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "The value refused, as the setting it would have set: a call's own\n`timeout` of 0 names its timeout setting at the run layer, origin\n`argument` (ADR 0080); absent where no value was read."
+        },
+        "reason": {
+          "arrived_in": "0.1",
+          "description": "What is wrong with it.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "key",
+        "reason"
+      ],
+      "type": "object"
+    },
     "SettingLimit": {
       "description": "A setting that decided an outcome: its key, its value, the layer that\nset it and, for the run layer, where the value came from (ADRs 0028,\n0079 and 0083).",
       "properties": {
@@ -16838,6 +20650,64 @@
       ],
       "type": "object"
     },
+    "SettingLockedDetails": {
+      "description": "What `setting_locked` details.",
+      "properties": {
+        "fix": {
+          "arrived_in": "0.1",
+          "description": "What to do instead.",
+          "type": "string"
+        },
+        "key": {
+          "arrived_in": "0.1",
+          "description": "The key.",
+          "type": "string"
+        },
+        "layer": {
+          "$ref": "#/$defs/SettingsLayer",
+          "arrived_in": "0.1",
+          "description": "The layer whose value was refused."
+        },
+        "limit": {
+          "$ref": "#/$defs/SettingLimit",
+          "arrived_in": "0.1",
+          "description": "What holds the value: the lock's or the cap's value and layer, or\nthe lower layers' value a narrowing-only key was held to."
+        }
+      },
+      "required": [
+        "key",
+        "layer",
+        "limit",
+        "fix"
+      ],
+      "type": "object"
+    },
+    "SettingNotApplicableDetails": {
+      "description": "What `setting_not_applicable` details.",
+      "properties": {
+        "fix": {
+          "arrived_in": "0.1",
+          "description": "Where it can be set instead.",
+          "type": "string"
+        },
+        "key": {
+          "arrived_in": "0.1",
+          "description": "The key.",
+          "type": "string"
+        },
+        "layer": {
+          "$ref": "#/$defs/SettingsLayer",
+          "arrived_in": "0.1",
+          "description": "The layer that held it."
+        }
+      },
+      "required": [
+        "key",
+        "layer",
+        "fix"
+      ],
+      "type": "object"
+    },
     "SettingPreset": {
       "description": "The setting whose value names the preset that gave another setting its\nvalue: `run_state.durability` and its level unfold into the\n`run_state.batch.*` keys at the layer that set the level (ADR 0142).",
       "properties": {
@@ -16854,6 +20724,40 @@
       "required": [
         "key",
         "value"
+      ],
+      "type": "object"
+    },
+    "SettingUnknownDetails": {
+      "description": "What `setting_unknown` details.",
+      "properties": {
+        "closest": {
+          "arrived_in": "0.1",
+          "description": "The closest known key or variable, when one is close.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "key": {
+          "arrived_in": "0.1",
+          "description": "The key or variable as written.",
+          "type": "string"
+        },
+        "layer": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SettingsLayer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "The layer that held it; `None` for a variable of the environment."
+        }
+      },
+      "required": [
+        "key"
       ],
       "type": "object"
     },
@@ -16956,6 +20860,68 @@
       "description": "A SHA-256 digest of 64 lowercase hexadecimal digits.",
       "pattern": "^[0-9a-f]{64}$",
       "type": "string"
+    },
+    "SheetCapacity": {
+      "description": "What a sheet holds at most, as Excel's specifications and limits give\nit, which an XLSX Export's one sheet may not pass (issue 1678).",
+      "oneOf": [
+        {
+          "const": "rows",
+          "description": "1,048,576 rows, the header row included.",
+          "type": "string"
+        },
+        {
+          "const": "columns",
+          "description": "16,384 columns, `A` to `XFD`.",
+          "type": "string"
+        },
+        {
+          "const": "cell_length",
+          "description": "32,767 characters in one cell, a column's name included, counted in\nUTF-16 code units as Excel counts them, so a character outside the\nBasic Multilingual Plane counts two.",
+          "type": "string"
+        }
+      ]
+    },
+    "SheetCapacityExceededDetails": {
+      "description": "What `sheet_capacity_exceeded` details.",
+      "properties": {
+        "capacity": {
+          "$ref": "#/$defs/SheetCapacity",
+          "arrived_in": "0.1",
+          "description": "What its sheet would pass."
+        },
+        "dataset": {
+          "arrived_in": "0.1",
+          "description": "The Dataset's name.",
+          "type": "string"
+        },
+        "figure": {
+          "arrived_in": "0.1",
+          "description": "How much of it the Dataset needs: its rows with the header, its\ncolumns, or the length of its longest cell.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "fix": {
+          "arrived_in": "0.1",
+          "description": "What to do instead.",
+          "type": "string"
+        },
+        "maximum": {
+          "arrived_in": "0.1",
+          "description": "The most a sheet holds of it.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "dataset",
+        "capacity",
+        "figure",
+        "maximum",
+        "fix"
+      ],
+      "type": "object"
     },
     "SigningKeyCreateParams": {
       "additionalProperties": false,
@@ -17182,6 +21148,46 @@
           "type": "string"
         }
       ]
+    },
+    "SitePreference": {
+      "description": "Which of a site's preferences refused a navigation (ADR 0086, as ADR\n0093 amends it).",
+      "oneOf": [
+        {
+          "const": "robots_txt",
+          "description": "The site's robots.txt disallows the URL.",
+          "type": "string"
+        },
+        {
+          "const": "crawl_delay",
+          "description": "The site's robots.txt `Crawl-delay` asks for a wait longer than the\ncrawl allows.",
+          "type": "string"
+        },
+        {
+          "const": "use_signals",
+          "description": "A use signal the site sends (aipref's `Content-Usage` header,\n`TDMRep`'s headers, RSL's `Link`) refuses the crawl's Purpose.",
+          "type": "string"
+        }
+      ]
+    },
+    "SitePreferencesRefusedDetails": {
+      "description": "What `site_preferences_refused` details.",
+      "properties": {
+        "reason": {
+          "$ref": "#/$defs/SitePreference",
+          "arrived_in": "0.1",
+          "description": "The preference that refused it."
+        },
+        "url": {
+          "arrived_in": "0.1",
+          "description": "The URL of the navigation or request it refused.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "url",
+        "reason"
+      ],
+      "type": "object"
     },
     "SitemapFailure": {
       "description": "A sitemap a sitemap seed could not read (ADR 0102; pitfall U19).",
@@ -17552,6 +21558,53 @@
         {
           "const": "descending",
           "description": "Largest first: the newest first, when sorting by time.",
+          "type": "string"
+        }
+      ]
+    },
+    "StagingFullDetails": {
+      "description": "What `staging_full` names: the setting that bounds an attempt's staged\nadmissions, and its value.",
+      "properties": {
+        "limit": {
+          "arrived_in": "0.1",
+          "description": "The setting's name, `crawl.max_staged_enqueues`.",
+          "type": "string"
+        },
+        "max": {
+          "arrived_in": "0.1",
+          "description": "How many admissions it lets one attempt stage.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "limit",
+        "max"
+      ],
+      "type": "object"
+    },
+    "StartInput": {
+      "description": "An input of a start that differs from the Run's.",
+      "oneOf": [
+        {
+          "const": "product",
+          "description": "The Product the Run needs.",
+          "type": "string"
+        },
+        {
+          "const": "kind",
+          "description": "A crawl or a Collie Run.",
+          "type": "string"
+        },
+        {
+          "const": "caller",
+          "description": "Who started it.",
+          "type": "string"
+        },
+        {
+          "const": "seeds",
+          "description": "A crawl's seeds.",
           "type": "string"
         }
       ]
@@ -18179,6 +22232,63 @@
       ],
       "type": "object"
     },
+    "TargetMatch": {
+      "description": "One element an ambiguous locator matched.",
+      "properties": {
+        "element": {
+          "arrived_in": "0.1",
+          "description": "The element as its opening tag and the start of its text, such as\n`<button id=\"target\">Target</button>`.",
+          "type": "string"
+        },
+        "locator": {
+          "arrived_in": "0.1",
+          "description": "A locator that reaches it alone, in the caller's language (ADR\n0079), such as `page.locator('#target').nth(1)`.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "element",
+        "locator"
+      ],
+      "type": "object"
+    },
+    "TargetNotUniqueDetails": {
+      "description": "What `target_not_unique` details.",
+      "properties": {
+        "elapsed": {
+          "arrived_in": "0.1",
+          "description": "How long the action waited, in milliseconds.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "limit": {
+          "$ref": "#/$defs/SettingLimit",
+          "arrived_in": "0.1",
+          "description": "The timeout's setting, its value in milliseconds and the layer that\nset it."
+        },
+        "matches": {
+          "arrived_in": "0.1",
+          "description": "Every element it matched at the last observation.",
+          "items": {
+            "$ref": "#/$defs/TargetMatch"
+          },
+          "type": "array"
+        },
+        "target": {
+          "arrived_in": "0.1",
+          "description": "The locator, in the caller's language.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "target",
+        "matches",
+        "limit",
+        "elapsed"
+      ],
+      "type": "object"
+    },
     "TaskId": {
       "description": "A Proving ground task's ID, `<family>/<ordinal>` (ADR 0063).",
       "pattern": "^[a-z0-9]+(-[a-z0-9]+)*/[1-9][0-9]*$",
@@ -18339,6 +22449,51 @@
       },
       "required": [
         "rotated_at"
+      ],
+      "type": "object"
+    },
+    "TooManyCallsDetails": {
+      "description": "What `too_many_calls` names: how many calls in flight the engine serves\non one Connection.",
+      "properties": {
+        "max": {
+          "arrived_in": "0.1",
+          "description": "How many calls one Connection keeps in flight.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "max"
+      ],
+      "type": "object"
+    },
+    "TooManyRedirectsDetails": {
+      "description": "What `too_many_redirects` details.",
+      "properties": {
+        "hops": {
+          "arrived_in": "0.1",
+          "description": "The URL each redirect followed led to, in order.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "limit": {
+          "$ref": "#/$defs/RedirectLimit",
+          "arrived_in": "0.1",
+          "description": "The count it went past, and what set it."
+        },
+        "url": {
+          "arrived_in": "0.1",
+          "description": "The first URL of the chain.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "url",
+        "hops",
+        "limit"
       ],
       "type": "object"
     },
@@ -18879,6 +23034,91 @@
       ],
       "type": "object"
     },
+    "ValueInvalidDetails": {
+      "description": "What `value_invalid` details.",
+      "properties": {
+        "fix": {
+          "arrived_in": "0.1",
+          "description": "What to do instead.",
+          "type": "string"
+        },
+        "key": {
+          "arrived_in": "0.1",
+          "description": "The key, as the call gave it.",
+          "type": "string"
+        },
+        "path": {
+          "arrived_in": "0.1",
+          "description": "Where in the value the refusal is, a JSON Pointer (RFC 6901), for\n`value_not_json` and `value_schema`.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "reason": {
+          "$ref": "#/$defs/ValueInvalidReason",
+          "arrived_in": "0.1",
+          "description": "Why."
+        },
+        "refused": {
+          "$ref": "#/$defs/Refused",
+          "arrived_in": "0.1",
+          "description": "Whether the key itself or its value was refused."
+        }
+      },
+      "required": [
+        "key",
+        "refused",
+        "reason",
+        "fix"
+      ],
+      "type": "object"
+    },
+    "ValueInvalidReason": {
+      "description": "Why `value_invalid` refused a key or a value.",
+      "oneOf": [
+        {
+          "const": "key_empty",
+          "description": "The key is empty.",
+          "type": "string"
+        },
+        {
+          "const": "key_too_long",
+          "description": "The key holds more than 512 Unicode scalar values.",
+          "type": "string"
+        },
+        {
+          "const": "key_control_character",
+          "description": "The key holds a control character.",
+          "type": "string"
+        },
+        {
+          "const": "value_null",
+          "description": "The value is null, which `get` answers for an absent key.",
+          "type": "string"
+        },
+        {
+          "const": "value_bytes",
+          "description": "The key holds bytes, which `get_bytes` reads, not `get`.",
+          "type": "string"
+        },
+        {
+          "const": "value_json",
+          "description": "The key holds JSON, which `get` reads, not `get_bytes`.",
+          "type": "string"
+        },
+        {
+          "const": "value_not_json",
+          "description": "The value given holds something that is not JSON, at `path`: the\nSDK refuses it before sending (ADR 0082).",
+          "type": "string"
+        },
+        {
+          "const": "value_schema",
+          "description": "The value given, or the one stored, is rejected by the Standard\nSchema the call named, first at `path`: the SDK's own check through\nthe schema's parse (ADR 0082).",
+          "type": "string"
+        }
+      ]
+    },
     "ValueTransform": {
       "description": "One of the engine's closed list of Value transforms (ADR 0123).",
       "oneOf": [
@@ -19287,6 +23527,10 @@
         }
       ]
     },
+    "WaitedFor": {
+      "description": "What a call past its deadline waited for, as `deadline_exceeded` names\nit: a value of a type both Products share, open as ADR 0099 has such\ntypes, so Foxhound adds its own (`goodfetch_protocol::foxhound`'s) and a\nreader keeps one it does not know. Each of Collie's values is an\nassociated constant.",
+      "type": "string"
+    },
     "WallDomainDenied": {
       "description": "What `needs_you.deny_wall_domain` answers.",
       "properties": {
@@ -19516,6 +23760,21 @@
         {
           "const": "isolated",
           "description": "A world of the engine's own in the page's document, which shares\nits DOM but neither sees nor is seen by the page's scripts.",
+          "type": "string"
+        }
+      ]
+    },
+    "WriteSide": {
+      "description": "Whose storage a write failed on (ADR 0116).",
+      "oneOf": [
+        {
+          "const": "engine",
+          "description": "Where the engine keeps its files.",
+          "type": "string"
+        },
+        {
+          "const": "program",
+          "description": "The program's machine.",
           "type": "string"
         }
       ]
@@ -22697,6 +26956,63 @@
                   "by_reference": {
                     "description": "Secrets are given by Secret reference, never as values, an honesty guarantee that stays locked whatever the layer.",
                     "type": "boolean"
+                  },
+                  "placeholders": {
+                    "additionalProperties": {
+                      "oneOf": [
+                        {
+                          "additionalProperties": false,
+                          "properties": {
+                            "domains": {
+                              "description": "The registrable domains, each with its subdomains, its value may go to; `*` for every domain, only when written.",
+                              "items": {
+                                "type": "string"
+                              },
+                              "minItems": 1,
+                              "type": "array"
+                            },
+                            "reference": {
+                              "description": "The Secret reference its value comes from, such as `env:GITHUB_PASSWORD`.",
+                              "pattern": "^(?:(?:env|keychain|secretfile|caller|bw|vault|aws-sm|gcp-sm|azure-kv|plugin):|op://)[^\\s]+$",
+                              "type": "string"
+                            },
+                            "totp": {
+                              "description": "Whether the reference's value is a TOTP seed, whose current code is typed in its place.",
+                              "type": "boolean"
+                            }
+                          },
+                          "required": [
+                            "reference",
+                            "domains"
+                          ],
+                          "type": "object"
+                        },
+                        {
+                          "additionalProperties": false,
+                          "properties": {
+                            "code_source": {
+                              "description": "The email or SMS code source its one-time code comes from.",
+                              "type": "string"
+                            },
+                            "domains": {
+                              "description": "The registrable domains, each with its subdomains, its value may go to; `*` for every domain, only when written.",
+                              "items": {
+                                "type": "string"
+                              },
+                              "minItems": 1,
+                              "type": "array"
+                            }
+                          },
+                          "required": [
+                            "code_source",
+                            "domains"
+                          ],
+                          "type": "object"
+                        }
+                      ]
+                    },
+                    "description": "Each Secret placeholder's binding, as `secrets.placeholders.<name>`: `reference`, the Secret reference its value comes from, with `totp: true` when that value is a TOTP seed whose current code is typed, or `code_source`, the email or SMS code source its one-time code comes from; and `domains`, required, the registrable domains its value may go to, each with its subdomains, `*` only when written. A host below a registrable domain, such as `www.example.com`, is refused with `setting_invalid` naming the domain. `secret(\"name\")` in code and `%name%` in an AI instruction name the placeholder, and the nearest of a Session, its Run and the connection that binds it wins. None by default. A Recipe declares names and never binds one, and a Client acting for a model never sets one: either's value is `setting_locked`.",
+                    "type": "object"
                   },
                   "resolve_each_use": {
                     "description": "The Secret references a Run resolves again at each use, such as a rotating token's. Any other reference is resolved once for each placeholder it fills and its value reused for the rest of the Run, its domain binding checked at each use; none by default.",
@@ -26651,6 +30967,63 @@
                   "by_reference": {
                     "description": "Secrets are given by Secret reference, never as values, an honesty guarantee that stays locked whatever the layer.",
                     "type": "boolean"
+                  },
+                  "placeholders": {
+                    "additionalProperties": {
+                      "oneOf": [
+                        {
+                          "additionalProperties": false,
+                          "properties": {
+                            "domains": {
+                              "description": "The registrable domains, each with its subdomains, its value may go to; `*` for every domain, only when written.",
+                              "items": {
+                                "type": "string"
+                              },
+                              "minItems": 1,
+                              "type": "array"
+                            },
+                            "reference": {
+                              "description": "The Secret reference its value comes from, such as `env:GITHUB_PASSWORD`.",
+                              "pattern": "^(?:(?:env|keychain|secretfile|caller|bw|vault|aws-sm|gcp-sm|azure-kv|plugin):|op://)[^\\s]+$",
+                              "type": "string"
+                            },
+                            "totp": {
+                              "description": "Whether the reference's value is a TOTP seed, whose current code is typed in its place.",
+                              "type": "boolean"
+                            }
+                          },
+                          "required": [
+                            "reference",
+                            "domains"
+                          ],
+                          "type": "object"
+                        },
+                        {
+                          "additionalProperties": false,
+                          "properties": {
+                            "code_source": {
+                              "description": "The email or SMS code source its one-time code comes from.",
+                              "type": "string"
+                            },
+                            "domains": {
+                              "description": "The registrable domains, each with its subdomains, its value may go to; `*` for every domain, only when written.",
+                              "items": {
+                                "type": "string"
+                              },
+                              "minItems": 1,
+                              "type": "array"
+                            }
+                          },
+                          "required": [
+                            "code_source",
+                            "domains"
+                          ],
+                          "type": "object"
+                        }
+                      ]
+                    },
+                    "description": "Each Secret placeholder's binding, as `secrets.placeholders.<name>`: `reference`, the Secret reference its value comes from, with `totp: true` when that value is a TOTP seed whose current code is typed, or `code_source`, the email or SMS code source its one-time code comes from; and `domains`, required, the registrable domains its value may go to, each with its subdomains, `*` only when written. A host below a registrable domain, such as `www.example.com`, is refused with `setting_invalid` naming the domain. `secret(\"name\")` in code and `%name%` in an AI instruction name the placeholder, and the nearest of a Session, its Run and the connection that binds it wins. None by default. A Recipe declares names and never binds one, and a Client acting for a model never sets one: either's value is `setting_locked`.",
+                    "type": "object"
                   },
                   "resolve_each_use": {
                     "description": "The Secret references a Run resolves again at each use, such as a rotating token's. Any other reference is resolved once for each placeholder it fills and its value reused for the rest of the Run, its domain binding checked at each use; none by default.",
@@ -30621,6 +34994,63 @@
                   "by_reference": {
                     "description": "Secrets are given by Secret reference, never as values, an honesty guarantee that stays locked whatever the layer.",
                     "type": "boolean"
+                  },
+                  "placeholders": {
+                    "additionalProperties": {
+                      "oneOf": [
+                        {
+                          "additionalProperties": false,
+                          "properties": {
+                            "domains": {
+                              "description": "The registrable domains, each with its subdomains, its value may go to; `*` for every domain, only when written.",
+                              "items": {
+                                "type": "string"
+                              },
+                              "minItems": 1,
+                              "type": "array"
+                            },
+                            "reference": {
+                              "description": "The Secret reference its value comes from, such as `env:GITHUB_PASSWORD`.",
+                              "pattern": "^(?:(?:env|keychain|secretfile|caller|bw|vault|aws-sm|gcp-sm|azure-kv|plugin):|op://)[^\\s]+$",
+                              "type": "string"
+                            },
+                            "totp": {
+                              "description": "Whether the reference's value is a TOTP seed, whose current code is typed in its place.",
+                              "type": "boolean"
+                            }
+                          },
+                          "required": [
+                            "reference",
+                            "domains"
+                          ],
+                          "type": "object"
+                        },
+                        {
+                          "additionalProperties": false,
+                          "properties": {
+                            "code_source": {
+                              "description": "The email or SMS code source its one-time code comes from.",
+                              "type": "string"
+                            },
+                            "domains": {
+                              "description": "The registrable domains, each with its subdomains, its value may go to; `*` for every domain, only when written.",
+                              "items": {
+                                "type": "string"
+                              },
+                              "minItems": 1,
+                              "type": "array"
+                            }
+                          },
+                          "required": [
+                            "code_source",
+                            "domains"
+                          ],
+                          "type": "object"
+                        }
+                      ]
+                    },
+                    "description": "Each Secret placeholder's binding, as `secrets.placeholders.<name>`: `reference`, the Secret reference its value comes from, with `totp: true` when that value is a TOTP seed whose current code is typed, or `code_source`, the email or SMS code source its one-time code comes from; and `domains`, required, the registrable domains its value may go to, each with its subdomains, `*` only when written. A host below a registrable domain, such as `www.example.com`, is refused with `setting_invalid` naming the domain. `secret(\"name\")` in code and `%name%` in an AI instruction name the placeholder, and the nearest of a Session, its Run and the connection that binds it wins. None by default. A Recipe declares names and never binds one, and a Client acting for a model never sets one: either's value is `setting_locked`.",
+                    "type": "object"
                   },
                   "resolve_each_use": {
                     "description": "The Secret references a Run resolves again at each use, such as a rotating token's. Any other reference is resolved once for each placeholder it fills and its value reused for the rest of the Run, its domain binding checked at each use; none by default.",

@@ -418,14 +418,18 @@ fn the_bundle_holds_the_type_a_failed_command_prints_under_json() {
 }
 
 /// An Error code whose details the SDKs read typed names its details type
-/// (ADR 0079); a code whose details they still read as a map names none.
+/// (ADR 0079), a group-named one too; a code without details names none.
 #[rstest]
 #[case::typed("call_cancelled", Some(json!({ "$ref": "#/$defs/CallCancelledDetails" })))]
 #[case::typed_through_the_wire_table(
     "not_verified",
     Some(json!({ "$ref": "#/$defs/NotVerifiedDetails" }))
 )]
-#[case::read_as_a_map("deadline_exceeded", None)]
+#[case::group_named(
+    "deadline_exceeded",
+    Some(json!({ "$ref": "#/$defs/DeadlineExceededDetails" }))
+)]
+#[case::without_details("client_gone", None)]
 fn an_error_code_names_the_details_type_the_sdks_read_typed(
     #[case] code: &str,
     #[case] details: Option<serde_json::Value>,

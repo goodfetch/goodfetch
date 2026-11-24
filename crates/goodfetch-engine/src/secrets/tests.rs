@@ -76,6 +76,7 @@ impl SecretProvider for Hanging {
 
 mod files;
 mod keychain;
+mod placeholders;
 mod racing;
 mod reuse;
 mod translations;

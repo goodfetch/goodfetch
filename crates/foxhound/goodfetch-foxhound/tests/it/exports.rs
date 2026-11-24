@@ -9,7 +9,9 @@
 //! `export.stream` sends, and which outlives the engine killed during the
 //! next call. On Linux, on a tmpfs of its own, a write the full filesystem refuses
 //! fails with `file_write_failed`, side `engine`, leaving no unfinished
-//! file, and one at the `critical` storage level fails before writing.
+//! file, and one at the `critical` storage level fails before writing. An
+//! XLSX Export past what a sheet holds fails with `sheet_capacity_exceeded`
+//! and leaves no file.
 //! Exports and Records read under `TZ=Pacific/Chatham` and
 //! `LANG=tr_TR.UTF-8` are byte-identical to those read under the host's.
 #![expect(
@@ -1069,7 +1071,9 @@ pub(crate) fn third_book() -> Value {
 /// a reference reader (a CSV reader, a spreadsheet library, an HTML parser,
 /// a Markdown parser) and gives the Records back, the Unicode record among
 /// them. CSV carries no BOM by default, and the XLSX sheet is named after
-/// the Dataset.
+/// the Dataset. The workbook is also kept as a binary snapshot, which
+/// `test_export_xlsx.py` of Foxhound's Python package opens with openpyxl,
+/// a spreadsheet library no Rust build here can take (issue 1679).
 ///
 /// Covers: story:6-278, story:6-277, operation:run.export, operation:export.save_as, format:export
 #[test]
@@ -1098,6 +1102,7 @@ fn csv_xlsx_html_and_markdown_exports_carry_every_field_seen_in_first_seen_order
     let html_bytes = saved(&mut engine, &env, &html, "books.html");
     let markdown_bytes = saved(&mut engine, &env, &markdown, "books.md");
     assert!(engine.finished());
+    insta::assert_binary_snapshot!("d07_books.xlsx", xlsx_bytes.clone());
 
     let columns = [
         "title",
@@ -1224,6 +1229,46 @@ fn the_export_settings_shape_csv_and_name_the_xlsx_sheet() {
             vec!["Livres 2026".to_owned()],
             (json!("setting_invalid"), json!("export.csv.delimiter")),
             (json!("setting_invalid"), json!("export.xlsx.sheet")),
+        )
+    );
+}
+
+/// An XLSX Export of a Dataset whose Record has more fields than a sheet
+/// has columns fails with `sheet_capacity_exceeded`, and leaves the Run's
+/// folder without an Exports folder; the same Dataset exports as CSV. Each
+/// capacity's figures are `goodfetch-dataset`'s tests.
+///
+/// Covers: operation:run.export, error:sheet_capacity_exceeded
+#[test]
+fn an_xlsx_export_past_what_a_sheet_holds_fails_and_leaves_no_file() {
+    let env = TestEnv::new();
+    let site = Site::start(&env);
+    let mut engine = site.engine(&env);
+    let wide = Value::Object(
+        (0..16_385)
+            .map(|field| (format!("f{field}"), json!(field)))
+            .collect(),
+    );
+    crawl((&mut engine, &site), "wide", 1);
+    finish(&mut engine, "wide", |_| wide.clone());
+
+    let refused = export(&mut engine, "wide", "xlsx");
+    let left = run_folder(&env, "wide").join("exports").exists();
+    let as_csv = export(&mut engine, "wide", "csv");
+
+    assert!(engine.finished());
+    assert_eq!(
+        (
+            refused["error"]["data"]["code"].clone(),
+            refused["error"]["data"]["capacity"].clone(),
+            left,
+            as_csv["result"]["records"].clone(),
+        ),
+        (
+            json!("sheet_capacity_exceeded"),
+            json!("columns"),
+            false,
+            json!(1)
         )
     );
 }

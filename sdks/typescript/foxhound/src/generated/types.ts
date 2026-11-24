@@ -977,11 +977,6 @@ export interface CrawlRequestEnqueueParams {
    */
   crawlRequestId: string;
   /**
-   * The document the handler read, whose base URL a relative `url`
-   * resolves against; absent, the crawl request's own URL is the base.
-   */
-  document?: EnqueueDocument | null;
-  /**
    * Whether it goes ahead of every request its domain holds pending,
    * whatever their priority, as Crawlee's `forefront` (ADR 0005): of two
    * such requests, the later goes first. A priority or `forefront` never
@@ -1007,6 +1002,15 @@ export interface CrawlRequestEnqueueParams {
    */
   method?: HttpMethod;
   /**
+   * The page the attempt was given, whose document's base URL a relative
+   * `url` resolves against: its `<base href>`, resolved against the URL
+   * the document was reached at after its redirects, or that URL
+   * itself. Absent, for an attempt given no page, the crawl request's
+   * own URL is the base. A page no fetch tier serves fails a relative
+   * `url` with `closed`.
+   */
+  pageId?: PageId | null;
+  /**
    * The data the program attaches for its handler.
    */
   payload?: {
@@ -1023,22 +1027,6 @@ export interface CrawlRequestEnqueueParams {
   runId: RunId;
   /**
    * The URL to add, absolute or relative to the document's base URL.
-   */
-  url: string;
-}
-/**
- * The document a handler read, against which its relative URLs resolve.
- *
- * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
- * via the `definition` "EnqueueDocument".
- */
-export interface EnqueueDocument {
-  /**
-   * The `href` of its first `<base>` element, as written.
-   */
-  baseHref?: string | null;
-  /**
-   * The URL the document was reached at, after every redirect.
    */
   url: string;
 }

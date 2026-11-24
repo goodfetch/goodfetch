@@ -3,8 +3,10 @@
 //! forefront and a key of the program's own, each a builder method named
 //! after its option, and `ctx.enqueue_links` with one Payload for every
 //! link or a `LinkPayload::with` function of each, ADR 0099's one name for
-//! both forms. The TypeScript and Python twins are `link-payload.test.ts`
-//! and `test_link_payload_attached.py` of Foxhound's packages.
+//! both forms; a relative `enqueue` resolves against its document's base
+//! URL. The TypeScript and Python twins are `link-payload.test.ts`,
+//! `enqueue-base.test.ts` and `test_link_payload_attached.py` of Foxhound's
+//! packages.
 #![expect(
     clippy::doc_markdown,
     reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
@@ -168,6 +170,77 @@ fn enqueue_links_gives_each_link_the_payload_its_function_answers() {
                 (url("/answers/1"), json!({ "from": "One", "isbn": null })),
                 (url("/answers/3"), json!({ "from": null, "isbn": "978-3" })),
             ],
+        )
+    );
+}
+
+/// A relative URL given to `enqueue` resolves against the base URL of the
+/// document its handler was given: on `links/1`'s shelf, against its
+/// `<base href="/library/shelves/">`; on `links/2`'s, against the URL
+/// `/old/shelf` moved to, `/new/shelf/`. Neither request reaches a wrong
+/// base's `404`.
+///
+/// Covers: story:11-1022, operation:crawl_request.enqueue
+#[test]
+fn a_relative_enqueue_resolves_against_its_documents_base_url() {
+    let env = TestEnv::new();
+    let site = ProvingGround::start(&env, LINKS).unwrap();
+    let enqueued: Noted<Value> = Arc::default();
+    let handled: Noted<String> = Arc::default();
+    let mut crawl = Crawl::new();
+    let shelf = crawl.label::<()>("shelf").unwrap();
+    let book = crawl.label::<()>("book").unwrap();
+    let (to_book, answers) = (book.clone(), Arc::clone(&enqueued));
+    crawl
+        .handle(&shelf, move |ctx: CrawlContext<()>| async move {
+            let added = ctx.enqueue("book/1", &to_book, ()).await?;
+            note(&answers, serde_json::to_value(added)?);
+            Ok(())
+        })
+        .unwrap();
+    let on_book = Arc::clone(&handled);
+    crawl
+        .handle(&book, move |ctx: CrawlContext<()>| async move {
+            note(&on_book, ctx.url().to_owned());
+            Ok(())
+        })
+        .unwrap();
+    let seeds = [
+        Seed::new(site.url("1.links.test", "/guide/"), &shelf, ()),
+        Seed::new(site.url("2.links.test", "/old/shelf"), &shelf, ()),
+    ];
+
+    let report = real_time_runtime().block_on(async {
+        let foxhound = Foxhound::connect(options(&env, &site)).await.unwrap();
+        let run = foxhound.start_crawl(&crawl, seeds).await.unwrap();
+        let report = crawl.serve(&run).await.unwrap();
+        foxhound.close().await.unwrap();
+        report
+    });
+
+    let books = [
+        site.url("1.links.test", "/library/shelves/book/1"),
+        site.url("2.links.test", "/new/shelf/book/1"),
+    ];
+    let mut answered: Vec<Value> = taken(&enqueued)
+        .into_iter()
+        .map(|answer| answer["url"].clone())
+        .collect();
+    answered.sort_by_key(Value::to_string);
+    let mut handled = taken(&handled);
+    handled.sort();
+    assert_eq!(
+        (
+            report.report.lifecycle,
+            answered,
+            handled,
+            site.observations().unwrap()["findings"].clone()
+        ),
+        (
+            Lifecycle::Finished,
+            books.iter().map(|url| json!(url)).collect(),
+            books.to_vec(),
+            json!([])
         )
     );
 }

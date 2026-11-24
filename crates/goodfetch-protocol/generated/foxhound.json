@@ -2662,18 +2662,6 @@
           "description": "The ID of the crawl request whose attempt enqueues.",
           "type": "string"
         },
-        "document": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/EnqueueDocument"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "arrived_in": "0.1",
-          "description": "The document the handler read, whose base URL a relative `url`\nresolves against; absent, the crawl request's own URL is the base."
-        },
         "forefront": {
           "arrived_in": "0.1",
           "default": false,
@@ -2704,6 +2692,18 @@
           "$ref": "#/$defs/HttpMethod",
           "arrived_in": "0.1",
           "description": "The method it is sent with: `GET` by default."
+        },
+        "page_id": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PageId"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "The page the attempt was given, whose document's base URL a relative\n`url` resolves against: its `<base href>`, resolved against the URL\nthe document was reached at after its redirects, or that URL\nitself. Absent, for an attempt given no page, the crawl request's\nown URL is the base. A page no fetch tier serves fails a relative\n`url` with `closed`."
         },
         "payload": {
           "arrived_in": "0.1",
@@ -5352,29 +5352,6 @@
           "type": "string"
         }
       ]
-    },
-    "EnqueueDocument": {
-      "additionalProperties": false,
-      "description": "The document a handler read, against which its relative URLs resolve.",
-      "properties": {
-        "base_href": {
-          "arrived_in": "0.1",
-          "description": "The `href` of its first `<base>` element, as written.",
-          "type": [
-            "string",
-            "null"
-          ]
-        },
-        "url": {
-          "arrived_in": "0.1",
-          "description": "The URL the document was reached at, after every redirect.",
-          "type": "string"
-        }
-      },
-      "required": [
-        "url"
-      ],
-      "type": "object"
     },
     "Enqueued": {
       "description": "The Frontier's answer to a seed or an enqueue (ADRs 0079 and 0093): a\nvalue, never an error, since a request is one among many.",

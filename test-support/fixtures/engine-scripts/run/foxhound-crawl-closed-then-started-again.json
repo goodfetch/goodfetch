@@ -149,6 +149,7 @@
           "run_id": "nightly",
           "crawl_request_id": "1",
           "lease_epoch": 1,
+          "page_id": "page-a",
           "url": "/next",
           "label": "page"
         }
@@ -200,6 +201,7 @@
           "run_id": "nightly",
           "crawl_request_id": "2",
           "lease_epoch": 1,
+          "page_id": "page-next",
           "url": "/next",
           "label": "page"
         }

@@ -111,7 +111,7 @@ impl Enqueue {
                 method: HttpMethod::default(),
                 body: None,
                 key: None,
-                document: None,
+                page_id: attempt.params.page_id.clone(),
             })
         });
         Self {

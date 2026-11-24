@@ -74,6 +74,7 @@ mod products;
 mod quarantine;
 mod rate;
 mod received_requests;
+mod recordings;
 mod register;
 mod release;
 mod release_suite;
@@ -365,6 +366,11 @@ enum Command {
     /// through `ReceivedRequests`, which says whether a count keeps the
     /// engine's robots.txt reads and the browser's icons (ADRs 0064 and 0086).
     ReceivedRequests,
+    /// The committed Model recordings and their matrix (ADR 0065).
+    Recordings {
+        #[command(subcommand)]
+        command: recordings::Command,
+    },
     /// A release's preparation (spec #130): the Product version in every
     /// released manifest of both Products.
     Release {
@@ -699,6 +705,7 @@ fn run(command: Command, environment: &Environment) -> anyhow::Result<ExitCode> 
         Command::Pgo { command } => pgo::run(command, environment),
         Command::Quarantine { command } => quarantine::run(command, environment),
         Command::ReceivedRequests => Ok(check::report(&received_requests::check(root)?)),
+        Command::Recordings { command } => recordings::run(&command, root),
         Command::Register { command } => register::run(&command, environment, &Cli::command()),
         Command::Release { command } => release::run(command, environment),
         Command::ReleaseSuite { command } => release_suite::run(command, environment),

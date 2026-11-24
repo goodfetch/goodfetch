@@ -100,6 +100,7 @@ mod pre_merge;
 mod quarantine;
 mod quick;
 mod received_requests;
+mod recordings;
 mod refusals;
 mod register;
 mod register_coverage;

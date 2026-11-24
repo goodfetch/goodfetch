@@ -229,6 +229,7 @@ lint:
     step --after xtask xtask-telemetry 'cargo run --quiet --bin xtask -- telemetry'
     step --after xtask xtask-no-retry 'cargo run --quiet --bin xtask -- no-retry'
     step --after xtask xtask-received-requests 'cargo run --quiet --bin xtask -- received-requests'
+    step --after xtask xtask-recordings 'cargo run --quiet --bin xtask -- recordings check'
     step --after xtask xtask-mask-writers 'cargo run --quiet --bin xtask -- mask-writers'
     step --after xtask xtask-quarantine 'GITHUB_TOKEN="${GITHUB_TOKEN:-$(gh auth token 2>/dev/null || true)}" cargo run --quiet --bin xtask -- quarantine check --cargo-profile {{ test_profile }}'
     step --after xtask xtask-containment 'cargo run --quiet --bin xtask -- containment'

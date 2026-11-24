@@ -61,6 +61,7 @@ mod endpoint;
 mod engine_choice;
 mod events;
 mod exit_codes;
+mod exposed_cdp_url;
 mod extra_loopback;
 #[cfg(target_os = "linux")]
 mod governor;

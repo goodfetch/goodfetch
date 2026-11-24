@@ -6,9 +6,12 @@
 //! refuses them; one from the program's own code or the CLI may also use
 //! loopback; any other, a Client acting for a model's (its project
 //! configuration's included, O8 of the deep review) or a Recipe's, is an
-//! address a page can reach. A refusal raises `cdp_url_not_allowed`. ADR 0056's Exposed Daemon row, where even the
-//! program's own `cdp_url` may not use loopback, comes with the Exposed
-//! Daemon (A04-56).
+//! address a page can reach. On an Exposed Daemon (ADR 0049), ADR 0056's
+//! last row, the program's own code runs on another machine than the
+//! Daemon, so its `cdp_url` may not use loopback either, and the project
+//! configuration a Client sends there has the run layer's authority (ADR
+//! 0083), so its `cdp_url` is judged as one. A refusal raises
+//! `cdp_url_not_allowed`.
 
 use std::net::{IpAddr, SocketAddr};
 
@@ -50,18 +53,23 @@ enum Treated {
 }
 
 impl CdpUrlOrigin {
-    fn treated(self) -> Treated {
+    /// How the rules treat it, on an Exposed Daemon when `exposed`.
+    fn treated(self, exposed: bool) -> Treated {
         match ConfiguredKind::CdpUrl.classed().class(self.layer) {
             // A Client acting for a model sends the project configuration
-            // itself, so its value there is the model's (O8).
+            // itself, so its value there is the model's (O8); on an
+            // Exposed Daemon, any Client's has the run layer's authority
+            // (ADR 0083).
             EgressClass::OperatorConfigured
-                if self.layer == SettingsLayer::ProjectConfiguration && self.acting_for_model =>
+                if self.layer == SettingsLayer::ProjectConfiguration
+                    && (self.acting_for_model || exposed) =>
             {
                 Treated::PageReachable
             }
             EgressClass::OperatorConfigured => Treated::Configured,
+            // An Exposed Daemon's loopback is not the program's machine.
             EgressClass::PageReachable
-                if self.layer == SettingsLayer::Run && !self.acting_for_model =>
+                if self.layer == SettingsLayer::Run && !self.acting_for_model && !exposed =>
             {
                 Treated::ProgramsOwn
             }
@@ -101,7 +109,9 @@ impl CdpUrlRefused {
     /// `cdp_url_not_allowed`, which the call that opens the Session raises.
     pub fn error(&self) -> CallError {
         let rule = match self.rule {
-            CdpUrlRule::Loopback => "loopback from a Client acting for a model or a Recipe",
+            CdpUrlRule::Loopback => {
+                "loopback from a Client acting for a model or a Recipe, or on an Exposed Daemon"
+            }
             CdpUrlRule::PrivateAddress => "an address that is not globally reachable",
         };
         CallError::new(
@@ -137,7 +147,7 @@ pub fn cdp_url_address(url: &str) -> String {
 /// gave as a `cdp_url`, before any connection to it: under `endpoints`
 /// when it is Operator-configured, else under the Session's `session`
 /// policy as an address a page can reach, loopback allowed to the
-/// program's own code.
+/// program's own code unless `session` is an Exposed Daemon's.
 ///
 /// # Errors
 ///
@@ -156,7 +166,7 @@ pub fn judge_cdp_url(
         address,
         setting,
     };
-    let treated = origin.treated();
+    let treated = origin.treated(session.on_an_exposed_daemon);
     let name = super::name_of(url);
     if treated == Treated::Configured {
         return judge_endpoint_addresses(url, addresses, endpoints).map_err(|endpoint| {

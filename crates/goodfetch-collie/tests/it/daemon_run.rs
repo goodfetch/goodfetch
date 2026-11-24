@@ -119,7 +119,7 @@ impl Foreground {
 
     /// The fields of the first log record from here on whose field `name`
     /// is `value`.
-    fn first_record(&mut self, name: &str, value: &str) -> Value {
+    pub(crate) fn first_record(&mut self, name: &str, value: &str) -> Value {
         loop {
             let line = self
                 .lines

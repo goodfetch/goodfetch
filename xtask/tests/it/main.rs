@@ -22,7 +22,9 @@ mod artifacts;
 mod batch_check;
 mod browser_releases;
 mod budgets;
+mod chromium_expectations;
 mod chromium_package;
+mod chromium_regenerate;
 mod clients;
 #[cfg(unix)]
 mod clippy_excluded;

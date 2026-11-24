@@ -1029,7 +1029,7 @@ fn refused(answers: &[Enqueued]) -> Vec<Option<NotAddedReason>> {
                     | NotAddedReason::MaxRequests
                     | NotAddedReason::PathBudget),
                 ..
-            } => Some(*reason),
+            } => Some(reason.clone()),
             Enqueued::NotAdded { .. } => panic!("a page was refused: {answer:?}"),
         })
         .collect()
@@ -2002,7 +2002,7 @@ fn a_batch_whose_urls_memory_holds_is_answered_while_another_batchs_lookup_is_pe
     let duplicate = Some(NotAddedReason::Duplicate);
     assert_eq!(
         both.model.enqueue(2, 5),
-        Answer::Admitted(Some(vec![duplicate]))
+        Answer::Admitted(Some(vec![duplicate.clone()]))
     );
     let third = both.subject.links(2, &[5]);
     assert_eq!(both.subject.linked(third), vec![duplicate]);

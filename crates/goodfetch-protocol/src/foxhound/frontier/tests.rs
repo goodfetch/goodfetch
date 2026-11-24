@@ -1,6 +1,7 @@
 use rstest::rstest;
+use serde_json::json;
 
-use super::{HttpBody, HttpBodyInvalid, HttpMethod, HttpMethodInvalid};
+use super::{Enqueued, HttpBody, HttpBodyInvalid, HttpMethod, HttpMethodInvalid, NotAddedReason};
 
 /// Fetch's normalization: the six methods it knows uppercased, any other
 /// kept as written, since methods are case-sensitive.
@@ -49,4 +50,25 @@ fn a_body_reads_from_base64(#[case] text: &str, #[case] expected: &[u8]) {
 #[case::without_padding("aGk")]
 fn a_body_that_is_no_base64_is_refused(#[case] text: &str) {
     assert_eq!(HttpBody::from_base64(text), Err(HttpBodyInvalid));
+}
+
+/// A reason a newer engine gives keeps its enqueue's answer a refusal,
+/// written back as it was received (ADR 0079).
+#[test]
+fn a_refusal_this_reader_does_not_know_the_reason_of_is_kept() {
+    let sent =
+        json!({ "kind": "not_added", "reason": "a_newer_reason", "url": "https://shop.test/" });
+
+    let answer: Enqueued = serde_json::from_value(sent.clone()).expect("it reads");
+
+    let Enqueued::NotAdded { reason, .. } = &answer else {
+        panic!("expected a refusal, got {answer:?}");
+    };
+    assert_eq!(
+        (
+            matches!(reason, NotAddedReason::Unknown(_)),
+            serde_json::to_value(&answer).expect("it writes")
+        ),
+        (true, sent)
+    );
 }

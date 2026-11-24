@@ -27,12 +27,16 @@ use crate::browser_pages;
 use crate::catalog;
 use crate::certificates;
 use crate::clean_up;
+use crate::codecs;
 use crate::consent;
+use crate::consistency;
 use crate::crawl::{self, Families};
 use crate::encodings;
 use crate::exchange::{Reply, Request};
 use crate::extraction;
 use crate::files;
+use crate::fonts;
+use crate::google_hosts;
 use crate::handmade;
 use crate::hostile;
 use crate::languages;
@@ -153,9 +157,14 @@ impl Site {
                 clean_up::PAYMENT_HOST,
                 consent::HOST,
                 consent::FRAME_HOST,
+                consistency::HOST,
+                consistency::FRAME_HOST,
+                fonts::HOST,
+                codecs::HOST,
                 page_load::HOST,
             ])
             .chain(page_load::AD_HOSTS)
+            .chain(google_hosts::HOSTS)
             .map(|host| (host.to_owned(), None))
             .collect();
         hosts.extend(
@@ -316,6 +325,7 @@ impl Site {
             .or_else(|| protection::respond(self.seed, &name, request))
             .or_else(|| access::respond(self.seed, &name, request))
             .or_else(|| hostile::respond(self.seed, self.port, &name, request))
+            .or_else(|| consistency::respond(&name, request))
         {
             if let Some(recorded) = recorded {
                 self.observations.record(host, recorded);
@@ -345,6 +355,15 @@ impl Site {
             return reply;
         }
         if let Some(reply) = page_load::respond(self.port, &name, request) {
+            return reply;
+        }
+        if let Some(reply) = google_hosts::respond(&name, request) {
+            return reply;
+        }
+        if let Some(reply) = fonts::respond(&name, request) {
+            return reply;
+        }
+        if let Some(reply) = codecs::respond(&name, request) {
             return reply;
         }
         if name == model::HOST {

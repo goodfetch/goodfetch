@@ -279,6 +279,34 @@ form = "read"
 [[member]]
 package = "@goodfetch/foxhound"
 receiver = "CrawlContext"
+member = "run"
+entry = "none"
+reason = "The crawl's Run bound to the attempt, from `crawl_request.handle`'s request (ADR 0093)."
+only = "Python's and Rust's are the next parts of issue 1486."
+words = ["run"]
+form = "read"
+
+[[member]]
+package = "@goodfetch/foxhound"
+receiver = "AttemptRun"
+member = "id"
+entry = "none"
+reason = "The Run's ID, from the Run's start, with no round trip."
+words = ["id"]
+form = "read"
+
+[[member]]
+package = "@goodfetch/foxhound"
+receiver = "AttemptRun"
+member = "keyValueStore"
+entry = "none"
+reason = "The Run's Key-value store bound to the attempt, whose methods serve the `key_value_store` operations, with no round trip."
+words = ["key", "value", "store"]
+form = "read"
+
+[[member]]
+package = "@goodfetch/foxhound"
+receiver = "CrawlContext"
 member = "page"
 entry = "none"
 reason = "The page the engine serves the attempt, `crawl_request.handle`'s `page_id` as Collie's `Page` (ADR 0093)."
@@ -609,6 +637,15 @@ member = "openOver"
 entry = "none"
 reason = "What each Product's `connectOver` is: the common Connection opened over a transport a test holds, `hello` naming the Product (ADRs 0069 and 0095)."
 words = ["open", "over"]
+form = "runtime"
+
+[[member]]
+package = "@goodfetch/collie-client/runtime"
+receiver = "(module)"
+member = "attemptStoreOf"
+entry = "none"
+reason = "The Run's Key-value store a Product's handler is served, bound to its attempt and its signal (ADR 0093)."
+words = ["attempt", "store", "of"]
 form = "runtime"
 
 [[member]]
@@ -2547,15 +2584,6 @@ form = "runtime"
 [[member]]
 package = "@goodfetch/collie-client/runtime"
 receiver = "RunHost"
-member = "keyValueStore"
-entry = "none"
-reason = "What a Run reaches through its Connection: its Key-value store's calls."
-words = ["key", "value", "store"]
-form = "runtime"
-
-[[member]]
-package = "@goodfetch/collie-client/runtime"
-receiver = "RunHost"
 member = "logger"
 entry = "none"
 reason = "What a Run reaches through its Connection: the host program's logger."
@@ -2782,6 +2810,16 @@ member = "CrawlContext"
 entry = "none"
 reason = "What a handler's attempt holds (ADR 0093): its page and the calls that add to the crawl."
 words = ["crawl", "context"]
+form = "type"
+
+[[member]]
+package = "@goodfetch/foxhound"
+receiver = "(module)"
+member = "AttemptRun"
+entry = "none"
+reason = "A crawl's Run bound to one attempt (ADR 0093): `context.run`."
+only = "Python's and Rust's are the next parts of issue 1486."
+words = ["attempt", "run"]
 form = "type"
 
 [[member]]

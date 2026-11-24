@@ -181,5 +181,13 @@ entry = "typescript @goodfetch/foxhound Crawl"
 reason = "`crawl.dataset` takes a schema, whose input and output type the Dataset's Records, and refuses a second Dataset of one name or a key on a field the schema does not require as it is declared (issue 1486)."
 
 [[announced]]
+entry = "typescript @goodfetch/foxhound CrawlContext"
+reason = "A handler's context carries its attempt's Run, `run` (issue 1486): the SDK builds a context, so a program that writes its own in place of one, such as a test's, adds it."
+
+[[announced]]
+entry = "typescript @goodfetch/collie-client/runtime RunHost"
+reason = "A Run's host no longer carries the Key-value store's calls, `keyValueStore` (issue 1486): the store makes them through the host's `calls`, for its Run or for an attempt."
+
+[[announced]]
 entry = "typescript @goodfetch/foxhound Dataset"
 reason = "A Dataset carries its schema's output type beside its Records' input type, `Dataset<I, O = I>` (issue 1486)."

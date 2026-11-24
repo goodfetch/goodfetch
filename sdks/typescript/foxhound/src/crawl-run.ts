@@ -15,6 +15,7 @@ import {
 import { collieOperations, type Caller, type RunStarted } from "@goodfetch/collie-client/generated";
 import {
   alsoInNamespace,
+  attemptStoreOf,
   ensureRunOpen,
   idOfLocator,
   pageOf,
@@ -218,11 +219,8 @@ export class CrawlRun extends Run {
   }
 
   #contextOf(request: CrawlRequestHandleParams, signal: AbortSignal): CrawlContext {
-    const attempt = {
-      runId: this.id(),
-      crawlRequestId: request.crawlRequest.id,
-      leaseEpoch: request.leaseEpoch,
-    };
+    const lease = { crawlRequestId: request.crawlRequest.id, leaseEpoch: request.leaseEpoch };
+    const attempt = { runId: this.id(), ...lease };
     const calls = this.#crawlHost.calls;
     const crawl = this.#crawl;
     const options: CallOptions = { signal };
@@ -230,6 +228,7 @@ export class CrawlRun extends Run {
     const page =
       pageId === undefined ? undefined : pageOf(this, pageId, request.session.id, signal);
     return {
+      run: { id: () => attempt.runId, keyValueStore: attemptStoreOf(this, lease, signal) },
       get page(): Page {
         if (page === undefined) {
           throw new ResponseNotDocumentError(

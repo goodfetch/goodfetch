@@ -6,8 +6,9 @@
 // by its Client, resumable by its Run ID, unless the Run was started
 // `detached` and outlives its program. Any other call on a closed Run
 // fails with `closed`. A Product's package also builds, with `pageOf`, the
-// page the engine lends a handler of the Run for one attempt, and fails its
-// own Run type's calls on a closed Run with `ensureRunOpen`. A listener a
+// page the engine lends a handler of the Run for one attempt, with
+// `attemptStoreOf` the Run's Key-value store bound to that attempt, and fails
+// its own Run type's calls on a closed Run with `ensureRunOpen`. A listener a
 // program registers on a value (ADR 0081) that throws is removed, and its
 // failure waits in the Run for the next call on that value, or the `close()`
 // that closes it, to raise `listener_failed`; a value released first logs it.
@@ -20,6 +21,7 @@ import {
   Run as RunMembers,
   collieOperations,
   type CollieOperationTypes,
+  type KeyValueStoreAttempt,
   type PageId,
   type RunProgress,
   type RunStarted,
@@ -31,7 +33,7 @@ import { Page, Session } from "./generated/handles.ts";
 import { runtimeMessage, spelledOperation, type OperationNames } from "./goodfetch-error.ts";
 import { collieWire } from "./generated/wire.ts";
 import type { HandleHost, Listener, Opens, Subscription } from "./handle.ts";
-import { KeyValueStore, type KeyValueStoreHost } from "./key-value-store.ts";
+import { KeyValueStore, keyValueStoreHost } from "./key-value-store.ts";
 import { subscribe, subscribePublished, type Listening } from "./listeners.ts";
 import type { Logger } from "./logger.ts";
 import { Opened } from "./opened.ts";
@@ -59,8 +61,6 @@ export interface RunHost {
   forget(run: Run): void;
   /** Each operation's name in TypeScript form, which heads a call's `closed` (ADR 0079). */
   readonly operationNames: OperationNames;
-  /** Its Key-value store's calls. */
-  readonly keyValueStore: KeyValueStoreHost;
   /** The host's logger, which gets a failed listener its value never raised. */
   readonly logger: Logger | undefined;
 }
@@ -468,6 +468,21 @@ function signalled<Types extends Record<keyof Types, OperationTypes>>(
 
 let pageIn: (run: Run, pageId: PageId, sessionId: SessionId, signal: AbortSignal) => Page;
 let openIn: (run: Run, operation: string) => void;
+let attemptStoreIn: (run: Run, attempt: KeyValueStoreAttempt, signal: AbortSignal) => KeyValueStore;
+
+/**
+ * The Key-value store of `run` bound to `attempt`, what the engine runs a
+ * handler of the Run for (ADR 0103): its writes are staged with the attempt
+ * and its reads see them first. Its calls fail with `closed` once the Run
+ * is, and each stops when `signal`, the attempt's, aborts.
+ */
+export function attemptStoreOf(
+  run: Run,
+  attempt: KeyValueStoreAttempt,
+  signal: AbortSignal,
+): KeyValueStore {
+  return attemptStoreIn(run, attempt, signal);
+}
 
 /**
  * The page of ID `pageId` the engine lends a handler of `run` for one
@@ -515,6 +530,15 @@ export class Run extends RunMembers implements AsyncDisposable {
       );
       return new Page(sessionHost.child(pageId), new Session(sessionHost));
     };
+    attemptStoreIn = (run, attempt, signal) =>
+      new KeyValueStore(
+        keyValueStoreHost(signalled(run.#host.calls, signal), attempt),
+        run.#scope.id,
+        (operation) => {
+          signal.throwIfAborted();
+          ensureOpen(run.#scope, operation);
+        },
+      );
   }
 
   readonly #host: RunHost;
@@ -522,7 +546,12 @@ export class Run extends RunMembers implements AsyncDisposable {
   /** Whether the Run outlives its program (ADR 0102): its close then frees only the value. */
   readonly #detached: boolean;
   #closing: Promise<void> | undefined;
-  /** The Run's Key-value store (ADR 0103), kept in its run state across a resume. */
+  /**
+   * The Run's Key-value store (ADR 0103), kept in its run state across a
+   * resume. Its writes commit at once, whoever makes them: inside a crawl's
+   * handler, which every attempt runs again, reach the store through the
+   * context's `run` instead, whose writes commit with the attempt.
+   */
   readonly keyValueStore: KeyValueStore;
 
   /**
@@ -540,7 +569,7 @@ export class Run extends RunMembers implements AsyncDisposable {
     this.#host = host;
     this.#scope = scope;
     this.#detached = detached;
-    this.keyValueStore = new KeyValueStore(host.keyValueStore, scope.id, (operation) => {
+    this.keyValueStore = new KeyValueStore(keyValueStoreHost(host.calls), scope.id, (operation) => {
       ensureOpen(scope, operation);
     });
     holdInRealm(this);

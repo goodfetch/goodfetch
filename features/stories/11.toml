@@ -2551,6 +2551,15 @@ product = "foxhound"
 status = "active"
 
 [[story]]
+id = 1064
+title = "As a developer, I want `ctx.run` to reach the Key-value store with writes staged with the attempt and my own Run value's writes to commit at once, the docs naming the trap of a captured Run value (unfenced, written by every attempt, discarded ones included), so that a handler does not write state it cannot take back (ADR 0103; CO-26)."
+milestone = "M2 Client surfaces"
+journey = false
+not_journey = "part"
+product = "foxhound"
+status = "active"
+
+[[story]]
 id = 1075
 title = "As a Rust developer, I want `crawl.serve(&run).await` to answer the Run's Crawl requests with my handlers until the Run ends and return the Run report, and dropping that future to be my own stop (requests return to pending, no attempt counted), so that Rust has no loop of mine to pump (ADRs 0093, 0102)."
 milestone = "M2 Client surfaces"

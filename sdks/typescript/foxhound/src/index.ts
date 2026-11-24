@@ -29,6 +29,7 @@ export {
   Label,
   seed,
   sitemap,
+  type AttemptRun,
   type CrawlContext,
   type DatasetOptions,
   type DatasetSchemaOptions,

@@ -12776,6 +12776,16 @@
       ]
     },
     {
+      "id": "story:11-1064",
+      "kind": "story",
+      "area": 11,
+      "milestone": "M2 Client surfaces",
+      "status": "active",
+      "products": [
+        "foxhound"
+      ]
+    },
+    {
       "id": "story:11-107",
       "kind": "story",
       "area": 11,

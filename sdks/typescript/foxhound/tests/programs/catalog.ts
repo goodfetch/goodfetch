@@ -2,7 +2,13 @@
 // one Label for its listing pages, whose handler pushes each product the
 // page lists as one Record into the keyed Dataset `products` and enqueues
 // the page its Next link leads to, under its own Label.
-import { Crawl, type Dataset, type Label, type PageRead } from "@goodfetch/foxhound";
+import {
+  Crawl,
+  type CrawlContext,
+  type Dataset,
+  type Label,
+  type PageRead,
+} from "@goodfetch/foxhound";
 
 /** One product, as the listing page gives it, the price without its currency sign. */
 export interface Product {
@@ -15,7 +21,14 @@ export const catalog: Crawl = new Crawl();
 export const listing: Label = catalog.label("listing");
 export const products: Dataset<Product> = catalog.dataset<Product>("products", { key: ["id"] });
 
-catalog.handle(listing, async (context) => {
+catalog.handle(listing, (context) => crawlListing(context, listing, products));
+
+/** Pushes what the listing page of `context` lists into `into`, and enqueues its next page under `label`. */
+export async function crawlListing(
+  context: CrawlContext,
+  label: Label,
+  into: Dataset<Product>,
+): Promise<void> {
   const { values } = await context.page.read({
     ids: { list: { locator: { kind: "css", selector: "li.product" }, attribute: "data-id" } },
     names: { list: { locator: { kind: "css", selector: "li.product a" } } },
@@ -36,11 +49,11 @@ catalog.handle(listing, async (context) => {
     );
   }
   for (const [index, id] of ids.entries()) {
-    await context.push(products, { id, name: names[index] ?? "", price: prices[index] ?? "" });
+    await context.push(into, { id, name: names[index] ?? "", price: prices[index] ?? "" });
   }
   const next = values["next"];
-  if (typeof next === "string") await context.enqueue(next, listing);
-});
+  if (typeof next === "string") await context.enqueue(next, label);
+}
 
 /** The texts a list field read, or an error naming a field the page did not give in full. */
 function texts(values: PageRead["values"], field: string): string[] {

@@ -11,6 +11,8 @@ from typing import Final, Unpack
 
 from goodfetch_collie_client.generated.errors import PageError, ProgramError, RefusedError, UnavailableError
 from goodfetch_collie_client.goodfetch_error import BaseGoodfetchError, ErrorClass, ErrorFields, retry_after_of
+from goodfetch_collie_client.caller import details_of
+from .models import BrowserRequiredDetails, DatasetDuplicateDetails, DatasetKeyInvalidDetails, DatasetUnknownDetails, HandlerFailedDetails, HookDuplicateDetails, HookIneffectiveDetails, HookUndeclaredDetails, HookUnknownDetails, LabelUnknownDetails, PayloadInvalidDetails, PayloadSchemaChangedDetails, QueryInvalidDetails, QueryMemoryExceededDetails, RecordInvalidDetails, ResponseNotDocumentDetails, ResponseUnavailableDetails, SheetCapacityExceededDetails, StagingFullDetails
 
 
 class AttemptEndedError(BaseGoodfetchError):
@@ -27,9 +29,13 @@ class AttemptEndedError(BaseGoodfetchError):
 class BrowserRequiredError(ProgramError):
     """A handler's call on a page its forced fetch tier serves from a document, which that tier cannot serve exactly, such as a click, `evaluate` or a wait for content the document lacks: under a forced tier nothing escalates to the browser. The details name `fetch.tier`, the tier, the Label that forced it when one did, and the call; the fix names `fetch.tier: auto` or `browser`, and for a wait also content the page may simply lack. A request's own document that declares no encoding and is not UTF-8, which only the browser's guess reads, fails the same way under a forced tier (ADR 0119), its call `fetch.encoding` and its fix naming `fetch.encoding` and `fetch.tier`. So does a crawl request with a method other than `GET` or a body on a forced `light_browser`, which sends neither, its call `crawl_request.method` or `crawl_request.body`."""
 
+    typed_details: BrowserRequiredDetails | None
+    """The code's details, typed; `None` when they lack a field the model requires, as those of an error a program builds without details do."""
+
     def __init__(self, message: str, **fields: Unpack[ErrorFields]) -> None:
         """Takes the message the engine rendered, and what it carries."""
         super().__init__(message, code="browser_required", group="program", retryable=False, **fields)
+        self.typed_details = details_of(BrowserRequiredDetails, self.details)
 
 
 class ClientGoneError(UnavailableError):
@@ -43,25 +49,37 @@ class ClientGoneError(UnavailableError):
 class DatasetDuplicateError(ProgramError):
     """The crawl declares a second Dataset of a name it already declares, so it was not started. The details name the Dataset. Give each Dataset its own name."""
 
+    typed_details: DatasetDuplicateDetails | None
+    """The code's details, typed; `None` when they lack a field the model requires, as those of an error a program builds without details do."""
+
     def __init__(self, message: str, **fields: Unpack[ErrorFields]) -> None:
         """Takes the message the engine rendered, and what it carries."""
         super().__init__(message, code="dataset_duplicate", group="program", retryable=False, **fields)
+        self.typed_details = details_of(DatasetDuplicateDetails, self.details)
 
 
 class DatasetKeyInvalidError(ProgramError):
     """A Dataset's key names a field that is no top-level field its JSON Schema requires, so a Record could lack it and the crawl was not started (`reason` `not_required`, naming the field); or a start under the ID of a Run changes the key of a Dataset that holds Records, so the Run did no work and a Sink's upsert never mixes two identities (`reason` `changed`, naming both keys). The details name the Dataset. Key a Dataset only by fields its schema requires, and keep its key for the Run's life or start a new Run."""
 
+    typed_details: DatasetKeyInvalidDetails | None
+    """The code's details, typed; `None` when they lack a field the model requires, as those of an error a program builds without details do."""
+
     def __init__(self, message: str, **fields: Unpack[ErrorFields]) -> None:
         """Takes the message the engine rendered, and what it carries."""
         super().__init__(message, code="dataset_key_invalid", group="program", retryable=False, **fields)
+        self.typed_details = details_of(DatasetKeyInvalidDetails, self.details)
 
 
 class DatasetUnknownError(ProgramError):
     """A Record was pushed into a Dataset the crawl does not declare, such as another crawl's, so it was not staged; `run.records` read such a Dataset, so nothing was read; or a start under the ID of a Run whose Dataset holds Records no longer declares it, a renamed one included, so the Run did no work and no Record is orphaned. The details name the Dataset and those the crawl declares. Declare the Dataset again, or start a new Run."""
 
+    typed_details: DatasetUnknownDetails | None
+    """The code's details, typed; `None` when they lack a field the model requires, as those of an error a program builds without details do."""
+
     def __init__(self, message: str, **fields: Unpack[ErrorFields]) -> None:
         """Takes the message the engine rendered, and what it carries."""
         super().__init__(message, code="dataset_unknown", group="program", retryable=False, **fields)
+        self.typed_details = details_of(DatasetUnknownDetails, self.details)
 
 
 class EffectStagingRefusedError(ProgramError):
@@ -75,9 +93,13 @@ class EffectStagingRefusedError(ProgramError):
 class HandlerFailedError(ProgramError):
     """The program's handler failed with its own error, such as an exception; the attempt committed nothing. It is retried only when `crawl.retry.handler_failed` is on, since a bug fails the same way every time."""
 
+    typed_details: HandlerFailedDetails | None
+    """The code's details, typed; `None` when they lack a field the model requires, as those of an error a program builds without details do."""
+
     def __init__(self, message: str, **fields: Unpack[ErrorFields]) -> None:
         """Takes the message the engine rendered, and what it carries."""
         super().__init__(message, code="handler_failed", group="program", retryable=True, **fields)
+        self.typed_details = details_of(HandlerFailedDetails, self.details)
 
 
 class HandlerLostError(UnavailableError):
@@ -91,33 +113,49 @@ class HandlerLostError(UnavailableError):
 class HookDuplicateError(ProgramError):
     """The crawl declares a second Hook of a name one of its Hooks already carries, so the declaration failed at once, with no I/O: a name identifies one Hook, in `hook_failed`, in the Run trace and for a test's `runHook`. The details name the Hook and its stage. Give each Hook its own `name`."""
 
+    typed_details: HookDuplicateDetails | None
+    """The code's details, typed; `None` when they lack a field the model requires, as those of an error a program builds without details do."""
+
     def __init__(self, message: str, **fields: Unpack[ErrorFields]) -> None:
         """Takes the message the engine rendered, and what it carries."""
         super().__init__(message, code="hook_duplicate", group="program", retryable=False, **fields)
+        self.typed_details = details_of(HookDuplicateDetails, self.details)
 
 
 class HookIneffectiveError(ProgramError):
     """A Hook can never run, so nothing was done: its `labels` or `datasets` list is empty, which fails at once with no I/O, or, when the Run starts, it is a navigation Hook all of whose Labels force a tier that does not navigate (`http`, `discovered_api` or `browser_fetch`) through `fetch.tier`, so the Run was not started. The details name the Hook and its stage. Scope it to a Label or Dataset it can see, or let one of its Labels navigate."""
 
+    typed_details: HookIneffectiveDetails | None
+    """The code's details, typed; `None` when they lack a field the model requires, as those of an error a program builds without details do."""
+
     def __init__(self, message: str, **fields: Unpack[ErrorFields]) -> None:
         """Takes the message the engine rendered, and what it carries."""
         super().__init__(message, code="hook_ineffective", group="program", retryable=False, **fields)
+        self.typed_details = details_of(HookIneffectiveDetails, self.details)
 
 
 class HookUndeclaredError(ProgramError):
     """`run.resume` or `run.retry_failed` would reopen a Run whose crawl declared Hooks in code, which run in its program and which no start under its ID declared again, so the Run was not reopened and nothing was done: its Hooks would be skipped. The details name the Run and the Hooks its run file records. Resume the Run with `crawl.start` and its Run ID from the program that declares them; to retry an ended Run's failures, call `crawl.start` with its Run ID first, then `run.retry_failed`. `crawl.start` takes no Checkpoint yet, so a Checkpoint of such a Run cannot be resumed."""
 
+    typed_details: HookUndeclaredDetails | None
+    """The code's details, typed; `None` when they lack a field the model requires, as those of an error a program builds without details do."""
+
     def __init__(self, message: str, **fields: Unpack[ErrorFields]) -> None:
         """Takes the message the engine rendered, and what it carries."""
         super().__init__(message, code="hook_undeclared", group="program", retryable=False, **fields)
+        self.typed_details = details_of(HookUndeclaredDetails, self.details)
 
 
 class HookUnknownError(ProgramError):
     """A test's `runHook` names a Hook the crawl does not hold, so no Hook ran. The details name the Hook asked for and the closest name the crawl holds, if it holds any. Use a name the crawl's Hooks carry, which `name` sets."""
 
+    typed_details: HookUnknownDetails | None
+    """The code's details, typed; `None` when they lack a field the model requires, as those of an error a program builds without details do."""
+
     def __init__(self, message: str, **fields: Unpack[ErrorFields]) -> None:
         """Takes the message the engine rendered, and what it carries."""
         super().__init__(message, code="hook_unknown", group="program", retryable=False, **fields)
+        self.typed_details = details_of(HookUnknownDetails, self.details)
 
 
 class LabelDuplicateError(ProgramError):
@@ -139,9 +177,13 @@ class LabelUnhandledError(ProgramError):
 class LabelUnknownError(ProgramError):
     """A seed, an enqueue or a handler names a Label the crawl does not declare, such as another crawl's, so nothing was done; or a resume finds pending requests of a Label the crawl no longer declares, so the Run did no work; or `run.retry_failed` finds requests to retry of such a Label, so none was re-admitted. The details name the Label and those the crawl declares. Declare the Label on this crawl, or use one it declares."""
 
+    typed_details: LabelUnknownDetails | None
+    """The code's details, typed; `None` when they lack a field the model requires, as those of an error a program builds without details do."""
+
     def __init__(self, message: str, **fields: Unpack[ErrorFields]) -> None:
         """Takes the message the engine rendered, and what it carries."""
         super().__init__(message, code="label_unknown", group="program", retryable=False, **fields)
+        self.typed_details = details_of(LabelUnknownDetails, self.details)
 
 
 class LeaseLostError(UnavailableError):
@@ -155,17 +197,25 @@ class LeaseLostError(UnavailableError):
 class PayloadInvalidError(ProgramError):
     """A crawl request's Payload was refused when it was enqueued, as a seed, an added seed or a handler's enqueue: it does not fit its Label's JSON Schema, each issue named by its path, or its JSON is longer than `crawl.payload.max_size`, which `limit` names. Nothing was added. Large content goes to the Key-value store, and the Payload carries its key."""
 
+    typed_details: PayloadInvalidDetails | None
+    """The code's details, typed; `None` when they lack a field the model requires, as those of an error a program builds without details do."""
+
     def __init__(self, message: str, **fields: Unpack[ErrorFields]) -> None:
         """Takes the message the engine rendered, and what it carries."""
         super().__init__(message, code="payload_invalid", group="program", retryable=False, **fields)
+        self.typed_details = details_of(PayloadInvalidDetails, self.details)
 
 
 class PayloadSchemaChangedError(ProgramError):
     """The crawl now declares a Label's Payload JSON Schema that the Run did not begin with, and Payloads of that Label's pending requests fail it, so the Run was not resumed and did no work. The details name the Label, how many pending Payloads fail out of how many, and the first failure. Give the new field a default in the schema, or start a new Run: a Payload is never migrated silently."""
 
+    typed_details: PayloadSchemaChangedDetails | None
+    """The code's details, typed; `None` when they lack a field the model requires, as those of an error a program builds without details do."""
+
     def __init__(self, message: str, **fields: Unpack[ErrorFields]) -> None:
         """Takes the message the engine rendered, and what it carries."""
         super().__init__(message, code="payload_schema_changed", group="program", retryable=False, **fields)
+        self.typed_details = details_of(PayloadSchemaChangedDetails, self.details)
 
 
 class QueryFailedError(UnavailableError):
@@ -179,33 +229,49 @@ class QueryFailedError(UnavailableError):
 class QueryInvalidError(ProgramError):
     """The SQL tab did not run the statement: it does not parse, names a table, column or function that does not exist or a run the query did not select, is not one `SELECT` or `WITH` statement (a write, `ATTACH`, `INSTALL`, `LOAD` or `COPY`), or reads a file or URL, which the SQL tab never reaches. The details say which. Read only the selected runs' tables, and select the run first."""
 
+    typed_details: QueryInvalidDetails | None
+    """The code's details, typed; `None` when they lack a field the model requires, as those of an error a program builds without details do."""
+
     def __init__(self, message: str, **fields: Unpack[ErrorFields]) -> None:
         """Takes the message the engine rendered, and what it carries."""
         super().__init__(message, code="query_invalid", group="program", retryable=False, **fields)
+        self.typed_details = details_of(QueryInvalidDetails, self.details)
 
 
 class QueryMemoryExceededError(ProgramError):
     """The query needed more memory than `dataset.query.memory_limit`, so it was stopped. The details name the setting, its value and its layer. Aggregate or filter sooner, select fewer runs, or raise `dataset.query.memory_limit`."""
 
+    typed_details: QueryMemoryExceededDetails | None
+    """The code's details, typed; `None` when they lack a field the model requires, as those of an error a program builds without details do."""
+
     def __init__(self, message: str, **fields: Unpack[ErrorFields]) -> None:
         """Takes the message the engine rendered, and what it carries."""
         super().__init__(message, code="query_memory_exceeded", group="program", retryable=False, **fields)
+        self.typed_details = details_of(QueryMemoryExceededDetails, self.details)
 
 
 class RecordInvalidError(ProgramError):
     """A Record is no JSON object, fails its Dataset's JSON Schema, or lacks a field of its Dataset's key, so it was not staged. The details name the Dataset and each such Record by its position, from 0, among the Records pushed together, or the first such Record by its position among those of the handler's answer, with each of its issues by its path, a JSON Pointer into the Record. Caught in the handler, the attempt keeps its other outputs; escaping it, the request ends `failed` and is not retried, since the same Record fails the same way."""
 
+    typed_details: RecordInvalidDetails | None
+    """The code's details, typed; `None` when they lack a field the model requires, as those of an error a program builds without details do."""
+
     def __init__(self, message: str, **fields: Unpack[ErrorFields]) -> None:
         """Takes the message the engine rendered, and what it carries."""
         super().__init__(message, code="record_invalid", group="program", retryable=False, **fields)
+        self.typed_details = details_of(RecordInvalidDetails, self.details)
 
 
 class ResponseNotDocumentError(ProgramError):
     """A handler's call that reads, waits on or acts on the document of a page whose accepted response is not an HTML document, such as a PDF its Label's `crawl.content_types` lists: a locator, `content()`, `formats`, `evaluate`, a screenshot or an AI verb. It fails at once on every tier and never escalates. The details name the response's content type and the call; the fix names `ctx.response`, which holds the body."""
 
+    typed_details: ResponseNotDocumentDetails | None
+    """The code's details, typed; `None` when they lack a field the model requires, as those of an error a program builds without details do."""
+
     def __init__(self, message: str, **fields: Unpack[ErrorFields]) -> None:
         """Takes the message the engine rendered, and what it carries."""
         super().__init__(message, code="response_not_document", group="program", retryable=False, **fields)
+        self.typed_details = details_of(ResponseNotDocumentDetails, self.details)
 
 
 class ResponseNotOKError(PageError):
@@ -222,10 +288,14 @@ class ResponseUnavailableError(PageError):
     retry_after: datetime | None
     """When the site's `Retry-After` asks to be tried again: a point in time in UTC, not a duration; `None` when it asks for none. The details keep it as sent."""
 
+    typed_details: ResponseUnavailableDetails | None
+    """The code's details, typed; `None` when they lack a field the model requires, as those of an error a program builds without details do."""
+
     def __init__(self, message: str, **fields: Unpack[ErrorFields]) -> None:
         """Takes the message the engine rendered, and what it carries."""
         super().__init__(message, code="response_unavailable", group="page", retryable=True, **fields)
         self.retry_after = retry_after_of(self.details)
+        self.typed_details = details_of(ResponseUnavailableDetails, self.details)
 
 
 class RetryRequestedError(PageError):
@@ -244,12 +314,28 @@ class SampleCrawlRefusedError(RefusedError):
         super().__init__(message, code="sample_crawl_refused", group="refused", retryable=True, **fields)
 
 
+class SheetCapacityExceededError(ProgramError):
+    """An XLSX Export's one sheet would hold more than Excel opens: more than 1,048,576 rows, the header row included, more than 16,384 columns, or a cell, a column's name included, longer than 32,767 characters, counted in UTF-16 code units as Excel counts them. Nothing was written, and no file is left in the Run's folder. The details name the Dataset, the capacity passed (`rows`, `columns` or `cell_length`), the Dataset's figure and the most a sheet holds. Export the Dataset as `csv`, `jsonl` or `parquet`, which hold any number of rows, columns and characters."""
+
+    typed_details: SheetCapacityExceededDetails | None
+    """The code's details, typed; `None` when they lack a field the model requires, as those of an error a program builds without details do."""
+
+    def __init__(self, message: str, **fields: Unpack[ErrorFields]) -> None:
+        """Takes the message the engine rendered, and what it carries."""
+        super().__init__(message, code="sheet_capacity_exceeded", group="program", retryable=False, **fields)
+        self.typed_details = details_of(SheetCapacityExceededDetails, self.details)
+
+
 class StagingFullError(ProgramError):
     """The call would stage one more admission (an enqueue, an `enqueueLinks` call or a seed added through `ctx.run`) with an attempt that already staged `crawl.max_staged_enqueues` of them, which the attempt holds in the engine's memory until it commits. Nothing was staged. Enqueue many links with one `enqueueLinks` call, or raise the setting, which `limit` names."""
+
+    typed_details: StagingFullDetails | None
+    """The code's details, typed; `None` when they lack a field the model requires, as those of an error a program builds without details do."""
 
     def __init__(self, message: str, **fields: Unpack[ErrorFields]) -> None:
         """Takes the message the engine rendered, and what it carries."""
         super().__init__(message, code="staging_full", group="program", retryable=False, **fields)
+        self.typed_details = details_of(StagingFullDetails, self.details)
 
 
 ERROR_CLASSES: Final[Mapping[str, ErrorClass]] = {
@@ -281,6 +367,7 @@ ERROR_CLASSES: Final[Mapping[str, ErrorClass]] = {
     "response_unavailable": ResponseUnavailableError,
     "retry_requested": RetryRequestedError,
     "sample_crawl_refused": SampleCrawlRefusedError,
+    "sheet_capacity_exceeded": SheetCapacityExceededError,
     "staging_full": StagingFullError,
 }
 """The exception class of each Error code."""

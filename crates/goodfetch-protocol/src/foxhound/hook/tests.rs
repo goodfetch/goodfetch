@@ -159,7 +159,7 @@ fn a_record_stage_call_names_the_hook_its_request_and_the_record() {
         lease_epoch: 3,
         record: Some(PushedRecord {
             dataset: "products".to_owned(),
-            data: json!({ "name": "Kettle" }),
+            data: crate::foxhound::dataset::RecordData::of(&json!({ "name": "Kettle" })).unwrap(),
         }),
     };
 

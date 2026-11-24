@@ -7,7 +7,7 @@
 //! so a discarded attempt's rejections never enter the table.
 
 use goodfetch_engine::mask::{Masks, Scope};
-use goodfetch_protocol::foxhound::dataset::RecordIssue;
+use goodfetch_protocol::foxhound::dataset::{RecordData, RecordIssue};
 use goodfetch_protocol::foxhound::outcomes::DatasetRecords;
 use goodfetch_protocol::foxhound::rejections::{REJECTED_RECORDS_PAGE, RejectedRecord};
 use rusqlite::Connection;
@@ -20,7 +20,7 @@ pub struct Rejection {
     /// The Dataset it was pushed into.
     pub(crate) dataset: String,
     /// The Record as pushed.
-    pub(crate) data: Value,
+    pub(crate) data: RecordData,
     /// Why.
     pub(crate) why: Why,
 }
@@ -64,7 +64,7 @@ pub(crate) fn write(
         insert.execute((
             &rejection.dataset,
             work_item,
-            masks.json(&rejection.data, Scope::Kept),
+            masks.json_text(rejection.data.raw(), Scope::Kept),
             masks.json(&why, Scope::Kept),
         ))?;
         match counted

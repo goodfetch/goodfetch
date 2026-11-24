@@ -5,6 +5,9 @@
 //! attempt staged, committed once under its lease; `crawl.serve` offers
 //! another Connection's handler to the same crawl, as `workers=N` handler
 //! processes do. Foxhound's own.
+//!
+//! Size: one concern, the contract of a crawl's start and of its handler
+//! exchange, whose params, answers and their schemas share these types.
 
 use std::borrow::Cow;
 use std::collections::BTreeMap;
@@ -18,7 +21,7 @@ use crate::catalog::{
     Operation, OperationClass, OperationKind, ProtocolVersion, Reach, Setting, Stability,
     ValueKind, schema_of,
 };
-use crate::foxhound::dataset::DatasetDeclaration;
+use crate::foxhound::dataset::{DatasetDeclaration, RecordData};
 use crate::foxhound::fetch::FetchTier;
 use crate::foxhound::frontier::{HttpBody, HttpMethod};
 use crate::foxhound::hook::CrawlHookDeclaration;
@@ -255,9 +258,98 @@ pub struct CrawlExtraction {
     /// `page.read` reads them (ADR 0147); a field the page does not give
     /// is null, and the Record's Provenance names why (`unread_fields`);
     /// none by default.
-    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    #[serde(default, skip_serializing_if = "ExtractionFields::is_empty")]
     #[schemars(extend("arrived_in" = "0.1"))]
-    pub fields: BTreeMap<String, PageField>,
+    pub fields: ExtractionFields,
+}
+
+/// A code-free crawl's named fields, by name, in the order its start
+/// declared them, which each page's Record writes them in and a map would
+/// sort: of two declared under one name, the first's place keeps the
+/// later's field, as a JSON object keeps the later.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct ExtractionFields {
+    by_name: BTreeMap<String, PageField>,
+    declared: Vec<String>,
+}
+
+impl ExtractionFields {
+    /// Each field, by name.
+    #[must_use]
+    pub fn by_name(&self) -> &BTreeMap<String, PageField> {
+        &self.by_name
+    }
+
+    /// The fields' names, in the order declared.
+    #[must_use]
+    pub fn declared(&self) -> &[String] {
+        &self.declared
+    }
+
+    /// Whether it holds no field.
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.declared.is_empty()
+    }
+}
+
+impl FromIterator<(String, PageField)> for ExtractionFields {
+    fn from_iter<I: IntoIterator<Item = (String, PageField)>>(fields: I) -> Self {
+        let mut read = Self::default();
+        for (name, field) in fields {
+            if read.by_name.insert(name.clone(), field).is_none() {
+                read.declared.push(name);
+            }
+        }
+        read
+    }
+}
+
+impl Serialize for ExtractionFields {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.collect_map(self.declared.iter().map(|name| (name, &self.by_name[name])))
+    }
+}
+
+impl<'de> Deserialize<'de> for ExtractionFields {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        struct Fields;
+
+        impl<'de> serde::de::Visitor<'de> for Fields {
+            type Value = ExtractionFields;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("an object of fields by name")
+            }
+
+            fn visit_map<A: serde::de::MapAccess<'de>>(
+                self,
+                mut fields: A,
+            ) -> Result<ExtractionFields, A::Error> {
+                std::iter::from_fn(|| fields.next_entry().transpose()).collect()
+            }
+        }
+
+        deserializer.deserialize_map(Fields)
+    }
+}
+
+impl JsonSchema for ExtractionFields {
+    fn inline_schema() -> bool {
+        BTreeMap::<String, PageField>::inline_schema()
+    }
+
+    fn schema_name() -> Cow<'static, str> {
+        BTreeMap::<String, PageField>::schema_name()
+    }
+
+    fn schema_id() -> Cow<'static, str> {
+        BTreeMap::<String, PageField>::schema_id()
+    }
+
+    fn json_schema(generator: &mut SchemaGenerator) -> Schema {
+        BTreeMap::<String, PageField>::json_schema(generator)
+    }
 }
 
 /// Which pages a code-free crawl fetches beyond its seeds.
@@ -421,7 +513,7 @@ pub struct PushedRecord {
     pub dataset: String,
     /// The Record.
     #[schemars(extend("arrived_in" = "0.1"))]
-    pub data: Value,
+    pub data: RecordData,
 }
 
 /// A handler's skip of its request: `ctx.skip(message)` (ADR 0093).

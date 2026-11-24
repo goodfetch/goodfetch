@@ -28,6 +28,14 @@ export type BlockCause =
   | "consent_required"
   | (string & {});
 /**
+ * A tier that fetches a crawl request's document (ADR 0020), from the
+ * cheapest up.
+ *
+ * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
+ * via the `definition` "FetchTier".
+ */
+export type FetchTier = "http" | "discovered_api" | "browser_fetch" | "light_browser" | "browser";
+/**
  * The kind of an invalid-certificate exception (ADR 0042).
  *
  * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
@@ -89,14 +97,6 @@ export type HttpMethod = string;
  * via the `definition` "ProxyTier".
  */
 export type ProxyTier = "none" | "datacenter" | "isp" | "residential" | "mobile";
-/**
- * A tier that fetches a crawl request's document (ADR 0020), from the
- * cheapest up.
- *
- * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
- * via the `definition` "FetchTier".
- */
-export type FetchTier = "http" | "discovered_api" | "browser_fetch" | "light_browser" | "browser";
 /**
  * How one crawl request ended (ADRs 0079 and 0102). A request that
  * `run.retry_failed` re-admits ends again, and its later outcome
@@ -317,6 +317,37 @@ export type Seeds = [Seed, ...Seed[]];
  * via the `definition` "Seed".
  */
 export type Seed = RequestSeed | SitemapSeed;
+/**
+ * What `dataset_key_invalid` details.
+ *
+ * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
+ * via the `definition` "DatasetKeyInvalidDetails".
+ */
+export type DatasetKeyInvalidDetails = {
+  /**
+   * The Dataset's name.
+   */
+  dataset: string;
+} & (
+  | {
+      /**
+       * That field.
+       */
+      field: string;
+      reason: "not_required";
+    }
+  | {
+      /**
+       * The key the Run began with.
+       */
+      beganWith: string[];
+      /**
+       * The key the crawl declares now.
+       */
+      key: string[];
+      reason: "changed";
+    }
+);
 /**
  * Where a document's encoding came from, in the order the tiers look
  * (ADR 0119).
@@ -561,6 +592,21 @@ export type OutcomeKind = "succeeded" | "failed" | "skipped" | "blocked" | (stri
  * via the `definition` "OutcomesAfter".
  */
 export type OutcomesAfter = number | Now;
+/**
+ * Why `query_invalid` refused a statement.
+ *
+ * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
+ * via the `definition` "QueryRefusal".
+ */
+export type QueryRefusal = "syntax" | "unknown_name" | "not_a_read" | "run_not_selected" | "outside_read";
+/**
+ * What a sheet holds at most, as Excel's specifications and limits give
+ * it, which an XLSX Export's one sheet may not pass (issue 1678).
+ *
+ * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
+ * via the `definition` "SheetCapacity".
+ */
+export type SheetCapacity = "rows" | "columns" | "cell_length";
 
 /**
  * The root of the layer's types, which holds no value of its own.
@@ -595,6 +641,35 @@ export interface AttemptError {
    * What it said.
    */
   message: string;
+}
+/**
+ * What `browser_required` details (ADR 0093).
+ *
+ * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
+ * via the `definition` "BrowserRequiredDetails".
+ */
+export interface BrowserRequiredDetails {
+  /**
+   * The call the tier cannot serve exactly, by its operation's name, or
+   * the setting that judges the request's own document in its place:
+   * `session.page_check` for a page its markup cannot judge, and
+   * `fetch.encoding` for one only a guess could decode; or the part of
+   * the crawl request the tier cannot send: `crawl_request.method` for
+   * a method other than `GET`, and `crawl_request.body` for a body.
+   */
+  call: string;
+  /**
+   * The setting that forced the tier: `fetch.tier`.
+   */
+  key: string;
+  /**
+   * The Label whose requests it forced, when it was set on one.
+   */
+  label?: string | null;
+  /**
+   * The tier it forced.
+   */
+  tier: FetchTier;
 }
 /**
  * The invalid-certificate exception a Record's document was fetched
@@ -2030,6 +2105,18 @@ export interface SitemapRule {
   pattern: string;
 }
 /**
+ * What `dataset_duplicate` details.
+ *
+ * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
+ * via the `definition` "DatasetDuplicateDetails".
+ */
+export interface DatasetDuplicateDetails {
+  /**
+   * The Dataset's name.
+   */
+  dataset: string;
+}
+/**
  * What `dataset.list` answers.
  *
  * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
@@ -2477,6 +2564,22 @@ export interface QueryColumn {
   type: string;
 }
 /**
+ * What `dataset_unknown` details.
+ *
+ * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
+ * via the `definition` "DatasetUnknownDetails".
+ */
+export interface DatasetUnknownDetails {
+  /**
+   * The Dataset's name.
+   */
+  dataset: string;
+  /**
+   * The names of the Datasets the crawl declares, in order.
+   */
+  declared: string[];
+}
+/**
  * What `crawl_request.enqueue_links` answers: what became of each element
  * its locator matched, in document order.
  *
@@ -2621,6 +2724,108 @@ export interface FailedRequests {
   requests: CrawlRequestOutcome[];
 }
 /**
+ * What `handler_failed` details: the exception the handler failed with
+ * (ADR 0109).
+ *
+ * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
+ * via the `definition` "HandlerFailedDetails".
+ */
+export interface HandlerFailedDetails {
+  /**
+   * The exception's message.
+   */
+  exceptionMessage: string;
+  /**
+   * The frames of the program's code, as one text; empty from Rust.
+   */
+  exceptionStack: string;
+  /**
+   * The exception's type name: `BoxError` or `panic` from Rust (ADR
+   * 0109).
+   */
+  exceptionType: string;
+}
+/**
+ * What `hook_duplicate` details.
+ *
+ * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
+ * via the `definition` "HookDuplicateDetails".
+ */
+export interface HookDuplicateDetails {
+  /**
+   * The name both Hooks carry.
+   */
+  hook: string;
+  /**
+   * The stage of the second Hook, the one refused.
+   */
+  stage: string;
+}
+/**
+ * What `hook_ineffective` details.
+ *
+ * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
+ * via the `definition` "HookIneffectiveDetails".
+ */
+export interface HookIneffectiveDetails {
+  /**
+   * The Hook refused.
+   */
+  hook: string;
+  /**
+   * Its stage.
+   */
+  stage: string;
+}
+/**
+ * What `hook_undeclared` details.
+ *
+ * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
+ * via the `definition` "HookUndeclaredDetails".
+ */
+export interface HookUndeclaredDetails {
+  /**
+   * The Hooks in code its run file records, as its crawl declared them:
+   * their names, stages and scopes, never their code.
+   */
+  hooks: CrawlHookDeclaration[];
+}
+/**
+ * What `hook_unknown` details.
+ *
+ * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
+ * via the `definition` "HookUnknownDetails".
+ */
+export interface HookUnknownDetails {
+  /**
+   * The closest name the crawl's Hooks carry, or none when it has no
+   * Hook.
+   */
+  closest?: string | null;
+  /**
+   * The name asked for.
+   */
+  hook: string;
+}
+/**
+ * One Record that does not hold for its Dataset, as `record_invalid`
+ * names it.
+ *
+ * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
+ * via the `definition` "InvalidRecord".
+ */
+export interface InvalidRecord {
+  /**
+   * Each way it does not hold, at least one.
+   */
+  issues: RecordIssue[];
+  /**
+   * Its position, from 0, among the Records pushed together, or among
+   * those of the handler's answer.
+   */
+  position: number;
+}
+/**
  * One way a Record does not hold for its Dataset.
  *
  * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
@@ -2635,6 +2840,130 @@ export interface RecordIssue {
    * Where in the Record, a JSON Pointer: empty for the Record itself.
    */
   path: string;
+}
+/**
+ * What `label_unknown` details.
+ *
+ * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
+ * via the `definition` "LabelUnknownDetails".
+ */
+export interface LabelUnknownDetails {
+  /**
+   * The names of the Labels the crawl declares, in order.
+   */
+  declared: string[];
+  /**
+   * The Label's name.
+   */
+  label: string;
+}
+/**
+ * What `payload_invalid` details.
+ *
+ * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
+ * via the `definition` "PayloadInvalidDetails".
+ */
+export interface PayloadInvalidDetails {
+  /**
+   * Each way it does not fit the Label's JSON Schema; none when it is
+   * too long.
+   */
+  issues?: PayloadIssue[];
+  /**
+   * The Label the Payload was enqueued under.
+   */
+  label: string;
+  /**
+   * The setting it is longer than, `crawl.payload.max_size`.
+   */
+  limit?: string | null;
+  /**
+   * The setting's value, when it is too long.
+   */
+  maxSize?: number | null;
+  /**
+   * Its JSON's length in bytes, when it is too long.
+   */
+  size?: number | null;
+}
+/**
+ * One way a Payload does not fit its Label's JSON Schema.
+ *
+ * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
+ * via the `definition` "PayloadIssue".
+ */
+export interface PayloadIssue {
+  /**
+   * What is wrong there.
+   */
+  message: string;
+  /**
+   * Where in the Payload, a JSON Pointer: empty for the Payload itself.
+   */
+  path: string;
+}
+/**
+ * What `payload_schema_changed` details.
+ *
+ * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
+ * via the `definition` "PayloadSchemaChangedDetails".
+ */
+export interface PayloadSchemaChangedDetails {
+  /**
+   * The first failing request's ID.
+   */
+  crawlRequestId: string;
+  /**
+   * How many of its pending requests' Payloads fail the new schema.
+   */
+  failing: number;
+  /**
+   * How its Payload fails the new schema.
+   */
+  issues: PayloadIssue[];
+  /**
+   * The Label whose Payload schema changed.
+   */
+  label: string;
+  /**
+   * How many of its requests are pending.
+   */
+  pending: number;
+}
+/**
+ * What `query_invalid` details.
+ *
+ * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
+ * via the `definition` "QueryInvalidDetails".
+ */
+export interface QueryInvalidDetails {
+  /**
+   * Why the statement was refused.
+   */
+  reason: QueryRefusal;
+}
+/**
+ * What `query_memory_exceeded` details.
+ *
+ * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
+ * via the `definition` "QueryMemoryExceededDetails".
+ */
+export interface QueryMemoryExceededDetails {}
+/**
+ * What `record_invalid` details.
+ *
+ * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
+ * via the `definition` "RecordInvalidDetails".
+ */
+export interface RecordInvalidDetails {
+  /**
+   * The Dataset's name.
+   */
+  dataset: string;
+  /**
+   * Each Record that does not hold, in position order, at least one.
+   */
+  records: InvalidRecord[];
 }
 /**
  * What `run.records` answers once it sent the last Record: how many it
@@ -2715,6 +3044,39 @@ export interface RejectedRecords {
    * The entries after `after`, in number order.
    */
   records: RejectedRecord[];
+}
+/**
+ * What `response_not_document` details (ADR 0119).
+ *
+ * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
+ * via the `definition` "ResponseNotDocumentDetails".
+ */
+export interface ResponseNotDocumentDetails {
+  /**
+   * The call on the document, by its operation's name.
+   */
+  call: string;
+  /**
+   * The response's content type, as its `Content-Type` names it.
+   */
+  contentType: string;
+}
+/**
+ * What `response_unavailable` details (ADR 0118).
+ *
+ * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
+ * via the `definition` "ResponseUnavailableDetails".
+ */
+export interface ResponseUnavailableDetails {
+  /**
+   * The time the site's `Retry-After` asks for, in RFC 3339, read in
+   * either of its forms; `null` when it asks for none.
+   */
+  retryAfter?: Date | null;
+  /**
+   * The response's HTTP status; `null` for a request held unsent.
+   */
+  status?: number | null;
 }
 /**
  * What `run.retry_failed` answers.
@@ -3058,4 +3420,46 @@ export interface SamplePageFilterAdmitResult {
    * Whether the sample crawl visits the page.
    */
   admitted: boolean;
+}
+/**
+ * What `sheet_capacity_exceeded` details.
+ *
+ * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
+ * via the `definition` "SheetCapacityExceededDetails".
+ */
+export interface SheetCapacityExceededDetails {
+  /**
+   * What its sheet would pass.
+   */
+  capacity: SheetCapacity;
+  /**
+   * The Dataset's name.
+   */
+  dataset: string;
+  /**
+   * How much of it the Dataset needs: its rows with the header, its
+   * columns, or the length of its longest cell.
+   */
+  figure: number;
+  /**
+   * The most a sheet holds of it.
+   */
+  maximum: number;
+}
+/**
+ * What `staging_full` names: the setting that bounds an attempt's staged
+ * admissions, and its value.
+ *
+ * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
+ * via the `definition` "StagingFullDetails".
+ */
+export interface StagingFullDetails {
+  /**
+   * The setting's name, `crawl.max_staged_enqueues`.
+   */
+  limit: string;
+  /**
+   * How many admissions it lets one attempt stage.
+   */
+  max: number;
 }

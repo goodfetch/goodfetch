@@ -1795,6 +1795,17 @@
       ]
     },
     {
+      "id": "error:model_unavailable",
+      "kind": "error",
+      "area": 9,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "error:name_lookup_failed",
       "kind": "error",
       "area": 3,
@@ -2506,6 +2517,16 @@
       "status": "active",
       "products": [
         "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "error:sheet_capacity_exceeded",
+      "kind": "error",
+      "area": 6,
+      "milestone": null,
+      "status": "active",
+      "products": [
         "foxhound"
       ]
     },
@@ -10404,6 +10425,17 @@
       ]
     },
     {
+      "id": "setting:secrets.placeholders",
+      "kind": "setting",
+      "area": 4,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "setting:secrets.resolve_each_use",
       "kind": "setting",
       "area": 4,
@@ -12599,6 +12631,16 @@
       ]
     },
     {
+      "id": "story:11-1019",
+      "kind": "story",
+      "area": 11,
+      "milestone": "M2 Client surfaces",
+      "status": "active",
+      "products": [
+        "foxhound"
+      ]
+    },
+    {
       "id": "story:11-102",
       "kind": "story",
       "area": 11,
@@ -12606,6 +12648,16 @@
       "status": "active",
       "products": [
         "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "story:11-1023",
+      "kind": "story",
+      "area": 11,
+      "milestone": "M2 Client surfaces",
+      "status": "active",
+      "products": [
         "foxhound"
       ]
     },

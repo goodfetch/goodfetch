@@ -1,0 +1,5 @@
+version = "0.1"
+lowest_minor = 0
+
+[settings]
+sinks = { "example.test" = { batch = { max_bytes = 4194304, max_records = 500 }, datasets = ["products", "reviews"], deliver = "records", destination = "env:WAREHOUSE_DSN", key = ["sku"], mode = "upsert", rate = { burst = 5, per_second = 20 }, schema = { contract = "freeze", flatten = true }, type = "postgres" } }

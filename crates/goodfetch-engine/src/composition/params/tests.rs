@@ -5,6 +5,7 @@ use goodfetch_counted_work::{CountedWork, Row};
 use goodfetch_protocol::page::read::PageReadParams;
 use rstest::rstest;
 use serde::Deserialize;
+use serde_json::value::RawValue;
 
 use super::Arrived;
 use crate::trace::Ids;
@@ -45,6 +46,32 @@ fn params_read_as_their_type_without_their_meta() {
             url: "https://a.test/".to_owned(),
             wait: Some(Wait { ms: 5 }),
         }
+    );
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Kept {
+    dataset: String,
+    records: Vec<Box<RawValue>>,
+}
+
+/// Raw JSON values in the params, as a push's Records, keep their fields
+/// in the order written through the strict read, at every depth, which a
+/// parsed `Value` would sort.
+#[test]
+fn raw_values_in_params_keep_their_fields_in_the_order_written() {
+    let work = CountedWork::default();
+    let arrived = Arrived::new(
+        Some(r#"{"dataset":"books","records":[{"title":"Dune","price":9}]}"#),
+        &work,
+    );
+
+    let kept = arrived.params().read::<Kept>().unwrap();
+
+    assert_eq!(
+        (kept.dataset.as_str(), kept.records[0].get()),
+        ("books", r#"{"title":"Dune","price":9}"#)
     );
 }
 

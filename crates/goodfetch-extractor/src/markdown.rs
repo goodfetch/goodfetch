@@ -23,6 +23,18 @@ use markup5ever_htmd::tendril::StrTendril;
 use markup5ever_htmd::{Attribute, QualName, local_name, ns};
 use markup5ever_rcdom::{Node, NodeData};
 
+#[cfg(test)]
+mod tests;
+
+/// How deep the copy nests a node below the body before it flattens what
+/// lies deeper: htmd's walker and this module's handlers recurse once a
+/// level or more, and a page nests as deep as it likes. Browsers' parsers
+/// stop at 512 levels (Blink's and WebKit's `maximumHTMLParserDOMTreeDepth`)
+/// and attach what lies deeper to the deepest node's parent; half that
+/// leaves room on a 2 MiB stack, which unoptimized htmd fills near 700
+/// levels.
+const MAX_DEPTH: usize = 256;
+
 /// The converter, built once for the engine.
 static CONVERTER: LazyLock<HtmlToMarkdown> = LazyLock::new(|| {
     HtmlToMarkdown::builder()
@@ -90,13 +102,21 @@ fn append(parent: &Rc<Node>, child: Rc<Node>) {
 
 /// Appends to `parent` the copy of `node` and of its descendants, by hand
 /// rather than by recursion, as a page's tree can be deeper than a thread's
-/// stack allows one. Text beside text is one text node, as a parse makes
-/// it; a comment is kept, and what htmd never reads (a doctype, a template's
-/// contents, which are no child of it) is not. Texts and attribute values
-/// are copied, as the page's tendrils are atomic and rcdom's are not.
+/// stack allows one. What lies below a node [`MAX_DEPTH`] levels below
+/// `parent` is flattened into it, in document order, each element copied
+/// empty with its children beside it; into its nearest ancestor that writes
+/// whatever it holds when that node does not (see [`writes_any_child`]), so
+/// no text is lost. Text beside text is
+/// one text node, as a parse makes it; a comment is kept, and what htmd
+/// never reads (a doctype, a template's contents, which are no child of it)
+/// is not. Texts and attribute values are copied, as the page's tendrils are
+/// atomic and rcdom's are not.
 fn copy(node: NodeRef<'_>, parent: &Rc<Node>) {
-    let mut next = vec![(node, Rc::clone(parent))];
-    while let Some((node, parent)) = next.pop() {
+    // Each node to copy, the copy it goes under, the nearest copy at or
+    // above that one which writes any child, and its own depth: past
+    // `MAX_DEPTH`, every node goes under that copy.
+    let mut next = vec![(node, Rc::clone(parent), Rc::clone(parent), 1)];
+    while let Some((node, parent, keeper, depth)) = next.pop() {
         let copied = node.query(|tree_node| match &tree_node.data {
             PageData::Text { contents } => {
                 let children = parent.children.borrow();
@@ -140,12 +160,37 @@ fn copy(node: NodeRef<'_>, parent: &Rc<Node>) {
         };
         append(&parent, Rc::clone(&copied));
         if node.is_element() {
+            let (under, keeper, depth) = if depth < MAX_DEPTH {
+                let keeper = if writes_any_child(&copied) {
+                    Rc::clone(&copied)
+                } else {
+                    keeper
+                };
+                (copied, keeper, depth + 1)
+            } else {
+                let keeper = if depth == MAX_DEPTH && writes_any_child(&copied) {
+                    copied
+                } else {
+                    keeper
+                };
+                (Rc::clone(&keeper), keeper, MAX_DEPTH + 1)
+            };
             next.extend(
                 node.children_it(true)
-                    .map(|child| (child, Rc::clone(&copied))),
+                    .map(|child| (child, Rc::clone(&under), Rc::clone(&keeper), depth)),
             );
         }
     }
+}
+
+/// Whether the writer writes whatever child `copied` holds: a table, a row
+/// group and a row write only their rows and cells, htmd's and [`table`]
+/// alike, and drop any other child.
+fn writes_any_child(copied: &Rc<Node>) -> bool {
+    !matches!(
+        tag_of(copied),
+        Some("table" | "thead" | "tbody" | "tfoot" | "tr")
+    )
 }
 
 /// A heading on one line, as an ATX heading must be: htmd's own, each

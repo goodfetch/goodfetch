@@ -9,6 +9,9 @@ use goodfetch_protocol::catalog::{Setting, ValueKind};
 use goodfetch_protocol::entries::MODULES;
 use serde_json::{Value, json};
 
+/// The key of a table's one entry in a sample.
+const MAP_KEY: &str = "example.test";
+
 /// A value of `kind`, with an entry in each list and table.
 pub(crate) fn sample(kind: &ValueKind) -> Value {
     match kind {
@@ -20,7 +23,7 @@ pub(crate) fn sample(kind: &ValueKind) -> Value {
         ValueKind::Price => json!("0.05 USD"),
         ValueKind::Address => json!("127.0.0.1"),
         ValueKind::List(kind) => json!([sample(kind)]),
-        ValueKind::Map(kind) => json!({ "example.test": sample(kind) }),
+        ValueKind::Map(kind) => json!({ MAP_KEY: sample(kind) }),
         ValueKind::Optional(kind) => sample(kind),
         ValueKind::SecretReference => json!("env:EXAMPLE"),
         ValueKind::Shape(shape) => (shape.examples)().into_iter().next().unwrap_or(Value::Null),
@@ -28,9 +31,10 @@ pub(crate) fn sample(kind: &ValueKind) -> Value {
 }
 
 /// Further files of version `0.1`, one for each example of a shaped key
-/// `holds` accepts past its first, each setting that key alone in `table`,
-/// so that every field of the shape is given in some file: each named by
-/// the table, the key and the example's place, from 2.
+/// `holds` accepts past its first, or of the shape a table of that key
+/// maps to, each setting that key alone in `table`, so that every field of
+/// the shape is given in some file: each named by the table, the key and
+/// the example's place, from 2.
 pub(crate) fn shaped_examples(table: &str, holds: Holds) -> Vec<(String, String)> {
     let header = format!("version = \"0.1\"\n{LOWEST_MINOR_KEY} = 0\n");
     MODULES
@@ -39,6 +43,13 @@ pub(crate) fn shaped_examples(table: &str, holds: Holds) -> Vec<(String, String)
         .filter(|setting| holds(setting))
         .filter_map(|setting| match setting.kind {
             ValueKind::Shape(shape) => Some((setting, (shape.examples)())),
+            ValueKind::Map(ValueKind::Shape(shape)) => Some((
+                setting,
+                (shape.examples)()
+                    .into_iter()
+                    .map(|example| json!({ MAP_KEY: example }))
+                    .collect(),
+            )),
             _ => None,
         })
         .flat_map(|(setting, examples)| {

@@ -113,7 +113,8 @@ fn a_read_through_a_number_answers_its_page_and_whether_it_committed_from_one_st
 /// Each Record `commit` writes counts its serialization, once, and neither
 /// a copy of its data nor a lookup of a value constant for the Run: it
 /// takes the hash of the schema it was checked against, the one its
-/// Dataset's row holds.
+/// Dataset's row holds. It writes a Record's fields in the order they were
+/// pushed (issue 2394).
 #[test]
 fn a_commit_counts_each_records_work_and_a_commit_of_none_counts_nothing() {
     use goodfetch_counted_work::{CountedWork, Row};
@@ -136,7 +137,7 @@ fn a_commit_counts_each_records_work_and_a_commit_of_none_counts_nothing() {
     let records: Vec<PushedRecord> = (0..2)
         .map(|_| PushedRecord {
             dataset: "pages".to_owned(),
-            data: json!({ "title": "Dune" }),
+            data: serde_json::from_str(r#"{ "title": "Dune", "price": 9 }"#).unwrap(),
         })
         .collect();
     let checked = datasets.check(records, &work).unwrap();
@@ -194,7 +195,14 @@ fn a_commit_counts_each_records_work_and_a_commit_of_none_counts_nothing() {
         (read(), committed),
         (
             [0, 2, 0],
-            vec![(r#"{"title":"Dune"}"#.to_owned(), hash.clone(), hash); 2]
+            vec![
+                (
+                    r#"{"title":"Dune","price":9}"#.to_owned(),
+                    hash.clone(),
+                    hash
+                );
+                2
+            ]
         )
     );
 }

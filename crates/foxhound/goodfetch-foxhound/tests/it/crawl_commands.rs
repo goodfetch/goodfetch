@@ -22,7 +22,8 @@ use std::path::{Path, PathBuf};
 #[cfg(unix)]
 use goodfetch_test_support::record_command;
 use goodfetch_test_support::{
-    Cli, CliError, CliJson, Mode, ProvingGround, TestEnv, assert_cli_snapshot, cli,
+    Cli, CliError, CliJson, DAEMON_DEADLINE, Daemon, Mode, ProvingGround, TestEnv,
+    assert_cli_snapshot, cli,
 };
 use rstest::rstest;
 use serde_json::{Value, json};
@@ -43,13 +44,16 @@ pub(crate) fn short_idle(env: &TestEnv) {
     env.user_configuration("daemon.idle_timeout = 60000\n");
 }
 
-/// Stops the test home's Daemon when the test ends.
-pub(crate) struct StopsTheDaemon<'env>(pub(crate) &'env TestEnv);
-
-impl Drop for StopsTheDaemon<'_> {
-    fn drop(&mut self) {
-        let _ = cli(self.0, FOXHOUND).args(["daemon", "stop"]).run();
-    }
+/// Starts the Daemon of the test's home, which the test's commands find
+/// rather than start their own, and makes the test fail on any process
+/// left running from its home. A Daemon a command starts runs in a process
+/// group of its own, out of the test's record, so a test killed on its
+/// timeout left it running, and a keep-alive Run kept it from its idle stop
+/// for hours (issue 1797). This one is the test's child: its drop stops it,
+/// and a kill of the test's process group kills it too.
+pub(crate) fn start_home_daemon(env: &TestEnv) -> Daemon {
+    env.fail_on_processes_from_home();
+    Daemon::start_program(env, Path::new(FOXHOUND), DAEMON_DEADLINE).unwrap()
 }
 
 /// A settings file for a crawl of `proving_ground` over HTTP with no
@@ -133,7 +137,7 @@ fn read_snapshotted(
 fn a_code_free_crawl_started_followed_and_read_from_the_command_line(#[case] mode: Mode) {
     let env = TestEnv::new();
     short_idle(&env);
-    let _stops = StopsTheDaemon(&env);
+    let _daemon = start_home_daemon(&env);
     let proving_ground = ProvingGround::start(&env, SEED).unwrap();
     let settings = settings_file(&env, &proving_ground);
     let index = proving_ground.start_url(MARKDOWN_TASK).unwrap();
@@ -239,7 +243,7 @@ fn a_code_free_crawl_started_followed_and_read_from_the_command_line(#[case] mod
 fn a_crawls_other_commands_each_print_one_value_of_their_type(#[case] mode: Mode) {
     let env = TestEnv::new();
     short_idle(&env);
-    let _stops = StopsTheDaemon(&env);
+    let _daemon = start_home_daemon(&env);
     let proving_ground = ProvingGround::start(&env, SEED).unwrap();
     let settings = settings_file(&env, &proving_ground);
     let index = proving_ground.start_url(MARKDOWN_TASK).unwrap();
@@ -375,7 +379,7 @@ fn followed_counts(stderr: &str) -> String {
 fn protocol_counts_of_crawl_start_run_outcomes_follow_and_run_records() {
     let env = TestEnv::new();
     short_idle(&env);
-    let _stops = StopsTheDaemon(&env);
+    let _daemon = start_home_daemon(&env);
     let proving_ground = ProvingGround::start(&env, SEED).unwrap();
     let settings = settings_file(&env, &proving_ground);
     let index = proving_ground.start_url(MARKDOWN_TASK).unwrap();
@@ -457,7 +461,7 @@ fn progress_once(env: &TestEnv, run_id: &str, reached: impl Fn(&Value) -> bool) 
 fn run_records_on_a_live_run_prints_what_was_committed_and_ends(#[case] mode: Mode) {
     let env = TestEnv::new();
     short_idle(&env);
-    let _stops = StopsTheDaemon(&env);
+    let _daemon = start_home_daemon(&env);
     let proving_ground = ProvingGround::start(&env, SEED).unwrap();
     let settings = keep_alive_settings(&env, &proving_ground);
     let index = proving_ground.start_url(MARKDOWN_TASK).unwrap();
@@ -515,7 +519,7 @@ fn run_records_on_a_live_run_prints_what_was_committed_and_ends(#[case] mode: Mo
 fn a_code_free_crawl_started_detached_goes_on_after_its_command_ends() {
     let env = TestEnv::new();
     short_idle(&env);
-    let _stops = StopsTheDaemon(&env);
+    let _daemon = start_home_daemon(&env);
     let proving_ground = ProvingGround::start(&env, SEED).unwrap();
     let settings = keep_alive_settings(&env, &proving_ground);
     let index = proving_ground.start_url(MARKDOWN_TASK).unwrap();
@@ -563,7 +567,7 @@ fn a_seeds_file_past_the_message_limit_starts_the_crawl_and_adds_every_seed() {
     const SEEDS: usize = 9_000;
     let env = TestEnv::new();
     short_idle(&env);
-    let _stops = StopsTheDaemon(&env);
+    let _daemon = start_home_daemon(&env);
     let proving_ground = ProvingGround::start(&env, SEED).unwrap();
     let slow_settings = env.folder().join("slow.json");
     let slow = json!({
@@ -630,7 +634,7 @@ fn run_add_seeds_sends_each_line_as_it_comes_and_ends_at_an_interrupt() {
     const ARGUMENTS: [&str; 4] = ["run", "add-seeds", "fed", "--json"];
     let env = TestEnv::new();
     short_idle(&env);
-    let _stops = StopsTheDaemon(&env);
+    let _daemon = start_home_daemon(&env);
     let proving_ground = ProvingGround::start(&env, SEED).unwrap();
     let settings = keep_alive_settings(&env, &proving_ground);
     let index = proving_ground.start_url(MARKDOWN_TASK).unwrap();
@@ -679,7 +683,7 @@ fn run_add_seeds_sends_each_line_as_it_comes_and_ends_at_an_interrupt() {
 fn run_add_seeds_refuses_a_line_that_is_not_utf8_naming_it() {
     let env = TestEnv::new();
     short_idle(&env);
-    let _stops = StopsTheDaemon(&env);
+    let _daemon = start_home_daemon(&env);
     let proving_ground = ProvingGround::start(&env, SEED).unwrap();
     let settings = keep_alive_settings(&env, &proving_ground);
     let index = proving_ground.start_url(MARKDOWN_TASK).unwrap();
@@ -728,7 +732,7 @@ fn run_add_seeds_refuses_a_line_that_is_not_utf8_naming_it() {
 fn run_add_seeds_reads_its_seeds_from_stdin() {
     let env = TestEnv::new();
     short_idle(&env);
-    let _stops = StopsTheDaemon(&env);
+    let _daemon = start_home_daemon(&env);
     let proving_ground = ProvingGround::start(&env, SEED).unwrap();
     let settings = settings_file(&env, &proving_ground);
     let index = proving_ground.start_url(MARKDOWN_TASK).unwrap();

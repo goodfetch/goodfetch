@@ -195,11 +195,28 @@ impl Attached {
             }
         }
         self.answered.sent(&message);
+        self.write_line(serde_json::to_vec(&message).expect("invariant: a message serializes"));
+    }
+
+    /// Sends `text`, one message's JSON text, as written: its members keep
+    /// the order the test wrote them in, which a [`Value`] would sort.
+    ///
+    /// # Panics
+    ///
+    /// When `text` is no JSON or the engine's input is closed already.
+    pub fn send_text(&mut self, text: &str) {
+        let message: Value = serde_json::from_str(text).expect("a message is JSON");
+        self.answered.sent(&message);
+        self.write_line(text.as_bytes().to_vec());
+    }
+
+    /// Writes `message` and the newline that ends it to the engine's input,
+    /// in one write.
+    fn write_line(&mut self, mut message: Vec<u8>) {
+        message.push(b'\n');
         let stdin = self.stdin.as_mut().expect("the engine's input is open");
-        let mut line = serde_json::to_vec(&message).expect("invariant: a message serializes");
-        line.push(b'\n');
         stdin
-            .write_all(&line)
+            .write_all(&message)
             .and_then(|()| stdin.flush())
             .expect("the engine reads its input");
     }

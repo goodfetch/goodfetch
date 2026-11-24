@@ -265,6 +265,12 @@ importers:
 
   bench:
     dependencies:
+      '@goodfetch/collie':
+        specifier: workspace:*
+        version: link:../sdks/typescript/collie
+      '@goodfetch/foxhound':
+        specifier: workspace:*
+        version: link:../sdks/typescript/foxhound
       ajv:
         specifier: 8.20.0
         version: 8.20.0

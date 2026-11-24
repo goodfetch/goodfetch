@@ -67,7 +67,7 @@ pub use goodfetch_protocol::foxhound::dataset::DatasetRecord;
 /// engine.
 pub use goodfetch_protocol::foxhound::error_code;
 pub use goodfetch_protocol::foxhound::frontier::{
-    Enqueued, EnqueuedLink, EnqueuedLinks, NotAddedReason,
+    Enqueued, EnqueuedLink, EnqueuedLinks, HttpMethod, NotAddedReason,
 };
 pub use goodfetch_protocol::foxhound::report::{CrawlRunReport, RequestCounts};
 pub use goodfetch_protocol::page::events::PageRequest;

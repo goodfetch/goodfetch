@@ -1,0 +1,14 @@
+{
+  "id": "unknown-task",
+  "host_class": { "requested": "local-dev", "allow_downgrade": false },
+  "order_seed": 1,
+  "blocks": 1,
+  "warmup": 0,
+  "iterations": 1,
+  "concurrency": 1,
+  "timeout_ms": 10000,
+  "max_duration_ms": 120000,
+  "max_restarts": 0,
+  "adapters": [{ "id": "correct", "command": ["node", "../stub-adapter.ts"] }],
+  "tasks": ["catalog/999"]
+}

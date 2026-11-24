@@ -75,6 +75,7 @@ mod schedule;
 mod scope;
 mod sensor_solver;
 mod serve;
+mod service_worker_challenge;
 mod sitemap_seed;
 mod sitemaps;
 mod sites;

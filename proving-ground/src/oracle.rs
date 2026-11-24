@@ -807,11 +807,13 @@ fn same_markdown_on(site: &str, id: &str, expected: &str, submitted: &str) -> bo
 }
 
 /// Whether a submitted value is the expected one: the same text, a number
-/// of the same decimal value (`12.3` for `"12.30"`), or an array or object
-/// equal to the JSON the expected value is written as.
+/// of the same decimal value (`12.3` for `"12.30"`), a boolean written as
+/// `"true"` or `"false"`, or an array or object equal to the JSON the
+/// expected value is written as.
 fn same_value(expected: &str, submitted: Option<&Value>) -> bool {
     match submitted {
         Some(Value::String(text)) => text == expected,
+        Some(Value::Bool(flag)) => expected == if *flag { "true" } else { "false" },
         Some(Value::Number(number)) => {
             decimal(expected).is_some_and(|value| decimal(&number.to_string()) == Some(value))
         }

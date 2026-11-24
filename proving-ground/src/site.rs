@@ -57,6 +57,7 @@ use crate::rendered;
 use crate::replay::{self, Refusals};
 use crate::schedule;
 use crate::search;
+use crate::site_tools;
 use crate::solvers::{self, Solvers};
 use crate::task::{Task, TaskList};
 use crate::version::VERSION;
@@ -98,13 +99,14 @@ struct LimitedHold {
 
 /// The families' own host names, each family's tasks served on
 /// `<ordinal>.<host>`.
-const FAMILY_HOSTS: [&str; 7] = [
+const FAMILY_HOSTS: [&str; 8] = [
     catalog::HOST,
     rendered::HOST,
     login::HOST,
     locales::HOST,
     quotes::HOST,
     search::HOST,
+    site_tools::HOST,
     schedule::HOST,
 ];
 
@@ -237,6 +239,7 @@ impl Site {
         tasks.extend(quotes::tasks(seed, port));
         tasks.extend(locales::tasks(seed, port));
         tasks.extend(search::tasks(seed, port));
+        tasks.extend(site_tools::tasks(seed, port));
         tasks
     }
 
@@ -435,6 +438,7 @@ impl Site {
             locales::HOST => locales::respond(self.seed, request),
             quotes::HOST => quotes::respond(self.seed, request),
             search::HOST => search::respond(self.seed, time_step, request),
+            site_tools::HOST => site_tools::respond(self.seed, request),
             _ => schedule::respond(self.seed, time_step, request),
         }
     }

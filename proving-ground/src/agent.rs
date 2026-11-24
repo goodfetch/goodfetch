@@ -13,13 +13,18 @@
 //! Each state has its expected result: one booking per time step, and the
 //! price that step's page shows. Prices are drawn from the seed. The fault
 //! tasks read the price on a page that never drifts, each asking the Fake
-//! model for one fault.
+//! model for one fault. The last task asks for a link the page never has,
+//! so the only right result is a refusal.
+//!
+//! Each task also declares what the Fake model answers the AI verbs about
+//! it at each time step: the elements that fit, the action, the locators
+//! and the Agent's steps.
 
 use serde::Deserialize;
-use serde_json::{Map, Value};
+use serde_json::{Map, Value, json};
 
 use crate::generator;
-use crate::model::Fault;
+use crate::model::{Action, Answers, Candidate, Element, Fault, Locator, Step, Verbs};
 use crate::task::{Effect, Entry, Expected, Kind, Record, Task, origin};
 
 /// The host name the family is served on (ADR 0059's `resolve`).
@@ -47,6 +52,9 @@ const PLAN: &str = "pro";
 
 /// The tasks whose pages drift: the booking and the price read.
 const DRIFTING: [u32; 2] = [1, 2];
+
+/// The task that asks for a sign-in link the page never has.
+const NOTHING_FITS: u32 = 10;
 
 /// The fault tasks: each reads the Pro price on the baseline page and asks
 /// the Fake model for one fault (ADR 0065), which its description states.
@@ -313,6 +321,19 @@ pub(crate) fn tasks(seed: u64, port: Option<u16>) -> Vec<Task> {
         },
     ];
     tasks.extend(fault_tasks(seed, port));
+    tasks.push(Task {
+        host: task_host(NOTHING_FITS),
+        entry: Entry {
+            id: format!("{FAMILY}/{NOTHING_FITS}"),
+            family: FAMILY,
+            kind: Kind::Act,
+            start_url: start_url(NOTHING_FITS),
+            description: "Click this page's sign-in link, or refuse when the page has none.",
+            account: None,
+            time_steps: None,
+        },
+        expected: Expected::refused(None),
+    });
     tasks
 }
 
@@ -346,41 +367,202 @@ pub(crate) fn fault(seed: u64, id: &str) -> Option<Fault> {
         6 => Fault::CutStream,
         7 => Fault::MalformedJson,
         8 => Fault::Refusal,
-        // A price of this plan the page never shows, from the same range.
-        9 => Fault::WrongAnswer(vec![Map::from_iter([
-            ("id".to_owned(), Value::from("pro")),
-            (
-                "price".to_owned(),
-                Value::from(prices(seed).changed_pro.to_string()),
-            ),
-        ])]),
+        // A price of this plan the page never shows, from the same range,
+        // and the Starter plan's price cell for the Pro plan's.
+        9 => {
+            let wrong = Record::from([
+                ("id", "pro".to_owned()),
+                ("price", prices(seed).changed_pro.to_string()),
+            ]);
+            let starter = elements(seed, Drift::Baseline).starter_price;
+            Fault::WrongAnswer(Answers {
+                records: vec![fields(&wrong)],
+                verbs: price_verbs(starter, &wrong),
+            })
+        }
         _ => return None,
     })
+}
+
+/// The elements of the demo page in `drift`: each with the role and name an
+/// `ai` aria snapshot shows, and its selector on that page.
+struct Elements {
+    starter_price: Element,
+    pro_price: Element,
+    name: Element,
+    email: Element,
+    plan: Element,
+    consent: Element,
+    book: Element,
+}
+
+fn elements(seed: u64, drift: Drift) -> Elements {
+    let k = if drift == Drift::Relabel { "x" } else { "" };
+    let element = |role, name: &str, selector: String| Element {
+        role,
+        name: name.to_owned(),
+        selector,
+    };
+    let price = |plan: &str, price: u64| {
+        element(
+            "cell",
+            &price.to_string(),
+            format!("td[data-plan=\"{plan}\"]"),
+        )
+    };
+    Elements {
+        starter_price: price("starter", prices(seed).starter),
+        pro_price: price("pro", pro_price(seed, drift)),
+        name: element("textbox", "Full name", format!("#{k}name")),
+        email: element("textbox", "Work email", format!("#{k}email")),
+        plan: element("combobox", "Plan", format!("#{k}plan")),
+        consent: element(
+            "checkbox",
+            "I agree to be contacted",
+            format!("#{k}consent"),
+        ),
+        // The delete control takes the booking button's `id` in the decoy
+        // swap, and the booking button moves lower as `#book`.
+        book: element(
+            "button",
+            "Book the demo",
+            if drift == Drift::DecoySwap {
+                "#book".to_owned()
+            } else {
+                format!("#{k}submit")
+            },
+        ),
+    }
+}
+
+/// What the Fake model answers the AI verbs about the task `id` at time
+/// step `step`. The booking's target is its button, reached in five steps;
+/// a price read's is the Pro price cell, read in one. The task where
+/// nothing fits, and any other, declare nothing.
+pub(crate) fn verbs(seed: u64, id: &str, step: u64) -> Verbs {
+    let Some(ordinal) = id
+        .strip_prefix("agent/")
+        .and_then(|ordinal| ordinal.parse::<u32>().ok())
+    else {
+        return Verbs::default();
+    };
+    let drift = if DRIFTING.contains(&ordinal) {
+        Drift::at(step)
+    } else {
+        Drift::Baseline
+    };
+    let page = elements(seed, drift);
+    match ordinal {
+        1 => booking_verbs(&page),
+        2 => price_verbs(page.pro_price, &price_record(seed, step)),
+        3..=9 => price_verbs(
+            page.pro_price,
+            &Record::from([
+                ("id", "pro".to_owned()),
+                ("price", prices(seed).pro.to_string()),
+            ]),
+        ),
+        _ => Verbs::default(),
+    }
+}
+
+fn booking_verbs(page: &Elements) -> Verbs {
+    let on = |method, element: &Element, arguments: Vec<Value>| Action {
+        method,
+        element: Some(element.clone()),
+        arguments,
+    };
+    let book = on("click", &page.book, Vec::new());
+    let step = |message: &str, action| Step {
+        message: message.to_owned(),
+        actions: vec![action],
+    };
+    Verbs {
+        observe: vec![Candidate {
+            element: page.book.clone(),
+            description: "The button that books the demo.",
+        }],
+        act: Some(book.clone()),
+        locators: Vec::new(),
+        steps: vec![
+            step(
+                "I fill in the full name.",
+                on("fill", &page.name, vec![NAME.into()]),
+            ),
+            step(
+                "I fill in the work email.",
+                on("fill", &page.email, vec![EMAIL.into()]),
+            ),
+            step(
+                "I choose the Pro plan.",
+                on("select_option", &page.plan, vec![PLAN.into()]),
+            ),
+            step(
+                "I agree to be contacted.",
+                on("check", &page.consent, Vec::new()),
+            ),
+            step("I book the demo.", book),
+            step(
+                "The demo is booked.",
+                Action {
+                    method: "done",
+                    element: None,
+                    arguments: Vec::new(),
+                },
+            ),
+        ],
+    }
+}
+
+/// The verbs of a price read whose cell is `cell` and whose Record is
+/// `record`.
+fn price_verbs(cell: Element, record: &Record) -> Verbs {
+    Verbs {
+        observe: vec![Candidate {
+            element: cell.clone(),
+            description: "The Pro plan's monthly price.",
+        }],
+        act: None,
+        locators: vec![Locator {
+            field: "price",
+            element: cell,
+        }],
+        steps: vec![Step {
+            message: "I read the Pro plan's monthly price.".to_owned(),
+            actions: vec![Action {
+                method: "done",
+                element: None,
+                arguments: vec![json!({ "records": [fields(record)] })],
+            }],
+        }],
+    }
+}
+
+/// `record`'s fields as the Fake model answers them.
+fn fields(record: &Record) -> Map<String, Value> {
+    record
+        .iter()
+        .map(|(name, value)| ((*name).to_owned(), Value::from(value.as_str())))
+        .collect()
 }
 
 /// What the Fake model answers about the drifting task `id` at time step
 /// `step`: that step's price Record, or that step's booking; `None` for the
 /// family's other tasks, whose answer is their expected result.
 pub(crate) fn answer(seed: u64, id: &str, step: u64) -> Option<Vec<Map<String, Value>>> {
-    let fields = |pairs: Vec<(&str, Value)>| {
-        pairs
-            .into_iter()
-            .map(|(name, value)| (name.to_owned(), value))
-            .collect::<Map<String, Value>>()
-    };
     match id {
-        "agent/1" => Some(vec![fields(vec![
-            ("name", NAME.into()),
-            ("email", EMAIL.into()),
-            ("plan", PLAN.into()),
-            ("consent", true.into()),
-        ])]),
-        "agent/2" => Some(vec![
-            price_record(seed, step)
-                .into_iter()
-                .map(|(name, value)| (name.to_owned(), Value::from(value)))
-                .collect(),
+        "agent/1" => Some(vec![
+            [
+                ("name", NAME.into()),
+                ("email", EMAIL.into()),
+                ("plan", PLAN.into()),
+                ("consent", true.into()),
+            ]
+            .into_iter()
+            .map(|(name, value): (&str, Value)| (name.to_owned(), value))
+            .collect(),
         ]),
+        "agent/2" => Some(vec![fields(&price_record(seed, step))]),
         _ => None,
     }
 }

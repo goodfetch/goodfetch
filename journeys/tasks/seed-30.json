@@ -570,6 +570,14 @@
       "start_url": "http://9.agent.test/demo"
     },
     {
+      "description": "Click this page's sign-in link, or refuse when the page has none.",
+      "digest": "ca84af1e889c38a8f1a037d7e5456af25d985e95375c181c1b2ddf6d16cbd03f",
+      "family": "agent",
+      "id": "agent/10",
+      "kind": "act",
+      "start_url": "http://10.agent.test/demo"
+    },
+    {
       "description": "Through the Proving ground as your proxy, extract the article this frozen page shows as one Record with the fields `id` (the start URL), `title` (its headline, as the page shows it) and `author`.",
       "digest": "6dd87e2e8c635db9fb9062afcea8a9ced030461ce09140b6a12cce91c46d1817",
       "family": "replay",

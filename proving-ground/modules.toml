@@ -103,6 +103,7 @@ gemini = []
 openai = ["request"]
 request = []
 schema = []
+verbs = []
 
 [submodules.portal]
 frontier = []

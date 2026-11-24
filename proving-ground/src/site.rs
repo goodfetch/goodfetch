@@ -38,7 +38,7 @@ use crate::hostile;
 use crate::languages;
 use crate::login::canaries::{self, Canaries, Plant};
 use crate::login::{self, Logins};
-use crate::model::{self, Candidate, FakeModel};
+use crate::model::{self, Answers, FakeModel, Subject};
 use crate::observation::{self, Observations, Recorded, Report};
 use crate::oracle::{self, Finding, Submission};
 use crate::page_load;
@@ -559,12 +559,12 @@ impl Site {
             return None;
         }
         let step = self.observations.time_step();
-        let candidates: Vec<Candidate> = self
+        let subjects: Vec<Subject> = self
             .tasks()
             .into_iter()
             .map(|task| {
                 let id = task.entry.id;
-                let answer = agent::answer(self.seed, &id, step).unwrap_or_else(|| {
+                let records = agent::answer(self.seed, &id, step).unwrap_or_else(|| {
                     let effects = task.expected.effects.iter().map(serde_json::to_value);
                     task.expected
                         .records
@@ -577,16 +577,19 @@ impl Site {
                         })
                         .collect()
                 });
-                Candidate {
+                Subject {
                     fault: agent::fault(self.seed, &id),
+                    answers: Answers {
+                        records,
+                        verbs: agent::verbs(self.seed, &id, step),
+                    },
                     id,
                     description: task.entry.description,
                     host: task.host,
-                    answer,
                 }
             })
             .collect();
-        self.model.answer(target, body, &candidates)
+        self.model.answer(target, body, &subjects)
     }
 
     /// Answers a request to an archived host on its own name, as through a

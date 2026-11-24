@@ -8,7 +8,7 @@
 use goodfetch_dataset::{Committing, Datasets, ExportOptions, TABLES, commit, write_export};
 use goodfetch_engine::mask::Masks;
 use goodfetch_protocol::foxhound::crawl::PushedRecord;
-use goodfetch_protocol::foxhound::dataset::DatasetDeclaration;
+use goodfetch_protocol::foxhound::dataset::{DatasetDeclaration, RecordData};
 use goodfetch_protocol::foxhound::export::{ExportCompression, ExportFormat};
 use goodfetch_protocol::foxhound::provenance::RecordProvenance;
 use goodfetch_protocol::point_in_time;
@@ -63,7 +63,7 @@ pub(crate) fn commit_all(values: Vec<Value>) -> Connection {
             .check(
                 vec![PushedRecord {
                     dataset: "books".to_owned(),
-                    data: value,
+                    data: RecordData::of(&value).expect("invariant: a JSON value writes as JSON"),
                 }],
                 &goodfetch_counted_work::CountedWork::default(),
             )

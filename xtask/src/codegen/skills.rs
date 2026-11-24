@@ -121,10 +121,10 @@ pub(super) fn files(
 /// Each executable crate's Claude Code plugin manifest (story 11-239),
 /// which makes its `generated/` folder, its renderings in `skills/`, a
 /// plugin named as the executable: its skills load as
-/// `<executable>:<skill>`. The version, licence and repository are the
-/// workspace's.
+/// `<executable>:<skill>`. The version is the Product's, the licence and
+/// repository the workspace's.
 fn plugins(root: &Path) -> Result<Files> {
-    let version = super::workspace_package(root, "version")?;
+    let version = super::product_version(root)?;
     let license = super::workspace_package(root, "license")?;
     let repository = super::workspace_package(root, "repository")?;
     [

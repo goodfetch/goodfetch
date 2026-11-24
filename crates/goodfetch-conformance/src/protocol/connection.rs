@@ -2,7 +2,9 @@
 //! answer to each read past the notifications that come meanwhile, and every
 //! message exchanged recorded as a case's evidence, `{"from": "client" |
 //! "engine", "message": …}`, or `"raw"` for a line that is no JSON, as the
-//! Scripted engine records them (ADR 0069), a Daemon's token redacted.
+//! Scripted engine records them (ADR 0069), a Daemon's token redacted. On a
+//! process Plugin's Connection, the harness stands for the engine, so the
+//! sides are `"engine"` and `"plugin"`.
 
 use std::fmt;
 use std::time::Duration;
@@ -96,6 +98,15 @@ pub(crate) struct Connection {
     for_model: bool,
     /// The IDs a reply could not carry back since the suite last took them.
     unanswered: Vec<Value>,
+    /// How the evidence names the harness's side and the target's.
+    sides: Sides,
+}
+
+/// How a Connection's evidence names the side that sent each message.
+#[derive(Clone, Copy)]
+struct Sides {
+    harness: &'static str,
+    target: &'static str,
 }
 
 impl Connection {
@@ -106,6 +117,22 @@ impl Connection {
             exchanged: Vec::new(),
             for_model: false,
             unanswered: Vec::new(),
+            sides: Sides {
+                harness: "client",
+                target: "engine",
+            },
+        }
+    }
+
+    /// The Connection to a process Plugin, for which the harness stands as
+    /// the engine.
+    pub(crate) fn to_plugin(started: Started) -> Self {
+        Self {
+            sides: Sides {
+                harness: "engine",
+                target: "plugin",
+            },
+            ..Self::new(started)
         }
     }
 
@@ -169,7 +196,7 @@ impl Connection {
             None => message.clone(),
         };
         self.exchanged
-            .push(json!({ "from": "client", "message": kept }));
+            .push(json!({ "from": self.sides.harness, "message": kept }));
         self.started
             .write_line(&line)
             .map_err(|error| Gone::Failed(error.to_string()))
@@ -248,7 +275,8 @@ impl Connection {
                     Some(token) => line.replace(token.as_str(), REDACTED),
                     None => line,
                 };
-                self.exchanged.push(json!({ "from": "engine", "raw": raw }));
+                self.exchanged
+                    .push(json!({ "from": self.sides.target, "raw": raw }));
                 continue;
             };
             let kept = match &self.started.token {
@@ -256,7 +284,7 @@ impl Connection {
                 None => message.clone(),
             };
             self.exchanged
-                .push(json!({ "from": "engine", "message": kept }));
+                .push(json!({ "from": self.sides.target, "message": kept }));
             return Ok(message);
         }
     }

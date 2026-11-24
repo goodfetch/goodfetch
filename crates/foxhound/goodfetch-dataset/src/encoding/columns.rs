@@ -6,7 +6,9 @@
 
 use std::collections::HashMap;
 
+use serde::de::{Deserialize, Deserializer, MapAccess, Visitor};
 use serde_json::Value;
+use serde_json::value::RawValue;
 
 /// How a field whose value is an object is written, `export.csv.nested`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -74,16 +76,11 @@ pub(crate) enum Kind {
 }
 
 impl Kind {
-    /// The kind of a column that held this kind's values and `cell`.
-    fn with(self, cell: &Cell, value: &Value) -> Self {
-        let kind = match (cell, value) {
-            (Cell::Empty, _) => return self,
-            (Cell::Boolean(_), _) => Self::Boolean,
-            (Cell::Number(_), Value::Number(number)) if number.is_i64() => Self::Integer,
-            (Cell::Number(_), Value::Number(number)) if number.is_f64() => Self::Float,
-            _ => Self::Text,
-        };
+    /// The kind of a column that held this kind's values and a value of
+    /// `kind`.
+    fn with(self, kind: Self) -> Self {
         match (self, kind) {
+            (old, Self::Unseen) => old,
             (Self::Unseen, kind) => kind,
             (old, new) if old == new => old,
             (Self::Integer | Self::Float, Self::Integer | Self::Float) => Self::Float,
@@ -121,8 +118,7 @@ impl Columns {
     /// that no Record seen before had, after those.
     pub(crate) fn see(&mut self, json: &str) {
         self.records += 1;
-        let record = parsed(json);
-        for (name, value) in self.fields(&record) {
+        for (name, value) in self.fields(json) {
             let column = if let Some(&column) = self.index.get(&name) {
                 column
             } else {
@@ -132,9 +128,9 @@ impl Columns {
                 self.kinds.push(Kind::Unseen);
                 self.names.len() - 1
             };
-            let cell = cell(value);
+            let (cell, kind) = read(value);
             self.measure(cell.text());
-            self.kinds[column] = self.kinds[column].with(&cell, value);
+            self.kinds[column] = self.kinds[column].with(kind);
         }
     }
 
@@ -175,50 +171,108 @@ impl Columns {
     /// is left out.
     pub(crate) fn row(&self, json: &str) -> Vec<Cell> {
         let mut cells = vec![Cell::Empty; self.names.len()];
-        for (name, value) in self.fields(&parsed(json)) {
+        for (name, value) in self.fields(json) {
             if let Some(&column) = self.index.get(&name) {
-                cells[column] = cell(value);
+                cells[column] = read(value).0;
             }
         }
         cells
     }
 
-    /// The Record's fields as columns: its own, or under
+    /// The fields of the Record whose committed JSON text is `json` as
+    /// columns, in the order the text holds them: its own, or under
     /// [`Nested::Flatten`] each leaf of its objects by its dotted path.
-    fn fields<'a>(&self, record: &'a Value) -> Vec<(String, &'a Value)> {
+    fn fields<'a>(&self, json: &'a str) -> Vec<(String, &'a RawValue)> {
         let mut fields = Vec::new();
-        if let Value::Object(object) = record {
-            for (name, value) in object {
-                self.field(name.clone(), value, &mut fields);
-            }
+        for (name, value) in members(json).unwrap_or_default() {
+            self.field(name, value, &mut fields);
         }
         fields
     }
 
-    fn field<'a>(&self, name: String, value: &'a Value, fields: &mut Vec<(String, &'a Value)>) {
-        match value {
-            Value::Object(object) if self.nested == Nested::Flatten && !object.is_empty() => {
+    fn field<'a>(
+        &self,
+        name: String,
+        value: &'a RawValue,
+        fields: &mut Vec<(String, &'a RawValue)>,
+    ) {
+        let object = match self.nested {
+            Nested::Flatten => members(value.get()).filter(|object| !object.is_empty()),
+            Nested::Json => None,
+        };
+        match object {
+            Some(object) => {
                 for (inner, value) in object {
                     self.field(format!("{name}.{inner}"), value, fields);
                 }
             }
-            _ => fields.push((name, value)),
+            None => fields.push((name, value)),
         }
     }
 }
 
-/// The committed JSON text of a Record, which the Dataset checked was a
-/// JSON object when it was pushed.
-fn parsed(json: &str) -> Value {
-    serde_json::from_str(json).expect("invariant: a committed Record's text is JSON")
+/// The members of `json`, a committed Record's text or a field's within
+/// it, in the order the text holds them, each with its value's text; none
+/// when it is no JSON object.
+fn members(json: &str) -> Option<Vec<(String, &RawValue)>> {
+    if !json.starts_with('{') {
+        return None;
+    }
+    Some(
+        serde_json::from_str::<Members<'_>>(json)
+            .expect("invariant: a committed Record's text is JSON")
+            .0,
+    )
 }
 
-fn cell(value: &Value) -> Cell {
-    match value {
-        Value::Null => Cell::Empty,
-        Value::String(text) => Cell::Text(text.clone()),
-        Value::Number(number) => Cell::Number(number.to_string()),
-        Value::Bool(boolean) => Cell::Boolean(*boolean),
-        Value::Array(_) | Value::Object(_) => Cell::Json(value.to_string()),
+/// A JSON object's members, in the order its text holds them.
+struct Members<'a>(Vec<(String, &'a RawValue)>);
+
+impl<'de> Deserialize<'de> for Members<'de> {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        deserializer.deserialize_map(MembersVisitor)
+    }
+}
+
+struct MembersVisitor;
+
+impl<'de> Visitor<'de> for MembersVisitor {
+    type Value = Members<'de>;
+
+    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("a JSON object")
+    }
+
+    fn visit_map<A: MapAccess<'de>>(self, mut members: A) -> Result<Members<'de>, A::Error> {
+        let mut read = Vec::with_capacity(members.size_hint().unwrap_or(0));
+        while let Some(member) = members.next_entry()? {
+            read.push(member);
+        }
+        Ok(Members(read))
+    }
+}
+
+/// A field's cell, from its value's committed text, and the kind of
+/// column its value alone makes: [`Kind::Unseen`] for `null`.
+fn read(value: &RawValue) -> (Cell, Kind) {
+    let text = value.get();
+    if text.starts_with(['{', '[']) {
+        return (Cell::Json(text.to_owned()), Kind::Text);
+    }
+    match serde_json::from_str(text).expect("invariant: a committed Record's text is JSON") {
+        Value::Null => (Cell::Empty, Kind::Unseen),
+        Value::String(text) => (Cell::Text(text), Kind::Text),
+        Value::Bool(boolean) => (Cell::Boolean(boolean), Kind::Boolean),
+        Value::Number(number) => {
+            let kind = if number.is_i64() {
+                Kind::Integer
+            } else if number.is_f64() {
+                Kind::Float
+            } else {
+                Kind::Text
+            };
+            (Cell::Number(number.to_string()), kind)
+        }
+        Value::Array(_) | Value::Object(_) => (Cell::Json(text.to_owned()), Kind::Text),
     }
 }

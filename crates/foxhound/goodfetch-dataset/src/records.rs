@@ -129,14 +129,14 @@ pub fn commit(
     let work = committing.work;
     for (record, schema_hash) in records.records.iter().zip(&records.schema_hashes) {
         // What the row below does per Record: its JSON text, masked as it
-        // is written.
+        // is written, its fields in the order pushed.
         work.count(Row::RecordSerializations);
         insert.execute((
             &record.dataset,
             committing.request_id,
             committing.url,
             &committed_at,
-            masks.json(&record.data, Scope::Kept),
+            masks.json_text(record.data.raw(), Scope::Kept),
             schema_hash.as_deref(),
             &provenance,
         ))?;

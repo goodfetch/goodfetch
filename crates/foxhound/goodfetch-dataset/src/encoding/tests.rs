@@ -99,6 +99,38 @@ fn a_table_carries_every_field_seen_in_first_seen_order(
     assert_eq!(encoded(format, &GROWING), expected);
 }
 
+/// A table takes a Record's fields, and an object's, in the order its
+/// committed text holds them, not sorted, under either
+/// `export.csv.nested`.
+#[rstest]
+#[case::json(
+    Nested::Json,
+    "title,price,author\r\n\
+     Dune,9,\"{\"\"name\"\":\"\"Frank\"\",\"\"born\"\":1920}\"\r\n"
+)]
+#[case::flatten(
+    Nested::Flatten,
+    "title,price,author.name,author.born\r\nDune,9,Frank,1920\r\n"
+)]
+fn a_table_takes_a_records_fields_in_the_order_committed(
+    #[case] csv_nested: Nested,
+    #[case] expected: &str,
+) {
+    let options = ExportOptions {
+        csv_nested,
+        ..ExportOptions::of("books")
+    };
+
+    assert_eq!(
+        encoded_with(
+            ExportFormat::Csv,
+            &options,
+            &[r#"{"title":"Dune","price":9,"author":{"name":"Frank","born":1920}}"#]
+        ),
+        expected
+    );
+}
+
 /// `export.csv.bom`, `export.csv.delimiter` and `export.csv.nested:
 /// flatten` shape a CSV Export: a BOM first, `;` between fields, and an
 /// object's fields in dotted columns at any depth.

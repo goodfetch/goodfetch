@@ -104,17 +104,65 @@ fn pushing(value: &Value) -> Value {
 
 /// Finishes `run_id`, each request answered by pushing `record(page)`.
 pub(crate) fn finish(engine: &mut Attached, run_id: &str, record: impl Fn(u64) -> Value) {
-    let finished = engine.call(
-        "finish",
-        "run.finish",
-        &json!({ "run_id": run_id }),
-        &mut |params| Some(pushing(&record(page_of(params)))),
-    );
-    assert_eq!(
-        finished["result"]["lifecycle"],
-        json!("finished"),
-        "{finished}"
-    );
+    finish_sending(engine, run_id, Sending::InItsReply, |page| {
+        record(page).to_string()
+    });
+}
+
+/// How a handler sends the Record it pushes into `books`.
+#[derive(Clone, Copy)]
+enum Sending {
+    /// In its answer to `crawl_request.handle`.
+    InItsReply,
+    /// By its own `crawl_request.push`, then an answer with no Record.
+    ByPush,
+}
+
+/// [`finish`], each request's handler pushing the Record whose JSON text is
+/// `record(page)` as `sending` says, sent as written so its fields keep
+/// their order.
+fn finish_sending(
+    engine: &mut Attached,
+    run_id: &str,
+    sending: Sending,
+    record: impl Fn(u64) -> String,
+) {
+    engine.send(&json!({
+        "jsonrpc": "2.0", "id": "finish", "method": "run.finish", "params": { "run_id": run_id },
+    }));
+    // Each push sent, by its ID, and the ID of the request it answers for.
+    let (mut pushes, mut sent) = (Map::new(), 0);
+    loop {
+        let message = engine.next().expect("the engine closed before replying");
+        if message["method"] == "crawl_request.handle" {
+            let (id, params) = (&message["id"], &message["params"]);
+            let data = record(page_of(params));
+            match sending {
+                Sending::InItsReply => engine.send_text(&format!(
+                    r#"{{"jsonrpc":"2.0","id":{id},"result":{{"records":[{{"dataset":"books","data":{data}}}]}}}}"#
+                )),
+                Sending::ByPush => {
+                    let push = format!("push-{sent}");
+                    sent += 1;
+                    engine.send_text(&format!(
+                        r#"{{"jsonrpc":"2.0","id":"{push}","method":"crawl_request.push","params":{{"run_id":{},"crawl_request_id":{},"lease_epoch":{},"dataset":"books","records":[{data}]}}}}"#,
+                        params["run_id"], params["crawl_request"]["id"], params["lease_epoch"]
+                    ));
+                    pushes.insert(push, id.clone());
+                }
+            }
+        } else if let Some(handled) = message["id"].as_str().and_then(|id| pushes.remove(id)) {
+            assert!(message.get("result").is_some(), "{message}");
+            engine.send(&json!({ "jsonrpc": "2.0", "id": handled, "result": { "records": [] } }));
+        } else if message["id"] == "finish" {
+            assert_eq!(
+                message["result"]["lifecycle"],
+                json!("finished"),
+                "{message}"
+            );
+            return;
+        }
+    }
 }
 
 /// `run.export`'s reply for `books` of `run_id` in `format`.
@@ -956,6 +1004,51 @@ pub(crate) fn table_of(columns: &[&str], records: &[Value]) -> Vec<Vec<String>> 
         .collect()
 }
 
+/// CSV, XLSX, HTML table and Markdown Exports of a Record pushed with its
+/// fields `title` then `price` by `crawl_request.push` carry its columns in
+/// that order, not sorted by name (issue 2394).
+///
+/// Covers: story:6-278, operation:run.export, operation:crawl_request.push, format:export
+#[test]
+fn table_exports_carry_a_records_columns_in_the_order_it_was_pushed() {
+    let env = TestEnv::new();
+    let site = Site::start(&env);
+    let mut engine = site.engine(&env);
+    crawl((&mut engine, &site), "ordered", 1);
+    finish_sending(&mut engine, "ordered", Sending::ByPush, |_| {
+        r#"{"title":"Dune","price":9}"#.to_owned()
+    });
+    let none = json!({});
+    let csv = export_under(&mut engine, "ordered", "csv", &none);
+    let xlsx = export_under(&mut engine, "ordered", "xlsx", &none);
+    let html = export_under(&mut engine, "ordered", "html_table", &none);
+    let markdown = export_under(&mut engine, "ordered", "markdown", &none);
+    let csv_bytes = saved(&mut engine, &env, &csv, "books.csv");
+    let xlsx_bytes = saved(&mut engine, &env, &xlsx, "books.xlsx");
+    let html_bytes = saved(&mut engine, &env, &html, "books.html");
+    let markdown_bytes = saved(&mut engine, &env, &markdown, "books.md");
+    assert!(engine.finished());
+
+    let expected = vec![
+        vec!["title".to_owned(), "price".to_owned()],
+        vec!["Dune".to_owned(), "9".to_owned()],
+    ];
+    assert_eq!(
+        (
+            csv_rows(&csv_bytes, b','),
+            xlsx_rows(xlsx_bytes).1,
+            html_rows(&String::from_utf8(html_bytes).unwrap()).1,
+            markdown_rows(&String::from_utf8(markdown_bytes).unwrap()),
+        ),
+        (
+            expected.clone(),
+            expected.clone(),
+            expected.clone(),
+            expected
+        )
+    );
+}
+
 /// The third book, which adds fields the first two lack: a nested object,
 /// a boolean, a `null`, a number and an array.
 pub(crate) fn third_book() -> Value {
@@ -972,7 +1065,9 @@ pub(crate) fn third_book() -> Value {
 
 /// Pitfall D07's acceptance test: CSV, XLSX, HTML table and Markdown
 /// Exports of Records whose later ones add fields carry every field, in
-/// first-seen order, a field a Record lacks as an empty cell; each opens in
+/// first-seen order, a field a Record lacks as an empty cell: the first
+/// Record's fields in the order it was pushed, not alphabetical, then each
+/// field a later one adds (issue 2394); each opens in
 /// a reference reader (a CSV reader, a spreadsheet library, an HTML parser,
 /// a Markdown parser) and gives the Records back, the Unicode record among
 /// them. CSV carries no BOM by default, and the XLSX sheet is named after
@@ -987,11 +1082,16 @@ fn csv_xlsx_html_and_markdown_exports_carry_every_field_seen_in_first_seen_order
     let site = Site::start(&env);
     let mut engine = site.engine(&env);
     crawl((&mut engine, &site), "tables", 3);
-    finish(&mut engine, "tables", |page| match page {
-        1 => book(1),
-        2 => unicode_value(),
-        _ => third_book(),
-    });
+    finish_sending(
+        &mut engine,
+        "tables",
+        Sending::InItsReply,
+        |page| match page {
+            1 => r#"{"title":"Café 1","page":1}"#.to_owned(),
+            2 => unicode_value().to_string(),
+            _ => third_book().to_string(),
+        },
+    );
     let none = json!({});
     let csv = export_under(&mut engine, "tables", "csv", &none);
     let xlsx = export_under(&mut engine, "tables", "xlsx", &none);
@@ -1005,8 +1105,8 @@ fn csv_xlsx_html_and_markdown_exports_carry_every_field_seen_in_first_seen_order
     insta::assert_binary_snapshot!("d07_books.xlsx", xlsx_bytes.clone());
 
     let columns = [
-        "page",
         "title",
+        "page",
         "astral",
         "bidi",
         "bom",

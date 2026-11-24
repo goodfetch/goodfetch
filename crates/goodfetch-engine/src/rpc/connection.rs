@@ -62,7 +62,8 @@ use goodfetch_protocol::audit::{Listener, RefusalReason};
 use goodfetch_protocol::catalog::{Product, Reach, SettingScope};
 use goodfetch_protocol::connection::{
     CANCEL, CancelParams, Form, HELLO, HelloParams, NETWORK_MAX_HELLO_SIZE, PERSON_REQUIRED,
-    PanicEnded, PrivateEndpoint, Surface, TIMEOUT_HELLO, TOO_MANY_CALLS, TooManyCallsDetails,
+    PanicEnded, PersonRequiredDetails, PrivateEndpoint, Surface, TIMEOUT_HELLO, TOO_MANY_CALLS,
+    TooManyCallsDetails,
 };
 use goodfetch_protocol::events::{CREDIT, CreditParams};
 use goodfetch_protocol::foxhound_names;
@@ -86,6 +87,7 @@ use super::{
     Line, cancelled_by_client, failure_line, handshake, not_in_product, notification_line, record,
     record_cancel, success_line,
 };
+use crate::accounts::{Carriage, Principal};
 use crate::call_error::CallError;
 use crate::client::{Client, Outgoing};
 use crate::clock::Clock;
@@ -193,6 +195,21 @@ impl Access {
             Self::Daemon(daemon) | Self::Exposed(daemon, _) => Some(daemon.token()),
             Self::PrivateEndpoint(token) => Some(token),
         }
+    }
+
+    /// Who a Connection that came this way is (ADR 0149). An Exposed
+    /// Daemon's address is remote even at loopback, where a proxy carries
+    /// other machines' Connections, and so is a gateway's Connection,
+    /// `behind_gateway`, as it relays other machines' Clients whatever
+    /// socket it reaches the engine on; every other way in is the OS
+    /// user's alone.
+    fn principal(&self, behind_gateway: bool) -> Principal {
+        let carriage = match self {
+            _ if behind_gateway => Carriage::Remote,
+            Self::Exposed(..) => Carriage::Remote,
+            Self::Attached(..) | Self::Daemon(_) | Self::PrivateEndpoint(_) => Carriage::Local,
+        };
+        Principal::of(carriage)
     }
 
     /// The Daemon it reaches, if any.
@@ -579,6 +596,7 @@ async fn serve_carried(
         identity: Arc::clone(&dispatch.identity),
         client,
         surface: OnceLock::new(),
+        principal: OnceLock::new(),
         form: OnceLock::new(),
         behind_gateway: OnceLock::new(),
         settings: OnceLock::new(),
@@ -1170,6 +1188,8 @@ impl Session<'_> {
                     return Flow::Close;
                 }
                 // A Connection answers one `hello`: the first sets it.
+                let principal = self.access.principal(accepted.behind_gateway);
+                let _ = self.connection.principal.set(principal);
                 let _ = self.connection.surface.set(surface);
                 let _ = self.connection.form.set(form);
                 let _ = self.connection.settings.set(settings);
@@ -1294,14 +1314,9 @@ impl Session<'_> {
             ))
         } else if let Some(handler) = self.dispatch.handlers.get(method) {
             if handler.operation().reach == Reach::PersonOnly
-                && !self
-                    .connection
-                    .surface
-                    .get()
-                    .copied()
-                    .is_some_and(Surface::is_a_person)
+                && !self.connection.answers_as_a_person()
             {
-                Some(person_required(method))
+                Some(person_required(method, self.dispatch.identity.product))
             } else {
                 let handler = handler.clone();
                 if self.in_flight.len() >= MAX_IN_FLIGHT {
@@ -1605,14 +1620,21 @@ fn read_params<P: serde::de::DeserializeOwned>(notification: &Call) -> Option<P>
 }
 
 /// `person_required`: `method` is a person's answer, which only the Kennel
-/// and the CLI's interactive prompt ask for (ADRs 0011, 0041 and 0141).
-fn person_required(method: &str) -> CallError {
+/// and the CLI's interactive prompt ask for, at the engine's machine (ADRs
+/// 0011, 0041, 0141 and 0149); its `fix` names the terminal command that
+/// takes a person through what waits for them.
+fn person_required(method: &str, product: Product) -> CallError {
+    let executable = product.executable_name();
     CallError::new(
         &PERSON_REQUIRED,
         format!(
             "`{method}` is a person's answer: give it in the Kennel, or in the CLI's interactive prompt"
         ),
-        &serde_json::Map::new(),
+        &PersonRequiredDetails {
+            fix: format!(
+                "Give it as a person, at the engine's machine: in a terminal, `{executable} needs-you answer` takes you through what waits for you, and the Operation's own command prompts where it has one; or in the Kennel there."
+            ),
+        },
     )
 }
 

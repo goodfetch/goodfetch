@@ -40,6 +40,7 @@ mod opening;
 mod ops;
 mod panics;
 mod pauses;
+mod person_only;
 mod preamble;
 mod progress;
 mod raw_calls;

@@ -17,8 +17,8 @@ Spec [#1937](https://github.com/goodfetch/goodfetch/issues/1937) builds it. Its 
 
 ### Who answers as the OS user
 
-- **A person-only answer needs no passkey only from a person surface on a local carriage:** the Daemon's socket, or loopback with the Daemon's own token, from the CLI's interactive prompt or the Kennel (ADR 0141). There the surface claim is read as today.
-- **On any other carriage the surface claim counts for nothing.** A person-only answer needs a Checked person, and Step-up for a write that approves. With accounts off, such a remote answer is refused with `person_required`.
+- **A person-only answer needs no passkey only from a person surface on a local carriage:** an Attached engine's stdio or private endpoint, or a machine's Daemon's own listener with its token, from the CLI's interactive prompt or the Kennel (ADR 0141). There the surface claim is read as today.
+- **On any other carriage the surface claim counts for nothing.** An Exposed Daemon's address is one even at loopback, where a TLS-terminating proxy carries other machines' Connections (ADR 0049), and so is a Connection a gateway relays, whatever socket it reaches the engine on. A person-only answer needs a Checked person, and Step-up for a write that approves. With accounts off, such a remote answer is refused with `person_required`.
 
 ### One person's account
 

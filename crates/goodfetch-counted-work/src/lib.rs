@@ -140,6 +140,9 @@ rows! {
     /// `E1.decodes`: a decode of a request's params, by dispatch for what it
     /// reads of them or into the type their handler takes.
     MessageDecodes => "E1.decodes", "json_rpc_message", "decodes";
+    /// `E1.store_reads`: a read of a store or file by dispatch for a
+    /// message, which reads who its Connection is from memory (ADR 0149).
+    MessageStoreReads => "E1.store_reads", "json_rpc_message", "store_reads";
     /// `F5.messages_no_hook`: a message or its formatting for a stage with no
     /// Hook on it.
     HookMessagesNoHook => "F5.messages_no_hook", "hook_stage", "messages_no_hook";

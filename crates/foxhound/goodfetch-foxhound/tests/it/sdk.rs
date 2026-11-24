@@ -16,6 +16,7 @@ use goodfetch_test_support::{TestEnv, real_time_runtime};
 
 mod blocked;
 mod catalog;
+mod connect_options;
 mod crawl;
 mod label_declaration;
 mod limits;
@@ -25,6 +26,12 @@ mod public_items;
 /// Goodfetch home.
 fn options(env: &TestEnv) -> ConnectOptions {
     ConnectOptions::default().environment(env.env_os())
+}
+
+/// What a Collie connection, or the linked connection both Products open
+/// through, opens with: the test's environment.
+fn collie_options(env: &TestEnv) -> goodfetch_collie::ConnectOptions {
+    goodfetch_collie::ConnectOptions::default().environment(env.env_os())
 }
 
 /// A helper written for Collie: it takes the client crate's Connection,
@@ -149,7 +156,7 @@ fn a_helper_typed_for_connection_takes_collies_and_foxhounds() {
     let env = TestEnv::new();
     real_time_runtime().block_on(async {
         let foxhound = Foxhound::connect(options(&env)).await.unwrap();
-        let collie = goodfetch_collie::Collie::connect(options(&env))
+        let collie = goodfetch_collie::Collie::connect(collie_options(&env))
             .await
             .unwrap();
 
@@ -181,7 +188,7 @@ fn a_helper_typed_for_connection_takes_collies_and_foxhounds() {
 fn a_helper_typed_for_the_blocking_connection_takes_collies_and_foxhounds() {
     let env = TestEnv::new();
     let foxhound = blocking::Foxhound::connect(options(&env)).unwrap();
-    let collie = goodfetch_collie::blocking::Collie::connect(options(&env)).unwrap();
+    let collie = goodfetch_collie::blocking::Collie::connect(collie_options(&env)).unwrap();
 
     let reports = [
         start_and_finish_blocking(&foxhound).unwrap(),

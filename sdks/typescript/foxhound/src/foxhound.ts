@@ -47,6 +47,7 @@ import {
 } from "./generated/index.ts";
 import { settingsOnWire, type CrawlSettings, type FoxhoundSettings } from "./generated/settings.ts";
 import { foxhoundWire, type FoxhoundWireType } from "./generated/wire.ts";
+import type { FetchBackendHandler, SinkHandler } from "./handlers.ts";
 import { foxhound } from "./product.ts";
 
 /**
@@ -63,13 +64,25 @@ export interface FoxhoundLimits extends Limits {
     | undefined;
 }
 
-/** Options of `connectOver()`, with Foxhound's settings and Limits. */
-export interface FoxhoundConnectOverOptions extends ConnectOverOptions<FoxhoundSettings> {
+/**
+ * The program's own Plugins of Foxhound's kinds, each registered under the
+ * name settings choose it by (ADR 0104).
+ */
+interface FoxhoundHandlers {
+  /** Its Fetch backends, by name. */
+  readonly fetchBackends?: Readonly<Record<string, FetchBackendHandler>> | undefined;
+  /** Its Sinks, by the name of the `sinks.<name>` entry each serves. */
+  readonly sinks?: Readonly<Record<string, SinkHandler>> | undefined;
+}
+
+/** Options of `connectOver()`, with Foxhound's settings, Limits and handlers. */
+export interface FoxhoundConnectOverOptions
+  extends ConnectOverOptions<FoxhoundSettings>, FoxhoundHandlers {
   readonly limits?: FoxhoundLimits | undefined;
 }
 
-/** Options of `connect()`, with Foxhound's settings and Limits. */
-export interface FoxhoundConnectOptions extends ConnectOptions<FoxhoundSettings> {
+/** Options of `connect()`, with Foxhound's settings, Limits and handlers. */
+export interface FoxhoundConnectOptions extends ConnectOptions<FoxhoundSettings>, FoxhoundHandlers {
   readonly limits?: FoxhoundLimits | undefined;
 }
 

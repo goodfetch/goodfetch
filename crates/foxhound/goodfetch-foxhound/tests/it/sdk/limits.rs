@@ -8,7 +8,7 @@ use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::usage::{USAGE_LIST, UsageListParams, UsageListResult};
 use goodfetch_test_support::{TestEnv, real_time_runtime};
 
-use super::options;
+use super::collie_options;
 
 /// Covers: story:11-51
 #[test]
@@ -21,7 +21,7 @@ fn paid_fetches_cap_a_foxhound_connection_and_its_run() {
     let connect = Limits::new().count(PAID_FETCHES, 3);
     let run = Limits::new().price(PAID_FETCHES, Money::new("0.25", "USD").unwrap());
     real_time_runtime().block_on(async {
-        let linked = ProductConnection::connect(engine, options(&env).limits(connect))
+        let linked = ProductConnection::connect(engine, collie_options(&env).limits(connect))
             .await
             .unwrap();
 

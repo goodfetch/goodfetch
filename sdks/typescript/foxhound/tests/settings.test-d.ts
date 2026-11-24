@@ -1,11 +1,14 @@
 // What a program can and cannot write in a Connection's, a crawl's and a
-// Label's `settings` (ADRs 0083 and 0093): `tsc` fails on a wrong one, as
-// the package's typecheck runs it.
+// Label's `settings` (ADRs 0083 and 0093), and in the handlers `connect()`
+// registers (ADR 0104): `tsc` fails on a wrong one, as the package's
+// typecheck runs it.
 import {
   Crawl,
   Foxhound,
   type CrawlSettings,
+  type FetchBackendHandler,
   type FoxhoundSettings,
+  type SinkHandler,
   type LabelSettings,
 } from "@goodfetch/foxhound";
 
@@ -65,5 +68,44 @@ export async function connected(): Promise<void> {
   await Foxhound.connect({
     // @ts-expect-error configuration alone sets the proxy providers
     settings: { proxy: { providers: {} } },
+  });
+  // oxlint-disable-next-line no-restricted-properties -- `Foxhound.connect` is the SDK's own factory (ADR 0078), not a browser's.
+  await Foxhound.connect({
+    // @ts-expect-error the engine reads its log settings from its configuration alone (P38)
+    settings: { log: { level: "debug" } },
+  });
+  // oxlint-disable-next-line no-restricted-properties -- `Foxhound.connect` is the SDK's own factory (ADR 0078), not a browser's.
+  await Foxhound.connect({
+    // @ts-expect-error a Daemon's address is its configuration's alone (P38)
+    settings: { daemon: { address: "127.0.0.1:7341" } },
+  });
+}
+
+// `connect()` registers the program's own Fetch backends and Sinks by name,
+// each of its kind's shape (ADR 0104).
+const backend: FetchBackendHandler = async (request, { signal }) => {
+  const response = await fetch(request.url, { method: request.method, signal: signal ?? null });
+  return {
+    status: response.status,
+    headers: Object.fromEntries(response.headers),
+    body: new Uint8Array(await response.arrayBuffer()),
+  };
+};
+const sink: SinkHandler = async ({ dataset, records }) => {
+  await Promise.resolve([dataset, records.length]);
+};
+
+export async function registered(): Promise<void> {
+  // oxlint-disable-next-line no-restricted-properties -- `Foxhound.connect` is the SDK's own factory (ADR 0078), not a browser's.
+  await Foxhound.connect({ fetchBackends: { mine: backend }, sinks: { mine: sink } });
+  // oxlint-disable-next-line no-restricted-properties -- `Foxhound.connect` is the SDK's own factory (ADR 0078), not a browser's.
+  await Foxhound.connect({
+    // @ts-expect-error a Fetch backend answers with a response, never a bare body
+    fetchBackends: { mine: async () => Promise.resolve(new Uint8Array()) },
+  });
+  // oxlint-disable-next-line no-restricted-properties -- `Foxhound.connect` is the SDK's own factory (ADR 0078), not a browser's.
+  await Foxhound.connect({
+    // @ts-expect-error a Sink is registered by name, never as a list
+    sinks: [sink],
   });
 }

@@ -18,7 +18,8 @@ and an `except` on a Collie error class catches them. It re-exports
 (ADR 0030), which a program's filter names. `generated` holds the
 layer `xtask codegen` writes from Foxhound's own entries of the catalog, and
 `goodfetch_foxhound.testing` opens a Connection over a transport a test
-holds.
+holds. `connect()` registers the program's own Fetch backends and Sinks by
+name, typed by `handlers` (ADR 0104).
 
 The Connection reaches a Daemon or finds Foxhound's executable, reading
 `GOODFETCH_URL`, `GOODFETCH_TOKEN`, `GOODFETCH_HOME` and
@@ -40,12 +41,25 @@ from goodfetch_foxhound.crawl import (
 )
 from goodfetch_foxhound.crawl_run import AsyncCrawlRun, CrawlRun
 from goodfetch_foxhound.foxhound import AsyncFoxhound, Connecting, Foxhound
+from goodfetch_foxhound.handlers import (
+    AsyncFetchBackendHandler,
+    AsyncSinkHandler,
+    BackendRequest,
+    BackendResponse,
+    FetchBackendHandler,
+    SinkDelivery,
+    SinkHandler,
+)
 
 __all__ = [
     "AsyncCrawl",
     "AsyncCrawlContext",
     "AsyncCrawlRun",
+    "AsyncFetchBackendHandler",
     "AsyncFoxhound",
+    "AsyncSinkHandler",
+    "BackendRequest",
+    "BackendResponse",
     "Connecting",
     "Crawl",
     "CrawlContext",
@@ -53,7 +67,10 @@ __all__ = [
     "CrawlRun",
     "Dataset",
     "ExperimentalWarning",
+    "FetchBackendHandler",
     "Foxhound",
     "Label",
+    "SinkDelivery",
+    "SinkHandler",
     "seed",
 ]

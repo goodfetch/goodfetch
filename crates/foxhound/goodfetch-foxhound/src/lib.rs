@@ -54,10 +54,8 @@ pub use composition::{composition, composition_with};
 pub use crawl::{
     Crawl, CrawlCall, CrawlContext, CrawlRun, Dataset, Label, LabelDeclaration, Seed, StartCrawl,
 };
-pub use foxhound::{Foxhound, PAID_FETCHES};
-pub use goodfetch_collie::{
-    ConnectOptions, EngineChoice, EngineFallback, EngineInfo, EngineKind, RemoteDaemon,
-};
+pub use foxhound::{ConnectOptions, Foxhound, PAID_FETCHES};
+pub use goodfetch_collie::{EngineChoice, EngineFallback, EngineInfo, EngineKind, RemoteDaemon};
 pub use goodfetch_collie_client::{
     Answer, BoxError, Call, Connection, Error, ErrorCode, ErrorDetails, EventStream, Exchange,
     FieldValues, HandlerlessStart, Limits, Locator, Money, MoneyError, Page, Query, RawCall,

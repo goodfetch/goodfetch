@@ -1843,6 +1843,76 @@ words = ["crawl", "request"]
 form = "type"
 
 [[member]]
+package = "goodfetch_foxhound"
+receiver = "(module)"
+member = "BackendRequest"
+entry = "none"
+reason = "A request the engine hands a program's own Fetch backend (ADR 0104)."
+only = "Rust's crate reads a Fetch backend's requests with their own types, #1484's work."
+words = ["backend", "request"]
+form = "type"
+
+[[member]]
+package = "goodfetch_foxhound"
+receiver = "(module)"
+member = "BackendResponse"
+entry = "none"
+reason = "What a program's own Fetch backend answers a request with (ADR 0104)."
+only = "Rust's crate reads a Fetch backend's requests with their own types, #1484's work."
+words = ["backend", "response"]
+form = "type"
+
+[[member]]
+package = "goodfetch_foxhound"
+receiver = "(module)"
+member = "FetchBackendHandler"
+entry = "none"
+reason = "A program's own Fetch backend, a plain function, which `Foxhound.connect()`'s `fetch_backends` registers by name (ADR 0104)."
+only = "Rust registers a Fetch backend by name with `ConnectOptions::fetch_backend` and reads its requests as #1484 builds them."
+words = ["fetch", "backend", "handler"]
+form = "type"
+
+[[member]]
+package = "goodfetch_foxhound"
+receiver = "(module)"
+member = "AsyncFetchBackendHandler"
+entry = "none"
+reason = "A program's own Fetch backend, a coroutine function, which `AsyncFoxhound.connect()`'s `fetch_backends` registers by name (ADR 0104)."
+only = "Python's async twin (ADR 0081): TypeScript is async only, and Rust registers a Fetch backend by name with `ConnectOptions::fetch_backend`."
+words = ["async", "fetch", "backend", "handler"]
+form = "type"
+
+[[member]]
+package = "goodfetch_foxhound"
+receiver = "(module)"
+member = "SinkDelivery"
+entry = "none"
+reason = "A delivery of committed Records to a program's own Sink (ADRs 0008 and 0104)."
+only = "Rust's crate reads a Sink's deliveries as `SinkCall`s, #1491's work."
+words = ["sink", "delivery"]
+form = "type"
+
+[[member]]
+package = "goodfetch_foxhound"
+receiver = "(module)"
+member = "SinkHandler"
+entry = "none"
+reason = "A program's own Sink, a plain function, which `Foxhound.connect()`'s `sinks` registers by name (ADR 0104)."
+only = "Rust registers a Sink by name with `ConnectOptions::sink` and reads its deliveries as #1491 builds them."
+words = ["sink", "handler"]
+form = "type"
+
+[[member]]
+package = "goodfetch_foxhound"
+receiver = "(module)"
+member = "AsyncSinkHandler"
+entry = "none"
+reason = "A program's own Sink, a coroutine function, which `AsyncFoxhound.connect()`'s `sinks` registers by name (ADR 0104)."
+only = "Python's async twin (ADR 0081): TypeScript is async only, and Rust registers a Sink by name with `ConnectOptions::sink`."
+words = ["async", "sink", "handler"]
+form = "type"
+
+[[member]]
 package = "goodfetch_foxhound.testing"
 receiver = "(module)"
 member = "connect_over"

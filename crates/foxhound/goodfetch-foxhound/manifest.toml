@@ -47,6 +47,115 @@ form = "runtime"
 
 [[member]]
 crate = "goodfetch-foxhound"
+receiver = "(crate)"
+member = "ConnectOptions"
+entry = "none"
+reason = "What a Foxhound connection opens with: Collie's options, with Foxhound's settings, and the program's own Fetch backends and Sinks by name (ADR 0104)."
+only = "TypeScript names it `FoxhoundConnectOptions`; Python's `connect()` takes its options as keyword arguments."
+words = ["connect", "options"]
+form = "type"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "ConnectOptions"
+member = "engine"
+entry = "none"
+reason = "The engine the connection reaches, in place of `EngineChoice::Auto`, whatever `GOODFETCH_URL` says."
+words = ["engine"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "ConnectOptions"
+member = "environment"
+entry = "none"
+reason = "The environment variables the connection and its linked engine read, such as `GOODFETCH_HOME` and `GOODFETCH_URL`, in place of the process's own."
+words = ["environment"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "ConnectOptions"
+member = "limits"
+entry = "none"
+reason = "The connection's own `limits` (ADR 0080), in place of any given before: each only lowers what covers the connection's work."
+words = ["limits"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "ConnectOptions"
+member = "settings"
+entry = "none"
+reason = "The connection's own settings, Collie's and Foxhound's (ADR 0083), in place of any given before: they travel in `hello`, and every Run the connection starts inherits what its own settings leave out."
+words = ["settings"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "ConnectOptions"
+member = "timeout"
+entry = "none"
+reason = "Fails the connect if the engine has not answered `hello` within `timeout`, with `deadline_exceeded` naming `timeout.connect` (ADR 0083)."
+words = ["timeout"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "ConnectOptions"
+member = "no_timeout"
+entry = "none"
+reason = "Waits for the engine to answer `hello` as long as it takes."
+words = ["no", "timeout"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "ConnectOptions"
+member = "project"
+entry = "none"
+reason = "Reads the project file `path` (ADR 0083) in place of the `goodfetch.toml` found upward from the working directory."
+words = ["project"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "ConnectOptions"
+member = "no_project"
+entry = "none"
+reason = "Reads no project file (ADR 0083): the connection's Runs and its `explain_settings()` have no layer 3."
+words = ["no", "project"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "ConnectOptions"
+member = "max_listener_queue"
+entry = "none"
+reason = "How many unread events each stream of a Session's events holds (ADR 0081), in place of 1,024."
+words = ["max", "listener", "queue"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "ConnectOptions"
+member = "fetch_backend"
+entry = "none"
+reason = "Registers the program's own Fetch backend under the name settings such as `fetch.backend` choose it by (ADR 0104)."
+words = ["fetch", "backend"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "ConnectOptions"
+member = "sink"
+entry = "none"
+reason = "Registers the program's own Sink under the name of the `sinks.<name>` entry it serves (ADR 0104)."
+words = ["sink"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-foxhound"
 receiver = "executable"
 member = "COMMANDS"
 entry = "none"
@@ -868,9 +977,9 @@ entry = "crawl_request.enqueue_links"
 words = ["enqueue", "links"]
 form = "round_trip"
 
-# Limits in code (ADR 0080): `ConnectOptions::limits` and `Start::limits`
-# are Collie's, re-exported with `Limits`, `Money` and `UsageKind`; Foxhound
-# adds the Usage kind only it counts.
+# Limits in code (ADR 0080): `ConnectOptions::limits` takes Collie's
+# `Limits`, and `Start::limits` is Collie's, re-exported with `Limits`,
+# `Money` and `UsageKind`; Foxhound adds the Usage kind only it counts.
 [[member]]
 crate = "goodfetch-foxhound"
 receiver = "(crate)"

@@ -69,6 +69,39 @@ fn every_date_time_becomes_the_client_packages_point_in_time() {
     );
 }
 
+/// An inline `date-time` that also allows null, as a field the protocol
+/// declares with `Option<String>`, becomes the client package's type or
+/// `None`, its description kept.
+#[test]
+fn a_nullable_date_time_becomes_the_client_packages_point_in_time_or_null() {
+    let mut input = json!({
+        "$defs": {
+            "BlockedDetails": {
+                "type": "object",
+                "properties": {
+                    "retry_after": {
+                        "description": "When to try again.",
+                        "default": null,
+                        "type": ["string", "null"],
+                        "format": "date-time",
+                    },
+                },
+            },
+        },
+    });
+
+    use_client_type(&mut input).unwrap();
+
+    assert_eq!(
+        input["$defs"]["BlockedDetails"]["properties"]["retry_after"],
+        json!({
+            "description": "When to try again.",
+            "default": null,
+            "anyOf": [{ "customTypePath": POINT_IN_TIME }, { "type": "null" }],
+        })
+    );
+}
+
 /// A `date-time` entry under another name is refused: Foxhound's layer
 /// imports Collie's point in time by the protocol's name alone.
 #[test]

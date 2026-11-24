@@ -104,6 +104,7 @@ mod refusals;
 mod register;
 mod register_coverage;
 mod release;
+#[cfg(unix)]
 mod release_line;
 mod release_publish;
 mod release_suite;

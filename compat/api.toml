@@ -38,35 +38,35 @@ reason = "A page carries the Session that opened it, so `page.session()` answers
 
 [[announced]]
 entry = "typescript @goodfetch/collie CollieError"
-reason = "Two Error codes join the catalog, `page_navigated_during_call` (issue 3168) and `schema_validator_failed` (issue 1338): a switch over every Collie error needs their cases."
+reason = "Three Error codes join the catalog, `page_navigated_during_call` (issue 3168), `schema_validator_failed` (issue 1338) and `model_unavailable` (issue 3167): a switch over every Collie error needs their cases."
 
 [[announced]]
 entry = "typescript @goodfetch/collie CollieErrorCode"
-reason = "Two Error codes join the catalog, `page_navigated_during_call` (issue 3168) and `schema_validator_failed` (issue 1338): a switch over every code needs their cases."
+reason = "Three Error codes join the catalog, `page_navigated_during_call` (issue 3168), `schema_validator_failed` (issue 1338) and `model_unavailable` (issue 3167): a switch over every code needs their cases."
 
 [[announced]]
 entry = "typescript @goodfetch/collie-client CollieError"
-reason = "Two Error codes join the catalog, `page_navigated_during_call` (issue 3168) and `schema_validator_failed` (issue 1338): a switch over every Collie error needs their cases."
+reason = "Three Error codes join the catalog, `page_navigated_during_call` (issue 3168), `schema_validator_failed` (issue 1338) and `model_unavailable` (issue 3167): a switch over every Collie error needs their cases."
 
 [[announced]]
 entry = "typescript @goodfetch/collie-client CollieErrorCode"
-reason = "Two Error codes join the catalog, `page_navigated_during_call` (issue 3168) and `schema_validator_failed` (issue 1338): a switch over every code needs their cases."
+reason = "Three Error codes join the catalog, `page_navigated_during_call` (issue 3168), `schema_validator_failed` (issue 1338) and `model_unavailable` (issue 3167): a switch over every code needs their cases."
 
 [[announced]]
 entry = "typescript @goodfetch/collie-client/generated CollieError"
-reason = "Two Error codes join the catalog, `page_navigated_during_call` (issue 3168) and `schema_validator_failed` (issue 1338): a switch over every Collie error needs their cases."
+reason = "Three Error codes join the catalog, `page_navigated_during_call` (issue 3168), `schema_validator_failed` (issue 1338) and `model_unavailable` (issue 3167): a switch over every Collie error needs their cases."
 
 [[announced]]
 entry = "typescript @goodfetch/collie-client/generated CollieErrorCode"
-reason = "Two Error codes join the catalog, `page_navigated_during_call` (issue 3168) and `schema_validator_failed` (issue 1338): a switch over every code needs their cases."
+reason = "Three Error codes join the catalog, `page_navigated_during_call` (issue 3168), `schema_validator_failed` (issue 1338) and `model_unavailable` (issue 3167): a switch over every code needs their cases."
 
 [[announced]]
 entry = "typescript @goodfetch/foxhound CollieError"
-reason = "Two Error codes join the catalog, `page_navigated_during_call` (issue 3168) and `schema_validator_failed` (issue 1338): a switch over every Collie error needs their cases."
+reason = "Three Error codes join the catalog, `page_navigated_during_call` (issue 3168), `schema_validator_failed` (issue 1338) and `model_unavailable` (issue 3167): a switch over every Collie error needs their cases."
 
 [[announced]]
 entry = "typescript @goodfetch/foxhound CollieErrorCode"
-reason = "Two Error codes join the catalog, `page_navigated_during_call` (issue 3168) and `schema_validator_failed` (issue 1338): a switch over every code needs their cases."
+reason = "Three Error codes join the catalog, `page_navigated_during_call` (issue 3168), `schema_validator_failed` (issue 1338) and `model_unavailable` (issue 3167): a switch over every code needs their cases."
 
 [[announced]]
 entry = "typescript @goodfetch/collie-client/runtime CollieWireType"
@@ -75,3 +75,83 @@ reason = "`hook_failed`'s details are typed in the client package (issue 3169): 
 [[announced]]
 entry = "typescript @goodfetch/foxhound/generated SinkReport"
 reason = "A Sink report's `guaranteeClass` is the Guarantee class's own type, no longer any string (issue 1121)."
+
+[[announced]]
+entry = "typescript @goodfetch/collie BlockCause"
+reason = "The six Block causes keep their values and stay open, now listed in the catalog's order, as the SDKs' typed details read them (issue 3603); no cause is added or removed."
+
+[[announced]]
+entry = "typescript @goodfetch/collie RunSettings"
+reason = "`secrets` gains `placeholders`, which binds each Secret placeholder to a reference and its registrable domains (issue 654)."
+
+[[announced]]
+entry = "typescript @goodfetch/collie Settings"
+reason = "`secrets` gains `placeholders`, which binds each Secret placeholder to a reference and its registrable domains (issue 654)."
+
+[[announced]]
+entry = "typescript @goodfetch/collie-client BlockCause"
+reason = "The six Block causes keep their values and stay open, now listed in the catalog's order, as the SDKs' typed details read them (issue 3603); no cause is added or removed."
+
+[[announced]]
+entry = "typescript @goodfetch/collie-client RunSettings"
+reason = "`secrets` gains `placeholders`, which binds each Secret placeholder to a reference and its registrable domains (issue 654)."
+
+[[announced]]
+entry = "typescript @goodfetch/collie-client Settings"
+reason = "`secrets` gains `placeholders`, which binds each Secret placeholder to a reference and its registrable domains (issue 654)."
+
+[[announced]]
+entry = "typescript @goodfetch/collie-client/generated BlockCause"
+reason = "The six Block causes keep their values and stay open, now listed in the catalog's order, as the SDKs' typed details read them (issue 3603); no cause is added or removed."
+
+[[announced]]
+entry = "typescript @goodfetch/collie-client/generated RunSettings"
+reason = "`secrets` gains `placeholders`, which binds each Secret placeholder to a reference and its registrable domains (issue 654)."
+
+[[announced]]
+entry = "typescript @goodfetch/collie-client/generated Settings"
+reason = "`secrets` gains `placeholders`, which binds each Secret placeholder to a reference and its registrable domains (issue 654)."
+
+[[announced]]
+entry = "typescript @goodfetch/foxhound BlockCause"
+reason = "The six Block causes keep their values and stay open, now listed in the catalog's order, as the SDKs' typed details read them (issue 3603); no cause is added or removed."
+
+[[announced]]
+entry = "typescript @goodfetch/foxhound CrawlSettings"
+reason = "`secrets` gains `placeholders`, which binds each Secret placeholder to a reference and its registrable domains (issue 654)."
+
+[[announced]]
+entry = "typescript @goodfetch/foxhound FoxhoundError"
+reason = "An Error code joins Foxhound's catalog, `sheet_capacity_exceeded` (issue 1678): a switch over every Foxhound error needs its case."
+
+[[announced]]
+entry = "typescript @goodfetch/foxhound FoxhoundErrorCode"
+reason = "An Error code joins Foxhound's catalog, `sheet_capacity_exceeded` (issue 1678): a switch over every code needs its case."
+
+[[announced]]
+entry = "typescript @goodfetch/foxhound FoxhoundSettings"
+reason = "`secrets` gains `placeholders`, which binds each Secret placeholder to a reference and its registrable domains (issue 654)."
+
+[[announced]]
+entry = "typescript @goodfetch/foxhound RunSettings"
+reason = "`secrets` gains `placeholders`, which binds each Secret placeholder to a reference and its registrable domains (issue 654)."
+
+[[announced]]
+entry = "typescript @goodfetch/foxhound Settings"
+reason = "`secrets` gains `placeholders`, which binds each Secret placeholder to a reference and its registrable domains (issue 654)."
+
+[[announced]]
+entry = "typescript @goodfetch/foxhound/generated CrawlSettings"
+reason = "`secrets` gains `placeholders`, which binds each Secret placeholder to a reference and its registrable domains (issue 654)."
+
+[[announced]]
+entry = "typescript @goodfetch/foxhound/generated FoxhoundError"
+reason = "An Error code joins Foxhound's catalog, `sheet_capacity_exceeded` (issue 1678): a switch over every Foxhound error needs its case."
+
+[[announced]]
+entry = "typescript @goodfetch/foxhound/generated FoxhoundErrorCode"
+reason = "An Error code joins Foxhound's catalog, `sheet_capacity_exceeded` (issue 1678): a switch over every code needs its case."
+
+[[announced]]
+entry = "typescript @goodfetch/foxhound/generated FoxhoundSettings"
+reason = "`secrets` gains `placeholders`, which binds each Secret placeholder to a reference and its registrable domains (issue 654)."

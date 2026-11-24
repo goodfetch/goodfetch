@@ -2989,6 +2989,7 @@ dependencies = [
  "jiff",
  "jsonschema",
  "proptest",
+ "psl",
  "regex",
  "rstest",
  "schemars",

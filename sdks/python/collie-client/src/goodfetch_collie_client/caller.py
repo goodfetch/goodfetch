@@ -80,10 +80,11 @@ def details_of(model: type[_Model], details: Mapping[str, object]) -> _Model | N
 
     Built as `result_of` builds a result, unvalidated; `None` when they lack
     one of the model's required fields, as those of an error a program builds
-    without details do.
+    without details do. Details that are one of several models, as a union
+    their tag flattens, are the one whose tag and required fields they carry.
     """
     value = dict(details)
-    return result_of(model, value) if _carries(model, value) else None
+    return result_of(model, value) if _matches(model, value) else None
 
 
 _Build = Callable[[object], object]

@@ -96,6 +96,8 @@ pub(crate) struct Columns {
     names: Vec<String>,
     kinds: Vec<Kind>,
     index: HashMap<String, usize>,
+    records: u64,
+    longest: u64,
 }
 
 impl Columns {
@@ -107,23 +109,50 @@ impl Columns {
             names: Vec::new(),
             kinds: Vec::new(),
             index: HashMap::new(),
+            records: 0,
+            longest: 0,
         }
     }
 
     /// Adds the fields of the Record whose committed JSON text is `json`
     /// that no Record seen before had, after those.
     pub(crate) fn see(&mut self, json: &str) {
+        self.records += 1;
         for (name, value) in self.fields(json) {
             let column = if let Some(&column) = self.index.get(&name) {
                 column
             } else {
+                self.measure(&name);
                 self.index.insert(name.clone(), self.names.len());
                 self.names.push(name);
                 self.kinds.push(Kind::Unseen);
                 self.names.len() - 1
             };
-            self.kinds[column] = self.kinds[column].with(read(value).1);
+            let (cell, kind) = read(value);
+            self.measure(cell.text());
+            self.kinds[column] = self.kinds[column].with(kind);
         }
+    }
+
+    /// Counts `text` in the longest cell's length when it is longer.
+    fn measure(&mut self, text: &str) {
+        // A character takes no more UTF-16 code units than UTF-8 bytes, so
+        // a text of no more bytes than the longest is no longer than it.
+        if u64::try_from(text.len()).unwrap_or(u64::MAX) > self.longest {
+            let units = text.encode_utf16().count();
+            self.longest = self.longest.max(u64::try_from(units).unwrap_or(u64::MAX));
+        }
+    }
+
+    /// How many Records it saw.
+    pub(crate) fn records(&self) -> u64 {
+        self.records
+    }
+
+    /// The length of its longest cell, a column's name included, in UTF-16
+    /// code units, as a spreadsheet counts a cell's characters.
+    pub(crate) fn longest(&self) -> u64 {
+        self.longest
     }
 
     /// Each column's type, in the columns' order.

@@ -196,6 +196,7 @@ refusals_per_minute = 4
 
 [settings.secrets]
 resolve_each_use = ["env:EXAMPLE"]
+placeholders = { "example.test" = { domains = ["github.com"], reference = "env:GITHUB_PASSWORD" } }
 by_reference = true
 
 [settings.secret_providers.op]
@@ -614,6 +615,7 @@ refusals_per_minute = 4
 
 [lock.secrets]
 resolve_each_use = ["env:EXAMPLE"]
+placeholders = { "example.test" = { domains = ["github.com"], reference = "env:GITHUB_PASSWORD" } }
 by_reference = true
 
 [lock.secret_providers.op]

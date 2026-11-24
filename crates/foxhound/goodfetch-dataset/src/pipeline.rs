@@ -5,10 +5,15 @@
 //! [`write_export`] over a run file's connection, for the Compatibility
 //! corpus and the benchmarks, so both write the bytes a user's Export holds.
 
-use goodfetch_protocol::foxhound::export::{ExportCompression, ExportFormat};
+use goodfetch_engine::CallError;
+use goodfetch_protocol::foxhound::export::{
+    ExportCompression, ExportFormat, SHEET_CAPACITY_EXCEEDED, SheetCapacityExceededDetails,
+};
 use rusqlite::Connection;
 
-use crate::encoding::{Columns, Compressor, ExportEncoder, ExportOptions, Exported};
+use crate::encoding::{
+    Columns, Compressor, ExportEncoder, ExportOptions, Exported, SheetCapacityExceeded, sheet_fits,
+};
 use crate::records::{CommittedText, Pages, last_number};
 
 /// One Export's pipeline before it encodes: its format, its options, its
@@ -52,15 +57,24 @@ impl Pipeline {
         }
     }
 
-    /// Its encoding, with the Export's first bytes written.
-    pub(crate) fn encoding(self) -> Encoding {
+    /// Its encoding of the Dataset `dataset`, with the Export's first bytes
+    /// written.
+    ///
+    /// # Errors
+    ///
+    /// `sheet_capacity_exceeded`, before any byte is written, for an XLSX
+    /// Export whose sheet would pass what Excel opens.
+    pub(crate) fn encoding(self, dataset: &str) -> Result<Encoding, CallError> {
+        if self.format == ExportFormat::Xlsx {
+            sheet_fits(&self.columns).map_err(|refused| sheet_refused(dataset, refused))?;
+        }
         let mut encoder = ExportEncoder::new(self.format, &self.options, self.columns);
         let mut compressor = Compressor::new(self.compression);
         encoder.begin(compressor.input());
-        Encoding {
+        Ok(Encoding {
             encoder,
             compressor,
-        }
+        })
     }
 }
 
@@ -114,6 +128,38 @@ fn exported(record: &CommittedText) -> Exported<'_> {
     }
 }
 
+/// `sheet_capacity_exceeded` for the XLSX Export of `dataset` that
+/// `refused` names, of which nothing was written.
+fn sheet_refused(dataset: &str, refused: SheetCapacityExceeded) -> CallError {
+    let fix = format!(
+        "Export `{dataset}` as `csv`, `jsonl` or `parquet`, which hold any number of rows, columns and characters."
+    );
+    CallError::new(
+        &SHEET_CAPACITY_EXCEEDED,
+        format!("The XLSX Export of `{dataset}` was refused: {refused}. {fix}"),
+        &SheetCapacityExceededDetails {
+            dataset: dataset.to_owned(),
+            capacity: refused.capacity,
+            figure: refused.figure,
+            maximum: refused.capacity.maximum(),
+            fix,
+        },
+    )
+}
+
+/// Why [`write_export`] wrote no Export.
+#[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
+pub enum WriteExportError {
+    /// The run file could not be read.
+    #[error("the run file could not be read: {0}")]
+    Read(#[from] rusqlite::Error),
+    /// The Export was refused, as `run.export` refuses it:
+    /// `sheet_capacity_exceeded` for an XLSX sheet past what Excel opens.
+    #[error(transparent)]
+    Refused(#[from] CallError),
+}
+
 /// The Export of the Dataset `dataset`'s Records in the run file
 /// `connection`, through the last one committed when it begins, in
 /// `format` with `options`, compressed as `compression` says: the file
@@ -122,14 +168,15 @@ fn exported(record: &CommittedText) -> Exported<'_> {
 ///
 /// # Errors
 ///
-/// The run file's, when it cannot be read.
+/// The run file's, when it cannot be read, and an XLSX Export's whose
+/// sheet would pass what Excel opens.
 pub fn write_export(
     connection: &Connection,
     dataset: &str,
     format: ExportFormat,
     options: ExportOptions,
     compression: ExportCompression,
-) -> rusqlite::Result<Vec<u8>> {
+) -> Result<Vec<u8>, WriteExportError> {
     let through = Some(last_number(connection, dataset)?);
     let mut pipeline = Pipeline::new(format, options, compression);
     if pipeline.reads_columns() {
@@ -142,7 +189,7 @@ pub fn write_export(
             }
         }
     }
-    let mut encoding = pipeline.encoding();
+    let mut encoding = pipeline.encoding(dataset)?;
     let mut pages = Pages::new(dataset, 0, through, None);
     loop {
         let (page, full) = pages.values(connection)?;

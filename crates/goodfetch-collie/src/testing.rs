@@ -176,10 +176,12 @@ mod tests {
             COLLIE_ENGINE_PATH_VARIABLE,
         );
 
+        // The home's cache, joined with the platform's separator.
+        let cache = Path::new("/caller/home").join("browsers");
         assert_eq!(
             environment,
             map(&[
-                ("GOODFETCH_BROWSERS_PATH", "/caller/home/browsers"),
+                ("GOODFETCH_BROWSERS_PATH", cache.to_str().unwrap()),
                 ("GOODFETCH_COLLIE_ENGINE_PATH", "/opt/goodfetch-collie"),
                 ("GOODFETCH_HOME", "/tmp/test-home"),
             ])

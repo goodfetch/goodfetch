@@ -133,6 +133,9 @@ pub fn claude_code_copy() -> Result<PathBuf, ClaudeCodeError> {
 
 /// Runs the tests' copy's `plugin validate --strict --json` on the plugin
 /// at `plugin`, with no network and its configuration in `env`'s folder.
+/// The path is made absolute first: on Windows a path rooted with no drive,
+/// as a cross-compiled test's `CARGO_MANIFEST_DIR`, would otherwise be read
+/// on the drive of the validator's working folder, the test's.
 ///
 /// # Errors
 ///
@@ -151,7 +154,7 @@ pub fn validate_plugin(env: &TestEnv, plugin: &Path) -> Result<PluginValidation,
     let mut command = env.process_command(&copy);
     command
         .args(["plugin", "validate", "--strict", "--json"])
-        .arg(plugin)
+        .arg(std::path::absolute(plugin)?)
         .env("HOME", &folder)
         .env("USERPROFILE", &folder)
         .env("CLAUDE_CONFIG_DIR", folder.join("config"))

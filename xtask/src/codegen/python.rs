@@ -28,7 +28,7 @@ use goodfetch_protocol::settings::{
 };
 
 use super::handles;
-use super::layer::{Deprecation, ErrorCode, Layer, Stability};
+use super::layer::{Deprecation, ErrorCode, Layer, RetryAfter, Stability};
 use super::naming::{pascal, snake};
 use super::open_values::{self, OpenValues};
 use super::{EXPERIMENTAL, Generated, TypesFile};
@@ -125,6 +125,7 @@ pub(super) const DATAMODEL_CODEGEN_OPTIONS: [&str; 19] = [
     "ruff-check",
 ];
 
+mod enum_members;
 mod handle_classes;
 pub(super) mod model_defaults;
 mod points_in_time;
@@ -174,6 +175,7 @@ pub(super) fn generate(layer: &Layer) -> Result<Generated> {
         &mut input,
         &format!("{}.{OPEN_VALUES}", own_package(layer.product)),
     );
+    enum_members::with_free_member_names(&mut input);
     // The root holds no value: an empty model with a docstring, never
     // `RootModel[Any]`.
     input["type"] = Value::from("object");
@@ -709,11 +711,7 @@ fn foxhound_error_imports(layer: &Layer) -> String {
     } else {
         String::new()
     };
-    let helper = if layer.reads_retry_after() {
-        ", retry_after_of"
-    } else {
-        ""
-    };
+    let helper = retry_after_helpers(layer);
     format!(
         ", Unpack\n\nfrom {CLIENT_PACKAGE}.errors import {}\nfrom {GOODFETCH_ERROR_MODULE} import {base}ErrorClass, ErrorFields{helper}\n",
         join(&names)
@@ -724,12 +722,48 @@ fn foxhound_error_imports(layer: &Layer) -> String {
 /// name it as a point in time (ADRs 0092 and 0118).
 const RETRY_AFTER_DOC: &str = "When the site's `Retry-After` asks to be tried again: a point in time in UTC, not a duration; `None` when it asks for none. The details keep it as sent.";
 
+/// The docstring of `retry_after` on the class of a code whose details
+/// name it as a duration (ADR 0101).
+const RETRY_AFTER_DURATION_DOC: &str = "How long the Model provider asks to wait before trying again: a duration, not a point in time; `None` when it asks for no wait. The details keep it as sent, in milliseconds.";
+
+/// The helpers `layer`'s errors module imports to read its codes'
+/// `retry_after`, as the tail of an import list.
+fn retry_after_helpers(layer: &Layer) -> String {
+    let mut helpers = String::new();
+    if layer.reads_retry_after(RetryAfter::Duration) {
+        helpers.push_str(", retry_after_duration_of");
+    }
+    if layer.reads_retry_after(RetryAfter::PointInTime) {
+        helpers.push_str(", retry_after_of");
+    }
+    helpers
+}
+
+/// What `layer`'s errors module imports from `datetime` for its codes'
+/// `retry_after`, if anything.
+fn retry_after_types(layer: &Layer) -> String {
+    let types: Vec<&str> = [
+        (RetryAfter::PointInTime, "datetime"),
+        (RetryAfter::Duration, "timedelta"),
+    ]
+    .into_iter()
+    .filter(|(kind, _)| layer.reads_retry_after(*kind))
+    .map(|(_, name)| name)
+    .collect();
+    if types.is_empty() {
+        String::new()
+    } else {
+        format!("from datetime import {}\n", types.join(", "))
+    }
+}
+
 /// The docstring of `typed_details` on the class of a code whose details
 /// the SDK reads typed (ADR 0079).
 const TYPED_DETAILS_DOC: &str = "The code's details, typed; `None` when they lack a field the model requires, as those of an error a program builds without details do.";
 
 /// The class `class` of one Error code, which reads its `retry_after`
-/// when its details name one as a point in time, and its `typed_details`
+/// when its details name one, as a point in time or a duration, and its
+/// `typed_details`
 /// when the catalog names their type.
 fn error_class(code: &ErrorCode, class: &str) -> String {
     let (base, description) = if outside_exception(code) {
@@ -744,14 +778,24 @@ fn error_class(code: &ErrorCode, class: &str) -> String {
     text.push_str(&docstring("    ", &description, Stability::Stable, None));
     let mut field = String::new();
     let mut set = String::new();
-    if code.retry_after_is_point_in_time() {
-        let _ = write!(
-            field,
-            "\n    retry_after: datetime | None\n    \"\"\"{RETRY_AFTER_DOC}\"\"\"\n"
-        );
-        set.push_str("        self.retry_after = retry_after_of(self.details)\n");
+    match code.retry_after() {
+        Some(RetryAfter::PointInTime) => {
+            let _ = write!(
+                field,
+                "\n    retry_after: datetime | None\n    \"\"\"{RETRY_AFTER_DOC}\"\"\"\n"
+            );
+            set.push_str("        self.retry_after = retry_after_of(self.details)\n");
+        }
+        Some(RetryAfter::Duration) => {
+            let _ = write!(
+                field,
+                "\n    retry_after: timedelta | None\n    \"\"\"{RETRY_AFTER_DURATION_DOC}\"\"\"\n"
+            );
+            set.push_str("        self.retry_after = retry_after_duration_of(self.details)\n");
+        }
+        None => {}
     }
-    if let Some(details) = &code.details {
+    if let Some(details) = code.class_details() {
         let name = &details.0;
         let _ = write!(
             field,
@@ -777,16 +821,13 @@ fn errors(layer: &Layer) -> String {
     let mut text = header(&format!(
         "The exception class of each of {product}'s Error codes (ADR 0079)."
     ));
-    let retry_after = layer.reads_retry_after();
     text.push_str("\nfrom collections.abc import Mapping\n");
-    if retry_after {
-        text.push_str("from datetime import datetime\n");
-    }
+    text.push_str(&retry_after_types(layer));
     text.push_str("from typing import Final");
     let detail_types: BTreeSet<String> = layer
         .error_codes
         .iter()
-        .filter_map(|code| code.details.as_ref().map(|name| name.0.clone()))
+        .filter_map(|code| code.class_details().map(|name| name.0.clone()))
         .collect();
     let (details_helper, details_models) = if detail_types.is_empty() {
         (String::new(), String::new())
@@ -798,7 +839,7 @@ fn errors(layer: &Layer) -> String {
     };
     match layer.product {
         Product::Collie => {
-            let helper = if retry_after { ", retry_after_of" } else { "" };
+            let helper = retry_after_helpers(layer);
             let _ = write!(
                 text,
                 ", Literal, Unpack\n\n{details_helper}from {GOODFETCH_ERROR_MODULE} import ErrorClass, ErrorFields, GoodfetchError{helper}\n{details_models}\nErrorGroup = Literal["

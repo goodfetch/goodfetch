@@ -940,8 +940,9 @@ fn a_daemon_not_the_pick_hands_over_with_only_a_kennel_left_unless_it_keeps_the_
 /// unraised its new Run starts, and it keeps its Client until the Client
 /// leaves (ADR 0098).
 ///
-/// Covers: story:3-144, story:3-138, error:format_version_unsupported
+/// Covers: story:3-144, story:3-138
 #[rstest]
+/// Covers: error:format_version_unsupported
 #[case::raised(true, (Some("format_version_unsupported".to_owned()), true, 1))]
 #[case::unraised(false, (None, false, 0))]
 fn a_daemon_locked_out_of_the_run_index_hands_over_once_its_runs_end(

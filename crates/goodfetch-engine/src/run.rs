@@ -61,8 +61,8 @@ use goodfetch_protocol::connection::NOT_IN_PRODUCT;
 use goodfetch_protocol::daemon::{DAEMON_DRAINING, DaemonDrainingDetails};
 use goodfetch_protocol::secrets::{
     RUN_KEY_MISMATCH, RUN_STATE_KEY_REFERENCE, RunKeyMismatchDetails, SECRET_DOMAIN_NOT_ALLOWED,
-    SECRET_INPUT_REFUSED, SECRET_UNAVAILABLE, SecretDomainNotAllowedDetails,
-    SecretInputRefusedDetails, SecretUnavailableDetails,
+    SECRET_INPUT_REFUSED, SECRET_UNAVAILABLE, SECRET_UNBOUND, SecretDomainNotAllowedDetails,
+    SecretInputRefusedDetails, SecretUnavailableDetails, SecretUnboundDetails,
 };
 use goodfetch_protocol::settings::{
     CAPABILITY_UNAVAILABLE, CapabilityUnavailableDetails, RunOrigin, SETTING_INVALID,
@@ -329,6 +329,14 @@ pub fn start_error(error: StartError) -> CallError {
 pub fn secret_error(error: &SecretError) -> CallError {
     let message = error.to_string();
     match error {
+        SecretError::Unbound { placeholder, bound } => CallError::new(
+            &SECRET_UNBOUND,
+            message,
+            &SecretUnboundDetails {
+                placeholder: placeholder.clone(),
+                bound: bound.clone(),
+            },
+        ),
         SecretError::Unavailable {
             placeholder,
             reference,

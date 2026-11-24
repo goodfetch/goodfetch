@@ -444,8 +444,9 @@ fn identical_gets_in_flight_from_one_session_reach_the_site_once() {
 /// URL and asks to run again: its retry and the added seed are then in
 /// flight together.
 ///
-/// Covers: story:3-64, setting:fetch.coalesce, operation:effect.open
+/// Covers: story:3-64, setting:fetch.coalesce
 #[rstest]
+/// Covers: operation:effect.open
 #[case::from_a_work_item_that_declared_an_effect(true, 3, 0)]
 #[case::from_work_items_that_declared_none(false, 2, 1)]
 fn identical_gets_share_a_response_only_when_no_effect_was_declared(

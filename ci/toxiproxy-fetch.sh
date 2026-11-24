@@ -6,12 +6,16 @@
 # free and runs on loopback (ADR 0060); no test downloads it. Nothing is
 # downloaded when the copy is there. Part of `just fetch`. It tests nothing,
 # so it may retry (ADR 0064).
+#
+# A platform of pins.toml as its argument fetches that platform's copy
+# instead: ci/windows.sh fetches `windows-x64`'s for the tests under Wine.
 set -euo pipefail
 
 root=$(cd "$(dirname "$0")/.." && pwd)
 pins="$root/test-support/toxiproxy/pins.toml"
 
-case "$(uname -s)-$(uname -m)" in
+case "${1:-$(uname -s)-$(uname -m)}" in
+  linux-x64 | linux-arm64 | mac-arm64 | mac-x64 | windows-x64) platform=$1 ;;
   Linux-x86_64) platform=linux-x64 ;;
   Linux-aarch64 | Linux-arm64) platform=linux-arm64 ;;
   Darwin-arm64) platform=mac-arm64 ;;

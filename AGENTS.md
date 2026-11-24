@@ -25,7 +25,7 @@ Goodfetch has no revenue: spend nothing until the owner says so (ADR 0076). For 
 
 ## Secrets
 
-Local secrets live in the git-ignored `.env`, filled by `scripts/env-setup.sh` from `.env.example`. Run a `justfile` recipe's lines by hand without `bash -x` or `set -x`, and search their logs for error text: recipes such as `just lint` expand `$(gh auth token)`, so a shell trace prints the live `GITHUB_TOKEN`.
+Local secrets live in the git-ignored `.env`, filled by `scripts/env-setup.sh` from `.env.example`. Run a `justfile` recipe's lines by hand without `bash -x` or `set -x`, and search their logs for error text: recipes such as `just lint` expand `$(gh auth token)`, so a shell trace prints the live `GITHUB_TOKEN`. On the gate host, the nightly fuzzing builds and runs the fuzz targets as the system user `goodfetch-fuzz`, which `ci/fuzz-user.sh` set up and which cannot read the job user's home, gh's `hosts.yml` or `.env` (#2564); keep `.env` mode 600.
 
 ## Code style
 

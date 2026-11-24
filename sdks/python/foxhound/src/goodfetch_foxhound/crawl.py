@@ -16,6 +16,7 @@ context. TypeScript's `crawl.ts` is its twin.
 from __future__ import annotations
 
 import base64
+import inspect
 import weakref
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Generic, TypeVar, cast, final, overload
@@ -42,6 +43,7 @@ from goodfetch_foxhound.generated.errors import (
 from goodfetch_foxhound.generated.models import (
     CrawlRequestEnqueueLinksParams,
     CrawlRequestEnqueueParams,
+    CrawlRequestLinksParams,
     CrawlRequestPushParams,
     DatasetDeclaration,
     LabelDeclaration,
@@ -65,7 +67,11 @@ if TYPE_CHECKING:
     from goodfetch_collie_client.json_values import JSONObject, JSONValue
     from goodfetch_collie_client.schema import JSONSchema
 
-    from goodfetch_foxhound.generated.models import Enqueued, EnqueuedLinks
+    from goodfetch_foxhound.generated.models import (
+        Enqueued,
+        EnqueuedLinks,
+        MatchedLink,
+    )
     from goodfetch_foxhound.generated.operations import (
         AsyncFoxhoundOperations,
         FoxhoundOperations,
@@ -193,29 +199,41 @@ class HandlerAttempt:
         }
         return CrawlRequestEnqueueParams.model_construct(None, **fields)
 
+    def links_params(self, locator: AsyncLocator | Locator) -> CrawlRequestLinksParams:
+        """`crawl_request.links`'s params: the elements `locator` matches."""
+        fields = {**self.lease(), "locator": _locator_id(locator)}
+        return CrawlRequestLinksParams.model_construct(None, **fields)
+
     def enqueue_links_params(
         self,
         locator: AsyncLocator | Locator,
         label: Label[Any],
         payload: object,
         options: dict[str, object],
+        answers: Sequence[object] | None = None,
     ) -> CrawlRequestEnqueueLinksParams:
         """`enqueue_links`'s params: the links `locator` matches, under `label`.
 
+        `answers`, in `payload`'s place, are a Payload function's answers,
+        one for each element `crawl_request.links` read, `None` leaving its
+        link out.
+
         Raises:
             LabelUnknownError: `label` is another crawl's.
-            PayloadInvalidError: `payload` is not JSON, or its Label's model
-                refuses it.
+            PayloadInvalidError: `payload`, or one of `answers`, is not
+                JSON, or its Label's model refuses it.
         """
-        locator_id = carried_id(locator)
-        if not isinstance(locator_id, LocatorId):
-            message = "invariant: a locator's calls carry a `Locator`"
-            raise TypeError(message)
+        name = declared_label(self.crawl, label)
+        payloads = (
+            _payload_field(label, payload)
+            if answers is None
+            else {"payloads": [_link_payload(label, answer) for answer in answers]}
+        )
         fields = {
             **self.lease(),
-            "locator": locator_id,
-            "label": declared_label(self.crawl, label),
-            **_payload_field(label, payload),
+            "locator": _locator_id(locator),
+            "label": name,
+            **payloads,
             **options,
         }
         return CrawlRequestEnqueueLinksParams.model_construct(None, **fields)
@@ -384,7 +402,7 @@ class AsyncCrawlContext(Generic[P]):
         self,
         locator: AsyncLocator,
         label: Label[M],
-        payload: M,
+        payload: M | Callable[[MatchedLink], M | Awaitable[M | None] | None],
         *,
         include: Sequence[str] | None = None,
         exclude: Sequence[str] | None = None,
@@ -396,7 +414,8 @@ class AsyncCrawlContext(Generic[P]):
         self,
         locator: AsyncLocator,
         label: Label[JSONObject],
-        payload: JSONObject,
+        payload: JSONObject
+        | Callable[[MatchedLink], JSONObject | Awaitable[JSONObject | None] | None],
         *,
         include: Sequence[str] | None = None,
         exclude: Sequence[str] | None = None,
@@ -437,7 +456,10 @@ class AsyncCrawlContext(Generic[P]):
         lease no longer holds with `attempt_ended`.
 
         The links go under `label`, each with the Payload that follows it when
-        the Label has one (ADR 0093). `include` lists URL patterns, globs as
+        the Label has one (ADR 0093): one Payload for every link, or a Payload
+        function, plain or `async`, which reads each matched element first
+        (`crawl_request.links`) and answers its link's Payload, or `None` to
+        leave it out. `include` lists URL patterns, globs as
         `crawl.scope.include`'s, of which a link must match one, `exclude`
         those it must match none of, and `priority` places them in the
         Frontier as `enqueue`'s does.
@@ -446,8 +468,9 @@ class AsyncCrawlContext(Generic[P]):
 
         Raises:
             LabelUnknownError: `label` is another crawl's; nothing is sent.
-            PayloadInvalidError: `payload` is not JSON, or its Label's model
-                refuses it, each issue named by its path; nothing is sent.
+            PayloadInvalidError: `payload`, or a Payload its function answers,
+                is not JSON, or its Label's model refuses it, each issue named
+                by its path; no link is added.
         """
         warn_entry(
             "crawl_request.enqueue_links",
@@ -455,7 +478,19 @@ class AsyncCrawlContext(Generic[P]):
             DEPRECATED_OPERATIONS,
         )
         options = _links_options(include, exclude, limit, priority)
-        params = self._attempt.enqueue_links_params(locator, label, payload, options)
+        answers: list[object] | None = None
+        if callable(payload):
+            declared_label(self._attempt.crawl, label)
+            read = await self._operations.crawl_request_links(
+                self._attempt.links_params(locator)
+            )
+            answers = []
+            for link in read.links:
+                answer = payload(link)
+                answers.append(await answer if inspect.isawaitable(answer) else answer)
+        params = self._attempt.enqueue_links_params(
+            locator, label, payload, options, answers
+        )
         return await self._operations.crawl_request_enqueue_links(params)
 
     async def push(self, dataset: Dataset[R], records: R | list[R]) -> None:
@@ -632,7 +667,7 @@ class CrawlContext(Generic[P]):
         self,
         locator: Locator,
         label: Label[M],
-        payload: M,
+        payload: M | Callable[[MatchedLink], M | None],
         *,
         include: Sequence[str] | None = None,
         exclude: Sequence[str] | None = None,
@@ -644,7 +679,7 @@ class CrawlContext(Generic[P]):
         self,
         locator: Locator,
         label: Label[JSONObject],
-        payload: JSONObject,
+        payload: JSONObject | Callable[[MatchedLink], JSONObject | None],
         *,
         include: Sequence[str] | None = None,
         exclude: Sequence[str] | None = None,
@@ -684,12 +719,16 @@ class CrawlContext(Generic[P]):
         page no fetch tier serves fails with `closed`, and an attempt whose
         lease no longer holds with `attempt_ended`.
 
+        A Payload function reads each matched element first and answers its
+        link's Payload, or `None` to leave it out.
+
         Experimental: outside semver until it is promoted (ADR 0030).
 
         Raises:
             LabelUnknownError: `label` is another crawl's; nothing is sent.
-            PayloadInvalidError: `payload` is not JSON, or its Label's model
-                refuses it, each issue named by its path; nothing is sent.
+            PayloadInvalidError: `payload`, or a Payload its function answers,
+                is not JSON, or its Label's model refuses it, each issue named
+                by its path; no link is added.
         """
         warn_entry(
             "crawl_request.enqueue_links",
@@ -697,7 +736,16 @@ class CrawlContext(Generic[P]):
             DEPRECATED_OPERATIONS,
         )
         options = _links_options(include, exclude, limit, priority)
-        params = self._attempt.enqueue_links_params(locator, label, payload, options)
+        answers: list[object] | None = None
+        if callable(payload):
+            declared_label(self._attempt.crawl, label)
+            read = self._operations.crawl_request_links(
+                self._attempt.links_params(locator)
+            )
+            answers = [payload(link) for link in read.links]
+        params = self._attempt.enqueue_links_params(
+            locator, label, payload, options, answers
+        )
         return self._operations.crawl_request_enqueue_links(params)
 
     def push(self, dataset: Dataset[R], records: R | list[R]) -> None:
@@ -1089,6 +1137,27 @@ def _payload_field(label: Label[Any], payload: object) -> dict[str, JSONValue]:
             {"path": issue.path, "message": issue.message} for issue in refused.issues
         ]
         raise _payload_refused(label.name, issues) from None
+
+
+def _link_payload(label: Label[Any], answer: object) -> JSONValue:
+    """The wire's `payloads` entry of a Payload function's `answer`; `None` skips it.
+
+    Raises:
+        PayloadInvalidError: `answer` is not JSON, or its Label's model
+            refuses it.
+    """
+    if answer is None:
+        return None
+    return _payload_field(label, answer).get("payload")
+
+
+def _locator_id(locator: AsyncLocator | Locator) -> LocatorId:
+    """The `Locator` a locator's calls carry."""
+    locator_id = carried_id(locator)
+    if not isinstance(locator_id, LocatorId):
+        message = "invariant: a locator's calls carry a `Locator`"
+        raise TypeError(message)
+    return locator_id
 
 
 def _payload_refused(label: str, issues: list[dict[str, str]]) -> PayloadInvalidError:

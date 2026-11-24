@@ -71,3 +71,19 @@ export async function enqueued(context: CrawlContext): Promise<void> {
   // @ts-expect-error a Label with a Payload needs one
   await context.enqueueLinks(context.page.locator("a.shelf"), shelf);
 }
+
+// enqueueLinks takes a Payload function in the Payload's place: each link's
+// Payload of its Label's shape, or null to leave it out, sync or async.
+export async function linkPayloads(context: CrawlContext): Promise<void> {
+  const links = context.page.locator("a.shelf");
+  await context.enqueueLinks(links, shelf, (link) =>
+    link.href === undefined ? null : { number: link.text.length },
+  );
+  await context.enqueueLinks(links, shelf, async () => Promise.resolve({ number: 1 }), {
+    limit: 2,
+  });
+  // @ts-expect-error a function's Payload of another shape than its Label's
+  await context.enqueueLinks(links, shelf, () => ({ number: "one" }));
+  // @ts-expect-error a Label without a Payload takes no Payload function
+  await context.enqueueLinks(context.page.locator("a"), page, () => null);
+}

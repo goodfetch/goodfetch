@@ -31,6 +31,7 @@ import {
   declaredLabel,
   enqueueLinksOptions,
   handlerOf,
+  isLinkPayload,
   payloadAndOptions,
   payloadOf,
   requestOptions,
@@ -42,6 +43,7 @@ import {
 import { HandlerFailedError, ResponseNotDocumentError } from "./generated/errors.ts";
 import {
   foxhoundOperations,
+  type CrawlRequestEnqueueLinksParams,
   type CrawlRequestHandleParams,
   type CrawlRequestHandled,
   type DatasetRecord,
@@ -250,17 +252,31 @@ export class CrawlRun extends Run {
         signal.throwIfAborted();
         const name = declaredLabel(crawl, label);
         const given = payloadAndOptions(label, rest);
-        const payload = payloadOf(label, given.payload);
-        await checkPayload(label, payload.payload);
+        const on = { ...attempt, locator: idOfLocator(locator) };
+        let payloads: Pick<CrawlRequestEnqueueLinksParams, "payload" | "payloads">;
+        if (isLinkPayload(given.payload)) {
+          // The function reads each matched element before any link is sent.
+          const payloadOfLink = given.payload;
+          const { links } = await calls.call("crawl_request.links", on, options);
+          const answers: unknown[] = [];
+          for (const link of links) {
+            const answer = await payloadOfLink(link);
+            if (answer === null) {
+              answers.push(null);
+              continue;
+            }
+            const { payload } = payloadOf(label, answer);
+            await checkPayload(label, payload);
+            answers.push(payload ?? null);
+          }
+          payloads = { payloads: answers };
+        } else {
+          payloads = payloadOf(label, given.payload);
+          await checkPayload(label, payloads.payload);
+        }
         return calls.call(
           "crawl_request.enqueue_links",
-          {
-            ...attempt,
-            locator: idOfLocator(locator),
-            label: name,
-            ...payload,
-            ...enqueueLinksOptions(given.options ?? {}),
-          },
+          { ...on, label: name, ...payloads, ...enqueueLinksOptions(given.options ?? {}) },
           options,
         );
       },

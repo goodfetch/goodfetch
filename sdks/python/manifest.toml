@@ -2805,7 +2805,7 @@ reason = "A handler process of `workers=N` offers its handler with it (ADR 0024)
 
 [[unreached]]
 entries = ["crawl_request.links"]
-reason = "What `enqueue_links`'s Payload function reads for each link; the member takes one Payload for every link, so nothing reads it yet."
+reason = "What `enqueue_links` sends itself, before `crawl_request.enqueue_links`, when it is given a Payload function: the function reads each link it answers, so it has no member of its own."
 
 [[unreached]]
 entries = ["dataset.list", "dataset.page", "dataset.query"]

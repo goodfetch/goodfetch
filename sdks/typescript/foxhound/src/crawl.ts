@@ -22,6 +22,7 @@ import type {
   EnqueuedLinks,
   HttpBody,
   LabelDeclaration,
+  MatchedLink,
   RequestSeed,
   Seed,
   SitemapSeed,
@@ -130,6 +131,28 @@ export interface RequestOptions {
   readonly key?: string | null | undefined;
 }
 
+/**
+ * A Payload function of `context.enqueueLinks` (ADR 0093): called with each
+ * element its locator matched, in document order, it answers that link's
+ * Payload, or `null` to leave the link out, which `enqueueLinks` reports as
+ * `skipped_by_payload`.
+ */
+export type LinkPayload<P extends object> = (link: MatchedLink) => P | null | PromiseLike<P | null>;
+
+/**
+ * What `context.enqueueLinks` takes after a Label with a Payload: one
+ * Payload for every link, or a `LinkPayload` function of each; nothing
+ * after a Label without one.
+ */
+export type LinksPayload<P extends object | undefined> = [P] extends [undefined]
+  ? undefined
+  : Exclude<P, undefined> | LinkPayload<Exclude<P, undefined>>;
+
+/** Whether `payload`, given to `enqueueLinks`, is a `LinkPayload` function, which no JSON Payload is. */
+export function isLinkPayload(payload: unknown): payload is LinkPayload<object> {
+  return typeof payload === "function";
+}
+
 /** What `context.enqueueLinks` takes besides the locator, the Label and the Payload. */
 export interface EnqueueLinksOptions {
   /** URL patterns, globs as `crawl.scope.include`'s, of which a link must match one when there are any; they only narrow the crawl's scope. */
@@ -211,16 +234,19 @@ export interface CrawlContext {
    * `attempt_ended`.
    *
    * The links go under `label`, each with the Payload that follows it when
-   * the Label has one (ADR 0093). A Label the crawl does not declare fails
-   * with `label_unknown`, and a Payload as `enqueue`'s refuses it with
-   * `payload_invalid`, and nothing is sent.
+   * the Label has one (ADR 0093): one Payload for every link, or a
+   * `LinkPayload` function, which reads each matched element first
+   * (`crawl_request.links`) and answers its link's Payload, or `null` to
+   * leave it out. A Label the crawl does not declare fails with
+   * `label_unknown`, and a Payload as `enqueue`'s refuses it with
+   * `payload_invalid`, and no link is added.
    *
    * @experimental
    */
   enqueueLinks<Q extends object | undefined>(
     locator: Locator,
     label: Label<Q>,
-    ...rest: PayloadThen<NoInfer<Q>, EnqueueLinksOptions>
+    ...rest: PayloadThen<LinksPayload<NoInfer<Q>>, EnqueueLinksOptions>
   ): Promise<EnqueuedLinks>;
   /**
    * Pushes one Record or several, in one message, into a Dataset the crawl
@@ -470,10 +496,11 @@ export function sitemap(
 /**
  * What follows `label` in a call that takes `PayloadThen`: its Payload
  * and options for a Label with a Payload, its options alone for one
- * without.
+ * without, or for `enqueueLinks` a `LinkPayload` function in the
+ * Payload's place.
  */
 export function payloadAndOptions<P extends object | undefined, O>(
-  label: Label<P>,
+  label: Label<object | undefined>,
   rest: PayloadThen<P, O>,
 ): { readonly payload: unknown; readonly options: O | undefined } {
   const given: readonly unknown[] = rest;

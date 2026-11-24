@@ -61,6 +61,7 @@ mod page_load;
 mod portal;
 mod protection;
 mod push;
+mod quotes;
 mod raw;
 mod raw_site;
 mod rendered;

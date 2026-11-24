@@ -631,6 +631,42 @@ form = "round_trip"
 
 [[member]]
 crate = "goodfetch-foxhound"
+receiver = "CrawlContext"
+member = "run"
+entry = "none"
+reason = "The crawl's Run bound to the attempt, from `crawl_request.handle`'s request (ADR 0093)."
+words = ["run"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "(crate)"
+member = "AttemptRun"
+entry = "none"
+reason = "A crawl's Run bound to one attempt of a handler, its context's `run` (ADR 0093)."
+words = ["attempt", "run"]
+form = "type"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "AttemptRun"
+member = "id"
+entry = "none"
+reason = "The Run's ID, from the Run's start, with no round trip."
+words = ["id"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "AttemptRun"
+member = "key_value_store"
+entry = "none"
+reason = "The Run's Key-value store bound to the attempt, whose methods serve the `key_value_store` operations, with no round trip."
+words = ["key", "value", "store"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-foxhound"
 receiver = "(crate)"
 member = "Enqueue"
 entry = "none"
@@ -1097,6 +1133,42 @@ member = "enqueue_links"
 entry = "crawl_request.enqueue_links"
 words = ["enqueue", "links"]
 form = "round_trip"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "blocking::CrawlContext"
+member = "run"
+entry = "none"
+reason = "The crawl's Run bound to the attempt, from `crawl_request.handle`'s request (ADR 0093)."
+words = ["run"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "blocking"
+member = "AttemptRun"
+entry = "none"
+reason = "`AttemptRun` without async (ADR 0081)."
+words = ["attempt", "run"]
+form = "type"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "blocking::AttemptRun"
+member = "id"
+entry = "none"
+reason = "The Run's ID, from the Run's start, with no round trip."
+words = ["id"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "blocking::AttemptRun"
+member = "key_value_store"
+entry = "none"
+reason = "The Run's Key-value store bound to the attempt, whose methods serve the `key_value_store` operations, with no round trip."
+words = ["key", "value", "store"]
+form = "read"
 
 [[member]]
 crate = "goodfetch-foxhound"

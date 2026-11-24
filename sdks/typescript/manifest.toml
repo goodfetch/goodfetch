@@ -282,7 +282,6 @@ receiver = "CrawlContext"
 member = "run"
 entry = "none"
 reason = "The crawl's Run bound to the attempt, from `crawl_request.handle`'s request (ADR 0093)."
-only = "Rust's is the next part of issue 1486."
 words = ["run"]
 form = "read"
 
@@ -2816,7 +2815,6 @@ receiver = "(module)"
 member = "AttemptRun"
 entry = "none"
 reason = "A crawl's Run bound to one attempt (ADR 0093): `context.run`."
-only = "Rust's is the next part of issue 1486."
 words = ["attempt", "run"]
 form = "type"
 

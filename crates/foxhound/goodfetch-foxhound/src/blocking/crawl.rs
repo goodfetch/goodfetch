@@ -11,14 +11,14 @@ use std::sync::Arc;
 
 use goodfetch_collie_client::{BoxError, Error};
 use goodfetch_protocol::foxhound::dataset::{DatasetRecord, RECORD, RUN_RECORDS, RecordRead};
-use goodfetch_protocol::foxhound::frontier::{Enqueued, EnqueuedLinks};
+use goodfetch_protocol::foxhound::frontier::{Enqueued, EnqueuedLinks, HttpMethod};
 use goodfetch_protocol::foxhound::report::CrawlRunReport;
 use goodfetch_protocol::run::RunId;
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 
 use super::{Foxhound, Run, blocking};
-use crate::{Dataset, Label, LabelDeclaration, Seed};
+use crate::{Dataset, Label, LabelDeclaration, LinkPayload, Seed};
 
 /// A crawl the program declares, as [`crate::Crawl`], whose handlers are
 /// plain functions and whose [`Crawl::serve`] blocks. It holds no
@@ -257,21 +257,18 @@ impl<P> CrawlContext<P> {
     ///
     /// Experimental: outside semver until it is promoted (ADR 0030).
     ///
-    /// This enqueues the request of `url`, as
-    /// [`crate::CrawlContext::enqueue`] does, and blocks until the Frontier
-    /// answers what it did with it.
-    ///
-    /// # Errors
-    ///
-    /// As [`crate::CrawlContext::enqueue`].
+    /// This is the enqueue of the request of `url`, as
+    /// [`crate::CrawlContext::enqueue`], which `send()` sends.
     pub fn enqueue<Q: Serialize + DeserializeOwned>(
         &self,
         url: impl Into<String>,
         label: &Label<Q>,
         payload: Q,
-    ) -> Result<Enqueued, Error> {
-        self.blocking_connection()
-            .wait(self.inner.enqueue(url, label, payload))
+    ) -> Enqueue {
+        Enqueue {
+            enqueue: self.inner.enqueue(url, label, payload),
+            connection: self.blocking_connection(),
+        }
     }
 
     /// Adds every link a locator matches on the page a handler's attempt
@@ -297,21 +294,22 @@ impl<P> CrawlContext<P> {
     ///
     /// Experimental: outside semver until it is promoted (ADR 0030).
     ///
-    /// This enqueues the link of each element `links` matches, as
-    /// [`crate::CrawlContext::enqueue_links`] does, and blocks until the
-    /// Frontier answers what it did with each.
-    ///
-    /// # Errors
-    ///
-    /// As [`crate::CrawlContext::enqueue_links`].
-    pub fn enqueue_links<Q: Serialize + DeserializeOwned>(
+    /// This is the enqueue of the link of each element `links` matches, as
+    /// [`crate::CrawlContext::enqueue_links`], which `send()` sends; a
+    /// [`LinkPayload::with`] function runs on the connection's runtime
+    /// while the handler's thread waits.
+    pub fn enqueue_links<Q: Serialize + DeserializeOwned + 'static>(
         &self,
         links: &blocking::Locator,
         label: &Label<Q>,
-        payload: Q,
-    ) -> Result<EnqueuedLinks, Error> {
-        self.blocking_connection()
-            .wait(self.inner.enqueue_links_of(links.id(), label, payload))
+        payload: impl Into<LinkPayload<Q>>,
+    ) -> EnqueueLinks {
+        EnqueueLinks {
+            enqueue: self
+                .inner
+                .enqueue_links_of(links.id(), label, payload.into()),
+            connection: self.blocking_connection(),
+        }
     }
 
     /// The attempt's connection, blocking, whose runtime the calls run on
@@ -378,6 +376,124 @@ impl StartCrawl {
             inner,
             connection,
         })
+    }
+}
+
+/// The enqueue of one request from inside a blocking handler's attempt, as
+/// [`crate::Enqueue`]. Nothing is sent until [`Enqueue::send`].
+#[must_use = "an enqueue is sent only by send()"]
+#[derive(Debug)]
+pub struct Enqueue {
+    enqueue: crate::Enqueue,
+    connection: blocking::ClientConnection,
+}
+
+impl Enqueue {
+    /// The request, sent with `method`, as [`crate::Enqueue::method`].
+    pub fn method(self, method: HttpMethod) -> Self {
+        self.with(|enqueue| enqueue.method(method))
+    }
+
+    /// The request, sent with `body`, as [`crate::Enqueue::body`].
+    pub fn body(self, body: impl Into<Vec<u8>>) -> Self {
+        self.with(|enqueue| enqueue.body(body))
+    }
+
+    /// The request, of `priority` among the requests of its domain, as
+    /// [`crate::Enqueue::priority`].
+    pub fn priority(self, priority: i64) -> Self {
+        self.with(|enqueue| enqueue.priority(priority))
+    }
+
+    /// The request, ahead of every request its domain holds pending, as
+    /// [`crate::Enqueue::forefront`].
+    pub fn forefront(self) -> Self {
+        self.with(crate::Enqueue::forefront)
+    }
+
+    /// The request, identified in the Frontier by `key`, as
+    /// [`crate::Enqueue::key`].
+    pub fn key(self, key: impl Into<String>) -> Self {
+        self.with(|enqueue| enqueue.key(key))
+    }
+
+    /// Enqueues the request and blocks the calling thread until the
+    /// Frontier answers what it did with it.
+    ///
+    /// # Errors
+    ///
+    /// As awaiting [`crate::Enqueue`].
+    pub fn send(self) -> Result<Enqueued, Error> {
+        self.connection.wait(self.enqueue.into_future())
+    }
+
+    /// The enqueue with `set` applied to its async twin.
+    fn with(self, set: impl FnOnce(crate::Enqueue) -> crate::Enqueue) -> Self {
+        Self {
+            enqueue: set(self.enqueue),
+            ..self
+        }
+    }
+}
+
+/// The enqueue of every link a locator matches from inside a blocking
+/// handler's attempt, as [`crate::EnqueueLinks`]. Nothing is sent until
+/// [`EnqueueLinks::send`].
+#[must_use = "an enqueue of links is sent only by send()"]
+#[derive(Debug)]
+pub struct EnqueueLinks {
+    enqueue: crate::EnqueueLinks,
+    connection: blocking::ClientConnection,
+}
+
+impl EnqueueLinks {
+    /// The links, each matching one of `patterns`, as
+    /// [`crate::EnqueueLinks::include`].
+    pub fn include<I>(self, patterns: I) -> Self
+    where
+        I: IntoIterator,
+        I::Item: Into<String>,
+    {
+        self.with(|enqueue| enqueue.include(patterns))
+    }
+
+    /// The links, each matching none of `patterns`, as
+    /// [`crate::EnqueueLinks::exclude`].
+    pub fn exclude<I>(self, patterns: I) -> Self
+    where
+        I: IntoIterator,
+        I::Item: Into<String>,
+    {
+        self.with(|enqueue| enqueue.exclude(patterns))
+    }
+
+    /// At most `limit` links added, as [`crate::EnqueueLinks::limit`].
+    pub fn limit(self, limit: u64) -> Self {
+        self.with(|enqueue| enqueue.limit(limit))
+    }
+
+    /// The links, of `priority` among the requests of their domain, as
+    /// [`crate::EnqueueLinks::priority`].
+    pub fn priority(self, priority: i64) -> Self {
+        self.with(|enqueue| enqueue.priority(priority))
+    }
+
+    /// Enqueues the links and blocks the calling thread until the Frontier
+    /// answers what it did with each.
+    ///
+    /// # Errors
+    ///
+    /// As awaiting [`crate::EnqueueLinks`].
+    pub fn send(self) -> Result<EnqueuedLinks, Error> {
+        self.connection.wait(self.enqueue.into_future())
+    }
+
+    /// The enqueue with `set` applied to its async twin.
+    fn with(self, set: impl FnOnce(crate::EnqueueLinks) -> crate::EnqueueLinks) -> Self {
+        Self {
+            enqueue: set(self.enqueue),
+            ..self
+        }
     }
 }
 
@@ -452,4 +568,6 @@ const _: () = {
     send_sync_static::<CrawlRun>();
     send_sync_static::<CrawlContext<()>>();
     send_static::<StartCrawl>();
+    send_static::<Enqueue>();
+    send_static::<EnqueueLinks>();
 };

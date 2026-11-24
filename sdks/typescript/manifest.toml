@@ -2800,7 +2800,7 @@ receiver = "(module)"
 member = "EnqueueLinksOptions"
 entry = "none"
 reason = "What `context.enqueueLinks` takes besides the locator, the Label and the Payload."
-only = "Rust's `enqueue_links` takes the locator, the Label and the Payload alone, as its `enqueue` does."
+only = "Rust's `enqueue_links` takes each as a builder method named after it, Python's as a keyword argument."
 words = ["enqueue", "links", "options"]
 form = "type"
 
@@ -2810,7 +2810,7 @@ receiver = "(module)"
 member = "LinkPayload"
 entry = "none"
 reason = "The Payload function `context.enqueueLinks` takes, which answers each matched link's Payload, or `null` to leave it out, from what `crawl_request.links` read (ADR 0093)."
-only = "Rust's `enqueue_links` takes one Payload for every link."
+only = "Python's `enqueue_links` takes the function itself in the Payload's place, with no type of its own."
 words = ["link", "payload"]
 form = "type"
 
@@ -2820,7 +2820,7 @@ receiver = "(module)"
 member = "LinksPayload"
 entry = "none"
 reason = "What `context.enqueueLinks` takes after its Label: one Payload for every link or a `LinkPayload` function, nothing for a Label without a Payload."
-only = "Rust's `enqueue_links` takes one Payload for every link."
+only = "Rust's `enqueue_links` takes a `LinkPayload`, which any Payload converts into; Python's takes a Payload or a function, with no type of its own."
 words = ["links", "payload"]
 form = "type"
 
@@ -2880,7 +2880,7 @@ receiver = "(module)"
 member = "RequestOptions"
 entry = "none"
 reason = "What `context.enqueue` and `seed` take besides the URL, the Label and the Payload."
-only = "Rust's `Seed::new` takes them as builder methods named after each; its `enqueue` takes the URL, the Label and the Payload alone."
+only = "Rust's `Seed::new` and `enqueue` take them as builder methods named after each, Python's as keyword arguments."
 words = ["request", "options"]
 form = "type"
 

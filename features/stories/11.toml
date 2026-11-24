@@ -2479,6 +2479,15 @@ product = "foxhound"
 status = "active"
 
 [[story]]
+id = 1020
+title = "As a developer, I want `enqueue(url, label, payload?, { method, body, priority, forefront, key })` to answer `added` with the Crawl request's ID or `not_added` with its reason (`duplicate`, `out_of_scope`, `domain_policy`, `max_depth`, `max_requests`, `unsupported_scheme`, `invalid_url`, `max_url_length`, `max_path_segments`, `max_segment_repeats`, `path_budget`, `no_rule`), a reason an SDK does not know arriving as a string, Rust taking each option as a builder method named after it, so that a handler knows what became of each request it enqueues (ADRs 0093, 0099, 0120)."
+milestone = "M2 Client surfaces"
+journey = false
+not_journey = "part"
+product = "foxhound"
+status = "active"
+
+[[story]]
 id = 1021
 title = "As a developer, I want `enqueueLinks(locator, label, payload?, { include, exclude, limit, priority })` to take a Payload or a function of the link that returns a Payload or null, and to answer `added` and `notAdded` with `no_link` and `skipped_by_payload`, Rust folding both forms into one name `enqueue_links` by ADR 0099's one-name rule **(shape)**, so that one call follows every link a locator matches (ADRs 0093, 0099)."
 milestone = "M2 Client surfaces"

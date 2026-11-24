@@ -48,8 +48,8 @@ mod run;
 #[cfg(test)]
 mod tests;
 
-pub use context::CrawlContext;
 use context::{Attempt, Ending, retry_requested};
+pub use context::{CrawlContext, Enqueue, EnqueueLinks, LinkPayload};
 pub use declaration::LabelDeclaration;
 use handles::Seeded;
 pub use handles::{Dataset, Label, Seed};
@@ -766,4 +766,9 @@ const _: () = {
     send_static::<Seed>();
     send_static::<StartCrawl>();
     send_static::<<StartCrawl as IntoFuture>::IntoFuture>();
+    send_static::<Enqueue>();
+    send_static::<<Enqueue as IntoFuture>::IntoFuture>();
+    send_static::<EnqueueLinks>();
+    send_static::<<EnqueueLinks as IntoFuture>::IntoFuture>();
+    send_static::<LinkPayload<()>>();
 };

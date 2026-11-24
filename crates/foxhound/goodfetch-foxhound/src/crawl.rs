@@ -25,13 +25,12 @@ use goodfetch_protocol::foxhound::crawl::{
     CRAWL_REQUEST_HANDLE, CRAWL_START, CrawlRequestHandleParams, CrawlRequestHandled,
     CrawlStartParams, HANDLER_FAILED, HandlerFailedDetails, HandlerSkip, LABEL_DUPLICATE,
     LABEL_UNHANDLED, LABEL_UNKNOWN, LabelDeclaration as WireLabel, LabelUnknownDetails,
-    RequestSeed, Seed as SeedRequest, Seeds,
+    Seed as SeedRequest, Seeds,
 };
 use goodfetch_protocol::foxhound::dataset::{
     DATASET_DUPLICATE, DatasetDeclaration, DatasetDuplicateDetails,
 };
 use goodfetch_protocol::foxhound::error_code;
-use goodfetch_protocol::foxhound::frontier::HttpMethod;
 use goodfetch_protocol::foxhound::report::CrawlRunReport;
 use goodfetch_protocol::run::{RunId, Tags};
 use serde::de::DeserializeOwned;
@@ -52,6 +51,7 @@ mod tests;
 pub use context::CrawlContext;
 use context::{Attempt, Ending, retry_requested};
 pub use declaration::LabelDeclaration;
+use handles::Seeded;
 pub use handles::{Dataset, Label, Seed};
 pub use run::{CrawlCall, CrawlRun};
 
@@ -418,19 +418,7 @@ impl<'a> Crawl<'a> {
         }
         let mut requests = Vec::with_capacity(seeds.len());
         for seed in seeds {
-            if seed.crawl != self.id {
-                return Err(self.label_unknown(&seed.label));
-            }
-            requests.push(SeedRequest::Request(RequestSeed {
-                url: seed.url,
-                label: seed.label.to_string(),
-                payload: Some(seed.payload?),
-                priority: 0,
-                forefront: false,
-                method: HttpMethod::default(),
-                body: None,
-                key: None,
-            }));
+            requests.push(self.own_seed(seed)?);
         }
         let Some(seeds) = Seeds::new(requests) else {
             return Err(Error::refused(
@@ -458,6 +446,50 @@ impl<'a> Crawl<'a> {
             // 0102).
             detached: false,
         })
+    }
+
+    /// `seed` as `crawl.start` takes it, or `label_unknown` for a Label of
+    /// another crawl, the `payload_invalid` of its Payload, or the refusal
+    /// of a request option given to a sitemap seed.
+    fn own_seed(&self, seed: Seed) -> Result<SeedRequest, Error> {
+        match seed.seeded {
+            Seeded::Request {
+                mut request,
+                crawl,
+                payload,
+            } => {
+                if crawl != self.id {
+                    return Err(self.label_unknown(&request.label));
+                }
+                request.payload = Some(payload?);
+                Ok(SeedRequest::Request(request))
+            }
+            Seeded::Sitemap {
+                sitemap,
+                crawls,
+                refused,
+            } => {
+                if let Some(option) = refused {
+                    return Err(Error::refused(
+                        CRAWL_START.name,
+                        &format!(
+                            "the sitemap seed `{}` was given `{option}`, which only a request seed takes",
+                            sitemap.sitemap
+                        ),
+                        "Give the request options to `Seed::new`'s seeds; a sitemap's entries are each a `GET` of their Label's.",
+                    ));
+                }
+                if let Some(rule) = sitemap
+                    .rules
+                    .iter()
+                    .zip(&crawls)
+                    .find_map(|(rule, crawl)| (*crawl != self.id).then_some(rule))
+                {
+                    return Err(self.label_unknown(&rule.label));
+                }
+                Ok(SeedRequest::Sitemap(sitemap))
+            }
+        }
     }
 }
 

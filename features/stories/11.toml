@@ -2470,6 +2470,24 @@ product = "foxhound"
 status = "active"
 
 [[story]]
+id = 1019
+title = "As a developer, I want seeds as `seed(url, label, payload?)` (Rust `Seed::new` with `.method()`, `.header()`, `.body()`) and sitemap seeds as `sitemap(url, rules)`, rules being ordered pattern-to-Label pairs where the first match wins, so that a crawl starts from URLs and sitemaps with the checks of an enqueue (ADRs 0093, 0120; CO-10)."
+milestone = "M2 Client surfaces"
+journey = false
+not_journey = "part"
+product = "foxhound"
+status = "active"
+
+[[story]]
+id = 1023
+title = "As a developer, I want no transform function on `enqueue`, URL rewriting to be a Hook's work, and the Frontier's identity (method, URL key, body hash) to be replaceable by `key`, so that one rule decides when two Crawl requests are the same (ADRs 0093, 0120)."
+milestone = "M2 Client surfaces"
+journey = false
+not_journey = "part"
+product = "foxhound"
+status = "active"
+
+[[story]]
 id = 1025
 title = "As a developer, I want handlers to run on the TypeScript event loop, in the connection's thread pool for sync Python, as tasks in the Run's task group for async Python, and inside `serve` in Rust, so that the SDK spawns nothing of its own on my executor (ADRs 0081, 0093; K04)."
 milestone = "M2 Client surfaces"

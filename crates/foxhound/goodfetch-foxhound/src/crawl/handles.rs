@@ -7,8 +7,9 @@ use std::marker::PhantomData;
 use std::sync::Arc;
 
 use goodfetch_collie_client::{Error, Schema, SchemaError};
+use goodfetch_protocol::foxhound::crawl::{RequestSeed, SitemapRule, SitemapSeed};
 use goodfetch_protocol::foxhound::frontier::{
-    PAYLOAD_INVALID, PayloadInvalidDetails, PayloadIssue,
+    HttpBody, HttpMethod, PAYLOAD_INVALID, PayloadInvalidDetails, PayloadIssue,
 };
 use serde::Serialize;
 use serde::de::DeserializeOwned;
@@ -96,20 +97,39 @@ impl<I> fmt::Debug for Dataset<I> {
     }
 }
 
-/// A request a crawl starts from: a URL, the Label its handler is, and
-/// its Payload.
+/// What a crawl starts from (ADRs 0093 and 0120): a request, of a URL,
+/// the Label its handler is and its Payload, sent with a method and a
+/// body and identified by a key of the program's own when it gives them;
+/// or a sitemap, whose entries are each seeded with the Label of the
+/// first rule whose pattern matches its URL.
 #[derive(Debug)]
 pub struct Seed {
-    pub(super) url: String,
-    pub(super) label: Arc<str>,
-    pub(super) crawl: CrawlId,
-    /// The Payload's JSON, or why it has none.
-    pub(super) payload: Result<Value, Error>,
+    pub(super) seeded: Seeded,
+}
+
+/// What a [`Seed`] starts from.
+#[derive(Debug)]
+pub(super) enum Seeded {
+    /// A request, with the crawl its Label is of, and its Payload's JSON
+    /// or why it has none.
+    Request {
+        request: RequestSeed,
+        crawl: CrawlId,
+        payload: Result<Value, Error>,
+    },
+    /// A sitemap, with the crawl each rule's Label is of, and the request
+    /// option given to it, which a sitemap seed does not take.
+    Sitemap {
+        sitemap: SitemapSeed,
+        crawls: Vec<CrawlId>,
+        refused: Option<&'static str>,
+    },
 }
 
 impl Seed {
     /// The request of `url`, handled by `label`'s handler with `payload`,
-    /// of the type `label` declares.
+    /// of the type `label` declares: a `GET` with no body, of priority 0,
+    /// identified by its method, its URL's key and its body's hash.
     #[expect(
         clippy::needless_pass_by_value,
         reason = "a Payload is given by value, as the TypeScript and Python SDKs take it, and encoded at once"
@@ -119,12 +139,106 @@ impl Seed {
         label: &Label<P>,
         payload: P,
     ) -> Self {
+        let payload = label.encode(&payload);
         Self {
-            url: url.into(),
-            label: Arc::clone(&label.name),
-            crawl: label.crawl,
-            payload: label.encode(&payload),
+            seeded: Seeded::Request {
+                request: RequestSeed {
+                    url: url.into(),
+                    label: label.name.to_string(),
+                    payload: None,
+                    priority: 0,
+                    forefront: false,
+                    method: HttpMethod::default(),
+                    body: None,
+                    key: None,
+                },
+                crawl: label.crawl,
+                payload,
+            },
         }
+    }
+
+    /// The sitemap at `url`, or the sitemaps the site's robots.txt at
+    /// `url` names, each of whose entries is seeded with the Label of the
+    /// first of `rules` whose pattern, a glob as `crawl.scope.include`
+    /// takes them, matches the entry's URL, and no Payload; an entry no
+    /// rule matches is not added, with `no_rule`.
+    pub fn sitemap<'a, S: Into<String>>(
+        url: impl Into<String>,
+        rules: impl IntoIterator<Item = (S, &'a Label<()>)>,
+    ) -> Self {
+        let (rules, crawls) = rules
+            .into_iter()
+            .map(|(pattern, label)| {
+                (
+                    SitemapRule {
+                        pattern: pattern.into(),
+                        label: label.name.to_string(),
+                    },
+                    label.crawl,
+                )
+            })
+            .unzip();
+        Self {
+            seeded: Seeded::Sitemap {
+                sitemap: SitemapSeed {
+                    sitemap: url.into(),
+                    rules,
+                },
+                crawls,
+                refused: None,
+            },
+        }
+    }
+
+    /// The seed, sent with `method`.
+    #[must_use]
+    pub fn method(self, method: HttpMethod) -> Self {
+        self.with_request("method", |request| request.method = method)
+    }
+
+    /// The seed, sent with `body`.
+    #[must_use]
+    pub fn body(self, body: impl Into<Vec<u8>>) -> Self {
+        let body = HttpBody::new(body.into());
+        self.with_request("body", |request| request.body = Some(body))
+    }
+
+    /// The seed, of `priority` among the requests of its domain: higher
+    /// goes first, and a priority never orders requests of different
+    /// domains.
+    #[must_use]
+    pub fn priority(self, priority: i64) -> Self {
+        self.with_request("priority", |request| request.priority = priority)
+    }
+
+    /// The seed, ahead of every request its domain holds pending, whatever
+    /// their priority: of two such requests, the later goes first.
+    #[must_use]
+    pub fn forefront(self) -> Self {
+        self.with_request("forefront", |request| request.forefront = true)
+    }
+
+    /// The seed, identified in the Frontier by `key` in place of its
+    /// method, its URL's key and its body's hash: two requests of one key
+    /// are one Crawl request, whatever their URLs.
+    #[must_use]
+    pub fn key(self, key: impl Into<String>) -> Self {
+        let key = key.into();
+        self.with_request("key", |request| request.key = Some(key))
+    }
+
+    /// The seed with `set` applied to its request, or, for a sitemap seed,
+    /// which takes no request option, with `option` kept to refuse it at
+    /// the crawl's start.
+    fn with_request(mut self, option: &'static str, set: impl FnOnce(&mut RequestSeed)) -> Self {
+        match &mut self.seeded {
+            Seeded::Request { request, .. } => set(request),
+            Seeded::Sitemap { refused, .. } => {
+                refused.get_or_insert(option);
+            }
+        }
+        self
     }
 }
 

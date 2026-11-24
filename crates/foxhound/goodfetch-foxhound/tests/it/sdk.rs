@@ -20,6 +20,7 @@ mod crawl;
 mod label_declaration;
 mod limits;
 mod public_items;
+mod seeds;
 
 /// What a connection opens with: the test's environment, which names its
 /// Goodfetch home.

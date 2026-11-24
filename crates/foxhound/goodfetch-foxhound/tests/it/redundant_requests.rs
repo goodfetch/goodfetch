@@ -311,11 +311,14 @@ fn a_slow_get_is_hedged_on_a_new_connection_and_a_post_never_is() {
 }
 
 /// A work item that declared an Effect is never hedged (ADRs 0040 and
-/// 0106). Its first attempt, quick and alone, declares one, adds twenty
+/// 0106). Its first attempt, quick and alone, declares one, adds nineteen
 /// quick seeds that go first and a slow GET of its own that declares none,
 /// then asks to run again; the quick answers give the route its latency,
 /// then the site slows down. Its retry sends its slow GET once, while the
-/// slow GET of the work item with no Effect after it is hedged.
+/// slow GET of the work item with no Effect after it is hedged. With its
+/// own first answer, the quick ones make the twenty latencies a route needs
+/// before it has a threshold, so none of them is fetched with one, and none
+/// is hedged however its latency compares with theirs.
 ///
 /// Covers: story:3-63, setting:fetch.hedge.enabled, operation:effect.open
 #[test]
@@ -326,7 +329,7 @@ fn a_work_item_that_declared_an_effect_sends_a_slow_get_once() {
     let mut engine = crate::site::engine_on(&env, &proving_ground);
     let declares = proving_ground.url("pacing.test", "/articles/7?slow=effect");
     let declares_none = proving_ground.url("pacing.test", "/articles/8?slow=read");
-    let last_quick = proving_ground.url("pacing.test", "/articles/1?quick=20");
+    let last_quick = proving_ground.url("pacing.test", "/articles/1?quick=19");
     let mut handled = Vec::new();
 
     let finished = crawl_together(
@@ -347,7 +350,7 @@ fn a_work_item_that_declared_an_effect_sends_a_slow_get_once() {
             handled.push(url.clone());
             if *url == declares && handle["attempt"] == 1 {
                 declare_an_effect(engine, handle);
-                for number in 1..=20 {
+                for number in 1..=19 {
                     let quick =
                         proving_ground.url("pacing.test", &format!("/articles/1?quick={number}"));
                     add_seed(

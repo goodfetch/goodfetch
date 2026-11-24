@@ -11,6 +11,7 @@
 
 use goodfetch_dataset::{ExportOptions, TABLES, WriteExportError, write_export};
 use goodfetch_protocol::foxhound::export::{ExportCompression, ExportFormat};
+use goodfetch_test_support::TestEnv;
 use rusqlite::Connection;
 use serde_json::{Value, json};
 
@@ -54,6 +55,9 @@ fn export_of(connection: &Connection, format: ExportFormat) -> Result<Vec<u8>, W
 /// Covers: error:sheet_capacity_exceeded, format:export
 #[test]
 fn an_xlsx_export_of_more_records_than_a_sheet_holds_rows_is_refused() {
+    // Its exercise record, which a test above the unit level leaves for the
+    // audit, though it reaches no `rpc` (ADR 0072).
+    let _env = TestEnv::new();
     let at = run_file(1_048_575);
     let past = run_file(1_048_576);
 

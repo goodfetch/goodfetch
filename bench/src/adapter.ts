@@ -40,6 +40,8 @@ export interface Hello {
   readonly capabilities: readonly string[];
   /** The most calls it takes at once. */
   readonly max_concurrency?: number;
+  /** The Goodfetch Product it drives, such as `collie` (ADR 0094); a competitor's adapter names none. */
+  readonly product?: string;
 }
 
 const hello = parserOf<Hello>({
@@ -48,7 +50,19 @@ const hello = parserOf<Hello>({
   properties: {
     capabilities: { type: "array", items: { type: "string" } },
     max_concurrency: { type: "integer", minimum: 1 },
+    product: { type: "string", minLength: 1 },
   },
+});
+
+/** What an adapter answers to `prepare`. */
+interface Prepared {
+  /** The settings it set for its row: a matched row's marks (ADR 0023). */
+  readonly settings?: Readonly<Record<string, unknown>>;
+}
+
+const prepared = parserOf<Prepared>({
+  type: "object",
+  properties: { settings: { type: "object" } },
 });
 
 /** Most bytes an adapter may write before it is stopped. */
@@ -230,6 +244,10 @@ export class AdapterSlot {
   /** The current process's generation, from 0; -1 before the first. */
   generation = -1;
   capabilities: readonly string[] = [];
+  /** The Product the adapter's last `hello` named, or null. */
+  product: string | null = null;
+  /** The settings the adapter's last `prepare` answered, or null. */
+  settings: Readonly<Record<string, unknown>> | null = null;
   /** Each start's time to its answer to `prepare`, in milliseconds. */
   readonly startupMs: number[] = [];
   private readonly spec: SlotSpec;
@@ -282,11 +300,16 @@ export class AdapterSlot {
         throw new BenchError("capability", "the campaign exceeds the adapter's concurrency");
       }
       this.capabilities = info.capabilities;
-      await client.call(
-        "prepare",
-        this.spec.prepare,
-        Math.max(this.spec.adapter.timeoutMs, 45_000),
+      this.product = info.product ?? null;
+      const answer = prepared.parse(
+        await client.call(
+          "prepare",
+          this.spec.prepare,
+          Math.max(this.spec.adapter.timeoutMs, 45_000),
+        ),
+        "adapter prepare answer",
       );
+      this.settings = answer.settings ?? null;
     } catch (error) {
       await client.close();
       throw new BenchError(

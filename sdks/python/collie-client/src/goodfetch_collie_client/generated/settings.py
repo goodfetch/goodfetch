@@ -734,7 +734,9 @@ class SessionSourceStateFile(TypedDict):
     """Its format, detected when left out."""
 
     key: NotRequired[str | None]
-    """The Secret reference that opens a session export bundle."""
+    """The Secret reference that opens a session export bundle: its
+    age identity or its passphrase, never the value itself.
+    """
 
     kind: Literal["state_file"]
 

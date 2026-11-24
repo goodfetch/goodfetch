@@ -2096,6 +2096,59 @@ fn a_session_source_of_registrable_domains_is_taken(#[case] source: Value) {
     assert_eq!(read.get("session.source"), Some(&source));
 }
 
+/// A `state_file`'s `key`, which opens a session export bundle, is a Secret
+/// reference (ADRs 0015 and 0092): a passphrase written in its place is
+/// `setting_invalid`, whose message never repeats it.
+/// Covers: story:4-68, setting:session.source, error:setting_invalid
+#[rstest]
+#[case::a_passphrase_with_spaces("c4n4ry horse battery staple")]
+#[case::a_word_without_a_provider("c4n4rypassphrase")]
+fn a_state_file_key_given_as_a_passphrase_is_invalid(#[case] passphrase: &str) {
+    let refused = Values::read(
+        SettingsLayer::Run,
+        &nested(json!({ "session": { "source": {
+            "kind": "state_file",
+            "path": "login.age",
+            "format": "session_export",
+            "key": passphrase,
+        } } })),
+        Product::Collie,
+    )
+    .unwrap_err();
+
+    let shown = format!("{refused} {refused:?}");
+    assert_eq!(
+        (
+            refused.code(),
+            matches!(&refused, SettingsError::Invalid { key, .. } if key == "session.source"),
+            shown.contains("c4n4ry"),
+        ),
+        ("setting_invalid", true, false),
+        "{shown}"
+    );
+}
+
+/// A `state_file`'s `key` that is a Secret reference is taken.
+/// Covers: story:4-68, setting:session.source
+#[test]
+fn a_state_file_key_given_as_a_secret_reference_is_taken() {
+    let source = json!({
+        "kind": "state_file",
+        "path": "login.age",
+        "format": "session_export",
+        "key": "env:LOGIN_PASSPHRASE",
+    });
+
+    let read = Values::read(
+        SettingsLayer::Run,
+        &nested(json!({ "session": { "source": source } })),
+        Product::Collie,
+    )
+    .unwrap();
+
+    assert_eq!(read.get("session.source"), Some(&source));
+}
+
 /// What `key` resolves to when user configuration sets it to `configured`
 /// and `layer` gives `value`, from a Client acting for a model where
 /// `for_model`: the value taken, or the refusal's code and key.

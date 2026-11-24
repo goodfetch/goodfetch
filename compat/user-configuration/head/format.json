@@ -2600,7 +2600,7 @@
                           },
                           "key": {
                             "arrived_in": "0.1",
-                            "description": "The Secret reference that opens a session export bundle.",
+                            "description": "The Secret reference that opens a session export bundle: its\nage identity or its passphrase, never the value itself.",
                             "type": [
                               "string",
                               "null"

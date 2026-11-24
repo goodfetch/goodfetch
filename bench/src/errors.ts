@@ -53,3 +53,52 @@ export class BenchError extends Error {
 export function errorCode(error: unknown): BenchErrorCode {
   return error instanceof BenchError ? error.code : "adapter_error";
 }
+
+/**
+ * An attempt's status: the oracle's outcome when the adapter answered, or
+ * what its error's code says when it did not.
+ */
+export type AttemptStatus =
+  | "verified"
+  | "incomplete"
+  | "false_success"
+  | "failed"
+  | "timeout"
+  | "crashed"
+  | "aborted"
+  | "unsupported"
+  | "rejected"
+  | "skipped_gate";
+
+/** The status of an attempt that failed with `code`. */
+export function statusFor(code: BenchErrorCode): AttemptStatus {
+  switch (code) {
+    case "adapter_timeout":
+      return "timeout";
+    case "sibling_abort":
+      return "aborted";
+    case "adapter_exit":
+    case "adapter_closed":
+    case "adapter_protocol":
+    case "output_limit":
+    case "startup_failed":
+    case "restart_limit":
+      return "crashed";
+    case "capacity":
+    case "deadline":
+      return "rejected";
+    case "capability":
+      return "unsupported";
+    case "adapter_error":
+    case "invalid_output":
+    case "host_gate":
+    case "oracle_refused":
+    case "task_unknown":
+    case "invalid_document":
+      return "failed";
+    default: {
+      const exhaustive: never = code;
+      return exhaustive;
+    }
+  }
+}

@@ -38,7 +38,7 @@ test("reads a campaign with the folder its adapters start in", async () => {
 
 test("refuses a campaign that does not have the file's shape", async () => {
   const cases = [
-    { ...campaign, retries: 3 },
+    { ...campaign, retries: 0 },
     { ...campaign, adapters: [] },
     { ...campaign, host_class: { requested: "cloud", allow_downgrade: false } },
   ];

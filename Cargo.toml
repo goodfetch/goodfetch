@@ -198,6 +198,9 @@ goodfetch-fetch-tier = { path = "crates/foxhound/goodfetch-fetch-tier" }
 goodfetch-frontier = { path = "crates/foxhound/goodfetch-frontier" }
 # The Model provider interface every model call goes through (spec #602).
 goodfetch-model-provider = { path = "crates/goodfetch-model-provider" }
+# The Memory site, a site served from memory through the fetch tiers' test
+# seam, a test adapter: only ever a dev-dependency (ADR 0125, issue 2512).
+goodfetch-memory-site = { path = "crates/foxhound/goodfetch-memory-site" }
 # Collie's pages, Sessions and browsers (spec #577).
 goodfetch-page = { path = "crates/goodfetch-page" }
 goodfetch-protocol = { path = "crates/goodfetch-protocol" }

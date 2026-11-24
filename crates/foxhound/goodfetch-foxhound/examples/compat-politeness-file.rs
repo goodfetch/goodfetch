@@ -27,7 +27,6 @@
 )]
 
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
 use std::time::{Duration, UNIX_EPOCH};
 
 use goodfetch_engine::clock::Clock;
@@ -41,7 +40,6 @@ use goodfetch_engine::tasks::BlockingPolicy;
 use goodfetch_engine::tasks::TaskOwner;
 use goodfetch_engine::transport::{self, Network};
 use goodfetch_engine::{Channel, Dependencies, Engine, Identity};
-use goodfetch_fetch_tier::FetchTiers;
 use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::connection::ProductVersion;
 use goodfetch_protocol::connection::Surface;
@@ -259,7 +257,7 @@ fn copy_of(home: &Path, copy: &Path) -> Result<(), Box<dyn std::error::Error>> {
 /// The `crawl.start` params of the Run `run_id`: two pages of `host`, on the
 /// site served from memory, under the `politeness` settings `politeness`.
 fn crawl(run_id: &str, host: &str, politeness: &Value) -> Value {
-    let (fetch, network) = site::settings(&["shop.test", "hold.test", "lend.test"]);
+    let (fetch, network) = goodfetch_memory_site::settings(["shop.test", "hold.test", "lend.test"]);
     json!({
         "run_id": run_id,
         "seeds": [
@@ -286,10 +284,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         product_version: ProductVersion::parse("0.0.0")?,
         channel: Channel::CratesIo,
     };
-    let tiers = FetchTiers::serving(Arc::new(site::Site::new(
-        Duration::ZERO,
-        &[("shop.test", SHOP_ROBOTS_TXT)],
-    )));
+    let tiers = goodfetch_memory_site::MemorySite::new(site::page)
+        .with_latency(Duration::ZERO)
+        .with_robots_txt("shop.test", SHOP_ROBOTS_TXT)
+        .tiers();
     let engine = Engine::new(identity, &goodfetch_foxhound::composition_with(tiers))?;
     let home = tempfile::tempdir()?;
     let copy = home.path().join("copy.sqlite");

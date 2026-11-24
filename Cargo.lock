@@ -2582,7 +2582,6 @@ dependencies = [
 name = "goodfetch-crawl"
 version = "0.0.0"
 dependencies = [
- "bytes",
  "futures-util",
  "goodfetch-counted-work",
  "goodfetch-dataset",
@@ -2590,6 +2589,7 @@ dependencies = [
  "goodfetch-extractor",
  "goodfetch-fetch-tier",
  "goodfetch-frontier",
+ "goodfetch-memory-site",
  "goodfetch-protocol",
  "goodfetch-session-pool",
  "goodfetch-test-support",
@@ -2858,6 +2858,7 @@ dependencies = [
  "goodfetch-fetch-tier",
  "goodfetch-foxhound",
  "goodfetch-frontier",
+ "goodfetch-memory-site",
  "goodfetch-page",
  "goodfetch-protocol",
  "goodfetch-runtime",
@@ -2933,6 +2934,18 @@ dependencies = [
  "tempfile",
  "tokio",
  "tracing",
+ "url",
+]
+
+[[package]]
+name = "goodfetch-memory-site"
+version = "0.0.0"
+dependencies = [
+ "bytes",
+ "goodfetch-fetch-tier",
+ "goodfetch-workspace-hack",
+ "serde_json",
+ "tokio",
  "url",
 ]
 

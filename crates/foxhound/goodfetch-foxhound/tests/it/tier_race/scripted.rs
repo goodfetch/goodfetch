@@ -25,7 +25,6 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use bytes::Bytes;
 use goodfetch_engine::clock::Clock;
 use goodfetch_engine::entropy::Entropy;
 use goodfetch_engine::home::{Home, RunStateLocation};
@@ -36,8 +35,9 @@ use goodfetch_engine::tls::ExceptionUsed;
 use goodfetch_engine::transport::{self, ConnectionReader, ConnectionWriter, Network};
 use goodfetch_engine::{CallContext, CallError, Channel, Dependencies, Engine, Identity};
 use goodfetch_fetch_tier::{
-    Body, BuiltIn, FetchTiers, Hop, PooledSession, Reuse, Sending, Sent, Transport,
+    BuiltIn, FetchTiers, Hop, PooledSession, Reuse, Sending, Sent, Transport,
 };
+use goodfetch_memory_site::Whole;
 use goodfetch_page::blocks::Block;
 use goodfetch_page::document_request::{DocumentRequest, Unread};
 use goodfetch_page::page_value::{
@@ -290,15 +290,6 @@ impl BrowserPages for Scripted {
 /// pages, after the same time.
 struct Plain(Arc<Scripted>);
 
-/// A body sent whole.
-struct Whole(Option<Bytes>);
-
-impl Body for Whole {
-    fn chunk(&mut self) -> Sending<'_, Option<Bytes>> {
-        Box::pin(std::future::ready(Ok(self.0.take())))
-    }
-}
-
 impl Transport for Plain {
     fn send<'a>(&'a self, hop: &'a Hop, _reuse: Reuse) -> Sending<'a, Sent> {
         let path = hop.url.path();
@@ -318,7 +309,7 @@ impl Transport for Plain {
                     ),
                     ("content-length".to_owned(), html.len().to_string()),
                 ],
-                body: Box::new(Whole(Some(Bytes::from(html)))),
+                body: Box::new(Whole::new(html)),
                 reused: false,
                 decoded: false,
                 certificate_exception: None,

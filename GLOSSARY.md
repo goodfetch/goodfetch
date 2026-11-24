@@ -900,6 +900,10 @@ _Avoid_: fake engine, mock engine, mock server
 A stand-in, used only in the engine's own tests, for what Foxhound sets on a crawl handler's page: a navigation gate, lease check and response observer that record each call the page makes to them and refuse, hold or end as the test sets, so the page's call sites are tested without Foxhound.
 _Avoid_: mock gate, fake gate, spy
 
+**Memory site**:
+A site used only in Foxhound's own tests, served from memory through the fetch tiers' test seam, whose pages, latency and robots.txt the test sets, so a crawl runs with no network.
+_Avoid_: mock site, fake server, stub site
+
 **Testing kit**:
 The public module of each Product's SDK for testing a program written against it, holding a Scripted model and a test engine that reaches no site unless a test records.
 _Avoid_: test utilities, test helpers, mock library

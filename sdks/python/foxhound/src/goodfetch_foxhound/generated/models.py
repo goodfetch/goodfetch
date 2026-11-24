@@ -461,18 +461,6 @@ class EncodingSource(StrEnum):
     """The browser's guess, after the request escalated to it."""
 
 
-class EnqueueDocument(BaseModel):
-    """The document a handler read, against which its relative URLs resolve."""
-
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    base_href: str | None = None
-    """The `href` of its first `<base>` element, as written."""
-    url: str
-    """The URL the document was reached at, after every redirect."""
-
-
 class Enqueued1(BaseModel):
     """The Frontier admitted it as a crawl request."""
 
@@ -2209,11 +2197,6 @@ class CrawlRequestEnqueueParams(BaseModel):
     """The body it is sent with, if any."""
     crawl_request_id: str
     """The ID of the crawl request whose attempt enqueues."""
-    document: EnqueueDocument | None = None
-    """
-    The document the handler read, whose base URL a relative `url`
-    resolves against; absent, the crawl request's own URL is the base.
-    """
     forefront: bool | None = False
     """
     Whether it goes ahead of every request its domain holds pending,
@@ -2233,6 +2216,15 @@ class CrawlRequestEnqueueParams(BaseModel):
     """The attempt's lease epoch, as `crawl_request.handle` gave it."""
     method: HttpMethod | None = None
     """The method it is sent with: `GET` by default."""
+    page_id: PageId | None = None
+    """
+    The page the attempt was given, whose document's base URL a relative
+    `url` resolves against: its `<base href>`, resolved against the URL
+    the document was reached at after its redirects, or that URL
+    itself. Absent, for an attempt given no page, the crawl request's
+    own URL is the base. A page no fetch tier serves fails a relative
+    `url` with `closed`.
+    """
     payload: Any | None = None
     """The data the program attaches for its handler."""
     priority: int | None = 0

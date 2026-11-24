@@ -5,24 +5,14 @@
 // the Label of the first rule whose pattern matches its URL. The Rust SDK's
 // `tests/it/sdk/seeds.rs` and Python's `test_sitemap_seed_attached.py` of
 // Foxhound's package are its twins.
-import { Crawl, Foxhound, seed, sitemap, type FoxhoundSettings } from "@goodfetch/foxhound";
-import { provingGroundUrl, test, type ProvingGroundDescription } from "@goodfetch/test-support";
+import { Crawl, Foxhound, seed, sitemap } from "@goodfetch/foxhound";
+import { provingGroundUrl, test } from "@goodfetch/test-support";
 import { describe, expect } from "vitest";
+
+import { served } from "./served.ts";
 
 /** The `sitemap-seed` family's host. */
 const host = "sitemap-seed.test";
-
-/**
- * The Connection's settings: plain HTTP fetches, and each of the Proving
- * ground's hosts resolved to its address and reachable although private.
- */
-function served(provingGround: ProvingGroundDescription): FoxhoundSettings {
-  const hosts = Object.keys(provingGround.resolve);
-  const resolve = Object.fromEntries(
-    Object.entries(provingGround.resolve).map(([name, address]) => [name, [address]]),
-  );
-  return { network: { resolve }, egress: { privateRanges: hosts }, fetch: { tier: "http" } };
-}
 
 describe("a sitemap seed on an Attached engine", () => {
   test.override("product", "foxhound");

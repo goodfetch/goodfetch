@@ -303,6 +303,7 @@ class AsyncCrawlRun(AsyncRun):
             crawl_request_id=request.crawl_request.id,
             lease_epoch=request.lease_epoch,
             crawl=self._crawl,
+            page_id=request.page_id,
         )
 
     def _stopped(self) -> ClosedError:

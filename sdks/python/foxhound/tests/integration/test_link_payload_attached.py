@@ -1,11 +1,13 @@
-"""A handler's `enqueue_links` with a Payload function (ADRs 0093 and 0120; issue 1471).
+"""A handler's enqueues on the `links` family (ADRs 0093 and 0120; issue 1471).
 
-On an Attached engine of Foxhound's executable of the same commit, the
-function reads each element the locator matches on the Proving ground's
-`links` family, as `crawl_request.links` answers it, and gives each link
-its own Payload, or `None` to leave it out. TypeScript's
-`link-payload.test.ts` of Foxhound's package is its twin, and Foxhound's
-crate's `tests/it/enqueue_links.rs` the engine's side.
+On an Attached engine of Foxhound's executable of the same commit,
+`enqueue_links`' Payload function reads each element the locator matches
+on the Proving ground's `links` family, as `crawl_request.links` answers
+it, and gives each link its own Payload, or `None` to leave it out; and a
+relative `enqueue` resolves against the base URL of the document its
+handler was given. TypeScript's `link-payload.test.ts` and
+`enqueue-base.test.ts` of Foxhound's package are its twins, and
+Foxhound's crate's `tests/it/enqueue_links.rs` the engine's side.
 """
 
 from __future__ import annotations
@@ -21,7 +23,11 @@ if TYPE_CHECKING:
     from collections.abc import Mapping
 
     from goodfetch_foxhound import AsyncCrawlContext
-    from goodfetch_foxhound.generated.models import EnqueuedLinks, MatchedLink
+    from goodfetch_foxhound.generated.models import (
+        Enqueued,
+        EnqueuedLinks,
+        MatchedLink,
+    )
     from goodfetch_foxhound.generated.settings import FoxhoundSettings
     from goodfetch_test_support import ProvingGround
 
@@ -59,6 +65,49 @@ def product() -> ToolProduct:
 def proving_ground_seed() -> int:
     """The Proving ground's own seed for these tests, Rust's."""
     return 863
+
+
+@pytest.mark.covers("story:11-1022", "operation:crawl_request.enqueue")
+@pytest.mark.anyio
+async def test_a_relative_enqueue_resolves_against_its_documents_base_url(
+    env: Mapping[str, str], proving_ground: ProvingGround
+) -> None:
+    """`book/1` resolves against the `<base href>` or the URL its shelf moved to.
+
+    `links/1`'s shelf names `<base href="/library/shelves/">`, and
+    `links/2`'s moved from `/old/shelf` to `/new/shelf/`; a wrong base
+    reaches a `404`.
+    """
+    shelves = {n: proving_ground.url(f"{n}.{HOST}", "") for n in (1, 2)}
+    crawl = AsyncCrawl()
+    shelf = crawl.label("shelf")
+    book = crawl.label("book")
+    answered: list[Enqueued] = []
+    handled: list[str] = []
+
+    @crawl.handle(shelf)
+    async def follow(ctx: AsyncCrawlContext[None]) -> None:
+        answered.append(await ctx.enqueue("book/1", book))
+
+    @crawl.handle(book)
+    async def record(ctx: AsyncCrawlContext[None]) -> None:
+        handled.append(ctx.request.url)
+
+    foxhound = await AsyncFoxhound.connect(env=env, settings=served(proving_ground))
+    run = await foxhound.start_crawl(
+        crawl,
+        seeds=[
+            seed(f"{shelves[1]}/guide/", shelf),
+            seed(f"{shelves[2]}/old/shelf", shelf),
+        ],
+    )
+    report = await run.finish()
+    await foxhound.close()
+
+    books = [f"{shelves[1]}/library/shelves/book/1", f"{shelves[2]}/new/shelf/book/1"]
+    assert report.lifecycle == "finished"
+    assert sorted(answer.root.url for answer in answered) == books
+    assert sorted(handled) == books
 
 
 @pytest.mark.covers("story:11-1021", "operation:crawl_request.enqueue_links")

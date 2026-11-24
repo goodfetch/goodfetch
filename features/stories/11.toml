@@ -2497,6 +2497,15 @@ product = "foxhound"
 status = "active"
 
 [[story]]
+id = 1022
+title = "As a developer, I want a relative URL given to `enqueue` to resolve against the document's base URL, a seed to be absolute, and an `href`'s query to be percent-encoded in its document's encoding, so that a link is fetched at the URL a browser would use (ADRs 0119, 0120; pitfalls U05, U06, U07)."
+milestone = "M2 Client surfaces"
+journey = false
+not_journey = "part"
+product = "foxhound"
+status = "active"
+
+[[story]]
 id = 1023
 title = "As a developer, I want no transform function on `enqueue`, URL rewriting to be a Hook's work, and the Frontier's identity (method, URL key, body hash) to be replaceable by `key`, so that one rule decides when two Crawl requests are the same (ADRs 0093, 0120)."
 milestone = "M2 Client surfaces"

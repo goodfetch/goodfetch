@@ -64,6 +64,7 @@ if TYPE_CHECKING:
         Locator,
         Page,
     )
+    from goodfetch_collie_client.generated.models import PageId
     from goodfetch_collie_client.json_values import JSONObject, JSONValue
     from goodfetch_collie_client.schema import JSONSchema
 
@@ -171,6 +172,8 @@ class HandlerAttempt:
     """The epoch of its lease, which each of its calls carries."""
     crawl: AsyncCrawl | Crawl
     """The crawl whose handler it runs."""
+    page_id: PageId | None
+    """The page it was given, against whose document a relative `enqueue` resolves."""
 
     def lease(self) -> dict[str, object]:
         """The fields naming its lease, which each of its calls carries."""
@@ -190,8 +193,10 @@ class HandlerAttempt:
             PayloadInvalidError: `payload` is not JSON, or its Label's model
                 refuses it.
         """
+        on_page = {} if self.page_id is None else {"page_id": self.page_id}
         fields = {
             **self.lease(),
+            **on_page,
             "url": url,
             "label": declared_label(self.crawl, label),
             **_payload_field(label, payload),

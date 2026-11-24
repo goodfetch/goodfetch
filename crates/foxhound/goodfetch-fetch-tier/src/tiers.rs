@@ -1718,6 +1718,42 @@ impl FetchTiers {
         Some(read.map_err(LinksUnread::Selector))
     }
 
+    /// The base URL of the page `page_id`'s document, against which a
+    /// handler's relative `enqueue` resolves (ADR 0120): a served page's,
+    /// held as its document was read; a browser page's, read by the page
+    /// itself from the document it shows now, as [`FetchTiers::links`]
+    /// reads it. `None` when no tier serves that page, as a closed one.
+    ///
+    /// # Errors
+    ///
+    /// When the browser page's read failed.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future loses only what it reads; the page stays open.
+    pub async fn base_url(
+        &self,
+        page_id: &PageId,
+        work: &CountedWork,
+    ) -> Option<Result<String, CallError>> {
+        if let Some(page) = self.served_page(page_id) {
+            return Some(Ok(page.document.base_url.clone()));
+        }
+        // A selector that matches nothing reads the document's base URL
+        // alone.
+        let read = self.browser_links(page_id, ":not(*)", work).await?;
+        Some(
+            read.map(|read| read.base_url)
+                .map_err(|unread| match unread {
+                    LinksUnread::Page(error) => error,
+                    LinksUnread::Selector(invalid) => CallError::protocol(
+                        ProtocolFailure::InternalError,
+                        format!("the engine's own selector of no element did not parse: {invalid}"),
+                    ),
+                }),
+        )
+    }
+
     /// What each of `fields` finds in the page `page_id`'s document, in
     /// the order of their names: a served page's, read on its Run's
     /// blocking owner, by CSS selectors and `XPath` 1.0 expressions alike,

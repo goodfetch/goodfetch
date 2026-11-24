@@ -18,24 +18,29 @@
 
 use std::sync::Arc;
 
+use goodfetch_counted_work::CountedWork;
 use goodfetch_engine::{CallContext, CallError, Handler};
-use goodfetch_frontier::document_base;
+use goodfetch_fetch_tier::FetchTiers;
 use goodfetch_frontier::payload::Payload;
+use goodfetch_frontier::{Url, document_base};
+use goodfetch_protocol::connection::CLOSED;
 use goodfetch_protocol::foxhound::crawl::ATTEMPT_ENDED;
 use goodfetch_protocol::foxhound::frontier::{
     CRAWL_REQUEST_ENQUEUE, CrawlRequestEnqueueParams, Enqueued,
 };
 use goodfetch_protocol::jsonrpc::ProtocolFailure;
+use goodfetch_protocol::page::PageId;
 use goodfetch_protocol::run::{RUN_STATE_UNAVAILABLE, RunDetails};
 
 use crate::run_state::StateError;
 use crate::run_state::admission::Enqueue;
 use crate::serving::{Crawls, LiveCrawl};
 
-/// The handler of `crawl_request.enqueue` on the live crawls of `crawls`.
-pub(crate) fn handler(crawls: Crawls) -> Handler {
+/// The handler of `crawl_request.enqueue` on the live crawls of `crawls`,
+/// whose pages `tiers` serve.
+pub(crate) fn handler(crawls: Crawls, tiers: FetchTiers) -> Handler {
     Handler::new(&CRAWL_REQUEST_ENQUEUE, move |params, context| {
-        enqueue(params, context, crawls.clone())
+        enqueue(params, context, crawls.clone(), tiers.clone())
     })
 }
 
@@ -43,6 +48,7 @@ async fn enqueue(
     params: CrawlRequestEnqueueParams,
     _context: CallContext,
     crawls: Crawls,
+    tiers: FetchTiers,
 ) -> Result<Enqueued, CallError> {
     let ended = || {
         CallError::new(
@@ -57,18 +63,13 @@ async fn enqueue(
     let Some(LiveCrawl { run, asking, .. }) = crawls.live(&params.run_id).await else {
         return Err(ended());
     };
-    let document = params
-        .document
-        .as_ref()
-        .map(|document| {
-            document_base(&document.url, document.base_href.as_deref()).ok_or_else(|| {
-                CallError::protocol(
-                    ProtocolFailure::InvalidParams,
-                    format!("The document's URL `{}` is no absolute URL.", document.url),
-                )
-            })
-        })
-        .transpose()?;
+    // An absolute URL needs no base, so a browser page is not read for it.
+    let document = match &params.page_id {
+        Some(page_id) if Url::parse(&params.url).is_err() => {
+            Some(base_of(&tiers, page_id, run.metrics().counted_work()).await?)
+        }
+        _ => None,
+    };
     let mut request = params.clone();
     // Serialized once, for its check, the run file and what its staging
     // keeps for its attempt's commit (#1896, #2245).
@@ -99,6 +100,31 @@ async fn enqueue(
             },
         )),
     }
+}
+
+/// The base URL of the document on the page `page_id`, which `tiers`
+/// serve, against which a relative enqueue resolves (ADR 0120).
+async fn base_of(
+    tiers: &FetchTiers,
+    page_id: &PageId,
+    work: &CountedWork,
+) -> Result<Url, CallError> {
+    let base_url = tiers.base_url(page_id, work).await.ok_or_else(|| {
+        CallError::new(
+            &CLOSED,
+            format!(
+                "No fetch tier serves the page `{}` now, so a relative URL cannot resolve against its document: enqueue from the page its attempt was given while the attempt runs.",
+                page_id.0
+            ),
+            &(),
+        )
+    })??;
+    document_base(&base_url, None).ok_or_else(|| {
+        CallError::protocol(
+            ProtocolFailure::InvalidParams,
+            format!("The page's base URL `{base_url}` is no absolute URL."),
+        )
+    })
 }
 
 pub(crate) mod links;

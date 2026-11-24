@@ -26,7 +26,6 @@ export type FoxhoundWireType =
   | "DatasetPage"
   | "DatasetPageParams"
   | "DatasetRecord"
-  | "EnqueueDocument"
   | "Export"
   | "ExportSaveAsParams"
   | "ExportSaved"
@@ -75,7 +74,7 @@ export const foxhoundWire: Wire<keyof FoxhoundOperationTypes & string, keyof Fox
     "CrawlExtraction": { fields: { "fields": ["fields", { values: { type: "PageField" } }] } },
     "CrawlHookHandleParams": { fields: { "crawl_request": "crawlRequest", "lease_epoch": "leaseEpoch", "run_id": "runId" } },
     "CrawlRequestEnqueueLinksParams": { fields: { "crawl_request_id": "crawlRequestId", "lease_epoch": "leaseEpoch", "locator": ["locator", { type: "Locator" }], "run_id": "runId" } },
-    "CrawlRequestEnqueueParams": { fields: { "crawl_request_id": "crawlRequestId", "document": ["document", { type: "EnqueueDocument" }], "lease_epoch": "leaseEpoch", "run_id": "runId" } },
+    "CrawlRequestEnqueueParams": { fields: { "crawl_request_id": "crawlRequestId", "lease_epoch": "leaseEpoch", "page_id": "pageId", "run_id": "runId" } },
     "CrawlRequestHandleParams": { fields: { "crawl_request": "crawlRequest", "lease_epoch": "leaseEpoch", "page_id": "pageId", "response": ["response", { type: "PageResponse" }], "run_id": "runId", "session": ["session", { type: "ServingSession" }] } },
     "CrawlRequestLinksParams": { fields: { "crawl_request_id": "crawlRequestId", "lease_epoch": "leaseEpoch", "locator": ["locator", { type: "Locator" }], "run_id": "runId" } },
     "CrawlRequestOutcome": { union: { tag: "kind", known: ["succeeded", "failed", "skipped", "blocked"], path: { fields: { "ended_at": ["endedAt", "time"], "not_added": ["notAdded", { items: { type: "NotAddedAtCommit" } }], "nothing_committed": "nothingCommitted" } }, common: { fields: { "ended_at": ["endedAt", "time"] } } } },
@@ -89,7 +88,6 @@ export const foxhoundWire: Wire<keyof FoxhoundOperationTypes & string, keyof Fox
     "DatasetPage": { fields: { "records": ["records", { items: { type: "DatasetRecord" } }] } },
     "DatasetPageParams": { fields: { "run_id": "runId" } },
     "DatasetRecord": { fields: { "committed_at": ["committedAt", "time"], "provenance": ["provenance", { type: "RecordProvenance" }], "request_id": "requestId" } },
-    "EnqueueDocument": { fields: { "base_href": "baseHref" } },
     "Export": { fields: { "export_id": "exportId", "last_number": "lastNumber", "run_epoch": "runEpoch" } },
     "ExportSaveAsParams": { fields: { "export_id": "exportId" } },
     "ExportSaved": { fields: { "run_epoch": "runEpoch" } },

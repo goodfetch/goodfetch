@@ -159,3 +159,19 @@ reason = "`secrets` gains `placeholders`, which binds each Secret placeholder to
 [[announced]]
 entry = "typescript @goodfetch/foxhound StartCrawlOptions"
 reason = "`seeds` takes a sitemap seed beside a request seed, its type widening from `RequestSeed` to `Seed` (issue 1471): code that reads a seed back from the options needs the sitemap seed's case."
+
+[[announced]]
+entry = "typescript @goodfetch/foxhound/generated CrawlRequestEnqueueParams"
+reason = "`crawl_request.enqueue` names the attempt's page, `pageId`, in place of `document`, which no SDK filled: the engine reads the page's base URL itself (issue 1471)."
+
+[[announced]]
+entry = "typescript @goodfetch/foxhound/generated EnqueueDocument"
+reason = "`crawl_request.enqueue` no longer carries a document, so its type leaves: the engine reads the base URL of the attempt's page itself (issue 1471)."
+
+[[announced]]
+entry = "python goodfetch_foxhound.generated.models CrawlRequestEnqueueParams"
+reason = "`crawl_request.enqueue` names the attempt's page, `page_id`, in place of `document`, which no SDK filled: the engine reads the page's base URL itself (issue 1471)."
+
+[[announced]]
+entry = "python goodfetch_foxhound.generated.models EnqueueDocument"
+reason = "`crawl_request.enqueue` no longer carries a document, so its type leaves: the engine reads the base URL of the attempt's page itself (issue 1471)."

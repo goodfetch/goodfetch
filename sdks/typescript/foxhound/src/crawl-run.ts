@@ -241,9 +241,18 @@ export class CrawlRun extends Run {
         const given = payloadAndOptions(label, rest);
         const payload = payloadOf(label, given.payload);
         await checkPayload(label, payload.payload);
+        // A relative URL resolves against the base URL of the page's document.
+        const on = pageId === undefined ? {} : { pageId };
         return calls.call(
           "crawl_request.enqueue",
-          { ...attempt, url, label: name, ...payload, ...requestOptions(given.options ?? {}) },
+          {
+            ...attempt,
+            ...on,
+            url,
+            label: name,
+            ...payload,
+            ...requestOptions(given.options ?? {}),
+          },
           options,
         );
       },

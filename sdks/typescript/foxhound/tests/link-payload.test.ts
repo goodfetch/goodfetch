@@ -5,32 +5,15 @@
 // `null` to leave it out. The Rust twin of the engine's side is
 // `tests/it/enqueue_links.rs` of Foxhound's crate, and Python's
 // `test_link_payload_attached.py` of Foxhound's package is this test's twin.
-import {
-  Crawl,
-  Foxhound,
-  seed,
-  type EnqueuedLinks,
-  type FoxhoundSettings,
-  type MatchedLink,
-} from "@goodfetch/foxhound";
-import { provingGroundUrl, test, type ProvingGroundDescription } from "@goodfetch/test-support";
+import { Crawl, Foxhound, seed, type EnqueuedLinks, type MatchedLink } from "@goodfetch/foxhound";
+import { provingGroundUrl, test } from "@goodfetch/test-support";
 import { describe, expect } from "vitest";
 import { z } from "zod";
 
+import { served } from "./served.ts";
+
 /** The `links` family's host. */
 const host = "links.test";
-
-/**
- * The Connection's settings: plain HTTP fetches, and each of the Proving
- * ground's hosts resolved to its address and reachable although private.
- */
-function served(provingGround: ProvingGroundDescription): FoxhoundSettings {
-  const hosts = Object.keys(provingGround.resolve);
-  const resolve = Object.fromEntries(
-    Object.entries(provingGround.resolve).map(([name, address]) => [name, [address]]),
-  );
-  return { network: { resolve }, egress: { privateRanges: hosts }, fetch: { tier: "http" } };
-}
 
 describe("enqueueLinks with a Payload function on an Attached engine", () => {
   test.override("product", "foxhound");

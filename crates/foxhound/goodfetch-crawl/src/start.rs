@@ -124,7 +124,7 @@ pub fn contribution(tiers: FetchTiers) -> Contribution {
         .with_handler(Handler::new(&CRAWL_SERVE, move |params, context| {
             serve(params, context, serving.clone())
         }))
-        .with_handler(enqueue::handler(enqueuing))
+        .with_handler(enqueue::handler(enqueuing, tiers.clone()))
         .with_handler(push::handler(pushing))
         .with_handler(read_links)
         .with_handler(enqueue_links)

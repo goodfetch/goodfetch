@@ -42,9 +42,20 @@
 //! [aws_waf]
 //!
 //! [botid]
+//!
+//! [onetrust]
+//! domain_script = "0190..."
+//!
+//! [cookiebot]
+//! cbid = "..."
+//!
+//! [cookieyes]
+//! client_id = "..."
+//!
+//! [klaro]
 //! ```
 //!
-//! Three kinds of vendor are judged:
+//! Four kinds of vendor are judged:
 //!
 //! - The token vendors (Turnstile, reCAPTCHA, hCaptcha, Cap): `/<vendor>`
 //!   loads the widget, which posts its token to `/<vendor>/verify`, and the
@@ -59,12 +70,17 @@
 //!   Vercel's bot protection), which judge a request at the edge in front of the copy. The
 //!   edge forwards its verdict in a header to `/<vendor>/verify`, trusted
 //!   only beside `x-proving-ground-edge`, the `[edge]` secret.
+//! - The consent vendors (OneTrust, Cookiebot, `CookieYes`, Klaro; see
+//!   [`consent`]), whose prompt on `/<vendor>` the tool must refuse, read
+//!   from the cookies the vendor set on `/<vendor>/answer`.
 //!
 //! A refused token or solution, a forged or expired cookie, or a score
 //! below `min_score` fails. What the vendor cannot say is inconclusive,
 //! never a pass (ADR 0064): an unreachable vendor, one out of quota, an
 //! error of its own or of the copy's keys, or a request that did not come
 //! through it.
+
+mod consent;
 
 use std::collections::HashSet;
 use std::fmt::Write as _;
@@ -138,6 +154,10 @@ pub(crate) struct Config {
     cloudflare_bot_score: Option<EdgeSection>,
     aws_waf: Option<EdgeSection>,
     botid: Option<EdgeSection>,
+    onetrust: Option<consent::OneTrustSection>,
+    cookiebot: Option<consent::CookiebotSection>,
+    cookieyes: Option<consent::CookieYesSection>,
+    klaro: Option<consent::KlaroSection>,
 }
 
 /// A token vendor's section.
@@ -198,9 +218,24 @@ pub(crate) enum Vendor {
     CloudflareBotScore,
     AwsWaf,
     Botid,
+    #[serde(rename = "onetrust")]
+    OneTrust,
+    Cookiebot,
+    #[serde(rename = "cookieyes")]
+    CookieYes,
+    Klaro,
 }
 
 impl Vendor {
+    /// Whether it records a Consent prompt's answer rather than judging a
+    /// challenge.
+    pub(crate) fn is_consent(self) -> bool {
+        matches!(
+            self,
+            Self::OneTrust | Self::Cookiebot | Self::CookieYes | Self::Klaro
+        )
+    }
+
     /// Its name, in its section, its paths and its verdicts.
     pub(crate) fn name(self) -> &'static str {
         match self {
@@ -213,6 +248,10 @@ impl Vendor {
             Self::CloudflareBotScore => "cloudflare_bot_score",
             Self::AwsWaf => "aws_waf",
             Self::Botid => "botid",
+            Self::OneTrust => "onetrust",
+            Self::Cookiebot => "cookiebot",
+            Self::CookieYes => "cookieyes",
+            Self::Klaro => "klaro",
         }
     }
 }
@@ -420,6 +459,7 @@ enum Check {
     Altcha(Altcha),
     Anubis { key: Vec<u8> },
     Edge(EdgeVendor),
+    Consent(consent::Prompt),
 }
 
 impl Check {
@@ -429,6 +469,7 @@ impl Check {
             Self::Altcha(_) => Vendor::Altcha,
             Self::Anubis { .. } => Vendor::Anubis,
             Self::Edge(edge) => edge.vendor(),
+            Self::Consent(prompt) => prompt.vendor(),
         }
     }
 }
@@ -550,6 +591,7 @@ impl Online {
             };
             checks.push(Check::Edge(edge));
         }
+        checks.extend(consent::prompts(config).map(Check::Consent));
         let edge_secret = match &config.edge {
             Some(section) => Some(read("edge", &section.secret_env)?),
             None => None,
@@ -596,12 +638,17 @@ impl Online {
             .find(|check| check.vendor().name() == name)?;
         let form = || std::str::from_utf8(body).unwrap_or_default();
         let verdict = match (check, method, action) {
+            (Check::Consent(prompt), &Method::GET, None) => return Some((prompt.page(), None)),
+            (Check::Consent(prompt), &Method::GET, Some("answer")) => prompt.answer(headers),
+            (Check::Consent(_), _, None | Some("answer")) => {
+                return Some((method_not_allowed(), None));
+            }
             (Check::Anubis { key }, &Method::GET, None) => anubis(key, headers),
             (Check::Anubis { .. }, _, None) => return Some((method_not_allowed(), None)),
             (Check::Altcha(altcha), &Method::GET, Some("challenge")) => {
                 return Some((altcha.challenge(), None));
             }
-            (Check::Anubis { .. }, _, Some(_)) => return None,
+            (Check::Anubis { .. } | Check::Consent(_), _, Some(_)) => return None,
             (_, &Method::GET, None) => return Some((page(check), None)),
             (_, &Method::POST, Some("verify")) => match check {
                 Check::Siteverify(siteverify) => {
@@ -613,7 +660,7 @@ impl Online {
                 }
                 Check::Altcha(altcha) => altcha.verify(exchange::form_value(form(), "altcha")),
                 Check::Edge(edge) => self.edge(*edge, headers),
-                Check::Anubis { .. } => return None,
+                Check::Anubis { .. } | Check::Consent(_) => return None,
             },
             (_, _, None | Some("verify")) => return Some((method_not_allowed(), None)),
             _ => return None,
@@ -906,7 +953,7 @@ fn page(check: &Check) -> Reply {
     let widget = match check {
         Check::Siteverify(siteverify) => siteverify.vendor.widget(&siteverify.site_key),
         Check::Altcha(_) => ALTCHA_WIDGET.to_owned(),
-        Check::Anubis { .. } | Check::Edge(_) => String::new(),
+        Check::Anubis { .. } | Check::Edge(_) | Check::Consent(_) => String::new(),
     };
     let mut page = format!(
         "<!doctype html><html><head><meta charset=\"utf-8\"><title>{name}</title></head><body>"

@@ -150,13 +150,7 @@ fn accept(
             ErrorGroup::Program,
         ));
     };
-    let pinned = pin
-        .spki_sha256
-        .unwrap_or_else(|| "an unreadable pin".to_owned());
-    let question = format!(
-        "The key of {} changed from {pinned} to {changed}. Pin {changed} in its place?",
-        pin.host
-    );
+    let question = accept_question(&pin.host, pin.spki_sha256.as_deref(), &changed);
     let yes = match ACCEPT.ask(&question, None, human) {
         Ok(yes) => yes,
         Err(exit) => return exit,
@@ -200,16 +194,7 @@ fn forget(
         output::line(&format!("{host} has no pin."));
         return ExitCode::from(exit_codes::SUCCESS);
     };
-    let question = match &pin.spki_sha256 {
-        Some(pinned) => format!(
-            "Remove the pin {pinned} of {}? Its next connection under trust on first use pins again.",
-            pin.host
-        ),
-        None => format!(
-            "Remove the unreadable pin of {}? Its next connection under trust on first use pins again.",
-            pin.host
-        ),
-    };
+    let question = forget_question(&pin.host, pin.spki_sha256.as_deref());
     let yes = match FORGET.ask(&question, None, human) {
         Ok(yes) => yes,
         Err(exit) => return exit,
@@ -227,6 +212,23 @@ fn forget(
         json!(params),
         human,
     )
+}
+
+/// The question that pins `host`'s `changed` key in place of `pinned`, none
+/// for a pin that cannot be read.
+pub(super) fn accept_question(host: &str, pinned: Option<&str>, changed: &str) -> String {
+    let pinned = pinned.unwrap_or("an unreadable pin");
+    format!("The key of {host} changed from {pinned} to {changed}. Pin {changed} in its place?")
+}
+
+/// The question that removes `host`'s pin, `pinned`, none for a pin that
+/// cannot be read.
+pub(super) fn forget_question(host: &str, pinned: Option<&str>) -> String {
+    let pin = match pinned {
+        Some(pinned) => format!("pin {pinned}"),
+        None => "unreadable pin".to_owned(),
+    };
+    format!("Remove the {pin} of {host}? Its next connection under trust on first use pins again.")
 }
 
 /// What a second call on an Attached engine runs on: `dependencies`' own,

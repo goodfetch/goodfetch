@@ -117,7 +117,7 @@ fn usage_warns_when_the_ledger_sits_on_a_temporary_filesystem() {
 
 /// The arguments of `usage raise` and `usage set` for an install Limit of
 /// `amount` requests.
-fn install_requests(command: &str, amount: u64) -> Vec<String> {
+pub(crate) fn install_requests(command: &str, amount: u64) -> Vec<String> {
     [
         "usage",
         command,
@@ -135,7 +135,7 @@ fn install_requests(command: &str, amount: u64) -> Vec<String> {
 
 /// The install Limit's amount and who set it, as `usage list --json`
 /// shows them.
-fn install_limit(env: &TestEnv) -> (Value, Value) {
+pub(crate) fn install_limit(env: &TestEnv) -> (Value, Value) {
     let listed = cli(env, COLLIE)
         .args(["usage", "list", "--json"])
         .run()

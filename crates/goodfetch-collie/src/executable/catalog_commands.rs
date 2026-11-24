@@ -69,6 +69,7 @@ use super::engine_choice::{
     Pager, ReadValues, Values,
 };
 use super::limit_flags::LimitFlags;
+use super::needs_you::ItemPrompt;
 use super::operation::failed;
 use super::output::text;
 use super::output::{ColourFlag, Human};
@@ -110,7 +111,8 @@ pub trait OwnCall {
     ) -> ExitCode;
 }
 
-/// The commands an executable writes by hand among its generated ones, and
+/// The commands an executable writes by hand among its generated ones, the
+/// prompts its own kinds of "Needs you" items get in `needs-you answer`, and
 /// the commands of its generated groups, which clap builds only once it
 /// reaches a group, through a plain function: [`members`] of the
 /// executable's Product with these commands.
@@ -121,6 +123,9 @@ pub struct OwnCommands {
     /// The commands of a generated group: `members(group, <the executable's
     /// Product>, commands)`.
     pub members: fn(Command) -> Command,
+    /// The prompts of the executable's own kinds of "Needs you" items,
+    /// beside Collie's kinds'.
+    pub answers: &'static [ItemPrompt],
 }
 
 impl OwnCommands {
@@ -128,6 +133,7 @@ impl OwnCommands {
     pub const COLLIE: Self = Self {
         commands: &[],
         members: collies_members,
+        answers: &[],
     };
 }
 

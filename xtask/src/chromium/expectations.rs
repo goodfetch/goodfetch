@@ -73,6 +73,12 @@ pub(crate) enum Command {
         #[arg(long)]
         today: Option<Date>,
     },
+    /// Rewrites each suite's generated `upstream-flaky` files from LUCI
+    /// Analysis's record of Chromium's CI, one per platform with entries,
+    /// each under the command that made it and its tracking issue, opened
+    /// when the file has none; removes the suite's files left without
+    /// entries.
+    Regenerate(super::regenerate::Arguments),
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -106,13 +112,31 @@ struct Entry {
 }
 
 pub(crate) fn run(command: &Command, environment: &Environment) -> Result<ExitCode> {
-    let Command::Check {
-        platform,
-        control,
-        goodfetch,
-        recheck,
-        today,
-    } = command;
+    match command {
+        Command::Check {
+            platform,
+            control,
+            goodfetch,
+            recheck,
+            today,
+        } => check(
+            platform.as_deref(),
+            [control, goodfetch, recheck].map(Option::as_deref),
+            *today,
+            environment,
+        ),
+        Command::Regenerate(arguments) => super::regenerate::run(arguments, environment),
+    }
+}
+
+/// The checks, given the results of the Control build, the Goodfetch
+/// Chromium and the recheck, in that order, when there are some.
+fn check(
+    platform: Option<&str>,
+    [control, goodfetch, recheck]: [Option<&Path>; 3],
+    today: Option<Date>,
+    environment: &Environment,
+) -> Result<ExitCode> {
     let today = today.unwrap_or_else(|| {
         jiff::Timestamp::now()
             .to_zoned(jiff::tz::TimeZone::UTC)
@@ -126,9 +150,8 @@ pub(crate) fn run(command: &Command, environment: &Environment) -> Result<ExitCo
         expired(entry, today, &mut findings)?;
     }
     trees(&entries, &mut findings);
-    let applies = |entry: &&Entry| {
-        entry.platform.is_none() || entry.platform.as_deref() == platform.as_deref()
-    };
+    let applies =
+        |entry: &&Entry| entry.platform.is_none() || entry.platform.as_deref() == platform;
     if let Some(control) = control {
         let results = results(&environment.path(control))?;
         for entry in entries.iter().filter(applies) {

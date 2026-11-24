@@ -33,7 +33,9 @@ pub(crate) struct GitHub {
 impl GitHub {
     /// Serves each `(path, body)` pair; the path includes its query string,
     /// and a route written `<METHOD> <path>` answers that method only, before
-    /// a route of the bare path.
+    /// a route of the bare path. A route written `<METHOD> <path> <text>`
+    /// answers, before both, a request of that method and path whose body
+    /// holds `<text>`.
     pub(crate) fn serving(routes: &[(&str, &str)]) -> Self {
         Self::serving_with_redirects(routes, &[])
     }
@@ -128,8 +130,16 @@ fn answer(
     let mut parts = request_line.split(' ');
     let method = parts.next().unwrap_or_default().to_owned();
     let path = parts.next().unwrap_or_default().to_owned();
-    let matching = routes
-        .get(&format!("{method} {path}"))
+    let body = String::from_utf8(body).unwrap();
+    let route = format!("{method} {path}");
+    let by_body = routes.iter().find_map(|(key, answer)| {
+        key.strip_prefix(&route)
+            .and_then(|rest| rest.strip_prefix(' '))
+            .filter(|text| body.contains(text))
+            .map(|_| answer)
+    });
+    let matching = by_body
+        .or_else(|| routes.get(&route))
         .or_else(|| routes.get(&path));
     let (status, location, answer) = match (redirects.get(&path), matching) {
         (Some(target), _) => ("302 Found", format!("location: {target}\r\n"), ""),
@@ -139,7 +149,7 @@ fn answer(
     recorded.lock().unwrap().push(Request {
         method,
         path,
-        body: String::from_utf8(body).unwrap(),
+        body,
         authorization,
         accept,
     });

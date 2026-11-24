@@ -13,7 +13,7 @@ budgets =["check", "environment", "github", "issues", "markdown", "output", "res
 ceiling = ["output", "rate", "results"]
 check = ["output"]
 child_cargo = []
-chromium = ["check", "environment", "junit", "output"]
+chromium = ["check", "environment", "github", "issues", "junit", "output"]
 clients = ["check", "environment", "features", "output", "products"]
 codegen = ["check", "child_cargo", "compat", "docs_samples", "environment", "features", "license_allowlist", "products", "tree", "wording"]
 commit_messages = ["check", "git", "judged_commits"]
@@ -102,7 +102,8 @@ document = []
 
 # Which of `chromium`'s own modules may import which.
 [submodules.chromium]
-expectations = []
+expectations = ["regenerate"]
+regenerate = []
 
 # Which of `floor_guard`'s own modules may import which.
 [submodules.floor_guard]

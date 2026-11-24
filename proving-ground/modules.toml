@@ -80,6 +80,9 @@ chunked = []
 http1 = ["chunked"]
 http2 = []
 
+[submodules.online]
+consent = []
+
 [submodules.access]
 consistency = ["versions"]
 corpus = []

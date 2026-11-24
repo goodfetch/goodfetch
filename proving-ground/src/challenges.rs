@@ -6,8 +6,10 @@
 //! pass. A failed one refutes the task; an inconclusive one, when the
 //! vendor could not say, refutes it too, since it is never a pass
 //! (ADR 0064), and the answer carries the verdict, so a Live check tells
-//! the two apart. The answer also names the build's age, as the Access
-//! family's first rung does.
+//! the two apart. A consent vendor's task asks the tool to refuse its
+//! Consent prompt, the verdict being the answer the vendor's cookies
+//! record. The answer also names the build's age, as the Access family's
+//! first rung does.
 
 use serde::Serialize;
 
@@ -21,7 +23,7 @@ pub(crate) const FAMILY: &str = "challenges";
 
 /// The vendors in the order of their tasks' ordinals, from 1; ordinals are
 /// append-only, so a new vendor goes last.
-const VENDORS: [Vendor; 9] = [
+const VENDORS: [Vendor; 13] = [
     Vendor::Turnstile,
     Vendor::Recaptcha,
     Vendor::Hcaptcha,
@@ -31,11 +33,19 @@ const VENDORS: [Vendor; 9] = [
     Vendor::CloudflareBotScore,
     Vendor::AwsWaf,
     Vendor::Botid,
+    Vendor::OneTrust,
+    Vendor::Cookiebot,
+    Vendor::CookieYes,
+    Vendor::Klaro,
 ];
 
 const DESCRIPTION: &str = "Open this page in the browser, pass the vendor's challenge on it or \
     in front of it, and submit its form if it has one. The vendor's own verdict, which the \
     Proving ground reads on the server side, judges the task.";
+
+const CONSENT_DESCRIPTION: &str = "Open this page in the browser and refuse the Consent prompt \
+    it shows. The answer the vendor records in its cookies on this site, which the Proving \
+    ground reads on the server side, judges the task.";
 
 /// The online copy's tasks, one per vendor `online` is configured with, in
 /// the order of their ordinals, their start URLs on `port`.
@@ -52,9 +62,17 @@ pub(crate) fn tasks(online: &Online, port: Option<u16>) -> Vec<Task> {
                 time_steps: None,
                 id: format!("{FAMILY}/{ordinal}"),
                 family: FAMILY,
-                kind: Kind::Submit,
+                kind: if vendor.is_consent() {
+                    Kind::Act
+                } else {
+                    Kind::Submit
+                },
                 start_url: format!("{}/{}", task::origin(online::HOST, port), vendor.name()),
-                description: DESCRIPTION,
+                description: if vendor.is_consent() {
+                    CONSENT_DESCRIPTION
+                } else {
+                    DESCRIPTION
+                },
             },
             expected: Expected::default(),
         })
@@ -87,6 +105,7 @@ pub(crate) fn judge(
     let verdict = online.latest_verdict(vendor);
     let at = match vendor {
         Vendor::Anubis => format!("/{}", vendor.name()),
+        _ if vendor.is_consent() => format!("/{}/answer", vendor.name()),
         _ => format!("/{}/verify", vendor.name()),
     };
     let finding = match &verdict {

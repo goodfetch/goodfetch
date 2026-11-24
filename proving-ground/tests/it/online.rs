@@ -7,6 +7,8 @@
 //! tests solve ALTCHA's challenges, sign Anubis's cookies and send the
 //! edge's headers as those vendors would.
 
+mod consent;
+
 use std::io::{BufRead as _, BufReader, Read as _, Write as _};
 use std::net::SocketAddr;
 use std::process::{Command, Stdio};

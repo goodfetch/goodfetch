@@ -142,8 +142,9 @@ pub(crate) fn form_value(form: &str, name: &str) -> Option<String> {
         .and_then(|(_, value)| decode(value))
 }
 
-/// A form-encoded component, decoded.
-fn decode(component: &str) -> Option<String> {
+/// A form-encoded component, percent-decoded, `+` read as a space; `None`
+/// when it does not decode to UTF-8.
+pub(crate) fn decode(component: &str) -> Option<String> {
     let mut bytes = Vec::with_capacity(component.len());
     let mut rest = component.bytes();
     while let Some(byte) = rest.next() {

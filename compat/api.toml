@@ -25,6 +25,54 @@
 previous = "c20e03c8ce403cea6572374b31e081f49d990fb6"
 
 [[announced]]
+entry = "collie settings security.audit_chain"
+reason = "A Recipe and a Client acting for a model no longer switch a security control off (the owner's answer of 2026-11-10, issue 2445): their `false` is `setting_locked`."
+
+[[announced]]
+entry = "collie settings security.field_encryption"
+reason = "A Recipe and a Client acting for a model no longer switch a security control off (the owner's answer of 2026-11-10, issue 2445): their `false` is `setting_locked`."
+
+[[announced]]
+entry = "collie settings security.raw_cdp_egress_proxy"
+reason = "A Recipe and a Client acting for a model no longer switch a security control off (the owner's answer of 2026-11-10, issue 2445): their `false` is `setting_locked`."
+
+[[announced]]
+entry = "collie settings security.redaction"
+reason = "A Recipe and a Client acting for a model no longer switch a security control off (the owner's answer of 2026-11-10, issue 2445): their `false` is `setting_locked`."
+
+[[announced]]
+entry = "collie settings security.resolved_ip_check"
+reason = "A Recipe and a Client acting for a model no longer switch a security control off (the owner's answer of 2026-11-10, issue 2445): their `false` is `setting_locked`."
+
+[[announced]]
+entry = "collie settings security.secure_delete"
+reason = "A Recipe and a Client acting for a model no longer switch a security control off (the owner's answer of 2026-11-10, issue 2445): their `false` is `setting_locked`."
+
+[[announced]]
+entry = "foxhound settings security.audit_chain"
+reason = "A Recipe and a Client acting for a model no longer switch a security control off (the owner's answer of 2026-11-10, issue 2445): their `false` is `setting_locked`."
+
+[[announced]]
+entry = "foxhound settings security.field_encryption"
+reason = "A Recipe and a Client acting for a model no longer switch a security control off (the owner's answer of 2026-11-10, issue 2445): their `false` is `setting_locked`."
+
+[[announced]]
+entry = "foxhound settings security.raw_cdp_egress_proxy"
+reason = "A Recipe and a Client acting for a model no longer switch a security control off (the owner's answer of 2026-11-10, issue 2445): their `false` is `setting_locked`."
+
+[[announced]]
+entry = "foxhound settings security.redaction"
+reason = "A Recipe and a Client acting for a model no longer switch a security control off (the owner's answer of 2026-11-10, issue 2445): their `false` is `setting_locked`."
+
+[[announced]]
+entry = "foxhound settings security.resolved_ip_check"
+reason = "A Recipe and a Client acting for a model no longer switch a security control off (the owner's answer of 2026-11-10, issue 2445): their `false` is `setting_locked`."
+
+[[announced]]
+entry = "foxhound settings security.secure_delete"
+reason = "A Recipe and a Client acting for a model no longer switch a security control off (the owner's answer of 2026-11-10, issue 2445): their `false` is `setting_locked`."
+
+[[announced]]
 entry = "python goodfetch_collie_client.generated.handles AsyncPage"
 reason = "A page carries the Session that opened it, so `page.session` answers without a call (issue 3585): the SDK opens a page with its Session's ID, and a program never constructs one."
 

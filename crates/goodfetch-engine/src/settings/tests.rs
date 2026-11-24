@@ -2290,6 +2290,91 @@ fn consent_handling_off_weakens_the_run_and_detect_does_not(#[case] layer: Setti
     );
 }
 
+/// #2445 (owner, 2026-11-10): a Recipe, and a Client acting for a model
+/// through its run layer or its project configuration, never switch a
+/// security control off unless the layers below already do; they switch one
+/// on, and the program's own code and configuration switch one off
+/// (positive controls).
+/// Covers: story:4-74, error:setting_locked, setting:security.field_encryption, setting:security.secure_delete, setting:security.resolved_ip_check, setting:security.raw_cdp_egress_proxy, setting:security.audit_chain, setting:security.redaction
+#[rstest]
+#[case::off_from_a_recipe(true, SettingsLayer::Recipe, false, false, None)]
+#[case::off_from_a_model(true, SettingsLayer::Run, true, false, None)]
+#[case::off_from_a_models_project_configuration(
+    true,
+    SettingsLayer::ProjectConfiguration,
+    true,
+    false,
+    None
+)]
+#[case::on_from_a_recipe(false, SettingsLayer::Recipe, false, true, Some(true))]
+#[case::on_from_a_model(false, SettingsLayer::Run, true, true, Some(true))]
+#[case::off_a_recipe_repeats(false, SettingsLayer::Recipe, false, false, Some(false))]
+#[case::off_a_model_repeats(false, SettingsLayer::Run, true, false, Some(false))]
+#[case::off_from_the_programs_own_code(true, SettingsLayer::Run, false, false, Some(false))]
+#[case::off_from_project_configuration(
+    true,
+    SettingsLayer::ProjectConfiguration,
+    false,
+    false,
+    Some(false)
+)]
+#[case::off_from_user_configuration(
+    true,
+    SettingsLayer::UserConfiguration,
+    false,
+    false,
+    Some(false)
+)]
+fn a_model_and_a_recipe_never_switch_a_security_control_off(
+    #[values(
+        "security.field_encryption",
+        "security.secure_delete",
+        "security.resolved_ip_check",
+        "security.raw_cdp_egress_proxy",
+        "security.audit_chain",
+        "security.redaction"
+    )]
+    key: &str,
+    #[case] configured: bool,
+    #[case] layer: SettingsLayer,
+    #[case] for_model: bool,
+    #[case] value: bool,
+    #[case] taken: Option<bool>,
+) {
+    let resolved = over_configuration(key, &json!(configured), layer, for_model, &json!(value));
+
+    assert_eq!(
+        resolved,
+        taken.map_or_else(|| locked(key), |taken| Ok(json!(taken)))
+    );
+}
+
+/// #2445: an Operator policy switches a security control off, and the Run
+/// report's `weakened` names the key and its layer.
+/// Covers: story:4-74, setting:security.field_encryption, setting:security.secure_delete, setting:security.resolved_ip_check, setting:security.raw_cdp_egress_proxy, setting:security.audit_chain, setting:security.redaction
+#[rstest]
+fn an_operator_policy_switches_a_security_control_off(
+    #[values(
+        "security.field_encryption",
+        "security.secure_delete",
+        "security.resolved_ip_check",
+        "security.raw_cdp_egress_proxy",
+        "security.audit_chain",
+        "security.redaction"
+    )]
+    key: &str,
+) {
+    let layers = only(SettingsLayer::OperatorPolicy, key, &json!(false));
+
+    let weakened: Vec<(String, SettingsLayer)> = resolved(&layers)
+        .weakened()
+        .into_iter()
+        .map(|weakened| (weakened.key, weakened.layer))
+        .collect();
+
+    assert_eq!(weakened, [(key.to_owned(), SettingsLayer::OperatorPolicy)]);
+}
+
 /// Story 4-4: `egress.private_ranges`, the third key of the domain policy,
 /// is never a model's even when it lists fewer ranges than configuration
 /// does; the same narrower value from the program's own code is taken

@@ -37,7 +37,7 @@ Decided in [ADR 0065](../adr/0065-ai-features-are-tested-without-live-models-and
 - **Replay each stream whole and re-cut at seeded boundaries.** The stream parsers also have `proptest` and a fuzz target.
 - **Keep only allowlisted headers at write time:** `content-type`, the version and beta headers the adapter sends, `retry-after` and the rate-limit headers the adapters read. Remove key query parameters, and replace request and organization IDs. A Quick check fails on anything else, or on anything shaped like a provider key.
 - **Record only against Proving ground pages and tasks.**
-- **Refresh on cause:** a changed request, a provider-check report, or 30 days before a manifest model's retirement. Use the recorder job, which opens a pull request, and review the diff. Never refresh on a timer or automatically.
+- **Refresh on cause:** a changed request, a provider-check report, or 30 days before a manifest model's retirement, for which `xtask models check`, in the daily test-health job, opens or updates one `needs-triage` issue per model. Use the recorder job, which opens a pull request, and review the diff. Never refresh on a timer or automatically.
 - **Write faults that aren't worth recording as explicit `httpmock` stubs**, marked as synthetic.
 
 ### Pinned local models and the in-engine model
@@ -70,7 +70,7 @@ Decided in [ADR 0065](../adr/0065-ai-features-are-tested-without-live-models-and
 - **A task joins its regression set at pass^3 ≥ 0.9 on every nightly model for five nights.** Add harder tasks once a regression set passes everything for 30 nights. Add a task for every AI bug fixed.
 - **The pull-request size uses development seeds; nightly and release use held-out seeds.**
   _Why:_ prompts tuned on the tasks that judge them overfit.
-- **Pin models in the manifest, chosen from the gateway's free tier, and run old and new side by side for five nights before dropping one.** An Evaluation or skill Evaluation whose model is not in the free tier waits, reported inconclusive, until revenue (ADR 0076). Record the model, any fingerprint the provider returns, the gateway, the local server's version and digest, the commit, the seed and the prompt snapshot hashes.
+- **Pin models in the manifest (`test-support/fixtures/models.toml`: one small and one larger per format, by dated or versioned Model reference, with each provider's announced retirement date), chosen from the gateway's free tier, and run old and new side by side for five nights before dropping one.** An Evaluation or skill Evaluation whose model is not in the free tier waits, reported inconclusive, until revenue (ADR 0076). Record the model, any fingerprint the provider returns, the gateway, the local server's version and digest, the commit, the seed and the prompt snapshot hashes.
 
 ### Agent skills and tool descriptions
 

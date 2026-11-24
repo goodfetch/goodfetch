@@ -5,7 +5,6 @@
 // check of the engine's answers is the protocol version's (STYLE.md). A
 // Product's package reaches its own operations, streams and Run type
 // through it, and serves the engine's requests to its program's handlers.
-import { Buffer } from "node:buffer";
 import { AttachedEngine, type EngineExit } from "./attached-engine.ts";
 import type { CallOptions, Caller, OperationTypes } from "./caller.ts";
 import { errorOfReply, type ErrorClasses } from "./errors.ts";
@@ -29,7 +28,6 @@ import {
   type GoodfetchError,
   type HelloParams,
   type HelloResult,
-  type KeyValueStoreSetParams,
   type LogLevel,
   type CatalogRunStartParams,
   type CatalogTarget,
@@ -325,39 +323,6 @@ export class ClientConnection implements AsyncDisposable {
       forget: (run) => this.#runs.delete(run),
       operationNames,
       logger: this.#logger,
-      keyValueStore: {
-        get: async (runId, key) => {
-          const { value } = await this.#operations.keyValueStoreGet({ runId, key });
-          // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- engine answers are not validated beyond `hello`'s protocol version (STYLE.md): a stored value is JSON.
-          return value as JSONValue;
-        },
-        set: async (runId, key, value) => {
-          // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- the generated layer types a schemaless JSON value as an object; any JSON value but null is the engine's to take.
-          const stored = value as KeyValueStoreSetParams["value"];
-          await this.#operations.keyValueStoreSet({ runId, key, value: stored });
-        },
-        getBytes: async (runId, key) => {
-          const { bytes } = await this.#operations.keyValueStoreGetBytes({ runId, key });
-          return bytes
-            ? {
-                content: new Uint8Array(Buffer.from(bytes.content, "base64")),
-                contentType: bytes.contentType,
-              }
-            : null;
-        },
-        setBytes: async (runId, key, content, contentType) => {
-          await this.#operations.keyValueStoreSetBytes({
-            runId,
-            key,
-            content: Buffer.from(content.buffer, content.byteOffset, content.byteLength).toString(
-              "base64",
-            ),
-            contentType,
-          });
-        },
-        delete: async (runId, key) =>
-          (await this.#operations.keyValueStoreDelete({ runId, key })).existed,
-      },
     };
     holdInRealm(this);
   }

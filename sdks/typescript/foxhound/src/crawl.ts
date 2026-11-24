@@ -8,6 +8,7 @@
 import type {
   JSONObject,
   JSONSchema,
+  KeyValueStore,
   Locator,
   Page,
   SchemaInput,
@@ -277,11 +278,41 @@ export interface EnqueueLinksOptions {
 }
 
 /**
+ * A crawl's Run bound to one attempt of a handler, its context's `run`
+ * (ADRs 0093 and 0103): what is written through it is staged with the
+ * attempt, so it commits with the attempt's Records and enqueues when the
+ * handler returns, and is discarded with them when the attempt ends any
+ * other way.
+ *
+ * The trap: the program's own Run value, the one `startCrawl` answered,
+ * captured by a handler from the code around it, is not bound. What a
+ * handler writes through it commits at once, outside the attempt's lease,
+ * and again on every attempt that runs the handler, discarded ones
+ * included. Write through it only state that must outlive a failed attempt.
+ */
+export interface AttemptRun {
+  /** The Run's ID. Read without a round trip. */
+  id(): string;
+  /**
+   * The Run's Key-value store, its writes staged with the attempt. A read
+   * sees the attempt's own writes first; other attempts and the program's
+   * own Run value see them once they commit. Once the attempt ends, each
+   * call fails.
+   */
+  readonly keyValueStore: KeyValueStore;
+}
+
+/**
  * What a handler's attempt at one work item holds (ADR 0093): the page the
  * engine lends it, and what it adds to the crawl, staged with the attempt.
  * Once the attempt ends, or its Run is closed, each call fails.
  */
 export interface CrawlContext {
+  /**
+   * The crawl's Run bound to this attempt (ADR 0093), not the program's own
+   * Run value: its Key-value store's writes are staged with the attempt.
+   */
+  readonly run: AttemptRun;
   /**
    * Already navigated. The handler runs once the request's navigation has
    * happened, so a route set on this page applies from its next navigation.

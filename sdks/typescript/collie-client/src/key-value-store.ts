@@ -9,8 +9,18 @@
 // `set` sends the schema's input, which its parse reads back, and `get`
 // answers the output its parse builds. Only JSON crosses: `set` refuses a
 // value that is not JSON before sending anything, naming its path.
+// A crawl's handler reaches its attempt's own store, `ctx.run.keyValueStore`,
+// whose calls name the attempt, so its writes are staged with it.
 
+import { Buffer } from "node:buffer";
+import type { Caller } from "./caller.ts";
 import { ValueInvalidError } from "./generated/errors.ts";
+import {
+  CollieOperations,
+  type CollieOperationTypes,
+  type KeyValueStoreAttempt,
+  type KeyValueStoreSetParams,
+} from "./generated/index.ts";
 import { nonJSON, type JSONValue } from "./json.ts";
 import {
   parse,
@@ -46,9 +56,57 @@ export interface KeyValueStoreHost {
 }
 
 /**
+ * A store's calls through `calls`: at once, or staged with `attempt`, the
+ * crawl attempt whose handler makes them (ADR 0103).
+ */
+export function keyValueStoreHost(
+  calls: Caller<CollieOperationTypes>,
+  attempt?: KeyValueStoreAttempt,
+): KeyValueStoreHost {
+  const operations = new CollieOperations(calls);
+  const on = attempt === undefined ? {} : { attempt };
+  return {
+    get: async (runId, key) => {
+      const { value } = await operations.keyValueStoreGet({ runId, key, ...on });
+      // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- engine answers are not validated beyond `hello`'s protocol version (STYLE.md): a stored value is JSON.
+      return value as JSONValue;
+    },
+    set: async (runId, key, value) => {
+      // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- the generated layer types a schemaless JSON value as an object; any JSON value but null is the engine's to take.
+      const stored = value as KeyValueStoreSetParams["value"];
+      await operations.keyValueStoreSet({ runId, key, value: stored, ...on });
+    },
+    getBytes: async (runId, key) => {
+      const { bytes } = await operations.keyValueStoreGetBytes({ runId, key, ...on });
+      return bytes
+        ? {
+            content: new Uint8Array(Buffer.from(bytes.content, "base64")),
+            contentType: bytes.contentType,
+          }
+        : null;
+    },
+    setBytes: async (runId, key, content, contentType) => {
+      await operations.keyValueStoreSetBytes({
+        runId,
+        key,
+        content: Buffer.from(content.buffer, content.byteOffset, content.byteLength).toString(
+          "base64",
+        ),
+        contentType,
+        ...on,
+      });
+    },
+    delete: async (runId, key) =>
+      (await operations.keyValueStoreDelete({ runId, key, ...on })).existed,
+  };
+}
+
+/**
  * A Run's Key-value store: `run.keyValueStore`. A key is 1 to 512 Unicode
  * scalar values with no control character; another fails with
- * `value_invalid`, naming it.
+ * `value_invalid`, naming it. Through a crawl handler's
+ * `ctx.run.keyValueStore` a write is staged with the attempt; through the
+ * program's own Run value it commits at once, whatever the attempt becomes.
  */
 export class KeyValueStore {
   readonly #host: KeyValueStoreHost;

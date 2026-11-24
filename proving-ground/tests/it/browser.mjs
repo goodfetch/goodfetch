@@ -297,6 +297,26 @@ const programs = {
       contexts: JSON.parse(await page.locator("#contexts").textContent()),
     };
   },
+  /** Waits until the font page has measured every font, then reads what it shows. */
+  fonts: async (page, { url }) => {
+    await page.goto(url);
+    await page.waitForFunction(() => document.documentElement.dataset.fonts === "done", undefined, {
+      timeout: DEADLINE_MS,
+    });
+    return JSON.parse(await page.locator("#results").textContent());
+  },
+  /** Waits until the codec page has tried every sample, then reads what it shows. */
+  codecs: async (page, { url }) => {
+    await page.goto(url);
+    await page.waitForFunction(
+      () => document.documentElement.dataset.codecs === "done",
+      undefined,
+      {
+        timeout: DEADLINE_MS * 3,
+      },
+    );
+    return JSON.parse(await page.locator("#results").textContent());
+  },
   /** Composes the asked text through an input method, then commits it. */
   compose: async (page, { url }) => {
     await page.goto(url);

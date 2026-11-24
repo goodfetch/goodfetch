@@ -815,6 +815,46 @@ form = "type"
 [[member]]
 package = "goodfetch_collie"
 receiver = "KeyValueStore"
+member = "get"
+entry = "key_value_store.get"
+words = ["get"]
+form = "round_trip"
+
+[[member]]
+package = "goodfetch_collie"
+receiver = "KeyValueStore"
+member = "set"
+entry = "key_value_store.set"
+words = ["set"]
+form = "round_trip"
+
+[[member]]
+package = "goodfetch_collie"
+receiver = "KeyValueStore"
+member = "get_bytes"
+entry = "key_value_store.get_bytes"
+words = ["get", "bytes"]
+form = "round_trip"
+
+[[member]]
+package = "goodfetch_collie"
+receiver = "KeyValueStore"
+member = "set_bytes"
+entry = "key_value_store.set_bytes"
+words = ["set", "bytes"]
+form = "round_trip"
+
+[[member]]
+package = "goodfetch_collie"
+receiver = "KeyValueStore"
+member = "delete"
+entry = "key_value_store.delete"
+words = ["delete"]
+form = "round_trip"
+
+[[member]]
+package = "goodfetch_collie"
+receiver = "KeyValueStore"
 member = "keys"
 entry = "key_value_store.keys"
 words = ["keys"]
@@ -833,10 +873,60 @@ form = "type"
 [[member]]
 package = "goodfetch_collie"
 receiver = "AsyncKeyValueStore"
+member = "get"
+entry = "key_value_store.get"
+words = ["get"]
+form = "round_trip"
+
+[[member]]
+package = "goodfetch_collie"
+receiver = "AsyncKeyValueStore"
+member = "set"
+entry = "key_value_store.set"
+words = ["set"]
+form = "round_trip"
+
+[[member]]
+package = "goodfetch_collie"
+receiver = "AsyncKeyValueStore"
+member = "get_bytes"
+entry = "key_value_store.get_bytes"
+words = ["get", "bytes"]
+form = "round_trip"
+
+[[member]]
+package = "goodfetch_collie"
+receiver = "AsyncKeyValueStore"
+member = "set_bytes"
+entry = "key_value_store.set_bytes"
+words = ["set", "bytes"]
+form = "round_trip"
+
+[[member]]
+package = "goodfetch_collie"
+receiver = "AsyncKeyValueStore"
+member = "delete"
+entry = "key_value_store.delete"
+words = ["delete"]
+form = "round_trip"
+
+[[member]]
+package = "goodfetch_collie"
+receiver = "AsyncKeyValueStore"
 member = "keys"
 entry = "key_value_store.keys"
 words = ["keys"]
 form = "round_trip"
+
+[[member]]
+package = "goodfetch_collie"
+receiver = "(module)"
+member = "StoredBytes"
+entry = "none"
+reason = "Bytes the Key-value store keeps, with their content type, as `key_value_store.get_bytes` answers them."
+only = "A re-export, which Python lists where its package's `__all__` names it, and TypeScript and Rust in the package that declares it."
+words = ["stored", "bytes"]
+form = "type"
 
 [[member]]
 package = "goodfetch_collie"
@@ -1704,6 +1794,44 @@ form = "read"
 [[member]]
 package = "goodfetch_foxhound"
 receiver = "CrawlContext"
+member = "run"
+entry = "none"
+reason = "The crawl's Run bound to the attempt, from `crawl_request.handle`'s request (ADR 0093)."
+only = "Rust's is the next part of issue 1486."
+words = ["run"]
+form = "read"
+
+[[member]]
+package = "goodfetch_foxhound"
+receiver = "(module)"
+member = "AttemptRun"
+entry = "none"
+reason = "A crawl's Run bound to one attempt of a handler, its context's `run` (ADR 0093)."
+only = "Rust's is the next part of issue 1486."
+words = ["attempt", "run"]
+form = "type"
+
+[[member]]
+package = "goodfetch_foxhound"
+receiver = "AttemptRun"
+member = "id"
+entry = "none"
+reason = "The Run's ID, from the Run's start, with no round trip."
+words = ["id"]
+form = "read"
+
+[[member]]
+package = "goodfetch_foxhound"
+receiver = "AttemptRun"
+member = "key_value_store"
+entry = "none"
+reason = "The Run's Key-value store bound to the attempt, whose methods serve the `key_value_store` operations, with no round trip."
+words = ["key", "value", "store"]
+form = "read"
+
+[[member]]
+package = "goodfetch_foxhound"
+receiver = "CrawlContext"
 member = "page"
 entry = "none"
 reason = "The page the engine serves the attempt, `crawl_request.handle`'s `page_id` as Collie's `Page` (ADR 0093)."
@@ -1752,6 +1880,44 @@ entry = "none"
 reason = "`CrawlContext.request` in the async API."
 only = "Python holds the request's fields in one `CrawlRequest`; Rust's context reads each with its own method, and TypeScript's holds none."
 words = ["request"]
+form = "read"
+
+[[member]]
+package = "goodfetch_foxhound"
+receiver = "AsyncCrawlContext"
+member = "run"
+entry = "none"
+reason = "`CrawlContext.run` in the async API."
+only = "Rust's is the next part of issue 1486."
+words = ["run"]
+form = "read"
+
+[[member]]
+package = "goodfetch_foxhound"
+receiver = "(module)"
+member = "AsyncAttemptRun"
+entry = "none"
+reason = "A crawl's Run bound to one attempt of an `async def` handler, its context's `run` (ADRs 0081 and 0093)."
+only = "Python's async twin (ADR 0081): TypeScript is async only, and Rust's twin is in its `blocking` module."
+words = ["async", "attempt", "run"]
+form = "type"
+
+[[member]]
+package = "goodfetch_foxhound"
+receiver = "AsyncAttemptRun"
+member = "id"
+entry = "none"
+reason = "`AttemptRun.id` in the async API."
+words = ["id"]
+form = "read"
+
+[[member]]
+package = "goodfetch_foxhound"
+receiver = "AsyncAttemptRun"
+member = "key_value_store"
+entry = "none"
+reason = "`AttemptRun.key_value_store` in the async API."
+words = ["key", "value", "store"]
 form = "read"
 
 [[member]]
@@ -2788,16 +2954,6 @@ reason = "Issue 1287 adds `run.effect`, which declares an Effect through them."
 [[unreached]]
 entries = ["page.body"]
 reason = "A Client that cannot read a page body's file streams it through `page.body`; no member streams it yet (issue 1404)."
-
-[[unreached]]
-entries = [
-  "key_value_store.get",
-  "key_value_store.set",
-  "key_value_store.get_bytes",
-  "key_value_store.set_bytes",
-  "key_value_store.delete",
-]
-reason = "The Python Key-value store has only `keys` so far; issue 1284 covers the Run's Key-value store."
 
 [[unreached]]
 entries = ["crawl.serve"]

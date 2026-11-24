@@ -37,7 +37,9 @@ from goodfetch_collie_client.sequence import Sequence
 from goodfetch_collie_client.settings import settings_on_wire
 
 from goodfetch_foxhound.crawl import (
+    AsyncAttemptRun,
     AsyncCrawlContext,
+    AttemptRun,
     Crawl,
     CrawlContext,
     CrawlRequest,
@@ -65,12 +67,14 @@ if TYPE_CHECKING:
 
     from goodfetch_collie_client.connection import ClientConnection
     from goodfetch_collie_client.generated.models import (
+        KeyValueStoreAttempt,
         PageId,
         RunId,
         RunStarted,
         SessionId,
     )
     from goodfetch_collie_client.handle import HandleHost
+    from goodfetch_collie_client.key_value_store import KeyValueStore
     from goodfetch_collie_client.portal import PrivateLoop
     from goodfetch_collie_client.sequence import AsyncSequence
     from pydantic import BaseModel
@@ -253,7 +257,9 @@ class AsyncCrawlRun(AsyncRun):
                 None if page_id is None else self._page_of(page_id, request.session.id)
             )
             operations = AsyncFoxhoundOperations(self._host)
-            context = AsyncCrawlContext(crawl_request, lease, operations, page)
+            store = self._attempt_key_value_store(lease.key_value_store_attempt())
+            run = AsyncAttemptRun(self.id, store)
+            context = AsyncCrawlContext(crawl_request, lease, run, operations, page)
             await cast("Callable[[AsyncCrawlContext[Any]], Awaitable[None]]", handler)(
                 context
             )
@@ -265,8 +271,15 @@ class AsyncCrawlRun(AsyncRun):
         sync_page = (
             None if page_id is None else threaded.page_of(page_id, request.session.id)
         )
+        sync_run = AttemptRun(
+            self.id, threaded.key_value_store(lease.key_value_store_attempt())
+        )
         sync_context = CrawlContext(
-            crawl_request, lease, FoxhoundOperations(threaded.host), sync_page
+            crawl_request,
+            lease,
+            sync_run,
+            FoxhoundOperations(threaded.host),
+            sync_page,
         )
         # The thread's calls run on the loop outside the attempt's scope,
         # which waits for the thread, so closing the Run cancels them apart.
@@ -334,7 +347,9 @@ class CrawlRun(Run):
         """
         super().__init__(loop, run)
         self._crawl_run = run
-        _threaded[run] = _Threaded(self._host, self._sessions)
+        _threaded[run] = _Threaded(
+            self._host, self._sessions, self._attempt_key_value_store
+        )
 
     def records(self, dataset: Dataset[Any]) -> Sequence[DatasetRecord]:
         """The committed Records of `dataset`, read with `for`, as the async Run's.
@@ -393,6 +408,8 @@ class _Threaded:
     """The sync host its handlers call through."""
     sessions: dict[str, tuple[HandleHost[SessionId], Session]]
     """The Sessions the `CrawlRun` keeps by ID, which its pages share."""
+    key_value_store: Callable[[KeyValueStoreAttempt], KeyValueStore]
+    """Opens the Run's Key-value store bound to one of its handlers' attempts."""
 
     def page_of(self, page_id: PageId, session_id: SessionId) -> Page:
         """The page of ID `page_id` the engine lends a handler, in its serving Session.

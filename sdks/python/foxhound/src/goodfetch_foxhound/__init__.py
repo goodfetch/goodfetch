@@ -29,8 +29,10 @@ reads, starts, patches and logs nothing (ADR 0078).
 from goodfetch_collie_client.markers import ExperimentalWarning
 
 from goodfetch_foxhound.crawl import (
+    AsyncAttemptRun,
     AsyncCrawl,
     AsyncCrawlContext,
+    AttemptRun,
     Crawl,
     CrawlContext,
     CrawlRequest,
@@ -43,10 +45,12 @@ from goodfetch_foxhound.crawl_run import AsyncCrawlRun, CrawlRun
 from goodfetch_foxhound.foxhound import AsyncFoxhound, Connecting, Foxhound
 
 __all__ = [
+    "AsyncAttemptRun",
     "AsyncCrawl",
     "AsyncCrawlContext",
     "AsyncCrawlRun",
     "AsyncFoxhound",
+    "AttemptRun",
     "Connecting",
     "Crawl",
     "CrawlContext",

@@ -1800,6 +1800,16 @@ form = "read"
 [[member]]
 package = "goodfetch_foxhound"
 receiver = "(module)"
+member = "sitemap"
+entry = "none"
+reason = "Builds a sitemap seed, one of the seeds `crawl.start` carries, whose rules give each entry the Label of the first that matches it (ADRs 0093 and 0120), with no round trip."
+only = "Rust builds a sitemap seed with `Seed::sitemap` (ADR 0099)."
+words = ["sitemap"]
+form = "read"
+
+[[member]]
+package = "goodfetch_foxhound"
+receiver = "(module)"
 member = "AsyncCrawlRun"
 entry = "none"
 reason = "A crawl's Run, which `AsyncFoxhound.start_crawl` opens (ADR 0102)."

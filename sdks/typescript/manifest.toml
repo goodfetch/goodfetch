@@ -268,6 +268,16 @@ form = "read"
 
 [[member]]
 package = "@goodfetch/foxhound"
+receiver = "(module)"
+member = "sitemap"
+entry = "none"
+reason = "Builds a sitemap seed, one of the seeds `crawl.start` carries, whose rules give each entry the Label of the first that matches it (ADRs 0093 and 0120), with no round trip."
+only = "Rust builds a sitemap seed with `Seed::sitemap` (ADR 0099)."
+words = ["sitemap"]
+form = "read"
+
+[[member]]
+package = "@goodfetch/foxhound"
 receiver = "CrawlContext"
 member = "page"
 entry = "none"
@@ -2850,7 +2860,7 @@ receiver = "(module)"
 member = "RequestOptions"
 entry = "none"
 reason = "What `context.enqueue` and `seed` take besides the URL, the Label and the Payload."
-only = "Rust's `enqueue` and `Seed::new` take the URL, the Label and the Payload alone."
+only = "Rust's `Seed::new` takes them as builder methods named after each; its `enqueue` takes the URL, the Label and the Payload alone."
 words = ["request", "options"]
 form = "type"
 

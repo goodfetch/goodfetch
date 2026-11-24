@@ -23,7 +23,9 @@ mod browser_releases;
 mod budgets;
 mod chromium_expectations;
 mod chromium_package;
+mod chromium_protocol;
 mod chromium_regenerate;
+mod chromium_surfaces;
 mod clients;
 #[cfg(unix)]
 mod clippy_excluded;

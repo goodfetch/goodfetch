@@ -1,0 +1,31 @@
+# Anubis (#168), the proof-of-work proxy in front of the copy's `/anubis`:
+# the tunnel sends it that path and Anubis's own `/.within.website/`, and it
+# passes a client that solved its challenge on to the copy with its cookie,
+# an HS512 JSON Web Token signed with the key in anubis.env
+# (`HS512_SECRET`), the copy's `PROVING_GROUND_ANUBIS_HS512_SECRET`.
+[Unit]
+Description=Anubis in front of the Goodfetch Proving ground's online copy
+After=network-online.target goodfetch-proving-ground.service
+Wants=network-online.target
+
+[Service]
+ExecStart=/opt/goodfetch-proving-ground/anubis
+Environment=BIND=127.0.0.1:8923
+Environment=TARGET=http://127.0.0.1:8920
+Environment=TARGET_HOST=challenges.test
+Environment=METRICS_BIND=127.0.0.1:9090
+Environment=CUSTOM_REAL_IP_HEADER=Cf-Connecting-Ip
+Environment=REDIRECT_DOMAINS=challenges.goodfetch.dev
+EnvironmentFile=/etc/goodfetch-proving-ground/anubis.env
+DynamicUser=yes
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+CapabilityBoundingSet=
+
+[Install]
+WantedBy=multi-user.target

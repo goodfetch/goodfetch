@@ -8,6 +8,7 @@
 //! edge's headers as those vendors would.
 
 mod consent;
+mod deploy;
 
 use std::io::{BufRead as _, BufReader, Read as _, Write as _};
 use std::net::SocketAddr;

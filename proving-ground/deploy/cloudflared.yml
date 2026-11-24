@@ -1,0 +1,19 @@
+# The tunnel from Cloudflare's edge to the copy (#168): the public host's
+# requests reach the copy on loopback with the host name it serves the
+# challenges on, Anubis's paths through Anubis first. Cloudflare's free
+# plan in front adds nothing the copy judges; its bot score needs Bot
+# Management, a paid plan, declined (ADR 0076). The tunnel's ID and
+# credentials come from the protected environment (deploy.sh and
+# goodfetch-cloudflared.service).
+no-autoupdate: true
+ingress:
+  - hostname: challenges.goodfetch.dev
+    path: ^/(anubis|\.within\.website/)
+    service: http://127.0.0.1:8923
+    originRequest:
+      httpHostHeader: challenges.test
+  - hostname: challenges.goodfetch.dev
+    service: http://127.0.0.1:8920
+    originRequest:
+      httpHostHeader: challenges.test
+  - service: http_status:404

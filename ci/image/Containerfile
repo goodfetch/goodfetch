@@ -172,5 +172,12 @@ RUN apt-get update \
  && apt-get install -y --no-install-recommends cmake g++ \
  && rm -rf /var/lib/apt/lists/*
 
+# git-cliff, which `xtask release changelog` runs to write CHANGELOG.md
+# (spec #130). A layer of its own at the end, as cargo-mutants', so adding
+# it rebuilt no other layer; it joins the Cargo tools' layer above when that
+# layer next changes.
+RUN cargo install --locked --root /usr/local git-cliff@2.14.2 \
+ && rm -rf "${CARGO_HOME}/registry" "${CARGO_HOME}/git"
+
 ENV CI=true
 WORKDIR /work

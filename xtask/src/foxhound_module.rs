@@ -87,8 +87,9 @@ pub(crate) fn check(root: &Path, package: &Package, findings: &mut Vec<Finding>)
     Ok(())
 }
 
-/// Every `.rs` file under `folder`.
-fn rust_files(folder: &Path, files: &mut Vec<PathBuf>) -> Result<()> {
+/// Every `.rs` file under `folder`, but those under a folder of
+/// [`SKIPPED_FOLDERS`].
+pub(crate) fn rust_files(folder: &Path, files: &mut Vec<PathBuf>) -> Result<()> {
     for entry in
         std::fs::read_dir(folder).with_context(|| format!("reading {}", folder.display()))?
     {

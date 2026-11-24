@@ -1,0 +1,29 @@
+[package]
+name = "goodfetch-scripted-model"
+description = "The Scripted model: a test adapter at the engine's Model provider interface that answers call n with reply n (ADRs 0065 and 0125); only ever a dev-dependency."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[dependencies]
+futures-util.workspace = true
+goodfetch-model-provider.workspace = true
+goodfetch-protocol.workspace = true
+serde_json.workspace = true
+goodfetch-workspace-hack.workspace = true
+
+# Its unit tests call it within a live Run of an in-memory engine, as the
+# driver does: the interface's call context holds one.
+[dev-dependencies]
+goodfetch-engine.workspace = true
+goodfetch-test-client.workspace = true
+goodfetch-test-support.workspace = true
+rstest.workspace = true
+tokio = { workspace = true, features = ["io-util", "macros", "sync"] }
+tokio-util.workspace = true
+
+[lints]
+workspace = true

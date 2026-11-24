@@ -1,0 +1,5 @@
+version = "0.1"
+lowest_minor = 0
+
+[settings]
+sinks = { "example.test" = { datasets = ["articles"], destination = "env:QDRANT_URL", embedding = { chunk_chars = 2000, fields = ["body"], model = "openai/text-embedding-3-small" }, type = "qdrant" } }

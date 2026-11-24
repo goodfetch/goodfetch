@@ -61,6 +61,9 @@ pub(crate) struct Ask {
     pub(crate) tools: Vec<Tool>,
     pub(crate) tool_choice: ToolChoice,
     pub(crate) after_tool_result: bool,
+    /// How many of the turns are the model's own: the steps an Agent loop
+    /// has taken.
+    pub(crate) model_turns: usize,
     /// The structured output's schema, if the request asks for one.
     pub(crate) schema: Option<Value>,
     /// Every string the body holds, in any order.
@@ -149,6 +152,7 @@ fn openai(body: &Value, strings: Vec<String>) -> Ask {
         after_tool_result: each(&body["messages"])
             .last()
             .is_some_and(|message| message["role"] == "tool"),
+        model_turns: turns(&body["messages"], "assistant"),
         schema: (body["response_format"]["type"] == "json_schema")
             .then(|| body["response_format"]["json_schema"]["schema"].clone()),
         strings,
@@ -176,6 +180,7 @@ fn anthropic(body: &Value, strings: Vec<String>) -> Ask {
         after_tool_result: each(&body["messages"]).last().is_some_and(|message| {
             each(&message["content"]).any(|block| block["type"] == "tool_result")
         }),
+        model_turns: turns(&body["messages"], "assistant"),
         schema: [&body["output_format"], &body["output_config"]["format"]]
             .into_iter()
             .find(|format| format["type"] == "json_schema")
@@ -215,6 +220,7 @@ fn gemini(endpoint: Endpoint, body: &Value, strings: Vec<String>) -> Ask {
         after_tool_result: each(&body["contents"]).last().is_some_and(|content| {
             each(&content["parts"]).any(|part| part.get("functionResponse").is_some())
         }),
+        model_turns: turns(&body["contents"], "model"),
         schema: ["responseJsonSchema", "responseSchema"]
             .into_iter()
             .map(|key| &config[key])
@@ -222,6 +228,11 @@ fn gemini(endpoint: Endpoint, body: &Value, strings: Vec<String>) -> Ask {
             .cloned(),
         strings,
     }
+}
+
+/// How many of the turns in `turns` have the role `role`.
+fn turns(turns: &Value, role: &str) -> usize {
+    each(turns).filter(|turn| turn["role"] == role).count()
 }
 
 /// The elements of an array, none for anything else.

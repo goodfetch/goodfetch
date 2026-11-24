@@ -99,6 +99,9 @@ pub struct TestEnv {
     suite: Suite,
     names: Cell<u64>,
     processes: ProcessTracker,
+    /// Whether its teardown also stops each process running from its home
+    /// and fails the test for it: [`TestEnv::fail_on_processes_from_home`].
+    checks_home: Cell<bool>,
     record: Option<ExerciseRecord>,
 }
 
@@ -261,6 +264,7 @@ impl TestEnv {
             suite,
             names: Cell::new(0),
             processes: ProcessTracker::default(),
+            checks_home: Cell::new(false),
             record,
         })
     }
@@ -303,6 +307,16 @@ impl TestEnv {
     /// `<folder>/home`, the `GOODFETCH_HOME` of everything the test starts.
     pub fn home(&self) -> &Path {
         &self.home
+    }
+
+    /// Makes its teardown also stop each process running from its home,
+    /// whose executable or working folder lies inside it, and fail the test
+    /// naming it, as it does a child it recorded. A test asks for it when
+    /// something it runs starts a process test support does not record, as
+    /// a CLI command starts the home's Daemon in a process group of its own
+    /// (issue 1797). The check reads `/proc`, so it runs on Linux only.
+    pub fn fail_on_processes_from_home(&self) {
+        self.checks_home.set(true);
     }
 
     /// Writes the home's user configuration with `settings`, lines of TOML
@@ -574,7 +588,10 @@ impl Drop for TestEnv {
     fn drop(&mut self) {
         // Children first, so a browser that crashes while it is stopped has
         // finished writing its dump.
-        let alive = self.processes.stop_alive();
+        let mut alive = self.processes.stop_alive();
+        if self.checks_home.get() {
+            alive.extend(crate::process::stop_running_from(&self.home));
+        }
         remove_socket_folders_outside(&self.home);
         let panicking = std::thread::panicking();
         let recorded = self.record.as_ref().map_or(Ok(()), |record| {

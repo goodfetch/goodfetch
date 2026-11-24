@@ -34,7 +34,7 @@ use goodfetch_engine::mask::Masks;
 use goodfetch_engine::run_state::{Durability, RunState, RunStateOptions, Syncing};
 use goodfetch_engine::tasks::{BlockingPolicy, TaskOwner};
 use goodfetch_protocol::foxhound::crawl::{PushedRecord, RequestSeed, Seed};
-use goodfetch_protocol::foxhound::dataset::DatasetDeclaration;
+use goodfetch_protocol::foxhound::dataset::{DatasetDeclaration, RecordData};
 use goodfetch_protocol::foxhound::frontier::HttpMethod;
 use goodfetch_test_support::{CrashKind, CrashVfs, TestEnv, after_crash};
 use proptest::prelude::*;
@@ -576,7 +576,7 @@ fn commit(
     let records = (0..count)
         .map(|number| PushedRecord {
             dataset: "pages".to_owned(),
-            data: record(attempt, number),
+            data: RecordData::of(&record(attempt, number)).unwrap(),
         })
         .collect();
     let link = format!(

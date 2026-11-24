@@ -484,8 +484,9 @@ fn main_length(
 }
 
 /// The fuzz target of the HTML entry point (ADR 0067): reads `data` as a
-/// document's HTML, lossily decoded, with every format asked. It panics only
-/// on a bug.
+/// document's HTML, lossily decoded, with every format asked, and then its
+/// Markdown of the whole body, which writes the page's own tree where "fit"
+/// writes the main content's. It panics only on a bug.
 pub fn fuzz_formats(data: &[u8]) {
     let html = String::from_utf8_lossy(data);
     let document = Document {
@@ -508,6 +509,13 @@ pub fn fuzz_formats(data: &[u8]) {
         contacts: Some(Asked),
     };
     let _ = formats(&document, &request, &Context::default());
+    let full = FormatsRequest {
+        markdown: Some(MarkdownFormat::Options(MarkdownOptions {
+            content: MarkdownContent::Full,
+        })),
+        ..FormatsRequest::default()
+    };
+    let _ = formats(&document, &full, &Context::default());
     let _ = light(&html);
 }
 

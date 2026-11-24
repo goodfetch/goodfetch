@@ -1,0 +1,5 @@
+version = "0.1"
+lowest_minor = 0
+
+[lock]
+sinks = { "example.test" = { datasets = ["products"], destination = "env:HOOK_URL", type = "webhook", webhook = { max_batch_bytes = 262144, payload = "thin", signing_secret = "env:HOOK_SECRET" } } }

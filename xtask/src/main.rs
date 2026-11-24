@@ -22,6 +22,7 @@ mod budgets;
 mod ceiling;
 mod check;
 mod child_cargo;
+mod chromium;
 mod clients;
 mod codegen;
 mod commit_messages;
@@ -150,6 +151,11 @@ enum Command {
     /// tier, read from the results store, is past its budget in TESTING.md;
     /// never fails.
     Budgets(budgets::Arguments),
+    /// The Goodfetch Chromium's gate tooling (ADR 0074).
+    Chromium {
+        #[command(subcommand)]
+        command: chromium::Command,
+    },
     /// The Client conformance case list under `conformance/clients/` (ADR
     /// 0069).
     Clients {
@@ -641,6 +647,7 @@ fn run(command: Command, environment: &Environment) -> anyhow::Result<ExitCode> 
         Command::Artifacts { command } => artifacts::run(&command, environment),
         Command::BrowserReleases(arguments) => browser_releases::run(&arguments, environment),
         Command::Budgets(arguments) => budgets::run(&arguments, environment),
+        Command::Chromium { command } => chromium::run(&command, environment),
         Command::Clients { command } => clients::run(&command, environment),
         Command::Codegen(arguments) => codegen::run(arguments, environment),
         Command::CommitMessages {

@@ -14,6 +14,7 @@ budgets =["check", "environment", "github", "issues", "markdown", "output", "res
 ceiling = ["output", "rate", "results"]
 check = ["output"]
 child_cargo = []
+chromium = ["check", "environment", "output"]
 clients = ["check", "environment", "features", "output", "products"]
 codegen = ["check", "child_cargo", "compat", "docs_samples", "environment", "features", "license_allowlist", "products", "tree", "wording"]
 commit_messages = ["check", "git", "judged_commits"]

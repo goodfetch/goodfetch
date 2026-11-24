@@ -6,6 +6,7 @@ import { readFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { BenchError } from "./errors.ts";
 import { hostClasses, type HostClass } from "./host.ts";
+import { checkRegistry, loadRegistry, type Declared } from "./registry.ts";
 import { parserOf } from "./schema.ts";
 
 /** One competitor adapter of a campaign. */
@@ -71,6 +72,11 @@ export interface Campaign {
   readonly adapters: readonly CampaignAdapter[];
   /** The Proving ground tasks each adapter runs, by ID. */
   readonly tasks: readonly string[];
+  /**
+   * The decisions the campaign measures, from the registry folder beside
+   * it; each one's claims come with it, checked before anything is measured.
+   */
+  readonly registry?: { readonly folder: string; readonly decisions: readonly string[] };
 }
 
 const count = { type: "integer", minimum: 0 };
@@ -133,6 +139,15 @@ const campaignFile = parserOf<Campaign>({
       },
     },
     tasks: { type: "array", minItems: 1, items: { type: "string" } },
+    registry: {
+      type: "object",
+      additionalProperties: false,
+      required: ["folder", "decisions"],
+      properties: {
+        folder: { type: "string", minLength: 1 },
+        decisions: { type: "array", minItems: 1, items: { type: "string" } },
+      },
+    },
   },
 });
 
@@ -163,9 +178,14 @@ export interface LoadedCampaign {
   readonly sha256: string;
   /** Each adapter's row, by its ID. */
   readonly rows: ReadonlyMap<string, Row>;
+  /** The decisions and claims it measures, as dated when it was read. */
+  readonly declared: Declared;
 }
 
-/** Reads and checks the campaign file at `path`, and the published configurations its matched rows read. */
+/**
+ * Reads and checks the campaign file at `path`, the published configurations
+ * its matched rows read, and the decisions and claims it declares.
+ */
 export async function loadCampaign(path: string): Promise<LoadedCampaign> {
   const absolute = resolve(path);
   const bytes = await readFile(absolute);
@@ -181,6 +201,47 @@ export async function loadCampaign(path: string): Promise<LoadedCampaign> {
     folder,
     sha256: createHash("sha256").update(bytes).digest("hex"),
     rows,
+    declared: await declaredBy(campaign, folder, absolute),
+  };
+}
+
+/**
+ * The decisions `campaign` declares and their claims, with their dates.
+ * The whole registry must pass its checks, nothing in it dated later than
+ * now, and each declared decision's options must be adapters of the
+ * campaign; otherwise the campaign is refused before it measures anything.
+ */
+async function declaredBy(campaign: Campaign, folder: string, what: string): Promise<Declared> {
+  if (campaign.registry === undefined) {
+    return { decisions: [], claims: [] };
+  }
+  const registry = await loadRegistry(resolve(folder, campaign.registry.folder));
+  const errors = checkRegistry(registry, { now: new Date() });
+  const adapters = new Set(campaign.adapters.map((adapter) => adapter.id));
+  const decisions = campaign.registry.decisions.flatMap((id) => {
+    const decision = registry.decisions.find((one) => one.id === id);
+    if (decision === undefined) {
+      errors.push(`the campaign declares unknown decision ${id}`);
+      return [];
+    }
+    for (const option of decision.options) {
+      if (!adapters.has(option.adapter)) {
+        errors.push(
+          `${id}: option ${option.id}'s adapter ${option.adapter} is not one of the campaign's`,
+        );
+      }
+    }
+    return [decision];
+  });
+  if (errors.length > 0) {
+    throw new BenchError("registry_refused", `${what}: ${errors.join("; ")}`);
+  }
+  const ids = new Set(decisions.map((one) => one.id));
+  return {
+    decisions: decisions.map(({ id, declared_at }) => ({ id, declared_at })),
+    claims: registry.claims
+      .filter((claim) => ids.has(claim.decision))
+      .map(({ id, declared_at }) => ({ id, declared_at })),
   };
 }
 

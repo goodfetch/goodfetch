@@ -1,0 +1,21 @@
+{
+  "id": "D-stub-speed",
+  "title": "The stub's answer delay",
+  "question": "Does the stub that waits less before answering finish its verified tasks sooner?",
+  "status": "open",
+  "declared_at": "2026-11-24T00:00:00.000Z",
+  "options": [
+    { "id": "slow", "description": "The stub waiting long before each answer", "adapter": "slow" },
+    { "id": "fast", "description": "The stub waiting little before each answer", "adapter": "fast" }
+  ],
+  "baseline": "slow",
+  "primary_metric": "task_p50_ms_verified",
+  "secondary_metrics": ["failure_rate"],
+  "contract_gates": ["oracle_exact", "false_success_count"],
+  "delta": 1,
+  "rule": { "kind": "superiority", "alpha": 0.05, "power": 0.8, "noisy_blocks": "exclude" },
+  "host_class": { "decision": "local-dev", "publication": "reference" },
+  "evidence": [],
+  "depends_on": [],
+  "notes": "A fixture of the bench tests: the two options differ only by the delay their campaign gives the stub."
+}

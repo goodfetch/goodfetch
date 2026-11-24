@@ -1,0 +1,14 @@
+{
+  "id": "C-stub-fast-lower",
+  "statement": "The stub that waits less before answering has the lower median duration of verified tasks",
+  "decision": "D-stub-speed",
+  "metric": "task_p50_ms_verified",
+  "comparator": { "option": "fast", "against": ["slow"] },
+  "direction": "lower",
+  "delta": 1,
+  "publication_host_class": "reference",
+  "status": "candidate",
+  "declared_at": "2026-11-24T00:00:00.000Z",
+  "evidence": [],
+  "notes": ""
+}

@@ -1,4 +1,4 @@
-import { mkdtemp, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, test } from "vitest";
@@ -34,6 +34,7 @@ test("reads a campaign with the folder its adapters start in", async () => {
   expect(loaded.campaign).toEqual(campaign);
   expect(loaded.folder).toBe(join(path, ".."));
   expect(loaded.sha256).toMatch(/^[0-9a-f]{64}$/);
+  expect(loaded.declared).toEqual({ decisions: [], claims: [] });
 });
 
 test("refuses a campaign that does not have the file's shape", async () => {
@@ -115,6 +116,100 @@ test("refuses a matched row against no adapter of the campaign, against itself, 
   );
 
   expect(codes).toEqual(["invalid_document", "invalid_document", "invalid_document"]);
+});
+
+/** A campaign of adapters `a` and `b` declaring `D-example`, whose registry holds `decision` and `claim`. */
+async function declaring(decision: Record<string, unknown>, claim: Record<string, unknown>) {
+  const path = await written({
+    ...campaign,
+    adapters: ["a", "b"].map((id) => ({ id, command: ["node", "stub-adapter.ts"] })),
+    registry: { folder: "registry", decisions: ["D-example"] },
+  });
+  const root = join(path, "..", "registry");
+  await mkdir(join(root, "decisions"), { recursive: true });
+  await mkdir(join(root, "claims"));
+  await writeFile(join(root, "decisions", "D-example.json"), JSON.stringify(decision));
+  await writeFile(join(root, "claims", "C-example.json"), JSON.stringify(claim));
+  return path;
+}
+
+const declaredAt = "2026-11-01T00:00:00.000Z";
+const decision = {
+  id: "D-example",
+  title: "Example",
+  question: "Which option?",
+  status: "open",
+  declared_at: declaredAt,
+  options: [
+    { id: "a", description: "A", adapter: "a" },
+    { id: "b", description: "B", adapter: "b" },
+  ],
+  baseline: "a",
+  primary_metric: "task_p50_ms_verified",
+  secondary_metrics: [],
+  contract_gates: ["oracle_exact"],
+  delta: 0.5,
+  rule: { kind: "superiority", alpha: 0.05, power: 0.8, noisy_blocks: "exclude" },
+  host_class: { decision: "local-dev", publication: "reference" },
+  evidence: [],
+  depends_on: [],
+  notes: "",
+};
+const claim = {
+  id: "C-example",
+  statement: "b answers faster than a",
+  decision: "D-example",
+  metric: "task_p50_ms_verified",
+  comparator: { option: "b", against: ["a"] },
+  direction: "lower",
+  delta: 0.5,
+  publication_host_class: "reference",
+  status: "candidate",
+  declared_at: declaredAt,
+  evidence: [],
+  notes: "",
+};
+
+test("reads the decisions a campaign declares, with their claims, as they stand before the run", async () => {
+  const loaded = await loadCampaign(await declaring(decision, claim));
+
+  expect(loaded.declared).toEqual({
+    decisions: [{ id: "D-example", declared_at: declaredAt }],
+    claims: [{ id: "C-example", declared_at: declaredAt }],
+  });
+});
+
+test("refuses, before any measurement, an unknown decision, an option it cannot run or a late claim", async () => {
+  const cases = [
+    { decision: { ...decision, id: "D-other" }, claim: { ...claim, decision: "D-other" } },
+    {
+      decision: {
+        ...decision,
+        options: [...decision.options, { id: "c", description: "C", adapter: "c" }],
+      },
+      claim,
+    },
+    { decision, claim: { ...claim, declared_at: "2999-01-01T00:00:00.000Z" } },
+  ];
+
+  const messages = await Promise.all(
+    cases.map(async (one) =>
+      loadCampaign(await declaring(one.decision, one.claim)).then(
+        () => "read",
+        (error: unknown) => `${errorCode(error)}: ${error instanceof Error ? error.message : ""}`,
+      ),
+    ),
+  );
+
+  expect(messages).toEqual([
+    expect.stringMatching(/^registry_refused: .*the campaign declares unknown decision D-example$/),
+    expect.stringMatching(
+      /^registry_refused: .*D-example: option c's adapter c is not one of the campaign's$/,
+    ),
+    expect.stringMatching(
+      /^registry_refused: .*C-example: declared at 2999-01-01T00:00:00.000Z, after now$/,
+    ),
+  ]);
 });
 
 test("refuses a published configuration that does not declare both defaults", async () => {

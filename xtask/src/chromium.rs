@@ -3,7 +3,7 @@
 //! (the inputs of Chromium's own isolates), by SHA-256, so the gate's test
 //! jobs fetch them by digest and run on standard runners without the build
 //! tree. `expectations` checks the expected results under
-//! `chromium/expectations/`.
+//! `chromium/expectations/` and regenerates the generated ones.
 #![expect(
     clippy::disallowed_methods,
     reason = "xtask is synchronous; the blocking-fs and process bans target async crates (STYLE.md)"
@@ -24,6 +24,7 @@ use crate::environment::Environment;
 use crate::output;
 
 mod expectations;
+mod regenerate;
 
 /// The largest part a kept file is cut into: a file over 2 GiB is split.
 const PART_SIZE: u64 = 2 << 30;

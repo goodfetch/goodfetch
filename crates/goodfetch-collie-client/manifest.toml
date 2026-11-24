@@ -1181,6 +1181,83 @@ form = "read"
 
 [[member]]
 crate = "goodfetch-collie-client"
+receiver = "Run"
+member = "key_value_store"
+entry = "none"
+reason = "The Run's Key-value store (ADR 0103), with no round trip."
+words = ["key", "value", "store"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "(crate)"
+member = "KeyValueStore"
+entry = "none"
+reason = "A Run's Key-value store: `run.key_value_store()`, whose methods serve the `key_value_store` operations (ADR 0103)."
+words = ["key", "value", "store"]
+form = "type"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "KeyValueStore"
+member = "bound_to"
+entry = "none"
+reason = "The store bound to a crawl attempt, which a Product's handler context answers (ADR 0093)."
+only = "TypeScript's and Python's Foxhound build the attempt's store with its constructor."
+words = ["bound", "to"]
+form = "runtime"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "KeyValueStore"
+member = "get"
+entry = "key_value_store.get"
+words = ["get"]
+form = "round_trip"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "KeyValueStore"
+member = "set"
+entry = "key_value_store.set"
+words = ["set"]
+form = "round_trip"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "KeyValueStore"
+member = "get_bytes"
+entry = "key_value_store.get_bytes"
+words = ["get", "bytes"]
+form = "round_trip"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "KeyValueStore"
+member = "set_bytes"
+entry = "key_value_store.set_bytes"
+words = ["set", "bytes"]
+form = "round_trip"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "KeyValueStore"
+member = "delete"
+entry = "key_value_store.delete"
+words = ["delete"]
+form = "round_trip"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "(crate)"
+member = "StoredBytes"
+entry = "none"
+reason = "Bytes the Key-value store keeps, with their content type, as `key_value_store.get_bytes` answers them."
+words = ["stored", "bytes"]
+form = "type"
+
+[[member]]
+crate = "goodfetch-collie-client"
 receiver = "(crate)"
 member = "SaveFile"
 entry = "none"
@@ -2005,6 +2082,64 @@ form = "closer"
 
 [[member]]
 crate = "goodfetch-collie-client"
+receiver = "blocking::Run"
+member = "key_value_store"
+entry = "none"
+reason = "The Run's Key-value store (ADR 0103), with no round trip."
+words = ["key", "value", "store"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "blocking"
+member = "KeyValueStore"
+entry = "none"
+reason = "`KeyValueStore` without async (ADR 0081)."
+words = ["key", "value", "store"]
+form = "type"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "blocking::KeyValueStore"
+member = "get"
+entry = "key_value_store.get"
+words = ["get"]
+form = "round_trip"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "blocking::KeyValueStore"
+member = "set"
+entry = "key_value_store.set"
+words = ["set"]
+form = "round_trip"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "blocking::KeyValueStore"
+member = "get_bytes"
+entry = "key_value_store.get_bytes"
+words = ["get", "bytes"]
+form = "round_trip"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "blocking::KeyValueStore"
+member = "set_bytes"
+entry = "key_value_store.set_bytes"
+words = ["set", "bytes"]
+form = "round_trip"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "blocking::KeyValueStore"
+member = "delete"
+entry = "key_value_store.delete"
+words = ["delete"]
+form = "round_trip"
+
+[[member]]
+crate = "goodfetch-collie-client"
 receiver = "blocking"
 member = "SaveFile"
 entry = "none"
@@ -2547,12 +2682,5 @@ entries = ["page.body"]
 reason = "A Client that cannot read a page body's file streams it through `page.body`; no member streams it yet (issue 1404)."
 
 [[unreached]]
-entries = [
-  "key_value_store.get",
-  "key_value_store.set",
-  "key_value_store.get_bytes",
-  "key_value_store.set_bytes",
-  "key_value_store.delete",
-  "key_value_store.keys",
-]
-reason = "The Rust SDK has no Key-value store yet; issue 1284 adds the Run's."
+entries = ["key_value_store.keys"]
+reason = "Issue 1284 adds the Rust store's `keys`."

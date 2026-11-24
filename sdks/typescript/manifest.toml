@@ -1610,7 +1610,6 @@ receiver = "Run"
 member = "keyValueStore"
 entry = "none"
 reason = "The Run's Key-value store, opened with the Run, with no round trip."
-only = "Rust's SDK has no Key-value store yet; issue 1284 adds it."
 words = ["key", "value", "store"]
 form = "read"
 
@@ -1792,7 +1791,6 @@ receiver = "(module)"
 member = "KeyValueStore"
 entry = "none"
 reason = "A Run's Key-value store: `run.keyValueStore`, whose methods serve the `key_value_store` operations."
-only = "Rust's SDK has no Key-value store yet; issue 1284 adds it."
 words = ["key", "value", "store"]
 form = "type"
 
@@ -1842,6 +1840,7 @@ receiver = "KeyValueStore"
 member = "constructor"
 entry = "none"
 reason = "A Run opens its store; a program never constructs one."
+only = "Python's and Rust's stores have no constructor a program calls."
 words = ["key", "value", "store"]
 form = "read"
 
@@ -1851,7 +1850,6 @@ receiver = "(module)"
 member = "StoredBytes"
 entry = "none"
 reason = "Bytes the Key-value store keeps, with their content type, as `key_value_store.get_bytes` answers them."
-only = "Rust's SDK has no Key-value store yet; issue 1284 adds it."
 words = ["stored", "bytes"]
 form = "type"
 
@@ -1861,7 +1859,7 @@ receiver = "(module)"
 member = "StoredValue"
 entry = "none"
 reason = "What the Key-value store keeps: any JSON value but a top-level null."
-only = "Rust's SDK has no Key-value store yet; issue 1284 adds it."
+only = "TypeScript's type of a JSON value but null; Python's `set` takes any value its schema writes, and Rust's any the program's type serializes."
 words = ["stored", "value"]
 form = "type"
 

@@ -135,15 +135,7 @@ impl<T: Serialize + DeserializeOwned> Schema<T> {
     /// assert!(matches!(refused, Err(SchemaError::NotJson { path, .. }) if path == "/dune"));
     /// ```
     pub fn encode(&self, value: &T) -> Result<Value, SchemaError> {
-        let encoded = encode::to_json(value)?;
-        // What the engine reads parses back, and as the value sent: a field
-        // `Deserialize` skips, or renames differently, is refused here.
-        let parsed = self.decode(encoded.clone())?;
-        let read_back = encode::to_json(&parsed)?;
-        match encode::first_change(&encoded, &read_back) {
-            None => Ok(encoded),
-            Some((path, read_as)) => Err(SchemaError::ChangesOnReadBack { path, read_as }),
-        }
+        encode_read_back(value)
     }
 
     /// `answer`, a value received, read by `T`'s own `Deserialize`.
@@ -164,10 +156,40 @@ impl<T: Serialize + DeserializeOwned> Schema<T> {
     /// # Ok::<(), SchemaError>(())
     /// ```
     pub fn decode(&self, answer: Value) -> Result<T, SchemaError> {
-        serde_json::from_value(answer).map_err(|rejected| SchemaError::Rejected {
-            message: rejected.to_string(),
-        })
+        decode(answer)
     }
+}
+
+/// `value` as JSON, in the form `T`'s own `Deserialize` reads back: what a
+/// [`Schema`] encodes, for a value sent with no schema of its own, such as
+/// a Key-value store's.
+///
+/// # Errors
+///
+/// As [`Schema::encode`].
+pub(crate) fn encode_read_back<T: Serialize + DeserializeOwned>(
+    value: &T,
+) -> Result<Value, SchemaError> {
+    let encoded = encode::to_json(value)?;
+    // What the engine reads parses back, and as the value sent: a field
+    // `Deserialize` skips, or renames differently, is refused here.
+    let parsed: T = decode(encoded.clone())?;
+    let read_back = encode::to_json(&parsed)?;
+    match encode::first_change(&encoded, &read_back) {
+        None => Ok(encoded),
+        Some((path, read_as)) => Err(SchemaError::ChangesOnReadBack { path, read_as }),
+    }
+}
+
+/// `answer`, a value received, read by `T`'s own `Deserialize`.
+///
+/// # Errors
+///
+/// As [`Schema::decode`].
+pub(crate) fn decode<T: DeserializeOwned>(answer: Value) -> Result<T, SchemaError> {
+    serde_json::from_value(answer).map_err(|rejected| SchemaError::Rejected {
+        message: rejected.to_string(),
+    })
 }
 
 impl<T> Clone for Schema<T> {

@@ -39,6 +39,7 @@ use crate::catalog::{
 };
 use crate::foxhound::crawl::Seed;
 use crate::jsonrpc::RequestId;
+use crate::open_value::UnknownValue;
 use crate::run::RunId;
 
 mod links;
@@ -224,11 +225,14 @@ impl JsonSchema for HttpBody {
     }
 }
 
-/// Why the Frontier did not add a request (ADRs 0093 and 0120).
+/// Why the Frontier did not add a request (ADRs 0079, 0093 and 0120): an
+/// open enumeration, so a reason a newer engine gives reads as received.
 #[derive(
-    Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize, JsonSchema,
+    Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize, JsonSchema,
 )]
 #[serde(rename_all = "snake_case")]
+#[schemars(extend("open" = true), transform = crate::open_value::known_members)]
+#[non_exhaustive]
 pub enum NotAddedReason {
     /// The Frontier already admitted a request of the same identity: its
     /// method, its URL's key and its body's hash, or its declared `key`.
@@ -274,6 +278,11 @@ pub enum NotAddedReason {
     /// The `enqueueLinks` call that matched it already added its `limit`
     /// links (ADR 0093).
     LinkLimit,
+    /// A reason a newer engine gives that this reader does not know, kept
+    /// as received (ADR 0079).
+    #[serde(untagged)]
+    #[schemars(skip)]
+    Unknown(UnknownValue),
 }
 
 /// The Frontier's answer to a seed or an enqueue (ADRs 0079 and 0093): a

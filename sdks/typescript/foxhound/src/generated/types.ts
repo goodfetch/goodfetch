@@ -180,7 +180,27 @@ export type CrawlRequestOutcome1 =
       [k: string]: unknown;
     };
 /**
- * Why the Frontier did not add a request (ADRs 0093 and 0120).
+ * Why the Frontier did not add a request (ADRs 0079, 0093 and 0120): an
+ * open enumeration, so a reason a newer engine gives reads as received.
+ *
+ * A value this package does not know, which a newer engine may send, is kept as received (ADR 0079).
+ *
+ * - `duplicate`: The Frontier already admitted a request of the same identity: its method, its URL's key and its body's hash, or its declared `key`.
+ * - `out_of_scope`: Its URL is outside the crawl's scope (`crawl.scope.*`); or, for a nested sitemap, it is on a host its sitemap seed does not read sitemaps on.
+ * - `domain_policy`: The Run's domain policy refuses its host.
+ * - `max_depth`: It is deeper than `crawl.max_depth`.
+ * - `max_requests`: The crawl already admitted `crawl.max_requests` requests.
+ * - `unsupported_scheme`: Its URL's scheme is one the crawl cannot fetch: only `http` and `https` are.
+ * - `invalid_url`: The WHATWG URL Standard's parser refuses its URL, or it is relative where nothing gives it a base, as a seed is.
+ * - `max_url_length`: Its URL is longer than `crawl.max_url_length`.
+ * - `max_path_segments`: Its URL's path has more segments than `crawl.max_path_segments`.
+ * - `max_segment_repeats`: A segment of its URL's path repeats more than `crawl.max_segment_repeats`.
+ * - `max_sitemap_nesting`: A sitemap nested more levels under its sitemap seed than `crawl.max_sitemap_nesting` (ADR 0093).
+ * - `path_budget`: The first entry of `crawl.path_budgets` whose pattern its URL's path and query match already counted that entry's `max_requests`.
+ * - `trap_path`: Its URL's path falls under a trap the Frontier learned and closed (ADR 0005): a path pattern whose pages brought no new page and no URL outside it, which leaves a finished Run `unverified`.
+ * - `no_rule`: A sitemap entry no rule of its sitemap seed matches (ADR 0093).
+ * - `trap_link`: On the browser tier, its link is one a person cannot see, a `nofollow` one among them: a trap a crawl never enters (ADR 0035).
+ * - `link_limit`: The `enqueueLinks` call that matched it already added its `limit` links (ADR 0093).
  *
  * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
  * via the `definition` "NotAddedReason".
@@ -201,7 +221,8 @@ export type NotAddedReason =
   | "trap_path"
   | "no_rule"
   | "trap_link"
-  | "link_limit";
+  | "link_limit"
+  | (string & {});
 /**
  * Why a succeeded request committed no Record (ADR 0103).
  *

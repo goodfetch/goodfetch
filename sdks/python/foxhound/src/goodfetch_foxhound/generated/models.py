@@ -50,6 +50,7 @@ from goodfetch_collie_client.unknown_member import UnknownMember
 from goodfetch_foxhound.generated.open_values import (
     BlockCause,
     CrawlHookStage,
+    NotAddedReason,
     OutcomeKind,
     SkipReason,
 )
@@ -425,6 +426,28 @@ class Enqueued1(BaseModel):
     """
 
 
+class Enqueued2(BaseModel):
+    """The Frontier did not admit it."""
+
+    model_config = ConfigDict(
+        extra="allow",
+        arbitrary_types_allowed=True,
+    )
+    kind: Literal["not_added"]
+    reason: NotAddedReason
+    """Why."""
+    url: str
+    """Its URL as it was given."""
+
+
+class Enqueued(RootModel[Enqueued1 | Enqueued2]):
+    root: Enqueued1 | Enqueued2
+    """
+    The Frontier's answer to a seed or an enqueue (ADRs 0079 and 0093): a
+    value, never an error, since a request is one among many.
+    """
+
+
 class EnqueuedLink1(BaseModel):
     """The Frontier admitted its link as a crawl request."""
 
@@ -436,6 +459,20 @@ class EnqueuedLink1(BaseModel):
     kind: Literal["added"]
     url: str
     """Its URL as parsed and resolved, the URL its handler receives."""
+
+
+class EnqueuedLink2(BaseModel):
+    """The Frontier did not admit its link."""
+
+    model_config = ConfigDict(
+        extra="allow",
+        arbitrary_types_allowed=True,
+    )
+    kind: Literal["not_added"]
+    reason: NotAddedReason
+    """Why."""
+    url: str
+    """Its `href`, as written."""
 
 
 class EnqueuedLink3(BaseModel):
@@ -456,6 +493,26 @@ class EnqueuedLink4(BaseModel):
     kind: Literal["skipped_by_payload"]
     url: str
     """Its `href`, as written."""
+
+
+class EnqueuedLink(
+    RootModel[EnqueuedLink1 | EnqueuedLink2 | EnqueuedLink3 | EnqueuedLink4]
+):
+    root: EnqueuedLink1 | EnqueuedLink2 | EnqueuedLink3 | EnqueuedLink4
+    """What became of one element an `enqueueLinks` locator matched."""
+
+
+class EnqueuedLinks(BaseModel):
+    """
+    What `crawl_request.enqueue_links` answers: what became of each element
+    its locator matched, in document order.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    links: list[EnqueuedLink]
+    """Each element's answer."""
 
 
 class EquivalentForm(StrEnum):
@@ -886,73 +943,31 @@ class MatchedLink(BaseModel):
     """
 
 
-class NotAddedReason(StrEnum):
-    """Why the Frontier did not add a request (ADRs 0093 and 0120)."""
+class NotAddedAtCommit(BaseModel):
+    """
+    A request an attempt's enqueue, `enqueueLinks` call or seed answered
+    `added`, with its ID, that the attempt's commit did not add (ADR 0093):
+    the commit admits each staged request again on the run file as it then
+    stands, and another attempt's commit may have added the request
+    meanwhile, or a rule learned since refuses it. Its ID names no crawl
+    request.
+    """
 
-    duplicate = "duplicate"
+    model_config = ConfigDict(
+        extra="allow",
+        arbitrary_types_allowed=True,
+    )
+    duplicate_of: str | None = None
     """
-    The Frontier already admitted a request of the same identity: its
-    method, its URL's key and its body's hash, or its declared `key`.
+    The crawl request it is a duplicate of, when another request was
+    admitted under its identity first.
     """
-    out_of_scope = "out_of_scope"
-    """
-    Its URL is outside the crawl's scope (`crawl.scope.*`); or, for a
-    nested sitemap, it is on a host its sitemap seed does not read
-    sitemaps on.
-    """
-    domain_policy = "domain_policy"
-    """The Run's domain policy refuses its host."""
-    max_depth = "max_depth"
-    """It is deeper than `crawl.max_depth`."""
-    max_requests = "max_requests"
-    """The crawl already admitted `crawl.max_requests` requests."""
-    unsupported_scheme = "unsupported_scheme"
-    """
-    Its URL's scheme is one the crawl cannot fetch: only `http` and
-    `https` are.
-    """
-    invalid_url = "invalid_url"
-    """
-    The WHATWG URL Standard's parser refuses its URL, or it is relative
-    where nothing gives it a base, as a seed is.
-    """
-    max_url_length = "max_url_length"
-    """Its URL is longer than `crawl.max_url_length`."""
-    max_path_segments = "max_path_segments"
-    """Its URL's path has more segments than `crawl.max_path_segments`."""
-    max_segment_repeats = "max_segment_repeats"
-    """
-    A segment of its URL's path repeats more than
-    `crawl.max_segment_repeats`.
-    """
-    max_sitemap_nesting = "max_sitemap_nesting"
-    """
-    A sitemap nested more levels under its sitemap seed than
-    `crawl.max_sitemap_nesting` (ADR 0093).
-    """
-    path_budget = "path_budget"
-    """
-    The first entry of `crawl.path_budgets` whose pattern its URL's path
-    and query match already counted that entry's `max_requests`.
-    """
-    trap_path = "trap_path"
-    """
-    Its URL's path falls under a trap the Frontier learned and closed
-    (ADR 0005): a path pattern whose pages brought no new page and no
-    URL outside it, which leaves a finished Run `unverified`.
-    """
-    no_rule = "no_rule"
-    """A sitemap entry no rule of its sitemap seed matches (ADR 0093)."""
-    trap_link = "trap_link"
-    """
-    On the browser tier, its link is one a person cannot see, a
-    `nofollow` one among them: a trap a crawl never enters (ADR 0035).
-    """
-    link_limit = "link_limit"
-    """
-    The `enqueueLinks` call that matched it already added its `limit`
-    links (ADR 0093).
-    """
+    id: str
+    """The ID its staging answered."""
+    reason: NotAddedReason
+    """Why the commit did not add it."""
+    url: str
+    """Its URL, as parsed."""
 
 
 class NothingCommitted(StrEnum):
@@ -1442,6 +1457,19 @@ class RunRetryFailedParams(BaseModel):
     The Run's settings from the retry on, nested by key, as a resume
     takes them: read only when the retry returns an ended Run to
     `running` (ADRs 0083 and 0102).
+    """
+
+
+class RunSeeds(BaseModel):
+    """What `run.seeds` answers."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    seeds: list[Enqueued]
+    """
+    Each seed's answer, in the order the start gave the seeds; none for
+    a Run that is no crawl.
     """
 
 
@@ -1986,6 +2014,41 @@ class CrawlRequestLinks(BaseModel):
     """The elements."""
 
 
+class CrawlRequestOutcome1(BaseModel):
+    """Its handler returned, and what it staged was committed."""
+
+    model_config = ConfigDict(
+        extra="allow",
+        arbitrary_types_allowed=True,
+    )
+    attempts: Annotated[int, Field(ge=0)]
+    """How many attempts it took: retries are a count, not an outcome."""
+    ended_at: PointInTime
+    """When it ended."""
+    errors: list[AttemptError]
+    """The error of each failed attempt, in order."""
+    position: Annotated[int, Field(ge=0)]
+    """
+    Its place in the Run's commit order, from 1, which `run.outcomes`'s
+    `after` takes.
+    """
+    request: OutcomeRequest
+    """The request it ends."""
+    kind: Literal["succeeded"]
+    not_added: list[NotAddedAtCommit] | None = None
+    """
+    Each request its attempt's enqueues, `enqueueLinks` calls and
+    seeds answered `added` that the commit did not add, in order.
+    """
+    nothing_committed: NothingCommitted | None = None
+    """Why it committed no Record, when it committed none."""
+    records: list[DatasetRecords]
+    """
+    Per Dataset its handler pushed into, the Records committed,
+    dropped and rejected.
+    """
+
+
 class CrawlRequestOutcome2(BaseModel):
     """Its last attempt failed, and no retry is left."""
 
@@ -2086,6 +2149,46 @@ class CrawlRequestOutcome5(UnknownMember):
     kind: Literal["unknown"]
     tag: str
     """The tag the engine sent."""
+
+
+class CrawlRequestOutcome(
+    RootModel[
+        CrawlRequestOutcome1
+        | CrawlRequestOutcome2
+        | CrawlRequestOutcome3
+        | CrawlRequestOutcome4
+        | CrawlRequestOutcome5
+    ]
+):
+    root: (
+        CrawlRequestOutcome1
+        | CrawlRequestOutcome2
+        | CrawlRequestOutcome3
+        | CrawlRequestOutcome4
+        | CrawlRequestOutcome5
+    )
+    """
+    How one crawl request ended (ADRs 0079 and 0102). A request that
+    `run.retry_failed` re-admits ends again, and its later outcome
+    supersedes this one: a reader keys outcomes by `request.id`.
+    """
+
+
+class CrawlRequestOutcomes(BaseModel):
+    """One page of `run.outcomes`."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    ended: bool
+    """
+    Whether the sequence is over: the Run has ended, or has no live
+    writer, and nothing committed after `next` matches.
+    """
+    next: Annotated[int, Field(ge=0)]
+    """The position the next page starts after."""
+    outcomes: list[CrawlRequestOutcome]
+    """The outcomes that match, in commit order."""
 
 
 class CrawlRunProgress(BaseModel):
@@ -2194,60 +2297,6 @@ class EncodingProvenance(BaseModel):
     """
 
 
-class Enqueued2(BaseModel):
-    """The Frontier did not admit it."""
-
-    model_config = ConfigDict(
-        extra="allow",
-    )
-    kind: Literal["not_added"]
-    reason: NotAddedReason
-    """Why."""
-    url: str
-    """Its URL as it was given."""
-
-
-class Enqueued(RootModel[Enqueued1 | Enqueued2]):
-    root: Enqueued1 | Enqueued2
-    """
-    The Frontier's answer to a seed or an enqueue (ADRs 0079 and 0093): a
-    value, never an error, since a request is one among many.
-    """
-
-
-class EnqueuedLink2(BaseModel):
-    """The Frontier did not admit its link."""
-
-    model_config = ConfigDict(
-        extra="allow",
-    )
-    kind: Literal["not_added"]
-    reason: NotAddedReason
-    """Why."""
-    url: str
-    """Its `href`, as written."""
-
-
-class EnqueuedLink(
-    RootModel[EnqueuedLink1 | EnqueuedLink2 | EnqueuedLink3 | EnqueuedLink4]
-):
-    root: EnqueuedLink1 | EnqueuedLink2 | EnqueuedLink3 | EnqueuedLink4
-    """What became of one element an `enqueueLinks` locator matched."""
-
-
-class EnqueuedLinks(BaseModel):
-    """
-    What `crawl_request.enqueue_links` answers: what became of each element
-    its locator matched, in document order.
-    """
-
-    model_config = ConfigDict(
-        extra="allow",
-    )
-    links: list[EnqueuedLink]
-    """Each element's answer."""
-
-
 class Export(BaseModel):
     """What `run.export` answers once the Export's file is whole (ADR 0103)."""
 
@@ -2275,6 +2324,16 @@ class Export(BaseModel):
     """The SHA-256 of its bytes, in lowercase hexadecimal."""
     size: Annotated[int, Field(ge=0)]
     """Its size in bytes."""
+
+
+class FailedRequests(BaseModel):
+    """What `run.failed_requests` answers."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    requests: list[CrawlRequestOutcome]
+    """The latest outcome of each such request, in commit order."""
 
 
 class LearnedRule(BaseModel):
@@ -2321,32 +2380,6 @@ class LearnedRule(BaseModel):
     """
 
 
-class NotAddedAtCommit(BaseModel):
-    """
-    A request an attempt's enqueue, `enqueueLinks` call or seed answered
-    `added`, with its ID, that the attempt's commit did not add (ADR 0093):
-    the commit admits each staged request again on the run file as it then
-    stands, and another attempt's commit may have added the request
-    meanwhile, or a rule learned since refuses it. Its ID names no crawl
-    request.
-    """
-
-    model_config = ConfigDict(
-        extra="allow",
-    )
-    duplicate_of: str | None = None
-    """
-    The crawl request it is a duplicate of, when another request was
-    admitted under its identity first.
-    """
-    id: str
-    """The ID its staging answered."""
-    reason: NotAddedReason
-    """Why the commit did not add it."""
-    url: str
-    """Its URL, as parsed."""
-
-
 class RecordFilter(BaseModel):
     """Which Records a page takes: those that meet every condition."""
 
@@ -2372,19 +2405,6 @@ class RecordSort(BaseModel):
     """Its direction."""
     field: str
     """The field's name."""
-
-
-class RunSeeds(BaseModel):
-    """What `run.seeds` answers."""
-
-    model_config = ConfigDict(
-        extra="allow",
-    )
-    seeds: list[Enqueued]
-    """
-    Each seed's answer, in the order the start gave the seeds; none for
-    a Run that is no crawl.
-    """
 
 
 class Seed(RootModel[RequestSeed | SitemapSeed]):
@@ -2481,81 +2501,6 @@ class CrawlHookHandleParams(BaseModel):
     """The crawl's Run."""
     stage: CrawlHookStage
     """The stage it runs at."""
-
-
-class CrawlRequestOutcome1(BaseModel):
-    """Its handler returned, and what it staged was committed."""
-
-    model_config = ConfigDict(
-        extra="allow",
-        arbitrary_types_allowed=True,
-    )
-    attempts: Annotated[int, Field(ge=0)]
-    """How many attempts it took: retries are a count, not an outcome."""
-    ended_at: PointInTime
-    """When it ended."""
-    errors: list[AttemptError]
-    """The error of each failed attempt, in order."""
-    position: Annotated[int, Field(ge=0)]
-    """
-    Its place in the Run's commit order, from 1, which `run.outcomes`'s
-    `after` takes.
-    """
-    request: OutcomeRequest
-    """The request it ends."""
-    kind: Literal["succeeded"]
-    not_added: list[NotAddedAtCommit] | None = None
-    """
-    Each request its attempt's enqueues, `enqueueLinks` calls and
-    seeds answered `added` that the commit did not add, in order.
-    """
-    nothing_committed: NothingCommitted | None = None
-    """Why it committed no Record, when it committed none."""
-    records: list[DatasetRecords]
-    """
-    Per Dataset its handler pushed into, the Records committed,
-    dropped and rejected.
-    """
-
-
-class CrawlRequestOutcome(
-    RootModel[
-        CrawlRequestOutcome1
-        | CrawlRequestOutcome2
-        | CrawlRequestOutcome3
-        | CrawlRequestOutcome4
-        | CrawlRequestOutcome5
-    ]
-):
-    root: (
-        CrawlRequestOutcome1
-        | CrawlRequestOutcome2
-        | CrawlRequestOutcome3
-        | CrawlRequestOutcome4
-        | CrawlRequestOutcome5
-    )
-    """
-    How one crawl request ended (ADRs 0079 and 0102). A request that
-    `run.retry_failed` re-admits ends again, and its later outcome
-    supersedes this one: a reader keys outcomes by `request.id`.
-    """
-
-
-class CrawlRequestOutcomes(BaseModel):
-    """One page of `run.outcomes`."""
-
-    model_config = ConfigDict(
-        extra="allow",
-    )
-    ended: bool
-    """
-    Whether the sequence is over: the Run has ended, or has no live
-    writer, and nothing committed after `next` matches.
-    """
-    next: Annotated[int, Field(ge=0)]
-    """The position the next page starts after."""
-    outcomes: list[CrawlRequestOutcome]
-    """The outcomes that match, in commit order."""
 
 
 class CrawlRunReport(BaseModel):
@@ -2739,16 +2684,6 @@ class DatasetPageParams(BaseModel):
     committed when the first was read. Absent, the last number
     committed now.
     """
-
-
-class FailedRequests(BaseModel):
-    """What `run.failed_requests` answers."""
-
-    model_config = ConfigDict(
-        extra="allow",
-    )
-    requests: list[CrawlRequestOutcome]
-    """The latest outcome of each such request, in commit order."""
 
 
 class RecordProvenance(BaseModel):

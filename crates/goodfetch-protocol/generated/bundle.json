@@ -10324,7 +10324,7 @@
       "type": "object"
     },
     "NotAddedReason": {
-      "description": "Why the Frontier did not add a request (ADRs 0093 and 0120).",
+      "description": "Why the Frontier did not add a request (ADRs 0079, 0093 and 0120): an\nopen enumeration, so a reason a newer engine gives reads as received.",
       "oneOf": [
         {
           "const": "duplicate",
@@ -10406,7 +10406,8 @@
           "description": "The `enqueueLinks` call that matched it already added its `limit`\nlinks (ADR 0093).",
           "type": "string"
         }
-      ]
+      ],
+      "open": true
     },
     "NotCleaned": {
       "description": "Why the clean-up did not run.",

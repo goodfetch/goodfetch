@@ -18,6 +18,7 @@
 
 mod client_certificates;
 mod exceptions;
+mod serving;
 mod shared;
 
 use std::collections::BTreeMap;
@@ -29,6 +30,7 @@ pub use client_certificates::{ClientCertificateFailure, ClientCertificates, Iden
 pub use exceptions::{
     CertificateChanged, CertificateExceptions, ExceptionUsed, PinBook, Presented,
 };
+pub use serving::{ServingCertificate, ServingCertificateError};
 pub use shared::{Decision, SharedTrust, Verdict, certificate_failure};
 
 use goodfetch_protocol::tls::{

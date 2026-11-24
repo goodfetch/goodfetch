@@ -120,7 +120,7 @@ fn address_of_this_version() -> serde_json::Value {
 /// `daemon.address` (ADR 0049): where the foreground Daemon listens.
 pub const ADDRESS: Setting = Setting {
     name: "daemon.address",
-    description: "Where `daemon run`, the foreground Daemon, listens, as `host:port`: `127.0.0.1` on port 7900 plus the major (7600 plus the minor during `0.y` previews). Port 0 takes a free port, which its log names. Only a loopback address, until the Daemon terminates TLS. Set in user configuration or an Operator policy, or for `daemon run` through `GOODFETCH_DAEMON_ADDRESS`.",
+    description: "Where `daemon run`, the foreground Daemon, listens, as `host:port`: `127.0.0.1` on port 7900 plus the major (7600 plus the minor during `0.y` previews). Port 0 takes a free port, which its log names. An address other than loopback needs `daemon.tls.cert_file` and `daemon.tls.key_file`, so no token crosses a network in clear. Set in user configuration or an Operator policy, or for `daemon run` through `GOODFETCH_DAEMON_ADDRESS`.",
     kind: ValueKind::Text,
     default: address_of_this_version,
     clearable: false,
@@ -146,6 +146,42 @@ pub const DRAIN_GRACE: Setting = Setting {
     kind: ValueKind::Duration,
     default: hundred_and_ten_seconds,
     clearable: false,
+    authority: Authority::Machine,
+    weakens: None,
+    fixed_for_run: false,
+    unbuilt: None,
+    deprecated: None,
+    arrived_in: ARRIVED_IN,
+};
+
+fn unset() -> serde_json::Value {
+    serde_json::Value::Null
+}
+
+/// `daemon.tls.cert_file` (ADR 0049): the certificate chain an Exposed
+/// Daemon serves TLS with.
+pub const TLS_CERT_FILE: Setting = Setting {
+    name: "daemon.tls.cert_file",
+    description: "The certificate chain `daemon run`, the foreground Daemon, serves TLS with on `daemon.address`, a PEM or DER file, set together with `daemon.tls.key_file`. With both set, every Connection opens with a TLS handshake, its JSON-RPC lines and its WebSocket alike, and one that does not is closed and recorded in the Audit log; a replaced file is read again at the next Connection, with no restart. Unset by default, which limits `daemon.address` to loopback. Set in user configuration or an Operator policy.",
+    kind: ValueKind::Text,
+    default: unset,
+    clearable: true,
+    authority: Authority::Machine,
+    weakens: None,
+    fixed_for_run: false,
+    unbuilt: None,
+    deprecated: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// `daemon.tls.key_file` (ADR 0049): the private key of
+/// `daemon.tls.cert_file`'s certificate.
+pub const TLS_KEY_FILE: Setting = Setting {
+    name: "daemon.tls.key_file",
+    description: "The private key of `daemon.tls.cert_file`'s certificate, a PEM file (PKCS #8, PKCS #1 or SEC 1) or a DER file, set together with it. A replaced file is read again at the next Connection, with no restart. Unset by default. Set in user configuration or an Operator policy.",
+    kind: ValueKind::Text,
+    default: unset,
+    clearable: true,
     authority: Authority::Machine,
     weakens: None,
     fixed_for_run: false,
@@ -490,7 +526,13 @@ pub const ENTRIES: Entries = Entries {
     error_codes: &[NOT_A_DAEMON, DAEMON_DRAINING, DAEMON_UNREACHABLE],
     plugin_kinds: &[],
     metrics: &[],
-    settings: &[IDLE_TIMEOUT, ADDRESS, DRAIN_GRACE],
+    settings: &[
+        IDLE_TIMEOUT,
+        ADDRESS,
+        DRAIN_GRACE,
+        TLS_CERT_FILE,
+        TLS_KEY_FILE,
+    ],
     hook_stages: &[],
     shared_type_values: &[],
 };

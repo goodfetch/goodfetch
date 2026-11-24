@@ -125,6 +125,7 @@ mod source_build;
 mod storage;
 #[cfg(target_os = "linux")]
 mod threads;
+mod tls;
 mod upgrade_files;
 mod usage;
 mod views;

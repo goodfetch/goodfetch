@@ -2702,6 +2702,10 @@ const SPELLING: Spelling = {
     address: "address",
     drainGrace: "drain_grace",
     idleTimeout: "idle_timeout",
+    tls: ["tls", {
+      certFile: "cert_file",
+      keyFile: "key_file",
+    }],
   }],
   dataset: ["dataset", {
     query: ["query", {

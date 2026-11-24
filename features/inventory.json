@@ -8920,6 +8920,28 @@
       ]
     },
     {
+      "id": "setting:daemon.tls.cert_file",
+      "kind": "setting",
+      "area": 3,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "setting:daemon.tls.key_file",
+      "kind": "setting",
+      "area": 3,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "setting:dataset.query.max_rows",
       "kind": "setting",
       "area": 12,

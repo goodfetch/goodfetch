@@ -1285,7 +1285,7 @@ pub mod secrets {
 /// The `security.*` settings.
 pub mod security {
 
-    /// Whether the run's Audit log entries are hash-chained (ADR 0016). On by default; off, that run's entries are written unchained, each marked `chained: false`, which `audit verify` steps over while it verifies the chain around them; the switch itself is a chained entry, and the run says so in its report's `weakened` and in one warning.
+    /// Whether the run's Audit log entries are hash-chained (ADR 0016). On by default; off, that run's entries are written unchained, each marked `chained: false`, which `audit verify` steps over while it verifies the chain around them; the switch itself is a chained entry, and the run says so in its report's `weakened` and in one warning. A Recipe or a Client acting for a model never switches it off: its `false` is `setting_locked`.
     ///
     /// `security.audit_chain`.
     pub const AUDIT_CHAIN: crate::settings::Setting<bool> = crate::settings::Setting::new(
@@ -1296,7 +1296,7 @@ pub mod security {
         ],
     );
 
-    /// Whether the run's state seals its secret fields with the run's data key (ADR 0015). On by default; off, they are written in the clear, and the run says so in its report's `weakened`, in the Audit log and in one warning.
+    /// Whether the run's state seals its secret fields with the run's data key (ADR 0015). On by default; off, they are written in the clear, and the run says so in its report's `weakened`, in the Audit log and in one warning. A Recipe or a Client acting for a model never switches it off: its `false` is `setting_locked`.
     ///
     /// `security.field_encryption`.
     pub const FIELD_ENCRYPTION: crate::settings::Setting<bool> = crate::settings::Setting::new(
@@ -1307,7 +1307,7 @@ pub mod security {
         ],
     );
 
-    /// Whether every browser Session the engine launches reaches the network through the egress relay, which holds a raw CDP client or a Lent page at the network layer (ADR 0017). On by default; off, a Session with no certificate exception and no local address connects directly, held by interception alone, and the run says so in its report's `weakened`, in the Audit log and in one warning. It never removes the relay that carries certificate exceptions or local addresses.
+    /// Whether every browser Session the engine launches reaches the network through the egress relay, which holds a raw CDP client or a Lent page at the network layer (ADR 0017). On by default; off, a Session with no certificate exception and no local address connects directly, held by interception alone, and the run says so in its report's `weakened`, in the Audit log and in one warning. It never removes the relay that carries certificate exceptions or local addresses. A Recipe or a Client acting for a model never switches it off: its `false` is `setting_locked`.
     ///
     /// `security.raw_cdp_egress_proxy`.
     pub const RAW_CDP_EGRESS_PROXY: crate::settings::Setting<bool> = crate::settings::Setting::new(
@@ -1318,7 +1318,7 @@ pub mod security {
         ],
     );
 
-    /// Whether logs, traces and HAR files are redacted and screenshots and recordings kept as outputs are masked (ADR 0014). On by default; off lifts that guarantee for those outputs only: secrets still never reach the model, Plans, caches, the Effect journal or observations. The run says so in its report's `weakened`, in the Audit log and in one warning.
+    /// Whether logs, traces and HAR files are redacted and screenshots and recordings kept as outputs are masked (ADR 0014). On by default; off lifts that guarantee for those outputs only: secrets still never reach the model, Plans, caches, the Effect journal or observations. The run says so in its report's `weakened`, in the Audit log and in one warning. A Recipe or a Client acting for a model never switches it off: its `false` is `setting_locked`.
     ///
     /// `security.redaction`.
     pub const REDACTION: crate::settings::Setting<bool> = crate::settings::Setting::new(
@@ -1329,7 +1329,7 @@ pub mod security {
         ],
     );
 
-    /// Whether every address a name resolves to is checked against the egress policy before a connection is made (ADR 0017). On by default; off, the domain policy alone applies, and the run says so in its report's `weakened`, in the Audit log and in one warning.
+    /// Whether every address a name resolves to is checked against the egress policy before a connection is made (ADR 0017). On by default; off, the domain policy alone applies, and the run says so in its report's `weakened`, in the Audit log and in one warning. A Recipe or a Client acting for a model never switches it off: its `false` is `setting_locked`.
     ///
     /// `security.resolved_ip_check`.
     pub const RESOLVED_IP_CHECK: crate::settings::Setting<bool> = crate::settings::Setting::new(
@@ -1340,7 +1340,7 @@ pub mod security {
         ],
     );
 
-    /// Whether the run's secret tables overwrite what they delete, SQLite's `secure_delete` (ADR 0015). On by default; off, deleted values may stay on disk until overwritten, and the run says so in its report's `weakened`, in the Audit log and in one warning.
+    /// Whether the run's secret tables overwrite what they delete, SQLite's `secure_delete` (ADR 0015). On by default; off, deleted values may stay on disk until overwritten, and the run says so in its report's `weakened`, in the Audit log and in one warning. A Recipe or a Client acting for a model never switches it off: its `false` is `setting_locked`.
     ///
     /// `security.secure_delete`.
     pub const SECURE_DELETE: crate::settings::Setting<bool> = crate::settings::Setting::new(

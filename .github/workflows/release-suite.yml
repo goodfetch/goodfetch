@@ -343,8 +343,9 @@ jobs:
     needs: plan
     if: needs.plan.outputs.skew != '[]'
     runs-on: ubuntu-24.04
-    # The hard cap that stops a hang (TESTING.md, Time budgets).
-    timeout-minutes: 120
+    # ADR 0061's hard cap, which stops a hang: the job `current` took 34
+    # minutes in run 45493008860.
+    timeout-minutes: 90
     permissions:
       contents: read
     strategy:

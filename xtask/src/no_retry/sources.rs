@@ -18,6 +18,11 @@ const RERUN_PLUGINS: [&str; 3] = ["pytest-rerunfailures", "flaky", "pytest-retry
 /// Vitest's option, then Playwright's.
 const RETRY_OPTIONS: [&str; 2] = ["retry", "retries"];
 
+/// Foxhound's crawl setting, as the formatter writes it: it retries a
+/// crawl's request, not the test. Its whole object, so a runner's own key
+/// beside it (Vitest's `count`) is still found.
+const CRAWL_SETTING: &str = "retry: { handlerFailed: true }";
+
 #[derive(Deserialize)]
 struct Lockfile {
     #[serde(rename = "package", default)]
@@ -52,12 +57,14 @@ pub(super) fn check_lockfile(root: &Path) -> Result<Vec<Finding>> {
         .collect())
 }
 
-/// An object property `retry` or `retries` whose value is anything but `0`.
+/// An object property `retry` or `retries` whose value is anything but `0`
+/// or Foxhound's crawl setting.
 pub(super) fn check_javascript(file: &File, findings: &mut Vec<Finding>) {
     for line in file.text.lines() {
         let code = line.split("//").next().unwrap_or(line);
+        let code = code.replace(CRAWL_SETTING, "");
         for option in RETRY_OPTIONS {
-            if let Some(value) = property_value(code, option)
+            if let Some(value) = property_value(&code, option)
                 && value != "0"
             {
                 findings.push(Finding::new(

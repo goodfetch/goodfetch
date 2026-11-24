@@ -8,3 +8,8 @@ test("reads a value once it is written", async () => {
   // Waiting on a condition with a deadline is not a retry (ADR 0064).
   await vi.waitFor(() => expect(value).toBe(1), { timeout: 1_000 });
 });
+
+test("passes a Crawl the setting that retries its own requests", () => {
+  const settings = { crawl: { handler: { concurrency: 1 }, retry: { handlerFailed: true } } };
+  expect(settings.crawl.retry.handlerFailed).toBe(true);
+});

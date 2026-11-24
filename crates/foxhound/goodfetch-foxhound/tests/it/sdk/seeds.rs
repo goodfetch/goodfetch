@@ -29,10 +29,10 @@ use crate::fetch_tiers::{ORDER_PATH, ORDERED, order_methods};
 
 /// The Proving ground's seed of the `catalog` family the request seeds
 /// read, the catalog program's.
-const CATALOG: u64 = 1467;
+pub(super) const CATALOG: u64 = 1467;
 
 /// The `catalog` family's host.
-const CATALOG_HOST: &str = "catalog.test";
+pub(super) const CATALOG_HOST: &str = "catalog.test";
 
 /// The Proving ground's seed of the `sitemap-seed` family.
 const SITEMAPS: u64 = 903;
@@ -69,12 +69,12 @@ fn sorted(seen: &Seen) -> Vec<(String, String, Value)> {
 
 /// What the order page names: the product the order's body ordered.
 #[derive(Debug, Deserialize)]
-struct Ordered {
-    id: Option<String>,
+pub(super) struct Ordered {
+    pub(super) id: Option<String>,
 }
 
 /// The text of the order page's `span.id`, read as [`Ordered`].
-fn ordered_field() -> BTreeMap<String, PageField> {
+pub(super) fn ordered_field() -> BTreeMap<String, PageField> {
     BTreeMap::from([(
         "id".to_owned(),
         PageField::Value(ValueField {

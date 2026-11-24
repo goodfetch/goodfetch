@@ -50,7 +50,8 @@ mod sync;
 
 pub use composition::{composition, composition_with};
 pub use crawl::{
-    Crawl, CrawlCall, CrawlContext, CrawlRun, Dataset, Label, LabelDeclaration, Seed, StartCrawl,
+    Crawl, CrawlCall, CrawlContext, CrawlRun, Dataset, Enqueue, EnqueueLinks, Label,
+    LabelDeclaration, LinkPayload, Seed, StartCrawl,
 };
 pub use foxhound::{Foxhound, PAID_FETCHES};
 pub use goodfetch_collie::{
@@ -67,7 +68,7 @@ pub use goodfetch_protocol::foxhound::dataset::DatasetRecord;
 /// engine.
 pub use goodfetch_protocol::foxhound::error_code;
 pub use goodfetch_protocol::foxhound::frontier::{
-    Enqueued, EnqueuedLink, EnqueuedLinks, HttpMethod, NotAddedReason,
+    Enqueued, EnqueuedLink, EnqueuedLinks, HttpMethod, MatchedLink, NotAddedReason,
 };
 pub use goodfetch_protocol::foxhound::report::{CrawlRunReport, RequestCounts};
 pub use goodfetch_protocol::page::events::PageRequest;

@@ -14,17 +14,17 @@ use goodfetch_protocol::foxhound::dataset::{
 };
 use goodfetch_protocol::foxhound::error_code;
 use goodfetch_protocol::foxhound::fetch::{RESPONSE_NOT_DOCUMENT, ResponseNotDocumentDetails};
-use goodfetch_protocol::foxhound::frontier::{
-    CRAWL_REQUEST_ENQUEUE, CRAWL_REQUEST_ENQUEUE_LINKS, CrawlRequestEnqueueLinksParams,
-    CrawlRequestEnqueueParams, Enqueued, EnqueuedLinks, HttpMethod,
-};
 use goodfetch_protocol::run::RunId;
 use serde::Serialize;
 use serde::de::DeserializeOwned;
-use serde_json::{Value, json};
+use serde_json::json;
 
-use super::{CrawlId, Dataset, Label, label_unknown};
+use super::{CrawlId, Dataset, Label};
 use crate::sync::Mutex;
+
+mod enqueue;
+
+pub use enqueue::{Enqueue, EnqueueLinks, LinkPayload};
 
 /// The `retry_requested` of a handler's `ctx.retry(message)` (ADR 0093).
 pub(super) fn retry_requested(message: &str) -> Error {
@@ -148,6 +148,24 @@ impl Attempt {
             Some(_) => Err(attempt_ended(self)),
             None => Ok(()),
         }
+    }
+
+    /// The call of `method` with `params`, sent while the attempt runs,
+    /// whose answer reads as `T`: what each of the attempt's own calls
+    /// sends. It fails with what made `params`, or `attempt_ended` once
+    /// the attempt has ended.
+    async fn call<T, C>(
+        self: Arc<Self>,
+        method: &'static str,
+        params: Result<C, Error>,
+    ) -> Result<T, Error>
+    where
+        T: DeserializeOwned + Send + 'static,
+        C: Serialize + Send + 'static,
+    {
+        let params = params?;
+        self.ensure_running()?;
+        self.connection.call::<T>(method, &params).await
     }
 }
 
@@ -293,7 +311,8 @@ impl<P> CrawlContext<P> {
                 dataset: dataset.name.to_string(),
                 records: vec![record],
             });
-        let pushed = self.send::<CrawlRequestPushed, _>(CRAWL_REQUEST_PUSH.name, params);
+        let pushed = Arc::clone(&self.attempt)
+            .call::<CrawlRequestPushed, _>(CRAWL_REQUEST_PUSH.name, params);
         async move { pushed.await.map(drop) }
     }
 
@@ -315,15 +334,18 @@ impl<P> CrawlContext<P> {
     ///
     /// Experimental: outside semver until it is promoted (ADR 0030).
     ///
-    /// This enqueues the request of `url`, handled by `label`'s handler
-    /// with `payload` (`crawl_request.enqueue`).
+    /// This is the enqueue of the request of `url`, handled by `label`'s
+    /// handler with `payload` (`crawl_request.enqueue`), which awaiting
+    /// sends; its method, body, priority, forefront and key are the
+    /// [`Enqueue`]'s methods.
     ///
     /// # Errors
     ///
-    /// `label_unknown` for a Label of another crawl, `payload_invalid` for
-    /// a Payload that does not serialize, that its Label's schema refuses,
-    /// naming each issue, or that is longer than `crawl.payload.max_size`,
-    /// and `attempt_ended` once the attempt has ended.
+    /// Awaiting it fails with `label_unknown` for a Label of another crawl,
+    /// `payload_invalid` for a Payload that does not serialize, that its
+    /// Label's schema refuses, naming each issue, or that is longer than
+    /// `crawl.payload.max_size`, and `attempt_ended` once the attempt has
+    /// ended.
     ///
     /// # Cancel safety
     ///
@@ -337,24 +359,8 @@ impl<P> CrawlContext<P> {
         url: impl Into<String>,
         label: &Label<Q>,
         payload: Q,
-    ) -> impl Future<Output = Result<Enqueued, Error>> + Send + 'static {
-        let params = self
-            .own_payload(label, &payload)
-            .map(|payload| CrawlRequestEnqueueParams {
-                run_id: self.attempt.params.run_id.clone(),
-                crawl_request_id: self.attempt.params.crawl_request.id.clone(),
-                lease_epoch: self.attempt.params.lease_epoch,
-                url: url.into(),
-                label: label.name.to_string(),
-                payload: Some(payload),
-                priority: 0,
-                forefront: false,
-                method: HttpMethod::default(),
-                body: None,
-                key: None,
-                document: None,
-            });
-        self.send(CRAWL_REQUEST_ENQUEUE.name, params)
+    ) -> Enqueue {
+        Enqueue::new(&self.attempt, url.into(), label, &payload)
     }
 
     /// Adds every link a locator matches on the page a handler's attempt
@@ -380,92 +386,42 @@ impl<P> CrawlContext<P> {
     ///
     /// Experimental: outside semver until it is promoted (ADR 0030).
     ///
-    /// This enqueues the link of each element `links` matches, all handled
-    /// by `label`'s handler with `payload`
-    /// (`crawl_request.enqueue_links`).
+    /// This is the enqueue of the link of each element `links` matches, all
+    /// handled by `label`'s handler (`crawl_request.enqueue_links`), which
+    /// awaiting sends; its include and exclude patterns, limit and priority
+    /// are the [`EnqueueLinks`]'s methods. `payload` is one Payload for
+    /// every link, or [`LinkPayload::with`] a function of each matched
+    /// element, which reads them first (`crawl_request.links`) and answers
+    /// each link's Payload, or `None` to leave it out.
     ///
     /// # Errors
     ///
-    /// `label_unknown` for a Label of another crawl, `payload_invalid` for
-    /// a Payload that does not serialize, that its Label's schema refuses,
-    /// naming each issue, or that is longer than `crawl.payload.max_size`,
-    /// and `attempt_ended` once the attempt has ended.
+    /// Awaiting it fails with `label_unknown` for a Label of another crawl,
+    /// `payload_invalid` for a Payload that does not serialize, that its
+    /// Label's schema refuses, naming each issue, that is longer than
+    /// `crawl.payload.max_size`, or that a function answers as `null` for a
+    /// link it keeps, and `attempt_ended` once the attempt has ended.
     ///
     /// # Cancel safety
     ///
     /// Dropping the future may leave some of the links enqueued or none.
-    pub fn enqueue_links<Q: Serialize + DeserializeOwned>(
+    pub fn enqueue_links<Q: Serialize + DeserializeOwned + 'static>(
         &self,
         links: &Locator,
         label: &Label<Q>,
-        payload: Q,
-    ) -> impl Future<Output = Result<EnqueuedLinks, Error>> + Send + 'static {
-        self.enqueue_links_of(links.id(), label, payload)
+        payload: impl Into<LinkPayload<Q>>,
+    ) -> EnqueueLinks {
+        self.enqueue_links_of(links.id(), label, payload.into())
     }
 
     /// [`CrawlContext::enqueue_links`] of the locator `links` names, which
     /// a blocking handler's locator names too.
-    #[expect(
-        clippy::needless_pass_by_value,
-        reason = "a Payload is given by value, as the TypeScript and Python SDKs take it, and encoded at once"
-    )]
-    pub(crate) fn enqueue_links_of<Q: Serialize + DeserializeOwned>(
+    pub(crate) fn enqueue_links_of<Q: Serialize + DeserializeOwned + 'static>(
         &self,
         links: &goodfetch_protocol::page::Locator,
         label: &Label<Q>,
-        payload: Q,
-    ) -> impl Future<Output = Result<EnqueuedLinks, Error>> + Send + 'static {
-        let params =
-            self.own_payload(label, &payload)
-                .map(|payload| CrawlRequestEnqueueLinksParams {
-                    run_id: self.attempt.params.run_id.clone(),
-                    crawl_request_id: self.attempt.params.crawl_request.id.clone(),
-                    lease_epoch: self.attempt.params.lease_epoch,
-                    locator: links.clone(),
-                    label: label.name.to_string(),
-                    payload: Some(payload),
-                    payloads: None,
-                    include: Vec::new(),
-                    exclude: Vec::new(),
-                    limit: None,
-                    priority: 0,
-                });
-        self.send(CRAWL_REQUEST_ENQUEUE_LINKS.name, params)
-    }
-
-    /// `payload`'s JSON for a request of `label`, or `label_unknown` for a
-    /// Label of another crawl, or the `payload_invalid` of a Payload
-    /// `label` refuses before anything is sent.
-    fn own_payload<Q: Serialize + DeserializeOwned>(
-        &self,
-        label: &Label<Q>,
-        payload: &Q,
-    ) -> Result<Value, Error> {
-        if label.crawl == self.attempt.crawl {
-            label.encode(payload)
-        } else {
-            Err(label_unknown(&label.name, self.attempt.declared.to_vec()))
-        }
-    }
-
-    /// The call of `method` with `params`, sent while the attempt runs,
-    /// whose answer reads as `T`: what each of the attempt's own calls
-    /// sends. It fails with what made `params`, or `attempt_ended` once
-    /// the attempt has ended.
-    fn send<T, C>(
-        &self,
-        method: &'static str,
-        params: Result<C, Error>,
-    ) -> impl Future<Output = Result<T, Error>> + Send + 'static
-    where
-        T: DeserializeOwned + Send + 'static,
-        C: Serialize + Send + 'static,
-    {
-        let attempt = Arc::clone(&self.attempt);
-        async move {
-            let params = params?;
-            attempt.ensure_running()?;
-            attempt.connection.call::<T>(method, &params).await
-        }
+        payload: LinkPayload<Q>,
+    ) -> EnqueueLinks {
+        EnqueueLinks::new(&self.attempt, links, label, payload)
     }
 }

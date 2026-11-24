@@ -591,6 +591,136 @@ form = "round_trip"
 
 [[member]]
 crate = "goodfetch-foxhound"
+receiver = "(crate)"
+member = "Enqueue"
+entry = "none"
+reason = "The builder `CrawlContext::enqueue` returns, awaited to send `crawl_request.enqueue` (ADR 0099)."
+only = "TypeScript's `enqueue` takes its options as an object, `RequestOptions`."
+words = ["enqueue"]
+form = "type"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "Enqueue"
+member = "method"
+entry = "none"
+reason = "The method an enqueued request is sent with, carried by `crawl_request.enqueue`, with no round trip of its own."
+only = "TypeScript's `enqueue` takes it as its options' `method`."
+words = ["method"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "Enqueue"
+member = "body"
+entry = "none"
+reason = "The body an enqueued request is sent with, carried by `crawl_request.enqueue`, with no round trip of its own."
+only = "TypeScript's `enqueue` takes it as its options' `body`."
+words = ["body"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "Enqueue"
+member = "priority"
+entry = "none"
+reason = "An enqueued request's priority among the requests of its domain, carried by `crawl_request.enqueue`, with no round trip of its own."
+only = "TypeScript's `enqueue` takes it as its options' `priority`."
+words = ["priority"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "Enqueue"
+member = "forefront"
+entry = "none"
+reason = "Puts an enqueued request ahead of its domain's pending requests, carried by `crawl_request.enqueue`, with no round trip of its own."
+only = "TypeScript's `enqueue` takes it as its options' `forefront`."
+words = ["forefront"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "Enqueue"
+member = "key"
+entry = "none"
+reason = "An enqueued request's identity in the Frontier, in place of its method, URL key and body hash, carried by `crawl_request.enqueue`, with no round trip of its own."
+only = "TypeScript's `enqueue` takes it as its options' `key`."
+words = ["key"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "(crate)"
+member = "EnqueueLinks"
+entry = "none"
+reason = "The builder `CrawlContext::enqueue_links` returns, awaited to send `crawl_request.enqueue_links`, after `crawl_request.links` for a Payload function (ADR 0099)."
+only = "TypeScript's `enqueueLinks` takes its options as an object, `EnqueueLinksOptions`."
+words = ["enqueue", "links"]
+form = "type"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "EnqueueLinks"
+member = "include"
+entry = "none"
+reason = "The URL patterns of which each enqueued link matches one, carried by `crawl_request.enqueue_links`, with no round trip of its own."
+only = "TypeScript's `enqueueLinks` takes them as its options' `include`."
+words = ["include"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "EnqueueLinks"
+member = "exclude"
+entry = "none"
+reason = "The URL patterns each enqueued link matches none of, carried by `crawl_request.enqueue_links`, with no round trip of its own."
+only = "TypeScript's `enqueueLinks` takes them as its options' `exclude`."
+words = ["exclude"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "EnqueueLinks"
+member = "limit"
+entry = "none"
+reason = "How many links an `enqueue_links` adds at most, carried by `crawl_request.enqueue_links`, with no round trip of its own."
+only = "TypeScript's `enqueueLinks` takes it as its options' `limit`."
+words = ["limit"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "EnqueueLinks"
+member = "priority"
+entry = "none"
+reason = "The enqueued links' priority among the requests of their domain, carried by `crawl_request.enqueue_links`, with no round trip of its own."
+only = "TypeScript's `enqueueLinks` takes it as its options' `priority`."
+words = ["priority"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "(crate)"
+member = "LinkPayload"
+entry = "none"
+reason = "What `enqueue_links` gives its links, one Payload for every link, which any Payload converts into, or a function of each matched link (ADRs 0093 and 0099)."
+only = "TypeScript's `enqueueLinks` takes a Payload or a `LinkPayload` function in the Payload's place, `LinksPayload`."
+words = ["link", "payload"]
+form = "type"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "LinkPayload"
+member = "with"
+entry = "none"
+reason = "A Payload function, which answers each link's Payload, or `None` to leave it out, from what `crawl_request.links` read, built with no round trip."
+only = "TypeScript's `enqueueLinks` takes the function itself, a `LinkPayload`."
+words = ["with"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-foxhound"
 receiver = "blocking"
 member = "Foxhound"
 entry = "none"
@@ -928,6 +1058,136 @@ entry = "crawl_request.enqueue_links"
 words = ["enqueue", "links"]
 form = "round_trip"
 
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "blocking"
+member = "Enqueue"
+entry = "none"
+reason = "The builder `blocking::CrawlContext::enqueue` returns, whose `send()` sends `crawl_request.enqueue` (ADR 0081)."
+only = "TypeScript's `enqueue` takes its options as an object, `RequestOptions`."
+words = ["enqueue"]
+form = "type"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "blocking::Enqueue"
+member = "method"
+entry = "none"
+reason = "The method an enqueued request is sent with, carried by `crawl_request.enqueue`, with no round trip of its own."
+only = "TypeScript's `enqueue` takes it as its options' `method`."
+words = ["method"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "blocking::Enqueue"
+member = "body"
+entry = "none"
+reason = "The body an enqueued request is sent with, carried by `crawl_request.enqueue`, with no round trip of its own."
+only = "TypeScript's `enqueue` takes it as its options' `body`."
+words = ["body"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "blocking::Enqueue"
+member = "priority"
+entry = "none"
+reason = "An enqueued request's priority among the requests of its domain, carried by `crawl_request.enqueue`, with no round trip of its own."
+only = "TypeScript's `enqueue` takes it as its options' `priority`."
+words = ["priority"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "blocking::Enqueue"
+member = "forefront"
+entry = "none"
+reason = "Puts an enqueued request ahead of its domain's pending requests, carried by `crawl_request.enqueue`, with no round trip of its own."
+only = "TypeScript's `enqueue` takes it as its options' `forefront`."
+words = ["forefront"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "blocking::Enqueue"
+member = "key"
+entry = "none"
+reason = "An enqueued request's identity in the Frontier, in place of its method, URL key and body hash, carried by `crawl_request.enqueue`, with no round trip of its own."
+only = "TypeScript's `enqueue` takes it as its options' `key`."
+words = ["key"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "blocking::Enqueue"
+member = "send"
+entry = "none"
+reason = "Sends `crawl_request.enqueue` and blocks the calling thread until the Frontier answers."
+only = "TypeScript has no blocking API (ADR 0081)."
+words = ["send"]
+form = "round_trip"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "blocking"
+member = "EnqueueLinks"
+entry = "none"
+reason = "The builder `blocking::CrawlContext::enqueue_links` returns, whose `send()` sends `crawl_request.enqueue_links` (ADR 0081)."
+only = "TypeScript's `enqueueLinks` takes its options as an object, `EnqueueLinksOptions`."
+words = ["enqueue", "links"]
+form = "type"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "blocking::EnqueueLinks"
+member = "include"
+entry = "none"
+reason = "The URL patterns of which each enqueued link matches one, carried by `crawl_request.enqueue_links`, with no round trip of its own."
+only = "TypeScript's `enqueueLinks` takes them as its options' `include`."
+words = ["include"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "blocking::EnqueueLinks"
+member = "exclude"
+entry = "none"
+reason = "The URL patterns each enqueued link matches none of, carried by `crawl_request.enqueue_links`, with no round trip of its own."
+only = "TypeScript's `enqueueLinks` takes them as its options' `exclude`."
+words = ["exclude"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "blocking::EnqueueLinks"
+member = "limit"
+entry = "none"
+reason = "How many links an `enqueue_links` adds at most, carried by `crawl_request.enqueue_links`, with no round trip of its own."
+only = "TypeScript's `enqueueLinks` takes it as its options' `limit`."
+words = ["limit"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "blocking::EnqueueLinks"
+member = "priority"
+entry = "none"
+reason = "The enqueued links' priority among the requests of their domain, carried by `crawl_request.enqueue_links`, with no round trip of its own."
+only = "TypeScript's `enqueueLinks` takes it as its options' `priority`."
+words = ["priority"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "blocking::EnqueueLinks"
+member = "send"
+entry = "none"
+reason = "Sends `crawl_request.enqueue_links`, after `crawl_request.links` for a Payload function, and blocks the calling thread until the Frontier answers."
+only = "TypeScript has no blocking API (ADR 0081)."
+words = ["send"]
+form = "round_trip"
+
 # Limits in code (ADR 0080): `ConnectOptions::limits` and `Start::limits`
 # are Collie's, re-exported with `Limits`, `Money` and `UsageKind`; Foxhound
 # adds the Usage kind only it counts.
@@ -951,7 +1211,7 @@ reason = "A handler process of `workers=N` offers its handler with it (ADR 0024)
 
 [[unreached]]
 entries = ["crawl_request.links"]
-reason = "What a per-link Payload function of `enqueueLinks` reads; `enqueue_links` takes one Payload for every link, so nothing reads it yet."
+reason = "What `enqueue_links` sends itself, before `crawl_request.enqueue_links`, when it is given a `LinkPayload::with` function: the function reads each link it answers, so it has no member of its own."
 
 [[unreached]]
 entries = ["dataset.list", "dataset.page", "dataset.query"]

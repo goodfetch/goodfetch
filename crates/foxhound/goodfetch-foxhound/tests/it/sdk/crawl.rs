@@ -157,7 +157,8 @@ fn a_blocking_crawl_serves_its_run_from_a_thread_with_no_runtime() {
             };
             ctx.push(&pages, &visited)?;
             if depth == 0 {
-                ctx.enqueue(empty.clone(), &next, Visit { depth: 1 })?;
+                ctx.enqueue(empty.clone(), &next, Visit { depth: 1 })
+                    .send()?;
             }
             Ok(())
         })

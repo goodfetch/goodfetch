@@ -237,7 +237,9 @@ fn the_blocking_catalog_program_follows_its_links_and_reads_its_records_back() {
             for product in read.values.products()? {
                 ctx.push(&pushed, &product)?;
             }
-            let enqueued = ctx.enqueue_links(&page.locator("a[rel=next]"), &next, ())?;
+            let enqueued = ctx
+                .enqueue_links(&page.locator("a[rel=next]"), &next, ())
+                .send()?;
             let expected = usize::from(!last);
             if enqueued.links.len() != expected {
                 return Err(format!(

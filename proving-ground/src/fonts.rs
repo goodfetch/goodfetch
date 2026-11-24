@@ -164,10 +164,14 @@ fn page(listed: &[String]) -> String {
         }
         fonts.push_str("</p>\n");
     }
-    let fallback: String = GENERIC
-        .iter()
-        .map(|generic| format!("<span style=\"font-family: {generic}\">{TEXT}</span>"))
-        .collect();
+    let mut fallback = String::new();
+    for generic in GENERIC {
+        write!(
+            fallback,
+            "<span style=\"font-family: {generic}\">{TEXT}</span>"
+        )
+        .expect("invariant: writing to a String succeeds");
+    }
     format!(
         "<!doctype html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n<title>Fonts</title>\n\
          <style>p span {{ display: inline-block; font-size: 48px; white-space: nowrap; margin-right: 1em; }}</style>\n\

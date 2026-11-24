@@ -15,9 +15,6 @@
 use std::collections::BTreeMap;
 use std::num::NonZeroUsize;
 
-use crate::browsers::{CHROME_FOR_TESTING_DOWNLOADS_VARIABLE, LIGHTPANDA_DOWNLOADS_VARIABLE};
-use crate::claude_code::CLAUDE_CODE_DOWNLOADS_VARIABLE;
-
 /// Overrides every test's seed (ADR 0060).
 pub const SEED_VARIABLE: &str = "GOODFETCH_TEST_SEED";
 
@@ -66,6 +63,21 @@ pub const DNS_NAMESPACE_VARIABLE: &str = "GOODFETCH_TEST_DNS_NAMESPACE";
 /// The folder `ci/toxiproxy-fetch.sh` downloads the tests' copy of Toxiproxy
 /// into, `~/.cache/goodfetch/toxiproxy` when unset.
 pub const TOXIPROXY_DOWNLOADS_VARIABLE: &str = "GOODFETCH_TOXIPROXY_DOWNLOADS";
+
+/// The variable naming the folder `ci/claude-code-fetch.sh` downloads the
+/// tests' copy of Claude Code into, `~/.cache/goodfetch/claude-code` by
+/// default.
+pub const CLAUDE_CODE_DOWNLOADS_VARIABLE: &str = "GOODFETCH_CLAUDE_CODE_DOWNLOADS";
+
+/// The variable naming the folder `ci/lightpanda-fetch.sh` downloads the
+/// tests' copy of Lightpanda into, `~/.cache/goodfetch/lightpanda` by
+/// default.
+pub const LIGHTPANDA_DOWNLOADS_VARIABLE: &str = "GOODFETCH_LIGHTPANDA_DOWNLOADS";
+
+/// The variable naming the folder `ci/chrome-for-testing-fetch.sh`
+/// downloads the tests' copy of the pinned Chrome for Testing build's
+/// archive into, `~/.cache/goodfetch/chrome-for-testing` by default.
+pub const CHROME_FOR_TESTING_DOWNLOADS_VARIABLE: &str = "GOODFETCH_CHROME_FOR_TESTING_DOWNLOADS";
 
 /// The most Callgrind children a counts benchmark runs at once, below its
 /// own bound of half the cores, at most eight: `xtask counts

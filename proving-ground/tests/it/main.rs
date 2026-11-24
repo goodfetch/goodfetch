@@ -18,6 +18,7 @@ mod browserless;
 mod canaries;
 mod canvas;
 mod clients;
+mod codecs;
 mod connections;
 mod consistency;
 mod crawl_pages;

@@ -27,6 +27,7 @@ use crate::browser_pages;
 use crate::catalog;
 use crate::certificates;
 use crate::clean_up;
+use crate::codecs;
 use crate::consent;
 use crate::consistency;
 use crate::crawl::{self, Families};
@@ -159,6 +160,7 @@ impl Site {
                 consistency::HOST,
                 consistency::FRAME_HOST,
                 fonts::HOST,
+                codecs::HOST,
                 page_load::HOST,
             ])
             .chain(page_load::AD_HOSTS)
@@ -359,6 +361,9 @@ impl Site {
             return reply;
         }
         if let Some(reply) = fonts::respond(&name, request) {
+            return reply;
+        }
+        if let Some(reply) = codecs::respond(&name, request) {
             return reply;
         }
         if name == model::HOST {

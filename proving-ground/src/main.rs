@@ -18,6 +18,7 @@ mod certificates;
 mod clean_up;
 mod client_hello;
 mod clock;
+mod codecs;
 mod command;
 mod connection_record;
 mod consent;

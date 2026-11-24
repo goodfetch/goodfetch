@@ -408,6 +408,53 @@ journeys *arguments:
     fi
     exit "$status"
 
+# Runs the older-engine checks of `product`, `collie` or `foxhound`, through
+# `just test pre-merge` (ADRs 0066, 0094 and 0098): the tree's tests that
+# drive that Product's older executable on what the current Foxhound wrote.
+# `--engine <path>` is the older executable, a released minor's, which they
+# read from GOODFETCH_TEST_OLDER_ENGINE; without it the commit's own
+# executable of the Product stands for it. `--junit <folder>` moves nextest's
+# JUnit file there as `nextest.xml`, pass or fail.
+[positional-arguments]
+older-engine product *arguments:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    case "$1" in
+      collie | foxhound) product=$1 ;;
+      *) echo "error: the Product is collie or foxhound, not $1" >&2; exit 2 ;;
+    esac
+    shift
+    engine="" junit=""
+    while [[ $# -gt 0 ]]; do
+      case "$1" in
+        --junit) junit="${2:?--junit takes a folder}"; shift 2 ;;
+        --junit=*) junit="${1#--junit=}"; shift ;;
+        --engine) engine="${2:?--engine takes a path}"; shift 2 ;;
+        --engine=*) engine="${1#--engine=}"; shift ;;
+        *) echo "error: unknown argument $1" >&2; exit 2 ;;
+      esac
+    done
+    scratch=$(mktemp -d)
+    trap 'rm -rf "$scratch"' EXIT
+    printf 'nextest\t-E\nnextest\ttest(/^older_engine::/) & test(/older_%s/)\n' "$product" \
+      > "$scratch/selection"
+    export GOODFETCH_TEST_SELECTION="$scratch/selection"
+    if [[ -n "$engine" ]]; then
+      GOODFETCH_TEST_OLDER_ENGINE=$(cd "$(dirname "$engine")" && pwd)/$(basename "$engine")
+      [[ -x "$GOODFETCH_TEST_OLDER_ENGINE" ]] || { echo "error: $engine is not an executable" >&2; exit 2; }
+      export GOODFETCH_TEST_OLDER_ENGINE
+      echo "Older $product: $GOODFETCH_TEST_OLDER_ENGINE"
+    fi
+    report=target/nextest/ci/junit.xml
+    if [[ -n "$junit" ]]; then
+      mkdir -p "$junit"
+      rm -f "$report"
+    fi
+    status=0
+    {{ just_executable() }} test pre-merge goodfetch-foxhound || status=$?
+    if [[ -n "$junit" && -f "$report" ]]; then mv "$report" "$junit/nextest.xml"; fi
+    exit "$status"
+
 # What the changed packages declare and miss (ADR 0072): the Features each
 # crate, npm package and Python package `xtask affected` selects declares,
 # one `<feature> <level> <source> <test>` line each, then the Feature check's

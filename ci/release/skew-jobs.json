@@ -4,7 +4,7 @@
       "name": "current",
       "version": null,
       "tag": null,
-      "minutes": 35,
+      "minutes": 41,
       "steps": [
         {
           "checks": [
@@ -33,6 +33,18 @@
             "--surface",
             "foxhound-cli"
           ]
+        },
+        {
+          "checks": [
+            "collie-older-engine"
+          ],
+          "older_engine": "collie"
+        },
+        {
+          "checks": [
+            "foxhound-older-engine"
+          ],
+          "older_engine": "foxhound"
         }
       ]
     }
@@ -121,14 +133,6 @@
     {
       "check": "helm-upgrade",
       "issue": 438
-    },
-    {
-      "check": "collie-older-engine",
-      "issue": 439
-    },
-    {
-      "check": "foxhound-older-engine",
-      "issue": 439
     },
     {
       "check": "two-majors",

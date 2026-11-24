@@ -4,10 +4,14 @@
 #   build <job>  before the deny: builds both Products' executables and keeps
 #                a copy of each, which the runs below never rebuild; for a
 #                released minor, also fetches its tag's dependencies, through
-#                the tag's own `just fetch`;
+#                the tag's own `just fetch`, and, for each older-engine step,
+#                keeps the minor's executable of its Product, from the
+#                artifact set `just artifacts` keeps;
 #   run <job>    runs each of the job's steps, the Journeys `just journeys`
-#                chooses, against the current executable of their Product,
-#                and fails on a step none of whose tests ran. A failed step
+#                chooses against the current executable of their Product, or
+#                `just older-engine` on the minor's executable of its Product
+#                (the current build's own while no minor is released), and
+#                fails on a step none of whose tests ran. A failed step
 #                stops none after it. It first prints the checks that await
 #                their harness, which nothing counts as passed.
 # `run` goes under ADR 0043's deny through ci/egress/under-deny.sh, which the
@@ -45,6 +49,43 @@ case "$part" in
       trap cleanup EXIT
       git worktree add --quiet --detach "$scratch/tree" "$tag^{commit}"
       (cd "$scratch/tree" && just fetch)
+      # The skew jobs run on linux-x64-gnu. A release's executable is an
+      # archive holding `goodfetch-<product>`, or that file itself; a set
+      # without it fails the job, never skips the check.
+      version=$(jq -r .version <<<"$job")
+      products=$(jq -r '.steps[] | .older_engine // empty' <<<"$job")
+      if [[ -n "$products" ]]; then
+        listed=$(just artifacts)
+        set_folder=$(dirname "$(tail -n 1 <<<"$listed")")
+        mkdir -p "$kept/older"
+        for product in $products; do
+          folder="$set_folder/$version/$product/executables/x86_64-unknown-linux-gnu"
+          artifact=""
+          for file in "$folder"/*; do
+            case "$file" in
+              *.sigstore.json | *.sigstore.jsonl) ;;
+              *) [[ ! -f "$file" ]] || artifact=$file ;;
+            esac
+          done
+          if [[ -z "$artifact" ]]; then
+            echo "error: the artifact set holds no $version executable of $product in $folder" >&2
+            exit 1
+          fi
+          unpacked="$scratch/older-$product"
+          mkdir -p "$unpacked"
+          case "$artifact" in
+            *.tar.* | *.tgz) tar -xf "$artifact" -C "$unpacked" ;;
+            *.zip) unzip -q "$artifact" -d "$unpacked" ;;
+            *) cp "$artifact" "$unpacked/goodfetch-$product" ;;
+          esac
+          executable=$(find "$unpacked" -type f -name "goodfetch-$product" | head -n 1)
+          if [[ -z "$executable" ]]; then
+            echo "error: $artifact holds no goodfetch-$product" >&2
+            exit 1
+          fi
+          install -m 0755 "$executable" "$kept/older/goodfetch-$product"
+        done
+      fi
     fi
     ;;
   run)
@@ -55,23 +96,28 @@ case "$part" in
     for ((index = 0; index < steps; index++)); do
       step=$(jq -c --argjson index "$index" '.steps[$index]' <<<"$job")
       checks=$(jq -r '.checks | join("+")' <<<"$step")
-      engine="$kept/$(jq -r .executable <<<"$step")"
-      journeys=()
-      [[ -z "$tag" ]] || journeys+=(--tag "$tag")
-      while IFS= read -r argument; do journeys+=("$argument"); done < <(jq -r '.journeys[]' <<<"$step")
+      older=$(jq -r '.older_engine // ""' <<<"$step")
       environment=()
-      if [[ $(jq -r .stdio <<<"$step") == true ]]; then
-        environment=(
-          GOODFETCH_COLLIE_ENGINE_PATH="$kept/goodfetch-collie"
-          GOODFETCH_FOXHOUND_ENGINE_PATH="$kept/goodfetch-foxhound"
-        )
+      if [[ -n "$older" ]]; then
+        command=(just older-engine "$older")
+        [[ -z "$tag" ]] || command+=(--engine "$kept/older/goodfetch-$older")
+      else
+        command=(just journeys)
+        [[ -z "$tag" ]] || command+=(--tag "$tag")
+        while IFS= read -r argument; do command+=("$argument"); done < <(jq -r '.journeys[]' <<<"$step")
+        command+=(--engine "$kept/$(jq -r .executable <<<"$step")")
+        if [[ $(jq -r .stdio <<<"$step") == true ]]; then
+          environment=(
+            GOODFETCH_COLLIE_ENGINE_PATH="$kept/goodfetch-collie"
+            GOODFETCH_FOXHOUND_ENGINE_PATH="$kept/goodfetch-foxhound"
+          )
+        fi
       fi
-      echo "Skew $name, $checks: just journeys ${journeys[*]}"
+      echo "Skew $name, $checks: ${command[*]}"
       reports="$kept/junit/$checks"
       rm -rf "$reports"
       mkdir -p "$reports"
-      env ${environment[@]+"${environment[@]}"} \
-        just journeys "${journeys[@]}" --engine "$engine" --junit "$reports" || {
+      env ${environment[@]+"${environment[@]}"} "${command[@]}" --junit "$reports" || {
         echo "Skew $name, $checks: failed" >&2
         status=1
       }

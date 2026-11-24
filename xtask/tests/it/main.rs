@@ -84,6 +84,7 @@ mod modules;
 mod mutants_typescript;
 mod no_retry;
 mod notices;
+mod older_engine_recipe;
 mod order_seed;
 mod os_services;
 mod output_scans;

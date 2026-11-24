@@ -386,7 +386,7 @@ jobs:
         with:
           shared-key: release-suite-skew
           save-if: ${{ github.ref == 'refs/heads/main' }}
-      - name: Build both executables and fetch the minor's dependencies
+      - name: Build both executables and fetch the minor's dependencies and executables
         run: ci/release/skew.sh build "$JOB"
       - name: Set up the OS services the tests use
         run: ci/os-services.sh setup
@@ -396,7 +396,7 @@ jobs:
         run: ci/egress/egress.sh deny
       - name: Refuse the Egress canary
         run: ci/egress/egress.sh canary
-      - name: "Test: the skew job's Journeys"
+      - name: "Test: the skew job's checks"
         run: ci/egress/under-deny.sh ci/release/skew.sh run "$JOB"
       - name: Check that the deny refused nothing else
         if: always()

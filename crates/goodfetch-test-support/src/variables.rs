@@ -1,12 +1,12 @@
 //! What test support reads from the process that runs a test (ADRs 0059 to
 //! 0062): the running test's name, the seed and its `GOODFETCH_TEST_SEED`
 //! override, the suite `just test` names in `GOODFETCH_TEST_SUITE`, the tool
-//! manifest's path, the folder Journey variants write their result documents
-//! into, the exercise records' folder with the test's ID as nextest gives
-//! it, the way a runner declares `DnsNamespace` comes up on it, the cap on
-//! the Callgrind children a counts benchmark runs at once, what a
-//! Cargo a test starts needs to find its toolchain, and on Windows the
-//! variables a child needs to start.
+//! manifest's path, the executables a skew job names, the folder Journey
+//! variants write their result documents into, the exercise records' folder
+//! with the test's ID as nextest gives it, the way a runner declares
+//! `DnsNamespace` comes up on it, the cap on the Callgrind children a counts
+//! benchmark runs at once, what a Cargo a test starts needs to find its
+//! toolchain, and on Windows the variables a child needs to start.
 #![expect(
     clippy::disallowed_methods,
     reason = "test support reads the test's own variables, never a product's environment (ADR 0062)"
@@ -42,6 +42,12 @@ pub const LAZYFS_FOLDER_VARIABLE: &str = "GOODFETCH_LAZYFS_FOLDER";
 /// (ADR 0066): when it is set, every Journey variant runs it in place of the
 /// executable its test passes.
 pub const ENGINE_VARIABLE: &str = "GOODFETCH_TEST_ENGINE";
+
+/// The executable of a released minor that [`older_engine`] names, which a
+/// skew job sets (ADR 0066).
+///
+/// [`older_engine`]: crate::older_engine
+pub const OLDER_ENGINE_VARIABLE: &str = "GOODFETCH_TEST_OLDER_ENGINE";
 
 /// The folder each Journey variant run also writes its result document
 /// into, beside the test's own folder, which `just test` sets.
@@ -135,6 +141,7 @@ impl Variables {
             RESULT_DOCUMENTS_VARIABLE,
             CASE_LOGS_VARIABLE,
             ENGINE_VARIABLE,
+            OLDER_ENGINE_VARIABLE,
             RECORDS_VARIABLE,
             BINARY_ID_VARIABLE,
             TEST_NAME_VARIABLE,

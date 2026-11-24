@@ -85,6 +85,7 @@ mod no_console;
 ))]
 mod no_exec;
 mod observation;
+mod older_engine;
 mod player;
 mod process;
 mod protocol_fuzz;
@@ -210,6 +211,7 @@ pub use no_exec::NoExec;
 pub use observation::{
     Epoch, Fault, LOG_FILE, ObservationLog, Operation, REDACTED, Record, Redacted, ValueDigest,
 };
+pub use older_engine::older_engine;
 pub use player::{
     ATTACHED_ENVIRONMENT, ATTACHED_RECORD, ATTACHED_SCRIPT, Ending, PlayError, play, play_relinking,
 };
@@ -288,7 +290,7 @@ pub use valkey::Valkey;
 pub use variables::{
     CALLGRIND_AT_ONCE_VARIABLE, CASE_LOGS_VARIABLE, CallgrindAtOnceError, DNS_NAMESPACE_VARIABLE,
     ENGINE_VARIABLE, FAULT_PLAN_VARIABLE, LAZYFS_FOLDER_VARIABLE, LAZYFS_VARIABLE, MAX_SEED,
-    NO_GUI_SESSION_VARIABLE, RECORDS_VARIABLE, RESULT_DOCUMENTS_VARIABLE, SEED_VARIABLE,
-    SUITE_VARIABLE, SeedError, Suite, SuiteError, TOOLS_VARIABLE, TOXIPROXY_DOWNLOADS_VARIABLE,
-    Variables, case_logs, current_test,
+    NO_GUI_SESSION_VARIABLE, OLDER_ENGINE_VARIABLE, RECORDS_VARIABLE, RESULT_DOCUMENTS_VARIABLE,
+    SEED_VARIABLE, SUITE_VARIABLE, SeedError, Suite, SuiteError, TOOLS_VARIABLE,
+    TOXIPROXY_DOWNLOADS_VARIABLE, Variables, case_logs, current_test,
 };

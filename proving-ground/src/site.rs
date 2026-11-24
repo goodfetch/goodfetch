@@ -15,6 +15,7 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use hyper::body::Bytes;
+use hyper::header::HeaderMap;
 use hyper::http::uri::PathAndQuery;
 use hyper::{Method, StatusCode, Uri};
 use serde::{Deserialize, Serialize};
@@ -628,13 +629,14 @@ impl Site {
         method: &Method,
         host: &str,
         path: &str,
+        headers: &HeaderMap,
         body: &Bytes,
     ) -> Option<Reply> {
         let online = self.online.as_ref()?;
         if observation::host_name(host) != online::HOST {
             return None;
         }
-        let (reply, verdict) = online.respond(method, path, body).await?;
+        let (reply, verdict) = online.respond(method, path, headers, body).await?;
         if let Some(verdict) = verdict {
             self.observations.record(host, Recorded::Verdict(verdict));
         }

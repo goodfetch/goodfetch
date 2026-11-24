@@ -273,13 +273,27 @@ impl ProvingGround {
         form: &[(&str, &str)],
         cookie: Option<&str>,
     ) -> Answer {
+        match cookie {
+            Some(cookie) => self.post_form_with_headers(url, form, &[("cookie", cookie)]),
+            None => self.post_form_with_headers(url, form, &[]),
+        }
+    }
+
+    /// Posts a form as [`Self::post_form`] does, sending `headers` after
+    /// `Host`.
+    pub(crate) fn post_form_with_headers(
+        &self,
+        url: &str,
+        form: &[(&str, &str)],
+        headers: &[(&str, &str)],
+    ) -> Answer {
         let (host, path) = split(url);
         let mut request = self
             .agent
             .post(format!("http://{}{path}", self.address))
             .header("host", host);
-        if let Some(cookie) = cookie {
-            request = request.header("cookie", cookie);
+        for (name, value) in headers {
+            request = request.header(*name, *value);
         }
         Self::answer(
             request

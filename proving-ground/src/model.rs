@@ -16,8 +16,13 @@
 //! result it answers in text, but for an Agent step. So its answers depend
 //! only on the request, the seed and the time step the task set.
 //!
+//! A request that carries a screenshot and asks for a `coordinate` gets the
+//! middle of the task's target on the page, in CSS pixels, from the task
+//! and the seed, never from the image, which it does not decode.
+//!
 //! It counts each call's tokens itself: a quarter of the characters of
-//! every string in the request body, rounded up, in; a quarter of the
+//! every string in the request body but an image's, rounded up, and
+//! [`IMAGE_TOKENS`] for each image, whatever its size, in; a quarter of the
 //! characters of its answer's content (the text, the refusal, or a tool's
 //! name and arguments), rounded up, out. Each call is recorded, with its
 //! count, for `GET /model-calls`, so a test checks the engine's Usage
@@ -57,6 +62,10 @@ pub(crate) const HOST: &str = "model.test";
 /// How many characters of content each streamed event carries.
 const PIECE: usize = 16;
 
+/// The input tokens an image counts, whatever its size: Gemini's count for
+/// an image of at most 384 pixels a side.
+const IMAGE_TOKENS: u64 = 258;
+
 /// How long a rate-limited client is told to wait, in seconds.
 const RETRY_AFTER_SECONDS: u64 = 1;
 
@@ -78,7 +87,7 @@ pub(crate) enum Fault {
     /// The format's refusal.
     Refusal,
     /// These answers in place of the task's: wrong, but plausible.
-    WrongAnswer(Answers),
+    WrongAnswer(Box<Answers>),
 }
 
 impl Fault {
@@ -119,7 +128,7 @@ impl Answers {
     fn fill(&self, schema: &Value, ask: &Ask) -> Value {
         Form::asked(schema).map_or_else(
             || schema::fill(schema, &self.records),
-            |form| self.verbs.answer(form, &ask.strings, ask.model_turns),
+            |form| self.verbs.answer(form, ask),
         )
     }
 }
@@ -155,6 +164,8 @@ struct Call {
     /// The task the request named, if any.
     task: Option<String>,
     fault: Option<&'static str>,
+    /// How many images the request carried.
+    images: usize,
     input_tokens: u64,
     output_tokens: u64,
 }
@@ -247,7 +258,9 @@ impl FakeModel {
                 "The request names no Proving ground task.",
             ));
         };
-        let input_tokens = tokens(ask.strings.iter().map(|text| text.chars().count()).sum());
+        let images = u64::try_from(ask.images).unwrap_or(u64::MAX);
+        let input_tokens = tokens(ask.strings.iter().map(|text| text.chars().count()).sum())
+            .saturating_add(images.saturating_mul(IMAGE_TOKENS));
         let fault = subject.fault.as_ref();
         let call = |output_tokens| Call {
             sequence: 0,
@@ -256,6 +269,7 @@ impl FakeModel {
             stream: ask.streaming.is_some(),
             task: Some(subject.id.clone()),
             fault: fault.map(Fault::name),
+            images: ask.images,
             input_tokens,
             output_tokens,
         };
@@ -321,6 +335,7 @@ impl Call {
             stream,
             task: None,
             fault: None,
+            images: 0,
             input_tokens: 0,
             output_tokens: 0,
         }

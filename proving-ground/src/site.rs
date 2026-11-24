@@ -44,7 +44,7 @@ use crate::languages;
 use crate::locales;
 use crate::login::canaries::{self, Canaries, Plant};
 use crate::login::{self, Logins};
-use crate::model::{self, Answers, FakeModel, Subject};
+use crate::model::{self, Answers, FakeModel, Subject, Verbs};
 use crate::observation::{self, Observations, Recorded, Report};
 use crate::oracle::{self, Finding, Submission};
 use crate::page_load;
@@ -656,7 +656,10 @@ impl Site {
                     fault: agent::fault(self.seed, &id),
                     answers: Answers {
                         records,
-                        verbs: agent::verbs(self.seed, &id, step),
+                        verbs: Verbs {
+                            point: browser_pages::point(self.seed, &id),
+                            ..agent::verbs(self.seed, &id, step)
+                        },
                     },
                     id,
                     description: task.entry.description,

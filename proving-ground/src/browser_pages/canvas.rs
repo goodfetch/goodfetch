@@ -21,6 +21,12 @@ pub(super) const TASKS: u32 = 2;
 const WIDTH: u64 = 480;
 const HEIGHT: u64 = 320;
 
+/// Where the button page pins its canvas, in CSS pixels from the page's
+/// top-left corner, below its heading, so the Fake model knows where a
+/// screenshot shows the button.
+const CANVAS_LEFT: u64 = 16;
+const CANVAS_TOP: u64 = 160;
+
 /// A drawn button's size.
 const BUTTON_WIDTH: u64 = 128;
 const BUTTON_HEIGHT: u64 = 48;
@@ -129,7 +135,9 @@ pub(super) fn page(seed: u64, ordinal: u32, path: &str) -> Option<Reply> {
             let (button, decoy) = scene(seed);
             Some(Reply::html(document(
                 "Canvas",
-                "",
+                &format!(
+                    "<style>#canvas {{ position: absolute; left: {CANVAS_LEFT}px; top: {CANVAS_TOP}px; }}</style>\n"
+                ),
                 &format!(
                     "<h1>Canvas</h1>\n<p>Presses: <output id=\"presses\">0</output></p>\n<canvas id=\"canvas\" width=\"{WIDTH}\" height=\"{HEIGHT}\"></canvas>\n"
                 ),
@@ -158,6 +166,19 @@ pub(super) fn page(seed: u64, ordinal: u32, path: &str) -> Option<Reply> {
         }
         _ => None,
     }
+}
+
+/// Where the vision rung clicks on task `ordinal`'s page: the middle of the
+/// drawn button in the page's CSS pixels; `None` for the surface, which
+/// draws nothing to point at.
+pub(super) fn point(seed: u64, ordinal: u32) -> Option<(u64, u64)> {
+    (ordinal == 1).then(|| {
+        let (button, _) = scene(seed);
+        (
+            CANVAS_LEFT + button.left + BUTTON_WIDTH / 2,
+            CANVAS_TOP + button.top + BUTTON_HEIGHT / 2,
+        )
+    })
 }
 
 /// The family's tasks for `seed`. Ordinals are append-only (ADR 0063).

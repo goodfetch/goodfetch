@@ -1,7 +1,7 @@
 //! What a model request asks, read from each format's request body: the
 //! model, whether and how to stream, the tools offered and the choice among
 //! them, whether the last turn is a tool's result, the structured output's
-//! schema, and every string the body holds.
+//! schema, every string the body holds and how many images it carries.
 
 use serde_json::Value;
 
@@ -66,8 +66,20 @@ pub(crate) struct Ask {
     pub(crate) model_turns: usize,
     /// The structured output's schema, if the request asks for one.
     pub(crate) schema: Option<Value>,
-    /// Every string the body holds, in any order.
+    /// Every string the body holds, in any order, but an image's.
     pub(crate) strings: Vec<String>,
+    /// How many images the body carries: the OpenAI-compatible format's
+    /// `image_url` parts, Anthropic's `image` blocks and Gemini's parts of
+    /// image `inlineData`.
+    pub(crate) images: usize,
+}
+
+/// What a body holds beyond its fields' meaning: its strings, an image's
+/// aside, and its images.
+#[derive(Default)]
+struct Held {
+    strings: Vec<String>,
+    images: usize,
 }
 
 /// Where a request was sent: its format, and for Gemini, whose path names
@@ -110,12 +122,12 @@ pub(crate) fn endpoint(target: &str) -> Option<Endpoint> {
 
 /// Reads what `body`, sent to `endpoint`, asks.
 pub(crate) fn parse(endpoint: Endpoint, body: &Value) -> Ask {
-    let mut strings = Vec::new();
-    collect_strings(body, &mut strings);
+    let mut held = Held::default();
+    collect(endpoint.format, body, &mut held);
     match endpoint.format {
-        Format::OpenAi => openai(body, strings),
-        Format::Anthropic => anthropic(body, strings),
-        Format::Gemini => gemini(endpoint, body, strings),
+        Format::OpenAi => openai(body, held),
+        Format::Anthropic => anthropic(body, held),
+        Format::Gemini => gemini(endpoint, body, held),
     }
 }
 
@@ -123,7 +135,7 @@ fn text(value: &Value) -> Option<String> {
     value.as_str().map(str::to_owned)
 }
 
-fn openai(body: &Value, strings: Vec<String>) -> Ask {
+fn openai(body: &Value, held: Held) -> Ask {
     let streaming = body["stream"].as_bool().unwrap_or(false).then(|| {
         if body["stream_options"]["include_usage"] == true {
             Streaming::EventsWithUsage
@@ -155,11 +167,12 @@ fn openai(body: &Value, strings: Vec<String>) -> Ask {
         model_turns: turns(&body["messages"], "assistant"),
         schema: (body["response_format"]["type"] == "json_schema")
             .then(|| body["response_format"]["json_schema"]["schema"].clone()),
-        strings,
+        strings: held.strings,
+        images: held.images,
     }
 }
 
-fn anthropic(body: &Value, strings: Vec<String>) -> Ask {
+fn anthropic(body: &Value, held: Held) -> Ask {
     Ask {
         model: text(&body["model"]).unwrap_or_default(),
         streaming: (body["stream"] == true).then_some(Streaming::Events),
@@ -185,11 +198,12 @@ fn anthropic(body: &Value, strings: Vec<String>) -> Ask {
             .into_iter()
             .find(|format| format["type"] == "json_schema")
             .map(|format| format["schema"].clone()),
-        strings,
+        strings: held.strings,
+        images: held.images,
     }
 }
 
-fn gemini(endpoint: Endpoint, body: &Value, strings: Vec<String>) -> Ask {
+fn gemini(endpoint: Endpoint, body: &Value, held: Held) -> Ask {
     let calling = &body["toolConfig"]["functionCallingConfig"];
     let allowed: Vec<String> = each(&calling["allowedFunctionNames"])
         .filter_map(text)
@@ -226,7 +240,8 @@ fn gemini(endpoint: Endpoint, body: &Value, strings: Vec<String>) -> Ask {
             .map(|key| &config[key])
             .find(|schema| !schema.is_null())
             .cloned(),
-        strings,
+        strings: held.strings,
+        images: held.images,
     }
 }
 
@@ -240,15 +255,35 @@ fn each(value: &Value) -> impl Iterator<Item = &Value> {
     value.as_array().into_iter().flatten()
 }
 
-fn collect_strings(value: &Value, strings: &mut Vec<String>) {
+/// Collects into `held` the strings of `value`, a body of `format`, and its
+/// images, whose strings (their bytes or their URL) it leaves out.
+fn collect(format: Format, value: &Value, held: &mut Held) {
     match value {
-        Value::String(text) => strings.push(text.clone()),
-        Value::Array(values) => values
-            .iter()
-            .for_each(|value| collect_strings(value, strings)),
+        Value::String(text) => held.strings.push(text.clone()),
+        Value::Array(values) => values.iter().for_each(|value| collect(format, value, held)),
+        Value::Object(_) if is_image(format, value) => held.images += 1,
         Value::Object(fields) => fields
             .values()
-            .for_each(|value| collect_strings(value, strings)),
+            .for_each(|value| collect(format, value, held)),
         Value::Null | Value::Bool(_) | Value::Number(_) => {}
+    }
+}
+
+/// Whether `value` is an image of a body of `format`: an `image_url` part,
+/// an `image` block, or a part of `inlineData` whose type is an image's.
+fn is_image(format: Format, value: &Value) -> bool {
+    match format {
+        Format::OpenAi => value["type"] == "image_url",
+        Format::Anthropic => value["type"] == "image",
+        Format::Gemini => ["inlineData", "inline_data"]
+            .into_iter()
+            .map(|key| &value[key])
+            .find(|data| !data.is_null())
+            .is_some_and(|data| {
+                [&data["mimeType"], &data["mime_type"]]
+                    .into_iter()
+                    .find_map(Value::as_str)
+                    .is_some_and(|kind| kind.starts_with("image/"))
+            }),
     }
 }

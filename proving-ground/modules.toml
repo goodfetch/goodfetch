@@ -113,7 +113,7 @@ gemini = []
 openai = ["request"]
 request = []
 schema = []
-verbs = []
+verbs = ["request"]
 
 [submodules.protection]
 sensor = []

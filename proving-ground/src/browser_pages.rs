@@ -61,6 +61,17 @@ pub(crate) fn tasks(seed: u64, port: Option<u16>) -> Vec<Task> {
     tasks
 }
 
+/// Where the vision rung clicks on task `id`'s page, in the page's CSS
+/// pixels; `None` when its page draws nothing to point at.
+pub(crate) fn point(seed: u64, id: &str) -> Option<(u64, u64)> {
+    let ordinal = id
+        .strip_prefix(canvas::FAMILY)?
+        .strip_prefix('/')?
+        .parse()
+        .ok()?;
+    canvas::point(seed, ordinal)
+}
+
 /// The family of `name`, a host name without its port, and the ordinal of
 /// its task; `None` when it is no task's host of these families.
 fn task_of(name: &str) -> Option<(&'static str, u32)> {

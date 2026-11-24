@@ -7,6 +7,19 @@ from __future__ import annotations
 
 from typing import Literal, TypeAlias
 
+BlockCause: TypeAlias = Literal["challenge", "captcha", "rate_limit", "ip_block", "payment_required", "consent_required"] | str
+"""Why a site refused a page (ADR 0035), on the wire as written.
+
+A value this package does not know, which a newer engine may send, is kept as received (ADR 0079).
+
+- `challenge`: A page that checks the browser before it lets it through.
+- `captcha`: A page that asks a person to prove they are human.
+- `rate_limit`: The site refused because too many requests came too fast.
+- `ip_block`: The site refused the address the request came from.
+- `payment_required`: The site asked to be paid for the page (ADR 0045).
+- `consent_required`: A wall that asks for consent before it shows the page (ADR 0048).
+"""
+
 CancelledBy: TypeAlias = Literal["person", "client", "program", "browser"] | str
 """Who stopped a call that `call_cancelled` ended (ADR 0113): the
 vocabulary of an Agent's `abort` (ADR 0100), plus `browser`, open
@@ -41,6 +54,16 @@ A value this package does not know, which a newer engine may send, is kept as re
 - `browser`: Its page's browser.
 - `run`: Its Run, stopped.
 - `connection`: Its Connection.
+"""
+
+ModelUnavailableReason: TypeAlias = Literal["unreachable", "server_error", "rate_limited"] | str
+"""Why a Model provider could not answer (ADR 0101), open (ADR 0079).
+
+A value this package does not know, which a newer engine may send, is kept as received (ADR 0079).
+
+- `unreachable`: The provider could not be reached, or a call to the program's own provider was dropped unanswered.
+- `server_error`: The provider failed with a 5xx.
+- `rate_limited`: The provider kept rate limiting the calls.
 """
 
 NotAddedReason: TypeAlias = Literal["duplicate", "out_of_scope", "domain_policy", "max_depth", "max_requests", "unsupported_scheme", "invalid_url", "max_url_length", "max_path_segments", "max_segment_repeats", "max_sitemap_nesting", "path_budget", "trap_path", "no_rule", "trap_link", "link_limit"] | str

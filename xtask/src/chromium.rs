@@ -3,7 +3,10 @@
 //! (the inputs of Chromium's own isolates), by SHA-256, so the gate's test
 //! jobs fetch them by digest and run on standard runners without the build
 //! tree. `expectations` checks the expected results under
-//! `chromium/expectations/` and regenerates the generated ones.
+//! `chromium/expectations/` and regenerates the generated ones; `surfaces`
+//! checks that every patch has a tested row in the surface table, and
+//! `protocol` that the committed protocol JSON has all of CDP the driver
+//! uses.
 #![expect(
     clippy::disallowed_methods,
     reason = "xtask is synchronous; the blocking-fs and process bans target async crates (STYLE.md)"
@@ -24,7 +27,9 @@ use crate::environment::Environment;
 use crate::output;
 
 mod expectations;
+mod protocol;
 mod regenerate;
+mod surfaces;
 
 /// The largest part a kept file is cut into: a file over 2 GiB is split.
 const PART_SIZE: u64 = 2 << 30;
@@ -66,6 +71,17 @@ pub(crate) enum Command {
         #[command(subcommand)]
         command: expectations::Command,
     },
+    /// The surface table, `chromium/surfaces.toml`, against the patch series.
+    Surfaces {
+        #[command(subcommand)]
+        command: surfaces::Command,
+    },
+    /// The driver's use of CDP against the committed protocol JSON,
+    /// `chromium/protocol.json`.
+    Protocol {
+        #[command(subcommand)]
+        command: protocol::Command,
+    },
 }
 
 #[derive(Serialize)]
@@ -105,6 +121,14 @@ pub(crate) fn run(command: &Command, environment: &Environment) -> Result<ExitCo
             lists,
         } => package(out, into, *part_size, lists, environment),
         Command::Expectations { command } => expectations::run(command, environment),
+        Command::Surfaces { command } => Ok(check::report(&surfaces::run(
+            command,
+            &environment.root,
+            &environment.cargo,
+        )?)),
+        Command::Protocol { command } => {
+            Ok(check::report(&protocol::run(command, &environment.root)?))
+        }
     }
 }
 

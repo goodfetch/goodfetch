@@ -231,6 +231,11 @@ lint:
     step --after xtask xtask-received-requests 'cargo run --quiet --bin xtask -- received-requests'
     step --after xtask xtask-mask-writers 'cargo run --quiet --bin xtask -- mask-writers'
     step --after xtask xtask-quarantine 'GITHUB_TOKEN="${GITHUB_TOKEN:-$(gh auth token 2>/dev/null || true)}" cargo run --quiet --bin xtask -- quarantine check --cargo-profile {{ test_profile }}'
+    # The Goodfetch Chromium's patches each have a tested row of the surface
+    # table, and the driver's CDP use is in the build's protocol JSON
+    # (ADR 0074); both pass while `chromium/` is empty.
+    step --after xtask xtask-chromium-surfaces 'cargo run --quiet --bin xtask -- chromium surfaces check --cargo-profile {{ test_profile }}'
+    step --after xtask xtask-chromium-protocol 'cargo run --quiet --bin xtask -- chromium protocol check'
     step --after xtask xtask-containment 'cargo run --quiet --bin xtask -- containment'
     step tool-versions 'ci/tool-versions.sh'
     steps_end

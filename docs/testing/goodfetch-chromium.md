@@ -57,12 +57,12 @@ Decided in [ADR 0074](../adr/0074-the-goodfetch-chromium-is-gated-where-it-is-bu
 
 ### Goodfetch's own tests of the build
 
-- **Give every patch file a row in `chromium/surfaces.toml`,** with the surface it changes, its WPT directories and its Goodfetch tests; infrastructure patches (build fixes, background traffic, the variations seed) get rows of their own. The Quick suite fails on a patch without a row or a row without a test.
+- **Give every patch file a row in `chromium/surfaces.toml`,** with the surface it changes, its WPT directories and its Goodfetch tests; infrastructure patches (build fixes, background traffic, the variations seed) get rows of their own. A row is a `[[surface]]` table: `name`, `patches` (paths under `chromium/patches/`), `wpt` and `tests` (`{ runner, id }`, as the quarantine list names a test). `xtask chromium surfaces check`, in the Quick suite, fails on a patch without a row, a row naming a patch that is gone, a row without a test, and a test its runner does not list.
 - **Check Identity consistency on the Proving ground:** each surface reports the Identity profile's value in the main frame, a cross-origin iframe, dedicated, shared and service workers, and the HTTP headers; the same seed gives the same values across launches, different seeds give different ones, and nothing changes within a Session.
 - **Check version truth:** user agent, client hints' full version list and `navigator.userAgentData` report the pinned version, and the build's captured HTTP profile matches its own ClientHello and HTTP/2 settings.
 - **Check codecs and fonts:** every codec claimed decodes a Proving ground sample; every font the profile lists renders differently from the fallback, and no host font outside the profile is reachable.
 - **Check that the browser is quiet:** under a NetLog, a launch, an idle minute and a Proving ground navigation connect only to the Proving ground, and a request to a Google host mapped by `resolve` carries the shipped variations seed's `X-Client-Data` header.
-- **Check the CDP protocol in the Quick suite:** every method, event and parameter the driver uses is in the committed protocol JSON.
+- **Check the CDP protocol in the Quick suite:** every method, event and parameter the driver uses is in the committed protocol JSON, `chromium/protocol.json`. `xtask chromium protocol check` reads the driver's use from `goodfetch-page`'s source, test code left out: each generated binding it names, with the parameters it sets and the ones the binding requires, and each method it sends by name.
 - **Fail on any crash dump:** each test that launches the build gives it a crash-dump folder in the test's Goodfetch home.
 - **Smoke the signed bytes** in the release pipeline, on every OS, before publishing: launch, the CDP handshake, the renderer sandbox check and one stealth fixture.
   _Why:_ signing changes the bytes, and a wrong macOS entitlement breaks a renderer while every signature check passes.

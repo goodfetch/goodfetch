@@ -1,0 +1,12 @@
+# A surface table with a surface row and an infrastructure row.
+
+[[surface]]
+name = "canvas.toDataURL"
+patches = ["fingerprint/0001-canvas.patch"]
+wpt = ["html/canvas"]
+tests = [{ runner = "nextest", id = "sample tests::canvas_is_seeded" }]
+
+[[surface]]
+name = "build fixes"
+patches = ["goodfetch/0001-build-fix.patch"]
+tests = [{ runner = "nextest", id = "sample tests::the_build_launches" }]

@@ -46,7 +46,7 @@ pub struct ItemPrompt {
     /// What a person does about an item outside the engine, as a phrase
     /// such as "free space on /data"; none where its answers are all there
     /// is.
-    pub outside: Option<fn(&NeedsYouItem) -> String>,
+    pub outside: fn(&NeedsYouItem) -> Option<String>,
 }
 
 /// One answer to an item: a person-only operation, asked once.
@@ -56,8 +56,8 @@ pub struct ItemAnswer {
     /// The operation a yes calls.
     pub operation: &'static Operation,
     /// The question whose typed answer the confirmation takes, such as a
-    /// Limit's new amount; none for an answer that takes none.
-    pub input: Option<fn(&NeedsYouItem) -> String>,
+    /// Limit's new amount; none for an answer that takes none to an item.
+    pub input: fn(&NeedsYouItem) -> Option<String>,
     /// The confirmation asked for an item and what the person typed, empty
     /// for an answer that takes nothing, or why it cannot be asked.
     pub confirmation: fn(&NeedsYouItem, &str) -> Result<Confirmation, String>,

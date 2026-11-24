@@ -24,6 +24,8 @@ use crate::daemon::StopsTheDaemon;
 use crate::engine_choice::{On, daemon_dispatched};
 use crate::usage::{install_limit, install_requests, refusal};
 
+mod walls;
+
 const COLLIE: &str = env!("CARGO_BIN_EXE_goodfetch-collie");
 
 /// Both storage levels off, so no filesystem of the machine is listed,

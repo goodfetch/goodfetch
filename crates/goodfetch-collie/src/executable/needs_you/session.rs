@@ -219,8 +219,8 @@ impl<'a> Session<'a> {
             },
         };
         let mut typed = String::new();
-        if let Some(input) = answer.input {
-            typed = match self.ask(&input(item), |list| list.holds(item)).await? {
+        if let Some(input) = (answer.input)(item) {
+            typed = match self.ask(&input, |list| list.holds(item)).await? {
                 Typed::Line(text) => text,
                 Typed::End => return Ok(Ended::End),
                 Typed::Left => return Ok(Ended::Done),
@@ -290,7 +290,13 @@ impl<'a> Session<'a> {
             Typed::Left => return Ok(Ended::Done),
         }
         match self.call(answer.operation, confirmation.params).await? {
-            Ok(result) => {
+            Ok(mut result) => {
+                if let (Some(warning), Some(fields)) =
+                    (&confirmation.warning, result.as_object_mut())
+                {
+                    // The person read it above the question.
+                    fields.retain(|_, value| *value != *warning);
+                }
                 output::fields(&result, self.human);
                 if let Some(then) = confirmation.then {
                     output::line(&then);

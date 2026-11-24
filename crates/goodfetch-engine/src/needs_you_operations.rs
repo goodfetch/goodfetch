@@ -28,7 +28,7 @@ use crate::audit::AuditError;
 use crate::call_error::CallError;
 use crate::composition::{CallContext, Handler};
 use crate::host_name;
-use crate::needs_you::NeedsYouError;
+use crate::needs_you::{NeedsYouError, consent};
 use crate::run::settings_error;
 use crate::settings::SettingsError;
 use crate::settings_editor::{self, Change, SettingsEditor};
@@ -142,7 +142,7 @@ async fn allow_consent_domain(
     context: CallContext,
 ) -> Result<ConsentDomainAllowed, CallError> {
     let domain = consent_domain(&params.domain)?;
-    let warning = consent_domain_warning(&domain);
+    let warning = consent::warning(&domain);
     let editor = SettingsEditor::resolving(&context).await;
     let (answered, shown) = (domain.clone(), warning.clone());
     let engine = context.engine();
@@ -210,17 +210,4 @@ async fn allow(editor: SettingsEditor, domain: String, warning: String) -> Resul
             })
         })
         .await
-}
-
-/// What a person takes on by adding `domain`, or `*`, to `consent.domains`
-/// (ADRs 0048 and 0052), in the words a person surface shows beside the answer
-/// and the Audit log records with it.
-fn consent_domain_warning(domain: &str) -> String {
-    if domain == "*" {
-        "Accepting consent walls on every domain gives consent in your name on every site that shows one: those sites may load their trackers and set their cookies, and under the GDPR that consent is yours. An Agent also no longer asks you before accepting a consent prompt on any domain. Every later run accepts them until you remove `*` from `consent.domains`.".to_owned()
-    } else {
-        format!(
-            "Accepting the consent walls of {domain} gives consent in your name: the site may load its trackers and set their cookies, and under the GDPR that consent is yours. Every later run accepts them until you remove {domain} from `consent.domains`."
-        )
-    }
 }

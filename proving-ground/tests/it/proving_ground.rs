@@ -105,9 +105,17 @@ impl ProvingGround {
     /// Starts the Proving ground with `arguments`, `serve`'s from
     /// [`serve_arguments`] and any after them, in an empty environment.
     pub(crate) fn start_with(arguments: &[String]) -> Self {
+        Self::start_with_env(arguments, &[])
+    }
+
+    /// Starts the Proving ground as [`Self::start_with`] does, in an
+    /// environment of `variables` alone, such as the online copy's vendor
+    /// secrets.
+    pub(crate) fn start_with_env(arguments: &[String], variables: &[(&str, &str)]) -> Self {
         let mut child = Command::new(env!("CARGO_BIN_EXE_goodfetch-proving-ground"))
             .args(arguments)
             .env_clear()
+            .envs(variables.iter().copied())
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::inherit())

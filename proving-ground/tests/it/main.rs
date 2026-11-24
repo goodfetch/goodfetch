@@ -53,6 +53,7 @@ mod login;
 mod model_recordings;
 mod network;
 mod observations;
+mod online;
 mod oracle;
 mod pacing;
 mod page_load;

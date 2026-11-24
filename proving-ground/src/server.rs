@@ -46,6 +46,7 @@ use crate::clock;
 use crate::exchange::{self, Reply};
 use crate::model::{self, Ending};
 use crate::observation::{self, Observations};
+use crate::online::Online;
 use crate::push::{self, EventStream, Push};
 use crate::raw;
 use crate::raw_site::{self, RawSite};
@@ -97,6 +98,7 @@ impl Server {
         reached_on: Option<u16>,
         seed: u64,
         builds: BrowserBuilds,
+        online: Option<Online>,
     ) -> Result<Self> {
         let listener = TcpListener::bind(address)
             .await
@@ -133,6 +135,7 @@ impl Server {
                 },
                 Arc::clone(&observations),
                 builds,
+                online,
             )),
             tls,
             observations,
@@ -552,9 +555,14 @@ async fn answer(
             if let Some(answer) = site.model(&parts.method, &host, target, &body) {
                 return model_response(answer).await;
             }
-            // A request in absolute form is one to the replay proxy;
-            // HTTP/2's requests always carry their scheme.
-            if parts.uri.scheme().is_some() && parts.version <= Version::HTTP_11 {
+            if let Some(reply) = site
+                .challenge(&parts.method, &host, parts.uri.path(), &body)
+                .await
+            {
+                (reply, None)
+            } else if parts.uri.scheme().is_some() && parts.version <= Version::HTTP_11 {
+                // A request in absolute form is one to the replay proxy;
+                // HTTP/2's requests always carry their scheme.
                 (site.proxy(&parts.method, &parts.uri), None)
             } else {
                 site.respond_held(

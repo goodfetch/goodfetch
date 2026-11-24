@@ -2,15 +2,18 @@ use std::time::Duration;
 
 use goodfetch_counted_work::{CountedWork, Row};
 use goodfetch_test_support::runtime;
+use rstest::rstest;
 use serde_json::{Value, json};
 use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _, DuplexStream, ReadHalf, WriteHalf};
 use tokio::sync::oneshot;
 
 use super::{Connection, Driver, Ended, Request, SessionId, SubscriptionEnd};
-use crate::Failure;
+use crate::failure::PartyText;
 use crate::framing::{Framer, frame};
 use crate::generated::browser::GetVersionParams;
 use crate::generated::fetch;
+use crate::generated::input::InsertTextParams;
+use crate::{Failure, Refusal};
 
 const TIMEOUT: Duration = Duration::from_secs(5);
 
@@ -1189,6 +1192,130 @@ fn a_command_started_on_a_full_queue_is_written_as_its_answer_is_awaited() {
     });
 
     assert_eq!(work.read(Row::CdpSends), 65);
+}
+
+/// Text inserted, one command of a burst of them.
+fn inserted(text: &str) -> InsertTextParams {
+    InsertTextParams {
+        text: text.to_owned(),
+    }
+}
+
+/// A burst's commands are all written, in order, before any is answered; it
+/// ends once each is answered, and each counts C1's encodes and send as one
+/// sent alone does.
+#[test]
+fn a_burst_is_written_whole_before_its_first_answer() {
+    let work = CountedWork::default();
+    let (connection, driver, mut browser) = connected_on(&work);
+    let texts = runtime().block_on(async {
+        let burst = [inserted("a"), inserted("b"), inserted("c")];
+        let (_, texts) = tokio::join!(driver.run(), async {
+            let (sent, texts) = tokio::join!(connection.burst(None, &burst, TIMEOUT), async {
+                let mut texts = Vec::new();
+                let mut ids = Vec::new();
+                for _ in &burst {
+                    let command = written(&mut browser).await;
+                    texts.push(command["params"]["text"].clone());
+                    ids.push(command["id"].clone());
+                }
+                for id in ids {
+                    browser.send(&json!({ "id": id, "result": {} })).await;
+                }
+                texts
+            });
+            sent.unwrap();
+            drop((connection, browser));
+            texts
+        });
+        texts
+    });
+
+    assert_eq!(texts, ["a", "b", "c"]);
+    assert_eq!(work.read(Row::CdpEncodes), 6);
+    assert_eq!(work.read(Row::CdpSends), 3);
+}
+
+/// A burst ends with the first failure of its commands, though the others
+/// succeed, and within its one timeout however many answers are late.
+#[rstest]
+#[case::a_command_the_browser_refuses(Some(1), Failure::Refused {
+    method: "Input.insertText",
+    refusal: Refusal::Unrecognized,
+    code: -32000,
+    message: PartyText::new("refused"),
+})]
+#[case::a_command_the_browser_never_answers(None, Failure::TimedOut {
+    method: "Input.insertText",
+})]
+fn a_burst_fails_as_its_first_command_that_does(
+    #[case] refused: Option<usize>,
+    #[case] failure: Failure,
+) {
+    let (connection, driver, mut browser) = connected();
+    let sent = runtime().block_on(async {
+        let burst = [inserted("a"), inserted("b"), inserted("c")];
+        let (_, sent) = tokio::join!(driver.run(), async {
+            let timeout = Duration::from_millis(300);
+            let (sent, ()) = tokio::join!(connection.burst(None, &burst, timeout), async {
+                for index in 0..burst.len() {
+                    let id = written(&mut browser).await["id"].clone();
+                    if Some(index) == refused {
+                        let error = json!({ "code": -32000, "message": "refused" });
+                        browser.send(&json!({ "id": id, "error": error })).await;
+                    } else if refused.is_some() {
+                        browser.send(&json!({ "id": id, "result": {} })).await;
+                    }
+                }
+            });
+            drop((connection, browser));
+            sent
+        });
+        sent
+    });
+
+    assert_eq!(sent, Err(failure));
+}
+
+/// A burst dropped once queued is written whole, as nothing takes it back;
+/// one dropped while the queue has no room for all of it is not written at
+/// all, so no part of it stands alone.
+#[test]
+fn a_dropped_burst_is_written_whole_or_not_at_all() {
+    let (connection, driver, mut browser) = connected();
+    let burst = [inserted("a"), inserted("b"), inserted("c")];
+    let texts = runtime().block_on(async {
+        // The driver does not run yet, so what is queued stays there: room
+        // for two commands of the second burst's three is left.
+        let queued = tokio::time::timeout(
+            Duration::from_millis(50),
+            connection.burst(None, &burst, TIMEOUT),
+        );
+        queued.await.unwrap_err();
+        let filled: Vec<_> = (burst.len()..super::REQUESTS - 2)
+            .map(|_| connection.start(None, &inserted("filled"), TIMEOUT))
+            .collect();
+        let unqueued = tokio::time::timeout(
+            Duration::from_millis(50),
+            connection.burst(None, &burst, TIMEOUT),
+        );
+        unqueued.await.unwrap_err();
+        let last = connection.start(None, &inserted("last"), TIMEOUT);
+        let (_, texts) = tokio::join!(driver.run(), async {
+            let mut texts = Vec::new();
+            while texts.last().is_none_or(|text| text != "last") {
+                texts.push(written(&mut browser).await["params"]["text"].clone());
+            }
+            drop((filled, last, connection, browser));
+            texts
+        });
+        texts
+    });
+
+    let filled = texts.len() - 4;
+    assert_eq!(texts[..3], ["a", "b", "c"]);
+    assert_eq!(texts[3..], [vec!["filled"; filled], vec!["last"]].concat());
+    assert_eq!(texts.len(), super::REQUESTS - 1);
 }
 
 /// An event on `session`, sent by the browser.

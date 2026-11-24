@@ -192,7 +192,9 @@ enum Landed {
 ///
 /// # Cancel safety
 ///
-/// Dropping the future sends no further input; an interception listener
+/// Dropping the future sends no further input, and leaves no key and no
+/// button down: a gesture's input is one burst, sent whole or not at all. An
+/// interception listener
 /// armed for a gesture never sent removes itself at the next check, or
 /// after 10 s.
 pub(crate) async fn act(
@@ -292,15 +294,15 @@ async fn attempt(page: &PageDriver, request: Request<'_>, clock: &Clock) -> Resu
                 }
                 Action::Fill(value) => {
                     request.sent.mark(request.operation).await?;
-                    return fill(&mut turn, value).await;
+                    return fill(page, &mut turn, value).await;
                 }
                 Action::Press(events) => {
                     request.sent.mark(request.operation).await?;
                     let mut watch = page.watch_gesture();
                     Box::pin(watch.during(async {
-                        for event in events {
-                            turn.key(event).await?;
-                        }
+                        CdpPage::of(page)
+                            .press_keys(events, turn.gesture_call())
+                            .await?;
                         settled(&mut turn).await
                     }))
                     .await?;
@@ -437,17 +439,16 @@ async fn landed(turn: &mut Turn<'_>) -> Result<Landed, CallError> {
 
 /// Replaces the selected text of the focused field with `value`, as typed
 /// text arrives; an empty value deletes it.
-async fn fill(turn: &mut Turn<'_>, value: &str) -> Result<(), CallError> {
+async fn fill(page: &PageDriver, turn: &mut Turn<'_>, value: &str) -> Result<(), CallError> {
     if !value.is_empty() {
         return turn.insert_text(value).await;
     }
     let delete = keys::events("Delete").map_err(|unknown| {
         CallError::protocol(ProtocolFailure::InternalError, unknown.to_string())
     })?;
-    for event in &delete {
-        turn.key(event).await?;
-    }
-    Ok(())
+    CdpPage::of(page)
+        .press_keys(&delete, turn.gesture_call())
+        .await
 }
 
 /// `invalid_params` for `selector`, which the page does not parse as CSS,

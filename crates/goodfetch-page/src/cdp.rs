@@ -14,7 +14,8 @@
 //!
 //! | Primitive | CDP | `WebDriver BiDi` | Playwright's driver |
 //! |---|---|---|---|
-//! | [`CdpPage::pointer_click`]: a left click at a point of the page's viewport, as trusted input | `Input.dispatchMouseEvent` ×3: `mouseMoved`, `mousePressed` and `mouseReleased` | one `input.performActions` with a `pointer` source: `pointerMove`, `pointerDown` and `pointerUp` | `mouseClick` |
+//! | [`CdpPage::pointer_click`]: a left click at a point of the page's viewport, as trusted input | `Input.dispatchMouseEvent` ×3: `mouseMoved`, `mousePressed` and `mouseReleased`, written as one burst | one `input.performActions` with a `pointer` source: `pointerMove`, `pointerDown` and `pointerUp` | `mouseClick` |
+//! | [`CdpPage::press_keys`]: a key or a combination pressed on the focused element, as trusted input | one `Input.dispatchKeyEvent` for each key down and key up, written as one burst | one `input.performActions` with a `key` source: a `keyDown` and a `keyUp` for each key | `keyboardDown` and `keyboardUp`, or `keyboardPress` for one key |
 //! | [`CdpPage::paused_events`]: what the interception follows of the page's events, each read once | `Fetch.requestPaused`, `Fetch.authRequired`, `Network.loadingFailed`, `Network.webSocketCreated`, `Page.loadEventFired`, `Page.frameStartedNavigating`, and `Page.frameScheduledNavigation` or `Page.frameRequestedNavigation` | `network.beforeRequestSent` and `network.responseStarted` while blocked, `network.authRequired`, `network.fetchError`, `browsingContext.load` and `browsingContext.navigationStarted`; a scheduled navigation and a WebSocket's opening are Chromium only | `route`, `requestFailed`, `webSocket`, and a frame's `navigated` and `loadstate`; a scheduled navigation is Chromium only |
 //! | [`CdpPage::pause_requests_opening`] and [`CdpPage::pause_requests`]: every request paused before it leaves, a document's response too, and the challenges the page answers | `Fetch.enable` with a request-stage pattern, a response-stage one for documents, and `handleAuthRequests` | `network.addIntercept` at `beforeRequestSent`, `responseStarted` and `authRequired` | `setNetworkInterceptionPatterns`; a paused response is Chromium only |
 //! | [`CdpPage::follow_web_sockets`]: the WebSockets the page opens reported | `Network.enable` | `session.subscribe` to the `network` module | none: the driver reports a page's WebSockets itself |
@@ -34,6 +35,7 @@ mod paused;
 mod requests;
 mod runtime_values;
 
+use goodfetch_cdp::generated::input::DispatchKeyEventParams;
 use goodfetch_engine::CallError;
 
 pub(crate) use goodfetch_cdp::{NetError, SessionId as TargetSession};
@@ -67,18 +69,31 @@ impl CdpPage {
 
     /// Clicks at (`x`, `y`) in the page's viewport with the pointer's left
     /// button: the pointer moves there, presses and releases, input the
-    /// page receives as trusted. One primitive for the whole burst, which
-    /// CDP sends as three events, each within `call`'s deadline and raising
-    /// its codes.
+    /// page receives as trusted. One burst, which CDP sends as three events,
+    /// none waiting for the answer to another, all within `call`'s deadline
+    /// and raising its codes.
     ///
     /// # Cancel safety
     ///
-    /// Dropping the future sends none of the burst's later events; an event
-    /// already written is the browser's.
+    /// Dropping the future sends all of the burst or none of it, so it
+    /// leaves no button down.
     pub(crate) async fn pointer_click(&self, x: f64, y: f64, call: &Call) -> Result<(), CallError> {
-        for params in pointer_click(x, y) {
-            self.page.send(&params, call).await?;
-        }
-        Ok(())
+        self.page.burst(&pointer_click(x, y), call).await
+    }
+
+    /// Sends `events`, one key press's from the first key down to the last
+    /// key up, to the focused element, input the page receives as trusted:
+    /// one burst, as [`pointer_click`](Self::pointer_click)'s.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future sends all of the burst or none of it, so it
+    /// leaves no key down.
+    pub(crate) async fn press_keys(
+        &self,
+        events: &[DispatchKeyEventParams],
+        call: &Call,
+    ) -> Result<(), CallError> {
+        self.page.burst(events, call).await
     }
 }

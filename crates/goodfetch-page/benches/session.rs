@@ -380,14 +380,14 @@ impl Reading {
 /// The browser's one page: its frame's document, by its loader, and each
 /// isolated world it made, by its context, with the document it was made in.
 #[derive(Default)]
-struct Page {
+pub(crate) struct Page {
     loader: String,
     worlds: BTreeMap<u64, (String, String)>,
 }
 
 impl Page {
     /// A page just opened, on its blank document.
-    fn blank() -> Self {
+    pub(crate) fn blank() -> Self {
         Self {
             loader: "loader".to_owned(),
             ..Self::default()
@@ -613,7 +613,11 @@ impl BlockClassifier for ReadsMarkers {
 
 /// The `result` of `method` as the browser answers it on `page`, and the
 /// events it sends right after.
-fn answered(method: &str, params: &Value, page: &mut Page) -> Result<(Value, Vec<Value>), Value> {
+pub(crate) fn answered(
+    method: &str,
+    params: &Value,
+    page: &mut Page,
+) -> Result<(Value, Vec<Value>), Value> {
     Ok(match method {
         "Browser.getVersion" => (
             json!({
@@ -944,7 +948,7 @@ struct Heard {
 
 /// How the browser hears the engine: a Borrowed browser's WebSocket, or a
 /// launched one's debugging pipe, each message JSON followed by a NUL byte.
-enum Wire {
+pub(crate) enum Wire {
     Socket(Box<WebSocketStream<TcpStream>>),
     Pipe {
         reader: BufReader<ReadHalf<DuplexStream>>,
@@ -954,7 +958,7 @@ enum Wire {
 
 impl Wire {
     /// The browser's end of a launched browser's pipe.
-    fn pipe(pipe: DuplexStream) -> Self {
+    pub(crate) fn pipe(pipe: DuplexStream) -> Self {
         let (reader, writer) = tokio::io::split(pipe);
         Self::Pipe {
             reader: BufReader::new(reader),
@@ -963,7 +967,7 @@ impl Wire {
     }
 
     /// The engine's next message; `None` once it closed its end.
-    async fn next(&mut self) -> Option<String> {
+    pub(crate) async fn next(&mut self) -> Option<String> {
         match self {
             Self::Socket(socket) => loop {
                 match socket.next().await? {
@@ -982,7 +986,7 @@ impl Wire {
     }
 
     /// Sends `message`: whether the engine still reads.
-    async fn send(&mut self, message: String) -> bool {
+    pub(crate) async fn send(&mut self, message: String) -> bool {
         match self {
             Self::Socket(socket) => socket.send(Message::text(message)).await.is_ok(),
             Self::Pipe { writer, .. } => {
@@ -1122,18 +1126,52 @@ async fn browser(mut wire: Wire, counts: Heard, plant: Option<Plant>) {
     }
 }
 
-/// The engine's answer to one request of the program.
-struct Client {
+/// The Client of the program's Connection to the engine.
+pub(crate) struct Client {
     lines: tokio::io::Lines<BufReader<transport::ConnectionReader>>,
     writer: transport::ConnectionWriter,
     next_id: u64,
 }
 
 impl Client {
+    /// A Client on a Connection of its own to the engine `dialer` reaches.
+    pub(crate) async fn connected(dialer: &transport::InMemoryDialer) -> Self {
+        let (reader, writer) = dialer
+            .connect()
+            .await
+            .expect("invariant: the engine listens")
+            .split();
+        Self {
+            lines: BufReader::new(reader).lines(),
+            writer,
+            next_id: 0,
+        }
+    }
+
+    /// Opens the Connection and starts the Run [`RUN`] with `settings`.
+    pub(crate) async fn start_run(&mut self, settings: Map<String, Value>) {
+        self.call(
+            "hello",
+            &json!({ "protocol_version": "0.1", "surface": "rust", "needs": "collie", "product_version": "0.0.0" }),
+        )
+        .await;
+        self.call("run.start", &json!({ "run_id": RUN, "settings": settings }))
+            .await;
+    }
+
     /// Calls `method`, failing the scenario on an error: a benchmark whose
     /// work did not happen proves nothing.
-    async fn call(&mut self, method: &str, params: &Value) -> Value {
+    pub(crate) async fn call(&mut self, method: &str, params: &Value) -> Value {
         let id = self.start(method, params).await;
+        let message = self.answer(id).await;
+        message
+            .get("result")
+            .cloned()
+            .unwrap_or_else(|| panic!("`{method}` failed: {message}"))
+    }
+
+    /// The engine's answer, a result or an error, to the request `id`.
+    pub(crate) async fn answer(&mut self, id: u64) -> Value {
         loop {
             let line = self
                 .lines
@@ -1144,28 +1182,35 @@ impl Client {
             let message: Value =
                 serde_json::from_str(&line).expect("invariant: the engine writes JSON");
             if message["id"] == json!(id) && message.get("method").is_none() {
-                return message
-                    .get("result")
-                    .cloned()
-                    .unwrap_or_else(|| panic!("`{method}` failed: {message}"));
+                return message;
             }
         }
     }
 
     /// Sends `method` without waiting for its answer, which a subscription
     /// such as `page.on` gives once its page closes; answers its ID.
-    async fn start(&mut self, method: &str, params: &Value) -> u64 {
+    pub(crate) async fn start(&mut self, method: &str, params: &Value) -> u64 {
         self.next_id += 1;
         let id = self.next_id;
-        let mut line = json!({ "jsonrpc": "2.0", "id": id, "method": method, "params": params })
-            .to_string()
-            .into_bytes();
+        self.write(&json!({ "jsonrpc": "2.0", "id": id, "method": method, "params": params }))
+            .await;
+        id
+    }
+
+    /// Writes `message`, a request or a notification, to the engine.
+    pub(crate) async fn write(&mut self, message: &Value) {
+        let mut line = message.to_string().into_bytes();
         line.push(b'\n');
         self.writer
             .write_all(&line)
             .await
             .expect("invariant: the engine reads its Connection");
-        id
+    }
+
+    /// Closes its end and waits for the engine to close its own.
+    pub(crate) async fn close(&mut self) {
+        self.writer.shutdown().await.expect("invariant: in memory");
+        while let Ok(Some(_)) = self.lines.next_line().await {}
     }
 }
 
@@ -1191,15 +1236,7 @@ async fn program(
     (heard, work): (&Heard, &CountedWork),
     (during_reads, by_fields): (&mut BTreeMap<&'static str, u64>, &mut ByFields),
 ) -> (BTreeMap<&'static str, u64>, u64) {
-    client
-        .call(
-            "hello",
-            &json!({ "protocol_version": "0.1", "surface": "rust", "needs": "collie", "product_version": "0.0.0" }),
-        )
-        .await;
-    client
-        .call("run.start", &json!({ "run_id": RUN, "settings": settings }))
-        .await;
+    client.start_run(settings).await;
     let mut attempts = BTreeMap::new();
     if browsers == Browsers::Pool {
         // Every page opens in the one Session `pooled` names.
@@ -1527,7 +1564,7 @@ fn pool_pages(pages: &PoolPages) -> Contribution {
 /// The Collie engine the scenario drives, counting on `metrics`, its pages
 /// judged by [`ReadsMarkers`], its Runs' browsers started by `launcher`, and
 /// the program's operations on the pool's pages beside its own.
-fn engine(metrics: Metrics, launcher: Launcher) -> Engine {
+pub(crate) fn engine(metrics: Metrics, launcher: Launcher) -> Engine {
     let identity = Identity {
         product: Product::Collie,
         product_version: ProductVersion::parse("0.0.0").expect("invariant: a literal version"),
@@ -1585,16 +1622,7 @@ pub(crate) fn counted(
             Browsers::Pool => Box::pin(launched_ends(started, heard.clone(), plant)),
         };
         let client = async {
-            let (reader, writer) = dialer
-                .connect()
-                .await
-                .expect("invariant: the engine listens")
-                .split();
-            let mut client = Client {
-                lines: BufReader::new(reader).lines(),
-                writer,
-                next_id: 0,
-            };
+            let mut client = Client::connected(&dialer).await;
             let programmed = program(
                 &mut client,
                 (browsers, armed, &cdp_url, settings),
@@ -1603,12 +1631,7 @@ pub(crate) fn counted(
             )
             .await;
             quiet(&heard.units, &work).await;
-            client
-                .writer
-                .shutdown()
-                .await
-                .expect("invariant: in memory");
-            while let Ok(Some(_)) = client.lines.next_line().await {}
+            client.close().await;
             programmed
         };
         let dependencies = dependencies(home);
@@ -1667,7 +1690,7 @@ pub(crate) fn counted(
     clippy::disallowed_methods,
     reason = "a benchmark's engine draws seeded entropy, the Entropy's test version (ADR 0059)"
 )]
-fn dependencies(home: &Path) -> Dependencies {
+pub(crate) fn dependencies(home: &Path) -> Dependencies {
     Dependencies {
         environment: std::collections::BTreeMap::from([(SIGNING_KEY.into(), RFC_KEY.into())]),
         keychain: goodfetch_engine::secrets::Keychain::absent(),

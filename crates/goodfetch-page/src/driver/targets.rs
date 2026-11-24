@@ -9,7 +9,7 @@ use goodfetch_cdp::{Command, Failure, Refusal, SessionId as TargetSession, Subsc
 use goodfetch_engine::CallError;
 use goodfetch_protocol::jsonrpc::ProtocolFailure;
 
-use super::{PageDriver, Unanswered, world};
+use super::{PageDriver, UNBOUNDED, Unanswered, world};
 
 impl PageDriver {
     /// The page's own session.
@@ -79,12 +79,12 @@ impl PageDriver {
     }
 
     /// Clicks at (`x`, `y`) in the page's viewport with the left button, as
-    /// trusted input, wherever in the page's frames that point lies.
+    /// trusted input, wherever in the page's frames that point lies: one
+    /// burst, so a click cut short leaves no button down.
     pub(crate) async fn press(&self, x: f64, y: f64) -> Result<(), Failure> {
-        for params in pointer_click(x, y) {
-            self.browser.try_send(Some(&self.session), &params).await?;
-        }
-        Ok(())
+        self.browser
+            .try_burst_within(Some(&self.session), &pointer_click(x, y), UNBOUNDED)
+            .await
     }
 
     /// Moves the pointer to (`x`, `y`) in the page's viewport, as trusted

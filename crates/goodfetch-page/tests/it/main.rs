@@ -6,10 +6,12 @@
 //! the page's own navigation interrupts (ADR 0085), the guard's
 //! interception listener beside the page's own events (ADR 0019), and an
 //! installed browser's document request, read from the version its
-//! executable prints (issue 2532), and the decodes of a call the Product
-//! answers on a page it serves (issue 2617).
+//! executable prints (issue 2532), the decodes of a call the Product
+//! answers on a page it serves (issue 2617), and the burst a Gesture's input
+//! goes out in (issue 3259).
 
 mod effect_window;
+mod gesture_input;
 mod gesture_navigation;
 mod guard_listener;
 mod handler_page;

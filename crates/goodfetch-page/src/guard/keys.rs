@@ -48,7 +48,8 @@ const MODIFIERS: [(&str, i64); 4] = [("Alt", 1), ("Control", 2), ("Meta", 4), ("
 )]
 pub(crate) struct UnknownKey(pub(crate) String);
 
-/// The key events that press `combination`, such as `Control+a`.
+/// The key events that press `combination`, such as `Control+a`: at most
+/// ten, a modifier named twice being held once.
 pub(crate) fn events(combination: &str) -> Result<Vec<DispatchKeyEventParams>, UnknownKey> {
     let unknown = || UnknownKey(combination.to_owned());
     // `+` alone, or ending a combination, is the plus key.
@@ -60,15 +61,17 @@ pub(crate) fn events(combination: &str) -> Result<Vec<DispatchKeyEventParams>, U
             .rsplit_once('+')
             .map_or(("", combination), |(modifiers, last)| (modifiers, last)),
     };
-    let modifiers: Vec<Definition> = modifiers
-        .split('+')
-        .filter(|name| !name.is_empty())
-        .map(|name| modifier(name).ok_or_else(unknown))
-        .collect::<Result<_, _>>()?;
+    let mut held: Vec<Definition> = Vec::new();
+    for name in modifiers.split('+').filter(|name| !name.is_empty()) {
+        let modifier = modifier(name).ok_or_else(unknown)?;
+        if !held.contains(&modifier) {
+            held.push(modifier);
+        }
+    }
     let pressed = key(last).ok_or_else(unknown)?;
     let mut bits = 0;
     let mut sent = Vec::new();
-    for modifier in &modifiers {
+    for modifier in &held {
         bits |= bit(&modifier.key);
         sent.push(event(
             DispatchKeyEventType::RawKeyDown,
@@ -93,7 +96,7 @@ pub(crate) fn events(combination: &str) -> Result<Vec<DispatchKeyEventParams>, U
     };
     sent.push(event(down, &pressed, bits, text));
     sent.push(event(DispatchKeyEventType::KeyUp, &pressed, bits, None));
-    for modifier in modifiers.iter().rev() {
+    for modifier in held.iter().rev() {
         bits &= !bit(&modifier.key);
         sent.push(event(DispatchKeyEventType::KeyUp, modifier, bits, None));
     }

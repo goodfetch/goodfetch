@@ -21,6 +21,10 @@
 //! future the caller polls when it will. Dropping the answer leaves the wait
 //! alone; the command, queued, is still written.
 //!
+//! Commands that must reach the browser together, as a click's press and
+//! release, go as one burst ([`Connection::burst`]): all of them are queued
+//! at once or none is, so no drop of their caller parts them.
+//!
 //! The driver owns its state: the commands in flight, and the table of
 //! readers by session, so an event visits the readers of its session alone
 //! (ADR 0140's `C1.event_visits`). A subscription starts without the driver
@@ -300,6 +304,71 @@ impl Connection {
             .unwrap_or(Err(Failure::TimedOut { method }))
     }
 
+    /// Sends `commands` on `session` (the browser's own when `None`) as one
+    /// burst: all of them are queued at once, in order, and none of them
+    /// waits for an answer to another, so once the first is written the
+    /// rest are. Ends once each is answered.
+    ///
+    /// # Errors
+    ///
+    /// As [`Connection::send`]: the failure of the first command that fails,
+    /// `timeout` bounding the whole burst. The commands after that one are
+    /// sent all the same.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future leaves either the whole burst queued, which is
+    /// then written and carried out, or none of it.
+    ///
+    /// # Panics
+    ///
+    /// On a burst of more than [`REQUESTS`] commands, for which the queue
+    /// never has room.
+    #[tracing::instrument(name = "cdp_command", level = "trace", skip_all, fields(cdp.method = C::METHOD))]
+    pub async fn burst<C: crate::Command>(
+        &self,
+        session: Option<&SessionId>,
+        commands: &[C],
+        timeout: Duration,
+    ) -> Result<(), Failure> {
+        assert!(
+            commands.len() <= REQUESTS,
+            "invariant: a burst fits the driver's queue"
+        );
+        let method = C::METHOD;
+        let (requests, waits): (Vec<_>, Vec<_>) = commands
+            .iter()
+            .map(|params| {
+                // As `send`'s.
+                self.work.count(Row::CdpEncodes);
+                let params =
+                    serde_json::to_value(params).expect("invariant: a command's params serialize");
+                self.request(method, session, params)
+            })
+            .unzip();
+        let sent = async {
+            for request in &requests {
+                self.record(request).await;
+            }
+            let places = self
+                .requests
+                .reserve_many(requests.len())
+                .await
+                .map_err(|_| Failure::Disconnected)?;
+            // Nothing is awaited from here to the last of them.
+            for (place, request) in places.zip(requests) {
+                place.send(request);
+            }
+            for mut waiting in waits {
+                read::<C::Returns>(method, waiting.answer().await?)?;
+            }
+            Ok(())
+        };
+        tokio::time::timeout(timeout, sent)
+            .await
+            .unwrap_or(Err(Failure::TimedOut { method }))
+    }
+
     /// Starts `C` on `session` (the browser's own when `None`) without
     /// waiting for anything: the command is queued for the driver at once,
     /// so commands started one after another are written in that order, and
@@ -373,14 +442,19 @@ impl Connection {
     /// Records `request`'s method in the CDP command log, if on, then
     /// queues it for the driver, waiting for its place.
     async fn queue(&self, request: Request) -> Result<(), Failure> {
-        if let Some(log) = &self.log {
-            self.work.count(Row::CdpLogSendsOff);
-            log.0.record(request.method).await;
-        }
+        self.record(&request).await;
         self.requests
             .send(request)
             .await
             .map_err(|_| Failure::Disconnected)
+    }
+
+    /// Records `request`'s method in the CDP command log, if on.
+    async fn record(&self, request: &Request) {
+        if let Some(log) = &self.log {
+            self.work.count(Row::CdpLogSendsOff);
+            log.0.record(request.method).await;
+        }
     }
 
     /// The events of `session` (the browser's own when `None`) the driver

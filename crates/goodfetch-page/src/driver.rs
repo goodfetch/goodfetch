@@ -373,13 +373,49 @@ impl Browser {
         params: &C,
         limit: Duration,
     ) -> Result<C::Returns, Failure> {
-        if let Some(lease) = &self.lease
-            && lease.check().is_err()
-        {
-            return Err(Failure::Withheld { method: C::METHOD });
-        }
+        self.leased::<C>()?;
         self.counted();
         self.connection.send(session, params, limit).await
+    }
+
+    /// Sends `commands` on `session` as one burst
+    /// ([`Connection::burst`](goodfetch_cdp::Connection::burst)) within the
+    /// deadline of `call`; a failure raises the code of `call`.
+    async fn burst<C: Command>(
+        &self,
+        session: Option<&TargetSession>,
+        commands: &[C],
+        call: &Call,
+    ) -> Result<(), CallError> {
+        let limit = self.deadlines.command_limit(call);
+        match self.try_burst_within(session, commands, limit).await {
+            Ok(()) => Ok(()),
+            Err(failure) => Err(self.failed(call, &failure).await),
+        }
+    }
+
+    /// Sends `commands` on `session` as one burst, waiting for its answers
+    /// at most `limit`, answering the failure itself. The lease is checked
+    /// once, as the burst goes out whole or not at all.
+    async fn try_burst_within<C: Command>(
+        &self,
+        session: Option<&TargetSession>,
+        commands: &[C],
+        limit: Duration,
+    ) -> Result<(), Failure> {
+        self.leased::<C>()?;
+        for _ in commands {
+            self.counted();
+        }
+        self.connection.burst(session, commands, limit).await
+    }
+
+    /// Withholds the command `C` once the page's work item's lease ended.
+    fn leased<C: Command>(&self) -> Result<(), Failure> {
+        match &self.lease {
+            Some(lease) if lease.check().is_err() => Err(Failure::Withheld { method: C::METHOD }),
+            _ => Ok(()),
+        }
     }
 
     /// Sends `params` on `session` whatever the lease, as the engine closes
@@ -1159,18 +1195,6 @@ impl Turn<'_> {
         self.granted.lend_pointer().await;
     }
 
-    /// Sends one key event to the focused element.
-    pub(crate) async fn key(
-        &mut self,
-        event: &input::DispatchKeyEventParams,
-    ) -> Result<(), CallError> {
-        self.page
-            .browser
-            .send(Some(&self.page.session), event, &self.call)
-            .await
-            .map(|_| ())
-    }
-
     /// Inserts `text` where the focused element's selection is, as an
     /// input method commits text: one trusted `input` event.
     pub(crate) async fn insert_text(&mut self, text: &str) -> Result<(), CallError> {
@@ -1499,15 +1523,18 @@ impl PageDriver {
             .await
     }
 
-    /// Sends `params` on the page's target within the deadline of `call`,
-    /// recorded in the Run trace; a failure raises the code of `call`: the
-    /// CDP module's primitives' commands.
-    pub(crate) async fn send<C: Command>(
+    /// Sends `commands` on the page's target as one burst, which goes out
+    /// whole or not at all, within the deadline of `call`, recorded in the
+    /// Run trace; a failure raises the code of `call`: the CDP module's
+    /// primitives' commands.
+    pub(crate) async fn burst<C: Command>(
         &self,
-        params: &C,
+        commands: &[C],
         call: &Call,
-    ) -> Result<C::Returns, CallError> {
-        self.browser.send(Some(&self.session), params, call).await
+    ) -> Result<(), CallError> {
+        self.browser
+            .burst(Some(&self.session), commands, call)
+            .await
     }
 
     /// Sends `params` on the page's target, recorded in the Run trace,

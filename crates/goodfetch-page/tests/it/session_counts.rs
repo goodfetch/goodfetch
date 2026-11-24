@@ -9,7 +9,7 @@
 )]
 
 #[path = "../../benches/session.rs"]
-mod session;
+pub(crate) mod session;
 
 use std::collections::BTreeMap;
 use std::path::Path;

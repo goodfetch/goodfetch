@@ -19,6 +19,7 @@
     "**/fuzz/*/seeds/**",
     "**/journeys/journey.schema.json",
     "**/compat/**",
+    "**/ci/release/skew-jobs.json",
     ".agents/**",
     "ci/proofs/**",
     "**/*.md",

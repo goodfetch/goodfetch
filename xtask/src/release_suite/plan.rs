@@ -28,7 +28,7 @@ pub(crate) const CEILING: u32 = 600;
 
 /// ADR 0061's budget for a Release job, which estimates a cell with no
 /// recorded run: 45 minutes, at its runner's rate.
-const JOB_BUDGET_MINUTES: u32 = 45;
+pub(crate) const JOB_BUDGET_MINUTES: u32 = 45;
 
 pub(crate) const MAIN_REF: &str = "refs/heads/main";
 

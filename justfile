@@ -331,8 +331,9 @@ features-audit scope="ran" verdict=exercise_audit:
     exit "$status"
 
 # Runs chosen Journey variants through `just test pre-merge` (ADRs 0063 and
-# 0066): `--id J-001`, `--surface cli`, `--milestone M1` and `--area 3`, each
-# repeatable; values of one flag add variants, different flags intersect.
+# 0066): `--id J-001`, `--surface cli`, `--milestone M1`, `--area 3` and
+# `--product collie`, each repeatable; values of one flag add variants,
+# different flags intersect. `--exclude J-001@cli`, repeatable, removes one.
 # `--engine <path>` runs them against that executable, for both Products.
 # `--tag <tag>` (with `--engine`) runs the tag's own Journey tests and helpers,
 # checked out in a temporary worktree that is removed afterwards.

@@ -71,6 +71,7 @@ mod package_dependencies;
 mod perf;
 mod pgo;
 mod pinned;
+mod product_version;
 mod products;
 mod quarantine;
 mod rate;

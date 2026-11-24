@@ -380,6 +380,8 @@ fn the_gate_is_quick_only_when_no_job_but_the_docs_runs(
 #[case::the_feature_inventory(&["xtask/src/features.rs"], "true")]
 #[case::the_licence_allowlist(&["xtask/src/license_allowlist.rs"], "true")]
 #[case::the_refusal_samples(&["xtask/src/compat/refusals.rs"], "true")]
+#[case::the_skew_jobs(&["xtask/src/compat/jobs.rs"], "true")]
+#[case::the_product_version(&["xtask/src/product_version.rs"], "true")]
 #[case::the_products_folders(&["xtask/src/products.rs"], "true")]
 #[case::the_attached_engines_name(&["crates/goodfetch-protocol/src/cli.rs"], "true")]
 #[case::the_engine_path_variables(&["crates/goodfetch-protocol/src/settings/deployment.rs"], "true")]

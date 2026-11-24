@@ -110,6 +110,7 @@ A test fabricates a version by writing the header, or by sending its own `hello`
   - A Journey that asserts something outside semver (ADR 0030) is fixed on `main`.
   - On an old tag, such a Journey's variant is excluded by its variant ID (`J-NNN@<surface>`) in `compat/skew-exclusions.toml`, with a reason, in a reviewed change.
   > Amended by [ADR 0094](0094-both-products-are-released-and-signed-together-and-each-test-runs-on-collie-unless-it-needs-foxhound.md): each old Journey runs against the current executable of its Product.
+  > Note ([#439](https://github.com/goodfetch/goodfetch/issues/439)): a skew run uses the released Client with the current executable of its Product, given by path: that is what ADR 0063's "built from the commit" means there for the executable.
 - **Rolling upgrades.** A three-member Daemon group starts on each older minor of the major and runs under load: a Partitioned crawl, a Schedule and live Limits. Its Group members are upgraded one at a time, once with the Lead Daemon last (the order a StatefulSet's default rolling update gives when the Lead Daemon is pod 0) and once with it first. The test checks ADR 0055's guarantees:
   - no Record lost or duplicated beyond the Sink's Guarantee class;
   - no Limit exceeded;
@@ -192,8 +193,10 @@ A test fabricates a version by writing the header, or by sending its own `hello`
 
 - **Amends ADR 0024.** Every Attached engine applies the Daemon's rule at `hello`: it accepts an SDK of its major with the same or an older minor, and refuses any other with the same clean error. The engine cannot tell how its SDK found it, so the rule does not depend on it. With the engine its SDK ships, the versions are equal; `GOODFETCH_ENGINE_PATH` (ADR 0030's hotfix path) is how they can differ. ADR 0024 carries a note where it says an Attached engine runs the exact version its SDK ships with.
 - **Adds to ADR 0037:** ADR 0066 joins the rows of areas 1, 3, 4, 5, 6, 7, 9, 10 and 13, which build its tooling, its registry and refusals, the formats they own (the known-certificates store, the Clean-up rules manifest, Datasets and Exports, the plugin protocol, Plans, Schedules) and the group and Helm upgrades.
+  > Note ([#439](https://github.com/goodfetch/goodfetch/issues/439)): area 12's row lists it too; the area has ended since ([ADR 0137](0137-the-console-leaves-both-products-and-the-engine-and-the-owners-monitoring-tool-is-designed-apart.md)).
 - **Adds to ADR 0030.**
   - **Format versions change only on `main`,** so only a minor or a major ships a new format version, never a patch. When `xtask release` prepares a patch, it compares each format's version and schema in the branch's `head/` with the `x.y.0` tag's and fails on any difference.
+    > Note ([#439](https://github.com/goodfetch/goodfetch/issues/439)): the rule applies to `release/x.y` from its cut on, so every format keeps the version and schema `main` had at `x.y-branch`.
   - **A new release gate, Compatibility:** the Release suite's upgrade and skew checks pass on the release's own bytes.
   - **The release's pull request to `main`** also freezes the corpus from the release tag and appends the release, with its artifacts and its format versions, to `compat/releases.toml`.
   - **The format registry** joins the committed bundle.

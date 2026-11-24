@@ -1,7 +1,8 @@
 //! The runners' filters for chosen Journey variants (ADR 0063), which `just
 //! journeys` hands to `just test`. Variants are chosen by Journey ID,
-//! surface, milestone and area: the values of one flag add variants, and
-//! different flags intersect. A retired Journey has no variant to choose.
+//! surface, milestone, area and Product: the values of one flag add
+//! variants, and different flags intersect; an excluded variant is never
+//! chosen. A retired Journey has no variant to choose.
 //!
 //! Each surface's runner (ADR 0063) gets one filter that matches exactly the
 //! chosen variants, as its tests carry them (see `listings`):
@@ -14,11 +15,12 @@
 //! their own tickets' choice, so their variants are named on stderr and left
 //! out until then.
 
+use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::journey::{JourneyId, Milestone};
 
 use crate::runners::Runner;
 
-use super::variants::{FOXHOUND_CLI, Variant};
+use super::variants::{FOXHOUND_CLI, Variant, VariantId};
 
 /// What chooses the variants: an empty list chooses every value.
 pub(super) struct Choice {
@@ -26,15 +28,26 @@ pub(super) struct Choice {
     pub(super) surfaces: Vec<String>,
     pub(super) milestones: Vec<Milestone>,
     pub(super) areas: Vec<u8>,
+    pub(super) products: Vec<Product>,
+    pub(super) excluded: Vec<VariantId>,
 }
 
 impl Choice {
+    /// The first exclusion that names none of `variants`.
+    pub(super) fn unknown_exclusion(&self, variants: &[Variant<'_>]) -> Option<&VariantId> {
+        self.excluded
+            .iter()
+            .find(|excluded| !variants.iter().any(|variant| excluded.names(variant)))
+    }
+
     fn chooses(&self, variant: &Variant<'_>) -> bool {
         let journey = variant.journey;
         (self.ids.is_empty() || self.ids.contains(&journey.id))
             && (self.surfaces.is_empty() || self.surfaces.contains(&variant.surface))
             && (self.milestones.is_empty() || self.milestones.contains(&variant.milestone))
             && (self.areas.is_empty() || self.areas.contains(&journey.area))
+            && (self.products.is_empty() || self.products.contains(&variant.product()))
+            && !self.excluded.iter().any(|excluded| excluded.names(variant))
     }
 }
 

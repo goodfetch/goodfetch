@@ -40,7 +40,7 @@ use crate::check::Finding;
 use crate::docs_samples::render;
 use crate::features::{CommandLines, CommandTree};
 use crate::products::{self, Product};
-use crate::{tree, wording};
+use crate::{product_version, tree, wording};
 
 /// The folder of the skills' sources.
 const SOURCES: &str = "skills";
@@ -124,9 +124,9 @@ pub(super) fn files(
 /// `<executable>:<skill>`. The version is the Product's, the licence and
 /// repository the workspace's.
 fn plugins(root: &Path) -> Result<Files> {
-    let version = super::product_version(root)?;
-    let license = super::workspace_package(root, "license")?;
-    let repository = super::workspace_package(root, "repository")?;
+    let version = product_version::read(root)?;
+    let license = product_version::workspace_package(root, "license")?;
+    let repository = product_version::workspace_package(root, "repository")?;
     [
         (products::COLLIE, "Agent skills for Collie, Goodfetch's Product for browser automation: drive a real browser with goodfetch-collie and read its Runs."),
         (products::FOXHOUND, "Agent skills for Foxhound, Goodfetch's Product for crawling, which contains Collie: crawl sites and drive a real browser with goodfetch-foxhound."),

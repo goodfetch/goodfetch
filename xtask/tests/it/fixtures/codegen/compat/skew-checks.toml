@@ -1,0 +1,7 @@
+setup_minutes = 15
+
+[[check]]
+id = "collie-cli"
+product = "collie"
+minutes = 8
+journeys = { surfaces = ["cli"] }

@@ -4,9 +4,12 @@
 //! reads the vendor's own verdict, never the tool's report. Each vendor
 //! comes from a section of `serve --online-config`, a TOML file, which
 //! names the environment variable holding each secret (the deployment
-//! fills it from a protected GitHub environment):
+//! fills it from a protected GitHub environment), and a deployed copy
+//! names the public origins its tasks start from (see [`config`]):
 //!
 //! ```toml
+//! origin = "https://challenges.goodfetch.dev"
+//!
 //! [turnstile]
 //! site_key = "0x4AAAAAAA..."
 //! secret_env = "PROVING_GROUND_TURNSTILE_SECRET"
@@ -42,6 +45,7 @@
 //! [aws_waf]
 //!
 //! [botid]
+//! origin = "https://botid.goodfetch.dev"
 //!
 //! [onetrust]
 //! domain_script = "0190..."
@@ -80,7 +84,10 @@
 //! error of its own or of the copy's keys, or a request that did not come
 //! through it.
 
+mod config;
 mod consent;
+
+pub(crate) use self::config::Config;
 
 use std::collections::HashSet;
 use std::fmt::Write as _;
@@ -139,71 +146,6 @@ const VENDOR_SIDE_ERRORS: [&str; 6] = [
     "bad-request",
     "internal-error",
 ];
-
-/// `serve --online-config`: one optional section per vendor, and the edge.
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-pub(crate) struct Config {
-    turnstile: Option<TokenSection>,
-    recaptcha: Option<TokenSection>,
-    hcaptcha: Option<TokenSection>,
-    cap: Option<TokenSection>,
-    altcha: Option<AltchaSection>,
-    anubis: Option<KeySection>,
-    edge: Option<KeySection>,
-    cloudflare_bot_score: Option<EdgeSection>,
-    aws_waf: Option<EdgeSection>,
-    botid: Option<EdgeSection>,
-    onetrust: Option<consent::OneTrustSection>,
-    cookiebot: Option<consent::CookiebotSection>,
-    cookieyes: Option<consent::CookieYesSection>,
-    klaro: Option<consent::KlaroSection>,
-}
-
-/// A token vendor's section.
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct TokenSection {
-    site_key: String,
-    /// The environment variable holding the vendor's secret.
-    secret_env: String,
-    /// The vendor's verification endpoint, its own unless set.
-    siteverify: Option<String>,
-    /// reCAPTCHA's lowest passing score.
-    min_score: Option<f64>,
-}
-
-/// ALTCHA's section.
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct AltchaSection {
-    /// The environment variable holding the key challenges are signed with.
-    secret_env: String,
-    /// The largest secret number of a challenge: its difficulty.
-    max_number: Option<u64>,
-}
-
-/// A section that names only its secret's variable: Anubis's, the edge's.
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct KeySection {
-    secret_env: String,
-}
-
-/// An edge vendor's section.
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct EdgeSection {
-    /// Cloudflare's lowest passing bot score.
-    min_score: Option<f64>,
-}
-
-impl Config {
-    /// Parses the configuration's TOML text.
-    pub(crate) fn parse(text: &str) -> Result<Self> {
-        toml::from_str(text).context("parsing the online configuration")
-    }
-}
 
 /// A vendor whose verdict the online copy reads.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
@@ -479,6 +421,10 @@ pub(crate) struct Online {
     checks: Vec<Check>,
     /// The secret the edge sends in [`EDGE_HEADER`].
     edge_secret: Option<String>,
+    /// The origin its tasks start from, when it is deployed.
+    origin: Option<String>,
+    /// The origins of the edge vendors whose edge serves another host name.
+    edge_origins: Vec<(Vendor, String)>,
     client: reqwest::Client,
     /// Each vendor's latest verdict, which judges its task however many
     /// verdicts the observations keep.
@@ -527,6 +473,7 @@ impl Online {
                 .with_context(|| format!("the {vendor} secret's variable {variable} is unset"))
         };
         let mut checks = Vec::new();
+        let mut edge_origins = Vec::new();
         for (vendor, section) in [
             (TokenVendor::Turnstile, &config.turnstile),
             (TokenVendor::Recaptcha, &config.recaptcha),
@@ -589,6 +536,9 @@ impl Online {
                 ("aws_waf", None) => EdgeVendor::AwsWaf,
                 _ => EdgeVendor::Botid,
             };
+            if let Some(origin) = &section.origin {
+                edge_origins.push((edge.vendor(), origin.clone()));
+            }
             checks.push(Check::Edge(edge));
         }
         checks.extend(consent::prompts(config).map(Check::Consent));
@@ -599,9 +549,21 @@ impl Online {
         Ok(Self {
             checks,
             edge_secret,
+            origin: config.origin.clone(),
+            edge_origins,
             client: client()?,
             latest: Mutex::new(Vec::new()),
         })
+    }
+
+    /// The public origin `vendor`'s task starts from when the copy is
+    /// deployed: its edge's, else the copy's.
+    pub(crate) fn origin(&self, vendor: Vendor) -> Option<&str> {
+        self.edge_origins
+            .iter()
+            .find(|(edge, _)| *edge == vendor)
+            .map(|(_, origin)| origin.as_str())
+            .or(self.origin.as_deref())
     }
 
     /// The vendors the copy is configured with.

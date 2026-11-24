@@ -743,6 +743,55 @@ fn the_online_copy_lists_one_challenge_task_per_configured_vendor() {
     );
 }
 
+/// Covers: story:2-38, story:2-48
+#[test]
+fn a_deployed_copys_tasks_start_from_its_public_origins() {
+    let env = TestEnv::new();
+    let config = format!(
+        "origin = \"https://challenges.goodfetch.dev\"\n\n{ALTCHA}\n\
+         [edge]\nsecret_env = \"EDGE_SECRET\"\n\n\
+         [botid]\norigin = \"https://botid.goodfetch.dev\"\n"
+    );
+    let proving_ground = ProvingGround::start_with_env(
+        &online_arguments(&env, &config),
+        &[
+            ("ALTCHA_KEY", "the-key"),
+            ("EDGE_SECRET", "the-edge-secret"),
+        ],
+    );
+
+    let tasks = challenge_tasks(&proving_ground);
+
+    assert_eq!(
+        tasks,
+        [
+            (
+                "challenges/5".to_owned(),
+                "https://challenges.goodfetch.dev/altcha".to_owned()
+            ),
+            (
+                "challenges/9".to_owned(),
+                "https://botid.goodfetch.dev/botid".to_owned()
+            ),
+        ]
+    );
+}
+
+#[rstest]
+#[case::no_scheme("origin = \"challenges.goodfetch.dev\"\n\n[klaro]\n")]
+#[case::with_a_path("origin = \"https://challenges.goodfetch.dev/tasks\"\n\n[klaro]\n")]
+#[case::edge_origin_with_a_path(
+    "[edge]\nsecret_env = \"EDGE_SECRET\"\n\n[botid]\norigin = \"https://botid.goodfetch.dev/\"\n"
+)]
+fn an_origin_that_is_not_a_bare_origin_is_refused_at_the_start(#[case] config: &str) {
+    let env = TestEnv::new();
+    let arguments = online_arguments(&env, config);
+
+    let stderr = refused(&arguments, &[("EDGE_SECRET", "the-edge-secret")]);
+
+    assert!(stderr.contains("not a bare origin"), "{stderr}");
+}
+
 #[test]
 fn the_local_copy_lists_no_challenge_task() {
     let proving_ground = ProvingGround::start(SEED);

@@ -48,7 +48,8 @@ const CONSENT_DESCRIPTION: &str = "Open this page in the browser and refuse the 
     ground reads on the server side, judges the task.";
 
 /// The online copy's tasks, one per vendor `online` is configured with, in
-/// the order of their ordinals, their start URLs on `port`.
+/// the order of their ordinals, their start URLs on its public origins when
+/// it is deployed, else on `port`.
 pub(crate) fn tasks(online: &Online, port: Option<u16>) -> Vec<Task> {
     let configured: Vec<Vendor> = online.vendors().collect();
     VENDORS
@@ -67,7 +68,13 @@ pub(crate) fn tasks(online: &Online, port: Option<u16>) -> Vec<Task> {
                 } else {
                     Kind::Submit
                 },
-                start_url: format!("{}/{}", task::origin(online::HOST, port), vendor.name()),
+                start_url: format!(
+                    "{}/{}",
+                    online
+                        .origin(vendor)
+                        .map_or_else(|| task::origin(online::HOST, port), str::to_owned),
+                    vendor.name()
+                ),
                 description: if vendor.is_consent() {
                     CONSENT_DESCRIPTION
                 } else {

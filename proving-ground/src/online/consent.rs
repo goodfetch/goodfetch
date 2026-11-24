@@ -21,36 +21,10 @@
 //!   services being `analytics` and `marketing`.
 
 use hyper::header::{COOKIE, HeaderMap};
-use serde::Deserialize;
 
-use super::{Config, Outcome, Vendor, Verdict, escape};
+use super::config::Config;
+use super::{Outcome, Vendor, Verdict, escape};
 use crate::exchange::{self, Reply};
-
-/// OneTrust's section: its domain script's ID.
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-pub(super) struct OneTrustSection {
-    domain_script: String,
-}
-
-/// Cookiebot's section: its domain group's ID.
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-pub(super) struct CookiebotSection {
-    cbid: String,
-}
-
-/// `CookieYes`'s section: the site's client ID.
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-pub(super) struct CookieYesSection {
-    client_id: String,
-}
-
-/// Klaro's section, empty: the page carries its configuration.
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-pub(super) struct KlaroSection {}
 
 /// The page's Klaro services, all optional.
 const KLARO_SERVICES: [&str; 2] = ["analytics", "marketing"];

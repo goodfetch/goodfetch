@@ -332,6 +332,30 @@ impl ProvingGround {
     }
 }
 
+/// The vendors whose verdict an online copy's oracle judged by in
+/// `answers` was inconclusive, each as `<vendor> (<reason>)`: the vendor
+/// could not say, being unreachable or out of quota, so the case neither
+/// passes nor fails (ADR 0064). An answer that carries no verdict, or a
+/// verdict that passed or failed, names none.
+pub(crate) fn inconclusive_vendors(answers: &[OracleAnswer]) -> Vec<String> {
+    answers
+        .iter()
+        .filter_map(|answer| {
+            let verdict = answer.details.get("verdict")?;
+            if verdict.get("outcome")?.as_str()? != "inconclusive" {
+                return None;
+            }
+            let vendor = verdict.get("vendor")?.as_str()?;
+            Some(
+                match verdict.get("reason").and_then(|reason| reason.as_str()) {
+                    Some(reason) => format!("{vendor} ({reason})"),
+                    None => vendor.to_owned(),
+                },
+            )
+        })
+        .collect()
+}
+
 /// Why the Proving ground gave no usable answer.
 #[derive(Debug, thiserror::Error)]
 #[non_exhaustive]

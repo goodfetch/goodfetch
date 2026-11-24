@@ -26,7 +26,8 @@ export type MetricId =
   | "cpu_ms_per_verified_task"
   | "pss_peak_bytes"
   | "rss_peak_bytes"
-  | "cdp_commands_per_task";
+  | "cdp_commands_per_task"
+  | "failure_rate";
 
 /** The metrics a run records for each cell. */
 export const metricCatalog: Readonly<Record<MetricId, MetricSpec>> = {
@@ -81,6 +82,13 @@ export const metricCatalog: Readonly<Record<MetricId, MetricSpec>> = {
     direction: "lower",
     description: "Median CDP commands the adapter reports for one verified measured attempt",
     probes: everywhere("adapter"),
+  },
+  failure_rate: {
+    unit: "ratio",
+    direction: "lower",
+    description:
+      "Measured attempts failed, falsely successful, incomplete, timed out or crashed, over those and the verified ones; aborted siblings, rejected and unsupported attempts left out",
+    probes: everywhere("harness"),
   },
 };
 

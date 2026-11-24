@@ -250,13 +250,17 @@ impl Night {
 }
 
 /// The job's command as cron runs it, with the stand-ins first on `PATH`, the
-/// logs in the workspace, both tokens set, and these variables added.
+/// logs in the workspace, both tokens set, and these variables added. Its
+/// untrusted steps run as the test's own user (an empty
+/// `GOODFETCH_FUZZ_USER`), and its home is the workspace's `home/`.
 fn job(workspace: &Workspace, stand_in: &Path, variables: &[(&str, &str)]) -> Command {
     let script = Path::new(env!("CARGO_MANIFEST_DIR")).join("../ci/fuzz-nightly.sh");
     let mut command = workspace.command(script);
     command
         .arg("origin/main")
         .env("PATH", format!("{}:/usr/bin:/bin", stand_in.display()))
+        .env("HOME", workspace.path().join("home"))
+        .env("GOODFETCH_FUZZ_USER", "")
         .env("GOODFETCH_FUZZ_LOG", workspace.path().join("logs"))
         .env(
             "GOODFETCH_FUZZ_REPOSITORY",
@@ -400,6 +404,32 @@ fn no_token_and_not_the_users_home_reach_what_builds_and_runs_the_targets() {
             "the user's home reached {call}"
         );
     }
+}
+
+/// A night whose untrusted steps can read a file that holds the job's
+/// credentials, gh's `hosts.yml` under the job user's home or the main
+/// checkout's `.env`, builds and runs nothing, and its line names the file:
+/// on the gate host they run as a user that cannot (`ci/fuzz-user.sh`).
+#[rstest::rstest]
+#[case::the_gh_hosts_file("home/.config/gh/hosts.yml")]
+#[case::the_checkouts_env_file(".env")]
+fn a_night_whose_untrusted_steps_can_read_a_credential_builds_nothing(#[case] secret: &str) {
+    let workspace = fuzz_repository();
+    let stand_in = stand_ins(&workspace);
+    workspace.write(secret, b"a-token\n");
+
+    let night = night(&workspace, &stand_in);
+
+    assert_eq!(night.code, Some(1), "{}", night.log);
+    assert!(night.calls_of("cargo ").is_empty(), "{:?}", night.calls);
+    assert!(
+        night
+            .results
+            .contains(" fuzz=fail (the untrusted steps can read ")
+            && night.results.ends_with(&format!("/{secret})\n")),
+        "{}",
+        night.results
+    );
 }
 
 /// After the runs, each target's corpus is pruned with `cargo fuzz cmin`.

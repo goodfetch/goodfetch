@@ -2789,9 +2789,49 @@ package = "@goodfetch/foxhound"
 receiver = "(module)"
 member = "DatasetOptions"
 entry = "none"
-reason = "What `crawl.dataset` takes."
+reason = "What `crawl.dataset` takes: the key, the top-level fields that identify a Record (ADR 0103)."
 only = "Rust's `Crawl::dataset` takes its name alone."
 words = ["dataset", "options"]
+form = "type"
+
+[[member]]
+package = "@goodfetch/foxhound"
+receiver = "(module)"
+member = "DatasetSchemaOptions"
+entry = "none"
+reason = "What `crawl.dataset` takes with a schema, which types the Dataset's Records and whose required fields the key must name (ADR 0103)."
+only = "Python's `dataset` takes the schema and the key as keyword arguments; Rust's `Crawl::dataset` takes its name alone."
+words = ["dataset", "schema", "options"]
+form = "type"
+
+[[member]]
+package = "@goodfetch/foxhound"
+receiver = "(module)"
+member = "RecordSchema"
+entry = "none"
+reason = "A Dataset's Record schema: a Standard Schema with Standard JSON Schema whose input is an object, or a JSON Schema written by hand (ADR 0103)."
+only = "Python's Record schema is a pydantic model or a JSON Schema, with no type of its own; Rust types a Record by the Dataset's type parameter."
+words = ["record", "schema"]
+form = "type"
+
+[[member]]
+package = "@goodfetch/foxhound"
+receiver = "(module)"
+member = "RecordInput"
+entry = "none"
+reason = "What a handler pushes as a Record under a Dataset's schema: its input type, or a JSON object for a hand-written one (ADR 0103)."
+only = "Rust's Record is the Dataset's type parameter; Python's is the model's instance or a JSON object."
+words = ["record", "input"]
+form = "type"
+
+[[member]]
+package = "@goodfetch/foxhound"
+receiver = "(module)"
+member = "RecordOutput"
+entry = "none"
+reason = "What a Dataset's schema makes of a Record: its output type, or a JSON object for a hand-written one (ADR 0103)."
+only = "Rust's Record is the Dataset's type parameter; Python's is the model's instance or a JSON object."
+words = ["record", "output"]
 form = "type"
 
 [[member]]

@@ -2524,6 +2524,33 @@ product = "foxhound"
 status = "active"
 
 [[story]]
+id = 1057
+title = "As a developer, I want `crawl.dataset(name, { schema, key })` to return a typed `Dataset<I, O>` with no I/O (Python `dataset(name, schema=…, key=…)`; Rust one `crawl.dataset` with no `dataset_with`), the key being top-level fields the schema requires and `dataset_key_invalid` otherwise, so that a Dataset is declared as a Label is (ADRs 0099, 0103; CO-25)."
+milestone = "M2 Client surfaces"
+journey = false
+not_journey = "part"
+product = "foxhound"
+status = "active"
+
+[[story]]
+id = 1058
+title = "As a developer, I want `ctx.push(dataset, record)` to type the Record from the Dataset alone, stage it with the attempt and commit it once with the attempt's enqueues and Key-value writes, and a misspelled Dataset or a missing field to be a type error, so that a retried handler never doubles a Record (ADR 0103; P18)."
+milestone = "M2 Client surfaces"
+journey = false
+not_journey = "part"
+product = "foxhound"
+status = "active"
+
+[[story]]
+id = 1059
+title = "As a developer, I want a Record that fails its schema, is not JSON or lacks key fields to raise `record_invalid` from `push`, caught to keep the attempt and escaped to fail the request without a retry, so that no Record is silently diverted (ADR 0103; P18)."
+milestone = "M2 Client surfaces"
+journey = false
+not_journey = "part"
+product = "foxhound"
+status = "active"
+
+[[story]]
 id = 1075
 title = "As a Rust developer, I want `crawl.serve(&run).await` to answer the Run's Crawl requests with my handlers until the Run ends and return the Run report, and dropping that future to be my own stop (requests return to pending, no attempt counted), so that Rust has no loop of mine to pump (ADRs 0093, 0102)."
 milestone = "M2 Client surfaces"

@@ -31,6 +31,7 @@ export {
   sitemap,
   type CrawlContext,
   type DatasetOptions,
+  type DatasetSchemaOptions,
   type EnqueueLinksOptions,
   type Handler,
   type LabelOptions,
@@ -39,6 +40,9 @@ export {
   type PayloadInput,
   type PayloadSchema,
   type PayloadThen,
+  type RecordInput,
+  type RecordOutput,
+  type RecordSchema,
   type RequestOptions,
 } from "./crawl.ts";
 export { CrawlRun, type RecordsOptions } from "./crawl-run.ts";

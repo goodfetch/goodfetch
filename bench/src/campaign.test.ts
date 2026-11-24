@@ -54,3 +54,75 @@ test("refuses a campaign that does not have the file's shape", async () => {
 
   expect(codes).toEqual(["invalid_document", "invalid_document", "invalid_document"]);
 });
+
+/** A campaign whose `goodfetch` adapter is matched against `against`, beside the tool `tool`. */
+function matchedAgainst(against: string, tool: Record<string, unknown>): unknown {
+  return {
+    ...campaign,
+    adapters: [
+      { id: "tool", command: ["node", "tool.ts"], ...tool },
+      {
+        id: "goodfetch",
+        command: ["node", "goodfetch.ts"],
+        matched: { against, settings: { "fetch.tier": "http" } },
+      },
+    ],
+  };
+}
+
+test("gives each adapter its row: default, or matched with the settings it names and the tool's published defaults", async () => {
+  const path = await written(matchedAgainst("tool", { configuration: "tool.json" }));
+  await writeFile(
+    join(path, "..", "tool.json"),
+    JSON.stringify({
+      tool: "a tool",
+      defaults: { filter_list_blocking: false, consent_prompt_handling: true },
+    }),
+  );
+
+  const loaded = await loadCampaign(path);
+
+  expect(Object.fromEntries(loaded.rows)).toEqual({
+    tool: { kind: "default" },
+    goodfetch: {
+      kind: "matched",
+      against: "tool",
+      settings: { "fetch.tier": "http" },
+      competitor_defaults: { filter_list_blocking: false, consent_prompt_handling: true },
+    },
+  });
+});
+
+test("refuses a matched row against no adapter of the campaign, against itself, or against a tool with no published configuration", async () => {
+  const cases = [
+    matchedAgainst("absent", { configuration: "tool.json" }),
+    matchedAgainst("goodfetch", { configuration: "tool.json" }),
+    matchedAgainst("tool", {}),
+  ];
+
+  const codes = await Promise.all(
+    cases.map(async (document) => {
+      const path = await written(document);
+      await writeFile(
+        join(path, "..", "tool.json"),
+        JSON.stringify({ defaults: { filter_list_blocking: true, consent_prompt_handling: true } }),
+      );
+      return loadCampaign(path).then(
+        () => "read",
+        (error: unknown) => errorCode(error),
+      );
+    }),
+  );
+
+  expect(codes).toEqual(["invalid_document", "invalid_document", "invalid_document"]);
+});
+
+test("refuses a published configuration that does not declare both defaults", async () => {
+  const path = await written(matchedAgainst("tool", { configuration: "tool.json" }));
+  await writeFile(
+    join(path, "..", "tool.json"),
+    JSON.stringify({ defaults: { filter_list_blocking: false } }),
+  );
+
+  await expect(loadCampaign(path)).rejects.toMatchObject({ code: "invalid_document" });
+});

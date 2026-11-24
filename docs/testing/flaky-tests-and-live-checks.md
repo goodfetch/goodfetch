@@ -57,7 +57,7 @@ Decided in [ADR 0064](../adr/0064-tests-are-never-retried-and-unpinned-checks-ru
 ### A flaky test found after merge
 
 1. CI opens (or reopens) one `flaky-test` issue for it, a sub-issue of the spec that owns the test, in the milestone of that spec's ticket that added it ([ADR 0136](../adr/0136-each-implement-spec-run-is-one-whole-spec-and-milestones-are-ticket-metadata-and-owner-checkpoints.md)): the ticket a merged pull request that first added the test's function, or its own title, closes with a `Closes #<n>` line. When none is found, it opens under `needs-triage` with no milestone. A reopened issue keeps its parent and milestone.
-2. The same day, add the test to the quarantine list with its issue, in a pull request of its own. The quarantine, not the fix, keeps the gates green: the fix waits its turn and never goes ahead of Features' work ([the rollout order](../agents/rollout-order.md)).
+2. The same day, add the test to the quarantine list with its issue, in a pull request of its own. The quarantine, not the fix, keeps the gates green: the fix takes its turn on the ticket graph like any ticket ([How work is picked](../agents/rollout-order.md)).
 3. If the test or the code it covers changed in the last 7 days, you may also revert that change: revert the product code, and the tests stay quarantined.
 4. Fix the cause. A longer timeout alone, a sleep or a retry is not a fix. A race or leak in the product is fixed in the product, and the test stays as it was.
 5. The fix takes the test off the list after 200 passing runs; the issue closes when it merges.

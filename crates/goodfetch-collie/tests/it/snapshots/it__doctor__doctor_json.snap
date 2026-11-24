@@ -5,6 +5,10 @@ expression: output.to_string()
 exit: 0
 ----- stdout -----
 {
+  "bug_report": {
+    "path": "[FOLDER]/home/bug-report.json",
+    "status": "written"
+  },
   "findings": [
     {
       "fix": null,

@@ -1222,6 +1222,49 @@
       ],
       "type": "object"
     },
+    "BugReportFile": {
+      "description": "The bug-report file `doctor` writes on the machine and never sends\n(ADR 0043): versions, the findings, the settings with each credential\nas its Secret reference, and recent Error codes, each URL reduced to its\nscheme and host unless `--include-urls` is given.",
+      "oneOf": [
+        {
+          "description": "It was written.",
+          "properties": {
+            "path": {
+              "arrived_in": "0.1",
+              "description": "Its path.",
+              "type": "string"
+            },
+            "status": {
+              "const": "written",
+              "type": "string"
+            }
+          },
+          "required": [
+            "status",
+            "path"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "It could not be written.",
+          "properties": {
+            "message": {
+              "arrived_in": "0.1",
+              "description": "Why, for people.",
+              "type": "string"
+            },
+            "status": {
+              "const": "not_written",
+              "type": "string"
+            }
+          },
+          "required": [
+            "status",
+            "message"
+          ],
+          "type": "object"
+        }
+      ]
+    },
     "CallCancelledDetails": {
       "description": "What `call_cancelled` details (ADR 0113).",
       "properties": {
@@ -5520,8 +5563,13 @@
       "type": "object"
     },
     "DoctorReport": {
-      "description": "What `doctor --json` prints: its findings, in the order of\n[`FindingId`].",
+      "description": "What `doctor --json` prints: its findings, in the order of\n[`FindingId`], and the bug-report file.",
       "properties": {
+        "bug_report": {
+          "$ref": "#/$defs/BugReportFile",
+          "arrived_in": "0.1",
+          "description": "The bug-report file `doctor` wrote for the user to attach to an\nissue, or why it could not."
+        },
         "findings": {
           "arrived_in": "0.1",
           "description": "One finding for each part checked.",
@@ -5532,7 +5580,8 @@
         }
       },
       "required": [
-        "findings"
+        "findings",
+        "bug_report"
       ],
       "type": "object"
     },

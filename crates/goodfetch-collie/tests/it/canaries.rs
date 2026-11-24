@@ -35,7 +35,7 @@ use std::net::{TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
 
 use goodfetch_protocol::catalog::Product;
-use goodfetch_protocol::home::DaemonFile;
+use goodfetch_protocol::home::{BUG_REPORT, DaemonFile};
 use goodfetch_test_client::HomeLayout;
 use goodfetch_test_support::MESSAGE_DEADLINE;
 use goodfetch_test_support::{
@@ -101,12 +101,13 @@ const SOURCES: [(&str, &str); 2] = [
     ("proxy.rs", include_str!("proxy.rs")),
 ];
 
-/// What `doctor` and `doctor --json` print, stdout then stderr, in `env`
-/// with `variables` set as the Run's engine had them: an output each
-/// Secret canary planted in a Run is searched in (#1206).
+/// What `doctor` and `doctor --json --include-urls` print, stdout then
+/// stderr, each followed by the bug-report file it wrote, in `env` with
+/// `variables` set as the Run's engine had them: an output each Secret
+/// canary planted in a Run is searched in (#1206, spec #564).
 pub(crate) fn doctor_output(env: &TestEnv, variables: &[(&str, &str)]) -> Vec<u8> {
     let mut bytes = Vec::new();
-    for arguments in [&["doctor"][..], &["doctor", "--json"]] {
+    for arguments in [&["doctor"][..], &["doctor", "--json", "--include-urls"]] {
         let output = variables
             .iter()
             .fold(
@@ -117,6 +118,7 @@ pub(crate) fn doctor_output(env: &TestEnv, variables: &[(&str, &str)]) -> Vec<u8
             .unwrap();
         bytes.extend_from_slice(output.stdout.as_bytes());
         bytes.extend_from_slice(output.stderr.as_bytes());
+        bytes.extend(std::fs::read(env.home().join(BUG_REPORT)).unwrap());
     }
     bytes
 }

@@ -1,8 +1,9 @@
-//! What `doctor --json` prints (ADR 0043, spec #608): one finding for
+//! What `doctor --json` prints (ADR 0043, specs #564 and #608): one finding for
 //! each part of the installation the command checks, Goodfetch home, the
 //! installed executables, the Daemon, the versions they run and the
-//! browser builds, each with its status and, when it is not `ok`, the fix.
-//! `doctor` exits `0` whatever it finds.
+//! browser builds, each with its status and, when it is not `ok`, the fix,
+//! and where it wrote the bug-report file, which it sends nowhere (spec
+//! #564). `doctor` exits `0` whatever it finds.
 //!
 //! Each field records the protocol minor that added it, as `arrived_in` in
 //! its schema (ADR 0096).
@@ -11,12 +12,37 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 /// What `doctor --json` prints: its findings, in the order of
-/// [`FindingId`].
+/// [`FindingId`], and the bug-report file.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct DoctorReport {
     /// One finding for each part checked.
     #[schemars(extend("arrived_in" = "0.1"))]
     pub findings: Vec<DoctorFinding>,
+    /// The bug-report file `doctor` wrote for the user to attach to an
+    /// issue, or why it could not.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub bug_report: BugReportFile,
+}
+
+/// The bug-report file `doctor` writes on the machine and never sends
+/// (ADR 0043): versions, the findings, the settings with each credential
+/// as its Secret reference, and recent Error codes, each URL reduced to its
+/// scheme and host unless `--include-urls` is given.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(tag = "status", rename_all = "snake_case")]
+pub enum BugReportFile {
+    /// It was written.
+    Written {
+        /// Its path.
+        #[schemars(extend("arrived_in" = "0.1"))]
+        path: String,
+    },
+    /// It could not be written.
+    NotWritten {
+        /// Why, for people.
+        #[schemars(extend("arrived_in" = "0.1"))]
+        message: String,
+    },
 }
 
 /// What `doctor` found about one part of the installation.

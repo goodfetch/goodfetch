@@ -73,6 +73,10 @@ pub const ENGINE_KEY_LOCK: &str = "engine-key.lock";
 /// outside the per-major folders (ADR 0098).
 pub const INSTALLED_EXECUTABLES: &str = "installed-executables.json";
 
+/// The bug-report file `doctor` writes for the user to attach to an issue,
+/// outside the per-major folders, replaced by each `doctor` (spec #564).
+pub const BUG_REPORT: &str = "bug-report.json";
+
 /// A run folder's run file.
 pub const RUN_FILE: &str = "run.sqlite";
 

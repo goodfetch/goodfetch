@@ -187,12 +187,17 @@ enum Command {
     },
     /// Checks the installation: Goodfetch home, the installed executables,
     /// the Daemon, the version it runs and the browser build a Run
-    /// launches, with a fix for each finding not in order. Exits 0
-    /// whatever it finds.
+    /// launches, with a fix for each finding not in order, and writes a
+    /// bug-report file to attach to an issue, which it sends nowhere. Exits
+    /// 0 whatever it finds.
     Doctor {
         /// Prints the findings as JSON.
         #[arg(long)]
         json: bool,
+        /// Keeps each URL in the bug-report file whole, but its
+        /// credentials; without it, each is reduced to its scheme and host.
+        #[arg(long)]
+        include_urls: bool,
         #[command(flatten)]
         _colour: ColourFlag,
     },
@@ -756,7 +761,9 @@ fn run(
             },
             human,
         ),
-        Command::Doctor { json, .. } => doctor::doctor(&machine, json),
+        Command::Doctor {
+            json, include_urls, ..
+        } => doctor::doctor(&machine, json, include_urls),
         Command::Daemon { command, .. } => {
             daemon_command(command, engine, dependencies, &machine, human)
         }

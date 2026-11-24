@@ -36,10 +36,11 @@
 # lines with Bun, Deno 2 and free-threaded CPython on the other Linux cells
 # (release-linux), and the same without free-threaded CPython on Windows and
 # macOS (release-other). The suites of other areas (every Sink's suite on
-# Foxhound's executable, browser conformance on Collie's, skew and upgrades
-# from released artifacts, the security suites, the resident-memory
-# ceilings) join each cell as steps, or through
-# `just test release`, as their areas add them.
+# Foxhound's executable, browser conformance on Collie's, upgrades from
+# released artifacts, the security suites, the resident-memory ceilings)
+# join each cell as steps, or through `just test release`, as their areas
+# add them. The skew checks (ADR 0066) are jobs of linux-x64-gnu beside the
+# cell's own, one for each entry of ci/release/skew-jobs.json.
 #
 # A step whose name starts with "Test" is a test step (ADR 0064): a cell
 # with a failed test step in any attempt leaves its commit red. Every job is
@@ -87,6 +88,7 @@ jobs:
       cells: ${{ steps.plan.outputs.cells }}
       linux-x64: ${{ steps.plan.outputs.linux-x64 }}
       linux-arm64: ${{ steps.plan.outputs.linux-arm64 }}
+      skew: ${{ steps.plan.outputs.skew }}
     steps:
       - name: Check out
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -332,6 +334,92 @@ jobs:
           name: size-report-${{ steps.size.outputs.tree }}-${{ matrix.target }}
           path: target/release-suite/size-report-*.json
           retention-days: 90
+
+  # The skew jobs the tested commit's ci/release/skew-jobs.json lists, which
+  # `xtask compat jobs` writes (ADR 0066). Each is named as a job of
+  # linux-x64-gnu, so `xtask release-suite` counts it in that cell.
+  skew:
+    name: linux-x64-gnu skew ${{ matrix.job }}
+    needs: plan
+    if: needs.plan.outputs.skew != '[]'
+    runs-on: ubuntu-24.04
+    # The hard cap that stops a hang (TESTING.md, Time budgets).
+    timeout-minutes: 120
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        job: ${{ fromJSON(needs.plan.outputs.skew) }}
+    env:
+      JOB: ${{ matrix.job }}
+      # As in the linux-x64 cells.
+      GOODFETCH_TEST_DNS_NAMESPACE: sudo
+      CARGO_PROFILE_DEV_DEBUG: line-tables-only
+    steps:
+      - name: Check out the commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.plan.outputs.commit }}
+          persist-credentials: false
+          # A released minor's Journeys run from its tag's tree.
+          fetch-depth: 0
+      - name: Free the runner's disk
+        run: ci/host/free-disk.sh
+      # Saved by the linux-x64 cells.
+      - name: Read the pinned Chrome for Testing build
+        id: chrome-for-testing
+        run: echo "build=$(jq -r .chrome_for_testing.build crates/goodfetch-collie/src/pins.json)" >>"$GITHUB_OUTPUT"
+      - name: Restore the tests' copy of Chrome for Testing
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/goodfetch/chrome-for-testing
+          key: chrome-for-testing-${{ steps.chrome-for-testing.outputs.build }}-linux64
+      - name: Install the toolchains, tools and runtimes
+        uses: ./.github/actions/host-tools
+        with:
+          target: x86_64-unknown-linux-gnu
+          runtimes: pre-merge
+      - name: Restore the build cache
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          shared-key: release-suite-skew
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - name: Build both executables and fetch the minor's dependencies
+        run: ci/release/skew.sh build "$JOB"
+      - name: Set up the OS services the tests use
+        run: ci/os-services.sh setup
+      - name: Pull the install harness's Alpine image
+        run: ci/alpine/fetch.sh
+      - name: Deny outbound traffic
+        run: ci/egress/egress.sh deny
+      - name: Refuse the Egress canary
+        run: ci/egress/egress.sh canary
+      - name: "Test: the skew job's Journeys"
+        run: ci/egress/under-deny.sh ci/release/skew.sh run "$JOB"
+      - name: Check that the deny refused nothing else
+        if: always()
+        run: ci/egress/egress.sh check
+      - name: Record the job's context beside its JUnit files
+        if: always()
+        shell: bash
+        run: ci/junit-context.sh
+      - name: Summarize the failed tests
+        if: always()
+        run: ci/junit-summary.sh
+      - name: Scan the job's outputs for secrets before they upload
+        id: leaks
+        if: always()
+        run: ci/leaks.sh target/junit/
+      - name: Upload the JUnit files
+        if: always() && steps.leaks.outcome == 'success'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          # A suite of its own, so a Journey run here is no proof of the
+          # Feature it declares on the cell (xtask's results store).
+          name: junit-skew-dispatch-linux-x64-${{ matrix.job }}-1
+          path: target/junit/
+          if-no-files-found: ignore
 
   linux-arm64:
     name: ${{ matrix.cell }}
@@ -858,7 +946,8 @@ jobs:
   # cells have saved theirs.
   caches:
     name: caches
-    needs: [plan, linux-x64, linux-arm64, windows-x64, macos-arm64, macos-x64, visual, ci-image]
+    needs:
+      [plan, linux-x64, skew, linux-arm64, windows-x64, macos-arm64, macos-x64, visual, ci-image]
     if: "!cancelled() && github.ref == 'refs/heads/main'"
     runs-on: ubuntu-24.04
     timeout-minutes: 5
@@ -895,7 +984,7 @@ jobs:
   # their verdict as it is.
   budgets:
     name: budgets
-    needs: [plan, linux-x64, linux-arm64, windows-x64, macos-arm64, macos-x64, visual, caches]
+    needs: [plan, linux-x64, skew, linux-arm64, windows-x64, macos-arm64, macos-x64, visual, caches]
     if: "!cancelled()"
     runs-on: ubuntu-24.04
     timeout-minutes: 5

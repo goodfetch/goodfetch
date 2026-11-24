@@ -30,12 +30,15 @@ leak-timeout = { period = "2s", result = "fail" }
 # deadline in the full gate's runs of 2026-11-24 (pull request 3326): the
 # conformance suites' binary and three of Collie's modules, whose fuzzed
 # calls over stdio start an engine for each case, and the test support's
-# modules that start a Proving ground beside its canaries. In those runs
-# the gate's other steps shared the host, and with 8 at once more than 40
-# of the group's tests missed the deadline in each, so at most 4 run at
-# once, a count at which none missed it on their own. The repository's
-# groups come first, so a test one of them holds keeps that group's cap and
-# runs beside these 4.
+# modules that start a Proving ground beside its canaries. Four at once
+# leaves a start more of its deadline than 8: of 213 of these binaries'
+# tests, run with goodfetch-engine::it's 74, the median took 6.2 and 7.8 s
+# in two runs with 4 and 12.4 to 19.5 s in three with 8, and the 90th
+# percentile 18.3 and 18.9 s against 24.8 to 42.0 s. One run at each count
+# had nextest at nice 10, and other builds ran beside all five. The misses
+# at 8 came in one run of the three, so they show no count safe. The
+# repository's groups come first, so a test one of them holds keeps that
+# group's cap and runs beside these 4.
 [test-groups]
 "@tool:goodfetch-windows:start-deadline" = { max-threads = 4 }
 

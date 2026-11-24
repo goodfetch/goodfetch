@@ -1,4 +1,5 @@
 use goodfetch_protocol::foxhound::crawl::{CrawlRequest, PushedRecord};
+use goodfetch_protocol::foxhound::dataset::RecordData;
 use goodfetch_protocol::foxhound::frontier::HttpMethod;
 use goodfetch_protocol::foxhound::hook::{CrawlHookHandleParams, CrawlHookStage};
 use goodfetch_protocol::run::RunId;
@@ -29,7 +30,7 @@ fn a_hook_call_sends_crawl_hook_handles_params() {
         lease_epoch: 7,
         record: Some(PushedRecord {
             dataset: "products".to_owned(),
-            data: json!({ "name": "Kettle" }),
+            data: RecordData::of(&json!({ "name": "Kettle" })).unwrap(),
         }),
     };
     let at_request_stage = CrawlHookHandleParams {

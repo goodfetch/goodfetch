@@ -17,7 +17,7 @@ use goodfetch_engine::mask::Masks;
 use goodfetch_engine::run_state::{RunState, RunStateOptions, RunStateTables};
 use goodfetch_engine::tasks::{BlockingPolicy, TaskOwner};
 use goodfetch_protocol::foxhound::crawl::{PushedRecord, RequestSeed, Seed};
-use goodfetch_protocol::foxhound::dataset::DatasetDeclaration;
+use goodfetch_protocol::foxhound::dataset::{DatasetDeclaration, RecordData};
 use goodfetch_protocol::foxhound::frontier::HttpMethod;
 use goodfetch_test_support::TestEnv;
 use rusqlite::Connection;
@@ -185,7 +185,7 @@ fn committing(
     noted(lessons, leased, signature);
     let records = vec![PushedRecord {
         dataset: "pages".to_owned(),
-        data: json!({ "page": leased.crawl_request.id }),
+        data: RecordData::of(&json!({ "page": leased.crawl_request.id })).unwrap(),
     }];
     Outcome {
         scored: goodfetch_session_pool::Changes::default(),

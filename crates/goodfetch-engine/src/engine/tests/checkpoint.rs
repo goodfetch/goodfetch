@@ -685,10 +685,13 @@ enum Taken {
 /// it is asked (ADR 0142): a note that rode the open batch, in no commit
 /// yet, is in the copy, whether `run.checkpoint`, `run.migrate`, a clean
 /// stop or `checkpoint.interval` took it.
-/// Covers: story:3-30, setting:run_state.batch.interval, setting:checkpoint.interval, operation:run.checkpoint, operation:run.migrate, operation:run.pause
+/// Covers: story:3-30, setting:run_state.batch.interval, setting:checkpoint.interval
 #[rstest::rstest]
+/// Covers: operation:run.checkpoint
 #[case::asked(Taken::Asked)]
+/// Covers: operation:run.migrate
 #[case::migrated(Taken::Migrated)]
+/// Covers: operation:run.pause
 #[case::paused(Taken::Paused)]
 #[case::periodic(Taken::Periodic)]
 fn every_checkpoint_first_writes_the_open_run_state_batch(#[case] taken: Taken) {

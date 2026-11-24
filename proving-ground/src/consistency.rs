@@ -13,7 +13,8 @@
 //!   `/frame`) and starts `/dedicated-worker.js`, `/shared-worker.js` and
 //!   `/service-worker.js`, each reporting as its script's path. Once every
 //!   context has reported, it shows each one's values as JSON in
-//!   `#contexts` and sets `data-probe="done"` on its root element. A
+//!   `#contexts`, with an `unreported` list of each report the site did not
+//!   record, and sets `data-probe="done"` on its root element. A
 //!   service worker and the user-agent client hints need a secure context.
 //! - `/probe.js`: the surfaces' reader, the same in a window and a worker.
 

@@ -68,13 +68,17 @@ const SURFACES = {
   device_pixel_ratio: () => self.devicePixelRatio,
 };
 
-/** Posts one surface's value to the site. */
-const report = (page, check, observed) =>
-  fetch(`/reports?page=${page}`, {
+/** Posts one surface's value to the site; rejects when the site does not record it. */
+const report = async (page, check, observed) => {
+  const response = await fetch(`/reports?page=${page}`, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ page, check, observed }),
-  }).catch(() => {});
+  });
+  if (!response.ok) {
+    throw new Error(`${check}: the report got ${response.status}`);
+  }
+};
 
 self.consistencyProbe = async (page) => {
   const values = {};
@@ -87,8 +91,15 @@ self.consistencyProbe = async (page) => {
     }
     values[surface] = JSON.parse(JSON.stringify(value ?? null));
   }
-  await Promise.all(
+  const sent = await Promise.allSettled(
     Object.entries(values).map(([check, value]) => report(page, check, JSON.stringify(value))),
   );
+  const unreported = sent
+    .filter((outcome) => outcome.status === "rejected")
+    .map((outcome) => String(outcome.reason));
+  if (unreported.length > 0) {
+    // Shown beside the values, so a report the site missed is never silent.
+    values.unreported = unreported;
+  }
   return values;
 };

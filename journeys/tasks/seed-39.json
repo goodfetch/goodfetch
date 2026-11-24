@@ -1790,6 +1790,14 @@
       "id": "canaries/4",
       "kind": "crawl",
       "start_url": "http://4.canaries.test/api/record"
+    },
+    {
+      "description": "Choose the author \"Cleo Marsh\": the page reloads and the tag list then offers that author's tags. Choose the tag \"inspirational\", type the tag to confirm it, press Search, and return one Record per quote shown, with the fields `id` (its `data-id`), `text`, `author` and `tag`. The page may reject the confirmation and say what to type: type that, and press Search again.",
+      "digest": "7f798698c872cf0a6c31a98acbe0042ebe74b84e7d77bf9d82000ee4bfbf51a1",
+      "family": "quotes",
+      "id": "quotes/1",
+      "kind": "crawl",
+      "start_url": "http://1.quotes.test/search"
     }
   ]
 }

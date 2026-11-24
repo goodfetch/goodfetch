@@ -88,10 +88,7 @@ const STATE_PLACE: u64 = 2;
 const CODE_PLACE: u64 = 3;
 const COUNT_PLACE: u64 = 4;
 const QUOTE_PLACE: u64 = 5;
-
-/// Which step of the form a `state` was minted at.
-const AUTHOR_CHOSEN: u64 = 0;
-const CONFIRMATION_ASKED: u64 = 1;
+const ID_PLACE: u64 = 6;
 
 fn place(author: usize, tag: Option<usize>, value: u64) -> [u64; 4] {
     let number = |index: usize| u64::try_from(index).expect("invariant: a short list's index") + 1;
@@ -121,14 +118,10 @@ fn tags(seed: u64, author: usize) -> Vec<usize> {
 /// The form's `state` once `author` is chosen, or once the confirmation of
 /// `tag` was asked.
 fn state(seed: u64, author: usize, tag: Option<usize>) -> String {
-    let step = if tag.is_some() {
-        CONFIRMATION_ASKED
-    } else {
-        AUTHOR_CHOSEN
-    };
-    let mut at = place(author, tag, STATE_PLACE).to_vec();
-    at.push(step);
-    format!("{:016x}", generator::draw(seed, &at))
+    format!(
+        "{:016x}",
+        generator::draw(seed, &place(author, tag, STATE_PLACE))
+    )
 }
 
 /// What the confirmation of `tag` for `author` must be.
@@ -137,11 +130,19 @@ fn confirmation(seed: u64, author: usize, tag: usize) -> String {
     format!("{}-{digits:04}", TAGS[tag])
 }
 
-/// The text of each quote of `author` under `tag`.
-fn quotes(seed: u64, author: usize, tag: usize) -> Vec<String> {
+/// One quote of the results.
+struct Quote {
+    id: String,
+    text: String,
+}
+
+/// The quotes of `author` under `tag`.
+fn quotes(seed: u64, author: usize, tag: usize) -> Vec<Quote> {
     let count = 1 + generator::below(seed, &place(author, Some(tag), COUNT_PLACE), MOST_QUOTES);
     (0..count)
         .map(|number| {
+            let mut id_at = place(author, Some(tag), ID_PLACE).to_vec();
+            id_at.push(number);
             let word = |part: u64, bound: usize| {
                 let mut at = place(author, Some(tag), QUOTE_PLACE).to_vec();
                 at.extend([number, part]);
@@ -151,13 +152,16 @@ fn quotes(seed: u64, author: usize, tag: usize) -> Vec<String> {
                     u64::try_from(bound).expect("invariant: a short list's length"),
                 ))
             };
-            format!(
-                "{} {} {} {}.",
-                OPENERS[word(0, OPENERS.len())],
-                SUBJECTS[word(1, SUBJECTS.len())],
-                VERBS[word(2, VERBS.len())],
-                OBJECTS[word(3, OBJECTS.len())]
-            )
+            Quote {
+                id: format!("{:016x}", generator::draw(seed, &id_at)),
+                text: format!(
+                    "{} {} {} {}.",
+                    OPENERS[word(0, OPENERS.len())],
+                    SUBJECTS[word(1, SUBJECTS.len())],
+                    VERBS[word(2, VERBS.len())],
+                    OBJECTS[word(3, OBJECTS.len())]
+                ),
+            }
         })
         .collect()
 }
@@ -313,10 +317,10 @@ fn results_page(seed: u64, author: usize, tag: usize) -> String {
     let (author_name, tag_name) = (AUTHORS[author], TAGS[tag]);
     let list = quotes(seed, author, tag)
         .iter()
-        .fold(String::new(), |mut list, text| {
+        .fold(String::new(), |mut list, Quote { id, text }| {
             writeln!(
                 list,
-                "<li class=\"quote\"><span class=\"text\">{text}</span> <span class=\"author\">{author_name}</span> <span class=\"tag\">{tag_name}</span></li>"
+                "<li class=\"quote\" data-id=\"{id}\"><span class=\"text\">{text}</span> <span class=\"author\">{author_name}</span> <span class=\"tag\">{tag_name}</span></li>"
             )
             .expect("invariant: writing to a String succeeds");
             list
@@ -340,8 +344,9 @@ fn task_host(ordinal: u32) -> String {
 pub(crate) fn tasks(seed: u64, port: Option<u16>) -> Vec<Task> {
     let records = quotes(seed, TASK_AUTHOR, TASK_TAG)
         .into_iter()
-        .map(|text| {
+        .map(|Quote { id, text }| {
             Record::from([
+                ("id", id),
                 ("text", text),
                 ("author", AUTHORS[TASK_AUTHOR].to_owned()),
                 ("tag", TAGS[TASK_TAG].to_owned()),
@@ -358,8 +363,8 @@ pub(crate) fn tasks(seed: u64, port: Option<u16>) -> Vec<Task> {
             description: "Choose the author \"Cleo Marsh\": the page reloads and the tag list \
                 then offers that author's tags. Choose the tag \"inspirational\", type the tag \
                 to confirm it, press Search, and return one Record per quote shown, with the \
-                fields `text`, `author` and `tag`. The page may reject the confirmation and say \
-                what to type: type that, and press Search again.",
+                fields `id` (its `data-id`), `text`, `author` and `tag`. The page may reject the \
+                confirmation and say what to type: type that, and press Search again.",
             account: None,
             time_steps: None,
         },

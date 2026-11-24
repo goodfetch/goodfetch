@@ -92,11 +92,13 @@ fn error(page: &str) -> String {
 /// The quotes a results page shows, as Records.
 fn quotes(page: &str) -> Vec<Value> {
     Regex::new(
-        r#"<li class="quote"><span class="text">([^<]+)</span> <span class="author">([^<]+)</span> <span class="tag">([^<]+)</span></li>"#,
+        r#"<li class="quote" data-id="([^"]+)"><span class="text">([^<]+)</span> <span class="author">([^<]+)</span> <span class="tag">([^<]+)</span></li>"#,
     )
     .expect("a valid pattern")
     .captures_iter(page)
-    .map(|quote| json!({ "text": &quote[1], "author": &quote[2], "tag": &quote[3] }))
+    .map(|quote| {
+        json!({ "id": &quote[1], "text": &quote[2], "author": &quote[3], "tag": &quote[4] })
+    })
     .collect()
 }
 

@@ -562,6 +562,17 @@ fn count(live: usize) -> u32 {
     u32::try_from(live).unwrap_or(u32::MAX)
 }
 
+/// Records in the Audit log, when the Daemon is exposed behind TLS
+/// terminated upstream, that choice (ADR 0049).
+async fn record_termination(serving: &Serving, shared: &Shared) {
+    if let Some(exposure) = &shared.websocket {
+        let address = shared.endpoint.to_string();
+        exposure
+            .record_upstream(serving.engine.audit(), address, serving.engine.now())
+            .await;
+    }
+}
+
 /// Serves every Connection of `listener` until the Daemon stops, its tasks
 /// those of children of `owner`.
 pub(crate) async fn serve(
@@ -586,6 +597,7 @@ pub(crate) async fn serve(
         seen,
     ));
     serving.metrics.draining(false);
+    record_termination(&serving, &shared).await;
     if let Some(ops) = ops {
         let (health, engine) = (shared.health.clone(), serving.engine.clone());
         owner.spawn(ops::serve(ops, health, owner.part("ops endpoint"), engine));

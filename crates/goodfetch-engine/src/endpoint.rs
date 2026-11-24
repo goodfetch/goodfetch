@@ -30,9 +30,11 @@ use std::time::Duration;
 
 use goodfetch_protocol::audit::{
     AUDIT_REFUSALS_PER_MINUTE, Actor, ENDPOINT_AUTHENTICATION_FAILED, ENDPOINT_REFUSALS_FOLDED,
-    EndpointRefusal, FoldedRefusals, Listener, RefusalReason,
+    EndpointRefusal, FoldedRefusals, Listener, RefusalReason, TLS_TERMINATED_UPSTREAM,
 };
 use goodfetch_protocol::catalog::SharedTypeValue;
+use goodfetch_protocol::daemon::TrustedProxy;
+use jiff::Timestamp;
 use subtle::ConstantTimeEq as _;
 use tokio::time::Instant;
 
@@ -114,6 +116,33 @@ impl Authorities {
         }
     }
 
+    /// These names on a request a trusted proxy forwarded with `host` and
+    /// `proto`, its `X-Forwarded-Host` and `X-Forwarded-Proto`, each read
+    /// for its first value: when `proto` is `https`, also `host`, its
+    /// `Origin` over `https`. A name forwarded over plain HTTP joins
+    /// nothing, since a DNS-rebinding page could have sent it; over `https`
+    /// the proxy served it a certificate for that name, which the page's
+    /// browser takes for no other name.
+    pub(crate) fn forwarded(&self, host: Option<&str>, proto: Option<&str>) -> Self {
+        let first = |value: &str| {
+            value
+                .split(',')
+                .next()
+                .unwrap_or_default()
+                .trim()
+                .to_owned()
+        };
+        if !proto.is_some_and(|proto| first(proto).eq_ignore_ascii_case("https")) {
+            return self.clone();
+        }
+        let mut names = self.names.clone();
+        names.extend(host.map(first).filter(|host| !host.is_empty()));
+        Self {
+            names,
+            origin_scheme: "https://",
+        }
+    }
+
     /// Whether `host`, a request's `Host`, is one of these names.
     pub(crate) fn admits_host(&self, host: &str) -> bool {
         self.names
@@ -131,22 +160,73 @@ impl Authorities {
 }
 
 /// How an Exposed Daemon's address is reached (ADR 0049): the names its
-/// WebSocket handshakes may carry, and the certificate it serves TLS with,
-/// if it does.
+/// WebSocket handshakes may carry, and where TLS is terminated.
 #[derive(Debug)]
 pub struct Exposure {
     /// The names a handshake's `Host` may carry.
     pub authorities: Authorities,
-    /// The certificate every Connection's TLS handshake is served, if any:
-    /// a Connection that opens with no handshake is refused.
-    pub tls: Option<ServingCertificate>,
+    /// Where its Connections' TLS is terminated.
+    pub termination: Termination,
+}
+
+impl Exposure {
+    /// Records in `audit` at `now`, when TLS is terminated in front of the
+    /// Daemon at `address`, that choice and the proxies it trusts, as
+    /// `tls_terminated_upstream` (ADR 0049).
+    pub(crate) async fn record_upstream(&self, audit: &AuditLog, address: String, now: Timestamp) {
+        let Termination::Upstream(proxies) = &self.termination else {
+            return;
+        };
+        let origin = Origin {
+            actor: Actor::Engine,
+            surface: None,
+            layer: None,
+            run_id: None,
+        };
+        let trusted: Vec<String> = proxies.iter().map(ToString::to_string).collect();
+        let details = serde_json::json!({ "address": address, "trusted_proxies": trusted });
+        if let Err(error) = audit
+            .record(&origin, &TLS_TERMINATED_UPSTREAM, details, now)
+            .await
+        {
+            tracing::error!(%error, "the Audit log did not record that TLS is terminated upstream");
+        }
+    }
 }
 
 impl From<Authorities> for Exposure {
     fn from(authorities: Authorities) -> Self {
         Self {
             authorities,
-            tls: None,
+            termination: Termination::Plain,
+        }
+    }
+}
+
+/// Where an Exposed Daemon's TLS is terminated (ADR 0049).
+#[derive(Debug)]
+pub enum Termination {
+    /// Nowhere: a Daemon on loopback.
+    Plain,
+    /// By the Daemon, with this certificate served to every Connection's
+    /// TLS handshake: a Connection that opens with no handshake is refused.
+    Tls(ServingCertificate),
+    /// In front of the Daemon (`daemon.tls.upstream`), which serves in
+    /// plain and reads a WebSocket handshake's `X-Forwarded-Host` and
+    /// `X-Forwarded-Proto` only from a peer one of these proxies holds
+    /// (`daemon.trusted_proxies`).
+    Upstream(Vec<TrustedProxy>),
+}
+
+impl Termination {
+    /// Whether a handshake from `peer` has its `X-Forwarded-*` read: only
+    /// from a proxy the Daemon trusts, behind TLS terminated upstream.
+    pub(crate) fn trusts(&self, peer: Option<SocketAddr>) -> bool {
+        match self {
+            Self::Upstream(proxies) => {
+                peer.is_some_and(|peer| proxies.iter().any(|proxy| proxy.holds(peer.ip())))
+            }
+            Self::Plain | Self::Tls(_) => false,
         }
     }
 }

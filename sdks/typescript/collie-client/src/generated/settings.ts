@@ -1742,7 +1742,9 @@ const SPELLING: Spelling = {
     tls: ["tls", {
       certFile: "cert_file",
       keyFile: "key_file",
+      upstream: "upstream",
     }],
+    trustedProxies: "trusted_proxies",
   }],
   effect: ["effect", {
     output: ["output", {

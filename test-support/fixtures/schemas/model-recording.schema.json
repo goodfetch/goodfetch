@@ -1,0 +1,114 @@
+{
+  "$defs": {
+    "RecordedExchange": {
+      "additionalProperties": false,
+      "description": "One request to a Model provider and the response it got.",
+      "properties": {
+        "request": {
+          "$ref": "#/$defs/RecordedRequest"
+        },
+        "response": {
+          "$ref": "#/$defs/RecordedResponse"
+        },
+        "synthetic": {
+          "default": false,
+          "description": "A fault written by hand rather than recorded: an explicit stub, which\n[`ServedExchanges`] reports apart.",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "request",
+        "response"
+      ],
+      "type": "object"
+    },
+    "RecordedRequest": {
+      "additionalProperties": false,
+      "description": "What a request must be to get its exchange's response.",
+      "properties": {
+        "body": {
+          "default": null,
+          "description": "The JSON body, which matches in canonical form; absent, the request\nhas no body."
+        },
+        "method": {
+          "description": "`POST`, `GET`, …, in any case.",
+          "type": "string"
+        },
+        "path": {
+          "description": "The path with its query, which matches exactly: `/v1/chat/completions`.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "method",
+        "path"
+      ],
+      "type": "object"
+    },
+    "RecordedResponse": {
+      "additionalProperties": false,
+      "description": "The response an exchange serves.",
+      "oneOf": [
+        {
+          "required": [
+            "body"
+          ]
+        },
+        {
+          "required": [
+            "chunks"
+          ]
+        }
+      ],
+      "properties": {
+        "body": {
+          "default": null,
+          "not": {
+            "type": "null"
+          }
+        },
+        "chunks": {
+          "default": null,
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "headers": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "default": {},
+          "type": "object"
+        },
+        "status": {
+          "format": "uint16",
+          "maximum": 65535,
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "status"
+      ],
+      "type": "object"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "A recording file: the exchanges one adapter test replays.",
+  "properties": {
+    "exchanges": {
+      "description": "Served in this order, each once.",
+      "items": {
+        "$ref": "#/$defs/RecordedExchange"
+      },
+      "type": "array"
+    }
+  },
+  "required": [
+    "exchanges"
+  ],
+  "title": "ModelRecording",
+  "type": "object"
+}

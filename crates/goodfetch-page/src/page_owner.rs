@@ -22,8 +22,10 @@ use goodfetch_protocol::page::PageId;
 use tokio::sync::{mpsc, oneshot, watch};
 use tracing::Instrument as _;
 
-use crate::errors::page_panicked;
+use crate::dialogs::PageDialogs;
+use crate::errors::{page_closed, page_panicked};
 use crate::gesture_order::{GestureOrder, GestureTurn};
+use crate::init_scripts::InitScripts;
 use crate::interception::PageInterception;
 use crate::page_events::PageEvents;
 
@@ -54,6 +56,10 @@ pub(crate) struct PageParts {
     /// `page.on` listeners, what a body read needs and the arming of
     /// `Runtime`.
     pub(crate) events: PageEvents,
+    /// Its dialog handlers, and the failure one left.
+    pub(crate) dialogs: PageDialogs,
+    /// Its init scripts, with how many are on their way in or out.
+    pub(crate) init_scripts: InitScripts,
     /// Its side of the interception: its Routes, its Filter lists' state,
     /// its handlers' failures and its pending navigation.
     pub(crate) interception: PageInterception,
@@ -142,6 +148,16 @@ impl PageOwner {
         &self.parts.events
     }
 
+    /// Its Page's dialog handlers.
+    pub(crate) fn dialogs(&self) -> &PageDialogs {
+        &self.parts.dialogs
+    }
+
+    /// Its Page's init scripts.
+    pub(crate) fn init_scripts(&self) -> &InitScripts {
+        &self.parts.init_scripts
+    }
+
     /// Its Page's side of the interception.
     pub(crate) fn interception(&self) -> &PageInterception {
         &self.parts.interception
@@ -220,16 +236,31 @@ impl PageOwners {
 
     /// The events of the open Page `page_id`, or `closed`.
     pub(crate) fn events(&self, page_id: &PageId) -> Result<PageEvents, CallError> {
-        let held = self.held();
-        held.get(page_id)
+        self.held()
+            .get(page_id)
             .map(|owner| owner.events().clone())
-            .ok_or_else(|| {
-                CallError::new(
-                    &goodfetch_protocol::connection::CLOSED,
-                    format!("the page `{}` is closed, or its Run ended", page_id.0),
-                    &serde_json::json!({ "page_id": page_id }),
-                )
-            })
+            .ok_or_else(|| page_closed(page_id))
+    }
+
+    /// The dialog handlers of the open Page `page_id`, or `closed`.
+    pub(crate) fn dialogs(&self, page_id: &PageId) -> Result<PageDialogs, CallError> {
+        self.held()
+            .get(page_id)
+            .map(|owner| owner.dialogs().clone())
+            .ok_or_else(|| page_closed(page_id))
+    }
+
+    /// The wait until no init script of the open Page `page_id` is on its
+    /// way in or out; none while none is, or for a Page that is not open.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future gives up the wait.
+    pub(crate) fn settling(
+        &self,
+        page_id: &PageId,
+    ) -> Option<impl Future<Output = ()> + Send + use<>> {
+        self.held().get(page_id)?.init_scripts().settling()
     }
 
     /// The wait until no `page.on` of the open Page `page_id` sent before
@@ -247,7 +278,8 @@ impl PageOwners {
     }
 
     /// Takes the Pages `pages` out, as each ends: each one's events close,
-    /// their calls answering, then its side of the interception.
+    /// their calls answering, then its dialogs, then its side of the
+    /// interception.
     pub(crate) fn close(&self, pages: &[PageId]) {
         let ended: Vec<PageOwner> = {
             let mut held = self.held();
@@ -255,6 +287,7 @@ impl PageOwners {
         };
         for owner in &ended {
             owner.events().close();
+            owner.dialogs().close();
             owner.interception().close();
         }
     }
@@ -298,4 +331,4 @@ async fn serve(
 }
 
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;

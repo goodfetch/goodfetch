@@ -131,7 +131,7 @@ impl Pages {
                     .navigate(again, first.wait_until, deadline.as_ref()),
             )
             .await;
-        let navigated = match self.left_failure(page, page_id) {
+        let navigated = match Self::left_failure(page) {
             Some(failure) => Err(failure),
             None => navigated,
         };

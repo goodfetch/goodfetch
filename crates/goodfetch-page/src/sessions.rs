@@ -93,7 +93,6 @@ use goodfetch_protocol::usage::PROXY_BYTES;
 use serde_json::{Map, Value, json};
 use tokio::sync::{Mutex, OnceCell};
 
-pub(crate) use self::life::page_closed;
 use self::life::{Ending, PageLife, SessionLife, session_closed};
 pub(crate) use self::lifecycle::PageEvent;
 use self::lifecycle::{
@@ -106,12 +105,13 @@ use crate::dialogs::Dialogs;
 use crate::document_request::{DocumentRequest, Unread};
 use crate::driver::{PageDriver, SessionEgress, Visibility, counted_as_opening};
 use crate::egress_relay::{self, EgressRelay};
+pub(crate) use crate::errors::page_closed;
 use crate::errors::{cancelled, invalid_transition};
 use crate::hiding::{Hiding, PageHiding};
 use crate::interception::{HeldBrowser, Interception, Lookups, RunPowers};
 use crate::launch::Launcher;
 use crate::page_events;
-use crate::page_functions::{FrameScripts, Injections};
+use crate::page_functions::Injections;
 use crate::page_owner::{PageOwner, PageOwners};
 use crate::page_value::{HandlerPages, HeldPlace, PageValue, PooledSession};
 use crate::pool::{InBrowser, LocalFailure, Placement, Pool, Seat};
@@ -156,7 +156,8 @@ pub(crate) struct Sessions {
     /// The Consent prompt runner every page starts.
     consent: Consent,
     hiding: Hiding,
-    /// Each open page's dialogs and their handlers.
+    /// The open dialogs' slots, which each page's reader of its dialogs
+    /// opens.
     dialogs: Dialogs,
     /// What each page carries for the Product that hands pages to
     /// handlers: its value and its response observer (ADR 0087).
@@ -300,8 +301,6 @@ pub(crate) struct OpenPage {
     /// How its Session's pages are judged: its Page check, when it declares
     /// one, and whether it may hold a login.
     pub(crate) page_check: Arc<Checking>,
-    /// Its init scripts as its out-of-process iframes take them.
-    pub(crate) frame_scripts: FrameScripts,
     /// Its Session's marks of main-world injections in Provenance.
     pub(crate) injections: Injections,
     /// Its admission of the governor's `browser_page` kind, given back once
@@ -481,7 +480,7 @@ impl Drop for EnginePage {
 
 impl Sessions {
     /// The engine's Sessions, whose browsers `launcher` starts from `pins`,
-    /// under `interception`, their pages' dialogs in `dialogs`, each page's
+    /// under `interception`, their pages' open dialogs in `dialogs`, each page's
     /// value and response observer from `handler_pages`.
     pub(crate) fn new(
         (pins, launcher): (Vec<PinnedArtifact>, Launcher),
@@ -1022,7 +1021,6 @@ impl Sessions {
             pages
         };
         self.page_owners.close(&pages);
-        self.dialogs.close(&pages);
         self.interception.close_session(session);
         self.hiding.close(session).await;
         if open.life.pooled() {
@@ -1296,7 +1294,6 @@ impl Sessions {
             for session in &gone {
                 let pages = pages.remove(session).unwrap_or_default();
                 sessions.page_owners.close(&pages);
-                sessions.dialogs.close(&pages);
                 sessions.interception.close_session(session);
                 sessions.hiding.close(session).await;
             }

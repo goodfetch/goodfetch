@@ -30,6 +30,7 @@ pub mod fields;
 mod gesture_order;
 mod guard;
 mod hiding;
+mod init_scripts;
 mod interception;
 pub mod kept_tree;
 mod launch;

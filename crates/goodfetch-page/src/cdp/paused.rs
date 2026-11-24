@@ -508,7 +508,10 @@ impl CdpPage {
 
     /// Sends `command`, whose answer says nothing more than that the
     /// browser took it.
-    async fn taken<C: goodfetch_cdp::Command>(&self, command: &C) -> Result<(), NotTaken> {
+    pub(super) async fn taken<C: goodfetch_cdp::Command>(
+        &self,
+        command: &C,
+    ) -> Result<(), NotTaken> {
         self.page.command(command).await.map(drop).map_err(NotTaken)
     }
 }

@@ -5,23 +5,20 @@
 //! only; the walker answers the result's JSON, the first value outside JSON
 //! by its path and kind (`page_value_invalid`), or what the page threw
 //! (`page_function_failed`). An init script is the source called with its
-//! argument when it is a function, or the script as it is. Each Session's
-//! first main-world call and first init script are marked in its
-//! Provenance (ADRs 0019 and 0021), and a navigation sent after an init
-//! script's call waits until the script is registered, or removed once its
-//! call was cancelled (`InitScripts`). `page.wait_for_function` runs the
-//! same expression again at each interval until its result is truthy
-//! ([`until_truthy`]). A locator's page function, `locator.evaluate_all`'s
-//! and `locator.wait_for_function`'s, takes the locator's matches first,
-//! found in its world by `targets.js` ([`on_locator`]): every match, or
-//! the one match, a check while there are none or several answering no
-//! value, which is falsy.
+//! argument when it is a function, or the script as it is, which the page's
+//! owner adds (`init_scripts`). Each Session's first main-world call and
+//! first init script are marked in its Provenance (ADRs 0019 and 0021).
+//! `page.wait_for_function` runs the same expression again at each interval
+//! until its result is truthy ([`until_truthy`]). A locator's page function,
+//! `locator.evaluate_all`'s and `locator.wait_for_function`'s, takes the
+//! locator's matches first, found in its world by `targets.js`
+//! ([`on_locator`]): every match, or the one match, a check while there are
+//! none or several answering no value, which is falsy.
 
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::HashSet;
 use std::sync::Arc;
 use std::time::Duration;
 
-use goodfetch_cdp::generated::page::ScriptIdentifier;
 use goodfetch_cdp::generated::runtime;
 use goodfetch_engine::CallError;
 use goodfetch_engine::clock::Clock;
@@ -38,9 +35,8 @@ use goodfetch_protocol::{connection::Form, naming};
 use serde::{Deserialize, Deserializer};
 use serde_json::{Value, json};
 use tokio::sync::watch;
-use tokio_util::sync::CancellationToken;
 
-use crate::driver::{Child, ChildKind, OnChild, PageDriver};
+use crate::driver::PageDriver;
 use crate::trace;
 
 /// The walker, a function expression the engine calls with the thunk of
@@ -610,261 +606,6 @@ impl Injections {
             )
             .await;
         }
-    }
-}
-
-/// A page's init scripts as its out-of-process frames take them: the
-/// browser runs a script added on the page's own session in the frames of
-/// the page's process only, so each live script is also added on each
-/// frame's session, before the frame runs or, for one already running, for
-/// its next document. Clones share them.
-#[derive(Clone, Default)]
-pub(crate) struct FrameScripts {
-    shared: Arc<tokio::sync::Mutex<Frames>>,
-}
-
-#[derive(Default)]
-struct Frames {
-    /// The key the next script takes.
-    next: u64,
-    /// Each live script, by its key.
-    live: BTreeMap<u64, Live>,
-    /// The page's out-of-process frames attached, each until its target
-    /// goes.
-    iframes: Vec<(PageDriver, CancellationToken)>,
-}
-
-/// A live script: its source, and where each iframe holds it.
-struct Live {
-    source: String,
-    held: Vec<(PageDriver, ScriptIdentifier)>,
-}
-
-impl FrameScripts {
-    /// What the init scripts do with each out-of-process frame of the page
-    /// `page` drives, which `driver::follow_children` hands over: each live
-    /// script is added on it before it runs.
-    pub(crate) fn frames(&self, page: &PageDriver) -> OnChild {
-        let (frames, page) = (self.clone(), page.clone());
-        Arc::new(move |child: &Child| {
-            let frames = frames.clone();
-            let frame = (child.kind == ChildKind::Frame)
-                .then(|| (page.on_child(child.session.clone()), child.gone.clone()));
-            Box::pin(async move {
-                if let Some(frame) = frame {
-                    frames.attached(frame).await;
-                }
-                true
-            })
-        })
-    }
-
-    /// Adds the live scripts to the frame `driver` drives until it is
-    /// `gone`, held before it runs.
-    async fn attached(&self, (driver, gone): (PageDriver, CancellationToken)) {
-        let sources: Vec<(u64, String)> = {
-            let mut frames = self.shared.lock().await;
-            frames.iframes.retain(|(_, gone)| !gone.is_cancelled());
-            frames.iframes.push((driver.clone(), gone));
-            frames
-                .live
-                .iter()
-                .map(|(key, live)| (*key, live.source.clone()))
-                .collect()
-        };
-        for (key, source) in sources {
-            self.hold(key, &driver, source).await;
-        }
-    }
-
-    /// Adds `source`, a script now registered on the page's own session, to
-    /// the page's iframes, those attached now and later; answers its key.
-    pub(crate) async fn add(&self, source: String) -> u64 {
-        let (key, iframes) = {
-            let mut frames = self.shared.lock().await;
-            let key = frames.next;
-            frames.next += 1;
-            frames.live.insert(
-                key,
-                Live {
-                    source: source.clone(),
-                    held: Vec::new(),
-                },
-            );
-            frames.iframes.retain(|(_, gone)| !gone.is_cancelled());
-            let iframes: Vec<PageDriver> = frames
-                .iframes
-                .iter()
-                .map(|(driver, _)| driver.clone())
-                .collect();
-            (key, iframes)
-        };
-        for driver in iframes {
-            self.hold(key, &driver, source.clone()).await;
-        }
-        key
-    }
-
-    /// Adds the script `key`, whose source is `source`, on the iframe
-    /// `driver` drives, unless it was removed meanwhile.
-    async fn hold(&self, key: u64, driver: &PageDriver, source: String) {
-        let identifier = match driver
-            .add_init_script(
-                source,
-                goodfetch_protocol::page::functions::PAGE_ADD_INIT_SCRIPT.name,
-            )
-            .await
-        {
-            Ok(identifier) => identifier,
-            Err(error) => {
-                tracing::debug!(%error, "an out-of-process iframe went before it took an init script");
-                return;
-            }
-        };
-        let kept = match self.shared.lock().await.live.get_mut(&key) {
-            Some(live) => {
-                live.held.push((driver.clone(), identifier.clone()));
-                true
-            }
-            None => false,
-        };
-        if !kept {
-            driver.remove_init_script(identifier).await;
-        }
-    }
-
-    /// Removes the script `key` from every iframe that holds it.
-    pub(crate) async fn remove(&self, key: u64) {
-        let held = self
-            .shared
-            .lock()
-            .await
-            .live
-            .remove(&key)
-            .map(|live| live.held)
-            .unwrap_or_default();
-        for (driver, identifier) in held {
-            driver.remove_init_script(identifier).await;
-        }
-    }
-}
-
-/// The init scripts each page has on their way in or out: a navigation
-/// waits for none to be left, so that one sent after `page.add_init_script`
-/// runs the script, and one sent after its call was cancelled runs without
-/// it.
-#[derive(Clone)]
-pub(crate) struct InitScripts {
-    pending: Arc<watch::Sender<HashMap<PageId, usize>>>,
-}
-
-impl Default for InitScripts {
-    fn default() -> Self {
-        Self {
-            pending: Arc::new(watch::Sender::new(HashMap::new())),
-        }
-    }
-}
-
-impl InitScripts {
-    /// Counts one script of the page `page_id` on its way, until the
-    /// answer is dropped.
-    pub(crate) fn begin(&self, page_id: &PageId) -> Pending {
-        self.pending.send_modify(|pending| {
-            *pending.entry(page_id.clone()).or_default() += 1;
-        });
-        Pending {
-            pending: Arc::clone(&self.pending),
-            page_id: page_id.clone(),
-        }
-    }
-
-    /// Waits until no script of the page `page_id` is on its way.
-    ///
-    /// # Cancel safety
-    ///
-    /// Dropping the future gives up the wait.
-    pub(crate) async fn settled(&self, page_id: &PageId) {
-        let mut pending = self.pending.subscribe();
-        let _ = pending
-            .wait_for(|pending| !pending.contains_key(page_id))
-            .await;
-    }
-}
-
-/// One init script on its way in or out of its page.
-pub(crate) struct Pending {
-    pending: Arc<watch::Sender<HashMap<PageId, usize>>>,
-    page_id: PageId,
-}
-
-impl Drop for Pending {
-    fn drop(&mut self) {
-        self.pending.send_modify(|pending| {
-            if let Some(count) = pending.get_mut(&self.page_id) {
-                *count = count.saturating_sub(1);
-                if *count == 0 {
-                    pending.remove(&self.page_id);
-                }
-            }
-        });
-    }
-}
-
-/// An init script registered on its page, removed once dropped unless its
-/// page ended: the removal is counted on its way out, so a navigation sent
-/// after the drop runs without the script.
-pub(crate) struct Registered {
-    driver: PageDriver,
-    identifier: Option<ScriptIdentifier>,
-    run: Run,
-    scripts: InitScripts,
-    page_id: PageId,
-    /// Its page's iframes' scripts, and its key among them.
-    in_frames: (FrameScripts, u64),
-}
-
-impl Registered {
-    /// The script `identifier`, registered on the page `page_id` that
-    /// `driver` drives for `run` and, as the key `in_frames` names, in its
-    /// iframes, counted among `scripts` on its way out.
-    pub(crate) fn new(
-        driver: PageDriver,
-        identifier: ScriptIdentifier,
-        run: Run,
-        (scripts, page_id): (InitScripts, PageId),
-        in_frames: (FrameScripts, u64),
-    ) -> Self {
-        Self {
-            driver,
-            identifier: Some(identifier),
-            run,
-            scripts,
-            page_id,
-            in_frames,
-        }
-    }
-
-    /// Keeps the script, whose page ended with it: nothing is left to
-    /// remove.
-    pub(crate) fn ended(mut self) {
-        self.identifier = None;
-    }
-}
-
-impl Drop for Registered {
-    fn drop(&mut self) {
-        let Some(identifier) = self.identifier.take() else {
-            return;
-        };
-        let leaving = self.scripts.begin(&self.page_id);
-        let driver = self.driver.clone();
-        let (frames, key) = (self.in_frames.0.clone(), self.in_frames.1);
-        self.run.spawn(async move {
-            driver.remove_init_script(identifier).await;
-            frames.remove(key).await;
-            drop(leaving);
-        });
     }
 }
 

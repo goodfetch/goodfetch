@@ -271,7 +271,9 @@ impl Pages {
     ) -> Result<T, CallError> {
         // It only listens, and its limit runs in `armed`: it waits for no
         // `Runtime` a `page.on` is turning on.
-        self.init_scripts.settled(page_id).await;
+        if let Some(settling) = self.sessions.page_owners().settling(page_id) {
+            settling.await;
+        }
         let page = self.opened(page_id).await?;
         page.life
             .call(PageEvent::Read, async {

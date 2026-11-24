@@ -2,8 +2,9 @@
 //! in-process engine of the engine's own operations and a test one, on the
 //! test `Clock` and `Entropy` with blocking work inline, whose Client calls
 //! the test operation once, which starts a Run, hands it out with the
-//! call's event stream, and holds it until the test lets it go; and a page
-//! a played browser drives for it.
+//! call's event stream and Client, and holds it until the test lets it go;
+//! the handler requests the engine sends that Client meanwhile reach the
+//! test, which replies to them; and a page a played browser drives for it.
 #![expect(
     clippy::disallowed_methods,
     reason = "tests run on the test Clock and Entropy (ADR 0059)"
@@ -13,6 +14,7 @@ use std::collections::BTreeMap;
 use std::pin::Pin;
 use std::sync::Arc;
 
+use goodfetch_engine::client::Client;
 use goodfetch_engine::clock::Clock;
 use goodfetch_engine::entropy::Entropy;
 use goodfetch_engine::events::Events;
@@ -33,7 +35,7 @@ use goodfetch_protocol::run::{RunKind, Tags};
 use goodfetch_test_support::TestEnv;
 use serde_json::{Value, json};
 use tokio::io::{AsyncBufReadExt as _, AsyncWriteExt as _, BufReader};
-use tokio::sync::{Mutex, oneshot};
+use tokio::sync::{Mutex, mpsc, oneshot};
 
 use crate::driver::PageDriver;
 use crate::driver::replay::{self, Played};
@@ -60,16 +62,25 @@ const HOLD_RUN: Operation = Operation {
 /// its Run go.
 pub(crate) type Served = Pin<Box<dyn Future<Output = ()>>>;
 
-/// A Run the test holds, and the event stream of the call that started it;
-/// dropping it lets the Run go, after which the engine ends.
+/// A Run the test holds, and the event stream and Client of the call that
+/// started it; dropping it lets the Run go, after which the engine ends.
 pub(crate) struct LiveRun {
     pub(crate) run: Run,
     pub(crate) events: Events,
+    /// The Client the engine sends the Run's handler requests.
+    pub(crate) client: Client,
+    /// Each handler request the Client got, as its message.
+    pub(crate) asked: mpsc::UnboundedReceiver<Value>,
+    /// The Client's replies to them, each a message it sends.
+    pub(crate) replies: mpsc::UnboundedSender<Value>,
     _release: oneshot::Sender<()>,
 }
 
 /// What the test operation hands out, and what lets it answer.
-type Holding = (oneshot::Sender<(Run, Events)>, oneshot::Receiver<()>);
+type Holding = (
+    oneshot::Sender<(Run, Events, Client)>,
+    oneshot::Receiver<()>,
+);
 
 impl LiveRun {
     /// Starts an engine in process for `env`, and a Run in it: answers the
@@ -81,23 +92,38 @@ impl LiveRun {
         let holding: Arc<Mutex<Option<Holding>>> = Arc::new(Mutex::new(Some((handed, released))));
         let engine = engine(holding);
         let dependencies = dependencies(env);
+        let (asking, asked) = mpsc::unbounded_channel();
+        let (replies, mut replying) = mpsc::unbounded_channel::<Value>();
         let mut served: Served = Box::pin(async move {
             let (network, dialer) = transport::in_memory();
             let client = async {
                 let (reader, mut writer) = dialer.connect().await.unwrap().split();
                 let mut lines = BufReader::new(reader).lines();
+                // Calls `method`, and sends the test's replies to the
+                // handler requests that come meanwhile, until its answer.
                 let mut reply = async |id: i64, method: &str, params: Value| {
-                    let mut line = serde_json::to_vec(
-                        &json!({ "jsonrpc": "2.0", "id": id, "method": method, "params": params }),
-                    )
-                    .unwrap();
-                    line.push(b'\n');
-                    writer.write_all(&line).await.unwrap();
+                    let call =
+                        json!({ "jsonrpc": "2.0", "id": id, "method": method, "params": params });
+                    writer.write_all(&line_of(&call)).await.unwrap();
                     loop {
-                        let line = lines.next_line().await.unwrap().unwrap();
-                        let message: Value = serde_json::from_str(&line).unwrap();
-                        if message["id"] == json!(id) {
-                            return message;
+                        tokio::select! {
+                            line = lines.next_line() => {
+                                let line = line.unwrap().unwrap();
+                                let message: Value = serde_json::from_str(&line).unwrap();
+                                if message.get("method").is_some() {
+                                    // A handler request, which the test
+                                    // answers; a notification, which it
+                                    // does not read.
+                                    if message.get("id").is_some() {
+                                        let _ = asking.send(message);
+                                    }
+                                } else if message["id"] == json!(id) {
+                                    return message;
+                                }
+                            }
+                            Some(reply) = replying.recv() => {
+                                writer.write_all(&line_of(&reply)).await.unwrap();
+                            }
                         }
                     }
                 };
@@ -124,7 +150,7 @@ impl LiveRun {
             );
             ran.unwrap();
         });
-        let (run, events) = tokio::select! {
+        let (run, events, client) = tokio::select! {
             biased;
             taken = taken => taken.expect("invariant: the test operation hands its Run out"),
             () = &mut served => panic!("the engine ended before its Run started"),
@@ -132,10 +158,20 @@ impl LiveRun {
         let held = Self {
             run,
             events,
+            client,
+            asked,
+            replies,
             _release: release,
         };
         (held, served)
     }
+}
+
+/// `message` as a line of the Connection.
+fn line_of(message: &Value) -> Vec<u8> {
+    let mut line = serde_json::to_vec(message).unwrap();
+    line.push(b'\n');
+    line
 }
 
 /// The page a played browser drives, the browser, and the future of the
@@ -186,7 +222,11 @@ async fn hold_run(
     let Started::New(run) = started else {
         panic!("the Run began before");
     };
-    let _ = handed.send((run.clone(), context.events().clone()));
+    let _ = handed.send((
+        run.clone(),
+        context.events().clone(),
+        context.client().clone(),
+    ));
     let _ = released.await;
     run.cancellation().cancel();
     Ok(json!({}))

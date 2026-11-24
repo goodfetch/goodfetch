@@ -3,7 +3,8 @@
 //! calls, in ADR 0129's shape, with no trait until a second implementation
 //! is built. Spec #2256 moves the page crate's calls behind it ticket by
 //! ticket, until this is the one module that names the CDP crate; the
-//! interception's and a Page's events' calls are behind it already. A
+//! interception's and a Page's events', dialogs' and init scripts' calls
+//! are behind it already. A
 //! primitive sends through the page's driver, whose lease check, counted
 //! rows, Run trace and deadlines it keeps.
 //!
@@ -29,8 +30,13 @@
 //! | [`CdpPage::follow_console_opening`], [`CdpPage::follow_frame_console_opening`] and [`CdpPage::follow_frame_console`]: the console calls and uncaught exceptions of the page, or of one of its out-of-process frames, reported | `Runtime.enable` | `session.subscribe` to the `log` module | none: the driver reports a page's console itself |
 //! | [`CdpPage::follow_frame_network`]: an out-of-process frame's requests reported | `Network.enable` on the frame's target | `session.subscribe` to the `network` module, which covers the page's frames | none: the driver reports a frame's requests itself |
 //! | [`CdpPage::response_body`]: the body of a response the browser received, once it is | `Network.getResponseBody` | `network.getData` with a data collector added before the response | `Response.body` |
+//! | [`CdpPage::dialog_events`]: the JavaScript dialogs the page opens and closes, each read once | `Page.javascriptDialogOpening` and `Page.javascriptDialogClosed` | `browsingContext.userPromptOpened` and `browsingContext.userPromptClosed` | `dialog`; a dialog the page closes itself is Chromium only |
+//! | [`CdpPage::answer_dialog`]: the page's open dialog accepted, with a prompt's text, or dismissed | `Page.handleJavaScriptDialog` | `browsingContext.handleUserPrompt` | `Dialog.accept` and `Dialog.dismiss` |
+//! | [`CdpPage::add_init_script`] and [`CdpPage::remove_init_script`]: a script run in the main world of each document, before its own, or no more | `Page.addScriptToEvaluateOnNewDocument` and `Page.removeScriptToEvaluateOnNewDocument`, on the page's target and on each out-of-process frame's | `script.addPreloadScript` and `script.removePreloadScript` | `addInitScript`, and `dispose` on the `Disposable` it answers |
 
+mod dialogs;
 mod followed;
+mod init_scripts;
 mod paused;
 mod requests;
 mod runtime_values;
@@ -40,9 +46,11 @@ use goodfetch_engine::CallError;
 
 pub(crate) use goodfetch_cdp::{NetError, SessionId as TargetSession};
 
+pub(crate) use self::dialogs::{DialogEvent, DialogEvents, OpenedDialog};
 pub(crate) use self::followed::{
     FollowedEvent, FollowedEvents, FrameNavigated, RequestSent, SocketFrame,
 };
+pub(crate) use self::init_scripts::InitScriptId;
 pub(crate) use self::paused::{
     AuthAnswer, AuthChallenge, InterceptionEvent, InterceptionEvents, LoadingFailed, NetworkId,
     PausedRequest,

@@ -2,6 +2,7 @@
 
 use goodfetch_engine::CallError;
 use goodfetch_engine::metrics::Metrics;
+use goodfetch_engine::runs::identity;
 use goodfetch_engine::tasks::{BlockingPolicy, OwnerKind, TaskOwner};
 use goodfetch_protocol::connection::CLOSED;
 use goodfetch_protocol::page::{PageId, SessionId};
@@ -9,11 +10,33 @@ use goodfetch_test_support::{TestEnv, runtime};
 use serde_json::{Value, json};
 
 use super::{PageOwner, PageParts};
+use crate::cdp::CdpPage;
+use crate::dialogs::Dialogs;
+use crate::driver::PageDriver;
 use crate::gesture_order::GestureOrder;
-use crate::interception::Interception;
+use crate::init_scripts::InitScripts;
 use crate::interception::tests::hold_page;
+use crate::interception::{Interception, PageInterception};
 use crate::live_run::{LiveRun, Served, played_page};
+use crate::page_events::PageEvents;
 use crate::page_events::tests::started;
+
+/// The parts of the page `page_id`, which `driver` drives for the test's
+/// Run: `events` and `interception`, its dialogs, which `dialogs` answers,
+/// and its init scripts, none yet.
+pub(crate) fn parts(
+    (page_id, driver, live): (&PageId, &PageDriver, &LiveRun),
+    dialogs: &Dialogs,
+    (events, interception): (PageEvents, PageInterception),
+) -> PageParts {
+    let run = identity(&live.run);
+    PageParts {
+        events,
+        dialogs: dialogs.start(page_id.clone(), CdpPage::of(driver), run),
+        init_scripts: InitScripts::new(CdpPage::of(driver), run.clone()),
+        interception,
+    }
+}
 
 /// The parts of the page `page_id`, as its Session holds them, its events
 /// read for the test's Run from a page a played browser drives, handed to
@@ -25,10 +48,14 @@ async fn with_parts<T>(page_id: &PageId, body: impl AsyncFnOnce(PageParts) -> T)
     let session = SessionId("session-1".to_owned());
     let interception = Interception::default();
     interception.open_session(&session);
-    let parts = PageParts {
-        events: started(page_id, &driver, &live),
-        interception: hold_page(&interception, page_id, &session),
-    };
+    let parts = parts(
+        (page_id, &driver, &live),
+        &Dialogs::default(),
+        (
+            started(page_id, &driver, &live),
+            hold_page(&interception, page_id, &session),
+        ),
+    );
     let ran = tokio::select! {
         biased;
         ran = body(parts) => ran,

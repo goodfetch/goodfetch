@@ -36,7 +36,8 @@ use super::lifecycle::{
 };
 use crate::driver::ENDING_KNOWN_WITHIN;
 use crate::errors::{
-    browser_crashed, cancelled, invalid_transition, page_memory_exceeded, renderer_crashed,
+    browser_crashed, cancelled, invalid_transition, page_closed, page_memory_exceeded,
+    renderer_crashed,
 };
 
 /// How long a call that failed as its page went waits for the page's end
@@ -564,15 +565,6 @@ async fn ending(ended: &mut watch::Receiver<Option<CallError>>) -> Option<CallEr
 /// raise in place of `closed`: `page_memory_exceeded` or `engine_panicked`.
 fn kept_end(ended: &CallError) -> bool {
     [PAGE_MEMORY_EXCEEDED.name, ENGINE_PANICKED.name].contains(&ended.code())
-}
-
-/// `closed` for the page `page`.
-pub(crate) fn page_closed(page: &PageId) -> CallError {
-    CallError::new(
-        &CLOSED,
-        format!("the page `{}` is closed, or its Run ended", page.0),
-        &json!({ "page_id": page }),
-    )
 }
 
 /// `closed` for the Session `session`.

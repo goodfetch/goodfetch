@@ -22,7 +22,7 @@ use goodfetch_engine::metrics::Metrics;
 use goodfetch_engine::run::limit_reached;
 use goodfetch_engine::runs::Run;
 use goodfetch_protocol::connection::{
-    CALL_CANCELLED, CallCancelledDetails, CancelledBy, ClosedValue, EnginePanickedDetails,
+    CALL_CANCELLED, CLOSED, CallCancelledDetails, CancelledBy, ClosedValue, EnginePanickedDetails,
     INTERNAL, InternalDetails, PanicEnded, WaitedFor,
 };
 use goodfetch_protocol::governor::{PAGE_MEMORY_EXCEEDED, PageMemoryExceededDetails};
@@ -205,6 +205,15 @@ pub(crate) fn page_memory_exceeded(
             memory,
             limit,
         },
+    )
+}
+
+/// `closed` for the page `page_id`.
+pub(crate) fn page_closed(page_id: &PageId) -> CallError {
+    CallError::new(
+        &CLOSED,
+        format!("the page `{}` is closed, or its Run ended", page_id.0),
+        &serde_json::json!({ "page_id": page_id }),
     )
 }
 

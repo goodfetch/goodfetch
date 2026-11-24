@@ -32,18 +32,21 @@ use goodfetch_protocol::page::{PageId, PageOpened, SessionId};
 use goodfetch_protocol::settings::page_check::PageCheck;
 use tokio::sync::watch;
 
-use super::life::{Ending, PageLife, page_closed, session_closed};
+use super::life::{Ending, PageLife, session_closed};
 use super::lifecycle::PageEffect;
 use super::robots_txt;
 use super::{
     OpenPage, Session, Sessions, action_timeout, events_run, interception_run, wait_deadline,
 };
+use crate::cdp::CdpPage;
+use crate::dialogs::PageDialogs;
 use crate::driver::{OnChild, OnPopup, PageDriver, PopupHandler, SessionEgress};
+use crate::errors::page_closed;
 use crate::gesture_order::{GestureOrder, PointerAsks};
 use crate::hiding::{PageHiding, Sheets};
+use crate::init_scripts::InitScripts;
 use crate::interception::{OnDocument, PageInterception};
 use crate::page_events::{PageEvents, Refusals};
-use crate::page_functions::FrameScripts;
 use crate::page_owner::{PageOwner, PageParts};
 use crate::page_value::{Observer, Reader};
 use crate::pool::InBrowser;
@@ -74,8 +77,7 @@ pub(super) struct Adopting {
 /// does. Each of those parts holds the page's driver, and so its browser
 /// and its Run: one left behind would keep them past the Run's end, though
 /// the end no longer waits for it (#1763).
-struct TakenIn<'a> {
-    sessions: &'a Sessions,
+struct TakenIn {
     page: PageId,
     driver: PageDriver,
     run: Run,
@@ -83,11 +85,15 @@ struct TakenIn<'a> {
     in_browser: Option<InBrowser>,
     /// Its events, once they are read.
     events: Option<PageEvents>,
+    /// Its dialogs, once they are read.
+    dialogs: Option<PageDialogs>,
+    /// Its init scripts, once its frames take them.
+    init_scripts: Option<InitScripts>,
     /// Its side of the interception, once the interception holds it.
     interception: Option<PageInterception>,
 }
 
-impl TakenIn<'_> {
+impl TakenIn {
     /// The page goes into its Session's table with nothing awaited first,
     /// where its close, its Session's end or its Run's takes it out:
     /// answers its place in its browser, and its parts its owner holds.
@@ -100,6 +106,14 @@ impl TakenIn<'_> {
             .events
             .take()
             .expect("invariant: a page's events are read before it is held");
+        let dialogs = self
+            .dialogs
+            .take()
+            .expect("invariant: a page's dialogs are read before it is held");
+        let init_scripts = self
+            .init_scripts
+            .take()
+            .expect("invariant: a page's frames take its init scripts before it is held");
         let interception = self
             .interception
             .take()
@@ -108,22 +122,25 @@ impl TakenIn<'_> {
             in_browser,
             PageParts {
                 events,
+                dialogs,
+                init_scripts,
                 interception,
             },
         )
     }
 }
 
-impl Drop for TakenIn<'_> {
+impl Drop for TakenIn {
     fn drop(&mut self) {
         let Some(in_browser) = self.in_browser.take() else {
             return;
         };
-        let pages = std::slice::from_ref(&self.page);
         if let Some(events) = &self.events {
             events.close();
         }
-        self.sessions.dialogs.close(pages);
+        if let Some(dialogs) = &self.dialogs {
+            dialogs.close();
+        }
         if let Some(interception) = &self.interception {
             interception.close();
         }
@@ -233,6 +250,45 @@ impl Sessions {
         PageId(format!("page-{}", state.opened_pages))
     }
 
+    /// The page `page`, which `driver` drives for `run` in its place
+    /// `in_browser`, as it starts being taken in, its events going on
+    /// `stream` and to `observer`: its events, read from before its requests
+    /// pause so every request of the page is followed, its init scripts and
+    /// its dialogs; with the page's refusals and what each of its
+    /// out-of-process frames takes before it runs: the page's events read the
+    /// frame's network and the frame takes the page's init scripts (H7, M20).
+    fn taking_in(
+        &self,
+        (page, driver, run): (&PageId, &PageDriver, &Run),
+        in_browser: InBrowser,
+        (stream, observer): (&Events, Option<Observer>),
+    ) -> (TakenIn, Refusals, Vec<OnChild>) {
+        let refusals = Refusals::default();
+        let events = PageEvents::start(
+            page.clone(),
+            driver.clone(),
+            events_run(run),
+            stream.clone(),
+            refusals.clone(),
+            wait_deadline(run),
+            observer,
+        );
+        let cdp = CdpPage::of(driver);
+        let init_scripts = InitScripts::new(cdp.clone(), identity(run).clone());
+        let in_frames = vec![events.frames(), init_scripts.frames()];
+        let taken_in = TakenIn {
+            page: page.clone(),
+            driver: driver.clone(),
+            run: run.clone(),
+            in_browser: Some(in_browser),
+            events: Some(events),
+            dialogs: Some(self.dialogs.start(page.clone(), cdp, identity(run))),
+            init_scripts: Some(init_scripts),
+            interception: None,
+        };
+        (taken_in, refusals, in_frames)
+    }
+
     /// Takes in the page `adopting` describes as one of its Session's: it is
     /// named, followed and announced, and its Session's popups handed back
     /// to it; `closed` when its Session closed meanwhile.
@@ -256,34 +312,8 @@ impl Sessions {
         let action_timeout = action_timeout(&run);
         let page = self.next_page_id().await;
         let browser = in_browser.browser();
-        let mut taken_in = TakenIn {
-            sessions: self,
-            page: page.clone(),
-            driver: driver.clone(),
-            run: run.clone(),
-            in_browser: Some(in_browser),
-            events: None,
-            interception: None,
-        };
-        // The page's events are read from before its requests pause, so
-        // every request of the page is followed.
-        let refusals = Refusals::default();
-        let events = PageEvents::start(
-            page.clone(),
-            driver.clone(),
-            events_run(&run),
-            stream.clone(),
-            refusals.clone(),
-            wait_deadline(&run),
-            observer,
-        );
-        let frame_scripts = FrameScripts::default();
-        // The page's events read each out-of-process frame's network, and
-        // each frame takes the page's init scripts, before it runs (H7, M20).
-        let in_frames = vec![events.frames(), frame_scripts.frames(&driver)];
-        taken_in.events = Some(events);
-        self.dialogs
-            .start(page.clone(), driver.clone(), &run, driver.events());
+        let (mut taken_in, refusals, in_frames) =
+            self.taking_in((&page, &driver, &run), in_browser, (&stream, observer));
         // The runner clicks on the page while it is taken in, before its
         // owner starts and lends it the pointer.
         let (order, pointer) = GestureOrder::new();
@@ -326,7 +356,6 @@ impl Sessions {
             hiding,
             sheets,
             page_check,
-            frame_scripts,
             injections: open.injections.clone(),
             _admission: Arc::new(admission),
             in_browser: Arc::new(in_browser),
@@ -363,7 +392,7 @@ impl Sessions {
     /// on a route handler now.
     async fn hold(
         &self,
-        (taken_in, session): (&mut TakenIn<'_>, &SessionId),
+        (taken_in, session): (&mut TakenIn, &SessionId),
         driver: &PageDriver,
         run: &Run,
         settings: &Values,

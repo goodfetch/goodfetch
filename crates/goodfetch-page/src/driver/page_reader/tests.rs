@@ -1,16 +1,22 @@
 //! The model-based test of a Page's owner (spec #2256, seam 3; TESTING.md,
 //! Model-based tests), at the parts it holds so far: its one reader, its
-//! events and its Gesture order. Parts of the page subscribe on the page's
-//! session or on a frame's, early or late, and leave; `page.on("request")`
-//! listeners start and end, and waits for a request arm; Gestures ask for
-//! the turn, come to between two of their checks, and end or are cut, while
-//! what clicks on the page beside them asks for the pointer and gives it
-//! back; the browser sends events or requests on any session still
-//! attached, detaches a frame, or detaches the page; the page closes; and
-//! its Session's owner ends, in any order, against a browser played in
-//! process and a live Run. After each step, synced by a command whose
-//! answer the browser sends after its events ([`super::PageReader::after_events`])
-//! and by a listener of the test's own that heard the step's requests:
+//! events, its dialogs, its init scripts and its Gesture order. Parts of
+//! the page subscribe on the page's session or on a frame's, early or late,
+//! and leave; `page.on("request")` listeners start and end, and waits for a
+//! request arm; dialog handlers arm, each answering the dialogs it is asked
+//! about in its own way, and leave, and a call takes the failure one left;
+//! init scripts are added and dropped, and the browser takes each addition
+//! and removal in any order; Gestures ask for the turn, come to between two
+//! of their checks, and end or are cut, while what clicks on the page
+//! beside them asks for the pointer and gives it back; the browser sends
+//! events or requests on any session still attached, opens a dialog,
+//! detaches a frame, or detaches the page; the page closes; and its
+//! Session's owner ends, in any order, against a browser played in process
+//! and a live Run, whose Client replies to the dialog handlers' requests.
+//! After each step, synced by a command whose answer the browser sends
+//! after its events ([`super::PageReader::after_events`]), by a listener of
+//! the test's own that heard the step's requests, and by the browser's
+//! commands each dialog and init script step awaits:
 //!
 //! - each part holds, in order, exactly the events of its session the
 //!   browser sent after it subscribed, a frame's up to its detach and the
@@ -28,6 +34,17 @@
 //!   time, lent while no Gesture has the turn or as the one that has it
 //!   comes to between two checks; and once the Session's owner ended, each
 //!   ask still waiting, and each later one, raises `closed`;
+//! - each dialog the page opened while it was open was asked of its armed
+//!   handlers, the latest first, until one answered or failed, and the
+//!   browser got that answer, or else the dialog's default; a handler that
+//!   failed, before its answer or after, left, its subscription ending with
+//!   `page_handler_failed`, and left that failure for the page's next call
+//!   to take, once; each other handler's subscription ended once the page
+//!   closed, and one armed after raised `closed`;
+//! - each init script is registered once the browser took its addition, and
+//!   the page's navigations wait, while the page is open, exactly while an
+//!   addition or a removal is on its way; a script dropped is removed, at
+//!   once once registered, or else once its addition was taken;
 //! - each Gesture asked the owner once (`C3.owner_round_trips`);
 //! - each event the browser sent visited one reader of the connection, the
 //!   page's, when it is listed under the event's session
@@ -43,7 +60,10 @@ use goodfetch_engine::CallError;
 use goodfetch_engine::metrics::Metrics;
 use goodfetch_engine::tasks::{BlockingPolicy, TaskOwner};
 use goodfetch_protocol::connection::CLOSED;
+use goodfetch_protocol::jsonrpc::RequestId;
+use goodfetch_protocol::page::dialog::{DialogId, DialogsEnded};
 use goodfetch_protocol::page::events::{PageEventName, PageRequest};
+use goodfetch_protocol::page::route::PAGE_HANDLER_FAILED;
 use goodfetch_protocol::page::{PageId, SessionId};
 use goodfetch_test_support::{TestEnv, runtime};
 use proptest::prelude::*;
@@ -52,15 +72,18 @@ use proptest_state_machine::{ReferenceStateMachine, StateMachineTest, prop_state
 use serde_json::{Value, json};
 use tokio::runtime::Runtime;
 
+use crate::dialogs::{Answer, Dialogs};
 use crate::driver::PageDriver;
 use crate::driver::replay::{self, Played, SESSION};
 use crate::gesture_order::{GestureOrder, GestureTurn, LentPointer, PointerAsks};
+use crate::init_scripts::Registered;
 use crate::interception::Interception;
 use crate::interception::tests::hold_page;
 use crate::live_run::LiveRun;
 use crate::page_events::Listening;
 use crate::page_events::tests::started;
-use crate::page_owner::{PageOwner, PageOwners, PageParts};
+use crate::page_owner::tests::parts;
+use crate::page_owner::{PageOwner, PageOwners};
 
 /// How many out-of-process frames the page has.
 const FRAMES: usize = 2;
@@ -98,6 +121,20 @@ enum Transition {
     Unlisten(Index),
     /// A call waits for the page's next request.
     Wait,
+    /// A call arms a dialog handler, which replies so to each dialog.
+    Arm(Reply),
+    /// A dialog handler's call ends, its subscription dropped.
+    Disarm(Index),
+    /// The page opens a dialog, a `beforeunload` one or else a `confirm`.
+    Dialog(bool),
+    /// A call takes the failure a dialog handler left.
+    TakeFailure,
+    /// A call adds an init script.
+    AddScript,
+    /// The browser takes an addition or a removal of an init script.
+    Script(Index),
+    /// An init script's call is dropped.
+    DropScript(Index),
     /// The browser detaches the frame, which it tells on the page's session.
     DetachFrame(usize),
     /// The browser detaches the page, which it tells on its own session.
@@ -289,12 +326,73 @@ enum Waited {
     Refused,
 }
 
+/// How a dialog handler replies to each dialog it is asked about.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Reply {
+    Accept,
+    Dismiss,
+    /// It ends without an answer: the dialog falls through.
+    Through,
+    /// It fails before it answers.
+    Fail,
+    /// It accepts, then fails.
+    AcceptThenFail,
+}
+
+/// How a dialog handler's subscription stands.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Handled {
+    Armed,
+    /// The page closed: its subscription ended.
+    Ended,
+    /// It failed: its subscription ended with `page_handler_failed`.
+    Failed,
+    /// The page had closed when it was armed: its call raised `closed`.
+    Refused,
+}
+
+/// What a call that takes a dialog handler's failure got.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Took {
+    Nothing,
+    /// The failure a handler left, `page_handler_failed`.
+    Failure,
+    /// The page had closed: its call raised `closed`.
+    Refused,
+}
+
+/// A command of an init script's the browser has yet to take.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Scripted {
+    /// The `n`th script's addition.
+    Add(usize),
+    /// The `n`th script's removal.
+    Remove(usize),
+}
+
 /// What the reference model knows.
 #[derive(Clone, Debug, Default)]
 struct Reference {
     parts: Vec<Part>,
     listeners: Vec<Heard>,
     waits: Vec<Waited>,
+    /// The dialog handlers, in the order they were armed.
+    handlers: Vec<(Reply, Handled)>,
+    /// Whether the browser accepted each dialog, in order.
+    answers: Vec<bool>,
+    /// Whether a dialog handler's failure waits for the page's next call.
+    failure: bool,
+    took: Vec<Took>,
+    /// Each init script's call, by its number, and whether it is
+    /// registered.
+    scripts: Vec<(usize, bool)>,
+    /// The init scripts' commands the browser has yet to take, in the
+    /// order sent.
+    commands: Vec<Scripted>,
+    /// How many init scripts are on their way in or out.
+    pending: usize,
+    /// How many init scripts were added, which numbers the next one.
+    added: usize,
     frames: [Frame; FRAMES],
     order: Order,
     page_detached: bool,
@@ -351,6 +449,122 @@ impl Reference {
     }
 }
 
+impl Reference {
+    /// The page opened a dialog: its armed handlers are asked, the latest
+    /// first, until one answers or fails; the browser gets that answer, or
+    /// else the dialog's default, which accepts a `beforeunload` dialog
+    /// alone.
+    fn opened(&mut self, before_unload: bool) {
+        let mut answer = None;
+        for (reply, handled) in self.handlers.iter_mut().rev() {
+            if *handled != Handled::Armed {
+                continue;
+            }
+            match reply {
+                Reply::Through => continue,
+                Reply::Accept => answer = Some(true),
+                Reply::Dismiss => answer = Some(false),
+                Reply::Fail => *handled = Handled::Failed,
+                Reply::AcceptThenFail => {
+                    answer = Some(true);
+                    *handled = Handled::Failed;
+                }
+            }
+            if *handled == Handled::Failed {
+                self.failure = true;
+            }
+            break;
+        }
+        self.answers.push(answer.unwrap_or(before_unload));
+    }
+
+    /// A handler answering `reply` is armed, unless the page closed.
+    fn arm(&mut self, reply: Reply) {
+        let handled = if self.closed {
+            Handled::Refused
+        } else {
+            Handled::Armed
+        };
+        self.handlers.push((reply, handled));
+    }
+
+    /// The failure of a handler is taken, unless the page closed.
+    fn take_failure(&mut self) {
+        let took = if self.closed {
+            Took::Refused
+        } else if std::mem::take(&mut self.failure) {
+            Took::Failure
+        } else {
+            Took::Nothing
+        };
+        self.took.push(took);
+    }
+
+    /// An init script's call is made: its command is on its way.
+    fn add_script(&mut self) {
+        self.scripts.push((self.added, false));
+        self.commands.push(Scripted::Add(self.added));
+        self.added += 1;
+        self.pending += 1;
+    }
+
+    /// The browser answers the init-script command `index` picks: an added
+    /// script is registered, or removed once its call was dropped.
+    fn script(&mut self, index: Index) {
+        match self.commands.remove(index.index(self.commands.len())) {
+            Scripted::Add(n) => match self.scripts.iter_mut().find(|(script, _)| *script == n) {
+                Some((_, registered)) => {
+                    *registered = true;
+                    self.pending -= 1;
+                }
+                // Its call was dropped: it is removed, still on its way.
+                None => self.commands.push(Scripted::Remove(n)),
+            },
+            Scripted::Remove(_) => self.pending -= 1,
+        }
+    }
+
+    /// The init script's call `index` picks is dropped: a registered script
+    /// is removed.
+    fn drop_script(&mut self, index: Index) {
+        let (n, registered) = self.scripts.remove(index.index(self.scripts.len()));
+        if registered {
+            self.commands.push(Scripted::Remove(n));
+            self.pending += 1;
+        }
+    }
+
+    /// The page closes: what listened, waited or was armed on it ends.
+    fn close(&mut self) {
+        self.closed = true;
+        for heard in &mut self.listeners {
+            if heard.listened == Listened::Going {
+                heard.listened = Listened::Ended;
+            }
+        }
+        for waited in &mut self.waits {
+            if *waited == Waited::Waiting {
+                *waited = Waited::Ended;
+            }
+        }
+        for (_, handled) in &mut self.handlers {
+            if *handled == Handled::Armed {
+                *handled = Handled::Ended;
+            }
+        }
+    }
+}
+
+fn reply() -> impl Strategy<Value = Reply> {
+    prop_oneof![
+        Just(Reply::Accept),
+        Just(Reply::Dismiss),
+        Just(Reply::Through),
+        Just(Reply::Fail),
+        Just(Reply::AcceptThenFail),
+    ]
+}
+
 fn on() -> impl Strategy<Value = On> {
     prop_oneof![Just(On::Page), (0..FRAMES).prop_map(On::Frame)]
 }
@@ -399,15 +613,35 @@ impl ReferenceStateMachine for Reference {
                     .boxed(),
             );
         }
-        if !state.page_detached {
+        // The page's session detaches once no init script's command waits
+        // for it, whose failure the model leaves out.
+        if !state.page_detached && state.commands.is_empty() {
             options.push(Just(Transition::DetachPage).boxed());
+        }
+        let mut owned = vec![
+            reply().prop_map(Transition::Arm).boxed(),
+            Just(Transition::TakeFailure).boxed(),
+        ];
+        if !state.handlers.is_empty() {
+            owned.push(any::<Index>().prop_map(Transition::Disarm).boxed());
+        }
+        if !state.commands.is_empty() {
+            owned.push(any::<Index>().prop_map(Transition::Script).boxed());
+        }
+        if state.attached(On::Page) && !state.closed {
+            owned.push(any::<bool>().prop_map(Transition::Dialog).boxed());
+            owned.push(Just(Transition::AddScript).boxed());
+        }
+        if state.attached(On::Page) && !state.scripts.is_empty() {
+            owned.push(any::<Index>().prop_map(Transition::DropScript).boxed());
         }
         // Half the steps act on the Gesture order, and few end the page or
         // its owner, so the few cases of the Quick suite hold several
         // Gestures waiting at once.
         let order = prop::strategy::Union::new_weighted(state.order.steps());
         let mut groups = vec![
-            (24, prop::strategy::Union::new(options).boxed()),
+            (16, prop::strategy::Union::new(options).boxed()),
+            (12, prop::strategy::Union::new(owned).boxed()),
             (30, order.prop_map(Transition::Order).boxed()),
         ];
         if !state.closed {
@@ -418,14 +652,24 @@ impl ReferenceStateMachine for Reference {
 
     fn preconditions(state: &Self, transition: &Transition) -> bool {
         match transition {
-            Transition::Subscribe(_) | Transition::Listen | Transition::Wait => true,
+            Transition::Subscribe(_)
+            | Transition::Listen
+            | Transition::Wait
+            | Transition::Arm(_)
+            | Transition::TakeFailure => true,
             Transition::Order(step) => state.order.allows(step),
             Transition::Leave(_) => !state.parts.is_empty(),
             Transition::Unlisten(_) => !state.listeners.is_empty(),
+            Transition::Disarm(_) => !state.handlers.is_empty(),
+            Transition::Script(_) => !state.commands.is_empty(),
+            Transition::Dialog(_) | Transition::AddScript => {
+                state.attached(On::Page) && !state.closed
+            }
+            Transition::DropScript(_) => state.attached(On::Page) && !state.scripts.is_empty(),
             Transition::Send(on, _) => state.attached(*on),
             Transition::Request(_) => state.attached(On::Page),
             Transition::DetachFrame(frame) => state.attached(On::Frame(*frame)),
-            Transition::DetachPage => !state.page_detached,
+            Transition::DetachPage => !state.page_detached && state.commands.is_empty(),
             Transition::Close => !state.closed,
         }
     }
@@ -494,6 +738,19 @@ impl ReferenceStateMachine for Reference {
                 };
                 state.waits.push(waited);
             }
+            Transition::Arm(reply) => state.arm(*reply),
+            Transition::Disarm(index) => {
+                state.handlers.remove(index.index(state.handlers.len()));
+            }
+            Transition::Dialog(before_unload) => {
+                state.visits += 1;
+                state.hand(On::Page, OPENING);
+                state.opened(*before_unload);
+            }
+            Transition::TakeFailure => state.take_failure(),
+            Transition::AddScript => state.add_script(),
+            Transition::Script(index) => state.script(*index),
+            Transition::DropScript(index) => state.drop_script(*index),
             Transition::DetachFrame(frame) => {
                 state.visits += 1;
                 state.frames[*frame].detached = true;
@@ -505,19 +762,7 @@ impl ReferenceStateMachine for Reference {
                 state.page_detached = true;
                 state.detach(|_| true);
             }
-            Transition::Close => {
-                state.closed = true;
-                for heard in &mut state.listeners {
-                    if heard.listened == Listened::Going {
-                        heard.listened = Listened::Ended;
-                    }
-                }
-                for waited in &mut state.waits {
-                    if *waited == Waited::Waiting {
-                        *waited = Waited::Ended;
-                    }
-                }
-            }
+            Transition::Close => state.close(),
             Transition::Order(step) => state.order.take(step, state.closed),
         }
         state
@@ -529,6 +774,17 @@ const DETACHED: &str = "Target.detachedFromTarget";
 
 /// The browser's event that the page sent a request.
 const REQUESTED: &str = "Network.requestWillBeSent";
+
+/// The browser's event that the page opened a dialog.
+const OPENING: &str = "Page.javascriptDialogOpening";
+
+/// The URL of the document that opens each dialog.
+const DIALOG_URL: &str = "https://example.test/";
+
+/// The source of the `n`th init script.
+fn source(n: usize) -> String {
+    format!("window.script{n} = true;")
+}
 
 /// The `n`th event the browser sends.
 fn method(n: usize) -> String {
@@ -692,6 +948,96 @@ impl<T: 'static> Asking<T> {
     }
 }
 
+/// What a dialog handler's call holds: its subscription's end, until it
+/// ended.
+type HandlerEnd = Pin<Box<dyn Future<Output = Result<DialogsEnded, CallError>>>>;
+
+/// A dialog handler's call, as far as it came.
+struct HandlerCall {
+    /// The id of its call, which the engine's requests to it name.
+    call: i64,
+    reply: Reply,
+    ended: Option<HandlerEnd>,
+    handled: Handled,
+}
+
+impl HandlerCall {
+    /// Takes its subscription's end once it ended.
+    fn take(&mut self) {
+        let Some(ended) = &mut self.ended else {
+            return;
+        };
+        if let Some(ended) = ended.as_mut().now_or_never() {
+            self.ended = None;
+            self.handled = Self::handled(ended);
+        }
+    }
+
+    /// How a handler stands whose subscription ended so.
+    fn handled(ended: Result<DialogsEnded, CallError>) -> Handled {
+        match ended {
+            Ok(_) => Handled::Ended,
+            Err(error) => {
+                assert_eq!(error.code(), PAGE_HANDLER_FAILED.name, "{error:?}");
+                Handled::Failed
+            }
+        }
+    }
+}
+
+/// An init script's registration on its way.
+type Adding = Pin<Box<dyn Future<Output = Result<Registered, CallError>>>>;
+
+/// An init script's call: its registration on its way, then the script it
+/// keeps.
+struct ScriptCall {
+    /// The script's number.
+    n: usize,
+    adding: Option<Adding>,
+    registered: Option<Registered>,
+}
+
+impl ScriptCall {
+    /// Takes its registration once it answered.
+    fn take(&mut self) {
+        let Some(adding) = &mut self.adding else {
+            return;
+        };
+        if let Some(added) = adding.as_mut().now_or_never() {
+            self.adding = None;
+            self.registered = Some(added.expect("the page takes its init script"));
+        }
+    }
+}
+
+/// The browser's command that adds an init script.
+const ADD_SCRIPT: &str = "Page.addScriptToEvaluateOnNewDocument";
+
+/// The browser's command that removes one.
+const REMOVE_SCRIPT: &str = "Page.removeScriptToEvaluateOnNewDocument";
+
+/// The browser's ID of the `n`th init script.
+fn identifier(n: usize) -> String {
+    format!("script-{n}")
+}
+
+/// The Client's reply to the handler request `asked`: none, or a failure.
+fn replied(asked: &Value, failed: bool) -> Value {
+    if failed {
+        json!({
+            "jsonrpc": "2.0",
+            "id": asked["id"],
+            "error": {
+                "code": -32000,
+                "message": "the dialog handler threw",
+                "data": { "code": "handler_failed", "retryable": false },
+            },
+        })
+    } else {
+        json!({ "jsonrpc": "2.0", "id": asked["id"], "result": {} })
+    }
+}
+
 struct Subject {
     /// The page's owner, as a call that reached it before the page closed
     /// holds it.
@@ -715,13 +1061,34 @@ struct Subject {
     parts: Vec<Taken>,
     listeners: Vec<Listener>,
     waits: Vec<Wait>,
+    /// The engine's open dialogs, which handlers answer.
+    dialogs: Dialogs,
+    handlers: Vec<HandlerCall>,
+    /// How many handlers were armed, which numbers the next one's call.
+    armed: i64,
+    /// Whether the browser accepted each dialog, in order.
+    answers: Vec<bool>,
+    took: Vec<Took>,
+    scripts: Vec<ScriptCall>,
+    /// The init scripts' commands the browser has yet to take.
+    commands: Vec<(Scripted, Value)>,
+    /// How many init scripts were added, which numbers the next one.
+    added: usize,
     closed: bool,
     /// How many events the browser sent, which names the next one.
     sent: usize,
     session: TaskOwner,
-    _live: LiveRun,
+    live: LiveRun,
     _env: TestEnv,
     runtime: Runtime,
+}
+
+impl Drop for Subject {
+    fn drop(&mut self) {
+        // A registered init script removes itself on a task of its own.
+        let _entered = self.runtime.enter();
+        self.scripts.clear();
+    }
 }
 
 impl Subject {
@@ -758,6 +1125,274 @@ impl Subject {
                 () = background.as_mut() => panic!("the connection ended"),
             }
         });
+    }
+
+    /// Waits for `future`, beside the connection, the reader and the engine.
+    fn until<T>(
+        runtime: &Runtime,
+        background: &mut Pin<Box<dyn Future<Output = ()>>>,
+        future: impl Future<Output = T>,
+    ) -> T {
+        runtime.block_on(async {
+            tokio::select! {
+                biased;
+                done = future => done,
+                () = background.as_mut() => panic!("the connection ended"),
+            }
+        })
+    }
+
+    /// The next command the page sends the browser.
+    fn command(&mut self) -> Value {
+        let Self {
+            runtime,
+            played,
+            background,
+            ..
+        } = self;
+        Self::until(runtime, background, played.command())
+    }
+
+    /// The browser tells the page opened a dialog, a `beforeunload` one or
+    /// else a `confirm`: replies to each request of a handler about it as
+    /// that handler does, until the browser gets its answer.
+    fn dialog(&mut self, before_unload: bool) {
+        let opening = replay::event(
+            OPENING,
+            json!({
+                "url": DIALOG_URL,
+                "frameId": replay::FRAME,
+                "message": "Leave the page?",
+                "type": if before_unload { "beforeunload" } else { "confirm" },
+                "hasBrowserHandler": false,
+            }),
+        );
+        let Self {
+            runtime,
+            played,
+            background,
+            live,
+            handlers,
+            dialogs,
+            answers,
+            ..
+        } = self;
+        let asked_of = |asked: &Value| {
+            let call = asked["params"]["id"].as_i64();
+            handlers
+                .iter()
+                .position(|handler| Some(handler.call) == call)
+                .expect("the engine asks an armed handler")
+        };
+        let (accepted, answering) = runtime.block_on(async {
+            assert!(played.send(&[opening]).await, "the client left");
+            let mut answering = None;
+            loop {
+                tokio::select! {
+                    biased;
+                    () = background.as_mut() => panic!("the connection ended"),
+                    asked = live.asked.recv() => {
+                        let asked = asked.expect("invariant: the Client hears the engine until the test ends");
+                        assert_eq!(asked["params"]["dialog"]["message"], "Leave the page?");
+                        let handler = asked_of(&asked);
+                        match handlers[handler].reply {
+                            reply @ (Reply::Through | Reply::Fail) => {
+                                live.replies.send(replied(&asked, reply == Reply::Fail)).unwrap();
+                            }
+                            reply => {
+                                let dialog_id = DialogId(asked["params"]["dialog_id"].as_str().unwrap().to_owned());
+                                let answer = if reply == Reply::Dismiss {
+                                    Answer::Dismiss
+                                } else {
+                                    Answer::Accept(None)
+                                };
+                                let answered: Pin<Box<dyn Future<Output = _>>> =
+                                    Box::pin(dialogs.answer(&dialog_id, answer).expect("the dialog is open"));
+                                answering = Some((asked, reply, answered));
+                            }
+                        }
+                    }
+                    command = played.command() => {
+                        assert_eq!(command["method"], "Page.handleJavaScriptDialog", "{command}");
+                        assert!(played.send(&[replay::answer(&command, json!({}))]).await, "the client left");
+                        break (command["params"]["accept"].as_bool().unwrap(), answering);
+                    }
+                }
+            }
+        });
+        answers.push(accepted);
+        let Some((asked, reply, answered)) = answering else {
+            return;
+        };
+        let answered = Self::until(runtime, background, answered);
+        assert!(answered.is_ok(), "{answered:?}");
+        let fails = reply == Reply::AcceptThenFail;
+        live.replies.send(replied(&asked, fails)).unwrap();
+        if fails {
+            let index = asked_of(&asked);
+            let handler = &mut handlers[index];
+            let ended = handler
+                .ended
+                .take()
+                .expect("invariant: an armed handler's subscription goes on");
+            handler.handled = HandlerCall::handled(Self::until(runtime, background, ended));
+        }
+    }
+
+    /// The browser takes the init scripts' command `index`: a registration
+    /// whose call waits answers it, and one whose call was dropped is
+    /// removed.
+    fn script(&mut self, index: Index) {
+        let (scripted, command) = self.commands.remove(index.index(self.commands.len()));
+        let Scripted::Add(n) = scripted else {
+            self.step(vec![replay::answer(&command, json!({}))]);
+            return;
+        };
+        self.step(vec![replay::answer(
+            &command,
+            json!({ "identifier": identifier(n) }),
+        )]);
+        let Self {
+            runtime,
+            background,
+            scripts,
+            ..
+        } = self;
+        match scripts.iter_mut().find(|script| script.n == n) {
+            Some(script) => {
+                let adding = script
+                    .adding
+                    .take()
+                    .expect("invariant: a script waits for its addition");
+                let added = Self::until(runtime, background, adding);
+                script.registered = Some(added.expect("the page takes its init script"));
+            }
+            None => self.removed(n),
+        }
+    }
+
+    /// The `n`th init script is removed: its removal is on its way.
+    fn removed(&mut self, n: usize) {
+        let removal = self.command();
+        assert_eq!(removal["method"], REMOVE_SCRIPT, "{removal}");
+        assert_eq!(removal["params"]["identifier"], identifier(n));
+        self.commands.push((Scripted::Remove(n), removal));
+    }
+
+    /// Listens to the page's requests, unless the page closed.
+    fn listen(&mut self) {
+        let listening = match self.owners.events(&page_id()) {
+            Ok(events) => Some(events.listen(PageEventName::Request)),
+            Err(error) => {
+                assert_eq!(error.code(), CLOSED.name, "{error:?}");
+                None
+            }
+        };
+        let listened = if listening.is_some() {
+            Listened::Going
+        } else {
+            Listened::Refused
+        };
+        self.listeners.push(Listener {
+            listening,
+            heard: Heard {
+                urls: Vec::new(),
+                listened,
+            },
+        });
+    }
+
+    /// Waits for the page's next request, unless the page closed.
+    fn wait(&mut self) {
+        let wait = match self.owners.events(&page_id()) {
+            Ok(events) => {
+                let deadline = events
+                    .wait_deadline(Some(None))
+                    .expect("invariant: a wait without a deadline has one");
+                Wait::Waiting(Box::pin(events.wait_for_request(None, deadline)))
+            }
+            Err(error) => {
+                assert_eq!(error.code(), CLOSED.name, "{error:?}");
+                Wait::Done(Waited::Refused)
+            }
+        };
+        self.waits.push(wait);
+    }
+
+    /// Arms a handler that answers `reply`, unless the page closed.
+    fn arm(&mut self, reply: Reply) {
+        let call = self.armed;
+        self.armed += 1;
+        let armed = self
+            .owners
+            .dialogs(&page_id())
+            .and_then(|dialogs| dialogs.arm(&self.live.client, &RequestId::Number(call)));
+        let (ended, handled) = match armed {
+            Ok(armed) => (Some(Box::pin(armed.ended()) as HandlerEnd), Handled::Armed),
+            Err(error) => {
+                assert_eq!(error.code(), CLOSED.name, "{error:?}");
+                (None, Handled::Refused)
+            }
+        };
+        self.handlers.push(HandlerCall {
+            call,
+            reply,
+            ended,
+            handled,
+        });
+    }
+
+    /// Takes a handler's failure, unless the page closed.
+    fn take_failure(&mut self) {
+        let took = match self.owners.dialogs(&page_id()) {
+            Ok(dialogs) => match dialogs.take_failure() {
+                Some(error) => {
+                    assert_eq!(error.code(), PAGE_HANDLER_FAILED.name, "{error:?}");
+                    Took::Failure
+                }
+                None => Took::Nothing,
+            },
+            Err(error) => {
+                assert_eq!(error.code(), CLOSED.name, "{error:?}");
+                Took::Refused
+            }
+        };
+        self.took.push(took);
+    }
+
+    /// Calls `page.add_init_script` for the next script: its command goes
+    /// to the browser.
+    fn add_script(&mut self) {
+        let n = self.added;
+        self.added += 1;
+        let scripts = self.owner.init_scripts().clone();
+        let adding = {
+            let _entered = self.runtime.enter();
+            scripts.register(source(n), scripts.begin())
+        };
+        self.scripts.push(ScriptCall {
+            n,
+            adding: Some(Box::pin(adding)),
+            registered: None,
+        });
+        let command = self.command();
+        assert_eq!(command["method"], ADD_SCRIPT, "{command}");
+        assert_eq!(command["params"]["source"], source(n));
+        self.commands.push((Scripted::Add(n), command));
+    }
+
+    /// Drops the init script's call `index` picks: a registered script is
+    /// removed.
+    fn drop_script(&mut self, index: Index) {
+        let script = self.scripts.remove(index.index(self.scripts.len()));
+        let (n, registered) = (script.n, script.registered.is_some());
+        {
+            let _entered = self.runtime.enter();
+            drop(script);
+        }
+        if registered {
+            self.removed(n);
+        }
     }
 
     /// Takes `step` of the page's Gesture order.
@@ -863,16 +1498,18 @@ impl StateMachineTest for Subject {
         let metrics = Metrics::default();
         let owner_work = metrics.counted_work().clone();
         let (order, pointer) = GestureOrder::new();
+        let dialogs = Dialogs::default();
         let (sync, owner) = runtime.block_on(async {
             let events = started(&page_id(), &driver, &live);
             let sync = events.listen(PageEventName::Request);
             let interception = Interception::default();
             let held = SessionId("session-1".to_owned());
             interception.open_session(&held);
-            let parts = PageParts {
-                events,
-                interception: hold_page(&interception, &page_id(), &held),
-            };
+            let parts = parts(
+                (&page_id(), &driver, &live),
+                &dialogs,
+                (events, hold_page(&interception, &page_id(), &held)),
+            );
             let closed = CallError::new(
                 &CLOSED,
                 "the page is closed",
@@ -906,10 +1543,18 @@ impl StateMachineTest for Subject {
             parts: Vec::new(),
             listeners: Vec::new(),
             waits: Vec::new(),
+            dialogs,
+            handlers: Vec::new(),
+            armed: 0,
+            answers: Vec::new(),
+            took: Vec::new(),
+            scripts: Vec::new(),
+            commands: Vec::new(),
+            added: 0,
             closed: false,
             sent: 0,
             session,
-            _live: live,
+            live,
             _env: env,
             runtime,
         }
@@ -946,47 +1591,22 @@ impl StateMachineTest for Subject {
                     subject.heard(count);
                 }
             }
-            Transition::Listen => {
-                let listening = match subject.owners.events(&page_id()) {
-                    Ok(events) => Some(events.listen(PageEventName::Request)),
-                    Err(error) => {
-                        assert_eq!(error.code(), CLOSED.name, "{error:?}");
-                        None
-                    }
-                };
-                let listened = if listening.is_some() {
-                    Listened::Going
-                } else {
-                    Listened::Refused
-                };
-                subject.listeners.push(Listener {
-                    listening,
-                    heard: Heard {
-                        urls: Vec::new(),
-                        listened,
-                    },
-                });
-            }
+            Transition::Listen => subject.listen(),
             Transition::Unlisten(index) => {
                 subject
                     .listeners
                     .remove(index.index(subject.listeners.len()));
             }
-            Transition::Wait => {
-                let wait = match subject.owners.events(&page_id()) {
-                    Ok(events) => {
-                        let deadline = events
-                            .wait_deadline(Some(None))
-                            .expect("invariant: a wait without a deadline has one");
-                        Wait::Waiting(Box::pin(events.wait_for_request(None, deadline)))
-                    }
-                    Err(error) => {
-                        assert_eq!(error.code(), CLOSED.name, "{error:?}");
-                        Wait::Done(Waited::Refused)
-                    }
-                };
-                subject.waits.push(wait);
+            Transition::Wait => subject.wait(),
+            Transition::Arm(reply) => subject.arm(reply),
+            Transition::Disarm(index) => {
+                subject.handlers.remove(index.index(subject.handlers.len()));
             }
+            Transition::Dialog(before_unload) => subject.dialog(before_unload),
+            Transition::TakeFailure => subject.take_failure(),
+            Transition::AddScript => subject.add_script(),
+            Transition::Script(index) => subject.script(index),
+            Transition::DropScript(index) => subject.drop_script(index),
             Transition::DetachFrame(frame) => {
                 let detached = json!({
                     "method": DETACHED,
@@ -1015,6 +1635,12 @@ impl StateMachineTest for Subject {
         for wait in &mut subject.waits {
             wait.take();
         }
+        for handler in &mut subject.handlers {
+            handler.take();
+        }
+        for script in &mut subject.scripts {
+            script.take();
+        }
         subject
     }
 
@@ -1038,6 +1664,40 @@ impl StateMachineTest for Subject {
         assert_eq!(heard, reference.listeners, "what each listener heard");
         let waited: Vec<_> = subject.waits.iter().map(Wait::waited).collect();
         assert_eq!(waited, reference.waits, "how each wait stands");
+        let handled: Vec<_> = subject
+            .handlers
+            .iter()
+            .map(|handler| (handler.reply, handler.handled))
+            .collect();
+        assert_eq!(
+            handled, reference.handlers,
+            "how each dialog handler stands"
+        );
+        assert_eq!(
+            subject.answers, reference.answers,
+            "the browser's answers to the dialogs"
+        );
+        assert_eq!(subject.took, reference.took, "the failures calls took");
+        let scripts: Vec<_> = subject
+            .scripts
+            .iter()
+            .map(|script| (script.n, script.registered.is_some()))
+            .collect();
+        assert_eq!(scripts, reference.scripts, "the init scripts registered");
+        let commands: Vec<_> = subject
+            .commands
+            .iter()
+            .map(|(scripted, _)| *scripted)
+            .collect();
+        assert_eq!(
+            commands, reference.commands,
+            "the init scripts' commands on their way"
+        );
+        assert_eq!(
+            subject.owners.settling(&page_id()).is_some(),
+            reference.pending > 0 && !reference.closed,
+            "whether the page's navigations wait for its init scripts"
+        );
         let order = Order {
             turns: subject.gestures.iter().map(Asking::asked).collect(),
             pointers: subject.pointers.iter().map(Asking::asked).collect(),

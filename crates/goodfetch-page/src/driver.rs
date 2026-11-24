@@ -1537,6 +1537,16 @@ impl PageDriver {
             .await
     }
 
+    /// Sends `params` on the page's target within the deadline of `call`,
+    /// recorded in the Run trace; a failure raises the code of `call`.
+    pub(crate) async fn command_for<C: Command>(
+        &self,
+        params: &C,
+        call: &Call,
+    ) -> Result<C::Returns, CallError> {
+        self.browser.send(Some(&self.session), params, call).await
+    }
+
     /// Sends `params` on the page's target, recorded in the Run trace,
     /// answering the failure itself: the interception's commands, whose
     /// request may be gone.
@@ -1657,43 +1667,6 @@ impl PageDriver {
                 Err(failure) => return Err(self.browser.failed(call, &failure).await),
             }
         }
-    }
-
-    /// Registers `source` to run in the main world of every document the
-    /// page loads from now on, its frames' included, before their own
-    /// scripts, answering the script's identifier; a failure raises the
-    /// code of the operation `operation`.
-    pub(crate) async fn add_init_script(
-        &self,
-        source: String,
-        operation: &'static str,
-    ) -> Result<page::ScriptIdentifier, CallError> {
-        let call = &Call::Action { operation };
-        Ok(self
-            .browser
-            .send(
-                Some(&self.session),
-                &page::AddScriptToEvaluateOnNewDocumentParams {
-                    source,
-                    world_name: None,
-                    include_command_line_api: None,
-                    run_immediately: None,
-                },
-                call,
-            )
-            .await?
-            .identifier)
-    }
-
-    /// Removes the init script `identifier`; a page gone has none left.
-    pub(crate) async fn remove_init_script(&self, identifier: page::ScriptIdentifier) {
-        let _ = self
-            .browser
-            .try_send(
-                Some(&self.session),
-                &page::RemoveScriptToEvaluateOnNewDocumentParams { identifier },
-            )
-            .await;
     }
 
     /// This page's driver with each command it sends counted on `row` as

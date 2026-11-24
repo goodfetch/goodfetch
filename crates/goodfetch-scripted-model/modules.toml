@@ -1,0 +1,5 @@
+# Which of goodfetch-scripted-model's top-level modules may import which
+# (ADR 0126).
+[modules]
+reply = []
+scripted = ["reply"]

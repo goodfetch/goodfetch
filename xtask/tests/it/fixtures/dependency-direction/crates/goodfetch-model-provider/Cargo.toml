@@ -1,0 +1,14 @@
+[package]
+name = "goodfetch-model-provider"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+# Its integration tests take the Scripted model, which depends on it: only
+# its `src/` may not name it (ADR 0125).
+[dev-dependencies]
+goodfetch-scripted-model = { path = "../goodfetch-scripted-model" }
+
+[dependencies]
+goodfetch-engine = { path = "../goodfetch-engine" }
+goodfetch-workspace-hack = { path = "../goodfetch-workspace-hack" }

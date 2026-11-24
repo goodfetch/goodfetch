@@ -21,6 +21,7 @@ mod clock;
 mod command;
 mod connection_record;
 mod consent;
+mod consistency;
 mod crawl;
 mod digest;
 mod dns;

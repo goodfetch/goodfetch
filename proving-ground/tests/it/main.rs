@@ -19,6 +19,7 @@ mod canaries;
 mod canvas;
 mod clients;
 mod connections;
+mod consistency;
 mod crawl_pages;
 mod crawler;
 mod dns;

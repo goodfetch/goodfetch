@@ -1,0 +1,14 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Consistency probe frame</title>
+    <script src="/probe.js"></script>
+  </head>
+  <body>
+    <p>The cross-origin frame.</p>
+    <script>
+      consistencyProbe("/frame").then((values) => parent.postMessage(values, "*"));
+    </script>
+  </body>
+</html>

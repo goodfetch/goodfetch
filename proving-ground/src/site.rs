@@ -28,6 +28,7 @@ use crate::catalog;
 use crate::certificates;
 use crate::clean_up;
 use crate::consent;
+use crate::consistency;
 use crate::crawl::{self, Families};
 use crate::encodings;
 use crate::exchange::{Reply, Request};
@@ -154,6 +155,8 @@ impl Site {
                 clean_up::PAYMENT_HOST,
                 consent::HOST,
                 consent::FRAME_HOST,
+                consistency::HOST,
+                consistency::FRAME_HOST,
                 page_load::HOST,
             ])
             .chain(page_load::AD_HOSTS)
@@ -318,6 +321,7 @@ impl Site {
             .or_else(|| protection::respond(self.seed, &name, request))
             .or_else(|| access::respond(self.seed, &name, request))
             .or_else(|| hostile::respond(self.seed, self.port, &name, request))
+            .or_else(|| consistency::respond(&name, request))
         {
             if let Some(recorded) = recorded {
                 self.observations.record(host, recorded);

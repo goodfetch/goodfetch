@@ -52,16 +52,16 @@ def test_openpyxl_reads_each_d07_record_cell_as_its_own_type() -> None:
     text = {field.name: field.text for field in unicode_record().fields}
     # fmt: off
     expected: list[list[object]] = [
-        ["page", "title", "astral", "bidi", "bom", "nfc", "nfd",
+        ["title", "page", "astral", "bidi", "bom", "nfc", "nfd",
          "tab_and_newline", "zero_width_joiner", "zwj_emoji", "author",
          "in_stock", "note", "price", "tags"],
-        [1, "Café 1", None, None, None, None, None,
+        ["Café 1", 1, None, None, None, None, None,
          None, None, None, None,
          None, None, None, None],
         [None, None, text["astral"], text["bidi"], text["bom"], text["nfc"],
          text["nfd"], text["tab_and_newline"], text["zero_width_joiner"],
          text["zwj_emoji"], None, None, None, None, None],
-        [3, "Café 3", None, None, None, None, None,
+        ["Café 3", 3, None, None, None, None, None,
          None, None, None, '{"name":"Zoé"}',
          True, None, 12.5, '["roman","poche"]'],
     ]

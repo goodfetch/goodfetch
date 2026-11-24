@@ -7,12 +7,14 @@
 //!
 //! It answers the Proving ground task its request names: the task whose
 //! description appears in one of the request's strings, else the task whose
-//! host name does. The answer is the task's own (its Records at the current
-//! time step), shaped as the request asks: a call of the first tool offered
-//! (or the one `tool_choice` names) with the tool's parameters filled from
-//! it, the requested schema filled from it, or `{"records": […]}` as text.
-//! After a tool result it answers in text. So its answers depend only on
-//! the request, the seed and the time step the task set.
+//! host name does. The answer is the task's own at the current time step,
+//! shaped as the request asks: a call of the first tool offered (or the one
+//! `tool_choice` names) with the tool's parameters filled from it, the
+//! requested schema filled from it, or `{"records": […]}` as text. A schema
+//! of one of the AI verbs' forms gets the task's answer to that verb
+//! (`verbs`); any other is filled from the task's Records. After a tool
+//! result it answers in text, but for an Agent step. So its answers depend
+//! only on the request, the seed and the time step the task set.
 //!
 //! It counts each call's tokens itself: a quarter of the characters of
 //! every string in the request body, rounded up, in; a quarter of the
@@ -30,6 +32,7 @@ mod gemini;
 mod openai;
 mod request;
 mod schema;
+mod verbs;
 
 use std::fmt::Write as _;
 
@@ -42,6 +45,8 @@ use sha2::{Digest as _, Sha256};
 use crate::sync::Mutex;
 
 use self::request::{Ask, Format, Streaming, ToolChoice};
+use self::verbs::Form;
+pub(crate) use self::verbs::{Action, Candidate, Element, Locator, Step, Verbs};
 
 /// The host name the Fake model is served on; its base URLs are
 /// `http://model.test:<port>/v1` (OpenAI-compatible),
@@ -72,8 +77,8 @@ pub(crate) enum Fault {
     MalformedJson,
     /// The format's refusal.
     Refusal,
-    /// These Records in place of the task's: wrong, but plausible.
-    WrongAnswer(Vec<Map<String, Value>>),
+    /// These answers in place of the task's: wrong, but plausible.
+    WrongAnswer(Answers),
 }
 
 impl Fault {
@@ -90,14 +95,33 @@ impl Fault {
     }
 }
 
-/// A task the Fake model can be asked about, with its answer at the current
-/// time step.
-pub(crate) struct Candidate {
+/// A task the Fake model can be asked about, with its answers at the
+/// current time step.
+pub(crate) struct Subject {
     pub(crate) id: String,
     pub(crate) description: &'static str,
     pub(crate) host: String,
     pub(crate) fault: Option<Fault>,
-    pub(crate) answer: Vec<Map<String, Value>>,
+    pub(crate) answers: Answers,
+}
+
+/// What a task answers at one time step: its Records, and its answer to
+/// each AI verb.
+#[derive(Clone)]
+pub(crate) struct Answers {
+    pub(crate) records: Vec<Map<String, Value>>,
+    pub(crate) verbs: Verbs,
+}
+
+impl Answers {
+    /// `schema` filled: with the answer to the AI verb whose form it asks
+    /// for, else from the Records.
+    fn fill(&self, schema: &Value, ask: &Ask) -> Value {
+        Form::asked(schema).map_or_else(
+            || schema::fill(schema, &self.records),
+            |form| self.verbs.answer(form, &ask.strings, ask.model_turns),
+        )
+    }
 }
 
 /// The Fake model's answer to one call.
@@ -195,13 +219,8 @@ impl FakeModel {
     }
 
     /// Answers a `POST` to `target` (path and query) with `body`, about one
-    /// of `candidates`; `None` when `target` is none of the formats' paths.
-    pub(crate) fn answer(
-        &self,
-        target: &str,
-        body: &[u8],
-        candidates: &[Candidate],
-    ) -> Option<Answer> {
+    /// of `subjects`; `None` when `target` is none of the formats' paths.
+    pub(crate) fn answer(&self, target: &str, body: &[u8], subjects: &[Subject]) -> Option<Answer> {
         let endpoint = request::endpoint(target)?;
         let format = endpoint.format;
         let id = self.id(target, body);
@@ -215,7 +234,7 @@ impl FakeModel {
             ));
         };
         let ask = request::parse(endpoint, &value);
-        let Some(candidate) = recognize(&ask, candidates) else {
+        let Some(subject) = recognize(&ask, subjects) else {
             self.record(Call::refused(
                 format,
                 ask.model.clone(),
@@ -229,13 +248,13 @@ impl FakeModel {
             ));
         };
         let input_tokens = tokens(ask.strings.iter().map(|text| text.chars().count()).sum());
-        let fault = candidate.fault.as_ref();
+        let fault = subject.fault.as_ref();
         let call = |output_tokens| Call {
             sequence: 0,
             format: format.name(),
             model: ask.model.clone(),
             stream: ask.streaming.is_some(),
-            task: Some(candidate.id.clone()),
+            task: Some(subject.id.clone()),
             fault: fault.map(Fault::name),
             input_tokens,
             output_tokens,
@@ -244,14 +263,14 @@ impl FakeModel {
             self.record(call(0));
             return Some(answer);
         }
-        let records = match fault {
-            Some(Fault::WrongAnswer(records)) => records,
-            _ => &candidate.answer,
+        let answers = match fault {
+            Some(Fault::WrongAnswer(answers)) => answers,
+            _ => &subject.answers,
         };
         let content = match fault {
             Some(Fault::Refusal) => Content::Refusal(REFUSAL.to_owned()),
-            Some(Fault::MalformedJson) => malformed(format, content(&ask, records)),
-            _ => content(&ask, records),
+            Some(Fault::MalformedJson) => malformed(format, content(&ask, answers)),
+            _ => content(&ask, answers),
         };
         let cut = matches!(fault, Some(Fault::CutStream));
         let output_tokens = output_tokens(format, &content);
@@ -342,19 +361,19 @@ fn refusing(format: Format, fault: &Fault, id: &str) -> Option<Answer> {
 }
 
 /// The task a request names: by its description, else by its host name.
-fn recognize<'a>(ask: &Ask, candidates: &'a [Candidate]) -> Option<&'a Candidate> {
-    candidates
+fn recognize<'a>(ask: &Ask, subjects: &'a [Subject]) -> Option<&'a Subject> {
+    subjects
         .iter()
-        .find(|candidate| {
+        .find(|subject| {
             ask.strings
                 .iter()
-                .any(|text| text.contains(candidate.description))
+                .any(|text| text.contains(subject.description))
         })
         .or_else(|| {
-            candidates.iter().find(|candidate| {
+            subjects.iter().find(|subject| {
                 ask.strings
                     .iter()
-                    .any(|text| names_host(text, &candidate.host))
+                    .any(|text| names_host(text, &subject.host))
             })
         })
 }
@@ -377,22 +396,25 @@ fn tokens(characters: usize) -> u64 {
 }
 
 /// The answer's content, in the form the request asks for.
-fn content(ask: &Ask, records: &[Map<String, Value>]) -> Content {
-    let tool = match &ask.tool_choice {
-        _ if ask.tools.is_empty() || ask.after_tool_result => None,
+fn content(ask: &Ask, answers: &Answers) -> Content {
+    let offered = match &ask.tool_choice {
         ToolChoice::None => None,
         ToolChoice::Named(name) => ask.tools.iter().find(|tool| &tool.name == name),
         ToolChoice::Auto | ToolChoice::Required => ask.tools.first(),
     };
+    // After a tool's result an Agent loop asks for its next step, still a
+    // call; any other request gets its answer in text.
+    let tool = offered
+        .filter(|tool| !ask.after_tool_result || Form::asked(&tool.parameters) == Some(Form::Step));
     if let Some(tool) = tool {
         return Content::ToolCall {
             name: tool.name.clone(),
-            arguments: schema::fill(&tool.parameters, records).to_string(),
+            arguments: answers.fill(&tool.parameters, ask).to_string(),
         };
     }
     Content::Text(match &ask.schema {
-        Some(schema) => schema::fill(schema, records).to_string(),
-        None => json!({ "records": records }).to_string(),
+        Some(schema) => answers.fill(schema, ask).to_string(),
+        None => json!({ "records": answers.records }).to_string(),
     })
 }
 

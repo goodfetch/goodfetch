@@ -1208,6 +1208,7 @@ dependencies = [
  "goodfetch-workspace-hack",
  "hickory-resolver",
  "hkdf",
+ "hmac",
  "http-body-util",
  "httpdate",
  "hyper",

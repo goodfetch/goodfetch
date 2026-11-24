@@ -121,6 +121,7 @@ mod user_namespaces;
 #[cfg(target_os = "linux")]
 mod valkey;
 mod variables;
+mod webhook_signatures;
 
 #[cfg(unix)]
 pub use browsers::ReadOnlyBrowserCache;
@@ -291,4 +292,7 @@ pub use variables::{
     NO_GUI_SESSION_VARIABLE, RECORDS_VARIABLE, RESULT_DOCUMENTS_VARIABLE, SEED_VARIABLE,
     SUITE_VARIABLE, SeedError, Suite, SuiteError, TOOLS_VARIABLE, TOXIPROXY_DOWNLOADS_VARIABLE,
     Variables, case_logs, current_test,
+};
+pub use webhook_signatures::{
+    SignedVector, VerificationCase, VerificationOutcome, WebhookSignatures, webhook_signatures,
 };

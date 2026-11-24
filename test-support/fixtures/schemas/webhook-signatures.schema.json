@@ -1,0 +1,196 @@
+{
+  "$defs": {
+    "SignedVector": {
+      "additionalProperties": false,
+      "description": "A message, the keys that sign it and the `webhook-signature` they give.",
+      "properties": {
+        "body": {
+          "description": "The body, as sent.",
+          "type": "string"
+        },
+        "endpoint": {
+          "description": "The endpoint ID a `v2a` key signs for.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "id": {
+          "description": "`webhook-id`.",
+          "type": "string"
+        },
+        "keys": {
+          "description": "The signing keys, current first: `whsec_` or `whsk_`.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "name": {
+          "description": "The case's name.",
+          "type": "string"
+        },
+        "signature": {
+          "description": "`webhook-signature`: each key's signature, in order.",
+          "type": "string"
+        },
+        "source": {
+          "description": "Where the vector is published, for one the specification publishes.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "timestamp": {
+          "description": "`webhook-timestamp`, in Unix seconds.",
+          "format": "int64",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "name",
+        "keys",
+        "id",
+        "timestamp",
+        "body",
+        "signature"
+      ],
+      "type": "object"
+    },
+    "VerificationCase": {
+      "additionalProperties": false,
+      "description": "A delivery as received, the keys trusted and the verifier's answer.",
+      "properties": {
+        "body": {
+          "description": "The body, as received.",
+          "type": "string"
+        },
+        "endpoint": {
+          "description": "The endpoint ID a `v2a` signature is made for.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "id": {
+          "description": "`webhook-id`, absent when missing.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "name": {
+          "description": "The case's name.",
+          "type": "string"
+        },
+        "now": {
+          "description": "The verifier's time, in Unix seconds.",
+          "format": "int64",
+          "type": "integer"
+        },
+        "outcome": {
+          "$ref": "#/$defs/VerificationOutcome",
+          "description": "The verifier's answer."
+        },
+        "run_epoch": {
+          "description": "The run epoch a verified Goodfetch delivery's body carries.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "signature": {
+          "description": "`webhook-signature`, absent when missing.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "timestamp": {
+          "description": "`webhook-timestamp` as received, absent when missing.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "trusted": {
+          "description": "The trusted keys: `whsec_` or `whpk_`.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "name",
+        "trusted",
+        "body",
+        "now",
+        "outcome"
+      ],
+      "type": "object"
+    },
+    "VerificationOutcome": {
+      "description": "What the verifier answers.",
+      "oneOf": [
+        {
+          "const": "verified",
+          "description": "A trusted key's signature matches.",
+          "type": "string"
+        },
+        {
+          "const": "missing_header",
+          "description": "A `webhook-` header is missing.",
+          "type": "string"
+        },
+        {
+          "const": "timestamp_invalid",
+          "description": "`webhook-timestamp` is no Unix time in seconds.",
+          "type": "string"
+        },
+        {
+          "const": "timestamp_too_old",
+          "description": "The timestamp is more than five minutes in the past.",
+          "type": "string"
+        },
+        {
+          "const": "timestamp_too_new",
+          "description": "The timestamp is more than five minutes in the future.",
+          "type": "string"
+        },
+        {
+          "const": "no_matching_signature",
+          "description": "No signature is a trusted key's.",
+          "type": "string"
+        }
+      ]
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "The committed vectors, as their file holds them.",
+  "properties": {
+    "signed": {
+      "description": "What a signer sends.",
+      "items": {
+        "$ref": "#/$defs/SignedVector"
+      },
+      "type": "array"
+    },
+    "verifications": {
+      "description": "What the verifier answers.",
+      "items": {
+        "$ref": "#/$defs/VerificationCase"
+      },
+      "type": "array"
+    }
+  },
+  "required": [
+    "signed",
+    "verifications"
+  ],
+  "title": "WebhookSignatures",
+  "type": "object"
+}

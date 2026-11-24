@@ -2661,6 +2661,7 @@ dependencies = [
  "gungraun",
  "hickory-resolver",
  "hkdf",
+ "hmac 0.12.1",
  "http-body-util",
  "httpdate",
  "hyper",

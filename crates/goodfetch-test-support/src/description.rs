@@ -25,6 +25,7 @@ use crate::snapshot::SnapshotFilters;
 use crate::ssrf::{SsrfLayers, SsrfTable};
 use crate::tools::Tools;
 use crate::unicode::UnicodeRecord;
+use crate::webhook_signatures::WebhookSignatures;
 
 /// One test's setup, as the TypeScript and Python packages read it.
 #[derive(
@@ -179,6 +180,10 @@ pub fn schemas() -> BTreeMap<&'static str, serde_json::Value> {
         (
             "schemas/unicode-record.schema.json",
             schemars::schema_for!(UnicodeRecord).to_value(),
+        ),
+        (
+            "schemas/webhook-signatures.schema.json",
+            schemars::schema_for!(WebhookSignatures).to_value(),
         ),
     ])
 }

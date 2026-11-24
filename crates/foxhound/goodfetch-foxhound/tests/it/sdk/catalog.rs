@@ -27,12 +27,12 @@ use super::crawl::options;
 const SEED: u64 = 1467;
 
 /// The task the oracle judges the Records of.
-const TASK: &str = "catalog/1";
+pub(super) const TASK: &str = "catalog/1";
 
 /// One product, as the listing page gives it, the price without its
 /// currency sign.
 #[derive(Debug, Serialize)]
-struct Product {
+pub(super) struct Product {
     id: String,
     name: String,
     price: String,
@@ -145,26 +145,39 @@ fn catalog() -> (Crawl<'static>, Label<()>, Dataset<Product>) {
     let (next, pushed) = (listing.clone(), products.clone());
     crawl
         .handle(&listing, move |ctx: CrawlContext<()>| async move {
-            let read = ctx
-                .page()?
-                .read(listing_fields())
-                .typed::<Listing>()
-                .await?;
-            let following = read.values.next.clone();
-            for product in read.values.products()? {
-                ctx.push(&pushed, &product).await?;
-            }
-            if let Some(following) = following {
-                ctx.enqueue(following, &next, ()).await?;
-            }
-            Ok(())
+            crawl_listing(&ctx, &next, &pushed).await.map(drop)
         })
         .unwrap();
     (crawl, listing, products)
 }
 
+/// Pushes what the listing page of `ctx` lists into `products` and
+/// enqueues the page its Next link leads to under `next`; answers the
+/// first product's ID, which names the page.
+pub(super) async fn crawl_listing(
+    ctx: &CrawlContext<()>,
+    next: &Label<()>,
+    products: &Dataset<Product>,
+) -> Result<String, BoxError> {
+    let read = ctx
+        .page()?
+        .read(listing_fields())
+        .typed::<Listing>()
+        .await?;
+    let following = read.values.next.clone();
+    let listed = read.values.products()?;
+    for product in &listed {
+        ctx.push(products, product).await?;
+    }
+    if let Some(following) = following {
+        ctx.enqueue(following, next, ()).await?;
+    }
+    let first = listed.into_iter().next().ok_or("the page lists nothing")?;
+    Ok(first.id)
+}
+
 /// The oracle's answer on `records` as the Records of the catalog task.
-fn judged(site: &ProvingGround, records: &[Value]) -> OracleAnswer {
+pub(super) fn judged(site: &ProvingGround, records: &[Value]) -> OracleAnswer {
     let answer = site
         .judge_records(TASK, ToolStatus::Success, records)
         .unwrap();

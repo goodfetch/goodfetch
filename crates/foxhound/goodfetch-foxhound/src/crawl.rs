@@ -49,7 +49,7 @@ mod run;
 mod tests;
 
 use context::{Attempt, Ending, retry_requested};
-pub use context::{CrawlContext, Enqueue, EnqueueLinks, LinkPayload};
+pub use context::{AttemptRun, CrawlContext, Enqueue, EnqueueLinks, LinkPayload};
 pub use declaration::{DatasetDeclaration, LabelDeclaration};
 use handles::Seeded;
 pub use handles::{Dataset, Label, Seed};
@@ -538,13 +538,9 @@ fn delivered(
 ) -> Result<Delivered, serde_json::Error> {
     let mut params = CrawlRequestHandleParams::deserialize(call.params())?;
     let payload = params.crawl_request.payload.take().unwrap_or(Value::Null);
-    let page = params
-        .page_id
-        .clone()
-        .map(|page_id| run.page_of(page_id, params.session.id.clone()));
     let attempt = Arc::new(Attempt::new(
         connection.clone(),
-        page,
+        run,
         params,
         crawl,
         Arc::clone(declared),

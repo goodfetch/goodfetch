@@ -50,8 +50,8 @@ mod sync;
 
 pub use composition::{composition, composition_with};
 pub use crawl::{
-    Crawl, CrawlCall, CrawlContext, CrawlRun, Dataset, DatasetDeclaration, Enqueue, EnqueueLinks,
-    Label, LabelDeclaration, LinkPayload, Seed, StartCrawl,
+    AttemptRun, Crawl, CrawlCall, CrawlContext, CrawlRun, Dataset, DatasetDeclaration, Enqueue,
+    EnqueueLinks, Label, LabelDeclaration, LinkPayload, Seed, StartCrawl,
 };
 pub use foxhound::{Foxhound, PAID_FETCHES};
 pub use goodfetch_collie::{
@@ -59,8 +59,9 @@ pub use goodfetch_collie::{
 };
 pub use goodfetch_collie_client::{
     Answer, BoxError, Call, Connection, Error, ErrorCode, ErrorDetails, EventStream, Exchange,
-    FieldValues, HandlerlessStart, Limits, Locator, Money, MoneyError, Page, Query, RawCall,
-    Response, Run, RunView, Schema, SchemaError, Session, Start, UsageKind, events, schemars,
+    FieldValues, HandlerlessStart, KeyValueStore, Limits, Locator, Money, MoneyError, Page, Query,
+    RawCall, Response, Run, RunView, Schema, SchemaError, Session, Start, StoredBytes, UsageKind,
+    events, schemars,
 };
 pub use goodfetch_protocol::foxhound::dataset::DatasetRecord;
 /// Foxhound's Error codes, each a value of [`ErrorCode`] (ADR 0099):

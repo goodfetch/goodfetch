@@ -5,7 +5,7 @@
 use std::future::Future;
 use std::sync::{Arc, PoisonError};
 
-use goodfetch_collie_client::{BoxError, ClientConnection, Error, Locator, Page};
+use goodfetch_collie_client::{BoxError, ClientConnection, Error, Locator, Page, Run};
 use goodfetch_protocol::foxhound::crawl::{
     ATTEMPT_ENDED, CrawlRequestHandleParams, RETRY_REQUESTED,
 };
@@ -21,8 +21,10 @@ use serde_json::json;
 use super::{CrawlId, Dataset, Label};
 use crate::sync::Mutex;
 
+mod attempt_run;
 mod enqueue;
 
+pub use attempt_run::AttemptRun;
 pub use enqueue::{Enqueue, EnqueueLinks, LinkPayload};
 
 /// The `retry_requested` of a handler's `ctx.retry(message)` (ADR 0093).
@@ -88,6 +90,8 @@ pub(super) enum Ending {
 #[derive(Debug)]
 pub(super) struct Attempt {
     connection: ClientConnection,
+    /// The crawl's Run, bound to the attempt.
+    run: AttemptRun,
     /// The page `params` names, served from the request's document.
     page: Option<Page>,
     pub(super) params: CrawlRequestHandleParams,
@@ -100,17 +104,22 @@ pub(super) struct Attempt {
 }
 
 impl Attempt {
-    /// The attempt `params` names, of the crawl `crawl` whose Labels are
-    /// `declared`, on `connection`, whose handler reads `page`.
+    /// The attempt `params` names, of the Run `run`'s crawl `crawl` whose
+    /// Labels are `declared`, on `connection`.
     pub(super) fn new(
         connection: ClientConnection,
-        page: Option<Page>,
+        run: &Run,
         params: CrawlRequestHandleParams,
         crawl: CrawlId,
         declared: Arc<[String]>,
     ) -> Self {
+        let page = params
+            .page_id
+            .clone()
+            .map(|page_id| run.page_of(page_id, params.session.id.clone()));
         Self {
             connection,
+            run: AttemptRun::new(run, &params),
             page,
             params,
             crawl,
@@ -217,6 +226,14 @@ impl<P> CrawlContext<P> {
     /// The Run's ID.
     pub fn run_id(&self) -> &RunId {
         &self.attempt.params.run_id
+    }
+
+    /// The crawl's Run, bound to this attempt: a Key-value write through it
+    /// commits with the attempt's Records and enqueues, or is discarded
+    /// with them, while one through the program's own Run value, captured
+    /// by the handler, commits at once on every attempt that runs it.
+    pub fn run(&self) -> &AttemptRun {
+        &self.attempt.run
     }
 
     /// Already navigated. The handler runs once the request's navigation

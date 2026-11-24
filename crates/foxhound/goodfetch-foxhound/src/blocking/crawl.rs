@@ -144,6 +144,25 @@ impl Crawl {
     }
 }
 
+/// A crawl's Run bound to one attempt of its handler, as
+/// [`crate::AttemptRun`].
+#[derive(Clone, Debug)]
+pub struct AttemptRun(crate::AttemptRun);
+
+impl AttemptRun {
+    /// The Run's ID, read without a round trip.
+    pub fn id(&self) -> &RunId {
+        self.0.id()
+    }
+
+    /// The Run's Key-value store, its writes staged with the attempt, as
+    /// [`crate::AttemptRun::key_value_store`].
+    #[must_use]
+    pub fn key_value_store(&self) -> blocking::KeyValueStore {
+        blocking::KeyValueStore::from(self.0.key_value_store())
+    }
+}
+
 /// What a blocking handler is given for one attempt of a request of its
 /// Label, as [`crate::CrawlContext`], whose calls block the handler's
 /// thread until they are answered.
@@ -181,6 +200,13 @@ impl<P> CrawlContext<P> {
     /// The Run's ID.
     pub fn run_id(&self) -> &RunId {
         self.inner.run_id()
+    }
+
+    /// The crawl's Run, bound to this attempt, as
+    /// [`crate::CrawlContext::run`].
+    #[must_use]
+    pub fn run(&self) -> AttemptRun {
+        AttemptRun(self.inner.run().clone())
     }
 
     /// Already navigated. The handler runs once the request's navigation

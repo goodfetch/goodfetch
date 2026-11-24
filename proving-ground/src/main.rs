@@ -4,7 +4,8 @@
 //! address, prints one JSON line, and serves each page family on its own host
 //! name, the task list at `/tasks` and the oracle at `/oracle`, beside its
 //! network fixtures: forward proxies, a DNS fixture and a watched target.
-//! `tasks` prints one seed's task list and exits.
+//! `tasks` prints one seed's task list and exits; `firefox-profile` writes a
+//! Firefox profile logged in on the seeded login and exits.
 
 mod access;
 mod adversarial;
@@ -31,6 +32,7 @@ mod encodings;
 mod exchange;
 mod extraction;
 mod files;
+mod firefox_profile;
 mod fonts;
 mod forward_proxy;
 mod generator;
@@ -80,7 +82,7 @@ use anyhow::{Context as _, Result, bail};
 use clap::Parser as _;
 
 use crate::browser_builds::BrowserBuilds;
-use crate::command::{Command, Copy, NetworkProfile, Serve, Shaper, Tasks};
+use crate::command::{Command, Copy, FirefoxProfile, NetworkProfile, Serve, Shaper, Tasks};
 use crate::interface::ServeLine;
 use crate::network::{Loss, Network, Profile};
 use crate::network_fixture::NetworkFixtures;
@@ -97,6 +99,11 @@ fn main() -> Result<()> {
             seed,
             &Site::every_task(seed, None),
         )),
+        Command::FirefoxProfile(FirefoxProfile {
+            seed,
+            time_step,
+            out,
+        }) => firefox_profile::write(&out, &login::seeded_session(seed, time_step)),
     }
 }
 

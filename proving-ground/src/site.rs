@@ -407,7 +407,14 @@ impl Site {
             return match family {
                 catalog::HOST => self.catalog(host, request),
                 rendered::HOST => rendered::respond(self.seed, request),
-                login::HOST => login::respond(self.seed, &self.logins, request),
+                login::HOST => login::respond(
+                    &login::Visit {
+                        seed: self.seed,
+                        logins: &self.logins,
+                        time_step: self.observations.time_step(),
+                    },
+                    request,
+                ),
                 _ => schedule::respond(self.seed, self.observations.time_step(), request),
             };
         }

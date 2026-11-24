@@ -36,6 +36,8 @@ pulldown-cmark.workspace = true
 reqwest = { workspace = true, features = ["http2", "rustls-no-provider"] }
 rcgen = { workspace = true, features = ["pem"] }
 rustls = { workspace = true, features = ["ring", "std", "tls12"] }
+# Writes the Firefox profile seed's `cookies.sqlite` (`firefox-profile`).
+rusqlite.workspace = true
 # Describes its interface (`interface.rs`) for the JSON Schemas test support
 # commits.
 schemars.workspace = true

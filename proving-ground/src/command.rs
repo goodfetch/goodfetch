@@ -1,4 +1,5 @@
-//! The Proving ground's command line: `serve`, `tasks` and their arguments.
+//! The Proving ground's command line: `serve`, `tasks`, `firefox-profile`
+//! and their arguments.
 
 use std::net::SocketAddr;
 use std::path::PathBuf;
@@ -20,6 +21,25 @@ pub(crate) enum Command {
     /// each start URL on no port, and exits; `xtask journeys tasks` commits
     /// it (ADR 0063).
     Tasks(Tasks),
+    /// Writes a Firefox profile folder whose `cookies.sqlite` holds the
+    /// Session of `login/3`, the seeded login, opened at a time step, which
+    /// the Proving ground accepts until the time step changes; prints
+    /// nothing and exits.
+    FirefoxProfile(FirefoxProfile),
+}
+
+#[derive(Args)]
+pub(crate) struct FirefoxProfile {
+    /// The seed the Session is drawn from.
+    #[arg(long)]
+    pub(crate) seed: u64,
+    /// The time step the Session is opened at.
+    #[arg(long)]
+    pub(crate) time_step: u64,
+    /// The profile folder, created when missing; a `cookies.sqlite` already
+    /// in it is replaced.
+    #[arg(long)]
+    pub(crate) out: PathBuf,
 }
 
 #[derive(Args)]

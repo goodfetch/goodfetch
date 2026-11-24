@@ -3,8 +3,13 @@
 //! seed so each Journey variant has its own (ADR 0063). Account 1 logs in
 //! with its password and then a TOTP code (RFC 6238) from its secret;
 //! account 2 with its password alone, and its login expires after three
-//! pages, so a crawl must log in again to read every order. Sessions are the
-//! only state the family keeps; pages and expected results come from the seed.
+//! pages, so a crawl must log in again to read every order. Account 3, the
+//! seeded login, logs in with its password alone, and its Session is drawn
+//! from the seed and the time step it was opened at, so it expires when the
+//! time step changes, never with the wall clock, and `firefox-profile` writes
+//! the same Session into a Firefox profile. The other accounts' sessions are
+//! the only state the family keeps; pages and expected results come from the
+//! seed.
 
 pub(crate) mod canaries;
 
@@ -29,7 +34,14 @@ const FAMILY: &str = "login";
 const MFA_ACCOUNT: u64 = 1;
 /// The account whose login expires after [`EXPIRING_PAGES`] pages.
 const EXPIRING_ACCOUNT: u64 = 2;
-const ACCOUNTS: [u64; 2] = [MFA_ACCOUNT, EXPIRING_ACCOUNT];
+/// The account whose Session is drawn from the seed and its time step.
+const SEEDED_ACCOUNT: u64 = 3;
+const ACCOUNTS: [u64; 3] = [MFA_ACCOUNT, EXPIRING_ACCOUNT, SEEDED_ACCOUNT];
+/// The task ordinal of the seeded login, `login/3`.
+const SEEDED_TASK: u32 = 3;
+/// How many time steps the seeded login's task spans: its Session expires
+/// once in it.
+const SEEDED_TIME_STEPS: u64 = 2;
 const ORDERS: u64 = 6;
 /// How many pages behind the login an expiring account's session serves.
 const EXPIRING_PAGES: u32 = 3;
@@ -46,6 +58,7 @@ const SESSION_PLACE: u64 = 5;
 const ADJECTIVE_PLACE: u64 = 6;
 const NOUN_PLACE: u64 = 7;
 const TOTAL_PLACE: u64 = 8;
+const SEEDED_SESSION_PLACE: u64 = 9;
 
 const PASSWORD_LENGTH: u64 = 16;
 const PASSWORD_ALPHABET: &[u8] = b"ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789";
@@ -108,6 +121,36 @@ fn account(seed: u64, number: u64) -> Account {
 /// login expires.
 fn pages_per_session(number: u64) -> Option<u32> {
     (number == EXPIRING_ACCOUNT).then_some(EXPIRING_PAGES)
+}
+
+/// The Session token of the seeded login opened at time step `step`: the
+/// same for every Proving ground on `seed`, and accepted only at `step`.
+fn seeded_token(seed: u64, step: u64) -> String {
+    format!(
+        "{:016x}",
+        generator::draw(
+            seed,
+            &[FAMILY_PLACE, SEEDED_ACCOUNT, 0, SEEDED_SESSION_PLACE, step]
+        )
+    )
+}
+
+/// A Session cookie the family sets.
+pub(crate) struct SessionCookie {
+    /// The host name it is set on, with no leading dot: a host-only cookie.
+    pub(crate) host: String,
+    pub(crate) name: &'static str,
+    pub(crate) value: String,
+}
+
+/// The seeded login's Session cookie at time step `step`, as its task's
+/// login sets it.
+pub(crate) fn seeded_session(seed: u64, step: u64) -> SessionCookie {
+    SessionCookie {
+        host: task_host(SEEDED_TASK),
+        name: "session",
+        value: seeded_token(seed, step),
+    }
 }
 
 /// The cookie value of an account's login waiting for its TOTP code.
@@ -194,17 +237,26 @@ impl Logins {
     }
 }
 
+/// What a request on the family's host name is answered from: the seed, the
+/// sessions and the Proving ground's time step.
+pub(crate) struct Visit<'a> {
+    pub(crate) seed: u64,
+    pub(crate) logins: &'a Logins,
+    pub(crate) time_step: u64,
+}
+
 /// Answers a request on the family's host name.
-pub(crate) fn respond(seed: u64, logins: &Logins, request: &Request<'_>) -> Reply {
+pub(crate) fn respond(visit: &Visit<'_>, request: &Request<'_>) -> Reply {
+    let Visit { seed, logins, .. } = *visit;
     match (request.method, request.path) {
         (&Method::GET, "/login") => Reply::html(login_page(None)),
-        (&Method::POST, "/login") => log_in(seed, logins, request),
+        (&Method::POST, "/login") => log_in(visit, request),
         (&Method::GET, "/mfa") => match pending_account(seed, request) {
             Some(_) => Reply::html(mfa_page(None)),
             None => Reply::see_other("/login"),
         },
         (&Method::POST, "/mfa") => check_code(seed, logins, request),
-        (&Method::GET, path) => behind_the_login(seed, logins, request, path),
+        (&Method::GET, path) => behind_the_login(visit, request, path),
         _ => Reply::not_found(),
     }
 }
@@ -216,7 +268,12 @@ fn field(request: &Request<'_>, name: &str) -> Option<String> {
         .map(|(_, value)| value.into_owned())
 }
 
-fn log_in(seed: u64, logins: &Logins, request: &Request<'_>) -> Reply {
+fn log_in(visit: &Visit<'_>, request: &Request<'_>) -> Reply {
+    let Visit {
+        seed,
+        logins,
+        time_step,
+    } = *visit;
     let (username, password) = (field(request, "username"), field(request, "password"));
     let account = ACCOUNTS
         .into_iter()
@@ -232,6 +289,10 @@ fn log_in(seed: u64, logins: &Logins, request: &Request<'_>) -> Reply {
         ),
         Some(account) if account.totp_key.is_some() => {
             Reply::see_other("/mfa").set_cookie("pending", &pending_token(seed, account.number))
+        }
+        Some(account) if account.number == SEEDED_ACCOUNT => {
+            let SessionCookie { name, value, .. } = seeded_session(seed, time_step);
+            Reply::see_other("/account").set_cookie(name, &value)
         }
         Some(account) => {
             Reply::see_other("/account").set_cookie("session", &logins.open(seed, account.number))
@@ -277,7 +338,12 @@ fn check_code(seed: u64, logins: &Logins, request: &Request<'_>) -> Reply {
 
 /// The account page and the order pages, which only a session serves; a
 /// request without one, or whose session expired, is sent to the login page.
-fn behind_the_login(seed: u64, logins: &Logins, request: &Request<'_>, path: &str) -> Reply {
+fn behind_the_login(visit: &Visit<'_>, request: &Request<'_>, path: &str) -> Reply {
+    let Visit {
+        seed,
+        logins,
+        time_step,
+    } = *visit;
     let order_number = match path {
         "/account" => None,
         _ => match path
@@ -288,10 +354,11 @@ fn behind_the_login(seed: u64, logins: &Logins, request: &Request<'_>, path: &st
             None => return Reply::not_found(),
         },
     };
-    let Some(number) = request
-        .cookie("session")
-        .and_then(|token| logins.serve(token))
-    else {
+    let Some(number) = request.cookie("session").and_then(|token| {
+        (token == seeded_token(seed, time_step))
+            .then_some(SEEDED_ACCOUNT)
+            .or_else(|| logins.serve(token))
+    }) else {
         return Reply::see_other("/login");
     };
     match order_number {
@@ -419,6 +486,25 @@ pub(crate) fn tasks(seed: u64, port: Option<u16>) -> Vec<Task> {
                 time_steps: None,
             },
             expected: orders(EXPIRING_ACCOUNT),
+        },
+        Task {
+            host: task_host(SEEDED_TASK),
+            entry: Entry {
+                id: format!("{FAMILY}/{SEEDED_TASK}"),
+                family: FAMILY,
+                kind: Kind::Crawl,
+                start_url: start_url(SEEDED_TASK),
+                description: "Log in as the task's account with its password, or bring in its \
+                    login from the Firefox profile `firefox-profile` writes, and return one \
+                    Record per order the account page lists, read from its order page, with \
+                    the fields `id`, `item` and `total`, while the Proving ground's time step \
+                    goes from 0 to the last of the task's time steps. The login expires when \
+                    the time step changes: log in again whenever the site sends to its login \
+                    page.",
+                account: Some(listed(&account(seed, SEEDED_ACCOUNT))),
+                time_steps: Some(SEEDED_TIME_STEPS),
+            },
+            expected: orders(SEEDED_ACCOUNT),
         },
     ]
 }

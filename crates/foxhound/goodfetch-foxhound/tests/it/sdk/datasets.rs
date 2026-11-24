@@ -11,9 +11,6 @@
     reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
 )]
 
-use std::sync::atomic::{AtomicU32, Ordering};
-use std::sync::{Arc, Mutex};
-
 use goodfetch_foxhound::schemars::{self, JsonSchema};
 use goodfetch_foxhound::settings::crawl::{handler, retry};
 use goodfetch_foxhound::{
@@ -24,6 +21,7 @@ use goodfetch_protocol::foxhound::dataset::RecordInvalidDetails;
 use goodfetch_test_support::{ProvingGround, TestEnv, real_time_runtime};
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::{Value, json};
+use tokio::sync::mpsc::{self, UnboundedReceiver};
 
 use super::crawl::{count, site_settings};
 
@@ -106,6 +104,44 @@ async fn committed<I>(run: &CrawlRun, dataset: &Dataset<I>) -> Vec<Value> {
     values
 }
 
+/// What each push of three products and three notes refuses, caught, by
+/// the Record's own name.
+async fn push_caught(
+    ctx: &CrawlContext<()>,
+    products: &Dataset<Product>,
+    notes: &Dataset<Note>,
+) -> Vec<(&'static str, Refused)> {
+    let mut failures = Vec::new();
+    for (id, name, price) in [
+        ("P-1", "Blue kettle", "12.50"),
+        ("P-2", "Red kettle", "free"),
+        ("P-3", "Green kettle", "9.99"),
+    ] {
+        if let Err(error) = ctx.push(products, &product(id, name, price)).await {
+            failures.push((id, refused(&error)));
+        }
+    }
+    for (name, id, text) in [
+        ("N-1", Some("N-1".to_owned()), 1.5),
+        ("N-2", Some("N-2".to_owned()), f64::NAN),
+        ("N-3", None, 3.0),
+    ] {
+        if let Err(error) = ctx.push(notes, &Note { id, text }).await {
+            failures.push((name, refused(&error)));
+        }
+    }
+    failures
+}
+
+/// All that `channel` has received.
+fn drained<T>(channel: &mut UnboundedReceiver<T>) -> Vec<T> {
+    let mut received = Vec::new();
+    while let Ok(value) = channel.try_recv() {
+        received.push(value);
+    }
+    received
+}
+
 /// Caught, a push keeps the Records that hold; escaped, it is not retried.
 /// A product whose price has no two decimals does not read back through
 /// its schema, and a note holds NaN: the program refuses both. The engine
@@ -130,52 +166,23 @@ fn a_record_is_refused_before_it_is_sent_and_fails_its_request_when_it_escapes()
     let notes = crawl
         .dataset(DatasetDeclaration::<Note>::new("notes").key(&["id"]))
         .unwrap();
-    let failures: Arc<Mutex<Vec<(&str, Refused)>>> = Arc::default();
-    let escaped_attempts = Arc::new(AtomicU32::new(0));
-    let (pushed, noted, failed) = (products.clone(), notes.clone(), Arc::clone(&failures));
+    let (failed, mut failures) = mpsc::unbounded_channel();
+    let (started, mut escaped_attempts) = mpsc::unbounded_channel();
+    let (shelf, memos) = (products.clone(), notes.clone());
     crawl
         .handle(&caught, move |ctx: CrawlContext<()>| async move {
-            let pushes = [
-                (
-                    "P-1",
-                    ctx.push(&pushed, &product("P-1", "Blue kettle", "12.50")),
-                ),
-                (
-                    "P-2",
-                    ctx.push(&pushed, &product("P-2", "Red kettle", "free")),
-                ),
-                (
-                    "P-3",
-                    ctx.push(&pushed, &product("P-3", "Green kettle", "9.99")),
-                ),
-            ];
-            for (id, push) in pushes {
-                if let Err(error) = push.await {
-                    failed.lock().unwrap().push((id, refused(&error)));
-                }
-            }
-            let notes = [
-                ("N-1", Some("N-1"), 1.5),
-                ("N-2", Some("N-2"), f64::NAN),
-                ("N-3", None, 3.0),
-            ];
-            for (id, key, text) in notes {
-                let note = Note {
-                    id: key.map(str::to_owned),
-                    text,
-                };
-                if let Err(error) = ctx.push(&noted, &note).await {
-                    failed.lock().unwrap().push((id, refused(&error)));
-                }
+            for failure in push_caught(&ctx, &shelf, &memos).await {
+                failed.send(failure).unwrap();
             }
             Ok(())
         })
         .unwrap();
-    let (lid, attempts) = (products.clone(), Arc::clone(&escaped_attempts));
+    let lids = products.clone();
     crawl
         .handle(&escaped, move |ctx: CrawlContext<()>| async move {
-            attempts.fetch_add(1, Ordering::Relaxed);
-            ctx.push(&lid, &product("P-4", "Kettle lid", "1.5")).await?;
+            started.send(ctx.attempt()).unwrap();
+            ctx.push(&lids, &product("P-4", "Kettle lid", "1.5"))
+                .await?;
             Ok(())
         })
         .unwrap();
@@ -207,7 +214,7 @@ fn a_record_is_refused_before_it_is_sent_and_fails_its_request_when_it_escapes()
     });
 
     assert_eq!(
-        *failures.lock().unwrap(),
+        drained(&mut failures),
         [
             ("P-2", vec![(0, vec![String::new()])]),
             ("N-2", vec![(0, vec!["/text".to_owned()])]),
@@ -227,11 +234,11 @@ fn a_record_is_refused_before_it_is_sent_and_fails_its_request_when_it_escapes()
     let requests = report.requests.unwrap();
     assert_eq!(
         (
-            escaped_attempts.load(Ordering::Relaxed),
+            drained(&mut escaped_attempts),
             requests.failed,
             count(&requests.by_error_code, error_code::RECORD_INVALID.as_str()),
         ),
-        (1, 1, 1),
+        (vec![1], 1, 1),
         "{requests:?}"
     );
 }

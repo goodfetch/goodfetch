@@ -1274,6 +1274,16 @@ form = "type"
 [[member]]
 crate = "goodfetch-collie-client"
 receiver = "(crate)"
+member = "to_json"
+entry = "none"
+reason = "A value as JSON, refused as a `Schema` refuses one it cannot encode: a Foxhound push into a Dataset without a schema encodes its Record by it (ADR 0103)."
+only = "TypeScript's push checks its Record within the package, whose own JSON writer it has."
+words = ["to", "json"]
+form = "runtime"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "(crate)"
 member = "Start"
 entry = "none"
 reason = "The start of a Run (`run.start`), which awaiting sends."

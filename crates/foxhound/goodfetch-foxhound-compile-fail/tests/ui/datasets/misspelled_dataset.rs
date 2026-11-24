@@ -8,10 +8,10 @@ struct Product {
     id: String,
 }
 
-async fn push(ctx: CrawlContext<()>, products: Dataset<Product>) {
+async fn push(ctx: CrawlContext<()>, shelf: Dataset<Product>) {
     let product = Product { id: "P-1".to_owned() };
-    let _ = products;
-    let _ = ctx.push(&prodcts, &product).await;
+    let _ = shelf;
+    let _ = ctx.push(&shelff, &product).await;
 }
 
 fn main() {}

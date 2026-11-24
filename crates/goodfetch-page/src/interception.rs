@@ -658,40 +658,16 @@ impl Interception {
         if let Some(blocked) = blocked {
             self.warn_of_blocked_resources(session, run, &blocked).await;
         }
-        let (state, lookups) = {
-            let mut tables = lock(&self.shared.tables);
-            let lookups = tables.interception_only.get(session).cloned();
-            let signing = tables.signing.get(session).cloned();
-            let pending = Arc::clone(tables.pending.entry(session.clone()).or_default());
-            let session_failure = Arc::clone(tables.failures.entry(session.clone()).or_default());
-            let session = Arc::clone(tables.sessions.entry(session.clone()).or_default());
-            let state = Arc::new(PageState {
-                routes: Arc::default(),
-                session,
-                pending,
-                navigation: PendingNavigation::default(),
-                navigating: Some(NavigatingPage {
-                    driver: driver.clone(),
-                    refusals: refusals.clone(),
-                }),
-                failure: LeftFailure::default(),
-                session_failure,
-                files: Mutex::new(None),
-                own: Mutex::new(None),
-                lists_on: blocking.lists.is_some(),
-                retrying: AtomicBool::new(false),
-                lists_blocked: AtomicU64::new(0),
-                learned: self.shared.learned(run.identity().id()),
-                cosmetic: clean_up.cosmetic.clone(),
-                engine_requests: EngineRequests {
-                    policy: policy.clone(),
-                    blocking: blocking.clone(),
-                    signing,
-                },
-                on_document,
-            });
-            (state, lookups)
-        };
+        let (state, lookups) = self.page_state(
+            session,
+            NavigatingPage {
+                driver: driver.clone(),
+                refusals: refusals.clone(),
+            },
+            run,
+            (&policy, &blocking),
+            (clean_up.cosmetic.clone(), on_document),
+        );
         let (page, cdp) = (
             PageInterception::joined(page_id, &state),
             CdpPage::of(driver),
@@ -750,6 +726,50 @@ impl Interception {
             children,
             routed: routed.subscribe(),
         })
+    }
+
+    /// The interception's side of a page of the Session `session`, which
+    /// `navigating` names, for `run`, under the Session's `policy` and
+    /// `blocking`, its cosmetic rules `cosmetic` and each document its main
+    /// frame receives handed to `on_document`; and the Session's lookups of
+    /// an interception-only Session.
+    fn page_state(
+        &self,
+        session: &SessionId,
+        navigating: NavigatingPage,
+        run: &RunPowers,
+        (policy, blocking): (&Policy, &steps::Blocking),
+        (cosmetic, on_document): (Option<Cosmetic>, Option<Arc<dyn OnDocument>>),
+    ) -> (Arc<PageState>, Option<Arc<Lookups>>) {
+        let mut tables = lock(&self.shared.tables);
+        let lookups = tables.interception_only.get(session).cloned();
+        let signing = tables.signing.get(session).cloned();
+        let pending = Arc::clone(tables.pending.entry(session.clone()).or_default());
+        let session_failure = Arc::clone(tables.failures.entry(session.clone()).or_default());
+        let session = Arc::clone(tables.sessions.entry(session.clone()).or_default());
+        let state = Arc::new(PageState {
+            routes: Arc::default(),
+            session,
+            pending,
+            navigation: PendingNavigation::default(),
+            navigating: Some(navigating),
+            failure: LeftFailure::default(),
+            session_failure,
+            files: Mutex::new(None),
+            own: Mutex::new(None),
+            lists_on: blocking.lists.is_some(),
+            retrying: AtomicBool::new(false),
+            lists_blocked: AtomicU64::new(0),
+            learned: self.shared.learned(run.identity().id()),
+            cosmetic,
+            engine_requests: EngineRequests {
+                policy: policy.clone(),
+                blocking: blocking.clone(),
+                signing,
+            },
+            on_document,
+        });
+        (state, lookups)
     }
 
     /// What the page `page_id`, whose side of the interception is `state`,

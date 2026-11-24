@@ -257,7 +257,7 @@ impl AuthAnswer {
 
 /// A request of the page's that failed.
 #[derive(Debug)]
-pub(crate) struct LoadingFailed(network::LoadingFailedEvent);
+pub(crate) struct LoadingFailed(pub(super) network::LoadingFailedEvent);
 
 impl LoadingFailed {
     /// The ID of its hop.
@@ -358,7 +358,7 @@ impl InterceptionEvents {
 
 /// A command the browser did not take: the request it names went, or the
 /// page did.
-pub(crate) struct NotTaken(Failure);
+pub(crate) struct NotTaken(pub(super) Failure);
 
 impl fmt::Display for NotTaken {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {

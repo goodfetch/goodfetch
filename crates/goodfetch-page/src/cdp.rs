@@ -2,9 +2,10 @@
 //! concrete type, [`CdpPage`], whose narrow primitives a Page's logic
 //! calls, in ADR 0129's shape, with no trait until a second implementation
 //! is built. Spec #2256 moves the page crate's calls behind it ticket by
-//! ticket, until this is the one module that names the CDP crate; until
-//! then a primitive sends through the page's driver, whose lease check,
-//! counted rows, Run trace and deadlines it keeps.
+//! ticket, until this is the one module that names the CDP crate; the
+//! interception's and a Page's events' calls are behind it already. A
+//! primitive sends through the page's driver, whose lease check, counted
+//! rows, Run trace and deadlines it keeps.
 //!
 //! Each primitive is shaped so that it fits `WebDriver BiDi` and Playwright's
 //! driver wherever either has a counterpart, and one that neither has is
@@ -23,17 +24,26 @@
 //! | [`CdpPage::continue_with_auth`]: a challenge answered by default, with credentials, or cancelled | `Fetch.continueWithAuth` | `network.continueWithAuth` | none: the driver answers with the context's `httpCredentials` |
 //! | [`CdpPage::continue_response`]: a paused response sent on as it came | `Fetch.continueResponse` | `network.continueResponse` | none: Chromium only, as Playwright pauses no response |
 //! | [`CdpPage::cookie_names`]: the names of the cookies a request to a URL would carry | `Network.getCookies` | `storage.getCookies` | `BrowserContext.cookies` |
+//! | [`CdpPage::followed_events`] and [`CdpPage::frame_events`]: what a page's events follow of the page's own events, or of one of its out-of-process frames' requests and console, each read once | `Network.requestWillBeSent`, `responseReceived`, `dataReceived`, `loadingFinished` and `loadingFailed`, `Network.webSocketCreated`, `webSocketFrameSent`, `webSocketFrameReceived` and `webSocketClosed`, `Page.domContentEventFired`, `loadEventFired`, `frameNavigated`, `navigatedWithinDocument` and `lifecycleEvent`, `Runtime.consoleAPICalled` and `exceptionThrown` | `network.beforeRequestSent`, `responseStarted`, `responseCompleted` and `fetchError`, `browsingContext.navigationCommitted`, `fragmentNavigated`, `domContentLoaded` and `load`, `log.entryAdded`; a WebSocket's frames and a loader's lifecycle are Chromium only | `request`, `response`, `requestFinished`, `requestFailed`, `webSocket`, a frame's `navigated` and `loadstate`, `console` and `pageError` |
+//! | [`CdpPage::follow_console_opening`], [`CdpPage::follow_frame_console_opening`] and [`CdpPage::follow_frame_console`]: the console calls and uncaught exceptions of the page, or of one of its out-of-process frames, reported | `Runtime.enable` | `session.subscribe` to the `log` module | none: the driver reports a page's console itself |
+//! | [`CdpPage::follow_frame_network`]: an out-of-process frame's requests reported | `Network.enable` on the frame's target | `session.subscribe` to the `network` module, which covers the page's frames | none: the driver reports a frame's requests itself |
+//! | [`CdpPage::response_body`]: the body of a response the browser received, once it is | `Network.getResponseBody` | `network.getData` with a data collector added before the response | `Response.body` |
 
+mod followed;
 mod paused;
 mod requests;
+mod runtime_values;
 
 use goodfetch_engine::CallError;
 
-pub(crate) use goodfetch_cdp::NetError;
+pub(crate) use goodfetch_cdp::{NetError, SessionId as TargetSession};
 
+pub(crate) use self::followed::{
+    FollowedEvent, FollowedEvents, FrameNavigated, RequestSent, SocketFrame,
+};
 pub(crate) use self::paused::{
     AuthAnswer, AuthChallenge, InterceptionEvent, InterceptionEvents, LoadingFailed, NetworkId,
-    PausedRequest, is_navigation, post_data, resource_type,
+    PausedRequest,
 };
 pub(crate) use self::requests::{ContinueRequest, Fulfill, Header, PausedId, RequestHeaders};
 use crate::driver::{PageDriver, pointer_click};

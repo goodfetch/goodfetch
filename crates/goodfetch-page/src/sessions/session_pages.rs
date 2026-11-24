@@ -273,7 +273,6 @@ impl Sessions {
             events_run(&run),
             stream.clone(),
             refusals.clone(),
-            driver.events(),
             wait_deadline(&run),
             observer,
         );

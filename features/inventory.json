@@ -8942,6 +8942,28 @@
       ]
     },
     {
+      "id": "setting:daemon.tls.upstream",
+      "kind": "setting",
+      "area": 3,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "setting:daemon.trusted_proxies",
+      "kind": "setting",
+      "area": 3,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "setting:dataset.query.max_rows",
       "kind": "setting",
       "area": 12,

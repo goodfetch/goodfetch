@@ -58,7 +58,7 @@ pub(crate) fn reason(rule: Rule) -> Option<&'static str> {
 }
 
 /// Every Audit log entry of `env`'s home, as JSON.
-fn audit_entries(env: &TestEnv) -> Vec<Value> {
+pub(crate) fn audit_entries(env: &TestEnv) -> Vec<Value> {
     let home = Home::new(env.home().to_path_buf());
     let Ok(connection) = rusqlite::Connection::open(home.audit_log()) else {
         return Vec::new();

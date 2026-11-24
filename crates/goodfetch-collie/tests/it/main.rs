@@ -127,6 +127,7 @@ mod storage;
 mod threads;
 mod tls;
 mod upgrade_files;
+mod upstream;
 mod usage;
 mod views;
 #[cfg(target_os = "linux")]

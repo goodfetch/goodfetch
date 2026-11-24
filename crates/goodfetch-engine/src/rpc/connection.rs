@@ -39,7 +39,9 @@
 //! An Exposed Daemon's address carries its Connections as lines or over
 //! WebSocket (ADR 0049), whose refused handshakes are logged the same way;
 //! with its certificate files, each over TLS, and a Connection that opens
-//! with no TLS handshake is closed unanswered and logged as `tls_required`.
+//! with no TLS handshake is closed unanswered and logged as `tls_required`;
+//! behind TLS terminated upstream, in plain, a handshake's `X-Forwarded-*`
+//! read only from a trusted proxy's peer address.
 //! Only the Client of an Attached engine's stdio is told its private
 //! endpoint, in the reply to its `hello`.
 //!
@@ -77,7 +79,9 @@ use super::framing::{
     Call, DecodeError, Frame, Framer, Incoming, MAX_MESSAGE_BYTES, Received, decode,
 };
 use super::raw_call::{Named, RawCall};
-use super::websocket::{self, MessageReader, MessageWriter, NotOpened, Prefixed, Rejoined};
+use super::websocket::{
+    self, Forwarded, MessageReader, MessageWriter, NotOpened, Prefixed, Rejoined,
+};
 use super::{
     Line, cancelled_by_client, failure_line, handshake, not_in_product, notification_line, record,
     record_cancel, success_line,
@@ -91,7 +95,7 @@ use crate::composition::{
     ConnectionContext, DaemonSide, Driver, Handler, Handlers, InputSender, RunOfCall,
 };
 use crate::crash_report;
-use crate::endpoint::{Authorities, Exposure, same_token};
+use crate::endpoint::{Authorities, Exposure, Termination, same_token};
 use crate::engine_context::EngineContext;
 use crate::events::{Credits, Events};
 use crate::log::{ConnectionLog, LogEvents};
@@ -336,9 +340,19 @@ async fn carriage(
             access.listener(),
         ));
     };
-    let (connection, authorities) = match &exposure.tls {
-        None => (connection, Cow::Borrowed(&exposure.authorities)),
-        Some(certificate) => {
+    let forwarded = if exposure
+        .termination
+        .trusts(connection.addresses().map(|addresses| addresses.peer))
+    {
+        Forwarded::Read
+    } else {
+        Forwarded::Ignored
+    };
+    let (connection, authorities) = match &exposure.termination {
+        Termination::Plain | Termination::Upstream(_) => {
+            (connection, Cow::Borrowed(&exposure.authorities))
+        }
+        Termination::Tls(certificate) => {
             let (connection, authorities) =
                 terminated(connection, certificate, &exposure.authorities, engine).await?;
             (connection, Cow::Owned(authorities))
@@ -353,7 +367,7 @@ async fn carriage(
             access.listener(),
         ));
     }
-    match websocket::accept(Rejoined::new(reader, writer), &authorities).await {
+    match websocket::accept(Rejoined::new(reader, writer), &authorities, forwarded).await {
         Ok((messages, sent)) => Some((
             Reading::Messages(messages),
             Writing::Messages(sent),

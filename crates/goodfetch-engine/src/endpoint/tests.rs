@@ -180,6 +180,9 @@ enum Listener {
     Handshake,
     /// A handshake over TLS terminated at this port.
     TlsHandshake(u16),
+    /// A handshake a trusted proxy forwarded with these `X-Forwarded-Host`
+    /// and `X-Forwarded-Proto`, TLS terminated in front of the Daemon.
+    Forwarded(Option<&'static str>, Option<&'static str>),
 }
 
 /// Each listener's `Host` and `Origin` rule: the ops listener takes any
@@ -261,6 +264,54 @@ enum Listener {
     Some("https://attacker.example:4000"),
     Some(Refusal::HostForeign)
 )]
+#[case::forwarded_over_https_naming_its_public_name(
+    Listener::Forwarded(Some("daemon.example"), Some("https")),
+    Some("daemon.example"),
+    Some("https://daemon.example"),
+    None
+)]
+#[case::forwarded_with_the_proxy_host_of_its_own(
+    Listener::Forwarded(Some("daemon.example"), Some("https")),
+    Some("127.0.0.1:4000"),
+    Some("https://daemon.example"),
+    None
+)]
+#[case::forwarded_reading_each_headers_first_value(
+    Listener::Forwarded(Some("daemon.example, inner.example"), Some("HTTPS, http")),
+    Some("daemon.example"),
+    Some("https://daemon.example"),
+    None
+)]
+#[case::forwarded_naming_a_later_value(
+    Listener::Forwarded(Some("daemon.example, inner.example"), Some("https, http")),
+    Some("inner.example"),
+    Some("https://inner.example"),
+    Some(Refusal::HostForeign)
+)]
+#[case::forwarded_over_http(
+    Listener::Forwarded(Some("daemon.example"), Some("http")),
+    Some("daemon.example"),
+    Some("http://daemon.example"),
+    Some(Refusal::HostForeign)
+)]
+#[case::forwarded_with_no_proto(
+    Listener::Forwarded(Some("daemon.example"), None),
+    Some("daemon.example"),
+    Some("http://daemon.example"),
+    Some(Refusal::HostForeign)
+)]
+#[case::forwarded_from_another_page(
+    Listener::Forwarded(Some("daemon.example"), Some("https")),
+    Some("daemon.example"),
+    Some("https://attacker.example"),
+    Some(Refusal::OriginForeign)
+)]
+#[case::forwarded_from_a_page_over_http(
+    Listener::Forwarded(Some("daemon.example"), Some("https")),
+    Some("daemon.example"),
+    Some("http://daemon.example"),
+    Some(Refusal::OriginForeign)
+)]
 fn a_request_passes_only_with_a_host_and_origin_its_listener_admits(
     #[case] listener: Listener,
     #[case] host: Option<&str>,
@@ -269,11 +320,12 @@ fn a_request_passes_only_with_a_host_and_origin_its_listener_admits(
 ) {
     let exposed = match listener {
         Listener::TlsHandshake(port) => exposed_over_tls(port),
+        Listener::Forwarded(forwarded_host, proto) => exposed().forwarded(forwarded_host, proto),
         Listener::Ops | Listener::Handshake => exposed(),
     };
     let (hosts, origins) = match listener {
         Listener::Ops => (Hosts::Address, Origins::Forbidden),
-        Listener::Handshake | Listener::TlsHandshake(_) => {
+        Listener::Handshake | Listener::TlsHandshake(_) | Listener::Forwarded(..) => {
             (Hosts::Named(&exposed), Origins::Required(&[&exposed]))
         }
     };

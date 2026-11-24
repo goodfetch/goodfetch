@@ -38,7 +38,7 @@ use goodfetch_engine::browser_cache::{
 use goodfetch_engine::clock::Clock;
 use goodfetch_engine::daemon::files::DaemonFiles;
 use goodfetch_engine::daemon::{DaemonEnd, DaemonOptions, Drain, Holds, Succession};
-use goodfetch_engine::endpoint::{Authorities, Exposure};
+use goodfetch_engine::endpoint::{Authorities, Exposure, Termination};
 use goodfetch_engine::ops::{ConfiguredBrowsers, Ops, OpsOptions};
 use goodfetch_engine::run::local_settings_error;
 use goodfetch_engine::settings::{Resolved, SettingsError};
@@ -49,7 +49,7 @@ use goodfetch_protocol::browser_cache::PinnedBy;
 use goodfetch_protocol::catalog::Setting;
 use goodfetch_protocol::daemon::{
     ADDRESS, DRAIN_GRACE, DaemonEndpoint, DaemonStatus, DaemonToken, IDLE_TIMEOUT, TLS_CERT_FILE,
-    TLS_KEY_FILE,
+    TLS_KEY_FILE, TLS_UPSTREAM, TRUSTED_PROXIES, TrustedProxy,
 };
 use goodfetch_protocol::ops::{ADDRESS as OPS_ADDRESS, OTLP_METRICS_ENDPOINT};
 use goodfetch_protocol::settings::{
@@ -77,8 +77,19 @@ struct Configured {
     /// The machine's settings, which choose the run-state layout and the
     /// runtime's threads.
     settings: Resolved,
-    /// The files it serves TLS with, if it does.
-    tls: Option<TlsFiles>,
+    /// Where its TLS is terminated.
+    termination: Terminating,
+}
+
+/// Where the foreground Daemon's TLS is terminated, as its settings say.
+enum Terminating {
+    /// Nowhere: it listens on loopback.
+    Plain,
+    /// By the Daemon, with these files.
+    Files(TlsFiles),
+    /// In front of it (`daemon.tls.upstream`), these proxies' `X-Forwarded-*`
+    /// read (`daemon.trusted_proxies`).
+    Upstream(Vec<TrustedProxy>),
 }
 
 /// Why the foreground Daemon did not start: a setting, or a deployment
@@ -135,7 +146,7 @@ pub(in crate::executable) fn run(
     json: bool,
 ) -> ExitCode {
     let identity = engine.identity();
-    let (configured, serving) = match opened(machine) {
+    let (configured, termination) = match opened(machine) {
         Ok(opened) => opened,
         Err(Refused(error)) => {
             tracing::error!(code = error.code(), "{error}");
@@ -197,7 +208,7 @@ pub(in crate::executable) fn run(
                 listener: ops,
                 browsers: Some(browsers),
             },
-            websocket: exposure(&endpoint, serving),
+            websocket: exposure(&endpoint, termination),
         };
         announce(json, machine, identity, pid, &endpoint);
         tracing::info!(
@@ -237,21 +248,25 @@ pub(in crate::executable) fn run(
     }
 }
 
-/// The Daemon's settings, and the certificate it serves TLS with when they
-/// name one, read before it listens.
-fn opened(machine: &Machine<'_>) -> Result<(Configured, Option<ServingCertificate>), Refused> {
+/// The Daemon's settings, and where its TLS is terminated, the certificate
+/// it serves read when they name one, before it listens.
+fn opened(machine: &Machine<'_>) -> Result<(Configured, Termination), Refused> {
     let configured = configured(machine)?;
-    let serving = configured.tls.as_ref().map(TlsFiles::open).transpose()?;
-    Ok((configured, serving))
+    let termination = match &configured.termination {
+        Terminating::Plain => Termination::Plain,
+        Terminating::Files(files) => Termination::Tls(files.open()?),
+        Terminating::Upstream(proxies) => Termination::Upstream(proxies.clone()),
+    };
+    Ok((configured, termination))
 }
 
 /// How a Daemon listening at `endpoint` is reached over WebSocket: on TCP,
-/// at its own address, over TLS when it serves with a certificate.
-fn exposure(endpoint: &DaemonEndpoint, tls: Option<ServingCertificate>) -> Option<Exposure> {
+/// at its own address, its TLS terminated as `termination` says.
+fn exposure(endpoint: &DaemonEndpoint, termination: Termination) -> Option<Exposure> {
     match endpoint {
         DaemonEndpoint::Tcp(bound) => Some(Exposure {
             authorities: Authorities::loopback(*bound),
-            tls,
+            termination,
         }),
         DaemonEndpoint::Unix(_) => None,
     }
@@ -363,11 +378,21 @@ fn configured(machine: &Machine<'_>) -> Result<Configured, Refused> {
                 Source::setting(&settings, &ADDRESS),
             ),
         };
-    let tls = tls_files(
-        file_setting(&settings, &TLS_CERT_FILE),
-        file_setting(&settings, &TLS_KEY_FILE),
+    let termination = terminating(
+        tls_files(
+            file_setting(&settings, &TLS_CERT_FILE),
+            file_setting(&settings, &TLS_KEY_FILE),
+        )?,
+        settings
+            .get::<bool>(&TLS_UPSTREAM)
+            .then(|| Source::setting(&settings, &TLS_UPSTREAM)),
+        trusted_proxies(&settings)?,
     )?;
-    let address = parse_address(&address, &source, tls.is_some())?;
+    let address = parse_address(
+        &address,
+        &source,
+        !matches!(termination, Terminating::Plain),
+    )?;
     let drain_grace = match overridden(
         &settings,
         machine.environment,
@@ -403,7 +428,7 @@ fn configured(machine: &Machine<'_>) -> Result<Configured, Refused> {
         ops,
         otlp_metrics,
         settings,
-        tls,
+        termination,
     })
 }
 
@@ -528,21 +553,56 @@ fn text(value: &OsStr) -> String {
 }
 
 /// `address` as the foreground Daemon listens at it: a loopback `host:port`,
-/// or any `host:port` when it terminates TLS (`tls`), so no token crosses a
-/// network in clear.
-fn parse_address(address: &str, source: &Source, tls: bool) -> Result<SocketAddr, Refused> {
+/// or any `host:port` when its TLS is terminated, by itself or upstream
+/// (`terminated`), so no token crosses a network in clear.
+fn parse_address(address: &str, source: &Source, terminated: bool) -> Result<SocketAddr, Refused> {
     let parsed = address.parse::<SocketAddr>().map_err(|_| {
         source.invalid(format!(
             "`{address}` is no `host:port`; set an address and port such as `127.0.0.1:7900`"
         ))
     })?;
-    if !tls && !parsed.ip().is_loopback() {
+    if !terminated && !parsed.ip().is_loopback() {
         return Err(source.invalid(format!(
-            "`{address}` is not a loopback address: `daemon run` listens elsewhere only when it terminates TLS; set `{}` and `{}`, or listen on loopback",
-            TLS_CERT_FILE.name, TLS_KEY_FILE.name
+            "`{address}` is not a loopback address: `daemon run` listens elsewhere only when TLS is terminated; set `{}` and `{}`, or `{}` behind an ingress that terminates it, or listen on loopback",
+            TLS_CERT_FILE.name, TLS_KEY_FILE.name, TLS_UPSTREAM.name
         )));
     }
     Ok(parsed)
+}
+
+/// Where TLS is terminated, from the Daemon's TLS files, `upstream`'s
+/// source when `daemon.tls.upstream` is true, and the proxies
+/// `daemon.trusted_proxies` lists, if any, with where: by the Daemon or
+/// upstream, never both, and proxies trusted only upstream.
+fn terminating(
+    files: Option<TlsFiles>,
+    upstream: Option<Source>,
+    proxies: Option<(Vec<TrustedProxy>, Source)>,
+) -> Result<Terminating, Refused> {
+    match (files, upstream, proxies) {
+        (None, None, None) => Ok(Terminating::Plain),
+        (Some(files), None, None) => Ok(Terminating::Files(files)),
+        (None, Some(_), proxies) => Ok(Terminating::Upstream(
+            proxies.map(|(proxies, _)| proxies).unwrap_or_default(),
+        )),
+        (Some(_), Some(upstream), _) => Err(upstream.invalid(format!(
+            "TLS is terminated either by the Daemon or upstream: unset `{}`, or unset `{}` and `{}`",
+            TLS_UPSTREAM.name, TLS_CERT_FILE.name, TLS_KEY_FILE.name
+        ))),
+        (_, None, Some((_, source))) => Err(source.invalid(format!(
+            "`{}` is read only behind TLS terminated upstream: set `{}` too, or unset this one",
+            TRUSTED_PROXIES.name, TLS_UPSTREAM.name
+        ))),
+    }
+}
+
+/// The proxies `daemon.trusted_proxies` lists, with where, if it lists
+/// any.
+fn trusted_proxies(settings: &Resolved) -> Result<Option<(Vec<TrustedProxy>, Source)>, Refused> {
+    let source = Source::setting(settings, &TRUSTED_PROXIES);
+    let proxies = TrustedProxy::list(settings.value(&TRUSTED_PROXIES))
+        .map_err(|reason| source.invalid(reason))?;
+    Ok((!proxies.is_empty()).then_some((proxies, source)))
 }
 
 /// The certificate and key files an Exposed Daemon serves TLS with, and
@@ -660,7 +720,9 @@ impl Signals {
 
 #[cfg(test)]
 mod tests {
-    use super::{Source, parse_address, tls_files};
+    use goodfetch_protocol::daemon::TrustedProxy;
+
+    use super::{Source, Terminating, parse_address, terminating, tls_files};
 
     #[test]
     fn a_loopback_address_is_taken_and_any_other_refused_until_the_daemon_terminates_tls() {
@@ -705,11 +767,71 @@ mod tests {
         };
         let message = error.to_string();
         assert!(
-            ["`daemon.tls.cert_file`", "`daemon.tls.key_file`"]
-                .iter()
-                .all(|key| message.contains(key)),
+            [
+                "`daemon.tls.cert_file`",
+                "`daemon.tls.key_file`",
+                "`daemon.tls.upstream`"
+            ]
+            .iter()
+            .all(|key| message.contains(key)),
             "{message}"
         );
+    }
+
+    /// TLS is terminated by the Daemon with its files, or upstream with
+    /// `daemon.tls.upstream`, never both; `daemon.trusted_proxies` is read
+    /// only behind TLS terminated upstream.
+    #[test]
+    fn tls_is_terminated_by_the_daemon_or_upstream_and_proxies_are_trusted_only_upstream() {
+        let files = || {
+            tls_files(
+                Some(("/etc/daemon/cert.pem".to_owned(), Source::variable("cert"))),
+                Some(("/etc/daemon/key.pem".to_owned(), Source::variable("key"))),
+            )
+            .ok()
+            .flatten()
+        };
+        let upstream = || Some(Source::variable("upstream"));
+        let proxies = || {
+            Some((
+                vec![TrustedProxy::parse("10.0.0.0/8").unwrap()],
+                Source::variable("proxies"),
+            ))
+        };
+        let read = |terminated: Result<Terminating, super::Refused>| match terminated {
+            Ok(Terminating::Plain) => "plain".to_owned(),
+            Ok(Terminating::Files(_)) => "files".to_owned(),
+            Ok(Terminating::Upstream(proxies)) => format!("upstream {}", proxies.len()),
+            Err(super::Refused(error)) => format!("{}: {error}", error.code()),
+        };
+
+        let [plain, by_files, by_upstream, with_proxies] = [
+            terminating(None, None, None),
+            terminating(files(), None, None),
+            terminating(None, upstream(), None),
+            terminating(None, upstream(), proxies()),
+        ]
+        .map(read);
+        let both = read(terminating(files(), upstream(), None));
+        let proxies_alone = read(terminating(None, None, proxies()));
+
+        assert_eq!(
+            [plain, by_files, by_upstream, with_proxies],
+            ["plain", "files", "upstream 0", "upstream 1"]
+        );
+        for (refused, named) in [
+            (both, ["`daemon.tls.upstream`", "`daemon.tls.cert_file`"]),
+            (
+                proxies_alone,
+                ["`daemon.trusted_proxies`", "`daemon.tls.upstream`"],
+            ),
+        ] {
+            assert!(
+                refused.starts_with("setting_invalid")
+                    && named.iter().all(|key| refused.contains(key)),
+                "{refused}"
+            );
+        }
     }
 
     #[test]

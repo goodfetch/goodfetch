@@ -292,6 +292,66 @@ form = "read"
 
 [[member]]
 crate = "goodfetch-foxhound"
+receiver = "Seed"
+member = "sitemap"
+entry = "none"
+reason = "A sitemap seed of `url`, whose rules give each entry the Label of the first that matches it, built with no round trip (ADRs 0093 and 0120)."
+only = "TypeScript builds a sitemap seed with its module's `sitemap` function."
+words = ["sitemap"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "Seed"
+member = "method"
+entry = "none"
+reason = "The method a request seed is sent with, carried by `crawl.start`, with no round trip of its own."
+only = "TypeScript's `seed` takes it as its options' `method`."
+words = ["method"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "Seed"
+member = "body"
+entry = "none"
+reason = "The body a request seed is sent with, carried by `crawl.start`, with no round trip of its own."
+only = "TypeScript's `seed` takes it as its options' `body`."
+words = ["body"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "Seed"
+member = "priority"
+entry = "none"
+reason = "A request seed's priority among the requests of its domain, carried by `crawl.start`, with no round trip of its own."
+only = "TypeScript's `seed` takes it as its options' `priority`."
+words = ["priority"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "Seed"
+member = "forefront"
+entry = "none"
+reason = "Puts a request seed ahead of its domain's pending requests, carried by `crawl.start`, with no round trip of its own."
+only = "TypeScript's `seed` takes it as its options' `forefront`."
+words = ["forefront"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "Seed"
+member = "key"
+entry = "none"
+reason = "A request seed's identity in the Frontier, in place of its method, URL key and body hash, carried by `crawl.start`, with no round trip of its own."
+only = "TypeScript's `seed` takes it as its options' `key`."
+words = ["key"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-foxhound"
 receiver = "(crate)"
 member = "LabelDeclaration"
 entry = "none"

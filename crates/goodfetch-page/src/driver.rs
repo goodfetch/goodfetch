@@ -44,7 +44,7 @@ mod page_reader;
 mod permit_waits;
 mod popups;
 #[cfg(test)]
-mod replay;
+pub(crate) mod replay;
 mod service_workers;
 mod targets;
 mod world;
@@ -305,6 +305,34 @@ impl Browser {
                 close: Deadline::declared(&TIMEOUT_CLOSE),
             }),
             work: CountedWork::default(),
+        }
+    }
+}
+
+#[cfg(test)]
+impl PageDriver {
+    /// The driver of the page whose session is [`replay::SESSION`] and main
+    /// frame [`replay::FRAME`], in a browser no Run holds, over
+    /// `connection`, as a test plays one in process: its reader is read
+    /// once the test runs [`PageDriver::reading`].
+    pub(crate) fn played(connection: Connection) -> Self {
+        let browser = Browser::played(connection);
+        let session = TargetSession(replay::SESSION.to_owned());
+        Self {
+            page_reader: PageReader::new(&browser.connection, &session),
+            browser,
+            session,
+            egress: SessionEgress::default(),
+            context: "context".to_owned(),
+            frame: replay::FRAME.to_owned(),
+            started: Arc::new(watch::Sender::new(0)),
+            navigating: Arc::new(watch::Sender::new(0)),
+            spent: Duration::ZERO,
+            turn: Arc::new(Mutex::new(None)),
+            gesture: Arc::new(Mutex::new(())),
+            value: PageValue::empty(),
+            waits: None,
+            reader: None,
         }
     }
 }

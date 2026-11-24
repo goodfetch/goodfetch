@@ -112,7 +112,7 @@ use crate::interception::{
     Answer, ConsentHandling, Fulfillment, Interception, Overrides, Reply, Scope,
 };
 use crate::launch::Launcher;
-use crate::page_events::{self, Requested};
+use crate::page_events::{PageEvents, Requested};
 use crate::page_functions::{self, InitScripts, Injection, Matches, Pending, Registered};
 use crate::page_owner::PageOwners;
 use crate::page_value::{
@@ -163,18 +163,15 @@ pub fn contribution_with(
 ) -> Contribution {
     let handler_pages: Arc<dyn HandlerPages> = Arc::new(handler_pages);
     let interception = Interception::default();
-    let events = page_events::Table::default();
     let dialogs = Dialogs::default();
     let pages = Pages {
         sessions: Sessions::new(
             (pins, launcher),
             interception.clone(),
-            events.clone(),
             dialogs.clone(),
             Arc::clone(&handler_pages),
         ),
         interception,
-        events,
         dialogs,
         product: handler_pages,
         blocks,
@@ -372,8 +369,8 @@ const MAX_REDIRECTS_PARAMETER: &str = "max_redirects";
 /// of `page.wait_for_request_finished`, armed when its call arrives, and
 /// of `response.body`.
 fn with_event_handlers(contribution: Contribution, pages: &Pages) -> Contribution {
-    let table = &pages.events;
-    let (listening, waiting, reading) = (table.clone(), table.clone(), table.clone());
+    let owners = pages.sessions.page_owners();
+    let (listening, waiting, reading) = (owners.clone(), owners.clone(), owners.clone());
     let (finishing, reading_pages) = (pages.clone(), pages.clone());
     contribution
         .with_handler(
@@ -381,7 +378,7 @@ fn with_event_handlers(contribution: Contribution, pages: &Pages) -> Contributio
                 &PAGE_ON,
                 move |params: PageOnParams, context: CallContext| {
                     let listened = listening
-                        .get(&params.page_id)
+                        .events(&params.page_id)
                         .map(|events| events.listen(params.event));
                     async move {
                         listened?.serve(context.stream()).await?;
@@ -394,7 +391,7 @@ fn with_event_handlers(contribution: Contribution, pages: &Pages) -> Contributio
         .with_handler(Handler::new(
             &PAGE_WAIT_FOR_REQUEST_FINISHED,
             move |params: WaitForRequestFinishedParams, context: CallContext| {
-                let armed = waiting.get(&params.page_id).and_then(|events| {
+                let armed = waiting.events(&params.page_id).and_then(|events| {
                     let pattern = params.url.as_ref().map(pattern_of).transpose()?;
                     let deadline = events.wait_deadline(params.timeout)?;
                     Ok(events.wait_for_request_finished(pattern, context.form(), deadline))
@@ -409,7 +406,7 @@ fn with_event_handlers(contribution: Contribution, pages: &Pages) -> Contributio
         .with_handler(Handler::new(
             &RESPONSE_BODY,
             move |params: ResponseBodyParams, context: CallContext| {
-                let read = reading.get(&params.page_id).and_then(|events| {
+                let read = reading.events(&params.page_id).and_then(|events| {
                     let deadline = events.wait_deadline(params.timeout)?;
                     Ok((events, deadline))
                 });
@@ -1192,8 +1189,6 @@ async fn charge_request(run: &Run, context: &CallContext) -> Result<(), CallErro
 struct Pages {
     sessions: Sessions,
     interception: Interception,
-    /// Each open page's events, which calls reach as they arrive.
-    events: page_events::Table,
     /// Each open page's dialogs and their handlers.
     dialogs: Dialogs,
     /// The Product's seam that sets what its handlers' pages carry, which
@@ -1207,6 +1202,12 @@ struct Pages {
 }
 
 impl Pages {
+    /// The events of the open page `page_id`, which its owner holds, or
+    /// `closed`.
+    fn events(&self, page_id: &PageId) -> Result<PageEvents, CallError> {
+        self.sessions.page_owners().events(page_id)
+    }
+
     /// Navigates the page `page_id` to `destination` for the call
     /// `context`, answering once its document reached the state
     /// `wait_until` names; a download it turns into is published on the
@@ -1301,7 +1302,7 @@ impl Pages {
         // it checks the browser and the Filter lists touched its
         // navigation, which loads it once more with blocking off (ADR 0047);
         // then its Page check (ADRs 0006 and 0092).
-        let page_events = self.events.get(page_id)?;
+        let page_events = self.events(page_id)?;
         page_events.judged(&response.request_id);
         let received = page_events
             .answered_at(&response.request_id)
@@ -1414,7 +1415,7 @@ impl Pages {
             .await?;
         tracing::Span::current().record("run_id", page.run.id().as_str());
         let steps = page.owner.interception().engine_requests()?;
-        let events = self.events.get(&params.page_id)?;
+        let events = self.events(&params.page_id)?;
         let limits = Limits::of_run(page.run.settings());
         let request = browser_fetch::Request {
             url: &params.url,
@@ -1589,7 +1590,7 @@ impl Pages {
     ) -> Result<(OpenPage, Duration), CallError> {
         self.init_scripts.settled(page_id).await;
         let mut spent = Duration::ZERO;
-        if let Some(arming) = self.events.arming(page_id) {
+        if let Some(arming) = self.sessions.page_owners().arming(page_id) {
             let page = self.sessions.page(page_id).await?;
             let started = page.clock.now();
             match limit(&page)? {
@@ -1651,7 +1652,7 @@ impl Pages {
     /// Raises the consent wall the Consent prompt runner left in the
     /// document the page `page_id` holds, once (ADR 0048).
     fn consent_wall(&self, page_id: &PageId) -> Result<(), CallError> {
-        let walled = self.events.get(page_id).ok().and_then(|events| {
+        let walled = self.events(page_id).ok().and_then(|events| {
             blocked::consent_wall(self.sessions.consent_walls(), page_id, &events)
         });
         walled.map_or(Ok(()), Err)
@@ -1671,8 +1672,7 @@ impl Pages {
         waiting: Option<&'static str>,
     ) -> Result<(), CallError> {
         let Some((response, received, requested)) = self
-            .events
-            .get(page_id)
+            .events(page_id)
             .ok()
             .and_then(|events| events.take_unjudged())
         else {

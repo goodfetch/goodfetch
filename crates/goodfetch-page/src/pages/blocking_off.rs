@@ -155,8 +155,7 @@ impl Pages {
         judged?;
         if let Some(block) = block {
             let received = self
-                .events
-                .get(page_id)?
+                .events(page_id)?
                 .answered_at(&response.request_id)
                 .unwrap_or_else(|| page.clock.wall());
             return Err(blocked(block, &response, received));
@@ -180,7 +179,7 @@ impl Pages {
         let Some(response) = arrived(page_id, navigated, events).await else {
             return Ok(None);
         };
-        self.events.get(page_id)?.judged(&response.request_id);
+        self.events(page_id)?.judged(&response.request_id);
         let block = block_of(
             &page.driver,
             page.run.metrics().counted_work(),

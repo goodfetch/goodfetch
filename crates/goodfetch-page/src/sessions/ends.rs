@@ -53,8 +53,10 @@ impl Sessions {
                 if effect == PageEffect::RendererCrash {
                     charge_a_crash(run).await;
                 }
-                if let Ok(events) = self.events.get(page_id) {
-                    events.publish_end(PageEventName::Crash, &PAGE_CRASH);
+                if let Some(owner) = self.page_owners.get(page_id) {
+                    owner
+                        .events()
+                        .publish_end(PageEventName::Crash, &PAGE_CRASH);
                 }
                 if effect == PageEffect::BrowserCrash {
                     // Its browser is gone: nothing is left to release, and
@@ -67,9 +69,11 @@ impl Sessions {
             | PageEffect::CloseOvertaken
             | PageEffect::Quit => {
                 if effect != PageEffect::Quit
-                    && let Ok(events) = self.events.get(page_id)
+                    && let Some(owner) = self.page_owners.get(page_id)
                 {
-                    events.publish_end(PageEventName::Close, &PAGE_CLOSE);
+                    owner
+                        .events()
+                        .publish_end(PageEventName::Close, &PAGE_CLOSE);
                 }
                 let mut state = self.state.lock().await;
                 state.pages.remove(page_id);
@@ -85,9 +89,8 @@ impl Sessions {
                         .insert(page_id.clone(), (run.id().clone(), life.clone()));
                 }
                 drop(state);
-                self.events.close(pages);
-                self.dialogs.close(pages);
                 self.page_owners.close(pages);
+                self.dialogs.close(pages);
             }
             // A crashed page releases what is left, its admission and its
             // place in its browser, and stays `Crashed`: its later calls
@@ -119,9 +122,8 @@ impl Sessions {
                 .insert(page_id.clone(), (run.id().clone(), page.life));
         }
         drop(state);
-        self.events.close(pages);
-        self.dialogs.close(pages);
         self.page_owners.close(pages);
+        self.dialogs.close(pages);
     }
 
     /// The Session `open` takes the loss `lost` of its browser `browser`: a

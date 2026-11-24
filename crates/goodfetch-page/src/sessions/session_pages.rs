@@ -35,7 +35,9 @@ use tokio::sync::watch;
 use super::life::{Ending, PageLife, page_closed, session_closed};
 use super::lifecycle::PageEffect;
 use super::robots_txt;
-use super::{OpenPage, Session, Sessions, action_timeout, interception_run, wait_deadline};
+use super::{
+    OpenPage, Session, Sessions, action_timeout, events_run, interception_run, wait_deadline,
+};
 use crate::driver::{OnChild, OnPopup, PageDriver, PopupHandler, SessionEgress};
 use crate::hiding::{PageHiding, Sheets};
 use crate::interception::{OnDocument, PageInterception};
@@ -78,6 +80,8 @@ struct TakenIn<'a> {
     run: Run,
     /// Its place in its browser, until it is kept.
     in_browser: Option<InBrowser>,
+    /// Its events, once they are read.
+    events: Option<PageEvents>,
     /// Its side of the interception, once the interception holds it.
     interception: Option<PageInterception>,
 }
@@ -85,18 +89,27 @@ struct TakenIn<'a> {
 impl TakenIn<'_> {
     /// The page goes into its Session's table with nothing awaited first,
     /// where its close, its Session's end or its Run's takes it out:
-    /// answers its place in its browser and its side of the interception,
-    /// which its owner holds.
-    fn kept(mut self) -> (InBrowser, PageInterception) {
+    /// answers its place in its browser, and its parts its owner holds.
+    fn kept(mut self) -> (InBrowser, PageParts) {
         let in_browser = self
             .in_browser
             .take()
             .expect("invariant: a page being taken in holds its place until it is kept");
+        let events = self
+            .events
+            .take()
+            .expect("invariant: a page's events are read before it is held");
         let interception = self
             .interception
             .take()
             .expect("invariant: a page is kept once the interception holds it");
-        (in_browser, interception)
+        (
+            in_browser,
+            PageParts {
+                events,
+                interception,
+            },
+        )
     }
 }
 
@@ -106,7 +119,9 @@ impl Drop for TakenIn<'_> {
             return;
         };
         let pages = std::slice::from_ref(&self.page);
-        self.sessions.events.close(pages);
+        if let Some(events) = &self.events {
+            events.close();
+        }
         self.sessions.dialogs.close(pages);
         if let Some(interception) = &self.interception {
             interception.close();
@@ -246,6 +261,7 @@ impl Sessions {
             driver: driver.clone(),
             run: run.clone(),
             in_browser: Some(in_browser),
+            events: None,
             interception: None,
         };
         // The page's events are read from before its requests pause, so
@@ -254,7 +270,7 @@ impl Sessions {
         let events = PageEvents::start(
             page.clone(),
             driver.clone(),
-            &run,
+            events_run(&run),
             stream.clone(),
             refusals.clone(),
             driver.events(),
@@ -265,7 +281,7 @@ impl Sessions {
         // The page's events read each out-of-process frame's network, and
         // each frame takes the page's init scripts, before it runs (H7, M20).
         let in_frames = vec![events.frames(), frame_scripts.frames(&driver)];
-        self.events.insert(page.clone(), events);
+        taken_in.events = Some(events);
         self.dialogs
             .start(page.clone(), driver.clone(), &run, driver.events());
         let (hiding, sheets, routed) = self
@@ -285,12 +301,12 @@ impl Sessions {
         let life = PageLife::new(page.clone(), driver.value().lease().cloned(), routed);
         let page_check = open.checking(driver.value().page_check());
         // Nothing awaits from here until the page is in the table.
-        let (in_browser, interception) = taken_in.kept();
+        let (in_browser, parts) = taken_in.kept();
         // Its owner, under its Session's (ADR 0146).
         let owner = PageOwner::start(
             &open.owner,
             identity(&run).span(),
-            (&page, PageParts { interception }),
+            (&page, parts),
             page_closed(&page),
             run.metrics(),
         );
@@ -423,7 +439,7 @@ impl Sessions {
         let Some((open, (opener_id, opener))) = found else {
             return false;
         };
-        let Ok(opener_events) = self.events.get(&opener_id) else {
+        let Ok(opener_events) = self.page_owners.events(&opener_id) else {
             return false;
         };
         let run = open.run.clone();

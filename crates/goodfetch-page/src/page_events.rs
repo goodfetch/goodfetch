@@ -72,7 +72,7 @@
 //! so each event changes that state in one place, under one lock.
 #![expect(
     clippy::disallowed_types,
-    reason = "listeners and waiters are armed as their call arrives, before any `.await`: each lock guards the open pages, one page's state or its refusals for one step, never across an `.await` or another of them (a request's refusal and its relay's error are taken before `state`), and the Tokio `watch` values updated under `state` never take one, so there is no lock order to test under loom (ADR 0060)"
+    reason = "listeners and waiters are armed as their call arrives, before any `.await`: each lock guards one page's state or its refusals for one step, never across an `.await` or another of them (a request's refusal and its relay's error are taken before `state`), and the Tokio `watch` values updated under `state` never take one, so there is no lock order to test under loom (ADR 0060)"
 )]
 
 use std::collections::BTreeMap;
@@ -88,8 +88,11 @@ use goodfetch_engine::events::Events;
 use goodfetch_engine::events::{Envelope, EventData};
 use goodfetch_engine::response_limits::{LimitExceeded, Limits};
 use goodfetch_engine::rpc::send_events;
-use goodfetch_engine::run_trace::RequestLog;
-use goodfetch_engine::runs::{Run, run_trace};
+use goodfetch_engine::run_files::RunFiles;
+use goodfetch_engine::run_identity::RunIdentity;
+use goodfetch_engine::run_trace::{RequestLog, RunTrace};
+use goodfetch_engine::runs::outcome::record_outcome;
+use goodfetch_engine::secrets::RunSecrets;
 use goodfetch_engine::{CallError, CallStream, named};
 use goodfetch_protocol::catalog::Event;
 use goodfetch_protocol::connection::{Form, WaitedFor};
@@ -200,57 +203,22 @@ fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
         .unwrap_or_else(std::sync::PoisonError::into_inner)
 }
 
-/// The open pages' events, by page, which a call reaches as it arrives.
-#[derive(Clone, Default)]
-pub(crate) struct Table(Arc<Mutex<BTreeMap<PageId, PageEvents>>>);
-
-impl Table {
-    pub(crate) fn insert(&self, page_id: PageId, events: PageEvents) {
-        lock(&self.0).insert(page_id, events);
-    }
-
-    /// The events of the open page `page_id`, or `closed`.
-    pub(crate) fn get(&self, page_id: &PageId) -> Result<PageEvents, CallError> {
-        lock(&self.0).get(page_id).cloned().ok_or_else(|| {
-            CallError::new(
-                &goodfetch_protocol::connection::CLOSED,
-                format!("the page `{}` is closed, or its Run ended", page_id.0),
-                &serde_json::json!({ "page_id": page_id }),
-            )
-        })
-    }
-
-    /// The wait until no `page.on` of the page `page_id` sent before now is
-    /// still turning `Runtime` on; none while none is, or for a page that is
-    /// not open.
-    ///
-    /// # Cancel safety
-    ///
-    /// Dropping the future gives up the wait.
-    pub(crate) fn arming(
-        &self,
-        page_id: &PageId,
-    ) -> Option<impl Future<Output = ()> + Send + use<>> {
-        let mut arming = lock(&self.0).get(page_id)?.shared.arming.subscribe();
-        let on = *arming.borrow_and_update();
-        on.then_some(async move {
-            let _ = arming.wait_for(|arming| !*arming).await;
-        })
-    }
-
-    /// Takes the pages `pages` out, as they go: their calls answer.
-    pub(crate) fn close(&self, pages: &[PageId]) {
-        let taken: Vec<PageEvents> = {
-            let mut table = lock(&self.0);
-            pages.iter().filter_map(|page| table.remove(page)).collect()
-        };
-        for events in taken {
-            events.close();
-        }
-    }
+/// What a page's events use of a live Run (ADR 0145): its identity, whose
+/// tasks they start, whose clock dates them and whose settings bound the
+/// bodies they read, and whose outcome a lost event or a refused request
+/// records; its files, which store those bodies; its Secrets, which a
+/// request's posted data is masked by; and its trace, which logs refused
+/// requests. Cloning it is four reference counts.
+#[derive(Clone)]
+pub(crate) struct RunPowers {
+    pub(crate) identity: RunIdentity,
+    pub(crate) files: RunFiles,
+    pub(crate) secrets: RunSecrets,
+    pub(crate) trace: RunTrace,
 }
 
-/// One open page's events and bodies; clones share them.
+/// One open page's events and bodies, which its owner holds (ADR 0146);
+/// clones share them.
 #[derive(Clone)]
 pub(crate) struct PageEvents {
     shared: Arc<Shared>,
@@ -259,7 +227,7 @@ pub(crate) struct PageEvents {
 struct Shared {
     page_id: PageId,
     driver: PageDriver,
-    run: Run,
+    run: RunPowers,
     /// The engine's event stream the page's Session publishes on, which
     /// the page's own events never take.
     events: Events,
@@ -289,6 +257,19 @@ struct Shared {
     /// The response observer its Session registered, and what it keeps,
     /// read once when the page opened.
     observing: Option<(Observer, Kept)>,
+}
+
+impl Shared {
+    /// Starts `future` as one of the Run's tasks, in its span.
+    fn spawn(&self, future: impl Future<Output = ()> + Send + 'static) {
+        self.run.identity.spawn(future);
+    }
+
+    /// Records that the Run's driver recorded `error_code`, which no reply
+    /// carries.
+    fn record_outcome(&self, error_code: &str) {
+        record_outcome(&self.run.identity, error_code);
+    }
 }
 
 /// How many `page.request` bodies a page keeps for `response.body`: the
@@ -504,7 +485,7 @@ fn arm_runtime(shared: &Arc<Shared>) -> oneshot::Receiver<Result<(), CallError>>
     }
     let (answer, answered) = oneshot::channel();
     let ending = ArmingEnds(Arc::clone(shared));
-    shared.run.spawn(async move {
+    shared.spawn(async move {
         let shared = &ending.0;
         let enabled = shared
             .driver
@@ -557,7 +538,7 @@ impl PageEvents {
     pub(crate) fn start(
         page_id: PageId,
         driver: PageDriver,
-        run: &Run,
+        run: RunPowers,
         events: Events,
         refusals: Refusals,
         subscription: Subscription,
@@ -567,15 +548,14 @@ impl PageEvents {
         let shared = Arc::new(Shared {
             page_id,
             driver,
-            run: run.clone(),
             events,
             refusals,
             wait,
-            clock: run.clock(),
-            log: Arc::new(RequestLog::new(run_trace(run))),
+            clock: run.identity.clock(),
+            log: Arc::new(RequestLog::new(&run.trace)),
             state: Mutex::new(State {
                 url: "about:blank".to_owned(),
-                work: run.metrics().counted_work().clone(),
+                work: run.identity.metrics().counted_work().clone(),
                 ..State::default()
             }),
             changed: Notify::new(),
@@ -588,9 +568,10 @@ impl PageEvents {
                 let kept = observer.kept();
                 (observer, kept)
             }),
+            run,
         });
-        run.spawn(read(subscription, Arc::clone(&shared)));
-        run.spawn(document::watch_idle(Arc::clone(&shared)));
+        shared.spawn(read(subscription, Arc::clone(&shared)));
+        shared.spawn(document::watch_idle(Arc::clone(&shared)));
         Self { shared }
     }
 
@@ -633,9 +614,7 @@ impl PageEvents {
                         {
                             tracing::debug!(%failure, "an out-of-process frame went before its console was read");
                         }
-                        shared
-                            .run
-                            .spawn(read_frame(events, gone, session, Arc::clone(&shared)));
+                        shared.spawn(read_frame(events, gone, session, Arc::clone(&shared)));
                     }
                     Err(failure) => {
                         tracing::debug!(%failure, "an out-of-process frame went before its network was read");
@@ -761,6 +740,20 @@ impl PageEvents {
         // Closed first, so a listener armed from now arms nothing.
         self.shared.closed.send_replace(true);
         answer_every_waiter(&self.shared);
+    }
+
+    /// The wait until no `page.on` of the page sent before now is still
+    /// turning `Runtime` on; none while none is.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future gives up the wait.
+    pub(crate) fn arming(&self) -> Option<impl Future<Output = ()> + Send + use<>> {
+        let mut arming = self.shared.arming.subscribe();
+        let on = *arming.borrow_and_update();
+        on.then_some(async move {
+            let _ = arming.wait_for(|arming| !*arming).await;
+        })
     }
 
     /// Arms a waiter for the next request whose URL `pattern` matches, any
@@ -933,7 +926,7 @@ async fn read_body(
     counted: (u64, Option<u64>),
 ) -> Result<BodyHandle, Unread> {
     let bytes = judged_body(shared, request_id, url, counted).await?;
-    match shared.run.store_body(bytes.into()).await {
+    match shared.run.files.store_body(bytes.into()).await {
         Ok(handle) => Ok(handle),
         Err(error) => {
             tracing::warn!(%error, "a response's body was not stored");
@@ -953,7 +946,7 @@ async fn judged_body(
     url: &str,
     (received, declared): (u64, Option<u64>),
 ) -> Result<Vec<u8>, Unread> {
-    let limits = Limits::of_run(shared.run.settings());
+    let limits = Limits::of_run(shared.run.identity.settings());
     let past = |exceeded: LimitExceeded| Unread::PastLimit(exceeded.error());
     limits
         .judge_decoded(url, received, declared)
@@ -1007,8 +1000,8 @@ fn observe(shared: &Arc<Shared>, response: &PageResponse, received: Option<u64>)
         return;
     }
     let (shared, response) = (Arc::clone(shared), response.clone());
-    let run = shared.run.clone();
-    run.spawn(async move {
+    let identity = shared.run.identity.clone();
+    identity.spawn(async move {
         let body = match received {
             Some(received) => {
                 let counted = (received, declared_length(&response.headers));
@@ -1196,7 +1189,7 @@ async fn read(mut subscription: Subscription, shared: Arc<Shared>) {
             "the page's events fell too far behind and some are lost: its calls on events raise `page_events_lost`"
         );
         // The Run trace holds the Error code no reply may carry (ADR 0072).
-        shared.run.record_outcome(PAGE_EVENTS_LOST.name);
+        shared.record_outcome(PAGE_EVENTS_LOST.name);
         shared.lost.send_replace(true);
         answer_every_waiter(&shared);
     } else {
@@ -1389,7 +1382,7 @@ fn sent_request(
         url: sent.request.url.clone(),
         method: sent.request.method.clone(),
         headers: headers(&sent.request.headers),
-        post_data: post_data(&sent.request, shared.run.secrets().mask().masks()),
+        post_data: post_data(&sent.request, shared.run.secrets.mask().masks()),
         resource_type: resource_type(sent.r#type.unwrap_or(network::ResourceType::Other)),
         is_navigation_request: is_navigation(sent.r#type),
         redirect_chain: chain,
@@ -1473,14 +1466,15 @@ fn failed_request(
     tracked.ended = Some(Ended::Failed(error));
     if let Some((refused, true)) = &refusal {
         // The Run trace holds the Error code no reply carries (ADR 0072).
-        shared.run.record_outcome(&refused.code);
+        shared.record_outcome(&refused.code);
         let (log, request) = (Arc::clone(&shared.log), request.clone());
         shared
             .run
+            .identity
             .metrics()
             .counted_work()
             .count(Row::InterceptedSpawns);
-        shared.run.spawn(async move {
+        shared.spawn(async move {
             if let Err(error) = log.record(&PAGE_REQUEST_FAILED, &request).await {
                 tracing::warn!(%error, "the Run trace did not take a refused request");
             }
@@ -1603,8 +1597,8 @@ fn answer_waiters(
     };
     let declared = declared_length(&response.headers);
     let shared = Arc::clone(shared);
-    let run = shared.run.clone();
-    run.spawn(async move {
+    let identity = shared.run.identity.clone();
+    identity.spawn(async move {
         let request_id = request.request_id.clone();
         let kept = read_body(&shared, &request_id, &request.url, (received, declared)).await;
         let gone = matches!(kept, Err(Unread::Gone));
@@ -1657,4 +1651,4 @@ fn frame_of(
 }
 
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;

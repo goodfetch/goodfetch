@@ -51,7 +51,6 @@ use crate::borrowed::CdpUrl;
 use crate::dialogs::Dialogs;
 use crate::interception::{HeldBrowser, Interception};
 use crate::launch::Launcher;
-use crate::page_events;
 use crate::page_value::ProgramPages;
 
 /// Opens a Run's default Session and stops the Run while the open waits
@@ -122,7 +121,6 @@ fn table() -> Sessions {
     Sessions::new(
         (Vec::new(), Launcher::Executable),
         Interception::default(),
-        page_events::Table::default(),
         Dialogs::default(),
         Arc::new(ProgramPages),
     )

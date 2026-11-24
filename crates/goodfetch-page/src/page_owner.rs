@@ -25,6 +25,7 @@ use tracing::Instrument as _;
 use crate::cdp::CdpPage;
 use crate::errors::{Call, page_panicked};
 use crate::interception::PageInterception;
+use crate::page_events::PageEvents;
 
 /// How many asks wait for a Page's owner at most: a caller past them waits
 /// for room.
@@ -49,6 +50,10 @@ pub(crate) struct PageOwner {
 /// The Page's state its owner holds, one part at a time as spec #2256
 /// moves it from the engine-wide tables.
 pub(crate) struct PageParts {
+    /// Its events: the requests and responses it follows, its waiters, its
+    /// `page.on` listeners, what a body read needs and the arming of
+    /// `Runtime`.
+    pub(crate) events: PageEvents,
     /// Its side of the interception: its Routes, its Filter lists' state,
     /// its handlers' failures and its pending navigation.
     pub(crate) interception: PageInterception,
@@ -138,6 +143,11 @@ impl PageOwner {
             panicked,
             work: metrics.counted_work().clone(),
         }
+    }
+
+    /// Its Page's events.
+    pub(crate) fn events(&self) -> &PageEvents {
+        &self.parts.events
     }
 
     /// Its Page's side of the interception.
@@ -233,14 +243,43 @@ impl PageOwners {
         self.held().get(page_id).cloned()
     }
 
-    /// Takes the Pages `pages` out, as each ends: each one's side of the
-    /// interception closes.
+    /// The events of the open Page `page_id`, or `closed`.
+    pub(crate) fn events(&self, page_id: &PageId) -> Result<PageEvents, CallError> {
+        let held = self.held();
+        held.get(page_id)
+            .map(|owner| owner.events().clone())
+            .ok_or_else(|| {
+                CallError::new(
+                    &goodfetch_protocol::connection::CLOSED,
+                    format!("the page `{}` is closed, or its Run ended", page_id.0),
+                    &serde_json::json!({ "page_id": page_id }),
+                )
+            })
+    }
+
+    /// The wait until no `page.on` of the open Page `page_id` sent before
+    /// now is still turning `Runtime` on; none while none is, or for a Page
+    /// that is not open.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future gives up the wait.
+    pub(crate) fn arming(
+        &self,
+        page_id: &PageId,
+    ) -> Option<impl Future<Output = ()> + Send + use<>> {
+        self.held().get(page_id)?.events().arming()
+    }
+
+    /// Takes the Pages `pages` out, as each ends: each one's events close,
+    /// their calls answering, then its side of the interception.
     pub(crate) fn close(&self, pages: &[PageId]) {
         let ended: Vec<PageOwner> = {
             let mut held = self.held();
             pages.iter().filter_map(|page| held.remove(page)).collect()
         };
         for owner in &ended {
+            owner.events().close();
             owner.interception().close();
         }
     }

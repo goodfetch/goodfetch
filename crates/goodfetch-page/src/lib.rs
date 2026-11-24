@@ -32,6 +32,8 @@ mod hiding;
 mod interception;
 pub mod kept_tree;
 mod launch;
+#[cfg(test)]
+mod live_run;
 pub mod noindex;
 mod page_events;
 mod page_functions;

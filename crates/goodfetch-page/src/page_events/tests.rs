@@ -1,10 +1,61 @@
+use goodfetch_engine::deadline::Deadline;
+use goodfetch_engine::events::EventData;
+use goodfetch_engine::settings::RunSettings;
 use goodfetch_protocol::connection::Form;
 use goodfetch_protocol::page::PageId;
 use goodfetch_protocol::page::events::PageEventName;
+use goodfetch_protocol::settings::TIMEOUT_WAIT;
 use rstest::rstest;
-use serde_json::json;
+use serde_json::{Value, json};
+use tokio::sync::mpsc::error::TryRecvError;
 
-use super::listener_fell_behind;
+use super::{Listening, PageEvents, Refusals, listener_fell_behind};
+use crate::driver::PageDriver;
+use crate::live_run::LiveRun;
+
+/// The events of the page `page_id`, which `driver` drives for the test's
+/// Run, read as its Session reads them.
+pub(crate) fn started(page_id: &PageId, driver: &PageDriver, live: &LiveRun) -> PageEvents {
+    PageEvents::start(
+        page_id.clone(),
+        driver.clone(),
+        crate::sessions::events_run(&live.run),
+        live.events.clone(),
+        Refusals::default(),
+        driver.events(),
+        Deadline::of_resolved(
+            live.run.settings().map(RunSettings::resolved),
+            &TIMEOUT_WAIT,
+        ),
+        None,
+    )
+}
+
+/// An event's data, decoded.
+fn decoded(data: &EventData) -> Value {
+    serde_json::from_str(data.json()).expect("invariant: an event's data is JSON")
+}
+
+impl Listening {
+    /// The events published to this listener so far, each its data, and
+    /// whether its listening ended.
+    pub(crate) fn taken(&mut self) -> (Vec<Value>, bool) {
+        let mut taken = Vec::new();
+        loop {
+            match self.events.try_recv() {
+                Ok((_, data)) => taken.push(decoded(&data)),
+                Err(TryRecvError::Empty) => return (taken, false),
+                Err(TryRecvError::Disconnected) => return (taken, true),
+            }
+        }
+    }
+
+    /// The data of the next event published to this listener, once it is;
+    /// none once its listening ended.
+    pub(crate) async fn heard(&mut self) -> Option<Value> {
+        self.events.recv().await.map(|(_, data)| decoded(&data))
+    }
+}
 
 /// A listener that fell behind names its event as its Client listens to
 /// it, and its details stay canonical.

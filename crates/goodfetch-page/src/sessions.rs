@@ -67,7 +67,7 @@ use goodfetch_engine::run::{secret_error, settings_error};
 use goodfetch_engine::run_key::Sealed;
 use goodfetch_engine::run_state::{RunStateError, RunStateTables, SecretColumn, run_row};
 use goodfetch_engine::runs::{
-    self, Run, RunError, RunKeyError, governor, identity, keys, run_trace, warnings,
+    self, Run, RunError, RunKeyError, files, governor, identity, keys, run_trace, warnings,
 };
 use goodfetch_engine::secrets::Purpose;
 use goodfetch_engine::settings::{RunSettings, SettingsError, Values, setting};
@@ -156,8 +156,6 @@ pub(crate) struct Sessions {
     /// The Consent prompt runner every page starts.
     consent: Consent,
     hiding: Hiding,
-    /// Each open page's events, which calls reach as they arrive.
-    events: page_events::Table,
     /// Each open page's dialogs and their handlers.
     dialogs: Dialogs,
     /// What each page carries for the Product that hands pages to
@@ -376,6 +374,16 @@ fn parse_session_id(session: &SessionId) -> Option<(RunId, u32)> {
     Some((RunId::parse(run).ok()?, position.parse().ok()?))
 }
 
+/// The identity and the powers of `run` its pages' events take (ADR 0145).
+pub(crate) fn events_run(run: &Run) -> page_events::RunPowers {
+    page_events::RunPowers {
+        identity: identity(run).clone(),
+        files: files(run).clone(),
+        secrets: keys(run).secrets().clone(),
+        trace: run_trace(run).clone(),
+    }
+}
+
 /// The identity and the powers of `run` its pages' interception takes
 /// (ADR 0145).
 pub(crate) fn interception_run(run: &Run) -> RunPowers {
@@ -473,13 +481,11 @@ impl Drop for EnginePage {
 
 impl Sessions {
     /// The engine's Sessions, whose browsers `launcher` starts from `pins`,
-    /// under `interception`, their pages' events in `events` and their
-    /// dialogs in `dialogs`, each page's value and response observer from
-    /// `handler_pages`.
+    /// under `interception`, their pages' dialogs in `dialogs`, each page's
+    /// value and response observer from `handler_pages`.
     pub(crate) fn new(
         (pins, launcher): (Vec<PinnedArtifact>, Launcher),
         interception: Interception,
-        events: page_events::Table,
         dialogs: Dialogs,
         handler_pages: Arc<dyn HandlerPages>,
     ) -> Self {
@@ -490,7 +496,6 @@ impl Sessions {
             interception,
             consent: Consent::default(),
             hiding: Hiding::default(),
-            events,
             dialogs,
             handler_pages,
             page_listeners: session_pages::PageListeners::default(),
@@ -1016,9 +1021,8 @@ impl Sessions {
             }
             pages
         };
-        self.events.close(&pages);
-        self.dialogs.close(&pages);
         self.page_owners.close(&pages);
+        self.dialogs.close(&pages);
         self.interception.close_session(session);
         self.hiding.close(session).await;
         if open.life.pooled() {
@@ -1291,9 +1295,8 @@ impl Sessions {
             drop(ended);
             for session in &gone {
                 let pages = pages.remove(session).unwrap_or_default();
-                sessions.events.close(&pages);
-                sessions.dialogs.close(&pages);
                 sessions.page_owners.close(&pages);
+                sessions.dialogs.close(&pages);
                 sessions.interception.close_session(session);
                 sessions.hiding.close(session).await;
             }

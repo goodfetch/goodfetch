@@ -242,7 +242,7 @@ export async function loadRegistry(root: string): Promise<Registry> {
 
 /** A measured figure: these belong to generated verdicts, never to editorial text. */
 const measuredFigure =
-  /\d+(?:[.,]\d+)?\s*(?:%|ms\b|s\b|µs\b|[KMG]i?B\b|[KMG]o\b|B\b|jobs?\/s|req(?:uests)?\/s|rows?\/s|tasks?\/s|×|x\b|fois\b)/i;
+  /\d+(?:[.,]\d+)?\s*(?:%|ms\b|s\b|µs\b|[KMG]i?B\b|[KMG]o\b|B\b|jobs?\/s|(?:req|requests)\/s|rows?\/s|tasks?\/s|×|x\b|fois\b)/i;
 
 /** The first measured figure in editorial `text`, or `null`. */
 function figureIn(...texts: readonly string[]): string | null {

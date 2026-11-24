@@ -669,11 +669,16 @@ kind = "error"
 prefix = "secret_"
 
 # Area 4's session export bundles (#663): the Error code an import fails
-# with when a bundle does not open.
+# with when a bundle does not open, and the format of what one holds.
 [[area]]
 number = 4
 kind = "error"
 prefix = "session_export_"
+
+[[area]]
+number = 4
+kind = "format"
+prefix = "session-export"
 
 # Area 4's external Secret providers (#645): each provider's
 # `secret_providers.<scheme>.*` settings.

@@ -3299,6 +3299,17 @@
       ]
     },
     {
+      "id": "format:session-export",
+      "kind": "format",
+      "area": null,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "format:usage-ledger",
       "kind": "format",
       "area": 3,

@@ -112,6 +112,14 @@ fn file_formats() -> serde_json::Value {
             "hello_from": [],
             "schema": { "type": "array", "items": true },
         },
+        {
+            "name": "session-export",
+            "version": "0.1",
+            "storage": "json",
+            "rule": "default",
+            "hello_from": [],
+            "schema": { "$ref": "#/$defs/SessionExport" },
+        },
     ])
 }
 

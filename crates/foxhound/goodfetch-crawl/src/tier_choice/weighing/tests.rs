@@ -5,6 +5,7 @@
 use std::collections::BTreeSet;
 
 use goodfetch_protocol::foxhound::crawl::PushedRecord;
+use goodfetch_protocol::foxhound::dataset::RecordData;
 use rstest::rstest;
 use serde_json::{Value, json};
 
@@ -16,7 +17,7 @@ fn records(data: &[Value]) -> Vec<PushedRecord> {
     data.iter()
         .map(|data| PushedRecord {
             dataset: "pages".to_owned(),
-            data: data.clone(),
+            data: RecordData::of(data).unwrap(),
         })
         .collect()
 }

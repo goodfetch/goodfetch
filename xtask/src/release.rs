@@ -12,16 +12,21 @@
 //! the version `cargo publish` needs.
 //!
 //! The release line (ADR 0032): `cut` gives a minor its `release/x.y`
-//! branch, `backports` lists the fixes it lacks, `range` gives a release's
-//! git-cliff range and `check` holds a release, or a promotion to `x.y.0`,
-//! at its gates; `prepare` holds a patch that changes a format (ADR 0066).
+//! branch and opens its first candidate's pull request, `pull-request`
+//! opens every later release's on that branch, `backports` lists the fixes
+//! it lacks, `range` gives a release's git-cliff range, `changelog` writes
+//! its entries in `CHANGELOG.md` and `check` holds a release, or a
+//! promotion to `x.y.0`, at its gates; `prepare` and `pull-request` hold a
+//! patch that changes a format (ADR 0066).
 #![expect(
     clippy::disallowed_methods,
     reason = "xtask is synchronous; the blocking-fs ban targets async crates (STYLE.md)"
 )]
 
+mod changelog;
 mod gates;
 mod line;
+mod pull_request;
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::num::NonZeroU64;
@@ -61,6 +66,8 @@ const CARGO_LOCK: &str = "Cargo.lock";
 
 /// The suffix of a minor's cut point tag on `main`, `x.y-branch` (ADR 0032).
 const CUT_POINT: &str = "-branch";
+/// The remote a release's branches and tags are pushed to and read from.
+const REMOTE: &str = "origin";
 const UV_LOCK: &str = "uv.lock";
 /// Each library outside the workspace that takes a released crate by a
 /// range of the Product's line, as its author would publish it (story
@@ -85,9 +92,9 @@ pub(crate) enum Command {
     },
     /// Cuts minor `x.y` from `origin`'s `main`, once its release gates
     /// pass: pushes the `release/x.y` branch and the `x.y-branch` tag at
-    /// `main`'s commit and the first candidate's version commit on
-    /// `release-pr/x.y.0-rc.1`, then opens that candidate's release pull
-    /// request against the branch. `main` is left as it was.
+    /// `main`'s commit, then opens the first candidate's release pull
+    /// request against the branch, as `pull-request` does. `main` is left
+    /// as it was.
     Cut {
         #[arg(long)]
         minor: Minor,
@@ -95,6 +102,18 @@ pub(crate) enum Command {
         /// (`xtask features report`'s `features.json`).
         #[arg(long)]
         feature_report: PathBuf,
+        #[command(flatten)]
+        github: github::Arguments,
+    },
+    /// Opens `version`'s release pull request against the branch it is
+    /// released from, `release/x.y`, which the workspace must be on, clean:
+    /// on `release-pr/<version>`, one signed-off commit that sets the
+    /// version as `prepare` does, holds what `xtask codegen` then writes and
+    /// adds the version's changelog entries. Holds a patch as `prepare`
+    /// does.
+    PullRequest {
+        #[arg(long)]
+        version: ProductVersion,
         #[command(flatten)]
         github: github::Arguments,
     },
@@ -115,6 +134,19 @@ pub(crate) enum Command {
         version: ProductVersion,
         #[arg(long, default_value = "HEAD")]
         to: String,
+    },
+    /// Writes `version`'s entries above the earlier releases' in
+    /// `CHANGELOG.md`, with git-cliff, from the commits of its range up to
+    /// `to`: under Foxhound only a commit whose every changed path is on
+    /// Foxhound's side, under both Products every other (ADR 0094).
+    Changelog {
+        #[arg(long)]
+        version: ProductVersion,
+        #[arg(long, default_value = "HEAD")]
+        to: String,
+        /// The release's date; today when not given.
+        #[arg(long, hide = true)]
+        at: Option<jiff::Timestamp>,
     },
     /// Holds a release of `version`, built from `commit`, at its gates: an
     /// empty quarantine list and no untested Feature for every release; for
@@ -175,8 +207,26 @@ pub(crate) fn run(command: Command, environment: &Environment) -> Result<ExitCod
             if !findings.is_empty() {
                 return Ok(crate::check::report(&findings));
             }
+            pull_request::require_clean(root)?;
             let api = github.authenticated(environment.token())?;
-            line::cut(root, minor, &github.repository, api)?;
+            let candidate = line::cut(root, minor)?;
+            releaser(environment, &github, api)
+                .open(&candidate)
+                .with_context(|| {
+                    format!(
+                        "minor {minor} is cut, and the workspace is on {}",
+                        minor.branch()
+                    )
+                })?;
+            Ok(ExitCode::SUCCESS)
+        }
+        Command::PullRequest { version, github } => {
+            let findings = gates::patch(root, "HEAD", &version)?;
+            if !findings.is_empty() {
+                return Ok(crate::check::report(&findings));
+            }
+            let api = github.authenticated(environment.token())?;
+            releaser(environment, &github, api).open(&version)?;
             Ok(ExitCode::SUCCESS)
         }
         Command::Backports { minor, github } => {
@@ -192,6 +242,11 @@ pub(crate) fn run(command: Command, environment: &Environment) -> Result<ExitCod
         }
         Command::Range { version, to } => {
             output::line(&line::range(root, &version, &to)?);
+            Ok(ExitCode::SUCCESS)
+        }
+        Command::Changelog { version, to, at } => {
+            changelog::write(root, &version, &to, at.unwrap_or_else(now))?;
+            output::line(changelog::CHANGELOG);
             Ok(ExitCode::SUCCESS)
         }
         Command::Check {
@@ -221,10 +276,24 @@ pub(crate) fn run(command: Command, environment: &Environment) -> Result<ExitCod
     }
 }
 
-/// The time a promotion is checked at, when `--at` does not give it.
+fn releaser<'a>(
+    environment: &'a Environment,
+    github: &'a github::Arguments,
+    api: github::Api<'a>,
+) -> pull_request::Releaser<'a> {
+    pull_request::Releaser {
+        root: &environment.root,
+        cargo: environment.cargo.as_os_str(),
+        repository: &github.repository,
+        api,
+    }
+}
+
+/// The time a promotion is checked at, or a release's changelog dated,
+/// when `--at` does not give it.
 #[expect(
     clippy::disallowed_methods,
-    reason = "ADR 0059: the two business days of ADR 0064 count to the wall clock's now; tests pass --at"
+    reason = "ADR 0059: the two business days of ADR 0064 count to the wall clock's now, and a release is dated today; tests pass --at"
 )]
 fn now() -> jiff::Timestamp {
     jiff::Timestamp::now()
@@ -326,6 +395,12 @@ impl ProductVersion {
             major: self.major,
             minor: self.minor,
         }
+    }
+
+    /// The branch its release pull request is opened from:
+    /// `release-pr/1.4.0-rc.2`.
+    fn pull_request_branch(&self) -> String {
+        format!("release-pr/{}", self.semver())
     }
 
     /// Its release tag: `v1.4.0`, `v1.4.0-rc.2`.
@@ -681,10 +756,8 @@ fn require_versions(
 enum Tree<'a> {
     /// The files in the workspace's folder.
     Workspace(&'a Path),
-    /// A commit's, in the repository at `root`: `main`'s commit, which `cut`
-    /// builds the first candidate's version commit over, and the stable
-    /// version commit's parent, which `check` prepares again to compare
-    /// (ADR 0032).
+    /// A commit's, in the repository at `root`: the stable version
+    /// commit's parent, which `check` prepares again to compare (ADR 0032).
     Commit { root: &'a Path, commit: &'a str },
 }
 

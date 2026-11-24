@@ -196,6 +196,8 @@ goodfetch-foxhound = { path = "crates/foxhound/goodfetch-foxhound" }
 goodfetch-fetch-tier = { path = "crates/foxhound/goodfetch-fetch-tier" }
 # Foxhound's Frontier, its per-domain queues; only crates under `crates/foxhound/` and `xtask` take it (ADR 0087).
 goodfetch-frontier = { path = "crates/foxhound/goodfetch-frontier" }
+# The Model provider interface every model call goes through (spec #602).
+goodfetch-model-provider = { path = "crates/goodfetch-model-provider" }
 # Collie's pages, Sessions and browsers (spec #577).
 goodfetch-page = { path = "crates/goodfetch-page" }
 goodfetch-protocol = { path = "crates/goodfetch-protocol" }

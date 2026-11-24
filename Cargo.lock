@@ -3069,6 +3069,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "goodfetch-scripted-model"
+version = "0.0.0"
+dependencies = [
+ "futures-util",
+ "goodfetch-engine",
+ "goodfetch-model-provider",
+ "goodfetch-protocol",
+ "goodfetch-test-client",
+ "goodfetch-test-support",
+ "goodfetch-workspace-hack",
+ "rstest",
+ "serde_json",
+ "tokio",
+ "tokio-util",
+]
+
+[[package]]
 name = "goodfetch-secret-providers"
 version = "0.0.0"
 dependencies = [

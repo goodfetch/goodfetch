@@ -248,10 +248,11 @@ fn daemon_run_listens_on_the_configured_address_logs_json_to_stdout_and_never_st
     );
 }
 
-/// Until the Daemon terminates TLS, `daemon run` refuses an address that is
-/// not loopback, and starts nothing.
+/// Unless it terminates TLS, `daemon run` refuses an address that is not
+/// loopback, naming the keys that would let it listen there, and starts
+/// nothing.
 ///
-/// Covers: story:3-98, error:setting_invalid
+/// Covers: story:3-98, story:4-25, error:setting_invalid
 #[test]
 fn daemon_run_refuses_an_address_that_is_not_loopback() {
     let env = TestEnv::new();
@@ -261,14 +262,18 @@ fn daemon_run_refuses_an_address_that_is_not_loopback() {
     let refusal = daemon.first_record("code", "setting_invalid");
 
     let exited = daemon.process.child().wait().unwrap();
+    let message = refusal["message"].as_str().unwrap_or_default();
     assert_eq!(
         (
             exited.code(),
-            refusal["message"]
-                .as_str()
-                .is_some_and(|message| message.contains("`daemon.address`"))
+            [
+                "`daemon.address`",
+                "`daemon.tls.cert_file`",
+                "`daemon.tls.key_file`"
+            ]
+            .map(|key| message.contains(key)),
         ),
-        (Some(1), true),
+        (Some(1), [true; 3]),
         "{refusal}"
     );
 }

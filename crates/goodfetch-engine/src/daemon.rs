@@ -61,7 +61,7 @@ use tokio_util::sync::CancellationToken;
 use crate::call_error::CallError;
 use crate::clock::Clock;
 use crate::composition::{Answering, CallContext, Closing, DaemonSide, Handler, Holding};
-use crate::endpoint::Authorities;
+use crate::endpoint::Exposure;
 use crate::engine_context::EngineContext;
 use crate::events::Events;
 use crate::metrics::Metrics;
@@ -123,9 +123,9 @@ pub struct DaemonOptions {
     pub ops: Ops,
     /// Whether its listener also carries the protocol over WebSocket, as
     /// an Exposed Daemon's address does (ADR 0049): the names a handshake's
-    /// `Host` may carry, and its `Origin` over `http`; none for a Daemon
-    /// on the machine.
-    pub websocket: Option<Authorities>,
+    /// `Host` may carry, and the certificate it serves TLS with, if it
+    /// does; none for a Daemon on the machine.
+    pub websocket: Option<Exposure>,
 }
 
 /// How a Daemon drains (ADR 0049): once `asked` is cancelled, or its
@@ -304,7 +304,7 @@ struct Shared {
     /// Runs show as live.
     runs_held: Holds,
     succession: Arc<dyn Succession>,
-    websocket: Option<Arc<Authorities>>,
+    websocket: Option<Arc<Exposure>>,
     presence: watch::Sender<Presence>,
     runs: Runs,
     health: Health,
@@ -955,7 +955,7 @@ fn serve_connection(
     connections.spawn(async move {
         let served = async {
             let access = match websocket {
-                Some(authorities) => rpc::Access::Exposed(side, authorities),
+                Some(exposure) => rpc::Access::Exposed(side, exposure),
                 None => rpc::Access::Daemon(side),
             };
             rpc::serve(

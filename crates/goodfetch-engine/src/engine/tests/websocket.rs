@@ -41,7 +41,7 @@ fn address() -> SocketAddr {
 pub(super) fn exposed() -> DaemonOptions {
     DaemonOptions {
         endpoint: DaemonEndpoint::Tcp(address()),
-        websocket: Some(Authorities::loopback(address())),
+        websocket: Some(Authorities::loopback(address()).into()),
         ..daemon_options(true, &no_handover())
     }
 }

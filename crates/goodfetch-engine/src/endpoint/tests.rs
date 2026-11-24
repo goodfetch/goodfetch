@@ -164,11 +164,22 @@ fn exposed() -> Authorities {
     Authorities::loopback(SocketAddr::from(([127, 0, 0, 1], 4000)))
 }
 
+/// An Exposed Daemon's names once it terminated TLS on a Connection to
+/// `192.0.2.1:port` that named `daemon.example`.
+fn exposed_over_tls(port: u16) -> Authorities {
+    Authorities::loopback(SocketAddr::from(([0, 0, 0, 0], port))).over_tls(
+        Some("daemon.example"),
+        Some(SocketAddr::from(([192, 0, 2, 1], port))),
+    )
+}
+
 /// A listener whose `Host` and `Origin` rule a table's row names.
 #[derive(Clone, Copy)]
 enum Listener {
     Ops,
     Handshake,
+    /// A handshake over TLS terminated at this port.
+    TlsHandshake(u16),
 }
 
 /// Each listener's `Host` and `Origin` rule: the ops listener takes any
@@ -220,16 +231,51 @@ enum Listener {
     Some("https://127.0.0.1:4000"),
     Some(Refusal::OriginForeign)
 )]
+#[case::tls_handshake_naming_its_server_name(
+    Listener::TlsHandshake(4000),
+    Some("daemon.example:4000"),
+    Some("https://daemon.example:4000"),
+    None
+)]
+#[case::tls_handshake_naming_the_address_it_reached(
+    Listener::TlsHandshake(4000),
+    Some("192.0.2.1:4000"),
+    Some("https://192.0.2.1:4000"),
+    None
+)]
+#[case::tls_handshake_at_the_default_port(
+    Listener::TlsHandshake(443),
+    Some("daemon.example"),
+    Some("https://daemon.example"),
+    None
+)]
+#[case::tls_handshake_from_a_page_over_http(
+    Listener::TlsHandshake(4000),
+    Some("daemon.example:4000"),
+    Some("http://daemon.example:4000"),
+    Some(Refusal::OriginForeign)
+)]
+#[case::tls_handshake_naming_another_name(
+    Listener::TlsHandshake(4000),
+    Some("attacker.example:4000"),
+    Some("https://attacker.example:4000"),
+    Some(Refusal::HostForeign)
+)]
 fn a_request_passes_only_with_a_host_and_origin_its_listener_admits(
     #[case] listener: Listener,
     #[case] host: Option<&str>,
     #[case] origin: Option<&str>,
     #[case] refused: Option<Refusal>,
 ) {
-    let exposed = exposed();
+    let exposed = match listener {
+        Listener::TlsHandshake(port) => exposed_over_tls(port),
+        Listener::Ops | Listener::Handshake => exposed(),
+    };
     let (hosts, origins) = match listener {
         Listener::Ops => (Hosts::Address, Origins::Forbidden),
-        Listener::Handshake => (Hosts::Named(&exposed), Origins::Required(&[&exposed])),
+        Listener::Handshake | Listener::TlsHandshake(_) => {
+            (Hosts::Named(&exposed), Origins::Required(&[&exposed]))
+        }
     };
 
     assert_eq!(refusal(host, origin, hosts, origins), refused);

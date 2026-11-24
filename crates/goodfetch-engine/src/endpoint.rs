@@ -40,6 +40,7 @@ use crate::audit::{AuditLog, Origin};
 use crate::clock::Clock;
 use crate::settings::{Settings, get_or_default};
 use crate::tasks::TaskOwner;
+use crate::tls::ServingCertificate;
 
 /// The `tracing` target of a listener's refusals.
 pub const REFUSAL_TARGET: &str = "goodfetch::rpc::refusal";
@@ -71,10 +72,13 @@ pub fn same_token(given: &str, expected: &str) -> bool {
 
 /// The names a listener is reached at, as `host:port`, or `host` for a
 /// default port: a request's `Host` names one of them, and its `Origin`
-/// one of them over `http` (ADR 0017).
+/// one of them over `http`, or over `https` on a Connection the listener
+/// terminated TLS on (ADRs 0017 and 0049).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Authorities {
     names: Vec<String>,
+    /// What its `Origin` starts with: `http://`, or `https://` over TLS.
+    origin_scheme: &'static str,
 }
 
 impl Authorities {
@@ -84,6 +88,29 @@ impl Authorities {
         let port = address.port();
         Self {
             names: vec![address.to_string(), format!("localhost:{port}")],
+            origin_scheme: "http://",
+        }
+    }
+
+    /// These names on a Connection the listener terminated TLS on, which
+    /// reached `local` naming `server_name` in its handshake: also that
+    /// address and that name with its port, or bare at `443`, its `Origin`
+    /// over `https`. A DNS-rebinding page cannot reach them, since its
+    /// browser does not take the listener's certificate for its own name.
+    pub(crate) fn over_tls(&self, server_name: Option<&str>, local: Option<SocketAddr>) -> Self {
+        let mut names = self.names.clone();
+        if let Some(local) = local {
+            names.push(local.to_string());
+            if let Some(server_name) = server_name {
+                names.push(match local.port() {
+                    443 => server_name.to_owned(),
+                    port => format!("{server_name}:{port}"),
+                });
+            }
+        }
+        Self {
+            names,
+            origin_scheme: "https://",
         }
     }
 
@@ -95,11 +122,32 @@ impl Authorities {
     }
 
     /// Whether `origin`, a request's `Origin`, is one of these names over
-    /// `http`.
+    /// its scheme.
     fn admits_origin(&self, origin: &str) -> bool {
         origin
-            .strip_prefix("http://")
+            .strip_prefix(self.origin_scheme)
             .is_some_and(|authority| self.admits_host(authority))
+    }
+}
+
+/// How an Exposed Daemon's address is reached (ADR 0049): the names its
+/// WebSocket handshakes may carry, and the certificate it serves TLS with,
+/// if it does.
+#[derive(Debug)]
+pub struct Exposure {
+    /// The names a handshake's `Host` may carry.
+    pub authorities: Authorities,
+    /// The certificate every Connection's TLS handshake is served, if any:
+    /// a Connection that opens with no handshake is refused.
+    pub tls: Option<ServingCertificate>,
+}
+
+impl From<Authorities> for Exposure {
+    fn from(authorities: Authorities) -> Self {
+        Self {
+            authorities,
+            tls: None,
+        }
     }
 }
 

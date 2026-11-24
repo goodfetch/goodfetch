@@ -37,7 +37,9 @@
 //! passes either bound, unanswered and logged the same way, so a Client
 //! that never proves itself cannot hold a Connection or its buffer (#2324).
 //! An Exposed Daemon's address carries its Connections as lines or over
-//! WebSocket (ADR 0049), whose refused handshakes are logged the same way.
+//! WebSocket (ADR 0049), whose refused handshakes are logged the same way;
+//! with its certificate files, each over TLS, and a Connection that opens
+//! with no TLS handshake is closed unanswered and logged as `tls_required`.
 //! Only the Client of an Attached engine's stdio is told its private
 //! endpoint, in the reply to its `hello`.
 //!
@@ -89,7 +91,7 @@ use crate::composition::{
     ConnectionContext, DaemonSide, Driver, Handler, Handlers, InputSender, RunOfCall,
 };
 use crate::crash_report;
-use crate::endpoint::{Authorities, same_token};
+use crate::endpoint::{Authorities, Exposure, same_token};
 use crate::engine_context::EngineContext;
 use crate::events::{Credits, Events};
 use crate::log::{ConnectionLog, LogEvents};
@@ -104,12 +106,13 @@ use crate::settings::{
     get_or_default,
 };
 use crate::tasks::{OwnerKind, TaskOwner};
+use crate::tls::ServingCertificate;
 use crate::trace;
 use crate::transition::engine::{
     ConnectionEffect, ConnectionEvent, ConnectionState, InvalidConnectionTransition,
 };
 use crate::transition::{self, Refusal};
-use crate::transport::{Connection, ConnectionWriter};
+use crate::transport::{Connection, ConnectionReader, ConnectionWriter};
 use goodfetch_protocol::run::RunKind;
 
 /// How many bytes one read takes from the Connection.
@@ -173,7 +176,7 @@ pub(crate) enum Access {
     /// An Exposed Daemon's address (ADR 0049): a Daemon's listener that
     /// also carries the protocol over WebSocket, its handshake held to the
     /// names the Daemon is reached at.
-    Exposed(Arc<dyn DaemonSide>, Arc<Authorities>),
+    Exposed(Arc<dyn DaemonSide>, Arc<Exposure>),
     /// An Attached engine's private endpoint: its token.
     PrivateEndpoint(Arc<str>),
 }
@@ -316,16 +319,16 @@ enum Writing {
 }
 
 /// How `connection`, reached through `access`, carries its messages, and
-/// its listener; `None` when an Exposed Daemon's WebSocket handshake
-/// was refused or failed, which closes it.
+/// its listener; `None` when an Exposed Daemon refused it or its TLS or
+/// WebSocket handshake failed, which closes it.
 async fn carriage(
     connection: Connection,
     access: &Access,
     engine: &EngineContext,
     opening: Option<Opening>,
 ) -> Option<(Reading, Writing, Listener)> {
-    let (mut reader, writer) = connection.split();
-    let Access::Exposed(_, authorities) = access else {
+    let Access::Exposed(_, exposure) = access else {
+        let (reader, writer) = connection.split();
         let reader = Prefixed::new(Vec::new(), reader);
         return Some((
             Reading::lines(reader, opening),
@@ -333,10 +336,16 @@ async fn carriage(
             access.listener(),
         ));
     };
-    let mut first = vec![0; READ_CHUNK];
-    let read = reader.read(&mut first).await.unwrap_or(0);
-    first.truncate(read);
-    let reader = Prefixed::new(first, reader);
+    let (connection, authorities) = match &exposure.tls {
+        None => (connection, Cow::Borrowed(&exposure.authorities)),
+        Some(certificate) => {
+            let (connection, authorities) =
+                terminated(connection, certificate, &exposure.authorities, engine).await?;
+            (connection, Cow::Owned(authorities))
+        }
+    };
+    let (reader, writer) = connection.split();
+    let reader = read_ahead(reader).await;
     if !reader.opens_a_request() {
         return Some((
             Reading::lines(reader, opening),
@@ -344,7 +353,7 @@ async fn carriage(
             access.listener(),
         ));
     }
-    match websocket::accept(Rejoined::new(reader, writer), authorities).await {
+    match websocket::accept(Rejoined::new(reader, writer), &authorities).await {
         Ok((messages, sent)) => Some((
             Reading::Messages(messages),
             Writing::Messages(sent),
@@ -362,6 +371,60 @@ async fn carriage(
             None
         }
     }
+}
+
+/// `reader` with its first bytes read ahead, which tell how its
+/// Connection is carried.
+async fn read_ahead(mut reader: ConnectionReader) -> Prefixed {
+    let mut first = vec![0; READ_CHUNK];
+    let read = reader.read(&mut first).await.unwrap_or(0);
+    first.truncate(read);
+    Prefixed::new(first, reader)
+}
+
+/// `connection` once the Exposed Daemon terminated TLS on it with
+/// `certificate`, and the names of `authorities` a WebSocket handshake over
+/// it may carry; `None` when it closed, opened with no TLS handshake, which
+/// is refused as `tls_required` (a WebSocket's handshake sent in plain by
+/// the Daemon's WebSocket, any other by the Exposed Daemon), or its TLS
+/// handshake failed.
+async fn terminated(
+    connection: Connection,
+    certificate: &ServingCertificate,
+    authorities: &Authorities,
+    engine: &EngineContext,
+) -> Option<(Connection, Authorities)> {
+    let addresses = connection.addresses();
+    let (reader, writer) = connection.split();
+    let reader = read_ahead(reader).await;
+    if reader.is_closed() {
+        return None;
+    }
+    if !reader.opens_a_tls_handshake() {
+        let listener = if reader.opens_a_request() {
+            Listener::DaemonWebsocket
+        } else {
+            Listener::ExposedDaemon
+        };
+        engine
+            .refusals()
+            .refused(listener, RefusalReason::TlsRequired)
+            .await;
+        return None;
+    }
+    let acceptor = certificate.acceptor(engine.owner()).await;
+    let stream = match acceptor.accept(Rejoined::new(reader, writer)).await {
+        Ok(stream) => stream,
+        Err(error) => {
+            tracing::debug!(%error, "a Connection whose TLS handshake failed closes");
+            return None;
+        }
+    };
+    let authorities = authorities.over_tls(
+        stream.get_ref().1.server_name(),
+        addresses.map(|addresses| addresses.local),
+    );
+    Some((Connection::over(stream, addresses), authorities))
 }
 
 /// Serves `connection` until it ends, its tasks those of `owner`, its calls

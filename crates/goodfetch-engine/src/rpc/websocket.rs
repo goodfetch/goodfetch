@@ -64,7 +64,21 @@ impl Prefixed {
     pub(super) fn opens_a_request(&self) -> bool {
         self.read.first().is_some_and(u8::is_ascii_uppercase)
     }
+
+    /// Whether the bytes already read open a TLS handshake record.
+    pub(super) fn opens_a_tls_handshake(&self) -> bool {
+        self.read.first() == Some(&TLS_HANDSHAKE_RECORD)
+    }
+
+    /// Whether the Connection closed before sending a byte.
+    pub(super) fn is_closed(&self) -> bool {
+        self.read.is_empty()
+    }
 }
+
+/// The content type of a TLS handshake record, which a `ClientHello` opens
+/// with (RFC 8446, section 5.1).
+const TLS_HANDSHAKE_RECORD: u8 = 0x16;
 
 impl AsyncRead for Prefixed {
     fn poll_read(

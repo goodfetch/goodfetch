@@ -29,6 +29,7 @@ mod encodings;
 mod exchange;
 mod extraction;
 mod files;
+mod fonts;
 mod forward_proxy;
 mod generator;
 mod google_hosts;

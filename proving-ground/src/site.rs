@@ -34,6 +34,7 @@ use crate::encodings;
 use crate::exchange::{Reply, Request};
 use crate::extraction;
 use crate::files;
+use crate::fonts;
 use crate::google_hosts;
 use crate::handmade;
 use crate::hostile;
@@ -157,6 +158,7 @@ impl Site {
                 consent::FRAME_HOST,
                 consistency::HOST,
                 consistency::FRAME_HOST,
+                fonts::HOST,
                 page_load::HOST,
             ])
             .chain(page_load::AD_HOSTS)
@@ -354,6 +356,9 @@ impl Site {
             return reply;
         }
         if let Some(reply) = google_hosts::respond(&name, request) {
+            return reply;
+        }
+        if let Some(reply) = fonts::respond(&name, request) {
             return reply;
         }
         if name == model::HOST {

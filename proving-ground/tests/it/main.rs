@@ -36,6 +36,7 @@ mod fake_model;
 mod fetch_edge;
 mod fields;
 mod files;
+mod fonts;
 mod forward_proxy;
 mod google_hosts;
 mod hostile;

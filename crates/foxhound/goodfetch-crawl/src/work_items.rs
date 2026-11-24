@@ -978,7 +978,7 @@ impl Positions {
                 Some(NotAddedAtCommit {
                     id: id.to_string(),
                     url: refused.url.clone(),
-                    reason: refused.reason,
+                    reason: refused.reason.clone(),
                     duplicate_of: refused.duplicate_of.clone(),
                 })
             })

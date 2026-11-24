@@ -477,7 +477,7 @@ fn admit_fetch(
         }
     };
     let not_added = |admitting: &mut Admitting, reason: NotAddedReason| {
-        admitting.refused(&url, reason, None);
+        admitting.refused(&url, reason.clone(), None);
         Enqueued::NotAdded {
             reason,
             url: given.to_owned(),
@@ -515,7 +515,7 @@ fn admit_fetch(
             learning: nested.invariants.bounds().learning,
         };
         if let Some(reason) = nested.refuses(&url, budget, &mut so_far)? {
-            count_refused(connection, reason, budget)?;
+            count_refused(connection, &reason, budget)?;
             return Ok(not_added(admitting, reason));
         }
     }
@@ -637,7 +637,7 @@ pub fn read(
     let mut count = |answer: &Enqueued| {
         let name = match answer {
             Enqueued::Added { .. } => ADDED.to_owned(),
-            Enqueued::NotAdded { reason, .. } => reason_name(*reason),
+            Enqueued::NotAdded { reason, .. } => reason_name(reason),
         };
         *counts.entry(name).or_insert(0) += 1;
     };
@@ -708,7 +708,7 @@ fn keep_refused_nesting(
         return Ok(());
     }
     let url = parse_url(&url, Some(base)).map_or(url, String::from);
-    let message = match (reason, cut_by(reason)) {
+    let message = match (&reason, cut_by(&reason)) {
         (NotAddedReason::DomainPolicy, _) => format!(
             "The Run's domain policy refuses the host of the sitemap {url}, so it was not fetched."
         ),
@@ -732,7 +732,7 @@ fn keep_refused_nesting(
         seed,
         &SitemapFailure {
             url,
-            code: reason_name(reason),
+            code: reason_name(&reason),
             status: None,
             message,
         },
@@ -876,7 +876,7 @@ fn admit_entry(
 }
 
 /// The wire name of `reason`.
-fn reason_name(reason: NotAddedReason) -> String {
+fn reason_name(reason: &NotAddedReason) -> String {
     match serde_json::to_value(reason) {
         Ok(serde_json::Value::String(name)) => name,
         _ => String::new(),

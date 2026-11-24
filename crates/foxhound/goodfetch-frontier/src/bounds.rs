@@ -505,10 +505,10 @@ pub(crate) fn count_admitted(
 /// When the run file cannot be written.
 pub(crate) fn count_refused(
     connection: &Connection,
-    reason: NotAddedReason,
+    reason: &NotAddedReason,
     budget: Option<&PathBudget>,
 ) -> rusqlite::Result<()> {
-    if reason == NotAddedReason::PathBudget
+    if *reason == NotAddedReason::PathBudget
         && let Some(budget) = budget
     {
         connection
@@ -670,10 +670,10 @@ const REFUSALS: [(NotAddedReason, Setting, Completeness); 6] = [
 ];
 
 /// The setting behind `reason`, when a bound or a cap gave it.
-pub(crate) fn cut_by(reason: NotAddedReason) -> Option<&'static Setting> {
+pub(crate) fn cut_by(reason: &NotAddedReason) -> Option<&'static Setting> {
     REFUSALS
         .iter()
-        .find(|(refused, _, _)| *refused == reason)
+        .find(|(refused, _, _)| refused == reason)
         .map(|(_, setting, _)| setting)
 }
 

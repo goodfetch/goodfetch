@@ -382,7 +382,7 @@ pub fn admit_keyed(
             connection, invariants, given, measured, entering, admitting, add,
         ),
         Err(Unkeyed::Unparsed(reason)) => Ok(Enqueued::NotAdded {
-            reason: *reason,
+            reason: reason.clone(),
             url: given.to_owned(),
         }),
         Err(Unkeyed::Narrowed(url)) => Ok(not_added(
@@ -421,7 +421,7 @@ fn not_added(
     reason: NotAddedReason,
     duplicate_of: Option<&str>,
 ) -> Enqueued {
-    admitting.refused(url, reason, duplicate_of);
+    admitting.refused(url, reason.clone(), duplicate_of);
     Enqueued::NotAdded {
         reason,
         url: given.to_owned(),
@@ -507,8 +507,8 @@ fn admit_measured(
         admitting,
         learning: bounds.learning,
     };
-    if let Some(reason) = bounds.past(depth, budget, &mut so_far)?.or(*shape) {
-        count_refused(connection, reason, budget)?;
+    if let Some(reason) = bounds.past(depth, budget, &mut so_far)?.or(shape.clone()) {
+        count_refused(connection, &reason, budget)?;
         admitting.leaves();
         return Ok(not_added(admitting, answered, reason, None));
     }

@@ -3,7 +3,15 @@
 // or a JSON object for a hand-written JSON Schema, so `tsc` fails on a
 // misspelled handle, a Payload of the wrong shape and a Payload given to a
 // Label that has none, as the package's typecheck runs it.
-import { Crawl, seed, type CrawlContext, type Label, type RequestSeed } from "@goodfetch/foxhound";
+import {
+  Crawl,
+  seed,
+  sitemap,
+  type CrawlContext,
+  type Label,
+  type RequestSeed,
+  type Seed,
+} from "@goodfetch/foxhound";
 import { z } from "zod";
 
 const crawl = new Crawl();
@@ -36,6 +44,17 @@ export function seeds(): RequestSeed[] {
     seed("https://shop.test/shelf/1", shelf, { number: 1 }),
     seed("https://shop.test/shelf/1", shelf, { number: 1 }, { priority: 1 }),
     seed("https://shop.test/book/1", book, { isbn: "9780000000001" }),
+  ];
+}
+
+// A sitemap entry carries no Payload, so a sitemap seed's rule takes only a
+// Label without one, and the seed goes beside request seeds in one start.
+export function sitemapSeeds(): Seed[] {
+  // @ts-expect-error a Label with a Payload names no sitemap entry
+  sitemap("https://shop.test/sitemap.xml", [["**/shelf/*", shelf]]);
+  return [
+    seed("https://shop.test/", page),
+    sitemap("https://shop.test/sitemap.xml", [["**/page/*", page]]),
   ];
 }
 

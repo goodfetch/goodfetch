@@ -46,6 +46,7 @@ from goodfetch_foxhound.generated.models import (
     DatasetDeclaration,
     LabelDeclaration,
     RequestSeed,
+    SitemapSeed,
 )
 from goodfetch_foxhound.generated.operations import (
     DEPRECATED_OPERATIONS,
@@ -53,7 +54,7 @@ from goodfetch_foxhound.generated.operations import (
 )
 
 if TYPE_CHECKING:
-    from collections.abc import Awaitable, Callable, Sequence
+    from collections.abc import Awaitable, Callable, Iterable, Sequence
 
     from goodfetch_collie_client.generated.handles import (
         AsyncLocator,
@@ -80,6 +81,7 @@ __all__ = [
     "Dataset",
     "Label",
     "seed",
+    "sitemap",
 ]
 
 P = TypeVar("P")
@@ -1045,6 +1047,27 @@ def seed(
     return RequestSeed.model_validate(fields)
 
 
+def sitemap(url: str, rules: Iterable[tuple[str, Label[None]]]) -> SitemapSeed:
+    """A sitemap seed of a crawl: the entries of `url`'s sitemaps (ADR 0093).
+
+    `url` names a sitemap, or a site's robots.txt, whose `Sitemap:` lines
+    are read, and nested sitemap indexes are followed. Each `(pattern,
+    label)` of `rules`, in order, is a glob as `crawl.scope.include` takes
+    one and the Label it gives the entries it matches: the first that
+    matches an entry picks its Label, and an entry no rule matches is not
+    added, with `no_rule`. A sitemap entry carries no Payload, so a rule's
+    Label takes none. The engine reads the sitemap once the Run is running.
+    """
+    return SitemapSeed.model_validate(
+        {
+            "sitemap": url,
+            "rules": [
+                {"pattern": pattern, "label": label.name} for pattern, label in rules
+            ],
+        }
+    )
+
+
 def _payload_field(label: Label[Any], payload: object) -> dict[str, JSONValue]:
     """The wire's `payload` field of `payload`, sent under `label`; none without one.
 
@@ -1123,13 +1146,16 @@ def _links_options(
     return options
 
 
-def check_startable(crawl: AsyncCrawl | Crawl, seeds: Sequence[RequestSeed]) -> None:
+def check_startable(
+    crawl: AsyncCrawl | Crawl, seeds: Sequence[RequestSeed | SitemapSeed]
+) -> None:
     """Fails, before anything is sent, when `crawl` cannot start from `seeds`.
 
     Raises:
         LabelUnhandledError: A Label has no handler.
-        LabelUnknownError: A seed names a Label `crawl` does not declare, by
-            name, since a seed carries its Label's name only.
+        LabelUnknownError: A seed, or a sitemap seed's rule, names a Label
+            `crawl` does not declare, by name, since a seed carries its
+            Label's name only.
     """
     declared = _crawls[crawl]
     for name, label in declared.labels.items():
@@ -1142,8 +1168,14 @@ def check_startable(crawl: AsyncCrawl | Crawl, seeds: Sequence[RequestSeed]) -> 
                 details={"label": name},
             )
     for seed in seeds:
-        if seed.label not in declared.labels:
-            raise declared.unknown(seed.label)
+        named = (
+            [rule.label for rule in seed.rules]
+            if isinstance(seed, SitemapSeed)
+            else [seed.label]
+        )
+        for name in named:
+            if name not in declared.labels:
+                raise declared.unknown(name)
 
 
 def declared_label(crawl: AsyncCrawl | Crawl, label: Label[Any]) -> str:

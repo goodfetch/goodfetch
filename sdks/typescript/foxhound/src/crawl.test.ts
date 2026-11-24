@@ -14,6 +14,7 @@ import {
   LabelUnknownError,
   RecordInvalidError,
   seed,
+  sitemap,
   type CrawlRun,
   type DatasetRecord,
   type EnqueuedLinks,
@@ -521,6 +522,38 @@ describe("a Crawl's wiring mistakes", () => {
 
       const starting = foxhound.startCrawl(pages, {
         seeds: [seed("https://shop.test/a", otherDetail)],
+      });
+
+      await expect(starting).rejects.toThrow(
+        expect.objectContaining({
+          code: "label_unknown",
+          details: { label: "detail", declared: ["page"] },
+        }),
+      );
+      await foxhound.close();
+      expect(protocolCounts(played.messages).requests).toEqual(["hello"]);
+      expect(played.done()).toEqual({ kind: "finished" });
+    },
+  );
+
+  test(
+    "refuses to start a crawl from a sitemap rule of another crawl's Label with label_unknown, sending nothing",
+    { tags: ["story:11-1019", "error:label_unknown"] },
+    async () => {
+      const played = playScript("connect/foxhound-accepted.json");
+      const foxhound = await connectOver(played.transport);
+      const pages = new Crawl();
+      const page = pages.label("page");
+      pages.handle(page, () => undefined);
+      const otherDetail = new Crawl().label("detail");
+
+      const starting = foxhound.startCrawl(pages, {
+        seeds: [
+          sitemap("https://shop.test/sitemap.xml", [
+            ["**", page],
+            ["**/d/*", otherDetail],
+          ]),
+        ],
       });
 
       await expect(starting).rejects.toThrow(

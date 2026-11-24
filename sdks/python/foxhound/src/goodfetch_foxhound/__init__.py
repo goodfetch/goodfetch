@@ -37,6 +37,7 @@ from goodfetch_foxhound.crawl import (
     Dataset,
     Label,
     seed,
+    sitemap,
 )
 from goodfetch_foxhound.crawl_run import AsyncCrawlRun, CrawlRun
 from goodfetch_foxhound.foxhound import AsyncFoxhound, Connecting, Foxhound
@@ -56,4 +57,5 @@ __all__ = [
     "Foxhound",
     "Label",
     "seed",
+    "sitemap",
 ]

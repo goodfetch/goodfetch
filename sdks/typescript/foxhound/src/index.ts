@@ -28,6 +28,7 @@ export {
   Dataset,
   Label,
   seed,
+  sitemap,
   type CrawlContext,
   type DatasetOptions,
   type EnqueueLinksOptions,
@@ -48,4 +49,7 @@ export type {
   FoxhoundSettings,
   LabelSettings,
   RequestSeed,
+  Seed,
+  SitemapRule,
+  SitemapSeed,
 } from "./generated/index.ts";

@@ -487,14 +487,13 @@ fn with_session_handlers(contribution: Contribution, sessions: &Sessions) -> Con
             move |params: NewSessionPageParams, context: CallContext| {
                 let sessions = paging.clone();
                 async move {
-                    sessions
-                        .new_page(
-                            &params.session_id,
-                            &params.settings,
-                            &HeldPlace::default(),
-                            &context,
-                        )
-                        .await
+                    Box::pin(sessions.new_page(
+                        &params.session_id,
+                        &params.settings,
+                        &HeldPlace::default(),
+                        &context,
+                    ))
+                    .await
                 }
             },
         ))

@@ -82,6 +82,7 @@ pub mod sandbox_probe;
 mod sdk_handlers;
 pub mod secret_endpoint;
 pub mod secrets;
+pub mod session_bundle;
 pub mod settings;
 mod settings_editor;
 mod signing_key_operations;

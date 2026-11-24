@@ -7295,6 +7295,105 @@
       ],
       "type": "object"
     },
+    "ExportedCookie": {
+      "additionalProperties": false,
+      "description": "One cookie of the Session, with the attributes a browser sets it by.",
+      "properties": {
+        "domain": {
+          "arrived_in": "0.1",
+          "description": "The domain it is sent to, with a leading `.` for its subdomains too.",
+          "type": "string"
+        },
+        "expires": {
+          "arrived_in": "0.1",
+          "description": "When it expires, in seconds since the Unix epoch; none for a cookie\nof the browser's session.",
+          "format": "int64",
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "http_only": {
+          "arrived_in": "0.1",
+          "description": "Whether scripts cannot read it.",
+          "type": "boolean"
+        },
+        "name": {
+          "arrived_in": "0.1",
+          "description": "Its name.",
+          "type": "string"
+        },
+        "path": {
+          "arrived_in": "0.1",
+          "description": "The path it is sent under.",
+          "type": "string"
+        },
+        "same_site": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SameSite"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "Its `SameSite` attribute; none where the cookie set none."
+        },
+        "secure": {
+          "arrived_in": "0.1",
+          "description": "Whether it is sent over HTTPS only.",
+          "type": "boolean"
+        },
+        "value": {
+          "$ref": "#/$defs/SessionValue",
+          "arrived_in": "0.1",
+          "description": "Its value."
+        }
+      },
+      "required": [
+        "name",
+        "value",
+        "domain",
+        "path",
+        "http_only",
+        "secure"
+      ],
+      "type": "object"
+    },
+    "ExportedOrigin": {
+      "additionalProperties": false,
+      "description": "The storage one origin of the Session kept.",
+      "properties": {
+        "local_storage": {
+          "arrived_in": "0.1",
+          "description": "Its `localStorage` items.",
+          "items": {
+            "$ref": "#/$defs/StorageItem"
+          },
+          "type": "array"
+        },
+        "origin": {
+          "arrived_in": "0.1",
+          "description": "The origin, such as `https://shop.example`.",
+          "type": "string"
+        },
+        "session_storage": {
+          "arrived_in": "0.1",
+          "description": "Its `sessionStorage` items, which Playwright's `storageState` has\nno field for.",
+          "items": {
+            "$ref": "#/$defs/StorageItem"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "origin",
+        "local_storage",
+        "session_storage"
+      ],
+      "type": "object"
+    },
     "ExtractionFollow": {
       "description": "Which pages a code-free crawl fetches beyond its seeds.",
       "oneOf": [
@@ -19560,6 +19659,26 @@
       ],
       "type": "object"
     },
+    "SameSite": {
+      "description": "A cookie's `SameSite` attribute.",
+      "oneOf": [
+        {
+          "const": "strict",
+          "description": "Sent only on requests of its own site.",
+          "type": "string"
+        },
+        {
+          "const": "lax",
+          "description": "Also sent on top-level navigations from another site.",
+          "type": "string"
+        },
+        {
+          "const": "none",
+          "description": "Sent on every request, which needs `secure`.",
+          "type": "string"
+        }
+      ]
+    },
     "SampleCrawlParams": {
       "additionalProperties": false,
       "description": "What `sample.crawl` starts from.",
@@ -20129,6 +20248,39 @@
         }
       ]
     },
+    "SessionExport": {
+      "additionalProperties": false,
+      "description": "The document a session export bundle encrypts.",
+      "properties": {
+        "cookies": {
+          "arrived_in": "0.1",
+          "description": "The Session's cookies.",
+          "items": {
+            "$ref": "#/$defs/ExportedCookie"
+          },
+          "type": "array"
+        },
+        "format_version": {
+          "$ref": "#/$defs/ProtocolVersion",
+          "arrived_in": "0.1",
+          "description": "The version of this format the bundle was written in."
+        },
+        "origins": {
+          "arrived_in": "0.1",
+          "description": "The storage of each origin the Session kept any in.",
+          "items": {
+            "$ref": "#/$defs/ExportedOrigin"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "format_version",
+        "cookies",
+        "origins"
+      ],
+      "type": "object"
+    },
     "SessionExportFailure": {
       "description": "Why a session export bundle did not open, which\n`session_export_open_failed` carries.",
       "oneOf": [
@@ -20553,6 +20705,10 @@
           "type": "object"
         }
       ]
+    },
+    "SessionValue": {
+      "description": "A cookie's or a storage item's value, which may be a login: its `Debug`\nnever shows it (STYLE.md), and only [`SessionValue::expose`] reads it.",
+      "type": "string"
     },
     "SetLogLevelParams": {
       "additionalProperties": false,
@@ -21979,6 +22135,27 @@
           "type": "string"
         }
       ]
+    },
+    "StorageItem": {
+      "additionalProperties": false,
+      "description": "One item of an origin's storage.",
+      "properties": {
+        "name": {
+          "arrived_in": "0.1",
+          "description": "Its name.",
+          "type": "string"
+        },
+        "value": {
+          "$ref": "#/$defs/SessionValue",
+          "arrived_in": "0.1",
+          "description": "Its value."
+        }
+      },
+      "required": [
+        "name",
+        "value"
+      ],
+      "type": "object"
     },
     "StorageLevel": {
       "description": "A filesystem's storage level (ADR 0122), from the best to the worst.",
@@ -37117,6 +37294,16 @@
       "schema": {
         "items": true,
         "type": "array"
+      },
+      "storage": "json",
+      "version": "0.1"
+    },
+    {
+      "hello_from": [],
+      "name": "session-export",
+      "rule": "default",
+      "schema": {
+        "$ref": "#/$defs/SessionExport"
       },
       "storage": "json",
       "version": "0.1"

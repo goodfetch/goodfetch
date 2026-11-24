@@ -60,6 +60,7 @@ pub mod schema_validator;
 pub mod secret_reference;
 pub mod secrets;
 pub mod security;
+pub mod session_export;
 pub mod setting_scopes;
 pub mod settings;
 pub mod site_preferences;

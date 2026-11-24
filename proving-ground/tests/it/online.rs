@@ -746,7 +746,7 @@ fn the_online_copy_lists_one_challenge_task_per_configured_vendor() {
 
 /// Covers: story:2-38, story:2-48
 #[test]
-fn a_deployed_copys_tasks_start_from_its_public_origins() {
+fn a_deployed_copy_starts_its_tasks_from_its_public_origins() {
     let env = TestEnv::new();
     let config = format!(
         "origin = \"https://challenges.goodfetch.dev\"\n\n{ALTCHA}\n\

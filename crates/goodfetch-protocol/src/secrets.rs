@@ -212,6 +212,68 @@ pub struct RunKeyMismatchDetails {
     pub fix: String,
 }
 
+/// Why a session export bundle did not open, which
+/// `session_export_open_failed` carries.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum SessionExportFailure {
+    /// The key's value opens none of the bundle's recipients: another age
+    /// identity, or a wrong passphrase.
+    WrongKey,
+    /// The bundle was sealed to a public key, and the key's value is no age
+    /// identity (`AGE-SECRET-KEY-1…`).
+    NotAnIdentity,
+    /// The file is no age file, or what it holds is no session export:
+    /// truncated, changed, or another format.
+    NotABundle,
+    /// The bundle's passphrase asks more scrypt work than the engine does
+    /// for an import.
+    ExcessiveWork,
+    /// What the bundle holds is larger than the engine reads.
+    TooLarge,
+}
+
+impl SessionExportFailure {
+    /// Every value, in declaration order.
+    pub const ALL: [Self; 5] = [
+        Self::WrongKey,
+        Self::NotAnIdentity,
+        Self::NotABundle,
+        Self::ExcessiveWork,
+        Self::TooLarge,
+    ];
+
+    /// Its name as the wire writes it.
+    pub fn as_str(self) -> &'static str {
+        crate::wire_name::of(&self)
+    }
+}
+
+/// A session export bundle did not open under its key (ADRs 0015 and
+/// 0056).
+pub const SESSION_EXPORT_OPEN_FAILED: ErrorCodeDefinition = ErrorCodeDefinition {
+    name: "session_export_open_failed",
+    description: "A session export bundle, encrypted with age to a public key or a passphrase, did not open under the Secret reference given as its `key`: the value opens none of its recipients, is no age identity where the bundle was sealed to a public key, or the file is no bundle, asks more scrypt work than an import does, or holds more than the engine reads. `failure` says which, and the details name the reference, never its value. Give the reference of the identity or passphrase the bundle was exported to, or export it again.",
+    group: ErrorGroup::Program,
+    retryable: false,
+    exit_code: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// What `session_export_open_failed` details.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct SessionExportOpenFailedDetails {
+    /// The Secret reference given as the bundle's key.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub reference: String,
+    /// What failed.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub failure: SessionExportFailure,
+    /// What makes the bundle open.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub fix: String,
+}
+
 fn thirty_seconds() -> Value {
     json!(30_000)
 }
@@ -442,6 +504,7 @@ pub const ENTRIES: Entries = Entries {
         SECRET_DOMAIN_NOT_ALLOWED,
         SECRET_INPUT_REFUSED,
         RUN_KEY_MISMATCH,
+        SESSION_EXPORT_OPEN_FAILED,
     ],
     plugin_kinds: &[],
     metrics: &[],

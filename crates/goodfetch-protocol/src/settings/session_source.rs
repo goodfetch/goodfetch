@@ -14,6 +14,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 
 use crate::catalog::ValueShape;
+use crate::secret_reference::SecretReference;
 
 /// A browser family, as ADR 0056 names them.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -67,7 +68,8 @@ pub enum SessionSource {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         #[schemars(extend("arrived_in" = "0.1"))]
         format: Option<StateFileFormat>,
-        /// The Secret reference that opens a session export bundle.
+        /// The Secret reference that opens a session export bundle: its
+        /// age identity or its passphrase, never the value itself.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         #[schemars(extend("arrived_in" = "0.1"))]
         key: Option<String>,
@@ -182,11 +184,19 @@ impl SessionSource {
 pub const SESSION_SOURCE_SHAPE: ValueShape = ValueShape {
     name: "SessionSource",
     check: |value| {
-        serde_json::from_value::<SessionSource>(value.clone())
-            .map(drop)
-            .map_err(|error| {
-                format!("expected a Session source, one `kind` of ADR 0056's: {error}")
-            })
+        let source = serde_json::from_value::<SessionSource>(value.clone()).map_err(|error| {
+            format!("expected a Session source, one `kind` of ADR 0056's: {error}")
+        })?;
+        match source {
+            SessionSource::StateFile { key: Some(key), .. } => SecretReference::parse(&key)
+                .map(drop)
+                .map_err(|error| {
+                    format!(
+                        "a `state_file`'s `key` is the Secret reference of the bundle's identity or passphrase, such as `env:LOGIN_PASSPHRASE`: {error}; a passphrase is never taken in its place"
+                    )
+                }),
+            _ => Ok(()),
+        }
     },
     schema: || {
         let schema = SchemaSettings::draft2020_12()

@@ -2477,6 +2477,17 @@
       ]
     },
     {
+      "id": "error:session_export_open_failed",
+      "kind": "error",
+      "area": 4,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "error:setting_invalid",
       "kind": "error",
       "area": 3,

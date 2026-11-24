@@ -20138,6 +20138,62 @@
         }
       ]
     },
+    "SessionExportFailure": {
+      "description": "Why a session export bundle did not open, which\n`session_export_open_failed` carries.",
+      "oneOf": [
+        {
+          "const": "wrong_key",
+          "description": "The key's value opens none of the bundle's recipients: another age\nidentity, or a wrong passphrase.",
+          "type": "string"
+        },
+        {
+          "const": "not_an_identity",
+          "description": "The bundle was sealed to a public key, and the key's value is no age\nidentity (`AGE-SECRET-KEY-1…`).",
+          "type": "string"
+        },
+        {
+          "const": "not_a_bundle",
+          "description": "The file is no age file, or what it holds is no session export:\ntruncated, changed, or another format.",
+          "type": "string"
+        },
+        {
+          "const": "excessive_work",
+          "description": "The bundle's passphrase asks more scrypt work than the engine does\nfor an import.",
+          "type": "string"
+        },
+        {
+          "const": "too_large",
+          "description": "What the bundle holds is larger than the engine reads.",
+          "type": "string"
+        }
+      ]
+    },
+    "SessionExportOpenFailedDetails": {
+      "description": "What `session_export_open_failed` details.",
+      "properties": {
+        "failure": {
+          "$ref": "#/$defs/SessionExportFailure",
+          "arrived_in": "0.1",
+          "description": "What failed."
+        },
+        "fix": {
+          "arrived_in": "0.1",
+          "description": "What makes the bundle open.",
+          "type": "string"
+        },
+        "reference": {
+          "arrived_in": "0.1",
+          "description": "The Secret reference given as the bundle's key.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "reference",
+        "failure",
+        "fix"
+      ],
+      "type": "object"
+    },
     "SessionId": {
       "description": "A Session of a Run, named by the engine when it opens it.",
       "type": "string"
@@ -20298,7 +20354,7 @@
             },
             "key": {
               "arrived_in": "0.1",
-              "description": "The Secret reference that opens a session export bundle.",
+              "description": "The Secret reference that opens a session export bundle: its\nage identity or its passphrase, never the value itself.",
               "type": [
                 "string",
                 "null"
@@ -27435,7 +27491,7 @@
                               },
                               "key": {
                                 "arrived_in": "0.1",
-                                "description": "The Secret reference that opens a session export bundle.",
+                                "description": "The Secret reference that opens a session export bundle: its\nage identity or its passphrase, never the value itself.",
                                 "type": [
                                   "string",
                                   "null"
@@ -31446,7 +31502,7 @@
                               },
                               "key": {
                                 "arrived_in": "0.1",
-                                "description": "The Secret reference that opens a session export bundle.",
+                                "description": "The Secret reference that opens a session export bundle: its\nage identity or its passphrase, never the value itself.",
                                 "type": [
                                   "string",
                                   "null"
@@ -35473,7 +35529,7 @@
                               },
                               "key": {
                                 "arrived_in": "0.1",
-                                "description": "The Secret reference that opens a session export bundle.",
+                                "description": "The Secret reference that opens a session export bundle: its\nage identity or its passphrase, never the value itself.",
                                 "type": [
                                   "string",
                                   "null"

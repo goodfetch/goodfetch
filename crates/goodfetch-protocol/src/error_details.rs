@@ -203,6 +203,7 @@ details! {
     crate::secrets::SecretInputRefusedDetails => ErrorCode::SECRET_INPUT_REFUSED,
     crate::secrets::SecretUnavailableDetails => ErrorCode::SECRET_UNAVAILABLE,
     crate::secrets::SecretUnboundDetails => ErrorCode::SECRET_UNBOUND,
+    crate::secrets::SessionExportOpenFailedDetails => ErrorCode::SESSION_EXPORT_OPEN_FAILED,
     crate::security::BrowserSandboxUnavailableDetails => ErrorCode::BROWSER_SANDBOX_UNAVAILABLE,
     crate::settings::CapabilityUnavailableDetails => ErrorCode::CAPABILITY_UNAVAILABLE,
     crate::settings::SettingInvalidDetails => ErrorCode::SETTING_INVALID,

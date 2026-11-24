@@ -494,6 +494,16 @@ struct Verdaccio {
 
 impl Verdaccio {
     fn start() -> Self {
+        Self::start_on(free_port)
+    }
+
+    /// Starts Verdaccio on the port `pick` gives. Another program may take
+    /// that port between the pick and Verdaccio's bind: Verdaccio then exits
+    /// with `EADDRINUSE`, and the start is tried again on the next port
+    /// `pick` gives, up to `STARTS` times.
+    fn start_on(mut pick: impl FnMut() -> u16) -> Self {
+        /// How many times a start is tried, each on a port picked again.
+        const STARTS: usize = 3;
         let binary = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("../test-support/typescript/node_modules/.bin/verdaccio");
         assert!(
@@ -511,38 +521,58 @@ impl Verdaccio {
             ),
         )
         .unwrap();
-        let port = free_port();
-        let url = format!("http://127.0.0.1:{port}");
         let log = folder.path().join("verdaccio.log");
-        let output = std::fs::File::create(&log).unwrap();
-        let child = Command::new(binary)
-            .arg("--config")
-            .arg(&config)
-            .arg("--listen")
-            .arg(format!("127.0.0.1:{port}"))
-            .stdout(output.try_clone().unwrap())
-            .stderr(output)
-            .spawn()
-            .unwrap();
-        let mut verdaccio = Self {
-            child,
-            url,
-            _folder: folder,
-        };
-        let deadline = Instant::now() + Duration::from_secs(30);
-        while ureq::get(&format!("{}/-/ping", verdaccio.url))
-            .call()
-            .is_err()
-        {
-            let exited = verdaccio.child.try_wait().unwrap();
+        let mut tries = 0;
+        loop {
+            tries += 1;
+            let port = pick();
+            let output = std::fs::File::create(&log).unwrap();
+            let mut child = Command::new(&binary)
+                .arg("--config")
+                .arg(&config)
+                .arg("--listen")
+                .arg(format!("127.0.0.1:{port}"))
+                .stdout(output.try_clone().unwrap())
+                .stderr(output)
+                .spawn()
+                .unwrap();
+            let url = format!("http://127.0.0.1:{port}");
+            let deadline = Instant::now() + Duration::from_secs(30);
+            let exited = loop {
+                // Whatever holds a port taken from under Verdaccio may
+                // accept a connection and never answer it: the ping has a
+                // bound, and an exit is read before it.
+                let exited = child.try_wait().unwrap();
+                if exited.is_some() {
+                    break exited;
+                }
+                let ping = ureq::get(&format!("{url}/-/ping"))
+                    .config()
+                    .timeout_global(Some(Duration::from_secs(1)))
+                    .build()
+                    .call();
+                if ping.is_ok() {
+                    return Self {
+                        child,
+                        url,
+                        _folder: folder,
+                    };
+                }
+                if Instant::now() >= deadline {
+                    break None;
+                }
+                std::thread::sleep(Duration::from_millis(100));
+            };
+            if exited.is_none() {
+                let _ = child.kill();
+                let _ = child.wait();
+            }
+            let written = std::fs::read_to_string(&log).unwrap_or_default();
             assert!(
-                exited.is_none() && Instant::now() < deadline,
-                "Verdaccio did not start ({exited:?}):\n{}",
-                std::fs::read_to_string(&log).unwrap_or_default()
+                exited.is_some() && written.contains("EADDRINUSE") && tries < STARTS,
+                "Verdaccio did not start ({exited:?}):\n{written}"
             );
-            std::thread::sleep(Duration::from_millis(100));
         }
-        verdaccio
     }
 
     /// Publishes `name` at `version` through npm's publish interface.
@@ -651,4 +681,24 @@ fn plan_flags_an_npm_package_verdaccio_has_never_seen() {
         outcome.findings(),
         [finding("new-name", "npm @goodfetch/foxhound")]
     );
+}
+
+/// A port another program takes between the pick and Verdaccio's bind
+/// fails that start alone: Verdaccio starts again on a port picked again.
+#[test]
+#[expect(
+    clippy::disallowed_types,
+    reason = "the test holds a loopback port as another program would; ADR 0060's sockets govern product code"
+)]
+fn verdaccio_starts_again_on_a_port_picked_again_when_its_first_was_taken() {
+    let other_program = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let taken = other_program.local_addr().unwrap().port();
+    let mut picks = vec![taken];
+
+    let verdaccio = Verdaccio::start_on(|| picks.pop().unwrap_or_else(free_port));
+
+    assert_ne!(verdaccio.url, format!("http://127.0.0.1:{taken}"));
+    ureq::get(&format!("{}/-/ping", verdaccio.url))
+        .call()
+        .unwrap();
 }

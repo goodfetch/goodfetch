@@ -27,11 +27,7 @@ use serde::Deserialize;
 
 use crate::browsers::downloads;
 use crate::env::TestEnv;
-
-/// The variable naming the folder `ci/claude-code-fetch.sh` downloads the
-/// tests' copy of Claude Code into, `~/.cache/goodfetch/claude-code` by
-/// default.
-pub const CLAUDE_CODE_DOWNLOADS_VARIABLE: &str = "GOODFETCH_CLAUDE_CODE_DOWNLOADS";
+use crate::variables::CLAUDE_CODE_DOWNLOADS_VARIABLE;
 
 /// The pins file, read for its release's version.
 const PINS: &str = include_str!("../../../test-support/claude-code/pins.toml");

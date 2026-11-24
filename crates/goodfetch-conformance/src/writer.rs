@@ -2,7 +2,10 @@
 //! list into a `conformance` result document, through `goodfetch-protocol`'s
 //! constructor, so no runner sets an outcome. A declared case the log does
 //! not hold leaves its capability `unproved`; the log's entries for a case
-//! become that case's entries, one per time it ran.
+//! become that case's entries, one per time it ran. An entry whose oracle
+//! answer carries a vendor's inconclusive verdict could not reach that
+//! vendor, whichever runner wrote it, so the writer names the vendor among
+//! what it could not reach.
 
 use std::collections::BTreeMap;
 
@@ -12,6 +15,7 @@ use goodfetch_protocol::result_document::{
 };
 
 use crate::case_list::CaseList;
+use crate::proving_ground::inconclusive_vendors;
 
 /// Reads a case log: one JSON entry per line, blank lines skipped.
 ///
@@ -97,7 +101,12 @@ pub fn write_document(
             .push(CaseEntry {
                 mode: entry.mode.clone(),
                 blocking: entry.blocking,
-                unreachable: entry.unreachable.clone(),
+                unreachable: entry
+                    .unreachable
+                    .iter()
+                    .cloned()
+                    .chain(inconclusive_vendors(&entry.evidence.oracle_answers))
+                    .collect(),
                 checks: entry.checks.clone(),
                 evidence: entry.evidence.clone(),
             });

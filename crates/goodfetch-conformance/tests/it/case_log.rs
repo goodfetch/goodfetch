@@ -219,6 +219,55 @@ fn the_document_names_its_suite_target_platform_runtime_and_proving_ground_and_c
     assert_eq!(schema_violations(&document), Vec::<String>::new());
 }
 
+/// An entry whose oracle answer carries a vendor's `verdict` of `outcome`,
+/// for `reason` if any, the answer's check failing as an online task's
+/// does when its vendor did not pass the tool.
+fn judged_by_vendor(case: &str, vendor: &str, outcome: &str, reason: Option<&str>) -> Value {
+    let mut verdict = json!({ "vendor": vendor, "outcome": outcome });
+    if let Some(reason) = reason {
+        verdict["reason"] = json!(reason);
+    }
+    let mut judged = entry(case, "cancel", Some("the run ends cancelled"));
+    judged["evidence"]["oracle_answers"] = json!([{
+        "task": "challenges/1",
+        "outcome": if outcome == "passed" { "verified" } else { "failed" },
+        "verdict": verdict,
+    }]);
+    judged
+}
+
+/// Covers: story:2-38, story:2-87
+#[test]
+fn a_vendors_inconclusive_verdict_makes_its_case_inconclusive_and_names_the_vendor() {
+    let log = read_case_log(&log(&[
+        judged_by_vendor(
+            "cancel-before-start",
+            "turnstile",
+            "inconclusive",
+            Some("out_of_quota"),
+        ),
+        judged_by_vendor("cancel-mid-run", "botid", "failed", Some("bot")),
+    ]))
+    .unwrap();
+
+    let document = write_document(header(), &case_list(), &log).unwrap();
+
+    let cases = document.capabilities()[0].cases();
+    assert_eq!(
+        cases
+            .iter()
+            .map(|case| (case.outcome(), case.facts().entries[0].unreachable.clone()))
+            .collect::<Vec<_>>(),
+        [
+            (
+                CaseOutcome::Inconclusive,
+                vec!["turnstile (out_of_quota)".to_owned()]
+            ),
+            (CaseOutcome::Failed, Vec::new()),
+        ]
+    );
+}
+
 /// Covers: story:2-85
 #[test]
 fn an_entry_that_sets_an_outcome_is_refused() {

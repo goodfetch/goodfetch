@@ -2,7 +2,9 @@
 //! details of (ADR 0099), so an SDK's error reads them by type with
 //! `details::<D>()`. A type of one code is named for it, `<Code>Details`,
 //! which the tests check in the table below; the few that several codes share, or that
-//! another message also carries, list their codes by hand. Its tests also
+//! another message also carries, list their codes by hand. The TypeScript
+//! and Python SDKs read the same types typed, as [`TYPED_IN_SDKS`] lists
+//! them, without the fields every error carries. Its tests also
 //! check that each catalog code has its `ErrorCode` constant, which needs
 //! every Product's modules.
 
@@ -18,15 +20,11 @@ use crate::foxhound::error_code as foxhound;
 pub const RETRY_AFTER_POINT_IN_TIME: &[ErrorCode] =
     &[ErrorCode::BLOCKED, foxhound::RESPONSE_UNAVAILABLE];
 
-/// The details types the TypeScript and Python SDKs read typed, each on its
-/// codes' classes (ADR 0079): the catalog names each under its codes'
-/// `details`. The other codes' details still read as a map there until a
-/// ticket that touches them adds their types here.
-pub const TYPED_IN_SDKS: &[TypedDetails] = &[
-    TypedDetails::of::<crate::connection::CallCancelledDetails>(),
-    TypedDetails::of::<crate::page::ai_work::NotVerifiedDetails>(),
-    TypedDetails::of::<crate::hook::HookFailedDetails>(),
-];
+/// The Error codes whose details name `retry_after` as a duration in
+/// milliseconds, how long a Model provider asks to wait (ADR 0101), which
+/// each SDK's class of the code reads as its own `retryAfter` field, a
+/// duration: milliseconds in TypeScript, a `timedelta` in Python.
+pub const RETRY_AFTER_DURATION: &[ErrorCode] = &[ErrorCode::MODEL_UNAVAILABLE];
 
 /// A details type the SDKs read typed: the codes whose details it holds and
 /// its schema.
@@ -56,12 +54,22 @@ pub fn typed_details_of(name: &str) -> Option<SchemaOf> {
         .map(|typed| typed.schema)
 }
 
-/// Implements [`ErrorDetails`] for each type, naming its code.
+/// Implements [`ErrorDetails`] for each type of the table, naming its code,
+/// and lists them, after the types `also` names, as [`TYPED_IN_SDKS`].
 macro_rules! details {
-    ($($details:path => $code:expr),+ $(,)?) => {
+    (also: [$($also:path),* $(,)?]; $($details:path => $code:expr),+ $(,)?) => {
         $(impl ErrorDetails for $details {
             const CODES: &'static [ErrorCode] = &[$code];
         })+
+
+        /// The details types the TypeScript and Python SDKs read typed, each
+        /// on its codes' classes (ADR 0079): every type this module names,
+        /// `blocked`'s in Foxhound's reading alone. The catalog names each
+        /// under its codes' `details`.
+        pub const TYPED_IN_SDKS: &[TypedDetails] = &[
+            $(TypedDetails::of::<$also>(),)*
+            $(TypedDetails::of::<$details>(),)+
+        ];
     };
 }
 
@@ -77,7 +85,14 @@ impl ErrorDetails for crate::run::RunDetails {
     ];
 }
 
-/// `blocked`'s details as Foxhound reads them, its cause Foxhound's.
+/// `blocked`'s details as Collie reads them, its cause Collie's.
+impl ErrorDetails for crate::page::BlockedDetails {
+    const CODES: &'static [ErrorCode] = &[ErrorCode::BLOCKED];
+}
+
+/// `blocked`'s details as Foxhound reads them, its cause Foxhound's, which
+/// holds every Product's causes as the bundle's `BlockCause` does: the
+/// SDKs read this one typed, each Product's projection keeping its own.
 impl ErrorDetails for crate::foxhound::block::BlockedDetails {
     const CODES: &'static [ErrorCode] = &[ErrorCode::BLOCKED];
 }
@@ -87,6 +102,11 @@ impl ErrorDetails for crate::run::ReachedLimit {
 }
 
 details! {
+    also: [
+        crate::run::RunDetails,
+        crate::run::ReachedLimit,
+        crate::foxhound::block::BlockedDetails,
+    ];
     crate::browser_cache::ArtifactDownloadFailedDetails => ErrorCode::ARTIFACT_DOWNLOAD_FAILED,
     crate::browser_cache::ArtifactUnavailableOfflineDetails => ErrorCode::ARTIFACT_UNAVAILABLE_OFFLINE,
     crate::browser_cache::BrowserNotInstalledDetails => ErrorCode::BROWSER_NOT_INSTALLED,
@@ -124,6 +144,7 @@ details! {
     crate::foxhound::dataset::DatasetKeyInvalidDetails => foxhound::DATASET_KEY_INVALID,
     crate::foxhound::dataset::DatasetUnknownDetails => foxhound::DATASET_UNKNOWN,
     crate::foxhound::dataset::RecordInvalidDetails => foxhound::RECORD_INVALID,
+    crate::foxhound::export::SheetCapacityExceededDetails => foxhound::SHEET_CAPACITY_EXCEEDED,
     crate::foxhound::fetch::BrowserRequiredDetails => foxhound::BROWSER_REQUIRED,
     crate::foxhound::fetch::ResponseNotDocumentDetails => foxhound::RESPONSE_NOT_DOCUMENT,
     crate::foxhound::frontier::PayloadInvalidDetails => foxhound::PAYLOAD_INVALID,
@@ -139,7 +160,7 @@ details! {
     crate::hostile_input::HeaderValueInvalidDetails => ErrorCode::HEADER_VALUE_INVALID,
     crate::hostile_input::PathUnsafeDetails => ErrorCode::PATH_UNSAFE,
     crate::key_value_store::ValueInvalidDetails => ErrorCode::VALUE_INVALID,
-    crate::page::BlockedDetails => ErrorCode::BLOCKED,
+    crate::model::ModelUnavailableDetails => ErrorCode::MODEL_UNAVAILABLE,
     crate::page::BodyNotFoundDetails => ErrorCode::BODY_NOT_FOUND,
     crate::page::BrowserLaunchFailedDetails => ErrorCode::BROWSER_LAUNCH_FAILED,
     crate::page::BrowserNeedsGuiSessionDetails => ErrorCode::BROWSER_NEEDS_GUI_SESSION,

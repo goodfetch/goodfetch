@@ -1,0 +1,13 @@
+[package]
+name = "goodfetch-repair"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+# Its unit tests run on the Scripted model, which does not depend on it.
+[dev-dependencies]
+goodfetch-scripted-model = { path = "../goodfetch-scripted-model" }
+
+[dependencies]
+goodfetch-model-provider = { path = "../goodfetch-model-provider" }
+goodfetch-workspace-hack = { path = "../goodfetch-workspace-hack" }

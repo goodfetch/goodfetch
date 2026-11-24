@@ -568,8 +568,37 @@ class ConnectionSampleSettings(TypedDict):
     """
 
 
+class SecretsPlaceholdersEntry1(TypedDict):
+    """A value of `SecretsPlaceholdersEntry1`."""
+
+    domains: list[str]
+    """The registrable domains, each with its subdomains, its value may go to; `*` for every domain, only when written."""
+
+    reference: str
+    """The Secret reference its value comes from, such as `env:GITHUB_PASSWORD`."""
+
+    totp: NotRequired[bool]
+    """Whether the reference's value is a TOTP seed, whose current code is typed in its place."""
+
+
+class SecretsPlaceholdersEntry2(TypedDict):
+    """A value of `SecretsPlaceholdersEntry2`."""
+
+    code_source: str
+    """The email or SMS code source its one-time code comes from."""
+
+    domains: list[str]
+    """The registrable domains, each with its subdomains, its value may go to; `*` for every domain, only when written."""
+
+
 class ConnectionSecretsSettings(TypedDict):
     """The `secrets` settings of `Settings`."""
+
+    placeholders: NotRequired[Mapping[str, SecretsPlaceholdersEntry1 | SecretsPlaceholdersEntry2]]
+    """Each Secret placeholder's binding, as `secrets.placeholders.<name>`: `reference`, the Secret reference its value comes from, with `totp: true` when that value is a TOTP seed whose current code is typed, or `code_source`, the email or SMS code source its one-time code comes from; and `domains`, required, the registrable domains its value may go to, each with its subdomains, `*` only when written. A host below a registrable domain, such as `www.example.com`, is refused with `setting_invalid` naming the domain. `secret("name")` in code and `%name%` in an AI instruction name the placeholder, and the nearest of a Session, its Run and the connection that binds it wins. None by default. A Recipe declares names and never binds one, and a Client acting for a model never sets one: either's value is `setting_locked`.
+
+    `secrets.placeholders`.
+    """
 
     resolve_each_use: NotRequired[list[str]]
     """The Secret references a Run resolves again at each use, such as a rotating token's. Any other reference is resolved once for each placeholder it fills and its value reused for the rest of the Run, its domain binding checked at each use; none by default.
@@ -1609,6 +1638,12 @@ class RunSampleSettings(TypedDict):
 class RunSecretsSettings(TypedDict):
     """The `secrets` settings of `RunSettings`."""
 
+    placeholders: NotRequired[Mapping[str, SecretsPlaceholdersEntry1 | SecretsPlaceholdersEntry2]]
+    """Each Secret placeholder's binding, as `secrets.placeholders.<name>`: `reference`, the Secret reference its value comes from, with `totp: true` when that value is a TOTP seed whose current code is typed, or `code_source`, the email or SMS code source its one-time code comes from; and `domains`, required, the registrable domains its value may go to, each with its subdomains, `*` only when written. A host below a registrable domain, such as `www.example.com`, is refused with `setting_invalid` naming the domain. `secret("name")` in code and `%name%` in an AI instruction name the placeholder, and the nearest of a Session, its Run and the connection that binds it wins. None by default. A Recipe declares names and never binds one, and a Client acting for a model never sets one: either's value is `setting_locked`.
+
+    `secrets.placeholders`.
+    """
+
     resolve_each_use: NotRequired[list[str]]
     """The Secret references a Run resolves again at each use, such as a rotating token's. Any other reference is resolved once for each placeholder it fills and its value reused for the rest of the Run, its domain binding checked at each use; none by default.
 
@@ -2056,6 +2091,16 @@ class SessionProxySettings(TypedDict):
     """
 
 
+class SessionSecretsSettings(TypedDict):
+    """The `secrets` settings of `SessionSettings`."""
+
+    placeholders: NotRequired[Mapping[str, SecretsPlaceholdersEntry1 | SecretsPlaceholdersEntry2]]
+    """Each Secret placeholder's binding, as `secrets.placeholders.<name>`: `reference`, the Secret reference its value comes from, with `totp: true` when that value is a TOTP seed whose current code is typed, or `code_source`, the email or SMS code source its one-time code comes from; and `domains`, required, the registrable domains its value may go to, each with its subdomains, `*` only when written. A host below a registrable domain, such as `www.example.com`, is refused with `setting_invalid` naming the domain. `secret("name")` in code and `%name%` in an AI instruction name the placeholder, and the nearest of a Session, its Run and the connection that binds it wins. None by default. A Recipe declares names and never binds one, and a Client acting for a model never sets one: either's value is `setting_locked`.
+
+    `secrets.placeholders`.
+    """
+
+
 class SessionSessionSettings(TypedDict):
     """The `session` settings of `SessionSettings`."""
 
@@ -2136,6 +2181,8 @@ class SessionSettings(TypedDict):
     live_view: NotRequired[SessionLiveViewSettings]
 
     proxy: NotRequired[SessionProxySettings]
+
+    secrets: NotRequired[SessionSecretsSettings]
 
     session: NotRequired[SessionSessionSettings]
 

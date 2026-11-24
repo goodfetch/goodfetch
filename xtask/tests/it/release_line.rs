@@ -1,7 +1,8 @@
 //! `xtask release`'s release line on a fixture repository (ADR 0032): a
 //! minor's cut, the backports its branch lacks, each release's git-cliff
-//! range and the gates a release and a promotion pass (ADRs 0064, 0066,
-//! 0067 and 0072), against local stand-ins of GitHub's interface, the
+//! range and its changelog entries, by the Products each commit reaches
+//! (ADR 0094), and the gates a release and a promotion pass (ADRs 0064,
+//! 0066, 0067 and 0072), against local stand-ins of GitHub's interface, the
 //! private fuzzing repository's included.
 
 use std::ffi::OsStr;
@@ -16,6 +17,10 @@ const READY: &str = r#"{"release_commit": "abc123", "gate": {"ready": true, "unt
 
 const FORMAT: &str =
     r#"{"name": "protocol", "schema": {"type": "object"}, "storage": "jsonl", "version": "0.1"}"#;
+
+/// A file `xtask codegen` writes from the Product version, in the
+/// history's first commit.
+const GENERATED: &str = "sdks/typescript/collie-client/src/generated/connection.ts";
 
 /// The history every test starts from, `main` at `feat: the second
 /// Feature`:
@@ -39,6 +44,7 @@ struct Line {
 fn line() -> Line {
     let workspace = Workspace::from_fixture("release");
     workspace.write("quarantine.toml", b"# The test quarantine list.\n");
+    workspace.write(GENERATED, b"export const PRODUCT_VERSION = \"0.0.0\";\n");
     workspace.write("compat/protocol/head/format.json", FORMAT.as_bytes());
     workspace.commit_all_with("feat: the first Feature");
     workspace.git(&["branch", "--move", "main"]);
@@ -270,13 +276,13 @@ fn backports_refuses_a_minor_never_cut() {
     assert_eq!(github.requests(), [] as [Request; 0]);
 }
 
-/// A bare repository `origin` that holds `main`.
+/// A bare repository `origin` that holds every branch of the workspace.
 fn remote(workspace: &Workspace) -> tempfile::TempDir {
     let folder = tempfile::tempdir().unwrap();
     let path = folder.path().to_str().unwrap();
     workspace.git(&["init", "--quiet", "--bare", path]);
     workspace.git(&["remote", "add", "origin", path]);
-    workspace.git(&["push", "--quiet", "origin", "main"]);
+    workspace.git(&["push", "--quiet", "--all", "origin"]);
     folder
 }
 
@@ -292,8 +298,59 @@ fn remote_ref(workspace: &Workspace, name: &str) -> String {
 const PULL_CREATED: &str =
     r#"{"number": 41, "html_url": "https://github.com/goodfetch/goodfetch/pull/41"}"#;
 
+/// The variable that makes [`codegen_cargo`]'s codegen fail, printing its
+/// value.
+const CODEGEN_FAILS: &str = "CODEGEN_FAILS";
+
+/// A stand-in of Cargo whose `run --quiet --bin xtask -- codegen` writes
+/// [`GENERATED`] from the version on Collie's crate, as `xtask codegen`
+/// does, or fails as [`CODEGEN_FAILS`] says; it fails any other call.
+fn codegen_cargo() -> tempfile::TempDir {
+    let folder = tempfile::tempdir().unwrap();
+    let cargo = folder.path().join("cargo");
+    std::fs::write(
+        &cargo,
+        format!(
+            r#"#!/bin/sh
+[ "$*" = "run --quiet --bin xtask -- codegen" ] || exit 3
+[ -z "${CODEGEN_FAILS}" ] || {{ echo "${CODEGEN_FAILS}" >&2; exit 1; }}
+version=$(sed -n 's/^version = "\(.*\)"$/\1/p' crates/goodfetch-collie/Cargo.toml)
+printf 'export const PRODUCT_VERSION = "%s";\n' "$version" >{GENERATED}
+"#
+        ),
+    )
+    .unwrap();
+    std::fs::set_permissions(&cargo, std::os::unix::fs::PermissionsExt::from_mode(0o755)).unwrap();
+    folder
+}
+
+/// `xtask release` with a GitHub token and the stand-in Cargo, beside the
+/// repository's `cliff.toml`, which the changelog reads.
+fn releasing(workspace: &Workspace, args: &[&str]) -> Outcome {
+    releasing_with(workspace, args, &[])
+}
+
+/// [`releasing`], with `variables` set too.
+fn releasing_with(workspace: &Workspace, args: &[&str], variables: &[(&str, &OsStr)]) -> Outcome {
+    let repository = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .unwrap();
+    workspace.write(
+        "cliff.toml",
+        &std::fs::read(repository.join("cliff.toml")).unwrap(),
+    );
+    let cargo = codegen_cargo();
+    let cargo = cargo.path().join("cargo");
+    let mut all = vec![
+        ("GITHUB_TOKEN", OsStr::new("token")),
+        ("CARGO", cargo.as_os_str()),
+    ];
+    all.extend_from_slice(variables);
+    workspace.xtask_with_env(args, &all)
+}
+
 fn cut(workspace: &Workspace, github: &GitHub) -> Outcome {
-    with_token(
+    releasing(
         workspace,
         &[
             "release",
@@ -306,6 +363,81 @@ fn cut(workspace: &Workspace, github: &GitHub) -> Outcome {
             github.url(),
         ],
     )
+}
+
+fn pull_request(workspace: &Workspace, github: &GitHub, version: &str) -> Outcome {
+    pull_request_with(workspace, github, version, &[])
+}
+
+fn pull_request_with(
+    workspace: &Workspace,
+    github: &GitHub,
+    version: &str,
+    variables: &[(&str, &OsStr)],
+) -> Outcome {
+    releasing_with(
+        workspace,
+        &[
+            "release",
+            "pull-request",
+            "--version",
+            version,
+            "--api-url",
+            github.url(),
+        ],
+        variables,
+    )
+}
+
+/// Asserts that the remote's `release-pr/<version>` is one commit over
+/// `parent`, signed off by the releaser, that sets `version` on Collie's
+/// crate and holds codegen's output for it, run after the preparation, and
+/// the version's changelog entries; and that the workspace is left clean.
+fn assert_release_commit(workspace: &Workspace, version: &str, parent: &str) {
+    let head = format!("release-pr/{version}");
+    let commit = remote_ref(workspace, &format!("refs/heads/{head}"));
+    workspace.git(&["fetch", "--quiet", "origin", &head]);
+    assert_eq!(
+        workspace.git(&["rev-parse", &format!("{commit}^")]).trim(),
+        parent
+    );
+    assert_eq!(
+        workspace.git(&[
+            "log",
+            "-1",
+            "--format=%s%n%(trailers:key=Signed-off-by)",
+            &commit
+        ]),
+        format!(
+            "chore(release): {version}\nSigned-off-by: Releaser <releaser@example.invalid>\n\n"
+        )
+    );
+    let show = |path: &str| workspace.git(&["show", &format!("{commit}:{path}")]);
+    let manifest = show("crates/goodfetch-collie/Cargo.toml");
+    assert!(
+        manifest.contains(&format!("version = \"{version}\"")),
+        "{manifest}"
+    );
+    assert_eq!(
+        show(GENERATED),
+        format!("export const PRODUCT_VERSION = \"{version}\";\n")
+    );
+    let changelog = show("CHANGELOG.md");
+    assert!(
+        changelog.contains(&format!("\n## {version} (")),
+        "{changelog}"
+    );
+    assert_eq!(
+        workspace.git(&["status", "--porcelain", "--untracked-files=no"]),
+        ""
+    );
+}
+
+/// The body of the one pull request `github` was asked to open.
+fn opened(github: &GitHub) -> serde_json::Value {
+    let writes = github.writes();
+    assert_eq!(writes.len(), 1);
+    serde_json::from_str(&writes[0].body).unwrap()
 }
 
 #[test]
@@ -322,39 +454,178 @@ fn cut_branches_tags_main_and_opens_the_first_candidates_pull_request() {
     assert_eq!(remote_ref(&workspace, "refs/tags/1.5-branch"), main);
     assert_eq!(remote_ref(&workspace, "refs/heads/main"), main);
     assert_eq!(workspace.git(&["rev-parse", "main"]).trim(), main);
-    let candidate = remote_ref(&workspace, "refs/heads/release-pr/1.5.0-rc.1");
-    workspace.git(&["fetch", "--quiet", "origin", "release-pr/1.5.0-rc.1"]);
-    assert_eq!(
-        workspace
-            .git(&["rev-parse", &format!("{candidate}^")])
-            .trim(),
-        main
-    );
-    assert_eq!(
-        workspace.git(&[
-            "log",
-            "-1",
-            "--format=%s%n%(trailers:key=Signed-off-by)",
-            &candidate
-        ]),
-        "chore(release): 1.5.0-rc.1\nSigned-off-by: Releaser <releaser@example.invalid>\n\n"
-    );
-    let manifest = workspace.git(&[
-        "show",
-        &format!("{candidate}:crates/goodfetch-collie/Cargo.toml"),
-    ]);
-    assert!(manifest.contains("version = \"1.5.0-rc.1\""), "{manifest}");
-    assert_eq!(
-        workspace.git(&["status", "--porcelain", "--untracked-files=no"]),
-        ""
-    );
-    let writes = github.writes();
-    assert_eq!(writes.len(), 1);
-    let body: serde_json::Value = serde_json::from_str(&writes[0].body).unwrap();
+    assert_release_commit(&workspace, "1.5.0-rc.1", &main);
+    let body = opened(&github);
     assert_eq!(body["base"], "release/1.5");
     assert_eq!(body["head"], "release-pr/1.5.0-rc.1");
     assert_eq!(body["title"], "chore(release): 1.5.0-rc.1");
     assert!(outcome.stdout.contains("pull/41"), "{}", outcome.stdout);
+}
+
+/// Every release after a minor's first candidate is prepared on the
+/// minor's branch, and its pull request opened against that branch.
+///
+/// Covers: story:1-78
+#[rstest]
+#[case::later_candidate("1.4.0-rc.2", "release/1.4")]
+#[case::stable("1.4.0", "release/1.4")]
+#[case::patch("1.3.1", "release/1.3")]
+fn pull_request_prepares_the_release_on_its_branch_and_opens_against_it(
+    #[case] version: &str,
+    #[case] branch: &str,
+) {
+    let Line { workspace, .. } = line();
+    workspace.git(&["tag", "v1.4.0-rc.1", "release/1.4"]);
+    workspace.git(&["switch", "--quiet", branch]);
+    commit_paths(
+        &workspace,
+        "fix: the late crash",
+        &["crates/goodfetch-engine/src/late.rs"],
+    );
+    let _origin = remote(&workspace);
+    let parent = workspace.git(&["rev-parse", "HEAD"]).trim().to_owned();
+    let github = GitHub::serving(&[("POST /repos/goodfetch/goodfetch/pulls", PULL_CREATED)]);
+
+    let outcome = pull_request(&workspace, &github, version);
+
+    assert_eq!(outcome.code, 0, "{}", outcome.stderr);
+    assert_release_commit(&workspace, version, &parent);
+    let body = opened(&github);
+    assert_eq!(body["base"], branch);
+    assert_eq!(body["head"], format!("release-pr/{version}"));
+    assert!(outcome.stdout.contains("pull/41"), "{}", outcome.stdout);
+}
+
+/// `1.4.0-rc.2`'s pull request is refused, naming what `arrange`, which
+/// returns that name, left in its way: the workspace off `release/1.4`, a
+/// change to a tracked file, its branch already made, or `release/1.4`
+/// behind the remote's.
+#[rstest]
+#[case::off_its_branch(|_: &Workspace| "release/1.4".to_owned())]
+#[case::with_changes(|workspace: &Workspace| {
+    workspace.git(&["switch", "--quiet", "release/1.4"]);
+    workspace.write(GENERATED, b"// edited\n");
+    GENERATED.to_owned()
+})]
+#[case::its_branch_made(|workspace: &Workspace| {
+    workspace.git(&["switch", "--quiet", "release/1.4"]);
+    workspace.git(&["branch", "release-pr/1.4.0-rc.2"]);
+    "release-pr/1.4.0-rc.2".to_owned()
+})]
+#[case::behind_the_remote(|workspace: &Workspace| {
+    workspace.git(&["switch", "--quiet", "release/1.4"]);
+    commit_paths(workspace, "fix: the late crash", &["crates/goodfetch-engine/src/late.rs"]);
+    workspace.git(&["push", "--quiet", "origin", "release/1.4"]);
+    let pushed = workspace.git(&["rev-parse", "HEAD"]).trim().to_owned();
+    workspace.git(&["reset", "--quiet", "--hard", "HEAD~1"]);
+    pushed
+})]
+fn pull_request_refuses_what_stands_in_its_way(#[case] arrange: fn(&Workspace) -> String) {
+    let Line { workspace, .. } = line();
+    workspace.git(&["tag", "v1.4.0-rc.1", "release/1.4"]);
+    let _origin = remote(&workspace);
+    let named = arrange(&workspace);
+    let github = GitHub::serving(&[("POST /repos/goodfetch/goodfetch/pulls", PULL_CREATED)]);
+
+    let outcome = pull_request(&workspace, &github, "1.4.0-rc.2");
+
+    assert_eq!(outcome.code, 2, "{}", outcome.stdout);
+    assert!(outcome.stderr.contains(&named), "{}", outcome.stderr);
+    assert_eq!(
+        remote_ref(&workspace, "refs/heads/release-pr/1.4.0-rc.2"),
+        ""
+    );
+    assert_eq!(github.writes(), [] as [Request; 0]);
+}
+
+/// Asserts that a release pull request that failed before its branch was
+/// pushed left the workspace as it found it, on `release/1.4` with no
+/// `release-pr/1.4.0-rc.2` branch and no changelog, and says how to run it
+/// again.
+fn assert_rolled_back(workspace: &Workspace, github: &GitHub, outcome: &Outcome) {
+    assert_eq!(outcome.code, 2, "{}", outcome.stdout);
+    assert!(
+        outcome
+            .stderr
+            .contains("xtask release pull-request --version 1.4.0-rc.2"),
+        "{}",
+        outcome.stderr
+    );
+    assert_eq!(
+        workspace.git(&["branch", "--show-current"]).trim(),
+        "release/1.4"
+    );
+    assert_eq!(
+        workspace.git(&["status", "--porcelain", "--untracked-files=no"]),
+        ""
+    );
+    assert_eq!(workspace.git(&["branch", "--list", "release-pr/*"]), "");
+    assert_eq!(workspace.read("CHANGELOG.md"), None);
+    assert_eq!(
+        remote_ref(workspace, "refs/heads/release-pr/1.4.0-rc.2"),
+        ""
+    );
+    assert_eq!(github.writes(), [] as [Request; 0]);
+}
+
+#[test]
+fn pull_request_whose_codegen_fails_leaves_the_workspace_as_it_was() {
+    let Line { workspace, .. } = line();
+    workspace.git(&["tag", "v1.4.0-rc.1", "release/1.4"]);
+    workspace.git(&["switch", "--quiet", "release/1.4"]);
+    let _origin = remote(&workspace);
+    let github = GitHub::serving(&[("POST /repos/goodfetch/goodfetch/pulls", PULL_CREATED)]);
+
+    let outcome = pull_request_with(
+        &workspace,
+        &github,
+        "1.4.0-rc.2",
+        &[(CODEGEN_FAILS, OsStr::new("pnpm: not found"))],
+    );
+
+    assert!(
+        outcome.stderr.contains("pnpm: not found"),
+        "{}",
+        outcome.stderr
+    );
+    assert_rolled_back(&workspace, &github, &outcome);
+}
+
+#[test]
+fn pull_request_whose_push_is_refused_leaves_the_workspace_as_it_was() {
+    let Line { workspace, .. } = line();
+    workspace.git(&["tag", "v1.4.0-rc.1", "release/1.4"]);
+    workspace.git(&["switch", "--quiet", "release/1.4"]);
+    let origin = remote(&workspace);
+    crate::workspace::write_executable(
+        &origin.path().join("hooks/pre-receive"),
+        "#!/bin/sh\nexit 1\n",
+    );
+    let github = GitHub::serving(&[("POST /repos/goodfetch/goodfetch/pulls", PULL_CREATED)]);
+
+    let outcome = pull_request(&workspace, &github, "1.4.0-rc.2");
+
+    assert_rolled_back(&workspace, &github, &outcome);
+}
+
+#[test]
+fn pull_request_writes_nothing_for_a_patch_that_changes_a_format() {
+    let workspace = patch(|workspace| {
+        workspace.write(
+            "compat/protocol/head/format.json",
+            FORMAT.replace("0.1", "0.2").as_bytes(),
+        );
+    });
+    let _origin = remote(&workspace);
+    let github = GitHub::serving(&[("POST /repos/goodfetch/goodfetch/pulls", PULL_CREATED)]);
+
+    let outcome = pull_request(&workspace, &github, "1.3.1");
+
+    assert_eq!(outcome.code, 1, "{}", outcome.stderr);
+    assert_eq!(outcome.findings(), [finding("format-changed", "protocol")]);
+    assert_eq!(workspace.git(&["branch", "--list", "release-pr/*"]), "");
+    assert_eq!(remote_ref(&workspace, "refs/heads/release-pr/1.3.1"), "");
+    assert_eq!(github.writes(), [] as [Request; 0]);
 }
 
 /// What a refused cut leaves: no branch, no tag, no pull request.
@@ -483,6 +754,7 @@ const MONDAY: &str = "2026-11-23T10:00:00Z";
 #[test]
 fn check_passes_a_stable_commit_that_only_sets_versions_and_adds_the_release_files() {
     let workspace = promoted(&[
+        (GENERATED, "export const PRODUCT_VERSION = \"1.4.0\";\n"),
         ("CHANGELOG.md", "# Changelog\n"),
         ("website/release-notes/1.4.md", "# 1.4\n"),
         ("bench/results/1.4.0/summary.json", "{}\n"),
@@ -710,4 +982,107 @@ fn check_refuses_a_patch_while_a_release_gate_is_closed(
 
     assert_eq!(outcome.code, 1, "{}", outcome.stderr);
     assert_eq!(outcome.findings(), [refusal]);
+}
+
+/// Commits `paths`, each written anew, and nothing else, with `message`.
+fn commit_paths(workspace: &Workspace, message: &str, paths: &[&str]) {
+    for path in paths {
+        workspace.write(path, format!("// {message}\n").as_bytes());
+    }
+    workspace.git(&[&["add", "--"], paths].concat());
+    workspace.git(&["commit", "--quiet", "--no-verify", "--message", message]);
+}
+
+/// An earlier release's entries, which the next release's go above.
+const EARLIER: &str = "# Changelog\n\n## 1.3.0 (2026-10-01)\n\n### Both Products\n\n#### Added\n\n- The first Feature\n";
+
+/// `1.4.0-rc.1`'s entries as written before, above [`EARLIER`]'s.
+const FIRST_CANDIDATE: &str = "# Changelog\n\n## 1.4.0-rc.1 (2026-11-19)\n\n### Both Products\n\n#### Fixed\n\n- The crash\n\n## 1.3.0 (2026-10-01)\n\n### Both Products\n\n#### Added\n\n- The first Feature\n";
+
+/// `1.4.0`'s two candidates' entries above [`EARLIER`]'s.
+const CANDIDATES: &str = "# Changelog\n\n## 1.4.0-rc.2 (2026-11-19)\n\n### Foxhound only\n\n#### Added\n\n- **foxhound:** Crawl to a depth\n\n## 1.4.0-rc.1 (2026-11-18)\n\n### Both Products\n\n#### Fixed\n\n- The crash\n\n## 1.3.0 (2026-10-01)\n\n### Both Products\n\n#### Added\n\n- The first Feature\n";
+
+/// `version`'s changelog, from the repository's `cliff.toml`, once
+/// `release/1.4` has merged a branch's commit on Foxhound's side alone,
+/// and has a commit on both sides and a chore, over `main`'s fix and
+/// Feature, with `earlier` as `CHANGELOG.md` before it, snapshotted as
+/// `name`. A merge is left out: its branch's commit is listed.
+///
+/// Covers: story:1-78
+#[rstest]
+#[case::the_first_release("changelog_of_the_first_release", "1.4.0-rc.1", None)]
+#[case::after_an_earlier_release("changelog_after_an_earlier_release", "1.4.0-rc.1", Some(EARLIER))]
+#[case::written_again_over_its_own_section(
+    "changelog_after_an_earlier_release",
+    "1.4.0-rc.1",
+    Some(FIRST_CANDIDATE)
+)]
+#[case::a_stable_minor_over_its_candidates(
+    "changelog_of_a_stable_minor_over_its_candidates",
+    "1.4.0",
+    Some(CANDIDATES)
+)]
+fn changelog_lists_a_foxhound_only_commit_under_foxhound_and_a_commit_on_both_sides_under_both(
+    #[case] name: &str,
+    #[case] version: &str,
+    #[case] earlier: Option<&str>,
+) {
+    let Line { workspace, .. } = line();
+    workspace.git(&["switch", "--quiet", "--create", "depth", "release/1.4"]);
+    commit_paths(
+        &workspace,
+        "feat(foxhound): crawl to a depth",
+        &[
+            "crates/foxhound/goodfetch-foxhound/src/depth.rs",
+            "sdks/python/foxhound/depth.py",
+        ],
+    );
+    workspace.git(&["switch", "--quiet", "release/1.4"]);
+    workspace.git(&[
+        "merge",
+        "--quiet",
+        "--no-ff",
+        "--no-verify",
+        "--message",
+        "feat(foxhound): merge the depth crawl (#9)",
+        "depth",
+    ]);
+    commit_paths(
+        &workspace,
+        "fix: time out shared requests",
+        &[
+            "crates/foxhound/goodfetch-foxhound/src/timeout.rs",
+            "crates/goodfetch-engine/src/timeout.rs",
+        ],
+    );
+    commit_paths(
+        &workspace,
+        "chore(foxhound): tidy the crawl",
+        &["crates/foxhound/goodfetch-foxhound/src/depth.rs"],
+    );
+    let repository = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .unwrap();
+    workspace.write(
+        "cliff.toml",
+        &std::fs::read(repository.join("cliff.toml")).unwrap(),
+    );
+    if let Some(earlier) = earlier {
+        workspace.write("CHANGELOG.md", earlier.as_bytes());
+    }
+
+    let outcome = workspace.xtask(&[
+        "release",
+        "changelog",
+        "--version",
+        version,
+        "--at",
+        "2026-11-20T12:00:00Z",
+    ]);
+
+    assert_eq!(outcome.code, 0, "{}", outcome.stderr);
+    insta::assert_snapshot!(
+        name,
+        std::fs::read_to_string(workspace.path().join("CHANGELOG.md")).unwrap()
+    );
 }

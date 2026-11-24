@@ -10,7 +10,7 @@ use goodfetch_protocol::foxhound::crawl::{
     ATTEMPT_ENDED, CrawlRequestHandleParams, RETRY_REQUESTED,
 };
 use goodfetch_protocol::foxhound::dataset::{
-    CRAWL_REQUEST_PUSH, CrawlRequestPushParams, CrawlRequestPushed,
+    CRAWL_REQUEST_PUSH, CrawlRequestPushParams, CrawlRequestPushed, RecordData,
 };
 use goodfetch_protocol::foxhound::error_code;
 use goodfetch_protocol::foxhound::fetch::{RESPONSE_NOT_DOCUMENT, ResponseNotDocumentDetails};
@@ -281,7 +281,10 @@ impl<P> CrawlContext<P> {
         dataset: &Dataset<I>,
         record: &I,
     ) -> impl Future<Output = Result<(), Error>> + Send + 'static {
-        let params = serde_json::to_value(record)
+        // The connection encodes a call's params as a `Value`, which sorts
+        // the Record's fields: the order `record` writes them is not kept
+        // yet (issue 2394's follow-up).
+        let params = RecordData::of(record)
             .map_err(|error| Error::of_program(Box::new(error), error_code::RECORD_INVALID))
             .map(|record| CrawlRequestPushParams {
                 run_id: self.attempt.params.run_id.clone(),

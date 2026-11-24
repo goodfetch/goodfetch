@@ -1,0 +1,6 @@
+---
+source: crates/foxhound/goodfetch-foxhound/tests/it/exports.rs
+expression: xlsx_bytes.clone()
+extension: xlsx
+snapshot_kind: binary
+---

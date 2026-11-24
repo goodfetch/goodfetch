@@ -1651,6 +1651,15 @@ tlc-self-test:
 lazyfs-fetch:
     cargo run --quiet --bin xtask -- lazyfs fetch
 
+# Keeps the released artifacts compat/releases.toml lists, both Products'
+# files of each release with their attestation bundles, and Sigstore's
+# trusted root in target/artifacts/<the list's SHA-256>/, each checked by
+# its SHA-256 and by `gh attestation verify` offline, and prints the set's
+# versions.json: the current build alone while nothing is released (ADR 0066).
+# Downloads before the outbound-traffic deny; a second run uses the kept set.
+artifacts:
+    cargo run --quiet --bin xtask -- artifacts fetch
+
 # Linux, with cmake, a C++17 compiler and libfuse3's headers
 # (ci/host/lazyfs.sh installs them on a runner); it builds nothing again
 # while target/lazyfs/bin/ holds a build of the same pins.

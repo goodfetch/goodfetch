@@ -279,3 +279,27 @@ fn the_topic_list_is_each_products_rendering_of_the_skills() {
     assert_eq!(findings.len(), 0);
     insta::assert_snapshot!(topics.join("\n"));
 }
+
+/// Each Product's Claude Code plugin carries the version its release
+/// prepared on Collie's crate, not the workspace's `0.0.x` (issue 2876).
+#[test]
+fn each_plugin_carries_the_product_version() {
+    let root = workspace(&[
+        (
+            "Cargo.toml",
+            "[workspace]\n\n[workspace.package]\nversion = \"0.0.0\"\nlicense = \"MIT\"\nrepository = \"https://example.invalid\"\n",
+        ),
+        (
+            "crates/goodfetch-collie/Cargo.toml",
+            "[package]\nname = \"goodfetch-collie\"\nversion = \"1.4.0-rc.2\"\n",
+        ),
+    ]);
+
+    let manifests = plugins(root.path()).unwrap();
+
+    assert_eq!(manifests.len(), 2);
+    for (path, text) in manifests {
+        let manifest: Value = serde_json::from_slice(&text).unwrap();
+        assert_eq!(manifest["version"], "1.4.0-rc.2", "{path}");
+    }
+}

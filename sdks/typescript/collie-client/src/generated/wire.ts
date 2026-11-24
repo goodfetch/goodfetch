@@ -8,17 +8,25 @@ import type { CollieOperationTypes } from "./operations.ts";
 export type CollieWireType =
   | "AddInitScriptParams"
   | "AppliedLimit"
+  | "ArtifactDownloadFailedDetails"
+  | "ArtifactUnavailableOfflineDetails"
   | "AuditExported"
   | "AuditVerified"
   | "AxisReason"
+  | "BlockedDetails"
   | "BodyHandle"
+  | "BodyUnavailableDetails"
+  | "BrowserNotInstalledDetails"
   | "CatalogRunStartParams"
   | "CatalogTarget"
+  | "CdpUrlNotBrowserDetails"
+  | "CertificateChangedDetails"
   | "CertificateExceptionMark"
   | "CertificatePin"
   | "CertsAcceptParams"
   | "CertsListed"
   | "Checkpoint"
+  | "CheckpointBehindDetails"
   | "ClickParams"
   | "Concurrency"
   | "ConfigExplainParams"
@@ -28,8 +36,10 @@ export type CollieWireType =
   | "DaemonState"
   | "DaemonStopping"
   | "DatasetRecord"
+  | "DeadlineExceededDetails"
   | "Dialog"
   | "DialogAcceptParams"
+  | "DialogAlreadyHandledDetails"
   | "DialogDismissParams"
   | "DialogHandleParams"
   | "DownloadProgress"
@@ -39,12 +49,16 @@ export type CollieWireType =
   | "EffectClosed"
   | "EffectOpenParams"
   | "EffectOpened"
+  | "EnclosingCall"
+  | "EngineExitedDetails"
   | "EngineInfo"
+  | "EnginePanickedDetails"
   | "EvaluateParams"
   | "EventsSubscribeParams"
   | "ExplainedSetting"
   | "ExportedAuditEntry"
   | "FieldTransform"
+  | "FileWriteFailedDetails"
   | "FillParams"
   | "FormatsParams"
   | "GotoParams"
@@ -63,17 +77,23 @@ export type CollieWireType =
   | "KindUsage"
   | "LastRead"
   | "Limit"
+  | "LimitNotUnderstoodDetails"
+  | "LimitRaiseRefusedDetails"
   | "LimitUsage"
   | "ListField"
   | "Locator"
   | "LocatorEvaluateAllParams"
   | "LocatorWaitForFunctionParams"
   | "LocatorWaitForParams"
+  | "LoggedOutDetails"
   | "MemoryReading"
   | "Metadata"
+  | "MissingBrowser"
   | "ModelAllowance"
   | "ModelCounts"
+  | "ModelUnavailableDetails"
   | "ModelUsage"
+  | "NameNotResolvedDetails"
   | "Navigated"
   | "NeedsYouChange"
   | "NeedsYouItem"
@@ -82,16 +102,20 @@ export type CollieWireType =
   | "NewPageParams"
   | "NewSessionPageParams"
   | "NewSessionParams"
+  | "NotInProductDetails"
   | "NotUnderstoodLimit"
   | "NotVerifiedDetails"
   | "NothingDone"
   | "PageBodyParams"
   | "PageCloseParams"
+  | "PageCrashedDetails"
   | "PageDownload"
   | "PageExchange"
   | "PageField"
   | "PageFired"
   | "PageFormats"
+  | "PageMemoryExceededDetails"
+  | "PageNavigatedDuringCallDetails"
   | "PageOnDialogParams"
   | "PageOnParams"
   | "PageOpened"
@@ -103,22 +127,26 @@ export type CollieWireType =
   | "PageResponse"
   | "PageRouteParams"
   | "PageWebSocket"
+  | "PathNotWritableDetails"
   | "PaymentMark"
   | "Period"
   | "PlanReport"
   | "PluginRun"
   | "PressParams"
   | "PrivateEndpoint"
+  | "ProtocolVersionUnsupportedDetails"
   | "ReachedLimit"
   | "RecipeStartParams"
   | "RecordProvenance"
   | "RecordRead"
   | "RecordingReport"
   | "RequestFailure"
+  | "ResourcesExhaustedDetails"
   | "ResponseBodyParams"
   | "ResponseOrigin"
   | "Resync"
   | "RouteAbortParams"
+  | "RouteAlreadyHandledDetails"
   | "RouteFetched"
   | "RouteFulfillParams"
   | "RouteHandleParams"
@@ -133,6 +161,7 @@ export type CollieWireType =
   | "RunDiscarded"
   | "RunFinishParams"
   | "RunIndexRow"
+  | "RunKeyMismatchDetails"
   | "RunLimit"
   | "RunList"
   | "RunListParams"
@@ -148,10 +177,12 @@ export type CollieWireType =
   | "RunStartParams"
   | "RunStarted"
   | "RunStartedAs"
+  | "RunStatePosition"
   | "RunStopParams"
   | "RunStopping"
   | "RunStorage"
   | "RunUsage"
+  | "SchemaValidatorFailedDetails"
   | "SessionOnParams"
   | "SessionOpened"
   | "SessionParams"
@@ -189,17 +220,25 @@ export const collieWire: Wire<keyof CollieOperationTypes & string, keyof CollieE
   types: {
     "AddInitScriptParams": { fields: { "page_id": "pageId" } },
     "AppliedLimit": { fields: { "period": ["period", { type: "Period" }], "resets_at": ["resetsAt", "time"], "set_by": "setBy", "usage_kind": "usageKind" } },
+    "ArtifactDownloadFailedDetails": { fields: { "pinned_by": "pinnedBy" } },
+    "ArtifactUnavailableOfflineDetails": { fields: { "pinned_by": "pinnedBy" } },
     "AuditExported": { fields: { "entries": ["entries", { items: { type: "ExportedAuditEntry" } }] } },
     "AuditVerified": { fields: { "first_broken": "firstBroken" } },
     "AxisReason": { fields: { "call_id": "callId" } },
+    "BlockedDetails": { fields: { "retry_after": ["retryAfter", "time"] } },
     "BodyHandle": { fields: { "run_id": "runId" } },
+    "BodyUnavailableDetails": { fields: { "request_id": "requestId" } },
+    "BrowserNotInstalledDetails": { fields: { "missing": ["missing", { type: "MissingBrowser" }] } },
     "CatalogRunStartParams": { fields: { "limits": ["limits", { items: { type: "RunLimit" } }], "run_id": "runId", "target": ["target", { type: "CatalogTarget" }] } },
     "CatalogTarget": { fields: { "max_steps": "maxSteps" } },
+    "CdpUrlNotBrowserDetails": { fields: { "browser_url": "browserURL" } },
+    "CertificateChangedDetails": { fields: { "pinned_spki_sha256": "pinnedSpkiSha256", "presented_spki_sha256": "presentedSpkiSha256" } },
     "CertificateExceptionMark": { fields: { "spki_sha256": "spkiSha256" } },
     "CertificatePin": { fields: { "changed_spki_sha256": "changedSpkiSha256", "pinned_at": ["pinnedAt", "time"], "run_id": "runId", "spki_sha256": "spkiSha256" } },
     "CertsAcceptParams": { fields: { "spki_sha256": "spkiSha256" } },
     "CertsListed": { fields: { "pins": ["pins", { items: { type: "CertificatePin" } }] } },
     "Checkpoint": { fields: { "journal_position": "journalPosition", "run_epoch": "runEpoch", "run_id": "runId", "time": ["time", "time"] } },
+    "CheckpointBehindDetails": { fields: { "checkpoint": ["checkpoint", { type: "RunStatePosition" }], "run_file": ["runFile", { type: "RunStatePosition" }] } },
     "ClickParams": { fields: { "locator": ["locator", { type: "Locator" }] } },
     "Concurrency": { fields: { "browser_page": ["browserPage", { type: "KindConcurrency" }], "http": ["http", { type: "KindConcurrency" }], "model_call": ["modelCall", { type: "KindConcurrency" }] } },
     "ConfigExplainParams": { fields: { "missing_project": "missingProject", "run_id": "runId" } },
@@ -209,8 +248,10 @@ export const collieWire: Wire<keyof CollieOperationTypes & string, keyof CollieE
     "DaemonState": { fields: { "idle_timeout": "idleTimeout", "kept_alive": "keptAlive", "live_runs": "liveRuns", "product_version": "productVersion" } },
     "DaemonStopping": { fields: { "live_runs": "liveRuns" } },
     "DatasetRecord": { fields: { "committed_at": ["committedAt", "time"], "provenance": ["provenance", { type: "RecordProvenance" }], "request_id": "requestId" } },
+    "DeadlineExceededDetails": { fields: { "ended_by": ["endedBy", { type: "EnclosingCall" }], "waited_for": "waitedFor" } },
     "Dialog": { fields: { "default_value": "defaultValue" } },
     "DialogAcceptParams": { fields: { "dialog_id": "dialogId", "prompt_text": "promptText" } },
+    "DialogAlreadyHandledDetails": { fields: { "dialog_id": "dialogId" } },
     "DialogDismissParams": { fields: { "dialog_id": "dialogId" } },
     "DialogHandleParams": { fields: { "dialog": ["dialog", { type: "Dialog" }], "dialog_id": "dialogId", "page_id": "pageId" } },
     "DownloadProgress": { fields: { "received_bytes": "receivedBytes", "total_bytes": "totalBytes" } },
@@ -220,12 +261,16 @@ export const collieWire: Wire<keyof CollieOperationTypes & string, keyof CollieE
     "EffectClosed": { fields: { "effect": ["effect", { type: "UncertainEffect" }], "performed_at": ["performedAt", "time"] } },
     "EffectOpenParams": { fields: { "attempt": ["attempt", { type: "EffectAttempt" }], "run_id": "runId" } },
     "EffectOpened": { fields: { "idempotency_key": "idempotencyKey", "performed_at": ["performedAt", "time"], "reconciled_at": ["reconciledAt", "time"], "reconciled_by": "reconciledBy" } },
+    "EnclosingCall": { fields: { "call_id": "callId" } },
+    "EngineExitedDetails": { fields: { "exit_code": "exitCode", "stderr_tail": "stderrTail" } },
     "EngineInfo": { fields: { "product_major": "productMajor", "product_version": "productVersion", "protocol_version": "protocolVersion" } },
+    "EnginePanickedDetails": { fields: { "crash_report": "crashReport" } },
     "EvaluateParams": { fields: { "page_id": "pageId" } },
     "EventsSubscribeParams": { fields: { "after": ["after", { type: "LastRead" }], "system_info": "systemInfo" } },
     "ExplainedSetting": { fields: { "fixed_for_run": "fixedForRun", "locked_by": "lockedBy", "user_settable": "userSettable", "yields_to": "yieldsTo" } },
     "ExportedAuditEntry": { fields: { "run_id": "runId", "time": ["time", "time"] } },
     "FieldTransform": { fields: { "time_zone": "timeZone" } },
+    "FileWriteFailedDetails": { fields: { "os_code": "osCode" } },
     "FillParams": { fields: { "locator": ["locator", { type: "Locator" }] } },
     "FormatsParams": { fields: { "page_id": "pageId" } },
     "GotoParams": { fields: { "page_id": "pageId", "wait_until": "waitUntil" } },
@@ -244,17 +289,23 @@ export const collieWire: Wire<keyof CollieOperationTypes & string, keyof CollieE
     "KindUsage": { fields: { "usage_kind": "usageKind" } },
     "LastRead": { fields: { "engine_instance": "engineInstance" } },
     "Limit": { fields: { "must_understand": "mustUnderstand", "period": ["period", { type: "Period" }], "set_by": "setBy", "usage_kind": "usageKind" } },
+    "LimitNotUnderstoodDetails": { fields: { "limit": ["limit", { type: "Limit" }] } },
+    "LimitRaiseRefusedDetails": { fields: { "usage_kind": "usageKind" } },
     "LimitUsage": { fields: { "limit": ["limit", { type: "Limit" }], "managed_major": "managedMajor", "period_started_at": ["periodStartedAt", "time"], "resets_at": ["resetsAt", "time"] } },
     "ListField": { fields: { "list": ["list", { type: "ValueField" }] } },
     "Locator": { fields: { "page_id": "pageId" } },
     "LocatorEvaluateAllParams": { fields: { "locator": ["locator", { type: "Locator" }] } },
     "LocatorWaitForFunctionParams": { fields: { "locator": ["locator", { type: "Locator" }], "polling_interval": "pollingInterval" } },
     "LocatorWaitForParams": { fields: { "locator": ["locator", { type: "Locator" }] } },
+    "LoggedOutDetails": { fields: { "judged_by": "judgedBy" } },
     "MemoryReading": { fields: { "allowance_source": "allowanceSource" } },
     "Metadata": { fields: { "json_ld": "jsonLd", "open_graph": "openGraph" } },
+    "MissingBrowser": { fields: { "looked_in": "lookedIn", "pinned_by": "pinnedBy" } },
     "ModelAllowance": { fields: { "reached_at": ["reachedAt", "time"] } },
     "ModelCounts": { fields: { "cache_read_tokens": "cacheReadTokens", "cache_write_tokens": "cacheWriteTokens", "input_tokens": "inputTokens", "output_tokens": "outputTokens", "reasoning_tokens": "reasoningTokens" } },
+    "ModelUnavailableDetails": { fields: { "retry_after": "retryAfter" } },
     "ModelUsage": { fields: { "by_model": ["byModel", { values: { type: "ModelCounts" } }], "cache_read_tokens": "cacheReadTokens", "cache_write_tokens": "cacheWriteTokens", "input_tokens": "inputTokens", "output_tokens": "outputTokens", "reasoning_tokens": "reasoningTokens" } },
+    "NameNotResolvedDetails": { fields: { "multicast_dns_name": "multicastDnsName" } },
     "Navigated": { fields: { "response": ["response", { type: "PageResponse" }] } },
     "NeedsYouChange": { fields: { "item": ["item", { type: "NeedsYouItem" }] } },
     "NeedsYouItem": { fields: { "since": ["since", "time"] } },
@@ -263,16 +314,20 @@ export const collieWire: Wire<keyof CollieOperationTypes & string, keyof CollieE
     "NewPageParams": { fields: { "run_id": "runId" } },
     "NewSessionPageParams": { fields: { "session_id": "sessionId" } },
     "NewSessionParams": { fields: { "run_id": "runId", "source": ["source", { type: "SessionSource" }] } },
+    "NotInProductDetails": { fields: { "product_version": "productVersion" } },
     "NotUnderstoodLimit": { fields: { "period": ["period", { type: "Period" }], "usage_kind": "usageKind" } },
     "NotVerifiedDetails": { fields: { "reasons": ["reasons", { items: { type: "AxisReason" } }] } },
     "NothingDone": { fields: { "ended_at": ["endedAt", "time"] } },
     "PageBodyParams": { fields: { "run_id": "runId" } },
     "PageCloseParams": { fields: { "page_id": "pageId", "run_before_unload": "runBeforeUnload" } },
+    "PageCrashedDetails": { fields: { "browser_exit": "browserExit" } },
     "PageDownload": { fields: { "page_id": "pageId", "suggested_filename": "suggestedFilename" } },
     "PageExchange": { fields: { "request": ["request", { type: "PageRequest" }], "response": ["response", { type: "PageResponse" }] } },
     "PageField": { fields: { "fields": ["fields", { values: { type: "ValueField" } }], "list": ["list", { type: "ValueField" }], "transform": ["transform", { type: "FieldTransform" }] } },
     "PageFired": { fields: { "page_id": "pageId" } },
     "PageFormats": { fields: { "base_url": "baseURL", "main_content": "mainContent", "metadata": ["metadata", { type: "Metadata" }], "tables": ["tables", { items: { type: "Table" } }] } },
+    "PageMemoryExceededDetails": { fields: { "page_id": "pageId" } },
+    "PageNavigatedDuringCallDetails": { fields: { "navigated_to": "navigatedTo" } },
     "PageOnDialogParams": { fields: { "page_id": "pageId" } },
     "PageOnParams": { fields: { "page_id": "pageId" } },
     "PageOpened": { fields: { "page_id": "pageId", "session_id": "sessionId" } },
@@ -284,22 +339,26 @@ export const collieWire: Wire<keyof CollieOperationTypes & string, keyof CollieE
     "PageResponse": { fields: { "from_service_worker": "fromServiceWorker", "request_id": "requestId", "status_text": "statusText" } },
     "PageRouteParams": { fields: { "page_id": "pageId" } },
     "PageWebSocket": { fields: { "page_id": "pageId", "web_socket_id": "webSocketId" } },
+    "PathNotWritableDetails": { fields: { "os_code": "osCode" } },
     "PaymentMark": { fields: { "payee_domain": "payeeDomain" } },
     "Period": { fields: { "time_zone": "timeZone" } },
     "PlanReport": { fields: { "steps_changed": "stepsChanged" } },
     "PluginRun": { fields: { "confinement_missing": "confinementMissing", "network_level": "networkLevel" } },
     "PressParams": { fields: { "locator": ["locator", { type: "Locator" }] } },
     "PrivateEndpoint": { fields: { "token_file": "tokenFile" } },
+    "ProtocolVersionUnsupportedDetails": { fields: { "client_protocol_version": "clientProtocolVersion", "engine_protocol_version": "engineProtocolVersion" } },
     "ReachedLimit": { fields: { "period": ["period", { type: "Period" }], "resets_at": ["resetsAt", "time"], "usage_kind": "usageKind" } },
     "RecipeStartParams": { fields: { "limits": ["limits", { items: { type: "RunLimit" } }], "run_id": "runId" } },
     "RecordProvenance": { fields: { "certificate_exception": ["certificateException", { type: "CertificateExceptionMark" }], "clean_up_rules": "cleanUpRules", "origin": ["origin", { type: "ResponseOrigin" }], "payment": ["payment", { type: "PaymentMark" }], "request_id": "requestId", "robots_txt": "robotsTxt", "tier": ["tier", { type: "TierProvenance" }], "unread_fields": "unreadFields", "value_transforms": ["valueTransforms", { items: { type: "TransformProvenance" } }] } },
     "RecordRead": { fields: { "record": ["record", { type: "DatasetRecord" }] } },
     "RecordingReport": { fields: { "recorded_from": ["recordedFrom", "time"], "recorded_to": ["recordedTo", "time"], "responses_used": "responsesUsed", "written_by": "writtenBy" } },
     "RequestFailure": { fields: { "error_text": "errorText" } },
+    "ResourcesExhaustedDetails": { fields: { "free_bytes": "freeBytes" } },
     "ResponseBodyParams": { fields: { "page_id": "pageId", "request_id": "requestId" } },
     "ResponseOrigin": { fields: { "fetched_at": ["fetchedAt", "time"], "recorded_at": ["recordedAt", "time"] } },
     "Resync": { fields: { "needs_you": ["needsYou", { items: { type: "NeedsYouItem" } }], "runs": ["runs", { items: { type: "RunAxes" } }] } },
     "RouteAbortParams": { fields: { "error_code": "errorCode", "route_id": "routeId" } },
+    "RouteAlreadyHandledDetails": { fields: { "route_id": "routeId" } },
     "RouteFetched": { fields: { "status_text": "statusText" } },
     "RouteFulfillParams": { fields: { "content_type": "contentType", "route_id": "routeId" } },
     "RouteHandleParams": { fields: { "page_id": "pageId", "request": ["request", { type: "RouteRequest" }], "route_id": "routeId" } },
@@ -314,6 +373,7 @@ export const collieWire: Wire<keyof CollieOperationTypes & string, keyof CollieE
     "RunDiscarded": { fields: { "run_id": "runId" } },
     "RunFinishParams": { fields: { "run_id": "runId" } },
     "RunIndexRow": { fields: { "ended_at": ["endedAt", "time"], "owner": ["owner", { type: "RunOwner" }], "progress_message": "progressMessage", "run_id": "runId", "started_at": ["startedAt", "time"], "stop_reason": ["stopReason", { type: "StopReason" }] } },
+    "RunKeyMismatchDetails": { fields: { "wrapped_by": "wrappedBy" } },
     "RunLimit": { fields: { "usage_kind": "usageKind" } },
     "RunList": { fields: { "runs": ["runs", { items: { type: "RunIndexRow" } }] } },
     "RunListParams": { fields: { "ended": ["ended", { type: "TimeRange" }], "started": ["started", { type: "TimeRange" }], "watch_runs": "watchRuns" } },
@@ -329,10 +389,12 @@ export const collieWire: Wire<keyof CollieOperationTypes & string, keyof CollieE
     "RunStartParams": { fields: { "limits": ["limits", { items: { type: "RunLimit" } }], "run_id": "runId" } },
     "RunStarted": { fields: { "run_id": "runId", "started_as": "startedAs" } },
     "RunStartedAs": { fields: { "started_as": "startedAs" } },
+    "RunStatePosition": { fields: { "journal_position": "journalPosition", "run_epoch": "runEpoch" } },
     "RunStopParams": { fields: { "run_id": "runId" } },
     "RunStopping": { fields: { "cause": ["cause", { type: "StopReason" }], "run_id": "runId" } },
     "RunStorage": { fields: { "free_bytes": "freeBytes" } },
     "RunUsage": { fields: { "browser_time": "browserTime", "limits": ["limits", { items: { type: "AppliedLimit" } }], "model": ["model", { type: "ModelUsage" }], "model_allowance": ["modelAllowance", { items: { type: "ModelAllowance" } }], "other": ["other", { items: { type: "KindUsage" } }], "paid_fetches": "paidFetches", "paid_solves": "paidSolves", "proxy_bytes": "proxyBytes", "proxy_bytes_by_kind": "proxyBytesByKind", "proxy_price": "proxyPrice" } },
+    "SchemaValidatorFailedDetails": { fields: { "exception_message": "exceptionMessage", "exception_type": "exceptionType" } },
     "SessionOnParams": { fields: { "session_id": "sessionId" } },
     "SessionOpened": { fields: { "session_id": "sessionId" } },
     "SessionParams": { fields: { "session_id": "sessionId" } },

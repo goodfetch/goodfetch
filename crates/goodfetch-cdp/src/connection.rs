@@ -15,6 +15,12 @@
 //! so a browser that stops reading its pipe, or a subscription its holder
 //! never reads, holds up no other call.
 //!
+//! A caller that must not wait for an answer before it goes on, as a Page's
+//! owner in its loop, starts its command with [`Connection::start`]: the
+//! command is queued at once, in the order started, and its [`Answer`] is a
+//! future the caller polls when it will. Dropping the answer leaves the wait
+//! alone; the command, queued, is still written.
+//!
 //! The driver owns its state: the commands in flight, and the table of
 //! readers by session, so an event visits the readers of its session alone
 //! (ADR 0140's `C1.event_visits`). A subscription starts without the driver
@@ -65,12 +71,16 @@ use serde_json::value::RawValue;
 use serde_json::{Value, json};
 use tokio::io::{AsyncRead, AsyncReadExt as _, AsyncWrite, AsyncWriteExt as _};
 use tokio::sync::{mpsc, oneshot};
+use tracing::Instrument as _;
 
+pub use self::answer::Answer;
+use self::answer::Waiting;
 use self::envelope::{Envelope, range_in, text};
 pub use self::event::Event;
 use crate::failure::{Failure, PartyText, Refusal};
 use crate::framing::{Framer, FramingError, MAX_FRAME, frame};
 
+mod answer;
 mod envelope;
 mod event;
 
@@ -323,29 +333,6 @@ impl Readers {
     }
 }
 
-/// A caller's wait for its command's answer. When it ends before the answer
-/// came, by its timeout or its drop, it tells the driver, which takes the
-/// command out of its pending map.
-struct Waiting<'a> {
-    answered: oneshot::Receiver<Result<Value, Failure>>,
-    /// Where it tells the driver: one word in it stands for any number of
-    /// callers that left, as the driver then looks at every command.
-    left: &'a mpsc::Sender<()>,
-    /// Whether the answer came, or the driver dropped the command unanswered.
-    over: bool,
-}
-
-impl Drop for Waiting<'_> {
-    fn drop(&mut self) {
-        if !self.over {
-            // Closed first, so the driver, told, sees that no one waits.
-            self.answered.close();
-            // A full channel already holds the word.
-            let _ = self.left.try_send(());
-        }
-    }
-}
-
 /// Where a connection records the method of each command it sends: the
 /// Run trace's CDP command log (spec #577), given to the connection once,
 /// and only while that log is on (ADR 0140's C1).
@@ -498,10 +485,76 @@ impl Connection {
         params: Value,
         timeout: Duration,
     ) -> Result<Value, Failure> {
-        if let Some(log) = &self.log {
-            self.work.count(Row::CdpLogSendsOff);
-            log.0.record(method).await;
-        }
+        let (request, mut waiting) = self.request(method, session, params);
+        let sent = async {
+            self.queue(request).await?;
+            waiting.answer().await
+        };
+        tokio::time::timeout(timeout, sent)
+            .await
+            .unwrap_or(Err(Failure::TimedOut { method }))
+    }
+
+    /// Starts `C` on `session` (the browser's own when `None`) without
+    /// waiting for anything: the command is queued for the driver at once,
+    /// so commands started one after another are written in that order, and
+    /// what it returns comes back later, through the [`Answer`] given. While
+    /// the CDP command log is on, or when 64 commands already wait for the
+    /// driver, the command is recorded and queued as its answer is first
+    /// awaited instead, as [`Connection::send`] does.
+    ///
+    /// The answer's errors are [`Connection::send`]'s, its `timeout` counted
+    /// from this call.
+    pub fn start<C>(
+        &self,
+        session: Option<&SessionId>,
+        params: &C,
+        timeout: Duration,
+    ) -> Answer<C::Returns>
+    where
+        C: crate::Command,
+        C::Returns: Send + 'static,
+    {
+        let method = C::METHOD;
+        // A serialization of its own before the frame's, as `send`'s.
+        self.work.count(Row::CdpEncodes);
+        let params = serde_json::to_value(params).expect("invariant: a command's params serialize");
+        let (request, mut waiting) = self.request(method, session, params);
+        let unqueued = if self.log.is_some() {
+            Some(request)
+        } else {
+            match self.requests.try_send(request) {
+                Err(mpsc::error::TrySendError::Full(request)) => Some(request),
+                // A closed queue drops the command, whose answer then says
+                // the connection ended.
+                Ok(()) | Err(mpsc::error::TrySendError::Closed(_)) => None,
+            }
+        };
+        let connection = unqueued.is_some().then(|| self.clone());
+        // Its deadline starts now, though the answer is first polled later.
+        let answered = tokio::time::timeout(timeout, async move {
+            if let (Some(request), Some(connection)) = (unqueued, connection) {
+                connection.queue(request).await?;
+            }
+            waiting.answer().await
+        });
+        let answer = async move {
+            answered
+                .await
+                .unwrap_or(Err(Failure::TimedOut { method }))
+                .and_then(|answer| read(method, answer))
+        };
+        Answer::new(answer.instrument(tracing::trace_span!("cdp_command", cdp.method = method)))
+    }
+
+    /// The request of `method` on `session` with `params`, and its caller's
+    /// wait for its answer.
+    fn request(
+        &self,
+        method: &'static str,
+        session: Option<&SessionId>,
+        params: Value,
+    ) -> (Request, Waiting) {
         let (answer, answered) = oneshot::channel();
         let request = Request {
             method,
@@ -509,23 +562,20 @@ impl Connection {
             params,
             answer,
         };
-        let mut waiting = Waiting {
-            answered,
-            left: &self.left,
-            over: false,
-        };
-        let sent = async {
-            self.requests
-                .send(request)
-                .await
-                .map_err(|_| Failure::Disconnected)?;
-            let answer = (&mut waiting.answered).await;
-            waiting.over = true;
-            answer.map_err(|_| Failure::Disconnected)?
-        };
-        tokio::time::timeout(timeout, sent)
+        (request, Waiting::new(answered, self.left.clone()))
+    }
+
+    /// Records `request`'s method in the CDP command log, if on, then
+    /// queues it for the driver, waiting for its place.
+    async fn queue(&self, request: Request) -> Result<(), Failure> {
+        if let Some(log) = &self.log {
+            self.work.count(Row::CdpLogSendsOff);
+            log.0.record(request.method).await;
+        }
+        self.requests
+            .send(request)
             .await
-            .unwrap_or(Err(Failure::TimedOut { method }))
+            .map_err(|_| Failure::Disconnected)
     }
 
     /// The events of `session` (the browser's own when `None`) the driver

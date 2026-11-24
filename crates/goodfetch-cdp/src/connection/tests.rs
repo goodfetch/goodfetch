@@ -1075,6 +1075,122 @@ fn an_event_is_decoded_once_for_all_its_readers() {
     assert_eq!(work.read(Row::CdpEventDecodes), 1);
 }
 
+/// The browser's next message, which must come within a second.
+async fn written(browser: &mut Browser) -> Value {
+    tokio::time::timeout(Duration::from_secs(1), browser.received())
+        .await
+        .expect("the command is written without its answer being awaited")
+}
+
+/// A started command is written without its answer being awaited, in the
+/// order started, and its answer comes back later, whatever the order the
+/// browser answers in; each counts C1's encodes and send as a sent one does.
+#[test]
+fn a_started_command_is_written_before_its_answer_is_awaited() {
+    let work = CountedWork::default();
+    let (connection, driver, mut browser) = connected_on(&work);
+    runtime().block_on(async {
+        let (_, products) = tokio::join!(driver.run(), async {
+            let first = connection.start(None, &GetVersionParams {}, TIMEOUT);
+            let second = connection.start(None, &fetch::EnableParams::default(), TIMEOUT);
+            let commands = [written(&mut browser).await, written(&mut browser).await];
+            let methods = commands.each_ref().map(|command| command["method"].clone());
+            assert_eq!(
+                methods,
+                ["Browser.getVersion", "Fetch.enable"].map(Value::from)
+            );
+            for command in commands.iter().rev() {
+                let result = if command["method"] == "Fetch.enable" {
+                    json!({})
+                } else {
+                    version()
+                };
+                browser
+                    .send(&json!({ "id": command["id"], "result": result }))
+                    .await;
+            }
+            let products = (first.await.unwrap().product, second.await);
+            drop((connection, browser));
+            products
+        });
+        assert_eq!(products.0, "Chrome/156.0.8078.4");
+        products.1.unwrap();
+    });
+
+    assert_eq!(work.read(Row::CdpEncodes), 4);
+    assert_eq!(work.read(Row::CdpSends), 2);
+}
+
+/// A started command whose answer was dropped is still written, as nothing
+/// takes it back, and leaves the commands in flight: its answer is dropped.
+#[test]
+fn a_started_command_is_written_though_its_answer_was_dropped() {
+    let work = CountedWork::default();
+    let (connection, driver, mut browser) = connected_on(&work);
+    runtime().block_on(async {
+        let (_, method) = tokio::join!(driver.run(), async {
+            drop(connection.start(None, &GetVersionParams {}, TIMEOUT));
+            let command = written(&mut browser).await;
+            browser
+                .send(&json!({ "id": command["id"], "result": version() }))
+                .await;
+            // The dropped one's answer goes to no later command.
+            let (answer, ()) = tokio::join!(
+                connection.send(None, &GetVersionParams {}, TIMEOUT),
+                async {
+                    let command = written(&mut browser).await;
+                    browser
+                        .send(&json!({ "id": command["id"], "result": version() }))
+                        .await;
+                }
+            );
+            answer.unwrap();
+            drop((connection, browser));
+            command["method"].clone()
+        });
+        assert_eq!(method, "Browser.getVersion");
+    });
+
+    assert_eq!(work.read(Row::CdpPendingOrphans), 0);
+}
+
+/// A command started while the connection's queue is full waits for its
+/// place as its answer is awaited, and is then written and answered.
+#[test]
+fn a_command_started_on_a_full_queue_is_written_as_its_answer_is_awaited() {
+    let work = CountedWork::default();
+    let (connection, driver, mut browser) = connected_on(&work);
+    runtime().block_on(async {
+        let started: Vec<_> = (0..=super::REQUESTS)
+            .map(|_| connection.start(None, &GetVersionParams {}, TIMEOUT))
+            .collect();
+        let (_, answered) = tokio::join!(driver.run(), async {
+            let answers = async {
+                for _ in 0..=super::REQUESTS {
+                    let command = written(&mut browser).await;
+                    browser
+                        .send(&json!({ "id": command["id"], "result": version() }))
+                        .await;
+                }
+                browser
+            };
+            let (browser, answered) = tokio::join!(answers, async {
+                let mut answered = 0;
+                for answer in started {
+                    answer.await.unwrap();
+                    answered += 1;
+                }
+                answered
+            });
+            drop((connection, browser));
+            answered
+        });
+        assert_eq!(answered, super::REQUESTS + 1);
+    });
+
+    assert_eq!(work.read(Row::CdpSends), 65);
+}
+
 mod cdp_pipe {
     goodfetch_test_support::fuzz_replay!(crate::connection::fuzz_pipe, "fuzz/cdp_pipe");
 }

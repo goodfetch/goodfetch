@@ -56,6 +56,7 @@ use crate::raw_site;
 use crate::rendered;
 use crate::replay::{self, Refusals};
 use crate::schedule;
+use crate::search;
 use crate::solvers::{self, Solvers};
 use crate::task::{Task, TaskList};
 use crate::version::VERSION;
@@ -97,12 +98,13 @@ struct LimitedHold {
 
 /// The families' own host names, each family's tasks served on
 /// `<ordinal>.<host>`.
-const FAMILY_HOSTS: [&str; 6] = [
+const FAMILY_HOSTS: [&str; 7] = [
     catalog::HOST,
     rendered::HOST,
     login::HOST,
     locales::HOST,
     quotes::HOST,
+    search::HOST,
     schedule::HOST,
 ];
 
@@ -234,6 +236,7 @@ impl Site {
         tasks.extend(canaries::tasks(seed, port));
         tasks.extend(quotes::tasks(seed, port));
         tasks.extend(locales::tasks(seed, port));
+        tasks.extend(search::tasks(seed, port));
         tasks
     }
 
@@ -400,32 +403,40 @@ impl Site {
             if let Some(reply) = self.extraction(&name, request) {
                 return reply;
             }
-            let family = FAMILY_HOSTS
-                .into_iter()
-                .find(|family| {
-                    name == *family
-                        || name
-                            .strip_suffix(family)
-                            .is_some_and(|prefix| prefix.ends_with('.'))
-                })
-                .expect("invariant: every served host name is a family's or its task's");
-            return match family {
-                catalog::HOST => self.catalog(host, request),
-                rendered::HOST => rendered::respond(self.seed, request),
-                login::HOST => login::respond(
-                    &login::Visit {
-                        seed: self.seed,
-                        logins: &self.logins,
-                        time_step: self.observations.time_step(),
-                    },
-                    request,
-                ),
-                locales::HOST => locales::respond(self.seed, request),
-                quotes::HOST => quotes::respond(self.seed, request),
-                _ => schedule::respond(self.seed, self.observations.time_step(), request),
-            };
+            return self.family(host, &name, request);
         }
         self.control(request)
+    }
+
+    /// The reply of the family that serves `name`, its own host name or
+    /// one of its tasks'.
+    fn family(&self, host: &str, name: &str, request: &Request<'_>) -> Reply {
+        let family = FAMILY_HOSTS
+            .into_iter()
+            .find(|family| {
+                name == *family
+                    || name
+                        .strip_suffix(family)
+                        .is_some_and(|prefix| prefix.ends_with('.'))
+            })
+            .expect("invariant: every served host name is a family's or its task's");
+        let time_step = self.observations.time_step();
+        match family {
+            catalog::HOST => self.catalog(host, request),
+            rendered::HOST => rendered::respond(self.seed, request),
+            login::HOST => login::respond(
+                &login::Visit {
+                    seed: self.seed,
+                    logins: &self.logins,
+                    time_step,
+                },
+                request,
+            ),
+            locales::HOST => locales::respond(self.seed, request),
+            quotes::HOST => quotes::respond(self.seed, request),
+            search::HOST => search::respond(self.seed, time_step, request),
+            _ => schedule::respond(self.seed, time_step, request),
+        }
     }
 
     /// Answers a request on a host name no page family is served on, such

@@ -21,6 +21,7 @@ mod api_check;
 mod batch_check;
 mod browser_releases;
 mod budgets;
+mod chromium_package;
 mod clients;
 #[cfg(unix)]
 mod clippy_excluded;

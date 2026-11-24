@@ -15,3 +15,10 @@ const FOLDERS: [&str; 3] = [
 pub(crate) fn contains(path: &str) -> bool {
     FOLDERS.iter().any(|folder| path.starts_with(folder))
 }
+
+/// Whether a change of `paths` reaches Foxhound only: it changes a path,
+/// and every one it changes is on Foxhound's side.
+pub(crate) fn confines<'path>(paths: impl IntoIterator<Item = &'path str>) -> bool {
+    let mut paths = paths.into_iter().peekable();
+    paths.peek().is_some() && paths.all(contains)
+}

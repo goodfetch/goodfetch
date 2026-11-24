@@ -8,6 +8,7 @@ use proptest::prelude::*;
 use rstest::rstest;
 use secrecy::SecretString;
 use serde_json::json;
+use serde_json::value::RawValue;
 
 use super::{Mask, Masks, Reach, Redaction, Scope};
 
@@ -264,6 +265,58 @@ fn a_json_values_text_is_its_own_while_no_value_is_masked() {
         Masks::new().json(&value, Scope::Kept),
         r#"{"a":null,"b":["pa ss\"w/rd>?9~",1]}"#
     );
+}
+
+/// `Masks::json_text` writes a JSON text as `Masks::json` writes its
+/// value, but each object's members in the order written: a renamed member
+/// keeps its place, and of two members of one name, written so or left so
+/// by the mask, the first's place keeps the later's value.
+#[rstest]
+#[case::members_in_the_order_written(
+    r#"{ "title": "Café", "price": 3, "author": { "name": "Zoé", "born": 1802 } }"#,
+    r#"{"title":"Café","price":3,"author":{"name":"Zoé","born":1802}}"#
+)]
+#[case::a_string_and_a_members_name(
+    r#"{"pa ss\"w/rd>?9~": ["x pa ss\"w/rd>?9~", 1.50, {"k": "pa ss\"w/rd>?9~"}]}"#,
+    r#"{"%proxy.password%":["x %proxy.password%",1.5,{"k":"%proxy.password%"}]}"#
+)]
+#[case::a_renamed_member_keeps_its_place(
+    r#"{"z": 1, "pa ss\"w/rd>?9~": 2, "a": 3}"#,
+    r#"{"z":1,"%proxy.password%":2,"a":3}"#
+)]
+#[case::of_two_members_written_with_one_name_the_first_place_keeps_the_later_value(
+    r#"{"b": "first", "a": 0, "b": "second"}"#,
+    r#"{"b":"second","a":0}"#
+)]
+#[case::of_two_members_left_with_one_name_the_first_place_keeps_the_later_value(
+    r#"{"%proxy.password%": "first", "z": 0, "pa ss\"w/rd>?9~": "second"}"#,
+    r#"{"%proxy.password%":"second","z":0}"#
+)]
+fn a_json_texts_members_keep_the_order_written_once_masked(#[case] json: &str, #[case] text: &str) {
+    let (masks, _mask) = joined(VALUE, Reach::Value, Redaction::On);
+    let raw = RawValue::from_string(json.to_owned()).unwrap();
+
+    assert_eq!(masks.json_text(&raw, Scope::Kept), text);
+}
+
+#[test]
+fn a_json_texts_members_keep_the_order_written_while_no_value_is_masked() {
+    let raw = RawValue::from_string(r#"{ "b": ["x", 1], "a": null }"#.to_owned()).unwrap();
+
+    assert_eq!(
+        Masks::new().json_text(&raw, Scope::Kept),
+        r#"{"b":["x",1],"a":null}"#
+    );
+}
+
+/// A Record nested past `serde_json`'s own limit of 128, as a code-free
+/// page's microdata may be, is written whole (issue 2394).
+#[test]
+fn a_json_text_nested_past_serde_jsons_limit_is_written_whole() {
+    let deep = format!("{}1{}", r#"{"a":["#.repeat(400), "]}".repeat(400));
+    let raw = RawValue::from_string(deep.clone()).unwrap();
+
+    assert_eq!(Masks::new().json_text(&raw, Scope::Kept), deep);
 }
 
 #[test]

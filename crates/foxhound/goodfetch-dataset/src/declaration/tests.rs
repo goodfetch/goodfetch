@@ -1,10 +1,14 @@
 use goodfetch_counted_work::{CountedWork, Row};
 use goodfetch_protocol::foxhound::crawl::PushedRecord;
-use goodfetch_protocol::foxhound::dataset::DatasetDeclaration;
+use goodfetch_protocol::foxhound::dataset::{DatasetDeclaration, RecordData};
 use rusqlite::Connection;
 use serde_json::{Value, json};
 
 use super::{Datasets, Declarations};
+
+fn data(value: &Value) -> RecordData {
+    RecordData::of(value).unwrap()
+}
 
 /// The Datasets of a crawl declaring `books`, under a schema requiring
 /// `title`, and `free`, under none.
@@ -24,10 +28,10 @@ fn declared() -> Datasets {
     .unwrap()
 }
 
-fn pushed(dataset: &str, data: Value) -> PushedRecord {
+fn pushed(dataset: &str, value: &Value) -> PushedRecord {
     PushedRecord {
         dataset: dataset.to_owned(),
-        data,
+        data: data(value),
     }
 }
 
@@ -50,17 +54,17 @@ fn a_records_check_validates_only_under_a_schema_and_builds_no_validator() {
     assert_eq!(counted(&work), (0, 0));
 
     datasets
-        .check(vec![pushed("books", json!({ "title": "Dune" }))], &work)
+        .check(vec![pushed("books", &json!({ "title": "Dune" }))], &work)
         .unwrap();
     assert_eq!(counted(&work), (0, 1));
 
     datasets
-        .check_pushed("books", vec![json!({ "title": "Emma" })], &work)
+        .check_pushed("books", vec![data(&json!({ "title": "Emma" }))], &work)
         .unwrap();
     assert_eq!(counted(&work), (0, 2));
 
     datasets
-        .check_pushed("free", vec![json!({ "title": "Kim" })], &work)
+        .check_pushed("free", vec![data(&json!({ "title": "Kim" }))], &work)
         .unwrap();
     assert_eq!(counted(&work), (0, 2));
 }
@@ -75,9 +79,9 @@ fn a_refused_push_validates_each_of_its_records_once() {
     let refused = declared().check_pushed(
         "books",
         vec![
-            json!({ "title": "Emma", "isbn": "1" }),
-            json!({}),
-            json!({ "title": "Kim", "isbn": "3" }),
+            data(&json!({ "title": "Emma", "isbn": "1" })),
+            data(&json!({})),
+            data(&json!({ "title": "Kim", "isbn": "3" })),
         ],
         &work,
     );

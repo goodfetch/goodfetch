@@ -1,5 +1,7 @@
 use goodfetch_protocol::jsonrpc::{ProtocolFailure, RequestId};
 use rstest::rstest;
+use serde::Deserialize;
+use serde_json::value::RawValue;
 
 use super::{DecodeError, Frame, Framer, Incoming, MAX_DEPTH};
 
@@ -243,6 +245,42 @@ fn a_reply_reads_its_result_from_its_line() {
     assert_eq!(
         result.read::<serde_json::Value>().unwrap(),
         serde_json::json!({ "records": [1, 2] })
+    );
+}
+
+/// A reply's result read into a type that keeps a raw JSON value, as a
+/// handler's answer keeps each Record's data: the value is its text,
+/// its fields in the order written, which a parsed `Value` would sort.
+#[test]
+fn a_raw_value_in_a_reply_keeps_its_fields_in_the_order_written() {
+    #[derive(Deserialize)]
+    #[serde(deny_unknown_fields)]
+    struct Answer {
+        records: Vec<Kept>,
+    }
+
+    #[derive(Deserialize)]
+    #[serde(deny_unknown_fields)]
+    struct Kept {
+        dataset: String,
+        data: Box<RawValue>,
+    }
+
+    let Ok(Incoming::Reply {
+        answer: Ok(result), ..
+    }) = decode(
+        br#"{"jsonrpc":"2.0","id":7,"result":{"records":[{"dataset":"books","data":{"title":"Dune","price":9}}]}}"#,
+    )
+    else {
+        panic!("no result");
+    };
+
+    let answer = result.read::<Answer>().unwrap();
+    let kept = &answer.records[0];
+
+    assert_eq!(
+        (kept.dataset.as_str(), kept.data.get()),
+        ("books", r#"{"title":"Dune","price":9}"#)
     );
 }
 

@@ -35,15 +35,16 @@ use goodfetch_frontier::Url;
 use goodfetch_protocol::connection::CLOSED;
 use goodfetch_protocol::foxhound::crawl::{
     CODE_FREE_DATASET, CODE_FREE_LABEL, CrawlExtraction, CrawlRequestHandleParams,
-    CrawlRequestHandled, CrawlStartParams, ExtractionFollow, LabelDeclaration, PushedRecord, Seed,
-    SitemapRule, SitemapSeed,
+    CrawlRequestHandled, CrawlStartParams, ExtractionFields, ExtractionFollow, LabelDeclaration,
+    PushedRecord, Seed, SitemapRule, SitemapSeed,
 };
-use goodfetch_protocol::foxhound::dataset::DatasetDeclaration;
+use goodfetch_protocol::foxhound::dataset::{DatasetDeclaration, RecordData};
 use goodfetch_protocol::foxhound::frontier::CrawlRequestEnqueueLinksParams;
 use goodfetch_protocol::jsonrpc::ProtocolFailure;
-use goodfetch_protocol::page::read::{FieldLocator, PageField};
+use goodfetch_protocol::page::read::FieldLocator;
 use goodfetch_protocol::page::{FormatsRequest, Locator, PageFormats, PageId, page_formats_schema};
 use rusqlite::{Connection, OptionalExtension, params};
+use serde::{Serialize, Serializer};
 use serde_json::{Map, Value, json};
 use tokio::sync::Mutex;
 
@@ -219,6 +220,7 @@ pub(crate) fn dataset(
     let refused = |message| CallError::protocol(ProtocolFailure::InvalidParams, message);
     if let Some(name) = extraction
         .fields
+        .by_name()
         .keys()
         .find(|name| schema["properties"].get(name.as_str()).is_some())
     {
@@ -226,14 +228,21 @@ pub(crate) fn dataset(
             "The field `{name}` takes the name of a property every Record of `{CODE_FREE_DATASET}` holds: name it otherwise."
         )));
     }
-    goodfetch_fetch_tier::check_fields(&extraction.fields, work).map_err(refused)?;
+    goodfetch_fetch_tier::check_fields(extraction.fields.by_name(), work).map_err(refused)?;
     if let Some(properties) = schema["properties"].as_object_mut() {
-        for (name, field) in &extraction.fields {
+        for (name, field) in extraction.fields.by_name() {
             properties.insert(name.clone(), fields::schema(field));
         }
     }
     if let Some(required) = schema["required"].as_array_mut() {
-        required.extend(extraction.fields.keys().cloned().map(Value::String));
+        required.extend(
+            extraction
+                .fields
+                .by_name()
+                .keys()
+                .cloned()
+                .map(Value::String),
+        );
     }
     Ok(DatasetDeclaration {
         name: CODE_FREE_DATASET.to_owned(),
@@ -251,7 +260,7 @@ pub(crate) struct Built {
 
 /// What an extraction's Dataset `pages` follows from: its formats request
 /// and its fields.
-type Read = (FormatsRequest, BTreeMap<String, PageField>);
+type Read = (FormatsRequest, ExtractionFields);
 
 /// How many extractions' Datasets `pages` an engine keeps.
 const KEPT: usize = 8;
@@ -387,35 +396,53 @@ fn sitemap_seeds<'a>(
 }
 
 /// The Record of `pages` for a page read as `formats`, its response's
-/// `status`, read at `fetched_at`, with its `fields`' values. The page's
-/// Markdown, HTML and text, which are as long as the page, move into the
-/// Record; its other formats are encoded into it.
+/// `status`, read at `fetched_at`, with the `values` of its fields written
+/// in the order `declared` gives (issue 2394). The page's formats, Markdown,
+/// HTML and text included, are encoded straight into the Record's text,
+/// which its Dataset's check and its commit then read.
 pub(crate) fn record_of(
-    mut formats: PageFormats,
+    formats: &PageFormats,
     status: Option<u16>,
     fetched_at: SystemTime,
-    fields: Map<String, Value>,
-) -> Value {
-    let texts = [
-        ("markdown", formats.markdown.take()),
-        ("html", formats.html.take()),
-        ("text", formats.text.take()),
-    ];
-    let mut record = serde_json::to_value(&formats).expect("invariant: formats encode as JSON");
-    if let Some(properties) = record.as_object_mut() {
-        for (format, text) in texts {
-            if let Some(text) = text {
-                properties.insert(format.to_owned(), Value::String(text));
-            }
-        }
-        properties.insert("status".to_owned(), json!(status));
-        properties.insert(
-            FETCHED_AT.to_owned(),
-            Value::String(goodfetch_engine::clock::rfc3339(fetched_at)),
-        );
-        properties.extend(fields);
+    declared: &[String],
+    values: &Map<String, Value>,
+) -> RecordData {
+    RecordData::of(&PageRecord {
+        formats,
+        status,
+        fetched_at: goodfetch_engine::clock::rfc3339(fetched_at),
+        fields: DeclaredValues { declared, values },
+    })
+    .expect("invariant: a page's Record encodes as JSON")
+}
+
+/// A page's Record as [`record_of`] writes it: its formats, its status,
+/// when it was read, then its fields.
+#[derive(Serialize)]
+struct PageRecord<'a> {
+    #[serde(flatten)]
+    formats: &'a PageFormats,
+    status: Option<u16>,
+    // Named as `FETCHED_AT`, which the Dataset's schema requires.
+    fetched_at: String,
+    #[serde(flatten)]
+    fields: DeclaredValues<'a>,
+}
+
+/// The values of a page's fields, written in the order they were declared.
+struct DeclaredValues<'a> {
+    declared: &'a [String],
+    values: &'a Map<String, Value>,
+}
+
+impl Serialize for DeclaredValues<'_> {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.collect_map(
+            self.declared
+                .iter()
+                .filter_map(|name| Some((name, self.values.get(name)?))),
+        )
     }
-    record
 }
 
 impl CodeFree {
@@ -432,7 +459,7 @@ impl CodeFree {
         let keeps_records = crate::serving::keeps_records(run);
         let work = run.metrics().counted_work();
         extraction.map(|extraction| Self {
-            reader: keeps_records.then(|| Arc::new(Fields::of(&extraction.fields, work))),
+            reader: keeps_records.then(|| Arc::new(Fields::of(extraction.fields.by_name(), work))),
             keeps_records,
             extraction,
             crawls: crawls.clone(),
@@ -449,8 +476,8 @@ impl CodeFree {
         } else {
             Vec::new()
         };
-        let locators =
-            goodfetch_fetch_tier::value_locators(&self.extraction.fields).unwrap_or_default();
+        let locators = goodfetch_fetch_tier::value_locators(self.extraction.fields.by_name())
+            .unwrap_or_default();
         (links, locators)
     }
 
@@ -536,7 +563,13 @@ impl CodeFree {
             CrawlRequestHandled {
                 records: vec![PushedRecord {
                     dataset: CODE_FREE_DATASET.to_owned(),
-                    data: record_of(formats, status, fetched_at, values),
+                    data: record_of(
+                        &formats,
+                        status,
+                        fetched_at,
+                        self.extraction.fields.declared(),
+                        &values,
+                    ),
                 }],
                 skipped: None,
             },
@@ -577,7 +610,7 @@ impl CodeFree {
         page_id: &PageId,
         request_id: &str,
     ) -> Result<(Map<String, Value>, FieldsRead), CallError> {
-        let declared = &self.extraction.fields;
+        let declared = self.extraction.fields.by_name();
         let Some(reader) = self.reader.as_ref().filter(|_| !declared.is_empty()) else {
             return Ok((Map::new(), FieldsRead::default()));
         };

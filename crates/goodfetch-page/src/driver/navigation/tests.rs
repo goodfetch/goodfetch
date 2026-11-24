@@ -8,6 +8,7 @@ use goodfetch_test_support::runtime;
 use serde_json::{Value, json};
 
 use super::{Arrived, Ended, Expected, Followed, Navigation};
+use crate::driver::page_reader::PageReader;
 use crate::driver::replay::{self, SESSION};
 
 /// The page's main frame.
@@ -204,7 +205,8 @@ fn error_page_messages(loader: &str) -> Vec<Value> {
 /// with `navigated`, in one write after the events `before`, and after
 /// which it sends the events `after` once a second of the paused clock
 /// passed: how the wait ended, and whether the browser had sent `after`
-/// by then.
+/// by then. The page's reader hands the events on, as a page's driver
+/// reads them.
 async fn followed_once(
     before: &[Value],
     navigated: &Value,
@@ -213,13 +215,15 @@ async fn followed_once(
 ) -> (Followed, bool) {
     let ((connection, driver), mut browser) = replay::connected();
     let session = SessionId(SESSION.to_owned());
-    let mut events = connection.subscribe(Some(&session));
+    let reader = PageReader::new(&connection, &session);
+    let mut events = reader.events_on(&session);
     let mut navigation = Navigation::of(FRAME.to_owned());
     let after_sent = Cell::new(false);
-    let (_, followed, ()) = tokio::join!(
+    let (_, (), followed, ()) = tokio::join!(
         driver.run(),
+        reader.reading(None),
         async {
-            let command = async {
+            let command = reader.after_events(async {
                 let answered = connection
                     .send(
                         Some(&session),
@@ -235,7 +239,7 @@ async fn followed_once(
                     .await
                     .expect("invariant: the played browser answers");
                 Ok(super::navigated(URL, answered, false))
-            };
+            });
             let followed = navigation
                 .follow(command, &mut events, wait_until, || false)
                 .await

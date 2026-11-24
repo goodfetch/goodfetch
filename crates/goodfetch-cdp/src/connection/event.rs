@@ -9,6 +9,8 @@ use bytes::Bytes;
 use goodfetch_counted_work::{CountedWork, Row};
 use serde_json::Value;
 
+use super::SessionId;
+
 /// An event as the browser sent it: its method, which routed it, and the
 /// browser's message, which it keeps whole, so its params are decoded from
 /// the message's bytes once, by the first reader that reads them, and every
@@ -17,6 +19,11 @@ use serde_json::Value;
 pub struct Event {
     /// `Domain.event`.
     pub method: String,
+    /// The target's session it came on; none for the browser's own.
+    session: Option<SessionId>,
+    /// Its number among the events the connection took in, from 1: a
+    /// subscription takes those numbered after it started.
+    number: u64,
     /// The browser's message.
     message: Bytes,
     /// Where its params are in `message`; none when it has none.
@@ -36,30 +43,49 @@ impl PartialEq for Event {
 }
 
 impl Event {
-    /// The event `method` with `params`, as a browser sends one; its decodes
-    /// are counted on a work of its own.
+    /// The event `method` with `params`, as a browser sends one on its own
+    /// session, numbered 0, as no connection took it in; its decodes are
+    /// counted on a work of its own.
     pub fn new(method: impl Into<String>, params: &Value) -> Self {
         let message =
             Bytes::from(serde_json::to_vec(params).expect("invariant: a JSON value serializes"));
         let params = Some(0..message.len());
-        Self::sent(method.into(), message, params, CountedWork::default())
+        Self::sent(
+            (method.into(), None, 0),
+            message,
+            params,
+            CountedWork::default(),
+        )
     }
 
-    /// The event `method` the browser sent as `message`, its params at
-    /// `params` in it; its decodes are counted on `work`.
+    /// The event `method` the browser sent on `session` as `message`, the
+    /// `number`th the connection took in, its params at `params` in it; its
+    /// decodes are counted on `work`.
     pub(super) fn sent(
-        method: String,
+        (method, session, number): (String, Option<SessionId>, u64),
         message: Bytes,
         params: Option<Range<usize>>,
         work: CountedWork,
     ) -> Self {
         Self {
             method,
+            session,
+            number,
             message,
             params,
             decoded: OnceLock::new(),
             work,
         }
+    }
+
+    /// The target's session it came on; `None` for the browser's own.
+    pub fn session(&self) -> Option<&SessionId> {
+        self.session.as_ref()
+    }
+
+    /// Its number among the events the connection took in.
+    pub(super) fn number(&self) -> u64 {
+        self.number
     }
 
     /// Its params' JSON text: `null` when it has none.

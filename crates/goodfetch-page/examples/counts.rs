@@ -2,7 +2,8 @@
 //! its default features on, once per feature on its paths that can be
 //! switched off, once with no Live view viewer (C6 in ADR 0140: the default
 //! cell is the one with a viewer, which #959 gives it), once with a Page
-//! check, once on a browser pool's pages (C7: a pool its scripted launcher
+//! check, once with a Route and a `page.on` listener on its page, once on a
+//! browser pool's pages (C7: a pool its scripted launcher
 //! starts, its pages opened and closed through `BrowserPages`) and once on
 //! the pool's pages of an `identified` Session, which signs each request it
 //! sends (C5, #1551), and prints what each counted as one JSON line, which `xtask counts`
@@ -74,7 +75,11 @@ const LIVE_VIEW_FRAME: &[Row] = &[
 /// must have been told to continue with a signature.
 const IDENTIFIED: &str = "identified";
 
-fn cells() -> [Cell; 8] {
+/// The cell whose Borrowed page has a Route and a `page.on` listener armed
+/// as it opens.
+const ROUTED: &str = "route_and_listener";
+
+fn cells() -> [Cell; 9] {
     [
         // The cell with a viewer, once #959 gives B2's Session one.
         Cell {
@@ -133,6 +138,15 @@ fn cells() -> [Cell; 8] {
             browsers: session::Browsers::Borrowed,
             settings: session::page_check(),
             removes: &[Row::NavigationProvenanceEntries],
+            counts_none_of: &[],
+        },
+        // A Route and a `page.on` listener on the page: two more parts of
+        // the Page read its events, through its one reader (#2265).
+        Cell {
+            name: ROUTED,
+            browsers: session::Browsers::Borrowed,
+            settings: json!({}),
+            removes: &[],
             counts_none_of: &[],
         },
         // The same documents on pages of a browser pool (C7), as Foxhound's
@@ -212,10 +226,21 @@ fn run(cell: Cell, planted: Option<&str>, bypassed: Option<&str>) -> Counted {
         Value::Object(settings) => settings,
         other => panic!("a cell's settings are an object, not {other}"),
     };
+    let armed = if cell.name == ROUTED {
+        session::Armed::RouteAndListener
+    } else {
+        session::Armed::Nothing
+    };
     Counted {
         name: cell.name,
         browsers: cell.browsers,
-        session: session::counted(cell.browsers, home.path(), metrics, settings, plant),
+        session: session::counted(
+            (cell.browsers, armed),
+            home.path(),
+            metrics,
+            settings,
+            plant,
+        ),
         removes: cell.removes,
         counts_none_of: cell.counts_none_of,
     }

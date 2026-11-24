@@ -8,7 +8,6 @@
 
 use std::time::Duration;
 
-use goodfetch_cdp::generated::target;
 use goodfetch_protocol::page::BrowserExit;
 
 use super::{Browser, PageDriver, navigation};
@@ -58,34 +57,23 @@ impl PageDriver {
     ///
     /// Dropping the future loses nothing: it only reads.
     pub(crate) async fn lost(&self) -> Lost {
-        let connection = &self.browser.connection;
-        let mut page = connection.subscribe(Some(&self.session));
-        let mut root = connection.subscribe(None);
-        loop {
-            tokio::select! {
-                event = page.next() => match event {
-                    Some(event) if event.method == navigation::CRASHED => return Lost::RendererCrashed,
-                    Some(event) if event.method == DETACHED => break,
-                    Some(_) => {}
-                    None => break,
-                },
-                event = root.next() => match event {
-                    Some(event) => {
-                        if event
-                            .read::<target::DetachedFromTargetEvent>()
-                            .is_some_and(|detached| detached.session_id == self.session.0)
-                        {
-                            break;
-                        }
-                    }
-                    None => break,
-                },
+        // Its page's reader ends it when the browser detached the page's
+        // target, which the browser tells on its own session.
+        let mut page = self.events();
+        while let Some(event) = page.next().await {
+            if event.method == navigation::CRASHED {
+                return Lost::RendererCrashed;
+            }
+            if event.method == DETACHED {
+                break;
             }
         }
         // A quitting browser closes its windows before it exits: a target
         // destroyed with the connection ending soon after is the quit's.
-        let ending = async { while root.next().await.is_some() {} };
-        if tokio::time::timeout(QUIT_WINDOW, ending).await.is_err() {
+        if tokio::time::timeout(QUIT_WINDOW, self.browser.connection.closed())
+            .await
+            .is_err()
+        {
             return Lost::Destroyed;
         }
         self.browser.loss().await
@@ -101,14 +89,8 @@ impl Browser {
     ///
     /// Dropping the future loses nothing: it only reads.
     pub(crate) async fn ended(&self) -> Lost {
-        loop {
-            let mut root = self.connection.subscribe(None);
-            while root.next().await.is_some() {}
-            // A subscription that fell behind ends with its connection open.
-            if self.connection.is_closed() {
-                return self.loss().await;
-            }
-        }
+        self.connection.closed().await;
+        self.loss().await
     }
 
     /// How the browser ended once its connection did: closed by the engine;

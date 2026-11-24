@@ -22,7 +22,9 @@ use goodfetch_test_client::HomeLayout;
 use rstest::rstest;
 use serde_json::{Map, Value, json};
 
-use session::{Browsers, Counted, READ_ROWS, RUN, counted, counting, identified, page_check};
+use session::{
+    Armed, Browsers, Counted, READ_ROWS, RUN, counted, counting, identified, page_check,
+};
 
 fn run(planted: Option<Row>) -> Counted {
     run_with(Map::new(), planted)
@@ -45,7 +47,7 @@ fn run_at(
 ) -> Counted {
     let metrics = Metrics::none();
     let plant = planted.map(|row| counting(metrics.counted_work(), row));
-    counted(browsers, home, metrics, settings, plant)
+    counted((browsers, Armed::Nothing), home, metrics, settings, plant)
 }
 
 /// The methods the Run trace's CDP command log of the Run in `home` holds,
@@ -109,6 +111,26 @@ fn a_session_counts_each_commands_work() {
     assert_eq!(work.read(Row::CdpLogSendsOff), 0);
     assert_eq!((pages_opened, work.read(Row::PoolWalks)), (1, 0));
     assert_eq!(work.read(Row::CdpFileOpens), 0);
+}
+
+/// A Page reads its sessions' events through its one reader, whatever reads
+/// them in the Page: with a Route and a `page.on` listener on it, beside the
+/// Page's standing parts, each event the browser sent visits one reader of
+/// the connection, the browser's own reader for its root session's.
+#[test]
+fn each_event_visits_one_reader_of_the_connection_with_a_route_and_a_listener_on_the_page() {
+    let home = tempfile::tempdir().expect("invariant: the OS gives a temporary folder");
+    let metrics = Metrics::none();
+    let Counted { events, work, .. } = counted(
+        (Browsers::Borrowed, Armed::RouteAndListener),
+        home.path(),
+        metrics,
+        Map::new(),
+        None,
+    );
+
+    assert!(events > 0, "the browser sent no event");
+    assert_eq!(work.read(Row::CdpEventVisits), events);
 }
 
 /// On each of the two documents with actions, a click, a fill and a press

@@ -1191,6 +1191,200 @@ fn a_command_started_on_a_full_queue_is_written_as_its_answer_is_awaited() {
     assert_eq!(work.read(Row::CdpSends), 65);
 }
 
+/// An event on `session`, sent by the browser.
+fn on(session: &str, method: &str) -> Value {
+    json!({ "method": method, "params": {}, "sessionId": session })
+}
+
+/// The detach of `gone`'s target, sent on `session`.
+fn detach(gone: &str, session: &str) -> Value {
+    json!({ "method": "Target.detachedFromTarget", "params": { "sessionId": gone, "targetId": gone }, "sessionId": session })
+}
+
+/// The methods of the events a subscription takes until none comes for a
+/// while, and why it ended, if it did.
+async fn taken(subscription: &mut super::Subscription) -> (Vec<String>, Option<SubscriptionEnd>) {
+    let mut methods = Vec::new();
+    while let Ok(Some(event)) =
+        tokio::time::timeout(Duration::from_millis(100), subscription.next()).await
+    {
+        methods.push(event.method.clone());
+    }
+    (methods, subscription.ended())
+}
+
+/// A subscription listed under more sessions takes their events in the one
+/// order the browser sent them, and no other session's; the detach of a
+/// session it was listed under after takes that listing out alone.
+#[test]
+fn a_subscription_listed_under_more_sessions_takes_their_events_in_order() {
+    let work = CountedWork::default();
+    let (connection, driver, mut browser) = connected_on(&work);
+    runtime().block_on(async {
+        let (_, taken) = tokio::join!(driver.run(), async {
+            let mut reader = connection.subscribe(Some(&SessionId("page".to_owned())));
+            reader
+                .more_sessions()
+                .add(Some(&SessionId("frame".to_owned())));
+            for event in [
+                on("frame", "Frame.first"),
+                on("page", "Page.second"),
+                on("worker", "Worker.unlisted"),
+                detach("frame", "page"),
+                on("frame", "Frame.afterItsDetach"),
+                on("page", "Page.last"),
+            ] {
+                browser.send(&event).await;
+            }
+            let taken = taken(&mut reader).await;
+            drop((connection, browser));
+            taken
+        });
+        assert_eq!(
+            taken,
+            (
+                [
+                    "Frame.first",
+                    "Page.second",
+                    "Target.detachedFromTarget",
+                    "Page.last"
+                ]
+                .map(str::to_owned)
+                .to_vec(),
+                None
+            )
+        );
+    });
+
+    assert_eq!(work.read(Row::CdpEventVisits), 4);
+}
+
+/// The detach of a subscription's first session ends it with every listing
+/// under more sessions, and so does falling behind on any of them: no
+/// listing keeps it open.
+#[test]
+fn a_subscription_ends_with_all_its_listings() {
+    runtime().block_on(async {
+        let (connection, driver, mut browser) = connected();
+        let (_, ends) = tokio::join!(driver.run(), async {
+            let [mut detached, mut behind] = ["page", "other"].map(|first| {
+                let subscription = connection.subscribe(Some(&SessionId(first.to_owned())));
+                subscription
+                    .more_sessions()
+                    .add(Some(&SessionId(format!("{first}-frame"))));
+                subscription
+            });
+            browser.send(&detach("page", "page")).await;
+            browser.send(&on("page-frame", "Frame.afterItsPage")).await;
+            for _ in 0..5_000 {
+                browser.send(&on("other-frame", "Frame.untaken")).await;
+            }
+            let ends = (taken(&mut detached).await, held(&mut behind).await.1);
+            drop((connection, browser));
+            ends
+        });
+        assert_eq!(
+            ends,
+            (
+                (Vec::new(), Some(SubscriptionEnd::Detached)),
+                Some(SubscriptionEnd::FellBehind)
+            )
+        );
+    });
+}
+
+/// A reader's handout hands each event on to the subscriptions of its
+/// session that started before the connection took it in, though the
+/// reader hands it on after; its visits are not the connection's.
+#[test]
+fn a_handout_hands_each_event_to_the_subscriptions_that_started_before_it() {
+    let work = CountedWork::default();
+    let (connection, driver, mut browser) = connected_on(&work);
+    let page = SessionId("page".to_owned());
+    runtime().block_on(async {
+        let (_, (early, late, unlisted)) = tokio::join!(driver.run(), async {
+            let (handout, mut handing) = connection.handout();
+            let mut reader = connection.subscribe(Some(&page));
+            let mut early = handout.subscribe(Some(&page));
+            let mut unlisted = handout.subscribe(Some(&SessionId("frame".to_owned())));
+            browser.send(&on("page", "Page.first")).await;
+            let first = reader.next().await.unwrap();
+            let mut late = handout.subscribe(Some(&page));
+            browser.send(&on("page", "Page.second")).await;
+            let second = reader.next().await.unwrap();
+            for event in [first, second] {
+                handing.hand(&event);
+            }
+            let taken = (
+                taken(&mut early).await.0,
+                taken(&mut late).await.0,
+                taken(&mut unlisted).await.0,
+            );
+            drop((connection, browser));
+            taken
+        });
+        assert_eq!(
+            (early, late, unlisted),
+            (
+                vec!["Page.first".to_owned(), "Page.second".to_owned()],
+                vec!["Page.second".to_owned()],
+                Vec::<String>::new()
+            )
+        );
+    });
+
+    assert_eq!(work.read(Row::CdpEventVisits), 2);
+}
+
+/// A handing ends the subscriptions of a session its reader read the
+/// detach of, saying so, and every other with its own end, as does one
+/// that subscribes after.
+#[test]
+fn a_handing_ends_its_subscriptions_on_a_detach_and_with_its_end() {
+    runtime().block_on(async {
+        let (connection, _driver, _browser) = connected();
+        let (handout, mut handing) = connection.handout();
+        let [mut frame, mut page] =
+            ["frame", "page"].map(|on| handout.subscribe(Some(&SessionId(on.to_owned()))));
+        handing.detached(&SessionId("frame".to_owned()));
+        let frame_end = taken(&mut frame).await;
+        handing.end(SubscriptionEnd::Disconnected);
+        let mut after = handout.subscribe(None);
+        assert_eq!(
+            (frame_end, taken(&mut page).await, taken(&mut after).await),
+            (
+                (Vec::new(), Some(SubscriptionEnd::Detached)),
+                (Vec::new(), Some(SubscriptionEnd::Disconnected)),
+                (Vec::new(), Some(SubscriptionEnd::Disconnected))
+            )
+        );
+    });
+}
+
+/// A connection is closed once its driver ended, or was dropped without
+/// running, and not before.
+#[test]
+fn a_connection_is_closed_once_its_driver_ended() {
+    runtime().block_on(async {
+        let (connection, driver, browser) = connected();
+        let (_, (before, after)) = tokio::join!(driver.run(), async {
+            let before = tokio::time::timeout(Duration::from_millis(50), connection.closed()).await;
+            drop(browser);
+            let after = tokio::time::timeout(TIMEOUT, connection.closed()).await;
+            (before.is_ok(), (after.is_ok(), connection.is_closed()))
+        });
+        assert_eq!((before, after), (false, (true, true)));
+
+        let (connection, driver, _browser) = connected();
+        drop(driver);
+        assert!(
+            tokio::time::timeout(TIMEOUT, connection.closed())
+                .await
+                .is_ok()
+        );
+    });
+}
+
 mod cdp_pipe {
     goodfetch_test_support::fuzz_replay!(crate::connection::fuzz_pipe, "fuzz/cdp_pipe");
 }

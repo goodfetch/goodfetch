@@ -26,8 +26,8 @@ mod net_error;
 /// whose seeds and past crashers `fuzz_replay!` replays on every OS.
 pub use connection::fuzz_pipe;
 pub use connection::{
-    Answer, CommandLog, CommandLogImpl, Connection, Driver, Ended, Event as RawEvent, SessionId,
-    Subscription, SubscriptionEnd,
+    Answer, CommandLog, CommandLogImpl, Connection, Driver, Ended, Event as RawEvent, Handing,
+    Handout, MoreSessions, SessionId, Subscription, SubscriptionEnd,
 };
 pub use failure::{Failure, PartyText, Refusal};
 pub use framing::{Framer, FramingError, MAX_FRAME};

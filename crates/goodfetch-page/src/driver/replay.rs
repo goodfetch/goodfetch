@@ -5,6 +5,7 @@
 //! the one the connection's driver reads them in.
 
 use goodfetch_cdp::{Connection, Driver, Framer};
+use goodfetch_counted_work::CountedWork;
 use serde_json::{Value, json};
 use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _, DuplexStream, ReadHalf, WriteHalf};
 
@@ -28,15 +29,15 @@ pub(super) struct Played {
 
 /// A connection to a browser that `Played` plays.
 pub(super) fn connected() -> (Client, Played) {
+    connected_on(&CountedWork::default())
+}
+
+/// A connection to a browser that `Played` plays, whose work `work` counts.
+pub(super) fn connected_on(work: &CountedWork) -> (Client, Played) {
     let (client, browser) = tokio::io::duplex(1 << 16);
     let (reader, writer) = tokio::io::split(client);
     (
-        Connection::new(
-            reader,
-            writer,
-            goodfetch_counted_work::CountedWork::default(),
-            None,
-        ),
+        Connection::new(reader, writer, work.clone(), None),
         Played {
             pipe: browser,
             framer: Framer::default(),

@@ -90,6 +90,8 @@ goodfetch-test-support.workspace = true
 gungraun.workspace = true
 mimalloc.workspace = true
 proptest.workspace = true
+# The model-based test of a Page's reader.
+proptest-state-machine.workspace = true
 # The counts cell's Goodfetch home.
 tempfile.workspace = true
 rstest.workspace = true

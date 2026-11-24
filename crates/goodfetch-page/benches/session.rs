@@ -1133,16 +1133,7 @@ impl Client {
     /// Calls `method`, failing the scenario on an error: a benchmark whose
     /// work did not happen proves nothing.
     async fn call(&mut self, method: &str, params: &Value) -> Value {
-        self.next_id += 1;
-        let id = self.next_id;
-        let mut line = json!({ "jsonrpc": "2.0", "id": id, "method": method, "params": params })
-            .to_string()
-            .into_bytes();
-        line.push(b'\n');
-        self.writer
-            .write_all(&line)
-            .await
-            .expect("invariant: the engine reads its Connection");
+        let id = self.start(method, params).await;
         loop {
             let line = self
                 .lines
@@ -1160,6 +1151,32 @@ impl Client {
             }
         }
     }
+
+    /// Sends `method` without waiting for its answer, which a subscription
+    /// such as `page.on` gives once its page closes; answers its ID.
+    async fn start(&mut self, method: &str, params: &Value) -> u64 {
+        self.next_id += 1;
+        let id = self.next_id;
+        let mut line = json!({ "jsonrpc": "2.0", "id": id, "method": method, "params": params })
+            .to_string()
+            .into_bytes();
+        line.push(b'\n');
+        self.writer
+            .write_all(&line)
+            .await
+            .expect("invariant: the engine reads its Connection");
+        id
+    }
+}
+
+/// What the program arms on a Borrowed browser's page before it navigates.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Armed {
+    /// Nothing.
+    Nothing,
+    /// A Route whose URLs no request has, and a `page.on` listener of the
+    /// page's requests: two more parts of the Page that read its events.
+    RouteAndListener,
 }
 
 /// What a program does on a Session: on a Borrowed browser, opens a page and
@@ -1167,10 +1184,10 @@ impl Client {
 /// the browser pool, opens a page at each and closes it after. On each
 /// document, it does [`on_page`]'s work. Answers once the browser heard all
 /// of it, with the actions the engine answered, by kind, and the Sessions it
-/// opened.
+/// opened. On a Borrowed browser, `armed` is armed on the page once it opens.
 async fn program(
     client: &mut Client,
-    (browsers, cdp_url, settings): (Browsers, &str, Map<String, Value>),
+    (browsers, armed, cdp_url, settings): (Browsers, Armed, &str, Map<String, Value>),
     (heard, work): (&Heard, &CountedWork),
     (during_reads, by_fields): (&mut BTreeMap<&'static str, u64>, &mut ByFields),
 ) -> (BTreeMap<&'static str, u64>, u64) {
@@ -1219,6 +1236,24 @@ async fn program(
             &json!({ "session_id": session["session_id"] }),
         )
         .await;
+    if armed == Armed::RouteAndListener {
+        // Each is armed before the Client's next call on the page acts.
+        client
+            .start(
+                "page.route",
+                &json!({
+                    "page_id": opened["page_id"],
+                    "url": { "kind": "glob", "pattern": "http://unrouted.invalid/**" },
+                }),
+            )
+            .await;
+        client
+            .start(
+                "page.on",
+                &json!({ "page_id": opened["page_id"], "event": "request" }),
+            )
+            .await;
+    }
     for url in PAGES {
         client
             .call(
@@ -1512,13 +1547,13 @@ fn engine(metrics: Metrics, launcher: Launcher) -> Engine {
         .with_metrics(metrics)
 }
 
-/// Runs the scenario on `browsers` in the home `home`, with `settings` on its
-/// Run, doing `plant` once per command the browser reads, and answers what it
-/// counted.
+/// Runs the scenario on `browsers`, with `armed` on a Borrowed browser's
+/// page, in the home `home`, with `settings` on its Run, doing `plant` once
+/// per command the browser reads, and answers what it counted.
 ///
 /// `metrics` is the engine's, whose [`CountedWork`] counts it all.
 pub(crate) fn counted(
-    browsers: Browsers,
+    (browsers, armed): (Browsers, Armed),
     home: &Path,
     metrics: Metrics,
     mut settings: Map<String, Value>,
@@ -1562,7 +1597,7 @@ pub(crate) fn counted(
             };
             let programmed = program(
                 &mut client,
-                (browsers, &cdp_url, settings),
+                (browsers, armed, &cdp_url, settings),
                 (&heard, &work),
                 (&mut during_reads, &mut by_fields),
             )

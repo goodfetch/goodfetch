@@ -996,12 +996,11 @@ impl Seat {
         let in_browser = self.shared.pool.page_opening(number, self.shared.number);
         drop(opening);
         let page = driver.new_page(visibility).await?;
-        let events = page.events();
         self.shared
             .pool
             .shared
             .run
-            .spawn(self.shared.origins.clone().watch(events));
+            .spawn(page.reading(Some(self.shared.origins.clone().watcher())));
         Ok((page, in_browser))
     }
 
@@ -1010,12 +1009,11 @@ impl Seat {
     /// Session opened, and its documents' origins are carried as theirs.
     pub(crate) fn popup_in(&self, number: u64, popup: &PageDriver) -> InBrowser {
         let in_browser = self.shared.pool.page_opening(number, self.shared.number);
-        let events = popup.events();
         self.shared
             .pool
             .shared
             .run
-            .spawn(self.shared.origins.clone().watch(events));
+            .spawn(popup.reading(Some(self.shared.origins.clone().watcher())));
         in_browser
     }
 

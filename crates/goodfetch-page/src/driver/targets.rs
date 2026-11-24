@@ -20,9 +20,9 @@ impl PageDriver {
     }
 
     /// The events of `session`, the page's or one of its frames' targets,
-    /// from when this answers.
+    /// from when this answers, which its page's reader hands on.
     pub(crate) fn events_on(&self, session: &TargetSession) -> Subscription {
-        self.browser.connection.subscribe(Some(session))
+        self.page_reader.events_on(session)
     }
 
     /// Sends `params` on `session`, the page's or one of its frames'

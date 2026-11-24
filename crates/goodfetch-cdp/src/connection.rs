@@ -40,28 +40,29 @@
 //! and its first reader decodes its params once, from the message's bytes,
 //! for all its readers (ADR 0140's `C1.event_decodes`), so an event no reader
 //! of its session wants is never decoded. Every buffer stays bounded: a subscriber holds at most
-//! [`EVENTS`] events and its quota of bytes, [`EVENT_BYTES`], past which it
+//! [`EVENTS`](readers::EVENTS) events and its quota of bytes,
+//! [`EVENT_BYTES`], past which it
 //! ends as one that fell behind.
 //!
 //! A reader of several sessions, as a Page's reads those of its
 //! out-of-process frames and of its workers (spec #2256, "One reader per
-//! Page"), is listed in the table under each of them with a clone of its
-//! one bounded events' sender, so its events share one buffer and one
-//! order; only its first session's listing holds where the driver says why
-//! it ended. The detach of one of the other sessions takes that listing out
-//! alone; the reader ends with its first session's detach, by falling
-//! behind, or with the connection. The call that lists a reader under one
-//! more session comes with its first caller, the Page's one reader (#2265).
-#![expect(
-    clippy::disallowed_types,
-    reason = "the joining subscriptions' list is shared by every handle and the driver, each lock held for one list operation, never across another lock or an `.await`, so there is no lock order to test under loom; a subscriber's count of the bytes it holds is one counter, which orders no other memory (ADR 0060)"
-)]
+//! Page"), is listed in the table under each of them ([`MoreSessions`])
+//! with a clone of its one bounded events' sender, so its events share one
+//! buffer and one order; only its first session's listing holds where the
+//! driver says why it ended. The detach of one of the other sessions takes
+//! that listing out alone; the reader ends with its first session's detach,
+//! by falling behind, or with the connection. Such a reader hands each
+//! event on to the parts it reads for through a [`Handing`], as the driver
+//! hands its own, and the parts subscribe to it through its [`Handout`] as
+//! they would to the connection (#2265).
+//!
+//! A task that waits for the connection's end awaits
+//! [`Connection::closed`], reading no event.
 
 use std::collections::BTreeMap;
 use std::fmt::Debug;
 use std::pin::Pin;
-use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::sync::Arc;
 use std::time::Duration;
 
 use bytes::Bytes;
@@ -70,38 +71,25 @@ use serde::de::DeserializeOwned;
 use serde_json::value::RawValue;
 use serde_json::{Value, json};
 use tokio::io::{AsyncRead, AsyncReadExt as _, AsyncWrite, AsyncWriteExt as _};
-use tokio::sync::{mpsc, oneshot};
+use tokio::sync::{mpsc, oneshot, watch};
 use tracing::Instrument as _;
 
 pub use self::answer::Answer;
 use self::answer::Waiting;
 use self::envelope::{Envelope, range_in, text};
 pub use self::event::Event;
+use self::readers::{EVENT_BYTES, Readers, Shared, join, lock};
+pub use self::readers::{Handing, Handout, MoreSessions, Subscription, SubscriptionEnd};
 use crate::failure::{Failure, PartyText, Refusal};
 use crate::framing::{Framer, FramingError, MAX_FRAME, frame};
 
 mod answer;
 mod envelope;
 mod event;
+mod readers;
 
 /// How many requests wait for the driver before their senders wait.
 const REQUESTS: usize = 64;
-
-/// How many events wait for a subscriber before the driver ends its
-/// subscription: one that falls this far behind is no longer read, and the
-/// driver never waits for it.
-const EVENTS: usize = 4_096;
-
-/// The bytes of the events a subscriber may leave untaken, its quota: the
-/// event that would take it past its quota ends its subscription, as one
-/// [`EVENTS`] behind does. An event larger than the quota alone still
-/// reaches a subscriber that holds none, so one that keeps up loses no event
-/// and holds at most one message the framing reads ([`MAX_FRAME`]).
-const EVENT_BYTES: usize = 64 * 1024 * 1024;
-
-/// The bytes of the events one subscriber holds, which the driver adds to
-/// and its holder takes from.
-type Held = Arc<AtomicUsize>;
 
 /// The bytes read from the pipe at once.
 const READ: usize = 64 * 1024;
@@ -136,201 +124,11 @@ fn count_interception(work: &CountedWork, method: &str) {
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct SessionId(pub String);
 
-/// The events of one session, from when it was subscribed.
-#[derive(Debug)]
-pub struct Subscription {
-    events: mpsc::Receiver<Arc<Event>>,
-    /// The bytes of the events it holds, which it takes from as its holder
-    /// takes each.
-    held: Held,
-    /// Why the driver ended it, which it says before it drops its sender.
-    why: oneshot::Receiver<SubscriptionEnd>,
-    /// Why it ended, once known.
-    ended: Option<SubscriptionEnd>,
-}
-
-/// Why a subscription ended.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-#[non_exhaustive]
-pub enum SubscriptionEnd {
-    /// The browser detached its session's target: the target sends nothing
-    /// more.
-    Detached,
-    /// Its holder fell [`EVENTS`] events behind, or the events it left
-    /// untaken came to more than its quota of bytes ([`EVENT_BYTES`]), so
-    /// the events after it stopped are lost while its target may still send
-    /// more.
-    FellBehind,
-    /// The connection ended.
-    Disconnected,
-}
-
-impl Subscription {
-    /// The next event; `None` once it ended: the connection ended, its
-    /// session's target detached, or its holder fell behind, by
-    /// [`EVENTS`] or by its quota of bytes, which [`ended`](Self::ended)
-    /// tells apart.
-    ///
-    /// # Cancel safety
-    ///
-    /// Dropping the future loses no event.
-    pub async fn next(&mut self) -> Option<Arc<Event>> {
-        let event = self.events.recv().await;
-        if let Some(event) = &event {
-            self.held.fetch_sub(event.bytes(), Ordering::Relaxed);
-        }
-        event
-    }
-
-    /// Why it ended, once [`next`](Self::next) answered `None`; `None`
-    /// while it goes on.
-    pub fn ended(&mut self) -> Option<SubscriptionEnd> {
-        if self.ended.is_none() && self.events.is_closed() && self.events.is_empty() {
-            // The driver says why before it drops the events' sender, so a
-            // sender dropped without a word is the connection's end.
-            self.ended = Some(match self.why.try_recv() {
-                Ok(why) => why,
-                Err(_) => SubscriptionEnd::Disconnected,
-            });
-        }
-        self.ended
-    }
-}
-
 struct Request {
     method: &'static str,
     session: Option<SessionId>,
     params: Value,
     answer: oneshot::Sender<Result<Value, Failure>>,
-}
-
-/// One subscription as the driver holds it.
-#[derive(Debug)]
-struct Subscriber {
-    /// The session whose events it takes.
-    session: Option<SessionId>,
-    events: mpsc::Sender<Arc<Event>>,
-    /// The bytes of the events its holder has not taken, which the driver
-    /// adds to as it hands each.
-    held: Held,
-    /// Where the driver says why it ended it.
-    why: oneshot::Sender<SubscriptionEnd>,
-}
-
-impl Subscriber {
-    /// Ends it, saying `why`.
-    fn end(self, why: SubscriptionEnd) {
-        let _ = self.why.send(why);
-    }
-}
-
-/// The subscriptions that joined since the driver last took them in, which
-/// every handle adds to without the driver.
-#[derive(Debug, Default)]
-struct Joining {
-    /// Each subscription's session and the sender of its events.
-    list: Vec<Subscriber>,
-    /// Whether the connection ended, so a new subscription ends at once.
-    ended: bool,
-}
-
-/// The connection's joining subscriptions, shared by every handle and the
-/// driver.
-type Shared = Arc<Mutex<Joining>>;
-
-/// The joining subscriptions, a panic in another holder notwithstanding:
-/// each change is one list operation, so none leaves the list half changed.
-fn lock(joining: &Shared) -> MutexGuard<'_, Joining> {
-    joining.lock().unwrap_or_else(PoisonError::into_inner)
-}
-
-/// The readers of the connection's events by the session whose events each
-/// takes: the driver's own table, which only it reads and changes.
-#[derive(Debug)]
-struct Readers {
-    by_session: BTreeMap<Option<SessionId>, Vec<Subscriber>>,
-    /// The bytes each may leave untaken: [`EVENT_BYTES`].
-    quota: usize,
-}
-
-impl Readers {
-    fn new(quota: usize) -> Self {
-        Self {
-            by_session: BTreeMap::new(),
-            quota,
-        }
-    }
-
-    /// Takes in the subscriptions that joined since the last event, each
-    /// under its session, whose readers their holders dropped leave first,
-    /// so a session's list stays as long as its live readers.
-    fn take_in(&mut self, joining: &Shared) {
-        let joined = std::mem::take(&mut lock(joining).list);
-        for subscriber in joined {
-            let readers = self
-                .by_session
-                .entry(subscriber.session.clone())
-                .or_default();
-            readers.retain(|reader| !reader.events.is_closed());
-            readers.push(subscriber);
-        }
-    }
-
-    /// Hands `event` to the readers of `session` alone, each visit counted
-    /// on `work`, never waiting for one: a reader its holder dropped leaves,
-    /// and one that fell behind ends, [`EVENTS`] behind or by the event that
-    /// would take it past its quota while it holds others.
-    fn hand(&mut self, session: Option<SessionId>, event: &Arc<Event>, work: &CountedWork) {
-        let std::collections::btree_map::Entry::Occupied(mut entry) =
-            self.by_session.entry(session)
-        else {
-            return;
-        };
-        let bytes = event.bytes();
-        for reader in std::mem::take(entry.get_mut()) {
-            work.count(Row::CdpEventVisits);
-            // Only its holder takes from it meanwhile, so the bytes it holds
-            // are at most those read here.
-            let held = reader.held.load(Ordering::Relaxed);
-            if held > 0 && held.saturating_add(bytes) > self.quota {
-                tracing::warn!(
-                    method = event.method,
-                    "a subscription of the browser's connection left more bytes untaken than its quota and ends"
-                );
-                reader.end(SubscriptionEnd::FellBehind);
-                continue;
-            }
-            reader.held.fetch_add(bytes, Ordering::Relaxed);
-            match reader.events.try_send(Arc::clone(event)) {
-                Ok(()) => entry.get_mut().push(reader),
-                Err(mpsc::error::TrySendError::Closed(_)) => {}
-                Err(mpsc::error::TrySendError::Full(_)) => {
-                    reader.held.fetch_sub(bytes, Ordering::Relaxed);
-                    tracing::warn!(
-                        method = event.method,
-                        "a subscription of the browser's connection fell too far behind and ends"
-                    );
-                    reader.end(SubscriptionEnd::FellBehind);
-                }
-            }
-        }
-        if entry.get().is_empty() {
-            entry.remove();
-        }
-    }
-
-    /// Ends the readers of the session `gone` the browser detached, saying
-    /// so, and forgets the session.
-    fn detached(&mut self, gone: &SessionId) {
-        for reader in self
-            .by_session
-            .remove(&Some(gone.clone()))
-            .into_iter()
-            .flatten()
-        {
-            reader.end(SubscriptionEnd::Detached);
-        }
-    }
 }
 
 /// Where a connection records the method of each command it sends: the
@@ -364,6 +162,8 @@ pub struct Connection {
     /// Where a caller that left its command's wait tells the driver.
     left: mpsc::Sender<()>,
     joining: Shared,
+    /// Whether the driver ended; its sender dropped says so too.
+    closed: watch::Receiver<bool>,
     /// The work a typed command's params serialization counts on: C1's
     /// encodes, beside the driver's frame (ADR 0140).
     work: CountedWork,
@@ -392,6 +192,8 @@ pub struct Driver<R, W> {
     /// The word that a caller left its command's wait.
     left: mpsc::Receiver<()>,
     joining: Shared,
+    /// Where it says it ended.
+    closed: watch::Sender<bool>,
     /// The longest message it reads: [`MAX_FRAME`].
     frame_limit: usize,
     /// The bytes each subscriber may leave untaken: [`EVENT_BYTES`].
@@ -419,11 +221,13 @@ impl Connection {
         let (requests, receiver) = mpsc::channel(REQUESTS);
         let (left, told) = mpsc::channel(1);
         let joining = Shared::default();
+        let (ended, closed) = watch::channel(false);
         (
             Self {
                 requests,
                 left,
                 joining: Arc::clone(&joining),
+                closed,
                 work: work.clone(),
                 log,
             },
@@ -433,6 +237,7 @@ impl Connection {
                 requests: receiver,
                 left: told,
                 joining,
+                closed: ended,
                 frame_limit: MAX_FRAME,
                 event_bytes: EVENT_BYTES,
                 work,
@@ -581,34 +386,37 @@ impl Connection {
     /// The events of `session` (the browser's own when `None`) the driver
     /// reads from now on, without waiting for the driver; it ends with the
     /// connection, once the browser detached its session's target, or once
-    /// its holder fell [`EVENTS`] events behind.
+    /// its holder fell 4,096 events behind or left more than its quota of
+    /// bytes untaken.
     pub fn subscribe(&self, session: Option<&SessionId>) -> Subscription {
-        let (events, receiver) = mpsc::channel(EVENTS);
-        let (why, said) = oneshot::channel();
-        let held = Held::default();
-        let mut joining = lock(&self.joining);
         // A connection that ended gives a subscription that ends at once.
-        if !joining.ended {
-            joining.list.push(Subscriber {
-                session: session.cloned(),
-                events,
-                held: Arc::clone(&held),
-                why,
-            });
-        }
-        Subscription {
-            events: receiver,
-            held,
-            why: said,
-            ended: None,
-        }
+        join(&self.joining, &self.joining, session)
+    }
+
+    /// A handout of the events a reader of this connection reads, and the
+    /// handing its reader hands each on with: what lets one reader read for
+    /// several parts, each subscribed to it as to the connection.
+    pub fn handout(&self) -> (Handout, Handing) {
+        Handing::new(&self.joining)
     }
 
     /// Whether the connection ended: the browser closed it, or reading or
     /// writing it failed. A subscription that ended while this is false fell
-    /// behind.
+    /// behind, or its session's target detached.
     pub fn is_closed(&self) -> bool {
-        lock(&self.joining).ended
+        lock(&self.joining).ended.is_some()
+    }
+
+    /// Waits until the connection ended, as [`is_closed`](Self::is_closed)
+    /// says, or its driver was dropped without running to its end.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future loses nothing.
+    pub async fn closed(&self) {
+        let mut closed = self.closed.clone();
+        // A sender dropped is a driver that will say nothing more.
+        let _ = closed.wait_for(|closed| *closed).await;
     }
 }
 
@@ -730,12 +538,8 @@ where
             }
             let _ = answer.send(Err(Failure::Disconnected));
         }
-        {
-            let mut joining = lock(&self.joining);
-            joining.ended = true;
-            joining.list.clear();
-        }
-        drop(readers);
+        readers.end(SubscriptionEnd::Disconnected, &self.joining);
+        self.closed.send_replace(true);
         // A send takes its place in the queue, then queues its request: a
         // request queued after the receiver dropped is never dropped while a
         // handle lives, so its command would wait for good, and every one
@@ -822,13 +626,18 @@ fn dispatch(
         .and_then(text)
         .map(SessionId);
     let params = envelope.params.map(|params| range_in(&bytes, params.get()));
-    let event = Arc::new(Event::sent(method, bytes, params, work.clone()));
-    readers.take_in(joining);
+    let number = readers.take_in(joining);
+    let event = Arc::new(Event::sent(
+        (method, session, number),
+        bytes,
+        params,
+        work.clone(),
+    ));
     if let Some(gone) = &gone {
         detached(gone, pending);
-        readers.detached(gone);
+        readers.detached(gone, joining);
     }
-    readers.hand(session, &event, work);
+    readers.hand(&event, Some(work), joining);
 }
 
 /// What a command's answer says: the browser's refusal, or what it returned,
@@ -938,7 +747,7 @@ pub fn fuzz_pipe(data: &[u8]) {
             continue;
         }
         for (on, subscription) in &mut subscriptions {
-            let received = subscription.events.try_recv();
+            let received = subscription.taken();
             let Some((method, event_on)) = &event else {
                 assert!(received.is_err(), "only an event reaches a subscription");
                 continue;

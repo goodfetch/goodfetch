@@ -40,6 +40,7 @@ mod gestures;
 mod identity;
 
 mod navigation;
+mod page_reader;
 mod permit_waits;
 mod popups;
 #[cfg(test)]
@@ -82,13 +83,14 @@ use goodfetch_protocol::settings::{
 use tokio::sync::{Mutex, MutexGuard, OnceCell, watch};
 use tokio_util::sync::CancellationToken;
 
-pub(crate) use self::carry::{Carried, Origins};
+pub(crate) use self::carry::{Carried, Origins, Watcher};
 pub(crate) use self::children::{Child, ChildKind, OnChild};
 use self::encoding::{encoding_of, encoding_read, isolated_world};
 pub(crate) use self::ending::{ENDING_KNOWN_WITHIN, Lost};
 use self::functions::{evaluation, page_function_world};
 pub(crate) use self::navigation::{Arrived, browser_id, hop_id};
 use self::navigation::{Ended, Expected, Followed, Navigation};
+use self::page_reader::PageReader;
 use self::permit_waits::PermitWaits;
 pub(crate) use self::popups::{OnPopup, PopupHandler};
 pub(crate) use self::service_workers::{OnWorker, ServiceWorkers};
@@ -916,6 +918,7 @@ impl<B: Connect> SessionDriver<B> {
             }
         };
         Ok(PageDriver {
+            page_reader: PageReader::new(&browser.connection, &session),
             browser,
             session,
             egress: self.egress.clone(),
@@ -994,6 +997,9 @@ pub(crate) struct SerializedDocument {
 pub(crate) struct PageDriver {
     browser: Browser,
     session: TargetSession,
+    /// Its page's one reader, which its parts subscribe to, those of its
+    /// frames' drivers included.
+    page_reader: PageReader,
     /// Its Session's proxy and egress relay.
     egress: SessionEgress,
     /// Its Session's browser context.
@@ -1473,9 +1479,18 @@ impl PageDriver {
             .map(drop)
     }
 
-    /// The events of the page's target, from when this answers.
+    /// The events of the page's target, from when this answers, which its
+    /// page's reader hands on.
     pub(crate) fn events(&self) -> Subscription {
-        self.browser.connection.subscribe(Some(&self.session))
+        self.page_reader.events_on(&self.session)
+    }
+
+    /// Its page's reader's task, which hands each event on to the page's
+    /// parts and, given `origins`, watches the origins its documents show:
+    /// spawned once, where the page is taken in. A later call's ends at
+    /// once.
+    pub(crate) fn reading(&self, origins: Option<Watcher>) -> impl Future<Output = ()> + use<> {
+        self.page_reader.reading(origins)
     }
 
     /// Sends `params` on the page's target as one of the commands that open the page: a failure raises
@@ -1713,7 +1728,7 @@ impl PageDriver {
         let call = Call::Navigation { url: url.clone() };
         // The relay's refusals from here on are this navigation's to raise.
         let relay_mark = self.relay().map(EgressRelay::mark);
-        let mut events = self.browser.connection.subscribe(Some(&self.session));
+        let mut events = self.events();
         let mut generation = 0;
         self.started.send_modify(|started| {
             *started += 1;
@@ -1978,6 +1993,7 @@ impl PageDriver {
         superseded: impl Fn() -> bool,
     ) -> Result<Result<Arrived, Ended>, CallError> {
         let mut navigation = Navigation::of(self.frame.clone());
+        let command = self.page_reader.after_events(command);
         let (outcome, expected) = match navigation
             .follow(command, events, wait_until, &superseded)
             .await?

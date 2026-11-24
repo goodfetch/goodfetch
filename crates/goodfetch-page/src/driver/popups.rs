@@ -146,6 +146,7 @@ impl PageDriver {
     ) -> Result<Self, goodfetch_engine::CallError> {
         prepare(&browser, &session).await?;
         Ok(Self {
+            page_reader: super::PageReader::new(&browser.connection, &session),
             browser,
             session,
             egress: super::SessionEgress::default(),

@@ -123,6 +123,7 @@ impl PageDriver {
         worker: target::TargetID,
     ) -> Self {
         Self {
+            page_reader: super::PageReader::new(&browser.connection, &session),
             browser,
             session,
             egress: super::SessionEgress::default(),
@@ -316,6 +317,7 @@ async fn hold_then_run(
                 context,
                 info.target_id.clone(),
             );
+            run.spawn(driver.reading(None));
             handle(driver, gone).await
         }
         // A worker of a context that blocks them, whose script fetch went

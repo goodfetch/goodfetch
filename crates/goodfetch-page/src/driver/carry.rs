@@ -15,9 +15,9 @@ use std::collections::BTreeSet;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 use data_encoding::BASE64;
-use goodfetch_cdp::Subscription;
 use goodfetch_cdp::generated::{browser, fetch, network, page, storage, target};
 use goodfetch_cdp::{Failure, SessionId as TargetSession};
+use goodfetch_cdp::{RawEvent, Subscription};
 use goodfetch_engine::CallError;
 use serde_json::{Value, json};
 use tokio::sync::{mpsc, oneshot};
@@ -33,9 +33,47 @@ pub(crate) struct Origins(Arc<Mutex<Watched>>);
 #[derive(Debug, Default)]
 struct Watched {
     origins: BTreeSet<String>,
-    /// How to ask each watcher still going whether it read what it was
-    /// handed: [`Origins::caught_up`].
+    /// How to ask each watcher still going whether its page's reader read
+    /// what the connection handed it: [`Origins::caught_up`].
     watchers: Vec<mpsc::Sender<oneshot::Sender<()>>>,
+}
+
+/// What a page's reader adds the origins of its documents with, and answers
+/// a capture's ask with once it read every event the connection handed it
+/// (`page_reader`): a page's origins watcher.
+#[derive(Debug)]
+pub(crate) struct Watcher {
+    origins: Origins,
+    asked: mpsc::Receiver<oneshot::Sender<()>>,
+}
+
+impl Watcher {
+    /// Adds the origin of the document `event` shows a frame of the page
+    /// navigated to, when it does.
+    pub(crate) fn read(&self, event: &RawEvent) {
+        let Some(navigated) = event.read::<page::FrameNavigatedEvent>() else {
+            return;
+        };
+        let origin = navigated.frame.security_origin;
+        if origin.starts_with("http://") || origin.starts_with("https://") {
+            self.origins.watched().origins.insert(origin);
+        }
+    }
+
+    /// Waits for a capture's ask, and answers it: its reader asks only
+    /// once it holds no event unread. Never answers once no capture can ask.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future loses no ask.
+    pub(crate) async fn asked(&mut self) {
+        match self.asked.recv().await {
+            Some(answer) => {
+                let _ = answer.send(());
+            }
+            None => std::future::pending().await,
+        }
+    }
 }
 
 /// How many asks a watcher holds unread: its Session captures one at a time.
@@ -50,10 +88,10 @@ impl Origins {
         self.watched().origins.iter().cloned().collect()
     }
 
-    /// Waits until each watcher read every event the connection handed it
-    /// so far, so an origin the browser reported before an answer the caller
-    /// already holds is listed, however far its watcher's task lagged. A
-    /// watcher that went has nothing more to add.
+    /// Waits until each page's reader read every event the connection
+    /// handed it so far, so an origin the browser reported before an answer
+    /// the caller already holds is listed, however far the reader's task
+    /// lagged. A watcher that went has nothing more to add.
     async fn caught_up(&self) {
         let watchers = self.watched().watchers.clone();
         for watcher in watchers {
@@ -64,40 +102,20 @@ impl Origins {
         }
     }
 
-    /// What adds the origin of every document a page's `events` show it
-    /// navigated to, until they end: its main frame's and its frames'. A
-    /// capture waits for it from now on, whether or not it started running.
-    pub(crate) fn watch(self, events: Subscription) -> impl Future<Output = ()> + Send + 'static {
+    /// The watcher a page's reader adds the origin of every document of the
+    /// page's session with, until it ends: its main frame's and its
+    /// frames'. A capture waits for it from now on, whether or not its
+    /// reader started reading.
+    pub(crate) fn watcher(self) -> Watcher {
         let (asks, asked) = mpsc::channel(WATCHER_ASKS);
         {
             let mut watched = self.watched();
             watched.watchers.retain(|watcher| !watcher.is_closed());
             watched.watchers.push(asks);
         }
-        self.read(events, asked)
-    }
-
-    /// Reads `events`, answering each of `asked` once none is left to read.
-    async fn read(self, mut events: Subscription, mut asked: mpsc::Receiver<oneshot::Sender<()>>) {
-        loop {
-            tokio::select! {
-                biased;
-                event = events.next() => {
-                    let Some(event) = event else {
-                        return;
-                    };
-                    let Some(navigated) = event.read::<page::FrameNavigatedEvent>() else {
-                        continue;
-                    };
-                    let origin = navigated.frame.security_origin;
-                    if origin.starts_with("http://") || origin.starts_with("https://") {
-                        self.watched().origins.insert(origin);
-                    }
-                }
-                Some(answer) = asked.recv() => {
-                    let _ = answer.send(());
-                }
-            }
+        Watcher {
+            origins: self,
+            asked,
         }
     }
 }

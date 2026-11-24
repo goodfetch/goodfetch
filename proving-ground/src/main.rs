@@ -15,6 +15,7 @@ mod browser_builds;
 mod browser_pages;
 mod catalog;
 mod certificates;
+mod challenges;
 mod clean_up;
 mod client_hello;
 mod clock;

@@ -202,7 +202,7 @@ pub(crate) enum Vendor {
 
 impl Vendor {
     /// Its name, in its section, its paths and its verdicts.
-    fn name(self) -> &'static str {
+    pub(crate) fn name(self) -> &'static str {
         match self {
             Self::Turnstile => "turnstile",
             Self::Recaptcha => "recaptcha",
@@ -439,6 +439,9 @@ pub(crate) struct Online {
     /// The secret the edge sends in [`EDGE_HEADER`].
     edge_secret: Option<String>,
     client: reqwest::Client,
+    /// Each vendor's latest verdict, which judges its task however many
+    /// verdicts the observations keep.
+    latest: Mutex<Vec<Verdict>>,
 }
 
 /// What a vendor's endpoint answers.
@@ -555,7 +558,22 @@ impl Online {
             checks,
             edge_secret,
             client: client()?,
+            latest: Mutex::new(Vec::new()),
         })
+    }
+
+    /// The vendors the copy is configured with.
+    pub(crate) fn vendors(&self) -> impl Iterator<Item = Vendor> + '_ {
+        self.checks.iter().map(Check::vendor)
+    }
+
+    /// `vendor`'s latest verdict, if it gave one.
+    pub(crate) fn latest_verdict(&self, vendor: Vendor) -> Option<Verdict> {
+        self.latest
+            .lock()
+            .iter()
+            .find(|verdict| verdict.vendor == vendor)
+            .cloned()
     }
 
     /// The reply to a request on [`HOST`] to `path`, with the verdict it
@@ -600,6 +618,11 @@ impl Online {
             (_, _, None | Some("verify")) => return Some((method_not_allowed(), None)),
             _ => return None,
         };
+        {
+            let mut latest = self.latest.lock();
+            latest.retain(|kept| kept.vendor != verdict.vendor);
+            latest.push(verdict.clone());
+        }
         Some((verdict_page(&verdict), Some(verdict)))
     }
 

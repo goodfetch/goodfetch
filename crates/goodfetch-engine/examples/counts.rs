@@ -119,6 +119,19 @@ fn plant(name: &str, work: &CountedWork) -> Plant {
         }),
         // One more read of the call's params, which counts itself.
         "E1.decodes" => Arc::new(|params: Params<'_>| drop(params.read::<Value>())),
+        // A read of a stored file per call, as a principal looked up per
+        // message would be: dispatch has no store read to count, so it is
+        // counted here.
+        "E1.store_reads" => {
+            let folder = tempfile::tempdir().expect("invariant: the OS gives a temporary folder");
+            let stored = folder.path().join("principal");
+            std::fs::write(&stored, b"os_user").expect("invariant: a temporary folder is writable");
+            Arc::new(move |_: Params<'_>| {
+                let _kept = &folder;
+                work.count(Row::MessageStoreReads);
+                drop(std::fs::read(&stored).expect("invariant: the plant's file stays"));
+            })
+        }
         other => panic!("no plant for the row {other}"),
     }
 }

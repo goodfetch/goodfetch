@@ -1373,8 +1373,9 @@ async fn abort(params: RunAbortParams, context: CallContext) -> Result<RunReport
         Forwarded::No
     };
     // A person's Client aborts as the person it acts for (ADRs 0031 and
-    // 0113), whom the calls the abort cancels name.
-    let by = if context.surface().is_a_person() {
+    // 0113), whom the calls the abort cancels name; a remote Client is a
+    // Client, whatever surface it claims (ADR 0149).
+    let by = if context.answers_as_a_person() {
         Aborter::person(context.person())
     } else {
         Aborter::by(StoppedBy::Client)

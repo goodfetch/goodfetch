@@ -14336,6 +14336,20 @@
       ],
       "type": "object"
     },
+    "PersonRequiredDetails": {
+      "description": "What `person_required` details.",
+      "properties": {
+        "fix": {
+          "arrived_in": "0.1",
+          "description": "Where a person gives the answer: the error's `fix` (ADR 0079).",
+          "type": "string"
+        }
+      },
+      "required": [
+        "fix"
+      ],
+      "type": "object"
+    },
     "Phone": {
       "additionalProperties": false,
       "description": "A telephone number the page shows.",

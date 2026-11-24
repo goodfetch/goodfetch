@@ -6851,6 +6851,13 @@ export interface PatternUnsupportedDetails {
   pattern: string;
 }
 /**
+ * What `person_required` details.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "PersonRequiredDetails".
+ */
+export interface PersonRequiredDetails {}
+/**
  * What a Run did with its Plan file (ADR 0091).
  *
  * This interface was referenced by `CollieTypes`'s JSON-Schema

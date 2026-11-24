@@ -2607,6 +2607,14 @@ class PeriodLength(StrEnum):
     """From the first day's midnight to the next month's."""
 
 
+class PersonRequiredDetails(BaseModel):
+    """What `person_required` details."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+
+
 class Phone(BaseModel):
     """A telephone number the page shows."""
 

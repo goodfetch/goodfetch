@@ -219,6 +219,7 @@ The rows of counted work, and those read under Valgrind, promoted from the Measu
 | `E1.deep_copies` | deep copies per incoming message | 0 | 0 | B3 | must not grow | `just counts` | implementer done, merge gate |
 | `E1.encodes` | encodes per answer or event | 1 | 1 | B3 | must not grow | `just counts` | implementer done, merge gate |
 | `E1.decodes` | decodes of its params per request, straight into typed params | 1 | 1 | B3 | must not grow | `just counts` | implementer done, merge gate |
+| `E1.store_reads` | store reads per incoming message: who a Connection is is read from memory (ADR 0149) | 0 | 0 | B3 | must not grow | `just counts` | implementer done, merge gate |
 | `E1.instructions` | instructions per dispatched message, small params | 1.10 × the figure after #1577 (ADR 0134) | 14950.05 | B3 | must not grow (0.5 %) | `just counts --valgrind` | merge gate |
 | `E1.instructions_large` | instructions per dispatched message, large params and a Plugin's messages | 1.10 × the figure after #1577 (ADR 0134) | 1053425.29 | B3 | must not grow (0.5 %) | `just counts --valgrind` | merge gate |
 | `E1.allocations` | allocations per dispatched message, small params | 1.10 × the figure after #1577 (ADR 0134) | 9.47 | B3 | must not grow (0.5 %) | `just counts --valgrind` | merge gate |

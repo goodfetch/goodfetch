@@ -728,9 +728,10 @@ fn connection_closed(by: CancelledBy, person: Option<String>, message: &str) -> 
 
 /// What `daemon.stop` closes the Daemon's other Connections with: a
 /// person's Client stops it for the person it acts for (ADR 0031), any
-/// other Client as a Client.
+/// other Client, a remote one claiming a person's surface too (ADR 0149),
+/// as a Client.
 fn closed_by_stop(context: &CallContext) -> CallError {
-    let (by, person) = if context.surface().is_a_person() {
+    let (by, person) = if context.answers_as_a_person() {
         (CancelledBy::Person, Some(context.person()))
     } else {
         (CancelledBy::Client, None)

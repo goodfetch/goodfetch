@@ -8,6 +8,7 @@
 //! an interface defined here, such as a Run's driver and the tables it keeps
 //! in run state.
 
+mod accounts;
 pub mod admission;
 pub mod age_notice;
 mod attached;

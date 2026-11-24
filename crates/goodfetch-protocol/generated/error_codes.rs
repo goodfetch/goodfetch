@@ -378,7 +378,7 @@ impl ErrorCode {
 
     /// `person_required`, in the `refused` group, not retryable.
     ///
-    /// Only a person gives this answer: no agent surface, SDK, script or command run under `--json` or without a terminal may. Run the Operation's command in a terminal, where the CLI has one, or answer it in the Kennel where the Kennel offers the Operation.
+    /// Only a person gives this answer: no agent surface, SDK, script or command run under `--json` or without a terminal may, and no Client that reaches the engine from another machine, through an Exposed Daemon's address or a gateway, whatever surface it claims. Run the Operation's command in a terminal on the engine's machine, where the CLI has one, or answer it in the Kennel there.
     pub const PERSON_REQUIRED: Self = ErrorCode::from_static("person_required");
 
     /// `plugin_crashed`, in the `unavailable` group, retryable.

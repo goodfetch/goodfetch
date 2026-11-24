@@ -94,6 +94,7 @@ mod proxy_in_front;
 mod pty;
 mod raw_calls;
 mod received_requests;
+mod recordings;
 mod resident;
 mod resolver;
 mod runtime;
@@ -234,6 +235,10 @@ pub use proving_ground_format::{
 pub use proxy_in_front::proxy_in_front;
 pub use pty::{Pty, PtyError, PtyOutput, PtyRun, pty};
 pub use raw_calls::raw_call_lines;
+pub use recordings::{
+    ExchangeName, ModelRecording, Payload, RecordedExchange, RecordedRequest, RecordedResponse,
+    Recordings, RecordingsError, ServedExchanges, Unfinished, UnmatchedRequest,
+};
 pub use resident::{peak_resident_bytes, private_resident_bytes_of};
 pub use resolver::{Lookup, LookupFailure, ResolverHandle, ScriptedResolver};
 pub use runtime::{

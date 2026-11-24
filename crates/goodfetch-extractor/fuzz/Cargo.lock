@@ -796,6 +796,7 @@ dependencies = [
  "errno",
  "flatbuffers",
  "flate2",
+ "form_urlencoded",
  "i18n-embed",
  "icu_locale_core",
  "icu_provider",

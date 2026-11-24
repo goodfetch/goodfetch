@@ -294,6 +294,9 @@ httparse = { version = "1.10.1", default-features = false, features = ["std"] }
 # A `Retry-After`'s HTTP-date in RFC 9110's three formats (ADR 0118), which
 # hyper already brings.
 httpdate = { version = "1.0.3", default-features = false }
+# Model recordings replay at an adapter's base URL (ADR 0065): each exchange
+# is one mock of its local server, matched on method, path and JSON body.
+httpmock = { version = "0.9.0", default-features = false }
 http-body-util = { version = "0.1.5", default-features = false }
 hyper = { version = "1.12.0", default-features = false }
 hyper-util = { version = "0.1.21", default-features = false }

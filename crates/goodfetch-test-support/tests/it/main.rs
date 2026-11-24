@@ -37,6 +37,7 @@ mod observation_log;
 mod probe;
 mod proving_ground;
 mod pty;
+mod recordings;
 mod reported;
 mod scripted_daemon;
 mod scripted_engine;

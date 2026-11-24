@@ -3301,7 +3301,7 @@
     {
       "id": "format:session-export",
       "kind": "format",
-      "area": null,
+      "area": 4,
       "milestone": null,
       "status": "active",
       "products": [

@@ -172,6 +172,24 @@ impl<T, P> Call<T, P> {
             read: Box::new(move |value| read(value).map(map)),
         }
     }
+
+    /// The call whose reply is `map` of this one's, or fails with the error
+    /// `map` returns: a value the program's own type reads.
+    pub(crate) fn try_map<U>(
+        self,
+        map: impl FnOnce(T) -> Result<U, Error> + Send + 'static,
+    ) -> Call<U, P>
+    where
+        T: 'static,
+    {
+        let read = self.read;
+        Call {
+            request: self.request,
+            timeout: self.timeout,
+            wire: self.wire,
+            read: Box::new(move |value| read(value).and_then(map)),
+        }
+    }
 }
 
 impl<T: Send + 'static, P: Serialize + Send + 'static> IntoFuture for Call<T, P> {

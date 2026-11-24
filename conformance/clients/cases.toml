@@ -26,7 +26,7 @@
 
 [suite]
 name = "clients"
-version = "64"
+version = "65"
 
 [[capability]]
 name = "lifecycle"
@@ -734,8 +734,7 @@ modes = ["attached"]
 
 # A Run's Key-value store outside a handler, on Collie's executable (ADR
 # 0103; #791): in TypeScript `tsc` rejects `set(key, null)`, and in Python
-# and Rust it fails with `value_invalid`. The Rust SDK's Run has no Key-value
-# store yet, so `sdk-rust` joins these cases with issue 1284, which adds it.
+# and Rust it fails with `value_invalid`.
 [[capability]]
 name = "key-value-store"
 
@@ -753,28 +752,28 @@ modes = ["attached"]
 [[capability.case]]
 id = "key-value-store-get-absent-answers-null"
 covers = ["story:6-28", "story:6-31"]
-surfaces = ["sdk-typescript", "sdk-python"]
-modes = ["attached"]
+surfaces = ["sdk-typescript", "sdk-python", "sdk-rust"]
+modes = ["attached", "linked"]
 
 [[capability.case]]
 id = "key-value-store-set-null-refused"
 covers = ["story:6-29"]
-surfaces = ["sdk-typescript", "sdk-python"]
-modes = ["attached"]
+surfaces = ["sdk-typescript", "sdk-python", "sdk-rust"]
+modes = ["attached", "linked"]
 
 # Bytes with their content type (#792): `getBytes` answers what `setBytes`
 # stored, and neither reader answers the other's type (S2).
 [[capability.case]]
 id = "key-value-store-bytes-round-trip"
 covers = ["story:6-30"]
-surfaces = ["sdk-typescript", "sdk-python"]
-modes = ["attached"]
+surfaces = ["sdk-typescript", "sdk-python", "sdk-rust"]
+modes = ["attached", "linked"]
 
 [[capability.case]]
 id = "key-value-store-read-of-the-other-type-refused"
 covers = ["story:6-30"]
-surfaces = ["sdk-typescript", "sdk-python"]
-modes = ["attached"]
+surfaces = ["sdk-typescript", "sdk-python", "sdk-rust"]
+modes = ["attached", "linked"]
 
 # Limits in code (ADR 0080; issue 2830): `connect()` and a Run's start take
 # typed Limits, a price as an exact `Money`, which only lower. TypeScript
@@ -821,7 +820,7 @@ modes = ["attached"]
 # types, or a hand-written JSON Schema, round-trips through the Key-value
 # store; results keep unknown fields; a value that is not JSON is refused
 # before sending. Python and Rust join the Key-value cases with issue 1284;
-# Python's own test of its typed Key-value store runs already.
+# their own tests of their typed Key-value stores run already.
 [[capability]]
 name = "typed-data"
 

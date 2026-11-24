@@ -15,6 +15,9 @@
 use std::collections::BTreeMap;
 use std::num::NonZeroUsize;
 
+use crate::browsers::{CHROME_FOR_TESTING_DOWNLOADS_VARIABLE, LIGHTPANDA_DOWNLOADS_VARIABLE};
+use crate::claude_code::CLAUDE_CODE_DOWNLOADS_VARIABLE;
+
 /// Overrides every test's seed (ADR 0060).
 pub const SEED_VARIABLE: &str = "GOODFETCH_TEST_SEED";
 
@@ -144,6 +147,9 @@ impl Variables {
             PLAYWRIGHT_BROWSERS_VARIABLE,
             NO_GUI_SESSION_VARIABLE,
             TOXIPROXY_DOWNLOADS_VARIABLE,
+            CLAUDE_CODE_DOWNLOADS_VARIABLE,
+            LIGHTPANDA_DOWNLOADS_VARIABLE,
+            CHROME_FOR_TESTING_DOWNLOADS_VARIABLE,
         ]
         .into_iter()
         .chain(USER_FOLDER_VARIABLES)

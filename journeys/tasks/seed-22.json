@@ -67,6 +67,19 @@
       "start_url": "http://2.login.test/login"
     },
     {
+      "account": {
+        "password": "AVwtv5Fx6oJxdipd",
+        "username": "user-da091350"
+      },
+      "description": "Log in as the task's account with its password, or bring in its login from the Firefox profile `firefox-profile` writes, and return one Record per order the account page lists, read from its order page, with the fields `id`, `item` and `total`, while the Proving ground's time step goes from 0 to the last of the task's time steps. The login expires when the time step changes: log in again whenever the site sends to its login page.",
+      "digest": "4f30358b448baeff3be733ef59449afb74709939d91ded055d3c6cf140a7b87c",
+      "family": "login",
+      "id": "login/3",
+      "kind": "crawl",
+      "start_url": "http://3.login.test/login",
+      "time_steps": 2
+    },
+    {
       "description": "Watch this page while the Proving ground's time step goes from 0 to the last of the task's time steps, one step after another, and return one Record per revision the page shows, with the fields `id` (the revision), `headline` and `price`.",
       "digest": "0079ceb05285d65a2b29760d055c7f4709d3b7489cd8704c4c3f3da6be3c8ff9",
       "family": "schedule",

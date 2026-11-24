@@ -1,7 +1,8 @@
 //! The `login` family: orders behind a login, with the accounts the task list
 //! names, derived from the seed (ADR 0063). One account logs in with a
-//! password and a TOTP code (RFC 6238); the other's login expires after
-//! three pages, so a crawl logs in again to read every order.
+//! password and a TOTP code (RFC 6238); another's login expires after three
+//! pages, and the seeded one's when the time step changes, so a crawl logs in
+//! again to read every order.
 //!
 //! The known-correct results come from logging in as the task's account over
 //! plain HTTP, its TOTP code computed here from the account's secret, and
@@ -274,6 +275,87 @@ fn an_expiring_login_sends_its_fourth_page_to_the_login_page() {
     assert_eq!(statuses, [200, 200, 200]);
     assert_eq!(fourth.status, 303, "{}", fourth.body);
     assert_eq!(fourth.header("location"), Some("/login"));
+}
+
+/// Covers: story:2-33
+#[test]
+fn a_seeded_login_expires_only_when_the_time_step_changes_and_a_new_login_recovers() {
+    let proving_ground = ProvingGround::start(SEED);
+    let task = proving_ground.task("login/3");
+    let session = log_in(&proving_ground, &task);
+    let url = proving_ground.url(HOST, "/account");
+    let at_its_step: Vec<u16> = (0..10)
+        .map(|_| proving_ground.get_with_cookie(&url, Some(&session)).status)
+        .collect();
+
+    let moved = proving_ground.set_time_step(&json!(1));
+    let after = proving_ground.get_with_cookie(&url, Some(&session));
+    let again = log_in(&proving_ground, &task);
+    let recovered = proving_ground.get_with_cookie(&url, Some(&again));
+
+    assert_eq!(task["time_steps"], 2, "{task}");
+    assert_eq!(at_its_step, [200; 10]);
+    assert_eq!(moved.status, 200, "{}", moved.body);
+    assert_eq!(after.status, 303, "{}", after.body);
+    assert_eq!(after.header("location"), Some("/login"));
+    assert_eq!(recovered.status, 200, "{}", recovered.body);
+}
+
+/// Covers: story:2-33
+#[test]
+fn the_same_seed_gives_the_seeded_login_the_same_account_and_expiry() {
+    let first = ProvingGround::start(SEED);
+    let second = ProvingGround::start(SEED);
+    let session = log_in(&first, &first.task("login/3"));
+    let url = second.url(HOST, "/account");
+
+    let at_its_step = second.get_with_cookie(&url, Some(&session)).status;
+    second.set_time_step(&json!(1));
+    let after = second.get_with_cookie(&url, Some(&session)).status;
+
+    assert_eq!(
+        account(&first.task("login/3")),
+        account(&second.task("login/3"))
+    );
+    assert_eq!((at_its_step, after), (200, 303));
+}
+
+/// Covers: story:2-4, story:2-33
+#[rstest]
+#[case::logs_in_again(true, "verified")]
+#[case::stops_at_the_login_page(false, "false_success")]
+fn a_crawl_across_a_time_step_is_verified_only_when_it_logs_in_again(
+    #[case] logs_in_again: bool,
+    #[case] outcome: &str,
+) {
+    let proving_ground = ProvingGround::start(SEED);
+    let task = proving_ground.task("login/3");
+    let mut session = log_in(&proving_ground, &task);
+    let account_page = read(&proving_ground, &task, &mut session, "/account");
+    let mut records = Vec::new();
+    for (index, path) in order_paths(&account_page).iter().enumerate() {
+        if index == 3 {
+            proving_ground.set_time_step(&json!(1));
+        }
+        if logs_in_again {
+            records.push(order_record(&read(
+                &proving_ground,
+                &task,
+                &mut session,
+                path,
+            )));
+            continue;
+        }
+        let page = proving_ground.get_with_cookie(&proving_ground.url(HOST, path), Some(&session));
+        if page.status != 200 {
+            break;
+        }
+        records.push(order_record(&page.body));
+    }
+
+    let answer = proving_ground.judge(&submission("login/3", "success", &records));
+
+    assert_eq!(answer["outcome"], outcome, "{answer}");
 }
 
 /// Covers: story:2-33

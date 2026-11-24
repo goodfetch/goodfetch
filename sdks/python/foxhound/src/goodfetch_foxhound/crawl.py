@@ -22,6 +22,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Generic, TypeVar, cast, final, overload
 
 from goodfetch_collie_client.generated.models import Locator as LocatorId
+from goodfetch_collie_client.json_values import non_json
 from goodfetch_collie_client.markers import warn_entry
 from goodfetch_collie_client.raw_call import carried_id
 from goodfetch_collie_client.schema import (
@@ -34,10 +35,13 @@ from goodfetch_collie_client.settings import settings_on_wire
 from pydantic import BaseModel
 
 from goodfetch_foxhound.generated.errors import (
+    DatasetDuplicateError,
+    DatasetKeyInvalidError,
     LabelDuplicateError,
     LabelUnhandledError,
     LabelUnknownError,
     PayloadInvalidError,
+    RecordInvalidError,
     ResponseNotDocumentError,
 )
 from goodfetch_foxhound.generated.models import (
@@ -46,7 +50,9 @@ from goodfetch_foxhound.generated.models import (
     CrawlRequestLinksParams,
     CrawlRequestPushParams,
     DatasetDeclaration,
+    InvalidRecord,
     LabelDeclaration,
+    RecordIssue,
     RequestSeed,
     SitemapSeed,
 )
@@ -243,21 +249,124 @@ class HandlerAttempt:
         }
         return CrawlRequestEnqueueLinksParams.model_construct(None, **fields)
 
-    def push_params(
-        self, dataset: Dataset[R], records: R | list[R]
-    ) -> CrawlRequestPushParams | None:
-        """`push`'s params: one Record, or a list of them; none for an empty list."""
+    def push(self, dataset: Dataset[R], records: R | list[R]) -> _Push:
+        """`push`'s Records, one or a list of them, as the program checked them.
+
+        A Record that is not JSON, or that its Dataset's model would not
+        parse back, is refused here (ADR 0103); a hand-written JSON Schema
+        is the engine's to check, so no Record is checked twice against one.
+        """
         # A Record is a JSON object, never a list, so a list is the Records
         # of one push.
         pushed: list[object] = (
             cast("list[object]", records) if isinstance(records, list) else [records]
         )
-        if not pushed:
-            return None
         codec = _record_codecs.get(dataset)
-        wire = [record if codec is None else codec.encode(record) for record in pushed]
-        return CrawlRequestPushParams.model_construct(
-            None, **self.lease(), dataset=dataset.name, records=wire
+        held: list[tuple[int, JSONValue]] = []
+        refused: list[InvalidRecord] = []
+        for position, record in enumerate(pushed):
+            try:
+                held.append((position, _record_on_wire(codec, record)))
+            except ValueNotJSONError as not_json:
+                message = f"{not_json.found} is not JSON"
+                refused.append(_invalid(position, [(not_json.path, message)]))
+            except SchemaRejectedError as rejected:
+                issues = [(issue.path, issue.message) for issue in rejected.issues]
+                refused.append(_invalid(position, issues))
+        params = (
+            CrawlRequestPushParams.model_construct(
+                None,
+                **self.lease(),
+                dataset=dataset.name,
+                records=[record for _, record in held],
+            )
+            if held
+            else None
+        )
+        return _Push(dataset.name, params, [position for position, _ in held], refused)
+
+
+def _record_on_wire(codec: SchemaCodec[Any] | None, record: object) -> JSONValue:
+    """`record` as the wire carries it, through its Dataset's codec when it has one.
+
+    Raises:
+        ValueNotJSONError: Something in it is not JSON.
+        SchemaRejectedError: Its Dataset's model would not parse it back.
+    """
+    if codec is not None:
+        return codec.encode(record)
+    refused = non_json(record)
+    if refused is not None:
+        raise ValueNotJSONError(refused)
+    return cast("JSONValue", record)
+
+
+def _invalid(position: int, issues: list[tuple[str, str]]) -> InvalidRecord:
+    """The Record at `position` of a push, refused for `issues`, each by its path."""
+    return InvalidRecord(
+        position=position,
+        issues=[RecordIssue(path=path, message=message) for path, message in issues],
+    )
+
+
+@final
+@dataclass(frozen=True)
+class _Push:
+    """One push's Records as the program checked them: sent or refused."""
+
+    dataset: str
+    params: CrawlRequestPushParams | None
+    """The call that sends the Records that hold; none when none does."""
+    positions: list[int]
+    """Each sent Record's position in the push, in the order sent."""
+    refused: list[InvalidRecord]
+    """Each Record the program refused, in position order."""
+
+    def refusal(self, engine: RecordInvalidError | None) -> RecordInvalidError:
+        """The `record_invalid` of the Records the program refused, and the engine's.
+
+        `engine` is the engine's `record_invalid` of the Records sent, when
+        it refused any: it names each by its position among those sent, so
+        each is named again by its position in the push.
+        """
+        sent = (
+            []
+            if engine is None or engine.typed_details is None
+            else engine.typed_details.records
+        )
+        records = sorted(
+            [
+                *self.refused,
+                *(
+                    InvalidRecord(
+                        position=(
+                            self.positions[record.position]
+                            if record.position < len(self.positions)
+                            else record.position
+                        ),
+                        issues=record.issues,
+                    )
+                    for record in sent
+                ),
+            ],
+            key=lambda record: record.position,
+        )
+        named = "; ".join(
+            f"the Record at {record.position}: "
+            + ", ".join(
+                f"{issue.path or 'its root'}: {issue.message}"
+                for issue in record.issues
+            )
+            for record in records
+        )
+        return RecordInvalidError(
+            f"the Dataset {self.dataset} did not stage {named}",
+            fix="Push Records its Dataset's schema accepts, made of JSON values "
+            "only, each holding every field of its Dataset's key.",
+            details={
+                "dataset": self.dataset,
+                "records": [record.model_dump(mode="json") for record in records],
+            },
         )
 
 
@@ -517,15 +626,27 @@ class AsyncCrawlContext(Generic[P]):
         Record by its position in the list and each of its issues by its
         path. An attempt that already ended fails with `attempt_ended`.
 
-        An empty list sends nothing, so it never fails with
-        `invalid_params`.
+        Each Record is checked in the program first: one that is not JSON,
+        or that its Dataset's model would not parse back, is never sent,
+        and the call fails with `record_invalid` once the others are
+        staged, naming each refused Record by its position in the push, the
+        engine's refusals included. Caught, the attempt keeps what it
+        staged; escaped, it fails the request, which is not retried. An
+        empty list sends nothing, so it never fails with `invalid_params`.
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
         warn_entry("crawl_request.push", EXPERIMENTAL_OPERATIONS, DEPRECATED_OPERATIONS)
-        params = self._attempt.push_params(dataset, records)
-        if params is not None:
-            await self._operations.crawl_request_push(params)
+        push = self._attempt.push(dataset, records)
+        if push.params is not None:
+            try:
+                await self._operations.crawl_request_push(push.params)
+            except RecordInvalidError as engine:
+                if not push.refused:
+                    raise
+                raise push.refusal(engine) from engine
+        if push.refused:
+            raise push.refusal(None)
 
 
 @final
@@ -772,15 +893,27 @@ class CrawlContext(Generic[P]):
         Record by its position in the list and each of its issues by its
         path. An attempt that already ended fails with `attempt_ended`.
 
-        An empty list sends nothing, so it never fails with
-        `invalid_params`.
+        Each Record is checked in the program first: one that is not JSON,
+        or that its Dataset's model would not parse back, is never sent,
+        and the call fails with `record_invalid` once the others are
+        staged, naming each refused Record by its position in the push, the
+        engine's refusals included. Caught, the attempt keeps what it
+        staged; escaped, it fails the request, which is not retried. An
+        empty list sends nothing, so it never fails with `invalid_params`.
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
         warn_entry("crawl_request.push", EXPERIMENTAL_OPERATIONS, DEPRECATED_OPERATIONS)
-        params = self._attempt.push_params(dataset, records)
-        if params is not None:
-            self._operations.crawl_request_push(params)
+        push = self._attempt.push(dataset, records)
+        if push.params is not None:
+            try:
+                self._operations.crawl_request_push(push.params)
+            except RecordInvalidError as engine:
+                if not push.refused:
+                    raise
+                raise push.refusal(engine) from engine
+        if push.refused:
+            raise push.refusal(None)
 
 
 def _no_page(request: CrawlRequest[Any]) -> ResponseNotDocumentError:
@@ -917,18 +1050,34 @@ class _Declaration:
         `schema` is a Pydantic model class or a JSON Schema written by hand,
         which the engine checks each Record against; without one, a Record
         is any JSON object. `key` names the fields whose values name a
-        Record: one pushed again under the same key replaces it. A second
-        Dataset of one name fails the Run's start with `dataset_duplicate`.
+        Record: one pushed again under the same key replaces it. Declaring
+        does no I/O.
+
+        Raises:
+            DatasetDuplicateError: The crawl already declares a Dataset of
+                `name`.
+            DatasetKeyInvalidError: `key` names a field that is no top-level
+                field `schema` requires, so a Record could lack it.
         """
+        crawl = _crawls[self]
+        if any(declared.name == name for declared in crawl.datasets):
+            raise DatasetDuplicateError(
+                f"the Crawl already declares the Dataset {name}",
+                fix="Declare each Dataset once, and use the Dataset the first "
+                "`crawl.dataset` returned.",
+                details={"dataset": name},
+            )
+        codec = None if schema is None else schema_codec(schema)
+        if codec is not None and key is not None:
+            _check_key(name, codec.wire_schema, key)
         dataset = Dataset[Any](name)
         declaration: dict[str, object] = {"name": name}
-        if schema is not None:
-            codec = schema_codec(schema)
+        if codec is not None:
             _record_codecs[dataset] = codec
             declaration["schema"] = codec.wire_schema
         if key is not None:
             declaration["key"] = list(key)
-        _crawls[self].datasets.append(DatasetDeclaration.model_validate(declaration))
+        crawl.datasets.append(DatasetDeclaration.model_validate(declaration))
         return dataset
 
     def _attach(self, label: Label[Any], handler: Callable[..., object]) -> None:
@@ -1163,6 +1312,28 @@ def _locator_id(locator: AsyncLocator | Locator) -> LocatorId:
         message = "invariant: a locator's calls carry a `Locator`"
         raise TypeError(message)
     return locator_id
+
+
+def _check_key(dataset: str, schema: JSONObject, key: Sequence[str]) -> None:
+    """Refuses a Dataset's `key` when it names a field `schema` does not require.
+
+    Raises:
+        DatasetKeyInvalidError: A field of `key` is no top-level field the
+            JSON Schema `schema` requires, so a Record could lack it, as the
+            engine refuses it.
+    """
+    required = schema.get("required")
+    requires = required if isinstance(required, list) else []
+    missing = next((name for name in key if name not in requires), None)
+    if missing is None:
+        return
+    raise DatasetKeyInvalidError(
+        f"the Dataset {dataset}'s key names {missing}, which is no top-level field "
+        "its schema requires",
+        fix="Key a Dataset only by fields its schema requires, or require the "
+        "field in its schema.",
+        details={"dataset": dataset, "reason": "not_required", "field": missing},
+    )
 
 
 def _payload_refused(label: str, issues: list[dict[str, str]]) -> PayloadInvalidError:

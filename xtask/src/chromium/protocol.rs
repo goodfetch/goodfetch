@@ -50,7 +50,8 @@ struct Protocol {
 
 #[derive(Deserialize)]
 struct Domain {
-    domain: String,
+    #[serde(rename = "domain")]
+    name: String,
     #[serde(default)]
     commands: Vec<Member>,
     #[serde(default)]
@@ -151,7 +152,7 @@ fn findings(protocol: &Protocol, bindings: &Bindings, uses: &BTreeMap<Key, Use>)
         ] {
             for member in members {
                 into.insert(
-                    format!("{}.{}", domain.domain, member.name),
+                    format!("{}.{}", domain.name, member.name),
                     Wire {
                         parameters: names(&member.parameters),
                         returns: names(&member.returns),
@@ -262,7 +263,7 @@ impl Bindings {
                     .insert((module.to_owned(), item.ident.to_string()), fields);
             }
             syn::Item::Impl(item) => {
-                let Some((_, trait_path, _)) = &item.trait_ else {
+                let Some((trait_path, _)) = &item.trait_ else {
                     return Ok(());
                 };
                 let Some(type_name) = last_ident(&item.self_ty) else {
@@ -392,7 +393,8 @@ fn driver_uses(root: &Path, bindings: &Bindings) -> Result<BTreeMap<Key, Use>> {
             continue;
         }
         let file_name = relative.to_string_lossy().replace('\\', "/");
-        let items = driver_items(&parse(&path)?.items);
+        let file = parse(&path)?;
+        let items = driver_items(&file.items);
         let mut names = Names::default();
         for item in &items {
             if let syn::Item::Use(item) = item {

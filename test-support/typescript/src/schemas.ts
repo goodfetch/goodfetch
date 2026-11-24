@@ -17,6 +17,12 @@ ajv.addFormat("uint64", {
   type: "number",
   validate: (value: number) => Number.isSafeInteger(value) && value >= 0,
 });
+// And Rust's `i64` as this one, such as a webhook's Unix timestamp, read
+// exactly up to 2^53 - 1 either way.
+ajv.addFormat("int64", {
+  type: "number",
+  validate: (value: number) => Number.isSafeInteger(value),
+});
 // schemars writes Rust's `u8` as this one, such as a script's exit code.
 ajv.addFormat("uint8", {
   type: "number",

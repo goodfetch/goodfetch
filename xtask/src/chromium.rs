@@ -2,7 +2,8 @@
 //! suite's runtime dependencies, the files `gn`'s `.runtime_deps` list names
 //! (the inputs of Chromium's own isolates), by SHA-256, so the gate's test
 //! jobs fetch them by digest and run on standard runners without the build
-//! tree.
+//! tree. `expectations` checks the expected results under
+//! `chromium/expectations/`.
 #![expect(
     clippy::disallowed_methods,
     reason = "xtask is synchronous; the blocking-fs and process bans target async crates (STYLE.md)"
@@ -21,6 +22,8 @@ use sha2::{Digest as _, Sha256};
 use crate::check::{self, Finding};
 use crate::environment::Environment;
 use crate::output;
+
+mod expectations;
 
 /// The largest part a kept file is cut into: a file over 2 GiB is split.
 const PART_SIZE: u64 = 2 << 30;
@@ -57,6 +60,11 @@ pub(crate) enum Command {
         #[arg(required = true)]
         lists: Vec<PathBuf>,
     },
+    /// The expected results under `chromium/expectations/`.
+    Expectations {
+        #[command(subcommand)]
+        command: expectations::Command,
+    },
 }
 
 #[derive(Serialize)]
@@ -88,12 +96,24 @@ struct Part {
 }
 
 pub(crate) fn run(command: &Command, environment: &Environment) -> Result<ExitCode> {
-    let Command::Package {
-        out,
-        into,
-        part_size,
-        lists,
-    } = command;
+    match command {
+        Command::Package {
+            out,
+            into,
+            part_size,
+            lists,
+        } => package(out, into, *part_size, lists, environment),
+        Command::Expectations { command } => expectations::run(command, environment),
+    }
+}
+
+fn package(
+    out: &Path,
+    into: &Path,
+    part_size: u64,
+    lists: &[PathBuf],
+    environment: &Environment,
+) -> Result<ExitCode> {
     let out = environment.path(out);
     let into = environment.path(into);
     let mut findings = Vec::new();
@@ -125,7 +145,7 @@ pub(crate) fn run(command: &Command, environment: &Environment) -> Result<ExitCo
     for (name, files) in suites {
         let files = files
             .into_iter()
-            .map(|(path, source)| keep(&source, path, &blobs, *part_size))
+            .map(|(path, source)| keep(&source, path, &blobs, part_size))
             .collect::<Result<_>>()?;
         manifest.suites.push(Suite { name, files });
     }

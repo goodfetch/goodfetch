@@ -64,6 +64,7 @@ mod portal;
 mod printing;
 mod protection;
 mod proving_ground;
+mod quotes;
 mod raw_clients;
 mod reading;
 mod rendered;

@@ -49,6 +49,7 @@ use crate::page_load;
 use crate::portal::{self, Portal};
 use crate::protection;
 use crate::push::Push;
+use crate::quotes;
 use crate::raw_site;
 use crate::rendered;
 use crate::replay::{self, Refusals};
@@ -92,7 +93,13 @@ struct LimitedHold {
 
 /// The families' own host names, each family's tasks served on
 /// `<ordinal>.<host>`.
-const FAMILY_HOSTS: [&str; 4] = [catalog::HOST, rendered::HOST, login::HOST, schedule::HOST];
+const FAMILY_HOSTS: [&str; 5] = [
+    catalog::HOST,
+    rendered::HOST,
+    login::HOST,
+    quotes::HOST,
+    schedule::HOST,
+];
 
 /// What the site hands a client of the seed's certificates, each as PEM.
 pub(crate) struct Pems {
@@ -218,6 +225,7 @@ impl Site {
         tasks.extend(raw_site::tasks(seed, port));
         tasks.extend(hostile::tasks(seed, port));
         tasks.extend(canaries::tasks(seed, port));
+        tasks.extend(quotes::tasks(seed, port));
         tasks
     }
 
@@ -400,6 +408,7 @@ impl Site {
                     },
                     request,
                 ),
+                quotes::HOST => quotes::respond(self.seed, request),
                 _ => schedule::respond(self.seed, self.observations.time_step(), request),
             };
         }

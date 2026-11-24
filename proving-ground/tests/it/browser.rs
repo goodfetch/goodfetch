@@ -59,7 +59,8 @@ pub(crate) fn judged(
 }
 
 /// Runs `program` on `url` with its `options` (`context` holds the
-/// browser context's options, such as its viewport), and returns the
+/// browser context's options, such as its viewport, and `args` the
+/// browser's extra launch arguments), and returns the
 /// result it would submit, with the task added.
 pub(crate) fn run(task: &str, program: &str, url: &str, options: Value) -> Value {
     let env = TestEnv::new();

@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Consistency probes</title>
+    <script src="/probe.js"></script>
+  </head>
+  <body>
+    <h1>Consistency probes</h1>
+    <pre id="contexts"></pre>
+    <script>
+      (() => {
+        "use strict";
+        const port = location.port === "" ? "" : `:${location.port}`;
+        const frameOrigin = `${location.protocol}//consistency-frame.test${port}`;
+        const failed = (error) => ({ error: String(error) });
+
+        const frame = new Promise((resolve) => {
+          addEventListener("message", (event) => {
+            if (event.origin === frameOrigin) resolve(event.data);
+          });
+        });
+        const iframe = document.createElement("iframe");
+        iframe.src = `${frameOrigin}/frame`;
+        document.body.append(iframe);
+
+        const dedicated = new Promise((resolve) => {
+          const worker = new Worker("/dedicated-worker.js");
+          worker.onmessage = ({ data }) => resolve(data);
+          worker.onerror = (event) => resolve(failed(event.message));
+        });
+        const shared = new Promise((resolve) => {
+          const worker = new SharedWorker("/shared-worker.js");
+          worker.port.onmessage = ({ data }) => resolve(data);
+          worker.onerror = (event) => resolve(failed(event.message));
+        });
+        const service = (async () => {
+          if (!("serviceWorker" in navigator)) return failed("no service worker here");
+          await navigator.serviceWorker.register("/service-worker.js");
+          const { active } = await navigator.serviceWorker.ready;
+          const channel = new MessageChannel();
+          const answered = new Promise((resolve) => {
+            channel.port1.onmessage = ({ data }) => resolve(data);
+          });
+          active.postMessage(null, [channel.port2]);
+          return answered;
+        })().catch(failed);
+
+        Promise.all([consistencyProbe("/"), frame, dedicated, shared, service]).then(
+          ([main, framed, dedicatedWorker, sharedWorker, serviceWorker]) => {
+            document.getElementById("contexts").textContent = JSON.stringify({
+              main,
+              frame: framed,
+              dedicated_worker: dedicatedWorker,
+              shared_worker: sharedWorker,
+              service_worker: serviceWorker,
+            });
+            document.documentElement.dataset.probe = "done";
+          },
+        );
+      })();
+    </script>
+  </body>
+</html>

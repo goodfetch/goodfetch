@@ -1,0 +1,27 @@
+{
+  "name": "@goodfetch/bench",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Goodfetch's benchmark harness (ADR 0025): campaigns against the Proving ground, judged by its oracle; never published.",
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "ajv": "8.20.0"
+  },
+  "devDependencies": {
+    "@goodfetch/test-support": "workspace:*",
+    "@types/node": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  },
+  "engines": {
+    "node": ">=24.0.0"
+  },
+  "goodfetch": {
+    "runs": [
+      "goodfetch-proving-ground"
+    ]
+  }
+}

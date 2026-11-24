@@ -5,8 +5,8 @@
 // result it would submit to the oracle as one JSON line. The test that
 // started it submits that result and asserts the oracle's answer.
 //
-// It reads one JSON request on stdin: `program`, `url`, and the program's
-// own options. Every host name of the Proving ground maps to the loopback
+// It reads one JSON request on stdin: `program`, `url`, the browser's extra
+// launch `args`, if any, and the program's own options. Every host name of the Proving ground maps to the loopback
 // address, as the `resolve` setting does (ADR 0059).
 //
 // It is a program the oracle judges, not a served test of a Goodfetch
@@ -284,6 +284,39 @@ const programs = {
     await reportsSent(page);
     return { status: "success" };
   },
+  /**
+   * Waits until every context of the consistency probes has reported, then
+   * reads the values the main page shows for each.
+   */
+  probe: async (page, { url }) => {
+    await page.goto(url);
+    await page.waitForFunction(() => document.documentElement.dataset.probe === "done", undefined, {
+      timeout: DEADLINE_MS,
+    });
+    return {
+      contexts: JSON.parse(await page.locator("#contexts").textContent()),
+    };
+  },
+  /** Waits until the font page has measured every font, then reads what it shows. */
+  fonts: async (page, { url }) => {
+    await page.goto(url);
+    await page.waitForFunction(() => document.documentElement.dataset.fonts === "done", undefined, {
+      timeout: DEADLINE_MS,
+    });
+    return JSON.parse(await page.locator("#results").textContent());
+  },
+  /** Waits until the codec page has tried every sample, then reads what it shows. */
+  codecs: async (page, { url }) => {
+    await page.goto(url);
+    await page.waitForFunction(
+      () => document.documentElement.dataset.codecs === "done",
+      undefined,
+      {
+        timeout: DEADLINE_MS * 3,
+      },
+    );
+    return JSON.parse(await page.locator("#results").textContent());
+  },
   /** Composes the asked text through an input method, then commits it. */
   compose: async (page, { url }) => {
     await page.goto(url);
@@ -311,7 +344,7 @@ if (program === undefined) {
   throw new Error(`no program ${request.program}`);
 }
 const browser = await chromium.launch({
-  args: ["--host-resolver-rules=MAP *.test 127.0.0.1"],
+  args: ["--host-resolver-rules=MAP *.test 127.0.0.1", ...(request.args ?? [])],
 });
 try {
   const context = await browser.newContext(request.context ?? {});

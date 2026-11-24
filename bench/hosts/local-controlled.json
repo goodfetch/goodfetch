@@ -1,0 +1,12 @@
+{
+  "class": "local-controlled",
+  "description": "A named machine that is not the reference host, prepared for a run: no throttling, clean sources, background load bounded. Its figures are labelled with the machine and compared within one report only (ADR 0025's note of 2026-11-10). Adjusted in the lab on 8 October 2026 because macOS idle maintenance keeps a resting Mac above the first thresholds: foreign CPU 150 % (was 50 %) excluding the agent app that drives the run, load per CPU 0.35 (was 0.25). Mains power is not required: on Apple Silicon the battery alone does not throttle, low-power mode does, and that gate stays.",
+  "gates": [
+    { "id": "git_clean", "equals": true },
+    { "id": "load_per_cpu_1m", "max": 0.35 },
+    { "id": "memory_free_percent", "min": 20 },
+    { "id": "thermal_warning", "equals": false },
+    { "id": "low_power_mode", "equals": false },
+    { "id": "foreign_cpu_percent", "max": 150 }
+  ]
+}

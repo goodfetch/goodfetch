@@ -155,3 +155,19 @@ reason = "An Error code joins Foxhound's catalog, `sheet_capacity_exceeded` (iss
 [[announced]]
 entry = "typescript @goodfetch/foxhound/generated FoxhoundSettings"
 reason = "`secrets` gains `placeholders`, which binds each Secret placeholder to a reference and its registrable domains (issue 654)."
+
+[[announced]]
+entry = "collie-client connection enqueued"
+reason = "The reason an enqueue gives for a URL it did not add is an open enumeration (ADR 0079): a reason a newer engine adds reads as received instead of failing the answer (issue 1471)."
+
+[[announced]]
+entry = "typescript @goodfetch/collie-client/generated NotAddedReason"
+reason = "The reason an enqueue gives for a URL it did not add is an open enumeration (ADR 0079): a reason a newer engine adds reads as received instead of failing the answer (issue 1471)."
+
+[[announced]]
+entry = "typescript @goodfetch/collie-client/generated/types NotAddedReason"
+reason = "The reason an enqueue gives for a URL it did not add is an open enumeration (ADR 0079): a reason a newer engine adds reads as received instead of failing the answer (issue 1471)."
+
+[[announced]]
+entry = "typescript @goodfetch/foxhound/generated NotAddedReason"
+reason = "The reason an enqueue gives for a URL it did not add is an open enumeration (ADR 0079): a reason a newer engine adds reads as received instead of failing the answer (issue 1471)."

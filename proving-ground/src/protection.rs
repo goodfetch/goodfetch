@@ -4,7 +4,12 @@
 //! a plain HTTP client never does; its oracle records which tier cleared
 //! each page and the fingerprint of every request, and refutes a Record of a
 //! page no tier cleared. The local CAPTCHA holds an article behind a code a
-//! person reads off an image.
+//! person reads off an image. The Turnstile page holds one behind a token the
+//! solver-service stand-ins (`solvers`) answer its widget's task with.
+
+mod turnstile;
+
+pub(crate) use turnstile::token as turnstile_token;
 
 use std::fmt::Write as _;
 
@@ -23,7 +28,7 @@ pub(crate) const HOST: &str = "protection.test";
 const FAMILY: &str = "protection";
 
 /// How many tasks the family has.
-const TASKS: u32 = 2;
+const TASKS: u32 = 3;
 
 /// The tier-move site's task.
 pub(crate) const TIER_MOVE_TASK: &str = "protection/1";
@@ -48,9 +53,14 @@ const NOUN_PLACE: u64 = 2;
 const NONCE_PLACE: u64 = 3;
 const CAPTCHA_PLACE: u64 = 4;
 const CAPTCHA_TOKEN_PLACE: u64 = 5;
+const SITE_KEY_PLACE: u64 = 6;
+const TURNSTILE_COOKIE_PLACE: u64 = 7;
 
 /// The CAPTCHA's article, numbered after the tier-move site's.
 const CAPTCHA_ARTICLE: u64 = ARTICLES + 1;
+
+/// The Turnstile page's article, numbered after the CAPTCHA's.
+const TURNSTILE_ARTICLE: u64 = ARTICLES + 2;
 
 const ADJECTIVES: [&str; 8] = [
     "Quiet", "Hidden", "Northern", "Patient", "Restless", "Silver", "Sunken", "Winding",
@@ -164,7 +174,10 @@ pub(crate) fn respond(
         }
         (&Method::GET, CAPTCHA) => {
             if request.cookie(CAPTCHA_COOKIE) == Some(captcha_token(seed).as_str()) {
-                (Reply::html(captcha_article(seed)), None)
+                (
+                    Reply::html(article_page(seed, CAPTCHA_ARTICLE, "the CAPTCHA")),
+                    None,
+                )
             } else {
                 (Reply::html(captcha_page(seed)), None)
             }
@@ -175,12 +188,40 @@ pub(crate) fn respond(
                 .and_then(|form| exchange::form_value(form, "answer"));
             if answer.as_deref() == Some(captcha_code(seed).as_str()) {
                 (
-                    Reply::html(solved_page()).set_cookie(CAPTCHA_COOKIE, &captcha_token(seed)),
+                    Reply::html(solved_page(CAPTCHA))
+                        .set_cookie(CAPTCHA_COOKIE, &captcha_token(seed)),
                     None,
                 )
             } else {
                 (
                     Reply::html_with_status(StatusCode::FORBIDDEN, captcha_page(seed)),
+                    None,
+                )
+            }
+        }
+        (&Method::GET, turnstile::PATH) => {
+            if request.cookie(turnstile::COOKIE) == Some(turnstile::cookie(seed).as_str()) {
+                (
+                    Reply::html(article_page(seed, TURNSTILE_ARTICLE, "the widget")),
+                    None,
+                )
+            } else {
+                (Reply::html(turnstile::page(seed)), None)
+            }
+        }
+        (&Method::POST, turnstile::PATH) => {
+            let token = std::str::from_utf8(request.body)
+                .ok()
+                .and_then(|form| exchange::form_value(form, turnstile::FIELD));
+            if token.is_some_and(|token| turnstile::accepts(seed, host, &token)) {
+                (
+                    Reply::html(solved_page(turnstile::PATH))
+                        .set_cookie(turnstile::COOKIE, &turnstile::cookie(seed)),
+                    None,
+                )
+            } else {
+                (
+                    Reply::html_with_status(StatusCode::FORBIDDEN, turnstile::page(seed)),
                     None,
                 )
             }
@@ -262,19 +303,20 @@ fn captcha_page(seed: u64) -> String {
     )
 }
 
-/// The page a solved CAPTCHA answers with, beside its cookie.
-fn solved_page() -> String {
+/// The page a solved CAPTCHA or widget at `path` answers with, beside its
+/// cookie.
+fn solved_page(path: &str) -> String {
     format!(
-        "<!doctype html>\n<html lang=\"en\">\n<head><meta charset=\"utf-8\"><title>Thank you</title></head>\n<body>\n<main>\n<p>Thank you. <a href=\"{CAPTCHA}\">Continue to the article</a>.</p>\n</main>\n</body>\n</html>\n"
+        "<!doctype html>\n<html lang=\"en\">\n<head><meta charset=\"utf-8\"><title>Thank you</title></head>\n<body>\n<main>\n<p>Thank you. <a href=\"{path}\">Continue to the article</a>.</p>\n</main>\n</body>\n</html>\n"
     )
 }
 
-/// The article behind the CAPTCHA.
-fn captcha_article(seed: u64) -> String {
-    let title = title(seed, CAPTCHA_ARTICLE);
+/// The page of the article numbered `number`, which `barrier` held.
+fn article_page(seed: u64, number: u64, barrier: &str) -> String {
+    let title = title(seed, number);
     format!(
-        "<!doctype html>\n<html lang=\"en\">\n<head><meta charset=\"utf-8\"><title>{title}</title></head>\n<body>\n<main>\n<article class=\"article\" data-id=\"{}\">\n<h1 class=\"title\">{title}</h1>\n<p>The article behind the CAPTCHA.</p>\n</article>\n</main>\n</body>\n</html>\n",
-        article_id(CAPTCHA_ARTICLE)
+        "<!doctype html>\n<html lang=\"en\">\n<head><meta charset=\"utf-8\"><title>{title}</title></head>\n<body>\n<main>\n<article class=\"article\" data-id=\"{}\">\n<h1 class=\"title\">{title}</h1>\n<p>The article behind {barrier}.</p>\n</article>\n</main>\n</body>\n</html>\n",
+        article_id(number)
     )
 }
 
@@ -313,6 +355,21 @@ pub(crate) fn tasks(seed: u64, port: Option<u16>) -> Vec<Task> {
                     fields `id` and `title`.",
             },
             expected: Expected::records(vec![record(CAPTCHA_ARTICLE)]),
+        },
+        Task {
+            host: task::task_host(3, HOST),
+            entry: Entry {
+                account: None,
+                time_steps: None,
+                id: format!("{FAMILY}/3"),
+                family: FAMILY,
+                kind: Kind::Extract,
+                start_url: format!("{}{}", origin(3), turnstile::PATH),
+                description: "Extract the article behind this page's Turnstile widget as one \
+                    Record with the fields `id` and `title`. The page takes the token a \
+                    solver-service stand-in answers for its site key and URL.",
+            },
+            expected: Expected::records(vec![record(TURNSTILE_ARTICLE)]),
         },
     ]
 }

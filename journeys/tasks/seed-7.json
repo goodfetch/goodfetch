@@ -807,6 +807,14 @@
       "start_url": "http://4.protection.test/sensor"
     },
     {
+      "description": "Extract the article behind this page's Challenge as one Record with the fields `id` and `title`. The Challenge passes only when a service worker it registers answers its check.",
+      "digest": "44e99dbdf86512ea02e3f3a1a3dd7a64718f7f5a33889ac4b134a838068144a6",
+      "family": "protection",
+      "id": "protection/5",
+      "kind": "extract",
+      "start_url": "https://5.protection.test/service-worker"
+    },
+    {
       "description": "Fetch this page over HTTP and the page it links to in the browser, in one Session, and return each page's Record with the fields `id` and `code`. The server compares the fingerprints of the two requests.",
       "digest": "da8a952587a45f42d926e4c30bcaefef971f03d4694bf19efef25607877aacfb",
       "family": "access",

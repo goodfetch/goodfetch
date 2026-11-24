@@ -120,6 +120,7 @@ verbs = []
 
 [submodules.protection]
 sensor = []
+service_worker = []
 turnstile = []
 
 [submodules.solvers]

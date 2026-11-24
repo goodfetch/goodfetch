@@ -25,6 +25,7 @@ form_urlencoded.workspace = true
 hmac.workspace = true
 http-body-util.workspace = true
 httparse.workspace = true
+httpdate.workspace = true
 hyper = { workspace = true, features = ["server", "http1", "http2"] }
 hyper-util = { workspace = true, features = ["tokio", "server-auto", "http1", "http2"] }
 loona-hpack.workspace = true

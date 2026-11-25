@@ -112,6 +112,7 @@ mod other_product;
 mod otlp;
 pub mod output;
 pub mod prompts;
+mod recipe;
 mod runs;
 mod service;
 mod settings_flags;
@@ -221,6 +222,13 @@ enum Command {
     NeedsYou {
         #[command(subcommand)]
         command: needs_you::NeedsYouCommand,
+        #[command(flatten)]
+        _colour: ColourFlag,
+    },
+    /// Starts a Recipe and prints the digest that names a version of one.
+    Recipe {
+        #[command(subcommand)]
+        command: recipe::RecipeCommand,
         #[command(flatten)]
         _colour: ColourFlag,
     },
@@ -820,6 +828,9 @@ fn run(
             own.answers,
             human,
         ),
+        Command::Recipe { command, .. } => {
+            recipe::run(command, engine, dependencies, &machine, human)
+        }
         Command::Skill { command, .. } => command.run(skills, environment, human),
         Command::UpgradeFiles { from, json, .. } => {
             upgrade::upgrade(engine.identity(), &home, from.as_deref(), json, human)

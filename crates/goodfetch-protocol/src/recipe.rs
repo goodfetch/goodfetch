@@ -174,7 +174,7 @@ impl RuntimeLanguage {
 /// A manifest that is no valid Recipe manifest (issue 1663).
 pub const RECIPE_INVALID: ErrorCodeDefinition = ErrorCodeDefinition {
     name: "recipe_invalid",
-    description: "A Recipe manifest, `goodfetch-recipe.toml`, or its package that is not valid: a manifest that does not parse, lacks a required field or holds an unknown one, names no entry or two, names a program without a runtime or a runtime it does not list, names a `CrawlDeclaration` for Collie, or an entry the package does not hold. The details name the field and the fix.",
+    description: "A Recipe manifest, `goodfetch-recipe.toml`, or its package that is not valid: a manifest that does not parse, lacks a required field or holds an unknown one, names no entry or two, names a program without a runtime or a runtime it does not list, names a `CrawlDeclaration` for Collie, or an entry the package does not hold; or a package holding a symbolic link, or a path with no portable digest: absolute, escaping its root, holding `\\` or `:`, or the same as another in Unicode NFC or but for case. The details name the field or path and the fix.",
     group: ErrorGroup::Program,
     retryable: false,
     exit_code: None,
@@ -194,6 +194,20 @@ pub struct RecipeInvalidDetails {
     /// What to write instead.
     #[schemars(extend("arrived_in" = "0.1"))]
     pub fix: String,
+}
+
+/// What `recipe digest --json` prints (issue 1664): the digest of a
+/// Recipe's package, which names that version of the Recipe on every
+/// system, and the files it covers.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct RecipeDigestOutput {
+    /// The digest, `sha256:` and 64 lowercase hexadecimal digits.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub digest: String,
+    /// The package's files, by their paths from its root with `/` between
+    /// their parts, in byte order.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub files: Vec<String>,
 }
 
 impl RecipeInvalidDetails {

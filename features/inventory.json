@@ -643,6 +643,17 @@
       ]
     },
     {
+      "id": "command:recipe.digest",
+      "kind": "command",
+      "area": null,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "command:recipe.start",
       "kind": "command",
       "area": 11,

@@ -1,6 +1,6 @@
 ---
 title: Recipes
-description: Write a Recipe's manifest, goodfetch-recipe.toml, choose its entry and runtime, and see which files its package holds.
+description: Write a Recipe's manifest, goodfetch-recipe.toml, choose its entry and runtime, and see which files its package holds and the digest that names its version.
 products: [collie, foxhound]
 ---
 
@@ -70,3 +70,15 @@ The package is every file of the folder, the manifest, the source and the lockfi
 - what a package always leaves out, which no `.goodfetchignore` brings back: `.git/`, `.env`, `.env.*`, `node_modules/`, `.venv/`, `venv/`, `__pycache__/`, `target/`, `dist/` and `build/`, at any depth.
 
 A package holds no symbolic link: one is refused, naming its path. The entry must be one of the package's files, and the manifest may not be ignored.
+
+## The digest
+
+A Recipe's digest names one version of it, the same on every system: `goodfetch-collie recipe digest <directory>` prints it, such as `sha256:728c7ca0…`, and `--json` adds the files it covers.
+
+```sh
+goodfetch-collie recipe digest ./price-watch
+```
+
+It is SHA-256 over the files the package holds, each by its path from the root, with `/` between its parts and written in Unicode NFC, and by its bytes as they are, line endings included. Folders and permissions do not count, so any change to what the package holds changes it, a file its ignore rules leave out does not, and a checkout on Windows, macOS or Linux gives the same one. Its exact rule, with test vectors for a tool that computes it, is in the conformance suite's `conformance/recipe-digest/vectors.json`.
+
+A path that another system would read as another file is refused, naming it: one that is absolute, has a `.` or `..` part, holds `\` or `:`, or is the same as another path of the package in NFC or but for case, such as `README.md` beside `readme.md`. Rename it, or leave it out in `.goodfetchignore`.

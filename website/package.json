@@ -23,6 +23,8 @@
     "@docusaurus/module-type-aliases": "3.10.2",
     "@docusaurus/theme-classic": "3.10.2",
     "@docusaurus/types": "3.10.2",
+    "@goodfetch/test-support": "workspace:*",
+    "@playwright/test": "catalog:",
     "@types/node": "catalog:",
     "@types/react": "19.3.0",
     "typescript": "catalog:",

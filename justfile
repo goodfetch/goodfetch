@@ -614,6 +614,7 @@ fetch:
     ci/chrome-for-testing-fetch.sh
     ci/claude-code-fetch.sh
     ci/toxiproxy-fetch.sh
+    ci/lychee-fetch.sh
     ci/alpine/fetch.sh
     ci/source-build/fetch.sh
     ci/valkey/fetch.sh

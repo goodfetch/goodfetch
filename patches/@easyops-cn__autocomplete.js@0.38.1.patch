@@ -1,0 +1,24 @@
+diff --git a/src/autocomplete/typeahead.js b/src/autocomplete/typeahead.js
+index 73d256aef6c31c63ee32d91e920bee8347e75eef..ffed2ef78af9324fb53dc64ec5d6da1606faea37 100644
+--- a/src/autocomplete/typeahead.js
++++ b/src/autocomplete/typeahead.js
+@@ -552,6 +552,7 @@ function buildDom(options) {
+     'aria-autocomplete': $input.attr('aria-autocomplete'),
+     'aria-expanded': $input.attr('aria-expanded'),
+     'aria-owns': $input.attr('aria-owns'),
++    'aria-controls': $input.attr('aria-controls'),
+     autocomplete: $input.attr('autocomplete'),
+     dir: $input.attr('dir'),
+     role: $input.attr('role'),
+@@ -581,7 +582,10 @@ function buildDom(options) {
+       'aria-label': options.ariaLabel,
+       // Explicitly point to the listbox,
+       // which is a list of suggestions (aka options)
+-      'aria-owns': options.listboxId
++      'aria-owns': options.listboxId,
++      // Goodfetch's patch: ARIA 1.2 has an expanded combobox name the
++      // popup it controls.
++      'aria-controls': options.listboxId
+     })
+     .css(options.hint ? options.css.input : options.css.inputWithNoHint);
+ 

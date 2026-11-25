@@ -31,6 +31,26 @@ const ignored = [
   new RegExp(`^${root}/(?:\\.[^/]+|rnd|ci/proofs)/`),
 ];
 
+// The docs site's tests (`website/tests/`) read the built site, which their
+// setup project builds once per run before any of them starts, every kept
+// version included (TESTING.md, Docs site). Only their own projects run
+// them, on Chromium, and in the Release suite on Firefox and WebKit too,
+// but for the link check, which opens no browser.
+const docsSiteTests = new RegExp(`^${root}/website/tests/[^/]+\\.spec\\.ts$`);
+const docsSiteBuild = new RegExp(`^${root}/website/tests/build\\.setup\\.ts$`);
+const docsSiteLinks = new RegExp(`^${root}/website/tests/links\\.spec\\.ts$`);
+const docsSiteProjects = (browserNames: readonly ("chromium" | "firefox" | "webkit")[]) =>
+  browserNames.map((browserName) => ({
+    name: browserName === "chromium" ? "docs-site" : `docs-site-${browserName}`,
+    testMatch: docsSiteTests,
+    testIgnore:
+      browserName === "chromium"
+        ? [PLAYWRIGHT_VISUAL_TESTS]
+        : [PLAYWRIGHT_VISUAL_TESTS, docsSiteLinks],
+    dependencies: ["docs-site-build"],
+    use: { browserName },
+  }));
+
 // The Release suite runs every test on every browser Playwright ships; the
 // Pre-merge suite on Chromium alone (TESTING.md, Browsers). Its translation
 // project reruns the served tests with test support's translation-emulation
@@ -48,19 +68,20 @@ const releaseProjects: ServedProject[] =
     ? [
         ...(["firefox", "webkit"] as const).map((browserName) => ({
           name: browserName,
-          testIgnore: [...ignored, PLAYWRIGHT_VISUAL_TESTS],
+          testIgnore: [...ignored, PLAYWRIGHT_VISUAL_TESTS, docsSiteTests],
           use: { browserName },
         })),
         {
           name: "translation",
-          testIgnore: [...ignored, PLAYWRIGHT_VISUAL_TESTS],
+          testIgnore: [...ignored, PLAYWRIGHT_VISUAL_TESTS, docsSiteTests],
           use: { translationEmulation: true },
         },
         {
           name: "elsewhere",
-          testIgnore: [...ignored, PLAYWRIGHT_VISUAL_TESTS],
+          testIgnore: [...ignored, PLAYWRIGHT_VISUAL_TESTS, docsSiteTests],
           use: { locale: "tr-TR", timezoneId: "Asia/Kathmandu" },
         },
+        ...docsSiteProjects(["firefox", "webkit"]),
       ]
     : [];
 
@@ -82,7 +103,9 @@ const config: PlaywrightTestConfig<ServedOptions> = defineConfig<ServedOptions>(
   metadata: { features: readFeatureIds(import.meta.dirname) },
   use: { trace: "retain-on-failure" },
   projects: [
-    { name: "default", testIgnore: [...ignored, PLAYWRIGHT_VISUAL_TESTS] },
+    { name: "default", testIgnore: [...ignored, PLAYWRIGHT_VISUAL_TESTS, docsSiteTests] },
+    { name: "docs-site-build", testMatch: docsSiteBuild },
+    ...docsSiteProjects(["chromium"]),
     ...releaseProjects,
     ...visual.projects,
   ],

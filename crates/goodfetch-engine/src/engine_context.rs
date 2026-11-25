@@ -1,8 +1,8 @@
 //! What one engine's Runs and handlers are given, built once at its start
 //! (ADR 0059): the Goodfetch home, the clock, the engine's settings, the
 //! user's Audit log, known-certificates store, Usage ledger, Run index and
-//! Response cache, where their blocking work runs, the engine's "Needs you", its sandbox probe and the
-//! person a single-user install acts for. The engine builds it beside its
+//! Response cache, where their blocking work runs, the engine's "Needs
+//! you", its sandbox probe and the person a single-user install acts for. The engine builds it beside its
 //! Run registry and hands it down: to the registry, to each Connection's
 //! calls and to its listeners, so no module reaches these values through the
 //! Runs.
@@ -105,18 +105,15 @@ impl Stores {
 }
 
 /// What every Run and call of one engine is given beside its own inputs.
-/// Clones share its stores.
+/// Clones share its stores, held behind one pointer: each Run holds a copy,
+/// and every future holding a Run carries its size.
 #[derive(Clone)]
 pub struct EngineContext {
     home: Home,
     clock: Clock,
     settings: Settings,
     audit: Arc<AuditLog>,
-    known_certificates: KnownCertificates,
-    ledger: Ledger,
-    run_index: RunIndex,
-    response_cache: ResponseCache,
-    owner: Arc<TaskOwner>,
+    stores: Arc<Stores>,
     needs_you: NeedsYou,
     sandbox_probe: SandboxProbe,
     person: Arc<str>,
@@ -152,15 +149,11 @@ impl EngineContext {
         person: String,
     ) -> Self {
         Self {
-            known_certificates: stores.known_certificates,
-            ledger: stores.ledger,
-            run_index: stores.run_index,
-            response_cache: stores.response_cache,
+            stores: Arc::new(stores),
             home,
             clock,
             settings,
             audit,
-            owner: stores.owner,
             needs_you,
             sandbox_probe,
             person: Arc::from(person),
@@ -196,29 +189,29 @@ impl EngineContext {
 
     /// The user's known-certificates store (ADR 0042).
     pub(crate) fn known_certificates(&self) -> &KnownCertificates {
-        &self.known_certificates
+        &self.stores.known_certificates
     }
 
     /// The user's Usage ledger (ADR 0041).
     pub(crate) fn ledger(&self) -> &Ledger {
-        &self.ledger
+        &self.stores.ledger
     }
 
     /// The Run index of the engine's major (ADRs 0031 and 0098).
     pub(crate) fn run_index(&self) -> &RunIndex {
-        &self.run_index
+        &self.stores.run_index
     }
 
     /// The user's Response cache of the engine's major (ADR 0046), which
     /// the fetch tiers and the Crawler's deliveries read and fill.
     pub fn response_cache(&self) -> &ResponseCache {
-        &self.response_cache
+        &self.stores.response_cache
     }
 
     /// Where reads and writes of these stores block, which the Run registry
     /// waits for before it stops.
     pub(crate) fn owner(&self) -> &Arc<TaskOwner> {
-        &self.owner
+        &self.stores.owner
     }
 
     /// The engine's "Needs you" (spec #592).

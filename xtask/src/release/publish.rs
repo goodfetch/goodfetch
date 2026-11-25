@@ -18,7 +18,9 @@
 //! 5. PyPI: the client's and each Product's wheels (none for a nightly,
 //!    ADR 0057), with a warning when a Product's project passes 70% of the
 //!    storage limit `ci/pypi-quota.toml` records for it (ADRs 0057, 0094);
-//! 6. the GitHub Release's publishing, which makes it immutable, once both
+//! 6. OCI: each Product's image tags and Helm chart, then each first-party
+//!    Plugin's artifact ([`oci`]);
+//! 7. the GitHub Release's publishing, which makes it immutable, once both
 //!    Products' files are on it (ADR 0094): `held` while any other step of
 //!    either Product is left, so a failed step of one Product holds both,
 //!    and the re-run that finishes it lets the publishing go.
@@ -38,6 +40,8 @@ use crate::check::{self, Finding};
 use crate::github::{self, List};
 use crate::output;
 use crate::products::Product;
+
+mod oci;
 
 /// crates.io's sparse index.
 const CRATES_IO_INDEX: &str = "https://index.crates.io";
@@ -87,6 +91,10 @@ pub(crate) struct Arguments {
     /// PyPI, whose JSON interface the plan reads, or a stand-in's address.
     #[arg(long, default_value = PYPI)]
     pypi: String,
+    /// The OCI registry the images, charts and Plugins go to: GHCR, or a
+    /// stand-in's address.
+    #[arg(long, default_value = oci::REGISTRY)]
+    oci_registry: String,
     #[command(flatten)]
     github: github::Arguments,
 }
@@ -257,6 +265,8 @@ pub(crate) fn run(root: &Path, arguments: &Arguments, token: Option<&str>) -> Re
         steps.extend(pypi);
         notes = warnings;
     }
+    let registry = oci::Registry::new(&arguments.oci_registry, token);
+    steps.extend(oci::steps(root, &registry, version)?);
     let rest_out = steps.iter().all(Step::done);
     steps.push(Step::GitHub {
         name: format!("release {tag}"),

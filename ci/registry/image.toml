@@ -1,0 +1,13 @@
+# The pinned OCI registry `xtask release plan`'s tests read image tags,
+# Helm charts and Plugin artifacts from (issue 140): Distribution's
+# `registry:2`, the reference implementation of the OCI Distribution
+# interface GHCR serves. Its `digest` is the multi-platform index of
+# `repository:tag`, so each Linux architecture runs its own image, and the
+# image cannot move.
+#
+# Read by ci/registry/fetch.sh (`just fetch`), which pulls it before ADR
+# 0043's deny, and by xtask's tests (`tests/it/container.rs`), which run it
+# on a free loopback port.
+repository = "docker.io/library/registry"
+tag = "2.8.3"
+digest = "sha256:a3d8aaa63ed8681a604f1dea0aa03f100d5895b6a58ace528858a7b332415373"

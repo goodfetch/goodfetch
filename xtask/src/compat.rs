@@ -40,6 +40,7 @@ use crate::environment::Environment;
 use crate::output;
 use crate::tree::BUNDLE;
 use registry::Format;
+pub(crate) use registry::{reached, standalone};
 use tree::Tree;
 use writer::Writers;
 

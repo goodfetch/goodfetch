@@ -12,7 +12,7 @@ use schemars::JsonSchema as _;
 use serde::Deserialize;
 use serde_json::{Map, Value};
 
-use super::projection;
+use crate::compat;
 
 mod lifted_fields;
 mod shared_values;
@@ -459,11 +459,7 @@ impl Layer {
                     .and_then(Value::as_object)
                     .context("the bundle has no `$defs`")?;
                 let connection = bundle.get("connection").cloned().unwrap_or(Value::Null);
-                for name in projection::reached(&connection, bundle_definitions)? {
-                    if let Some(schema) = bundle_definitions.get(&name) {
-                        definitions.insert(name, schema.clone());
-                    }
-                }
+                definitions.extend(compat::reached(&connection, bundle_definitions)?);
                 without_meta(&mut definitions);
                 lifted_fields::without_lifted_fields(
                     &mut definitions,
@@ -558,7 +554,7 @@ impl Layer {
             &handler_requests,
             &kind_parts,
         );
-        let reached = projection::reached(&roots, &all.definitions)?;
+        let reached = compat::reached(&roots, &all.definitions)?;
         // A value union both Products share that Foxhound adds values to
         // stays Foxhound's, with every value, where Collie's names its own.
         let extended_unions: BTreeSet<String> = shared_types
@@ -572,7 +568,7 @@ impl Layer {
             })
             .collect();
         let (collie_types, own_types): (BTreeSet<String>, BTreeSet<String>) =
-            reached.into_iter().partition(|name| {
+            reached.into_keys().partition(|name| {
                 collie.definitions.contains_key(name) && !extended_unions.contains(name)
             });
         Ok(Self {

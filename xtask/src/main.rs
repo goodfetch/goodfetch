@@ -82,6 +82,7 @@ mod results;
 mod rss;
 mod runners;
 mod runtimes;
+mod rust_source;
 mod scan;
 mod screenshots;
 mod sdk_api;

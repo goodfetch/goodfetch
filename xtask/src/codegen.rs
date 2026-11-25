@@ -511,23 +511,12 @@ fn standalone(bundle: &Value, key: &str) -> Result<Value> {
         .get("$defs")
         .and_then(Value::as_object)
         .context("the bundle has no `$defs`")?;
-    let reached = projection::reached(&Value::Object(root.clone()), definitions)?;
     let mut schema = Map::new();
     if let Some(draft) = bundle.get("$schema") {
         schema.insert("$schema".to_owned(), draft.clone());
     }
     schema.extend(root.clone());
-    schema.insert(
-        "$defs".to_owned(),
-        Value::Object(
-            definitions
-                .iter()
-                .filter(|(name, _)| reached.contains(name.as_str()))
-                .map(|(name, definition)| (name.clone(), definition.clone()))
-                .collect(),
-        ),
-    );
-    Ok(Value::Object(schema))
+    compat::standalone(Value::Object(schema), definitions)
 }
 
 /// The workspace's and Collie's `cargo deny` configurations, each rendered

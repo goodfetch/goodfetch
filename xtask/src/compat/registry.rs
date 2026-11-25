@@ -86,17 +86,8 @@ pub(super) fn parse(text: &[u8]) -> Result<Vec<Format>> {
         if !names.insert(entry.name.clone()) {
             bail!("the format `{}` is registered twice", entry.name);
         }
-        let reached = reached(&entry.schema, &bundle.definitions)
+        let schema = standalone(entry.schema, &bundle.definitions)
             .with_context(|| format!("reading the schema of `{}`", entry.name))?;
-        let mut schema = entry.schema;
-        if !reached.is_empty()
-            && let Value::Object(object) = &mut schema
-        {
-            object.insert(
-                "$defs".to_owned(),
-                Value::Object(reached.into_iter().collect()),
-            );
-        }
         formats.push(Format {
             name: entry.name,
             version: entry.version,
@@ -108,9 +99,27 @@ pub(super) fn parse(text: &[u8]) -> Result<Vec<Format>> {
     Ok(formats)
 }
 
+/// `schema` standing alone: with the bundle's `definitions` it reaches under
+/// its own `$defs`, and none when it reaches none.
+pub(crate) fn standalone(mut schema: Value, definitions: &Map<String, Value>) -> Result<Value> {
+    let reached = reached(&schema, definitions)?;
+    if !reached.is_empty()
+        && let Value::Object(object) = &mut schema
+    {
+        object.insert(
+            "$defs".to_owned(),
+            Value::Object(reached.into_iter().collect()),
+        );
+    }
+    Ok(schema)
+}
+
 /// Every type of the bundle that `schema` refers to, directly or through
 /// other types.
-fn reached(schema: &Value, definitions: &Map<String, Value>) -> Result<BTreeMap<String, Value>> {
+pub(crate) fn reached(
+    schema: &Value,
+    definitions: &Map<String, Value>,
+) -> Result<BTreeMap<String, Value>> {
     let mut reached = BTreeMap::new();
     let mut pending = references(schema);
     while let Some(name) = pending.pop() {

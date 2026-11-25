@@ -2023,10 +2023,17 @@ loom:
 # (`fixtures/fault_plans/<scenario>/`) before its generated ones, and its
 # determinism check reruns 4 seeds drawn from the test's. A red seed names
 # itself and the command that runs it again. The scenarios run no test tool,
-# so the step builds none beside the host's suites.
+# so the step builds none beside the host's suites. A scenario of a module a
+# TLA+ model describes writes each seed's model trace into
+# `target/simulation/model-traces/<model>/` (GOODFETCH_MODEL_TRACES), and
+# TLC then validates each one against the model's trace spec (issue 360);
+# without Java that part is listed as skipped.
 simulation:
     #!/usr/bin/env bash
     set -euo pipefail
+    traces="${CARGO_TARGET_DIR:-$PWD/target}/simulation/model-traces"
+    rm -rf "$traces"
+    mkdir -p "$traces"
     metadata=$(cargo metadata --no-deps --format-version 1)
     packages=()
     while IFS= read -r folder; do
@@ -2042,13 +2049,28 @@ simulation:
     red=()
     for seed in $(seq 1 16); do
       echo "The Simulation from seed $seed of 16:"
-      GOODFETCH_TEST_SEED="$seed" GOODFETCH_TEST_SUITE=pre-merge \
+      GOODFETCH_TEST_SEED="$seed" GOODFETCH_TEST_SUITE=pre-merge GOODFETCH_MODEL_TRACES="$traces" \
         RUSTFLAGS="${RUSTFLAGS:-} --cfg tokio_unstable" CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-$PWD/target}/simulation" \
         cargo nextest run --locked "${packages[@]}" --test it --cargo-profile {{ test_profile }} \
         -E 'test(/^simulation::/)' || red+=("$seed")
     done
+    # Each trace is validated once, whatever the others' verdicts.
+    unmatched=()
+    if compgen -G "$traces/*/*.ndjson" >/dev/null; then
+      ci/tool.sh java {{ just_executable() }} tlc-fetch
+      for trace in "$traces"/*/*.ndjson; do
+        model=$(basename "$(dirname "$trace")")
+        ci/tool.sh java cargo run --quiet --bin xtask -- tlc validate "$model" --trace "$trace" \
+          || unmatched+=("$trace")
+      done
+    fi
     if [[ ${#red[@]} -gt 0 ]]; then
       echo "error: the Simulation fails from the seeds ${red[*]}; run one again with: GOODFETCH_TEST_SEED=<seed> GOODFETCH_TEST_SUITE=pre-merge just simulate <scenario>" >&2
+    fi
+    if [[ ${#unmatched[@]} -gt 0 ]]; then
+      echo "error: no behaviour of its model matches the model traces ${unmatched[*]}; validate one again with: just tlc-validate <model> --trace <file>" >&2
+    fi
+    if [[ ${#red[@]} -gt 0 || ${#unmatched[@]} -gt 0 ]]; then
       exit 1
     fi
 

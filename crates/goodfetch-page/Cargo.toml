@@ -47,6 +47,11 @@ rcgen = { workspace = true, features = ["ring"] }
 regex.workspace = true
 regex-syntax.workspace = true
 rusqlite.workspace = true
+# The relay's TLS to an `https://` upstream proxy, verified as an
+# Operator-configured endpoint's under the engine's `Trust` (ADR 0042).
+# Tests also prove the relay's authority name-constrained with its verifier.
+rustls = { workspace = true, features = ["ring", "std"] }
+tokio-rustls = { workspace = true, features = ["ring"] }
 # A Session's proxy password, held until the Session's proxy goes.
 secrecy.workspace = true
 serde.workspace = true
@@ -93,8 +98,6 @@ proptest.workspace = true
 # The counts cell's Goodfetch home.
 tempfile.workspace = true
 rstest.workspace = true
-# The verifier that proves the relay's authority name-constrained.
-rustls = { workspace = true, features = ["ring", "std"] }
 tokio = { workspace = true, features = ["io-util", "rt"] }
 
 # ADR 0071: instruction counts under Callgrind, heap metrics under DHAT.

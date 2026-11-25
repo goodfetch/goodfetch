@@ -8,11 +8,11 @@
 //!
 //! The browser layer's resolved-address check is the egress relay's: the
 //! SSRF table's redirects to a private address are refused at the relay,
-//! where their hop connects, and raise `egress_refused` naming the address.
-//! A launched Session with no relay under it, with
-//! `security.raw_cdp_egress_proxy` off or behind an `https://` proxy, is
-//! held by interception alone, which resolves each host in the engine and
-//! judges every answer (#2435).
+//! where their hop connects, and raise `egress_refused` naming the address,
+//! behind an `https://` proxy too, which the relay chains through inside TLS
+//! (issue 1609). A launched Session with no relay under it, with
+//! `security.raw_cdp_egress_proxy` off, is held by interception alone,
+//! which resolves each host in the engine and judges every answer (#2435).
 #![expect(
     clippy::doc_markdown,
     reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
@@ -84,26 +84,59 @@ enum Egress {
     Relay,
     /// Directly, with `security.raw_cdp_egress_proxy` off.
     SwitchedOff,
-    /// Through an `https://` proxy, which the relay does not chain: the
-    /// Proving ground's open proxy, which speaks no TLS, so a request sent
-    /// on stops at its handshake, and the proxy's connections show it was.
+    /// Through its egress relay chained through an `https://` proxy (issue
+    /// 1609): the Proving ground's `open_tls` proxy, at its name, whose
+    /// authority the user configuration trusts for it.
     HttpsProxy,
 }
 
 impl Egress {
-    /// Sets this egress in `settings`, a Run's, `open_proxy` the Proving
-    /// ground's open proxy's address.
-    fn apply(self, settings: &mut Value, open_proxy: &str) {
+    /// Sets this egress in `settings`, a Run's, `tls_proxy` the Proving
+    /// ground's `https://` proxy's name and port.
+    fn apply(self, settings: &mut Value, tls_proxy: &str) {
         match self {
             Self::Relay => {}
             Self::SwitchedOff => {
                 settings["security"] = json!({ "raw_cdp_egress_proxy": false });
             }
             Self::HttpsProxy => {
-                settings["proxy"] = json!({ "server": format!("https://{open_proxy}") });
+                settings["proxy"] = json!({ "server": format!("https://{tls_proxy}") });
             }
         }
     }
+
+    /// The Proving ground proxy a navigation reaches when it goes on: the
+    /// `https://` one behind it, else the open one an upstream proxy case
+    /// names.
+    fn proxy(self) -> &'static str {
+        match self {
+            Self::Relay | Self::SwitchedOff => "open",
+            Self::HttpsProxy => "open_tls",
+        }
+    }
+}
+
+/// The name the Proving ground's `https://` proxy's leaf names, which its
+/// hosts map to its address.
+const TLS_PROXY_HOST: &str = "tls-proxy.test";
+
+/// The user configuration trusting the Proving ground's authority for its
+/// `https://` proxy, as an Operator configures a proxy's own CA.
+fn trusting_the_tls_proxy(env: &TestEnv, proving_ground: &ProvingGround) {
+    let ca = proving_ground.description().ca.display().to_string();
+    env.user_configuration(&format!(
+        "tls.trusted_cas = {{ \"{TLS_PROXY_HOST}\" = [{}] }}\n",
+        json!(ca)
+    ));
+}
+
+/// The Proving ground's `https://` proxy as `proxy.server` names it: its
+/// name and port.
+fn tls_proxy(proving_ground: &ProvingGround) -> String {
+    let address: std::net::SocketAddr = proving_ground.description().fixtures.proxies["open_tls"]
+        .parse()
+        .unwrap();
+    format!("{TLS_PROXY_HOST}:{}", address.port())
 }
 
 /// A Connection to an Attached engine whose `hello` names `surface`, and
@@ -119,7 +152,7 @@ struct Program {
     private_ranges: Vec<String>,
     for_model: bool,
     egress: Egress,
-    open_proxy: String,
+    tls_proxy: String,
 }
 
 impl Program {
@@ -152,7 +185,7 @@ impl Program {
             resolve,
             for_model: surface == Surface::Mcp,
             egress: Egress::Relay,
-            open_proxy: proving_ground.description().fixtures.proxies["open"].clone(),
+            tls_proxy: tls_proxy(proving_ground),
         }
     }
 
@@ -181,7 +214,7 @@ impl Program {
         if !self.for_model {
             settings["egress"]["private_ranges"] = json!(self.private_ranges);
         }
-        self.egress.apply(&mut settings, &self.open_proxy);
+        self.egress.apply(&mut settings, &self.tls_proxy);
         let started = self.call(
             "run.start",
             &json!({ "run_id": run_id, "settings": settings }),
@@ -581,8 +614,8 @@ fn case_settings(
     settings
 }
 
-/// What the Proving ground's open proxy has seen so far: the connections it
-/// accepted, the requests it received to pass on, and the `CONNECT`
+/// What the Proving ground's proxy `proxy` has seen so far: the connections
+/// it accepted, the requests it received to pass on, and the `CONNECT`
 /// tunnels it was asked for.
 #[derive(Clone, Copy)]
 struct Proxied {
@@ -592,13 +625,13 @@ struct Proxied {
 }
 
 impl Proxied {
-    fn now(proving_ground: &ProvingGround) -> Self {
+    fn now(proving_ground: &ProvingGround, proxy: &str) -> Self {
         let observations = proving_ground.observations().unwrap();
         let methods: Vec<&Value> = observations["relays"]
             .as_array()
             .into_iter()
             .flatten()
-            .filter(|relay| relay["proxy"] == json!("open"))
+            .filter(|relay| relay["proxy"] == json!(proxy))
             .map(|relay| &relay["method"])
             .collect();
         let tunnels = methods
@@ -606,7 +639,7 @@ impl Proxied {
             .filter(|method| **method == &json!("CONNECT"))
             .count();
         Self {
-            connections: listener_connections(proving_ground, "open"),
+            connections: listener_connections(proving_ground, proxy),
             requests: methods.len() - tunnels,
             tunnels,
         }
@@ -614,21 +647,18 @@ impl Proxied {
 
     /// How many times a navigation reached the proxy since `before`, on a
     /// Session leaving as `egress`, `refused` when the interception refused
-    /// it. Only the Session's egress relay connects to the proxy, once it
-    /// judged the case, so each connection counts. With no relay, the
-    /// browser preconnects to its proxy as a navigation starts, before the
+    /// it. Only the Session's egress relay connects to the proxy, plain or
+    /// `https://`, once it judged the case, so each connection counts, a
+    /// TLS handshake that failed included. With no relay, the browser
+    /// preconnects to its proxy as a navigation starts, before the
     /// interception judged it, as `borrowed_browser.rs` says of a site: a
-    /// connection that carries nothing, or, for an `https://` case through
-    /// the plain proxy, its `CONNECT` tunnel, the gap ADR 0017's #2435 note
-    /// names. A refused navigation's request is never sent, so there a
-    /// request the plain proxy received counts, and nothing behind the
-    /// `https://` proxy, which speaks no TLS and reads none.
+    /// connection that carries nothing, or, for an `https://` case, its
+    /// `CONNECT` tunnel, the gap ADR 0017's #2435 note names. A refused
+    /// navigation's request is never sent, so there a request the proxy
+    /// received counts.
     fn since(self, before: Self, egress: Egress, refused: bool) -> usize {
         match (egress, refused) {
-            (Egress::Relay, _) | (Egress::HttpsProxy, false) => {
-                self.connections - before.connections
-            }
-            (Egress::HttpsProxy, true) => 0,
+            (Egress::Relay | Egress::HttpsProxy, _) => self.connections - before.connections,
             (Egress::SwitchedOff, false) => {
                 self.requests + self.tunnels - before.requests - before.tunnels
             }
@@ -641,7 +671,7 @@ impl Proxied {
 /// own, closed once it answered, so no refusal of a case's reaches
 /// another's call: the refusal its `page.goto` raised, and a connection to
 /// the Proving ground's address for each request it received meanwhile and
-/// to the case's target for each time it reached the open proxy, which
+/// to the case's target for each time it reached the proxy behind it, which
 /// would pass it on (see [`Proxied::since`]).
 fn navigation(
     program: &mut Program,
@@ -652,7 +682,8 @@ fn navigation(
     let public = proving_ground.address().ip();
     let page = program.new_page(run_id);
     let requested = requests(proving_ground).len();
-    let proxied = Proxied::now(proving_ground);
+    let proxy = program.egress.proxy();
+    let proxied = Proxied::now(proving_ground, proxy);
     let went = program.goto(&page, &navigated_url(case, proving_ground.address().port()));
     let _ = program.call("page.close", &json!({ "page_id": page }));
     let reached = requests(proving_ground).len() - requested;
@@ -665,7 +696,7 @@ fn navigation(
         _ => None,
     };
     let proxied_now =
-        Proxied::now(proving_ground).since(proxied, program.egress, refusal.is_some());
+        Proxied::now(proving_ground, proxy).since(proxied, program.egress, refusal.is_some());
     Outcome {
         refusal,
         connections: [
@@ -681,7 +712,8 @@ fn navigation(
 /// leaving as `egress` says: each of its cases as `page.goto`, at the
 /// Proving ground's port, is refused with `egress_refused` and its rule,
 /// and no request reaches the Proving ground meanwhile, directly or through
-/// its open proxy, which counts as [`Proxied::since`] says. One Run per domain policy, proxy and mapping, which its cases
+/// its proxy, which counts as [`Proxied::since`] says. One Run per domain
+/// policy, proxy and mapping, which its cases
 /// share, finished once they are done, so the test holds one browser and
 /// one page at a time: the Resource governor admits no page past its
 /// floor, one, while the host is under pressure (ADR 0040). The positive
@@ -690,9 +722,14 @@ fn navigation(
 /// as the WHATWG parser does, so each URL is navigated as that parser
 /// writes it, but for those it refuses, navigated as written. Each Run's
 /// Provenance records the rebinding gap when no relay holds its Session.
+/// Behind the `https://` proxy, every case goes through it, the relay
+/// trusting its authority as the user configuration says.
 fn navigations_are_refused_on_chromium(layer: &Layer, test: &str, egress: Egress) {
     let env = TestEnv::new();
     let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    if egress == Egress::HttpsProxy {
+        trusting_the_tls_proxy(&env, &proving_ground);
+    }
     let cache = browser_cache(&env).unwrap();
     let public = proving_ground.address().ip();
     let runner = Runner::committed(layer.name, file!(), test).unwrap();
@@ -722,7 +759,7 @@ fn navigations_are_refused_on_chromium(layer: &Layer, test: &str, egress: Egress
     let mut groups: Vec<(Value, Vec<&SsrfCase>)> = Vec::new();
     for case in controls.cases.iter().chain(runner.cases()) {
         let mut settings = case_settings(&program, &proving_ground, case, &listed);
-        egress.apply(&mut settings, &program.open_proxy);
+        egress.apply(&mut settings, &program.tls_proxy);
         match groups.iter_mut().find(|(shared, _)| *shared == settings) {
             Some((_, members)) => members.push(case),
             None => groups.push((settings, vec![case])),
@@ -762,8 +799,6 @@ fn navigations_are_refused_on_chromium(layer: &Layer, test: &str, egress: Egress
 #[rstest]
 /// Covers: setting:security.raw_cdp_egress_proxy
 #[case::with_the_switch_off(Egress::SwitchedOff)]
-/// Covers: setting:proxy.server
-#[case::behind_an_https_proxy(Egress::HttpsProxy)]
 fn every_address_case_of_the_ssrf_table_is_refused_at_interception_on_a_launched_session_with_no_relay(
     #[case] egress: Egress,
 ) {
@@ -810,6 +845,22 @@ fn every_name_and_proxy_case_of_the_ssrf_table_is_refused_as_a_navigation_on_chr
         &RELAYED,
         "every_name_and_proxy_case_of_the_ssrf_table_is_refused_as_a_navigation_on_chromium",
         Egress::Relay,
+    );
+}
+
+/// The same behind an `https://` proxy, which the egress relay chains
+/// through inside TLS (issue 1609): a private answer is refused at the
+/// relay before the proxy sees a connection. See
+/// [`navigations_are_refused_on_chromium`].
+///
+/// Covers: story:4-10, story:4-12, setting:proxy.server, error:egress_refused, operation:page.goto
+#[test]
+fn every_name_and_proxy_case_of_the_ssrf_table_is_refused_as_a_navigation_behind_an_https_proxy_on_chromium()
+ {
+    navigations_are_refused_on_chromium(
+        &RELAYED,
+        "every_name_and_proxy_case_of_the_ssrf_table_is_refused_as_a_navigation_behind_an_https_proxy_on_chromium",
+        Egress::HttpsProxy,
     );
 }
 

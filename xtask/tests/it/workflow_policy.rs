@@ -23,7 +23,12 @@ fn standard_runners_pinned_actions_and_no_top_level_permissions_pass() {
 fn workflows_of_this_repository_pass() {
     let workspace = Workspace::from_fixture("workflow-policy");
     workspace.remove_folder(".github/workflows");
-    let workflows = Path::new(env!("CARGO_MANIFEST_DIR")).join("../.github/workflows");
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
+    workspace.write(
+        "ci/secrets.toml",
+        &std::fs::read(root.join("ci/secrets.toml")).unwrap(),
+    );
+    let workflows = root.join(".github/workflows");
     for entry in std::fs::read_dir(&workflows).unwrap() {
         let path = entry.unwrap().path();
         let name = path.file_name().unwrap().to_str().unwrap();

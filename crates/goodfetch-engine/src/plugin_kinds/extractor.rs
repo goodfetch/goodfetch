@@ -12,6 +12,7 @@ use goodfetch_protocol::page::CONTENT_EXTRACTOR;
 use goodfetch_protocol::plugin::extractor::{
     EXTRACT_CONTENT, EXTRACT_HANDLER_FAILED, EXTRACTOR_UNAVAILABLE, ExtractContentParams,
     ExtractContentResult, ExtractHandlerFailedDetails, ExtractorUnavailableDetails,
+    is_metadata_key,
 };
 use url::Url;
 
@@ -149,7 +150,7 @@ impl<'a> ExtractorDriver<'a> {
             );
             Failure::Malformed(handler_failed())
         })?;
-        if let Some(key) = result.metadata.keys().find(|key| !is_snake_case(key)) {
+        if let Some(key) = result.metadata.keys().find(|key| !is_metadata_key(key)) {
             tracing::warn!(
                 extractor = self.implementation.name(),
                 key,
@@ -192,37 +193,4 @@ pub fn unavailable(extractor: &str) -> CallError {
             extractor: extractor.to_owned(),
         },
     )
-}
-
-/// Whether `key` is a `snake_case` name: a lowercase ASCII letter, then
-/// lowercase ASCII letters, digits and underscores.
-fn is_snake_case(key: &str) -> bool {
-    let mut characters = key.chars();
-    characters
-        .next()
-        .is_some_and(|first| first.is_ascii_lowercase())
-        && characters.all(|character| {
-            character.is_ascii_lowercase() || character.is_ascii_digit() || character == '_'
-        })
-}
-
-#[cfg(test)]
-mod tests {
-    use rstest::rstest;
-
-    use super::is_snake_case;
-
-    #[rstest]
-    #[case::one_word("author", true)]
-    #[case::words("published_at", true)]
-    #[case::digit("h1_title", true)]
-    #[case::empty("", false)]
-    #[case::upper("Author", false)]
-    #[case::camel("publishedAt", false)]
-    #[case::leading_digit("1st", false)]
-    #[case::leading_underscore("_author", false)]
-    #[case::dash("published-at", false)]
-    fn a_metadata_key_is_snake_case(#[case] key: &str, #[case] expected: bool) {
-        assert_eq!(is_snake_case(key), expected);
-    }
 }

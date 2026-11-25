@@ -2459,6 +2459,7 @@ dependencies = [
  "goodfetch-confinement",
  "goodfetch-conformance",
  "goodfetch-engine",
+ "goodfetch-extractor",
  "goodfetch-page",
  "goodfetch-protocol",
  "goodfetch-runtime",

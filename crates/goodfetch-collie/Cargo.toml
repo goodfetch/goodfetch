@@ -108,6 +108,9 @@ goodfetch-clean-up-rules.workspace = true
 # The Rust runner's case-log writer, which the SDK tests that run a client
 # conformance case append their entries through (ADR 0069).
 goodfetch-conformance.workspace = true
+# The built-in main-content steps, run in process through the Extractor's
+# suite (tests/it/extractor_suite.rs).
+goodfetch-extractor.workspace = true
 goodfetch-test-client.workspace = true
 goodfetch-test-support.workspace = true
 gungraun.workspace = true

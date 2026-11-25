@@ -62,6 +62,7 @@ mod engine_choice;
 mod events;
 mod exit_codes;
 mod extra_loopback;
+mod extractor_suite;
 #[cfg(target_os = "linux")]
 mod governor;
 mod help;

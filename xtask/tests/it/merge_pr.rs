@@ -9,8 +9,10 @@
 //! gate waits for the run in the backstop's worktree, a test-health run or
 //! the backstop's own, unless that one waits for it; it files the merge's stress
 //! listings; it reads the hosted tier's records of a same-repository pull
-//! request, waits for a hosted run still going, cancels one past its cap,
-//! ends red on a red hosted run, and reads no fork's runs (#3377); and the
+//! request, waits on a full gate for a hosted run still going and cancels
+//! one past its cap, cancels it at once on a quick gate, asks again for a
+//! cancel GitHub refused, ends red on a red hosted run, and reads no fork's
+//! runs (#3377); and the
 //! gate outlives the shell that started it, whose output it no longer
 //! needs. `gh`, `cargo` and `just` are stand-ins that record each call, and
 //! `date` one that gives the gate's start as [`STARTED`]. The local gate is
@@ -87,7 +89,8 @@ fn gh_stand_in(folder: &Path, calls: &Path, head: &str) -> String {
 /// exists; the n-th listing of its runs filters `runs.<n>.json` when it
 /// exists, else `runs.json`, through the script's own filter; a run's jobs
 /// are `jobs.json`'s; `gh run cancel` fails while `cancel-refused` exists,
-/// and else makes `runs.cancelled.json` the listing when it exists; `gh run
+/// and once, removing it, when `cancel-refused-once` exists, and else makes
+/// `runs.cancelled.json` the listing when it exists; `gh run
 /// download <id>` copies `artifacts/<id>/` into its `--dir`, and fails
 /// without it.
 fn hosted_stand_in(hosted: &Path) -> String {
@@ -107,6 +110,7 @@ fn hosted_stand_in(hosted: &Path) -> String {
          fi\n\
          if [ \"$1 $2\" = \"run cancel\" ]; then\n\
            if [ -f \"{hosted}/cancel-refused\" ]; then exit 1; fi\n\
+           if [ -f \"{hosted}/cancel-refused-once\" ]; then rm \"{hosted}/cancel-refused-once\"; exit 1; fi\n\
            if [ -f \"{hosted}/runs.cancelled.json\" ]; then\n\
              rm -f \"{hosted}\"/runs.[0-9]*.json\n\
              cp \"{hosted}/runs.cancelled.json\" \"{hosted}/runs.json\"\n\
@@ -2147,6 +2151,18 @@ fn a_batch_served_by_the_hosted_tier(workspace: &Workspace, head: &str) -> (Path
     (stand_in, hosted)
 }
 
+/// The stand-ins of [`a_batch_served_by_the_hosted_tier`], the pull request
+/// coming instead from `spec/130` with a change a test reads, so it finishes
+/// its spec and takes the full gate, the one gate that waits for a hosted run.
+fn a_finished_spec_served_by_the_hosted_tier(
+    workspace: &Workspace,
+    head: &str,
+) -> (PathBuf, PathBuf) {
+    let (stand_in, hosted) = a_batch_served_by_the_hosted_tier(workspace, head);
+    full_gate_with_lazyfs(&stand_in);
+    (stand_in, hosted)
+}
+
 /// A run of `.github/workflows/pull-request.yml` for a `pull_request` event
 /// as the Actions API lists it, from `repository`, begun at `started`.
 fn hosted_run(
@@ -2217,17 +2233,19 @@ fn upload_hosted_record(hosted: &Path, id: u64, step: &str, head: &str) {
     std::fs::write(artifact.join(format!("{head}.tsv")), "a record\n").unwrap();
 }
 
-/// `ci/merge-pr.sh` with no time spent in the hosted waits.
+/// `ci/merge-pr.sh` with no time spent in the hosted waits, and with the
+/// LazyFS stand-in a full gate needs when [`full_gate_with_lazyfs`] made one.
 fn merge_without_waits(workspace: &Workspace, stand_in: &Path) -> Run {
-    merge(
-        workspace,
-        stand_in,
-        &[
-            ("GOODFETCH_GATE_MIN_FREE_GB", "0"),
-            ("GOODFETCH_HOSTED_APPEAR", "0"),
-            ("GOODFETCH_HOSTED_POLL", "0"),
-        ],
-    )
+    let lazyfs = stand_in.join("lazyfs");
+    let mut variables = vec![
+        ("GOODFETCH_GATE_MIN_FREE_GB", "0"),
+        ("GOODFETCH_HOSTED_APPEAR", "0"),
+        ("GOODFETCH_HOSTED_POLL", "0"),
+    ];
+    if lazyfs.exists() {
+        variables.push(("GOODFETCH_LAZYFS", lazyfs.to_str().unwrap()));
+    }
+    merge(workspace, stand_in, &variables)
 }
 
 fn never_cancelled(run: &Run) -> bool {
@@ -2275,12 +2293,12 @@ fn a_batchs_gate_reuses_the_records_of_the_hosted_run_on_its_head() {
     assert!(never_cancelled(&run));
 }
 
-/// The gate waits for the hosted run still going on its head, so it runs
+/// A full gate waits for the hosted run still going on its head, so it runs
 /// none of that run's units beside it, then reads its records.
 #[test]
-fn a_batchs_gate_waits_for_the_hosted_run_going_on_its_head() {
+fn a_full_gate_waits_for_the_hosted_run_going_on_its_head() {
     let (workspace, head) = pull_request();
-    let (stand_in, hosted) = a_batch_served_by_the_hosted_tier(&workspace, &head);
+    let (stand_in, hosted) = a_finished_spec_served_by_the_hosted_tier(&workspace, &head);
     let going = hosted_run(101, ("in_progress", None), &head, JUST_STARTED, REPOSITORY);
     list_hosted_runs(&hosted, "runs.1.json", std::slice::from_ref(&going));
     list_hosted_runs(&hosted, "runs.2.json", &[going]);
@@ -2312,17 +2330,17 @@ fn a_batchs_gate_waits_for_the_hosted_run_going_on_its_head() {
         run.stdout
     );
     assert!(never_cancelled(&run));
-    call(&run, "just pre-merge quick");
+    call(&run, "just pre-merge all");
 }
 
 /// A hosted run that began past the 1800 s cap, whose jobs each are within
-/// it, is waited for and its records read: the cap is on each job, as ADR
+/// it, is waited for by a full gate and its records read: the cap is on each job, as ADR
 /// 0061's is. A job its matrix held back counts its wait from the last end
 /// of another job of its run, when a slot freed for it.
 #[test]
 fn a_hosted_run_whose_jobs_are_each_within_the_cap_is_waited_for_however_long_it_lasts() {
     let (workspace, head) = pull_request();
-    let (stand_in, hosted) = a_batch_served_by_the_hosted_tier(&workspace, &head);
+    let (stand_in, hosted) = a_finished_spec_served_by_the_hosted_tier(&workspace, &head);
     let going = hosted_run(101, ("in_progress", None), &head, PAST_THE_CAP, REPOSITORY);
     list_hosted_runs(&hosted, "runs.1.json", std::slice::from_ref(&going));
     list_hosted_runs(&hosted, "runs.2.json", &[going]);
@@ -2360,7 +2378,7 @@ fn a_hosted_run_whose_jobs_are_each_within_the_cap_is_waited_for_however_long_it
 }
 
 /// A hosted run with a job in progress past its 1800 s cap, or queued past
-/// it, is cancelled before the gate runs a step, naming the job, and so is
+/// it, is cancelled before a full gate runs a step, naming the job, and so is
 /// one with no job going for that long: the gate reads what the run
 /// recorded and runs the rest itself.
 #[rstest::rstest]
@@ -2372,7 +2390,7 @@ fn a_hosted_run_with_a_job_past_its_cap_is_cancelled_before_the_gate_runs_its_un
     #[case] named: &str,
 ) {
     let (workspace, head) = pull_request();
-    let (stand_in, hosted) = a_batch_served_by_the_hosted_tier(&workspace, &head);
+    let (stand_in, hosted) = a_finished_spec_served_by_the_hosted_tier(&workspace, &head);
     let going = hosted_run(101, ("in_progress", None), &head, PAST_THE_CAP, REPOSITORY);
     list_hosted_runs(&hosted, "runs.json", &[going]);
     let cancelled = ("completed", Some("cancelled"));
@@ -2401,16 +2419,16 @@ fn a_hosted_run_with_a_job_past_its_cap_is_cancelled_before_the_gate_runs_its_un
         "{}",
         run.stdout
     );
-    assert!(call(&run, "gh run cancel 101") < call(&run, "just pre-merge quick"));
+    assert!(call(&run, "gh run cancel 101") < call(&run, "just pre-merge all"));
 }
 
-/// A hosted run whose jobs keep starting late holds the gate no longer than
+/// A hosted run whose jobs keep starting late holds a full gate no longer than
 /// its 9000 s bound, the workflow's longest chain of jobs one after another
 /// (five) at the 1800 s cap each, though every job is within the cap.
 #[test]
 fn a_hosted_run_past_its_whole_bound_is_cancelled_though_its_jobs_are_within_the_cap() {
     let (workspace, head) = pull_request();
-    let (stand_in, hosted) = a_batch_served_by_the_hosted_tier(&workspace, &head);
+    let (stand_in, hosted) = a_finished_spec_served_by_the_hosted_tier(&workspace, &head);
     let going = hosted_run(
         101,
         ("in_progress", None),
@@ -2436,15 +2454,15 @@ fn a_hosted_run_past_its_whole_bound_is_cancelled_though_its_jobs_are_within_the
         page(101)
     );
     assert!(run.stdout.contains(&said), "{}", run.stdout);
-    assert!(call(&run, "gh run cancel 101") < call(&run, "just pre-merge quick"));
+    assert!(call(&run, "gh run cancel 101") < call(&run, "just pre-merge all"));
 }
 
-/// A gate whose token may not cancel a run past its cap waits for that run's
-/// end, and runs no unit beside it.
+/// A full gate whose token may not cancel a run past its cap waits for that
+/// run's end, and runs no unit beside it.
 #[test]
 fn a_hosted_run_the_gate_may_not_cancel_is_waited_for_to_its_end() {
     let (workspace, head) = pull_request();
-    let (stand_in, hosted) = a_batch_served_by_the_hosted_tier(&workspace, &head);
+    let (stand_in, hosted) = a_finished_spec_served_by_the_hosted_tier(&workspace, &head);
     std::fs::write(hosted.join("cancel-refused"), "").unwrap();
     let going = hosted_run(101, ("in_progress", None), &head, PAST_THE_CAP, REPOSITORY);
     for listing in ["runs.1.json", "runs.2.json", "runs.3.json"] {
@@ -2472,7 +2490,106 @@ fn a_hosted_run_the_gate_may_not_cancel_is_waited_for_to_its_end() {
         .calls
         .iter()
         .rposition(|call| call.contains("/actions/workflows/pull-request.yml/runs?"));
-    assert!(ended.is_some_and(|ended| ended < call(&run, "just pre-merge quick")));
+    assert!(ended.is_some_and(|ended| ended < call(&run, "just pre-merge all")));
+}
+
+/// A quick gate waits for no hosted run: the hosted tier's cold builds
+/// cannot end its lint or its Pre-merge build within the 1800 s cap, and the
+/// gate runs its own units in minutes (ADR 0135's note of 2026-11-25). It
+/// cancels the run going on its head before any step, however young, then
+/// reads what that run's ended jobs recorded.
+#[test]
+fn a_quick_gate_cancels_the_hosted_run_going_on_its_head_at_once() {
+    let (workspace, head) = pull_request();
+    let (stand_in, hosted) = a_batch_served_by_the_hosted_tier(&workspace, &head);
+    let going = hosted_run(101, ("in_progress", None), &head, JUST_STARTED, REPOSITORY);
+    list_hosted_runs(&hosted, "runs.json", &[going]);
+    let cancelled = ("completed", Some("cancelled"));
+    let cancelled = hosted_run(101, cancelled, &head, JUST_STARTED, REPOSITORY);
+    list_hosted_runs(&hosted, "runs.cancelled.json", &[cancelled]);
+    list_hosted_jobs(
+        &hosted,
+        &[
+            hosted_job("quick (journeys-tasks)", "completed", JUST_STARTED),
+            hosted_job("lint", "in_progress", JUST_STARTED),
+        ],
+    );
+    upload_hosted_record(&hosted, 101, "journeys-tasks", &head);
+
+    let run = merge_without_waits(&workspace, &stand_in);
+
+    assert_eq!(run.code, Some(0), "{}{}", run.stdout, run.stderr);
+    let said = format!(
+        "The hosted run 101 on {head} ({}) is in_progress, and a quick gate waits for no hosted run: \
+         the gate cancelled it",
+        page(101)
+    );
+    assert!(run.stdout.contains(&said), "{}", run.stdout);
+    assert!(
+        !run.stdout.contains("Waiting for the hosted run"),
+        "{}",
+        run.stdout
+    );
+    assert!(
+        run.stdout.contains("cancelled: its gate records are read"),
+        "{}",
+        run.stdout
+    );
+    let given =
+        format!("hosted records of {REPOSITORY}:./101/gate-record-journeys-tasks/{head}.tsv ");
+    let given = run.calls.iter().position(|call| *call == given);
+    assert!(
+        given.is_some_and(|given| given < call(&run, "just pre-merge quick")),
+        "{:?}",
+        run.calls
+    );
+    assert!(call(&run, "gh run cancel 101") < call(&run, "just pre-merge quick"));
+}
+
+/// A cancel GitHub refused, as with the HTTP 500 of 2026-11-25, is asked
+/// again at the next poll rather than left for the run's end.
+#[test]
+fn a_refused_cancel_is_asked_again_at_the_next_poll() {
+    let (workspace, head) = pull_request();
+    let (stand_in, hosted) = a_batch_served_by_the_hosted_tier(&workspace, &head);
+    std::fs::write(hosted.join("cancel-refused-once"), "").unwrap();
+    let going = hosted_run(101, ("in_progress", None), &head, JUST_STARTED, REPOSITORY);
+    for listing in ["runs.1.json", "runs.2.json", "runs.3.json"] {
+        list_hosted_runs(&hosted, listing, std::slice::from_ref(&going));
+    }
+    list_hosted_runs(&hosted, "runs.json", std::slice::from_ref(&going));
+    let cancelled = ("completed", Some("cancelled"));
+    let cancelled = hosted_run(101, cancelled, &head, JUST_STARTED, REPOSITORY);
+    list_hosted_runs(&hosted, "runs.cancelled.json", &[cancelled]);
+    list_hosted_jobs(&hosted, &[hosted_job("lint", "in_progress", JUST_STARTED)]);
+
+    let run = merge_without_waits(&workspace, &stand_in);
+
+    assert_eq!(run.code, Some(0), "{}{}", run.stdout, run.stderr);
+    let cancels = run
+        .calls
+        .iter()
+        .filter(|call| call.starts_with("gh run cancel 101"))
+        .count();
+    assert_eq!(cancels, 2, "{:?}", run.calls);
+    assert!(
+        run.stdout.contains("the gate may not cancel it"),
+        "{}",
+        run.stdout
+    );
+    assert!(
+        run.stdout.contains("the gate cancelled it"),
+        "{}",
+        run.stdout
+    );
+    assert!(
+        run.calls
+            .iter()
+            .rposition(|call| call.starts_with("gh run cancel 101"))
+            .is_some_and(|cancel| cancel < call(&run, "just pre-merge quick")),
+        "{:?}",
+        run.calls
+    );
 }
 
 /// A hosted run that ended red on the gate's head ends the gate red, naming

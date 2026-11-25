@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# `ci/hosted-records.sh await|ancestors <repository> <head> <base> <branch> <folder> [<run>]`,
+# `ci/hosted-records.sh await|ended|ancestors <repository> <head> <base> <branch> <folder> [<run>]`,
 # or `ci/hosted-records.sh tree <repository> <commit> <folder>`:
 # downloads into `folder` the gate records the hosted tier's runs uploaded
 # (ADR 0135's amendment of 2026-11-22), one folder a run, each job's
@@ -13,8 +13,8 @@
 # no other workflow, fork or commit stands in for a result; the plan then
 # counts a record only under the CI image the gated tree pins.
 #
-# `await`, for `just merge` (ci/merge-pr.sh): it waits for the run on `head`,
-# which a push of the pull request's branch starts, up to
+# `await`, for `just merge`'s full gate (ci/merge-pr.sh): it waits for the
+# run on `head`, which a push of the pull request's branch starts, up to
 # GOODFETCH_HOSTED_APPEAR seconds (120) to appear and then until it ends,
 # polling every GOODFETCH_HOSTED_POLL seconds (10). The cap,
 # GOODFETCH_HOSTED_CAP seconds (1800, ADR 0061's job cap), is on each job
@@ -31,13 +31,21 @@
 # matrix, two jobs at a time, is plan, its waves and all green, within five
 # up to six steps. The gate then runs what no record holds itself, and
 # names the job past the cap; a run it may not cancel it waits for to its
-# end, so no unit runs on two layers at once. When a run's jobs cannot be
-# read, only the bound holds it. A
+# end, so no unit runs on two layers at once, asking again for the cancel
+# at each poll, since GitHub refuses one at times with a server error. When
+# a run's jobs cannot be read, only the bound holds it. A
 # run on `head` that ended red ends this red, naming each failed job and its
 # page (ADR 0064): the gate runs nothing of it again. A run that appears
 # after the wait is cancelled before the gate starts its steps. When the
 # workflow is not active, or GitHub cannot say, no hosted run serves the
 # gate: it says so and downloads nothing.
+#
+# `ended`, for `just merge`'s quick gate (ADR 0135's note of 2026-11-25):
+# as `await`, but it waits for no run to end. A run on `head` still going is
+# cancelled as soon as it appears, whatever its age, and its jobs that ended
+# are read once it has ended: the hosted tier's cold builds end neither its
+# lint nor its Pre-merge build within the cap, and the quick gate runs its
+# own units in minutes.
 #
 # `ancestors`, for the hosted tier's planning job: the runs that ended on
 # `head`'s first-parent ancestors, and on `head` itself, but `run`, the job's
@@ -55,13 +63,13 @@
 # It keeps to bash 3.2, which stock macOS runs.
 set -euo pipefail
 
-usage="usage: ci/hosted-records.sh await|ancestors <repository> <head> <base> <branch> <folder> [<run>], or tree <repository> <commit> <folder>"
+usage="usage: ci/hosted-records.sh await|ended|ancestors <repository> <head> <base> <branch> <folder> [<run>], or tree <repository> <commit> <folder>"
 mode=${1:?$usage}
 repository=${2:?$usage}
 head=${3:?$usage}
 base="" branch="" own=""
 case $mode in
-  await | ancestors)
+  await | ended | ancestors)
     base=${4:?$usage}
     branch=${5:?$usage}
     folder=${6:?$usage}
@@ -178,7 +186,11 @@ past_cap() {
   done <<<"$jobs"
 }
 
-if [[ $mode == await ]]; then
+# Whether this waits for the run on `head` to appear and cancels it.
+gating=""
+[[ $mode != await && $mode != ended ]] || gating=yes
+
+if [[ -n $gating ]]; then
   if ! state=$(gh api "$endpoint" --jq .state) || [[ $state != active ]]; then
     echo "No hosted run serves this gate: the pull-request workflow is ${state:-unreadable on GitHub}, so the gate runs every unit no local record holds"
     exit 0
@@ -188,7 +200,7 @@ fi
 listed=""
 run=""
 list
-if [[ $mode == await ]]; then
+if [[ -n $gating ]]; then
   waited=$SECONDS
   while [[ -z $run ]] && ((SECONDS - waited < appear)); do
     sleep "$poll"
@@ -206,22 +218,29 @@ if [[ $mode == await ]]; then
     # A cancelled run that has not ended a while later holds the gate no
     # more: the check below cancels it again before any step.
     [[ $cancelled != yes ]] || ((SECONDS - cancelled_at < appear)) || break
-    past=""
-    if [[ -z $cancelled ]]; then
+    # Why the gate cancels the run, empty while it waits for it.
+    why=""
+    if [[ $cancelled == yes ]]; then
+      :
+    elif [[ $mode == ended ]]; then
+      why="is $status, and a quick gate waits for no hosted run"
+    else
       if ! jobs=$(gh api "repos/{owner}/{repo}/actions/runs/$id/jobs?per_page=100" --jq "$ages"); then
         jobs=""
         [[ -n $unread ]] || echo "warning: the jobs of the hosted run $id on $head ($page) could not be read: only its $bound s bound holds it" >&2
         unread=yes
       fi
       past=$(past_cap "$started" "$jobs")
+      [[ -z $past ]] || why="has $past"
     fi
-    if [[ -n $past ]]; then
+    if [[ -n $why ]]; then
       if gh run cancel "$id" >/dev/null; then
-        echo "The hosted run $id on $head ($page) has $past: the gate cancelled it, and runs what it left itself"
+        echo "The hosted run $id on $head ($page) $why: the gate cancelled it, and runs what it left itself"
         cancelled=yes
         cancelled_at=$SECONDS
       else
-        echo "The hosted run $id on $head ($page) has $past, and the gate may not cancel it: the gate waits for its end, so no unit runs beside it"
+        [[ $cancelled == refused ]] ||
+          echo "The hosted run $id on $head ($page) $why, and the gate may not cancel it: the gate waits for its end, so no unit runs beside it, and asks again at each poll"
         cancelled=refused
       fi
     elif [[ -z $said ]]; then
@@ -263,7 +282,7 @@ done <<<"$listed"
 
 # A run on `head` that is still going now, one that appeared after the
 # wait, is cancelled, so no unit runs on two layers.
-if [[ $mode == await ]]; then
+if [[ -n $gating ]]; then
   list
   if [[ -n $run ]]; then
     IFS=$'\t' read -r id status _ _ _ page <<<"$run"

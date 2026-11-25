@@ -23,10 +23,11 @@
 #     sub-issue once the issues the pull request closes are closed, as one
 #     GitHub query reads them; `just pre-merge quick` on every other pull
 #     request, an unfinished spec's included.
-# On a batch's or a spec's pull request from this repository, the gate first
-# waits for the hosted tier's run on its head and reuses the green units of
-# that run and of the runs on its ancestors (ci/hosted-records.sh, ADR 0135's
-# amendment of 2026-11-22); a red one ends the gate red.
+# On a batch's or a spec's pull request from this repository, the gate reuses
+# the green units of the hosted tier's runs on its head and its ancestors
+# (ci/hosted-records.sh, ADR 0135's amendment of 2026-11-22); a red one ends
+# the gate red. The full gate first waits for the run on its head; the quick
+# gate cancels it instead (ADR 0135's note of 2026-11-25).
 # The gate's log and the merge's message name the gate that ran and why, and
 # a quick merge of a change a test reads says what it did not run. First the
 # merge cap (ci/merge-cap.sh) refuses once 10 merges have
@@ -461,10 +462,15 @@ echo "The gate is ${ran%,}"
 # a batch's Pre-merge suite too, and on the pull request that finishes a spec
 # the full form's (#3382): the proofs, the visual tests, the Pre-merge suite,
 # the feature tests, the Kennel's check and the MSRV build.
-# The gate waits for the run on its head and reads the records of the runs
-# on it and its ancestors (ci/hosted-records.sh): the plan reuses their green
-# units, and a red one ends the gate red. A fork's runs are never read, and
-# the documents' gate runs none of those units.
+# The gate reads the records of the runs on its head and its ancestors
+# (ci/hosted-records.sh): the plan reuses their green units, and a red one
+# ends the gate red. The full gate waits for the run on its head to end
+# (`await`). The quick gate waits for none (`ended`, ADR 0135's note of
+# 2026-11-25): it cancels the run going on its head and reads what that run's
+# ended jobs recorded, since the hosted tier's cold builds end neither its
+# lint nor its Pre-merge build within the cap, and the quick gate runs its own
+# units in minutes. A fork's runs are never read, and the documents' gate
+# runs none of those units.
 hosted_records=""
 repository=""
 if [[ $gate == docs ]]; then
@@ -477,7 +483,9 @@ elif ! repository=$(gh api 'repos/{owner}/{repo}' --jq .full_name) || [[ -z $rep
   echo "warning: GitHub did not name this repository, so no hosted run serves this gate: it runs every unit no local record holds" >&2
 else
   hosted_records=$worktree/target/hosted-records
-  if ! (cd "$worktree" && "$here/hosted-records.sh" await "$repository" "$head" "origin/$base" "$branch" "$hosted_records"); then
+  hosted_mode=await
+  [[ $gate != quick ]] || hosted_mode=ended
+  if ! (cd "$worktree" && "$here/hosted-records.sh" "$hosted_mode" "$repository" "$head" "origin/$base" "$branch" "$hosted_records"); then
     keep_failed_gate
     exit 1
   fi

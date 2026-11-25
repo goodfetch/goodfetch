@@ -75,7 +75,7 @@ async fn enqueue(
     let payload = request
         .payload
         .take()
-        .map(|payload| Arc::new(Payload::of(payload, run.metrics().counted_work())));
+        .map(|payload| Arc::new(Payload::of(payload, run.identity.metrics().counted_work())));
     let answered = asking
         .enqueue(Enqueue {
             request,

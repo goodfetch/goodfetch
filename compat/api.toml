@@ -267,3 +267,15 @@ reason = "The SDK builds a store from its Run's host, and from an attempt's for 
 [[announced]]
 entry = "typescript @goodfetch/foxhound Dataset"
 reason = "A Dataset carries its schema's output type beside its Records' input type, `Dataset<I, O = I>` (issue 1486)."
+
+[[announced]]
+entry = "typescript @goodfetch/foxhound FoxhoundConnectOptions"
+reason = "Foxhound's connect options register the program's Fetch backends and Sinks by name (issue 3310): the options also extend `FoxhoundHandlers`."
+
+[[announced]]
+entry = "typescript @goodfetch/foxhound FoxhoundConnectOverOptions"
+reason = "Foxhound's connect options register the program's Fetch backends and Sinks by name (issue 3310): the options also extend `FoxhoundHandlers`."
+
+[[announced]]
+entry = "typescript @goodfetch/foxhound/testing FoxhoundConnectOverOptions"
+reason = "Foxhound's connect options register the program's Fetch backends and Sinks by name (issue 3310): the options also extend `FoxhoundHandlers`."

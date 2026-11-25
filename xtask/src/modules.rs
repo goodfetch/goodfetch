@@ -28,7 +28,7 @@ use serde::Deserialize;
 
 use crate::check::Finding;
 use crate::metadata;
-use crate::rust_source::{self, Folders, test_only};
+use crate::rust_source::{self, Folders, cfg_test_exactly};
 
 const MODULES_FILE: &str = "modules.toml";
 
@@ -479,7 +479,7 @@ fn item_attributes(item: &syn::Item) -> &[syn::Attribute] {
 fn non_test_items(items: &[syn::Item]) -> impl Iterator<Item = &syn::Item> {
     items
         .iter()
-        .filter(|item| !test_only(item_attributes(item)))
+        .filter(|item| !cfg_test_exactly(item_attributes(item)))
 }
 
 /// Whose siblings an import reaches: the crate's top-level modules, or one
@@ -606,7 +606,7 @@ fn oversized(root: &Path, source: &Source, findings: &mut Vec<Finding>) {
         .syntax
         .items
         .iter()
-        .filter(|item| test_only(item_attributes(item)))
+        .filter(|item| cfg_test_exactly(item_attributes(item)))
         .map(item_lines)
         .sum();
     let counted = total.saturating_sub(test_lines);

@@ -31,7 +31,7 @@ use std::path::{Path, PathBuf};
 use anyhow::Result;
 
 use super::{DEPRECATED, Exported};
-use crate::rust_source::{self, Folders, parse, test_only};
+use crate::rust_source::{self, Folders, parse, test_builds_only};
 use crate::sdk_manifests::CRATE;
 
 /// The module the generator writes into, at any depth.
@@ -190,7 +190,7 @@ fn doc(attributes: &[syn::Attribute]) -> Doc {
 
 /// Whether what `attributes` mark is no one's: test-only or hidden.
 fn left_out(attributes: &[syn::Attribute]) -> bool {
-    test_only(attributes) || hidden(attributes)
+    test_builds_only(attributes) || hidden(attributes)
 }
 
 /// Each name a `use` tree brings in, with the path it names; a glob's name
@@ -251,7 +251,7 @@ impl Crate {
         });
         for item in items {
             match item {
-                syn::Item::Use(used) if !test_only(&used.attrs) => {
+                syn::Item::Use(used) if !test_builds_only(&used.attrs) => {
                     let public = is_public(&used.vis) && !hidden(&used.attrs);
                     let mut found = Vec::new();
                     use_tree(&used.tree, &mut Vec::new(), &mut found);
@@ -267,7 +267,7 @@ impl Crate {
                         }
                     }
                 }
-                syn::Item::Mod(child) if !test_only(&child.attrs) => {
+                syn::Item::Mod(child) if !test_builds_only(&child.attrs) => {
                     let public = is_public(&child.vis) && !hidden(&child.attrs);
                     let child_index = self.child(index, child, source)?;
                     self.modules[index]
@@ -275,7 +275,7 @@ impl Crate {
                         .insert(child.ident.to_string(), (child_index, public));
                 }
                 syn::Item::Impl(inherent) => self.impls.extend(inherent_impl(index, inherent)),
-                other if !test_only(item_attributes(other)) => {
+                other if !test_builds_only(item_attributes(other)) => {
                     if let Some((name, declared)) = declared(other) {
                         self.modules[index].items.insert(name, declared);
                     }

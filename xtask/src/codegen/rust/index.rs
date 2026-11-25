@@ -17,7 +17,7 @@ use std::path::Path;
 use anyhow::{Context as _, Result, bail};
 use syn::punctuated::Punctuated;
 
-use crate::rust_source::{Folders, module_file, parse, test_only};
+use crate::rust_source::{Folders, module_file, parse, test_builds_only};
 
 /// The crate whose types the handles take and answer.
 const CRATE: &str = "goodfetch_protocol";
@@ -139,7 +139,7 @@ impl Index {
                         module.uses.insert(name, target);
                     }
                 }
-                syn::Item::Mod(child) if !test_only(&child.attrs) => nested.push(child),
+                syn::Item::Mod(child) if !test_builds_only(&child.attrs) => nested.push(child),
                 other => {
                     if let Some((name, defined)) = defined(other)? {
                         module.items.insert(name, defined);

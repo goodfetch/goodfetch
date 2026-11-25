@@ -1,8 +1,10 @@
 //! How `xtask` reads a crate's Rust source the way `rustc` does: the file a
 //! `mod x;` names (`x.rs`, `x/mod.rs` or the file of its `#[path]`), the
-//! read-and-parse of a source file, and which items only a test build
-//! compiles. The module check, the SDK manifests' exports reader and the
-//! code generator's index read the crates through it.
+//! read-and-parse of a source file, and which items are test code, by two
+//! rules: the module check skips exactly `#[cfg(test)]`, the SDK manifests'
+//! exports reader every `#[cfg]` only a test build meets. The module check,
+//! the exports reader and the code generator's index read the crates through
+//! it.
 #![expect(
     clippy::disallowed_methods,
     reason = "xtask is synchronous; the blocking-fs ban targets async crates (STYLE.md)"
@@ -109,9 +111,23 @@ pub(crate) fn parse(path: &Path) -> Result<syn::File> {
     syn::parse_file(&text).with_context(|| format!("parsing {}", path.display()))
 }
 
+/// Whether `attributes` hold exactly `#[cfg(test)]`: the items `STYLE.md`
+/// leaves out of the module check's import rules and line count. An item
+/// behind `cfg(all(test, …))` is still checked.
+pub(crate) fn cfg_test_exactly(attributes: &[syn::Attribute]) -> bool {
+    attributes.iter().any(|attribute| {
+        attribute.path().is_ident("cfg")
+            && attribute
+                .meta
+                .require_list()
+                .is_ok_and(|list| list.tokens.to_string() == "test")
+    })
+}
+
 /// Whether `attributes` hold a `#[cfg]` only a test build meets, as
-/// `cfg(test)` or `cfg(all(test, …))`.
-pub(crate) fn test_only(attributes: &[syn::Attribute]) -> bool {
+/// `cfg(test)` or `cfg(all(test, …))`: the items no build a user links
+/// compiles.
+pub(crate) fn test_builds_only(attributes: &[syn::Attribute]) -> bool {
     attributes.iter().any(|attribute| {
         attribute.path().is_ident("cfg")
             && attribute
@@ -229,6 +245,17 @@ mod tests {
         let hop = module_file(&first_module(&route.path), &route.path, &route.folders).unwrap();
 
         assert_eq!(hop.path, folder.path().join("src/../shared/hop.rs"));
+    }
+
+    #[test]
+    fn a_cfg_that_also_needs_another_flag_is_test_build_only_but_not_cfg_test_exactly() {
+        let item: syn::ItemFn = syn::parse_quote! {
+            #[cfg(all(test, unix))]
+            fn helper() {}
+        };
+
+        assert!(test_builds_only(&item.attrs));
+        assert!(!cfg_test_exactly(&item.attrs));
     }
 
     #[test]

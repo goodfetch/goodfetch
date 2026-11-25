@@ -5,7 +5,10 @@
 //! cookie a login sets in its browser, discards the Run once it ended, and
 //! searches every file of the target's Goodfetch home for them, raw and in
 //! Goodfetch's encodings; a later Run under the same Run ID then finds none
-//! of its state and is sent no cookie of it. The home is searched only
+//! of its state and is sent no cookie of it, thirty Runs in a row on one
+//! engine included, the lab's leak with a reused pool (ADR 0015). A
+//! Borrowed browser's address, the one field a Run seals today, is out of
+//! the runner's reach: it borrows no browser. The home is searched only
 //! where the engine keeps its own state: a Profile directory used in place
 //! and a Borrowed browser are outside it (ADR 0056).
 
@@ -16,13 +19,13 @@ use goodfetch_protocol::key_value_store::{KEY_VALUE_STORE_GET, KEY_VALUE_STORE_S
 use goodfetch_protocol::page::events::PAGE_WAIT_FOR_REQUEST_FINISHED;
 use goodfetch_protocol::page::{LOCATOR_CLICK, LOCATOR_FILL, LOGGED_OUT, PAGE_GOTO};
 use goodfetch_protocol::run::{RUN_DISCARD, RUN_SET_PROGRESS_MESSAGE, RUN_START};
-use serde_json::json;
+use serde_json::{Value, json};
 
 use super::{Checks, Site, finish_run, new_page, start_run};
 use crate::canaries::held_under;
 use crate::protocol::connection::{Connection, Gone};
 use crate::protocol::target::EngineTarget;
-use crate::proving_ground::PlantedCanary;
+use crate::proving_ground::{CanaryAccount, PlantedCanary};
 
 /// The Proving ground's task whose login sets a Session cookie canary.
 const COOKIE_TASK: &str = "canaries/3";
@@ -32,6 +35,7 @@ const COOKIE_TASK: &str = "canaries/3";
 pub(crate) enum Case {
     SecretValues,
     SessionCookie,
+    ReusedPool,
 }
 
 impl Case {
@@ -40,6 +44,7 @@ impl Case {
         Some(match id {
             "a-discarded-run-leaves-none-of-its-secret-values-in-the-home" => Self::SecretValues,
             "a-discarded-runs-session-cookie-reaches-no-later-run" => Self::SessionCookie,
+            "thirty-runs-in-a-row-on-one-engine-each-log-in-afresh" => Self::ReusedPool,
             _ => return None,
         })
     }
@@ -63,6 +68,7 @@ impl Case {
         match self {
             Self::SecretValues => secret_values(connection, &home, site, checks),
             Self::SessionCookie => session_cookie(connection, &home, site, checks),
+            Self::ReusedPool => reused_pool(connection, &home, site, checks),
         }
     }
 }
@@ -206,7 +212,133 @@ fn session_cookie(
     let Some(page) = new_page(connection, run_id, checks)? else {
         return Ok(());
     };
-    let page = json!(page.page_id);
+    log_in(connection, &json!(page.page_id), &login, &account, checks)?;
+    finish_run(connection, run_id)?;
+    discard(connection, run_id, checks)?;
+    none_left(home, &canaries, checks);
+    start_run(connection, site, run_id, &json!({}), checks)?;
+    if let Some(later) = new_page(connection, run_id, checks)? {
+        let went = connection.call(
+            PAGE_GOTO.name,
+            &json!({ "page_id": later.page_id, "url": account_url }),
+        )?;
+        checks.check(
+            "a later Run under the same Run ID sends no cookie of it: the account page sends it to log in",
+            sent_to_log_in(&went),
+        );
+    }
+    finish_run(connection, run_id)?;
+    discard(connection, run_id, checks)
+}
+
+/// How many Runs in a row the reused pool case logs in and discards: the
+/// lab's pool, reused without reset, sent one Run's cookie to the next 30
+/// times out of 30 (ADRs 0001 and 0015).
+const POOL_ROUNDS: usize = 30;
+
+/// The lab's leak as a regression fixture (ADR 0015): thirty Runs in a
+/// row under one Run ID, on one Connection and so one engine's browsers,
+/// each sent to log in by the account page before its own login sets a new
+/// Session cookie, then discarded; none of the thirty cookies is then found
+/// in the home.
+fn reused_pool(
+    connection: &mut Connection,
+    home: &Path,
+    site: &Site,
+    checks: &mut Checks,
+) -> Result<(), Gone> {
+    let run_id = "conformance-reset-pool";
+    let Some(login) = site.start_url(COOKIE_TASK).map(str::to_owned) else {
+        checks.check(
+            format!("the Proving ground serves the task `{COOKIE_TASK}`"),
+            false,
+        );
+        return Ok(());
+    };
+    let account_url = login.replace("/login", "/account");
+    let mut cookies = Vec::with_capacity(POOL_ROUNDS);
+    let mut failed = Vec::new();
+    for round in 1..=POOL_ROUNDS {
+        let mut round_checks = Checks::default();
+        let cookie = pool_round(
+            connection,
+            site,
+            run_id,
+            [&login, &account_url],
+            &mut round_checks,
+        )?;
+        cookies.extend(cookie);
+        failed.extend(
+            round_checks
+                .checks
+                .into_iter()
+                .filter(|check| !check.passed)
+                .map(|check| format!("round {round}: {}", check.name)),
+        );
+    }
+    checks.check(
+        format!(
+            "each of {POOL_ROUNDS} Runs in a row under one Run ID is sent to log in before its own login, which the account page then takes (failed: {})",
+            failed.join("; ")
+        ),
+        failed.is_empty() && cookies.len() == POOL_ROUNDS,
+    );
+    let canaries: Vec<(&str, &str)> = cookies
+        .iter()
+        .map(|cookie| ("session cookie", cookie.as_str()))
+        .collect();
+    none_left(home, &canaries, checks);
+    Ok(())
+}
+
+/// One round of the reused pool case: a Run under `run_id` whose account
+/// page, at the second of `urls`, sends it to log in, which logs in at the
+/// first with a newly planted Session cookie canary, ends and is
+/// discarded. Its canary's value, once planted.
+fn pool_round(
+    connection: &mut Connection,
+    site: &Site,
+    run_id: &str,
+    [login, account_url]: [&str; 2],
+    checks: &mut Checks,
+) -> Result<Option<String>, Gone> {
+    let Some(planted) = planted(site, &["session_cookie"], checks) else {
+        return Ok(None);
+    };
+    let Some(account) = planted[0].account.clone() else {
+        checks.check(
+            "the Proving ground gives the Session cookie canary's account",
+            false,
+        );
+        return Ok(None);
+    };
+    start_run(connection, site, run_id, &json!({}), checks)?;
+    if let Some(page) = new_page(connection, run_id, checks)? {
+        let page = json!(page.page_id);
+        let went = connection.call(
+            PAGE_GOTO.name,
+            &json!({ "page_id": page, "url": account_url }),
+        )?;
+        checks.check(
+            "no earlier Run's cookie reaches it: the account page sends it to log in",
+            sent_to_log_in(&went),
+        );
+        log_in(connection, &page, login, &account, checks)?;
+    }
+    finish_run(connection, run_id)?;
+    discard(connection, run_id, checks)?;
+    Ok(Some(planted[0].value.clone()))
+}
+
+/// Logs in at `login` on the page `page` with `account`, checking that the
+/// login sets the Session cookie the account page takes.
+fn log_in(
+    connection: &mut Connection,
+    page: &Value,
+    login: &str,
+    account: &CanaryAccount,
+    checks: &mut Checks,
+) -> Result<(), Gone> {
     connection.call(PAGE_GOTO.name, &json!({ "page_id": page, "url": login }))?;
     for (selector, value) in [
         ("input[name=username]", account.username.as_str()),
@@ -230,25 +362,15 @@ fn session_cookie(
         "the login sets the Session cookie, which the account page takes",
         finished["result"]["response"]["status"] == json!(200),
     );
-    finish_run(connection, run_id)?;
-    discard(connection, run_id, checks)?;
-    none_left(home, &canaries, checks);
-    start_run(connection, site, run_id, &json!({}), checks)?;
-    if let Some(later) = new_page(connection, run_id, checks)? {
-        let went = connection.call(
-            PAGE_GOTO.name,
-            &json!({ "page_id": later.page_id, "url": account_url }),
-        )?;
-        // The built-in detector judges the login page the account page
-        // sends to a lost login (ADR 0006).
-        checks.check(
-            "a later Run under the same Run ID sends no cookie of it: the account page sends it to log in",
-            went["error"]["data"]["code"] == json!(LOGGED_OUT.name)
-                && went["error"]["data"]["url"]
-                    .as_str()
-                    .is_some_and(|url| url.ends_with("/login")),
-        );
-    }
-    finish_run(connection, run_id)?;
-    discard(connection, run_id, checks)
+    Ok(())
+}
+
+/// Whether `went`, the answer to a visit of the account page, is the lost
+/// login the built-in detector judges the login page it sends to (ADR
+/// 0006).
+fn sent_to_log_in(went: &Value) -> bool {
+    went["error"]["data"]["code"] == json!(LOGGED_OUT.name)
+        && went["error"]["data"]["url"]
+            .as_str()
+            .is_some_and(|url| url.ends_with("/login"))
 }

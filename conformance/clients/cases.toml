@@ -960,3 +960,20 @@ name = "testing-kit"
 id = "test-engine-runs-the-code-under-test"
 covers = ["story:11-156", "story:11-157", "story:11-168"]
 surfaces = ["sdk-typescript", "sdk-python", "sdk-rust"]
+
+# A Connection's Schedules (spec 589, ADR 0099; #854): `schedules.create`
+# answers a Schedule handle under the ID given, or one it made when none
+# was, `schedules.list` lists them, `schedules.get` answers the handle of a
+# held ID and fails an unknown one with `schedule_not_found`, and the
+# handle's `info()` and `delete()` act on it. Attached through Collie's
+# executable in TypeScript and Python (three ways), linked in Rust, each
+# surface taking the modes it has; the CLI and the Daemon join with #854's
+# last part.
+[[capability]]
+name = "schedules"
+
+[[capability.case]]
+id = "schedules-crud"
+covers = ["story:10-2"]
+surfaces = ["sdk-typescript", "sdk-python", "sdk-rust"]
+modes = ["attached", "linked"]

@@ -244,6 +244,16 @@ rows! {
     /// log's writer, which happens only while `browser.cdp_command_log` is
     /// on: with it off, as B2 runs, none is sent.
     CdpLogSendsOff => "C1.log_sends_off", "cdp_command", "log_sends_off";
+    /// `C1.event_visits`: a reader the connection's driver visits to hand
+    /// on one event, at most the readers of the event's session.
+    CdpEventVisits => "C1.event_visits", "cdp_command", "event_visits";
+    /// `C1.pending_orphans`: a command still in the connection's pending
+    /// map when the connection ends whose caller had gone, by its timeout
+    /// or its drop.
+    CdpPendingOrphans => "C1.pending_orphans", "cdp_command", "pending_orphans";
+    /// `C1.event_decodes`: a decode of an event's params from the
+    /// browser's message, by its reader or by the connection's driver.
+    CdpEventDecodes => "C1.event_decodes", "cdp_command", "event_decodes";
     /// `C3.script_sends`: a send of `check.js`'s source for a guard's check.
     ActionScriptSends => "C3.script_sends", "action", "script_sends";
     /// `C3.check_commands`: a CDP command a guard's check sent.
@@ -254,6 +264,9 @@ rows! {
     ActionFillCommands => "C3.commands.fill", "action", "fill_commands";
     /// `C3.commands`, of a press: a CDP command a key press's attempt sent.
     ActionPressCommands => "C3.commands.press", "action", "press_commands";
+    /// `C3.owner_round_trips`: an ask an action's attempt sends its Page's
+    /// owner and awaits the answer to (ADR 0146).
+    ActionOwnerRoundTrips => "C3.owner_round_trips", "action", "owner_round_trips";
     /// `F2.transactions`: a transaction on a run file: a commit its commit
     /// hook saw, and each job the writer folded into a commit's group, so the
     /// count does not depend on how commits group (ADR 0138's note).
@@ -415,6 +428,9 @@ rows! {
     /// sends, held per `page.read` at one field and at twenty (ADR 0147):
     /// one engine read, whatever its fields.
     PageFieldReadCommands => "C2.read_commands", "page_read", "read_commands";
+    /// `C2.owner_round_trips`: an ask an engine read in a frame sends its
+    /// Page's owner and awaits the answer to (ADR 0146).
+    PageReadOwnerRoundTrips => "C2.owner_round_trips", "page_read", "owner_round_trips";
     /// `E4.configuration_reads`: a settings file read for a governor sample.
     GovernorConfigurationReads => "E4.configuration_reads", "governor_sample", "configuration_reads";
     /// `E4.meminfo_opens`: `/proc/meminfo` opened for a governor sample.
@@ -439,10 +455,15 @@ rows! {
     /// pool makes as it opens, once for the Session's life; a Borrowed
     /// browser's Session finds the default one and makes none.
     ContextsCreated => "C7.contexts_created", "page_opening", "contexts_created";
+    /// `C7.page_tasks`: a task or an actor a page's opening starts, from
+    /// its target's creation to its last set-up (ADR 0146): a task one of
+    /// those starts later counts nothing here.
+    PageTasks => "C7.page_tasks", "page_opening", "page_tasks";
     /// `C5.fetch_messages_no_rule`: a message of CDP's `Fetch` domain, a
     /// command sent or an event read, for a page's requests.
     InterceptedFetchMessages => "C5.fetch_messages_no_rule", "intercepted_request", "fetch_messages_no_rule";
-    /// `C5.spawns`: a task spawned for a refused request.
+    /// `C5.spawns`: a task started for a paused request or response whose
+    /// verdict needs no wait, which the Page's reader answers itself.
     InterceptedSpawns => "C5.spawns", "intercepted_request", "spawns";
     /// `C5.file_opens`: a file opened or a folder created for a refused
     /// request. The Run trace's one writer opens the request log once a

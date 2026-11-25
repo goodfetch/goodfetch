@@ -351,16 +351,28 @@ def test_a_value_an_untyped_field_would_read_back_changed_is_refused(
 
 
 JSON_KEYS = st.one_of(st.text(), st.sampled_from(["__proto__", "constructor", "a/b~c"]))
-JSON_VALUES: st.SearchStrategy[JSONValue] = st.recursive(
-    st.none()
-    | st.booleans()
-    | st.integers()
-    | st.floats(allow_nan=False, allow_infinity=False)
-    | st.text(),
-    lambda children: st.lists(children) | st.dictionaries(JSON_KEYS, children),
-    max_leaves=20,
+
+
+def json_values(max_leaves: int) -> st.SearchStrategy[JSONValue]:
+    """Any JSON value of at most `max_leaves` scalars, nested at any depth."""
+    return st.recursive(
+        st.none()
+        | st.booleans()
+        | st.integers()
+        | st.floats(allow_nan=False, allow_infinity=False)
+        | st.text(),
+        lambda children: st.lists(children) | st.dictionaries(JSON_KEYS, children),
+        max_leaves=max_leaves,
+    )
+
+
+JSON_VALUES = json_values(20)
+JSON_OBJECTS: st.SearchStrategy[JSONObject] = st.dictionaries(
+    JSON_KEYS, json_values(5), max_size=4
 )
-JSON_OBJECTS: st.SearchStrategy[JSONObject] = st.dictionaries(JSON_KEYS, JSON_VALUES)
+"""An object of at most 20 scalars, as `JSON_VALUES`: without a bound, each
+of its entries took up to 20, and its tests took 1.5 to 2.2 s, past the Quick
+suite's 1 s slow mark (issue 3353)."""
 
 SEED = os.environ.get("GOODFETCH_TEST_SEED")
 

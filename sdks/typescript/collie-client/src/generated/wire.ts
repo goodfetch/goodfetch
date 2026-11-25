@@ -59,6 +59,7 @@ export type CollieWireType =
   | "EnginePanickedDetails"
   | "EvaluateParams"
   | "EventsSubscribeParams"
+  | "EveryTrigger"
   | "ExplainedSetting"
   | "ExportedAuditEntry"
   | "FieldTransform"
@@ -186,6 +187,15 @@ export type CollieWireType =
   | "RunStopping"
   | "RunStorage"
   | "RunUsage"
+  | "ScheduleCreateParams"
+  | "ScheduleCreated"
+  | "ScheduleDefinition"
+  | "ScheduleExistsDetails"
+  | "ScheduleInfo"
+  | "ScheduleList"
+  | "ScheduleNotFoundDetails"
+  | "ScheduleParams"
+  | "ScheduleTrigger"
   | "SchemaValidatorFailedDetails"
   | "SessionOnParams"
   | "SessionOpened"
@@ -275,6 +285,7 @@ export const collieWire: Wire<keyof CollieOperationTypes & string, keyof CollieE
     "EnginePanickedDetails": { fields: { "crash_report": "crashReport" } },
     "EvaluateParams": { fields: { "page_id": "pageId" } },
     "EventsSubscribeParams": { fields: { "after": ["after", { type: "LastRead" }], "system_info": "systemInfo" } },
+    "EveryTrigger": { fields: { "anchor": ["anchor", "time"] } },
     "ExplainedSetting": { fields: { "fixed_for_run": "fixedForRun", "locked_by": "lockedBy", "user_settable": "userSettable", "yields_to": "yieldsTo" } },
     "ExportedAuditEntry": { fields: { "run_id": "runId", "time": ["time", "time"] } },
     "FieldTransform": { fields: { "time_zone": "timeZone" } },
@@ -402,6 +413,15 @@ export const collieWire: Wire<keyof CollieOperationTypes & string, keyof CollieE
     "RunStopping": { fields: { "cause": ["cause", { type: "StopReason" }], "run_id": "runId" } },
     "RunStorage": { fields: { "free_bytes": "freeBytes" } },
     "RunUsage": { fields: { "browser_time": "browserTime", "limits": ["limits", { items: { type: "AppliedLimit" } }], "model": ["model", { type: "ModelUsage" }], "model_allowance": ["modelAllowance", { items: { type: "ModelAllowance" } }], "other": ["other", { items: { type: "KindUsage" } }], "paid_fetches": "paidFetches", "paid_solves": "paidSolves", "proxy_bytes": "proxyBytes", "proxy_bytes_by_kind": "proxyBytesByKind", "proxy_price": "proxyPrice" } },
+    "ScheduleCreateParams": { fields: { "definition": ["definition", { type: "ScheduleDefinition" }] } },
+    "ScheduleCreated": { fields: { "schedule_id": "scheduleId" } },
+    "ScheduleDefinition": { fields: { "time_zone": "timeZone", "trigger": ["trigger", { type: "ScheduleTrigger" }] } },
+    "ScheduleExistsDetails": { fields: { "schedule_id": "scheduleId" } },
+    "ScheduleInfo": { fields: { "created_at": ["createdAt", "time"], "schedule_id": "scheduleId", "time_zone": "timeZone", "trigger": ["trigger", { type: "ScheduleTrigger" }] } },
+    "ScheduleList": { fields: { "schedules": ["schedules", { items: { type: "ScheduleInfo" } }] } },
+    "ScheduleNotFoundDetails": { fields: { "schedule_id": "scheduleId" } },
+    "ScheduleParams": { fields: { "schedule_id": "scheduleId" } },
+    "ScheduleTrigger": { type: "EveryTrigger" },
     "SchemaValidatorFailedDetails": { fields: { "exception_message": "exceptionMessage", "exception_type": "exceptionType" } },
     "SessionOnParams": { fields: { "session_id": "sessionId" } },
     "SessionOpened": { fields: { "session_id": "sessionId" } },
@@ -503,6 +523,9 @@ export const collieWire: Wire<keyof CollieOperationTypes & string, keyof CollieE
     "run.started_as": { type: "RunParams" },
     "run.stop": { type: "RunStopParams" },
     "run.usage": { type: "RunParams" },
+    "schedule.create": { type: "ScheduleCreateParams" },
+    "schedule.delete": { type: "ScheduleParams" },
+    "schedule.info": { type: "ScheduleParams" },
     "session.close": { type: "SessionParams" },
     "session.new_page": { type: "NewSessionPageParams" },
     "session.on": { type: "SessionOnParams" },
@@ -556,6 +579,10 @@ export const collieWire: Wire<keyof CollieOperationTypes & string, keyof CollieE
     "run.started_as": { type: "RunStartedAs" },
     "run.stop": { type: "RunReport" },
     "run.usage": { type: "RunUsage" },
+    "schedule.create": { type: "ScheduleCreated" },
+    "schedule.get": { type: "ScheduleInfo" },
+    "schedule.info": { type: "ScheduleInfo" },
+    "schedule.list": { type: "ScheduleList" },
     "session.new_page": { type: "PageOpened" },
     "signing_key.create": { type: "SigningKeyCreated" },
     "signing_key.directory": { type: "SigningKeyDirectory" },

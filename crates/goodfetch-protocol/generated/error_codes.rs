@@ -331,9 +331,9 @@ impl ErrorCode {
     /// The page's renderer crashed, or its browser process was lost while the call ran; `browser_exit` says how the browser ended when it is what was lost. The page is gone: open another.
     pub const PAGE_CRASHED: Self = ErrorCode::from_static("page_crashed");
 
-    /// `page_events_lost`, in the `unavailable` group, not retryable.
+    /// `page_events_lost`, in the `unavailable` group, retryable.
     ///
-    /// Some of a page's events are lost. Either the engine fell too far behind the browser's events of a page that is still open and stopped reading them: the page's `page.on` listeners, waits and `response.body` reads raise this rather than answer from missing events, and the Run trace records it, while the page's other calls still work; open another page to follow its events. Or one `page.on` call's Client took too few of its events, granting too few credits, so 1,024 waited unsent: that call raises this once it sent them; listen again and grant credits as events are read.
+    /// Some of a page's events are lost. Either the engine fell 4,096 events behind the browser's events of the page `page_id` names and closed that page, ending every request it had paused: its calls in flight and its later calls raise this, and the Run trace records it once; open another page and try again. Or one `page.on` call's Client took too few of its events, granting too few credits, so 1,024 waited unsent: that call alone raises this once it sent them, while the page and its other calls go on; listen again and grant credits as events are read.
     pub const PAGE_EVENTS_LOST: Self = ErrorCode::from_static("page_events_lost");
 
     /// `page_function_failed`, in the `program` group, not retryable.
@@ -426,6 +426,11 @@ impl ErrorCode {
     /// The Session's proxy could not be reached, its TLS failed, or it refused the tunnel or the request with an error of its own: the details name the proxy, never its credentials, and the browser's network error when it named one. It is the proxy's failure, never the site's and never `navigation_failed`: retry later, or through another proxy.
     pub const PROXY_UNAVAILABLE: Self = ErrorCode::from_static("proxy_unavailable");
 
+    /// `recipe_invalid`, in the `program` group, not retryable.
+    ///
+    /// A Recipe manifest, `goodfetch-recipe.toml`, or its package that is not valid: a manifest that does not parse, lacks a required field or holds an unknown one, names no entry or two, names a program without a runtime or a runtime it does not list, names a `CrawlDeclaration` for Collie, or an entry the package does not hold; or a package holding a symbolic link, or a path with no portable digest: absolute, escaping its root, holding `\` or `:`, or the same as another in Unicode NFC or but for case. The details name the field or path and the fix.
+    pub const RECIPE_INVALID: Self = ErrorCode::from_static("recipe_invalid");
+
     /// `replay_not_allowed`, in the `program` group, not retryable.
     ///
     /// A Schedule's target sets `cache.mode` to `replay`, whose replayed pages would hide a change from the Baseline. Set `revalidate` or `off` for a scheduled target.
@@ -493,7 +498,7 @@ impl ErrorCode {
 
     /// `run_live`, in the `program` group, not retryable.
     ///
-    /// The engine still runs the Run, so it cannot be discarded: stop it first with `run.stop` or `run.abort`, or let it finish, then discard it. The details name the Run.
+    /// The engine still runs the Run, so it cannot be discarded, nor a Dataset of it erased: stop it first with `run.stop` or `run.abort`, or let it finish, then try again. The details name the Run.
     pub const RUN_LIVE: Self = ErrorCode::from_static("run_live");
 
     /// `run_not_found`, in the `program` group, not retryable.
@@ -525,6 +530,21 @@ impl ErrorCode {
     ///
     /// The sample operation refused the text.
     pub const SAMPLE_REFUSED: Self = ErrorCode::from_static("sample_refused");
+
+    /// `schedule_exists`, in the `program` group, not retryable.
+    ///
+    /// A Schedule has this Schedule ID already: create it under another ID, or omit the ID for a new one. The details name the ID.
+    pub const SCHEDULE_EXISTS: Self = ErrorCode::from_static("schedule_exists");
+
+    /// `schedule_not_found`, in the `program` group, not retryable.
+    ///
+    /// No Schedule has this Schedule ID: the Schedule store does not hold it. The details name the ID.
+    pub const SCHEDULE_NOT_FOUND: Self = ErrorCode::from_static("schedule_not_found");
+
+    /// `schedule_trigger_invalid`, in the `program` group, not retryable.
+    ///
+    /// The Schedule's trigger does not parse, such as an `every` of 0. The details give the `expression`, the `position` where reading stopped and the `reason`.
+    pub const SCHEDULE_TRIGGER_INVALID: Self = ErrorCode::from_static("schedule_trigger_invalid");
 
     /// `schema_validator_failed`, in the `program` group, not retryable.
     ///
@@ -617,5 +637,5 @@ impl ErrorCode {
     pub const VALUE_INVALID: Self = ErrorCode::from_static("value_invalid");
 
     /// Every Error code of Collie's catalog, in the catalog's order.
-    pub const COLLIE: &[Self] = &[Self::ADDRESS_FAMILY_UNAVAILABLE, Self::ARTIFACT_DOWNLOAD_FAILED, Self::ARTIFACT_UNAVAILABLE_OFFLINE, Self::BLOCKED, Self::BODY_NOT_FOUND, Self::BODY_UNAVAILABLE, Self::BROWSER_HOST_OUTDATED, Self::BROWSER_HOST_UNREACHABLE, Self::BROWSER_LAUNCH_FAILED, Self::BROWSER_NEEDS_GUI_SESSION, Self::BROWSER_NOT_INSTALLED, Self::BROWSER_SANDBOX_UNAVAILABLE, Self::CALL_CANCELLED, Self::CAPABILITY_UNAVAILABLE, Self::CDP_URL_NOT_ALLOWED, Self::CDP_URL_NOT_BROWSER, Self::CDP_URL_UNAUTHORIZED, Self::CDP_URL_UNREACHABLE, Self::CERTIFICATE_CHANGED, Self::CERTIFICATE_INVALID, Self::CHALLENGE_UNSOLVED, Self::CHECKPOINT_BEHIND, Self::CLOSED, Self::CONFINEMENT_UNAVAILABLE, Self::CONNECTION_FORKED, Self::CONNECTION_LOST, Self::CONNECTION_OVERLOADED, Self::DAEMON_DRAINING, Self::DAEMON_UNREACHABLE, Self::DEADLINE_EXCEEDED, Self::DETACH_UNSUPPORTED, Self::DIALOG_ALREADY_HANDLED, Self::EDGE_HANDLERS_UNSUPPORTED, Self::EFFECT_KEY_INVALID, Self::EFFECT_KEY_REUSED, Self::EFFECT_OUTPUT_INVALID, Self::EFFECT_UNCERTAIN, Self::EGRESS_REFUSED, Self::ENGINE_EXITED, Self::ENGINE_NOT_FOUND, Self::ENGINE_OUTPUT_INVALID, Self::ENGINE_PANICKED, Self::EVENT_LOOP_MISMATCH, Self::EXECUTABLE_BLOCKED_BY_SMART_APP_CONTROL, Self::FILE_WRITE_FAILED, Self::FORMAT_VERSION_UNSUPPORTED, Self::HEADER_VALUE_INVALID, Self::HOOK_FAILED, Self::INTERNAL, Self::LIMIT_NOT_UNDERSTOOD, Self::LIMIT_RAISE_REFUSED, Self::LIMIT_REACHED, Self::LISTENER_EVENTS_LOST, Self::LISTENER_FAILED, Self::LOCAL_ADDRESS_UNAVAILABLE, Self::LOGGED_OUT, Self::MODEL_UNAVAILABLE, Self::NAME_LOOKUP_FAILED, Self::NAME_NOT_RESOLVED, Self::NAVIGATION_FAILED, Self::NAVIGATION_INTERRUPTED, Self::NOT_A_DAEMON, Self::NOT_IN_PRODUCT, Self::NOT_VERIFIED, Self::PAGE_CHECK_FAILED, Self::PAGE_CRASHED, Self::PAGE_EVENTS_LOST, Self::PAGE_FUNCTION_FAILED, Self::PAGE_HANDLER_FAILED, Self::PAGE_MEMORY_EXCEEDED, Self::PAGE_NAVIGATED_DURING_CALL, Self::PAGE_VALUE_INVALID, Self::PATH_NOT_WRITABLE, Self::PATH_UNSAFE, Self::PATTERN_UNSUPPORTED, Self::PERSON_REQUIRED, Self::PLUGIN_CRASHED, Self::PLUGIN_MANIFEST_MISMATCH, Self::PLUGIN_PROTOCOL_UNSUPPORTED, Self::POLICY_CONFLICT, Self::PROTOCOL_VERSION_UNSUPPORTED, Self::PROXY_AUTH_FAILED, Self::PROXY_PROVIDER_UNAVAILABLE, Self::PROXY_RELAY_UNAVAILABLE, Self::PROXY_UNAVAILABLE, Self::REPLAY_NOT_ALLOWED, Self::RESOURCES_EXHAUSTED, Self::RESPONSE_LIMIT_EXCEEDED, Self::RESPONSE_NOT_JSON, Self::RESPONSE_TRUNCATED, Self::ROUTE_ALREADY_HANDLED, Self::RUN_BUSY, Self::RUN_CONFLICT, Self::RUN_ENDED, Self::RUN_ID_INVALID, Self::RUN_IN_USE, Self::RUN_INTERRUPTED, Self::RUN_KEY_MISMATCH, Self::RUN_LIVE, Self::RUN_NOT_FOUND, Self::RUN_NOT_OWNED, Self::RUN_STATE_FILESYSTEM_UNSUPPORTED, Self::RUN_STATE_UNAVAILABLE, Self::RUN_TARGET_UNBUILT, Self::SAMPLE_REFUSED, Self::SCHEMA_VALIDATOR_FAILED, Self::SECRET_DOMAIN_NOT_ALLOWED, Self::SECRET_INPUT_REFUSED, Self::SECRET_UNAVAILABLE, Self::SECRET_UNBOUND, Self::SESSION_BOUND_TO_MACHINE, Self::SESSION_EXPORT_OPEN_FAILED, Self::SETTING_INVALID, Self::SETTING_LOCKED, Self::SETTING_NOT_APPLICABLE, Self::SETTING_UNKNOWN, Self::SITE_PREFERENCES_REFUSED, Self::SKILL_INSTALL_REFUSED, Self::TARGET_NOT_UNIQUE, Self::TOO_MANY_CALLS, Self::TOO_MANY_REDIRECTS, Self::UPGRADE_SOURCE_UNSUPPORTED, Self::VALUE_INVALID];
+    pub const COLLIE: &[Self] = &[Self::ADDRESS_FAMILY_UNAVAILABLE, Self::ARTIFACT_DOWNLOAD_FAILED, Self::ARTIFACT_UNAVAILABLE_OFFLINE, Self::BLOCKED, Self::BODY_NOT_FOUND, Self::BODY_UNAVAILABLE, Self::BROWSER_HOST_OUTDATED, Self::BROWSER_HOST_UNREACHABLE, Self::BROWSER_LAUNCH_FAILED, Self::BROWSER_NEEDS_GUI_SESSION, Self::BROWSER_NOT_INSTALLED, Self::BROWSER_SANDBOX_UNAVAILABLE, Self::CALL_CANCELLED, Self::CAPABILITY_UNAVAILABLE, Self::CDP_URL_NOT_ALLOWED, Self::CDP_URL_NOT_BROWSER, Self::CDP_URL_UNAUTHORIZED, Self::CDP_URL_UNREACHABLE, Self::CERTIFICATE_CHANGED, Self::CERTIFICATE_INVALID, Self::CHALLENGE_UNSOLVED, Self::CHECKPOINT_BEHIND, Self::CLOSED, Self::CONFINEMENT_UNAVAILABLE, Self::CONNECTION_FORKED, Self::CONNECTION_LOST, Self::CONNECTION_OVERLOADED, Self::DAEMON_DRAINING, Self::DAEMON_UNREACHABLE, Self::DEADLINE_EXCEEDED, Self::DETACH_UNSUPPORTED, Self::DIALOG_ALREADY_HANDLED, Self::EDGE_HANDLERS_UNSUPPORTED, Self::EFFECT_KEY_INVALID, Self::EFFECT_KEY_REUSED, Self::EFFECT_OUTPUT_INVALID, Self::EFFECT_UNCERTAIN, Self::EGRESS_REFUSED, Self::ENGINE_EXITED, Self::ENGINE_NOT_FOUND, Self::ENGINE_OUTPUT_INVALID, Self::ENGINE_PANICKED, Self::EVENT_LOOP_MISMATCH, Self::EXECUTABLE_BLOCKED_BY_SMART_APP_CONTROL, Self::FILE_WRITE_FAILED, Self::FORMAT_VERSION_UNSUPPORTED, Self::HEADER_VALUE_INVALID, Self::HOOK_FAILED, Self::INTERNAL, Self::LIMIT_NOT_UNDERSTOOD, Self::LIMIT_RAISE_REFUSED, Self::LIMIT_REACHED, Self::LISTENER_EVENTS_LOST, Self::LISTENER_FAILED, Self::LOCAL_ADDRESS_UNAVAILABLE, Self::LOGGED_OUT, Self::MODEL_UNAVAILABLE, Self::NAME_LOOKUP_FAILED, Self::NAME_NOT_RESOLVED, Self::NAVIGATION_FAILED, Self::NAVIGATION_INTERRUPTED, Self::NOT_A_DAEMON, Self::NOT_IN_PRODUCT, Self::NOT_VERIFIED, Self::PAGE_CHECK_FAILED, Self::PAGE_CRASHED, Self::PAGE_EVENTS_LOST, Self::PAGE_FUNCTION_FAILED, Self::PAGE_HANDLER_FAILED, Self::PAGE_MEMORY_EXCEEDED, Self::PAGE_NAVIGATED_DURING_CALL, Self::PAGE_VALUE_INVALID, Self::PATH_NOT_WRITABLE, Self::PATH_UNSAFE, Self::PATTERN_UNSUPPORTED, Self::PERSON_REQUIRED, Self::PLUGIN_CRASHED, Self::PLUGIN_MANIFEST_MISMATCH, Self::PLUGIN_PROTOCOL_UNSUPPORTED, Self::POLICY_CONFLICT, Self::PROTOCOL_VERSION_UNSUPPORTED, Self::PROXY_AUTH_FAILED, Self::PROXY_PROVIDER_UNAVAILABLE, Self::PROXY_RELAY_UNAVAILABLE, Self::PROXY_UNAVAILABLE, Self::RECIPE_INVALID, Self::REPLAY_NOT_ALLOWED, Self::RESOURCES_EXHAUSTED, Self::RESPONSE_LIMIT_EXCEEDED, Self::RESPONSE_NOT_JSON, Self::RESPONSE_TRUNCATED, Self::ROUTE_ALREADY_HANDLED, Self::RUN_BUSY, Self::RUN_CONFLICT, Self::RUN_ENDED, Self::RUN_ID_INVALID, Self::RUN_IN_USE, Self::RUN_INTERRUPTED, Self::RUN_KEY_MISMATCH, Self::RUN_LIVE, Self::RUN_NOT_FOUND, Self::RUN_NOT_OWNED, Self::RUN_STATE_FILESYSTEM_UNSUPPORTED, Self::RUN_STATE_UNAVAILABLE, Self::RUN_TARGET_UNBUILT, Self::SAMPLE_REFUSED, Self::SCHEDULE_EXISTS, Self::SCHEDULE_NOT_FOUND, Self::SCHEDULE_TRIGGER_INVALID, Self::SCHEMA_VALIDATOR_FAILED, Self::SECRET_DOMAIN_NOT_ALLOWED, Self::SECRET_INPUT_REFUSED, Self::SECRET_UNAVAILABLE, Self::SECRET_UNBOUND, Self::SESSION_BOUND_TO_MACHINE, Self::SESSION_EXPORT_OPEN_FAILED, Self::SETTING_INVALID, Self::SETTING_LOCKED, Self::SETTING_NOT_APPLICABLE, Self::SETTING_UNKNOWN, Self::SITE_PREFERENCES_REFUSED, Self::SKILL_INSTALL_REFUSED, Self::TARGET_NOT_UNIQUE, Self::TOO_MANY_CALLS, Self::TOO_MANY_REDIRECTS, Self::UPGRADE_SOURCE_UNSUPPORTED, Self::VALUE_INVALID];
 }

@@ -9,7 +9,7 @@ use goodfetch_protocol::page::{FormatsRequest, PageId};
 use serde_json::{Value, json};
 
 use super::{ShareMeasure, read};
-use crate::driver::SerializedDocument;
+use crate::cdp::SerializedDocument;
 
 /// An article with an ad the Consent prompt runner's selector hides.
 const ARTICLE: &str = "<!doctype html><html><head><title>Lines</title></head><body><article>\

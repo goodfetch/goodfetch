@@ -1,15 +1,19 @@
 //! What the AI verbs ask a model for, as a task declares it: `observe`'s
-//! candidates, `act`'s one action, compiled `extract`'s locators and
-//! `page.agent`'s steps.
+//! candidates, `act`'s one action, compiled `extract`'s locators,
+//! `page.agent`'s steps and the vision rung's point on a screenshot.
 //!
 //! A request asks for one of these forms by its schema (the structured
 //! output's, or the parameters of the tool it calls): the form whose
 //! answer's field is a top-level property of it, `candidates`, `action`,
-//! `locators` or `actions`. An element is named as the request's prompt
-//! offers it: by the reference an `ai` aria snapshot gives it
-//! (`- button "Book the demo" [ref=e15]`), else by its selector.
+//! `locators`, `actions` or `coordinate`. An element is named as the
+//! request's prompt offers it: by the reference an `ai` aria snapshot gives
+//! it (`- button "Book the demo" [ref=e15]`), else by its selector. A point
+//! is `[x, y]`, as Anthropic's computer-use tool gives one, and only a
+//! request that carries an image gets one.
 
 use serde_json::{Map, Value, json};
+
+use super::request::Ask;
 
 /// An element of a task's page: its ARIA role and accessible name, as an
 /// `ai` aria snapshot shows them beside its reference, and its CSS selector
@@ -92,6 +96,11 @@ pub(crate) struct Verbs {
     /// The steps toward the task's goal, the last ending it with `done`;
     /// none when the Agent gives up at once.
     pub(crate) steps: Vec<Step>,
+    /// Where the vision rung clicks: the middle of the task's target in
+    /// the page's CSS pixels, as a screenshot of the unscrolled viewport at
+    /// a device pixel ratio of 1 shows it; `None` when nothing is drawn to
+    /// point at.
+    pub(crate) point: Option<(u64, u64)>,
 }
 
 /// Why an Agent with no step toward its task gives up.
@@ -104,6 +113,7 @@ pub(crate) enum Form {
     Act,
     Locators,
     Step,
+    Coordinate,
 }
 
 impl Form {
@@ -116,6 +126,7 @@ impl Form {
             (Self::Act, "action"),
             (Self::Locators, "locators"),
             (Self::Step, "actions"),
+            (Self::Coordinate, "coordinate"),
         ]
         .into_iter()
         .find(|(_, field)| properties.contains_key(*field))
@@ -124,11 +135,17 @@ impl Form {
 }
 
 impl Verbs {
-    /// The answer of `form`, its elements named as `strings` offer them. An
-    /// Agent step is the one after the `taken` steps the request's turns
-    /// hold, or the last once all are taken; with no step, it gives up.
-    pub(crate) fn answer(&self, form: Form, strings: &[String], taken: usize) -> Value {
+    /// The answer of `form` to `ask`, its elements named as its strings
+    /// offer them. An Agent step is the one after the steps the request's
+    /// turns hold, or the last once all are taken; with no step, it gives
+    /// up. A point is answered only to a request that carries an image.
+    pub(crate) fn answer(&self, form: Form, ask: &Ask) -> Value {
+        let strings = &ask.strings;
+        let taken = ask.model_turns;
         match form {
+            Form::Coordinate => json!({
+                "coordinate": self.point.filter(|_| ask.images > 0).map(|(x, y)| [x, y]),
+            }),
             Form::Observe => json!({ "candidates": self
                 .observe
                 .iter()

@@ -1,0 +1,19 @@
+[package]
+name = "goodfetch-saved-file"
+description = "The operating-system part of a Saved file (ADR 0116): the hidden temporary file a save writes beside its path, and the reason and OS code a failed write reports, which the engine and Collie's client crate both use."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dependencies]
+goodfetch-workspace-hack.workspace = true
+
+[target.'cfg(windows)'.dependencies]
+# The hidden attribute of a Saved file's temporary file (ADR 0116).
+windows-sys = { workspace = true, features = ["Win32_Storage_FileSystem"] }
+
+[lints]
+workspace = true

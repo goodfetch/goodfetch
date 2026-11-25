@@ -41,6 +41,7 @@
 mod rules;
 
 use std::collections::BTreeMap;
+use std::pin::pin;
 use std::sync::{Arc, Mutex as SyncMutex, MutexGuard, PoisonError, Weak};
 use std::time::Duration;
 
@@ -54,11 +55,16 @@ use goodfetch_engine::governor::{BrowserUse, GovernedBrowser, PageHold, footprin
 use goodfetch_engine::home::Home;
 use goodfetch_engine::host_name;
 use goodfetch_engine::local_addresses::{self, Rotation, Unavailable};
-use goodfetch_engine::runs::Run;
+use goodfetch_engine::runs::outcome::record_panicked;
+use goodfetch_engine::runs::{Run, identity};
 use goodfetch_engine::settings::RunSettings;
+use goodfetch_engine::tasks::TaskStarter;
 use goodfetch_engine::tls::{CertificateExceptions, PinBook, Trust};
+use goodfetch_protocol::connection::PanicEnded;
 use goodfetch_protocol::tls::{TLS_ACCEPT_INVALID_CERTS, TLS_TRUSTED_CAS};
 use tokio::sync::{OnceCell, mpsc, oneshot};
+use tokio_util::sync::CancellationToken;
+use tracing::Instrument as _;
 
 use crate::borrowed::CdpUrl;
 use crate::driver::{
@@ -68,6 +74,7 @@ use crate::driver::{
 use crate::egress_relay::application_settings::ApplicationSettings;
 use crate::egress_relay::authority::Authority;
 use crate::egress_relay::{Local, RelayTls};
+use crate::errors::browser_panicked;
 use crate::launch::Launcher;
 pub(crate) use rules::Placement;
 use rules::{Limits, Opens, Seats, Stage, Use};
@@ -158,6 +165,9 @@ struct Browsers {
     /// The count in Usage of each browser's crash, made once, kept past
     /// the browser's own entry: one per browser the Run launched at most.
     crashes_counted: BTreeMap<u64, Arc<OnceCell<()>>>,
+    /// Each Borrowed browser a seat reached, outside the pool's own, whose
+    /// owner stops with the Run.
+    borrowed: Vec<Arc<BorrowedBrowser>>,
 }
 
 /// A browser of the pool.
@@ -279,7 +289,12 @@ impl Pool {
     /// Follows the connection of the browser `number`, once it came up and
     /// once per browser, until it is lost: a browser that quit or crashed
     /// is taken out of service at once, whether or not it holds a page, and
-    /// its loss goes to its Sessions (spec #594's S8 and S9; ADR 0040).
+    /// its loss goes to its Sessions (spec #594's S8 and S9; ADR 0040). One
+    /// whose own events' reader fell behind is taken out of service too,
+    /// once, with no loss for its Sessions (#3261). The follower is a task
+    /// of the browser's owner, so it ends with the browser (ADR 0146). A
+    /// panic of one of that owner's tasks is the browser's crash, which
+    /// [`Self::watch_panics`] tells.
     fn follow(&self, number: u64) {
         let browser = {
             let mut browsers = lock(&self.shared.browsers);
@@ -292,32 +307,94 @@ impl Pool {
             pooled.followed = true;
             Arc::clone(&pooled.browser)
         };
+        let behind = Behind::Launched(Arc::clone(&browser));
+        self.watch_panics(LostAt::Browser(number), behind.clone());
         let pool = self.clone();
-        let stopping = self.shared.run.cancellation().clone();
-        self.shared.run.spawn(async move {
-            let lost = tokio::select! {
-                () = stopping.cancelled() => return,
-                lost = browser.ended() => lost,
+        let tasks = identity(&self.shared.run).starting_on(browser.tasks());
+        let stopping = browser.tasks().child_token();
+        tasks.spawn(async move {
+            let lost = {
+                let mut ended = pin!(browser.ended());
+                let mut fell_behind = pin!(browser.root_fell_behind());
+                let mut retired = false;
+                loop {
+                    tokio::select! {
+                        () = stopping.cancelled() => return,
+                        lost = &mut ended => break lost,
+                        () = &mut fell_behind, if !retired => {
+                            retired = true;
+                            pool.root_fell_behind(number);
+                        }
+                    }
+                }
             };
             drop(browser);
-            pool.lost(LostAt::Browser(number), lost).await;
+            // A panicked browser's loss is its panic watch's to tell.
+            if !behind.has_panicked() {
+                pool.lost(LostAt::Browser(number), lost).await;
+            }
         });
     }
 
     /// Follows the Borrowed browser of the seat `seat`, `browser`, until its
     /// connection ends: a quit, since the engine sees no exit of a browser it
-    /// did not launch (decision 11), which goes to the seat's Session.
+    /// did not launch (decision 11), which goes to the seat's Session. The
+    /// follower is a task of the browser's owner (ADR 0146); a panic of one
+    /// of that owner's tasks is the browser's crash, which
+    /// [`Self::watch_panics`] tells.
     fn follow_borrowed(&self, seat: u64, browser: Arc<BorrowedBrowser>) {
+        let behind = Behind::Borrowed(Arc::clone(&browser));
+        self.watch_panics(LostAt::Borrowed { seat }, behind.clone());
         let pool = self.clone();
-        let stopping = self.shared.run.cancellation().clone();
-        self.shared.run.spawn(async move {
+        let tasks = identity(&self.shared.run).starting_on(browser.tasks());
+        let stopping = browser.tasks().child_token();
+        tasks.spawn(async move {
             let lost = tokio::select! {
                 () = stopping.cancelled() => return,
                 lost = browser.ended() => lost,
             };
             drop(browser);
-            pool.lost(LostAt::Borrowed { seat }, lost).await;
+            // A panicked browser's loss is its panic watch's to tell.
+            if !behind.has_panicked() {
+                pool.lost(LostAt::Borrowed { seat }, lost).await;
+            }
         });
+    }
+
+    /// Follows the owner of the browser at `at`, `browser`, as a task of
+    /// the Run, until the owner or the Run stops: a panic of one of the
+    /// owner's tasks is the browser's crash (ADR 0148). The Run trace
+    /// records `engine_panicked` with `ended: browser`; the engine closes
+    /// the browser, or its connection to a Borrowed one, as crashed, so
+    /// its pages raise `page_crashed`; then its loss, a crash with no exit,
+    /// goes to its Sessions, as a real crash's does. The Run goes on. The
+    /// watch is the Run's, since it waits for the browser's owner to stop.
+    fn watch_panics(&self, at: LostAt, browser: Behind) {
+        let pool = self.clone();
+        let run = self.shared.run.clone();
+        let span = identity(&run).span().clone();
+        let stopping = run.cancellation().clone();
+        let closed = browser.tasks().child_token();
+        let task = async move {
+            tokio::select! {
+                biased;
+                () = stopping.cancelled() => return,
+                () = browser.panicked() => {}
+                () = closed.cancelled() => return,
+            }
+            let error = browser_panicked(run.metrics(), browser.panicked_crash_report());
+            tracing::error!(
+                ?at,
+                %error,
+                "a task of the browser's owner panicked: the engine treats the browser as crashed"
+            );
+            // The Run trace holds the Error code no reply carries (ADR 0072).
+            record_panicked(identity(&run), PanicEnded::Browser);
+            browser.treat_as_crashed();
+            browser.stop().await;
+            pool.lost(at, Lost::BrowserCrashed(None)).await;
+        };
+        self.shared.run.spawn(task.instrument(span));
     }
 
     /// A browser of the Run ended at `at`, as `lost` says: one that quit or
@@ -432,28 +509,37 @@ impl Pool {
 
     /// A seat for a Session whose requests leave through `egress`, its
     /// proxy and its egress relay, in every browser it is seated in, placed
-    /// under `placement` on its first use.
-    pub(crate) fn seat(&self, placement: Placement, egress: SessionEgress) -> Seat {
-        self.seat_of(placement, egress, None)
+    /// under `placement` on its first use. Its place actor and its pages'
+    /// readers are tasks of `tasks`, its Session's owner.
+    pub(crate) fn seat(
+        &self,
+        placement: Placement,
+        egress: SessionEgress,
+        tasks: TaskStarter,
+    ) -> Seat {
+        self.seat_of((placement, egress), None, tasks)
     }
 
     /// A seat for a Session on the Borrowed browser at `cdp_url`, which
     /// never enters the pool: it is neither recycled, nor counted, nor
-    /// closed (ADR 0056).
-    pub(crate) fn borrowed_seat(&self, cdp_url: CdpUrl) -> Seat {
-        let browser = BorrowedBrowser::new(self.shared.run.clone(), cdp_url);
+    /// closed (ADR 0056). Its tasks are `tasks`', as [`Pool::seat`]'s.
+    pub(crate) fn borrowed_seat(&self, cdp_url: CdpUrl, tasks: TaskStarter) -> Seat {
+        let browser = Arc::new(BorrowedBrowser::new(self.shared.run.clone(), cdp_url));
+        lock(&self.shared.browsers)
+            .borrowed
+            .push(Arc::clone(&browser));
         self.seat_of(
-            Placement::Shared,
-            SessionEgress::default(),
-            Some(Arc::new(browser)),
+            (Placement::Shared, SessionEgress::default()),
+            Some(browser),
+            tasks,
         )
     }
 
     fn seat_of(
         &self,
-        placement: Placement,
-        egress: SessionEgress,
+        (placement, egress): (Placement, SessionEgress),
         borrowed: Option<Arc<BorrowedBrowser>>,
+        tasks: TaskStarter,
     ) -> Seat {
         let number = {
             let mut browsers = lock(&self.shared.browsers);
@@ -469,10 +555,10 @@ impl Pool {
             borrowed,
             origins: Origins::default(),
             place,
+            tasks,
         });
-        self.shared
-            .run
-            .spawn(keep_place(Arc::downgrade(&shared), commands));
+        let ended = shared.tasks.child_token();
+        shared.spawn(keep_place(Arc::downgrade(&shared), commands, ended));
         Seat { shared }
     }
 
@@ -668,8 +754,9 @@ impl Pool {
     }
 
     /// Acts on what changed in the browser `number`: once recycled with no
-    /// open, held or opening page it closes, and with none it waits to be
-    /// idle.
+    /// open, held or opening page it closes, on a task of the pool's Run,
+    /// which waits for the browser's owner's stop; with none it waits to be
+    /// idle, on a task of the browser's owner, which its close ends.
     fn settle(&self, browsers: &mut Browsers, number: u64) {
         let Some(pooled) = browsers.list.get_mut(&number) else {
             return;
@@ -691,9 +778,10 @@ impl Pool {
         } else if !pooled.waiting {
             pooled.waiting = true;
             let (pool, busy) = (self.clone(), pooled.busy);
-            let stopping = self.shared.run.cancellation().clone();
+            let stopping = pooled.browser.tasks().child_token();
             let (clock, idle) = (self.shared.run.clock(), self.shared.limits.idle);
-            self.shared.run.spawn(async move {
+            let tasks = identity(&self.shared.run).starting_on(pooled.browser.tasks());
+            tasks.spawn(async move {
                 tokio::select! {
                     () = stopping.cancelled() => {}
                     () = clock.sleep(idle) => pool.idle(number, busy, idle),
@@ -703,7 +791,8 @@ impl Pool {
     }
 
     /// Has the Resource governor count and shed the browser `number`, once
-    /// launched: shed, it is recycled (ADR 0040).
+    /// launched: shed, it is recycled (ADR 0040). The wait for the shed is a
+    /// task of the browser's owner, which its close ends.
     fn govern(&self, number: u64) {
         let mut browsers = lock(&self.shared.browsers);
         let Some(pooled) = browsers.list.get_mut(&number) else {
@@ -720,8 +809,9 @@ impl Pool {
         pooled.governed = Some(governed);
         pooled.report();
         let pool = self.clone();
-        let stopping = self.shared.run.cancellation().clone();
-        self.shared.run.spawn(async move {
+        let stopping = pooled.browser.tasks().child_token();
+        let tasks = identity(&self.shared.run).starting_on(pooled.browser.tasks());
+        tasks.spawn(async move {
             tokio::select! {
                 () = stopping.cancelled() => {}
                 () = shed => pool.shed(number),
@@ -742,6 +832,27 @@ impl Pool {
                 "memory is critical: the governor recycles a browser of the Run"
             );
             self.shared.run.metrics().browser_recycled("shed");
+            pooled.stage = Stage::Retiring;
+        }
+        self.settle(&mut browsers, number);
+    }
+
+    /// The reader of the browser `number`'s own events fell behind, so a
+    /// worker or a page it attached meanwhile may wait for the engine
+    /// forever: the browser opens no page any more and closes once none is
+    /// left, its Sessions going to the next browser with their cookies and
+    /// storage. It runs on meanwhile: no Session is crashed and no crash is
+    /// charged (#3261).
+    fn root_fell_behind(&self, number: u64) {
+        let mut browsers = lock(&self.shared.browsers);
+        let Some(pooled) = browsers.list.get_mut(&number) else {
+            return;
+        };
+        if pooled.stage == Stage::Serving {
+            tracing::warn!(
+                browser = number,
+                "a browser of the Run lost some of its own events: it opens no page any more"
+            );
             pooled.stage = Stage::Retiring;
         }
         self.settle(&mut browsers, number);
@@ -768,7 +879,9 @@ impl Pool {
     }
 
     /// Closes the browser `number`, each Session still seated in it taking
-    /// its cookies and storage along for the browser it goes to next.
+    /// its cookies and storage along for the browser it goes to next, and
+    /// answers once the browser's owner stopped: the browser is gone, and
+    /// every task it started ended (ADR 0146).
     async fn close(&self, number: u64) {
         let seated: Vec<Arc<SeatShared>> = lock(&self.shared.browsers)
             .list
@@ -778,9 +891,32 @@ impl Pool {
         for seat in seated {
             seat.evacuate(number).await;
         }
-        if let Some(pooled) = lock(&self.shared.browsers).list.remove(&number) {
-            pooled.browser.close();
+        let pooled = lock(&self.shared.browsers).list.remove(&number);
+        if let Some(pooled) = pooled {
+            pooled.browser.close().await;
         }
+    }
+
+    /// Stops the owner of each browser the pool still holds, its Run's
+    /// launched ones and its Borrowed ones, as its Run stops: answers once
+    /// each launched browser is gone, each Borrowed one's connection ended,
+    /// and every task they started ended (ADR 0146).
+    pub(crate) async fn stop(&self) {
+        let (launched, borrowed) = {
+            let mut browsers = lock(&self.shared.browsers);
+            let launched: Vec<Arc<LocalBrowser>> = std::mem::take(&mut browsers.list)
+                .into_values()
+                .map(|pooled| pooled.browser)
+                .collect();
+            (launched, std::mem::take(&mut browsers.borrowed))
+        };
+        let launched = launched.iter().map(|browser| browser.close());
+        let borrowed = borrowed.iter().map(|browser| browser.stop());
+        futures_util::future::join(
+            futures_util::future::join_all(launched),
+            futures_util::future::join_all(borrowed),
+        )
+        .await;
     }
 }
 
@@ -891,6 +1027,10 @@ struct SeatShared {
     /// closing it and evacuating a closing browser each run whole, one at a
     /// time, in the order they were asked.
     place: mpsc::Sender<PlaceCommand>,
+    /// Its Session's owner's starting side, on which its place actor and
+    /// its pages' readers run, in its Run's span: its Session's end stops
+    /// them (ADR 0146).
+    tasks: TaskStarter,
 }
 
 /// What a seat's place actor is asked, each with where its answer goes.
@@ -996,12 +1136,7 @@ impl Seat {
         let in_browser = self.shared.pool.page_opening(number, self.shared.number);
         drop(opening);
         let page = driver.new_page(visibility).await?;
-        let events = page.events();
-        self.shared
-            .pool
-            .shared
-            .run
-            .spawn(self.shared.origins.clone().watch(events));
+        self.shared.read(&page);
         Ok((page, in_browser))
     }
 
@@ -1010,12 +1145,7 @@ impl Seat {
     /// Session opened, and its documents' origins are carried as theirs.
     pub(crate) fn popup_in(&self, number: u64, popup: &PageDriver) -> InBrowser {
         let in_browser = self.shared.pool.page_opening(number, self.shared.number);
-        let events = popup.events();
-        self.shared
-            .pool
-            .shared
-            .run
-            .spawn(self.shared.origins.clone().watch(events));
+        self.shared.read(popup);
         in_browser
     }
 
@@ -1080,6 +1210,17 @@ impl Seat {
     }
 }
 
+#[cfg(test)]
+impl Seat {
+    /// The pool's browser `number`, while the pool holds it.
+    pub(crate) fn browser(&self, number: u64) -> Option<Arc<LocalBrowser>> {
+        lock(&self.shared.pool.shared.browsers)
+            .list
+            .get(&number)
+            .map(|pooled| Arc::clone(&pooled.browser))
+    }
+}
+
 impl SeatShared {
     /// Asks its place actor for the browser it is seated in, as
     /// [`PlaceCommand::Seated`] says.
@@ -1093,9 +1234,38 @@ impl SeatShared {
     }
 
     /// The failure of an ask its place actor never answered: the actor
-    /// ends with its Run, so the ask fails as the Run's stop does.
+    /// ends with its Session, as its close does, or with its Run, whose
+    /// stop the ask then fails as.
     fn place_ended(&self) -> CallError {
-        crate::errors::run_stopped(&self.pool.shared.run)
+        if self.pool.shared.run.cancellation().is_cancelled() {
+            crate::errors::run_stopped(&self.pool.shared.run)
+        } else {
+            place_closed()
+        }
+    }
+
+    /// Starts `task` on its Session's owner, in its Run's span.
+    fn spawn<F>(&self, task: F)
+    where
+        F: Future<Output = ()> + Send + 'static,
+    {
+        let span = identity(&self.pool.shared.run).span().clone();
+        self.tasks.spawn(task.instrument(span));
+    }
+
+    /// Reads the events of `page`, one of its Session's pages, taking its
+    /// documents' origins as its own, until they end or its Session ends.
+    fn read(&self, page: &PageDriver) {
+        let (reading, ended) = (
+            page.reading(Some(self.origins.clone().watcher())),
+            self.tasks.child_token(),
+        );
+        self.spawn(async move {
+            tokio::select! {
+                () = reading => {}
+                () = ended.cancelled() => {}
+            }
+        });
     }
 
     /// The browser `number` closes: the Session leaves it if seated there,
@@ -1116,10 +1286,22 @@ impl SeatShared {
 
 /// The place actor of the seat `seat`: it alone holds the seat's
 /// [`Place`], and answers `commands` one at a time until the seat is
-/// dropped or its Run ends.
-async fn keep_place(seat: Weak<SeatShared>, mut commands: mpsc::Receiver<PlaceCommand>) {
+/// dropped or `ended` is cancelled, as its Session's owner is at its end
+/// or its Run's.
+async fn keep_place(
+    seat: Weak<SeatShared>,
+    mut commands: mpsc::Receiver<PlaceCommand>,
+    ended: CancellationToken,
+) {
     let mut place = Place::default();
-    while let Some(command) = commands.recv().await {
+    loop {
+        let command = tokio::select! {
+            command = commands.recv() => command,
+            () = ended.cancelled() => None,
+        };
+        let Some(command) = command else {
+            break;
+        };
         let Some(seat) = seat.upgrade() else {
             break;
         };

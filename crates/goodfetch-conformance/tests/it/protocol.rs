@@ -469,13 +469,14 @@ enum Layout {
 /// discarded Run's planted Secret canaries, a token, a password and the
 /// Session cookie a login set, are found nowhere in the Goodfetch home, and
 /// a later Run under its Run ID finds none of its state and is sent none of
-/// its cookies. The cookie case's browser runs from the pinned build laid
+/// its cookies, thirty Runs in a row on one engine included (ADR 0015's
+/// reused pool). The cookie cases' browser runs from the pinned build laid
 /// out in the home's own Browser cache, which the search takes in as a
 /// person's home holds it; `egress.offline` refuses a download of it, so a
 /// missing build fails at once rather than fetching some 150 MB within the
 /// harness's wait for `run.new_page` (fix-queue 124).
 ///
-/// Covers: story:3-39, operation:run.discard
+/// Covers: story:3-39, story:4-65, operation:run.discard
 #[rstest::rstest]
 #[case::attached_per_run(EngineMode::Attached, Layout::PerRun)]
 #[case::daemon_per_run(EngineMode::Daemon, Layout::PerRun)]
@@ -512,6 +513,10 @@ fn the_reset_gate_is_proved_against_collie_in_either_layout(
                 ),
                 (
                     "a-discarded-runs-session-cookie-reaches-no-later-run",
+                    CaseOutcome::Passed
+                ),
+                (
+                    "thirty-runs-in-a-row-on-one-engine-each-log-in-afresh",
                     CaseOutcome::Passed
                 ),
             ]

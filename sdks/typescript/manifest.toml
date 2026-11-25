@@ -2718,9 +2718,59 @@ package = "@goodfetch/foxhound"
 receiver = "(module)"
 member = "FoxhoundConnectOptions"
 entry = "none"
-reason = "The options of `Foxhound.connect()`, with Foxhound's Limits."
-only = "Rust's crate declares no options type of its own: it re-exports Collie's `ConnectOptions` and `Start`, whose `limits` take Foxhound's Usage kind as `PAID_FETCHES` (ADR 0080)."
+reason = "The options of `Foxhound.connect()`, with Foxhound's settings, Limits and handlers (ADR 0104)."
+only = "Rust's is the crate's `ConnectOptions`, which wraps Collie's and whose `limits` take Foxhound's Usage kind as `PAID_FETCHES` (ADR 0080); Python's `connect()` takes its options as keyword arguments."
 words = ["foxhound", "connect", "options"]
+form = "type"
+
+[[member]]
+package = "@goodfetch/foxhound"
+receiver = "(module)"
+member = "BackendRequest"
+entry = "none"
+reason = "A request the engine hands a program's own Fetch backend (ADR 0104)."
+only = "Rust's crate reads a Fetch backend's requests with their own types, #1484's work."
+words = ["backend", "request"]
+form = "type"
+
+[[member]]
+package = "@goodfetch/foxhound"
+receiver = "(module)"
+member = "BackendResponse"
+entry = "none"
+reason = "What a program's own Fetch backend answers a request with (ADR 0104)."
+only = "Rust's crate reads a Fetch backend's requests with their own types, #1484's work."
+words = ["backend", "response"]
+form = "type"
+
+[[member]]
+package = "@goodfetch/foxhound"
+receiver = "(module)"
+member = "FetchBackendHandler"
+entry = "none"
+reason = "A program's own Fetch backend, which `connect()`'s `fetchBackends` registers by name (ADR 0104)."
+only = "Rust registers a Fetch backend by name with `ConnectOptions::fetch_backend` and reads its requests as #1484 builds them."
+words = ["fetch", "backend", "handler"]
+form = "type"
+
+[[member]]
+package = "@goodfetch/foxhound"
+receiver = "(module)"
+member = "SinkDelivery"
+entry = "none"
+reason = "A delivery of committed Records to a program's own Sink (ADRs 0008 and 0104)."
+only = "Rust's crate reads a Sink's deliveries as `SinkCall`s, #1491's work."
+words = ["sink", "delivery"]
+form = "type"
+
+[[member]]
+package = "@goodfetch/foxhound"
+receiver = "(module)"
+member = "SinkHandler"
+entry = "none"
+reason = "A program's own Sink, which `connect()`'s `sinks` registers by name (ADR 0104)."
+only = "Rust registers a Sink by name with `ConnectOptions::sink` and reads its deliveries as #1491 builds them."
+words = ["sink", "handler"]
 form = "type"
 
 [[member]]
@@ -2728,8 +2778,8 @@ package = "@goodfetch/foxhound"
 receiver = "(module)"
 member = "FoxhoundConnectOverOptions"
 entry = "none"
-reason = "The options of `connectOver()`, with Foxhound's Limits."
-only = "Rust's crate declares no options type of its own: it re-exports Collie's `ConnectOptions` and `Start`, whose `limits` take Foxhound's Usage kind as `PAID_FETCHES` (ADR 0080)."
+reason = "The options of `connectOver()`, with Foxhound's settings, Limits and handlers (ADR 0104)."
+only = "Rust's crate has no `connect_over`; Python's takes its options as keyword arguments."
 words = ["foxhound", "connect", "over", "options"]
 form = "type"
 
@@ -3007,6 +3057,144 @@ only = "Rust's `CrawlRun` has no constructor at all."
 words = ["crawl", "run"]
 form = "read"
 
+[[member]]
+package = "@goodfetch/collie-client"
+receiver = "Connection"
+member = "schedules"
+entry = "none"
+reason = "The Schedules of the engine's major, whose methods serve the `schedule` operations on no Schedule, reached without a round trip (spec 589)."
+words = ["schedules"]
+form = "read"
+
+[[member]]
+package = "@goodfetch/collie"
+receiver = "Collie"
+member = "schedules"
+entry = "none"
+reason = "The Schedules of the engine's major, reached without a round trip (spec 589); `Connection.schedules`'s member under the same name."
+words = ["schedules"]
+form = "read"
+
+[[member]]
+package = "@goodfetch/foxhound"
+receiver = "Foxhound"
+member = "schedules"
+entry = "none"
+reason = "The Schedules of the engine's major, reached without a round trip (spec 589); `Connection.schedules`'s member under the same name."
+words = ["schedules"]
+form = "read"
+
+[[member]]
+package = "@goodfetch/collie-client/runtime"
+receiver = "ClientConnection"
+member = "schedules"
+entry = "none"
+reason = "What a Product's Connection hands its program as `schedules` (spec 589)."
+words = ["schedules"]
+form = "runtime"
+
+[[member]]
+package = "@goodfetch/collie-client"
+receiver = "(module)"
+member = "Schedules"
+entry = "none"
+reason = "A Connection's Schedules: `connection.schedules`, whose methods serve the `schedule` operations on no Schedule (spec 589)."
+words = ["schedules"]
+form = "type"
+
+[[member]]
+package = "@goodfetch/collie-client"
+receiver = "Schedules"
+member = "constructor"
+entry = "none"
+reason = "A Connection opens its Schedules; a program never constructs one."
+only = "Python's and Rust's `Schedules` have no constructor a program calls."
+words = ["schedules"]
+form = "read"
+
+[[member]]
+package = "@goodfetch/collie-client"
+receiver = "Schedules"
+member = "create"
+entry = "schedule.create"
+words = ["create"]
+form = "round_trip"
+
+[[member]]
+package = "@goodfetch/collie-client"
+receiver = "Schedules"
+member = "list"
+entry = "schedule.list"
+words = ["list"]
+form = "round_trip"
+
+[[member]]
+package = "@goodfetch/collie-client"
+receiver = "Schedules"
+member = "get"
+entry = "schedule.get"
+words = ["get"]
+form = "round_trip"
+
+[[member]]
+package = "@goodfetch/collie-client"
+receiver = "(module)"
+member = "Schedule"
+entry = "none"
+reason = "A Schedule a program holds, by its ID, whose generated members serve the `schedule` operations on one Schedule; `schedules.create` and `schedules.get` answer it (spec 589)."
+only = "Rust's `Schedule` is a handle generated from the catalog, which its manifest does not list (ADR 0099)."
+words = ["schedule"]
+form = "type"
+
+[[member]]
+package = "@goodfetch/collie-client"
+receiver = "Schedule"
+member = "constructor"
+entry = "none"
+reason = "`schedules.create` and `schedules.get` answer a Schedule; a program never constructs one."
+only = "Rust's `Schedule` has no constructor at all."
+words = ["schedule"]
+form = "read"
+
+[[member]]
+package = "@goodfetch/collie-client"
+receiver = "Schedule"
+member = "id"
+entry = "none"
+reason = "The Schedule's ID, read without a round trip (spec 589)."
+only = "Rust's `Schedule::id` is generated (ADR 0099)."
+words = ["id"]
+form = "read"
+
+[[member]]
+package = "@goodfetch/collie-client"
+receiver = "(module)"
+member = "CreatedSchedule"
+entry = "none"
+reason = "What `schedules.create` answers: the `Schedule` and its warnings, `schedule.create`'s result with the handle in place of the ID."
+words = ["created", "schedule"]
+form = "type"
+
+[[member]]
+package = "@goodfetch/collie-client"
+receiver = "(module)"
+member = "ScheduleCallOptions"
+entry = "none"
+reason = "The options of a `Schedules` read: its own `timeout` and the `signal` that cancels it (ADR 0080)."
+only = "Python and Rust take `timeout` as a keyword argument and through `Call`, with no options type."
+words = ["schedule", "call", "options"]
+form = "type"
+
+[[member]]
+package = "@goodfetch/collie-client"
+receiver = "(module)"
+member = "ScheduleWriteOptions"
+entry = "none"
+reason = "The options of `schedules.create`, one store transaction: its own `timeout`, and no `signal` (ADRs 0038 and 0080)."
+only = "Python and Rust take `timeout` as a keyword argument and through `Call`, with no options type."
+words = ["schedule", "write", "options"]
+form = "type"
+
 [[unreached]]
 entries = [
   "audit.export",
@@ -3080,7 +3268,7 @@ entries = ["crawl_request.links"]
 reason = "What `enqueueLinks` sends itself, before `crawl_request.enqueue_links`, when it is given a `LinkPayload` function: the function reads each link it answers, so it has no member of its own."
 
 [[unreached]]
-entries = ["dataset.list", "dataset.page", "dataset.query"]
+entries = ["dataset.list", "dataset.page", "dataset.query", "dataset.search", "record.search"]
 reason = "No member reads a Run's Datasets yet."
 
 [[unreached]]

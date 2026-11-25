@@ -323,6 +323,14 @@ export interface FoxhoundSettings {
      * `dataset.records`.
      */
     readonly records?: boolean;
+    readonly search?: {
+      /**
+       * Whether the crawl indexes each Record it commits for `dataset.search` and `record.search`, in the commit's transaction. On by default. Off, no Record is indexed, so neither search finds one of the crawl's Records, while each is still committed and read as before.
+       *
+       * `dataset.search.index`.
+       */
+      readonly index?: boolean;
+    };
   };
   readonly effect?: {
     readonly output?: {
@@ -982,7 +990,7 @@ export interface FoxhoundSettings {
      */
     readonly auditChain?: boolean;
     /**
-     * Whether the run's state seals its secret fields with the run's data key (ADR 0015). On by default; off, they are written in the clear, and the run says so in its report's `weakened`, in the Audit log and in one warning. A Recipe or a Client acting for a model never switches it off: its `false` is `setting_locked`.
+     * Whether the run's state seals its secret fields with the run's data key (ADR 0015). On by default; off, they are written in the clear and the run makes no data key, and the run says so in its report's `weakened`, in the Audit log and in one warning. A field written in the clear opens only in a run that lists this switch as weakened. A Recipe or a Client acting for a model never switches it off: its `false` is `setting_locked`.
      *
      * `security.field_encryption`.
      */
@@ -1006,7 +1014,7 @@ export interface FoxhoundSettings {
      */
     readonly resolvedIpCheck?: boolean;
     /**
-     * Whether the run's secret tables overwrite what they delete, SQLite's `secure_delete` (ADR 0015). On by default; off, deleted values may stay on disk until overwritten, and the run says so in its report's `weakened`, in the Audit log and in one warning. A Recipe or a Client acting for a model never switches it off: its `false` is `setting_locked`.
+     * Whether the run's state overwrites what it deletes, its secret fields included, SQLite's `secure_delete` (ADR 0015). On by default; off, deleted values may stay in the run file's free pages until overwritten, and the run says so in its report's `weakened`, in the Audit log and in one warning. A discard overwrites the run's data key whatever its value. A Recipe or a Client acting for a model never switches it off: its `false` is `setting_locked`.
      *
      * `security.secure_delete`.
      */
@@ -1583,6 +1591,14 @@ export interface CrawlSettings {
      * `dataset.records`.
      */
     readonly records?: boolean;
+    readonly search?: {
+      /**
+       * Whether the crawl indexes each Record it commits for `dataset.search` and `record.search`, in the commit's transaction. On by default. Off, no Record is indexed, so neither search finds one of the crawl's Records, while each is still committed and read as before.
+       *
+       * `dataset.search.index`.
+       */
+      readonly index?: boolean;
+    };
   };
   readonly effect?: {
     readonly output?: {
@@ -2242,7 +2258,7 @@ export interface CrawlSettings {
      */
     readonly auditChain?: boolean;
     /**
-     * Whether the run's state seals its secret fields with the run's data key (ADR 0015). On by default; off, they are written in the clear, and the run says so in its report's `weakened`, in the Audit log and in one warning. A Recipe or a Client acting for a model never switches it off: its `false` is `setting_locked`.
+     * Whether the run's state seals its secret fields with the run's data key (ADR 0015). On by default; off, they are written in the clear and the run makes no data key, and the run says so in its report's `weakened`, in the Audit log and in one warning. A field written in the clear opens only in a run that lists this switch as weakened. A Recipe or a Client acting for a model never switches it off: its `false` is `setting_locked`.
      *
      * `security.field_encryption`.
      */
@@ -2266,7 +2282,7 @@ export interface CrawlSettings {
      */
     readonly resolvedIpCheck?: boolean;
     /**
-     * Whether the run's secret tables overwrite what they delete, SQLite's `secure_delete` (ADR 0015). On by default; off, deleted values may stay on disk until overwritten, and the run says so in its report's `weakened`, in the Audit log and in one warning. A Recipe or a Client acting for a model never switches it off: its `false` is `setting_locked`.
+     * Whether the run's state overwrites what it deletes, its secret fields included, SQLite's `secure_delete` (ADR 0015). On by default; off, deleted values may stay in the run file's free pages until overwritten, and the run says so in its report's `weakened`, in the Audit log and in one warning. A discard overwrites the run's data key whatever its value. A Recipe or a Client acting for a model never switches it off: its `false` is `setting_locked`.
      *
      * `security.secure_delete`.
      */
@@ -2736,6 +2752,9 @@ const SPELLING: Spelling = {
       memoryLimit: "memory_limit",
     }],
     records: "records",
+    search: ["search", {
+      index: "index",
+    }],
   }],
   delivery: ["delivery", {
     reportGuaranteeClass: "report_guarantee_class",

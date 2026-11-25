@@ -104,6 +104,12 @@
         product: Product::Collie,
     },
     Namespace {
+        name: "schedule",
+        spelled: "schedule",
+        about: "Calls the catalog's `schedule` operations",
+        product: Product::Collie,
+    },
+    Namespace {
         name: "config",
         spelled: "config",
         about: "Calls the catalog's `config` operations",
@@ -125,6 +131,12 @@
         name: "dataset",
         spelled: "dataset",
         about: "Calls the catalog's `dataset` operations",
+        product: Product::Foxhound,
+    },
+    Namespace {
+        name: "record",
+        spelled: "record",
+        about: "Calls the catalog's `record` operations",
         product: Product::Foxhound,
     },
 ]

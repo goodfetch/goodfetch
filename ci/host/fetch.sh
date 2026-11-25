@@ -33,9 +33,13 @@ echo "GOODFETCH_PYTHONS=${pythons[*]}" >>"$environment"
 
 cd "$root"
 # Each line's wheels reach uv's cache now, so the test steps can make each
-# line's environment offline, under the deny.
+# line's environment offline, under the deny. A free-threaded line leaves out
+# the `langchain` group: `orjson`, which it needs, has no free-threaded build
+# (issue 3738).
 for python in "${pythons[@]:1}"; do
-  uv sync --frozen --python "$python"
+  groups=()
+  if [[ "$python" == *t ]]; then groups=(--no-group langchain); fi
+  uv sync --frozen --python "$python" ${groups[@]+"${groups[@]}"}
 done
 # The workspace's environment uses the set's first build, its oldest line,
 # as users of it would.

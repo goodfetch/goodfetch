@@ -17,6 +17,7 @@ use crate::handlerless::HandlerlessStart;
 use crate::raw_call::RawCall;
 use crate::run::Start;
 use crate::run_view::RunView;
+use crate::schedules::Schedules;
 
 /// A Client's open link to one engine, through which a program reaches its
 /// Runs: the members both Products' connections share.
@@ -89,6 +90,10 @@ pub trait Connection {
     ///
     /// `closed` once the connection is closed.
     fn open_run(&self, run_id: &RunId) -> Result<RunView, Error>;
+
+    /// The Connection's Schedules, reached without I/O (spec 589): each
+    /// call acts on the Schedule store of the engine's major.
+    fn schedules(&self) -> Schedules;
 
     /// The raw call of `operation` (ADR 0099, G8), the way down to an
     /// operation the SDK does not generate: its params and its result are

@@ -56,10 +56,10 @@ fn toolchain() -> String {
     channel.to_owned()
 }
 
-/// Whether the test skips here, outside the Release suite, saying so on
-/// stderr. Asked before the test's [`TestEnv`], so a skipped test leaves no
-/// exercise record.
-fn skipped_outside_the_release_suite() -> bool {
+/// Whether the test skips here, outside the Release suite, saying so and
+/// `what` it runs on stderr. Asked before the test's [`TestEnv`], so a
+/// skipped test leaves no exercise record.
+pub(crate) fn skipped_outside_the_release_suite(what: &str) -> bool {
     let suite = Variables::from_process()
         .suite()
         .expect("GOODFETCH_TEST_SUITE names a suite");
@@ -71,7 +71,7 @@ fn skipped_outside_the_release_suite() -> bool {
         reason = "a skipped test says why in its own output, which the test harness keeps"
     )]
     {
-        eprintln!("skipped outside the Release suite: a build of the crate in a container");
+        eprintln!("skipped outside the Release suite: {what}");
     }
     true
 }
@@ -223,7 +223,7 @@ fn tail(output: &Output) -> String {
 /// Covers: story:11-280
 #[test]
 fn a_clean_container_builds_the_crate_with_the_listed_tools_and_fails_without_any_one() {
-    if skipped_outside_the_release_suite() {
+    if skipped_outside_the_release_suite("a build of the crate in a container") {
         return;
     }
     let env = TestEnv::new();

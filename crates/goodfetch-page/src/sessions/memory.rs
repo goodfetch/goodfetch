@@ -35,16 +35,7 @@ impl Sessions {
                 if *samples.borrow_and_update() != GovernorLevel::Critical {
                     continue;
                 }
-                let pages: Vec<(PageId, OpenPage)> = sessions
-                    .state
-                    .lock()
-                    .await
-                    .pages
-                    .iter()
-                    .filter(|(_, page)| page.run.id() == &run_id)
-                    .map(|(page_id, page)| (page_id.clone(), page.clone()))
-                    .collect();
-                for (page_id, page) in pages {
+                for (page_id, page) in sessions.index.pages_of(&run_id) {
                     let Ok(heap) = page.driver.command(&GetHeapUsageParams {}).await else {
                         continue;
                     };

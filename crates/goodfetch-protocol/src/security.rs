@@ -28,15 +28,8 @@ fn switched_off(value: &Value) -> bool {
 
 /// A switchable control's setting: a boolean, on by default, whose `false`
 /// weakens the run, so that a Recipe or a Client acting for a model only
-/// switches it on (#2445). `unbuilt` names the feature its `false` asks for
-/// while the engine does not build its switch: the engine then does what the
-/// control says whatever its value, so off is refused where it would be
-/// reported as a weakened Run that was not one.
-const fn control(
-    name: &'static str,
-    description: &'static str,
-    unbuilt: Option<&'static str>,
-) -> Setting {
+/// switches it on (#2445).
+const fn control(name: &'static str, description: &'static str) -> Setting {
     Setting {
         name,
         description,
@@ -46,7 +39,7 @@ const fn control(
         authority: Authority::NotWeakenedByRecipeOrModel,
         weakens: Some(switched_off),
         fixed_for_run: false,
-        unbuilt,
+        unbuilt: None,
         deprecated: None,
         arrived_in: ARRIVED_IN,
     }
@@ -55,29 +48,25 @@ const fn control(
 /// `security.field_encryption` (ADRs 0015 and 0016).
 pub const SECURITY_FIELD_ENCRYPTION: Setting = control(
     "security.field_encryption",
-    "Whether the run's state seals its secret fields with the run's data key (ADR 0015). On by default; off, they are written in the clear, and the run says so in its report's `weakened`, in the Audit log and in one warning. A Recipe or a Client acting for a model never switches it off: its `false` is `setting_locked`.",
-    Some("unsealed_fields"),
+    "Whether the run's state seals its secret fields with the run's data key (ADR 0015). On by default; off, they are written in the clear and the run makes no data key, and the run says so in its report's `weakened`, in the Audit log and in one warning. A field written in the clear opens only in a run that lists this switch as weakened. A Recipe or a Client acting for a model never switches it off: its `false` is `setting_locked`.",
 );
 
 /// `security.secure_delete` (ADRs 0015 and 0016).
 pub const SECURITY_SECURE_DELETE: Setting = control(
     "security.secure_delete",
-    "Whether the run's secret tables overwrite what they delete, SQLite's `secure_delete` (ADR 0015). On by default; off, deleted values may stay on disk until overwritten, and the run says so in its report's `weakened`, in the Audit log and in one warning. A Recipe or a Client acting for a model never switches it off: its `false` is `setting_locked`.",
-    Some("plain_delete"),
+    "Whether the run's state overwrites what it deletes, its secret fields included, SQLite's `secure_delete` (ADR 0015). On by default; off, deleted values may stay in the run file's free pages until overwritten, and the run says so in its report's `weakened`, in the Audit log and in one warning. A discard overwrites the run's data key whatever its value. A Recipe or a Client acting for a model never switches it off: its `false` is `setting_locked`.",
 );
 
 /// `security.resolved_ip_check` (ADRs 0016 and 0017).
 pub const SECURITY_RESOLVED_IP_CHECK: Setting = control(
     "security.resolved_ip_check",
     "Whether every address a name resolves to is checked against the egress policy before a connection is made (ADR 0017). On by default; off, the domain policy alone applies, and the run says so in its report's `weakened`, in the Audit log and in one warning. A Recipe or a Client acting for a model never switches it off: its `false` is `setting_locked`.",
-    None,
 );
 
 /// `security.raw_cdp_egress_proxy` (ADRs 0016 and 0017).
 pub const SECURITY_RAW_CDP_EGRESS_PROXY: Setting = control(
     "security.raw_cdp_egress_proxy",
     "Whether every browser Session the engine launches reaches the network through the egress relay, which holds a raw CDP client or a Lent page at the network layer (ADR 0017). On by default; off, a Session with no certificate exception and no local address connects directly, held by interception alone, and the run says so in its report's `weakened`, in the Audit log and in one warning. It never removes the relay that carries certificate exceptions or local addresses. A Recipe or a Client acting for a model never switches it off: its `false` is `setting_locked`.",
-    None,
 );
 
 /// `security.browser_sandbox` (ADRs 0016, 0017 and 0049): switched off
@@ -88,7 +77,6 @@ pub const SECURITY_BROWSER_SANDBOX: Setting = Setting {
     ..control(
         "security.browser_sandbox",
         "Whether Chromium's renderers run in their sandbox (ADRs 0017 and 0049): the engine never passes `--no-sandbox` while it is on. On by default, except on a host whose platform allows no sandbox (AWS Lambda, Fargate, Azure Container Apps), where the engine switches it off. Only an Operator policy or configuration switches it off; a Recipe's or a run's value is `setting_locked`. Off, the renderers run unsandboxed, and the run says so in its report's `weakened`, in the Audit log and in one warning.",
-        None,
     )
 };
 
@@ -138,14 +126,12 @@ pub struct BrowserSandboxUnavailableDetails {
 pub const SECURITY_AUDIT_CHAIN: Setting = control(
     "security.audit_chain",
     "Whether the run's Audit log entries are hash-chained (ADR 0016). On by default; off, that run's entries are written unchained, each marked `chained: false`, which `audit verify` steps over while it verifies the chain around them; the switch itself is a chained entry, and the run says so in its report's `weakened` and in one warning. A Recipe or a Client acting for a model never switches it off: its `false` is `setting_locked`.",
-    None,
 );
 
 /// `security.redaction` (ADRs 0014 and 0016).
 pub const SECURITY_REDACTION: Setting = control(
     "security.redaction",
     "Whether logs, traces and HAR files are redacted and screenshots and recordings kept as outputs are masked (ADR 0014). On by default; off lifts that guarantee for those outputs only: secrets still never reach the model, Plans, caches, the Effect journal or observations. The run says so in its report's `weakened`, in the Audit log and in one warning. A Recipe or a Client acting for a model never switches it off: its `false` is `setting_locked`.",
-    None,
 );
 
 /// The switchable security controls, which the engine's own contribution

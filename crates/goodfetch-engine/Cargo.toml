@@ -36,6 +36,9 @@ futures-util.workspace = true
 getrandom.workspace = true
 goodfetch-counted-work.workspace = true
 goodfetch-protocol.workspace = true
+# The hidden temporary file of a Saved file and the reason of a failed
+# write, as Collie's client crate has them (ADR 0116).
+goodfetch-saved-file.workspace = true
 hickory-resolver = { workspace = true, features = ["tokio", "system-config"] }
 # Derives the wrap of each Run's data key from its key-encryption key.
 hkdf.workspace = true
@@ -105,6 +108,8 @@ tempfile.workspace = true
 thiserror.workspace = true
 # The settings files (ADR 0028): read, and rewritten with every other byte kept (ADR 0098).
 toml_edit.workspace = true
+# A Recipe's package: its folder's files less the ignored ones (issue 1663).
+ignore.workspace = true
 tokio = { workspace = true, features = ["rt", "io-util", "io-std", "sync", "macros", "time", "fs", "net", "process"] }
 tokio-rustls = { workspace = true, features = ["ring"] }
 # The protocol over WebSocket on an Exposed Daemon's address (ADR 0049).
@@ -177,6 +182,11 @@ proptest.workspace = true
 proptest-state-machine.workspace = true
 rstest.workspace = true
 tempfile.workspace = true
+
+# The Simulation's scenarios (tests/it/simulation/), built only by `just
+# simulate` and `just simulation`, which set `--cfg tokio_unstable` (ADR 0060).
+[target.'cfg(tokio_unstable)'.dev-dependencies]
+goodfetch-simulation.workspace = true
 
 # The CPU pool's loom tests (src/tasks/cpu_pool/loom_tests.rs), built only
 # by `just loom`, which sets `--cfg goodfetch_loom` (ADR 0060).

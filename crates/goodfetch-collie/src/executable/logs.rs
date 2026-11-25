@@ -28,6 +28,7 @@ use goodfetch_engine::entropy::Entropy;
 use goodfetch_engine::home::Home;
 use goodfetch_engine::log::{ClockTime, LogEvents};
 use goodfetch_engine::mask::{Masks, Scope};
+use goodfetch_engine::secrets::DriverSlot;
 use goodfetch_engine::settings::{Resolved, get_or_default};
 use goodfetch_engine::trace::EntropyIds;
 use goodfetch_protocol::catalog::Product;
@@ -318,6 +319,9 @@ pub(super) struct Logs<'a> {
     pub(super) events: &'a LogEvents,
     /// Every live Run's resolved values, which each writer masks.
     pub(super) masks: &'a Masks,
+    /// Where an export's collector reads its client certificate's key once
+    /// the engine filled it with its driver.
+    pub(super) keys: &'a DriverSlot,
     /// The Product whose spans an export names.
     pub(super) product: Product,
     /// Where its time and its trace and span IDs come from.
@@ -428,7 +432,7 @@ pub(super) fn install(logs: Logs<'_>) -> Installed {
     let exported = endpoint.map(|(endpoint, settings)| {
         export(
             &endpoint,
-            ToCollector::new(settings, clock),
+            ToCollector::new(settings, clock, logs.keys),
             logs.product,
             trace_ids,
         )
@@ -462,7 +466,7 @@ pub(super) fn install(logs: Logs<'_>) -> Installed {
     if let Some(error) = failed {
         tracing::error!(%error, "the spans' OTLP export cannot start, and is off");
     }
-    let audit = audit_events::export(logs.settings, clock, logs.product);
+    let audit = audit_events::export(logs.settings, clock, logs.keys, logs.product);
     Installed {
         export,
         file: kept,

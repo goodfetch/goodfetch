@@ -113,6 +113,8 @@ export type TestSupportErrorCode =
   | "journey_invalid"
   /** `journeys/<id>.toml` holds another Journey's ID (ADR 0063). */
   | "journey_other"
+  /** A Journey test is not named `<id>@<surface>` and tagged with both (ADR 0063). */
+  | "journey_misdeclared"
   /** A Journey variant is started on a surface its Journey does not list (ADR 0063). */
   | "surface_unlisted"
   /** A Journey's executable does not report its Product and version through `--version` (ADR 0063). */

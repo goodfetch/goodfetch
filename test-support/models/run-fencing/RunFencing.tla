@@ -14,8 +14,8 @@
 \* transitions `take_epoch` (`Start` and each resume), `grant`, `renew`,
 \* `expire` and `release` (`Expire`), `commit` and `refuse_commit`.
 \* `Checkpoint`, `WriteBatch`, `Seed` and `Effect` carry no `goodfetch::lease` event: no
-\* trace holds them, and TLC's trace validation, which would read them,
-\* joins with the Simulation in M4 (TESTING.md, Model checking).
+\* trace holds them. `TraceRunFencing.tla` validates traces of the others
+\* (TESTING.md, Model checking).
 \*
 \* A copy's state lives in its memory, and its run file holds the last
 \* Run-state batch it wrote (ADR 0142): the file moves only from one batch

@@ -46,7 +46,8 @@
 //! reports only as a network error, so the provider's adapter can read its
 //! failure (ADR 0127). The listener binds port 0 of loopback and reports
 //! its address (ADR 0059), and it closes, with every connection it relays,
-//! when the Session's proxy is dropped or its Run stops.
+//! when the Session's proxy is dropped or the owner its tasks run on, its
+//! Session's (ADR 0146), stops, as its Run's end does.
 #![expect(
     clippy::disallowed_types,
     reason = "the per-Session proxy relay opens its own loopback listener and its connections to the proxy, in the proxy module only, and its tasks set flags and one answer, each read alone with no lock order (ADR 0060)"
@@ -59,13 +60,14 @@ use std::time::Duration;
 use data_encoding::BASE64;
 use goodfetch_engine::clock::Clock;
 use goodfetch_engine::endpoint::{Refusals, new_token, same_token};
-use goodfetch_engine::runs::Run;
+use goodfetch_engine::run_identity::RunIdentity;
 use goodfetch_protocol::audit::{Listener, RefusalReason};
 use secrecy::{ExposeSecret as _, SecretString};
 use tokio::io::{AsyncRead, AsyncReadExt as _, AsyncWrite, AsyncWriteExt as _};
 use tokio::net::{TcpListener, TcpStream};
 use tokio_util::sync::{CancellationToken, DropGuard};
 
+use super::RunPowers;
 use super::party::relay_unreachable;
 use crate::egress_relay::answers::{AUTHENTICATE, ESTABLISHED, USERNAME, failed};
 use crate::egress_relay::deadlines::{HEAD_DEADLINE, within, within_or_none};
@@ -179,16 +181,16 @@ pub(crate) struct Relay {
 impl Relay {
     /// Binds the relay on port 0 of loopback for the proxy at `proxy`, the
     /// addresses the Session's open judged, with new client credentials,
-    /// and relays every connection that gives them
-    /// as a task of `run`, as `mode` says, charging its bytes to `usage`
-    /// when it has one, and keeping an HTTP proxy's refusals of a `CONNECT`
-    /// when `keeps_refusals`.
+    /// and relays every connection that gives them as a task of the owner
+    /// `run`'s identity starts them on, as `mode` says, charging its bytes
+    /// to `usage` when it has one, and keeping an HTTP proxy's refusals of
+    /// a `CONNECT` when `keeps_refusals`.
     ///
     /// # Errors
     ///
     /// The bind's failure, or the OS generator's.
     pub(crate) async fn open(
-        run: &Run,
+        run: &RunPowers,
         proxy: Vec<SocketAddr>,
         mode: Mode,
         usage: Option<Arc<ProxyUsage>>,
@@ -202,18 +204,18 @@ impl Relay {
             addresses: proxy,
             mode,
             client: basic(USERNAME, &password),
-            refusals: run.refusals(),
+            refusals: run.refusals.clone(),
             outcomes: Outcomes::default(),
             usage,
             refusal: keeps_refusals.then(ByAuthority::default),
-            clock: run.clock(),
-            connect_deadline: connect_deadline(run),
+            clock: run.identity.clock(),
+            connect_deadline: connect_deadline(&run.identity),
         });
         let stop = CancellationToken::new();
-        run.spawn(accept(
+        run.identity.spawn(accept(
             listener,
             Arc::clone(&upstream),
-            run.clone(),
+            run.identity.clone(),
             stop.clone(),
         ));
         Ok(Self {
@@ -259,10 +261,15 @@ impl Relay {
     }
 }
 
-/// Accepts the browser's connections until `stop` or the Run's end, each
-/// relayed on a task of its own.
-async fn accept(listener: TcpListener, upstream: Arc<Upstream>, run: Run, stop: CancellationToken) {
-    let ending = run.cancellation().clone();
+/// Accepts the browser's connections until `stop` or the end of the owner
+/// `run` starts its tasks on, each relayed on a task of its own there.
+async fn accept(
+    listener: TcpListener,
+    upstream: Arc<Upstream>,
+    run: RunIdentity,
+    stop: CancellationToken,
+) {
+    let ending = run.owner().child_token();
     let clock = run.clock();
     accepting(
         || listener.accept(),

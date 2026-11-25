@@ -26,8 +26,8 @@ mod net_error;
 /// whose seeds and past crashers `fuzz_replay!` replays on every OS.
 pub use connection::fuzz_pipe;
 pub use connection::{
-    CommandLog, CommandLogImpl, Connection, Driver, Ended, Event as RawEvent, SessionId,
-    Subscription, SubscriptionEnd,
+    Answer, CommandLog, CommandLogImpl, Connection, Driver, Ended, Event as RawEvent, Handing,
+    Handout, MoreSessions, SessionId, Subscription, SubscriptionEnd,
 };
 pub use failure::{Failure, PartyText, Refusal};
 pub use framing::{Framer, FramingError, MAX_FRAME};
@@ -42,8 +42,9 @@ pub trait Command: serde::Serialize {
     type Returns: serde::de::DeserializeOwned;
 }
 
-/// An event of the protocol: its params, tied to its method's name.
-pub trait Event: serde::de::DeserializeOwned {
+/// An event of the protocol: its params, tied to its method's name. Its
+/// readers share one decode of an event's params, each taking a copy.
+pub trait Event: serde::de::DeserializeOwned + Clone + Send + Sync + 'static {
     /// `Domain.event`.
     const METHOD: &'static str;
 }

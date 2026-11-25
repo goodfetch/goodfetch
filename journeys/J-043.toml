@@ -1,0 +1,53 @@
+#:schema ./journey.schema.json
+id = "J-043"
+title = "Drive one page and see nothing leave the machine beyond its site and pinned downloads"
+goal = """
+A person drives one page of a site in a browser Session, on a machine whose \
+Browser cache holds no browser yet and with nothing configured to leave the \
+machine. The page MUST answer the fields read from it, and nothing MUST \
+leave the machine but the page's requests to its site and the \
+digest-pinned download of the browser build: no telemetry, no update check \
+and no browser background traffic. The download MUST be a plain HTTPS GET \
+of the pinned path, with no cookie, no identifier, no query and no user \
+agent naming the install. It extends J-010, Foxhound's Crawl, to a \
+Collie browser Session."""
+area = 4
+product = "collie"
+status = "active"
+covers = ["story:4-80", "story:4-81", "row:SC-10"]
+
+[proving_ground]
+seed = 42
+tasks = [
+  { id = "catalog/2", digest = "de2743ecee728112eb77699863a3de0f0b0319c0e8a701383c7cd261e8235b95" },
+]
+
+[surfaces]
+cli = "M3"
+sdk-typescript = "M3"
+sdk-python = "M3"
+
+[[steps]]
+text = "Start a run with nothing configured to leave the machine, on a Browser cache that holds no browser"
+
+[[steps]]
+text = "Open a page, whose browser is downloaded on first use"
+
+[[steps]]
+text = "Go to a product page of the site"
+
+[[steps]]
+text = "Read the product's ID, name and price from the page"
+
+[[steps]]
+text = "Finish the run"
+
+[[expect]]
+text = "The oracle verifies the product the page's fields answer"
+task = "catalog/2"
+
+[[expect]]
+text = "The browser build was downloaded as one plain GET of its pinned path, with no cookie, no query and no header but its host and the user agent `goodfetch-download`"
+
+[[expect]]
+text = "Every request the Proving ground received went to the product page's host or was that download: no telemetry, no update check and no browser background traffic"

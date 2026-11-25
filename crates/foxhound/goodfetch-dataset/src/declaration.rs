@@ -61,8 +61,12 @@ pub struct Datasets(Arc<Declared>, Keeping);
 /// Whether a crawl keeps the Records its attempts give.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 enum Keeping {
-    /// Each is checked against its Dataset and committed.
+    /// Each is checked against its Dataset, committed and indexed for
+    /// search.
     #[default]
+    Indexed,
+    /// Each is checked and committed, but not indexed:
+    /// `dataset.search.index` is off.
     Records,
     /// None is checked or committed: `dataset.records` is off.
     Nothing,
@@ -196,7 +200,7 @@ impl Datasets {
                     })
                     .collect(),
             }),
-            Keeping::Records,
+            Keeping::Indexed,
         ))
     }
 
@@ -235,20 +239,27 @@ impl Datasets {
     /// The same Datasets, keeping the Records the crawl's attempts give
     /// when `keeps`, its `dataset.records`, and else none: a Record is then
     /// neither validated, encoded nor committed, though one named for a
-    /// Dataset the crawl does not declare is still refused (ADR 0138).
+    /// Dataset the crawl does not declare is still refused (ADR 0138). A
+    /// kept Record is indexed for search when `indexes`, its
+    /// `dataset.search.index`, and else not.
     #[must_use]
-    pub fn keeping_records(self, keeps: bool) -> Self {
-        let keeping = if keeps {
-            Keeping::Records
-        } else {
-            Keeping::Nothing
+    pub fn keeping_records(self, keeps: bool, indexes: bool) -> Self {
+        let keeping = match (keeps, indexes) {
+            (false, _) => Keeping::Nothing,
+            (true, false) => Keeping::Records,
+            (true, true) => Keeping::Indexed,
         };
         Self(self.0, keeping)
     }
 
     /// Whether the crawl keeps the Records its attempts give.
     pub fn keeps_records(&self) -> bool {
-        self.1 == Keeping::Records
+        self.1 != Keeping::Nothing
+    }
+
+    /// Whether the crawl indexes the Records it keeps for search.
+    pub fn indexes_records(&self) -> bool {
+        self.1 == Keeping::Indexed
     }
 
     /// The declarations, in the order declared.
@@ -273,7 +284,7 @@ impl Datasets {
                 })
                 .ok()
             })),
-            Keeping::Records,
+            Keeping::Indexed,
         ))
     }
 

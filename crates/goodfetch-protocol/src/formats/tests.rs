@@ -271,7 +271,8 @@ fn the_registry_lists_every_format_under_its_rule() {
             ("operator-policy", Rule::SharedStore),
             ("user-configuration", Rule::SharedStore),
             ("export", Rule::Default),
-            ("session-export", Rule::Default)
+            ("session-export", Rule::Default),
+            ("recipe-manifest", Rule::Default)
         ]
     );
 }

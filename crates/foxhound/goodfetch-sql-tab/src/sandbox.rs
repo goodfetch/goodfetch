@@ -90,6 +90,16 @@ impl Sandbox {
         }
     }
 
+    /// The connection, where a function beside the run tables registers.
+    pub(crate) fn connection(&self) -> &Connection {
+        &self.connection
+    }
+
+    /// The runs the query selected.
+    pub(crate) fn registered(&self) -> &Arc<Registered> {
+        &self.registered
+    }
+
     /// `Interrupted` once the query was stopped, so no step starts after.
     fn going(&self) -> Result<(), Failure> {
         if self.stopped.load(Ordering::SeqCst) {

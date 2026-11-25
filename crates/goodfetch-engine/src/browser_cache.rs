@@ -42,6 +42,7 @@ use goodfetch_protocol::jsonrpc::ProtocolFailure;
 use goodfetch_protocol::settings::{BROWSERS_PATH_VARIABLE, SettingLimit, SettingsLayer};
 
 pub use artifact::{BuildPlatform, PinnedArtifact, Pins, content_digest};
+pub(crate) use artifact::{FILE, file_digest, tree_digest};
 pub use clean_up::{CleanUp, CleanUpReport, InstalledExecutable, MaxUnusedAge, kept_artifacts};
 pub use copy::{ExecutableCopy, entry_present, hold as hold_copy, place_executable_copy};
 pub use platform::{

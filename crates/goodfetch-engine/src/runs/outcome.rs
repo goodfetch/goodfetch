@@ -5,6 +5,8 @@
 //! audit reads them beside `rpc`'s dispatch records. A record needs only the
 //! Run's identity (ADR 0145).
 
+use goodfetch_protocol::connection::{ENGINE_PANICKED, PanicEnded};
+
 use super::Run;
 use crate::run_identity::RunIdentity;
 
@@ -15,6 +17,19 @@ pub const OUTCOME_TARGET: &str = "goodfetch::run::outcome";
 /// names recorded `error_code` in its run state, which no reply carries.
 pub fn record_outcome(run: &RunIdentity, error_code: &str) {
     tracing::trace!(target: OUTCOME_TARGET, run_id = %run.id(), error_code, "the run recorded an error code");
+}
+
+/// Records, under [`OUTCOME_TARGET`], that a panic in the Run `run` ended
+/// what `ended` names and the Run went on: its trace names
+/// `engine_panicked` with `ended` (ADR 0148), which no reply carries.
+pub fn record_panicked(run: &RunIdentity, ended: PanicEnded) {
+    tracing::trace!(
+        target: OUTCOME_TARGET,
+        run_id = %run.id(),
+        error_code = ENGINE_PANICKED.name,
+        ended = ended.as_str(),
+        "the run recorded an error code"
+    );
 }
 
 impl Run {

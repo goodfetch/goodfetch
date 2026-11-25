@@ -36,7 +36,7 @@ use crate::composition::{Composition, CompositionError};
 use crate::controls::Controls;
 use crate::daemon::{self, DaemonEnd, DaemonOptions};
 use crate::endpoint::Refusals;
-use crate::engine_context::{EngineContext, Stores, os_user};
+use crate::engine_context::{EngineContext, Host, Stores, host_zone, os_user};
 use crate::entropy::Entropy;
 use crate::events::{Events, EventsOptions};
 use crate::forward::ToOwner;
@@ -56,7 +56,7 @@ use crate::runs::{
     CleanUpVersions, Driving, PanicStop, ProgressPart, ReportPart, Runs, RunsSetup, SendWindow,
 };
 use crate::sandbox_probe::{self, SandboxProbe};
-use crate::secrets::{self, Carried, Keychain, ProviderFactory, Secrets};
+use crate::secrets::{self, Carried, DriverSlot, Keychain, ProviderFactory, Secrets};
 use crate::settings::{HostDefaults, HostSearch, Settings, SettingsFiles, get_or_default};
 use crate::tasks::{BlockingPolicy, OwnerKind, TaskOwner};
 use crate::transition::{
@@ -64,6 +64,11 @@ use crate::transition::{
     engine::{EngineEvent, EngineState},
 };
 use crate::transport::{Connection, DaemonListener, Network, TransportError};
+use crate::user_store::UserStoreKind;
+
+/// The stream of the engine's entropy its handlers draw from, such as a
+/// schedule's ID; drawn from the seed alone, so no other owner's draws move.
+const HANDLERS_STREAM: u64 = 1;
 
 /// An engine of one Product, composed and ready to serve.
 #[derive(Clone)]
@@ -79,11 +84,13 @@ pub struct Engine {
     gates: Option<Arc<dyn Gates>>,
     needs_you_sources: Vec<NeedsYouSource>,
     secret_providers: Vec<(Provider, ProviderFactory)>,
+    user_stores: Vec<&'static UserStoreKind>,
     controls: Controls,
     events: EventsOptions,
     metrics: Metrics,
     system: Option<System>,
     audit_events: Option<AuditEvents>,
+    driver_slot: DriverSlot,
     drain_grace: Duration,
 }
 
@@ -138,11 +145,13 @@ impl Engine {
             gates: composition.admission_gates()?,
             needs_you_sources: composition.needs_you_sources(),
             secret_providers: composition.secret_providers(),
+            user_stores: composition.user_stores(),
             controls: composition.controls(),
             events: EventsOptions::default(),
             metrics,
             system: None,
             audit_events: None,
+            driver_slot: DriverSlot::default(),
             drain_grace: get_or_default(None, &DRAIN_GRACE),
         })
     }
@@ -188,6 +197,21 @@ impl Engine {
     pub fn with_audit_events(mut self, events: AuditEvents) -> Self {
         self.audit_events = Some(events);
         self
+    }
+
+    /// The same, filling `slot` with its Secret references' driver once it
+    /// built it, for a part made before it, such as the OTLP exports'
+    /// collector, which reads its client certificate's key through it
+    /// (issue 1648).
+    #[must_use]
+    pub fn with_driver_slot(mut self, slot: DriverSlot) -> Self {
+        self.driver_slot = slot;
+        self
+    }
+
+    /// The slot its Secret references' driver fills once it built it.
+    pub fn driver_slot(&self) -> &DriverSlot {
+        &self.driver_slot
     }
 
     /// The same, its event stream's buffers sized by `options`.
@@ -384,6 +408,7 @@ impl Engine {
                 part_stopped_with(owner, "engine's store connections"),
             ),
             (self.metrics.counted_work().clone(), &governor),
+            &self.user_stores,
         );
         let needs_you = NeedsYou::start(
             &self.needs_you_sources,
@@ -492,7 +517,11 @@ impl Engine {
             stores,
             needs_you,
             sandbox_probe,
-            os_user(&dependencies.environment),
+            Host {
+                person: os_user(&dependencies.environment),
+                zone: host_zone(&dependencies.environment),
+                entropy: dependencies.entropy.stream(HANDLERS_STREAM),
+            },
         );
         let secrets = Secrets::new(
             Carried {
@@ -512,6 +541,7 @@ impl Engine {
             .fold(secrets, |secrets, (provider, factory)| {
                 secrets.with_configured(*provider, Arc::clone(factory))
             });
+        self.driver_slot.fill(&secrets);
         (context, secrets)
     }
 

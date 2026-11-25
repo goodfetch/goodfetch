@@ -77,3 +77,9 @@ oci goodfetch/foxhound latest: publish
 oci goodfetch/charts/foxhound 1.4.0: publish
 oci goodfetch/goodfetch-plugin-archive 1.4.0: publish
 github release v1.4.0: held
+homebrew goodfetch/tap/goodfetch-collie 1.4.0: held
+homebrew goodfetch/tap/goodfetch-foxhound 1.4.0: held
+installer install/collie.sh 1.4.0: held
+installer install/collie.ps1 1.4.0: held
+installer install/foxhound.sh 1.4.0: held
+installer install/foxhound.ps1 1.4.0: held

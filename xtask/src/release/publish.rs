@@ -27,7 +27,10 @@
 //! 7. the GitHub Release's publishing, which makes it immutable, once both
 //!    Products' files are on it (ADR 0094): `held` while any other step of
 //!    either Product is left, so a failed step of one Product holds both,
-//!    and the re-run that finishes it lets the publishing go.
+//!    and the re-run that finishes it lets the publishing go;
+//! 8. for a stable version, each Product's formula in the Homebrew tap,
+//!    then its installers, which fetch its archives from the published
+//!    release: `held` until then ([`installers`]).
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
@@ -45,6 +48,7 @@ use crate::github::{self, List};
 use crate::output;
 use crate::products::Product;
 
+mod installers;
 mod oci;
 
 /// crates.io's sparse index.
@@ -105,6 +109,14 @@ pub(crate) struct Arguments {
     /// stand-in's address.
     #[arg(long, default_value = oci::REGISTRY)]
     oci_registry: String,
+    /// The Homebrew tap's repository, as `owner/name`, read through
+    /// GitHub's API.
+    #[arg(long, default_value = installers::TAP)]
+    tap: String,
+    /// The site the installers are served from: Goodfetch's, or a
+    /// stand-in's address.
+    #[arg(long, default_value = installers::SITE)]
+    site: String,
     #[command(flatten)]
     github: github::Arguments,
 }
@@ -144,6 +156,9 @@ enum PackageState {
     Published,
     /// The registry has never had the name.
     NewName,
+    /// Waits on the GitHub Release's publishing: a formula or an installer
+    /// fetches its archives from there ([`installers`]).
+    Held,
 }
 
 impl fmt::Display for PackageState {
@@ -152,6 +167,7 @@ impl fmt::Display for PackageState {
             Self::Publish => "publish",
             Self::Published => "published",
             Self::NewName => "new name",
+            Self::Held => "held",
         })
     }
 }
@@ -298,14 +314,18 @@ pub(crate) fn run(root: &Path, arguments: &Arguments, token: Option<&str>) -> Re
     let registry = oci::Registry::new(&arguments.oci_registry, token);
     steps.extend(oci::steps(root, &registry, version)?);
     let rest_out = steps.iter().all(Step::done);
+    let release_out = release.is_some_and(|release| !release.draft);
     steps.push(Step::GitHub {
         name: format!("release {tag}"),
-        state: match release {
-            Some(release) if !release.draft => GitHubState::Published,
-            _ if rest_out => GitHubState::Publish,
-            _ => GitHubState::Held,
+        state: match (release_out, rest_out) {
+            (true, _) => GitHubState::Published,
+            (false, true) => GitHubState::Publish,
+            (false, false) => GitHubState::Held,
         },
     });
+    if version.stage == Stage::Stable {
+        steps.extend(installers::steps(&api, arguments, &semver, release_out)?);
+    }
 
     for step in &steps {
         output::line(&step.to_string());

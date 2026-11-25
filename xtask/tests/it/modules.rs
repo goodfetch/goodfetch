@@ -549,3 +549,116 @@ fn test_items_do_not_count_toward_1000_lines() {
     assert_eq!(outcome.findings(), vec![]);
     assert_eq!(outcome.code, 0);
 }
+
+/// The fixture's `modules.toml`, with a `[crates]` table that lets `clock`
+/// alone name the crate `wire`.
+fn modules_file_with_wire_crate(modules: &str) -> String {
+    format!(
+        "[modules]\nclock = []\nretry = [\"clock\"]\ndispatch = [\"retry\"]\n\n[submodules.retry]\nbackoff = [\"policy\"]\npolicy = []\n\n[crates]\nwire = [{modules}]\n"
+    )
+}
+
+/// `clock`, which names the crate `wire` through `naming`.
+fn clock_with(naming: &str) -> String {
+    format!(
+        "//! Time.\n\n{naming}\n\npub(crate) fn now() -> u64 {{\n    0\n}}\n\n/// One beat of the clock, which the crate's root re-exports.\npub struct Tick;\n"
+    )
+}
+
+/// A crate the `[crates]` table names may be named by the modules it lists
+/// alone (ADR 0146): another module's file, a submodule of it, or the crate's
+/// root naming it fails, however it spells the name.
+#[rstest]
+#[case::through_use(
+    DISPATCH,
+    dispatch_with("use wire::Frame"),
+    "goodfetch-engine/dispatch->wire"
+)]
+#[case::in_code(
+    DISPATCH,
+    dispatch_with("let _frame = wire::Frame::default()"),
+    "goodfetch-engine/dispatch->wire"
+)]
+#[case::through_a_leading_colon(
+    DISPATCH,
+    dispatch_with("let _frame = ::wire::Frame::default()"),
+    "goodfetch-engine/dispatch->wire"
+)]
+#[case::inside_a_macro(
+    DISPATCH,
+    dispatch_with("let _frame = vec![wire::Frame::default()]"),
+    "goodfetch-engine/dispatch->wire"
+)]
+#[case::from_a_submodule(
+    "crates/goodfetch-engine/src/dispatch/route.rs",
+    "//! Routes.\n\npub(crate) fn route() -> u64 {\n    wire::LIMIT\n}\n".to_owned(),
+    "goodfetch-engine/dispatch->wire"
+)]
+#[case::from_the_root(
+    ROOT,
+    root_with("pub use wire::Frame;"),
+    "goodfetch-engine/lib.rs->wire"
+)]
+fn naming_a_crate_outside_the_modules_it_lists_fails(
+    #[case] file: &str,
+    #[case] text: String,
+    #[case] subject: &str,
+) {
+    let workspace = Workspace::from_fixture("modules");
+    workspace.write(
+        MODULES_FILE,
+        modules_file_with_wire_crate("\"clock\"").as_bytes(),
+    );
+    workspace.write(CLOCK, clock_with("use wire::Frame;").as_bytes());
+    workspace.write(file, text.as_bytes());
+
+    let outcome = workspace.xtask(&["modules"]);
+
+    assert_eq!(
+        outcome.findings(),
+        vec![finding("forbidden-crate", subject)]
+    );
+    assert_eq!(outcome.code, 1);
+}
+
+/// The modules the table lists, and every module's `#[cfg(test)]` code,
+/// name the crate freely; a crate the table does not name is anyone's.
+#[test]
+fn naming_a_crate_from_the_modules_it_lists_or_from_tests_passes() {
+    let workspace = Workspace::from_fixture("modules");
+    workspace.write(
+        MODULES_FILE,
+        modules_file_with_wire_crate("\"clock\"").as_bytes(),
+    );
+    workspace.write(CLOCK, clock_with("use wire::Frame;").as_bytes());
+    workspace.write(
+        DISPATCH,
+        format!(
+            "{}\n#[cfg(test)]\nmod tests {{\n    use wire::Frame;\n}}\n",
+            dispatch_with("let _other = other_crate::Frame::default()")
+        )
+        .as_bytes(),
+    );
+
+    let outcome = workspace.xtask(&["modules"]);
+
+    assert_eq!(outcome.findings(), vec![]);
+    assert_eq!(outcome.code, 0);
+}
+
+#[test]
+fn crate_table_naming_no_module_fails() {
+    let workspace = Workspace::from_fixture("modules");
+    workspace.write(
+        MODULES_FILE,
+        modules_file_with_wire_crate("\"clock\", \"nowhere\"").as_bytes(),
+    );
+
+    let outcome = workspace.xtask(&["modules"]);
+
+    assert_eq!(
+        outcome.findings(),
+        vec![finding("unknown-module", "goodfetch-engine/nowhere")]
+    );
+    assert_eq!(outcome.code, 1);
+}

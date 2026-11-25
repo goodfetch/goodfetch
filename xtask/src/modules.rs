@@ -9,9 +9,12 @@
 //! the same rules among themselves, the module's own `use` items read as the
 //! root's are. A file past 1,000
 //! lines must state why it is still one concern in a `Size:` line of its `//!`
-//! header. Source is parsed with `syn`, so nothing is built; a module's file
-//! is found as `rustc` finds it, through its `#[path]` when it has one, and
-//! `#[cfg(test)]` code, the crate root and generated code are not checked.
+//! header. A `[crates]` table names another crate with the top-level modules
+//! that alone may name it (ADR 0146's boundary): any other module's file, or
+//! the crate's root, that names it fails. Source is parsed with `syn`, so
+//! nothing is built; a module's file is found as `rustc` finds it, through its
+//! `#[path]` when it has one, `#[cfg(test)]` code and generated code are not
+//! checked, and the crate root only for its re-exports and the crates it names.
 #![expect(
     clippy::disallowed_methods,
     reason = "xtask is synchronous; the blocking-fs ban targets async crates (STYLE.md)"
@@ -42,6 +45,10 @@ struct ModulesFile {
     /// A module's own submodules' rules, by the module's name.
     #[serde(default)]
     submodules: BTreeMap<String, BTreeMap<String, Vec<String>>>,
+    /// Each other crate that only some top-level modules may name, by the
+    /// name code spells it with, with those modules.
+    #[serde(default)]
+    crates: BTreeMap<String, Vec<String>>,
 }
 
 /// One source file of a module, parsed.
@@ -90,8 +97,9 @@ fn check_crate(
     let rules: ModulesFile =
         toml::from_str(&text).with_context(|| format!("parsing {}", modules_path.display()))?;
 
-    let top_level = top_level(root, package, crate_folder, findings)?;
+    let (top_level, roots) = top_level(root, package, crate_folder, findings)?;
     let modules = &top_level.modules;
+    walled_crates(name, &rules.crates, modules, &roots, findings);
     top_level.glob_re_exports(&format!("{name}/"), "the root", findings);
 
     for (source, _) in modules.values().flatten() {
@@ -128,6 +136,7 @@ fn check_crate(
         .modules
         .iter()
         .flat_map(|(module, allowed)| std::iter::once(module).chain(allowed))
+        .chain(rules.crates.values().flatten())
         .collect();
     for unknown in named
         .into_iter()
@@ -224,13 +233,15 @@ impl Level {
     }
 }
 
+/// The crate's top-level modules, and its roots, parsed.
 fn top_level(
     root: &Path,
     package: &metadata::Package,
     crate_folder: &Path,
     findings: &mut Vec<Finding>,
-) -> Result<Level> {
+) -> Result<(Level, Vec<Source>)> {
     let mut top_level = Level::default();
+    let mut roots = Vec::new();
     for crate_root in crate_roots(package, crate_folder) {
         let source = parse(
             &crate_root,
@@ -252,8 +263,77 @@ fn top_level(
                 _ => {}
             }
         }
+        roots.push(source);
     }
-    Ok(top_level)
+    Ok((top_level, roots))
+}
+
+/// ADR 0146's boundary: a crate `crates` names is named by the top-level
+/// modules it lists alone, never by another module's non-test code nor by a
+/// root's items other than its module declarations.
+fn walled_crates(
+    name: &str,
+    crates: &BTreeMap<String, Vec<String>>,
+    modules: &BTreeMap<String, Vec<(Source, usize)>>,
+    roots: &[Source],
+    findings: &mut Vec<Finding>,
+) {
+    for (walled, allowed) in crates {
+        let message = format!(
+            "{MODULES_FILE}'s [crates] lets only {} name `{walled}`",
+            allowed.join(", ")
+        );
+        for (module, files) in modules {
+            let names = files.iter().any(|(source, _)| {
+                non_test_items(&source.syntax.items).any(|item| names_crate(item, walled))
+            });
+            if names && !allowed.contains(module) {
+                findings.push(Finding::new(
+                    "forbidden-crate",
+                    format!("{name}/{module}->{walled}"),
+                    message.clone(),
+                ));
+            }
+        }
+        for source in roots {
+            let names = non_test_items(&source.syntax.items)
+                .filter(|item| !matches!(item, syn::Item::Mod(_)))
+                .any(|item| names_crate(item, walled));
+            if names {
+                let file = source
+                    .path
+                    .file_name()
+                    .unwrap_or_default()
+                    .to_string_lossy();
+                findings.push(Finding::new(
+                    "forbidden-crate",
+                    format!("{name}/{file}->{walled}"),
+                    message.clone(),
+                ));
+            }
+        }
+    }
+}
+
+/// Whether an item's non-test code, macro invocations' included, names the
+/// crate `walled`.
+fn names_crate(item: &syn::Item, walled: &str) -> bool {
+    if let syn::Item::Mod(syn::ItemMod {
+        content: Some((_, items)),
+        ..
+    }) = item
+    {
+        return non_test_items(items).any(|inner| names_crate(inner, walled));
+    }
+    names_in_tokens(item.to_token_stream(), walled)
+}
+
+fn names_in_tokens(stream: TokenStream, walled: &str) -> bool {
+    stream.into_iter().any(|token| match token {
+        TokenTree::Ident(ident) => ident == walled,
+        TokenTree::Group(group) => names_in_tokens(group.stream(), walled),
+        TokenTree::Punct(_) | TokenTree::Literal(_) => false,
+    })
 }
 
 /// The rules of one module's `[submodules.<module>]` table over its direct

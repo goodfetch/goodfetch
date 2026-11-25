@@ -15,6 +15,7 @@ mod body_limits;
 mod browser;
 mod browser_builds;
 mod browserless;
+mod cache_host;
 mod canaries;
 mod canvas;
 mod clients;

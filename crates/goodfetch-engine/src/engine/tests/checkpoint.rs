@@ -37,7 +37,7 @@ use crate::composition::{CallContext, Contribution, Handler};
 use crate::engine::Engine;
 use crate::run::format_refusal;
 use crate::run_state::RunStateTables;
-use crate::runs::{EndedBy, Run, Start, Started};
+use crate::runs::{self, EndedBy, Run, Start, Started};
 use crate::transport::{self, Network};
 
 mod behind;
@@ -129,13 +129,14 @@ fn keeping() -> Contribution {
                     let Started::New(run) = started else {
                         panic!("the Run began before");
                     };
-                    let run_id = run.id().to_string();
+                    let identity = runs::identity(&run);
+                    let run_id = identity.id().to_string();
                     let held = Arc::new(run.clone());
                     kept.lock()
                         .await
                         .insert(run_id.clone(), Arc::downgrade(&held));
-                    run.spawn(async move {
-                        held.cancellation().cancelled().await;
+                    identity.spawn(async move {
+                        runs::identity(&held).owner().cancelled().await;
                     });
                     Ok::<Value, CallError>(json!({ "run_id": run_id }))
                 }
@@ -154,9 +155,9 @@ fn keeping() -> Contribution {
                         .map(drop)
                 };
                 if params["rides"] == json!(true) {
-                    run.state().write_deferred(note).await.unwrap();
+                    runs::state(&run).write_deferred(note).await.unwrap();
                 } else {
-                    run.state().write(note).await.unwrap();
+                    runs::state(&run).write(note).await.unwrap();
                 }
                 Ok::<Value, CallError>(json!({ "noted": value }))
             }
@@ -685,10 +686,13 @@ enum Taken {
 /// it is asked (ADR 0142): a note that rode the open batch, in no commit
 /// yet, is in the copy, whether `run.checkpoint`, `run.migrate`, a clean
 /// stop or `checkpoint.interval` took it.
-/// Covers: story:3-30, setting:run_state.batch.interval, setting:checkpoint.interval, operation:run.checkpoint, operation:run.migrate, operation:run.pause
+/// Covers: story:3-30, setting:run_state.batch.interval, setting:checkpoint.interval
 #[rstest::rstest]
+/// Covers: operation:run.checkpoint
 #[case::asked(Taken::Asked)]
+/// Covers: operation:run.migrate
 #[case::migrated(Taken::Migrated)]
+/// Covers: operation:run.pause
 #[case::paused(Taken::Paused)]
 #[case::periodic(Taken::Periodic)]
 fn every_checkpoint_first_writes_the_open_run_state_batch(#[case] taken: Taken) {

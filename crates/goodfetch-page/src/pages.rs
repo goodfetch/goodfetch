@@ -52,10 +52,10 @@ use goodfetch_engine::browser_cache::PinnedArtifact;
 use goodfetch_engine::deadline::Deadline;
 use goodfetch_engine::egress::{self, Navigator};
 use goodfetch_engine::hostile_input::check_headers;
-use goodfetch_engine::ledger::Refusal as LedgerRefusal;
+use goodfetch_engine::ledger::{ChargeError, Refusal as LedgerRefusal};
 use goodfetch_engine::response_limits::Limits;
 use goodfetch_engine::run::{limit_not_understood, limit_reached};
-use goodfetch_engine::runs::{ChargeError, Run};
+use goodfetch_engine::runs::Run;
 use goodfetch_engine::settings::RunSettings;
 use goodfetch_engine::{CallContext, CallError, Contribution, Enclose, Guard, Handler, named};
 use goodfetch_extractor::{BuiltIn, Serialization};
@@ -488,14 +488,13 @@ fn with_session_handlers(contribution: Contribution, sessions: &Sessions) -> Con
             move |params: NewSessionPageParams, context: CallContext| {
                 let sessions = paging.clone();
                 async move {
-                    sessions
-                        .new_page(
-                            &params.session_id,
-                            &params.settings,
-                            &HeldPlace::default(),
-                            &context,
-                        )
-                        .await
+                    Box::pin(sessions.new_page(
+                        &params.session_id,
+                        &params.settings,
+                        &HeldPlace::default(),
+                        &context,
+                    ))
+                    .await
                 }
             },
         ))

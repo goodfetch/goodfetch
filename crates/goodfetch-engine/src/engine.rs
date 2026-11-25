@@ -423,7 +423,7 @@ impl Engine {
                 Arc::new(owner.part("engine's stores")),
                 part_stopped_with(owner, "engine's store connections"),
             ),
-            self.metrics.counted_work().clone(),
+            (self.metrics.counted_work().clone(), &governor),
             &self.user_stores,
         );
         let needs_you = NeedsYou::start(

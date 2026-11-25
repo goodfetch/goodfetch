@@ -6,6 +6,9 @@
 //! A case gives each of its pages a name of its own.
 //!
 //! - `/fresh/<name>` may be kept for an hour (`Cache-Control: max-age=3600`).
+//! - `/large/<name>` is a `/fresh/` page weighing over a mebibyte, its
+//!   weight in an HTML comment, so a case fills the cache to its size cap
+//!   in a few pages whose text stays short.
 //! - `/stale/<name>` is stale at once (`max-age=0`), with the validators
 //!   `ETag: "<name>-v1"` and a `Last-Modified` in the past: a request
 //!   naming either, in `If-None-Match` or `If-Modified-Since`, is answered
@@ -28,12 +31,19 @@ pub(super) const HOST: &str = "cache.test";
 /// When every stale page was last modified: a date before any run.
 const LAST_MODIFIED: &str = "Thu, 01 Jan 2026 00:00:00 GMT";
 
+/// The bytes of the comment that weighs a large page: one mebibyte.
+const LARGE_WEIGHT: usize = 1 << 20;
+
 /// The answer to `request`, its path asked for `earlier` times before.
 pub(super) fn answer(request: &Request, earlier: u64) -> Answer {
     let path = request.path();
     let answer = earlier + 1;
     if path.starts_with("/fresh/") {
         return Answer::Page(page(path, answer, "").with("cache-control", "max-age=3600"));
+    }
+    if path.starts_with("/large/") {
+        let weight = format!("<!-- {} -->", "x".repeat(LARGE_WEIGHT));
+        return Answer::Page(page(path, answer, &weight).with("cache-control", "max-age=3600"));
     }
     if let Some(name) = path.strip_prefix("/stale/") {
         let etag = format!("\"{name}-v1\"");

@@ -803,7 +803,12 @@ impl Case {
                 checks,
             ),
             Self::ServiceWorker(case) => case.run(connection, target, site, checks),
-            Self::FetchTier(case) => case.run(connection, site, checks),
+            Self::FetchTier(case) => case.run(
+                connection,
+                target.environment.get("GOODFETCH_HOME").map(String::as_str),
+                site,
+                checks,
+            ),
         }
     }
 }

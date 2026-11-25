@@ -3408,7 +3408,7 @@
     {
       "id": "format:accounts-store",
       "kind": "format",
-      "area": null,
+      "area": 12,
       "milestone": null,
       "status": "active",
       "products": [
@@ -8763,7 +8763,7 @@
     {
       "id": "setting:accounts.enabled",
       "kind": "setting",
-      "area": null,
+      "area": 12,
       "milestone": null,
       "status": "active",
       "products": [

@@ -1513,6 +1513,18 @@ number = 12
 kind = "error"
 prefix = "connection_lost"
 
+# Area 12's Accounts store (#1941, spec #1937): `accounts.enabled` and the
+# store's format.
+[[area]]
+number = 12
+kind = "setting"
+prefix = "accounts."
+
+[[area]]
+number = 12
+kind = "format"
+prefix = "accounts-store"
+
 # Area 11, the Client surfaces (spec #608): the Error code a CLI command
 # fails with when no Daemon answers it (G14).
 [[area]]

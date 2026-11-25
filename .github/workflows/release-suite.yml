@@ -584,6 +584,8 @@ jobs:
         run: |
           cargo test --locked -p goodfetch-confinement --test it --no-run
           cargo build --locked --bin xtask
+      - name: Set up the OS services the tests use
+        run: ci/os-services.sh setup
       - name: Deny outbound traffic
         run: ci/egress/egress.sh deny
       - name: Refuse the Egress canary

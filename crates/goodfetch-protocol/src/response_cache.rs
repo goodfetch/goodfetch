@@ -64,7 +64,7 @@ pub const CACHE_MODE: Setting = Setting {
     authority: Authority::Every,
     weakens: None,
     fixed_for_run: false,
-    unbuilt: Some("response_cache"),
+    unbuilt: None,
     deprecated: None,
     arrived_in: ARRIVED_IN,
 };

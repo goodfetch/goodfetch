@@ -13,6 +13,7 @@ use std::sync::{Arc, PoisonError};
 
 use goodfetch_counted_work::CountedWork;
 use goodfetch_protocol::connection::ProductVersion;
+use goodfetch_protocol::response_cache::{CACHE_MODE, CacheMode};
 use jiff::Timestamp;
 use jiff::tz::TimeZone;
 
@@ -24,10 +25,10 @@ use crate::home::Home;
 use crate::known_certificates::KnownCertificates;
 use crate::ledger::Ledger;
 use crate::needs_you::NeedsYou;
-use crate::response_cache::ResponseCache;
+use crate::response_cache::{ResponseCache, ResponseSource};
 use crate::run_index::RunIndex;
 use crate::sandbox_probe::SandboxProbe;
-use crate::settings::Settings;
+use crate::settings::{Resolved, Settings};
 use crate::sync::Mutex;
 use crate::tasks::TaskOwner;
 use crate::user_store::{UserStore, UserStoreKind};
@@ -274,10 +275,13 @@ impl EngineContext {
         &self.stores.run_index
     }
 
-    /// The user's Response cache of the engine's major (ADR 0046), which
-    /// the fetch tiers and the Crawler's deliveries read and fill.
-    pub fn response_cache(&self) -> &ResponseCache {
-        &self.stores.response_cache
+    /// Where the responses of a Run whose settings are `settings` come
+    /// from (ADR 0046): the one value the fetch transports and the
+    /// interception consult, which reads and fills the user's Response
+    /// cache of the engine's major unless the Run's `cache.mode` is `off`.
+    pub fn response_source(&self, settings: &Resolved) -> ResponseSource {
+        let mode = CacheMode::parse(settings.get(&CACHE_MODE)).unwrap_or(CacheMode::Off);
+        ResponseSource::of(&self.stores.response_cache, mode)
     }
 
     /// Where reads and writes of these stores block, which the Run registry

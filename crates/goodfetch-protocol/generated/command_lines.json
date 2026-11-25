@@ -174,6 +174,23 @@
         "commands": [
           {
             "commands": [],
+            "name": "stats"
+          },
+          {
+            "commands": [],
+            "name": "clear"
+          },
+          {
+            "commands": [],
+            "name": "verify"
+          }
+        ],
+        "name": "cache"
+      },
+      {
+        "commands": [
+          {
+            "commands": [],
             "name": "info"
           }
         ],
@@ -571,6 +588,23 @@
       {
         "commands": [],
         "name": "upgrade-files"
+      },
+      {
+        "commands": [
+          {
+            "commands": [],
+            "name": "stats"
+          },
+          {
+            "commands": [],
+            "name": "clear"
+          },
+          {
+            "commands": [],
+            "name": "verify"
+          }
+        ],
+        "name": "cache"
       },
       {
         "commands": [

@@ -2899,6 +2899,9 @@ form = "type"
 entries = [
   "audit.export",
   "audit.verify",
+  "cache.clear",
+  "cache.stats",
+  "cache.verify",
   "certs.list",
   "daemon.health",
   "daemon.status",

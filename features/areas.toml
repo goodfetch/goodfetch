@@ -776,11 +776,22 @@ number = 6
 kind = "setting"
 prefix = "session.pool."
 
-# The Response cache (spec #580, #793, ADR 0046): its settings, the
-# refusal of a `replay` the Operator policy does not allow, and its format.
+# The Response cache (spec #580, #793, #798, ADR 0046): its settings, the
+# refusal of a `replay` the Operator policy does not allow, its format, and
+# its upkeep's `cache.*` operations with their commands.
 [[area]]
 number = 6
 kind = "setting"
+prefix = "cache."
+
+[[area]]
+number = 6
+kind = "operation"
+prefix = "cache."
+
+[[area]]
+number = 6
+kind = "command"
 prefix = "cache."
 
 [[area]]

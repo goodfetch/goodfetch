@@ -37,6 +37,9 @@
 //! holding the cache is at `low` or `critical` it stores nothing new (ADR
 //! 0122), and still serves and revalidates what it holds.
 //!
+//! Its upkeep ([`upkeep`]) counts, clears and verifies one person's
+//! entries, and deletes a discarded Run's (ADR 0001).
+//!
 //! Counted work (ADR 0140): a lookup that queries the index counts once on
 //! `C5.cache_lookups`, a body file opened to serve a hit once on
 //! `C5.cache_file_opens`, and a body file written, or the bodies' folder
@@ -51,6 +54,7 @@ mod bounds;
 mod canonical;
 pub mod freshness;
 pub mod source;
+mod upkeep;
 
 use std::io::{Read as _, Write as _};
 use std::path::{Path, PathBuf};
@@ -72,6 +76,7 @@ use self::bounds::{Weighed, evictions, index_time};
 pub use self::freshness::{CacheRequest, ResponseHead};
 use self::freshness::{Freshness, Stored};
 pub use self::source::{Recording, Replaying, ResponseSource, Served, Source};
+pub use self::upkeep::Clearing;
 use crate::governor::{Held, StorageSample};
 use crate::sqlite_store::{
     self, Access, Durability, File, Folder, FormatRefusal, FullFsync, KeptStore, OpenError,
@@ -884,21 +889,31 @@ impl CacheFile {
             let_go(connection)
         })
         .map_err(|error| self.failed(&error))?;
+        self.remove_bodies(&let_go);
+        Ok(())
+    }
+
+    /// Deletes the files of `let_go`, bodies no entry holds any more, and
+    /// answers how many were there; one that cannot be deleted stays, and
+    /// is logged.
+    fn remove_bodies(&self, let_go: &[(String, u64)]) -> u64 {
         let bodies = self.folder.join(BODIES);
-        for sha256 in let_go.iter().filter(|sha256| is_sha256(sha256)) {
+        let mut removed = 0;
+        for (sha256, _) in let_go.iter().filter(|(sha256, _)| is_sha256(sha256)) {
             let path = bodies.join(sha256);
             #[expect(
                 clippy::disallowed_methods,
                 reason = "the writer's job is blocking work, on its own thread"
             )]
-            let removed = std::fs::remove_file(&path);
-            if let Err(error) = removed
-                && error.kind() != std::io::ErrorKind::NotFound
-            {
-                tracing::warn!(error = %body_failed(&path, &error), "a body file the Response cache let go stays");
+            match std::fs::remove_file(&path) {
+                Ok(()) => removed += 1,
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+                Err(error) => {
+                    tracing::warn!(error = %body_failed(&path, &error), "a body file the Response cache let go stays");
+                }
             }
         }
-        Ok(())
+        removed
     }
 
     /// The body of `entry`, read whole from its file; none when its file is
@@ -1143,12 +1158,18 @@ fn evict(connection: &Connection, cap: u64) -> rusqlite::Result<()> {
     }
 }
 
-/// Deletes the bodies no entry holds any more, and answers them.
-fn let_go(connection: &Connection) -> rusqlite::Result<Vec<String>> {
+/// Deletes the bodies no entry holds any more, and answers them with their
+/// sizes.
+fn let_go(connection: &Connection) -> rusqlite::Result<Vec<(String, u64)>> {
     let unheld = connection
-        .prepare_cached("SELECT sha256 FROM bodies WHERE holders = 0")?
-        .query_map([], |row| row.get(0))?
-        .collect::<rusqlite::Result<Vec<String>>>()?;
+        .prepare_cached("SELECT sha256, size FROM bodies WHERE holders = 0")?
+        .query_map([], |row| {
+            Ok((
+                row.get(0)?,
+                u64::try_from(row.get::<_, i64>(1)?).unwrap_or(0),
+            ))
+        })?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
     connection
         .prepare_cached("DELETE FROM bodies WHERE holders = 0")?
         .execute([])?;

@@ -8,6 +8,12 @@
         product: Product::Collie,
     },
     Namespace {
+        name: "cache",
+        spelled: "cache",
+        about: "Calls the catalog's `cache` operations",
+        product: Product::Collie,
+    },
+    Namespace {
         name: "certs",
         spelled: "certs",
         about: "Calls the catalog's `certs` operations",

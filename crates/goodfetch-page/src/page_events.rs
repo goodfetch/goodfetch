@@ -228,7 +228,9 @@ pub(crate) struct PageEvents {
 }
 
 struct Shared {
-    page_id: PageId,
+    /// The Page ID of the request the page serves now, which its events
+    /// and errors name (ADR 0146); written under `state`.
+    page_id: watch::Sender<PageId>,
     driver: PageDriver,
     /// The primitives its events turn on and read bodies by.
     cdp: CdpPage,
@@ -265,6 +267,11 @@ struct Shared {
 }
 
 impl Shared {
+    /// The Page ID of the request the page serves now.
+    fn page_id(&self) -> PageId {
+        self.page_id.borrow().clone()
+    }
+
     /// Starts `future` as one of the Run's tasks, in its span.
     fn spawn(&self, future: impl Future<Output = ()> + Send + 'static) {
         self.run.identity.spawn(future);
@@ -467,10 +474,10 @@ impl Listening {
             }
         }
         if self.overflowed.try_recv().is_ok() {
-            return Err(listener_fell_behind(&self.shared.page_id, self.event));
+            return Err(listener_fell_behind(&self.shared.page_id(), self.event));
         }
         if *self.shared.lost.borrow() {
-            return Err(events_lost(&self.shared.page_id));
+            return Err(events_lost(&self.shared.page_id()));
         }
         Ok(())
     }
@@ -539,7 +546,7 @@ impl PageEvents {
         let cdp = CdpPage::of(&driver);
         let followed = cdp.followed_events();
         let shared = Arc::new(Shared {
-            page_id,
+            page_id: watch::Sender::new(page_id),
             cdp,
             driver,
             events,
@@ -699,10 +706,11 @@ impl PageEvents {
     /// Sends `event`, the page's `page.crash` or `page.close`, to each call
     /// that listens to `name`.
     pub(crate) fn publish_end(&self, name: PageEventName, event: &'static Event) {
+        let mut state = lock(&self.shared.state);
         let fired = PageFired {
-            page_id: self.shared.page_id.clone(),
+            page_id: self.shared.page_id(),
         };
-        emit(&mut lock(&self.shared.state), name, event, &fired);
+        emit(&mut state, name, event, &fired);
     }
 
     /// Sends `event` with `data`, an event of the page the engine itself
@@ -727,6 +735,20 @@ impl PageEvents {
         // Closed first, so a listener armed from now arms nothing.
         self.shared.closed.send_replace(true);
         answer_every_waiter(&self.shared);
+    }
+
+    /// The page's request part was replaced: it serves the request `next`
+    /// now (ADR 0146). Its events name `next` from now; each listener of
+    /// the earlier request's calls answers once it sent the events it
+    /// holds; and the mark that `Runtime` was asked for goes with them, so
+    /// a console call or exception from before the next `page.on` that asks
+    /// for it again is not passed on. `Runtime` stays on in the browser
+    /// until #2182's release turns it off.
+    pub(crate) fn replace_request(&self, next: PageId) {
+        let mut state = lock(&self.shared.state);
+        state.listeners.clear();
+        state.runtime_since = None;
+        self.shared.page_id.send_replace(next);
     }
 
     /// The wait until no `page.on` of the page sent before now is still
@@ -999,7 +1021,7 @@ fn observe(shared: &Arc<Shared>, response: &PageResponse, received: Option<u64>)
             .map(|(name, value)| (name.clone(), value.clone()))
             .collect();
         let passed = ObservedResponse {
-            page_id: &shared.page_id,
+            page_id: &shared.page_id(),
             url: &response.url,
             body_length: body.as_ref().map_or(0, Vec::len),
             status: response.status,
@@ -1058,7 +1080,7 @@ fn cut(url: &str, received: u64, expected: Option<u64>) -> CallError {
 /// `page_events_lost` once its reader lost its events while it was open.
 fn gone(shared: &Shared) -> CallError {
     if *shared.lost.borrow() {
-        return events_lost(&shared.page_id);
+        return events_lost(&shared.page_id());
     }
     CallError::new(
         &goodfetch_protocol::connection::CLOSED,
@@ -1153,7 +1175,7 @@ async fn read(mut followed: FollowedEvents, shared: Arc<Shared>) {
     let lost = followed.fell_behind() && !*closed.borrow();
     if lost {
         tracing::warn!(
-            page_id = %shared.page_id.0,
+            page_id = %shared.page_id().0,
             "the page's events fell too far behind and some are lost: its calls on events raise `page_events_lost`"
         );
         shared.lost.send_replace(true);
@@ -1346,7 +1368,7 @@ fn sent_request(
         answer_waiters(shared, state, request, response, None);
     }
     let request = PageRequest {
-        page_id: shared.page_id.clone(),
+        page_id: shared.page_id(),
         request_id: hop_id(sent.network_id(), chain.len()),
         url: sent.url().to_owned(),
         method: sent.method().to_owned(),
@@ -1449,7 +1471,7 @@ fn failed_request(shared: &Shared, state: &mut State, failed: &LoadingFailed, ho
 /// The events of sockets, of the main frame's document and of the
 /// `Runtime` domain.
 fn take_in_other(shared: &Shared, state: &mut State, event: FollowedEvent) {
-    let page_id = &shared.page_id;
+    let page_id = &shared.page_id();
     match event {
         FollowedEvent::SocketCreated { id, url } => {
             state.sockets.insert(id.clone(), url.clone());

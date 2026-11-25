@@ -5,13 +5,15 @@ use goodfetch_protocol::connection::Form;
 use goodfetch_protocol::page::PageId;
 use goodfetch_protocol::page::events::PageEventName;
 use goodfetch_protocol::settings::TIMEOUT_WAIT;
+use goodfetch_test_support::{TestEnv, runtime};
 use rstest::rstest;
 use serde_json::{Value, json};
 use tokio::sync::mpsc::error::TryRecvError;
 
 use super::{Listening, PageEvents, Refusals, listener_fell_behind};
 use crate::driver::PageDriver;
-use crate::live_run::LiveRun;
+use crate::driver::replay::{answer, event};
+use crate::live_run::{LiveRun, played_page};
 
 /// The events of the page `page_id`, which `driver` drives for the test's
 /// Run, read as its Session reads them.
@@ -124,4 +126,66 @@ fn each_listened_event_is_the_catalogs(
         listened.name.strip_prefix("page."),
         Some(goodfetch_protocol::wire_name::of(&event))
     );
+}
+
+/// The mark that `Runtime` was asked for belongs to the request (ADR
+/// 0146): once the page's request part was replaced, the earlier request's
+/// listener has ended, and the next request's first `page.on("console")`
+/// asks for `Runtime` again; its listener hears the console calls made
+/// since, each naming the next request's Page ID.
+#[test]
+fn a_replaced_request_asks_for_runtime_again_and_its_events_name_its_page_id() {
+    let (first, next) = (PageId("page-1".to_owned()), PageId("page-2".to_owned()));
+
+    let (earlier_ended, asked_again, heard) = runtime().block_on(async {
+        let env = TestEnv::new();
+        let (live, mut engine) = LiveRun::start(&env).await;
+        let (driver, mut played, mut connection) = played_page();
+        let events = started(&first, &driver, &live);
+        let replaced = async {
+            let mut earlier = events.listen(PageEventName::Console);
+            let enable = played.command().await;
+            assert_eq!(enable["method"], "Runtime.enable", "{enable}");
+            assert!(played.send(&[answer(&enable, json!({}))]).await);
+            events.replace_request(next.clone());
+            let (_, earlier_ended) = earlier.taken();
+            let mut listening = events.listen(PageEventName::Console);
+            let again = played.command().await;
+            assert!(played.send(&[answer(&again, json!({}))]).await);
+            let called = event(
+                "Runtime.consoleAPICalled",
+                json!({
+                    "type": "log",
+                    "args": [{ "type": "string", "value": "the next request's" }],
+                    "executionContextId": 1,
+                    // Past any clock the Run reads, so after the ask.
+                    "timestamp": 1.0e15,
+                }),
+            );
+            assert!(played.send(&[called]).await);
+            let heard = listening
+                .heard()
+                .await
+                .expect("the next request's listener ended");
+            (earlier_ended, again["method"].clone(), heard)
+        };
+        let ran = tokio::select! {
+            biased;
+            ran = replaced => ran,
+            () = &mut engine => panic!("the engine ended before the test"),
+            () = &mut connection => panic!("the page's connection ended before the test"),
+        };
+        drop((events, live));
+        // The Run ends once the page's reads did, at the connection's end.
+        drop((driver, played));
+        tokio::join!(engine, connection);
+        ran
+    });
+
+    assert!(
+        earlier_ended,
+        "the earlier request's listener still listens"
+    );
+    assert_eq!(asked_again, "Runtime.enable");
+    assert_eq!(heard["page_id"], "page-2", "{heard}");
 }

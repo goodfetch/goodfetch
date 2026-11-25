@@ -337,12 +337,16 @@ impl PageOwners {
 
     /// The open Page `page_id` serves its next request as `next`, its
     /// owner's handle for it `owner`: the index names it by `next` alone,
-    /// its request part is replaced, its events and dialogs naming `next`
-    /// and its earlier request's listeners and dialog handlers ending, and
-    /// a panic of one of its tasks names `next`.
+    /// its request part is replaced, its events and dialogs naming `next`,
+    /// its earlier request's listeners and dialog handlers ending and its
+    /// init scripts removed, and a panic of one of its tasks names `next`.
     pub(crate) fn renamed(&self, page_id: &PageId, next: PageId, owner: PageOwner) {
         let request = Arc::clone(&owner.request);
-        let (events, dialogs) = (owner.events().clone(), owner.dialogs().clone());
+        let (events, dialogs, scripts) = (
+            owner.events().clone(),
+            owner.dialogs().clone(),
+            owner.init_scripts().clone(),
+        );
         let earlier = {
             let mut held = self.held();
             let earlier = held.remove(page_id);
@@ -352,6 +356,7 @@ impl PageOwners {
         drop(earlier);
         events.replace_request(next.clone());
         dialogs.replace_request(next.clone());
+        scripts.replace_request(next.clone());
         request.send_replace(next);
     }
 

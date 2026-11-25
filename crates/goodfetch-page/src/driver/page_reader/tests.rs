@@ -58,8 +58,9 @@
 //!   `closed`; each ask names the Page ID of the request the page serves;
 //! - each init script is registered once the browser took its addition, and
 //!   the page's navigations wait, while the page is open, exactly while an
-//!   addition or a removal is on its way; a script dropped is removed, at
-//!   once once registered, or else once its addition was taken;
+//!   addition or a removal is on its way; a script dropped, or one whose
+//!   call's request part was replaced, is removed, at once once
+//!   registered, or else once its addition was taken;
 //! - each Page API call's ask for its reads is answered at once, whatever
 //!   Gestures hold the turn or wait for it, and raises `closed` once the
 //!   Session's owner ended;
@@ -727,9 +728,16 @@ impl Reference {
 
     /// The page's request part is replaced: what listened or was armed for
     /// its earlier request ends, the failure a dialog handler left goes,
-    /// and what belongs to its browser's page, its parts' subscriptions and
-    /// its frames, stays.
+    /// its init scripts' calls end, each registered script removed and each
+    /// other removed once its addition was taken, and what belongs to its
+    /// browser's page, its parts' subscriptions and its frames, stays.
     fn release(&mut self) {
+        for (n, registered) in std::mem::take(&mut self.scripts) {
+            if registered {
+                self.commands.push(Scripted::Remove(n));
+                self.pending += 1;
+            }
+        }
         for heard in &mut self.listeners {
             if heard.listened == Listened::Going {
                 heard.listened = Listened::Ended;
@@ -1524,9 +1532,15 @@ impl Subject {
             .owners
             .get(&self.page_id)
             .expect("invariant: a page is released while it is open");
-        self.owners
-            .renamed(&self.page_id, next.clone(), owner.for_request(&next));
+        {
+            // The replacement removes the earlier request's scripts on a
+            // task of the Run's.
+            let _entered = self.runtime.enter();
+            self.owners
+                .renamed(&self.page_id, next.clone(), owner.for_request(&next));
+        }
         let earlier = std::mem::replace(&mut self.page_id, next);
+        self.scripts_released();
         let Err(refused) = self.owners.events(&earlier) else {
             panic!("a call on the earlier request's Page ID found the page");
         };
@@ -1536,6 +1550,51 @@ impl Subject {
             .events(&self.page_id)
             .expect("invariant: the released page is open")
             .listen(PageEventName::Request);
+    }
+
+    /// The earlier request's init scripts' calls end, as their request
+    /// does: the removal of each registered script is on its way, in any
+    /// order, and each other is removed once its addition is taken.
+    fn scripts_released(&mut self) {
+        let calls = std::mem::take(&mut self.scripts);
+        let registered: Vec<usize> = calls
+            .iter()
+            .filter_map(|script| {
+                let ended = script.registered.as_ref()?.request_ended();
+                assert!(
+                    ended.now_or_never().is_some(),
+                    "the call of the script {} waits past its request",
+                    script.n
+                );
+                Some(script.n)
+            })
+            .collect();
+        {
+            let _entered = self.runtime.enter();
+            drop(calls);
+        }
+        let mut removals: Vec<(usize, Value)> = registered
+            .iter()
+            .map(|_| {
+                let removal = self.command();
+                assert_eq!(removal["method"], REMOVE_SCRIPT, "{removal}");
+                let n = registered
+                    .iter()
+                    .copied()
+                    .find(|n| removal["params"]["identifier"] == identifier(*n))
+                    .unwrap_or_else(|| panic!("a removal of no registered script: {removal}"));
+                (n, removal)
+            })
+            .collect();
+        removals.sort_by_key(|(n, _)| *n);
+        let before = removals.len();
+        removals.dedup_by_key(|(n, _)| *n);
+        assert_eq!(removals.len(), before, "a script was removed twice");
+        self.commands.extend(
+            removals
+                .into_iter()
+                .map(|(n, removal)| (Scripted::Remove(n), removal)),
+        );
     }
 
     /// Listens to the page's requests, unless the page closed.
@@ -1627,7 +1686,7 @@ impl Subject {
         let scripts = self.owner.init_scripts().clone();
         let adding = {
             let _entered = self.runtime.enter();
-            scripts.register(source(n), scripts.begin())
+            scripts.register(source(n), scripts.begin(), &self.page_id)
         };
         self.scripts.push(ScriptCall {
             n,

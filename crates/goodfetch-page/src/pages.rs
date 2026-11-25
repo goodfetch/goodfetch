@@ -1517,7 +1517,9 @@ impl Pages {
     /// Registers the init script `params` names on its page, `pending`
     /// until it is (counted from now when its page was not open as the call
     /// arrived), and marks the Session in Provenance; answers once the page
-    /// ended, and removes the script when the call is dropped before.
+    /// ended, or once its request part was replaced, which removed the
+    /// script (ADR 0146), and removes the script when the call is dropped
+    /// before.
     #[tracing::instrument(name = "page", level = "debug", skip_all, fields(page_id = %params.page_id.0, operation = PAGE_ADD_INIT_SCRIPT.name, run_id = tracing::field::Empty))]
     async fn add_init_script(
         &self,
@@ -1530,7 +1532,7 @@ impl Pages {
         page.sending(PAGE_ADD_INIT_SCRIPT.name).await?;
         let scripts = page.owner.init_scripts();
         let pending = pending.unwrap_or_else(|| scripts.begin());
-        let registering = scripts.register(source, pending);
+        let registering = scripts.register(source, pending, &params.page_id);
         let registered = page.life.call(PageEvent::Read, registering).await?;
         page.injections
             .mark(
@@ -1542,8 +1544,12 @@ impl Pages {
             .await;
         let life = page.life.clone();
         drop(page);
-        life.terminal().await;
-        registered.ended();
+        let request_ended = registered.request_ended();
+        tokio::select! {
+            () = life.terminal() => registered.ended(),
+            // The replacement of the page's request part removed the script.
+            () = request_ended => {}
+        }
         Ok(InitScriptEnded {})
     }
 

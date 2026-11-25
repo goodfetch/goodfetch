@@ -38,7 +38,7 @@ pub(crate) fn parts(
     PageParts {
         events,
         dialogs: dialogs.start(page_id.clone(), CdpPage::of(driver), run),
-        init_scripts: InitScripts::new(CdpPage::of(driver), run.clone()),
+        init_scripts: InitScripts::new(CdpPage::of(driver), run.clone(), page_id.clone()),
         interception,
         walls: Walls::default(),
         hiding: Hiding::new(None, Arc::new(Sheets::new(driver, run))),

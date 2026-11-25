@@ -284,7 +284,7 @@ impl Sessions {
             observer,
         );
         let cdp = CdpPage::of(driver);
-        let init_scripts = InitScripts::new(cdp.clone(), tasks.clone());
+        let init_scripts = InitScripts::new(cdp.clone(), tasks.clone(), page.clone());
         let in_frames = vec![events.frames(), init_scripts.frames()];
         let taken_in = TakenIn {
             page: page.clone(),

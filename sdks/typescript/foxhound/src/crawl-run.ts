@@ -15,6 +15,7 @@ import {
 import { collieOperations, type Caller, type RunStarted } from "@goodfetch/collie-client/generated";
 import {
   alsoInNamespace,
+  attemptStoreOf,
   ensureRunOpen,
   idOfLocator,
   pageOf,
@@ -28,20 +29,27 @@ import {
 } from "@goodfetch/collie-client/runtime";
 import {
   checkPayload,
+  checkRecords,
   declaredLabel,
   enqueueLinksOptions,
   handlerOf,
+  isLinkPayload,
   payloadAndOptions,
   payloadOf,
+  recordsRefused,
   requestOptions,
-  wireObject,
   type Crawl,
   type CrawlContext,
   type Dataset,
 } from "./crawl.ts";
-import { HandlerFailedError, ResponseNotDocumentError } from "./generated/errors.ts";
+import {
+  HandlerFailedError,
+  RecordInvalidError,
+  ResponseNotDocumentError,
+} from "./generated/errors.ts";
 import {
   foxhoundOperations,
+  type CrawlRequestEnqueueLinksParams,
   type CrawlRequestHandleParams,
   type CrawlRequestHandled,
   type DatasetRecord,
@@ -127,8 +135,8 @@ export class CrawlRun extends Run {
    *
    * @experimental
    */
-  records<I extends object>(
-    dataset: Dataset<I>,
+  records<I extends object, O>(
+    dataset: Dataset<I, O>,
     options: RecordsOptions = {},
   ): Sequence<DatasetRecord> {
     warnEntry(foxhoundOperations, "run.records");
@@ -211,11 +219,8 @@ export class CrawlRun extends Run {
   }
 
   #contextOf(request: CrawlRequestHandleParams, signal: AbortSignal): CrawlContext {
-    const attempt = {
-      runId: this.id(),
-      crawlRequestId: request.crawlRequest.id,
-      leaseEpoch: request.leaseEpoch,
-    };
+    const lease = { crawlRequestId: request.crawlRequest.id, leaseEpoch: request.leaseEpoch };
+    const attempt = { runId: this.id(), ...lease };
     const calls = this.#crawlHost.calls;
     const crawl = this.#crawl;
     const options: CallOptions = { signal };
@@ -223,6 +228,7 @@ export class CrawlRun extends Run {
     const page =
       pageId === undefined ? undefined : pageOf(this, pageId, request.session.id, signal);
     return {
+      run: { id: () => attempt.runId, keyValueStore: attemptStoreOf(this, lease, signal) },
       get page(): Page {
         if (page === undefined) {
           throw new ResponseNotDocumentError(
@@ -239,9 +245,18 @@ export class CrawlRun extends Run {
         const given = payloadAndOptions(label, rest);
         const payload = payloadOf(label, given.payload);
         await checkPayload(label, payload.payload);
+        // A relative URL resolves against the base URL of the page's document.
+        const on = pageId === undefined ? {} : { pageId };
         return calls.call(
           "crawl_request.enqueue",
-          { ...attempt, url, label: name, ...payload, ...requestOptions(given.options ?? {}) },
+          {
+            ...attempt,
+            ...on,
+            url,
+            label: name,
+            ...payload,
+            ...requestOptions(given.options ?? {}),
+          },
           options,
         );
       },
@@ -250,17 +265,31 @@ export class CrawlRun extends Run {
         signal.throwIfAborted();
         const name = declaredLabel(crawl, label);
         const given = payloadAndOptions(label, rest);
-        const payload = payloadOf(label, given.payload);
-        await checkPayload(label, payload.payload);
+        const on = { ...attempt, locator: idOfLocator(locator) };
+        let payloads: Pick<CrawlRequestEnqueueLinksParams, "payload" | "payloads">;
+        if (isLinkPayload(given.payload)) {
+          // The function reads each matched element before any link is sent.
+          const payloadOfLink = given.payload;
+          const { links } = await calls.call("crawl_request.links", on, options);
+          const answers: unknown[] = [];
+          for (const link of links) {
+            const answer = await payloadOfLink(link);
+            if (answer === null) {
+              answers.push(null);
+              continue;
+            }
+            const { payload } = payloadOf(label, answer);
+            await checkPayload(label, payload);
+            answers.push(payload ?? null);
+          }
+          payloads = { payloads: answers };
+        } else {
+          payloads = payloadOf(label, given.payload);
+          await checkPayload(label, payloads.payload);
+        }
         return calls.call(
           "crawl_request.enqueue_links",
-          {
-            ...attempt,
-            locator: idOfLocator(locator),
-            label: name,
-            ...payload,
-            ...enqueueLinksOptions(given.options ?? {}),
-          },
+          { ...on, label: name, ...payloads, ...enqueueLinksOptions(given.options ?? {}) },
           options,
         );
       },
@@ -268,18 +297,41 @@ export class CrawlRun extends Run {
         warnEntry(foxhoundOperations, "crawl_request.push");
         signal.throwIfAborted();
         // A Record is a JSON object, never a list, so a list is the Records of one push.
-        const [first, ...rest] = Array.isArray(records) ? records : [records];
-        // An empty list pushes no Record, so it sends nothing.
-        if (first === undefined) return;
-        await calls.call(
-          "crawl_request.push",
-          {
-            ...attempt,
-            dataset: dataset.name,
-            records: [wireObject(first), ...rest.map(wireObject)],
-          },
-          options,
-        );
+        const pushed: readonly unknown[] = Array.isArray(records) ? records : [records];
+        const { held, refused } = await checkRecords(dataset, pushed);
+        const [first, ...rest] = held;
+        // A push left with no Record to send, an empty list's, sends nothing.
+        if (first === undefined) {
+          if (refused.length > 0) throw recordsRefused(dataset.name, refused);
+          return;
+        }
+        try {
+          await calls.call(
+            "crawl_request.push",
+            {
+              ...attempt,
+              dataset: dataset.name,
+              records: [first.record, ...rest.map(({ record }) => record)],
+            },
+            options,
+          );
+        } catch (error) {
+          // The engine names a Record by its position among those sent.
+          if (refused.length === 0 || !(error instanceof RecordInvalidError)) throw error;
+          const sent = error.typedDetails?.records ?? [];
+          const all = [
+            ...refused,
+            ...sent.map(({ position, issues }) => ({
+              position: held[position]?.position ?? position,
+              issues,
+            })),
+          ];
+          throw recordsRefused(
+            dataset.name,
+            all.toSorted((a, b) => a.position - b.position),
+          );
+        }
+        if (refused.length > 0) throw recordsRefused(dataset.name, refused);
       },
     };
   }

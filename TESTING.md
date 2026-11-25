@@ -219,6 +219,7 @@ The rows of counted work, and those read under Valgrind, promoted from the Measu
 | `E1.deep_copies` | deep copies per incoming message | 0 | 0 | B3 | must not grow | `just counts` | implementer done, merge gate |
 | `E1.encodes` | encodes per answer or event | 1 | 1 | B3 | must not grow | `just counts` | implementer done, merge gate |
 | `E1.decodes` | decodes of its params per request, straight into typed params | 1 | 1 | B3 | must not grow | `just counts` | implementer done, merge gate |
+| `E1.store_reads` | store reads per incoming message: who a Connection is is read from memory (ADR 0149) | 0 | 0 | B3 | must not grow | `just counts` | implementer done, merge gate |
 | `E1.instructions` | instructions per dispatched message, small params | 1.10 × the figure after #1577 (ADR 0134) | B3 14950.05, B3 default 15264.2, B3 log_off 15261.74, B3 websocket 24191.48; the cells' parts are temporary, under X41 | B3 | must not grow (0.5 %) | `just counts --valgrind` | merge gate |
 | `E1.instructions_large` | instructions per dispatched message, large params and a Plugin's messages | 1.10 × the figure after #1577 (ADR 0134) | B3 1053425.29, B3 websocket 1588903.04; the cell's part is temporary, under X41 | B3 | must not grow (0.5 %) | `just counts --valgrind` | merge gate |
 | `E1.allocations` | allocations per dispatched message, small params | 1.10 × the figure after #1577 (ADR 0134) | B3 9.47, B3 websocket 11.34; the cell's part is temporary, under X41 | B3 | must not grow (0.5 %) | `just counts --valgrind` | merge gate |

@@ -270,7 +270,8 @@ fn the_registry_lists_every_format_under_its_rule() {
             ("response-cache", Rule::RunWithout),
             ("operator-policy", Rule::SharedStore),
             ("user-configuration", Rule::SharedStore),
-            ("export", Rule::Default)
+            ("export", Rule::Default),
+            ("session-export", Rule::Default)
         ]
     );
 }

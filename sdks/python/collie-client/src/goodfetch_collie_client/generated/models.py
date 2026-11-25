@@ -2607,6 +2607,14 @@ class PeriodLength(StrEnum):
     """From the first day's midnight to the next month's."""
 
 
+class PersonRequiredDetails(BaseModel):
+    """What `person_required` details."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+
+
 class Phone(BaseModel):
     """A telephone number the page shows."""
 
@@ -3950,6 +3958,48 @@ class SessionEventName(StrEnum):
 
     page = "page"
     """`session.page`."""
+
+
+class SessionExportFailure(StrEnum):
+    """
+    Why a session export bundle did not open, which
+    `session_export_open_failed` carries.
+    """
+
+    wrong_key = "wrong_key"
+    """
+    The key's value opens none of the bundle's recipients: another age
+    identity, or a wrong passphrase.
+    """
+    not_an_identity = "not_an_identity"
+    """
+    The bundle was sealed to a public key, and the key's value is no age
+    identity (`AGE-SECRET-KEY-1…`).
+    """
+    not_a_bundle = "not_a_bundle"
+    """
+    The file is no age file, or what it holds is no session export:
+    truncated, changed, or another format.
+    """
+    excessive_work = "excessive_work"
+    """
+    The bundle's passphrase asks more scrypt work than the engine does
+    for an import.
+    """
+    too_large = "too_large"
+    """What the bundle holds is larger than the engine reads."""
+
+
+class SessionExportOpenFailedDetails(BaseModel):
+    """What `session_export_open_failed` details."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    failure: SessionExportFailure
+    """What failed."""
+    reference: str
+    """The Secret reference given as the bundle's key."""
 
 
 class SessionId(RootModel[str]):
@@ -7665,7 +7715,10 @@ class SessionSource2(BaseModel):
     format: StateFileFormat | None = None
     """Its format, detected when left out."""
     key: str | None = None
-    """The Secret reference that opens a session export bundle."""
+    """
+    The Secret reference that opens a session export bundle: its
+    age identity or its passphrase, never the value itself.
+    """
     kind: Literal["state_file"]
     path: str
     """The file."""

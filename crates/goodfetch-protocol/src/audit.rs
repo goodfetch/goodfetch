@@ -361,11 +361,14 @@ pub enum RefusalReason {
     OriginForeign,
     /// The request carries no `Origin` where one is required.
     OriginMissing,
+    /// A Connection opened without TLS on a listener that serves TLS, such
+    /// as an Exposed Daemon with its certificate files (ADR 0049).
+    TlsRequired,
 }
 
 impl RefusalReason {
     /// Every value, in declaration order.
-    pub const ALL: [Self; 9] = [
+    pub const ALL: [Self; 10] = [
         Self::HelloNotFirst,
         Self::HelloTimedOut,
         Self::HelloTooLarge,
@@ -375,6 +378,7 @@ impl RefusalReason {
         Self::HostForeign,
         Self::OriginForeign,
         Self::OriginMissing,
+        Self::TlsRequired,
     ];
 
     /// Its name on the wire.
@@ -396,7 +400,7 @@ pub struct EndpointRefusal {
 /// A listening endpoint refused a request.
 pub const ENDPOINT_AUTHENTICATION_FAILED: SharedTypeValue = kind(
     "endpoint_authentication_failed",
-    "A listening endpoint refused a request for a missing, wrong, expired or revoked token, a foreign `Host` or a foreign `Origin`, or a Connection whose opening sent no `hello` first, in time or within its size limit. `audit.refusals_per_minute` bounds how many one listener records in a minute.",
+    "A listening endpoint refused a request for a missing, wrong, expired or revoked token, a foreign `Host` or a foreign `Origin`, a Connection whose opening sent no `hello` first, in time or within its size limit, or one opened without TLS where the listener serves TLS. `audit.refusals_per_minute` bounds how many one listener records in a minute.",
 );
 
 /// The details of an `endpoint_refusals_folded` entry: which listener's

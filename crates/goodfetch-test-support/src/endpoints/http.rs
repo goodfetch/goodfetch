@@ -7,7 +7,7 @@
 use std::io::{Read as _, Write as _};
 use std::net::SocketAddr;
 
-use super::connection::{Connection, ListenerAddress, is_closed, is_silent};
+use super::connection::{Connection, ListenerAddress, ListenerTls, is_closed, is_silent};
 use super::runner::Observed;
 
 /// A `GET` request.
@@ -24,9 +24,13 @@ pub(super) struct Request<'a> {
     pub(super) cookie: Option<&'a str>,
 }
 
-/// Sends `request` to `address` and reads its answer.
-pub(super) fn attempt(address: SocketAddr, request: &Request<'_>) -> Observed {
-    let mut connection = match Connection::open(&ListenerAddress::Tcp(address)) {
+/// Sends `request` to `address`, over `tls` if any, and reads its answer.
+pub(super) fn attempt(
+    address: SocketAddr,
+    tls: Option<&ListenerTls>,
+    request: &Request<'_>,
+) -> Observed {
+    let mut connection = match Connection::open(&ListenerAddress::Tcp(address), tls) {
         Ok(connection) => connection,
         Err(error) => {
             return Observed::Unreachable {

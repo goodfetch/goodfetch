@@ -1,0 +1,57 @@
+# The online copy's deployment (#168; ADRs 0025, 0032 and 0076): a release
+# tag's push starts it, and its one job waits under the protected
+# `proving-ground-online` environment, whose required reviewer is the owner,
+# so nothing deploys without the owner's approval; every deployment is a
+# production deploy. The environment's secrets are the vendors' keys, each
+# passed under the name proving-ground/deploy/online.toml gives it, and the
+# deploy host's and tunnel's; proving-ground/deploy/README.md lists them.
+# The job builds the Proving ground at the tag and runs deploy.sh, which
+# ships it; it runs none of the product's tests.
+name: proving ground online
+
+on:
+  push:
+    tags:
+      - "v[0-9]+.[0-9]+.[0-9]+"
+      - "v[0-9]+.[0-9]+.[0-9]+-rc.[0-9]+"
+
+permissions: {}
+
+# One deployment at a time; a newer tag waits for the one deploying.
+concurrency:
+  group: proving-ground-online
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: deploy
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    environment:
+      name: proving-ground-online
+      url: https://challenges.goodfetch.dev
+    permissions:
+      contents: read
+    steps:
+      - name: Check out the release tag
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Build the Proving ground
+        run: cargo build --release --locked --package goodfetch-proving-ground
+      - name: Deploy
+        env:
+          PROVING_GROUND_DEPLOY_HOST: ${{ secrets.PROVING_GROUND_DEPLOY_HOST }}
+          PROVING_GROUND_DEPLOY_SSH_KEY: ${{ secrets.PROVING_GROUND_DEPLOY_SSH_KEY }}
+          PROVING_GROUND_DEPLOY_KNOWN_HOSTS: ${{ secrets.PROVING_GROUND_DEPLOY_KNOWN_HOSTS }}
+          PROVING_GROUND_TUNNEL_CREDENTIALS: ${{ secrets.PROVING_GROUND_TUNNEL_CREDENTIALS }}
+          PROVING_GROUND_TURNSTILE_SECRET: ${{ secrets.PROVING_GROUND_TURNSTILE_SECRET }}
+          PROVING_GROUND_RECAPTCHA_SECRET: ${{ secrets.PROVING_GROUND_RECAPTCHA_SECRET }}
+          PROVING_GROUND_HCAPTCHA_SECRET: ${{ secrets.PROVING_GROUND_HCAPTCHA_SECRET }}
+          PROVING_GROUND_ALTCHA_KEY: ${{ secrets.PROVING_GROUND_ALTCHA_KEY }}
+          PROVING_GROUND_ANUBIS_HS512_SECRET: ${{ secrets.PROVING_GROUND_ANUBIS_HS512_SECRET }}
+          PROVING_GROUND_EDGE_SECRET: ${{ secrets.PROVING_GROUND_EDGE_SECRET }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+        run: proving-ground/deploy/deploy.sh target/release/goodfetch-proving-ground

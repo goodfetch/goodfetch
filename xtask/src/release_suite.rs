@@ -7,10 +7,12 @@
 mod cells;
 mod history;
 mod plan;
+mod skew;
 mod time;
 mod verdict;
 
 pub(crate) use cells::Cell;
+pub(crate) use skew::SKEW_JOBS;
 
 use std::path::PathBuf;
 use std::process::ExitCode;
@@ -22,7 +24,7 @@ use crate::environment::Environment;
 use crate::github::{self, Api};
 use crate::rate::Visibility;
 
-pub(crate) use plan::{Dispatch, plan};
+pub(crate) use plan::{Dispatch, JOB_BUDGET_MINUTES, plan};
 
 /// Whether every cell is green on `commit`, across its dispatches.
 pub(crate) fn verdict(api: Api<'_>, repository: &str, commit: &str) -> Result<Vec<Finding>> {

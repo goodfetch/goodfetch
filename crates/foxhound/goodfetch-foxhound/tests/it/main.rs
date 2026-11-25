@@ -180,6 +180,7 @@ mod learned_rules;
 mod light_browser;
 mod limits;
 mod navigation_gate;
+mod needs_you;
 #[cfg(all(
     target_os = "linux",
     any(target_arch = "x86_64", target_arch = "aarch64")

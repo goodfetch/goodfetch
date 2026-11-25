@@ -3418,18 +3418,6 @@
           "description": "The ID of the crawl request whose attempt enqueues.",
           "type": "string"
         },
-        "document": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/EnqueueDocument"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "arrived_in": "0.1",
-          "description": "The document the handler read, whose base URL a relative `url`\nresolves against; absent, the crawl request's own URL is the base."
-        },
         "forefront": {
           "arrived_in": "0.1",
           "default": false,
@@ -3460,6 +3448,18 @@
           "$ref": "#/$defs/HttpMethod",
           "arrived_in": "0.1",
           "description": "The method it is sent with: `GET` by default."
+        },
+        "page_id": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PageId"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "The page the attempt was given, whose document's base URL a relative\n`url` resolves against: its `<base href>`, resolved against the URL\nthe document was reached at after its redirects, or that URL\nitself. Absent, for an attempt given no page, the crawl request's\nown URL is the base. A page no fetch tier serves fails a relative\n`url` with `closed`."
         },
         "payload": {
           "arrived_in": "0.1",
@@ -6346,29 +6346,6 @@
         }
       ]
     },
-    "EnqueueDocument": {
-      "additionalProperties": false,
-      "description": "The document a handler read, against which its relative URLs resolve.",
-      "properties": {
-        "base_href": {
-          "arrived_in": "0.1",
-          "description": "The `href` of its first `<base>` element, as written.",
-          "type": [
-            "string",
-            "null"
-          ]
-        },
-        "url": {
-          "arrived_in": "0.1",
-          "description": "The URL the document was reached at, after every redirect.",
-          "type": "string"
-        }
-      },
-      "required": [
-        "url"
-      ],
-      "type": "object"
-    },
     "Enqueued": {
       "description": "The Frontier's answer to a seed or an enqueue (ADRs 0079 and 0093): a\nvalue, never an error, since a request is one among many.",
       "oneOf": [
@@ -7360,6 +7337,105 @@
         "actor",
         "details",
         "hash"
+      ],
+      "type": "object"
+    },
+    "ExportedCookie": {
+      "additionalProperties": false,
+      "description": "One cookie of the Session, with the attributes a browser sets it by.",
+      "properties": {
+        "domain": {
+          "arrived_in": "0.1",
+          "description": "The domain it is sent to, with a leading `.` for its subdomains too.",
+          "type": "string"
+        },
+        "expires": {
+          "arrived_in": "0.1",
+          "description": "When it expires, in seconds since the Unix epoch; none for a cookie\nof the browser's session.",
+          "format": "int64",
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "http_only": {
+          "arrived_in": "0.1",
+          "description": "Whether scripts cannot read it.",
+          "type": "boolean"
+        },
+        "name": {
+          "arrived_in": "0.1",
+          "description": "Its name.",
+          "type": "string"
+        },
+        "path": {
+          "arrived_in": "0.1",
+          "description": "The path it is sent under.",
+          "type": "string"
+        },
+        "same_site": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SameSite"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "Its `SameSite` attribute; none where the cookie set none."
+        },
+        "secure": {
+          "arrived_in": "0.1",
+          "description": "Whether it is sent over HTTPS only.",
+          "type": "boolean"
+        },
+        "value": {
+          "$ref": "#/$defs/SessionValue",
+          "arrived_in": "0.1",
+          "description": "Its value."
+        }
+      },
+      "required": [
+        "name",
+        "value",
+        "domain",
+        "path",
+        "http_only",
+        "secure"
+      ],
+      "type": "object"
+    },
+    "ExportedOrigin": {
+      "additionalProperties": false,
+      "description": "The storage one origin of the Session kept.",
+      "properties": {
+        "local_storage": {
+          "arrived_in": "0.1",
+          "description": "Its `localStorage` items.",
+          "items": {
+            "$ref": "#/$defs/StorageItem"
+          },
+          "type": "array"
+        },
+        "origin": {
+          "arrived_in": "0.1",
+          "description": "The origin, such as `https://shop.example`.",
+          "type": "string"
+        },
+        "session_storage": {
+          "arrived_in": "0.1",
+          "description": "Its `sessionStorage` items, which Playwright's `storageState` has\nno field for.",
+          "items": {
+            "$ref": "#/$defs/StorageItem"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "origin",
+        "local_storage",
+        "session_storage"
       ],
       "type": "object"
     },
@@ -14644,6 +14720,20 @@
       ],
       "type": "object"
     },
+    "PersonRequiredDetails": {
+      "description": "What `person_required` details.",
+      "properties": {
+        "fix": {
+          "arrived_in": "0.1",
+          "description": "Where a person gives the answer: the error's `fix` (ADR 0079).",
+          "type": "string"
+        }
+      },
+      "required": [
+        "fix"
+      ],
+      "type": "object"
+    },
     "Phone": {
       "additionalProperties": false,
       "description": "A telephone number the page shows.",
@@ -20447,6 +20537,26 @@
         }
       ]
     },
+    "SameSite": {
+      "description": "A cookie's `SameSite` attribute.",
+      "oneOf": [
+        {
+          "const": "strict",
+          "description": "Sent only on requests of its own site.",
+          "type": "string"
+        },
+        {
+          "const": "lax",
+          "description": "Also sent on top-level navigations from another site.",
+          "type": "string"
+        },
+        {
+          "const": "none",
+          "description": "Sent on every request, which needs `secure`.",
+          "type": "string"
+        }
+      ]
+    },
     "SampleCrawlParams": {
       "additionalProperties": false,
       "description": "What `sample.crawl` starts from.",
@@ -21016,6 +21126,95 @@
         }
       ]
     },
+    "SessionExport": {
+      "additionalProperties": false,
+      "description": "The document a session export bundle encrypts.",
+      "properties": {
+        "cookies": {
+          "arrived_in": "0.1",
+          "description": "The Session's cookies.",
+          "items": {
+            "$ref": "#/$defs/ExportedCookie"
+          },
+          "type": "array"
+        },
+        "format_version": {
+          "$ref": "#/$defs/ProtocolVersion",
+          "arrived_in": "0.1",
+          "description": "The version of this format the bundle was written in."
+        },
+        "origins": {
+          "arrived_in": "0.1",
+          "description": "The storage of each origin the Session kept any in.",
+          "items": {
+            "$ref": "#/$defs/ExportedOrigin"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "format_version",
+        "cookies",
+        "origins"
+      ],
+      "type": "object"
+    },
+    "SessionExportFailure": {
+      "description": "Why a session export bundle did not open, which\n`session_export_open_failed` carries.",
+      "oneOf": [
+        {
+          "const": "wrong_key",
+          "description": "The key's value opens none of the bundle's recipients: another age\nidentity, or a wrong passphrase.",
+          "type": "string"
+        },
+        {
+          "const": "not_an_identity",
+          "description": "The bundle was sealed to a public key, and the key's value is no age\nidentity (`AGE-SECRET-KEY-1…`).",
+          "type": "string"
+        },
+        {
+          "const": "not_a_bundle",
+          "description": "The file is no age file, or what it holds is no session export:\ntruncated, changed, or another format.",
+          "type": "string"
+        },
+        {
+          "const": "excessive_work",
+          "description": "The bundle's passphrase asks more scrypt work than the engine does\nfor an import.",
+          "type": "string"
+        },
+        {
+          "const": "too_large",
+          "description": "What the bundle holds is larger than the engine reads.",
+          "type": "string"
+        }
+      ]
+    },
+    "SessionExportOpenFailedDetails": {
+      "description": "What `session_export_open_failed` details.",
+      "properties": {
+        "failure": {
+          "$ref": "#/$defs/SessionExportFailure",
+          "arrived_in": "0.1",
+          "description": "What failed."
+        },
+        "fix": {
+          "arrived_in": "0.1",
+          "description": "What makes the bundle open.",
+          "type": "string"
+        },
+        "reference": {
+          "arrived_in": "0.1",
+          "description": "The Secret reference given as the bundle's key.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "reference",
+        "failure",
+        "fix"
+      ],
+      "type": "object"
+    },
     "SessionId": {
       "description": "A Session of a Run, named by the engine when it opens it.",
       "type": "string"
@@ -21176,7 +21375,7 @@
             },
             "key": {
               "arrived_in": "0.1",
-              "description": "The Secret reference that opens a session export bundle.",
+              "description": "The Secret reference that opens a session export bundle: its\nage identity or its passphrase, never the value itself.",
               "type": [
                 "string",
                 "null"
@@ -21384,6 +21583,10 @@
           "type": "object"
         }
       ]
+    },
+    "SessionValue": {
+      "description": "A cookie's or a storage item's value, which may be a login: its `Debug`\nnever shows it (STYLE.md), and only [`SessionValue::expose`] reads it.",
+      "type": "string"
     },
     "SetLogLevelParams": {
       "additionalProperties": false,
@@ -22835,6 +23038,27 @@
           "type": "string"
         }
       ]
+    },
+    "StorageItem": {
+      "additionalProperties": false,
+      "description": "One item of an origin's storage.",
+      "properties": {
+        "name": {
+          "arrived_in": "0.1",
+          "description": "Its name.",
+          "type": "string"
+        },
+        "value": {
+          "$ref": "#/$defs/SessionValue",
+          "arrived_in": "0.1",
+          "description": "Its value."
+        }
+      },
+      "required": [
+        "name",
+        "value"
+      ],
+      "type": "object"
     },
     "StorageLevel": {
       "description": "A filesystem's storage level (ADR 0122), from the best to the worst.",
@@ -26333,7 +26557,7 @@
                 "additionalProperties": false,
                 "properties": {
                   "address": {
-                    "description": "Where `daemon run`, the foreground Daemon, listens, as `host:port`: `127.0.0.1` on port 7900 plus the major (7600 plus the minor during `0.y` previews). Port 0 takes a free port, which its log names. Only a loopback address, until the Daemon terminates TLS. Set in user configuration or an Operator policy, or for `daemon run` through `GOODFETCH_DAEMON_ADDRESS`.",
+                    "description": "Where `daemon run`, the foreground Daemon, listens, as `host:port`: `127.0.0.1` on port 7900 plus the major (7600 plus the minor during `0.y` previews). Port 0 takes a free port, which its log names. An address other than loopback needs `daemon.tls.cert_file` and `daemon.tls.key_file`, or `daemon.tls.upstream`, so no token crosses a network in clear. Set in user configuration or an Operator policy, or for `daemon run` through `GOODFETCH_DAEMON_ADDRESS`.",
                     "type": "string"
                   },
                   "drain_grace": {
@@ -26345,6 +26569,46 @@
                     "description": "How long a Daemon with no connected Client waits before it stops: 10 minutes. `daemon start --keep-alive`, a held Schedule and an installed service keep it running. Set in user configuration or an Operator policy only.",
                     "minimum": 0,
                     "type": "integer"
+                  },
+                  "tls": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "cert_file": {
+                        "anyOf": [
+                          {
+                            "type": "string"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ],
+                        "description": "The certificate chain `daemon run`, the foreground Daemon, serves TLS with on `daemon.address`, a PEM or DER file, set together with `daemon.tls.key_file`. With both set, every Connection opens with a TLS handshake, its JSON-RPC lines and its WebSocket alike, and one that does not is closed and recorded in the Audit log; a replaced file is read again at the next Connection, with no restart. Unset by default, which limits `daemon.address` to loopback unless `daemon.tls.upstream` is set. Set in user configuration or an Operator policy."
+                      },
+                      "key_file": {
+                        "anyOf": [
+                          {
+                            "type": "string"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ],
+                        "description": "The private key of `daemon.tls.cert_file`'s certificate, a PEM file (PKCS #8, PKCS #1 or SEC 1) or a DER file, set together with it. A replaced file is read again at the next Connection, with no restart. Unset by default. Set in user configuration or an Operator policy."
+                      },
+                      "upstream": {
+                        "description": "Whether TLS is terminated in front of `daemon run`, the foreground Daemon, by an ingress or a reverse proxy, which lets `daemon.address` be other than loopback with no `daemon.tls.cert_file`. The Daemon then serves in plain, still requires its token, checks each WebSocket handshake's `Host` and `Origin`, and reads `X-Forwarded-Host` and `X-Forwarded-Proto` only from the addresses `daemon.trusted_proxies` lists. `false` by default, and refused together with the TLS files. A Daemon started with it records `tls_terminated_upstream` in the Audit log. Set in user configuration or an Operator policy.",
+                        "type": "boolean"
+                      }
+                    },
+                    "type": "object"
+                  },
+                  "trusted_proxies": {
+                    "description": "The proxies in front of `daemon run`, the foreground Daemon, whose `X-Forwarded-Host` and `X-Forwarded-Proto` it reads under `daemon.tls.upstream`: IP addresses and CIDR ranges such as `10.0.0.0/8`, matched on a Connection's peer address. From a listed proxy, `X-Forwarded-Proto: https` makes a WebSocket handshake's `Origin` one over `https`, and with it the name `X-Forwarded-Host` gives is one the Daemon answers to; each header's first value counts. From any other address both are ignored, and `Forwarded` and `X-Forwarded-For` are never read. Empty by default, and refused without `daemon.tls.upstream`. Set in user configuration or an Operator policy.",
+                    "items": {
+                      "description": "A CIDR range such as `10.0.0.0/8`, or an IP address such as `192.0.2.7`.",
+                      "type": "string"
+                    },
+                    "type": "array"
                   }
                 },
                 "type": "object"
@@ -28004,7 +28268,7 @@
                 "additionalProperties": false,
                 "properties": {
                   "audit_chain": {
-                    "description": "Whether the run's Audit log entries are hash-chained (ADR 0016). On by default; off, that run's entries are written unchained, each marked `chained: false`, which `audit verify` steps over while it verifies the chain around them; the switch itself is a chained entry, and the run says so in its report's `weakened` and in one warning.",
+                    "description": "Whether the run's Audit log entries are hash-chained (ADR 0016). On by default; off, that run's entries are written unchained, each marked `chained: false`, which `audit verify` steps over while it verifies the chain around them; the switch itself is a chained entry, and the run says so in its report's `weakened` and in one warning. A Recipe or a Client acting for a model never switches it off: its `false` is `setting_locked`.",
                     "type": "boolean"
                   },
                   "browser_sandbox": {
@@ -28012,23 +28276,23 @@
                     "type": "boolean"
                   },
                   "field_encryption": {
-                    "description": "Whether the run's state seals its secret fields with the run's data key (ADR 0015). On by default; off, they are written in the clear, and the run says so in its report's `weakened`, in the Audit log and in one warning.",
+                    "description": "Whether the run's state seals its secret fields with the run's data key (ADR 0015). On by default; off, they are written in the clear, and the run says so in its report's `weakened`, in the Audit log and in one warning. A Recipe or a Client acting for a model never switches it off: its `false` is `setting_locked`.",
                     "type": "boolean"
                   },
                   "raw_cdp_egress_proxy": {
-                    "description": "Whether every browser Session the engine launches reaches the network through the egress relay, which holds a raw CDP client or a Lent page at the network layer (ADR 0017). On by default; off, a Session with no certificate exception and no local address connects directly, held by interception alone, and the run says so in its report's `weakened`, in the Audit log and in one warning. It never removes the relay that carries certificate exceptions or local addresses.",
+                    "description": "Whether every browser Session the engine launches reaches the network through the egress relay, which holds a raw CDP client or a Lent page at the network layer (ADR 0017). On by default; off, a Session with no certificate exception and no local address connects directly, held by interception alone, and the run says so in its report's `weakened`, in the Audit log and in one warning. It never removes the relay that carries certificate exceptions or local addresses. A Recipe or a Client acting for a model never switches it off: its `false` is `setting_locked`.",
                     "type": "boolean"
                   },
                   "redaction": {
-                    "description": "Whether logs, traces and HAR files are redacted and screenshots and recordings kept as outputs are masked (ADR 0014). On by default; off lifts that guarantee for those outputs only: secrets still never reach the model, Plans, caches, the Effect journal or observations. The run says so in its report's `weakened`, in the Audit log and in one warning.",
+                    "description": "Whether logs, traces and HAR files are redacted and screenshots and recordings kept as outputs are masked (ADR 0014). On by default; off lifts that guarantee for those outputs only: secrets still never reach the model, Plans, caches, the Effect journal or observations. The run says so in its report's `weakened`, in the Audit log and in one warning. A Recipe or a Client acting for a model never switches it off: its `false` is `setting_locked`.",
                     "type": "boolean"
                   },
                   "resolved_ip_check": {
-                    "description": "Whether every address a name resolves to is checked against the egress policy before a connection is made (ADR 0017). On by default; off, the domain policy alone applies, and the run says so in its report's `weakened`, in the Audit log and in one warning.",
+                    "description": "Whether every address a name resolves to is checked against the egress policy before a connection is made (ADR 0017). On by default; off, the domain policy alone applies, and the run says so in its report's `weakened`, in the Audit log and in one warning. A Recipe or a Client acting for a model never switches it off: its `false` is `setting_locked`.",
                     "type": "boolean"
                   },
                   "secure_delete": {
-                    "description": "Whether the run's secret tables overwrite what they delete, SQLite's `secure_delete` (ADR 0015). On by default; off, deleted values may stay on disk until overwritten, and the run says so in its report's `weakened`, in the Audit log and in one warning.",
+                    "description": "Whether the run's secret tables overwrite what they delete, SQLite's `secure_delete` (ADR 0015). On by default; off, deleted values may stay on disk until overwritten, and the run says so in its report's `weakened`, in the Audit log and in one warning. A Recipe or a Client acting for a model never switches it off: its `false` is `setting_locked`.",
                     "type": "boolean"
                   }
                 },
@@ -28408,7 +28672,7 @@
                               },
                               "key": {
                                 "arrived_in": "0.1",
-                                "description": "The Secret reference that opens a session export bundle.",
+                                "description": "The Secret reference that opens a session export bundle: its\nage identity or its passphrase, never the value itself.",
                                 "type": [
                                   "string",
                                   "null"
@@ -30368,7 +30632,7 @@
                 "additionalProperties": false,
                 "properties": {
                   "address": {
-                    "description": "Where `daemon run`, the foreground Daemon, listens, as `host:port`: `127.0.0.1` on port 7900 plus the major (7600 plus the minor during `0.y` previews). Port 0 takes a free port, which its log names. Only a loopback address, until the Daemon terminates TLS. Set in user configuration or an Operator policy, or for `daemon run` through `GOODFETCH_DAEMON_ADDRESS`.",
+                    "description": "Where `daemon run`, the foreground Daemon, listens, as `host:port`: `127.0.0.1` on port 7900 plus the major (7600 plus the minor during `0.y` previews). Port 0 takes a free port, which its log names. An address other than loopback needs `daemon.tls.cert_file` and `daemon.tls.key_file`, or `daemon.tls.upstream`, so no token crosses a network in clear. Set in user configuration or an Operator policy, or for `daemon run` through `GOODFETCH_DAEMON_ADDRESS`.",
                     "type": "string"
                   },
                   "drain_grace": {
@@ -30380,6 +30644,46 @@
                     "description": "How long a Daemon with no connected Client waits before it stops: 10 minutes. `daemon start --keep-alive`, a held Schedule and an installed service keep it running. Set in user configuration or an Operator policy only.",
                     "minimum": 0,
                     "type": "integer"
+                  },
+                  "tls": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "cert_file": {
+                        "anyOf": [
+                          {
+                            "type": "string"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ],
+                        "description": "The certificate chain `daemon run`, the foreground Daemon, serves TLS with on `daemon.address`, a PEM or DER file, set together with `daemon.tls.key_file`. With both set, every Connection opens with a TLS handshake, its JSON-RPC lines and its WebSocket alike, and one that does not is closed and recorded in the Audit log; a replaced file is read again at the next Connection, with no restart. Unset by default, which limits `daemon.address` to loopback unless `daemon.tls.upstream` is set. Set in user configuration or an Operator policy."
+                      },
+                      "key_file": {
+                        "anyOf": [
+                          {
+                            "type": "string"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ],
+                        "description": "The private key of `daemon.tls.cert_file`'s certificate, a PEM file (PKCS #8, PKCS #1 or SEC 1) or a DER file, set together with it. A replaced file is read again at the next Connection, with no restart. Unset by default. Set in user configuration or an Operator policy."
+                      },
+                      "upstream": {
+                        "description": "Whether TLS is terminated in front of `daemon run`, the foreground Daemon, by an ingress or a reverse proxy, which lets `daemon.address` be other than loopback with no `daemon.tls.cert_file`. The Daemon then serves in plain, still requires its token, checks each WebSocket handshake's `Host` and `Origin`, and reads `X-Forwarded-Host` and `X-Forwarded-Proto` only from the addresses `daemon.trusted_proxies` lists. `false` by default, and refused together with the TLS files. A Daemon started with it records `tls_terminated_upstream` in the Audit log. Set in user configuration or an Operator policy.",
+                        "type": "boolean"
+                      }
+                    },
+                    "type": "object"
+                  },
+                  "trusted_proxies": {
+                    "description": "The proxies in front of `daemon run`, the foreground Daemon, whose `X-Forwarded-Host` and `X-Forwarded-Proto` it reads under `daemon.tls.upstream`: IP addresses and CIDR ranges such as `10.0.0.0/8`, matched on a Connection's peer address. From a listed proxy, `X-Forwarded-Proto: https` makes a WebSocket handshake's `Origin` one over `https`, and with it the name `X-Forwarded-Host` gives is one the Daemon answers to; each header's first value counts. From any other address both are ignored, and `Forwarded` and `X-Forwarded-For` are never read. Empty by default, and refused without `daemon.tls.upstream`. Set in user configuration or an Operator policy.",
+                    "items": {
+                      "description": "A CIDR range such as `10.0.0.0/8`, or an IP address such as `192.0.2.7`.",
+                      "type": "string"
+                    },
+                    "type": "array"
                   }
                 },
                 "type": "object"
@@ -32039,7 +32343,7 @@
                 "additionalProperties": false,
                 "properties": {
                   "audit_chain": {
-                    "description": "Whether the run's Audit log entries are hash-chained (ADR 0016). On by default; off, that run's entries are written unchained, each marked `chained: false`, which `audit verify` steps over while it verifies the chain around them; the switch itself is a chained entry, and the run says so in its report's `weakened` and in one warning.",
+                    "description": "Whether the run's Audit log entries are hash-chained (ADR 0016). On by default; off, that run's entries are written unchained, each marked `chained: false`, which `audit verify` steps over while it verifies the chain around them; the switch itself is a chained entry, and the run says so in its report's `weakened` and in one warning. A Recipe or a Client acting for a model never switches it off: its `false` is `setting_locked`.",
                     "type": "boolean"
                   },
                   "browser_sandbox": {
@@ -32047,23 +32351,23 @@
                     "type": "boolean"
                   },
                   "field_encryption": {
-                    "description": "Whether the run's state seals its secret fields with the run's data key (ADR 0015). On by default; off, they are written in the clear, and the run says so in its report's `weakened`, in the Audit log and in one warning.",
+                    "description": "Whether the run's state seals its secret fields with the run's data key (ADR 0015). On by default; off, they are written in the clear, and the run says so in its report's `weakened`, in the Audit log and in one warning. A Recipe or a Client acting for a model never switches it off: its `false` is `setting_locked`.",
                     "type": "boolean"
                   },
                   "raw_cdp_egress_proxy": {
-                    "description": "Whether every browser Session the engine launches reaches the network through the egress relay, which holds a raw CDP client or a Lent page at the network layer (ADR 0017). On by default; off, a Session with no certificate exception and no local address connects directly, held by interception alone, and the run says so in its report's `weakened`, in the Audit log and in one warning. It never removes the relay that carries certificate exceptions or local addresses.",
+                    "description": "Whether every browser Session the engine launches reaches the network through the egress relay, which holds a raw CDP client or a Lent page at the network layer (ADR 0017). On by default; off, a Session with no certificate exception and no local address connects directly, held by interception alone, and the run says so in its report's `weakened`, in the Audit log and in one warning. It never removes the relay that carries certificate exceptions or local addresses. A Recipe or a Client acting for a model never switches it off: its `false` is `setting_locked`.",
                     "type": "boolean"
                   },
                   "redaction": {
-                    "description": "Whether logs, traces and HAR files are redacted and screenshots and recordings kept as outputs are masked (ADR 0014). On by default; off lifts that guarantee for those outputs only: secrets still never reach the model, Plans, caches, the Effect journal or observations. The run says so in its report's `weakened`, in the Audit log and in one warning.",
+                    "description": "Whether logs, traces and HAR files are redacted and screenshots and recordings kept as outputs are masked (ADR 0014). On by default; off lifts that guarantee for those outputs only: secrets still never reach the model, Plans, caches, the Effect journal or observations. The run says so in its report's `weakened`, in the Audit log and in one warning. A Recipe or a Client acting for a model never switches it off: its `false` is `setting_locked`.",
                     "type": "boolean"
                   },
                   "resolved_ip_check": {
-                    "description": "Whether every address a name resolves to is checked against the egress policy before a connection is made (ADR 0017). On by default; off, the domain policy alone applies, and the run says so in its report's `weakened`, in the Audit log and in one warning.",
+                    "description": "Whether every address a name resolves to is checked against the egress policy before a connection is made (ADR 0017). On by default; off, the domain policy alone applies, and the run says so in its report's `weakened`, in the Audit log and in one warning. A Recipe or a Client acting for a model never switches it off: its `false` is `setting_locked`.",
                     "type": "boolean"
                   },
                   "secure_delete": {
-                    "description": "Whether the run's secret tables overwrite what they delete, SQLite's `secure_delete` (ADR 0015). On by default; off, deleted values may stay on disk until overwritten, and the run says so in its report's `weakened`, in the Audit log and in one warning.",
+                    "description": "Whether the run's secret tables overwrite what they delete, SQLite's `secure_delete` (ADR 0015). On by default; off, deleted values may stay on disk until overwritten, and the run says so in its report's `weakened`, in the Audit log and in one warning. A Recipe or a Client acting for a model never switches it off: its `false` is `setting_locked`.",
                     "type": "boolean"
                   }
                 },
@@ -32443,7 +32747,7 @@
                               },
                               "key": {
                                 "arrived_in": "0.1",
-                                "description": "The Secret reference that opens a session export bundle.",
+                                "description": "The Secret reference that opens a session export bundle: its\nage identity or its passphrase, never the value itself.",
                                 "type": [
                                   "string",
                                   "null"
@@ -34419,7 +34723,7 @@
                 "additionalProperties": false,
                 "properties": {
                   "address": {
-                    "description": "Where `daemon run`, the foreground Daemon, listens, as `host:port`: `127.0.0.1` on port 7900 plus the major (7600 plus the minor during `0.y` previews). Port 0 takes a free port, which its log names. Only a loopback address, until the Daemon terminates TLS. Set in user configuration or an Operator policy, or for `daemon run` through `GOODFETCH_DAEMON_ADDRESS`.",
+                    "description": "Where `daemon run`, the foreground Daemon, listens, as `host:port`: `127.0.0.1` on port 7900 plus the major (7600 plus the minor during `0.y` previews). Port 0 takes a free port, which its log names. An address other than loopback needs `daemon.tls.cert_file` and `daemon.tls.key_file`, or `daemon.tls.upstream`, so no token crosses a network in clear. Set in user configuration or an Operator policy, or for `daemon run` through `GOODFETCH_DAEMON_ADDRESS`.",
                     "type": "string"
                   },
                   "drain_grace": {
@@ -34431,6 +34735,46 @@
                     "description": "How long a Daemon with no connected Client waits before it stops: 10 minutes. `daemon start --keep-alive`, a held Schedule and an installed service keep it running. Set in user configuration or an Operator policy only.",
                     "minimum": 0,
                     "type": "integer"
+                  },
+                  "tls": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "cert_file": {
+                        "anyOf": [
+                          {
+                            "type": "string"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ],
+                        "description": "The certificate chain `daemon run`, the foreground Daemon, serves TLS with on `daemon.address`, a PEM or DER file, set together with `daemon.tls.key_file`. With both set, every Connection opens with a TLS handshake, its JSON-RPC lines and its WebSocket alike, and one that does not is closed and recorded in the Audit log; a replaced file is read again at the next Connection, with no restart. Unset by default, which limits `daemon.address` to loopback unless `daemon.tls.upstream` is set. Set in user configuration or an Operator policy."
+                      },
+                      "key_file": {
+                        "anyOf": [
+                          {
+                            "type": "string"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ],
+                        "description": "The private key of `daemon.tls.cert_file`'s certificate, a PEM file (PKCS #8, PKCS #1 or SEC 1) or a DER file, set together with it. A replaced file is read again at the next Connection, with no restart. Unset by default. Set in user configuration or an Operator policy."
+                      },
+                      "upstream": {
+                        "description": "Whether TLS is terminated in front of `daemon run`, the foreground Daemon, by an ingress or a reverse proxy, which lets `daemon.address` be other than loopback with no `daemon.tls.cert_file`. The Daemon then serves in plain, still requires its token, checks each WebSocket handshake's `Host` and `Origin`, and reads `X-Forwarded-Host` and `X-Forwarded-Proto` only from the addresses `daemon.trusted_proxies` lists. `false` by default, and refused together with the TLS files. A Daemon started with it records `tls_terminated_upstream` in the Audit log. Set in user configuration or an Operator policy.",
+                        "type": "boolean"
+                      }
+                    },
+                    "type": "object"
+                  },
+                  "trusted_proxies": {
+                    "description": "The proxies in front of `daemon run`, the foreground Daemon, whose `X-Forwarded-Host` and `X-Forwarded-Proto` it reads under `daemon.tls.upstream`: IP addresses and CIDR ranges such as `10.0.0.0/8`, matched on a Connection's peer address. From a listed proxy, `X-Forwarded-Proto: https` makes a WebSocket handshake's `Origin` one over `https`, and with it the name `X-Forwarded-Host` gives is one the Daemon answers to; each header's first value counts. From any other address both are ignored, and `Forwarded` and `X-Forwarded-For` are never read. Empty by default, and refused without `daemon.tls.upstream`. Set in user configuration or an Operator policy.",
+                    "items": {
+                      "description": "A CIDR range such as `10.0.0.0/8`, or an IP address such as `192.0.2.7`.",
+                      "type": "string"
+                    },
+                    "type": "array"
                   }
                 },
                 "type": "object"
@@ -36090,7 +36434,7 @@
                 "additionalProperties": false,
                 "properties": {
                   "audit_chain": {
-                    "description": "Whether the run's Audit log entries are hash-chained (ADR 0016). On by default; off, that run's entries are written unchained, each marked `chained: false`, which `audit verify` steps over while it verifies the chain around them; the switch itself is a chained entry, and the run says so in its report's `weakened` and in one warning.",
+                    "description": "Whether the run's Audit log entries are hash-chained (ADR 0016). On by default; off, that run's entries are written unchained, each marked `chained: false`, which `audit verify` steps over while it verifies the chain around them; the switch itself is a chained entry, and the run says so in its report's `weakened` and in one warning. A Recipe or a Client acting for a model never switches it off: its `false` is `setting_locked`.",
                     "type": "boolean"
                   },
                   "browser_sandbox": {
@@ -36098,23 +36442,23 @@
                     "type": "boolean"
                   },
                   "field_encryption": {
-                    "description": "Whether the run's state seals its secret fields with the run's data key (ADR 0015). On by default; off, they are written in the clear, and the run says so in its report's `weakened`, in the Audit log and in one warning.",
+                    "description": "Whether the run's state seals its secret fields with the run's data key (ADR 0015). On by default; off, they are written in the clear, and the run says so in its report's `weakened`, in the Audit log and in one warning. A Recipe or a Client acting for a model never switches it off: its `false` is `setting_locked`.",
                     "type": "boolean"
                   },
                   "raw_cdp_egress_proxy": {
-                    "description": "Whether every browser Session the engine launches reaches the network through the egress relay, which holds a raw CDP client or a Lent page at the network layer (ADR 0017). On by default; off, a Session with no certificate exception and no local address connects directly, held by interception alone, and the run says so in its report's `weakened`, in the Audit log and in one warning. It never removes the relay that carries certificate exceptions or local addresses.",
+                    "description": "Whether every browser Session the engine launches reaches the network through the egress relay, which holds a raw CDP client or a Lent page at the network layer (ADR 0017). On by default; off, a Session with no certificate exception and no local address connects directly, held by interception alone, and the run says so in its report's `weakened`, in the Audit log and in one warning. It never removes the relay that carries certificate exceptions or local addresses. A Recipe or a Client acting for a model never switches it off: its `false` is `setting_locked`.",
                     "type": "boolean"
                   },
                   "redaction": {
-                    "description": "Whether logs, traces and HAR files are redacted and screenshots and recordings kept as outputs are masked (ADR 0014). On by default; off lifts that guarantee for those outputs only: secrets still never reach the model, Plans, caches, the Effect journal or observations. The run says so in its report's `weakened`, in the Audit log and in one warning.",
+                    "description": "Whether logs, traces and HAR files are redacted and screenshots and recordings kept as outputs are masked (ADR 0014). On by default; off lifts that guarantee for those outputs only: secrets still never reach the model, Plans, caches, the Effect journal or observations. The run says so in its report's `weakened`, in the Audit log and in one warning. A Recipe or a Client acting for a model never switches it off: its `false` is `setting_locked`.",
                     "type": "boolean"
                   },
                   "resolved_ip_check": {
-                    "description": "Whether every address a name resolves to is checked against the egress policy before a connection is made (ADR 0017). On by default; off, the domain policy alone applies, and the run says so in its report's `weakened`, in the Audit log and in one warning.",
+                    "description": "Whether every address a name resolves to is checked against the egress policy before a connection is made (ADR 0017). On by default; off, the domain policy alone applies, and the run says so in its report's `weakened`, in the Audit log and in one warning. A Recipe or a Client acting for a model never switches it off: its `false` is `setting_locked`.",
                     "type": "boolean"
                   },
                   "secure_delete": {
-                    "description": "Whether the run's secret tables overwrite what they delete, SQLite's `secure_delete` (ADR 0015). On by default; off, deleted values may stay on disk until overwritten, and the run says so in its report's `weakened`, in the Audit log and in one warning.",
+                    "description": "Whether the run's secret tables overwrite what they delete, SQLite's `secure_delete` (ADR 0015). On by default; off, deleted values may stay on disk until overwritten, and the run says so in its report's `weakened`, in the Audit log and in one warning. A Recipe or a Client acting for a model never switches it off: its `false` is `setting_locked`.",
                     "type": "boolean"
                   }
                 },
@@ -36494,7 +36838,7 @@
                               },
                               "key": {
                                 "arrived_in": "0.1",
-                                "description": "The Secret reference that opens a session export bundle.",
+                                "description": "The Secret reference that opens a session export bundle: its\nage identity or its passphrase, never the value itself.",
                                 "type": [
                                   "string",
                                   "null"
@@ -37971,6 +38315,16 @@
       "schema": {
         "items": true,
         "type": "array"
+      },
+      "storage": "json",
+      "version": "0.1"
+    },
+    {
+      "hello_from": [],
+      "name": "session-export",
+      "rule": "default",
+      "schema": {
+        "$ref": "#/$defs/SessionExport"
       },
       "storage": "json",
       "version": "0.1"

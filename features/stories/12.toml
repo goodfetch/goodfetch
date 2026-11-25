@@ -474,6 +474,22 @@ status = "retired"
 reason = "The Console left both Products (ADR 0137), and this story was its alone."
 
 [[story]]
+id = 139
+title = "As a person at a terminal, I want `needs-you answer` to walk me through what waits, so that I need no other tool to act."
+milestone = "M3 Browser automation"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 140
+title = "As a person using a pipe or `--json`, I want the list to read normally and an answer refused with `person_required` naming the exact command, so that a script never answers for me."
+milestone = "M3 Browser automation"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
 id = 201
 title = "As a user with Foxhound installed, I want my major's Foxhound Daemon to serve Foxhound's Console build on the Console's port, listing both Products' runs in one Runs screen and one \"Needs you\", so that installing Foxhound adds screens without moving anything (ADR 0098)."
 milestone = "M1 Core"

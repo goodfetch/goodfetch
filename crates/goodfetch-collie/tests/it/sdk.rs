@@ -29,6 +29,7 @@ mod fork;
 mod handlerless_starts;
 #[cfg(unix)]
 mod interrupt;
+mod key_value_store;
 mod limits;
 mod logging;
 mod page;

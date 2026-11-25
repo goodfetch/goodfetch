@@ -56,6 +56,19 @@ impl ConsentDomains {
     }
 }
 
+/// What a person takes on by adding `domain`, or `*`, to `consent.domains`
+/// (ADRs 0048 and 0052), in the words a person surface shows beside the
+/// answer and the Audit log records with it.
+pub fn warning(domain: &str) -> String {
+    if domain == "*" {
+        "Accepting consent walls on every domain gives consent in your name on every site that shows one: those sites may load their trackers and set their cookies, and under the GDPR that consent is yours. An Agent also no longer asks you before accepting a consent prompt on any domain. Every later run accepts them until you remove `*` from `consent.domains`.".to_owned()
+    } else {
+        format!(
+            "Accepting the consent walls of {domain} gives consent in your name: the site may load its trackers and set their cookies, and under the GDPR that consent is yours. Every later run accepts them until you remove {domain} from `consent.domains`."
+        )
+    }
+}
+
 struct Walls;
 
 impl Primitives for Walls {

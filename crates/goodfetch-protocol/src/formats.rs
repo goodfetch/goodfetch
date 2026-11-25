@@ -21,6 +21,7 @@ use crate::jsonrpc::Message;
 use crate::politeness::PermitRow;
 use crate::response_cache::ResponseCacheEntry;
 use crate::run::{RunIndexRow, RunStateRow};
+use crate::session_export::SessionExport;
 use crate::tls::CertificatePin;
 use crate::usage::Limit;
 
@@ -413,6 +414,19 @@ pub const EXPORT: Format = Format {
     schema: schema_of::<Vec<Value>>,
 };
 
+/// A session export bundle's document (ADRs 0015 and 0056), which the
+/// bundle encrypts with `age`: a Session's cookies and storage. An import
+/// reads its own major up to its own minor. Its corpus holds the document
+/// alone, since each encryption of it differs.
+pub const SESSION_EXPORT: Format = Format {
+    name: "session-export",
+    version: ProtocolVersion { major: 0, minor: 1 },
+    storage: Storage::Json,
+    rule: Rule::Default,
+    hello_from: &[],
+    schema: schema_of::<SessionExport>,
+};
+
 /// Every registered format.
 pub const FORMATS: &[&Format] = &[
     &PROTOCOL,
@@ -429,6 +443,7 @@ pub const FORMATS: &[&Format] = &[
     &OPERATOR_POLICY,
     &USER_CONFIGURATION,
     &EXPORT,
+    &SESSION_EXPORT,
 ];
 
 /// A settings file's schema: its `version` and each of `tables`, a table

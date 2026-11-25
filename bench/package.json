@@ -8,6 +8,8 @@
     "typecheck": "tsc -p tsconfig.json"
   },
   "dependencies": {
+    "@goodfetch/collie": "workspace:*",
+    "@goodfetch/foxhound": "workspace:*",
     "ajv": "8.20.0"
   },
   "devDependencies": {
@@ -21,6 +23,8 @@
   },
   "goodfetch": {
     "runs": [
+      "goodfetch-collie",
+      "goodfetch-foxhound",
       "goodfetch-proving-ground"
     ]
   }

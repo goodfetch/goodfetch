@@ -1,0 +1,1234 @@
+# Area 7's user stories (spec #595 and #596, Plugin protocol, Collie,
+# parts 1 and 2: stories 1 to 115; spec #597, Foxhound's part: stories from
+# 201), the declared `story:7-<id>` Features of ADR 0072, every story of both
+# Products' specs as their User Stories give them: each story's milestone is
+# that of the ticket that finishes it (every ticket of both specs is M4), and
+# a story without a Journey carries ADR 0075's reason (`actor`, `part` or
+# `reach`). The specs' issues keep the full text; this copy is the one the
+# Feature check reads. Never renumber or reuse an ID: a removed story stays
+# with `status = "retired"` and a `reason`.
+
+[[story]]
+id = 1
+title = "As a user, I want to search the Plugin index with `plugin search`, seeing each Plugin's kinds, signer identity and conformance results, so that I choose a Plugin by what it has proved, not by its name."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 2
+title = "As a user, I want `plugin add` to download the Plugin's OCI artifact for my platform, verify its digest and provenance and unpack it into the Plugin store without running npm, pip, a build or any script, and without touching my `node_modules` or virtualenv, so that installing a Plugin can never run code (ADR 0033)."
+milestone = "M4 Everything else"
+journey = true
+status = "active"
+
+[[story]]
+id = 3
+title = "As a user, I want `plugin add` to show me the manifest's kinds, network level, permissions, environment variables, files, processes, browsers and spend prices before anything is approved, so that I see what I grant."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 4
+title = "As a user, I want `plugin add` to fetch the Plugin's declared language runtime (a Node or Python version) by digest into the runtime cache, so that a Plugin never depends on what happens to be installed and an `offline` engine never downloads one later (ADRs 0033, 0043)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 5
+title = "As a user, I want `plugin add` to record the Plugin's digest in a lockfile and the engine to refuse a mismatch with `plugin_digest_mismatch`, so that a project runs the Plugins it was tested with (ADR 0033)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 6
+title = "As a user, I want a name close to an index entry refused unless I give an exact digest, so that a look-alike Plugin cannot be installed by a typo (ADR 0033)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 7
+title = "As a user, I want a third-party Plugin's artifact refused unless its provenance attestation matches the signer the index records, or Operator policy allows its exact digest, so that I know which repository and workflow built every byte it ships (ADR 0033)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 8
+title = "As a user, I want the engine to refuse an index older than the last one it saw or past its expiry, and to stop running instances of a revoked Plugin at once, so that a revocation reaches me and an attacker cannot replay an old index (ADR 0033)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 9
+title = "As a user on an air-gapped host, I want `plugin index import <file>` to import a fresh signed index, verified offline against the trust root my release bundles, so that revocation still works without network access (ADR 0033)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "reach"
+status = "active"
+
+[[story]]
+id = 10
+title = "As a user, I want `plugin update` to show the new digest, the signer and a permission diff, and to ask me to approve any new permission or wider value, so that an update never grants more silently (ADR 0033)."
+milestone = "M4 Everything else"
+journey = true
+status = "active"
+
+[[story]]
+id = 11
+title = "As a user, I want an update whose signer identity changed refused until the operator approves it again, so that a release from another repository or workflow is caught (ADR 0033)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 12
+title = "As a user, I want Plugins never updated automatically, so that a hijacked repository cannot reach my runs between two of my approvals (ADR 0033)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 13
+title = "As a user, I want `plugin list` to show each installed Plugin with its kinds, digest, signer, network level, approvals and conformance results, and Plugins of a kind my Product lacks listed but marked, so that one Goodfetch home serves Collie and Foxhound (ADR 0098)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 14
+title = "As a user with both Products, I want one Plugin store shared by both, Collie keeping and never deleting a Sink or Fetch backend Plugin and refusing it with `not_in_product` when a run asks for it, so that installing Foxhound later finds my Plugins (ADRs 0094, 0098)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 15
+title = "As a user, I want `plugin remove` to delete a Plugin from the store, its lockfile entry and its approvals, and to be refused while a live run uses it, so that removal never breaks a run in flight."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 16
+title = "As an operator, I want a third-party Plugin to load only when Operator policy allows it, Goodfetch's first-party Plugins allowed by default and a Private component never treated as first-party, so that nothing third-party runs without my decision (ADRs 0033, 0035)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 17
+title = "As an operator, I want to allow, deny or pin each Plugin to a digest in Operator policy, so that every machine of a team runs what I approved (ADR 0033)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 18
+title = "As an operator, I want each permission (`effects` per domain, `page_script` per domain, `session_credentials` per domain, each Secret reference, `needs_secret_value` per reference, a declared browser per digest, `direct`) approved separately, with each approval stating in plain words what it lets the Plugin do and what the engine cannot check, so that I approve exactly what I understand (ADR 0033)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 19
+title = "As an operator, I want the spend prices a Plugin declares shown when I allow it and overridable, so that a currency Limit reserves against prices I accept (ADR 0033)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 20
+title = "As an operator, I want every approval, release of a Secret value, release of session credentials, browser allowance, reduced confinement and `--accept-plugin-change` recorded in the Audit log, so that I can audit what third parties were given (ADR 0033)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 21
+title = "As an operator on a host that cannot confine (WSL1, a container under Docker's default seccomp profile on a kernel before 6.12), I want third-party Plugins refused with `confinement_unavailable` and first-party ones refused by default unless I allow reduced confinement, with the run report and the Audit log naming what was not confined, so that nothing is weakened silently (ADR 0033)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "reach"
+status = "active"
+
+[[story]]
+id = 22
+title = "As an operator, I want confinement to be no switchable control: no run, Recipe or setting turns it off, and there is no `unconfined` mode, so that the guarantee holds for exactly the Plugins that would ask to escape it (ADRs 0016, 0033)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 23
+title = "As an operator on Ubuntu 23.10 or later, I want an elevated `plugin setup` to install the root-owned `goodfetch-sandbox` helper and its AppArmor profile only after verifying their attestation, so that `proxy_tcp` works where AppArmor restricts user namespaces (ADRs 0033, 0039)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "reach"
+status = "active"
+
+[[story]]
+id = 24
+title = "As an operator on Windows, I want an elevated `plugin setup` to install the filter broker only after verifying its attestation, with every filter change in the Windows event log, so that `proxy_tcp` and `direct` work there (ADRs 0033, 0039)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "reach"
+status = "active"
+
+[[story]]
+id = 25
+title = "As an operator, I want each run's report to state which Plugins ran, at which network level and confinement, and which figures came from a Plugin, so that a run's result says what extended it (ADR 0016)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 26
+title = "As an operator of a Daemon group, I want the last Plugin index the Lead Daemon saw to be what every Group member compares against, and placement to consider installed Plugins, so that a group never runs a revoked Plugin on one member (ADRs 0033, 0055)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 27
+title = "As an operator running a container (ADR 0049), I want the engine's startup probe of user namespaces to decide Plugin confinement too, with the refusal naming the fix for the detected environment, so that one probe explains both the browser's sandbox and Plugins' (ADR 0049)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 28
+title = "As a user, I want each process Plugin instance to belong to one run, started with the run or when it first needs it and killed when the run stops, finishes or is discarded, so that nothing of one run survives in a Plugin process (ADRs 0001, 0033)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 29
+title = "As a user, I want work outside a run (a probe, `plugin test`, a Notification after a run ends) to get its own instance scoped to that task and killed after it, so that such work shares no process with a run."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 30
+title = "As a user, I want a Plugin started with an empty environment holding only the variables its manifest declares, valued from its settings, with no loader variable allowed, no inherited handle beyond stdio and its proxy socket, and a private temporary folder deleted when it stops, so that `AWS_SECRET_ACCESS_KEY` or `GITHUB_TOKEN` never leak in (ADR 0033)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 31
+title = "As a user, I want a Plugin started by hand to refuse to run (the environment cookie), and an instance whose `hello` differs from its approved manifest stopped with `plugin_manifest_mismatch`, so that a Plugin cannot claim more than was approved (ADR 0033)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 32
+title = "As a user, I want calls to a Plugin held to the manifest's maximum concurrency with ADR 0024's credits, nothing dropped and callers waiting under their lease, and its calls back into the engine drawing on a separate pool, so that a Plugin at its limit cannot deadlock (ADR 0033)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 33
+title = "As a user, I want every call to carry a deadline, abandoned past it with `$/cancel`, its result refused, and an abandoned Effect-class call reported uncertain at once, so that a hung Plugin never stalls a run or repeats an Effect (ADRs 0029, 0033)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 34
+title = "As a user, I want a crashed Plugin restarted with backoff, in-flight reads and idempotent writes failed with `plugin_crashed` and retried under their lease, and in-flight Effects reported uncertain for Reconciliation, never retried blindly (ADRs 0010, 0029, 0033)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 35
+title = "As a user, I want repeated crashes to quarantine a Plugin for the rest of the run with `plugin_quarantined` and a Notification, so that a broken Plugin is visible, not retried forever (ADR 0033)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 36
+title = "As a user, I want a heartbeat on the same channel, and an instance restarted when it stops answering, when it holds more abandoned calls than its concurrency, or when a call is abandoned while it has a proxied stream open, so that a stuck Plugin is replaced (ADR 0033)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 37
+title = "As a user, I want a Plugin that exceeds its memory, CPU time, process count or open-file limit killed with `plugin_limit_exceeded` under the crash rules, so that one Plugin cannot exhaust my machine (ADR 0033)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 38
+title = "As a user, I want every call into a Plugin of any form counted in Usage (calls and time) and recorded in the Run trace by Plugin and method, so that I see what extended my run and how long it took (ADR 0033)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 39
+title = "As a user, I want the engine to class each call itself from the kind's method and what it carries, never from the Plugin's word, so that a Plugin cannot pass an Effect off as a read (ADR 0033). A crawl request is a read whatever its method, also when a Fetch backend carries it (ADR 0106; Foxhound's part)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 40
+title = "As a user, I want every Model provider and Decision provider call journaled in the Effect journal, Effect-class calls journaled, and a Secret provider's or Code source's answers never recorded (only the reference, the outcome and the time), so that the journal is complete and never holds a secret (ADRs 0010, 0012, 0033)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 41
+title = "As a user, I want everything a Plugin returns treated as page content under ADR 0014, so that text a Plugin returns cannot instruct a model, except a Model or Decision provider's answer, which is the model's decision, and a Secret provider's or Code source's answer, which never reaches a model (ADR 0033)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 42
+title = "As a user whose Plugin spends outside the engine (a solving service, a hosted browser, a search API), I want its raw units reported in Usage, the declared maximum times the price reserved against my currency Limit before each call, a call that would cross the Limit refused, a unit with no price treated as unbounded under a currency Limit and refused with `plugin_price_unknown`, and a quantity above the declared maximum recorded in full, flagged in the report and stopping the run if it crosses the Limit, so that third-party spend is capped as model spend is (ADR 0033)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 43
+title = "As a user, I want a Plugin to name a Secret only by reference in a dedicated field of a `net.fetch` request (a header or query parameter, with an optional template such as `Bearer {}`, or a form field the operator set), inserted by the engine only toward the domains the run binds it to, so that the value never enters the Plugin (ADRs 0015, 0033, 0092)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 44
+title = "As a user, I want a Secret value removed from a response before the Plugin sees it, raw and in base64, URL, hex and JSON-escaped forms, and a value inserted in a query parameter masked in the Run trace, Usage and the journal, so that a site's echo cannot hand it back (ADR 0033)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 45
+title = "As a user, I want a Plugin that needs a value itself (a database password over `direct`, a TLS stream it opens) to declare `needs_secret_value` per reference, released only when Operator policy allows it for that Plugin, with each release in the Audit log, so that a released value is a decision someone made (ADR 0033)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 46
+title = "As a user with a logged-in Session (through a Secret, an import, a Profile directory or a Borrowed browser, ADR 0056), I want a third-party Plugin to reach its requests, pages and responses only through `session_credentials` approved for that Plugin and domain, so that no third party sees my account by default (ADRs 0033, 0056)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 47
+title = "As a user, I want, without that approval, a browser a third-party Plugin supplies not used for that Session, and a third-party proxy carrying its requests only inside a TLS tunnel, a plain-HTTP or WS request refused with `proxy_requires_tls`, so that a proxy never reads my session in clear (ADR 0033)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 48
+title = "As a user, I want a Plugin's `net.fetch` never to carry a Session's cookies, and a page-stage Hook never to set cookies on a logged-in domain, so that no Plugin can switch my Session into another account (ADR 0033)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 49
+title = "As a user, I want a Plugin's `page.*` calls unable to run script, read form values, storage or cookies unless `page_script` is approved for that domain, and every navigation or approved script on a logged-in Session journaled as a possible Effect, so that a `GET` that changes state is still accounted for (ADR 0033)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 50
+title = "As a user, I want a `page.*` action that changes the page, a navigation while logged in, and a `net.fetch` other than `GET` or `HEAD` toward the run's sites performed only on the domains a Plugin's `effects` permission names, through the Effect journal, so that a Plugin's writes are journaled as mine are (ADRs 0010, 0033)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 51
+title = "As a user, I want a third-party Secret provider unable to claim a built-in's or another installed provider's reference scheme, so that it never answers for references meant for another provider (ADR 0033)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 52
+title = "As a user, I want no Plugin answer able to turn off certificate checks or add a trusted authority for a Session, so that no proxy can read my typed Secrets (ADRs 0033, 0042)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 53
+title = "As a user, I want a Plugin's calls back into the engine accepted only during a call the engine made to it, carrying that call's ID and acting within that call's run, lease, Session and the Plugin's permissions, never reaching the Run index, settings, Operator policy or accounts, so that a Plugin cannot act on its own (ADR 0033)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 54
+title = "As an operator, I want a Plugin at `none` (the default) to create no network socket at all, reaching the outside only through `net.fetch` and `net.connect` on its stdio channel, so that every byte it sends passes the engine's checks (ADR 0033)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 55
+title = "As an operator, I want a Plugin at `proxy_tcp` to reach only what `net.connect` may reach, through a proxy the engine runs for that instance with credentials generated for it, so that clients that only speak `HTTP_PROXY` or SOCKS5 still work confined (ADR 0033)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 56
+title = "As an operator, I want `direct` allowed only to Plugins whose kinds are all among Sink, Notification channel, Secret provider, Model provider, Decision provider and Code source, and for a third-party one only when Operator policy names it, with the run report and Audit log marking it and the approval stating what is not checked, so that drivers that cannot use a proxy still run, knowingly (ADR 0033)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 57
+title = "As an operator, I want a Plugin's operator-configured endpoints (layers 2 and 3, or a Recipe or run value whose host Operator policy allows) to be the only destinations that may resolve to private or loopback ranges, and every other destination checked as a page's, including the domains its manifest declares and the defaults it ships, so that a Plugin's author cannot point it at my network through DNS (ADRs 0017, 0033)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 58
+title = "As an operator, I want a run's private-range allowlist and a switched-off resolved-IP check never applied to a Plugin's destinations, and link-local and cloud-metadata ranges refused for every destination the engine carries for a Plugin, so that a Plugin cannot reach my cloud credentials through the engine (ADR 0033)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 59
+title = "As an operator, I want a returned endpoint (a Browser backend's CDP URL, a Proxy provider's proxy) treated as operator-configured only when it matches an operator-configured value, so that a Plugin cannot launder an address by returning it (ADR 0033)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 60
+title = "As a user, I want a Plugin's navigations held to the registrable domain of the page it was called for and, only while the Session is not logged in, the domains it declares, which narrow and never widen the run's domain policy, so that a Plugin cannot take my page elsewhere (ADRs 0014, 0033)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 61
+title = "As a user, I want `net.connect` streams opaque to the engine to be counted in Usage by bytes and time, recorded in the Run trace by destination and closed when the lease they were opened under ends, so that streams stay accounted though their content is not (ADRs 0003, 0033)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 62
+title = "As a Recipe author, I want to carry a Hook as a Script Hook in my Recipe or settings, a JavaScript function with only its stage's catalog calls, so that CLI, MCP and Recipe users get Hooks without an SDK or a process Plugin (ADRs 0033, 0051)."
+milestone = "M4 Everything else"
+journey = true
+status = "active"
+
+[[story]]
+id = 63
+title = "As a CLI or MCP user, I want Hooks named in settings run in the order their layers declare them, Operator policy's first and the run layer's last, with no integers and no priorities, so that I know which Hook sees what another changed (ADR 0104)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 64
+title = "As a Collie user, I want `before_navigation`, `after_navigation` and `page_ready` Hooks from settings to run around each navigation of my Run's pages, so that an operator can set a cookie or block a resource on every page an Agent visits (ADRs 0088, 0104)."
+milestone = "M4 Everything else"
+journey = true
+status = "active"
+
+[[story]]
+id = 65
+title = "As an operator, I want observe-only lifecycle Hooks (`run_started`, `checkpoint_taken`, `run_migrated`, `limit_reached`, `run_ended`) for process Plugins and Script Hooks, so that a Plugin can report a run's life to my own systems without a program listening (ADRs 0033, 0104)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 66
+title = "As a user, I want a Script Hook's permissions declared inline beside it and approved by Operator policy like a Plugin's, and one supplied at the run layer (which an agent or a workflow may fill) given none of `effects`, `page_script`, `session_credentials` or Secret references unless Operator policy allows them for it, so that a prompt-injected agent cannot plant a privileged Hook (ADR 0033)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 67
+title = "As a user, I want a Script Hook's failure reported as `hook_failed` naming its `script_*` code, retried only when that code's flag says so, and a quarantined Script Hook failing its stage with `hook_failed` naming `script_quarantined`, never skipped silently (ADR 0051)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 68
+title = "As a user, I want a Hook that only observes never to change a run's or a request's outcome when it fails, its failure recorded in the Run trace and the report's warnings, so that a reporting Plugin cannot fail my work."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 69
+title = "As a user, I want every Hook stage named once, by the catalog's snake_case name, in Plugin manifests, Script Hooks, settings, the Run trace and the SDKs, so that one name means one stage everywhere (ADR 0104)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 70
+title = "As a developer, I want to register my own implementation of any Collie kind on my connection by name, one option per kind (`proxyProviders`, `browserBackends`, `extractors`, `decisionProviders`, `challengeSolvers`, `searchProviders`, `codeSources`, `notificationChannels`, with ADR 0101's `modelProviders` and ADR 0092's `resolveSecret`), so that injecting a component is one option, as ADR 0101 registers a model (ADR 0104)."
+milestone = "M4 Everything else"
+journey = true
+status = "active"
+
+[[story]]
+id = 71
+title = "As a developer, I want my handler chosen by its name wherever settings choose an installed Plugin, and the only handler of a kind that one setting chooses to become that setting's value with the origin `registered`, so that a proxy pool I register is used without restating it (ADRs 0083, 0104)."
+milestone = "M4 Everything else"
+journey = true
+status = "active"
+
+[[story]]
+id = 72
+title = "As a developer, I want two handlers of such a kind to fail `connect()` with `setting_invalid` when nothing else sets the key, a handler named as a built-in or installed Plugin to fail it too, and a setting naming a handler neither installed nor registered to fail when its scope opens, so that no Run silently leaves from my own address (ADR 0104)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 73
+title = "As a developer, I want a `GoodfetchError` my handler raises to keep its code, and any other exception to become its kind's `<kind>_handler_failed`, a `ProgramError` naming my handler and carrying the exception's type, message and stack, so that my bug reads as mine (ADRs 0079, 0104)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 74
+title = "As a Rust developer, I want to declare each handler's name in `ConnectOptions`, read its calls with `gf.<kind>_requests(name)` as an `EventStream`, a second stream or an undeclared name failing with `setting_invalid`, and a call dropped unanswered failing with its kind's unreachable code, so that the async API spawns nothing and still has one form (ADRs 0081, 0104, 0109)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 75
+title = "As a developer, I want a Run that uses one of my handlers to refuse detaching, its `fix` naming the key that chose the handler, and a resume refused before any work when my program no longer registers a handler the Run used, so that a Run never continues without the code it needs (ADR 0104)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 76
+title = "As a developer, I want my handlers to run with my program's full rights, never confined, and Records or results produced through them to say so in their Provenance, so that I know what the engine cannot vouch for (ADR 0033)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 77
+title = "As a Plugin author, I want a manifest format, a JSON Schema for it and the plugin protocol's JSON Schema bundle generated from `goodfetch-protocol`, so that I can write a Plugin in any language and validate it before publishing (ADR 0038)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 78
+title = "As a Plugin author, I want each kind's method group documented with its params, result, Error codes, deadlines and cancel rule, so that my Plugin answers exactly what the engine asks."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 79
+title = "As a Plugin author, I want to declare my Plugin's settings as a JSON Schema the engine validates, the Console renders as a form, and the CLI and MCP take as the same fields, secret fields taking only Secret references, so that one declaration serves every surface (ADR 0033)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 80
+title = "As a Plugin author, I want `plugin test` to run my kind's suite against my Plugin and report each declared capability as proved, unproved or failed, so that I can publish what I proved (ADRs 0033, 0094)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 81
+title = "As a Plugin author, I want to package my Plugin as one OCI artifact per platform, under one multi-platform image index, named `goodfetch-plugin-*`, with every dependency it runs and a provenance attestation from my CI, so that users install it by digest from any OCI registry (ADR 0033)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 82
+title = "As a Plugin author, I want to submit my Plugin to the index by a pull request whose CI fetches my artifact by digest, verifies its provenance, runs my kind's suite and records the results, so that the index lists what was proved, not what I claim (ADR 0033)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 83
+title = "As a Plugin author whose Plugin presents itself as a way past Walls, crawler verification or paywalls, I understand the official index will not list it and delists it once found (story 115), so that the index never advertises access over a site's will (ADR 0052)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "reach"
+status = "active"
+
+[[story]]
+id = 84
+title = "As a user of a vendor browser Goodfetch does not list, I want a Browser backend Plugin to answer with a browser from the engine's digest-checked browser cache, a Browser host address or a third-party CDP endpoint, never an executable it names, so that the engine still drives the browser through its own driver and guard (ADRs 0019, 0022, 0033)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 85
+title = "As an operator, I want a browser a Plugin declares downloaded over HTTPS by URL and digest per platform, the URL checked as a page's, the digest checked at download and at every launch, launched by the engine over a pipe with flags only from its allowlist, and allowed per digest in Operator policy, off by default, so that a Plugin-declared browser such as CloakBrowser runs only knowingly (ADRs 0033, 0035)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 86
+title = "As a user, I want a cloud browser a Browser backend creates treated as driven by the engine alone and released by that Plugin, so that no Secret is typed into a browser other code drives (ADR 0056)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 87
+title = "As a user, I want an Extractor Plugin to replace main-content extraction (ADR 0007) on the page Collie is on, so that I can use another extraction strategy without changing my program."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 88
+title = "As a CLI or MCP user, I want a Model provider Plugin to reach a model format beyond ADR 0012's three, named in a Model reference by the provider name its manifest declares, with its models' capabilities and prices in its manifest, which the operator sees and can override, so that I add a model format without an SDK (ADR 0101)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 89
+title = "As a user, I want a Decision provider held to the decision contract (one option from a fixed list with a confidence, or a typed abstention), so that a Decision provider I bring answers as the built-in one does (ADR 0033)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 90
+title = "As a user of a vault Goodfetch does not ship, I want a Secret provider Plugin, declaring its own reference scheme, to resolve my Secret references at the moment of use, so that my secrets stay in my vault (ADRs 0015, 0033)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 91
+title = "As a user, I want a Challenge solver Plugin called with the Session, a page handle, the challenge's kind and vendor and the run's remaining Limits, acting only through engine operations or returning a token the engine injects, asking for a vision model through a catalog operation, and answering `solved` with evidence the Page check re-checks, `unsupported`, `failed` or `needs_human`, so that a solver never holds model credentials and never declares a challenge passed on its own word (ADRs 0033, 0035)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 92
+title = "As a user, I want `needs_human` to hand over to a Human pause only once the engine has checked the page is still the challenged one, and a solver acting outside the challenge's own widget to need `effects`, so that a solver cannot steer a person to a look-alike page or submit a form (ADR 0033)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 93
+title = "As a user with my own proxy pool, I want a Proxy provider to give each Session its proxy when it opens, its password a Secret reference, so that a Session's identity is fixed for its life (ADRs 0021, 0092)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 94
+title = "As a user, I want a Search provider Plugin to join the web search operation's interchangeable providers, each result flagged for whether it may be kept, so that I can use a search API Goodfetch does not list (ADR 0011)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 95
+title = "As a user whose site sends MFA codes by email or SMS, I want a Code source Plugin named in `secrets.<name>.code_source` to fetch the code, its answers never recorded, so that unattended logins complete (ADRs 0006, 0092)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "reach"
+status = "active"
+
+[[story]]
+id = 96
+title = "As a user, I want a Notification channel Plugin to deliver through ADR 0027's ledger, so that a channel Goodfetch does not ship still never repeats a Notification across a resume (ADR 0027)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 97
+title = "As a user, I want a run to record in its run state every Plugin it used with its digest, and every SDK handler by name with the form `sdk_handler`, so that a resume knows what ran (ADRs 0033, 0104)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 98
+title = "As a user, I want a resume refused when a third-party Plugin's digest changed unless I pass `--accept-plugin-change <name>`, recorded in run state and the Audit log, while first-party Plugins follow the engine's version, so that a resumed run never switches third-party code silently and an engine patch never blocks a resume (ADR 0033)."
+milestone = "M4 Everything else"
+journey = true
+status = "active"
+
+[[story]]
+id = 99
+title = "As a user, I want a pinned Recipe or a Checkpoint to move between platforms because every pin is the digest of the Plugin's multi-platform image index, so that a run resumes on another OS (ADRs 0002, 0033)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 100
+title = "As a user, I want the plugin protocol, the Plugin manifest and the lockfile to carry their own `major.minor` and be refused with a clean error when newer than the engine knows, a Plugin whose protocol range does not meet the engine's refused in the reply to `hello` with `plugin_protocol_unsupported`, so that versions fail cleanly (ADRs 0030, 0066). The Plugin index is no versioned format: it carries only the freshness `version`, the expiry and the revocation list of ADR 0033 (story 8)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 101
+title = "As a user upgrading Goodfetch, I want older first-party Plugins of my major to keep passing their kind's suite against the current engine, so that an engine upgrade never breaks a Plugin I pinned (ADR 0066)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "reach"
+status = "active"
+
+[[story]]
+id = 102
+title = "As a Goodfetch Cloud tenant, I want process Plugins run in my tenant's isolation and my SDK handlers kept in my Client, so that Goodfetch Cloud runs no code of mine in its own engine (ADR 0033)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "actor"
+status = "active"
+
+[[story]]
+id = 103
+title = "As a user of a Browser host, I want Browser backends and Challenge solvers that work beside the browser able to run inside the Browser host, so that a solver acts where the page is (ADR 0033)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 104
+title = "As a user of an Exposed Daemon or Goodfetch Cloud, I want my Integrations' and agents' run-layer values treated as not operator-configured for a third-party Plugin, so that a model or a workflow cannot point a Plugin at my network (ADRs 0033, 0056)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 105
+title = "As a Windows user, I want a file Goodfetch starts but did not build (a Plugin's executable, an interpreter from the runtime cache) to fail to start with `executable_blocked_by_smart_app_control`, naming the file and Smart App Control, when Smart App Control blocks it, never re-signed by Goodfetch and never swapped for another file by itself, and the Windows conformance run to report such a block instead of assuming the file is admitted, so that a blocked start reads as what it is (ADR 0039)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "reach"
+status = "active"
+
+[[story]]
+id = 106
+title = "As a user, I want the runtime a Plugin declares and the browser a Plugin declares to stay in their caches while any installed Plugin declares them, `plugin remove` releasing a Plugin's pins, and an engine never to delete an entry it cannot read, so that a clean-up never breaks an installed Plugin (ADR 0098)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 107
+title = "As a Rust developer who links the engine, I want `plugin-shim` run from the `goodfetch` executable of my crate's exact version, found through `GOODFETCH_COLLIE_ENGINE_PATH` (Foxhound's crate: `GOODFETCH_FOXHOUND_ENGINE_PATH`) or downloaded on first use and checked by digest, so that a linked engine confines `proxy_tcp` Plugins as an Attached one does; under `offline` a missing executable fails with `artifact_unavailable_offline` and a failed download with `artifact_download_failed`, each naming the artifact and what pins it (ADRs 0051, 0090, 0115)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "reach"
+status = "active"
+
+[[story]]
+id = 108
+title = "As a Recipe author, I want my Recipe to name each third-party Plugin it needs by digest, checked when a run starts against the lockfile and Operator policy, so that a shared Recipe runs the Plugin it was tested with (ADR 0033)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 109
+title = "As an operator, I want every approval of a Secret reference to state that a bound service which stores or publishes what it receives keeps the value where the Plugin's author might read it, and that an encoding the scrub does not know returns it, so that I approve knowing what the scrub cannot catch (ADR 0033)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 110
+title = "As an operator, I want a Hook, whether a process Plugin or a Script Hook, to get only `net.fetch` and the `page.*` operations of its stage, never `net.connect`, the Run index, settings, Operator policy or accounts, and never to change a logged-in Session's requests, so that the Hook kind stays the narrowest (ADR 0033)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 111
+title = "As an operator, I want every destination a Plugin at `direct` is configured with checked under ADR 0017 before it starts and at each Sink probe, and a first-party Plugin that needs cloud credentials to get them from the engine as Secrets, so that it never needs the cloud-metadata address (ADR 0033)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 112
+title = "As an operator on Windows, I want the filter broker's filters to be persistent, refusing filters in place before an instance starts, an instance's filters removed only once its job object is empty, an exiting engine's instances terminated, the engine to stop the instances that depend on the service before it stops, orphan filters removed when the service starts and every filter removed when it is uninstalled, so that a crash or an exit leaves no Plugin unfiltered and no filter orphaned (ADR 0033)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 113
+title = "As a Plugin author, I want to return any Goodfetch Error code of the catalog from my Plugin (a handler's error keeps its code, ADR 0104), a code the engine does not know or an answer it cannot decode becoming my kind's `<kind>_handler_failed` with my text kept out of the error, so that a bug in my Plugin reads as mine and no text of mine is matched on (ADRs 0033, 0127)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 114
+title = "As a developer, I want a call to my handler bounded by its deadline and cancelled with `$/cancel`, an async handler's task cancelled, a sync Python handler's late answer discarded and a Rust call's `cancelled()` resolved, for every kind (ADR 0101 decides it for a Model provider's handler; the rule is the same for the other kinds **(shape)**), so that a handler never works on past its call."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 115
+title = "As a user, I want a Plugin that the official index delists once found (it presents itself as a way past Walls, crawler verification or paywalls, or as a source of archived copies of protected pages) to stay installable by its exact digest where Operator policy allows it, delisting not being revocation, so that a delisting never stops a run a person approved (ADR 0052)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "reach"
+status = "active"
+
+[[story]]
+id = 201
+title = "As a crawl user, I want to install a Fetch backend Plugin and choose it with `fetch.backend`, so that my crawl's HTTP tiers use the transport I chose, such as an unblocker API under my own account (ADRs 0033, 0037 SA-02, ST-10)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+product = "foxhound"
+
+[[story]]
+id = 202
+title = "As a crawl user, I want every target checked under the page class and my run's domain policy before a Fetch backend receives it, and each redirect asked for as a new target checked the same way, so that a backend cannot be steered to my network (ADR 0033)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+product = "foxhound"
+
+[[story]]
+id = 203
+title = "As a crawl user, I want a third-party Fetch backend's `net.connect` to reach only the target handed to that call and its own operator-configured endpoints, so that a backend with its own TLS stack sends nothing elsewhere (ADR 0033)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+product = "foxhound"
+
+[[story]]
+id = 204
+title = "As an operator, I want a third-party Fetch backend allowed to connect to the target itself only when Operator policy allows it, the engine fetching the target itself otherwise, and the approval stating that such a backend can send any request to its targets outside the `effects` check, so that I grant that knowingly (ADR 0033)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+product = "foxhound"
+
+[[story]]
+id = 205
+title = "As a crawl user, I want a request that uses a Secret or a logged-in identity (a logged-in Session's, one whose before-request Hook set a Secret placeholder, one whose Session has `session.http_credentials`, one whose proxy has a password) never carried by a third-party or program Fetch backend unless Operator policy approved `session_credentials` for a third-party one, the engine sending it itself, so that no backend holds my cookies or inserted Secrets in clear (ADRs 0033, 0104)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+product = "foxhound"
+
+[[story]]
+id = 206
+title = "As a crawl user, I want the Run trace to mark each request the engine sent itself in a backend's place, with the reason, so that a backend that receives nothing says why (ADR 0104)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+product = "foxhound"
+
+[[story]]
+id = 207
+title = "As a crawl user, I want an anonymous Session's ordinary cookies and its proxy server (without credentials) passed to the backend, and a response's `Set-Cookie` to update the Session, so that a proxied crawl still leaves from the proxy and Sessions keep working (ADRs 0033, 0104)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+product = "foxhound"
+
+[[story]]
+id = 208
+title = "As a crawl user, I want a Fetch backend's unblocker spend reported in raw units, reserved against my currency Limit at the declared maximum and refused past it, so that an unblocker cannot run up my bill (ADR 0033)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+product = "foxhound"
+
+[[story]]
+id = 209
+title = "As a developer, I want to register my own Fetch backend on `Foxhound.connect({ fetchBackends })` by name, the only one becoming `fetch.backend`'s value with the origin `registered`, so that my program's own HTTP stack serves its crawl (ADR 0104)."
+milestone = "M4 Everything else"
+journey = true
+status = "active"
+product = "foxhound"
+
+[[story]]
+id = 210
+title = "As a developer, I want my Fetch backend's exception to be `fetch_handler_failed`, retried only when `crawl.retry.handler_failed` is on for the request's Label, and a call my Rust stream drops to fail with `fetch_backend_unavailable`, retried as that code is, so that my bug and my outage read differently (ADR 0104)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+product = "foxhound"
+
+[[story]]
+id = 211
+title = "As a crawl user, I want a Fetch backend Plugin to declare its capabilities (HTTP/2, proxies, TLS impersonation) and the suite to prove them one at a time, a run able to require one proved, so that I know what a backend can do before I rely on it (ADR 0033)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+product = "foxhound"
+
+[[story]]
+id = 212
+title = "As a crawl user, I want a Sink Plugin to speak the `sink.*` group of the plugin protocol and run confined, so that a third-party destination never runs with my rights (ADRs 0026, 0033)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+product = "foxhound"
+
+[[story]]
+id = 213
+title = "As an operator, I want first-party sink processes to declare the lowest network level each needs, those that need `direct` having it by default, and a third-party Sink getting `direct` only when Operator policy names it, so that database drivers work and third parties are marked (ADR 0033)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+product = "foxhound"
+
+[[story]]
+id = 214
+title = "As an operator, I want a Bridge Sink (an Airbyte destination image or a Singer target) to run only as a container image named by digest in Operator policy, under a container runtime that does not run as root on the host, with a read-only root filesystem, every capability dropped, no privilege escalation, the runtime's default seccomp profile and only outgoing network, refused with only a rootful runtime, so that a stranger's Sink is held by the runtime (ADRs 0026, 0033)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+product = "foxhound"
+
+[[story]]
+id = 215
+title = "As an operator, I want each credential a Bridge Sink reads from its configuration file released under `needs_secret_value`, and its approval stating that only the runtime's network settings and my firewall hold it, so that I know what it can reach (ADR 0033)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+product = "foxhound"
+
+[[story]]
+id = 216
+title = "As a developer, I want to register my own Sink on `Foxhound.connect({ sinks })` by name, serving the `sinks.<name>` entry of its name with its Datasets, write mode and key, a `type` there beside it refused with `setting_invalid` when the Run starts, so that delivering to my own system is one function (ADRs 0103, 0104)."
+milestone = "M4 Everything else"
+journey = true
+status = "active"
+product = "foxhound"
+
+[[story]]
+id = 217
+title = "As a developer, I want each delivery to my Sink to carry ADR 0008's delivery ID and run epoch, a failure retried on ADR 0008's schedule with the same ID, and its Guarantee class probed as any Sink's, so that my Sink lands each Record once if I key by the ID (ADRs 0008, 0026, 0104)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+product = "foxhound"
+
+[[story]]
+id = 218
+title = "As a developer, I want my Sink's exception to be `sink_handler_failed` and a dropped delivery `sink_unavailable`, both retried on ADR 0008's schedule, so that a transient failure of my own service never loses a Record (ADR 0104)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+product = "foxhound"
+
+[[story]]
+id = 219
+title = "As a Recipe author or CLI user, I want `before_request`, `after_response` and `before_record_commit` Hooks from a process Plugin or a Script Hook, scoped by `labels` and, at the Record stage, by `datasets`, so that a Recipe can sign requests, mark soft blocks or clean Records without an SDK (ADRs 0033, 0104)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+product = "foxhound"
+
+[[story]]
+id = 220
+title = "As a Recipe author, I want a `before_request` Hook to change only the URL and headers, never the method or the body, and to run on every attempt with the previous attempt's error, so that it is also the stage before a retry (RT-04, ADR 0104)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+product = "foxhound"
+
+[[story]]
+id = 221
+title = "As a user, I want a Plugin's or Script Hook's rewritten URL kept to the original request's registrable domain or a domain it declares, as well as the crawl's scope and the run's domain policy, a rewrite leaving them ending the request `skipped`, and robots.txt and Site preferences reading the URL as rewritten, so that a Hook cannot step around the crawl's limits (ADRs 0033, 0104)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+product = "foxhound"
+
+[[story]]
+id = 222
+title = "As a user, I want a Hook unable to set `Host`, `Cookie`, `Authorization`, `Proxy-*` or method-override headers (`header_forbidden` inside `hook_failed`), Secrets and cookies added after the last Hook, and a Hook seeing credentials and Secret values masked, so that no Hook reads or forges what the engine owns (ADRs 0033, 0104)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+product = "foxhound"
+
+[[story]]
+id = 223
+title = "As a user, I want a third-party Plugin's Hooks never passed a logged-in Session's requests, page content or responses without `session_credentials`, so that a Hook never sees my account (ADR 0033)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+product = "foxhound"
+
+[[story]]
+id = 224
+title = "As a user, I want an `after_response` Hook able to rewrite the body, mark a Block cause that feeds escalation by new Session, ask for a retry or fail, so that a soft block served with a 200 is caught (ADRs 0021, 0104)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+product = "foxhound"
+
+[[story]]
+id = 225
+title = "As a user, I want a `before_record_commit` Hook able to transform, drop with a reason or reject a Record into its Dataset's rejection table, a transformed Record checked against the schema again, so that cleaning Records is a Hook and delivering them a Sink (ADRs 0103, 0104)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+product = "foxhound"
+
+[[story]]
+id = 226
+title = "As an operator, I want a `request_ended` Hook to receive each crawl request's outcome, so that a Plugin can send failed URLs to a queue: the failed-request handler for Plugins and Script Hooks (RT-04, ADR 0104)."
+milestone = "M4 Everything else"
+journey = true
+status = "active"
+product = "foxhound"
+
+[[story]]
+id = 227
+title = "As a user, I want a `request_ended` Hook's failure to change no request's outcome, recorded in the Run trace and the report's warnings, so that a reporting Plugin cannot fail my crawl."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+product = "foxhound"
+
+[[story]]
+id = 228
+title = "As a Collie user, I want any of these stages, or `labels` and `datasets` in a `hooks` entry, refused on a Collie engine with `not_in_product` naming Foxhound, and on the run of a Recipe that names Collie on either engine, so that a Recipe's Product is honoured (ADRs 0087, 0096)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+product = "foxhound"
+
+[[story]]
+id = 229
+title = "As a Plugin author, I want the Fetch backend's and the Sink's method groups and the four stages' contexts in the plugin protocol's schema, so that I can write either kind or such a Hook in any language."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+product = "foxhound"
+
+[[story]]
+id = 230
+title = "As a Plugin author, I want Foxhound's `plugin test` to run the Fetch backend suite and the Sink suite against my Plugin, and Collie's to refuse them with `not_in_product`, so that each suite runs on the Product that carries it (ADR 0094)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+product = "foxhound"
+
+[[story]]
+id = 231
+title = "As a Recipe author or CLI user, I want `before_navigation`, `after_navigation` and `page_ready` Hooks from settings to run on a crawl's requests with the request and its Label in their context, `page_ready` on every tier just before the handler and the navigation stages only on the tiers that navigate (`browser`, `light_browser`), a call only a browser can serve escalating or failing with `browser_required` under a forced tier, and a navigation Hook all of whose Labels force a tier that does not navigate refused when the Run starts with `hook_ineffective`, so that a Recipe's page Hooks work on a crawl as on a Collie Run (ADR 0104)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+product = "foxhound"
+
+[[story]]
+id = 232
+title = "As a Recipe author, I want a header a `before_request` Hook returns to be able to carry a Secret placeholder, checked against the request's URL at every hop and replaced by the engine after the last Hook, so that signing a request never passes the value through the Plugin or the Script Hook (ADRs 0092, 0104)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+product = "foxhound"
+
+[[story]]
+id = 233
+title = "As a crawl user, I want a crawl request that a Fetch backend carries to be a read whatever its method, so that a retry or an escalation sends a POST of my crawl again, and never hedged or coalesced unless it is a GET or HEAD (ADR 0106)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+product = "foxhound"
+
+[[story]]
+id = 234
+title = "As an operator, I want the approval of a Fetch backend that reaches an unblocker to state that the vendor can send any request to any public address under my vendor account and key, so that I grant that knowingly (ADR 0033)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+product = "foxhound"
+
+[[story]]
+id = 235
+title = "As a crawl user, I want a Sink delivery bounded by `timeout.sink_write` and a Fetch backend's request by its tier's own request timeout, each failing with `deadline_exceeded` naming the setting and never outliving the request's lease, so that a hung Sink or backend stalls no crawl (ADRs 0033, 0080)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+product = "foxhound"

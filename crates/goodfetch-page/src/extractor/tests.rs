@@ -8,7 +8,7 @@ use goodfetch_protocol::settings::SettingsLayer;
 use rstest::rstest;
 use serde_json::{Value, json};
 
-use super::{chosen, served};
+use super::{chosen, plugin, served};
 
 /// `given` read as a Run's own settings, or a Session's or a page's.
 fn values(given: Value) -> Values {
@@ -104,6 +104,47 @@ fn the_attempts_are_the_runs_whichever_scope_chose_the_built_in(
         (chosen.built_in, Some(chosen.attempts)),
         (BuiltIn::Trafilatura, Attempts::named(attempts))
     );
+}
+
+/// A Plugin's name chooses it at the nearest scope that sets one, in the
+/// built-ins' order; a nearer built-in, or a Label's, keeps the page on
+/// the built-ins.
+///
+/// Covers: setting:content.extractor
+#[rstest]
+#[case::the_page(
+    Some("kettle"),
+    None,
+    Some("trafilatura"),
+    "dom_smoothie",
+    Some("kettle")
+)]
+#[case::the_session(None, None, Some("kettle"), "trafilatura", Some("kettle"))]
+#[case::the_run(None, None, None, "kettle", Some("kettle"))]
+#[case::a_nearer_built_in(Some("trafilatura"), None, Some("kettle"), "kettle", None)]
+#[case::a_label(None, Some(BuiltIn::Trafilatura), Some("kettle"), "kettle", None)]
+#[case::the_page_over_a_label(
+    Some("kettle"),
+    Some(BuiltIn::Trafilatura),
+    None,
+    "dom_smoothie",
+    Some("kettle")
+)]
+#[case::none(None, None, None, "dom_smoothie", None)]
+fn the_nearest_scope_naming_a_plugin_chooses_it(
+    #[case] page: Option<&str>,
+    #[case] label: Option<BuiltIn>,
+    #[case] session: Option<&str>,
+    #[case] by_run: &str,
+    #[case] expected: Option<&str>,
+) {
+    let scoped =
+        |name: Option<&str>| name.map_or_else(Values::default, |name| values(extractor(name)));
+    let by_run = run(extractor(by_run));
+
+    let plugin = plugin(Some(&by_run), (&scoped(session), label), &scoped(page));
+
+    assert_eq!(plugin.as_deref(), expected);
 }
 
 /// A served document's step, the Page signature's and its formats', is

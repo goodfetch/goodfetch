@@ -66,10 +66,11 @@ use goodfetch_engine::request_signing::{KeyError, RequestSigner};
 use goodfetch_engine::run::{secret_error, settings_error};
 use goodfetch_engine::run_key::Sealed;
 use goodfetch_engine::run_state::{RunStateError, RunStateTables, SecretColumn, run_row};
-use goodfetch_engine::runs::{Run, RunError, RunKeyError};
+use goodfetch_engine::runs::{Run, RunError, RunKeyError, plugins};
 use goodfetch_engine::secrets::Purpose;
 use goodfetch_engine::settings::{RunSettings, SettingsError, Values, setting};
 use goodfetch_engine::{CallContext, CallError, RunOfCall};
+use goodfetch_extractor::BuiltIn;
 use goodfetch_protocol::browser_cache::PinnedBy;
 use goodfetch_protocol::catalog::{Authority, SettingScope};
 use goodfetch_protocol::connection::{CLOSED, CancelledBy, ClosedValue};
@@ -78,7 +79,9 @@ use goodfetch_protocol::governor::WorkKind;
 use goodfetch_protocol::page::access_mode::{IDENTIFIED_SIGNATURE_AGENT, IDENTIFIED_SIGNING_KEY};
 use goodfetch_protocol::page::proxy::PROXY_PROVIDER;
 use goodfetch_protocol::page::session::{NewSessionParams, SessionOpened};
-use goodfetch_protocol::page::{PageId, PageOpened, SessionId};
+use goodfetch_protocol::page::{
+    CONTENT_EXTRACTOR, CONTENT_EXTRACTORS, PageId, PageOpened, SessionId,
+};
 use goodfetch_protocol::run::{Lifecycle, RUN_ENDED, RUN_NOT_FOUND, RunDetails, RunId};
 use goodfetch_protocol::setting_scopes;
 use goodfetch_protocol::settings::session_source::SessionSource;
@@ -498,6 +501,7 @@ impl Sessions {
     ) -> Result<SessionOpened, CallError> {
         let run = live(&params.run_id, context).await?;
         let settings = own_settings(&params.settings, &run, context)?;
+        let settings = extractor_installed(settings, &run, context).await?;
         let named = named_source(&run, params.source, context);
         let identity = access_mode_opens(&settings, &run, named.as_ref(), context)?;
         let borrowed = opening_source(named)?;
@@ -702,6 +706,7 @@ impl Sessions {
             return Err(failed.clone());
         }
         let settings = page_settings(settings, &open.run, context)?;
+        let settings = extractor_installed(settings, &open.run, context).await?;
         open.life.call().await?;
         let run = open.run.clone();
         if let Some(proxy) = &open.proxy {
@@ -1474,6 +1479,39 @@ fn page_settings(
         ));
     }
     not_locked(values, run, "page", context)
+}
+
+/// `values`, a Session's or a page's own settings, unless their
+/// `content.extractor` names no built-in and no installed Plugin of the
+/// Extractor kind: then `setting_invalid` (spec #596). Nothing starts
+/// here: the Plugin starts as a page first reads with it.
+async fn extractor_installed(
+    values: Values,
+    run: &Run,
+    context: &CallContext,
+) -> Result<Values, CallError> {
+    let Some(name) = values
+        .get(CONTENT_EXTRACTOR.name)
+        .and_then(Value::as_str)
+        .filter(|name| BuiltIn::named(name).is_none())
+        .map(str::to_owned)
+    else {
+        return Ok(values);
+    };
+    match plugins(run).check_extractor(&name).await {
+        Ok(()) => Ok(values),
+        Err(error) => Err(settings_error(
+            &SettingsError::Invalid {
+                key: CONTENT_EXTRACTOR.name.to_owned(),
+                layer: Some(SettingsLayer::Run),
+                reason: format!(
+                    "{error}: name a built-in, {}, or an installed Extractor Plugin",
+                    CONTENT_EXTRACTORS.join(", ")
+                ),
+            },
+            context,
+        )),
+    }
 }
 
 /// Whether the setting `key` names is one `scope`'s own `settings` set

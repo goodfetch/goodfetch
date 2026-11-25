@@ -25,9 +25,9 @@
 //!
 //! It records every message it reads and answers three methods of its own
 //! whatever the script says:
-//! - `scripted.environment`: its whole environment, its working folder and
+//! - `scripted.environment`: its whole environment, its working folder,
 //!   the handles it holds beyond stdio, asked of the OS one number at a
-//!   time;
+//!   time, and its process ID;
 //! - `scripted.calls`: every message it read before this call;
 //! - `scripted.write`: writes `{"path", "text"}`'s text to the file, and
 //!   answers `{}`, or the OS's refusal as an error.
@@ -157,7 +157,7 @@ fn with_id(answer: Value, id: &Value) -> Value {
     Value::Object(reply)
 }
 
-/// Its environment, working folder and handles beyond stdio.
+/// Its environment, working folder, handles beyond stdio and process ID.
 fn environment() -> Value {
     let variables: BTreeMap<String, String> = std::env::vars_os()
         .map(|(name, value)| {
@@ -170,7 +170,12 @@ fn environment() -> Value {
     let folder = std::env::current_dir()
         .map(|folder| folder.to_string_lossy().into_owned())
         .unwrap_or_default();
-    json!({ "variables": variables, "folder": folder, "handles": handles() })
+    json!({
+        "variables": variables,
+        "folder": folder,
+        "handles": handles(),
+        "process": std::process::id(),
+    })
 }
 
 /// The numbers of the handles it holds beyond stdio, asked of each number

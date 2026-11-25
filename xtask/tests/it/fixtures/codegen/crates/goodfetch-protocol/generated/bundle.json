@@ -233,6 +233,11 @@
       "version": "0.1"
     }
   ],
+  "plugin": {
+    "manifest": {
+      "type": "object"
+    }
+  },
   "protocol_version": "0.1",
   "title": "Goodfetch protocol"
 }

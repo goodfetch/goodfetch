@@ -159,6 +159,7 @@ mod decoding;
 mod discovered_api;
 mod effect_window;
 mod enqueue_links;
+mod erase;
 mod escalation;
 mod export_formats;
 mod exports;

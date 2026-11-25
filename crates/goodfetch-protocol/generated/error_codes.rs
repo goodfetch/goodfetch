@@ -478,7 +478,7 @@ impl ErrorCode {
 
     /// `run_live`, in the `program` group, not retryable.
     ///
-    /// The engine still runs the Run, so it cannot be discarded: stop it first with `run.stop` or `run.abort`, or let it finish, then discard it. The details name the Run.
+    /// The engine still runs the Run, so it cannot be discarded, nor a Dataset of it erased: stop it first with `run.stop` or `run.abort`, or let it finish, then try again. The details name the Run.
     pub const RUN_LIVE: Self = ErrorCode::from_static("run_live");
 
     /// `run_not_found`, in the `program` group, not retryable.

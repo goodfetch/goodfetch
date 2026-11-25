@@ -14,7 +14,7 @@ use crate::{
 };
 
 /// Every module that defines entries.
-pub const MODULES: [&Entries; 61] = [
+pub const MODULES: [&Entries; 62] = [
     &connection::ENTRIES,
     &log::ENTRIES,
     &daemon::ENTRIES,
@@ -74,6 +74,7 @@ pub const MODULES: [&Entries; 61] = [
     &foxhound::sink::ENTRIES,
     &foxhound::sql_tab::ENTRIES,
     &foxhound::search::ENTRIES,
+    &foxhound::erase::ENTRIES,
     &foxhound::block::ENTRIES,
     &foxhound::usage::ENTRIES,
 ];
@@ -378,6 +379,7 @@ mod tests {
                     "dataset.query",
                     "dataset.search",
                     "record.search",
+                    "dataset.erase",
                 ],
             ]
             .concat()

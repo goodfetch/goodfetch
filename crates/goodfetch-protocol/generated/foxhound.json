@@ -3898,6 +3898,67 @@
       ],
       "type": "object"
     },
+    "DatasetEraseParams": {
+      "additionalProperties": false,
+      "description": "What `dataset.erase` takes.",
+      "properties": {
+        "_meta": {
+          "$ref": "#/$defs/RequestMeta",
+          "arrived_in": "0.1"
+        },
+        "dataset": {
+          "arrived_in": "0.1",
+          "description": "The Dataset's name.",
+          "type": "string"
+        },
+        "run_id": {
+          "$ref": "#/$defs/RunId",
+          "arrived_in": "0.1",
+          "description": "The crawl's Run, which no engine runs."
+        }
+      },
+      "required": [
+        "run_id",
+        "dataset"
+      ],
+      "type": "object"
+    },
+    "DatasetErased": {
+      "description": "What `dataset.erase` answers once the Dataset is erased.",
+      "properties": {
+        "dataset": {
+          "arrived_in": "0.1",
+          "description": "The Dataset's name.",
+          "type": "string"
+        },
+        "records": {
+          "arrived_in": "0.1",
+          "description": "How many committed Records it erased.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "rejected_records": {
+          "arrived_in": "0.1",
+          "description": "How many rejected Records it erased.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "run_id": {
+          "$ref": "#/$defs/RunId",
+          "arrived_in": "0.1",
+          "description": "The crawl's Run."
+        }
+      },
+      "required": [
+        "run_id",
+        "dataset",
+        "records",
+        "rejected_records"
+      ],
+      "type": "object"
+    },
     "DatasetKeyInvalidDetails": {
       "description": "What `dataset_key_invalid` details.",
       "oneOf": [
@@ -21840,7 +21901,7 @@
     },
     {
       "arrived_in": "0.1",
-      "description": "The engine still runs the Run, so it cannot be discarded: stop it first with `run.stop` or `run.abort`, or let it finish, then discard it. The details name the Run.",
+      "description": "The engine still runs the Run, so it cannot be discarded, nor a Dataset of it erased: stop it first with `run.stop` or `run.abort`, or let it finish, then try again. The details name the Run.",
       "details": {
         "$ref": "#/$defs/RunDetails"
       },
@@ -23692,6 +23753,25 @@
         "$ref": "#/$defs/DaemonStopping"
       },
       "stability": "stable"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": false,
+      "class": "idempotent_write",
+      "deprecated": null,
+      "description": "Erases every Record of one Dataset of a run that no engine runs, a person's answer that applies at once: its committed and rejected Records and their full-text index rows are deleted from the run file, their pages overwritten, and the run's kept Exports, written before, are deleted too, while the crawl still declares the Dataset, which reads empty from then on. It cannot be undone. It is offered to a person only, never to an agent or a program (ADR 0031): any other surface is refused with `person_required`. A run this engine runs fails with `run_live`, one another engine writes with `run_in_use`, a Dataset the crawl does not declare with `dataset_unknown`, and a run that does not exist with `run_not_found`.",
+      "events": [],
+      "kind": "round_trip",
+      "name": "dataset.erase",
+      "params": {
+        "$ref": "#/$defs/DatasetEraseParams"
+      },
+      "product": "foxhound",
+      "reach": "person_only",
+      "result": {
+        "$ref": "#/$defs/DatasetErased"
+      },
+      "stability": "experimental"
     },
     {
       "arrived_in": "0.1",

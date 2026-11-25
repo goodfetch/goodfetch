@@ -19,6 +19,7 @@
 
 mod declaration;
 mod encoding;
+mod erase;
 mod export;
 mod open;
 mod page;
@@ -103,14 +104,15 @@ pub const TABLES: RunStateTables = RunStateTables {
 
 /// What Datasets add to the engine: [`TABLES`], `run.records`,
 /// `run.rejected_records`, which reads each entry's URL through
-/// `request_url`, the crawl's reader of its work items, and `run.export`
-/// with `export.save_as` and `export.stream`.
+/// `request_url`, the crawl's reader of its work items, `run.export`
+/// with `export.save_as` and `export.stream`, and `dataset.erase`.
 pub fn contribution(request_url: RequestUrl) -> Contribution {
     export::handlers().into_iter().fold(
         Contribution::new("goodfetch-dataset")
             .with_run_state_tables(TABLES)
             .with_handler(reader::handler())
             .with_handler(page::handler())
+            .with_handler(erase::handler())
             .with_handler(rejected_records::handler(request_url)),
         Contribution::with_handler,
     )

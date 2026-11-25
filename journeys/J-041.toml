@@ -1,0 +1,36 @@
+#:schema ./journey.schema.json
+id = "J-041"
+title = "Erase a Dataset and see it gone"
+goal = """
+A person who crawled a page no longer wants the Records a run kept of it, \
+and erases the Dataset at the terminal. The command MUST warn that the erase \
+cannot be undone and ask once, and once they answer yes, every later read of \
+the Dataset MUST find none of its Records (ADR 0031)."""
+area = 12
+product = "foxhound"
+status = "active"
+covers = ["story:12-214"]
+
+[proving_ground]
+seed = 41
+
+[surfaces]
+cli = "M1"
+
+[[steps]]
+text = "Crawl a page of a site from the command line, as a run on the Daemon"
+
+[[steps]]
+text = "Read the run's Dataset (`dataset page`)"
+
+[[steps]]
+text = "Erase the Dataset at the terminal, answering yes once warned (`dataset erase`)"
+
+[[steps]]
+text = "Read the Dataset again, and search it for a word of the page"
+
+[[expect]]
+text = "The command warned that the erase cannot be undone and asked once"
+
+[[expect]]
+text = "The Dataset held the page's Record before the erase, and every read after it finds none"

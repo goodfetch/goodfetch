@@ -15733,7 +15733,7 @@
     },
     {
       "arrived_in": "0.1",
-      "description": "The engine still runs the Run, so it cannot be discarded: stop it first with `run.stop` or `run.abort`, or let it finish, then discard it. The details name the Run.",
+      "description": "The engine still runs the Run, so it cannot be discarded, nor a Dataset of it erased: stop it first with `run.stop` or `run.abort`, or let it finish, then try again. The details name the Run.",
       "details": {
         "$ref": "#/$defs/RunDetails"
       },

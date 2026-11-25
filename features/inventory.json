@@ -329,6 +329,16 @@
       ]
     },
     {
+      "id": "command:dataset.erase",
+      "kind": "command",
+      "area": 11,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "foxhound"
+      ]
+    },
+    {
       "id": "command:dataset.list",
       "kind": "command",
       "area": 11,
@@ -3540,6 +3550,16 @@
       "status": "active",
       "products": [
         "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "operation:dataset.erase",
+      "kind": "operation",
+      "area": 12,
+      "milestone": null,
+      "status": "active",
+      "products": [
         "foxhound"
       ]
     },
@@ -16526,6 +16546,26 @@
     },
     {
       "id": "story:12-212",
+      "kind": "story",
+      "area": 12,
+      "milestone": "M1 Core",
+      "status": "active",
+      "products": [
+        "foxhound"
+      ]
+    },
+    {
+      "id": "story:12-213",
+      "kind": "story",
+      "area": 12,
+      "milestone": "M1 Core",
+      "status": "active",
+      "products": [
+        "foxhound"
+      ]
+    },
+    {
+      "id": "story:12-214",
       "kind": "story",
       "area": 12,
       "milestone": "M1 Core",

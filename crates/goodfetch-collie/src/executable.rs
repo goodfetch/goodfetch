@@ -7,7 +7,7 @@
 //! clean`, `config explain`,
 //! `daemon start|stop|restart|status|health|install|uninstall|rotate-token|http-listener-token|run`,
 //! with the hidden `daemon launched` a start or the installed service
-//! runs, `needs-you answer`, `runs reindex`, `skill install` and `upgrade-files`, beside the
+//! runs, `init`, `needs-you answer`, `runs reindex`, `skill install` and `upgrade-files`, beside the
 //! commands the `catalog_commands` module generates from the catalog for
 //! every other namespace, such as `run start` and `engine info`, and `--color
 //! auto|always|never` on every command; the CLI's other commands join with
@@ -79,6 +79,7 @@ use output::{ColourChoice, ColourFlag, Human};
 use settings_flags::SettingsFlags;
 
 pub use command_line::printed_command_line;
+pub use init::{StarterFile, Starters};
 pub use needs_you::{Confirmation, ItemAnswer, ItemPrompt};
 pub use skills::{SkillFile, Skills};
 
@@ -100,6 +101,7 @@ mod doctor;
 pub mod engine_choice;
 pub mod exit_codes;
 mod identity;
+mod init;
 mod limit_flags;
 mod log_file;
 mod logs;
@@ -204,6 +206,9 @@ enum Command {
         #[command(flatten)]
         _colour: ColourFlag,
     },
+    /// `init`, whose help is its arguments' doc comment, which clap reads
+    /// in place of this one.
+    Init(init::Arguments),
     /// Starts, stops and shows the Daemon of this executable's major, which
     /// both Products share.
     Daemon {
@@ -398,6 +403,9 @@ pub struct Start {
     /// [`Skills::COLLIE`] for Collie's, Foxhound's own from Foxhound's
     /// crate.
     pub skills: Skills,
+    /// The starters it carries, which `init` writes: [`Starters::COLLIE`]
+    /// for Collie's.
+    pub starters: Starters,
     /// Its command line, as the OS gave it.
     pub arguments: Vec<OsString>,
     /// Its environment, which `main` reads once (ADR 0059).
@@ -409,7 +417,7 @@ pub struct Start {
 /// # Examples
 ///
 /// ```no_run
-/// use goodfetch_collie::executable::{OwnCommands, Skills, Start, main};
+/// use goodfetch_collie::executable::{OwnCommands, Skills, Start, Starters, main};
 /// use goodfetch_protocol::catalog::Product;
 ///
 /// let exit_code = main(&Start {
@@ -419,6 +427,7 @@ pub struct Start {
 ///     composition: goodfetch_collie::composition,
 ///     commands: OwnCommands::COLLIE,
 ///     skills: Skills::COLLIE,
+///     starters: Starters::COLLIE,
 ///     arguments: vec!["goodfetch-collie".into(), "--version".into()],
 ///     environment: Default::default(),
 /// });
@@ -517,7 +526,7 @@ pub fn main(start: &Start) -> ExitCode {
         parsed,
         (&engine, dependencies),
         &settings,
-        (start.commands, start.skills),
+        (start.commands, start.skills, start.starters),
         &environment,
         &human,
     )
@@ -712,12 +721,13 @@ fn records_the_executable(parsed: &Parsed) -> bool {
 }
 
 /// Runs the command `parsed` asks for on `engine`, once the executable is
-/// set up, among `own` commands, with the `skills` it carries.
+/// set up, among `own` commands, with the `skills` and `starters` it
+/// carries.
 fn run(
     parsed: Parsed,
     (engine, dependencies): (&Engine, Dependencies),
     settings: &Result<Resolved, SettingsError>,
-    (own, skills): (OwnCommands, Skills),
+    (own, skills, starters): (OwnCommands, Skills, Starters),
     environment: &BTreeMap<OsString, OsString>,
     human: &Human,
 ) -> ExitCode {
@@ -779,6 +789,7 @@ fn run(
         Command::Doctor {
             json, include_urls, ..
         } => doctor::doctor(&machine, json, include_urls),
+        Command::Init(arguments) => init::init(starters, arguments, engine.identity(), human),
         Command::Daemon { command, .. } => {
             daemon_command(command, engine, dependencies, &machine, human)
         }

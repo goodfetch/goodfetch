@@ -204,6 +204,26 @@ else
   fail oxlint-contexts "findings: ${codes:-none}"
 fi
 
+# A copy of Rust code the tree already holds (ci/copies.sh): refused, with
+# both sides named, when the list does not hold it; allowed between jscpd's
+# markers or when listed; and a listed copy the tree lacks is refused too.
+copies() { ci/copies.sh "ci/proofs/copies/$1" "ci/proofs/copies/$2.json" 2>&1; }
+if output=$(copies pair empty); then
+  fail copies "a copy the list does not hold passed"
+elif ! grep -q 'pair/left.rs:4-26 copies ci/proofs/copies/pair/right.rs:4-26' <<<"$output"; then
+  fail copies "the refusal does not name both sides: $output"
+elif ! copies marked empty >/dev/null; then
+  fail copies "a copy between jscpd's markers was refused"
+elif ! copies pair pair >/dev/null; then
+  fail copies "a listed copy was refused"
+elif output=$(copies marked pair); then
+  fail copies "a list that holds a copy the tree lacks passed"
+elif ! grep -q 'are gone from the tree' <<<"$output"; then
+  fail copies "the stale list failed for another reason: $output"
+else
+  pass "the copy check refuses an unlisted copy and a stale list, and allows a marked or a listed copy"
+fi
+
 # The TypeScript escapes: an explicit `any`, a non-null assertion, and a
 # suppression that does not say why.
 codes=$(pnpm exec oxlint -c ci/proofs/oxlint/proof.oxlintrc.json --format json ci/proofs/oxlint/escapes.ts 2>/dev/null |

@@ -117,6 +117,7 @@ Limits that fail the merge gate. Every row has a number and a command.
 | TypeScript types | 0 errors | `pnpm exec tsc -p tsconfig.json` and `pnpm -r --if-present run typecheck` (`just lint`) | merge gate |
 | Python types | 0 errors | `uv run pyright` and `uv run mypy .`, both strict (`just lint`) | merge gate |
 | TypeScript and Python lints | 0 errors | `pnpm exec oxlint` and `uv run ruff check .` (`just lint`) | merge gate |
+| Copied Rust code under `crates/` | 0 copies of 15 lines and 100 tokens or more beyond those `ci/copies.json` lists, a list that only shrinks; a deliberate copy is marked in the code ([`STYLE.md`](STYLE.md#lints-formatting-and-toolchain)) | `ci/copies.sh` (`just lint`) | merge gate |
 | Secrets in commits | 0 findings | `just commit-leaks` | merge gate |
 | Secret canaries' rule | catches every leaked artifact, passes the clean one | `ci/tool.sh gitleaks ci/canary-rule.sh` (`just lint`) | merge gate |
 | Dependency advisories | 0 | `just audit` | merge gate |

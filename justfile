@@ -172,6 +172,7 @@ lint:
     step lint-types '{{ just_executable() }} lint-types'
     step oxlint 'pnpm exec oxlint'
     step ruff 'uv run ruff check .'
+    step copies 'ci/copies.sh'
     step zizmor 'ci/tool.sh zizmor zizmor --config zizmor.yml --persona=regular .github/workflows .github/actions'
     step actionlint 'ci/tool.sh actionlint actionlint'
     step gitleaks 'ci/tool.sh gitleaks ci/canary-rule.sh'
@@ -2044,6 +2045,12 @@ preflight:
 # when a `Quality-change: <file or row>: <reason>` trailer of the change names it.
 floor-guard base="origin/main" head="HEAD":
     cargo run --quiet --bin xtask -- floor-guard --base "{{ base }}" --head "{{ head }}"
+
+# Removes from ci/copies.json the copies of Rust code the tree no longer
+# holds, after a change that removed one (ci/copies.sh, a step of `just
+# lint`). It never adds a copy: a deliberate one is marked in the code.
+copies-shrink:
+    ci/copies.sh --shrink
 
 # Runs the static checks against fixtures that each must fail (ADR 0062's bans
 # and the snapshot rules), proving the configurations refuse what they should.

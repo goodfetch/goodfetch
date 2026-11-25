@@ -3,6 +3,7 @@
 //! interface. What is already out is skipped, so a re-run finishes a partial
 //! publish; a name not on its registry yet is flagged, since trusted
 //! publishing needs a first publish by hand (spec #130).
+//! Covers: story:1-82, story:1-83, story:1-88, story:1-89, story:1-118
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -53,6 +54,12 @@ const VARIANTS: [&str; 5] = ["", "-slim", "-full", "-node", "-python"];
 /// The fixture's first-party Plugin's repository (ADR 0033).
 const PLUGIN: &str = "goodfetch/goodfetch-plugin-archive";
 
+/// Each Product's formula in the tap (ADR 0090).
+const FORMULAS: [&str; 2] = ["goodfetch-collie", "goodfetch-foxhound"];
+
+/// Each Product's installers, under the site's `/install/` (ADR 0090).
+const INSTALLERS: [&str; 4] = ["collie.sh", "collie.ps1", "foxhound.sh", "foxhound.ps1"];
+
 /// Every OCI repository of a stable release: each Product's image and
 /// chart, and the Plugin.
 fn oci_repositories() -> Vec<String> {
@@ -96,6 +103,11 @@ struct Published {
     /// The files on that release, each with its size.
     uploaded: Vec<(String, u64)>,
     tag: bool,
+    /// Each formula of the tap, by name, with the version whose archives it
+    /// points at; a name left out is not in the tap.
+    formulas: BTreeMap<String, String>,
+    /// Each installer on the site, by file, likewise.
+    installers: BTreeMap<String, String>,
 }
 
 impl Published {
@@ -129,9 +141,23 @@ impl Published {
             release: None,
             uploaded: Vec::new(),
             tag: false,
+            formulas: BTreeMap::new(),
+            installers: BTreeMap::new(),
         };
         published.oci_release("1.3.0");
+        published.pointing_at("1.3.0");
         published
+    }
+
+    /// Points each formula and installer at `version`'s archives.
+    fn pointing_at(&mut self, version: &str) {
+        for formula in FORMULAS {
+            self.formulas.insert(formula.to_owned(), version.to_owned());
+        }
+        for installer in INSTALLERS {
+            self.installers
+                .insert(installer.to_owned(), version.to_owned());
+        }
     }
 
     /// Every step of both Products out at `1.4.0`: a draft GitHub Release
@@ -158,6 +184,7 @@ impl Published {
         }
         published.oci_release("1.4.0");
         published.tag = true;
+        published.pointing_at("1.4.0");
         published
     }
 
@@ -252,6 +279,8 @@ struct Registries {
     pypi: GitHub,
     oci: GitHub,
     github: GitHub,
+    /// The site, serving each installer.
+    site: GitHub,
 }
 
 impl Registries {
@@ -346,8 +375,32 @@ impl Registries {
             pypi: serve(&pypi),
             oci: GitHub::serving_with_headers(&oci_routes, &digest_headers),
             github: serve(&github_routes(published)),
+            site: serve(&site_routes(published)),
         }
     }
+}
+
+/// Where a formula or an installer of `product` fetches its executable:
+/// its archive on the GitHub Release of `version`.
+fn archive_url(product: &str, version: &str) -> String {
+    format!(
+        "https://github.com/goodfetch/goodfetch/releases/download/v{version}/goodfetch-{product}-x86_64-unknown-linux-gnu.tar.xz"
+    )
+}
+
+/// The site's answers: each installer, fetching its Product's archive.
+fn site_routes(published: &Published) -> Vec<(String, String)> {
+    published
+        .installers
+        .iter()
+        .map(|(file, version)| {
+            let product = file.split_once('.').unwrap().0;
+            (
+                format!("/install/{file}"),
+                format!("url=\"{}\"\n", archive_url(product, version)),
+            )
+        })
+        .collect()
 }
 
 /// GitHub's answers: the version's release with its files, and its tag.
@@ -371,6 +424,28 @@ fn github_routes(published: &Published) -> Vec<(String, String)> {
         github.push((
             "/repos/goodfetch/goodfetch/git/ref/tags/v1.4.0".to_owned(),
             r#"{"ref":"refs/tags/v1.4.0"}"#.to_owned(),
+        ));
+    }
+    for (formula, version) in &published.formulas {
+        let product = formula.trim_start_matches("goodfetch-");
+        let ruby = format!(
+            "class Goodfetch < Formula\n  url \"{}\"\nend\n",
+            archive_url(product, version)
+        );
+        // GitHub's contents answer holds the file in base64, broken into
+        // lines.
+        let encoded = data_encoding::BASE64.encode(ruby.as_bytes());
+        let lines: Vec<&str> = encoded
+            .as_bytes()
+            .chunks(60)
+            .map(|line| std::str::from_utf8(line).unwrap())
+            .collect();
+        github.push((
+            format!("/repos/goodfetch/homebrew-tap/contents/Formula/{formula}.rb"),
+            format!(
+                r#"{{"name":"{formula}.rb","encoding":"base64","content":"{}\n"}}"#,
+                lines.join("\\n")
+            ),
         ));
     }
     github
@@ -453,6 +528,7 @@ fn plan_with(
         ("--pypi", registries.pypi.url()),
         ("--oci-registry", registries.oci.url()),
         ("--api-url", registries.github.url()),
+        ("--site", registries.site.url()),
     ] {
         let address = instead
             .iter()
@@ -487,9 +563,64 @@ fn plan_orders_every_step_of_both_products_for_publishing() {
         &registries.pypi,
         &registries.cargo,
         &registries.oci,
+        &registries.site,
     ] {
         assert_eq!(registry.writes(), Vec::<Request>::new());
     }
+}
+
+/// Each formula and installer fetches its archive from the GitHub Release,
+/// so it moves to the version only once the release is published; one
+/// still at the previous version, or not there yet, is left to update.
+#[test]
+fn plan_updates_each_formula_and_installer_once_the_release_is_published() {
+    let workspace = prepared("1.4.0");
+    let mut published = Published::every_step_out();
+    published.release = Some(false);
+    published
+        .formulas
+        .insert("goodfetch-foxhound".to_owned(), "1.3.0".to_owned());
+    published
+        .installers
+        .insert("collie.sh".to_owned(), "1.3.0".to_owned());
+    published.installers.remove("foxhound.ps1");
+    let registries = Registries::serving(&published);
+
+    let outcome = plan(&workspace, "1.4.0", &registries);
+
+    assert_eq!(outcome.code, 0, "{}", outcome.stderr);
+    let states = states(&outcome.stdout);
+    for (step, state) in [
+        ("homebrew goodfetch/tap/goodfetch-collie 1.4.0", "published"),
+        ("homebrew goodfetch/tap/goodfetch-foxhound 1.4.0", "publish"),
+        ("installer install/collie.sh 1.4.0", "publish"),
+        ("installer install/collie.ps1 1.4.0", "published"),
+        ("installer install/foxhound.sh 1.4.0", "published"),
+        ("installer install/foxhound.ps1 1.4.0", "publish"),
+    ] {
+        assert_eq!(states.get(step), Some(&state), "{step}\n{}", outcome.stdout);
+    }
+}
+
+/// Homebrew and the installers carry stable versions only (ADR 0030); a
+/// nightly's steps are `plan_publishes_neither_crates_nor_wheels_for_a_nightly`'s.
+#[test]
+fn plan_leaves_formulas_and_installers_at_the_stable_version_for_a_candidate() {
+    let version = "1.5.0-rc.1";
+    let workspace = prepared(version);
+    let registries = Registries::serving(&Published::previous_release());
+
+    let outcome = plan(&workspace, version, &registries);
+
+    assert_eq!(outcome.code, 0, "{}", outcome.stderr);
+    assert!(
+        states(&outcome.stdout)
+            .keys()
+            .all(|step| !step.starts_with("homebrew ") && !step.starts_with("installer ")),
+        "{}",
+        outcome.stdout
+    );
+    assert_eq!(registries.site.requests(), Vec::<Request>::new());
 }
 
 #[test]
@@ -650,7 +781,7 @@ fn plan_leaves_nothing_to_do_once_the_release_is_published() {
     let assets = release_files().len();
     assert_eq!(
         states.len(),
-        1 + assets + CRATES.len() + 15 + 1 + 3 + oci + 1
+        1 + assets + CRATES.len() + 15 + 1 + 3 + oci + 1 + FORMULAS.len() + INSTALLERS.len()
     );
 }
 

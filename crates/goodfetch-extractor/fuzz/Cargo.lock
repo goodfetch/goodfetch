@@ -784,6 +784,7 @@ dependencies = [
 name = "goodfetch-workspace-hack"
 version = "0.0.0"
 dependencies = [
+ "aho-corasick",
  "anyhow",
  "bitflags 2.13.2",
  "cc",

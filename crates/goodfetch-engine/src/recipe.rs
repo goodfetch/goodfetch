@@ -4,6 +4,10 @@
 //! are every file of the folder but the ones its `.goodfetchignore` files
 //! leave out and the ones a package always does: version control, secrets
 //! files, dependency folders and build output.
+#![expect(
+    clippy::disallowed_methods,
+    reason = "a package is read on the tasks module's blocking policy, never on an async worker"
+)]
 
 use std::path::Path;
 
@@ -32,7 +36,8 @@ pub struct RecipePackage {
 }
 
 /// Reads the package whose root is `root`: its manifest, then its files,
-/// which must hold the manifest and the entry it names.
+/// which must hold the manifest and the entry it names. It reads the disk:
+/// call it on the tasks module's blocking policy.
 ///
 /// # Errors
 ///
@@ -42,7 +47,7 @@ pub struct RecipePackage {
 /// manifest of a version this engine does not read.
 pub fn package(root: &Path) -> Result<RecipePackage, CallError> {
     let text = std::fs::read_to_string(root.join(RECIPE_MANIFEST_FILE)).map_err(|error| {
-        invalid(RecipeInvalidDetails {
+        invalid(&RecipeInvalidDetails {
             field: RECIPE_MANIFEST_FILE.to_owned(),
             reason: format!("the package's root holds no readable manifest: {error}"),
             fix: format!("write `{RECIPE_MANIFEST_FILE}` at the package's root"),
@@ -54,7 +59,7 @@ pub fn package(root: &Path) -> Result<RecipePackage, CallError> {
         .binary_search_by(|file| file.as_str().cmp(RECIPE_MANIFEST_FILE))
         .is_err()
     {
-        return Err(invalid(RecipeInvalidDetails {
+        return Err(invalid(&RecipeInvalidDetails {
             field: RECIPE_IGNORE_FILE.to_owned(),
             reason: format!("an ignore rule leaves `{RECIPE_MANIFEST_FILE}` out of the package"),
             fix: format!("remove the rule that matches `{RECIPE_MANIFEST_FILE}`"),
@@ -65,7 +70,7 @@ pub fn package(root: &Path) -> Result<RecipePackage, CallError> {
         .binary_search_by(|file| file.as_str().cmp(entry))
         .is_err()
     {
-        return Err(invalid(RecipeInvalidDetails {
+        return Err(invalid(&RecipeInvalidDetails {
             field: format!("entry.{}", manifest.entry.key()),
             reason: format!(
                 "`{entry}` is not in the package: the folder lacks it, or an ignore rule leaves it out"
@@ -86,19 +91,19 @@ pub fn package(root: &Path) -> Result<RecipePackage, CallError> {
 /// engine does not read.
 pub fn manifest(text: &str) -> Result<RecipeManifest, CallError> {
     let document: DocumentMut = text.parse().map_err(|error: toml_edit::TomlError| {
-        invalid(RecipeInvalidDetails {
+        invalid(&RecipeInvalidDetails {
             field: RECIPE_MANIFEST_FILE.to_owned(),
             reason: format!("it is not TOML: {}", error.message()),
             fix: "write the manifest in TOML".to_owned(),
         })
     })?;
     let document = json_of_table(document.as_table());
-    let found = recipe::version_of(&document).map_err(invalid)?;
+    let found = recipe::version_of(&document).map_err(|details| invalid(&details))?;
     match RECIPE_MANIFEST
         .rule
         .compatibility(RECIPE_MANIFEST.version, found)
     {
-        Compatibility::Compatible => recipe::read(document).map_err(invalid),
+        Compatibility::Compatible => recipe::read(document).map_err(|details| invalid(&details)),
         refused => Err(format_refusal(
             &RECIPE_MANIFEST,
             &found.to_string(),
@@ -124,7 +129,7 @@ fn files(root: &Path) -> Result<Vec<String>, CallError> {
         .build();
     for entry in walk {
         let entry = entry.map_err(|error| {
-            invalid(RecipeInvalidDetails {
+            invalid(&RecipeInvalidDetails {
                 field: RECIPE_MANIFEST_FILE.to_owned(),
                 reason: format!("the package's folder does not read: {error}"),
                 fix: "make every file of the package readable".to_owned(),
@@ -139,7 +144,7 @@ fn files(root: &Path) -> Result<Vec<String>, CallError> {
             .expect("invariant: the walk yields paths beneath its root");
         let path = package_path(relative)?;
         if entry.path_is_symlink() {
-            return Err(invalid(RecipeInvalidDetails {
+            return Err(invalid(&RecipeInvalidDetails {
                 field: path,
                 reason: "it is a symbolic link, which a package does not hold".to_owned(),
                 fix: format!(
@@ -175,7 +180,7 @@ fn package_path(relative: &Path) -> Result<String, CallError> {
         .map(|part| part.to_str())
         .collect::<Option<Vec<_>>>()
         .ok_or_else(|| {
-            invalid(RecipeInvalidDetails {
+            invalid(&RecipeInvalidDetails {
                 field: relative.to_string_lossy().into_owned(),
                 reason: "its path is not UTF-8".to_owned(),
                 fix: format!("rename it, or leave it out in `{RECIPE_IGNORE_FILE}`"),
@@ -184,12 +189,12 @@ fn package_path(relative: &Path) -> Result<String, CallError> {
     Ok(parts.join("/"))
 }
 
-fn invalid(details: RecipeInvalidDetails) -> CallError {
+fn invalid(details: &RecipeInvalidDetails) -> CallError {
     let message = format!(
         "The Recipe is not valid: `{}`: {}. Fix: {}.",
         details.field, details.reason, details.fix
     );
-    CallError::new(&RECIPE_INVALID, message, &details)
+    CallError::new(&RECIPE_INVALID, message, details)
 }
 
 #[cfg(test)]

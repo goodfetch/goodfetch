@@ -1,3 +1,9 @@
+#![expect(
+    clippy::doc_markdown,
+    reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
+)]
+
+use std::collections::BTreeMap;
 use std::path::Path;
 
 use rstest::rstest;
@@ -50,7 +56,7 @@ fn a_program_manifest_reads_with_its_runtime_and_settings() {
                 .as_object()
                 .unwrap()
                 .clone(),
-            expose: Default::default(),
+            expose: BTreeMap::default(),
         }
     );
 }
@@ -165,6 +171,10 @@ fn version_of_reads_a_newer_manifest_whose_fields_it_does_not_know() {
 ///
 /// Covers: format:recipe-manifest
 #[test]
+#[expect(
+    clippy::disallowed_methods,
+    reason = "a test's own validator, on no Shared path (ADR 0140)"
+)]
 fn the_schema_accepts_a_manifest_and_refuses_an_unknown_field() {
     let schema = serde_json::to_value(schemars::schema_for!(RecipeManifest)).unwrap();
     let validator = jsonschema::validator_for(&schema).unwrap();
@@ -183,6 +193,10 @@ fn the_schema_accepts_a_manifest_and_refuses_an_unknown_field() {
 /// the SDKs' Node lines and CPython minors, and Rust from the workspace's
 /// MSRV to its toolchain.
 #[test]
+#[expect(
+    clippy::disallowed_methods,
+    reason = "a synchronous unit test reads the repository's own files; no async worker runs"
+)]
 fn the_runtime_versions_are_the_ones_the_repository_tests_and_builds_on() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
     let read_toml = |path: &str| -> toml::Table {

@@ -57,6 +57,7 @@ Decided in [Docs site and positioning of two Products](https://github.com/goodfe
 - **A generator renders each Product's tree before the build,** as playwright.dev renders each language's tree from `microsoft/playwright/docs/src`.
   - MDX partials with props are not used: a prop in a heading shows raw in Docusaurus's table of contents ([facebook/docusaurus#9772](https://github.com/facebook/docusaurus/issues/9772)).
   - The generator's markers, and where its output is written, are area 1's.
+    > Note (agent decision), 2026-11-25, [#149](https://github.com/goodfetch/goodfetch/issues/149): the generator is `xtask docs-site render`, with `xtask docs-samples`'s markers (a page's `products` front matter, `{/* products: … */}` and `{/* names: … */}` parts, `{{executable}}`-style names). It writes `target/docs-site/source/`: each section's rendering under `docs/<product>/`, the root pages from `docs/root/` under `docs/`, and the sidebars, which `website/` builds.
 
 ### Choosing a Product
 
@@ -147,6 +148,7 @@ Decided in [Docs site and positioning of two Products](https://github.com/goodfe
 - **Agent skills are rendered from the same source as the docs,** one source per topic for each Product that carries it, as ADR 0095 decides for skills, so their topics match the pages.
 - **The Browser host's pages are Collie's** (ADR 0096), so they render in both sections, each giving its own executable's `browser-host` command. Its image is Collie's in both, so the part naming `ghcr.io/goodfetch/collie` is marked as naming Collie: the generator leaves it as written, and the names check passes it in Foxhound's section.
 - **Each executable embeds its own section's rendering** for its `docs` command and its MCP server's resources (ADR 0030), and its `init` writes an AGENTS.md index pointing to them. Each executable embeds only its own Product's docs and `init` starters (ADR 0087). How a link into the other section reads there (an absolute `goodfetch.dev` link, for one) is area 1's.
+  > Note (agent decision), 2026-11-25, [#149](https://github.com/goodfetch/goodfetch/issues/149): a page links another by its file in `docs/`, and `foxhound/runs.md` names a section's rendering. On the site, a link stays in its section when the section carries the page, and otherwise points at the section that does or at the root, as a relative file link Docusaurus resolves in the version being read. In an executable's embedded docs, a link that leaves its section is an absolute link to the site's stable docs, `https://goodfetch.dev/docs/<section>/<page>` (`https://goodfetch.dev/docs/<page>` for a root page): stable is the one version the site always keeps.
 - **Each section has its own llms files:** `/docs/collie/llms.txt` and `llms-full.txt`, and Foxhound's likewise.
   - The root has its own pair: `/docs/llms.txt` lists both sections' files and the root pages, and `/docs/llms-full.txt` holds the root pages' content. llms.txt v2 allows a file at any subpath, and the most specific file applies.
   - Every page's `.md` twin, llms entry and `llms-full.txt` content are checked in its own section's files, or the root's for a root page.

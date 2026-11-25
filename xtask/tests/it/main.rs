@@ -47,6 +47,7 @@ mod dependency_direction;
 mod diagnostic;
 mod doc_obligations;
 mod docs_samples;
+mod docs_site;
 mod egress;
 mod egress_canary;
 mod egress_hosts;

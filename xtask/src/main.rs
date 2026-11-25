@@ -33,6 +33,7 @@ mod counts;
 mod dco;
 mod dependency_direction;
 mod docs_samples;
+mod docs_site;
 mod egress;
 mod environment;
 mod evict_caches;
@@ -244,6 +245,13 @@ enum Command {
     DocsSamples {
         #[command(subcommand)]
         command: docs_samples::Command,
+    },
+    /// The docs site (ADR 0097): `render` writes the source tree Docusaurus
+    /// builds in `website/` under `target/docs-site/source/`, each Product's
+    /// section rendered with its names and the root's pages beside them.
+    DocsSite {
+        #[command(subcommand)]
+        command: docs_site::Command,
     },
     /// ADR 0043's outbound-traffic deny in CI and its Egress canary.
     Egress {
@@ -683,6 +691,7 @@ fn run(command: Command, environment: &Environment) -> anyhow::Result<ExitCode> 
             Ok(check::report(&dependency_direction::check(cargo, root)?))
         }
         Command::DocsSamples { command } => docs_samples::run(&command, environment),
+        Command::DocsSite { command } => docs_site::run(&command, environment),
         Command::Egress { command } => egress::run(command, environment),
         Command::EvictCaches(arguments) => evict_caches::run(&arguments, environment),
         Command::ExistingCode { command } => existing_code::run(command, environment),

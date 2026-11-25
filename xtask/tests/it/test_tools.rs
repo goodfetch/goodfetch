@@ -1,5 +1,5 @@
-//! `xtask test-tools`, which `just test` runs before any runner starts
-//! (ADRs 0062 and 0094): `build` builds the commit's executables that tests
+//! `xtask test-tools`, which `just test` runs before any runner starts, in
+//! every suite but Quick (ADRs 0062 and 0094; `test_recipe`): `build` builds the commit's executables that tests
 //! run, those the workspace has, with the tests' own profile, and writes the
 //! test tool manifest of their absolute paths; `path` reads one for a script.
 

@@ -20,8 +20,8 @@ use secrecy::SecretString;
 
 use super::limits::ProxyPermit;
 use super::party::{Answer, Party, party, proxy_error, relays};
-use super::relay::{Mode, Relay};
-use super::{Opening, RunPowers, SessionProxy, lookup, proxy_addresses, relay_unavailable};
+use super::relay::Relay;
+use super::{Opening, RunPowers, SessionProxy};
 use crate::errors::NetError;
 
 /// The proxy one Session's HTTP transport sends through, as it opened.
@@ -116,17 +116,8 @@ impl TransportProxy {
         let Some(proxy) = SessionProxy::open(settings, &powers, &opening).await? else {
             return Ok(None);
         };
-        let socks = if proxy.relay.is_none() && proxy.server.scheme.is_socks() {
-            let addresses = proxy_addresses(&proxy.server, proxy.judged, true, || {
-                lookup(&proxy.server, settings)
-            })
-            .await?;
-            let mode = Mode::Socks5 { credentials: None };
-            Some(
-                Relay::open(&powers, addresses, mode, None, false)
-                    .await
-                    .map_err(|error| relay_unavailable(&proxy.server, &error))?,
-            )
+        let socks = if proxy.needs_transport_relay() {
+            Some(proxy.open_transport_relay(&powers, settings).await?)
         } else {
             None
         };
@@ -137,29 +128,14 @@ impl TransportProxy {
         }))
     }
 
-    /// Where the transport sends its hops: the loopback relay, with its
-    /// own credentials, when the Session has one; the proxy itself, with
-    /// the Session's, otherwise.
+    /// Where the transport sends its hops: its own loopback relay, with
+    /// that relay's credentials, when it has one; where the Session's proxy
+    /// says otherwise.
     #[must_use]
     pub fn route(&self) -> ProxyRoute {
-        if let Some(relay) = self.proxy.relay.as_ref().or(self.socks.as_ref()) {
-            let (username, password) = relay.credentials();
-            return ProxyRoute {
-                url: format!("http://{}", relay.address()),
-                credentials: Some((username.to_owned(), password.clone())),
-            };
-        }
-        ProxyRoute {
-            url: self.proxy.server.to_string(),
-            credentials: self.proxy.username.clone().map(|username| {
-                let password = self
-                    .proxy
-                    .password
-                    .clone()
-                    .unwrap_or_else(|| SecretString::from(""));
-                (username, password)
-            }),
-        }
+        self.socks
+            .as_ref()
+            .map_or_else(|| self.proxy.transport_route(), relay_route)
     }
 
     /// Whether a hop to `url` goes around the proxy, as `proxy.bypass`
@@ -270,6 +246,16 @@ impl TransportProxy {
         self.proxy
             .warn_if_outlived(warnings(run), &self.session)
             .await;
+    }
+}
+
+/// The route through the loopback relay `relay`, an HTTP proxy, with its
+/// own credentials.
+pub(super) fn relay_route(relay: &Relay) -> ProxyRoute {
+    let (username, password) = relay.credentials();
+    ProxyRoute {
+        url: format!("http://{}", relay.address()),
+        credentials: Some((username.to_owned(), password.clone())),
     }
 }
 

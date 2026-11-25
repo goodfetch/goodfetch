@@ -46,23 +46,7 @@ struct Listening {
 /// When the OS refuses the socket or the pipe.
 #[cfg(unix)]
 pub fn listen_wakes(place: &Path) -> io::Result<(WakeListener, String)> {
-    use std::os::unix::fs::PermissionsExt as _;
-    #[expect(
-        clippy::disallowed_methods,
-        reason = "it runs on the tasks module's blocking policy"
-    )]
-    let removed = std::fs::remove_file(place);
-    match removed {
-        Ok(()) => {}
-        Err(error) if error.kind() == io::ErrorKind::NotFound => {}
-        Err(error) => return Err(error),
-    }
-    #[expect(
-        clippy::disallowed_types,
-        reason = "the transport module is the one place that opens sockets (ADR 0060)"
-    )]
-    let listener = tokio::net::UnixListener::bind(place)?;
-    std::fs::set_permissions(place, std::fs::Permissions::from_mode(0o600))?;
+    let listener = super::bind_private_unix(place)?;
     let endpoint = place.to_str().map(str::to_owned).ok_or_else(|| {
         io::Error::new(
             io::ErrorKind::InvalidInput,

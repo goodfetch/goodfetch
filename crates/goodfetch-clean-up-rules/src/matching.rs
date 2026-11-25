@@ -174,15 +174,7 @@ pub fn judge(
     if let Some(lists) = lists
         && !own_script
     {
-        let enabled = [
-            (List::Ads, choices.ads, &lists.ads),
-            (List::Trackers, choices.trackers, &lists.trackers),
-            (List::Annoyances, choices.annoyances, &lists.annoyances),
-        ];
-        for (list, on, engine) in enabled {
-            if !on {
-                continue;
-            }
+        for (list, engine) in lists.on(choices.lists()) {
             let result = engine.check_network_request(&read);
             if !result.should_block() {
                 continue;

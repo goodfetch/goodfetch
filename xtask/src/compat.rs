@@ -41,7 +41,9 @@ use goodfetch_protocol::releases::{FormatName, FormatVersion, ReleasesFile};
 use crate::check::{self, Finding};
 use crate::environment::Environment;
 use crate::output;
+use crate::tree::BUNDLE;
 use registry::Format;
+pub(crate) use registry::{reached, standalone};
 use tree::Tree;
 use writer::Writers;
 
@@ -56,7 +58,7 @@ const HEAD: &str = "head";
 
 /// The formats the committed bundle registers.
 fn formats(root: &Path) -> Result<Vec<Format>> {
-    let path = root.join(registry::BUNDLE);
+    let path = root.join(BUNDLE);
     let text = std::fs::read(&path).with_context(|| format!("reading {}", path.display()))?;
     registry::parse(&text).with_context(|| format!("reading {}", path.display()))
 }
@@ -373,8 +375,8 @@ pub(crate) fn freeze(root: &Path, tag_name: &str) -> Result<Freeze> {
         return Ok(Freeze::Prerelease);
     }
     tag::verify(root, tag_name)?;
-    let shipped = registry::parse(&tag::file(root, tag_name, registry::BUNDLE)?)
-        .with_context(|| format!("reading {} at {tag_name}", registry::BUNDLE))?;
+    let shipped = registry::parse(&tag::file(root, tag_name, BUNDLE)?)
+        .with_context(|| format!("reading {BUNDLE} at {tag_name}"))?;
     let mut frozen = Vec::new();
     for format in &shipped {
         let folder = set_folder(root, format.name.as_str(), &format.version.to_string());
@@ -419,7 +421,7 @@ pub(crate) fn write(cargo: &OsStr, root: &Path) -> Result<()> {
 /// Writes the refusal cases of every format the committed bundle registers,
 /// removing those of a format no longer registered.
 pub(crate) fn write_refusals(root: &Path) -> Result<()> {
-    let path = root.join(registry::BUNDLE);
+    let path = root.join(BUNDLE);
     let bundle = std::fs::read(&path).with_context(|| format!("reading {}", path.display()))?;
     let files = refusals::files(&bundle).with_context(|| format!("reading {}", path.display()))?;
     let folder = root.join(refusals::FOLDER);

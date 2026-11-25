@@ -15,6 +15,7 @@ use super::{
     layer::{Layer, input_name},
     naming,
 };
+use crate::tree;
 
 /// A member a generator writes on a handle.
 pub(crate) struct HandleMember {
@@ -26,10 +27,9 @@ pub(crate) struct HandleMember {
     pub(crate) words: String,
 }
 
-fn read_json(root: &Path, name: &str) -> Result<Value> {
-    let path = root.join(PROTOCOL_GENERATED).join(name);
+fn read_json(path: &Path) -> Result<Value> {
     let text =
-        std::fs::read_to_string(&path).with_context(|| format!("reading {}", path.display()))?;
+        std::fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?;
     serde_json::from_str(&text).with_context(|| format!("parsing {}", path.display()))
 }
 
@@ -37,8 +37,12 @@ fn read_json(root: &Path, name: &str) -> Result<Value> {
 /// built from: it reads neither Foxhound's projection nor the version.
 fn collie_inputs(root: &Path) -> Result<(Value, Value)> {
     Ok((
-        read_json(root, "bundle.json")?,
-        read_json(root, input_name(Product::Collie))?,
+        read_json(&root.join(tree::BUNDLE))?,
+        read_json(
+            &root
+                .join(PROTOCOL_GENERATED)
+                .join(input_name(Product::Collie)),
+        )?,
     ))
 }
 

@@ -12,7 +12,9 @@
 //!    a file the draft holds at its size is uploaded;
 //! 2. the crates, each after the workspace crates it depends on: the
 //!    internal ones at `0.0.x`, the Collie client crate, then each Product's
-//!    (none for a nightly, ADR 0030);
+//!    (none for a nightly, ADR 0030), whose table of its archives and whose
+//!    `[package.metadata.binstall]` must point at the version's archives
+//!    ([`digests`]);
 //! 3. npm: the Collie client package, then each Product's platform packages
 //!    before its root package (ADR 0090);
 //! 4. the tag, only after both Products' npm packages (ADR 0094): `held`
@@ -37,7 +39,7 @@ use serde::Deserialize;
 use serde::de::DeserializeOwned;
 use toml_edit::{DocumentMut, Item, Table};
 
-use super::{CRATES, ProductVersion, Stage, Tree, assets, name, toml};
+use super::{CRATES, ProductVersion, Stage, Tree, assets, digests, name, toml};
 use crate::check::{self, Finding};
 use crate::github::{self, List};
 use crate::output;
@@ -224,9 +226,15 @@ pub(crate) fn run(root: &Path, arguments: &Arguments, token: Option<&str>) -> Re
         Ok(files) => files,
         Err(unlisted) => return Ok(check::report(&unlisted)),
     };
+    let repository = &arguments.github.repository;
+    if !nightly {
+        let undigested = digests::check(root, &arguments.assets, repository, &semver)?;
+        if !undigested.is_empty() {
+            return Ok(check::report(&undigested));
+        }
+    }
 
     let api = arguments.github.authenticated(token)?;
-    let repository = &arguments.github.repository;
     let tag = format!("v{semver}");
     let releases: Vec<Release> =
         api.get_all(&format!("/repos/{repository}/releases"), List::Array)?;
@@ -446,19 +454,9 @@ fn release_files(folder: &Path) -> Result<Result<BTreeMap<String, u64>, Vec<Find
             ),
         )
     };
-    let table = match std::fs::read_to_string(folder.join(assets::TABLE)) {
-        Ok(table) => table,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-            return Ok(Err(vec![unlisted(assets::TABLE)]));
-        }
-        Err(error) => {
-            return Err(error).with_context(|| format!("reading {}", assets::TABLE));
-        }
+    let Some(listed) = assets::listed(folder)? else {
+        return Ok(Err(vec![unlisted(assets::TABLE)]));
     };
-    let listed: BTreeSet<&str> = table
-        .lines()
-        .filter_map(|line| line.split_once("  ").map(|(_, file)| file))
-        .collect();
     let mut files = BTreeMap::new();
     let mut findings = Vec::new();
     for entry in
@@ -466,7 +464,7 @@ fn release_files(folder: &Path) -> Result<Result<BTreeMap<String, u64>, Vec<Find
     {
         let entry = entry?;
         let file = entry.file_name().to_string_lossy().into_owned();
-        if file != assets::TABLE && !listed.contains(file.as_str()) {
+        if file != assets::TABLE && !listed.contains_key(&file) {
             findings.push(unlisted(&file));
         }
         files.insert(file, entry.metadata()?.len());

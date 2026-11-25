@@ -10,7 +10,7 @@ use sha2::{Digest as _, Sha256};
 use crate::workspace::{Workspace, finding};
 
 /// The targets each Product ships an archive for (ADR 0024).
-const TARGETS: [&str; 8] = [
+pub(crate) const TARGETS: [&str; 8] = [
     "x86_64-unknown-linux-gnu",
     "aarch64-unknown-linux-gnu",
     "x86_64-unknown-linux-musl",
@@ -48,7 +48,7 @@ fn bundle() -> Vec<u8> {
 
 /// A workspace whose folder holds every Product file, each its name's
 /// bytes, and the Chromium bundle.
-fn gathered() -> Workspace {
+pub(crate) fn gathered() -> Workspace {
     let workspace = Workspace::from_fixture("release");
     for file in product_files() {
         workspace.write(&format!("{FOLDER}/{file}"), file.as_bytes());
@@ -57,7 +57,7 @@ fn gathered() -> Workspace {
     workspace
 }
 
-fn sha256(bytes: &[u8]) -> String {
+pub(crate) fn sha256(bytes: &[u8]) -> String {
     format!("{:x}", Sha256::digest(bytes))
 }
 

@@ -244,11 +244,9 @@ fn manifest_digest(repository: &str, tag: &str) -> String {
 
 /// The registries' stand-ins, serving what [`Published`] holds: a static
 /// sparse Cargo index served from a temporary folder, npm's and PyPI's JSON
-/// documents, an OCI registry's tag lists and manifest digests, and GitHub;
-/// and the folder of the release's files.
+/// documents, an OCI registry's tag lists and manifest digests, and GitHub.
 struct Registries {
     _index: tempfile::TempDir,
-    assets: tempfile::TempDir,
     cargo: GitHub,
     npm: GitHub,
     pypi: GitHub,
@@ -318,11 +316,6 @@ impl Registries {
             })
             .collect();
 
-        let assets = tempfile::tempdir().unwrap();
-        for (file, bytes) in release_files() {
-            std::fs::write(assets.path().join(file), bytes).unwrap();
-        }
-
         let mut oci = Vec::new();
         let mut digests = Vec::new();
         for (repository, tags) in &published.oci {
@@ -348,7 +341,6 @@ impl Registries {
 
         Self {
             _index: index,
-            assets,
             cargo,
             npm: serve(&npm),
             pypi: serve(&pypi),
@@ -415,14 +407,30 @@ fn serve_folder(folder: &Path) -> GitHub {
 }
 
 /// The fixture with `version` prepared in its released manifests and
-/// committed, as the release job runs the plan.
+/// committed, as the release job runs the plan: the release's files in
+/// [`ASSETS`], and each Product crate's digest table of them.
 fn prepared(version: &str) -> Workspace {
     let workspace = Workspace::from_fixture("release");
     let outcome = workspace.xtask(&["release", "prepare", "--version", version]);
     assert_eq!(outcome.code, 0, "{}", outcome.stderr);
     workspace.commit_all();
+    for (file, bytes) in release_files() {
+        workspace.write(&format!("{ASSETS}/{file}"), &bytes);
+    }
+    let outcome = workspace.xtask(&[
+        "release",
+        "digests",
+        "--assets",
+        ASSETS,
+        "--version",
+        version,
+    ]);
+    assert_eq!(outcome.code, 0, "{}", outcome.stderr);
     workspace
 }
+
+/// The folder of the release's files, in the workspace.
+const ASSETS: &str = "dist";
 
 fn plan(workspace: &Workspace, version: &str, registries: &Registries) -> Outcome {
     plan_with(workspace, version, registries, &[])
@@ -437,10 +445,9 @@ fn plan_with(
     registries: &Registries,
     instead: &[(&str, &str)],
 ) -> Outcome {
-    let assets = registries.assets.path().to_str().unwrap();
     let mut arguments = vec!["release", "plan", "--version", version];
     for (option, stand_in) in [
-        ("--assets", assets),
+        ("--assets", ASSETS),
         ("--cargo-index", registries.cargo.url()),
         ("--npm-registry", registries.npm.url()),
         ("--pypi", registries.pypi.url()),
@@ -695,17 +702,59 @@ fn plan_refuses_a_file_the_digest_table_does_not_list(
 ) {
     let workspace = prepared("1.4.0");
     let registries = Registries::serving(&Published::previous_release());
-    let path = registries.assets.path().join(changed);
-    if path.exists() {
-        std::fs::remove_file(path).unwrap();
+    let path = format!("{ASSETS}/{changed}");
+    if workspace.read(&path).is_some() {
+        workspace.remove(&path);
     } else {
-        std::fs::write(path, "a driver").unwrap();
+        workspace.write(&path, b"a driver");
     }
 
     let outcome = plan(&workspace, "1.4.0", &registries);
 
     assert_eq!(outcome.code, 1, "{}", outcome.stderr);
     assert_eq!(outcome.findings(), [finding("unlisted", unlisted)]);
+    assert_eq!(registries.github.requests(), Vec::<Request>::new());
+}
+
+/// Each Product's crate carries its archives' digests at the version's
+/// URLs, beside a `[package.metadata.binstall]` that points at the archive
+/// of the same version (ADR 0094); the plan publishes no crate otherwise.
+#[test]
+fn plan_refuses_a_product_crate_whose_digest_table_is_not_the_archives() {
+    let workspace = prepared("1.4.0");
+    let archive = "goodfetch-collie-aarch64-apple-darwin.tar.xz";
+    workspace.edit(
+        &format!("{ASSETS}/SHA256SUMS"),
+        &format!("{:064}  {archive}", archive.len()),
+        &format!("{:064}  {archive}", 1),
+    );
+    let registries = Registries::serving(&Published::previous_release());
+
+    let outcome = plan(&workspace, "1.4.0", &registries);
+
+    assert_eq!(outcome.code, 1, "{}", outcome.stderr);
+    assert_eq!(
+        outcome.findings(),
+        [finding("undigested", "crates/goodfetch-collie/Cargo.toml")]
+    );
+    assert_eq!(registries.github.requests(), Vec::<Request>::new());
+}
+
+#[test]
+fn plan_refuses_a_product_crate_binstall_does_not_point_at_its_archive() {
+    let workspace = prepared("1.4.0");
+    let manifest = "crates/foxhound/goodfetch-foxhound/Cargo.toml";
+    workspace.edit(
+        manifest,
+        "/releases/download/v{ version }/",
+        "/releases/latest/download/",
+    );
+    let registries = Registries::serving(&Published::previous_release());
+
+    let outcome = plan(&workspace, "1.4.0", &registries);
+
+    assert_eq!(outcome.code, 1, "{}", outcome.stderr);
+    assert_eq!(outcome.findings(), [finding("binstall", manifest)]);
     assert_eq!(registries.github.requests(), Vec::<Request>::new());
 }
 

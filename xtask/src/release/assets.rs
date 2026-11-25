@@ -35,7 +35,7 @@ const PART_DIGITS: usize = 3;
 /// The targets each Product ships an archive and debug symbols for: Linux
 /// x64 and arm64 on glibc and musl, macOS arm64 and x64, and Windows x64
 /// and arm64 (ADR 0024).
-const TARGETS: [&str; 8] = [
+pub(super) const TARGETS: [&str; 8] = [
     "x86_64-unknown-linux-gnu",
     "aarch64-unknown-linux-gnu",
     "x86_64-unknown-linux-musl",
@@ -55,12 +55,34 @@ fn product_files() -> Vec<String> {
     for product in Product::ALL {
         let executable = product.names().executable;
         for target in TARGETS {
-            files.push(format!("{executable}-{target}.tar.xz"));
+            files.push(archive(product, target));
             files.push(format!("{executable}-{target}-debug.tar.xz"));
         }
         files.push(format!("{executable}.cdx.json"));
     }
     files
+}
+
+/// The Product's archive of its executable for `target`.
+pub(super) fn archive(product: Product, target: &str) -> String {
+    format!("{}-{target}.tar.xz", product.names().executable)
+}
+
+/// Each file the folder's digest table lists, with its SHA-256; `None`
+/// when the folder has no table.
+pub(super) fn listed(folder: &Path) -> Result<Option<BTreeMap<String, String>>> {
+    let path = folder.join(TABLE);
+    let text = match std::fs::read_to_string(&path) {
+        Ok(text) => text,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => return Err(error).with_context(|| format!("reading {}", path.display())),
+    };
+    Ok(Some(
+        text.lines()
+            .filter_map(|line| line.split_once("  "))
+            .map(|(digest, file)| (file.to_owned(), digest.to_owned()))
+            .collect(),
+    ))
 }
 
 /// Splits each file of `folder` over `part_size` bytes and writes its

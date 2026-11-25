@@ -64,6 +64,7 @@ mod children;
 mod consent;
 mod dialogs;
 pub(crate) mod driver;
+mod failures;
 mod followed;
 mod functions;
 mod hiding;
@@ -78,7 +79,7 @@ mod runtime_values;
 use goodfetch_cdp::generated::input::DispatchKeyEventParams;
 use goodfetch_engine::CallError;
 
-pub(crate) use goodfetch_cdp::{NetError, SessionId as TargetSession};
+pub(crate) use goodfetch_cdp::SessionId as TargetSession;
 
 pub(crate) use self::children::{AttachedChild, ChildEvent, ChildEvents, ChildKind};
 pub(crate) use self::consent::{ConsentEvent, ConsentEvents};

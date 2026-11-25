@@ -27,6 +27,7 @@ use goodfetch_engine::client::{ClientRequestError, Sent};
 use goodfetch_engine::egress::{self, Gate, Policy, Refused, RequestKind};
 use goodfetch_engine::http_client;
 use goodfetch_engine::mask::Masks;
+use goodfetch_engine::net_error::NetError;
 use goodfetch_engine::response_limits::Limits;
 use goodfetch_engine::run_identity::RunIdentity;
 use goodfetch_engine::run_trace::RequestLog;
@@ -58,7 +59,7 @@ use super::{PageState, RunPowers, lock};
 use crate::cdp::driver::{PageDriver, cdp_response};
 use crate::cdp::{
     AuthChallenge, CdpPage, ContinueRequest, Fulfill, Header, InterceptionEvent,
-    InterceptionEvents, LoadingFailed, NetError, NetworkId, PausedId, PausedRequest,
+    InterceptionEvents, LoadingFailed, NetworkId, PausedId, PausedRequest,
 };
 use crate::errors::{gate_failure, gate_refused};
 use crate::page_events::Refusals;

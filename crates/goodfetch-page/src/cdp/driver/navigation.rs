@@ -31,9 +31,10 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use goodfetch_cdp::generated::network::{self, LoaderId, RequestId, ResourceType};
 use goodfetch_cdp::generated::page::{self, FrameId, FrameStartedNavigatingNavigationType};
-use goodfetch_cdp::{NetError, RawEvent, Subscription};
+use goodfetch_cdp::{RawEvent, Subscription};
 use goodfetch_engine::CallError;
 use goodfetch_engine::egress::{self, Navigator};
+use goodfetch_engine::net_error::NetError;
 use goodfetch_protocol::page::{PageResponse, WaitUntil};
 
 use super::cdp_response::{

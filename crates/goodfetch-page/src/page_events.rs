@@ -85,6 +85,7 @@ use goodfetch_engine::clock::Clock;
 use goodfetch_engine::deadline::Deadline;
 use goodfetch_engine::events::Events;
 use goodfetch_engine::events::{Envelope, EventData};
+use goodfetch_engine::net_error::NetError;
 use goodfetch_engine::response_limits::{LimitExceeded, Limits};
 use goodfetch_engine::rpc::send_events;
 use goodfetch_engine::run_files::RunFiles;
@@ -126,8 +127,7 @@ use self::waiters::{Armed, answer_armed};
 use crate::cdp::driver::cdp_response::{cut_by, declared_length};
 use crate::cdp::driver::{PageDriver, browser_id, hop_id};
 use crate::cdp::{
-    CdpPage, FollowedEvent, FollowedEvents, LoadingFailed, NetError, RequestSent, SocketFrame,
-    TargetSession,
+    CdpPage, FollowedEvent, FollowedEvents, LoadingFailed, RequestSent, SocketFrame, TargetSession,
 };
 use crate::errors::events_lost;
 use crate::page_children::{Child, ChildKind, OnChild};

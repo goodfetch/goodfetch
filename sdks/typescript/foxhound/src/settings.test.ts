@@ -1,9 +1,9 @@
 // A crawl's and a Label's settings in code (ADRs 0083 and 0093): written in
 // camelCase, sent with each segment in its wire spelling.
 import { setImmediate } from "node:timers/promises";
-import { describe, expect, test } from "vitest";
+import { describe, expect, test, vi } from "vitest";
 import { Crawl, crawlDeclaration } from "./crawl.ts";
-import { FoxhoundOperations } from "./generated/operations.ts";
+import type * as Operations from "./generated/operations.ts";
 import { settingsOnWire } from "./generated/settings.ts";
 
 describe("a crawl's settings", () => {
@@ -38,11 +38,23 @@ describe("a crawl's settings", () => {
   });
 });
 
+/**
+ * A fresh copy of the generated operations and the markers they warn
+ * through, whose record of what they warned of starts empty, as in a new
+ * process: each run of a test, a repeat of the stress run's included, sees
+ * its first warning again.
+ */
+async function freshOperations(): Promise<typeof Operations> {
+  vi.resetModules();
+  return import("./generated/operations.ts");
+}
+
 describe("FoxhoundOperations", () => {
   test(
     "an operation taking a raw run layer warns once per process of a deprecated key it sets",
     { tags: ["story:11-182"] },
     async () => {
+      const { FoxhoundOperations } = await freshOperations();
       const operations = new FoxhoundOperations({
         call: (operation) => Promise.reject(new Error(operation)),
       });

@@ -11,21 +11,48 @@ use rstest::rstest;
 use serde_json::json;
 
 use super::{
-    Facts, Host, NoSandboxPlatform, Probed, SandboxProbe, UserNamespace, host_defaults, judge,
+    Facts, HostFacts, NoSandboxPlatform, Probed, SandboxProbe, UserNamespace, host_defaults, judge,
     label_holds_user_namespaces,
 };
 use crate::settings::HostDefaults;
 
+mod plugins;
+
 const EPERM: i32 = 1;
+const EINVAL: i32 = 22;
+
+/// A host whose kernel gives Landlock ABI 4, as Ubuntu 24.04's 6.8 does,
+/// before the 6.12 that confines a Plugin without a user namespace.
+fn host(user_namespace: UserNamespace) -> HostFacts {
+    HostFacts {
+        user_namespace,
+        landlock_abi: 4,
+        ..HostFacts::NO_NAMESPACE_NEEDED
+    }
+}
+
+/// A container under Docker's default seccomp profile, as recorded.
+fn seccomp_refusing() -> HostFacts {
+    HostFacts {
+        seccomp_filtered: true,
+        ..host(UserNamespace::Refused(EPERM))
+    }
+}
+
+/// WSL1, as recorded: `unshare` is not implemented, and there is no
+/// seccomp nor Landlock.
+fn wsl1() -> HostFacts {
+    HostFacts {
+        wsl1: true,
+        landlock_abi: 0,
+        ..host(UserNamespace::Refused(EINVAL))
+    }
+}
 
 /// A host that refuses the user namespace, where an engine's environment
 /// map decides the answer.
-fn refusing_host() -> Host {
-    Host {
-        user_namespace: UserNamespace::Refused(EPERM),
-        seccomp_filtered: false,
-        apparmor_restricts: false,
-    }
+fn refusing_host() -> HostFacts {
+    host(UserNamespace::Refused(EPERM))
 }
 
 /// An SDK or a test holds two engines in one process, each started with
@@ -52,11 +79,9 @@ fn two_engines_in_one_process_each_answer_from_their_own_environment() {
     );
 }
 
-fn facts(user_namespace: UserNamespace) -> Facts {
+fn facts(host: HostFacts) -> Facts {
     Facts {
-        user_namespace,
-        seccomp_filtered: false,
-        apparmor_restricts: false,
+        host,
         kubernetes: false,
         platform: None,
     }
@@ -75,43 +100,44 @@ fn environment(probed: &Probed) -> Option<SandboxEnvironment> {
 /// browser's profile; a platform with no fix switches the sandbox off.
 /// Covers: story:4-86
 #[rstest]
-#[case::a_namespace_made(facts(UserNamespace::Created), "starts", None)]
+#[case::a_namespace_made(facts(host(UserNamespace::Created)), "starts", None)]
 #[case::a_namespace_made_even_on_lambda(
-    Facts { platform: Some(NoSandboxPlatform::AwsLambda), ..facts(UserNamespace::Created) },
+    Facts { platform: Some(NoSandboxPlatform::AwsLambda), ..facts(host(UserNamespace::Created)) },
     "starts",
     None
 )]
+#[case::wsl1(facts(wsl1()), "refused", Some(SandboxEnvironment::Wsl1))]
 #[case::dockers_default_seccomp(
-    Facts { seccomp_filtered: true, ..facts(UserNamespace::Refused(EPERM)) },
+    facts(seccomp_refusing()),
     "refused",
     Some(SandboxEnvironment::DockerDefaultSeccomp)
 )]
 #[case::kubernetes_runtime_default(
-    Facts { seccomp_filtered: true, kubernetes: true, ..facts(UserNamespace::Refused(EPERM)) },
+    Facts { kubernetes: true, ..facts(seccomp_refusing()) },
     "refused",
     Some(SandboxEnvironment::KubernetesRuntimeDefault)
 )]
 #[case::apparmors_restriction(
-    Facts { apparmor_restricts: true, ..facts(UserNamespace::Unmapped(EPERM)) },
+    facts(HostFacts { apparmor_restricts: true, ..host(UserNamespace::Unmapped(EPERM)) }),
     "restricted",
     None
 )]
 #[case::a_seccomp_filter_beside_apparmors_restriction(
-    Facts { seccomp_filtered: true, apparmor_restricts: true, ..facts(UserNamespace::Refused(EPERM)) },
+    facts(HostFacts { apparmor_restricts: true, ..seccomp_refusing() }),
     "refused",
     Some(SandboxEnvironment::DockerDefaultSeccomp)
 )]
 #[case::lambda(
-    Facts { platform: Some(NoSandboxPlatform::AwsLambda), seccomp_filtered: true, ..facts(UserNamespace::Refused(EPERM)) },
+    Facts { platform: Some(NoSandboxPlatform::AwsLambda), ..facts(seccomp_refusing()) },
     "no_sandbox",
     None
 )]
 #[case::a_pod_on_eks_on_fargate(
-    Facts { platform: Some(NoSandboxPlatform::EksFargate), seccomp_filtered: true, kubernetes: true, ..facts(UserNamespace::Refused(EPERM)) },
+    Facts { platform: Some(NoSandboxPlatform::EksFargate), kubernetes: true, ..facts(seccomp_refusing()) },
     "no_sandbox",
     None
 )]
-#[case::an_unknown_refusal(facts(UserNamespace::Refused(EPERM)), "unknown", None)]
+#[case::an_unknown_refusal(facts(host(UserNamespace::Refused(EPERM))), "unknown", None)]
 fn the_probe_names_what_refuses_the_sandbox_and_whether_a_fix_exists(
     #[case] facts: Facts,
     #[case] answer: &str,
@@ -135,9 +161,8 @@ fn the_probe_names_what_refuses_the_sandbox_and_whether_a_fix_exists(
 #[test]
 fn a_refusal_is_browser_sandbox_unavailable_naming_the_environment_and_its_fix() {
     let probed = judge(&Facts {
-        seccomp_filtered: true,
         kubernetes: true,
-        ..facts(UserNamespace::Refused(EPERM))
+        ..facts(seccomp_refusing())
     });
 
     let refusal = probed.refusal().unwrap();
@@ -174,7 +199,7 @@ fn a_refusal_is_browser_sandbox_unavailable_naming_the_environment_and_its_fix()
 /// Covers: story:4-86, error:browser_sandbox_unavailable
 #[test]
 fn an_unknown_refusal_refuses_the_launch_with_the_probes_error() {
-    let probed = judge(&facts(UserNamespace::Refused(EPERM)));
+    let probed = judge(&facts(host(UserNamespace::Refused(EPERM))));
 
     let refusal = probed.refusal().unwrap();
 

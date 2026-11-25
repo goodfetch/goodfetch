@@ -162,7 +162,7 @@
     },
     {
       "arrived_in": "0.1",
-      "description": "Chromium's sandbox cannot start on this host, so the engine launches no browser. `environment` names what refuses it (Docker's or containerd's default seccomp profile, Kubernetes' `RuntimeDefault`, Ubuntu's AppArmor restriction on unprivileged user namespaces, or `unknown` for a refusal the probe does not recognise, which the message names), and `fix` the fix; an Operator policy may instead switch `security.browser_sandbox` off, which the run reports.",
+      "description": "Chromium's sandbox cannot start on this host, so the engine launches no browser. `environment` names what refuses it (WSL1, Docker's or containerd's default seccomp profile, Kubernetes' `RuntimeDefault`, Ubuntu's AppArmor restriction on unprivileged user namespaces, or `unknown` for a refusal the probe does not recognise, which the message names), and `fix` the fix; an Operator policy may instead switch `security.browser_sandbox` off, which the run reports.",
       "details": {
         "$ref": "#/$defs/BrowserSandboxUnavailableDetails"
       },
@@ -323,6 +323,9 @@
     {
       "arrived_in": "0.1",
       "description": "The host cannot confine the Plugin as it must run: it has no seccomp at all (WSL1), or neither user namespaces nor Landlock ABI 6 (a container under Docker's default seccomp profile on a kernel before 6.12), or it cannot provide the network level the Plugin's manifest declares, which is never silently weakened. A third-party Plugin is always refused; a first-party one, shipped in the engine's own release, too, unless the Operator policy's `plugins.<name>.reduced_confinement` lets it run with the confinement the host offers. A Bridge Sink is refused with it under a container runtime that runs as root.",
+      "details": {
+        "$ref": "#/$defs/ConfinementUnavailableDetails"
+      },
       "exit_code": null,
       "group": "refused",
       "json_rpc_class": -32002,

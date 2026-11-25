@@ -19,9 +19,18 @@
 //!   Kubernetes' `RuntimeDefault`: `security.browser_sandbox` is off by
 //!   default on this host, which every Run then reports as a switched-off
 //!   control (one Audit log entry, `weakened`, one warning);
+//! - WSL1, which offers neither seccomp nor user namespaces: browser runs
+//!   are refused, environment `wsl1`;
 //! - any other refusal: browser runs are refused with
 //!   `browser_sandbox_unavailable`, environment `unknown`, whose message
 //!   names what the probe met.
+//!
+//! The same reading decides a process Plugin's confinement (ADR 0033):
+//! where `goodfetch-confinement` finds the host confines none, neither by
+//! Landlock ABI 6 nor by a user namespace, or on WSL1, every Plugin's start
+//! is refused with `confinement_unavailable`, naming the environment the
+//! browser's refusal names and its fix for a Plugin
+//! ([`SandboxProbe::plugin_refusal`]).
 
 #[cfg(target_os = "linux")]
 mod linux;
@@ -30,6 +39,9 @@ use std::collections::BTreeMap;
 use std::ffi::{OsStr, OsString};
 use std::sync::{Arc, OnceLock};
 
+use goodfetch_confinement::host::SIGNAL_SCOPE_ABI;
+pub use goodfetch_confinement::host::{HostFacts, UserNamespace};
+use goodfetch_protocol::plugin::{CONFINEMENT_UNAVAILABLE, ConfinementUnavailableDetails};
 use goodfetch_protocol::security::{
     BROWSER_SANDBOX_UNAVAILABLE, BrowserSandboxUnavailableDetails, SECURITY_BROWSER_SANDBOX,
     SandboxEnvironment,
@@ -40,19 +52,6 @@ use goodfetch_protocol::settings::EKS_FARGATE_PROFILE_VARIABLE;
 
 use crate::call_error::CallError;
 use crate::settings::HostDefaults;
-
-/// What the probe found of the user namespace.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum UserNamespace {
-    /// Created, and this user mapped into it.
-    Created,
-    /// `unshare(CLONE_NEWUSER)` refused, with its `errno`.
-    Refused(i32),
-    /// Created, but this user could not be mapped into it, with the
-    /// `errno` of the write to `uid_map`: AppArmor's restriction leaves the
-    /// namespace without the capabilities to map itself.
-    Unmapped(i32),
-}
 
 /// A platform that allows no sandbox and offers no fix (ADR 0049).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -80,28 +79,11 @@ impl NoSandboxPlatform {
     }
 }
 
-/// What this process's host allows, alike for every engine in it.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct Host {
-    /// The user namespace a child of this process tried to make.
-    pub(crate) user_namespace: UserNamespace,
-    /// Whether this process runs under a seccomp filter (`Seccomp: 2`).
-    pub(crate) seccomp_filtered: bool,
-    /// Whether AppArmor restricts unprivileged user namespaces
-    /// (`kernel.apparmor_restrict_unprivileged_userns=1`).
-    pub(crate) apparmor_restricts: bool,
-}
-
 /// What the probe read of the host.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Facts {
-    /// The user namespace a child of this process tried to make.
-    pub user_namespace: UserNamespace,
-    /// Whether this process runs under a seccomp filter (`Seccomp: 2`).
-    pub seccomp_filtered: bool,
-    /// Whether AppArmor restricts unprivileged user namespaces
-    /// (`kernel.apparmor_restrict_unprivileged_userns=1`).
-    pub apparmor_restricts: bool,
+    /// What this process's host allows, alike for every engine in it.
+    pub host: HostFacts,
     /// Whether this process runs in a Kubernetes pod
     /// (`KUBERNETES_SERVICE_HOST`).
     pub kubernetes: bool,
@@ -135,7 +117,14 @@ pub enum Probed {
 
 /// What `facts` decide.
 pub fn judge(facts: &Facts) -> Probed {
-    let failure = match facts.user_namespace {
+    let host = &facts.host;
+    if host.wsl1 {
+        return Probed::Refused {
+            environment: SandboxEnvironment::Wsl1,
+            failure: "this is WSL1, which offers neither seccomp nor user namespaces".to_owned(),
+        };
+    }
+    let failure = match host.user_namespace {
         UserNamespace::Created => return Probed::Starts,
         UserNamespace::Refused(errno) => format!(
             "creating a user namespace was refused ({})",
@@ -149,8 +138,8 @@ pub fn judge(facts: &Facts) -> Probed {
     if let Some(platform) = facts.platform {
         return Probed::NoSandbox(platform);
     }
-    let refused = matches!(facts.user_namespace, UserNamespace::Refused(_));
-    if refused && facts.seccomp_filtered {
+    let refused = matches!(host.user_namespace, UserNamespace::Refused(_));
+    if refused && host.seccomp_filtered {
         let environment = if facts.kubernetes {
             SandboxEnvironment::KubernetesRuntimeDefault
         } else {
@@ -161,10 +150,59 @@ pub fn judge(facts: &Facts) -> Probed {
             failure,
         };
     }
-    if facts.apparmor_restricts {
+    if host.apparmor_restricts {
         return Probed::Restricted;
     }
     Probed::Unknown { failure }
+}
+
+impl Facts {
+    /// The refusal of every process Plugin's start, where this host cannot
+    /// confine one: it names the environment that refuses the browser's
+    /// sandbox too, whatever platform this is, and the fix for a Plugin.
+    pub fn plugin_refusal(&self) -> Option<CallError> {
+        if self.host.confines() {
+            return None;
+        }
+        let (environment, failure) = match judge(&Self {
+            platform: None,
+            ..*self
+        }) {
+            Probed::Refused {
+                environment,
+                failure,
+            } => (environment, failure),
+            Probed::Restricted => (
+                SandboxEnvironment::ApparmorUserns,
+                "AppArmor restricts unprivileged user namespaces".to_owned(),
+            ),
+            Probed::Unknown { failure } => (SandboxEnvironment::Unknown, failure),
+            // A namespace made confines a Plugin, and only WSL1 refuses one
+            // then, which `judge` names.
+            Probed::Starts | Probed::NoSandbox(_) => (
+                SandboxEnvironment::Unknown,
+                "the probe met no refusal it names".to_owned(),
+            ),
+        };
+        let failure = match environment {
+            SandboxEnvironment::Wsl1 => failure,
+            _ => format!(
+                "{failure}, and the kernel gives Landlock ABI {}, below the {SIGNAL_SCOPE_ABI} that confines without one",
+                self.host.landlock_abi
+            ),
+        };
+        Some(CallError::new(
+            &CONFINEMENT_UNAVAILABLE,
+            format!(
+                "this host cannot confine a process Plugin ({}): {failure}",
+                serde_name(environment)
+            ),
+            &ConfinementUnavailableDetails {
+                environment,
+                fix: plugin_fix(environment),
+            },
+        ))
+    }
 }
 
 /// One engine's probe, which its settings' host defaults and its browser
@@ -176,14 +214,14 @@ pub struct SandboxProbe(Arc<Probing>);
 
 struct Probing {
     environment: BTreeMap<OsString, OsString>,
-    host: fn() -> Host,
-    answer: OnceLock<Probed>,
+    host: fn() -> HostFacts,
+    answer: OnceLock<(Facts, Probed)>,
 }
 
 impl SandboxProbe {
     /// The probe of an engine started with `environment`, on the host
     /// `host` reads: [`this_host`], for a real engine.
-    pub(crate) fn of(host: fn() -> Host, environment: BTreeMap<OsString, OsString>) -> Self {
+    pub(crate) fn of(host: fn() -> HostFacts, environment: BTreeMap<OsString, OsString>) -> Self {
         Self(Arc::new(Probing {
             environment,
             host,
@@ -191,42 +229,52 @@ impl SandboxProbe {
         }))
     }
 
-    /// The engine's answer. The process's first call blocks while a child
-    /// tries the user namespace, so it runs on the blocking policy.
+    /// The engine's answer for the browser's sandbox. The process's first
+    /// call blocks while a child tries the user namespace, so it runs on
+    /// the blocking policy.
     pub fn probed(&self) -> &Probed {
+        &self.answer().1
+    }
+
+    /// The refusal of every process Plugin's start where this host cannot
+    /// confine one ([`Facts::plugin_refusal`]), from the same reading as
+    /// [`Self::probed`]; it blocks as that does.
+    pub fn plugin_refusal(&self) -> Option<CallError> {
+        self.answer().0.plugin_refusal()
+    }
+
+    fn answer(&self) -> &(Facts, Probed) {
         self.0.answer.get_or_init(|| {
-            let probed = judge(&facts((self.0.host)(), &self.0.environment));
+            let facts = facts((self.0.host)(), &self.0.environment);
+            let probed = judge(&facts);
             log(&probed);
-            probed
+            (facts, probed)
         })
     }
 }
 
 /// What this process's host allows, read once: no engine's environment
 /// changes it, and the child's fork costs each read.
-pub(crate) fn this_host() -> Host {
-    static HOST: OnceLock<Host> = OnceLock::new();
+pub(crate) fn this_host() -> HostFacts {
+    static HOST: OnceLock<HostFacts> = OnceLock::new();
     *HOST.get_or_init(read_host)
 }
 
 #[cfg(target_os = "linux")]
-fn read_host() -> Host {
-    linux::host()
+fn read_host() -> HostFacts {
+    goodfetch_confinement::linux::host::read()
 }
 
-/// Outside Linux, Chromium's sandboxes need no user namespace.
+/// Outside Linux, Chromium's sandboxes and a Plugin's confinement need no
+/// user namespace.
 #[cfg(not(target_os = "linux"))]
-fn read_host() -> Host {
-    Host {
-        user_namespace: UserNamespace::Created,
-        seccomp_filtered: false,
-        apparmor_restricts: false,
-    }
+fn read_host() -> HostFacts {
+    HostFacts::NO_NAMESPACE_NEEDED
 }
 
 /// What the probe judges: what `host` allows, and where `environment`, an
 /// engine's map, says it runs.
-fn facts(host: Host, environment: &BTreeMap<OsString, OsString>) -> Facts {
+fn facts(host: HostFacts, environment: &BTreeMap<OsString, OsString>) -> Facts {
     let variable = |name: &str| {
         environment
             .get(OsStr::new(name))
@@ -234,9 +282,7 @@ fn facts(host: Host, environment: &BTreeMap<OsString, OsString>) -> Facts {
             .map(str::to_owned)
     };
     Facts {
-        user_namespace: host.user_namespace,
-        seccomp_filtered: host.seccomp_filtered,
-        apparmor_restricts: host.apparmor_restricts,
+        host,
         kubernetes: variable("KUBERNETES_SERVICE_HOST").is_some(),
         platform: platform(variable),
     }
@@ -357,6 +403,7 @@ pub fn apparmor_refusal(executable: &std::path::Path, label: &str) -> CallError 
 
 fn serde_name(environment: SandboxEnvironment) -> &'static str {
     match environment {
+        SandboxEnvironment::Wsl1 => "wsl1",
         SandboxEnvironment::DockerDefaultSeccomp => "docker_default_seccomp",
         SandboxEnvironment::KubernetesRuntimeDefault => "kubernetes_runtime_default",
         SandboxEnvironment::ApparmorUserns => "apparmor_userns",
@@ -369,6 +416,9 @@ fn fix(environment: SandboxEnvironment, executable: Option<&std::path::Path>) ->
     let off =
         "or switch `security.browser_sandbox` off in Operator policy, which every run then reports";
     match environment {
+        SandboxEnvironment::Wsl1 => format!(
+            "WSL1 offers neither the seccomp filters nor the user namespace Chromium's sandbox needs: convert the distribution to WSL 2 (`wsl --set-version <distribution> 2`), {off}."
+        ),
         SandboxEnvironment::DockerDefaultSeccomp => format!(
             "Docker's and containerd's default seccomp profiles refuse the user namespace Chromium's sandbox starts in: run the container with a seccomp profile that allows `clone` and `unshare` with `CLONE_NEWUSER` (`docker run --security-opt seccomp=<profile.json>`), {off}."
         ),
@@ -384,6 +434,28 @@ fn fix(environment: SandboxEnvironment, executable: Option<&std::path::Path>) ->
         ),
         SandboxEnvironment::Unknown => format!(
             "This host refuses the user namespace Chromium's sandbox starts in, for a reason the probe does not recognise: check that `unshare --user --map-root-user true` works for this user (`user.max_user_namespaces` above 0, no seccomp or LSM rule refusing `CLONE_NEWUSER`), {off}."
+        ),
+    }
+}
+
+/// The fix for `environment` when it keeps a process Plugin from being
+/// confined: from Linux 6.12, Landlock ABI 6 confines one without a user
+/// namespace.
+fn plugin_fix(environment: SandboxEnvironment) -> String {
+    let kernel = "or run on a host with Linux 6.12 or later, whose Landlock ABI 6 confines a Plugin without a user namespace";
+    match environment {
+        SandboxEnvironment::Wsl1 => "WSL1 offers neither seccomp nor user namespaces, so no Plugin can be confined there: convert the distribution to WSL 2 (`wsl --set-version <distribution> 2`).".to_owned(),
+        SandboxEnvironment::DockerDefaultSeccomp => format!(
+            "Docker's and containerd's default seccomp profiles refuse the user namespace a Plugin is confined in on this kernel: run the container with a seccomp profile that allows `clone` and `unshare` with `CLONE_NEWUSER` (`docker run --security-opt seccomp=<profile.json>`), {kernel}."
+        ),
+        SandboxEnvironment::KubernetesRuntimeDefault => format!(
+            "Kubernetes' `RuntimeDefault` seccomp profile refuses the user namespace a Plugin is confined in on this kernel: give the pod a `Localhost` seccomp profile that allows `clone` and `unshare` with `CLONE_NEWUSER` (`securityContext.seccompProfile: {{type: Localhost, localhostProfile: <profile.json>}}`), {kernel}."
+        ),
+        SandboxEnvironment::ApparmorUserns => format!(
+            "Ubuntu's AppArmor restricts unprivileged user namespaces (`kernel.apparmor_restrict_unprivileged_userns=1`), and no AppArmor profile gives one to Goodfetch's executable, which confines each Plugin: load a profile that grants it `userns`, {kernel}."
+        ),
+        SandboxEnvironment::Unknown => format!(
+            "This host refuses the user namespace a Plugin is confined in, for a reason the probe does not recognise: check that `unshare --user --map-root-user true` works for this user (`user.max_user_namespaces` above 0, no seccomp or LSM rule refusing `CLONE_NEWUSER`), {kernel}."
         ),
     }
 }

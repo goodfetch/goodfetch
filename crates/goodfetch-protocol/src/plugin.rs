@@ -28,6 +28,7 @@ use crate::catalog::{Entries, ErrorCodeDefinition, ErrorGroup, Product, Protocol
 use crate::error_code::ErrorCode;
 use crate::jsonrpc::RequestId;
 use crate::run::RunId;
+use crate::security::SandboxEnvironment;
 
 pub mod extractor;
 mod fuzz;
@@ -342,6 +343,19 @@ pub const CONFINEMENT_UNAVAILABLE: ErrorCodeDefinition = ErrorCodeDefinition {
     exit_code: None,
     arrived_in: ARRIVED_IN,
 };
+
+/// What `confinement_unavailable` details, where the engine's startup
+/// probe found the host cannot confine a Plugin (ADRs 0033 and 0049).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct ConfinementUnavailableDetails {
+    /// What keeps the host from confining it: the same environment that
+    /// explains the browser's sandbox.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub environment: SandboxEnvironment,
+    /// The fix for that environment.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub fix: String,
+}
 
 /// The Error codes of running a process Plugin.
 pub const ENTRIES: Entries = Entries {

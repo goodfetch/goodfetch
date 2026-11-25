@@ -289,15 +289,16 @@ export type MissingBrowser =
  */
 export type ChromeChannel = "stable" | "beta" | "dev" | "canary";
 /**
- * What refuses the user namespace Chromium's sandbox starts in, on a host
- * where a fix exists or the probe does not recognise the refusal (ADR
- * 0049).
+ * What refuses the user namespace Chromium's sandbox starts in, and a
+ * process Plugin's confinement, on a host where a fix exists or the probe
+ * does not recognise the refusal (ADRs 0033 and 0049): the engine's one
+ * startup probe names it for both.
  *
  * This interface was referenced by `CollieTypes`'s JSON-Schema
  * via the `definition` "SandboxEnvironment".
  */
 export type SandboxEnvironment =
-  "docker_default_seccomp" | "kubernetes_runtime_default" | "apparmor_userns" | "unknown";
+  "wsl1" | "docker_default_seccomp" | "kubernetes_runtime_default" | "apparmor_userns" | "unknown";
 /**
  * Who stopped a call that `call_cancelled` ended (ADR 0113): the
  * vocabulary of an Agent's `abort` (ADR 0100), plus `browser`, open
@@ -2861,6 +2862,20 @@ export interface ConfigExplainParams {
   settings?: {
     [k: string]: unknown;
   };
+}
+/**
+ * What `confinement_unavailable` details, where the engine's startup
+ * probe found the host cannot confine a Plugin (ADRs 0033 and 0049).
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "ConfinementUnavailableDetails".
+ */
+export interface ConfinementUnavailableDetails {
+  /**
+   * What keeps the host from confining it: the same environment that
+   * explains the browser's sandbox.
+   */
+  environment: SandboxEnvironment;
 }
 /**
  * What `connection_overloaded` names: the Connection's own bound the call

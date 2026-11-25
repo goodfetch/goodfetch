@@ -3875,11 +3875,14 @@ class SampleStorePutResult(BaseModel):
 
 class SandboxEnvironment(StrEnum):
     """
-    What refuses the user namespace Chromium's sandbox starts in, on a host
-    where a fix exists or the probe does not recognise the refusal (ADR
-    0049).
+    What refuses the user namespace Chromium's sandbox starts in, and a
+    process Plugin's confinement, on a host where a fix exists or the probe
+    does not recognise the refusal (ADRs 0033 and 0049): the engine's one
+    startup probe names it for both.
     """
 
+    wsl1 = "wsl1"
+    """WSL1, which offers neither seccomp nor user namespaces."""
     docker_default_seccomp = "docker_default_seccomp"
     """
     Docker's or containerd's default seccomp profile, which refuses
@@ -3893,7 +3896,7 @@ class SandboxEnvironment(StrEnum):
     apparmor_userns = "apparmor_userns"
     """
     Ubuntu's AppArmor restriction on unprivileged user namespaces, with
-    no profile that gives the browser one.
+    no profile that gives the browser, or Goodfetch's executable, one.
     """
     unknown = "unknown"
     """
@@ -5697,6 +5700,22 @@ class ConfigExplainParams(BaseModel):
     """
     Run-layer values to explain with, as a Run's `settings` would give
     them.
+    """
+
+
+class ConfinementUnavailableDetails(BaseModel):
+    """
+    What `confinement_unavailable` details, where the engine's startup
+    probe found the host cannot confine a Plugin (ADRs 0033 and 0049).
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    environment: SandboxEnvironment
+    """
+    What keeps the host from confining it: the same environment that
+    explains the browser's sandbox.
     """
 
 

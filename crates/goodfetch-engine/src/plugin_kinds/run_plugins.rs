@@ -28,6 +28,7 @@ use crate::home::Home;
 use crate::plugin_host::instance::{self, PluginInstance, Scope};
 use crate::plugin_host::settings::{self as plugin_settings, EnvironmentError, PluginSettings};
 use crate::plugin_store::{Installed, PluginStore, StoreError};
+use crate::sandbox_probe::SandboxProbe;
 use crate::secrets::{RunSecrets, SecretError};
 use crate::settings::Resolved;
 use crate::tasks::TaskOwner;
@@ -79,13 +80,16 @@ impl RunPlugins {
     /// The Extractor of the installed Plugin `name`, its instance started
     /// on the first call with its settings in the Run's `settings` and its
     /// environment valued from them, a secret field's reference resolved
-    /// by the Run's `secrets`.
+    /// by the Run's `secrets`, once the engine's `probe` finds that this
+    /// host confines a Plugin (ADR 0049).
     ///
     /// # Errors
     ///
     /// [`StartError::Secret`] for a secret field whose reference gives no
     /// value; otherwise [`StartError::Refused`]: `setting_invalid` naming
-    /// the field for settings the Plugin's schema refuses, and
+    /// the field for settings the Plugin's schema refuses,
+    /// `confinement_unavailable` naming the environment and its fix where
+    /// this host cannot confine the instance, and
     /// `extractor_unavailable` when no Plugin of the Extractor kind is
     /// installed under `name`, or its instance cannot be set up; why is
     /// logged at `warn`. A Plugin that cannot launch fails its first call
@@ -95,6 +99,7 @@ impl RunPlugins {
         name: &str,
         settings: Option<&Resolved>,
         secrets: &RunSecrets,
+        probe: &SandboxProbe,
     ) -> Result<ProcessExtractor, StartError> {
         let mut extractors = self.extractors.lock().await;
         if let Some(extractor) = extractors.get(name) {
@@ -120,6 +125,11 @@ impl RunPlugins {
                 EnvironmentError::Secret(error) => StartError::Secret(error),
                 ungranted @ EnvironmentError::Ungranted { .. } => cannot_start(&ungranted),
             })?;
+        let probe = probe.clone();
+        if let Some(refusal) = self.owner.blocking(move || probe.plugin_refusal()).await {
+            tracing::warn!(extractor = name, %refusal, "this host cannot confine an Extractor's Plugin");
+            return Err(StartError::Refused(refusal));
+        }
         let folder = self.instances.join(format!("{}-{name}", self.run_id));
         let places = self.places.clone();
         let plugin = self

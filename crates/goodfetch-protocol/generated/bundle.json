@@ -2712,6 +2712,26 @@
       },
       "type": "object"
     },
+    "ConfinementUnavailableDetails": {
+      "description": "What `confinement_unavailable` details, where the engine's startup\nprobe found the host cannot confine a Plugin (ADRs 0033 and 0049).",
+      "properties": {
+        "environment": {
+          "$ref": "#/$defs/SandboxEnvironment",
+          "arrived_in": "0.1",
+          "description": "What keeps the host from confining it: the same environment that\nexplains the browser's sandbox."
+        },
+        "fix": {
+          "arrived_in": "0.1",
+          "description": "The fix for that environment.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "environment",
+        "fix"
+      ],
+      "type": "object"
+    },
     "ConformanceDocument": {
       "description": "A `conformance` document: each declared capability's outcome, derived\nfrom its cases.",
       "properties": {
@@ -20624,8 +20644,13 @@
       "type": "object"
     },
     "SandboxEnvironment": {
-      "description": "What refuses the user namespace Chromium's sandbox starts in, on a host\nwhere a fix exists or the probe does not recognise the refusal (ADR\n0049).",
+      "description": "What refuses the user namespace Chromium's sandbox starts in, and a\nprocess Plugin's confinement, on a host where a fix exists or the probe\ndoes not recognise the refusal (ADRs 0033 and 0049): the engine's one\nstartup probe names it for both.",
       "oneOf": [
+        {
+          "const": "wsl1",
+          "description": "WSL1, which offers neither seccomp nor user namespaces.",
+          "type": "string"
+        },
         {
           "const": "docker_default_seccomp",
           "description": "Docker's or containerd's default seccomp profile, which refuses\n`CLONE_NEWUSER`.",
@@ -20638,7 +20663,7 @@
         },
         {
           "const": "apparmor_userns",
-          "description": "Ubuntu's AppArmor restriction on unprivileged user namespaces, with\nno profile that gives the browser one.",
+          "description": "Ubuntu's AppArmor restriction on unprivileged user namespaces, with\nno profile that gives the browser, or Goodfetch's executable, one.",
           "type": "string"
         },
         {

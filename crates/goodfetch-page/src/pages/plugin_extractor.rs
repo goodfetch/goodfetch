@@ -129,7 +129,7 @@ pub(super) async fn answered(
     })?;
     let settings = run.settings().map(RunSettings::resolved);
     let extractor = plugins(run)
-        .extractor(name, settings, run.secrets())
+        .extractor(name, settings, run.secrets(), run.sandbox_probe())
         .await
         .map_err(|error| match error {
             StartError::Refused(error) => error,

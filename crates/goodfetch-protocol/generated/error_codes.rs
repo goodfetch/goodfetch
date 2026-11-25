@@ -58,7 +58,7 @@ impl ErrorCode {
 
     /// `browser_sandbox_unavailable`, in the `unavailable` group, not retryable.
     ///
-    /// Chromium's sandbox cannot start on this host, so the engine launches no browser. `environment` names what refuses it (Docker's or containerd's default seccomp profile, Kubernetes' `RuntimeDefault`, Ubuntu's AppArmor restriction on unprivileged user namespaces, or `unknown` for a refusal the probe does not recognise, which the message names), and `fix` the fix; an Operator policy may instead switch `security.browser_sandbox` off, which the run reports.
+    /// Chromium's sandbox cannot start on this host, so the engine launches no browser. `environment` names what refuses it (WSL1, Docker's or containerd's default seccomp profile, Kubernetes' `RuntimeDefault`, Ubuntu's AppArmor restriction on unprivileged user namespaces, or `unknown` for a refusal the probe does not recognise, which the message names), and `fix` the fix; an Operator policy may instead switch `security.browser_sandbox` off, which the run reports.
     pub const BROWSER_SANDBOX_UNAVAILABLE: Self = ErrorCode::from_static("browser_sandbox_unavailable");
 
     /// `call_cancelled`, in the `unavailable` group, not retryable.

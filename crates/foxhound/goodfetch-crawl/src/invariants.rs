@@ -9,7 +9,8 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use goodfetch_engine::CallError;
-use goodfetch_engine::runs::Run;
+use goodfetch_engine::run_identity::RunIdentity;
+use goodfetch_engine::run_state::RunState;
 use goodfetch_engine::settings::Resolved;
 use goodfetch_frontier::payload::PayloadRules;
 use goodfetch_frontier::{Bounds, Scope};
@@ -89,10 +90,14 @@ impl Invariants {
     /// (ADR 0140, `F3.prepares`), with `beside`, the work items' own
     /// statements a sitemap read shares with a page's end. One that is not
     /// prepared here is at its first use.
-    pub(crate) async fn prepare(&self, run: &Run, beside: &[&'static str]) {
+    pub(crate) async fn prepare(
+        &self,
+        (run, state): (&RunIdentity, &RunState),
+        beside: &[&'static str],
+    ) {
         let mut statements = goodfetch_frontier::admission_statements(&self.frontier);
         statements.extend_from_slice(beside);
-        if let Err(error) = run.state().prepare(statements).await {
+        if let Err(error) = state.prepare(statements).await {
             tracing::warn!(%error, run_id = %run.id(), "the crawl's admission statements were not prepared as it started");
         }
     }

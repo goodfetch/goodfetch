@@ -64,6 +64,7 @@ use goodfetch_engine::home::{Home, RunStateLocation};
 use goodfetch_engine::log::LogEvents;
 use goodfetch_engine::mask::Masks;
 use goodfetch_engine::run_state::RunStateOptions;
+use goodfetch_engine::secrets::DriverSlot;
 use goodfetch_engine::settings::{Resolved, SettingsError, SettingsFiles, get_or_default};
 use goodfetch_engine::tasks::BlockingPolicy;
 use goodfetch_engine::transport::{self, Network};
@@ -449,6 +450,7 @@ pub fn main(start: &Start) -> ExitCode {
     let clock = Clock::system();
     let log_events = LogEvents::new();
     let masks = Masks::new();
+    let keys = DriverSlot::default();
     let launched = logs::Process::of(&parsed) == logs::Process::DaemonLaunched;
     let (logs, entropy) = match observe(
         start,
@@ -460,7 +462,7 @@ pub fn main(start: &Start) -> ExitCode {
         &parsed,
         clock,
         &log_events,
-        &masks,
+        (&masks, &keys),
     ) {
         Ok(installed) => installed,
         Err(exit) => return exit,
@@ -480,6 +482,7 @@ pub fn main(start: &Start) -> ExitCode {
         // Settings that cannot be read keep the drain grace's default.
         Ok(engine) => instrumented(engine, log_events, logs.audit_events())
             .with_masks(masks)
+            .with_driver_slot(keys)
             .with_drain_grace(get_or_default(read, &DRAIN_GRACE)),
         Err(error) => {
             tracing::error!(%error, "the composition cannot start an engine");
@@ -611,8 +614,10 @@ fn instrumented(
 /// settings of the machine's `settings`, their defaults when they cannot be
 /// read, so that the command can log why, and its crash reports, and answers
 /// it with the process's `Entropy` from the OS, a fork of which draws its
-/// export's trace and span IDs; fails once it has logged why the logs cannot
-/// go where the `log.*` settings say, with the Error code (ADR 0122).
+/// export's trace and span IDs; its exports' collector reads its client
+/// certificate's key through the driver the engine fills `keys` with. Fails
+/// once it has logged why the logs cannot go where the `log.*` settings say,
+/// with the Error code (ADR 0122).
 fn observe(
     start: &Start,
     binary: &str,
@@ -620,7 +625,7 @@ fn observe(
     parsed: &Parsed,
     clock: Clock,
     log_events: &LogEvents,
-    masks: &Masks,
+    (masks, keys): (&Masks, &DriverSlot),
 ) -> Result<(logs::Installed, Result<Entropy, NoSeed>), ExitCode> {
     let mut entropy = Entropy::from_os();
     let handles = logs::Handles {
@@ -641,6 +646,7 @@ fn observe(
         settings,
         events: log_events,
         masks,
+        keys,
         product: start.product,
         handles,
     });

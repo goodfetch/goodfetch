@@ -45,8 +45,9 @@ use goodfetch_protocol::secret_reference::{Provider, SecretReference};
 use goodfetch_protocol::secrets::placeholders::{BoundPlaceholder, SECRETS_PLACEHOLDERS};
 use goodfetch_protocol::secrets::{
     KEY_REFERENCE_IN_FILE, KEY_REFERENCE_IN_KEYCHAIN, RUN_STATE_KEY_REFERENCE,
-    SECRETS_RESOLVE_EACH_USE, SecretFailure, SecretInputRefusedReason,
+    SECRETS_RESOLVE_EACH_USE, SecretFailure, SecretInputRefusedReason, TIMEOUT_SECRET,
 };
+use goodfetch_protocol::security::SECURITY_REDACTION;
 use goodfetch_protocol::settings::SettingsLayer;
 use goodfetch_protocol::tls::TLS_CLIENT_CERTIFICATES;
 use secrecy::{ExposeSecret as _, SecretString};
@@ -387,6 +388,45 @@ impl std::fmt::Debug for Secrets {
     }
 }
 
+/// The engine's driver, once the engine has built it, for a part made
+/// before the engine, such as the OTLP exports' client, whose endpoint's
+/// client-certificate key the driver reads (issue 1648). Empty until the
+/// engine fills it. Clones share it.
+#[derive(Clone, Debug, Default)]
+pub struct DriverSlot(Arc<std::sync::OnceLock<Secrets>>);
+
+impl DriverSlot {
+    /// Fills the slot with `secrets`; a slot already filled keeps its
+    /// driver.
+    pub fn fill(&self, secrets: &Secrets) {
+        let _ = self.0.set(secrets.clone());
+    }
+
+    /// What the keys of the client certificates `settings`, the machine's,
+    /// list for the Operator-configured endpoints resolve through: the
+    /// driver with the providers every engine carries alone, bounded by
+    /// their `timeout.secret` and masked unless their
+    /// `security.redaction` is off; none until the slot is filled.
+    pub fn endpoint_keys(&self, settings: &Resolved) -> Option<RunSecrets> {
+        let redaction = if settings.get::<bool>(&SECURITY_REDACTION) {
+            Redaction::On
+        } else {
+            Redaction::Off
+        };
+        let secrets = self.0.get()?;
+        Some(secrets.for_run_with(settings.get::<Duration>(&TIMEOUT_SECRET), redaction))
+    }
+}
+
+/// Whether `settings`' `tls.client_certificates` lists any certificate,
+/// whose key an endpoint would read.
+pub(crate) fn lists_client_certificates(settings: &Resolved) -> bool {
+    settings
+        .value(&TLS_CLIENT_CERTIFICATES)
+        .as_object()
+        .is_some_and(|listed| !listed.is_empty())
+}
+
 impl Secrets {
     /// The driver with the providers every engine carries, over `carried`.
     /// Each resolution is recorded in `audit`; the providers' reads and the
@@ -629,11 +669,8 @@ impl Secrets {
     ) -> RunSecrets {
         let mut secrets = self.clone();
         if !self.0.configured.is_empty() {
-            let listed = settings.value(&TLS_CLIENT_CERTIFICATES);
-            let endpoint_keys = listed
-                .as_object()
-                .is_some_and(|listed| !listed.is_empty())
-                .then(|| self.for_run_with(timeout, redaction));
+            let endpoint_keys =
+                lists_client_certificates(settings).then(|| self.for_run_with(timeout, redaction));
             let shared = Arc::make_mut(&mut secrets.0);
             let blocking = self.0.owner.blocking_threads();
             let inputs = ProviderInputs {

@@ -3,9 +3,10 @@
 //! presents that certificate, its key resolved when the handshake starts,
 //! never before, and only through a provider every engine carries; a
 //! certificate listed for another host is never presented to it. Proved on
-//! the Secret-provider endpoint as a Run's provider receives it, against the
-//! Proving ground's host that requires mutual TLS; its request log and the
-//! Audit log are the oracle.
+//! the Secret-provider endpoint as a Run's provider receives it and on the
+//! OTLP collector as the process's exports reach it, against the Proving
+//! ground's host that requires mutual TLS; its request log and the Audit
+//! log are the oracle.
 
 use std::collections::BTreeMap;
 use std::ffi::OsString;
@@ -17,10 +18,11 @@ use goodfetch_engine::clock::Clock;
 use goodfetch_engine::entropy::Entropy;
 use goodfetch_engine::home::Home;
 use goodfetch_engine::mask::Redaction;
+use goodfetch_engine::otlp::{Collector, ExportFailure};
 use goodfetch_engine::secret_endpoint::{EndpointFailure, SecretProviderEndpoint};
 use goodfetch_engine::secrets::{
-    Carried, ConfigProblem, Keychain, ProviderFailure, ProviderInputs, Resolving, SecretProvider,
-    Secrets,
+    Carried, ConfigProblem, DriverSlot, Keychain, ProviderFailure, ProviderInputs, Resolving,
+    SecretProvider, Secrets,
 };
 use goodfetch_engine::settings::Resolved;
 use goodfetch_engine::tasks::{BlockingPolicy, TaskOwner};
@@ -91,6 +93,20 @@ fn secrets(
     )
 }
 
+/// The OTLP collector the machine's `settings` configure, made before the
+/// engine, as the process's exports are, and the slot the engine fills with
+/// its driver.
+fn collector(settings: &Resolved) -> (Collector, DriverSlot) {
+    let keys = DriverSlot::default();
+    let collector = Collector::of(
+        settings,
+        Clock::system(),
+        TaskOwner::root(BlockingPolicy::Inline).blocking_threads(),
+    )
+    .with_client_certificates(settings, keys.clone());
+    (collector, keys)
+}
+
 /// A Run's Secret-provider endpoint, as its Vault provider is built with
 /// it, and the Audit log its key's resolution is recorded in. The fields
 /// drop in order, so the Proving ground stops before the environment checks
@@ -132,24 +148,50 @@ impl Fixture {
         machine_settings(json!({}), at_catalog(&self.proving_ground, &tls))
     }
 
-    /// The Secret-provider endpoint a Run under `settings` builds its
-    /// providers with, the engine's environment holding the client
-    /// certificate's key at `OWN_KEY`.
-    fn endpoint(&self, settings: &Resolved) -> SecretProviderEndpoint {
+    /// The engine's driver, its environment holding the client
+    /// certificate's key at `OWN_KEY`, its Vault provider keeping the
+    /// endpoint it is built with in `endpoint`.
+    fn driver(&self, endpoint: &Arc<OnceLock<SecretProviderEndpoint>>) -> Secrets {
         let own = self.proving_ground.client_certificate().unwrap();
         let environment = [(OsString::from("OWN_KEY"), OsString::from(&own.key))].into();
+        secrets(&self.env, environment, &self.audit, endpoint)
+    }
+
+    /// The Secret-provider endpoint a Run under `settings` builds its
+    /// providers with.
+    fn endpoint(&self, settings: &Resolved) -> SecretProviderEndpoint {
         let endpoint = Arc::new(OnceLock::new());
-        drop(
-            secrets(&self.env, environment, &self.audit, &endpoint).for_run_under(
-                settings,
-                Duration::from_secs(30),
-                Redaction::On,
-            ),
-        );
+        drop(self.driver(&endpoint).for_run_under(
+            settings,
+            Duration::from_secs(30),
+            Redaction::On,
+        ));
         endpoint
             .get()
             .cloned()
             .expect("the Run built its providers")
+    }
+
+    /// Fills `keys` with the engine's driver, as the engine does once it
+    /// built it.
+    fn build_driver(&self, keys: &DriverSlot) {
+        keys.fill(&self.driver(&Arc::new(OnceLock::new())));
+    }
+
+    /// Exports to `collector` at [`MUTUAL`]: the status, or why there was
+    /// none.
+    fn export(&self, collector: &Collector) -> Result<u16, ExportFailure> {
+        let url = format!(
+            "https://{MUTUAL}:{}/v1/traces",
+            self.proving_ground.address().port()
+        );
+        let request = Request::post(url).body(Bytes::new()).unwrap();
+        goodfetch_test_support::runtime().block_on(async {
+            collector
+                .send(request)
+                .await
+                .map(|answer| answer.status().as_u16())
+        })
     }
 
     /// Reads a secret from `endpoint` at [`MUTUAL`]: the status, or why
@@ -273,5 +315,60 @@ fn an_endpoints_key_is_read_only_through_a_carried_provider() {
     assert_eq!(
         (domain.as_str(), fixture.requested(), fixture.keys_used()),
         (MUTUAL, Vec::<String>::new(), Vec::<Value>::new())
+    );
+}
+
+/// Issue 1648: the OTLP collector at a host that requires mutual TLS
+/// presents the client certificate `tls.client_certificates` lists for it
+/// once the engine built the driver that reads its key, so the export is
+/// answered and the Audit log records the key's use; an export sent before
+/// then presents none, and the host refuses it.
+/// Covers: story:4-34, setting:tls.client_certificates
+#[test]
+fn the_collector_presents_the_client_certificate_listed_for_its_host_once_the_engine_runs() {
+    let fixture = Fixture::new();
+    let (collector, keys) = collector(&fixture.settings(MUTUAL, "env:OWN_KEY"));
+    let before_the_engine = fixture.export(&collector);
+
+    fixture.build_driver(&keys);
+    let exported = fixture.export(&collector);
+
+    assert_eq!(
+        (
+            matches!(before_the_engine, Err(ExportFailure::Network)),
+            exported.is_ok(),
+            fixture.requested(),
+            fixture.keys_used()
+        ),
+        (
+            true,
+            true,
+            vec![MUTUAL.to_owned()],
+            vec![json!(["tls.client_certificates", "env:OWN_KEY", MUTUAL])]
+        ),
+        "{before_the_engine:?} {exported:?}"
+    );
+}
+
+/// Issue 1648: a client certificate listed for another host is never
+/// presented to the collector, so the host that requires one refuses the
+/// export and no key is resolved (the negative control of the test above).
+/// Covers: story:4-34, setting:tls.client_certificates
+#[test]
+fn the_collector_presents_no_certificate_listed_for_another_host() {
+    let fixture = Fixture::new();
+    let (collector, keys) = collector(&fixture.settings(OTHER_MUTUAL, "env:OWN_KEY"));
+    fixture.build_driver(&keys);
+
+    let exported = fixture.export(&collector);
+
+    assert_eq!(
+        (
+            matches!(exported, Err(ExportFailure::Network)),
+            fixture.requested(),
+            fixture.keys_used()
+        ),
+        (true, Vec::<String>::new(), Vec::<Value>::new()),
+        "{exported:?}"
     );
 }

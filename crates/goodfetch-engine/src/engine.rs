@@ -56,7 +56,7 @@ use crate::runs::{
     CleanUpVersions, Driving, PanicStop, ProgressPart, ReportPart, Runs, RunsSetup, SendWindow,
 };
 use crate::sandbox_probe::{self, SandboxProbe};
-use crate::secrets::{self, Carried, Keychain, ProviderFactory, Secrets};
+use crate::secrets::{self, Carried, DriverSlot, Keychain, ProviderFactory, Secrets};
 use crate::settings::{HostDefaults, HostSearch, Settings, SettingsFiles, get_or_default};
 use crate::tasks::{BlockingPolicy, OwnerKind, TaskOwner};
 use crate::transition::{
@@ -84,6 +84,7 @@ pub struct Engine {
     metrics: Metrics,
     system: Option<System>,
     audit_events: Option<AuditEvents>,
+    driver_slot: DriverSlot,
     drain_grace: Duration,
 }
 
@@ -143,6 +144,7 @@ impl Engine {
             metrics,
             system: None,
             audit_events: None,
+            driver_slot: DriverSlot::default(),
             drain_grace: get_or_default(None, &DRAIN_GRACE),
         })
     }
@@ -188,6 +190,21 @@ impl Engine {
     pub fn with_audit_events(mut self, events: AuditEvents) -> Self {
         self.audit_events = Some(events);
         self
+    }
+
+    /// The same, filling `slot` with its Secret references' driver once it
+    /// built it, for a part made before it, such as the OTLP exports'
+    /// collector, which reads its client certificate's key through it
+    /// (issue 1648).
+    #[must_use]
+    pub fn with_driver_slot(mut self, slot: DriverSlot) -> Self {
+        self.driver_slot = slot;
+        self
+    }
+
+    /// The slot its Secret references' driver fills once it built it.
+    pub fn driver_slot(&self) -> &DriverSlot {
+        &self.driver_slot
     }
 
     /// The same, its event stream's buffers sized by `options`.
@@ -509,6 +526,7 @@ impl Engine {
             .fold(secrets, |secrets, (provider, factory)| {
                 secrets.with_configured(*provider, Arc::clone(factory))
             });
+        self.driver_slot.fill(&secrets);
         (context, secrets)
     }
 

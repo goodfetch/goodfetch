@@ -64,6 +64,7 @@ use goodfetch_protocol::run::{
 use goodfetch_protocol::settings::{RunOrigin, TIMEOUT_RUN};
 
 use crate::code_free::{self, CodeFree};
+use crate::crawl_run::CrawlRun;
 use crate::delivery;
 use crate::enqueue;
 use crate::hooks;
@@ -97,6 +98,7 @@ pub fn contribution(tiers: FetchTiers) -> Contribution {
     let pushing = crawls.clone();
     let retrying = crawls.clone();
     let resuming = crawls.clone();
+    let staging = crawls.clone();
     let redeclared = Redeclared::default();
     let (redeclaring, redeclared_retry) = (redeclared.clone(), redeclared.clone());
     let pages = code_free::Pages::default();
@@ -143,13 +145,15 @@ pub fn contribution(tiers: FetchTiers) -> Contribution {
         .with_report_part(Arc::new(crate::completeness::StoppedParts))
         .with_progress_part(Arc::new(crate::progress::CrawlProgress))
         .with_run_of_call(Arc::new(tiers.clone()))
+        .with_attempt_staging(Arc::new(staging))
         .with_driver(
             RunKind::Crawl,
             Arc::new(move |run, context, settings| {
                 let (redeclared, crawls, tiers) =
                     (redeclaring.clone(), resuming.clone(), tiers.clone());
                 Box::pin(async move {
-                    let hooks = redeclared.record(&run).await;
+                    let run = CrawlRun::of(run, context.runs());
+                    let hooks = redeclared.record(&run.identity, &run.state).await;
                     // Boxed: the resumed delivery's future is large.
                     Box::pin(delivery::resume(
                         run,
@@ -301,8 +305,9 @@ async fn start(
         .map_err(start_error)?;
     match started {
         Started::New(run) => {
+            let run = CrawlRun::of(run, context.runs());
             let started = RunStarted {
-                run_id: run.id().clone(),
+                run_id: run.identity.id().clone(),
                 started_as: StartedAs::New,
                 lifecycle: Lifecycle::Running,
                 needs: Product::Foxhound,
@@ -310,12 +315,12 @@ async fn start(
             // Its Limits hold it before its driver sends a request; a
             // crawl they cannot hold ends `failed` rather than run unheld.
             if let Err(error) = limits.give(&started, &context).await {
-                run.end(delivery::failed(&run, &error)).await;
+                run.end.end(delivery::failed(&run.identity, &error)).await;
                 return Err(error);
             }
-            let code_free = CodeFree::of(extraction, &crawls, &tiers, &run);
-            run.spawn(delivery::drive(
-                run.clone(),
+            let code_free = CodeFree::of(extraction, &crawls, &tiers, &run.identity);
+            run.identity.spawn(delivery::drive(
+                Arc::clone(&run),
                 context.clone(),
                 crawls.open(&run, egress, serving, opening).await,
                 crawls,

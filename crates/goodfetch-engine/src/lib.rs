@@ -73,6 +73,7 @@ pub mod rule_sources;
 pub mod run;
 pub mod run_files;
 pub mod run_files_operations;
+pub mod run_identity;
 mod run_index;
 pub mod run_key;
 pub mod run_state;
@@ -108,7 +109,8 @@ pub use composition::{
     Driver, Enclose, Guard, GuardAnswer, Handler, Params, ReadParams, RunOfCall,
 };
 pub use engine::{AttachedFailure, Dependencies, Engine};
-pub use engine_context::EngineContext;
+pub use engine_context::{CALLER, EngineContext};
 pub use info::contribution;
 pub use product::{Channel, Identity, Requested};
+pub use run_index::RunIndex;
 pub use stored_time::StoredTime;

@@ -51,7 +51,7 @@ use crate::clock::Clock;
 use crate::host_name::{self, ListedDomains};
 use crate::known_certificates::KeyHash;
 use crate::settings::Resolved;
-use crate::tasks::TaskOwner;
+use crate::tasks::TaskStarter;
 
 /// What a host's certificate may chain to beside Mozilla's roots.
 #[derive(Clone, Debug, Default)]
@@ -214,7 +214,7 @@ impl Trust {
     /// # Cancel safety
     ///
     /// Dropping the future loses only the answer.
-    pub async fn of(settings: &Resolved, owner: &TaskOwner) -> Self {
+    pub async fn of(settings: &Resolved, owner: &TaskStarter) -> Self {
         let listed = TrustedCas::of(settings);
         owner
             .blocking(move || {

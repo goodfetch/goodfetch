@@ -76,8 +76,9 @@ use crate::composition::{CallContext, Handler};
 use crate::deadline::Deadline;
 use crate::product::{Identity, Requested};
 use crate::runs::{
-    Aborter, Behind, EndedBy, FixedSettingChanged, Forwarded, FromCheckpoint, ListError, Resume,
-    Resumed, RollbackBy, RunError, Start, StartError, Started, StorageExhausted, UnsupportedFolder,
+    self, Aborter, Behind, EndedBy, FixedSettingChanged, Forwarded, FromCheckpoint, ListError,
+    Resume, Resumed, RollbackBy, RunError, Start, StartError, Started, StorageExhausted,
+    UnsupportedFolder,
 };
 use crate::secrets::SecretError;
 use crate::settings::{
@@ -1126,7 +1127,7 @@ async fn start(params: RunStartParams, context: CallContext) -> Result<RunStarte
         .map_err(start_error)?;
     let started = match started {
         Started::New(run) => RunStarted {
-            run_id: run.id().clone(),
+            run_id: runs::identity(&run).id().clone(),
             started_as: StartedAs::New,
             lifecycle: goodfetch_protocol::run::Lifecycle::Running,
             needs: Product::Collie,
@@ -1195,7 +1196,9 @@ async fn stop(params: RunStopParams, context: CallContext) -> Result<RunReport, 
 /// The `timeout.close` the live Run `run_id` resolved, or its default.
 async fn close_deadline(context: &CallContext, run_id: &RunId) -> Deadline {
     let resolved = match context.runs().live(run_id.clone()).await {
-        Ok(run) => run.settings().map(|settings| settings.resolved().clone()),
+        Ok(run) => runs::identity(&run)
+            .settings()
+            .map(|settings| settings.resolved().clone()),
         Err(_) => None,
     };
     Deadline::of_resolved(resolved.as_ref(), &TIMEOUT_CLOSE)
@@ -1340,14 +1343,15 @@ pub async fn resume_run(
         Resumed::New {
             run, kind, needs, ..
         } => {
+            let identity = runs::identity(&run);
             let started = RunStarted {
-                run_id: run.id().clone(),
+                run_id: identity.id().clone(),
                 started_as: StartedAs::Resumed,
                 lifecycle: Lifecycle::Running,
                 needs,
             };
             if let Some(driver) = context.driver(kind) {
-                run.spawn(driver(*run.clone(), context.clone(), settings));
+                identity.spawn(driver(*run.clone(), context.clone(), settings));
             }
             Ok(started)
         }

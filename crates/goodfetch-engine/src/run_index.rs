@@ -30,10 +30,12 @@ use goodfetch_protocol::catalog::ProtocolVersion;
 use goodfetch_protocol::connection::ProductVersion;
 use goodfetch_protocol::formats::{Compatibility, RUN_INDEX};
 use goodfetch_protocol::run::{Completeness, Lifecycle, Presence, RunId, RunIndexRow, Verdict};
+use goodfetch_protocol::settings::WALL_REFETCH_DOMAINS;
 use rusqlite::{Connection, OptionalExtension as _, Row};
 use tokio::sync::watch;
 
 use crate::lowest_minor::{self, Opener};
+use crate::run_identity::RunIdentity;
 use crate::run_state::RunStateError;
 use crate::sqlite_store::{
     self, Access, Durability, File, Folder, KeptStore, Opening, StoreFile, Wait,
@@ -148,7 +150,7 @@ fn failed(path: &Path, error: &impl std::fmt::Display) -> RunStateError {
 /// The Run index of one user and major, as one engine opens it: its writer
 /// and the connection its reads keep, which its clones share.
 #[derive(Clone, Debug)]
-pub(crate) struct RunIndex {
+pub struct RunIndex {
     store: Arc<KeptStore<IndexFile>>,
     /// Whether a call found the index's lowest minor raised past this
     /// engine, which never lowers again.
@@ -329,18 +331,24 @@ impl RunIndex {
             .await
     }
 
-    /// Records that the Run `run_id` met a consent wall on `domain` at `at`,
-    /// keeping the first time it did.
+    /// Records that the Run `run` met a consent wall on the registrable
+    /// domain `domain` now, by its clock, keeping the first time it did, so
+    /// "Needs you" offers the domain for `consent.domains` (ADR 0048).
     ///
     /// # Errors
     ///
-    /// As [`Self::write`].
-    pub(crate) async fn record_consent_wall(
+    /// When the Run index cannot be written.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future after the write began still records it.
+    pub async fn record_consent_wall(
         &self,
+        run: &RunIdentity,
         domain: String,
-        run_id: RunId,
-        at: SystemTime,
     ) -> Result<(), RunStateError> {
+        let run_id = run.id().clone();
+        let at = run.point_in_time();
         self.store
             .write(None, move |file, connection| {
                 file.in_transaction(connection, true, |connection| {
@@ -371,17 +379,35 @@ impl RunIndex {
             .await
     }
 
-    /// Records that the refetch of the Run `stop.last_run` stopped on
-    /// `stop.domain` at `at`, for its cause, keeping the Run's first stop.
+    /// Records that the refetch of the Run `run` stopped on the registrable
+    /// domain `domain` now, by its clock, for `cause`, with the project
+    /// configuration file its `wall.refetch_domains` came from, keeping the
+    /// Run's first stop, so "Needs you" lists the domain (ADR 0052).
     ///
     /// # Errors
     ///
-    /// As [`Self::write`].
-    pub(crate) async fn record_refetch_stop(
+    /// When the Run index cannot be written.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future after the write began still records it.
+    pub async fn record_refetch_stop(
         &self,
-        stop: RefetchStopped,
-        at: SystemTime,
+        run: &RunIdentity,
+        domain: String,
+        cause: String,
     ) -> Result<(), RunStateError> {
+        let at = run.point_in_time();
+        let stop = RefetchStopped {
+            domain,
+            first_stopped: at,
+            last_run: run.id().clone(),
+            cause,
+            project_file: run
+                .settings()
+                .and_then(|settings| settings.project_setting(WALL_REFETCH_DOMAINS.name))
+                .map(str::to_owned),
+        };
         self.store
             .write(None, move |file, connection| {
                 file.in_transaction(connection, true, |connection| {

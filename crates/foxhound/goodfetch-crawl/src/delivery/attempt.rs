@@ -94,13 +94,15 @@ use goodfetch_engine::lease::{LeaseCheck, LeaseEnded, PermitWait};
 use goodfetch_engine::metrics::Counted;
 use goodfetch_engine::response_limits::Limits;
 use goodfetch_engine::retry_after::RetryAfter;
-use goodfetch_engine::runs::Run;
+use goodfetch_engine::run_identity::RunIdentity;
+use goodfetch_engine::run_trace::RunTrace;
+use goodfetch_engine::runs::outcome::record_outcome;
 use goodfetch_engine::settings::Resolved;
 use goodfetch_fetch_tier::{
     Capture, Chosen, FetchFailure, FetchTiers, HandOver, HeldPlace, HopChecks, HttpTier, Judged,
     PAGE_CHECK_CALL, PageFacts, PooledSession, Redirected, ReplayPlan, Request, Requester,
-    RunHandOver, SitePreferences, Stop, TierChoice, Unfollowed, infer_plan, light_browser_unsent,
-    tier_provenance, tier_serves,
+    RobotsTxtCopies, RunHandOver, SitePreferences, Stop, TierChoice, Unfollowed, infer_plan,
+    light_browser_unsent, tier_provenance, tier_serves,
 };
 use goodfetch_frontier::{DomainKeys, sitemap};
 use goodfetch_protocol::browser_cache::PinnedBy;
@@ -135,6 +137,7 @@ use super::document_answer;
 use super::failure::{AttemptFailure, Why};
 use super::watch::{self, Watch};
 use crate::code_free::CodeFree;
+use crate::crawl_run::CrawlRun;
 use crate::hooks::Hooks;
 use crate::lease::{CommitError, SoFar, WorkItemLease};
 use crate::progress::SharedInFlight;
@@ -397,7 +400,7 @@ const BROWSER: TierChoice = TierChoice {
 /// judges each redirect hop, `egress`, its domain policy, and `hops`, how each redirect hop
 /// asks the delivery loop of the visited set (ADR 0142).
 pub(super) async fn run_hand_over(
-    run: &Run,
+    run: &CrawlRun,
     settings: &Resolved,
     http: Option<&HttpTier>,
     (egress, hops): (&Arc<Policy>, Arc<dyn HopChecks>),
@@ -407,16 +410,17 @@ pub(super) async fn run_hand_over(
     // Politeness file (ADR 0086); a crawl whose Politeness paces nothing
     // records no start, send or latency in it (ADR 0138).
     let paces = goodfetch_frontier::paces(settings);
+    let robots_txt = RobotsTxtCopies::of(&run.identity, &run.own_robots_txt);
     let shared = if paces
         || site_preferences.reads_robots_txt(Request::CrawlRequest)
         || site_preferences.reads_robots_txt(Request::Navigation)
     {
-        share_robots_txt(run, settings).await
+        share_robots_txt(run, &robots_txt, settings).await
     } else {
         None
     };
     Arc::new(RunHandOver {
-        run: run.clone(),
+        run: run.handed_on().clone(),
         keys: DomainKeys::of(settings),
         politeness: shared.clone().filter(|_| paces),
         crawl_delays: shared.map(goodfetch_frontier::CrawlDelays::new),
@@ -426,6 +430,7 @@ pub(super) async fn run_hand_over(
         adaptive_delay: settings.get(&POLITENESS_DOMAIN_ADAPTIVE_DELAY),
         pace: goodfetch_frontier::Pace::of(settings),
         site_preferences,
+        robots_txt,
         egress: Arc::clone(egress),
         hops,
         addresses: http.map(HttpTier::address_check),
@@ -433,17 +438,17 @@ pub(super) async fn run_hand_over(
 }
 
 /// The lease check of the handler pages of the attempt of `leased`,
-/// holding `lease` and watched by `watch` ([`HandlerLease`]), in the Run
-/// `of_run` hands over; `in_flight` names its waits.
+/// holding `lease` and watched by `watch` ([`HandlerLease`]), in the
+/// crawl's live Run `run`; `in_flight` names its waits.
 pub(super) fn handler_lease(
-    of_run: &Arc<RunHandOver>,
+    run: &Arc<CrawlRun>,
     (leased, lease, watch): (&Leased, &WorkItemLease, &Watch),
     in_flight: &SharedInFlight,
 ) -> Arc<dyn LeaseCheck> {
     Arc::new(HandlerLease {
         lease: lease.clone(),
         watch: watch.clone(),
-        of_run: Arc::clone(of_run),
+        run: Arc::clone(run),
         request_id: leased.crawl_request.id.clone(),
         in_flight: Arc::clone(in_flight),
     })
@@ -454,14 +459,14 @@ pub(super) fn handler_lease(
 /// named in the Run's live status, so a handler waiting for a permit is not
 /// timed out meanwhile (ADR 0093), and the end of the handler call its
 /// pages' calls inherit (ADR 0080). A panic in the renewal ends the
-/// attempt ([`Watch`]). It shares its Run with every attempt's hand-over
-/// rather than holding a clone of its own, which the loop would build and
-/// the page's task drop once a page (#2243).
+/// attempt ([`Watch`]). It shares the crawl's one record of its live Run
+/// rather than holding a clone of the Run's values, which the loop would
+/// build and the page's task drop once a page (#2243).
 #[derive(Clone)]
 struct HandlerLease {
     lease: WorkItemLease,
     watch: Watch,
-    of_run: Arc<RunHandOver>,
+    run: Arc<CrawlRun>,
     request_id: String,
     in_flight: SharedInFlight,
 }
@@ -472,7 +477,7 @@ impl std::fmt::Debug for HandlerLease {
             .debug_struct("HandlerLease")
             .field("lease", &self.lease)
             .field("watch", &self.watch)
-            .field("run", &self.of_run.run)
+            .field("run", self.run.identity.id())
             .field("request_id", &self.request_id)
             .field("in_flight", &self.in_flight)
             .finish()
@@ -491,9 +496,9 @@ impl LeaseCheck for HandlerLease {
     fn permit_wait(&self, _url: &str) -> PermitWait {
         let (stop, stopped) = oneshot::channel::<()>();
         let waiting = self.clone();
-        self.of_run.run.spawn(self.watch.over(async move {
+        self.run.identity.spawn(self.watch.over(async move {
             let id = &waiting.request_id;
-            let run = &waiting.of_run.run;
+            let run = &waiting.run;
             waiting.in_flight.lock().await.permit_wait_began(run, id);
             waiting.lease.held_through_permit_wait(stopped).await;
             waiting.in_flight.lock().await.permit_wait_ended(run, id);
@@ -606,7 +611,7 @@ fn served_as(choice: &TierChoice) -> &TierChoice {
 /// failed with `engine_panicked` ([`Watch`]); what it holds
 /// is given back as for any other end.
 pub(super) async fn attempt(
-    run: Run,
+    run: Arc<CrawlRun>,
     server: usize,
     context: CallContext,
     (leased, (session, in_browser), counted): (Leased, (ServingSession, PooledSession), Counted),
@@ -692,7 +697,7 @@ pub(super) async fn attempt(
         ),
     };
     let document = document.into_inner().filter(|_| ran);
-    note_unparsable_retry_after(&run, &hand_over, document.as_ref()).await;
+    note_unparsable_retry_after(&run.identity, &hand_over, document.as_ref()).await;
     Attempt {
         document,
         handed_at: sent_at.into_inner().filter(|_| ran),
@@ -720,7 +725,7 @@ pub(super) async fn attempt(
 /// the Run's proxy gave itself (ADR 0118). Once per such response, which
 /// adds no wait.
 async fn note_unparsable_retry_after(
-    run: &Run,
+    run: &RunIdentity,
     hand_over: &HandOver,
     document: Option<&PageResponse>,
 ) {
@@ -822,7 +827,7 @@ struct BrowserRun {
 /// What one attempt runs its handler with.
 #[derive(Clone, Copy)]
 struct On<'a> {
-    run: &'a Run,
+    run: &'a Arc<CrawlRun>,
     context: &'a CallContext,
     leased: &'a Leased,
     session: &'a ServingSession,
@@ -939,7 +944,7 @@ impl On<'_> {
         response: Option<PageResponse>,
     ) -> CrawlRequestHandleParams {
         CrawlRequestHandleParams {
-            run_id: self.run.id().clone(),
+            run_id: self.run.identity.id().clone(),
             crawl_request: self.leased.crawl_request.clone(),
             attempt: self.leased.attempt,
             lease_epoch: self.leased.lease_epoch,
@@ -1046,7 +1051,7 @@ impl On<'_> {
         };
         // Its page needs a browser-page place, which it waits for before
         // its Session is drawn, so the draw may open one for it (#2178).
-        let place = self.run.governor().admit(WorkKind::BrowserPage).await;
+        let place = self.run.governor.share().admit(WorkKind::BrowserPage).await;
         // The loop answers from memory, at once: the attempt waits for it
         // whatever its lease, so the Session it draws is always settled.
         let drawn = escalating
@@ -1057,7 +1062,7 @@ impl On<'_> {
                 domain_key: self.leased.waiting.key.clone(),
                 host: goodfetch_frontier::host_of(&self.leased.crawl_request.url).to_owned(),
                 settings: escalating.settings,
-                now: self.run.clock().wall(),
+                now: self.run.identity.clock().wall(),
                 place: HeldPlace::holding(place),
             })
             .await;
@@ -1090,7 +1095,7 @@ impl On<'_> {
         match self.sends_from {
             SendsFrom::Browser => tiers.in_browser(
                 http,
-                self.run,
+                &self.run.identity,
                 self.in_browser,
                 self.hand_over,
                 self.context,
@@ -1177,7 +1182,7 @@ impl On<'_> {
             Ok(light) => light,
             Err(ended) => return (ended, None),
         };
-        let capture = Capture::under(Limits::of_run(self.run.settings()));
+        let capture = Capture::under(Limits::of_run(self.run.identity.settings()));
         let browser = self
             .browser_run(
                 &tiering.tiers,
@@ -1267,7 +1272,7 @@ impl On<'_> {
         let document = goodfetch_frontier::Url::parse(&self.leased.crawl_request.url).ok()?;
         let calls = capture.calls();
         let plan = infer_plan(&document, &calls);
-        tracing::debug!(run_id = %self.run.id(), work_item = %self.leased.crawl_request.id, calls = calls.len(), ?plan, "a sample's browser calls were read as a plan");
+        tracing::debug!(run_id = %self.run.identity.id(), work_item = %self.leased.crawl_request.id, calls = calls.len(), ?plan, "a sample's browser calls were read as a plan");
         let plan = plan?;
         let from = if sender
             .aside(tiering, sent_on, (&REPLAYED, Some(&plan)), browser)
@@ -1487,13 +1492,13 @@ impl On<'_> {
         match self.found(tiering, page_id, facts, (choice, how)).await {
             Found::Unreadable(call) => {
                 tiers.close(page_id);
-                record_tier(run, leased, lease, recorded.clone(), None, None).await;
+                record_tier(&run.trace, leased, lease, recorded.clone(), None, None).await;
                 let message = "The document declares no encoding and is not UTF-8: only the browser reads it.";
                 return Some(Ok(escalated_unhandled(ATTEMPT_ENDED.name, message, call)));
             }
             Found::Blocked(cause, error) => {
                 tiers.close(page_id);
-                record_tier(run, leased, lease, recorded.clone(), None, None).await;
+                record_tier(&run.trace, leased, lease, recorded.clone(), None, None).await;
                 return Some(match self.on_block(&cause, choice, how) {
                     Action::MoveToBrowser => Ok(escalated_unhandled(
                         BLOCKED,
@@ -1506,7 +1511,7 @@ impl On<'_> {
             Found::Readable => {}
         }
         record_tier(
-            run,
+            &run.trace,
             leased,
             lease,
             recorded.clone(),
@@ -1514,7 +1519,7 @@ impl On<'_> {
             facts.certificate_exception.clone(),
         )
         .await;
-        match judged(run, tiering, page_id).await {
+        match judged(&run.identity, tiering, page_id).await {
             Some(Judged::Passed) | None => None,
             Some(Judged::Failed(error)) => {
                 tiers.close(page_id);
@@ -1592,7 +1597,7 @@ impl On<'_> {
         let fetched = tokio::select! {
             biased;
             document = async {
-                address_check(run, http, leased).await?;
+                address_check(&run.identity, http, leased).await?;
                 if let Ok(url) = goodfetch_frontier::Url::parse(&leased.crawl_request.url) {
                     self.site_preferences_judged(Request::CrawlRequest, &url)
                         .await?;
@@ -1606,7 +1611,7 @@ impl On<'_> {
                     tiers
                         .light(
                             http,
-                            run,
+                            run.handed_on(),
                             &leased.crawl_request,
                             choice,
                             hand_over,
@@ -1616,7 +1621,7 @@ impl On<'_> {
                         .map_err(Unfollowed::from)
                 } else {
                     tiers
-                        .serve(http, run, &leased.crawl_request, &requester, choice, hand_over)
+                        .serve(http, run.handed_on(), &leased.crawl_request, &requester, choice, hand_over)
                         .await
                 };
                 served.map_err(|Unfollowed { stop, redirects }| match stop {
@@ -1632,7 +1637,7 @@ impl On<'_> {
                     // A failed chain's hops are followed again by its
                     // retry; a skipped request's are noted now (ADR 0120).
                     Stop::Skipped(skip) => {
-                        tracing::debug!(run_id = %run.id(), work_item = %leased.crawl_request.id, reason = ?skip.reason, message = skip.message, "a redirect hop ended its request skipped");
+                        tracing::debug!(run_id = %run.identity.id(), work_item = %leased.crawl_request.id, reason = ?skip.reason, message = skip.message, "a redirect hop ended its request skipped");
                         Unserved {
                             answer: Answer::Refused(skip.reason),
                             redirects,
@@ -1711,7 +1716,7 @@ impl On<'_> {
         if let Some(http) = self.http {
             let checked = tokio::select! {
                 biased;
-                checked = address_check(run, http, leased) => checked,
+                checked = address_check(&run.identity, http, leased) => checked,
                 _ = lease.ended() => Err(Answer::LeaseEnded),
             };
             if let Err(answer) = checked {
@@ -1724,7 +1729,7 @@ impl On<'_> {
         if !matches!(how, Chosen::Sample(_))
             && let Some(decoy) = reached_through_trap(leased)
         {
-            tracing::debug!(run_id = %run.id(), work_item = %leased.crawl_request.id, "a page reached through a suspected trap link is a decoy on the browser tier");
+            tracing::debug!(run_id = %run.identity.id(), work_item = %leased.crawl_request.id, "a page reached through a suspected trap link is a decoy on the browser tier");
             return ended(decoy);
         }
         if let Some(answer) = self.ended_in(&[CrawlHookStage::BeforeNavigation]).await {
@@ -1746,7 +1751,7 @@ impl On<'_> {
             Ok(opened) => opened,
             Err(answer) => return ended(answer),
         };
-        if let Some(refused) = refused_type(tiers, &page_id, run, leased).await {
+        if let Some(refused) = refused_type(tiers, &page_id, &run.identity, leased).await {
             return ended(refused);
         }
         let after = after_fetch(navigated.response.is_some(), true);
@@ -1767,7 +1772,7 @@ impl On<'_> {
             None => None,
         };
         record_tier(
-            run,
+            &run.trace,
             leased,
             lease,
             tier_provenance(&browser, how),
@@ -1804,7 +1809,7 @@ impl On<'_> {
 pub(super) async fn refused_type(
     tiers: &FetchTiers,
     page_id: &PageId,
-    run: &Run,
+    run: &RunIdentity,
     leased: &Leased,
 ) -> Option<Answer> {
     let refused = tiers.browser_refused(page_id)?;
@@ -1911,7 +1916,7 @@ fn escalated_unhandled(code: &str, message: &str, call: &'static str) -> HttpRun
 
 /// How the served page `page_id` fares against the Page check of its
 /// request's Label, else the Run's (ADR 0093).
-async fn judged(run: &Run, tiering: &Tiering, page_id: &PageId) -> Option<Judged> {
+async fn judged(run: &RunIdentity, tiering: &Tiering, page_id: &PageId) -> Option<Judged> {
     let check = tiering.page_check.clone().or_else(|| run_page_check(run));
     match &check {
         Some(check) => tiering.tiers.judge(page_id, check).await,
@@ -1921,7 +1926,7 @@ async fn judged(run: &Run, tiering: &Tiering, page_id: &PageId) -> Option<Judged
 
 /// The Run's own `session.page_check`, which judges the pages of a Label
 /// that declares none (ADR 0093).
-pub(super) fn run_page_check(run: &Run) -> Option<PageCheck> {
+pub(super) fn run_page_check(run: &RunIdentity) -> Option<PageCheck> {
     let settings = run.settings()?;
     let value = settings
         .resolved()
@@ -1937,7 +1942,7 @@ pub(super) fn run_page_check(run: &Run) -> Option<PageCheck> {
 /// host that stands for an address the Run's egress policy refuses ends
 /// the request `skipped` with `domain_policy`, the policy's refusal and no
 /// failure (spec #565).
-async fn address_check(run: &Run, http: &HttpTier, leased: &Leased) -> Result<(), Answer> {
+async fn address_check(run: &RunIdentity, http: &HttpTier, leased: &Leased) -> Result<(), Answer> {
     let Ok(url) = goodfetch_frontier::Url::parse(&leased.crawl_request.url) else {
         return Ok(());
     };
@@ -1993,7 +1998,7 @@ fn reached_through_trap(leased: &Leased) -> Option<Answer> {
 /// reached through (ADR 0042), for the Provenance of each Record the
 /// attempt commits.
 async fn record_tier(
-    run: &Run,
+    trace: &RunTrace,
     leased: &Leased,
     lease: &WorkItemLease,
     tier: TierProvenance,
@@ -2001,7 +2006,7 @@ async fn record_tier(
     certificate_exception: Option<CertificateExceptionMark>,
 ) {
     let encoding = goodfetch_fetch_tier::record_tier(
-        run,
+        trace,
         &leased.crawl_request.id,
         &leased.crawl_request.label,
         &tier,
@@ -2021,17 +2026,17 @@ async fn record_tier(
 /// handled by the engine itself with `code_free` (ADR 0103). The moment it
 /// goes out is kept in `sent_at`.
 async fn handled(
-    run: &Run,
+    run: &Arc<CrawlRun>,
     context: &CallContext,
     code_free: Option<&CodeFree>,
     (params, sent_at): (&CrawlRequestHandleParams, &Mutex<Option<SystemTime>>),
     lease: &WorkItemLease,
 ) -> Answer {
-    *sent_at.lock().await = Some(run.clock().wall());
+    *sent_at.lock().await = Some(run.identity.clock().wall());
     if let Some(code_free) = code_free {
         return tokio::select! {
             biased;
-            handled = code_free.handled(params, run.point_in_time()) => match handled {
+            handled = code_free.handled(params, run.identity.point_in_time()) => match handled {
                 Ok((handled, fields)) => {
                     lease.fields_read(fields);
                     Answer::Handled(handled)
@@ -2071,7 +2076,11 @@ async fn handled(
             },
             _ = lease.ended() => {
                 sent.cancel().await;
-                run.spawn(watch::after(run.metrics(), late(run.clone(), lease.clone(), sent)));
+                let after = watch::after(
+                    run.identity.metrics(),
+                    late(Arc::clone(run), lease.clone(), sent),
+                );
+                run.identity.spawn(after);
                 Answer::LeaseEnded
             }
         },
@@ -2101,7 +2110,7 @@ fn given_back(code: &str, details: &Map<String, Value>) -> bool {
 
 /// One more attempt in `goodfetch.work_item.leased`, until the answer
 /// drops.
-pub(super) fn leased_count(run: &Run) -> Counted {
+pub(super) fn leased_count(run: &RunIdentity) -> Counted {
     let counter = run
         .metrics()
         .meter()
@@ -2115,19 +2124,19 @@ pub(super) fn leased_count(run: &Run) -> Counted {
 /// The answer of an attempt whose lease ended first: a result is a late
 /// commit, refused with `lease_lost` and its Records discarded; a failure,
 /// such as the cancel the Client honoured, changes nothing.
-async fn late(run: Run, lease: WorkItemLease, mut sent: Sent<CrawlRequestHandled>) {
+async fn late(run: Arc<CrawlRun>, lease: WorkItemLease, mut sent: Sent<CrawlRequestHandled>) {
     tokio::select! {
         biased;
-        () = run.cancellation().cancelled() => {}
+        () = run.identity.owner().cancelled() => {}
         answer = sent.answer() => {
             if let Ok(handled) = answer {
-                match lease.commit(run.state(), run.secrets().mask().masks(), handled.records, run.point_in_time()).await {
-                    Err(CommitError::LeaseLost) => run.record_outcome(LEASE_LOST.name),
+                match lease.commit(&run.state, run.keys.secrets().mask().masks(), handled.records, run.identity.point_in_time()).await {
+                    Err(CommitError::LeaseLost) => record_outcome(&run.identity, LEASE_LOST.name),
                     Err(CommitError::Refused(refused)) => {
-                        tracing::debug!(code = refused.code(), run_id = %run.id(), "a late answer's Records were refused");
+                        tracing::debug!(code = refused.code(), run_id = %run.identity.id(), "a late answer's Records were refused");
                     }
                     Err(CommitError::RunState(error)) => {
-                        tracing::debug!(%error, run_id = %run.id(), "a late answer was not written");
+                        tracing::debug!(%error, run_id = %run.identity.id(), "a late answer was not written");
                     }
                     Ok(_) => {}
                 }

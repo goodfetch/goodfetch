@@ -181,7 +181,7 @@ fn done(exercise: Exercise, tool: Contender, number: u32, commands: u64) -> Coll
         exercise,
         tool,
         number,
-        load: None,
+        started: crate::compare::trials::Started::default(),
         actions: cell.actions(),
         sessions: cell.sessions(),
         commands,

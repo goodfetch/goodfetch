@@ -1371,7 +1371,10 @@ rss-propose *scenarios:
 # arm is read against and `collie.playwright_command_ratio` against its
 # register row's Today;
 # `--scenario collie` runs it alone. It gates nothing and is no Live check;
-# run it when the 1-minute load is under 4.
+# each timed trial waits for the quiet check (its cores idle, no CPU or
+# memory pressure, nothing left of the previous trial), and
+# `--quiet-until <time>` stops the run at that time on a machine still
+# failing it (issue 3352).
 # The handled scenario (issue 2317) crawls the article site with a program's
 # handler on each page, which reads its twenty fields, pushes them as one
 # Record and enqueues its links: Foxhound's is a TypeScript program on its

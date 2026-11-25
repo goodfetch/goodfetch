@@ -46,7 +46,8 @@ mod oci;
 /// crates.io's sparse index.
 const CRATES_IO_INDEX: &str = "https://index.crates.io";
 const NPM_REGISTRY: &str = "https://registry.npmjs.org";
-const PYPI: &str = "https://pypi.org";
+/// PyPI's JSON interface, which serves `<project>/json` under it.
+const PYPI: &str = "https://pypi.org/pypi";
 
 /// The Node platforms each Product's npm platform packages are named after,
 /// `process.platform` and `process.arch` (ADR 0090).
@@ -88,7 +89,8 @@ pub(crate) struct Arguments {
     /// An npm registry: npm's, or a stand-in's address.
     #[arg(long, default_value = NPM_REGISTRY)]
     npm_registry: String,
-    /// PyPI, whose JSON interface the plan reads, or a stand-in's address.
+    /// PyPI's JSON interface, the base `<project>/json` is read under:
+    /// PyPI's, or a stand-in's, such as pypiserver's root.
     #[arg(long, default_value = PYPI)]
     pypi: String,
     /// The OCI registry the images, charts and Plugins go to: GHCR, or a
@@ -593,13 +595,22 @@ fn pypi_quotas(root: &Path) -> Result<BTreeMap<String, u64>> {
 }
 
 /// A `pypi-quota` note when the sizes of every file of every version of
-/// `project` pass [`QUOTA_WARNING_PERCENT`] of its `quota`.
+/// `project` pass [`QUOTA_WARNING_PERCENT`] of its `quota`, or when a file
+/// lists no size, so they cannot be summed.
 fn quota_warning(
     project: &str,
     releases: &BTreeMap<String, Vec<PypiFile>>,
     quota: u64,
 ) -> Option<Finding> {
-    let used: u64 = releases.values().flatten().map(|file| file.size).sum();
+    let sizes: Option<Vec<u64>> = releases.values().flatten().map(|file| file.size).collect();
+    let Some(sizes) = sizes else {
+        return Some(Finding::new(
+            "pypi-quota",
+            project,
+            format!("lists a file with no size, so its use of its {quota} bytes is not summed"),
+        ));
+    };
+    let used: u64 = sizes.iter().sum();
     (used * 100 > quota * QUOTA_WARNING_PERCENT).then(|| {
         Finding::new(
             "pypi-quota",
@@ -662,7 +673,7 @@ struct Packument {
 /// Each version of `project` on PyPI at `pypi`, with its files, from its
 /// JSON interface; `None` when PyPI has never had it.
 fn pypi_releases(pypi: &str, project: &str) -> Result<Option<BTreeMap<String, Vec<PypiFile>>>> {
-    let url = format!("{}/pypi/{project}/json", pypi.trim_end_matches('/'));
+    let url = format!("{}/{project}/json", pypi.trim_end_matches('/'));
     let project: Option<PypiProject> = fetch_json(&url)?;
     Ok(project.map(|project| project.releases))
 }
@@ -675,7 +686,8 @@ struct PypiProject {
 
 #[derive(Deserialize)]
 struct PypiFile {
-    size: u64,
+    /// PyPI lists each file's; a stand-in such as pypiserver lists none.
+    size: Option<u64>,
 }
 
 fn fetch_json<T: DeserializeOwned>(url: &str) -> Result<Option<T>> {

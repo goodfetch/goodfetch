@@ -280,7 +280,7 @@ impl Registries {
                     })
                     .collect();
                 (
-                    format!("/pypi/{project}/json"),
+                    format!("/{project}/json"),
                     format!(
                         r#"{{"info":{{"name":"{project}"}},"releases":{{{}}}}}"#,
                         listed.join(",")
@@ -378,52 +378,33 @@ fn prepared(version: &str) -> Workspace {
 }
 
 fn plan(workspace: &Workspace, version: &str, registries: &Registries) -> Outcome {
-    plan_with(
-        workspace,
-        version,
-        registries,
-        registries.npm.url(),
-        registries.oci.url(),
-    )
+    plan_with(workspace, version, registries, &[])
 }
 
-fn plan_with_npm(
-    workspace: &Workspace,
-    version: &str,
-    registries: &Registries,
-    npm: &str,
-) -> Outcome {
-    plan_with(workspace, version, registries, npm, registries.oci.url())
-}
-
-/// The plan, reading npm at `npm` and OCI at `oci` instead of their
-/// stand-ins in `registries`.
+/// The plan, reading each registry its option names in `instead` at the
+/// address beside it, such as Verdaccio's for `--npm-registry`, and every
+/// other at its stand-in in `registries`.
 fn plan_with(
     workspace: &Workspace,
     version: &str,
     registries: &Registries,
-    npm: &str,
-    oci: &str,
+    instead: &[(&str, &str)],
 ) -> Outcome {
-    workspace.xtask_with_env(
-        &[
-            "release",
-            "plan",
-            "--version",
-            version,
-            "--cargo-index",
-            registries.cargo.url(),
-            "--npm-registry",
-            npm,
-            "--pypi",
-            registries.pypi.url(),
-            "--oci-registry",
-            oci,
-            "--api-url",
-            registries.github.url(),
-        ],
-        &[("GITHUB_TOKEN", "a-read-token".as_ref())],
-    )
+    let mut arguments = vec!["release", "plan", "--version", version];
+    for (option, stand_in) in [
+        ("--cargo-index", &registries.cargo),
+        ("--npm-registry", &registries.npm),
+        ("--pypi", &registries.pypi),
+        ("--oci-registry", &registries.oci),
+        ("--api-url", &registries.github),
+    ] {
+        let address = instead
+            .iter()
+            .find(|(name, _)| *name == option)
+            .map_or(stand_in.url(), |(_, address)| *address);
+        arguments.extend([option, address]);
+    }
+    workspace.xtask_with_env(&arguments, &[("GITHUB_TOKEN", "a-read-token".as_ref())])
 }
 
 /// Each step's state, by the step it names.
@@ -910,7 +891,12 @@ fn plan_reads_npm_packages_through_verdaccio() {
         verdaccio.publish(name, "1.3.0");
     }
 
-    let outcome = plan_with_npm(&workspace, "1.4.0", &registries, &verdaccio.url);
+    let outcome = plan_with(
+        &workspace,
+        "1.4.0",
+        &registries,
+        &[("--npm-registry", &verdaccio.url)],
+    );
 
     assert_eq!(outcome.code, 0, "{}", outcome.stderr);
     let states = states(&outcome.stdout);
@@ -940,7 +926,12 @@ fn plan_flags_an_npm_package_verdaccio_has_never_seen() {
         verdaccio.publish(name, "1.3.0");
     }
 
-    let outcome = plan_with_npm(&workspace, "1.4.0", &registries, &verdaccio.url);
+    let outcome = plan_with(
+        &workspace,
+        "1.4.0",
+        &registries,
+        &[("--npm-registry", &verdaccio.url)],
+    );
 
     assert_eq!(outcome.code, 1, "{}", outcome.stderr);
     assert_eq!(
@@ -1022,7 +1013,7 @@ mod distribution {
         push(url, "goodfetch/foxhound", "1.4.0", &["1.4.0", "latest"]);
         push(url, "goodfetch/charts/collie", "1.4.0", &["1.4.0"]);
 
-        let outcome = plan_with(&workspace, "1.4.0", &registries, registries.npm.url(), url);
+        let outcome = plan_with(&workspace, "1.4.0", &registries, &[("--oci-registry", url)]);
 
         assert_eq!(outcome.code, 0, "{}", outcome.stderr);
         let states = states(&outcome.stdout);
@@ -1056,5 +1047,89 @@ mod distribution {
             "{}",
             outcome.stdout
         );
+    }
+}
+
+/// pypiserver (`ci/pypiserver/image.toml`), whose root serves the
+/// `<project>/json` document PyPI serves under `https://pypi.org/pypi`, run
+/// where the tests run images. It lists no file sizes: the quota's sums are
+/// read from PyPI's own documents, served statically above.
+#[cfg(target_os = "linux")]
+mod pypiserver {
+    use super::{Published, Registries, plan_with, prepared, states};
+    use crate::container::Container;
+    use crate::workspace::finding;
+
+    const PIN: &str = include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../ci/pypiserver/image.toml"
+    ));
+
+    /// Uploads a wheel of `project` at `version` through the legacy upload
+    /// form `twine upload` posts, which pypiserver takes with no password
+    /// when started with `-a . -P .`.
+    fn upload(url: &str, project: &str, version: &str) {
+        let boundary = "goodfetch-upload-boundary";
+        let file = format!("{}-{version}-py3-none-any.whl", project.replace('-', "_"));
+        let mut parts: Vec<String> = [
+            (":action", "file_upload"),
+            ("name", project),
+            ("version", version),
+        ]
+        .into_iter()
+        .map(|(name, value)| {
+            format!("Content-Disposition: form-data; name=\"{name}\"\r\n\r\n{value}\r\n")
+        })
+        .collect();
+        parts.push(format!(
+            "Content-Disposition: form-data; name=\"content\"; filename=\"{file}\"\r\nContent-Type: application/octet-stream\r\n\r\nnot a real wheel\r\n"
+        ));
+        let body: String = parts
+            .iter()
+            .map(|part| format!("--{boundary}\r\n{part}"))
+            .chain([format!("--{boundary}--\r\n")])
+            .collect();
+        ureq::post(&format!("{url}/"))
+            .header(
+                "Content-Type",
+                format!("multipart/form-data; boundary={boundary}"),
+            )
+            .send(body.as_bytes())
+            .unwrap();
+    }
+
+    #[test]
+    fn plan_reads_pypi_projects_through_pypiserver() {
+        let workspace = prepared("1.4.0");
+        let registries = Registries::serving(&Published::previous_release());
+        let pypiserver = Container::start(
+            PIN,
+            8080,
+            "/",
+            &["run", "-a", ".", "-P", ".", "/data/packages"],
+        );
+        let url = pypiserver.url();
+        upload(url, "goodfetch-collie-client", "1.4.0");
+        upload(url, "goodfetch-collie", "1.3.0");
+
+        let outcome = plan_with(&workspace, "1.4.0", &registries, &[("--pypi", url)]);
+
+        assert_eq!(outcome.code, 1, "{}", outcome.stderr);
+        let states = states(&outcome.stdout);
+        assert_eq!(
+            (
+                states.get("pypi goodfetch-collie-client 1.4.0"),
+                states.get("pypi goodfetch-collie 1.4.0"),
+            ),
+            (Some(&"published"), Some(&"publish")),
+            "{}",
+            outcome.stdout
+        );
+        assert_eq!(
+            outcome.findings(),
+            [finding("new-name", "pypi goodfetch-foxhound")]
+        );
+        // pypiserver lists no sizes, so the use of the limit is not summed.
+        assert_eq!(outcome.notes(), [finding("pypi-quota", "goodfetch-collie")]);
     }
 }

@@ -26,7 +26,16 @@ impl Container {
         let engine = engine();
         let image = image(pin);
         let output = run(Command::new(engine)
-            .args(["run", "--detach", "--rm", "--publish"])
+            // A server run as PID 1 may ignore SIGTERM: Podman's removal
+            // then waits for its stop timeout before it kills it.
+            .args([
+                "run",
+                "--detach",
+                "--rm",
+                "--stop-timeout",
+                "1",
+                "--publish",
+            ])
             .arg(format!("127.0.0.1::{port}"))
             .arg(&image)
             .args(arguments));

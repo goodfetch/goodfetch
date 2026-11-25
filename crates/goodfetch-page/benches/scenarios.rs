@@ -63,6 +63,8 @@ mod cookies;
 mod deadlines;
 #[path = "../src/egress_relay/head.rs"]
 mod head;
+#[path = "../src/egress_relay/message.rs"]
+mod message;
 #[path = "../src/cdp/requests.rs"]
 #[expect(
     dead_code,

@@ -17,7 +17,9 @@
 //! folder named by the run epoch of the state it was written from (ADR
 //! 0003), but recorded in no table: it is written from the Run's committed
 //! state, a Run that ended having no writer, so its ID names its file by
-//! that run epoch and its SHA-256. It is deleted with its Run, and a Checkpoint does not carry it.
+//! that run epoch and its SHA-256. It is deleted with its Run, and with every
+//! other Export of the Run when one of its Datasets is erased (ADR 0031), and
+//! a Checkpoint does not carry it.
 //!
 //! A kept file reaches the program's path through [`save`], under ADR
 //! 0116's rule: a hidden temporary file beside the path,
@@ -42,7 +44,9 @@ pub use live::RunFiles;
 pub(crate) use save::save;
 pub use save::{SaveError, Saving};
 pub use store::{FileKind, KeepError, Kept, KeptExport, Record, export_file};
-pub(crate) use store::{file, find, forget, read, record, stage, store, store_export, unrecord};
+pub(crate) use store::{
+    file, find, forget, forget_exports, read, record, stage, store, store_export, unrecord,
+};
 
 use crate::run_state::RunStateTables;
 

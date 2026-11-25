@@ -111,7 +111,7 @@ pub mod operation;
 mod other_product;
 mod otlp;
 pub mod output;
-mod prompts;
+pub mod prompts;
 mod runs;
 mod service;
 mod settings_flags;

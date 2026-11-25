@@ -240,7 +240,7 @@ fn destroy_key(file: &Path, vfs: Option<&str>, installed: bool) -> Result<bool, 
 /// Copies the WAL of the run file at `file` into it and truncates it, at
 /// once: `None` while a reader keeps a snapshot the checkpoint cannot pass,
 /// so the run file may still hold the key's bytes.
-fn truncate_wal(file: &Path, vfs: Option<&str>) -> Result<Option<()>, RunStateError> {
+pub(super) fn truncate_wal(file: &Path, vfs: Option<&str>) -> Result<Option<()>, RunStateError> {
     let failed = |error: rusqlite::Error| sqlite_error(file, &error);
     let Some(connection) = open_run_file(file, vfs)? else {
         return Ok(Some(()));

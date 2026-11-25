@@ -1538,7 +1538,7 @@ export class RunKeyMismatchError extends UnavailableError<"run_key_mismatch"> {
 }
 
 /**
- * The engine still runs the Run, so it cannot be discarded: stop it first with `run.stop` or `run.abort`, or let it finish, then discard it. The details name the Run.
+ * The engine still runs the Run, so it cannot be discarded, nor a Dataset of it erased: stop it first with `run.stop` or `run.abort`, or let it finish, then try again. The details name the Run.
  */
 export class RunLiveError extends ProgramError<"run_live"> {
   /**

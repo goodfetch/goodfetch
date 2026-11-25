@@ -4838,6 +4838,67 @@
       ],
       "type": "object"
     },
+    "DatasetEraseParams": {
+      "additionalProperties": false,
+      "description": "What `dataset.erase` takes.",
+      "properties": {
+        "_meta": {
+          "$ref": "#/$defs/RequestMeta",
+          "arrived_in": "0.1"
+        },
+        "dataset": {
+          "arrived_in": "0.1",
+          "description": "The Dataset's name.",
+          "type": "string"
+        },
+        "run_id": {
+          "$ref": "#/$defs/RunId",
+          "arrived_in": "0.1",
+          "description": "The crawl's Run, which no engine runs."
+        }
+      },
+      "required": [
+        "run_id",
+        "dataset"
+      ],
+      "type": "object"
+    },
+    "DatasetErased": {
+      "description": "What `dataset.erase` answers once the Dataset is erased.",
+      "properties": {
+        "dataset": {
+          "arrived_in": "0.1",
+          "description": "The Dataset's name.",
+          "type": "string"
+        },
+        "records": {
+          "arrived_in": "0.1",
+          "description": "How many committed Records it erased.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "rejected_records": {
+          "arrived_in": "0.1",
+          "description": "How many rejected Records it erased.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "run_id": {
+          "$ref": "#/$defs/RunId",
+          "arrived_in": "0.1",
+          "description": "The crawl's Run."
+        }
+      },
+      "required": [
+        "run_id",
+        "dataset",
+        "records",
+        "rejected_records"
+      ],
+      "type": "object"
+    },
     "DatasetKeyInvalidDetails": {
       "description": "What `dataset_key_invalid` details.",
       "oneOf": [

@@ -591,6 +591,23 @@ status = "active"
 product = "foxhound"
 
 [[story]]
+id = 213
+title = "As a user, I want to start an Export in any format the engine writes, saved where the engine runs and fetched by handle, so that I hand data on without code (ADRs 0103, 0116)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+product = "foxhound"
+
+[[story]]
+id = 214
+title = "As a person, I want erasing a Dataset to apply at once with no user code, offered to no agent, so that erased data is gone (ADR 0031)."
+milestone = "M1 Core"
+journey = true
+status = "active"
+product = "foxhound"
+
+[[story]]
 id = 215
 title = "As a user, I want to keep a Dataset view offline, its Records cached encrypted under a key that expires with my sign-in, so that I can read it on a train and lose nothing to a stolen laptop (ADR 0031)."
 milestone = "M1 Core"

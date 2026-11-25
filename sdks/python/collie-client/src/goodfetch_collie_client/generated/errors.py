@@ -1098,7 +1098,7 @@ class RunKeyMismatchError(UnavailableError):
 
 
 class RunLiveError(ProgramError):
-    """The engine still runs the Run, so it cannot be discarded: stop it first with `run.stop` or `run.abort`, or let it finish, then discard it. The details name the Run."""
+    """The engine still runs the Run, so it cannot be discarded, nor a Dataset of it erased: stop it first with `run.stop` or `run.abort`, or let it finish, then try again. The details name the Run."""
 
     typed_details: RunDetails | None
     """The code's details, typed; `None` when they lack a field the model requires, as those of an error a program builds without details do."""

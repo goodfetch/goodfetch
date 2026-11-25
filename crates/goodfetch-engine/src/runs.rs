@@ -1255,6 +1255,7 @@ enum Command {
     Locate(RunId, oneshot::Sender<Result<Option<Located>, RunError>>),
     Index(oneshot::Sender<RunIndex>),
     Discard(RunId, oneshot::Sender<Result<(), RunError>>),
+    Edit(RunId, oneshot::Sender<Result<edit::Editing, RunError>>),
     Discarded(Box<Erased>, oneshot::Sender<Result<(), RunError>>),
     Drain(
         DrainCause,
@@ -3080,6 +3081,38 @@ impl Runs {
         answered.await.map_err(|_| RunError::Stopped)?
     }
 
+    /// Runs `work`, a person's change, in one transaction of the state of
+    /// the Run `run_id`, which no engine runs (ADR 0031), and answers what
+    /// it answers, as erasing one of its Datasets does: under the Run's
+    /// writer lock and a run epoch of its own, with `secure_delete` on, the
+    /// run file's WAL truncated after, and every Export kept of the Run
+    /// deleted, since one may hold what `work` erased.
+    ///
+    /// # Errors
+    ///
+    /// `Live` when this engine runs it, `Discarding` while it is being
+    /// discarded, `InUse` when another engine holds its writer lock through
+    /// every retry, `NotFound` when no Run has this Run ID, and
+    /// `Unavailable` when its state cannot be written.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future may leave `work` committed and the Exports
+    /// still kept.
+    pub async fn edit<T, F>(&self, run_id: RunId, work: F) -> Result<T, RunError>
+    where
+        T: Send + 'static,
+        F: FnOnce(&rusqlite::Connection) -> rusqlite::Result<T> + Send + 'static,
+    {
+        let (answer, answered) = oneshot::channel();
+        self.commands
+            .send(Command::Edit(run_id, answer))
+            .await
+            .map_err(|_| RunError::Stopped)?;
+        let editing = answered.await.map_err(|_| RunError::Stopped)??;
+        editing.edit(work).await
+    }
+
     /// The same Runs, each Run started through them belonging to the
     /// Daemon's Connection `connection`.
     pub(crate) fn on_connection(&self, connection: ConnectionId) -> Self {
@@ -3889,6 +3922,7 @@ impl Registry {
             Command::Locate(run_id, answer) => _ = answer.send(Ok(self.locate(&run_id))),
             Command::Index(answer) => _ = answer.send(self.setup.engine.run_index().clone()),
             Command::Discard(run_id, answer) => self.discard(run_id, answer),
+            Command::Edit(run_id, answer) => self.edit(run_id, answer),
             Command::Discarded(erased, answer) => self.discarded(*erased, answer),
             Command::Storage(sample) => self.storage(&sample),
             Command::StorageFailed(folder) => self.storage_failed(&folder),
@@ -4401,6 +4435,26 @@ impl Registry {
         });
     }
 
+    /// Answers what a person's write to the state of the Run `run_id`
+    /// needs, which runs beside the registry: a Run this engine runs is
+    /// refused, and so is one being discarded.
+    fn edit(&mut self, run_id: RunId, answer: oneshot::Sender<Result<edit::Editing, RunError>>) {
+        if self.live.contains_key(&run_id) {
+            let _ = answer.send(Err(RunError::Live(run_id)));
+            return;
+        }
+        let editing = edit::Editing {
+            folder: self.folder(&run_id),
+            run_id,
+            run_state: self.setup.run_state.clone(),
+            tables: self.setup.tables.clone(),
+            clock: self.setup.engine.clock(),
+            entropy: self.setup.entropy.fork(),
+            owner: self.for_one_run.child(),
+        };
+        let _ = answer.send(Ok(editing));
+    }
+
     /// Takes the end of a discard: the Run is no longer being discarded,
     /// and once its state is gone the registry forgets its end too.
     fn discarded(&mut self, erased: Erased, answer: oneshot::Sender<Result<(), RunError>>) {
@@ -4432,7 +4486,8 @@ impl Registry {
             | Command::StoredKey(run_id, ..)
             | Command::Reader(run_id, _)
             | Command::Progress(run_id, _)
-            | Command::Locate(run_id, _) => Some(run_id),
+            | Command::Locate(run_id, _)
+            | Command::Edit(run_id, _) => Some(run_id),
             _ => None,
         };
         let Some(run_id) = run_id.filter(|run_id| self.discarding.contains(*run_id)) else {
@@ -4462,6 +4517,7 @@ impl Registry {
             Command::Reader(_, answer) => _ = answer.send(Err(refused())),
             Command::Progress(_, answer) => _ = answer.send(Err(refused())),
             Command::Locate(_, answer) => _ = answer.send(Err(refused())),
+            Command::Edit(_, answer) => _ = answer.send(Err(refused())),
             other => return Some(other),
         }
         None
@@ -5835,6 +5891,7 @@ impl Closing {
 mod beside;
 mod clean_up;
 mod discard;
+mod edit;
 mod end;
 mod ended;
 mod folder;

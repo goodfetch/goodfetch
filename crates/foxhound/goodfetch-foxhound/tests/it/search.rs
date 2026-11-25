@@ -29,7 +29,7 @@ fn unicode() -> Value {
 /// Crawls `run_id` to its end under `settings`: `pages` seeds, pages of
 /// `proving_ground`'s `shop.test`, each pushing its `books` Record but the
 /// last, which pushes the Unicode record.
-fn crawled(
+pub(crate) fn crawled(
     engine: &mut Attached,
     proving_ground: &ProvingGround,
     run_id: &str,

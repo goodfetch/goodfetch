@@ -204,8 +204,8 @@ how = "holds no value: per-domain Politeness state, and each domain key's Delega
 
 [[writer]]
 path = "crates/goodfetch-engine/src/response_cache.rs"
-count = 3
-how = "holds no resolved value: the cache's index table, its bodies folder and each body file hold only public responses fetched with no cookie or credential, never a response a Secret was sent for"
+count = 5
+how = "holds no resolved value: the cache's index table, its bodies folder and each body file hold only public responses fetched with no cookie or credential, never a response a Secret was sent for; its `bodies` and `held` tables hold only each body's SHA-256, size and holder count, and the bytes the bodies hold"
 
 [[writer]]
 path = "crates/goodfetch-engine/src/robots_txt.rs"

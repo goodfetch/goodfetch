@@ -20,8 +20,8 @@ use secrecy::SecretString;
 
 use super::limits::ProxyPermit;
 use super::party::{Answer, Party, party, proxy_error, relays};
-use super::relay::Relay;
-use super::{Opening, RunPowers, SessionProxy};
+use super::relay::{Mode, Relay};
+use super::{Opening, RunPowers, SessionProxy, lookup, proxy_addresses, relay_unavailable};
 use crate::errors::NetError;
 
 /// The proxy one Session's HTTP transport sends through, as it opened.
@@ -246,6 +246,60 @@ impl TransportProxy {
         self.proxy
             .warn_if_outlived(warnings(run), &self.session)
             .await;
+    }
+}
+
+impl SessionProxy {
+    /// Whether a fetch tier's HTTP transport, which speaks no SOCKS5, needs
+    /// a loopback relay of its own in front of the proxy: a SOCKS5 proxy
+    /// the Session has no relay for.
+    pub(crate) fn needs_transport_relay(&self) -> bool {
+        self.relay.is_none() && self.server.scheme.is_socks()
+    }
+
+    /// Opens the transport's loopback relay to the proxy, which dials the
+    /// addresses its host's lookup gave, judged as the Session's are.
+    ///
+    /// # Errors
+    ///
+    /// Those of [`super::proxy_addresses`] for a relayed proxy, and
+    /// `proxy_relay_unavailable` when the relay cannot open.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future closes any relay it opened.
+    pub(crate) async fn open_transport_relay(
+        &self,
+        run: &RunPowers,
+        settings: &Resolved,
+    ) -> Result<Relay, CallError> {
+        let addresses = proxy_addresses(&self.server, self.judged, true, || {
+            lookup(&self.server, settings)
+        })
+        .await?;
+        let mode = Mode::Socks5 { credentials: None };
+        Relay::open(run, addresses, mode, None, false)
+            .await
+            .map_err(|error| relay_unavailable(&self.server, &error))
+    }
+
+    /// Where a fetch tier's HTTP transport with no relay of its own sends
+    /// its hops: the Session's relay, with that relay's credentials, when
+    /// it has one; the proxy itself, with the Session's, otherwise.
+    pub(crate) fn transport_route(&self) -> ProxyRoute {
+        if let Some(relay) = &self.relay {
+            return relay_route(relay);
+        }
+        ProxyRoute {
+            url: self.server.to_string(),
+            credentials: self.username.clone().map(|username| {
+                let password = self
+                    .password
+                    .clone()
+                    .unwrap_or_else(|| SecretString::from(""));
+                (username, password)
+            }),
+        }
     }
 }
 

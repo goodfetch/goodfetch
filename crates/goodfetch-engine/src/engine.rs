@@ -36,9 +36,7 @@ use crate::composition::{Composition, CompositionError};
 use crate::controls::Controls;
 use crate::daemon::{self, DaemonEnd, DaemonOptions};
 use crate::endpoint::Refusals;
-use crate::engine_context::{
-    EngineContext, Host, Stores, ToTheDaemon, host_zone, os_user, places,
-};
+use crate::engine_context::{EngineContext, Host, Stores, ToTheDaemon, host_zone, os_user, places};
 use crate::entropy::Entropy;
 use crate::events::{Events, EventsOptions};
 use crate::forward::{DaemonReach, ThroughTheReach, ToOwner};

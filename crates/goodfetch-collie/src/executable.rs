@@ -456,16 +456,8 @@ pub struct Start {
 ///
 /// If Tokio cannot build its runtime.
 pub fn main(start: &Start) -> ExitCode {
-    // The hidden `plugin-shim` mode, a Plugin's launcher (ADR 0033), runs
-    // before anything else: it reads one variable, confines its one thread
-    // and becomes the Plugin, or ends with a status the engine reads.
-    if start
-        .arguments
-        .get(1)
-        .is_some_and(|first| first == launch::SHIM_COMMAND)
-    {
-        let request = start.environment.get(OsStr::new(launch::LAUNCH_VARIABLE));
-        return ExitCode::from(launch::shim(request.map(OsString::as_os_str)).status());
+    if let Some(exit) = plugin_shim(start) {
+        return exit;
     }
     allocator::purge_at_once();
     let (binary, parsed, colour) = match parse(start) {
@@ -571,6 +563,24 @@ pub fn main(start: &Start) -> ExitCode {
         &environment,
         &human,
     )
+}
+
+/// The hidden `plugin-shim` mode, a Plugin's launcher (ADR 0033), which
+/// runs before anything else: it reads one variable, confines its one
+/// thread and becomes the Plugin, or ends with a status the engine reads.
+/// None when the executable runs any other command.
+fn plugin_shim(start: &Start) -> Option<ExitCode> {
+    if start
+        .arguments
+        .get(1)
+        .is_none_or(|first| first != launch::SHIM_COMMAND)
+    {
+        return None;
+    }
+    let request = start.environment.get(OsStr::new(launch::LAUNCH_VARIABLE));
+    Some(ExitCode::from(
+        launch::shim(request.map(OsString::as_os_str)).status(),
+    ))
 }
 
 /// The machine's settings, the Operator policy and user configuration of

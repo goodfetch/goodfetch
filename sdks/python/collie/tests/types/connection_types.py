@@ -5,7 +5,8 @@ package's `AsyncConnection` or `Connection`, takes `AsyncCollie` or
 `Collie`, and refuses any other value; mypy's `--strict` reports an ignore
 that no longer silences an error. It reaches the handler-less starts and
 `open_run` too, the view of a Run being its API's `AsyncRunView` or
-`RunView`. TypeScript's `connection.test-d.ts` is its twin.
+`RunView`, and the Schedules, its API's `AsyncSchedules` or `Schedules`.
+TypeScript's `connection.test-d.ts` is its twin.
 """
 
 from typing import assert_type
@@ -15,12 +16,17 @@ from goodfetch_collie import (
     AsyncConnection,
     AsyncRun,
     AsyncRunView,
+    AsyncSchedule,
+    AsyncSchedules,
     Collie,
     Connection,
     EngineInfo,
     PlanReplayTarget,
     Run,
     RunView,
+    Schedule,
+    ScheduleInfo,
+    Schedules,
 )
 
 
@@ -56,3 +62,15 @@ async def reaches_a_run_it_does_not_drive(
     assert_type(sync_connection.start_catalog_run(replay), Run)
     assert_type(sync_connection.open_run("checkout-replay"), RunView)
     await connection.start_catalog_run("plans/checkout.json")  # type: ignore[arg-type]
+
+
+async def reaches_the_schedules(
+    connection: AsyncConnection, sync_connection: Connection
+) -> None:
+    """A helper reaches either Product's Schedules, each API's own (spec 589)."""
+    assert_type(connection.schedules, AsyncSchedules)
+    assert_type(sync_connection.schedules, Schedules)
+    assert_type(await connection.schedules.get("nightly"), AsyncSchedule)
+    assert_type(sync_connection.schedules.get("nightly"), Schedule)
+    assert_type(sync_connection.schedules.get("nightly").id, str)
+    assert_type(await connection.schedules.list(), list[ScheduleInfo])

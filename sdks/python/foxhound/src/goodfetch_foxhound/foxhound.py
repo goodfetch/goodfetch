@@ -46,6 +46,7 @@ from goodfetch_collie_client.product_connection import (
 from goodfetch_collie_client.raw_call import raw_params
 from goodfetch_collie_client.run import AsyncRun, Run
 from goodfetch_collie_client.run_view import RunView
+from goodfetch_collie_client.schedules import AsyncSchedules, Schedules
 
 from goodfetch_foxhound.crawl_run import CrawlRuns
 from goodfetch_foxhound.generated.connection import (
@@ -146,6 +147,15 @@ class AsyncFoxhound(AsyncConnection):
         self._crawls = CrawlRuns(connection)
         self._fetch_backends = dict(fetch_backends or {})
         self._sinks = dict(sinks or {})
+        self._schedules = AsyncSchedules(connection)
+
+    @property
+    def schedules(self) -> AsyncSchedules:
+        """The Schedules of the engine's major: create, list and get each one.
+
+        Spec 589. Reached without a round trip.
+        """
+        return self._schedules
 
     @staticmethod
     def connect(
@@ -459,9 +469,18 @@ class Foxhound(Connection):
         self._crawls = CrawlRuns(connection)
         self._fetch_backends = dict(fetch_backends or {})
         self._sinks = dict(sinks or {})
+        self._schedules = Schedules(loop, connection)
         self._close_lock = threading.Lock()
         self._closed = False
         self._close_failure: Exception | None = None
+
+    @property
+    def schedules(self) -> Schedules:
+        """The Schedules of the engine's major, as `AsyncFoxhound.schedules` are.
+
+        Reached without a round trip.
+        """
+        return self._schedules
 
     @staticmethod
     def connect(

@@ -31,6 +31,7 @@ if TYPE_CHECKING:
     from goodfetch_collie_client.limits import Limits
     from goodfetch_collie_client.run import AsyncRun, Run
     from goodfetch_collie_client.run_view import AsyncRunView, RunView
+    from goodfetch_collie_client.schedules import AsyncSchedules, Schedules
 
 __all__ = ["AsyncConnection", "Connection"]
 
@@ -186,6 +187,14 @@ class AsyncConnection(ABC):
         inherits. Raises `closed` once the Connection is closed.
         """
 
+    @property
+    @abstractmethod
+    def schedules(self) -> AsyncSchedules:
+        """The Schedules of the engine's major: create, list and get each one.
+
+        Spec 589. Reached without a round trip.
+        """
+
     @abstractmethod
     async def close(self) -> None:
         """Closes the Connection; idempotent.
@@ -328,6 +337,14 @@ class Connection(ABC):
         Connection's own settings with the run values given over them, or a live
         Run's as it opened when `run_id` names one; and lists the keys only the
         other Product honours as that Product's.
+        """
+
+    @property
+    @abstractmethod
+    def schedules(self) -> Schedules:
+        """The Schedules of the engine's major, as `AsyncConnection.schedules` are.
+
+        Reached without a round trip.
         """
 
     @abstractmethod

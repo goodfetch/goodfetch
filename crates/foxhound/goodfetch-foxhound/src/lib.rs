@@ -58,10 +58,10 @@ pub use crawl::{
 pub use foxhound::{ConnectOptions, Foxhound, PAID_FETCHES};
 pub use goodfetch_collie::{EngineChoice, EngineFallback, EngineInfo, EngineKind, RemoteDaemon};
 pub use goodfetch_collie_client::{
-    Answer, BoxError, Call, Connection, Error, ErrorCode, ErrorDetails, EventStream, Exchange,
-    FieldValues, HandlerlessStart, KeyValueStore, Limits, Locator, Money, MoneyError, Page, Query,
-    RawCall, Response, Run, RunView, Schema, SchemaError, Session, Start, StoredBytes, UsageKind,
-    events, schemars,
+    Answer, BoxError, Call, Connection, CreatedSchedule, Error, ErrorCode, ErrorDetails,
+    EventStream, Exchange, FieldValues, HandlerlessStart, KeyValueStore, Limits, Locator, Money,
+    MoneyError, Page, Query, RawCall, Response, Run, RunView, Schedule, Schedules, Schema,
+    SchemaError, Session, Start, StoredBytes, UsageKind, events, schemars,
 };
 pub use goodfetch_protocol::foxhound::dataset::DatasetRecord;
 /// Foxhound's Error codes, each a value of [`ErrorCode`] (ADR 0099):
@@ -79,6 +79,10 @@ pub use goodfetch_protocol::page::read::{
 };
 pub use goodfetch_protocol::run::{
     CatalogTarget, Recording, RecordingMode, RunId, RunReport, StartedAs,
+};
+pub use goodfetch_protocol::schedule::{
+    EveryTrigger, RecipeTarget, RunTarget, ScheduleDefinition, ScheduleId, ScheduleInfo,
+    ScheduleState, ScheduleTarget, ScheduleTrigger, ScheduleWarning,
 };
 pub use goodfetch_protocol::settings::{
     ExplainedSetting, RunOrigin, SettingsExplanation, SettingsLayer,

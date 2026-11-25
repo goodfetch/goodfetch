@@ -227,6 +227,15 @@ form = "opener"
 [[member]]
 crate = "goodfetch-foxhound"
 receiver = "Foxhound"
+member = "schedules"
+entry = "none"
+reason = "The Schedules of the engine's major, reached without a round trip (spec 589); `Connection::schedules`'s member under the same name."
+words = ["schedules"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "Foxhound"
 member = "explain_settings"
 entry = "config.explain"
 words = ["explain", "settings"]
@@ -954,6 +963,15 @@ entry = "none"
 reason = "Opens a view of a Run another program started, by its Run ID, with no round trip (ADR 0102)."
 words = ["open", "run"]
 form = "opener"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "blocking::Foxhound"
+member = "schedules"
+entry = "none"
+reason = "The Schedules of the engine's major, reached without a round trip (spec 589); `blocking::Connection::schedules`'s member under the same name."
+words = ["schedules"]
+form = "read"
 
 [[member]]
 crate = "goodfetch-foxhound"

@@ -66,6 +66,10 @@
         "name": "doctor"
       },
       {
+        "commands": [],
+        "name": "init"
+      },
+      {
         "commands": [
           {
             "commands": [],
@@ -462,6 +466,10 @@
       {
         "commands": [],
         "name": "doctor"
+      },
+      {
+        "commands": [],
+        "name": "init"
       },
       {
         "commands": [

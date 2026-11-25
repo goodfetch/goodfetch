@@ -65,6 +65,7 @@ pub mod setting_scopes;
 pub mod settings;
 pub mod site_preferences;
 pub mod skills;
+pub mod starters;
 pub mod storage;
 pub mod tls;
 pub mod usage;

@@ -8766,6 +8766,44 @@
       ],
       "type": "object"
     },
+    "InitResult": {
+      "description": "What `init --json` prints: the starter it wrote, in which language, and\neach of its files by its path from the project's folder, with `/`\nbetween its parts.",
+      "properties": {
+        "language": {
+          "$ref": "#/$defs/StarterLanguage",
+          "arrived_in": "0.1",
+          "description": "Its language."
+        },
+        "skipped": {
+          "arrived_in": "0.1",
+          "description": "The files it left as they were, because the path was already taken:\n`init` never overwrites one.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "starter": {
+          "arrived_in": "0.1",
+          "description": "The starter's name, such as `browser`.",
+          "type": "string"
+        },
+        "written": {
+          "arrived_in": "0.1",
+          "description": "The files it wrote.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "starter",
+        "language",
+        "written",
+        "skipped"
+      ],
+      "type": "object"
+    },
     "InitScriptEnded": {
       "description": "What an init script's subscription answers when its page closes.",
       "type": "object"
@@ -21833,6 +21871,26 @@
         {
           "const": "ended",
           "description": "Its Run ID named a Run that finished, returned as it ended with no\nhandler called.",
+          "type": "string"
+        }
+      ]
+    },
+    "StarterLanguage": {
+      "description": "A language `init` writes a starter in: one of the SDKs'.",
+      "oneOf": [
+        {
+          "const": "typescript",
+          "description": "TypeScript, on the `@goodfetch/collie` package.",
+          "type": "string"
+        },
+        {
+          "const": "python",
+          "description": "Python, on the `goodfetch-collie` package.",
+          "type": "string"
+        },
+        {
+          "const": "rust",
+          "description": "Rust, on the `goodfetch-collie` crate.",
           "type": "string"
         }
       ]
@@ -37222,6 +37280,9 @@
     },
     "doctor": {
       "$ref": "#/$defs/DoctorReport"
+    },
+    "init": {
+      "$ref": "#/$defs/InitResult"
     },
     "runs.reindex": {
       "$ref": "#/$defs/RunsReindexOutput"

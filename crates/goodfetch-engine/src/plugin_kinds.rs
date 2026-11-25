@@ -17,7 +17,8 @@
 //! shape the driver refuses, becomes the kind's `<kind>_handler_failed`.
 //! Its text is logged at `warn` and kept out of the error.
 //!
-//! [`extractor`] holds the Extractor's primitives and driver.
+//! [`extractor`] holds the Extractor's primitives and driver, and
+//! [`run_plugins`] the process Plugins one Run starts.
 
 use goodfetch_protocol::catalog::{OperationClass, PluginKind};
 use goodfetch_protocol::entries;
@@ -29,6 +30,7 @@ use crate::call_error::CallError;
 use crate::plugin_host::instance::CallFailure;
 
 pub mod extractor;
+pub mod run_plugins;
 
 /// A primitive of a Plugin kind, one method the engine calls an
 /// implementation with.

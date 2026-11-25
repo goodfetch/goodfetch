@@ -17,6 +17,7 @@ use std::time::Duration;
 use goodfetch_protocol::catalog::{Authority, Product, Setting, ValueKind};
 use goodfetch_protocol::entries::YIELDING;
 use goodfetch_protocol::governor::{THREAD_COUNT_SHAPE, ThreadCount};
+use goodfetch_protocol::page::EXTRACTOR_NAME_SHAPE;
 use goodfetch_protocol::run::durability::{
     BATCH_THRESHOLD_SHAPE, BatchThreshold, durability_preset,
 };
@@ -561,9 +562,11 @@ impl SettingValue<'_> for Duration {
     }
 }
 
+/// Text, a choice's value, or an Extractor's name, which is text.
 impl<'a> SettingValue<'a> for &'a str {
     fn reads(kind: &ValueKind) -> bool {
         matches!(kind, ValueKind::Text | ValueKind::Choice(_))
+            || matches!(kind, ValueKind::Shape(shape) if **shape == EXTRACTOR_NAME_SHAPE)
     }
 
     fn read(value: &'a Value) -> Option<Self> {

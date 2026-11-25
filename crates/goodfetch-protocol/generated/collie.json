@@ -3629,6 +3629,20 @@
       ],
       "type": "object"
     },
+    "ExtractorUnavailableDetails": {
+      "description": "What `extractor_unavailable` details.",
+      "properties": {
+        "extractor": {
+          "arrived_in": "0.1",
+          "description": "The Extractor, as `content.extractor` names it.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "extractor"
+      ],
+      "type": "object"
+    },
     "FieldLocator": {
       "description": "What finds a field's element, named by `kind`: a CSS selector or an\n`XPath` expression, each read alike on every tier, a page a fetch tier\nserves from its document reading it as a browser reads it.",
       "oneOf": [
@@ -15174,7 +15188,10 @@
     },
     {
       "arrived_in": "0.1",
-      "description": "The Extractor `content.extractor` names is a handler the program registered, which left its call unanswered: the call was dropped, or the stream that reads its calls closed. Retry once the program reads its Extractor's calls again.",
+      "description": "No one answers for the Extractor `content.extractor` names: no built-in has its name and no installed Plugin of the Extractor kind does, its Plugin cannot start, or it is a handler the program registered that left its call unanswered. The details name the Extractor. Install the Plugin or name another Extractor, or retry once the program reads its Extractor's calls again.",
+      "details": {
+        "$ref": "#/$defs/ExtractorUnavailableDetails"
+      },
       "exit_code": null,
       "group": "unavailable",
       "json_rpc_class": -32006,
@@ -19768,7 +19785,7 @@
       "clearable": false,
       "default": "dom_smoothie",
       "deprecated": null,
-      "description": "The main-content step `page.formats` reads a page's main content with, before its Markdown, its main HTML and its text: `dom_smoothie` (the default), Readability's algorithm, or `trafilatura`, the rs-trafilatura port. A step that finds no text in a document holding text outside its navigation landmarks answers that text. Set at any scope down to a page: a Run, a Session's or a page's own `settings`.",
+      "description": "The main-content step `page.formats` reads a page's main content with, before its Markdown and its text: `dom_smoothie` (the default), Readability's algorithm, `trafilatura`, the rs-trafilatura port, or the name of an installed Extractor Plugin. A built-in step that finds no text in a document holding text outside its navigation landmarks answers that text. An Extractor Plugin reads the page as the Clean-up rules left it and answers its Markdown and its text; it has no main HTML. Set at any scope down to a page: a Run, a Session's or a page's own `settings`. A Session or a page naming no built-in and no installed Extractor is refused; a Run's name is checked as its page reads with it.",
       "fixed_for_run": false,
       "name": "content.extractor",
       "product": "collie",
@@ -19784,10 +19801,10 @@
         "page"
       ],
       "value": {
-        "enum": [
-          "dom_smoothie",
-          "trafilatura"
-        ]
+        "description": "A built-in main-content step, `dom_smoothie` or `trafilatura`, or an installed Extractor Plugin's name.",
+        "minLength": 1,
+        "pattern": "^([^/\\\\.][^/\\\\]*|\\.[^/\\\\.][^/\\\\]*|\\.\\.[^/\\\\]+)$",
+        "type": "string"
       },
       "weakening": null,
       "weakens": false

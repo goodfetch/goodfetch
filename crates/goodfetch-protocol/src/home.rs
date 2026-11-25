@@ -15,6 +15,9 @@
 //!     daemon.json, daemon.lock, … the Daemon's files (`DaemonFile`)
 //!   usage-ledger.sqlite, politeness.sqlite, audit-log.sqlite, …
 //!                                 the files every major shares
+//!   plugins/<name>/<version>/     the Plugin store: an installed Plugin's
+//!                                 unpacked bundle (ADR 0033)
+//!   instances/<run id>-<name>/    a running Plugin instance's own folder
 //! ```
 //!
 //! Where the home is and what each file holds are their owners'; only the
@@ -72,6 +75,16 @@ pub const ENGINE_KEY_LOCK: &str = "engine-key.lock";
 /// The list each Product's executable keeps of the installed executables,
 /// outside the per-major folders (ADR 0098).
 pub const INSTALLED_EXECUTABLES: &str = "installed-executables.json";
+
+/// The Plugin store, outside the per-major folders, which both Products
+/// share (ADR 0033, spec #596): one folder per installed Plugin, which
+/// holds its unpacked bundle in a folder named by its version.
+pub const PLUGINS: &str = "plugins";
+
+/// The running Plugin instances' own folders, outside the per-major
+/// folders: each instance's private temporary folder, which it alone
+/// writes and which is deleted when it stops (ADR 0033).
+pub const PLUGIN_INSTANCES: &str = "instances";
 
 /// A run folder's run file.
 pub const RUN_FILE: &str = "run.sqlite";

@@ -1565,7 +1565,7 @@
     {
       "id": "error:extract_handler_failed",
       "kind": "error",
-      "area": null,
+      "area": 7,
       "milestone": null,
       "status": "active",
       "products": [
@@ -1576,7 +1576,7 @@
     {
       "id": "error:extractor_unavailable",
       "kind": "error",
-      "area": null,
+      "area": 7,
       "milestone": null,
       "status": "active",
       "products": [

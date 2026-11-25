@@ -36,7 +36,7 @@ use crate::composition::{Composition, CompositionError};
 use crate::controls::Controls;
 use crate::daemon::{self, DaemonEnd, DaemonOptions};
 use crate::endpoint::Refusals;
-use crate::engine_context::{EngineContext, Stores, os_user};
+use crate::engine_context::{EngineContext, Stores, os_user, places};
 use crate::entropy::Entropy;
 use crate::events::{Events, EventsOptions};
 use crate::forward::ToOwner;
@@ -488,7 +488,10 @@ impl Engine {
             stores,
             needs_you,
             sandbox_probe,
-            os_user(&dependencies.environment),
+            (
+                os_user(&dependencies.environment),
+                places(&dependencies.home, &dependencies.environment),
+            ),
         );
         let secrets = Secrets::new(
             Carried {

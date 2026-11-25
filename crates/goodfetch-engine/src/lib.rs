@@ -63,6 +63,7 @@ pub mod otlp;
 pub mod pinned_download;
 pub mod plugin_host;
 pub mod plugin_kinds;
+pub mod plugin_store;
 pub mod politeness;
 mod product;
 pub mod request_signing;

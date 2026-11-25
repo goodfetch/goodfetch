@@ -10,8 +10,10 @@
 
 use std::collections::BTreeMap;
 use std::ffi::OsString;
+use std::path::PathBuf;
 use std::sync::Arc;
 
+use goodfetch_confinement::deny_list::Places;
 use goodfetch_protocol::connection::ProductVersion;
 use jiff::Timestamp;
 
@@ -46,6 +48,28 @@ pub(crate) fn os_user(environment: &BTreeMap<OsString, OsString>) -> String {
         })
         .unwrap_or(CALLER)
         .to_owned()
+}
+
+/// The user's folders a Plugin's confinement denies paths under (ADR
+/// 0033), from the engine's environment map: the home folder, `HOME` on
+/// macOS and Linux, `USERPROFILE` on Windows, with `APPDATA` and
+/// `LOCALAPPDATA` when set, and the Goodfetch home `home`. None without a
+/// home folder, as for a Daemon started with an empty environment: no
+/// Plugin starts then, since its deny list cannot be placed.
+pub(crate) fn places(home: &Home, environment: &BTreeMap<OsString, OsString>) -> Option<Places> {
+    let folder = |name: &str| {
+        environment
+            .get(&OsString::from(name))
+            .filter(|value| !value.is_empty())
+            .map(PathBuf::from)
+    };
+    let user_home = if cfg!(windows) { "USERPROFILE" } else { "HOME" };
+    Some(Places {
+        home: folder(user_home)?,
+        goodfetch_home: home.root().to_owned(),
+        app_data: folder("APPDATA"),
+        local_app_data: folder("LOCALAPPDATA"),
+    })
 }
 
 /// The user's known-certificates store, Usage ledger and Run index as one
@@ -110,6 +134,7 @@ pub struct EngineContext {
     needs_you: NeedsYou,
     sandbox_probe: SandboxProbe,
     person: Arc<str>,
+    places: Option<Arc<Places>>,
     refusals: Refusals,
 }
 
@@ -126,7 +151,7 @@ impl EngineContext {
     /// The engine at `home` on `clock` under `settings`, recording in
     /// `audit` and its listeners' refusals in `refusals`, with `stores`, its
     /// blocking work under their owner, with `needs_you` and
-    /// `sandbox_probe`, acting for `person`.
+    /// `sandbox_probe`, acting for `person`, whose folders are `places`.
     #[expect(
         clippy::too_many_arguments,
         reason = "each is one of the engine's own values, built once at its start and held together here"
@@ -139,7 +164,7 @@ impl EngineContext {
         stores: Stores,
         needs_you: NeedsYou,
         sandbox_probe: SandboxProbe,
-        person: String,
+        (person, places): (String, Option<Places>),
     ) -> Self {
         Self {
             known_certificates: stores.known_certificates,
@@ -153,6 +178,7 @@ impl EngineContext {
             needs_you,
             sandbox_probe,
             person: Arc::from(person),
+            places: places.map(Arc::new),
             refusals,
         }
     }
@@ -218,6 +244,12 @@ impl EngineContext {
     /// of a single-user install.
     pub(crate) fn person(&self) -> &str {
         &self.person
+    }
+
+    /// The person's folders a Plugin's confinement denies, none when the
+    /// engine's environment names no home folder.
+    pub(crate) fn places(&self) -> Option<&Arc<Places>> {
+        self.places.as_ref()
     }
 
     /// Where the engine's listeners record their refusals: the user's

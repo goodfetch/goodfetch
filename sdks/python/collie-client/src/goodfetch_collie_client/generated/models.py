@@ -1164,6 +1164,16 @@ class ExtractHandlerFailedDetails(BaseModel):
     """The Extractor, as `content.extractor` names it."""
 
 
+class ExtractorUnavailableDetails(BaseModel):
+    """What `extractor_unavailable` details."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    extractor: str
+    """The Extractor, as `content.extractor` names it."""
+
+
 class FetchTier(StrEnum):
     """
     A tier that fetches a crawl request's document (ADR 0020), from the

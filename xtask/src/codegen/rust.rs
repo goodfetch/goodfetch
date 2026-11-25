@@ -895,7 +895,7 @@ impl Module {
                     "The `{}` of a `{}` (ADR 0099).",
                     sub_object.ident, model.namespace
                 )),
-                &model.namespace,
+                model.namespace,
                 &sub_object.type_name,
                 &model.id,
                 &[],
@@ -910,7 +910,7 @@ impl Module {
                 "A `{}` a program holds: the members the catalog gives it (ADR 0099).",
                 model.namespace
             )),
-            &model.namespace,
+            model.namespace,
             &model.type_name,
             &model.id,
             &model

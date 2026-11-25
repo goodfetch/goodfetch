@@ -9,8 +9,9 @@
 use std::time::Duration;
 
 use goodfetch_collie::{
-    Collie, ErrorCode, EveryTrigger, RecipeTarget, ScheduleDefinition, ScheduleId, ScheduleState,
-    ScheduleTarget, ScheduleTrigger, blocking,
+    Collie, CreatedSchedule, Error, ErrorCode, EveryTrigger, RecipeTarget, Schedule,
+    ScheduleDefinition, ScheduleId, ScheduleInfo, ScheduleState, ScheduleTarget, ScheduleTrigger,
+    blocking,
 };
 use goodfetch_conformance::{ClientCaseRun, RustMode};
 use goodfetch_protocol::schedule::ScheduleNotFoundDetails;
@@ -37,6 +38,64 @@ fn definition(id: Option<&str>, every: Duration, time_zone: Option<&str>) -> Sch
     }
 }
 
+/// What the `schedules-crud` steps answered.
+struct Answered {
+    named: CreatedSchedule,
+    made: CreatedSchedule,
+    listed: Vec<ScheduleId>,
+    got: Schedule,
+    info: ScheduleInfo,
+    unknown: Error,
+    deleted: [bool; 2],
+    gone: ErrorCode,
+}
+
+/// Runs the case's steps on a Connection to `env`'s engine: creates
+/// `nightly`, then one with no ID, lists them, gets `nightly` and reads it,
+/// gets `unknown_id`, and deletes `nightly` twice before reading it again.
+async fn schedules_crud(env: &TestEnv, nightly: &ScheduleId, unknown_id: &ScheduleId) -> Answered {
+    let collie = Collie::connect(options(env)).await.unwrap();
+    let schedules = collie.schedules();
+    let named = schedules
+        .create(definition(
+            Some(nightly.as_str()),
+            Duration::from_secs(3_600),
+            Some("Europe/Paris"),
+        ))
+        .await
+        .unwrap();
+    let made = schedules
+        .create(definition(None, Duration::from_secs(60), None))
+        .timeout(Duration::from_secs(10))
+        .await
+        .unwrap();
+    let mut listed: Vec<_> = schedules
+        .list()
+        .await
+        .unwrap()
+        .into_iter()
+        .map(|info| info.schedule_id)
+        .collect();
+    listed.sort();
+    let got = schedules.get(nightly).no_timeout().await.unwrap();
+    let info = got.info().await.unwrap().into_inner();
+    let unknown = schedules.get(unknown_id).await.unwrap_err();
+    let deleted = named.schedule().delete().await.unwrap();
+    let again = got.delete().await.unwrap();
+    let gone = got.info().await.unwrap_err().code();
+    collie.close().await.unwrap();
+    Answered {
+        named,
+        made,
+        listed,
+        got,
+        info,
+        unknown,
+        deleted: [deleted, again],
+        gone,
+    }
+}
+
 /// Covers: story:10-2
 #[test]
 fn a_connections_schedules_create_list_read_and_delete_a_schedule() {
@@ -45,55 +104,24 @@ fn a_connections_schedules_create_list_read_and_delete_a_schedule() {
     let env = TestEnv::new();
     let nightly = ScheduleId::parse("nightly-prices").unwrap();
     let unknown_id = ScheduleId::parse("never-created").unwrap();
-    let answered = real_time_runtime().block_on(async {
-        let collie = Collie::connect(options(&env)).await.unwrap();
-        let schedules = collie.schedules();
-        let named = schedules
-            .create(definition(
-                Some("nightly-prices"),
-                Duration::from_secs(3_600),
-                Some("Europe/Paris"),
-            ))
-            .await
-            .unwrap();
-        let made = schedules
-            .create(definition(None, Duration::from_secs(60), None))
-            .timeout(Duration::from_secs(10))
-            .await
-            .unwrap();
-        let mut listed: Vec<_> = schedules
-            .list()
-            .await
-            .unwrap()
-            .into_iter()
-            .map(|info| info.schedule_id)
-            .collect();
-        listed.sort();
-        let got = schedules.get(&nightly).no_timeout().await.unwrap();
-        let info = got.info().await.unwrap().into_inner();
-        let unknown = schedules.get(&unknown_id).await.unwrap_err();
-        let deleted = named.schedule().delete().await.unwrap();
-        let again = got.delete().await.unwrap();
-        let gone = got.info().await.unwrap_err().code();
-        collie.close().await.unwrap();
-        (
-            named,
-            made,
-            listed,
-            got,
-            info,
-            unknown,
-            [deleted, again],
-            gone,
-        )
-    });
-    let (named, made, listed, got, info, unknown, deleted, gone) = answered;
+    let Answered {
+        named,
+        made,
+        listed,
+        got,
+        info,
+        unknown,
+        deleted,
+        gone,
+    } = real_time_runtime().block_on(schedules_crud(&env, &nightly, &unknown_id));
 
     case.check(
         "create answers the Schedule under the ID given, with no warnings",
         || {
-            assert_eq!(named.schedule().id(), &nightly);
-            assert!(named.warnings().is_empty());
+            assert_eq!(
+                (named.schedule().id(), named.warnings().len()),
+                (&nightly, 0)
+            );
         },
     );
     case.check("create makes an ID when the definition names none", || {

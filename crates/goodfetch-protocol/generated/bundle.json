@@ -15431,6 +15431,29 @@
       ],
       "type": "object"
     },
+    "RecipeDigestOutput": {
+      "description": "What `recipe digest --json` prints (issue 1664): the digest of a\nRecipe's package, which names that version of the Recipe on every\nsystem, and the files it covers.",
+      "properties": {
+        "digest": {
+          "arrived_in": "0.1",
+          "description": "The digest, `sha256:` and 64 lowercase hexadecimal digits.",
+          "type": "string"
+        },
+        "files": {
+          "arrived_in": "0.1",
+          "description": "The package's files, by their paths from its root with `/` between\ntheir parts, in byte order.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "digest",
+        "files"
+      ],
+      "type": "object"
+    },
     "RecipeEntry": {
       "description": "What a Recipe runs: exactly one of a program, a step list or a\n`CrawlDeclaration`, each a file of the package named by its path from\nthe package's root, with `/` between its parts.",
       "oneOf": [
@@ -37283,6 +37306,9 @@
     },
     "init": {
       "$ref": "#/$defs/InitResult"
+    },
+    "recipe.digest": {
+      "$ref": "#/$defs/RecipeDigestOutput"
     },
     "runs.reindex": {
       "$ref": "#/$defs/RunsReindexOutput"

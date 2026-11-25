@@ -105,6 +105,7 @@ mod private_ranges;
 mod proxy;
 #[cfg(unix)]
 mod proxy_limits;
+mod recipe;
 mod relay_fingerprint;
 mod request_kinds;
 mod run;

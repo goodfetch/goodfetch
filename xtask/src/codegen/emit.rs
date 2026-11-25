@@ -66,6 +66,7 @@ use goodfetch_protocol::key_value_store::KeyValueStoreKey;
 use goodfetch_protocol::log::LogEvent;
 use goodfetch_protocol::model::{ModelRequest, ModelResponsePart};
 use goodfetch_protocol::page::Chunk;
+use goodfetch_protocol::recipe::RecipeDigestOutput;
 use goodfetch_protocol::releases::ReleasesFile;
 use goodfetch_protocol::result_document::ResultDocument;
 use goodfetch_protocol::run::RunsReindexOutput;
@@ -191,6 +192,7 @@ fn outputs(generator: &mut SchemaGenerator) -> Value {
         "daemon.uninstall": generator.subschema_for::<DaemonUninstallOutput>(),
         "doctor": generator.subschema_for::<DoctorReport>(),
         "init": generator.subschema_for::<InitResult>(),
+        "recipe.digest": generator.subschema_for::<RecipeDigestOutput>(),
         "runs.reindex": generator.subschema_for::<RunsReindexOutput>(),
         "skill.install": generator.subschema_for::<SkillsInstalled>(),
         "upgrade-files": generator.subschema_for::<FilesUpgraded>(),

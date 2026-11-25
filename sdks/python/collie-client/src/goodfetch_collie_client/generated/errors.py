@@ -954,7 +954,7 @@ class ProxyUnavailableError(UnavailableError):
 
 
 class RecipeInvalidError(ProgramError):
-    """A Recipe manifest, `goodfetch-recipe.toml`, or its package that is not valid: a manifest that does not parse, lacks a required field or holds an unknown one, names no entry or two, names a program without a runtime or a runtime it does not list, names a `CrawlDeclaration` for Collie, or an entry the package does not hold. The details name the field and the fix."""
+    """A Recipe manifest, `goodfetch-recipe.toml`, or its package that is not valid: a manifest that does not parse, lacks a required field or holds an unknown one, names no entry or two, names a program without a runtime or a runtime it does not list, names a `CrawlDeclaration` for Collie, or an entry the package does not hold; or a package holding a symbolic link, or a path with no portable digest: absolute, escaping its root, holding `\\` or `:`, or the same as another in Unicode NFC or but for case. The details name the field or path and the fix."""
 
     typed_details: RecipeInvalidDetails | None
     """The code's details, typed; `None` when they lack a field the model requires, as those of an error a program builds without details do."""

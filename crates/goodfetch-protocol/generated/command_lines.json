@@ -122,6 +122,19 @@
         "commands": [
           {
             "commands": [],
+            "name": "start"
+          },
+          {
+            "commands": [],
+            "name": "digest"
+          }
+        ],
+        "name": "recipe"
+      },
+      {
+        "commands": [
+          {
+            "commands": [],
             "name": "reindex"
           }
         ],
@@ -349,15 +362,6 @@
             "name": "start"
           }
         ],
-        "name": "recipe"
-      },
-      {
-        "commands": [
-          {
-            "commands": [],
-            "name": "start"
-          }
-        ],
         "name": "catalog-run"
       },
       {
@@ -519,6 +523,19 @@
           }
         ],
         "name": "daemon"
+      },
+      {
+        "commands": [
+          {
+            "commands": [],
+            "name": "start"
+          },
+          {
+            "commands": [],
+            "name": "digest"
+          }
+        ],
+        "name": "recipe"
       },
       {
         "commands": [
@@ -779,15 +796,6 @@
           }
         ],
         "name": "signing-key"
-      },
-      {
-        "commands": [
-          {
-            "commands": [],
-            "name": "start"
-          }
-        ],
-        "name": "recipe"
       },
       {
         "commands": [

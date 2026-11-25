@@ -2468,34 +2468,6 @@ form = "type"
 
 [[member]]
 crate = "goodfetch-collie-client"
-receiver = "blocking::CreatedSchedule"
-member = "schedule"
-entry = "none"
-reason = "The Schedule, under the ID given or made."
-words = ["schedule"]
-form = "read"
-
-[[member]]
-crate = "goodfetch-collie-client"
-receiver = "blocking::CreatedSchedule"
-member = "warnings"
-entry = "none"
-reason = "What did not stop its creation but its program should know."
-words = ["warnings"]
-form = "read"
-
-[[member]]
-crate = "goodfetch-collie-client"
-receiver = "blocking::CreatedSchedule"
-member = "into_parts"
-entry = "none"
-reason = "The Schedule and its warnings, taken out of the answer."
-only = "Rust's answer keeps its fields private behind reads; TypeScript's and Python's are plain fields."
-words = ["into", "parts"]
-form = "read"
-
-[[member]]
-crate = "goodfetch-collie-client"
 receiver = "file_saving"
 member = "FileSaving"
 entry = "none"

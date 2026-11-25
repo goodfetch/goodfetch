@@ -111,7 +111,9 @@ timeout = "300"
 # The folder of programs both an SDK's unit and integration tests run, as
 # TypeScript's `tests/programs/` (ADR 0069); pyright's `extraPaths` names it too.
 pythonpath = ["sdks/python/collie/tests/programs"]
-norecursedirs = [".*", "rnd", "ci", "fixtures", "node_modules", "target"]
+# A starter (`starters`) is a new project's template, whose test runs in the
+# project `init` writes, from its own folder, never in this workspace.
+norecursedirs = [".*", "rnd", "ci", "fixtures", "node_modules", "starters", "target"]
 
 [tool.ruff]
 extend-exclude = ["rnd", "ci/proofs", "**/generated", "**/fixtures"]

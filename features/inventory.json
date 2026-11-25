@@ -645,7 +645,7 @@
     {
       "id": "command:recipe.digest",
       "kind": "command",
-      "area": null,
+      "area": 11,
       "milestone": null,
       "status": "active",
       "products": [

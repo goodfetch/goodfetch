@@ -3345,6 +3345,35 @@
       },
       "type": "object"
     },
+    "EveryTrigger": {
+      "additionalProperties": false,
+      "description": "A fixed interval: an occurrence every `every` milliseconds from the\nanchor.",
+      "properties": {
+        "anchor": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PointInTime"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "The instant the intervals count from; the Schedule's creation when\nabsent."
+        },
+        "every": {
+          "arrived_in": "0.1",
+          "description": "The interval, in milliseconds, at least 1.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "every"
+      ],
+      "type": "object"
+    },
     "ExecutableBlockedBySmartAppControlDetails": {
       "description": "What `executable_blocked_by_smart_app_control` details.",
       "properties": {
@@ -8974,6 +9003,49 @@
       ],
       "type": "object"
     },
+    "RecipeTarget": {
+      "additionalProperties": false,
+      "description": "A Recipe a Schedule starts.",
+      "properties": {
+        "inputs": {
+          "additionalProperties": true,
+          "arrived_in": "0.1",
+          "description": "Its inputs, by name.",
+          "type": [
+            "object",
+            "null"
+          ]
+        },
+        "recipe": {
+          "arrived_in": "0.1",
+          "description": "The Recipe: published, by its digest, or local, by its path.",
+          "type": "string"
+        },
+        "settings": {
+          "additionalProperties": true,
+          "arrived_in": "0.1",
+          "description": "The run's settings, by key.",
+          "type": [
+            "object",
+            "null"
+          ]
+        },
+        "timeout": {
+          "arrived_in": "0.1",
+          "description": "The run's `timeout.run`, in milliseconds, at least 1: absent for\nthe setting's value, `null` for none (ADR 0080).",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "recipe"
+      ],
+      "type": "object"
+    },
     "Recording": {
       "additionalProperties": false,
       "description": "A Response recording a start names (ADR 0105): an input of the Run,\nnever a setting.",
@@ -11360,6 +11432,41 @@
       ],
       "type": "object"
     },
+    "RunTarget": {
+      "additionalProperties": false,
+      "description": "A code-free catalog run a Schedule starts.",
+      "properties": {
+        "run": {
+          "additionalProperties": true,
+          "arrived_in": "0.1",
+          "description": "The run's own start parameters, as its kind defines them, without\nits Run ID, labels and Limits.",
+          "type": "object"
+        },
+        "settings": {
+          "additionalProperties": true,
+          "arrived_in": "0.1",
+          "description": "The run's settings, by key.",
+          "type": [
+            "object",
+            "null"
+          ]
+        },
+        "timeout": {
+          "arrived_in": "0.1",
+          "description": "The run's `timeout.run`, in milliseconds, at least 1: absent for\nthe setting's value, `null` for none (ADR 0080).",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "run"
+      ],
+      "type": "object"
+    },
     "RunTargetUnbuiltDetails": {
       "description": "What `run_target_unbuilt`'s details hold.",
       "properties": {
@@ -11659,6 +11766,385 @@
           "type": "string"
         }
       ]
+    },
+    "ScheduleCreateParams": {
+      "additionalProperties": false,
+      "description": "What `schedule.create` takes.",
+      "properties": {
+        "_meta": {
+          "$ref": "#/$defs/RequestMeta",
+          "arrived_in": "0.1"
+        },
+        "definition": {
+          "$ref": "#/$defs/ScheduleDefinition",
+          "arrived_in": "0.1",
+          "description": "The Schedule."
+        },
+        "timeout": {
+          "arrived_in": "0.1",
+          "description": "How long the call may take, in milliseconds, at least 1: absent for\n`timeout.wait`, `null` for none (ADR 0080).",
+          "format": "uint64",
+          "minimum": 0,
+          "setting": "timeout.wait",
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "definition"
+      ],
+      "type": "object"
+    },
+    "ScheduleCreated": {
+      "description": "What `schedule.create` answers.",
+      "properties": {
+        "schedule_id": {
+          "$ref": "#/$defs/ScheduleId",
+          "arrived_in": "0.1",
+          "description": "The Schedule's ID, as given or made."
+        },
+        "warnings": {
+          "arrived_in": "0.1",
+          "description": "What its program should know.",
+          "items": {
+            "$ref": "#/$defs/ScheduleWarning"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "schedule_id",
+        "warnings"
+      ],
+      "type": "object"
+    },
+    "ScheduleDefinition": {
+      "additionalProperties": false,
+      "description": "What a Schedule is, as a program writes it.",
+      "properties": {
+        "id": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ScheduleId"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "Its ID; one is made when absent: `s` and a lowercase ULID."
+        },
+        "target": {
+          "$ref": "#/$defs/ScheduleTarget",
+          "arrived_in": "0.1",
+          "description": "What it starts."
+        },
+        "time_zone": {
+          "arrived_in": "0.1",
+          "description": "The IANA time zone its triggers read, such as `Europe/Paris`; the\nDaemon host's when absent, never \"local\".",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "trigger": {
+          "$ref": "#/$defs/ScheduleTrigger",
+          "arrived_in": "0.1",
+          "description": "When."
+        }
+      },
+      "required": [
+        "target",
+        "trigger"
+      ],
+      "type": "object"
+    },
+    "ScheduleDeleted": {
+      "description": "What `schedule.delete` answers.",
+      "properties": {
+        "deleted": {
+          "arrived_in": "0.1",
+          "description": "Whether it deleted the Schedule: false when the store held none of\nthat ID, as after a resent delete.",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "deleted"
+      ],
+      "type": "object"
+    },
+    "ScheduleExistsDetails": {
+      "description": "What `schedule_exists` details.",
+      "properties": {
+        "schedule_id": {
+          "$ref": "#/$defs/ScheduleId",
+          "arrived_in": "0.1",
+          "description": "The Schedule ID."
+        }
+      },
+      "required": [
+        "schedule_id"
+      ],
+      "type": "object"
+    },
+    "ScheduleGetParams": {
+      "additionalProperties": false,
+      "description": "What `schedule.get` takes.",
+      "properties": {
+        "_meta": {
+          "$ref": "#/$defs/RequestMeta",
+          "arrived_in": "0.1"
+        },
+        "id": {
+          "$ref": "#/$defs/ScheduleId",
+          "arrived_in": "0.1",
+          "description": "The Schedule's ID."
+        },
+        "timeout": {
+          "arrived_in": "0.1",
+          "description": "How long the call may take, in milliseconds, at least 1: absent for\n`timeout.wait`, `null` for none (ADR 0080).",
+          "format": "uint64",
+          "minimum": 0,
+          "setting": "timeout.wait",
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "type": "object"
+    },
+    "ScheduleId": {
+      "description": "A Schedule ID (ADR 0036): lowercase letters, digits and `-`, at most 63, starting and ending with a letter or a digit.",
+      "pattern": "^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$",
+      "type": "string"
+    },
+    "ScheduleInfo": {
+      "description": "A Schedule as its store holds it.",
+      "properties": {
+        "created_at": {
+          "$ref": "#/$defs/PointInTime",
+          "arrived_in": "0.1",
+          "description": "When it was created."
+        },
+        "creator": {
+          "arrived_in": "0.1",
+          "description": "The person who created it, for whom its occurrences fire.",
+          "type": "string"
+        },
+        "schedule_id": {
+          "$ref": "#/$defs/ScheduleId",
+          "arrived_in": "0.1",
+          "description": "Its ID."
+        },
+        "state": {
+          "$ref": "#/$defs/ScheduleState",
+          "arrived_in": "0.1",
+          "description": "Whether it fires."
+        },
+        "target": {
+          "$ref": "#/$defs/ScheduleTarget",
+          "arrived_in": "0.1",
+          "description": "What it starts, as given."
+        },
+        "time_zone": {
+          "arrived_in": "0.1",
+          "description": "The IANA time zone its triggers read.",
+          "type": "string"
+        },
+        "trigger": {
+          "$ref": "#/$defs/ScheduleTrigger",
+          "arrived_in": "0.1",
+          "description": "When."
+        },
+        "version": {
+          "arrived_in": "0.1",
+          "description": "Its definition's version: 1 at creation, one more at each edit.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "schedule_id",
+        "target",
+        "trigger",
+        "time_zone",
+        "version",
+        "state",
+        "creator",
+        "created_at"
+      ],
+      "type": "object"
+    },
+    "ScheduleList": {
+      "description": "What `schedule.list` answers.",
+      "properties": {
+        "schedules": {
+          "arrived_in": "0.1",
+          "description": "Every Schedule of the store, by ID.",
+          "items": {
+            "$ref": "#/$defs/ScheduleInfo"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "schedules"
+      ],
+      "type": "object"
+    },
+    "ScheduleListParams": {
+      "additionalProperties": false,
+      "description": "What `schedule.list` takes.",
+      "properties": {
+        "_meta": {
+          "$ref": "#/$defs/RequestMeta",
+          "arrived_in": "0.1"
+        },
+        "timeout": {
+          "arrived_in": "0.1",
+          "description": "How long the call may take, in milliseconds, at least 1: absent for\n`timeout.wait`, `null` for none (ADR 0080).",
+          "format": "uint64",
+          "minimum": 0,
+          "setting": "timeout.wait",
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "ScheduleNotFoundDetails": {
+      "description": "What `schedule_not_found` details.",
+      "properties": {
+        "schedule_id": {
+          "$ref": "#/$defs/ScheduleId",
+          "arrived_in": "0.1",
+          "description": "The Schedule ID."
+        }
+      },
+      "required": [
+        "schedule_id"
+      ],
+      "type": "object"
+    },
+    "ScheduleParams": {
+      "additionalProperties": false,
+      "description": "What `schedule.info` and `schedule.delete` take: the Schedule.",
+      "properties": {
+        "_meta": {
+          "$ref": "#/$defs/RequestMeta",
+          "arrived_in": "0.1"
+        },
+        "schedule_id": {
+          "$ref": "#/$defs/ScheduleId",
+          "arrived_in": "0.1",
+          "description": "The Schedule's ID."
+        },
+        "timeout": {
+          "arrived_in": "0.1",
+          "description": "How long the call may take, in milliseconds, at least 1: absent for\n`timeout.wait`, `null` for none (ADR 0080).",
+          "format": "uint64",
+          "minimum": 0,
+          "setting": "timeout.wait",
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "schedule_id"
+      ],
+      "type": "object"
+    },
+    "ScheduleState": {
+      "description": "Whether a Schedule fires.",
+      "oneOf": [
+        {
+          "const": "on",
+          "description": "It fires at its occurrences.",
+          "type": "string"
+        }
+      ],
+      "open": true
+    },
+    "ScheduleTarget": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/RecipeTarget",
+          "description": "A Recipe."
+        },
+        {
+          "$ref": "#/$defs/RunTarget",
+          "description": "A code-free catalog run."
+        }
+      ],
+      "description": "What a Schedule starts: a Recipe with its inputs, or a code-free\ncatalog run by its own start parameters, each with the run's settings\nand timeout (ADRs 0036 and 0080). The scheduler sets the run's ID,\nlabels and Limits."
+    },
+    "ScheduleTrigger": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/EveryTrigger",
+          "description": "At a fixed interval."
+        }
+      ],
+      "description": "When a Schedule's occurrences fall (ADR 0036)."
+    },
+    "ScheduleTriggerInvalidDetails": {
+      "description": "What `schedule_trigger_invalid` details.",
+      "properties": {
+        "expression": {
+          "arrived_in": "0.1",
+          "description": "The trigger's expression, as given.",
+          "type": "string"
+        },
+        "position": {
+          "arrived_in": "0.1",
+          "description": "The character of the expression where it stops reading, from 0.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "reason": {
+          "$ref": "#/$defs/TriggerInvalidReason",
+          "arrived_in": "0.1",
+          "description": "Why."
+        }
+      },
+      "required": [
+        "expression",
+        "position",
+        "reason"
+      ],
+      "type": "object"
+    },
+    "ScheduleWarning": {
+      "description": "Something about a created Schedule its program should know, which did\nnot stop its creation.",
+      "properties": {
+        "kind": {
+          "arrived_in": "0.1",
+          "description": "What it is about, such as `env_unresolved`.",
+          "type": "string"
+        },
+        "message": {
+          "arrived_in": "0.1",
+          "description": "What it says, in the engine's English.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "message"
+      ],
+      "type": "object"
     },
     "SchemaValidatorFailedDetails": {
       "description": "What `schema_validator_failed` details: the schema, where in the value,\nand the exception, as `hook_failed`'s details name a Hook's.",
@@ -13482,6 +13968,42 @@
         "limit"
       ],
       "type": "object"
+    },
+    "TriggerInvalidReason": {
+      "description": "Why a trigger does not parse.",
+      "oneOf": [
+        {
+          "const": "unknown_field",
+          "description": "A field it does not know.",
+          "type": "string"
+        },
+        {
+          "const": "out_of_range",
+          "description": "A value out of its field's range, such as an interval of 0.",
+          "type": "string"
+        },
+        {
+          "const": "bad_step",
+          "description": "A step that does not divide its range.",
+          "type": "string"
+        },
+        {
+          "const": "bad_macro",
+          "description": "A macro it does not know.",
+          "type": "string"
+        },
+        {
+          "const": "field_count",
+          "description": "Too few or too many fields.",
+          "type": "string"
+        },
+        {
+          "const": "other",
+          "description": "Another reason, which the message gives.",
+          "type": "string"
+        }
+      ],
+      "open": true
     },
     "UncertainEffect": {
       "description": "An Effect a Run left uncertain (ADR 0106), until a person reconciles it.",
@@ -15816,6 +16338,45 @@
       "group": "refused",
       "json_rpc_class": -32002,
       "name": "sample_refused",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "A Schedule has this Schedule ID already: create it under another ID, or omit the ID for a new one. The details name the ID.",
+      "details": {
+        "$ref": "#/$defs/ScheduleExistsDetails"
+      },
+      "exit_code": null,
+      "group": "program",
+      "json_rpc_class": -32001,
+      "name": "schedule_exists",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "No Schedule has this Schedule ID: the Schedule store does not hold it. The details name the ID.",
+      "details": {
+        "$ref": "#/$defs/ScheduleNotFoundDetails"
+      },
+      "exit_code": null,
+      "group": "program",
+      "json_rpc_class": -32001,
+      "name": "schedule_not_found",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "The Schedule's trigger does not parse, such as an `every` of 0. The details give the `expression`, the `position` where reading stopped and the `reason`.",
+      "details": {
+        "$ref": "#/$defs/ScheduleTriggerInvalidDetails"
+      },
+      "exit_code": null,
+      "group": "program",
+      "json_rpc_class": -32001,
+      "name": "schedule_trigger_invalid",
       "product": "collie",
       "retryable": false
     },
@@ -18716,6 +19277,101 @@
       "reach": "all_surfaces",
       "result": {
         "$ref": "#/$defs/SampleEchoResult"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": false,
+      "class": "effect",
+      "deprecated": null,
+      "description": "Records a Schedule in the Schedule store, which the Daemon keeps, and answers its ID, as given or made (`s` and a lowercase ULID), with warnings. Nothing fires yet. A taken ID fails with `schedule_exists`, a trigger that does not parse with `schedule_trigger_invalid`. Its time zone is the Daemon host's when the definition names none. One store transaction: a cancel stops it only before it commits.",
+      "events": [],
+      "kind": "round_trip",
+      "name": "schedule.create",
+      "params": {
+        "$ref": "#/$defs/ScheduleCreateParams"
+      },
+      "product": "collie",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/ScheduleCreated"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": false,
+      "class": "idempotent_write",
+      "deprecated": null,
+      "description": "Deletes the Schedule from its store, so it never fires again, and answers whether it did: false when the store held none of that ID, as after a resent delete. One store transaction: a cancel stops it only before it commits.",
+      "events": [],
+      "kind": "round_trip",
+      "name": "schedule.delete",
+      "params": {
+        "$ref": "#/$defs/ScheduleParams"
+      },
+      "product": "collie",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/ScheduleDeleted"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": true,
+      "class": "read",
+      "deprecated": null,
+      "description": "Reads the Schedule of an ID. An ID the store does not hold fails with `schedule_not_found`.",
+      "events": [],
+      "kind": "round_trip",
+      "name": "schedule.get",
+      "params": {
+        "$ref": "#/$defs/ScheduleGetParams"
+      },
+      "product": "collie",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/ScheduleInfo"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": true,
+      "class": "read",
+      "deprecated": null,
+      "description": "Reads the Schedule as its store holds it now. One the store no longer holds fails with `schedule_not_found`.",
+      "events": [],
+      "kind": "round_trip",
+      "name": "schedule.info",
+      "params": {
+        "$ref": "#/$defs/ScheduleParams"
+      },
+      "product": "collie",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/ScheduleInfo"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": true,
+      "class": "read",
+      "deprecated": null,
+      "description": "Lists every Schedule of the Schedule store, by ID.",
+      "events": [],
+      "kind": "round_trip",
+      "name": "schedule.list",
+      "params": {
+        "$ref": "#/$defs/ScheduleListParams"
+      },
+      "product": "collie",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/ScheduleList"
       },
       "stability": "experimental"
     },

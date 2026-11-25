@@ -393,6 +393,31 @@
           }
         ],
         "name": "sample"
+      },
+      {
+        "commands": [
+          {
+            "commands": [],
+            "name": "create"
+          },
+          {
+            "commands": [],
+            "name": "list"
+          },
+          {
+            "commands": [],
+            "name": "get"
+          },
+          {
+            "commands": [],
+            "name": "info"
+          },
+          {
+            "commands": [],
+            "name": "delete"
+          }
+        ],
+        "name": "schedule"
       }
     ],
     "name": "goodfetch-collie"
@@ -831,6 +856,31 @@
           }
         ],
         "name": "sample"
+      },
+      {
+        "commands": [
+          {
+            "commands": [],
+            "name": "create"
+          },
+          {
+            "commands": [],
+            "name": "list"
+          },
+          {
+            "commands": [],
+            "name": "get"
+          },
+          {
+            "commands": [],
+            "name": "info"
+          },
+          {
+            "commands": [],
+            "name": "delete"
+          }
+        ],
+        "name": "schedule"
       },
       {
         "commands": [

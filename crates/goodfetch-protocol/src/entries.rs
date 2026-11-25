@@ -8,13 +8,13 @@ use crate::catalog::{
 use crate::{
     audit, block, browser_cache, checkpoint, connection, daemon, dns, download, effect, egress,
     engine, events, executables, foxhound, governor, hook, hostile_input, key_value_store, log,
-    model, needs_you, ops, page, plugin, politeness, response_limits, run, sample,
+    model, needs_you, ops, page, plugin, politeness, response_limits, run, sample, schedule,
     schema_validator, secrets, security, settings, site_preferences, skills, storage, tls, usage,
     versions,
 };
 
 /// Every module that defines entries.
-pub const MODULES: [&Entries; 60] = [
+pub const MODULES: [&Entries; 61] = [
     &connection::ENTRIES,
     &log::ENTRIES,
     &daemon::ENTRIES,
@@ -47,6 +47,7 @@ pub const MODULES: [&Entries; 60] = [
     &secrets::ENTRIES,
     &security::ENTRIES,
     &sample::ENTRIES,
+    &schedule::ENTRIES,
     &settings::ENTRIES,
     &settings::edit::ENTRIES,
     &usage::ENTRIES,
@@ -246,7 +247,7 @@ mod tests {
     }
 
     /// Collie's operations, in the catalog's order.
-    const COLLIE: [&str; 94] = [
+    const COLLIE: [&str; 99] = [
         "connection.set_log_level",
         "daemon.status",
         "daemon.stop",
@@ -334,6 +335,11 @@ mod tests {
         "audit.export",
         "audit.verify",
         "sample.echo",
+        "schedule.create",
+        "schedule.list",
+        "schedule.get",
+        "schedule.info",
+        "schedule.delete",
         "config.explain",
         "config.policy_read",
         "config.policy_write",

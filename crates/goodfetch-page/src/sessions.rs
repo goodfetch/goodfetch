@@ -1053,22 +1053,18 @@ impl Sessions {
         let mut closing = Vec::new();
         // Calls in flight on its pages end first (S7, P8); a crashed page
         // releases what is left (P33).
-        for (page_id, page) in open.pages.all() {
+        for (_, page) in open.pages.all() {
             match page.life.end(ending)? {
-                PageEffect::Close => closing.push((page_id, page)),
-                effect => {
-                    self.page_ended(&page_id, &open.run, &page.life, effect)
-                        .await;
-                }
+                PageEffect::Close => closing.push(page),
+                effect => self.page_ended(&open.run, &page.life, effect).await,
             }
         }
         open.seat.close().await;
-        for (page_id, page) in &closing {
+        for page in &closing {
             // The context's disposal destroyed each target: the close the
             // engine sent is confirmed (P29).
             let effect = page.life.end(&Ending::Destroyed)?;
-            self.page_ended(page_id, &open.run, &page.life, effect)
-                .await;
+            self.page_ended(&open.run, &page.life, effect).await;
         }
         if crashed {
             open.owner.stop().await;

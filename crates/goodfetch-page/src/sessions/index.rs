@@ -163,6 +163,22 @@ impl Index {
             .collect()
     }
 
+    /// The page `page` serves its next request as `next`, which `renamed`
+    /// is now: its Session holds it, and the index names it, by `next`
+    /// alone. Whether it did: not for a page that has gone.
+    pub(super) fn renamed(&self, page: &PageId, next: PageId, renamed: OpenPage) -> bool {
+        let Some(holder) = self.holder(page) else {
+            return false;
+        };
+        if !holder.pages.renamed(page, next.clone(), renamed) {
+            return false;
+        }
+        let mut entries = self.entries();
+        entries.pages.remove(page);
+        entries.pages.insert(next, holder);
+        true
+    }
+
     /// The page `page` goes: its Session no longer holds it, and the index
     /// no longer names it. Answers it, when it was held.
     pub(super) fn remove_page(&self, page: &PageId) -> Option<OpenPage> {
@@ -245,6 +261,24 @@ impl HeldPages {
             .iter()
             .find(|(_, page)| found(page))
             .map(|(page_id, page)| (page_id.clone(), page.clone()))
+    }
+
+    /// The page `page`, still held, is held as `next`, `renamed`, from now
+    /// on: whether it was held.
+    fn renamed(&self, page: &PageId, next: PageId, renamed: OpenPage) -> bool {
+        let earlier = {
+            let mut held = self.held();
+            let Some(earlier) = held.pages.remove(page) else {
+                drop(held);
+                drop(renamed);
+                return false;
+            };
+            held.pages.insert(next, renamed);
+            earlier
+        };
+        // Dropped outside the lock, as a page that goes is.
+        drop(earlier);
+        true
     }
 
     /// The page `page` goes.

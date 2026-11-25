@@ -39,7 +39,7 @@ use super::life::{Ending, PageLife};
 use super::lifecycle::PageEffect;
 use super::robots_txt;
 use super::{
-    OpenPage, Session, Sessions, action_timeout, events_run, interception_run, wait_deadline,
+    OpenPage, Session, Sessions, State, action_timeout, events_run, interception_run, wait_deadline,
 };
 use crate::cdp::CdpPage;
 use crate::consent;
@@ -252,9 +252,7 @@ impl Drop for Listening {
 impl Sessions {
     /// The ID of the next page the engine opens.
     async fn next_page_id(&self) -> PageId {
-        let mut state = self.state.lock().await;
-        state.opened_pages += 1;
-        PageId(format!("page-{}", state.opened_pages))
+        next_page_id(&mut *self.state.lock().await)
     }
 
     /// The page `page`, which `driver` drives for `run` in its place
@@ -392,7 +390,7 @@ impl Sessions {
         // the Sessions is held across the Session's frames' lock
         // (STYLE.md); a popup it opens finds its opener there.
         self.follow_popups(session, &open, &opened.driver).await;
-        self.watch(page.clone(), opened, Arc::clone(&open), browser);
+        self.watch(opened, Arc::clone(&open), browser);
         if open.page_listeners.any() {
             stream
                 .publish(
@@ -645,15 +643,44 @@ impl Sessions {
                 page.driver.close().await;
                 // The close the engine sent is confirmed (P29).
                 let effect = page.life.end(&Ending::Destroyed)?;
-                self.page_ended(page_id, &page.run, &page.life, effect)
-                    .await;
+                self.page_ended(&page.run, &page.life, effect).await;
             }
-            effect => {
-                self.page_ended(page_id, &page.run, &page.life, effect)
-                    .await;
-            }
+            effect => self.page_ended(&page.run, &page.life, effect).await,
         }
         Ok(())
+    }
+
+    /// Replaces the request part of the open page `page_id` (ADR 0146's "A
+    /// released Page"): the page serves its next request under a Page ID
+    /// of its own, which this answers, and a call on `page_id` raises
+    /// `closed` from then on. It sends the browser nothing. `closed` when
+    /// the page is not `Open`: gone, ending, navigating or paused.
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "#2182's release replaces a Page's request part with it"
+        )
+    )]
+    pub(crate) async fn replace_request(&self, page_id: &PageId) -> Result<PageId, CallError> {
+        // Under the table's lock, under which a page's end reads its ID, so
+        // that end finds the page by one ID or the other, never by neither.
+        let mut state = self.state.lock().await;
+        let Some(page) = self.index.page(page_id).filter(|page| page.life.open()) else {
+            return Err(page_closed(page_id));
+        };
+        let next = next_page_id(&mut state);
+        let owner = page.owner.for_request(&next);
+        let renamed = OpenPage {
+            owner: owner.clone(),
+            ..page.clone()
+        };
+        if !self.index.renamed(page_id, next.clone(), renamed) {
+            return Err(page_closed(page_id));
+        }
+        self.page_owners.renamed(page_id, next.clone(), owner);
+        page.life.renamed(next.clone());
+        Ok(next)
     }
 
     /// Whether `page_id` names a page this engine opened.
@@ -661,6 +688,13 @@ impl Sessions {
         let opened = self.state.lock().await.opened_pages;
         opening_number(page_id).is_some_and(|number| (1..=opened).contains(&number))
     }
+}
+
+/// The next Page ID `state` gives, a page's the engine opens or a request's
+/// a page serves next, in one order.
+fn next_page_id(state: &mut State) -> PageId {
+    state.opened_pages += 1;
+    PageId(format!("page-{}", state.opened_pages))
 }
 
 /// The number a page's ID gives it in opening order.

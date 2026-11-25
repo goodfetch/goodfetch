@@ -12,6 +12,9 @@
 //! Session's end the run file waits for (#2168). Another panics in a task
 //! of a Session's owner, which closes that Session alone (#3263), and one
 //! in a task of a browser's owner, which is that browser's crash (#3265).
+//! The last replaces a page's request part (#2277): the page answers its
+//! new Page ID alone, its earlier one raises `closed`, and the browser
+//! reads no command for it.
 #![expect(
     clippy::disallowed_methods,
     reason = "tests run on the test Clock and Entropy (ADR 0059)"
@@ -45,7 +48,7 @@ use goodfetch_protocol::run::{RunId, RunKind, Tags};
 use goodfetch_protocol::settings::{SettingLimit, SettingsLayer};
 use goodfetch_test_support::{OUTCOME_TARGET, TestEnv, capturing};
 use rstest::rstest;
-use serde_json::{Value, json};
+use serde_json::{Map, Value, json};
 use tokio::io::{AsyncBufReadExt as _, AsyncWriteExt as _, BufReader, DuplexStream};
 use tokio::sync::watch;
 
@@ -55,7 +58,7 @@ use crate::borrowed::CdpUrl;
 use crate::dialogs::Dialogs;
 use crate::interception::{HeldBrowser, Interception};
 use crate::launch::Launcher;
-use crate::page_value::ProgramPages;
+use crate::page_value::{HeldPlace, ProgramPages};
 
 /// Opens a Run's default Session and stops the Run while the open waits
 /// for its record.
@@ -102,6 +105,13 @@ const SESSION_PANICKED: Operation = Operation {
 const BROWSER_PANICKED: Operation = Operation {
     name: "test.browser_panicked",
     description: "Panics in a task of a browser's owner and reads what its Session and its pages meet.",
+    ..STOPPED_OPEN
+};
+
+/// Opens a page of a Session and replaces its request part.
+const REQUEST_REPLACED: Operation = Operation {
+    name: "test.request_replaced",
+    description: "Opens a page, replaces its request part and calls each of its IDs after.",
     ..STOPPED_OPEN
 };
 
@@ -178,7 +188,7 @@ async fn ended_past_cap(params: Value, context: CallContext) -> Result<Value, Ca
     })?;
     let confirmed = life.end(&Ending::Destroyed)?;
 
-    sessions.page_ended(&page_id, &run, &life, confirmed).await;
+    sessions.page_ended(&run, &life, confirmed).await;
 
     let raised = sessions
         .page(&page_id)
@@ -304,11 +314,19 @@ async fn session_panicked(params: Value, context: CallContext) -> Result<Value, 
 /// paused clock, which moves on only once every task waits.
 const CRASH_KNOWN_WITHIN: Duration = Duration::from_secs(60);
 
+/// Plays a browser with a window on `pipe`, as [`played_browser_counting`]
+/// does, counting nothing.
+async fn played_browser(pipe: DuplexStream) {
+    played_browser_counting(pipe, &watch::channel(0).0).await;
+}
+
 /// Plays a browser with a window on `pipe`, whose commands and answers
 /// are JSON texts each ended by a NUL: it answers its version, a browser
-/// context's creation and every other command with an empty result, until
-/// the engine asks it to close or lets go of the pipe.
-async fn played_browser(pipe: DuplexStream) {
+/// context's creation, a page's target, its attach, its frame tree, its
+/// worlds and its scripts, and every other command with an empty result,
+/// until the engine asks it to close or lets go of the pipe. Each command
+/// it reads counts on `commands`.
+async fn played_browser_counting(pipe: DuplexStream, commands: &watch::Sender<usize>) {
     let (reader, mut writer) = tokio::io::split(pipe);
     let mut reader = BufReader::new(reader);
     let mut text = Vec::new();
@@ -318,6 +336,7 @@ async fn played_browser(pipe: DuplexStream) {
         }
         let command: Value = serde_json::from_slice(&text).unwrap();
         text.clear();
+        commands.send_modify(|read| *read += 1);
         let method = command["method"].as_str().unwrap();
         let result = match method {
             "Browser.getVersion" => json!({
@@ -328,6 +347,24 @@ async fn played_browser(pipe: DuplexStream) {
                 "jsVersion": "0",
             }),
             "Target.createBrowserContext" => json!({ "browserContextId": "context" }),
+            "Target.createTarget" => json!({ "targetId": "page-target" }),
+            "Target.attachToTarget" => json!({ "sessionId": "page-session" }),
+            "Page.getFrameTree" => json!({ "frameTree": { "frame": {
+                "id": "page-target",
+                "loaderId": "loader",
+                "url": "about:blank",
+                "domainAndRegistry": "",
+                "securityOrigin": "null",
+                "mimeType": "text/html",
+                "secureContextType": "InsecureScheme",
+                "crossOriginIsolatedContextType": "NotIsolated",
+                "gatedAPIFeatures": [],
+            } } }),
+            "Page.createIsolatedWorld" => json!({ "executionContextId": 1 }),
+            "Page.addScriptToEvaluateOnNewDocument" => json!({ "identifier": "script" }),
+            "Runtime.evaluate" | "Runtime.callFunctionOn" => {
+                json!({ "result": { "type": "undefined" } })
+            }
             _ => json!({}),
         };
         let mut answer = json!({ "id": command["id"], "result": result });
@@ -416,6 +453,77 @@ async fn browser_panicked(params: Value, context: CallContext) -> Result<Value, 
     panicked
 }
 
+/// `test.request_replaced`: starts the Run `run_id` with its browsers
+/// shown in a window, reaches it in a Sessions table of its own whose
+/// browsers are scripted, and opens a page of its default Session; then
+/// replaces the page's request part. Answers the page's ID before and
+/// after, what a call on each meets, whether the two name one browser's
+/// page, and how many commands the browser read during the replacement.
+async fn request_replaced(params: Value, context: CallContext) -> Result<Value, CallError> {
+    let run_id = RunId::parse(params["run_id"].as_str().unwrap()).unwrap();
+    let (settings, _) = context
+        .engine()
+        .settings()
+        .open(Opening {
+            run: Some(Product::Collie),
+            settings: serde_json::from_value(json!({ "browser": { "headless": false } })).unwrap(),
+            ..Opening::default()
+        })
+        .await
+        .unwrap();
+    let run = started_under(&run_id, &context, Some(settings)).await?;
+    let (launcher, mut browsers) = Launcher::scripted(None);
+    let sessions = Sessions::new(
+        (Vec::new(), launcher),
+        Interception::default(),
+        Dialogs::default(),
+        Arc::new(ProgramPages),
+    );
+    sessions.reach(&run, &context).await?;
+    let position = sessions
+        .open_held(&run, None, None, Opener::Default, &context)
+        .await?;
+    let session = super::session_id(run.id(), position);
+    let commands = watch::channel(0).0;
+    let replaced = async {
+        let opened = sessions
+            .new_page(&session, &Map::new(), &HeldPlace::default(), &context)
+            .await?;
+        let first = sessions.page(&opened.page_id).await?;
+        let before = *commands.borrow();
+        let next = sessions.replace_request(&opened.page_id).await?;
+        let read = *commands.borrow() - before;
+        let earlier = sessions.page(&opened.page_id).await.err();
+        let now = sessions.page(&next).await;
+        let same_page = now
+            .as_ref()
+            .is_ok_and(|now| now.driver.main_frame() == first.driver.main_frame());
+        Ok::<_, CallError>(json!({
+            "first": opened.page_id,
+            "next": next,
+            "earlier_raises": earlier.as_ref().map(CallError::code),
+            "earlier_names": earlier.as_ref().and_then(CallError::details),
+            "next_found": now.is_ok(),
+            "same_page": same_page,
+            "commands": read,
+        }))
+    };
+    let played = async {
+        if let Some(pipe) = browsers.next().await {
+            played_browser_counting(pipe, &commands).await;
+        }
+    };
+    let (replaced, ()) = tokio::join!(
+        async {
+            let replaced = replaced.await;
+            run.cancellation().cancel();
+            replaced
+        },
+        played
+    );
+    replaced
+}
+
 /// The engine's operations, the page crate's and the test's.
 fn engine() -> Engine {
     let identity = Identity {
@@ -432,7 +540,8 @@ fn engine() -> Engine {
                 .with_handler(Handler::new(&ENDED_PAST_CAP, ended_past_cap))
                 .with_handler(Handler::new(&SESSION_ENDED, session_ended))
                 .with_handler(Handler::new(&SESSION_PANICKED, session_panicked))
-                .with_handler(Handler::new(&BROWSER_PANICKED, browser_panicked)),
+                .with_handler(Handler::new(&BROWSER_PANICKED, browser_panicked))
+                .with_handler(Handler::new(&REQUEST_REPLACED, request_replaced)),
         );
     Engine::new(identity, &composition).unwrap()
 }
@@ -652,6 +761,32 @@ fn a_panic_in_a_browsers_task_is_its_crash_and_its_run_goes_on() {
         ended.trim_start_matches('"').starts_with("browser"),
         "{written}"
     );
+}
+
+/// A Page whose request part is replaced gets a Page ID of its own for its
+/// next request, which names the same browser's page, and a call on its
+/// earlier ID raises `closed` naming that ID; the replacement sends the
+/// browser nothing (ADR 0146's "A released Page", #2277).
+#[test]
+fn a_page_whose_request_part_is_replaced_answers_its_new_id_alone() {
+    let env = TestEnv::new();
+
+    let reply = call(
+        &env,
+        "test.request_replaced",
+        json!({ "run_id": "request-replaced" }),
+    );
+
+    let result = &reply["result"];
+    assert_ne!(result["next"], result["first"], "{reply}");
+    assert_eq!(result["earlier_raises"], json!("closed"), "{reply}");
+    assert_eq!(
+        result["earlier_names"]["page_id"], result["first"],
+        "{reply}"
+    );
+    assert_eq!(result["next_found"], json!(true), "{reply}");
+    assert_eq!(result["same_page"], json!(true), "{reply}");
+    assert_eq!(result["commands"], json!(0), "{reply}");
 }
 
 /// A setting a program's own code sets at no scope is refused at a

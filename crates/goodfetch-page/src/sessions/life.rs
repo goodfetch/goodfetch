@@ -107,7 +107,9 @@ pub(crate) struct PageLife {
 }
 
 struct PageShared {
-    page_id: PageId,
+    /// The Page ID of its request now: each request it serves gets one of
+    /// its own (ADR 0146).
+    page_id: watch::Sender<PageId>,
     state: watch::Sender<PageState>,
     /// What its calls in flight raise once it ended under them, and its
     /// later calls after a crash or an end past its memory cap.
@@ -143,7 +145,7 @@ impl PageLife {
     ) -> Self {
         Self {
             shared: Arc::new(PageShared {
-                page_id,
+                page_id: watch::Sender::new(page_id),
                 state: watch::Sender::new(PageState::Open),
                 ended: watch::Sender::new(None),
                 calls: watch::Sender::new(0),
@@ -155,6 +157,23 @@ impl PageLife {
                 navigation: watch::Sender::new(0),
             }),
         }
+    }
+
+    /// The Page ID of the request it serves now.
+    pub(crate) fn page_id(&self) -> PageId {
+        self.shared.page_id.borrow().clone()
+    }
+
+    /// It serves its next request as `page_id`, its earlier ID naming
+    /// nothing after (ADR 0146).
+    pub(crate) fn renamed(&self, page_id: PageId) {
+        self.shared.page_id.send_replace(page_id);
+    }
+
+    /// Whether it is `Open`: loaded or idle, with no navigation, pause or
+    /// end under way.
+    pub(crate) fn open(&self) -> bool {
+        *self.shared.state.borrow() == PageState::Open
     }
 
     /// Waits until the page's lease ended it (`LeaseEnded`, P31), after
@@ -424,7 +443,7 @@ impl PageLife {
                 .borrow()
                 .clone()
                 .filter(kept_end)
-                .unwrap_or_else(|| page_closed(&self.shared.page_id)),
+                .unwrap_or_else(|| page_closed(&self.page_id())),
             Refusal::Program(code) if code == PAGE_CRASHED.name => self
                 .shared
                 .ended
@@ -490,9 +509,9 @@ impl PageLife {
                 Ending::LeaseEnded(raised) | Ending::RunStopped(raised) | Ending::Panicked(raised),
             ) => Some(raised.clone()),
             (PageEffect::Close, Ending::MemoryExceeded { memory, limit }) => Some(
-                page_memory_exceeded(&self.shared.page_id, *memory, limit.clone()),
+                page_memory_exceeded(&self.page_id(), *memory, limit.clone()),
             ),
-            (PageEffect::Close, Ending::EventsLost) => Some(events_lost(&self.shared.page_id)),
+            (PageEffect::Close, Ending::EventsLost) => Some(events_lost(&self.page_id())),
             (PageEffect::Close, _) => Some(cancelled(CancelledBy::Program, ClosedValue::Page)),
             (PageEffect::ClosedInBrowser, _) => {
                 Some(cancelled(CancelledBy::Browser, ClosedValue::Page))

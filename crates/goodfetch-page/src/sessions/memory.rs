@@ -78,8 +78,7 @@ impl Sessions {
                 // later calls raise `page_memory_exceeded` again.
                 match page.life.end(&Ending::Destroyed) {
                     Ok(effect) => {
-                        self.page_ended(&page_id, &page.run, &page.life, effect)
-                            .await;
+                        self.page_ended(&page.run, &page.life, effect).await;
                     }
                     Err(error) => tracing::error!(%error, "a page's end was refused"),
                 }

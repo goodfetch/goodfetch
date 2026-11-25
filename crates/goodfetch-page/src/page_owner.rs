@@ -53,8 +53,12 @@ pub(crate) struct PageOwner {
     /// The Page's state the owner holds, which its clones share.
     parts: Arc<PageParts>,
     asks: mpsc::Sender<Ask>,
-    /// What an ask raises once the owner has gone: the page's `closed`.
+    /// What an ask raises once the owner has gone: the page's `closed`,
+    /// naming the Page ID this handle was given for.
     closed: Arc<CallError>,
+    /// The Page ID of the request the Page serves now, which a panic of one
+    /// of its tasks names (ADR 0146).
+    request: Arc<watch::Sender<PageId>>,
     /// `engine_panicked`, once a panic of one of its tasks closed it.
     panicked: watch::Receiver<Option<CallError>>,
     /// Where each ask is counted, its Run's (ADR 0140's
@@ -112,11 +116,11 @@ enum Ask {
 }
 
 /// Where the owner's loop keeps what a panic of one of its tasks raises:
-/// `engine_panicked` for the Page `page_id`, counted on `metrics`, its
-/// Run's.
+/// `engine_panicked` for the Page `page_id`, the ID of its request then,
+/// counted on `metrics`, its Run's.
 struct Panicked {
     told: watch::Sender<Option<CallError>>,
-    page_id: PageId,
+    page_id: watch::Receiver<PageId>,
     metrics: Metrics,
 }
 
@@ -139,9 +143,10 @@ impl PageOwner {
     ) -> Self {
         let (asks, mailbox) = mpsc::channel(ASKS);
         let (told, panicked) = watch::channel(None);
+        let (request, named) = watch::channel(page_id.clone());
         let panic = Panicked {
             told,
-            page_id: page_id.clone(),
+            page_id: named,
             metrics: metrics.clone(),
         };
         session.spawn(serve(owner, mailbox, order, panic).instrument(span.clone()));
@@ -149,8 +154,18 @@ impl PageOwner {
             parts: Arc::new(parts),
             asks,
             closed: Arc::new(closed),
+            request: Arc::new(request),
             panicked,
             work: metrics.counted_work().clone(),
+        }
+    }
+
+    /// The handle a call on the Page's next request, `page_id`, holds: one
+    /// owner, whose asks raise `closed` naming `page_id` once it has gone.
+    pub(crate) fn for_request(&self, page_id: &PageId) -> Self {
+        Self {
+            closed: Arc::new(page_closed(page_id)),
+            ..self.clone()
         }
     }
 
@@ -320,6 +335,21 @@ impl PageOwners {
         self.held().insert(page_id, owner);
     }
 
+    /// The open Page `page_id` serves its next request as `next`, its
+    /// owner's handle for it `owner`: the index names it by `next` alone,
+    /// and a panic of one of its tasks names `next`.
+    pub(crate) fn renamed(&self, page_id: &PageId, next: PageId, owner: PageOwner) {
+        let request = Arc::clone(&owner.request);
+        let earlier = {
+            let mut held = self.held();
+            let earlier = held.remove(page_id);
+            held.insert(next.clone(), owner);
+            earlier
+        };
+        drop(earlier);
+        request.send_replace(next);
+    }
+
     /// The owner of the open Page `page_id`.
     pub(crate) fn get(&self, page_id: &PageId) -> Option<PageOwner> {
         self.held().get(page_id).cloned()
@@ -400,9 +430,10 @@ async fn serve(
         tokio::select! {
             biased;
             () = &mut panicked => {
+                let page_id = panic.page_id.borrow().clone();
                 let error = page_panicked(
                     &panic.metrics,
-                    &panic.page_id,
+                    &page_id,
                     owner.panicked_crash_report(),
                 );
                 panic.told.send_replace(Some(error));

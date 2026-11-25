@@ -36,6 +36,7 @@ pub mod governor;
 pub mod home;
 pub mod hook;
 pub mod hostile_input;
+mod inline_value;
 pub mod journey;
 pub mod jsonrpc;
 pub mod key_value_store;

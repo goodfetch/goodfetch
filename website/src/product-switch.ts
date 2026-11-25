@@ -7,6 +7,11 @@ export const products = ["collie", "foxhound"] as const;
 
 export type ProductKey = (typeof products)[number];
 
+/** A Product's name, as its section's title reads it: `Goodfetch Collie`. */
+export function productName(product: ProductKey): string {
+  return `Goodfetch ${product.charAt(0).toUpperCase()}${product.slice(1)}`;
+}
+
 export interface DocRoute {
   id: string;
   path: string;

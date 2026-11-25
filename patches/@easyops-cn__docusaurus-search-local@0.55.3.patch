@@ -1,0 +1,41 @@
+diff --git a/dist/server/server/utils/postBuildFactory.js b/dist/server/server/utils/postBuildFactory.js
+index ba421371a87bb99e7d3b0b3a783e031cc2025c1e..f47ccbb590b6c217a42aa4891e3f91a83dd828d3 100644
+--- a/dist/server/server/utils/postBuildFactory.js
++++ b/dist/server/server/utils/postBuildFactory.js
+@@ -23,7 +23,17 @@ function postBuildFactory(config, searchIndexFilename) {
+                 const docsByDirMap = new Map();
+                 const { searchContextByPaths, hideSearchBarWithNoSearchContext, useAllContextsWithNoSearchContext, } = config;
+                 if (searchContextByPaths) {
+-                    const { baseUrl } = buildData;
++                    // Goodfetch's patch: a context's path is read from the
++                    // version's URL, as the search bar reads it, not from
++                    // the site's base URL.
++                    const versionPath = path_1.default
++                        .relative(buildData.outDir, versionData.outDir)
++                        .split(path_1.default.sep)
++                        .filter(Boolean)
++                        .join("/");
++                    const baseUrl = versionPath === ""
++                        ? buildData.baseUrl
++                        : `${buildData.baseUrl}${versionPath}/`;
+                     const rootAllDocs = [];
+                     if (!hideSearchBarWithNoSearchContext) {
+                         docsByDirMap.set("", rootAllDocs);
+@@ -62,6 +72,17 @@ function postBuildFactory(config, searchIndexFilename) {
+                         }
+                         docIndex++;
+                     }
++                    // Goodfetch's patch: each context also holds the
++                    // documents no context matches, so a search from a
++                    // section also finds the root pages (ADR 0097).
++                    for (const [dir, dirAllDocs] of docsByDirMap) {
++                        if (dir === "") {
++                            continue;
++                        }
++                        for (let i = 0; i < allDocuments.length; i++) {
++                            dirAllDocs[i] = (dirAllDocs[i] || []).concat(rootAllDocs[i]);
++                        }
++                    }
+                 }
+                 else {
+                     docsByDirMap.set("", allDocuments);

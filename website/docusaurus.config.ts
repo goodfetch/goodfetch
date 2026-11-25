@@ -9,6 +9,7 @@ import type * as Preset from "@docusaurus/preset-classic";
 import type { Config } from "@docusaurus/types";
 import { themes } from "prism-react-renderer";
 import llmsPlugin from "./src/llms-plugin.ts";
+import { searchOptions } from "./src/search.ts";
 import { directivesUsed, fenceLanguage } from "./src/strict-markdown.ts";
 import { readVersions, versionsConfig } from "./src/versions.ts";
 
@@ -37,6 +38,7 @@ const config: Config = {
   },
   i18n: { defaultLocale: "en", locales: ["en"] },
   plugins: [llmsPlugin],
+  themes: [["@easyops-cn/docusaurus-search-local", { ...searchOptions }]],
   presets: [
     [
       "classic",

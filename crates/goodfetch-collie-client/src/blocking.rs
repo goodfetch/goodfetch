@@ -16,7 +16,7 @@ use goodfetch_protocol::page::read::{PageRead, PageReadParams};
 use goodfetch_protocol::run::{CatalogTarget, Recording, RunId, RunProgress, RunReport, Tags};
 use goodfetch_protocol::schedule::{
     ScheduleCreateParams, ScheduleDefinition, ScheduleGetParams, ScheduleId, ScheduleInfo,
-    ScheduleListParams, ScheduleWarning,
+    ScheduleListParams,
 };
 use goodfetch_protocol::settings::{ConfigExplainParams, SettingsExplanation};
 use serde::Serialize;
@@ -252,13 +252,10 @@ impl Schedules {
         &self,
         definition: ScheduleDefinition,
     ) -> Call<CreatedSchedule, ScheduleCreateParams> {
-        let call = self.0.create(definition).map(|created| {
-            let (schedule, warnings) = created.into_parts();
-            CreatedSchedule {
-                schedule: Schedule::from(schedule),
-                warnings,
-            }
-        });
+        let call = self
+            .0
+            .create(definition)
+            .map(|created| created.map_schedule(Schedule::from));
         Call::new(call, &self.1)
     }
 
@@ -282,33 +279,8 @@ impl Schedules {
     }
 }
 
-/// What [`Schedules::create`] answers: the created Schedule, and what its
-/// program should know.
-#[derive(Clone, Debug)]
-pub struct CreatedSchedule {
-    schedule: Schedule,
-    warnings: Vec<ScheduleWarning>,
-}
-
-impl CreatedSchedule {
-    /// The Schedule, under the ID given or made.
-    #[must_use]
-    pub fn schedule(&self) -> &Schedule {
-        &self.schedule
-    }
-
-    /// What did not stop its creation but its program should know.
-    #[must_use]
-    pub fn warnings(&self) -> &[ScheduleWarning] {
-        &self.warnings
-    }
-
-    /// The Schedule and its warnings.
-    #[must_use]
-    pub fn into_parts(self) -> (Schedule, Vec<ScheduleWarning>) {
-        (self.schedule, self.warnings)
-    }
-}
+/// What [`Schedules::create`] answers, its Schedule's calls blocking.
+pub type CreatedSchedule = crate::schedules::CreatedSchedule<Schedule>;
 
 /// The blocking twin of [`crate::Connection`]: a helper a library serving
 /// both Products writes takes `&impl blocking::Connection`, so it accepts

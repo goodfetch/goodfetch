@@ -70,6 +70,9 @@ packages:
     cpu: [ppc64]
     os: [aix]
 
+  platform-runtime@1.0.0:
+    resolution: {integrity: sha512-GGGG}
+
 snapshots:
 
   '@scoped/transitive-package@2.0.0': {}
@@ -86,4 +89,9 @@ snapshots:
       platform-package: 3.0.0
 
   platform-package@3.0.0:
+    dependencies:
+      platform-runtime: 1.0.0
+    optional: true
+
+  platform-runtime@1.0.0:
     optional: true

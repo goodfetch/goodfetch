@@ -15,6 +15,10 @@
 //! executable in the list of installed executables (ADR 0098);
 //! `command-line` runs before any of the executable's set-up.
 //!
+//! Size: one concern, the executables' entry: the command line both
+//! Products share, the set-up every command runs first and each command's
+//! dispatch to the module that serves it.
+//!
 //! An executable more than three months past its release date prints the
 //! age notice on stderr before its command, once a day, unless
 //! `version.age_notice` is `false` (ADR 0030); a Daemon a start launched

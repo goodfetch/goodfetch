@@ -303,3 +303,11 @@ reason = "Foxhound's operation map gains full-text search in a run, `dataset.sea
 [[announced]]
 entry = "typescript @goodfetch/collie-client/generated DEPLOYMENT_VARIABLES"
 reason = "A deployment variable joins the list, `GOODFETCH_EKS_FARGATE_PROFILE`, which names EKS on Fargate to Chromium's sandbox probe (issue 1619): the tuple type gains an element."
+
+[[announced]]
+entry = "collie error_codes page_events_lost"
+reason = "`page_events_lost` turns retryable (spec #2256, #3260): the engine now closes a page whose events it fell 4,096 behind, so the remedy is another page, as for `page_crashed` and `page_memory_exceeded`, and a listener that left 1,024 events untaken may listen again."
+
+[[announced]]
+entry = "foxhound error_codes page_events_lost"
+reason = "`page_events_lost` turns retryable (spec #2256, #3260): the engine now closes a page whose events it fell 4,096 behind, so the remedy is another page, as for `page_crashed` and `page_memory_exceeded`, and a listener that left 1,024 events untaken may listen again."

@@ -148,14 +148,16 @@ function callOptions(options: ScheduleCallOptions): CallOptions {
   };
 }
 
+/** Fails a member a Schedule's host never serves: what a Schedule does not hold. */
+function nothingHeld(what: string): never {
+  throw new TypeError(`invariant: a Schedule ${what}`);
+}
+
 /** The host of the Schedule of ID `id`: its calls go through `host`, and it opens, closes and listens to nothing. */
 function scheduleHost(
   host: SchedulesHost,
   id: ScheduleId,
 ): HandleHost<ScheduleId, CollieOperationTypes> {
-  const nothingHeld = (what: string): never => {
-    throw new TypeError(`invariant: a Schedule ${what}`);
-  };
   return {
     id,
     call(operation, params, options) {

@@ -35,7 +35,7 @@ use secrecy::{ExposeSecret as _, SecretString};
 use serde_json::{Value, json};
 
 use crate::endpoint::{metadata_url, server_url, unreached, variable};
-use crate::identity::{METADATA_WAIT, Reach, not_configured, unrecognized};
+use crate::identity::{METADATA_WAIT, Reach, access_token, not_configured, unrecognized};
 
 /// The variable that holds an access token.
 const TOKEN_VARIABLE: &str = "GOOGLE_OAUTH_ACCESS_TOKEN";
@@ -327,19 +327,6 @@ async fn from_metadata(address: &str, reach: &Reach<'_>) -> Result<SecretString,
         200 => access_token(answer.body(), METADATA_SERVER),
         status => Err(absent(&format!("answered HTTP {status}"))),
     }
-}
-
-/// The `access_token` of an OAuth 2.0 token answer, `body`, of `service`'s.
-fn access_token(body: &[u8], service: &str) -> Result<SecretString, ProviderFailure> {
-    serde_json::from_slice::<Value>(body)
-        .ok()
-        .and_then(|answer| {
-            answer
-                .get("access_token")
-                .and_then(Value::as_str)
-                .map(|token| SecretString::from(token.to_owned()))
-        })
-        .ok_or_else(|| unrecognized(service, "no `access_token`"))
 }
 
 /// The OAuth 2.0 errors Google's token endpoint is known to answer a JWT

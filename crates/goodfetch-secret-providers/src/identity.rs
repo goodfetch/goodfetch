@@ -11,6 +11,7 @@ use goodfetch_engine::secret_endpoint::SecretProviderEndpoint;
 use goodfetch_engine::secrets::{ConfigProblem, PartyText, ProviderFailure};
 use goodfetch_engine::tasks::BlockingThreads;
 use secrecy::SecretString;
+use serde_json::Value;
 
 /// How long a cloud's metadata service may take to answer before the host
 /// is taken to have none, as the clouds' own SDKs wait.
@@ -58,4 +59,17 @@ pub(crate) fn not_configured(fix: String) -> ProviderFailure {
 pub(crate) fn unrecognized(service: &str, what: &str) -> ProviderFailure {
     tracing::warn!(service, "an identity endpoint answered an unknown shape");
     ProviderFailure::Unrecognized(PartyText::new(format!("{service} answered {what}")))
+}
+
+/// The `access_token` of an OAuth 2.0 token answer, `body`, of `service`'s.
+pub(crate) fn access_token(body: &[u8], service: &str) -> Result<SecretString, ProviderFailure> {
+    serde_json::from_slice::<Value>(body)
+        .ok()
+        .and_then(|answer| {
+            answer
+                .get("access_token")
+                .and_then(Value::as_str)
+                .map(|token| SecretString::from(token.to_owned()))
+        })
+        .ok_or_else(|| unrecognized(service, "no `access_token`"))
 }

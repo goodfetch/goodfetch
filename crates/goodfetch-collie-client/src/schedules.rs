@@ -25,17 +25,18 @@ pub struct Schedules {
 }
 
 /// What [`Schedules::create`] answers: the created Schedule, and what its
-/// program should know.
+/// program should know. Its Schedule is the handle of the face that asked,
+/// the blocking face's under `blocking::CreatedSchedule`.
 #[derive(Clone, Debug)]
-pub struct CreatedSchedule {
-    schedule: Schedule,
+pub struct CreatedSchedule<S = Schedule> {
+    schedule: S,
     warnings: Vec<ScheduleWarning>,
 }
 
-impl CreatedSchedule {
+impl<S> CreatedSchedule<S> {
     /// The Schedule, under the ID given or made.
     #[must_use]
-    pub fn schedule(&self) -> &Schedule {
+    pub fn schedule(&self) -> &S {
         &self.schedule
     }
 
@@ -47,8 +48,16 @@ impl CreatedSchedule {
 
     /// The Schedule and its warnings.
     #[must_use]
-    pub fn into_parts(self) -> (Schedule, Vec<ScheduleWarning>) {
+    pub fn into_parts(self) -> (S, Vec<ScheduleWarning>) {
         (self.schedule, self.warnings)
+    }
+
+    /// The same answer, its Schedule turned into another face's handle.
+    pub(crate) fn map_schedule<T>(self, face: impl FnOnce(S) -> T) -> CreatedSchedule<T> {
+        CreatedSchedule {
+            schedule: face(self.schedule),
+            warnings: self.warnings,
+        }
     }
 }
 

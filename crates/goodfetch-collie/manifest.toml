@@ -521,6 +521,51 @@ form = "read"
 [[member]]
 crate = "goodfetch-collie"
 receiver = "executable"
+member = "StarterFile"
+entry = "none"
+reason = "One file of a starter an executable embeds, which `init` writes: its path from the starters folder and its bytes."
+words = ["starter", "file"]
+form = "type"
+
+[[member]]
+crate = "goodfetch-collie"
+receiver = "executable"
+member = "Starters"
+entry = "none"
+reason = "The starters an executable embeds, which `init` writes into a new project's folder."
+words = ["starters"]
+form = "type"
+
+[[member]]
+crate = "goodfetch-collie"
+receiver = "executable::Starters"
+member = "COLLIE"
+entry = "none"
+reason = "Collie's executable's: its renderings of `starters/`."
+words = ["collie"]
+form = "constant"
+
+[[member]]
+crate = "goodfetch-collie"
+receiver = "executable::Starters"
+member = "new"
+entry = "none"
+reason = "The starters of `files`, such as a Product's own list."
+words = ["new"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-collie"
+receiver = "executable::Starters"
+member = "files"
+entry = "none"
+reason = "Their files, which each executable's unit test reads."
+words = ["files"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-collie"
+receiver = "executable"
 member = "Start"
 entry = "none"
 reason = "What a Product's `main` passes to `main`."

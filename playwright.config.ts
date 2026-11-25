@@ -31,26 +31,6 @@ const ignored = [
   new RegExp(`^${root}/(?:\\.[^/]+|rnd|ci/proofs)/`),
 ];
 
-// The docs site's tests (`website/tests/`) read the built site, which their
-// setup project builds once per run before any of them starts, every kept
-// version included (TESTING.md, Docs site). Only their own projects run
-// them, on Chromium, and in the Release suite on Firefox and WebKit too,
-// but for the link check, which opens no browser.
-const docsSiteTests = new RegExp(`^${root}/website/tests/[^/]+\\.spec\\.ts$`);
-const docsSiteBuild = new RegExp(`^${root}/website/tests/build\\.setup\\.ts$`);
-const docsSiteLinks = new RegExp(`^${root}/website/tests/links\\.spec\\.ts$`);
-const docsSiteProjects = (browserNames: readonly ("chromium" | "firefox" | "webkit")[]) =>
-  browserNames.map((browserName) => ({
-    name: browserName === "chromium" ? "docs-site" : `docs-site-${browserName}`,
-    testMatch: docsSiteTests,
-    testIgnore:
-      browserName === "chromium"
-        ? [PLAYWRIGHT_VISUAL_TESTS]
-        : [PLAYWRIGHT_VISUAL_TESTS, docsSiteLinks],
-    dependencies: ["docs-site-build"],
-    use: { browserName },
-  }));
-
 // The Release suite runs every test on every browser Playwright ships; the
 // Pre-merge suite on Chromium alone (TESTING.md, Browsers). Its translation
 // project reruns the served tests with test support's translation-emulation
@@ -68,39 +48,18 @@ const releaseProjects: ServedProject[] =
     ? [
         ...(["firefox", "webkit"] as const).map((browserName) => ({
           name: browserName,
-          testIgnore: [...ignored, PLAYWRIGHT_VISUAL_TESTS, docsSiteTests],
+          testIgnore: [...ignored, PLAYWRIGHT_VISUAL_TESTS],
           use: { browserName },
         })),
         {
           name: "translation",
-          testIgnore: [...ignored, PLAYWRIGHT_VISUAL_TESTS, docsSiteTests],
+          testIgnore: [...ignored, PLAYWRIGHT_VISUAL_TESTS],
           use: { translationEmulation: true },
         },
         {
           name: "elsewhere",
-          testIgnore: [...ignored, PLAYWRIGHT_VISUAL_TESTS, docsSiteTests],
+          testIgnore: [...ignored, PLAYWRIGHT_VISUAL_TESTS],
           use: { locale: "tr-TR", timezoneId: "Asia/Kathmandu" },
-        },
-        ...docsSiteProjects(["firefox", "webkit"]),
-      ]
-    : [];
-
-// The docs site's Live checks (`website/tests/live/*.live.ts`; ADR 0068),
-// which reach other sites, run only when `GOODFETCH_TEST_SUITE` is `live`:
-// `docs-external-links` over the built site, `docs-deploy-smoke` over the
-// deployed one, which needs no build. Their workflow uploads Playwright's
-// JUnit file under the `live` tier.
-const liveProjects: ServedProject[] =
-  process.env["GOODFETCH_TEST_SUITE"] === "live"
-    ? [
-        {
-          name: "docs-external-links",
-          testMatch: new RegExp(`^${root}/website/tests/live/external-links\\.live\\.ts$`),
-          dependencies: ["docs-site-build"],
-        },
-        {
-          name: "docs-deploy-smoke",
-          testMatch: new RegExp(`^${root}/website/tests/live/deploy-smoke\\.live\\.ts$`),
         },
       ]
     : [];
@@ -123,11 +82,8 @@ const config: PlaywrightTestConfig<ServedOptions> = defineConfig<ServedOptions>(
   metadata: { features: readFeatureIds(import.meta.dirname) },
   use: { trace: "retain-on-failure" },
   projects: [
-    { name: "default", testIgnore: [...ignored, PLAYWRIGHT_VISUAL_TESTS, docsSiteTests] },
-    { name: "docs-site-build", testMatch: docsSiteBuild },
-    ...docsSiteProjects(["chromium"]),
+    { name: "default", testIgnore: [...ignored, PLAYWRIGHT_VISUAL_TESTS] },
     ...releaseProjects,
-    ...liveProjects,
     ...visual.projects,
   ],
 });

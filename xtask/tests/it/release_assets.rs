@@ -9,8 +9,8 @@ use sha2::{Digest as _, Sha256};
 
 use crate::workspace::{Workspace, finding};
 
-/// The seven targets each Product ships an archive for (spec #130).
-const TARGETS: [&str; 7] = [
+/// The targets each Product ships an archive for (ADR 0024).
+const TARGETS: [&str; 8] = [
     "x86_64-unknown-linux-gnu",
     "aarch64-unknown-linux-gnu",
     "x86_64-unknown-linux-musl",
@@ -18,6 +18,7 @@ const TARGETS: [&str; 7] = [
     "aarch64-apple-darwin",
     "x86_64-apple-darwin",
     "x86_64-pc-windows-msvc",
+    "aarch64-pc-windows-msvc",
 ];
 
 /// The folder the built files are gathered in.

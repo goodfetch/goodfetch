@@ -32,9 +32,10 @@ const PART: &str = ".part-";
 /// The number of digits in a part's number.
 const PART_DIGITS: usize = 3;
 
-/// The seven targets each Product ships an archive and debug symbols for
-/// (spec #130).
-const TARGETS: [&str; 7] = [
+/// The targets each Product ships an archive and debug symbols for: Linux
+/// x64 and arm64 on glibc and musl, macOS arm64 and x64, and Windows x64
+/// and arm64 (ADR 0024).
+const TARGETS: [&str; 8] = [
     "x86_64-unknown-linux-gnu",
     "aarch64-unknown-linux-gnu",
     "x86_64-unknown-linux-musl",
@@ -42,6 +43,7 @@ const TARGETS: [&str; 7] = [
     "aarch64-apple-darwin",
     "x86_64-apple-darwin",
     "x86_64-pc-windows-msvc",
+    "aarch64-pc-windows-msvc",
 ];
 
 /// The files each Product must put on the GitHub Release, each named after

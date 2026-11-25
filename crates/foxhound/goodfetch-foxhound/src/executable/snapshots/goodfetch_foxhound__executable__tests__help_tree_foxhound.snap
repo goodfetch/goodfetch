@@ -31,6 +31,7 @@ Commands:
   catalog-run      Calls the catalog's `catalog_run` operations
   key-value-store  Calls the catalog's `key_value_store` operations
   sample           Calls the catalog's `sample` operations
+  schedule         Calls the catalog's `schedule` operations
   crawl            Calls the catalog's `crawl` operations
   dataset          Calls the catalog's `dataset` operations
 
@@ -1570,6 +1571,95 @@ Options:
       --daemon         Runs the call on the Daemon of the major, starting it if none runs; its refusal ends the command
       --color <WHEN>   When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
   -h, --help           Print help
+
+$ goodfetch-foxhound schedule --help
+Calls the catalog's `schedule` operations
+
+Usage: goodfetch-foxhound schedule [OPTIONS] <COMMAND>
+
+Commands:
+  create  Records a Schedule in the Schedule store, which the Daemon keeps, and answers its ID, as given or made (`s` and a lowercase ULID), with warnings. Nothing fires yet. A taken ID fails with `schedule_exists`, a trigger that does not parse with `schedule_trigger_invalid`. Its time zone is the Daemon host's when the definition names none. One store transaction: a cancel stops it only before it commits
+  list    Lists every Schedule of the Schedule store, by ID
+  get     Reads the Schedule of an ID. An ID the store does not hold fails with `schedule_not_found`
+  info    Reads the Schedule as its store holds it now. One the store no longer holds fails with `schedule_not_found`
+  delete  Deletes the Schedule from its store, so it never fires again, and answers whether it did: false when the store held none of that ID, as after a resent delete. One store transaction: a cancel stops it only before it commits
+
+Options:
+      --color <WHEN>  When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+  -h, --help          Print help
+
+$ goodfetch-foxhound schedule create --help
+Records a Schedule in the Schedule store, which the Daemon keeps, and answers its ID, as given or made (`s` and a lowercase ULID), with warnings. Nothing fires yet. A taken ID fails with `schedule_exists`, a trigger that does not parse with `schedule_trigger_invalid`. Its time zone is the Daemon host's when the definition names none. One store transaction: a cancel stops it only before it commits
+
+Usage: goodfetch-foxhound schedule create [OPTIONS] --definition <DEFINITION>
+
+Options:
+      --definition <DEFINITION>  The Schedule
+      --timeout <DURATION>       How long the call may take, in milliseconds, at least 1: absent for `timeout.wait`, `null` for none (ADR 0080)
+      --json                     Prints the result as JSON
+      --attached                 Runs the call on an Attached engine in this process, even when a Daemon runs
+      --daemon                   Runs the call on the Daemon of the major, starting it if none runs; its refusal ends the command
+      --color <WHEN>             When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+  -h, --help                     Print help
+
+$ goodfetch-foxhound schedule list --help
+Lists every Schedule of the Schedule store, by ID
+
+Usage: goodfetch-foxhound schedule list [OPTIONS]
+
+Options:
+      --timeout <DURATION>  How long the call may take, in milliseconds, at least 1: absent for `timeout.wait`, `null` for none (ADR 0080)
+      --json                Prints the result as JSON
+      --attached            Runs the call on an Attached engine in this process, even when a Daemon runs
+      --daemon              Runs the call on the Daemon of the major, starting it if none runs; its refusal ends the command
+      --color <WHEN>        When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+  -h, --help                Print help
+
+$ goodfetch-foxhound schedule get --help
+Reads the Schedule of an ID. An ID the store does not hold fails with `schedule_not_found`
+
+Usage: goodfetch-foxhound schedule get [OPTIONS] --id <ID>
+
+Options:
+      --id <ID>             The Schedule's ID
+      --timeout <DURATION>  How long the call may take, in milliseconds, at least 1: absent for `timeout.wait`, `null` for none (ADR 0080)
+      --json                Prints the result as JSON
+      --attached            Runs the call on an Attached engine in this process, even when a Daemon runs
+      --daemon              Runs the call on the Daemon of the major, starting it if none runs; its refusal ends the command
+      --color <WHEN>        When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+  -h, --help                Print help
+
+$ goodfetch-foxhound schedule info --help
+Reads the Schedule as its store holds it now. One the store no longer holds fails with `schedule_not_found`
+
+Usage: goodfetch-foxhound schedule info [OPTIONS] <SCHEDULE_ID>
+
+Arguments:
+  <SCHEDULE_ID>  The Schedule's ID
+
+Options:
+      --timeout <DURATION>  How long the call may take, in milliseconds, at least 1: absent for `timeout.wait`, `null` for none (ADR 0080)
+      --json                Prints the result as JSON
+      --attached            Runs the call on an Attached engine in this process, even when a Daemon runs
+      --daemon              Runs the call on the Daemon of the major, starting it if none runs; its refusal ends the command
+      --color <WHEN>        When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+  -h, --help                Print help
+
+$ goodfetch-foxhound schedule delete --help
+Deletes the Schedule from its store, so it never fires again, and answers whether it did: false when the store held none of that ID, as after a resent delete. One store transaction: a cancel stops it only before it commits
+
+Usage: goodfetch-foxhound schedule delete [OPTIONS] <SCHEDULE_ID>
+
+Arguments:
+  <SCHEDULE_ID>  The Schedule's ID
+
+Options:
+      --timeout <DURATION>  How long the call may take, in milliseconds, at least 1: absent for `timeout.wait`, `null` for none (ADR 0080)
+      --json                Prints the result as JSON
+      --attached            Runs the call on an Attached engine in this process, even when a Daemon runs
+      --daemon              Runs the call on the Daemon of the major, starting it if none runs; its refusal ends the command
+      --color <WHEN>        When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+  -h, --help                Print help
 
 $ goodfetch-foxhound crawl --help
 Calls the catalog's `crawl` operations

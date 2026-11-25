@@ -608,8 +608,7 @@ impl Sessions {
             ));
         }
         let session = session_id(run.id(), position);
-        self.new_page(&session, settings, &HeldPlace::default(), context)
-            .await
+        Box::pin(self.new_page(&session, settings, &HeldPlace::default(), context)).await
     }
 
     /// Opens the default Session of `run`, or a Session its crawl's Session
@@ -780,8 +779,7 @@ impl Sessions {
         context: &CallContext,
     ) -> Result<PageOpened, CallError> {
         let session = self.pool_session(run_id, pooled, context).await?;
-        self.new_page(&session, &Map::new(), &pooled.place, context)
-            .await
+        Box::pin(self.new_page(&session, &Map::new(), &pooled.place, context)).await
     }
 
     /// The Session a crawl's Session pool names `pooled` in the live Run

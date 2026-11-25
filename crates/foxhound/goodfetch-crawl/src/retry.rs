@@ -25,7 +25,9 @@
 use goodfetch_engine::run::{
     checkpoint_interval, run_error, run_layer, settings_error, through_owner,
 };
-use goodfetch_engine::runs::{Resume, Resumed, Run, RunError};
+use goodfetch_engine::run_identity::RunIdentity;
+use goodfetch_engine::run_state::RunState;
+use goodfetch_engine::runs::{self, Resume, Resumed, RunError};
 use goodfetch_engine::settings::Opening;
 use goodfetch_engine::{CallContext, CallError, Handler};
 use goodfetch_frontier::payload::PayloadRules;
@@ -64,7 +66,7 @@ async fn retry_failed(
             }
             // Its intake closed, or it ended since.
             Ok(None) | Err(StateError::Closed) => {}
-            Err(error) => return Err(unwritten(&run, &error)),
+            Err(error) => return Err(unwritten(&run.identity, &error)),
         }
         // The crawl is ending its Run: once it ended, its failures are
         // re-admitted as an ended Run's are.
@@ -157,9 +159,10 @@ async fn reopened(
         .map_err(|error| run_error(error, &context))?;
     match resumed {
         Resumed::New { run, kind, .. } => {
-            let readmitted = readmit(&run, blocked).await;
+            let identity = runs::identity(&run);
+            let readmitted = readmit(identity, runs::state(&run), blocked).await;
             if let Some(driver) = context.driver(kind) {
-                run.spawn(driver(*run.clone(), context.clone(), settings));
+                identity.spawn(driver(*run.clone(), context.clone(), settings));
             }
             readmitted.map(|readmitted| RetriedFailed { readmitted })
         }
@@ -175,12 +178,11 @@ async fn reopened(
 }
 
 /// Re-admits the failures of `run`, reopened and not driven yet, and with
-/// `blocked` its blocked requests, in one write of its state, and answers
-/// how many: no loop owns its Run state before its driver starts, which
-/// then builds it from the run file.
-async fn readmit(run: &Run, blocked: bool) -> Result<u64, CallError> {
-    let readmitted = run
-        .state()
+/// `blocked` its blocked requests, in one write of its state through
+/// `state`, and answers how many: no loop owns its Run state before its
+/// driver starts, which then builds it from the run file.
+async fn readmit(run: &RunIdentity, state: &RunState, blocked: bool) -> Result<u64, CallError> {
+    let readmitted = state
         .write(move |connection| {
             // Its Run state, built after this write, counts its requests
             // on from what the run file then holds.
@@ -192,7 +194,7 @@ async fn readmit(run: &Run, blocked: bool) -> Result<u64, CallError> {
 }
 
 /// `run_state_unavailable` for a re-admission `run`'s state did not take.
-fn unwritten(run: &Run, error: &dyn std::fmt::Display) -> CallError {
+fn unwritten(run: &RunIdentity, error: &dyn std::fmt::Display) -> CallError {
     CallError::new(
         &RUN_STATE_UNAVAILABLE,
         format!(

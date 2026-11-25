@@ -12,7 +12,6 @@ use std::sync::Arc;
 use goodfetch_counted_work::Row;
 use goodfetch_engine::CallContext;
 use goodfetch_engine::metrics::Counted;
-use goodfetch_engine::runs::Run;
 use goodfetch_fetch_tier::{FetchAdmission, PooledSession};
 use goodfetch_protocol::foxhound::session_pool::ServingSession;
 use tokio::sync::{mpsc, oneshot};
@@ -20,6 +19,7 @@ use tokio::task::{JoinError, JoinSet};
 
 use super::attempt::{Attempt, Handling, Lessons, Tiering, attempt};
 use super::watch::Watch;
+use crate::crawl_run::CrawlRun;
 use crate::lease::WorkItemLease;
 use crate::progress::SharedInFlight;
 use crate::work_items::Leased;
@@ -52,7 +52,7 @@ struct Ended {
 
 /// The pages' tasks of one crawl, as its delivery loop holds them.
 pub(super) struct Pages {
-    run: Run,
+    run: Arc<CrawlRun>,
     in_flight: SharedInFlight,
     /// Where its pages note what they teach the Frontier.
     lessons: Lessons,
@@ -68,10 +68,10 @@ pub(super) struct Pages {
 impl Pages {
     /// No task yet, for `run`'s crawl, whose requests in flight
     /// `in_flight` shows and whose pages note their lessons in `lessons`.
-    pub(super) fn new(run: &Run, in_flight: &SharedInFlight, lessons: Lessons) -> Self {
+    pub(super) fn new(run: &Arc<CrawlRun>, in_flight: &SharedInFlight, lessons: Lessons) -> Self {
         let (mailbox, ended) = mpsc::channel(MAILBOX);
         Self {
-            run: run.clone(),
+            run: Arc::clone(run),
             in_flight: Arc::clone(in_flight),
             lessons,
             tasks: JoinSet::new(),
@@ -99,7 +99,7 @@ impl Pages {
             }
         }
         self.tasks.spawn(page(
-            self.run.clone(),
+            Arc::clone(&self.run),
             (Arc::clone(&self.in_flight), self.lessons.clone()),
             self.mailbox.clone(),
             start,
@@ -163,7 +163,7 @@ impl Pages {
 /// its end through `mailbox`; and runs the attempt the answer carries, until
 /// the loop has none for it.
 async fn page(
-    run: Run,
+    run: Arc<CrawlRun>,
     (in_flight, lessons): (SharedInFlight, Lessons),
     mailbox: mpsc::Sender<Box<Ended>>,
     mut start: Box<Start>,
@@ -180,7 +180,7 @@ async fn page(
         // Boxed: an attempt's future is large, and the task keeps it only
         // while the attempt runs.
         let ended = Box::pin(attempt(
-            run.clone(),
+            Arc::clone(&run),
             server,
             context,
             leased,
@@ -195,7 +195,10 @@ async fn page(
             attempt: ended,
             next,
         });
-        run.metrics().counted_work().count(Row::ActorRoundTrips);
+        run.identity
+            .metrics()
+            .counted_work()
+            .count(Row::ActorRoundTrips);
         if mailbox.send(ended).await.is_err() {
             return;
         }

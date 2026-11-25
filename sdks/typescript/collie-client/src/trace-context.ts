@@ -9,7 +9,7 @@
 // own Subscription, shared by every stream of the events it publishes,
 // belongs to no one caller, so its request carries none.
 /** The member of a request's params that holds its envelope (ADR 0132). */
-const META = "_meta";
+export const META = "_meta";
 
 /**
  * The OpenTelemetry API's package, named in a value so that neither the

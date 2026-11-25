@@ -44,7 +44,7 @@ import {
   type UsageSetParams,
 } from "./generated/index.ts";
 import type { JSONValue } from "./json.ts";
-import type { ProjectFile } from "./project-file.ts";
+import { TIMEOUT_CONNECT, type ProjectFile } from "./project-file.ts";
 import { limitList, type Limits } from "./limits.ts";
 import { logEngineEvent, logLevelOf, type Logger } from "./logger.ts";
 import { collieWire, type CollieWireType } from "./generated/wire.ts";
@@ -889,7 +889,7 @@ export class ClientConnection implements AsyncDisposable {
       return answered.answer;
     }
     throw phaseExceeded(
-      `timeout.connect (${value} ms) passed before the engine answered hello`,
+      `${TIMEOUT_CONNECT} (${value} ms) passed before the engine answered hello`,
       "Raise connect()'s timeout, or find why the engine does not answer in the engine's stderr, which the logger got.",
       limit,
       startedAt,
@@ -1033,7 +1033,7 @@ export function connectLimit(
   timeout: number | null | undefined,
   project: ProjectFile | undefined,
 ): ConnectLimit | null {
-  const key = "timeout.connect";
+  const key = TIMEOUT_CONNECT;
   if (timeout === null) {
     return null;
   }

@@ -13,6 +13,7 @@
 import type { CallOptions } from "./caller.ts";
 import { ProgramError } from "./generated/errors.ts";
 import type { JSONValue } from "./json.ts";
+import { META } from "./trace-context.ts";
 import { collieWire } from "./generated/wire.ts";
 import { toWire, type WirePath } from "./wire.ts";
 
@@ -64,9 +65,6 @@ function refused(operation: string, reason: string, fix: string): ProgramError {
     details: { operation },
   });
 }
-
-/** The member of a request's params that holds its envelope (ADR 0132). */
-const META = "_meta";
 
 /** The method `JSON.stringify` calls to replace the value it serializes. */
 const TO_JSON = "toJSON";

@@ -271,7 +271,7 @@ fn plan_run(environment: &Environment, options: &PlanArguments) -> Result<()> {
     let base = plan_base(root, options.layer, &head)?;
     let tree = git::line(root, &["rev-parse", "--verify", "HEAD^{tree}"])?;
     let image = host::ci_image(root, &tree).unwrap_or_default();
-    let host = plan_host(environment, options, &image);
+    let host = plan_host(environment, options, &image)?;
     let members_read = WorkspaceMembers::read(&environment.cargo, root)?;
     let unowned = evidence::unowned_tests(root, &members_read)?;
     let (members, shuffled) = head_members(&members_read, &unowned);
@@ -377,9 +377,10 @@ fn plan_base(root: &Path, layer: Layer, head: &str) -> Result<String> {
 
 /// The fingerprint the plan's records carry: the hosted one on the hosted
 /// layer, else the gate host's.
-fn plan_host(environment: &Environment, options: &PlanArguments, image: &str) -> String {
-    let variables = host::step_variables(&options.environment);
-    if options.layer == Layer::Hosted {
+fn plan_host(environment: &Environment, options: &PlanArguments, image: &str) -> Result<String> {
+    let worktree = host::worktree(&environment.root)?;
+    let variables = host::step_variables(&options.environment, &worktree);
+    Ok(if options.layer == Layer::Hosted {
         plan::hosted_fingerprint(
             image,
             &options.head_repository,
@@ -388,7 +389,7 @@ fn plan_host(environment: &Environment, options: &PlanArguments, image: &str) ->
         )
     } else {
         host::host_fingerprint(&environment.root, &environment.cargo, &variables)
-    }
+    })
 }
 
 /// The run the plan writes: the units it carries from earlier runs and the

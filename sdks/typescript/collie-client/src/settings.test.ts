@@ -3,14 +3,27 @@
 // left out.
 import { setImmediate } from "node:timers/promises";
 import * as fc from "fast-check";
-import { describe, expect, test } from "vitest";
-import { CollieOperations } from "./generated/operations.ts";
-import {
-  type DeprecatedSettings,
-  onWire,
-  type Spelling,
-  warnDeprecatedOnWire,
-} from "./settings.ts";
+import { describe, expect, test, vi } from "vitest";
+import type * as Operations from "./generated/operations.ts";
+import type * as Settings from "./settings.ts";
+import { type DeprecatedSettings, onWire, type Spelling } from "./settings.ts";
+
+/**
+ * A fresh copy of `settings.ts` and the markers it warns through, whose
+ * record of what they warned of starts empty, as in a new process: each run
+ * of a test, a repeat of the stress run's included, sees its first warning
+ * again.
+ */
+async function freshSettings(): Promise<typeof Settings> {
+  vi.resetModules();
+  return import("./settings.ts");
+}
+
+/** A fresh copy of the generated operations, as {@link freshSettings} gives the settings. */
+async function freshOperations(): Promise<typeof Operations> {
+  vi.resetModules();
+  return import("./generated/operations.ts");
+}
 
 const SPELLING: Spelling = {
   timeout: ["timeout", { navigation: "navigation", run: "run" }],
@@ -114,16 +127,17 @@ describe("onWire", () => {
         ],
         ["session.page_check", "Since 0.1, removed no earlier than 1.0: Gone."],
       ]);
+      const fresh = await freshSettings();
       const warnings: Error[] = [];
       const listen = (warning: Error): void => {
         warnings.push(warning);
       };
       process.on("warning", listen);
       try {
-        onWire({ timeout: { navigation: 1, run: 2 } }, SPELLING, deprecated);
-        onWire({ timeout: { run: null } }, SPELLING, deprecated);
-        onWire({ session: { pageCheck: { loginPage: "/login" } } }, SPELLING, deprecated);
-        onWire({ timeout: { navigation: 1 } }, SPELLING, deprecated);
+        fresh.onWire({ timeout: { navigation: 1, run: 2 } }, SPELLING, deprecated);
+        fresh.onWire({ timeout: { run: null } }, SPELLING, deprecated);
+        fresh.onWire({ session: { pageCheck: { loginPage: "/login" } } }, SPELLING, deprecated);
+        fresh.onWire({ timeout: { navigation: 1 } }, SPELLING, deprecated);
         await setImmediate();
       } finally {
         process.off("warning", listen);
@@ -180,6 +194,7 @@ describe("warnDeprecatedOnWire", () => {
         ["paid_fetch.limit", "Since 0.1, removed no earlier than 1.0: Undefined."],
         ["session.page_check", "Since 0.1, removed no earlier than 1.0: Absent."],
       ]);
+      const { warnDeprecatedOnWire } = await freshSettings();
 
       const shown = await deprecationsDuring(async () => {
         warnDeprecatedOnWire(
@@ -210,6 +225,7 @@ describe("CollieOperations", () => {
     "an operation taking a raw run layer warns once per process of a deprecated key it sets",
     { tags: ["story:11-182"] },
     async () => {
+      const { CollieOperations } = await freshOperations();
       const operations = new CollieOperations({
         call: (operation) => Promise.reject(new Error(operation)),
       });

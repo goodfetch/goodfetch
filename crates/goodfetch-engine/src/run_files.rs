@@ -37,9 +37,10 @@ mod save;
 mod store;
 
 pub(crate) use carry::{CarryError, drop_chunks, pack, unpack};
+pub(crate) use goodfetch_saved_file::{os_code, reason_of};
 pub use live::RunFiles;
+pub(crate) use save::save;
 pub use save::{SaveError, Saving};
-pub(crate) use save::{os_code, reason_of, save};
 pub use store::{FileKind, KeepError, Kept, KeptExport, Record, export_file};
 pub(crate) use store::{file, find, forget, read, record, stage, store, store_export, unrecord};
 

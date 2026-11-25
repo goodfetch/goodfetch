@@ -6,23 +6,26 @@
 //!
 //! The exit statuses: 0 for a call that returned without an error; 1 to 99
 //! for a call that ended the process with that status; 100 plus the error's
-//! number for an error; 200 plus the ABI for the mechanism; 216 plus the
+//! number for an error; 200 plus the ABI for the mechanism (201 to 205 the
+//! PID-namespace mechanism, 206 and up Landlock alone); 216 plus the
 //! kernel's Landlock ABI; 240 and up for a probe that could not run.
 
 use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 
-use super::{ConfineError, Mechanism};
+use super::{ConfineError, Mechanism, SIGNAL_SCOPE_ABI, SignalScope};
 use crate::policy::Policy;
 use crate::probes::{Access, Arg, Errno, Outcome};
 use crate::seccomp::Call;
 
-/// The probe to make, confined to `policy` first when there is one.
+/// The probe to make, confined to `policy` first when there is one, with
+/// the signal scope `scope`, or the kernel's without one.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Request {
     pub probe: Probe,
     pub policy: Option<Policy>,
+    pub scope: Option<SignalScope>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -37,6 +40,10 @@ pub enum Probe {
     /// Report the Landlock ABI the kernel gives, asked with the raw call and
     /// never confined: the runner's oracle for the mechanism to expect.
     KernelAbi,
+    /// Enter a user and PID namespace and map its user, with the raw calls
+    /// and never confined: the runner's oracle for the PID-namespace
+    /// mechanism. It reports the outcome.
+    UserNamespace,
 }
 
 /// What a probe reports through its exit status.
@@ -112,7 +119,9 @@ impl Report {
                     .expect("invariant: `ERRNOS` numbers every `Errno`, each below 100"),
             ),
             Self::OtherErrno(number) => ERRNO_BASE.saturating_add(number),
-            Self::Mechanism(Mechanism::Landlock { abi }) => MECHANISM_BASE.saturating_add(abi),
+            Self::Mechanism(Mechanism::Landlock { abi } | Mechanism::PidNamespace { abi }) => {
+                MECHANISM_BASE.saturating_add(abi)
+            }
             Self::KernelAbi(abi) => KERNEL_ABI_BASE.saturating_add(abi),
             Self::Fault(fault) => FAULTS
                 .iter()
@@ -130,8 +139,11 @@ impl Report {
             0 => Self::Outcome(Outcome::Ok),
             1..ERRNO_BASE => Self::Outcome(Outcome::Exit(status)),
             ERRNO_BASE..MECHANISM_BASE => Self::errno(i32::from(status - ERRNO_BASE)),
-            MECHANISM_BASE..KERNEL_ABI_BASE => Self::Mechanism(Mechanism::Landlock {
-                abi: status - MECHANISM_BASE,
+            // The PID-namespace mechanism's ABIs lie below Landlock's.
+            MECHANISM_BASE..KERNEL_ABI_BASE => Self::Mechanism(match status - MECHANISM_BASE {
+                0 => return None,
+                abi @ 1..SIGNAL_SCOPE_ABI => Mechanism::PidNamespace { abi },
+                abi => Mechanism::Landlock { abi },
             }),
             KERNEL_ABI_BASE..FAULT_BASE => Self::KernelAbi(status - KERNEL_ABI_BASE),
             _ => return None,
@@ -144,7 +156,8 @@ impl From<&ConfineError> for Fault {
         match error {
             ConfineError::LevelNotBuilt(_) => Self::LevelNotBuilt,
             ConfineError::Unavailable(_) => Self::Unavailable,
-            ConfineError::Grant { .. }
+            ConfineError::Namespace { .. }
+            | ConfineError::Grant { .. }
             | ConfineError::Landlock(_)
             | ConfineError::Filter(_)
             | ConfineError::Install(_) => Self::Confine,

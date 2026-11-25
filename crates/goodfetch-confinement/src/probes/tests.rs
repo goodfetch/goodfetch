@@ -4,8 +4,8 @@ use goodfetch_protocol::plugin::NetworkLevel;
 use rstest::rstest;
 
 use super::{
-    Arg, CallCase, Errno, Mismatch, Outcome, PathCase, Placed, Placeholder, ProbeTable, check,
-    committed,
+    Arg, CallCase, Errno, Mismatch, Outcome, PathCase, Placed, Placeholder, ProbeTable, ProcessArg,
+    check, committed,
 };
 use crate::deny_list::{self, Denied, Host};
 use crate::seccomp::{Call, rules};
@@ -51,6 +51,18 @@ fn refusal_of_ptrace() -> CallCase {
         args: vec![Arg::Number(16), Arg::Number(0)],
         unconfined: Outcome::Errno(Errno::Esrch),
         confined: Outcome::Errno(Errno::Eperm),
+        pid_namespace: None,
+    }
+}
+
+fn signal_to_the_runner() -> CallCase {
+    CallCase {
+        rule: "signals.outside".to_owned(),
+        call: Call::Kill,
+        args: vec![Arg::Process(ProcessArg::Parent), Arg::Number(0)],
+        unconfined: Outcome::Ok,
+        confined: Outcome::Errno(Errno::Eperm),
+        pid_namespace: Some(Outcome::Errno(Errno::Esrch)),
     }
 }
 
@@ -86,6 +98,22 @@ fn read_of_ssh() -> PathCase {
 #[case::a_refusal_that_expects_success(
     |table: &mut ProbeTable| table.call.push(CallCase { confined: Outcome::Ok, ..refusal_of_ptrace() }),
     Mismatch::WrongOutcome { rule: "ptrace".to_owned(), expected: Outcome::Errno(Errno::Eperm), found: Outcome::Ok },
+)]
+#[case::a_seccomp_refusal_said_to_differ_in_a_pid_namespace(
+    |table: &mut ProbeTable| table.call.push(CallCase { pid_namespace: Some(Outcome::Errno(Errno::Esrch)), ..refusal_of_ptrace() }),
+    Mismatch::WrongOutcome { rule: "ptrace".to_owned(), expected: Outcome::Errno(Errno::Eperm), found: Outcome::Errno(Errno::Esrch) },
+)]
+#[case::the_signal_rule_without_its_probe(
+    |table: &mut ProbeTable| table.call.retain(|case| case.rule != "signals.outside"),
+    Mismatch::RuleWithoutProbe("signals.outside".to_owned()),
+)]
+#[case::a_signal_a_pid_namespace_lets_through(
+    |table: &mut ProbeTable| table.call.push(CallCase { pid_namespace: None, ..signal_to_the_runner() }),
+    Mismatch::WrongOutcome { rule: "signals.outside".to_owned(), expected: Outcome::Errno(Errno::Esrch), found: Outcome::Errno(Errno::Eperm) },
+)]
+#[case::a_signal_probed_with_another_call(
+    |table: &mut ProbeTable| table.call.push(CallCase { call: Call::Ptrace, ..signal_to_the_runner() }),
+    Mismatch::OtherCall { rule: "signals.outside".to_owned(), call: Call::Ptrace },
 )]
 #[case::a_refusal_without_a_positive_control(
     |table: &mut ProbeTable| table.call.push(CallCase { unconfined: Outcome::Errno(Errno::Eperm), ..refusal_of_ptrace() }),

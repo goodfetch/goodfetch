@@ -14,7 +14,8 @@
 #     (ADR 0073) on `ubuntu-24.04` beside them;
 #   - Windows arm64 first runs in the release pipeline's own Release run;
 #   - linux-x64-gnu also runs the Plugin confinement probes on
-#     `ubuntu-22.04`, whose kernel lacks Landlock ABI 6 (ADR 0067).
+#     `ubuntu-22.04`, whose kernel lacks Landlock ABI 6, under the
+#     PID-namespace mechanism (ADR 0067).
 # A dispatch off `main` runs the other cells alone, on the branch's pushed
 # head. On `main` it tests the commit the `commit` input names, `main`'s
 # head by default, and the `plan` job refuses a commit off `main`'s history
@@ -555,7 +556,7 @@ jobs:
 
   # The Plugin confinement probes on Ubuntu 22.04's kernel, which lacks
   # Landlock ABI 6 (ADR 0067; issue 813): goodfetch-confinement's own tests
-  # alone, beside the linux-x64-gnu cell on `ubuntu-24.04`. It belongs to
+  # alone, which must confine with a PID namespace there, beside the linux-x64-gnu cell on `ubuntu-24.04`. It belongs to
   # that cell's dispatch, whose name it carries, so the verdict counts it
   # there. Its cargo installs the toolchain rust-toolchain.toml pins, as the
   # plan job's does.
@@ -581,7 +582,20 @@ jobs:
         run: ci/egress/egress.sh deny
       - name: Refuse the Egress canary
         run: ci/egress/egress.sh canary
+      # Stock Ubuntu 22.04 leaves unprivileged user namespaces open; a newer
+      # kernel's AppArmor may restrict them, where the `goodfetch-sandbox`
+      # helper's profile stands in (ADR 0033). The runner opens them so the
+      # PID-namespace mechanism is the one tested.
+      - name: Allow unprivileged user namespaces
+        run: |
+          if [ -e /proc/sys/kernel/apparmor_restrict_unprivileged_userns ]; then
+            sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          fi
       - name: "Test: the confinement probes"
+        env:
+          # A kernel before Landlock ABI 6 confines signals with a PID
+          # namespace: a silent fallback to another mechanism fails.
+          GOODFETCH_TEST_CONFINEMENT: pid_namespace
         run: ci/egress/under-deny.sh cargo test --locked --offline -p goodfetch-confinement --test it
       - name: Check that the deny refused nothing else
         if: always()

@@ -1,8 +1,8 @@
 use std::path::{Path, PathBuf};
 
 use super::{
-    Executables, Options, counted_output, instruction_cells, order, profile_folder, run, set_aside,
-    side_executable, size_points, spider_executable,
+    Executables, Options, counted_output, foxhound_rust_program, instruction_cells, order,
+    profile_folder, run, set_aside, side_executable, size_points, spider_executable,
 };
 use crate::compare::matrix::{self, Config, Scenario, SpiderBuild};
 use crate::compare::trials::{
@@ -87,6 +87,17 @@ fn each_other_rust_side_runs_the_executable_built_in_its_folder() {
             "/t/compare-spider/chromiumoxide/release/goodfetch-compare-chromiumoxide",
         ]
         .map(built)
+    );
+}
+
+/// The handled cell's Rust program runs the `compare-handled` example
+/// Cargo left in `foxhound-rust` among the Rust sides' builds, under the
+/// profile's folder's `examples` (#2858).
+#[test]
+fn the_rust_program_runs_the_example_built_in_its_folder() {
+    assert_eq!(
+        foxhound_rust_program(Path::new("/t/compare-spider"), "release"),
+        built("/t/compare-spider/foxhound-rust/release/examples/compare-handled")
     );
 }
 
@@ -626,6 +637,7 @@ fn the_sizes_cell_runs_spider_at_16_and_at_64_on_a_wider_channel() {
                 Config::Spider { capacity, .. } => Some(capacity),
                 Config::Foxhound { .. }
                 | Config::FoxhoundProgram
+                | Config::FoxhoundRustProgram
                 | Config::Crawlee
                 | Config::Scrapy
                 | Config::CrawleeRs

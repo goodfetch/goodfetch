@@ -376,8 +376,9 @@ pub(crate) struct Plan<'a> {
     /// The `[settings]` lines, `<key> = <TOML value>`, every Foxhound
     /// trial's user configuration holds (`--foxhound-setting`, #2200).
     pub(crate) foxhound_settings: &'a [String],
-    /// Foxhound's executable, which its program's SDK starts as its
-    /// Attached engine (`--engine`, #2317): none for another tool.
+    /// Foxhound's executable, which its TypeScript program's SDK starts as
+    /// its Attached engine and which reads either program's Records
+    /// afterwards (`--engine`, #2317): none for another tool.
     pub(crate) engine: Option<&'a Path>,
 }
 
@@ -438,24 +439,28 @@ impl Plan<'_> {
         let mut command = command(&invocation(config, self.executable), mode, process);
         command.stderr(Stdio::inherit());
         self.without_goodfetch_variables(&mut command);
-        if let Config::FoxhoundProgram = self.config {
+        if self.config.is_program() {
             // The program starts the crawl from its arguments and prints
-            // its count last on stdout; the SDK starts Foxhound's
-            // executable on the program's environment, its data folder
-            // `home`. Its hosts resolve to the Proving ground through its
-            // settings, as the engine's own do.
+            // its count last on stdout; the TypeScript SDK starts
+            // Foxhound's executable on the program's environment, and the
+            // Rust SDK links the engine into the program, either with its
+            // data folder `home`. Its hosts resolve to the Proving ground
+            // through its settings, as the engine's own do.
             let settings =
                 super::foxhound::settings(&self.site, self.cell, self.durability(), true);
             command
                 .args(["--url", &self.start_url()])
                 .args(["--settings", &settings.to_string()])
                 .args(["--run", super::foxhound::RUN])
-                .args(["--dataset", super::foxhound::PROGRAM_DATASET])
-                .env(
+                .args(["--dataset", super::foxhound::PROGRAM_DATASET]);
+            if let Config::FoxhoundProgram = self.config {
+                command.env(
                     goodfetch_protocol::settings::FOXHOUND_ENGINE_PATH_VARIABLE,
                     self.engine
                         .context("Foxhound's program takes Foxhound's executable, --engine")?,
-                )
+                );
+            }
+            command
                 .env(goodfetch_protocol::settings::HOME_VARIABLE, home)
                 .current_dir(home)
                 .stdin(Stdio::null())
@@ -511,6 +516,7 @@ impl Plan<'_> {
         let engine = match self.config {
             Config::Foxhound { .. } => Some(opened(&mut child)?),
             Config::FoxhoundProgram
+            | Config::FoxhoundRustProgram
             | Config::Spider { .. }
             | Config::Crawlee
             | Config::Scrapy
@@ -567,7 +573,7 @@ impl Plan<'_> {
                 commit_interval,
                 ..
             } => (durability, commit_interval),
-            Config::FoxhoundProgram => ("batch", None),
+            Config::FoxhoundProgram | Config::FoxhoundRustProgram => ("batch", None),
             Config::Spider { .. }
             | Config::Crawlee
             | Config::Scrapy
@@ -704,9 +710,10 @@ impl Plan<'_> {
     /// browser scenario.
     fn cache(&self) -> Result<Option<tempfile::TempDir>> {
         match (self.config, self.browser()?) {
-            (Config::Foxhound { .. } | Config::FoxhoundProgram, Some(browser)) => {
-                Ok(Some(browser_cache(browser)?))
-            }
+            (
+                Config::Foxhound { .. } | Config::FoxhoundProgram | Config::FoxhoundRustProgram,
+                Some(browser),
+            ) => Ok(Some(browser_cache(browser)?)),
             _ => Ok(None),
         }
     }
@@ -718,7 +725,7 @@ impl Plan<'_> {
     fn configure(&self, home: &Path) -> Result<()> {
         let (trusted, settings) = (self.certificate_authority, self.foxhound_settings);
         match self.config {
-            Config::Foxhound { .. } | Config::FoxhoundProgram
+            Config::Foxhound { .. } | Config::FoxhoundProgram | Config::FoxhoundRustProgram
                 if trusted.is_some() || !settings.is_empty() =>
             {
                 trust::in_foxhound_configuration(home, &self.kind().hosts(), trusted, settings)
@@ -751,7 +758,9 @@ impl Plan<'_> {
             Config::Foxhound { .. } if keeps_records || self.config.samples() => {
                 Some(self.records(home.path())?)
             }
-            Config::FoxhoundProgram => Some(self.records(home.path())?),
+            Config::FoxhoundProgram | Config::FoxhoundRustProgram => {
+                Some(self.records(home.path())?)
+            }
             Config::Foxhound { .. }
             | Config::Spider { .. }
             | Config::Crawlee
@@ -818,11 +827,14 @@ impl Plan<'_> {
         )?;
         let work = self.observe(1.0, None)?.work;
         let records = match self.config {
-            Config::Foxhound { .. } | Config::FoxhoundProgram if self.checks_output() => {
+            Config::Foxhound { .. } | Config::FoxhoundProgram | Config::FoxhoundRustProgram
+                if self.checks_output() =>
+            {
                 Some(self.records(home.path())?)
             }
             Config::Foxhound { .. }
             | Config::FoxhoundProgram
+            | Config::FoxhoundRustProgram
             | Config::Spider { .. }
             | Config::Crawlee
             | Config::Scrapy

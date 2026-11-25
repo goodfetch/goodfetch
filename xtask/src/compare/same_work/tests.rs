@@ -508,8 +508,15 @@ fn a_handled_trial_of_any_tool_whose_fields_differ_is_refused() {
 
     assert_eq!(
         named(&trials),
-        ["foxhound", "spider", "crawlee", "scrapy", "crawlee-rs"]
-            .map(|cell| ("output_differs", format!("handled {cell} trial 2")))
+        [
+            "foxhound",
+            "foxhound rust",
+            "spider",
+            "crawlee",
+            "scrapy",
+            "crawlee-rs"
+        ]
+        .map(|cell| ("output_differs", format!("handled {cell} trial 2")))
     );
 }
 

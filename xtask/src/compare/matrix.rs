@@ -765,6 +765,15 @@ impl Config {
     pub(crate) fn is_program(self) -> bool {
         matches!(self, Self::FoxhoundProgram | Self::FoxhoundRustProgram)
     }
+
+    /// Whether the row runs Foxhound, from its CLI or from a program on
+    /// one of its SDKs, so it leaves Foxhound's data folder and Records.
+    pub(crate) fn is_foxhound(self) -> bool {
+        matches!(
+            self,
+            Self::Foxhound { .. } | Self::FoxhoundProgram | Self::FoxhoundRustProgram
+        )
+    }
 }
 
 /// What a cell gives.

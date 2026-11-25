@@ -709,11 +709,8 @@ impl Plan<'_> {
     /// Foxhound's Browser cache, laid out for its trial of the headless
     /// browser scenario.
     fn cache(&self) -> Result<Option<tempfile::TempDir>> {
-        match (self.config, self.browser()?) {
-            (
-                Config::Foxhound { .. } | Config::FoxhoundProgram | Config::FoxhoundRustProgram,
-                Some(browser),
-            ) => Ok(Some(browser_cache(browser)?)),
+        match self.browser()? {
+            Some(browser) if self.config.is_foxhound() => Ok(Some(browser_cache(browser)?)),
             _ => Ok(None),
         }
     }
@@ -724,13 +721,10 @@ impl Plan<'_> {
     /// run gives Foxhound. Every other home has none, as shipped.
     fn configure(&self, home: &Path) -> Result<()> {
         let (trusted, settings) = (self.certificate_authority, self.foxhound_settings);
-        match self.config {
-            Config::Foxhound { .. } | Config::FoxhoundProgram | Config::FoxhoundRustProgram
-                if trusted.is_some() || !settings.is_empty() =>
-            {
-                trust::in_foxhound_configuration(home, &self.kind().hosts(), trusted, settings)
-            }
-            _ => Ok(()),
+        if self.config.is_foxhound() && (trusted.is_some() || !settings.is_empty()) {
+            trust::in_foxhound_configuration(home, &self.kind().hosts(), trusted, settings)
+        } else {
+            Ok(())
         }
     }
 
@@ -826,23 +820,10 @@ impl Plan<'_> {
             cache.as_ref().map(tempfile::TempDir::path),
         )?;
         let work = self.observe(1.0, None)?.work;
-        let records = match self.config {
-            Config::Foxhound { .. } | Config::FoxhoundProgram | Config::FoxhoundRustProgram
-                if self.checks_output() =>
-            {
-                Some(self.records(home.path())?)
-            }
-            Config::Foxhound { .. }
-            | Config::FoxhoundProgram
-            | Config::FoxhoundRustProgram
-            | Config::Spider { .. }
-            | Config::Crawlee
-            | Config::Scrapy
-            | Config::CrawleeRs
-            | Config::Pagesift
-            | Config::OpenSpider
-            | Config::FastCrw
-            | Config::Crawlberg => None,
+        let records = if self.config.is_foxhound() && self.checks_output() {
+            Some(self.records(home.path())?)
+        } else {
+            None
         };
         let extracted = self.extracted(home.path(), records)?;
         let (count, syncs) = match &self.mode {

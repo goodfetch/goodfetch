@@ -117,6 +117,7 @@ mod refusals;
 mod register;
 mod register_coverage;
 mod release;
+mod release_assets;
 #[cfg(unix)]
 mod release_line;
 mod release_publish;

@@ -12,6 +12,7 @@ use std::time::{Duration, Instant};
 use rstest::rstest;
 
 use crate::github::{GitHub, Request};
+use crate::release_assets::product_files;
 use crate::workspace::{Outcome, Workspace, finding};
 
 /// The Node platforms each Product's npm platform packages are named
@@ -92,6 +93,8 @@ struct Published {
     /// `Some(true)` for a draft GitHub Release of the version, `Some(false)`
     /// for a published one.
     release: Option<bool>,
+    /// The files on that release, each with its size.
+    uploaded: Vec<(String, u64)>,
     tag: bool,
 }
 
@@ -124,6 +127,7 @@ impl Published {
             pypi,
             oci: BTreeMap::new(),
             release: None,
+            uploaded: Vec::new(),
             tag: false,
         };
         published.oci_release("1.3.0");
@@ -135,6 +139,10 @@ impl Published {
     fn every_step_out() -> Self {
         let mut published = Self::previous_release();
         published.release = Some(true);
+        published.uploaded = release_files()
+            .into_iter()
+            .map(|(file, bytes)| (file, bytes.len() as u64))
+            .collect();
         for name in [
             "goodfetch-collie",
             "goodfetch-collie-client",
@@ -210,6 +218,25 @@ impl Published {
     }
 }
 
+/// The GitHub Release's files, as `xtask release assets` leaves them: each
+/// Product file, its name's bytes, and the digest table that lists them.
+fn release_files() -> Vec<(String, Vec<u8>)> {
+    let mut files: Vec<(String, Vec<u8>)> = product_files()
+        .into_iter()
+        .map(|file| {
+            let bytes = file.clone().into_bytes();
+            (file, bytes)
+        })
+        .collect();
+    let table = files
+        .iter()
+        .map(|(file, bytes)| format!("{:064}  {file}\n", bytes.len()))
+        .collect::<Vec<_>>()
+        .concat();
+    files.push(("SHA256SUMS".to_owned(), table.into_bytes()));
+    files
+}
+
 /// A digest of its own for each tag's manifest, as a registry would answer.
 fn manifest_digest(repository: &str, tag: &str) -> String {
     format!("sha256:{}-{tag}", repository.replace('/', "-"))
@@ -217,9 +244,11 @@ fn manifest_digest(repository: &str, tag: &str) -> String {
 
 /// The registries' stand-ins, serving what [`Published`] holds: a static
 /// sparse Cargo index served from a temporary folder, npm's and PyPI's JSON
-/// documents, an OCI registry's tag lists and manifest digests, and GitHub.
+/// documents, an OCI registry's tag lists and manifest digests, and GitHub;
+/// and the folder of the release's files.
 struct Registries {
     _index: tempfile::TempDir,
+    assets: tempfile::TempDir,
     cargo: GitHub,
     npm: GitHub,
     pypi: GitHub,
@@ -289,18 +318,9 @@ impl Registries {
             })
             .collect();
 
-        let mut github = vec![(
-            "/repos/goodfetch/goodfetch/releases?per_page=100&page=1".to_owned(),
-            match published.release {
-                None => "[]".to_owned(),
-                Some(draft) => format!(r#"[{{"tag_name":"v1.4.0","draft":{draft}}}]"#),
-            },
-        )];
-        if published.tag {
-            github.push((
-                "/repos/goodfetch/goodfetch/git/ref/tags/v1.4.0".to_owned(),
-                r#"{"ref":"refs/tags/v1.4.0"}"#.to_owned(),
-            ));
+        let assets = tempfile::tempdir().unwrap();
+        for (file, bytes) in release_files() {
+            std::fs::write(assets.path().join(file), bytes).unwrap();
         }
 
         let mut oci = Vec::new();
@@ -328,13 +348,40 @@ impl Registries {
 
         Self {
             _index: index,
+            assets,
             cargo,
             npm: serve(&npm),
             pypi: serve(&pypi),
             oci: GitHub::serving_with_headers(&oci_routes, &digest_headers),
-            github: serve(&github),
+            github: serve(&github_routes(published)),
         }
     }
+}
+
+/// GitHub's answers: the version's release with its files, and its tag.
+fn github_routes(published: &Published) -> Vec<(String, String)> {
+    let uploaded: Vec<String> = published
+        .uploaded
+        .iter()
+        .map(|(name, size)| format!(r#"{{"name":"{name}","size":{size},"state":"uploaded"}}"#))
+        .collect();
+    let mut github = vec![(
+        "/repos/goodfetch/goodfetch/releases?per_page=100&page=1".to_owned(),
+        match published.release {
+            None => "[]".to_owned(),
+            Some(draft) => format!(
+                r#"[{{"tag_name":"v1.4.0","draft":{draft},"assets":[{}]}}]"#,
+                uploaded.join(",")
+            ),
+        },
+    )];
+    if published.tag {
+        github.push((
+            "/repos/goodfetch/goodfetch/git/ref/tags/v1.4.0".to_owned(),
+            r#"{"ref":"refs/tags/v1.4.0"}"#.to_owned(),
+        ));
+    }
+    github
 }
 
 fn serve(routes: &[(String, String)]) -> GitHub {
@@ -390,18 +437,20 @@ fn plan_with(
     registries: &Registries,
     instead: &[(&str, &str)],
 ) -> Outcome {
+    let assets = registries.assets.path().to_str().unwrap();
     let mut arguments = vec!["release", "plan", "--version", version];
     for (option, stand_in) in [
-        ("--cargo-index", &registries.cargo),
-        ("--npm-registry", &registries.npm),
-        ("--pypi", &registries.pypi),
-        ("--oci-registry", &registries.oci),
-        ("--api-url", &registries.github),
+        ("--assets", assets),
+        ("--cargo-index", registries.cargo.url()),
+        ("--npm-registry", registries.npm.url()),
+        ("--pypi", registries.pypi.url()),
+        ("--oci-registry", registries.oci.url()),
+        ("--api-url", registries.github.url()),
     ] {
         let address = instead
             .iter()
             .find(|(name, _)| *name == option)
-            .map_or(stand_in.url(), |(_, address)| *address);
+            .map_or(stand_in, |(_, address)| *address);
         arguments.extend([option, address]);
     }
     workspace.xtask_with_env(&arguments, &[("GITHUB_TOKEN", "a-read-token".as_ref())])
@@ -506,6 +555,10 @@ fn published_but(left: &str) -> Published {
                 .unwrap();
         }
         Some(("github", "tag")) => published.tag = false,
+        Some(("github", step)) if step.starts_with("asset ") => {
+            let file = &step["asset ".len()..];
+            published.uploaded.retain(|(name, _)| name != file);
+        }
         _ => unreachable!("{left}"),
     }
     published
@@ -523,6 +576,7 @@ fn published_but(left: &str) -> Published {
 #[case::foxhound_chart("oci goodfetch/charts/foxhound 1.4.0", "pushed", "held")]
 #[case::plugin("oci goodfetch/goodfetch-plugin-archive 1.4.0", "pushed", "held")]
 #[case::foxhound_latest("oci goodfetch/foxhound latest", "pushed", "held")]
+#[case::foxhound_sbom("github asset goodfetch-foxhound.cdx.json", "pushed", "held")]
 #[case::tag_alone("github tag", "push", "held")]
 fn plan_holds_what_waits_on_a_step_either_product_left(
     #[case] left: &str,
@@ -581,12 +635,78 @@ fn plan_leaves_nothing_to_do_once_the_release_is_published() {
     let states = states(&outcome.stdout);
     let left: Vec<_> = states
         .iter()
-        .filter(|(_, state)| !matches!(**state, "published" | "pushed"))
+        .filter(|(_, state)| !matches!(**state, "published" | "uploaded" | "pushed"))
         .collect();
     assert!(left.is_empty(), "{left:?}");
     // Each image's six tags and its chart, and the Plugin.
     let oci = 2 * (6 + 1) + 1;
-    assert_eq!(states.len(), 1 + CRATES.len() + 15 + 1 + 3 + oci + 1);
+    let assets = release_files().len();
+    assert_eq!(
+        states.len(),
+        1 + assets + CRATES.len() + 15 + 1 + 3 + oci + 1
+    );
+}
+
+/// A re-run uploads each file the draft lacks, or holds at another size,
+/// such as one whose upload was cut short.
+#[test]
+fn plan_uploads_each_file_the_draft_lacks() {
+    let workspace = prepared("1.4.0");
+    let mut published = Published::every_step_out();
+    published
+        .uploaded
+        .retain(|(name, _)| name != "goodfetch-collie-x86_64-pc-windows-msvc.tar.xz");
+    for (name, size) in &mut published.uploaded {
+        if name == "goodfetch-foxhound-aarch64-apple-darwin-debug.tar.xz" {
+            *size -= 1;
+        }
+    }
+    let registries = Registries::serving(&published);
+
+    let outcome = plan(&workspace, "1.4.0", &registries);
+
+    assert_eq!(outcome.code, 0, "{}", outcome.stderr);
+    let states = states(&outcome.stdout);
+    for (step, state) in [
+        (
+            "github asset goodfetch-collie-x86_64-pc-windows-msvc.tar.xz",
+            "upload",
+        ),
+        (
+            "github asset goodfetch-foxhound-aarch64-apple-darwin-debug.tar.xz",
+            "upload",
+        ),
+        ("github asset goodfetch-collie.cdx.json", "uploaded"),
+        ("github asset SHA256SUMS", "uploaded"),
+        ("github release v1.4.0", "held"),
+    ] {
+        assert_eq!(states.get(step), Some(&state), "{step}\n{}", outcome.stdout);
+    }
+}
+
+/// The plan uploads only a folder `xtask release assets` made ready: each
+/// file listed in its digest table, so none is over GitHub's limit.
+#[rstest]
+#[case::a_file_added_since("chromedriver-linux-x64.zip", "chromedriver-linux-x64.zip")]
+#[case::no_table("SHA256SUMS", "SHA256SUMS")]
+fn plan_refuses_a_file_the_digest_table_does_not_list(
+    #[case] changed: &str,
+    #[case] unlisted: &str,
+) {
+    let workspace = prepared("1.4.0");
+    let registries = Registries::serving(&Published::previous_release());
+    let path = registries.assets.path().join(changed);
+    if path.exists() {
+        std::fs::remove_file(path).unwrap();
+    } else {
+        std::fs::write(path, "a driver").unwrap();
+    }
+
+    let outcome = plan(&workspace, "1.4.0", &registries);
+
+    assert_eq!(outcome.code, 1, "{}", outcome.stderr);
+    assert_eq!(outcome.findings(), [finding("unlisted", unlisted)]);
+    assert_eq!(registries.github.requests(), Vec::<Request>::new());
 }
 
 #[test]

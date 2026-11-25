@@ -6,8 +6,10 @@
 //! trusted publishing takes a package only after a first publish by hand.
 //!
 //! The order:
-//! 1. the GitHub Release's draft, which takes the archives each crate's
-//!    `[package.metadata.binstall]` points at, before any crate (ADR 0094);
+//! 1. the GitHub Release's draft, then each of its files `xtask release
+//!    assets` made ready, among them the archives each crate's
+//!    `[package.metadata.binstall]` points at, before any crate (ADR 0094):
+//!    a file the draft holds at its size is uploaded;
 //! 2. the crates, each after the workspace crates it depends on: the
 //!    internal ones at `0.0.x`, the Collie client crate, then each Product's
 //!    (none for a nightly, ADR 0030);
@@ -27,7 +29,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use anyhow::{Context as _, Result, bail};
@@ -35,7 +37,7 @@ use serde::Deserialize;
 use serde::de::DeserializeOwned;
 use toml_edit::{DocumentMut, Item, Table};
 
-use super::{CRATES, ProductVersion, Stage, Tree, name, toml};
+use super::{CRATES, ProductVersion, Stage, Tree, assets, name, toml};
 use crate::check::{self, Finding};
 use crate::github::{self, List};
 use crate::output;
@@ -83,6 +85,10 @@ pub(crate) struct Arguments {
     /// The Product version `xtask release prepare` set.
     #[arg(long)]
     version: ProductVersion,
+    /// The folder of the GitHub Release's files, as `xtask release assets`
+    /// left it.
+    #[arg(long)]
+    assets: PathBuf,
     /// A sparse Cargo index: crates.io's, or a stand-in's address.
     #[arg(long, default_value = CRATES_IO_INDEX)]
     cargo_index: String,
@@ -156,7 +162,11 @@ impl Step {
             Self::Package { state, .. } => *state == PackageState::Published,
             Self::GitHub { state, .. } => !matches!(
                 state,
-                GitHubState::Create | GitHubState::Push | GitHubState::Publish | GitHubState::Held
+                GitHubState::Create
+                    | GitHubState::Upload
+                    | GitHubState::Push
+                    | GitHubState::Publish
+                    | GitHubState::Held
             ),
         }
     }
@@ -168,6 +178,9 @@ enum GitHubState {
     Create,
     /// A draft of it, which a re-run uploads the missing files to.
     Exists,
+    /// A file the draft lacks, or holds at another size.
+    Upload,
+    Uploaded,
     Push,
     Pushed,
     Publish,
@@ -183,6 +196,8 @@ impl fmt::Display for GitHubState {
         formatter.write_str(match self {
             Self::Create => "create",
             Self::Exists => "exists",
+            Self::Upload => "upload",
+            Self::Uploaded => "uploaded",
             Self::Push => "push",
             Self::Pushed => "pushed",
             Self::Publish => "publish",
@@ -205,6 +220,10 @@ pub(crate) fn run(root: &Path, arguments: &Arguments, token: Option<&str>) -> Re
     if !unprepared.is_empty() {
         return Ok(check::report(&unprepared));
     }
+    let files = match release_files(&arguments.assets)? {
+        Ok(files) => files,
+        Err(unlisted) => return Ok(check::report(&unlisted)),
+    };
 
     let api = arguments.github.authenticated(token)?;
     let repository = &arguments.github.repository;
@@ -221,6 +240,7 @@ pub(crate) fn run(root: &Path, arguments: &Arguments, token: Option<&str>) -> Re
             Some(_) => GitHubState::Published,
         },
     }];
+    steps.extend(asset_steps(files, release));
     if !nightly {
         for krate in &crates {
             let published = crate_versions(&arguments.cargo_index, &krate.name)?;
@@ -283,7 +303,12 @@ pub(crate) fn run(root: &Path, arguments: &Arguments, token: Option<&str>) -> Re
         output::line(&step.to_string());
     }
     check::note(&notes);
-    let new_names: Vec<Finding> = steps
+    Ok(check::report(&new_names(&steps)))
+}
+
+/// An `error[new-name]` for each step whose name is not on its registry.
+fn new_names(steps: &[Step]) -> Vec<Finding> {
+    steps
         .iter()
         .filter_map(|step| match step {
             Step::Package {
@@ -298,8 +323,7 @@ pub(crate) fn run(root: &Path, arguments: &Arguments, token: Option<&str>) -> Re
             )),
             _ => None,
         })
-        .collect();
-    Ok(check::report(&new_names))
+        .collect()
 }
 
 /// An `error[unprepared]` for each released crate whose manifest does not
@@ -369,6 +393,90 @@ fn package_step(
 struct Release {
     tag_name: String,
     draft: bool,
+    #[serde(default)]
+    assets: Vec<ReleaseAsset>,
+}
+
+#[derive(Deserialize)]
+struct ReleaseAsset {
+    name: String,
+    size: u64,
+    /// `uploaded`, or `open` for an upload cut short.
+    state: String,
+}
+
+/// One step per file of the assets folder: `uploaded` once the release
+/// holds it at its size, `upload` otherwise.
+fn asset_steps(files: BTreeMap<String, u64>, release: Option<&Release>) -> Vec<Step> {
+    files
+        .into_iter()
+        .map(|(file, size)| {
+            let state = match release {
+                Some(release) if !release.draft => GitHubState::Uploaded,
+                Some(release)
+                    if release.assets.iter().any(|asset| {
+                        asset.name == file && asset.size == size && asset.state == "uploaded"
+                    }) =>
+                {
+                    GitHubState::Uploaded
+                }
+                _ => GitHubState::Upload,
+            };
+            Step::GitHub {
+                name: format!("asset {file}"),
+                state,
+            }
+        })
+        .collect()
+}
+
+/// Each file of the assets folder, by name, with its size, the digest table
+/// among them; or an `error[unlisted]` for each file the table does not
+/// list, or for the table itself when it is missing: `xtask release assets`
+/// has not run on the folder since the file came.
+fn release_files(folder: &Path) -> Result<Result<BTreeMap<String, u64>, Vec<Finding>>> {
+    let unlisted = |file: &str| {
+        Finding::new(
+            "unlisted",
+            file,
+            format!(
+                "not in {}'s digest table: run `xtask release assets --folder {}` first",
+                folder.display(),
+                folder.display()
+            ),
+        )
+    };
+    let table = match std::fs::read_to_string(folder.join(assets::TABLE)) {
+        Ok(table) => table,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            return Ok(Err(vec![unlisted(assets::TABLE)]));
+        }
+        Err(error) => {
+            return Err(error).with_context(|| format!("reading {}", assets::TABLE));
+        }
+    };
+    let listed: BTreeSet<&str> = table
+        .lines()
+        .filter_map(|line| line.split_once("  ").map(|(_, file)| file))
+        .collect();
+    let mut files = BTreeMap::new();
+    let mut findings = Vec::new();
+    for entry in
+        std::fs::read_dir(folder).with_context(|| format!("reading {}", folder.display()))?
+    {
+        let entry = entry?;
+        let file = entry.file_name().to_string_lossy().into_owned();
+        if file != assets::TABLE && !listed.contains(file.as_str()) {
+            findings.push(unlisted(&file));
+        }
+        files.insert(file, entry.metadata()?.len());
+    }
+    findings.sort_by(|left, right| left.subject.cmp(&right.subject));
+    Ok(if findings.is_empty() {
+        Ok(files)
+    } else {
+        Err(findings)
+    })
 }
 
 /// A crate the release publishes.

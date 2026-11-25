@@ -1,0 +1,13 @@
+[package]
+name = "{{name}}"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.97"
+publish = false
+
+[dependencies]
+goodfetch-collie = "={{version}}"
+tokio = { version = "1.53.3", features = ["macros", "rt-multi-thread"] }
+
+[dev-dependencies]
+goodfetch-collie = { version = "={{version}}", features = ["test-util"] }

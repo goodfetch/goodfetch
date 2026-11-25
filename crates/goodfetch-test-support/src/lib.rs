@@ -65,6 +65,7 @@ mod exercise;
 mod facts;
 mod fault_plan;
 mod fuzz;
+mod held_vfs;
 mod host_test;
 mod hostile;
 mod invariants;
@@ -125,8 +126,7 @@ mod variables;
 #[cfg(unix)]
 pub use browsers::ReadOnlyBrowserCache;
 pub use browsers::{
-    BROWSERS_PATH_VARIABLE, BrowserCacheError, CHROME_FOR_TESTING_DOWNLOADS_VARIABLE,
-    DebuggedBrowser, LIGHTPANDA_DOWNLOADS_VARIABLE, browser_builds, browser_cache,
+    BROWSERS_PATH_VARIABLE, BrowserCacheError, DebuggedBrowser, browser_builds, browser_cache,
     browser_cache_in_home, browser_cache_with_headless_shell, browser_cache_with_lightpanda,
     chrome_for_testing, chrome_for_testing_debugged, chrome_for_testing_dumping_dom,
     chrome_for_testing_files, chrome_headless, chrome_headless_shell, empty_browser_cache,
@@ -137,10 +137,7 @@ pub use canaries::{
     SecretKind, Sighting, gitleaks_rule,
 };
 pub use cargo_consumer::{CargoRun, Consumer, ConsumerError, cargo_consumer, cargo_install};
-pub use claude_code::{
-    CLAUDE_CODE_DOWNLOADS_VARIABLE, ClaudeCodeError, PluginValidation, claude_code_copy,
-    validate_plugin,
-};
+pub use claude_code::{ClaudeCodeError, PluginValidation, claude_code_copy, validate_plugin};
 pub use cli::{
     Cli, CliError, CliJson, CliOutput, Mode, Stream, cli, record_command, record_command_in,
 };
@@ -174,6 +171,7 @@ pub use fault_plan::{
     FaultPlanFailure, FaultPlanGenerator, FaultPlanStep,
 };
 pub use fuzz::{CRASHERS_FOLDER, FuzzReplayError, Replayed, SEEDS_FOLDER, replay_fuzz_target};
+pub use held_vfs::{HeldAccess, HeldVfs, LONGEST_HOLD};
 pub use host_test::{HOST_DEADLINE, HostRun, past_the_harness, run_host_test};
 pub use hostile::{
     BodyFraming, ExpectedError, HeaderSource, HeaderValue, HostileCase, HostileTable,
@@ -286,9 +284,10 @@ pub use user_namespaces::{
 #[cfg(target_os = "linux")]
 pub use valkey::Valkey;
 pub use variables::{
-    CALLGRIND_AT_ONCE_VARIABLE, CASE_LOGS_VARIABLE, CallgrindAtOnceError, DNS_NAMESPACE_VARIABLE,
-    ENGINE_VARIABLE, FAULT_PLAN_VARIABLE, LAZYFS_FOLDER_VARIABLE, LAZYFS_VARIABLE, MAX_SEED,
-    NO_GUI_SESSION_VARIABLE, RECORDS_VARIABLE, RESULT_DOCUMENTS_VARIABLE, SEED_VARIABLE,
+    CALLGRIND_AT_ONCE_VARIABLE, CASE_LOGS_VARIABLE, CHROME_FOR_TESTING_DOWNLOADS_VARIABLE,
+    CLAUDE_CODE_DOWNLOADS_VARIABLE, CallgrindAtOnceError, DNS_NAMESPACE_VARIABLE, ENGINE_VARIABLE,
+    FAULT_PLAN_VARIABLE, LAZYFS_FOLDER_VARIABLE, LAZYFS_VARIABLE, LIGHTPANDA_DOWNLOADS_VARIABLE,
+    MAX_SEED, NO_GUI_SESSION_VARIABLE, RECORDS_VARIABLE, RESULT_DOCUMENTS_VARIABLE, SEED_VARIABLE,
     SUITE_VARIABLE, SeedError, Suite, SuiteError, TOOLS_VARIABLE, TOXIPROXY_DOWNLOADS_VARIABLE,
     Variables, case_logs, current_test,
 };

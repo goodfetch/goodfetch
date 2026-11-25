@@ -92,14 +92,21 @@ fn attached_call(env: &TestEnv, method: &str, params: Value) -> Value {
 /// start from a Client that carries one, whichever start, is refused before
 /// any Run begins; a Recipe's tag and any other tag are not.
 ///
-/// Covers: story:3-173, operation:run.start, operation:recipe.start, operation:catalog_run.start
+/// Covers: story:3-173
 #[rstest]
+/// Covers: operation:run.start
 #[case::schedule("run.start", "goodfetch.schedule:nightly")]
+/// Covers: operation:run.start
 #[case::occurrence("run.start", "goodfetch.occurrence:2026-11-23T04:00:00Z")]
+/// Covers: operation:run.start
 #[case::trigger("run.start", "goodfetch.trigger:time")]
+/// Covers: operation:run.start
 #[case::creator("run.start", "goodfetch.creator:ada")]
+/// Covers: operation:run.start
 #[case::role("run.start", "goodfetch.role:watch")]
+/// Covers: operation:recipe.start
 #[case::recipe_start("recipe.start", "goodfetch.schedule:nightly")]
+/// Covers: operation:catalog_run.start
 #[case::catalog_run_start("catalog_run.start", "goodfetch.role:target")]
 fn a_start_from_a_client_with_a_schedules_reserved_tag_is_invalid_params_and_starts_no_run(
     #[case] method: &str,

@@ -11,12 +11,16 @@
 //! A handler answers a value or a [`CallError`], which only the RPC layer
 //! turns into the wire's error object.
 //!
-//! Size: one concern, what a contribution adds, each a field, its builder
-//! and the composition's reader, kept side by side.
+//! Size: one concern, the composition: each thing a contribution adds is
+//! a field of [`Contribution`], its builder, the [`Composition`]'s
+//! collection of it and, for what a call reads, its place in the
+//! [`CallContext`], so each addition lands in all four together.
 
 mod call_streams;
 mod closing;
 pub(crate) mod params;
+#[cfg(test)]
+mod tests;
 
 use std::any::Any;
 use std::collections::{BTreeMap, HashMap};
@@ -48,6 +52,7 @@ use crate::run_state::RunStateTables;
 use crate::runs::{CleanUpVersions, Driving, ProgressPart, ReportPart, Run, Runs, SendWindow};
 use crate::secrets::ProviderFactory;
 use crate::settings::RunSettings;
+use crate::staging::{AttemptStaging, AttemptWrites};
 use crate::user_store::UserStoreKind;
 use goodfetch_protocol::run::{RunId, RunKind};
 use goodfetch_protocol::secret_reference::Provider;
@@ -111,6 +116,9 @@ pub(crate) struct ConnectionContext {
     /// The driver of each kind of Run that has one, which a resume starts
     /// again.
     pub(crate) drivers: Arc<BTreeMap<RunKind, Driver>>,
+    /// Where the attempts of each contribution's live Runs stage, which a
+    /// call through an attempt asks by Run ID (ADR 0145).
+    pub(crate) attempt_stagings: Arc<[Arc<dyn AttemptStaging>]>,
     pub(crate) runs: Runs,
     pub(crate) events: Events,
     /// What the engine gives every call: its home, clock and settings, and
@@ -296,6 +304,23 @@ impl CallContext {
     /// The engine's Runs.
     pub fn runs(&self) -> &Runs {
         &self.connection.runs
+    }
+
+    /// Where the attempts of the live Run `run_id` stage their writes, as
+    /// the contribution whose Run it is answers, without asking the Runs'
+    /// registry (ADR 0145); none on a Run with no crawl, or one whose end
+    /// is decided.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future loses only the answer.
+    pub async fn attempt_staging(&self, run_id: &RunId) -> Option<Arc<dyn AttemptWrites>> {
+        for staging in self.connection.attempt_stagings.iter() {
+            if let Some(writes) = staging.staging_of(run_id).await {
+                return Some(writes);
+            }
+        }
+        None
     }
 
     /// What the engine gives every call: its home, clock and settings, the
@@ -620,6 +645,7 @@ pub struct Contribution {
     secret_providers: Vec<(Provider, ProviderFactory)>,
     runs_of_calls: Vec<Arc<dyn RunOfCall>>,
     user_stores: Vec<&'static UserStoreKind>,
+    attempt_stagings: Vec<Arc<dyn AttemptStaging>>,
 }
 
 impl Contribution {
@@ -629,6 +655,7 @@ impl Contribution {
             user_stores: Vec::new(),
             secret_providers: Vec::new(),
             runs_of_calls: Vec::new(),
+            attempt_stagings: Vec::new(),
             name,
             handlers: Vec::new(),
             run_state_tables: Vec::new(),
@@ -723,6 +750,16 @@ impl Contribution {
     #[must_use]
     pub fn with_run_of_call(mut self, runs: Arc<dyn RunOfCall>) -> Self {
         self.runs_of_calls.push(runs);
+        self
+    }
+
+    /// The same, staging the writes made through an attempt of one of its
+    /// live Runs, such as a Key-value store write a crawl attempt's
+    /// handler makes through its `ctx.run`, where `staging` says (ADRs
+    /// 0093 and 0145).
+    #[must_use]
+    pub fn with_attempt_staging(mut self, staging: Arc<dyn AttemptStaging>) -> Self {
+        self.attempt_stagings.push(staging);
         self
     }
 
@@ -938,6 +975,15 @@ impl Composition {
         self.contributions
             .iter()
             .flat_map(|contribution| contribution.runs_of_calls.iter().cloned())
+            .collect()
+    }
+
+    /// Where the attempts of each contribution's live Runs stage, in
+    /// order.
+    pub(crate) fn attempt_stagings(&self) -> Arc<[Arc<dyn AttemptStaging>]> {
+        self.contributions
+            .iter()
+            .flat_map(|contribution| contribution.attempt_stagings.iter().cloned())
             .collect()
     }
 

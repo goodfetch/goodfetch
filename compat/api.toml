@@ -37,6 +37,10 @@ entry = "typescript @goodfetch/collie-client/runtime pageOf"
 reason = "A page carries the Session that opened it, so `page.session()` answers without a call (issue 3585): `pageOf` takes the page's Session ID."
 
 [[announced]]
+entry = "rust goodfetch-collie-client method_parameter_count_changed"
+reason = "A page carries the Session that opened it, so `Page::session` answers without a call (issue 3585): `Run::page_of` takes the page's Session ID."
+
+[[announced]]
 entry = "typescript @goodfetch/collie CollieError"
 reason = "Three Error codes join the catalog, `page_navigated_during_call` (issue 3168), `schema_validator_failed` (issue 1338) and `model_unavailable` (issue 3167): a switch over every Collie error needs their cases."
 

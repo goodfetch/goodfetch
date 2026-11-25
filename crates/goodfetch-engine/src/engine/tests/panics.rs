@@ -797,13 +797,14 @@ fn wedged_handler() -> Handler {
         let run = driven(&context, &params).await;
         let mut held = Vec::with_capacity(MAILBOX);
         for _ in 0..MAILBOX {
-            held.push(run.state().reserve().await.unwrap());
+            held.push(crate::runs::state(&run).reserve().await.unwrap());
         }
-        run.spawn(async move {
+        let identity = crate::runs::identity(&run);
+        identity.spawn(async move {
             let _held = held;
             std::future::pending::<()>().await;
         });
-        Ok::<Value, CallError>(json!({ "run_id": run.id().to_string() }))
+        Ok::<Value, CallError>(json!({ "run_id": identity.id().to_string() }))
     })
 }
 

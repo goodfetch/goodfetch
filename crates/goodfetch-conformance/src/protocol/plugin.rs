@@ -4,10 +4,14 @@
 //! Plugin declares one at a time.
 //!
 //! The harness stands for the engine: it starts the Plugin with the
-//! protocol's cookie, sends `hello` announcing the suite's Product, and
-//! reads the kinds and capabilities the Plugin declares. A Plugin that
-//! declares no implementation of the suite's kind is refused before any
-//! case. Every case of each capability the Plugin declares then runs in
+//! protocol's cookie, sends `hello` with the plugin protocol range it
+//! speaks, the suite's Product, a run ID and the approved manifest's network
+//! level, and reads the kinds and capabilities the Plugin declares. The
+//! answer must be the Plugin's first message, and is held to the approved
+//! manifest as the engine holds it (ADR 0066): a refusal, a `hello` that
+//! differs from the manifest, and a Plugin that declares no implementation
+//! of the suite's kind are refused before any case. Every case of each
+//! capability the Plugin declares then runs in
 //! the suite's order over the one Connection, and each case's checks and
 //! the messages it exchanged become a case log entry; a capability it does
 //! not declare is never reached, nor is any case once the Plugin closed the
@@ -16,11 +20,13 @@
 use goodfetch_protocol::case_log::CaseLogEntry;
 use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::plugin::{
-    DeclaredKind, HELLO, PLUGIN_PROTOCOL_VERSION, PluginHelloParams, PluginHelloResult,
+    DeclaredKind, HELLO, HelloRefusal, PLUGIN_PROTOCOL, PluginHelloParams, PluginHelloResult,
+    PluginManifest, check_hello,
 };
 use goodfetch_protocol::result_document::{
     CaseCheck, ConformanceDocument, ConformanceHeader, Evidence, Target, TargetIdentity,
 };
+use goodfetch_protocol::run::RunId;
 use goodfetch_protocol::sample::SampleStorePutResult;
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -39,11 +45,16 @@ use crate::writer::{WriteError, write_document};
 /// does.
 const SAMPLE_STORE_CASES: &str = include_str!("../../../../conformance/sample-store/cases.toml");
 
+/// The run ID the harness's `hello` names.
+const RUN_ID: &str = "conformance";
+
 /// A process Plugin: an executable taken by path, started with these
 /// arguments and exactly this environment, to which the harness adds the
-/// plugin protocol's cookie.
+/// plugin protocol's cookie, and held to its approved manifest.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PluginTarget {
+    /// The manifest approved for it, which its `hello` must match.
+    pub manifest: PluginManifest,
     /// The executable.
     pub executable: PathBuf,
     /// Its arguments.
@@ -137,6 +148,12 @@ pub enum PluginSuiteError {
         /// Why.
         reason: String,
     },
+    /// The Plugin sent another message before its answer to `hello`.
+    #[error("the Plugin sent {first} before its answer to `hello`")]
+    HelloNotFirst {
+        /// The first message it sent.
+        first: Value,
+    },
     /// The Plugin refused the `hello`.
     #[error("the Plugin refused `hello`: {error}")]
     HelloRefused {
@@ -149,6 +166,11 @@ pub enum PluginSuiteError {
         /// The answer.
         answer: Value,
     },
+    /// The Plugin's `hello` result is refused as the engine refuses it:
+    /// a version the harness does not speak, or a claim its approved
+    /// manifest does not make.
+    #[error(transparent)]
+    HelloNotAccepted(#[from] HelloRefusal),
     /// The Plugin declares no implementation of the suite's kind.
     #[error("the suite proves the Plugin kind `{kind}`, and the Plugin declares only {declared:?}")]
     KindUndeclared {
@@ -170,9 +192,10 @@ pub enum PluginSuiteError {
 ///
 /// # Errors
 ///
-/// When the Plugin cannot be started, does not answer `hello` with a
-/// `hello` result, or declares no implementation of the suite's kind, and
-/// when the Proving ground cannot serve its task list.
+/// When the Plugin cannot be started, does not answer `hello` first with a
+/// `hello` result its approved manifest accepts, or declares no
+/// implementation of the suite's kind, and when the Proving ground cannot
+/// serve its task list.
 pub fn run_plugin_suite(
     suite: &PluginSuite,
     target: &PluginTarget,
@@ -180,7 +203,7 @@ pub fn run_plugin_suite(
 ) -> Result<ConformanceDocument, PluginSuiteError> {
     let task_list = proving_ground.task_list()?;
     let mut connection = Connection::to_plugin(Started::plugin(target)?);
-    let (hello, declared) = match hello(&mut connection, suite) {
+    let (hello, declared) = match hello(&mut connection, suite, &target.manifest) {
         Ok(answered) => answered,
         Err(refused) => {
             connection.close();
@@ -243,22 +266,31 @@ pub fn run_plugin_suite(
     Ok(write_document(header, &suite.cases, &log)?)
 }
 
-/// Opens the plugin protocol with `hello`, announcing the suite's Product,
-/// and finds the Plugin's declaration of the suite's kind.
+/// Opens the plugin protocol with `hello`, announcing the suite's Product
+/// and the approved manifest's network level, holds the answer, which must
+/// come first, to `approved`, and finds the Plugin's declaration of the
+/// suite's kind.
 fn hello(
     connection: &mut Connection,
     suite: &PluginSuite,
+    approved: &PluginManifest,
 ) -> Result<(PluginHelloResult, DeclaredKind), PluginSuiteError> {
     let params = serde_json::to_value(PluginHelloParams {
-        protocol_version: PLUGIN_PROTOCOL_VERSION,
+        protocol: PLUGIN_PROTOCOL,
         product: suite.product,
+        run_id: RunId::parse(RUN_ID).expect("invariant: the harness's run ID is a Run ID"),
+        network_level: approved.network_level,
     })
     .expect("invariant: `hello` serializes");
     let unanswered = |why: Gone| PluginSuiteError::HelloUnanswered {
         reason: why.to_string(),
     };
     let id = connection.request(HELLO, &params).map_err(unanswered)?;
-    let answer = connection.first_answer(id).map_err(unanswered)?.message;
+    let answered = connection.first_answer(id).map_err(unanswered)?;
+    if let Some(first) = answered.others.into_iter().next() {
+        return Err(PluginSuiteError::HelloNotFirst { first });
+    }
+    let answer = answered.message;
     if let Some(error) = answer.get("error") {
         return Err(PluginSuiteError::HelloRefused {
             error: error.clone(),
@@ -270,15 +302,20 @@ fn hello(
         .ok_or_else(|| PluginSuiteError::HelloUnreadable {
             answer: answer.clone(),
         })?;
+    check_hello(PLUGIN_PROTOCOL, approved, &hello)?;
     let Some(declared) = hello
         .kinds
         .iter()
-        .find(|declared| declared.kind == suite.kind)
+        .find(|declared| declared.kind.as_str() == suite.kind)
         .cloned()
     else {
         return Err(PluginSuiteError::KindUndeclared {
             kind: suite.kind.clone(),
-            declared: hello.kinds.iter().map(|kind| kind.kind.clone()).collect(),
+            declared: hello
+                .kinds
+                .iter()
+                .map(|kind| kind.kind.as_str().to_owned())
+                .collect(),
         });
     };
     Ok((hello, declared))

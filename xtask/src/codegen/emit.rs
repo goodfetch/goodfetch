@@ -35,7 +35,14 @@
 //! outside the catalog, and those of the streaming calls' notifications,
 //! the Client's `$/credit` and the engine's `$/events` and `$/chunk`, and
 //! `meta`, the Trace context and raw mark that every request's params type
-//! holds as `_meta`, which emitting adds to each of them (ADR 0132); each Error code's entry carries its row of the
+//! holds as `_meta`, which emitting adds to each of them (ADR 0132). Its
+//! `plugin` holds the plugin protocol's own types, which the engine speaks
+//! with a process Plugin outside the catalog (ADR 0033): `hello`, whose
+//! answer the engine holds to the approved manifest, `$/cancel`, `$/ping`,
+//! and `manifest`, the `goodfetch-plugin.json` a Plugin ships; the engine's
+//! `hello` and `$/ping` take `_meta` too, as every kind's method in the
+//! catalog does. `xtask codegen` also writes the plugin protocol's types and
+//! the manifest's schema on their own, for Plugin authors. Each Error code's entry carries its row of the
 //! exit-code table, `exit_code`. A new catalog section
 //! needs no change in `xtask`: each Product's projection, the names only
 //! Foxhound carries and the containment check read every section.
@@ -66,6 +73,10 @@ use goodfetch_protocol::key_value_store::KeyValueStoreKey;
 use goodfetch_protocol::log::LogEvent;
 use goodfetch_protocol::model::{ModelRequest, ModelResponsePart};
 use goodfetch_protocol::page::Chunk;
+use goodfetch_protocol::plugin::{
+    PluginCancelParams, PluginHelloParams, PluginHelloResult, PluginManifest, PluginPingParams,
+    PluginPingResult,
+};
 use goodfetch_protocol::releases::ReleasesFile;
 use goodfetch_protocol::result_document::ResultDocument;
 use goodfetch_protocol::run::RunsReindexOutput;
@@ -125,6 +136,18 @@ pub(super) fn emit() -> Emitted {
         "record": { "params": generator.subschema_for::<RecordRead>() },
         "meta": generator.subschema_for::<RequestMeta>(),
     });
+    let plugin = json!({
+        "hello": {
+            "params": generator.subschema_for::<PluginHelloParams>(),
+            "result": generator.subschema_for::<PluginHelloResult>(),
+        },
+        "cancel": { "params": generator.subschema_for::<PluginCancelParams>() },
+        "ping": {
+            "params": generator.subschema_for::<PluginPingParams>(),
+            "result": generator.subschema_for::<PluginPingResult>(),
+        },
+        "manifest": generator.subschema_for::<PluginManifest>(),
+    });
     let outputs = outputs(&mut generator);
     let command_failed = generator.subschema_for::<CommandFailed>();
     let shared_types = json!({ "block_cause": generator.subschema_for::<BlockCause>() });
@@ -135,10 +158,11 @@ pub(super) fn emit() -> Emitted {
         "response_part": generator.subschema_for::<ModelResponsePart>(),
     });
     let mut definitions = generator.take_definitions(true);
-    for params in sections
-        .request_params()
-        .chain([&connection["hello"]["params"]])
-    {
+    for params in sections.request_params().chain([
+        &connection["hello"]["params"],
+        &plugin["hello"]["params"],
+        &plugin["ping"]["params"],
+    ]) {
         add_meta(&mut definitions, params);
     }
     let exit_codes: Vec<Value> = exit_code_table().iter().map(exit_code_entry).collect();
@@ -158,6 +182,7 @@ pub(super) fn emit() -> Emitted {
             },
             "formats": formats,
             "connection": connection,
+            "plugin": plugin,
             "outputs": outputs,
             "command_failed": command_failed,
             "shared_types": shared_types,

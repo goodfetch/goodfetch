@@ -12,6 +12,7 @@ use goodfetch_conformance::{
     PluginSuite, PluginSuiteError, PluginTarget, ProvingGround, run_plugin_suite,
 };
 use goodfetch_protocol::journey::FeatureId;
+use goodfetch_protocol::plugin::{HelloRefusal, ManifestField, PluginManifest};
 use goodfetch_protocol::result_document::{
     CapabilityResult, CaseOutcome, ConformanceDocument, LoadedDocument, Outcome, ResultDocument,
     TargetIdentity, read,
@@ -24,10 +25,31 @@ use crate::schema_violations;
 /// This commit's toy Plugin.
 const TOY_PLUGIN: &str = env!("CARGO_BIN_EXE_goodfetch-toy-plugin");
 
+/// The toy Plugin's manifest as approved: a `sample_store` at
+/// `network_level`, speaking plugin protocol 0.1.
+fn approved(network_level: &str) -> PluginManifest {
+    PluginManifest::read(
+        json!({
+            "manifest_version": "0.1",
+            "name": "goodfetch-toy-plugin",
+            "version": env!("CARGO_PKG_VERSION"),
+            "kinds": ["sample_store"],
+            "protocol": { "min": "0.1", "max": "0.1" },
+            "entrypoint": "goodfetch-toy-plugin",
+            "network_level": network_level,
+        })
+        .to_string()
+        .as_bytes(),
+    )
+    .unwrap()
+}
+
 /// The toy Plugin started with `arguments`, in the test's folder, with
-/// nothing in its environment the harness does not add.
+/// nothing in its environment the harness does not add, and held to its
+/// manifest approved at network level `none`.
 fn toy(env: &TestEnv, arguments: &[&str]) -> PluginTarget {
     PluginTarget {
+        manifest: approved("none"),
         executable: TOY_PLUGIN.into(),
         arguments: arguments
             .iter()
@@ -38,18 +60,98 @@ fn toy(env: &TestEnv, arguments: &[&str]) -> PluginTarget {
     }
 }
 
+/// The `sample_store` suite run against `target`, the toy Plugin in
+/// `env`, and the local copy of the Proving ground.
+fn run_against(
+    env: &TestEnv,
+    target: &PluginTarget,
+) -> Result<ConformanceDocument, PluginSuiteError> {
+    let copy = LocalCopy::start(env, env.seed()).unwrap();
+    let proving_ground = ProvingGround::local(&copy.address().to_string());
+    run_plugin_suite(&PluginSuite::sample_store(), target, &proving_ground)
+}
+
 /// The `sample_store` suite run against the toy Plugin started with
 /// `arguments`, and the local copy of the Proving ground.
 fn run(arguments: &[&str]) -> ConformanceDocument {
     let env = TestEnv::new();
-    let copy = LocalCopy::start(&env, env.seed()).unwrap();
-    let proving_ground = ProvingGround::local(&copy.address().to_string());
-    run_plugin_suite(
-        &PluginSuite::sample_store(),
-        &toy(&env, arguments),
-        &proving_ground,
-    )
-    .unwrap()
+    run_against(&env, &toy(&env, arguments)).unwrap()
+}
+
+/// Why the `sample_store` suite refused the toy Plugin started with
+/// `arguments` and held to `manifest`, before any case.
+fn refused(arguments: &[&str], manifest: PluginManifest) -> PluginSuiteError {
+    let env = TestEnv::new();
+    let target = PluginTarget {
+        manifest,
+        ..toy(&env, arguments)
+    };
+    run_against(&env, &target).unwrap_err()
+}
+
+/// Covers: story:7-77, story:7-100
+#[test]
+fn a_hello_claiming_a_kind_the_manifest_did_not_approve_is_refused_with_plugin_manifest_mismatch() {
+    let refused = refused(&["--claim-kind", "hook"], approved("none"));
+
+    assert!(
+        matches!(
+            &refused,
+            PluginSuiteError::HelloNotAccepted(refusal @ HelloRefusal::ManifestMismatch {
+                field: ManifestField::Kinds
+            }) if refusal.code().as_str() == "plugin_manifest_mismatch"
+        ),
+        "{refused:?}"
+    );
+}
+
+/// Covers: story:7-77, story:7-100
+#[test]
+fn a_hello_at_another_network_level_than_approved_is_refused_with_plugin_manifest_mismatch() {
+    let refused = refused(&[], approved("proxy_tcp"));
+
+    assert!(
+        matches!(
+            &refused,
+            PluginSuiteError::HelloNotAccepted(HelloRefusal::ManifestMismatch {
+                field: ManifestField::NetworkLevel
+            })
+        ),
+        "{refused:?}"
+    );
+}
+
+/// A Plugin that shares no plugin protocol version with the harness says
+/// so in its reply to `hello`, which is its first message (ADR 0066).
+///
+/// Covers: story:7-77, story:7-100
+#[test]
+fn a_plugin_that_shares_no_protocol_version_answers_hello_with_plugin_protocol_unsupported_first() {
+    let refused = refused(&["--protocol", "9.0", "9.1"], approved("none"));
+
+    assert!(
+        matches!(
+            &refused,
+            PluginSuiteError::HelloRefused { error }
+                if error["data"]["code"] == "plugin_protocol_unsupported"
+                    && error["data"]["retryable"] == false
+        ),
+        "{refused:?}"
+    );
+}
+
+/// Covers: story:7-77
+#[test]
+fn a_plugin_that_speaks_before_its_answer_to_hello_is_refused() {
+    let refused = refused(&["--speak-first"], approved("none"));
+
+    assert!(
+        matches!(
+            &refused,
+            PluginSuiteError::HelloNotFirst { first } if first["method"] == "$/log"
+        ),
+        "{refused:?}"
+    );
 }
 
 /// Each capability's name and outcome.

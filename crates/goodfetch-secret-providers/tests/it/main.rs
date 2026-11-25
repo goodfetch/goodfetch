@@ -14,6 +14,7 @@
 mod providers;
 
 mod aws_access_keys;
+mod azure_access_tokens;
 mod clouds;
 mod gcp_access_tokens;
 mod support;

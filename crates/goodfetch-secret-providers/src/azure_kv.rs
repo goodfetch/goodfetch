@@ -2,24 +2,26 @@
 //! of the secret `secret` in the vault `vault`, read with
 //! `GET <vault URL>/secrets/<secret>?api-version=7.5`, the vault's URL
 //! `secret_providers.azure_kv.endpoint` with `{vault}` replaced by its name.
-//! The access token comes from Microsoft Entra ID
-//! (`secret_providers.azure_kv.authority`) by the client-credentials grant,
-//! for the service principal in the engine's environment's
-//! `AZURE_TENANT_ID`, `AZURE_CLIENT_ID` and `AZURE_CLIENT_SECRET`. Both are
-//! Operator-configured endpoints reached through the engine's own HTTP
-//! client ([`SecretProviderEndpoint`]).
+//! The access token comes from the identity the engine's environment gives
+//! ([`access_token`]): a service principal's or a workload identity's,
+//! which Microsoft Entra ID (`secret_providers.azure_kv.authority`) issues
+//! by the client-credentials grant, or the host's managed identity. The
+//! vault, the authority and the identity endpoints are Operator-configured
+//! endpoints reached through the engine's own HTTP client
+//! ([`SecretProviderEndpoint`]).
 //!
-//! Two translation points (ADR 0127): [`translate_token`] reads the OAuth
-//! 2.0 `error` the authority answers, and [`translate`] the `error.code`
-//! Key Vault answers.
+//! Three translation points (ADR 0127): [`translate`] reads the
+//! `error.code` Key Vault answers, and [`access_token`] the authority's and
+//! the managed identity endpoints' failures.
 
-use std::collections::BTreeMap;
-use std::ffi::OsString;
+mod access_token;
 
+use goodfetch_engine::clock::Clock;
 use goodfetch_engine::secret_endpoint::SecretProviderEndpoint;
 use goodfetch_engine::secrets::{
     ConfigProblem, PartyText, ProviderFailure, ProviderInputs, Resolving, SecretProvider,
 };
+use goodfetch_engine::tasks::BlockingThreads;
 use goodfetch_protocol::secret_reference::SecretReference;
 use goodfetch_protocol::secrets::{
     SECRET_PROVIDERS_AZURE_KV_AUTHORITY, SECRET_PROVIDERS_AZURE_KV_ENDPOINT,
@@ -30,13 +32,12 @@ use hyper::header::HeaderValue;
 use secrecy::{ExposeSecret as _, SecretString};
 use url::Url;
 
-use crate::endpoint::{json_of, server_url, text_of, unreached, variable};
+use self::access_token::Source;
+use crate::endpoint::{json_of, server_url, text_of, unreached};
+use crate::identity::Reach;
 
 /// The service's name in failures.
 const SERVICE: &str = "Azure Key Vault";
-
-/// The authority's name in failures.
-const AUTHORITY: &str = "Microsoft Entra ID";
 
 /// What stands for the vault's name in the endpoint's URL.
 const VAULT: &str = "{vault}";
@@ -44,79 +45,37 @@ const VAULT: &str = "{vault}";
 /// Key Vault's REST API version.
 const API_VERSION: &str = "7.5";
 
-/// The service principal the token is issued to.
-#[derive(Clone)]
-struct ServicePrincipal {
-    tenant: String,
-    client_id: String,
-    client_secret: SecretString,
-}
-
-impl std::fmt::Debug for ServicePrincipal {
-    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        formatter
-            .debug_struct("ServicePrincipal")
-            .field("tenant", &self.tenant)
-            .field("client_id", &self.client_id)
-            .finish_non_exhaustive()
-    }
-}
-
 /// Azure Key Vault's provider over its REST API.
 #[derive(Clone, Debug)]
 pub struct AzureKeyVault {
     endpoint_url: String,
     authority: String,
-    principal: Option<ServicePrincipal>,
+    token: Source,
     endpoint: SecretProviderEndpoint,
+    blocking: BlockingThreads,
+    clock: Clock,
 }
 
 impl AzureKeyVault {
     /// The provider `secret_providers.azure_kv.*` configure in a Run's
     /// `inputs`, which also give how the vault and the authority are
-    /// reached, for the service principal in the engine's environment.
+    /// reached, with the identity the engine's environment gives, its
+    /// token file read on their blocking threads.
     pub fn configured(inputs: &ProviderInputs<'_>) -> Self {
         let text = |setting| inputs.settings.get::<&str>(setting).to_owned();
-        Self::new(
-            text(&SECRET_PROVIDERS_AZURE_KV_ENDPOINT),
-            text(&SECRET_PROVIDERS_AZURE_KV_AUTHORITY),
-            inputs.environment,
-            SecretProviderEndpoint::of(inputs),
-        )
-    }
-
-    /// The provider reading from the vaults `endpoint_url` names, with a
-    /// token from `authority`, through `endpoint`, for the service
-    /// principal in `environment`.
-    pub fn new(
-        endpoint_url: String,
-        authority: String,
-        environment: &BTreeMap<OsString, OsString>,
-        endpoint: SecretProviderEndpoint,
-    ) -> Self {
-        let principal = match (
-            variable(environment, "AZURE_TENANT_ID"),
-            variable(environment, "AZURE_CLIENT_ID"),
-            variable(environment, "AZURE_CLIENT_SECRET"),
-        ) {
-            (Some(tenant), Some(client_id), Some(secret)) => Some(ServicePrincipal {
-                tenant,
-                client_id,
-                client_secret: SecretString::from(secret),
-            }),
-            _ => None,
-        };
         Self {
-            endpoint_url,
-            authority,
-            principal,
-            endpoint,
+            endpoint_url: text(&SECRET_PROVIDERS_AZURE_KV_ENDPOINT),
+            authority: text(&SECRET_PROVIDERS_AZURE_KV_AUTHORITY),
+            token: Source::of(inputs.environment),
+            endpoint: SecretProviderEndpoint::of(inputs),
+            blocking: inputs.blocking.clone(),
+            clock: inputs.clock,
         }
     }
 
-    /// The authority's URL and the service principal, when the settings
-    /// and the environment are usable.
-    fn checked(&self) -> Result<(Url, &ServicePrincipal), ConfigProblem> {
+    /// The authority's URL and the token's source, when the settings and
+    /// the environment are usable.
+    fn checked(&self) -> Result<(Url, &Source), ConfigProblem> {
         let endpoint = SECRET_PROVIDERS_AZURE_KV_ENDPOINT.name;
         if !self.endpoint_url.contains(VAULT) {
             return Err(ConfigProblem {
@@ -137,12 +96,8 @@ impl AzureKeyVault {
                 SECRET_PROVIDERS_AZURE_KV_AUTHORITY.name, self.authority
             ),
         })?;
-        let Some(principal) = &self.principal else {
-            return Err(ConfigProblem {
-                fix: "Set `AZURE_TENANT_ID`, `AZURE_CLIENT_ID` and `AZURE_CLIENT_SECRET` in the engine's environment to a service principal that may get the vault's secrets.".to_owned(),
-            });
-        };
-        Ok((authority, principal))
+        self.token.check()?;
+        Ok((authority, &self.token))
     }
 
     /// The vault `vault`'s URL.
@@ -175,48 +130,6 @@ impl AzureKeyVault {
             .unwrap_or("vault.azure.net");
         format!("https://{domain}/.default")
     }
-
-    /// An access token for Key Vault from the authority at `authority`.
-    async fn token(
-        &self,
-        authority: &Url,
-        principal: &ServicePrincipal,
-    ) -> Result<SecretString, ProviderFailure> {
-        let mut url = authority.clone();
-        url.path_segments_mut()
-            .expect("invariant: an `http:` or `https:` URL has a path")
-            .pop_if_empty()
-            .extend([principal.tenant.as_str(), "oauth2", "v2.0", "token"]);
-        let body = secrecy::zeroize::Zeroizing::new(
-            url::form_urlencoded::Serializer::new(String::new())
-                .append_pair("grant_type", "client_credentials")
-                .append_pair("client_id", &principal.client_id)
-                .append_pair("client_secret", principal.client_secret.expose_secret())
-                .append_pair("scope", &self.scope())
-                .finish(),
-        );
-        let request = Request::post(url.as_str())
-            .header("content-type", "application/x-www-form-urlencoded")
-            .body(Bytes::from(body.as_bytes().to_vec()))
-            .expect("invariant: a parsed URL and fixed headers make a request");
-        let answer = self.endpoint.send(request).await.map_err(|failure| {
-            unreached(
-                failure,
-                AUTHORITY,
-                authority,
-                SECRET_PROVIDERS_AZURE_KV_AUTHORITY.name,
-            )
-        })?;
-        let status = answer.status().as_u16();
-        if status != 200 {
-            return Err(translate_token(status, answer.body()));
-        }
-        json_of(answer.body(), AUTHORITY)?
-            .get("access_token")
-            .and_then(|token| token.as_str())
-            .map(|token| SecretString::from(token.to_owned()))
-            .ok_or_else(|| unrecognized("azure-kv", status, "no access_token"))
-    }
 }
 
 /// Whether `name` is a vault's name: 3 to 24 letters, digits and dashes,
@@ -232,13 +145,18 @@ fn is_vault_name(name: &str) -> bool {
 impl SecretProvider for AzureKeyVault {
     fn resolve<'a>(&'a self, reference: &'a SecretReference) -> Resolving<'a> {
         Box::pin(async move {
-            let (authority, principal) = self.checked().map_err(ProviderFailure::NotConfigured)?;
+            let (authority, source) = self.checked().map_err(ProviderFailure::NotConfigured)?;
             let (vault, secret) = reference
                 .rest()
                 .split_once('/')
                 .expect("invariant: an `azure-kv:` reference holds vault/secret");
             let mut url = self.vault_url(vault)?;
-            let token = self.token(&authority, principal).await?;
+            let reach = Reach {
+                endpoint: &self.endpoint,
+                blocking: &self.blocking,
+                clock: self.clock,
+            };
+            let token = source.token(&reach, &authority, &self.scope()).await?;
             url.path_segments_mut()
                 .expect("invariant: an `http:` or `https:` URL has a path")
                 .pop_if_empty()
@@ -264,7 +182,7 @@ impl SecretProvider for AzureKeyVault {
             if status == 200 {
                 value_of(answer.body())
             } else {
-                Err(translate(status, answer.body())
+                Err(translate(status, answer.body(), source.describe())
                     .retrying_after(self.endpoint.retry_after(&answer)))
             }
         })
@@ -293,50 +211,29 @@ const KNOWN: &[(u16, Option<&str>, Meaning)] = &[
     (429, Some("Throttled"), Meaning::Throttled),
 ];
 
-/// The OAuth 2.0 errors the authority is known to answer, and what each
-/// means.
-const KNOWN_TOKEN: &[(&str, Meaning)] = &[
-    ("invalid_client", Meaning::ClientRefused),
-    ("unauthorized_client", Meaning::ClientRefused),
-    ("invalid_request", Meaning::ClientRefused),
-    ("invalid_scope", Meaning::Scope),
-    ("temporarily_unavailable", Meaning::Throttled),
-];
-
 /// A known failure's meaning.
 #[derive(Clone, Copy)]
 enum Meaning {
     Missing,
     Denied,
     TokenRefused,
-    ClientRefused,
-    Scope,
     Throttled,
 }
 
-/// What a known failure means, as a provider's failure.
-fn failure_of(meaning: Meaning) -> ProviderFailure {
-    let refused = |service: &str, fix: &str| ProviderFailure::Refused {
-        fix: format!("{service}: {fix}"),
+/// What a known failure means, as a provider's failure, `from` naming the
+/// identity the token was issued to.
+fn failure_of(meaning: Meaning, from: &str) -> ProviderFailure {
+    let refused = |fix: String| ProviderFailure::Refused {
+        fix: format!("{SERVICE}: {fix}"),
     };
     match meaning {
         Meaning::Missing => ProviderFailure::Missing,
-        Meaning::Denied => refused(
-            SERVICE,
-            "the service principal may not get the secret, or the secret is disabled; give it the Key Vault Secrets User role or a `get` access policy on secrets, and enable the secret.",
-        ),
-        Meaning::TokenRefused => refused(
-            SERVICE,
-            "the vault refused the access token; check that `AZURE_TENANT_ID` is the vault's tenant.",
-        ),
-        Meaning::ClientRefused => refused(
-            AUTHORITY,
-            "the service principal was refused; set `AZURE_TENANT_ID`, `AZURE_CLIENT_ID` and `AZURE_CLIENT_SECRET` in the engine's environment to a current client secret of an app registered in that tenant.",
-        ),
-        Meaning::Scope => refused(
-            AUTHORITY,
-            "the Key Vault scope was refused; check that `secret_providers.azure_kv.endpoint` and `secret_providers.azure_kv.authority` name the same cloud.",
-        ),
+        Meaning::Denied => refused(format!(
+            "{from} may not get the secret, or the secret is disabled; give it the Key Vault Secrets User role or a `get` access policy on secrets, and enable the secret."
+        )),
+        Meaning::TokenRefused => refused(format!(
+            "the vault refused the access token of {from}; check that the identity belongs to the vault's tenant."
+        )),
         Meaning::Throttled => ProviderFailure::Busy {
             fix: format!("{SERVICE}: the request rate was exceeded; try again later."),
             retry_after: None,
@@ -344,8 +241,9 @@ fn failure_of(meaning: Meaning) -> ProviderFailure {
     }
 }
 
-/// What Key Vault meant by answering a read with `status` and `body`.
-pub(crate) fn translate(status: u16, body: &[u8]) -> ProviderFailure {
+/// What Key Vault meant by answering with `status` and `body` a read
+/// carrying the token of `from`, in a failure's words.
+pub(crate) fn translate(status: u16, body: &[u8], from: &str) -> ProviderFailure {
     let text = String::from_utf8_lossy(body).into_owned();
     let code = serde_json::from_str::<serde_json::Value>(&text)
         .ok()
@@ -357,24 +255,8 @@ pub(crate) fn translate(status: u16, body: &[u8]) -> ProviderFailure {
         })
         .map_or_else(
             || unrecognized("azure-kv", status, &text),
-            |(_, _, meaning)| failure_of(*meaning),
+            |(_, _, meaning)| failure_of(*meaning, from),
         )
-}
-
-/// What the authority meant by answering a token request with `status`
-/// and `body`.
-pub(crate) fn translate_token(status: u16, body: &[u8]) -> ProviderFailure {
-    let text = String::from_utf8_lossy(body).into_owned();
-    serde_json::from_str::<serde_json::Value>(&text)
-        .ok()
-        .and_then(|answer| answer.get("error")?.as_str().map(str::to_owned))
-        .and_then(|error| {
-            KNOWN_TOKEN
-                .iter()
-                .find(|(known, _)| *known == error)
-                .map(|(_, meaning)| *meaning)
-        })
-        .map_or_else(|| unrecognized("azure-kv", status, &text), failure_of)
 }
 
 /// An unrecognized failure, logged with its status only.

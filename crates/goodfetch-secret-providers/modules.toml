@@ -2,7 +2,7 @@
 # (ADR 0126).
 [modules]
 aws_sm = ["endpoint", "identity"]
-azure_kv = ["endpoint"]
+azure_kv = ["endpoint", "identity"]
 bitwarden = ["cli"]
 cli = []
 contribution = ["aws_sm", "azure_kv", "bitwarden", "gcp_sm", "one_password", "vault"]

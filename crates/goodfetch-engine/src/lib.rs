@@ -38,6 +38,7 @@ pub mod entropy;
 pub mod events;
 pub mod executables;
 mod forward;
+pub mod framing;
 pub mod governor;
 pub mod happy_eyeballs;
 pub mod heap;

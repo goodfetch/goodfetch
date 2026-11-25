@@ -12,7 +12,7 @@ use tokio::io::{
     AsyncBufRead, AsyncBufReadExt as _, AsyncReadExt as _, AsyncWriteExt as _, BufReader,
 };
 
-use crate::rpc::framing::MAX_MESSAGE_BYTES;
+use crate::framing::MAX_MESSAGE_BYTES;
 use crate::transport::Connection;
 
 #[cfg(test)]

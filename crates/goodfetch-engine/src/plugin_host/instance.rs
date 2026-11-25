@@ -62,7 +62,7 @@ use super::lifecycle::{
 };
 use super::process::{Ended, Pipes, PluginProcess};
 use crate::call_error::CallError;
-use crate::rpc::framing::{Frame, Framer, Incoming, MAX_MESSAGE_BYTES, decode};
+use crate::framing::{Frame, Framer, Incoming, MAX_MESSAGE_BYTES, decode};
 use crate::tasks::TaskOwner;
 use crate::transition::Refusal;
 use crate::wire::{self, Received};

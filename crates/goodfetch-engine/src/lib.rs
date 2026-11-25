@@ -62,6 +62,7 @@ mod needs_you_operations;
 pub mod ops;
 pub mod otlp;
 pub mod pinned_download;
+pub mod plugin_host;
 pub mod politeness;
 mod product;
 pub mod recipe;

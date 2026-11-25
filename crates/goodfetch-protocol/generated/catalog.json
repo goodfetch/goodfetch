@@ -1198,6 +1198,16 @@
     },
     {
       "arrived_in": "0.1",
+      "description": "The process Plugin crashed three times within 10 minutes of the run, so it stays quarantined for the rest of the run: its queued and later calls fail with this code, and one \"a Plugin quarantined\" Notification is sent. A later run starts it again; fix or replace the Plugin first.",
+      "exit_code": null,
+      "group": "unavailable",
+      "json_rpc_class": -32006,
+      "name": "plugin_quarantined",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
       "description": "The Operator policy's digest changed since it was read, as by a hand edit, so nothing was written; `fix` says to read it again.",
       "details": {
         "$ref": "#/$defs/PolicyConflictDetails"

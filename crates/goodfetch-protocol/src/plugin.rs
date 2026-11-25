@@ -319,6 +319,16 @@ pub const PLUGIN_CRASHED: ErrorCodeDefinition = ErrorCodeDefinition {
     arrived_in: ARRIVED_IN,
 };
 
+/// A process Plugin quarantined for the rest of its run (ADR 0033).
+pub const PLUGIN_QUARANTINED: ErrorCodeDefinition = ErrorCodeDefinition {
+    name: "plugin_quarantined",
+    description: "The process Plugin crashed three times within 10 minutes of the run, so it stays quarantined for the rest of the run: its queued and later calls fail with this code, and one \"a Plugin quarantined\" Notification is sent. A later run starts it again; fix or replace the Plugin first.",
+    group: ErrorGroup::Unavailable,
+    retryable: false,
+    exit_code: None,
+    arrived_in: ARRIVED_IN,
+};
+
 /// A Plugin whose confinement the host cannot provide (ADR 0033).
 pub const CONFINEMENT_UNAVAILABLE: ErrorCodeDefinition = ErrorCodeDefinition {
     name: "confinement_unavailable",
@@ -339,6 +349,7 @@ pub const ENTRIES: Entries = Entries {
         PLUGIN_MANIFEST_MISMATCH,
         PLUGIN_PROTOCOL_UNSUPPORTED,
         PLUGIN_CRASHED,
+        PLUGIN_QUARANTINED,
         CONFINEMENT_UNAVAILABLE,
     ],
     plugin_kinds: &[],

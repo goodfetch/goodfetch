@@ -98,6 +98,12 @@
         product: Product::Collie,
     },
     Namespace {
+        name: "schedule",
+        spelled: "schedule",
+        about: "Calls the catalog's `schedule` operations",
+        product: Product::Collie,
+    },
+    Namespace {
         name: "config",
         spelled: "config",
         about: "Calls the catalog's `config` operations",

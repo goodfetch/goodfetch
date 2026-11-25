@@ -11,6 +11,8 @@
 use goodfetch_engine::deadline::Deadline;
 use goodfetch_engine::plugin_kinds::Failure;
 use goodfetch_engine::plugin_kinds::extractor::ExtractorDriver;
+use goodfetch_engine::plugin_kinds::run_plugins::StartError;
+use goodfetch_engine::run::secret_error;
 use goodfetch_engine::runs::{Run, plugins};
 use goodfetch_engine::settings::{Resolved, RunSettings, Values};
 use goodfetch_engine::{CallError, named};
@@ -100,7 +102,8 @@ pub(super) fn cleaned_request(
 /// # Errors
 ///
 /// `extractor_unavailable` when no installed Extractor Plugin has the name
-/// or it cannot start, and the call's failure, as the Extractor's driver
+/// or it cannot start, `setting_invalid` naming the field of its settings
+/// its schema refuses, and the call's failure, as the Extractor's driver
 /// reads it, when the Plugin fails it or the Run's Usage refuses it.
 pub(super) async fn answered(
     run: &Run,
@@ -124,10 +127,16 @@ pub(super) async fn answered(
             format!("the page's URL does not parse: {error}"),
         )
     })?;
-    let extractor = plugins(run).extractor(name).await?;
+    let settings = run.settings().map(RunSettings::resolved);
+    let extractor = plugins(run)
+        .extractor(name, settings, run.secrets())
+        .await
+        .map_err(|error| match error {
+            StartError::Refused(error) => error,
+            StartError::Secret(error) => secret_error(&error),
+        })?;
     let clock = run.clock();
-    let deadline =
-        Deadline::of_resolved(run.settings().map(RunSettings::resolved), &TIMEOUT_PLUGIN);
+    let deadline = Deadline::of_resolved(settings, &TIMEOUT_PLUGIN);
     let ExtractContentResult { text, markdown, .. } =
         ExtractorDriver::new(&extractor, run, &clock, &deadline)
             .content(&url, cleaned)

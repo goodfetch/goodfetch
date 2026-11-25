@@ -231,6 +231,12 @@ number = 7
 kind = "error"
 prefix = "confinement_unavailable"
 
+# Each Plugin's settings, by its name (ADR 0033, issue 861).
+[[area]]
+number = 7
+kind = "setting"
+prefix = "plugins"
+
 # An Extractor's answer the engine cannot take, and an Extractor no one
 # answers for (ADRs 0104 and 0127, issue 823).
 [[area]]

@@ -24,7 +24,9 @@
 //! - `answers` answer each other call by its method with the `result` or
 //!   the `error` given, or leave it unanswered on `{ "silent": true }`; a
 //!   method it has no answer for is answered JSON-RPC's method-not-found
-//!   error.
+//!   error. On `"with_environment": true`, each `${NAME}` in the answer's
+//!   strings is replaced with its environment variable `NAME`'s value, or
+//!   with nothing when it has none, as a Plugin reads its settings.
 //!
 //! It records every message it reads and answers three methods of its own
 //! whatever the script says:
@@ -151,11 +153,52 @@ fn answer(script: &Value, method: &str, params: &Value, calls: &[Value]) -> Valu
                 Err(reason) => error(INTERNAL_ERROR, &reason),
             }
         }
-        _ => script["answers"]
-            .get(method)
-            .cloned()
-            .unwrap_or_else(|| error(METHOD_NOT_FOUND, &format!("no answer to `{method}`"))),
+        _ => match script["answers"].get(method).cloned() {
+            Some(Value::Object(mut scripted)) => {
+                if scripted.remove("with_environment") == Some(json!(true)) {
+                    expanded(Value::Object(scripted))
+                } else {
+                    Value::Object(scripted)
+                }
+            }
+            Some(scripted) => scripted,
+            None => error(METHOD_NOT_FOUND, &format!("no answer to `{method}`")),
+        },
     }
+}
+
+/// `value` with each `${NAME}` in its strings replaced with the
+/// environment variable `NAME`'s value, or with nothing.
+fn expanded(value: Value) -> Value {
+    match value {
+        Value::String(text) => Value::String(expanded_text(&text)),
+        Value::Array(items) => Value::Array(items.into_iter().map(expanded).collect()),
+        Value::Object(members) => Value::Object(
+            members
+                .into_iter()
+                .map(|(key, value)| (key, expanded(value)))
+                .collect(),
+        ),
+        other => other,
+    }
+}
+
+/// `text` with each `${NAME}` replaced with the variable `NAME`'s value.
+fn expanded_text(text: &str) -> String {
+    let mut out = String::new();
+    let mut rest = text;
+    while let Some(start) = rest.find("${") {
+        out.push_str(&rest[..start]);
+        let Some(length) = rest[start + 2..].find('}') else {
+            out.push_str(&rest[start..]);
+            return out;
+        };
+        let name = &rest[start + 2..start + 2 + length];
+        out.push_str(&std::env::var(name).unwrap_or_default());
+        rest = &rest[start + 3 + length..];
+    }
+    out.push_str(rest);
+    out
 }
 
 fn error(code: i64, message: &str) -> Value {

@@ -2709,6 +2709,7 @@ dependencies = [
  "indexmap",
  "insta",
  "jiff",
+ "jsonschema",
  "keyring-core",
  "libc",
  "loom",

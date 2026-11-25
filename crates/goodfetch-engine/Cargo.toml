@@ -55,6 +55,9 @@ httpdate.workspace = true
 # Period Limits count in an explicit IANA time zone (ADR 0041), read from the
 # system database, or a bundled one where the OS has none.
 jiff = { workspace = true, features = ["tzdb-zoneinfo", "tzdb-bundle-platform"] }
+# A Plugin's settings validated against its manifest's `settings_schema`
+# as it starts (ADR 0033, issue 861); no remote or file reference resolves.
+jsonschema.workspace = true
 # A message's nesting scanned past its strings a word at a time (ADR
 # 0140's E1).
 memchr.workspace = true

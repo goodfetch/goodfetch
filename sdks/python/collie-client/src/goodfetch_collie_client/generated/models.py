@@ -2729,6 +2729,26 @@ class PluginRun(BaseModel):
     """The network level it ran at."""
 
 
+class PluginSettingsSchema(BaseModel):
+    """
+    An installed Plugin's settings schema, as `config.explain` answers it:
+    what its entry's `settings` in `plugins` takes (ADR 0033).
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    name: str
+    """The Plugin's name, its key in `plugins`."""
+    schema_: Annotated[Any, Field(alias="schema")]
+    """
+    Its manifest's `settings_schema`, a JSON Schema, in which a field
+    marked `"secret": true` takes only a Secret reference.
+    """
+    version: str
+    """The version installed."""
+
+
 class PluginUsage(BaseModel):
     """
     What a Run's calls into one implementation of a Plugin kind used: its
@@ -9153,6 +9173,12 @@ class SettingsExplanation(BaseModel):
     )
     files: list[SettingsFile]
     """The files of the configuration layers, lowest first."""
+    plugins: list[PluginSettingsSchema] | None = None
+    """
+    Each installed Plugin whose manifest declares a `settings_schema`,
+    by name, with that schema: what `plugins.<name>.settings` takes
+    (ADR 0033). Explaining keys that leave `plugins` out lists none.
+    """
     policy_version: str | None = None
     """
     The Operator policy's version, `sha256:` and the first 16 hex digits

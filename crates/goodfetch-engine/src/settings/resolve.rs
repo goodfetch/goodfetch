@@ -485,6 +485,7 @@ impl Resolved {
             policy_version: self.policy_version.clone(),
             files,
             settings,
+            plugins: Vec::new(),
         }
     }
 

@@ -2,7 +2,8 @@
 //! 823): `goodfetch-scripted-plugin` installed in the Plugin store of the
 //! test's Goodfetch home as an Extractor, which Collie starts confined
 //! through its own executable as a page first reads with it, and whose
-//! answer `page.formats` answers as the page's main content.
+//! answer `page.formats` answers as the page's main content; and its
+//! settings, which value its environment (ticket 861).
 #![expect(
     clippy::doc_markdown,
     reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
@@ -16,7 +17,7 @@ use goodfetch_test_client::HomeLayout;
 use goodfetch_test_support::{ProvingGround, TestEnv, Tool, browser_cache, tools};
 use serde_json::{Value, json};
 
-use crate::page::{opened, started};
+use crate::page::{opened, started, started_with};
 use crate::plugin_host::hello;
 
 /// The Proving ground's own seed for these tests.
@@ -25,12 +26,19 @@ const SEED: u64 = 823;
 /// Installs `goodfetch-scripted-plugin` in the Plugin store of `home` as
 /// the Extractor `scripted`, which answers `extract.content` with
 /// `answer`.
+fn install(home: &Path, answer: &Value) {
+    install_as(home, "scripted", answer, &json!({}));
+}
+
+/// Installs `goodfetch-scripted-plugin` in the Plugin store of `home` as
+/// the Extractor `name`, which answers `extract.content` with `answer`,
+/// its manifest's fields `more` added.
 #[expect(
     clippy::disallowed_methods,
     reason = "the test lays out the Plugin store by hand, before the engine starts"
 )]
-fn install(home: &Path, answer: &Value) {
-    let bundle = home.join("plugins").join("scripted").join("1.0.0");
+fn install_as(home: &Path, name: &str, answer: &Value, more: &Value) {
+    let bundle = home.join("plugins").join(name).join("1.0.0");
     fs::create_dir_all(&bundle).unwrap();
     let scripted = tools()
         .unwrap()
@@ -43,15 +51,18 @@ fn install(home: &Path, answer: &Value) {
         "answers": { "extract.content": answer },
     });
     fs::write(bundle.join("script.json"), script.to_string()).unwrap();
-    let manifest = json!({
+    let mut manifest = json!({
         "manifest_version": "0.1",
-        "name": "scripted",
+        "name": name,
         "version": "1.0.0",
         "kinds": ["extract"],
         "protocol": { "min": "0.1", "max": "0.1" },
         "entrypoint": "plugin",
         "network_level": "none",
     });
+    for (field, value) in more.as_object().unwrap() {
+        manifest[field] = value.clone();
+    }
     fs::write(bundle.join("goodfetch-plugin.json"), manifest.to_string()).unwrap();
 }
 
@@ -180,5 +191,106 @@ fn a_page_reads_its_main_content_with_the_extractor_plugin_it_names() {
             (vec![], true)
         ),
         "{plugins}\n{built_ins}\n{absent}"
+    );
+}
+
+/// The Secret both Plugins' settings name, in the engine's environment.
+const TOKEN: &str = "hunter22-token";
+
+/// A Plugin's settings, given by the Run's `plugins`, value the variables
+/// its manifest declares: a field left out takes its schema's `default`,
+/// and a secret field's Secret reference is resolved by the engine, its
+/// value reaching the Plugin and masked in what the engine answers. A
+/// Plugin whose settings give a value in a secret field's place is
+/// `setting_invalid` naming the field, without the value; and `config
+/// explain` answers each installed Plugin's schema.
+///
+/// Covers: story:7-79, setting:plugins, operation:config.explain, error:setting_invalid
+#[test]
+fn a_plugins_settings_value_its_environment_and_a_literal_secret_is_refused() {
+    let env = TestEnv::new();
+    let schema = json!({
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+            "language": { "type": "string", "pattern": "^[a-z]{2}$", "default": "fr" },
+            "token": { "type": "string", "secret": true },
+        },
+    });
+    let more = json!({
+        "settings_schema": schema,
+        "env": { "EXTRACT_LANGUAGE": "language", "EXTRACT_TOKEN": "token" },
+        "permissions": { "grants": ["secret_value"] },
+    });
+    let answer = json!({ "with_environment": true, "result": {
+        "title": "Kettle",
+        "text": "${EXTRACT_LANGUAGE} ${EXTRACT_TOKEN}",
+        "markdown": "${EXTRACT_LANGUAGE} ${EXTRACT_TOKEN}",
+        "metadata": {},
+    } });
+    install_as(env.home(), "scripted", &answer, &more);
+    install_as(env.home(), "strict", &answer, &more);
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let cache = browser_cache(&env).unwrap();
+    let settings = json!({ "plugins": {
+        "scripted": { "settings": { "token": "env:EXTRACT_SECRET" } },
+        "strict": { "settings": { "token": TOKEN } },
+    } });
+    let mut engine = started_with(
+        &env,
+        &cache,
+        &proving_ground,
+        "plugins",
+        settings.as_object().unwrap(),
+        |command| {
+            command.env("EXTRACT_SECRET", TOKEN);
+        },
+    );
+    let product = proving_ground.url("extraction.test", "/markdown/mixed/product");
+    let mut formats = Vec::new();
+    for (id, name) in [(2, "scripted"), (5, "strict")] {
+        let page = opened(&engine.ask(
+            id,
+            "run.new_page",
+            &json!({ "run_id": "plugins", "settings": { "content": { "extractor": name } } }),
+        ));
+        engine.ask(
+            id + 1,
+            "page.goto",
+            &json!({ "page_id": page.page_id, "url": product }),
+        );
+        formats.push(engine.ask(
+            id + 2,
+            "page.formats",
+            &json!({ "page_id": page.page_id, "formats": { "text": true } }),
+        ));
+    }
+    let explained = engine.ask(8, "config.explain", &json!({ "keys": ["plugins"] }));
+    engine.ask(9, "run.finish", &json!({ "run_id": "plugins" }));
+    let (rest, exited) = engine.finish();
+
+    let [scripted, strict] = &formats[..] else {
+        unreachable!("two pages read");
+    };
+    let schemas = ["scripted", "strict"]
+        .map(|name| json!({ "name": name, "version": "1.0.0", "schema": schema }));
+    assert_eq!(
+        (
+            &scripted["result"]["text"],
+            &strict["error"]["data"]["code"],
+            &strict["error"]["data"]["key"],
+            strict.to_string().contains(TOKEN),
+            &explained["result"]["plugins"],
+            (rest, exited),
+        ),
+        (
+            &json!("fr %plugins.scripted.settings.token%"),
+            &json!("setting_invalid"),
+            &json!("plugins.strict.settings.token"),
+            false,
+            &json!(schemas),
+            (vec![], true)
+        ),
+        "{scripted}\n{strict}\n{explained}"
     );
 }

@@ -1645,6 +1645,7 @@ dependencies = [
  "icu_normalizer",
  "indexmap",
  "jiff",
+ "jsonschema",
  "keyring-core",
  "libc",
  "memchr",

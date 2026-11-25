@@ -5,10 +5,11 @@
 //! A Plugin starts from its bundle in the Plugin store, confined to its
 //! bundle and to its own temporary folder in Goodfetch home's
 //! `instances`, which the Plugin's process deletes as it stops. Its
-//! settings, and the variables they value, are issue 861's: until then a
-//! Plugin starts with an empty environment. A Plugin on a runtime waits for
-//! the runtime cache (issue 895), and the approvals in Operator policy for
-//! issue 900.
+//! settings in the Run's `plugins` are checked against its manifest's
+//! schema as it starts, and its environment holds only the variables its
+//! manifest declares, valued from them ([`plugin_settings`]). A Plugin on
+//! a runtime waits for the runtime cache (issue 895), and the approvals in
+//! Operator policy for issue 900.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -25,7 +26,10 @@ use super::extractor::{ProcessExtractor, unavailable};
 use crate::call_error::CallError;
 use crate::home::Home;
 use crate::plugin_host::instance::{self, PluginInstance, Scope};
-use crate::plugin_store::{PluginStore, StoreError};
+use crate::plugin_host::settings::{self as plugin_settings, EnvironmentError, PluginSettings};
+use crate::plugin_store::{Installed, PluginStore, StoreError};
+use crate::secrets::{RunSecrets, SecretError};
+use crate::settings::Resolved;
 use crate::tasks::TaskOwner;
 
 /// One Run's process Plugins, started as its calls name them.
@@ -73,31 +77,56 @@ impl RunPlugins {
     }
 
     /// The Extractor of the installed Plugin `name`, its instance started
-    /// on the first call.
+    /// on the first call with its settings in the Run's `settings` and its
+    /// environment valued from them, a secret field's reference resolved
+    /// by the Run's `secrets`.
     ///
     /// # Errors
     ///
+    /// [`StartError::Secret`] for a secret field whose reference gives no
+    /// value; otherwise [`StartError::Refused`]: `setting_invalid` naming
+    /// the field for settings the Plugin's schema refuses, and
     /// `extractor_unavailable` when no Plugin of the Extractor kind is
     /// installed under `name`, or its instance cannot be set up; why is
     /// logged at `warn`. A Plugin that cannot launch fails its first call
     /// instead, as its instance answers.
-    pub async fn extractor(&self, name: &str) -> Result<ProcessExtractor, CallError> {
+    pub async fn extractor(
+        &self,
+        name: &str,
+        settings: Option<&Resolved>,
+        secrets: &RunSecrets,
+    ) -> Result<ProcessExtractor, StartError> {
         let mut extractors = self.extractors.lock().await;
         if let Some(extractor) = extractors.get(name) {
             return Ok(extractor.clone());
         }
+        let cannot_start = |reason: &dyn std::fmt::Display| {
+            tracing::warn!(extractor = name, %reason, "an Extractor's Plugin cannot start");
+            StartError::Refused(unavailable(name))
+        };
         let store = self.store.clone();
+        let named = name.to_owned();
+        let installed = self
+            .owner
+            .blocking(move || store.resolve(&named, &PluginKindName::EXTRACT))
+            .await
+            .map_err(|error| cannot_start(&error))?;
+        let (given, layer) = plugin_settings::given(settings, name);
+        let environment = PluginSettings::checked(name, &installed.manifest, given, layer)
+            .map_err(|invalid| StartError::Refused(invalid.into()))?
+            .environment(name, &installed.manifest, secrets, (&self.run_id, layer))
+            .await
+            .map_err(|error| match error {
+                EnvironmentError::Secret(error) => StartError::Secret(error),
+                ungranted @ EnvironmentError::Ungranted { .. } => cannot_start(&ungranted),
+            })?;
         let folder = self.instances.join(format!("{}-{name}", self.run_id));
         let places = self.places.clone();
-        let named = name.to_owned();
         let plugin = self
             .owner
-            .blocking(move || set_up(&store, &named, &folder, places.as_deref()))
+            .blocking(move || set_up(installed, environment, &folder, places.as_deref()))
             .await
-            .map_err(|reason| {
-                tracing::warn!(extractor = name, %reason, "an Extractor's Plugin cannot start");
-                unavailable(name)
-            })?;
+            .map_err(|reason| cannot_start(&reason))?;
         let instance = PluginInstance::start(
             &self.owner,
             instance::Plugin {
@@ -128,6 +157,16 @@ impl RunPlugins {
     }
 }
 
+/// Why an Extractor's instance does not start.
+#[derive(Debug)]
+pub enum StartError {
+    /// The call's failure: its settings refused, or the Plugin unavailable.
+    Refused(CallError),
+    /// A secret field's reference gave no value, which the caller answers
+    /// as any Secret's failure.
+    Secret(SecretError),
+}
+
 /// What starts one instance, set up on the blocking policy.
 struct SetUp {
     launcher: PathBuf,
@@ -135,22 +174,19 @@ struct SetUp {
     manifest: PluginManifest,
 }
 
-/// Resolves the Extractor `name` in `store` and sets up its instance's
-/// folder `folder`, under `places`. Its error is the log's text, which may
-/// name paths.
+/// Sets up the instance of `installed`, an Extractor, with `environment`,
+/// its folder `folder`, under `places`. Its error is the log's text, which
+/// may name paths.
 #[expect(
     clippy::disallowed_methods,
     reason = "called on the tasks module's blocking policy, never on an async worker"
 )]
 fn set_up(
-    store: &PluginStore,
-    name: &str,
+    installed: Installed,
+    environment: BTreeMap<String, String>,
     folder: &Path,
     places: Option<&Places>,
 ) -> Result<SetUp, String> {
-    let installed = store
-        .resolve(name, &PluginKindName::EXTRACT)
-        .map_err(|error| error.to_string())?;
     let places =
         places.ok_or("the engine's environment names no home folder to confine it from")?;
     if installed.manifest.runtime != Runtime::None {
@@ -164,7 +200,7 @@ fn set_up(
         bundle: bundle.clone(),
         runtime: None,
         folders: vec![folder.clone()],
-        env: BTreeMap::new(),
+        env: environment,
     };
     let policy =
         Policy::of(&installed.manifest, &instance, places).map_err(|error| error.to_string())?;

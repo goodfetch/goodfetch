@@ -439,6 +439,29 @@ pub struct SettingsExplanation {
     /// Each setting, by key.
     #[schemars(extend("arrived_in" = "0.1"))]
     pub settings: Vec<ExplainedSetting>,
+    /// Each installed Plugin whose manifest declares a `settings_schema`,
+    /// by name, with that schema: what `plugins.<name>.settings` takes
+    /// (ADR 0033). Explaining keys that leave `plugins` out lists none.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub plugins: Vec<PluginSettingsSchema>,
+}
+
+/// An installed Plugin's settings schema, as `config.explain` answers it:
+/// what its entry's `settings` in `plugins` takes (ADR 0033).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct PluginSettingsSchema {
+    /// The Plugin's name, its key in `plugins`.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub name: String,
+    /// The version installed.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub version: String,
+    /// Its manifest's `settings_schema`, a JSON Schema, in which a field
+    /// marked `"secret": true` takes only a Secret reference.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub schema: Value,
 }
 
 /// A project configuration's file, found in a folder or above it (ADR

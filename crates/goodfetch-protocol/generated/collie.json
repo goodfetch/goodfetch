@@ -8392,6 +8392,32 @@
       ],
       "type": "object"
     },
+    "PluginSettingsSchema": {
+      "additionalProperties": false,
+      "description": "An installed Plugin's settings schema, as `config.explain` answers it:\nwhat its entry's `settings` in `plugins` takes (ADR 0033).",
+      "properties": {
+        "name": {
+          "arrived_in": "0.1",
+          "description": "The Plugin's name, its key in `plugins`.",
+          "type": "string"
+        },
+        "schema": {
+          "arrived_in": "0.1",
+          "description": "Its manifest's `settings_schema`, a JSON Schema, in which a field\nmarked `\"secret\": true` takes only a Secret reference."
+        },
+        "version": {
+          "arrived_in": "0.1",
+          "description": "The version installed.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "version",
+        "schema"
+      ],
+      "type": "object"
+    },
     "PluginUsage": {
       "description": "What a Run's calls into one implementation of a Plugin kind used: its\n`plugin_calls` and `plugin_time` (ADR 0033).",
       "properties": {
@@ -12679,6 +12705,14 @@
           "description": "The files of the configuration layers, lowest first.",
           "items": {
             "$ref": "#/$defs/SettingsFile"
+          },
+          "type": "array"
+        },
+        "plugins": {
+          "arrived_in": "0.1",
+          "description": "Each installed Plugin whose manifest declares a `settings_schema`,\nby name, with that schema: what `plugins.<name>.settings` takes\n(ADR 0033). Explaining keys that leave `plugins` out lists none.",
+          "items": {
+            "$ref": "#/$defs/PluginSettingsSchema"
           },
           "type": "array"
         },
@@ -21337,6 +21371,40 @@
       "scopes": [],
       "value": {
         "type": "string"
+      },
+      "weakening": null,
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": false,
+      "default": {},
+      "deprecated": null,
+      "description": "Each Plugin's settings, by its name, as `plugins.<name>.settings`: the fields its manifest's `settings_schema` declares, which the engine checks as it starts the Plugin, a value the schema refuses being `setting_invalid` naming its key, as `plugins.<name>.settings.<field>`, and a field left out taking the schema's `default`. A field the schema marks `\"secret\": true` takes only a Secret reference, such as `env:NAME`, a value given in its place being refused with `setting_invalid`; the engine resolves it, and passes it into the Plugin's environment only for a Plugin whose manifest's `permissions.grants` holds `secret_value`. The nearest layer's entry for a Plugin wins, and a Plugin it leaves out keeps the entry beneath. The engine reads a Plugin's settings from the Run's settings as the first call naming the Plugin starts it, and they hold for the rest of the Run: a page's value changes nothing. None by default. `config explain` returns each installed Plugin's schema.",
+      "fixed_for_run": false,
+      "name": "plugins",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run"
+      ],
+      "value": {
+        "additionalProperties": {
+          "additionalProperties": false,
+          "properties": {
+            "settings": {
+              "description": "The Plugin's settings, which its manifest's `settings_schema` validates.",
+              "type": "object"
+            }
+          },
+          "type": "object"
+        },
+        "type": "object"
       },
       "weakening": null,
       "weakens": false

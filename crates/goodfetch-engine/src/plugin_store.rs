@@ -8,7 +8,9 @@
 //! ```
 //!
 //! This is the store's reader: it resolves a Plugin's name to its bundle
-//! and its manifest, read as any decoded input (ADR 0127). Adding, updating
+//! and its manifest, read as any decoded input (ADR 0127), and lists the
+//! settings schemas the installed Plugins declare, which `config.explain`
+//! answers. Adding, updating
 //! and removing a Plugin (issues 889 and 928), the lockfile's digest and
 //! the approvals in Operator policy (issue 900) are theirs; until then a
 //! Plugin in the store is one the user put there.
@@ -29,6 +31,7 @@ use goodfetch_protocol::formats::{Compatibility, Rule};
 use goodfetch_protocol::plugin::{
     FILE_NAME, MANIFEST_VERSION, ManifestError, PluginKindName, PluginManifest,
 };
+use goodfetch_protocol::settings::PluginSettingsSchema;
 
 /// The Plugin store at one folder.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -125,6 +128,53 @@ impl PluginStore {
     /// cannot be read, is of a version this engine does not read or names
     /// another Plugin, or the Plugin is not of the kind `kind`.
     pub fn resolve(&self, name: &str, kind: &PluginKindName) -> Result<Installed, StoreError> {
+        let installed = self.installed(name)?;
+        if !installed.manifest.kinds.contains(kind) {
+            return Err(StoreError::Kind {
+                name: name.to_owned(),
+                kind: *kind,
+            });
+        }
+        Ok(installed)
+    }
+
+    /// Each installed Plugin whose manifest declares a `settings_schema`,
+    /// by name, with its version and that schema. A Plugin that does not
+    /// resolve is left out, why logged at `warn`; no store, none.
+    ///
+    /// # Errors
+    ///
+    /// The OS's error when the store's folder cannot be listed.
+    pub fn settings_schemas(&self) -> io::Result<Vec<PluginSettingsSchema>> {
+        let entries = match fs::read_dir(&self.folder) {
+            Ok(entries) => entries,
+            Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(Vec::new()),
+            Err(error) => return Err(error),
+        };
+        let mut names = entries
+            .map(|entry| entry.map(|entry| entry.file_name().to_string_lossy().into_owned()))
+            .collect::<io::Result<Vec<_>>>()?;
+        names.sort();
+        Ok(names
+            .into_iter()
+            .filter_map(|name| match self.installed(&name) {
+                Ok(Installed { manifest, .. }) => {
+                    manifest.settings_schema.map(|schema| PluginSettingsSchema {
+                        name,
+                        version: manifest.version,
+                        schema,
+                    })
+                }
+                Err(error) => {
+                    tracing::warn!(%error, "an installed Plugin's settings schema cannot be read");
+                    None
+                }
+            })
+            .collect())
+    }
+
+    /// The installed Plugin `name`, of any kind.
+    fn installed(&self, name: &str) -> Result<Installed, StoreError> {
         let unreadable = |source| StoreError::Unreadable {
             name: name.to_owned(),
             source,
@@ -153,12 +203,6 @@ impl PluginStore {
             return Err(StoreError::Misnamed {
                 name: name.to_owned(),
                 named: manifest.name,
-            });
-        }
-        if !manifest.kinds.contains(kind) {
-            return Err(StoreError::Kind {
-                name: name.to_owned(),
-                kind: *kind,
             });
         }
         Ok(Installed { bundle, manifest })

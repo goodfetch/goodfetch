@@ -33,6 +33,7 @@ pub mod extractor;
 mod fuzz;
 mod manifest;
 mod names;
+pub mod settings;
 
 pub use fuzz::{fuzz_plugin_manifest, fuzz_plugin_messages};
 pub use manifest::{
@@ -357,7 +358,7 @@ pub const ENTRIES: Entries = Entries {
     ],
     plugin_kinds: &[],
     metrics: &[],
-    settings: &[],
+    settings: &[settings::PLUGINS],
     hook_stages: &[],
     shared_type_values: &[],
 };

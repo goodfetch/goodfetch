@@ -9973,6 +9973,17 @@
       ]
     },
     {
+      "id": "setting:plugins",
+      "kind": "setting",
+      "area": 7,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "setting:politeness.backoff.enabled",
       "kind": "setting",
       "area": 3,

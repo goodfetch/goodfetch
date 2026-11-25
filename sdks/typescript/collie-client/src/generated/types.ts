@@ -6965,6 +6965,30 @@ export interface PluginRun {
   networkLevel: string;
 }
 /**
+ * An installed Plugin's settings schema, as `config.explain` answers it:
+ * what its entry's `settings` in `plugins` takes (ADR 0033).
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "PluginSettingsSchema".
+ */
+export interface PluginSettingsSchema {
+  /**
+   * The Plugin's name, its key in `plugins`.
+   */
+  name: string;
+  /**
+   * Its manifest's `settings_schema`, a JSON Schema, in which a field
+   * marked `"secret": true` takes only a Secret reference.
+   */
+  schema: {
+    [k: string]: unknown;
+  };
+  /**
+   * The version installed.
+   */
+  version: string;
+}
+/**
  * What a Run's calls into one implementation of a Plugin kind used: its
  * `plugin_calls` and `plugin_time` (ADR 0033).
  *
@@ -9127,6 +9151,12 @@ export interface SettingsExplanation {
    * The files of the configuration layers, lowest first.
    */
   files: SettingsFile[];
+  /**
+   * Each installed Plugin whose manifest declares a `settings_schema`,
+   * by name, with that schema: what `plugins.<name>.settings` takes
+   * (ADR 0033). Explaining keys that leave `plugins` out lists none.
+   */
+  plugins?: PluginSettingsSchema[];
   /**
    * The Operator policy's version, `sha256:` and the first 16 hex digits
    * of its file's digest, which the run report names; `None` without a

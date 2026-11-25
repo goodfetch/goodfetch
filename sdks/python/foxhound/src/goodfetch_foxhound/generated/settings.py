@@ -854,6 +854,13 @@ class ConnectionPaidFetchSettings(TypedDict):
     """
 
 
+class PluginsEntry(TypedDict):
+    """A value of `PluginsEntry`."""
+
+    settings: NotRequired[Mapping[str, object]]
+    """The Plugin's settings, which its manifest's `settings_schema` validates."""
+
+
 class ConnectionPolitenessBackoffSettings(TypedDict):
     """The `politeness.backoff` settings of `FoxhoundSettings`."""
 
@@ -1868,6 +1875,12 @@ class FoxhoundSettings(TypedDict):
     network: NotRequired[ConnectionNetworkSettings]
 
     paid_fetch: NotRequired[ConnectionPaidFetchSettings]
+
+    plugins: NotRequired[Mapping[str, PluginsEntry]]
+    """Each Plugin's settings, by its name, as `plugins.<name>.settings`: the fields its manifest's `settings_schema` declares, which the engine checks as it starts the Plugin, a value the schema refuses being `setting_invalid` naming its key, as `plugins.<name>.settings.<field>`, and a field left out taking the schema's `default`. A field the schema marks `"secret": true` takes only a Secret reference, such as `env:NAME`, a value given in its place being refused with `setting_invalid`; the engine resolves it, and passes it into the Plugin's environment only for a Plugin whose manifest's `permissions.grants` holds `secret_value`. The nearest layer's entry for a Plugin wins, and a Plugin it leaves out keeps the entry beneath. The engine reads a Plugin's settings from the Run's settings as the first call naming the Plugin starts it, and they hold for the rest of the Run: a page's value changes nothing. None by default. `config explain` returns each installed Plugin's schema.
+
+    `plugins`.
+    """
 
     politeness: NotRequired[ConnectionPolitenessSettings]
 
@@ -3366,6 +3379,12 @@ class CrawlSettings(TypedDict):
     network: NotRequired[RunNetworkSettings]
 
     paid_fetch: NotRequired[RunPaidFetchSettings]
+
+    plugins: NotRequired[Mapping[str, PluginsEntry]]
+    """Each Plugin's settings, by its name, as `plugins.<name>.settings`: the fields its manifest's `settings_schema` declares, which the engine checks as it starts the Plugin, a value the schema refuses being `setting_invalid` naming its key, as `plugins.<name>.settings.<field>`, and a field left out taking the schema's `default`. A field the schema marks `"secret": true` takes only a Secret reference, such as `env:NAME`, a value given in its place being refused with `setting_invalid`; the engine resolves it, and passes it into the Plugin's environment only for a Plugin whose manifest's `permissions.grants` holds `secret_value`. The nearest layer's entry for a Plugin wins, and a Plugin it leaves out keeps the entry beneath. The engine reads a Plugin's settings from the Run's settings as the first call naming the Plugin starts it, and they hold for the rest of the Run: a page's value changes nothing. None by default. `config explain` returns each installed Plugin's schema.
+
+    `plugins`.
+    """
 
     politeness: NotRequired[RunPolitenessSettings]
 

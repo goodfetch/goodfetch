@@ -348,6 +348,12 @@ export interface Settings {
      */
     readonly resolve?: { readonly [key: string]: readonly string[] };
   };
+  /**
+   * Each Plugin's settings, by its name, as `plugins.<name>.settings`: the fields its manifest's `settings_schema` declares, which the engine checks as it starts the Plugin, a value the schema refuses being `setting_invalid` naming its key, as `plugins.<name>.settings.<field>`, and a field left out taking the schema's `default`. A field the schema marks `"secret": true` takes only a Secret reference, such as `env:NAME`, a value given in its place being refused with `setting_invalid`; the engine resolves it, and passes it into the Plugin's environment only for a Plugin whose manifest's `permissions.grants` holds `secret_value`. The nearest layer's entry for a Plugin wins, and a Plugin it leaves out keeps the entry beneath. The engine reads a Plugin's settings from the Run's settings as the first call naming the Plugin starts it, and they hold for the rest of the Run: a page's value changes nothing. None by default. `config explain` returns each installed Plugin's schema.
+   *
+   * `plugins`.
+   */
+  readonly plugins?: { readonly [key: string]: { readonly settings?: { readonly [key: string]: unknown } } };
   readonly politeness?: {
     /**
      * Whether a Run sharing Politeness takes each key's Delegation: while no other engine of the user uses a key, its engine keeps the key's Permits and state in memory, each Permit with no transaction on the Politeness file, and writes to the file at once what a site asked (a 429, a `Retry-After`, a backoff, a halved ceiling, a new Crawl-delay). Another engine that needs the key recalls it, and one whose holder is gone reclaims it, its delay counted from the reclaim. `false` takes and gives back each Permit in transactions of the file, unless the Run's engine already holds the key's Delegation for another Run: the Permit then comes from memory too, so the key's limits hold across both Runs. Ignored at `politeness.sharing: run`.
@@ -1078,6 +1084,12 @@ export interface RunSettings {
      */
     readonly resolve?: { readonly [key: string]: readonly string[] };
   };
+  /**
+   * Each Plugin's settings, by its name, as `plugins.<name>.settings`: the fields its manifest's `settings_schema` declares, which the engine checks as it starts the Plugin, a value the schema refuses being `setting_invalid` naming its key, as `plugins.<name>.settings.<field>`, and a field left out taking the schema's `default`. A field the schema marks `"secret": true` takes only a Secret reference, such as `env:NAME`, a value given in its place being refused with `setting_invalid`; the engine resolves it, and passes it into the Plugin's environment only for a Plugin whose manifest's `permissions.grants` holds `secret_value`. The nearest layer's entry for a Plugin wins, and a Plugin it leaves out keeps the entry beneath. The engine reads a Plugin's settings from the Run's settings as the first call naming the Plugin starts it, and they hold for the rest of the Run: a page's value changes nothing. None by default. `config explain` returns each installed Plugin's schema.
+   *
+   * `plugins`.
+   */
+  readonly plugins?: { readonly [key: string]: { readonly settings?: { readonly [key: string]: unknown } } };
   readonly politeness?: {
     /**
      * Whether a Run sharing Politeness takes each key's Delegation: while no other engine of the user uses a key, its engine keeps the key's Permits and state in memory, each Permit with no transaction on the Politeness file, and writes to the file at once what a site asked (a 429, a `Retry-After`, a backoff, a halved ceiling, a new Crawl-delay). Another engine that needs the key recalls it, and one whose holder is gone reclaims it, its delay counted from the reclaim. `false` takes and gives back each Permit in transactions of the file, unless the Run's engine already holds the key's Delegation for another Run: the Permit then comes from memory too, so the key's limits hold across both Runs. Ignored at `politeness.sharing: run`.
@@ -1846,6 +1858,7 @@ const SPELLING: Spelling = {
     metricsEndpoint: "metrics_endpoint",
     tracesEndpoint: "traces_endpoint",
   }],
+  plugins: "plugins",
   politeness: ["politeness", {
     delegation: "delegation",
     proxy: ["proxy", {

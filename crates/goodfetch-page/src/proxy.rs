@@ -804,8 +804,13 @@ impl SessionProxy {
     }
 
     /// How the Session's egress relay chains through the proxy, telling it
-    /// what each connection met: none for an `https://` proxy, which the
-    /// relay does not speak TLS to, so the browser reaches it itself.
+    /// what each connection met: inside TLS for an `https://` proxy (issue
+    /// 1609), plain for the others and for the loopback relay that
+    /// authenticates to the proxy. Always some.
+    #[expect(
+        clippy::unnecessary_wraps,
+        reason = "the Session's dead `None` arm goes with issue 3753, and this Option with it"
+    )]
     pub(crate) fn chain(self: &Arc<Self>) -> Option<Chain> {
         let authorization = || {
             self.credentials().map(|(username, password)| {
@@ -821,25 +826,29 @@ impl SessionProxy {
             let upstream = Upstream::Http {
                 authorization: authorization(),
             };
-            return Some(self.chained(upstream, (address.ip().to_string(), address.port())));
+            return Some(self.chained(upstream, (address.ip().to_string(), address.port()), false));
         }
         let upstream = match self.server.scheme {
-            ProxyScheme::Https => return None,
-            ProxyScheme::Http => Upstream::Http {
+            ProxyScheme::Http | ProxyScheme::Https => Upstream::Http {
                 authorization: authorization(),
             },
             ProxyScheme::Socks5 | ProxyScheme::Socks5h => Upstream::Socks5,
         };
-        Some(self.chained(upstream, (self.server.host.clone(), self.server.port)))
+        Some(self.chained(
+            upstream,
+            (self.server.host.clone(), self.server.port),
+            self.server.scheme == ProxyScheme::Https,
+        ))
     }
 
-    /// The chain through `address` speaking `upstream`, its bypass and what
-    /// its connections met this proxy's.
-    fn chained(self: &Arc<Self>, upstream: Upstream, address: (String, u16)) -> Chain {
+    /// The chain through `address` speaking `upstream`, inside TLS when
+    /// `tls`, its bypass and what its connections met this proxy's.
+    fn chained(self: &Arc<Self>, upstream: Upstream, address: (String, u16), tls: bool) -> Chain {
         let (bypassing, meeting) = (Arc::clone(self), Arc::clone(self));
         Chain {
             upstream,
             address,
+            tls,
             bypasses: Box::new(move |url| bypassing.bypasses(url)),
             met: Box::new(move |authority, met| meeting.met_through_relay(authority, met)),
             // The loopback relay's own address is no proxy's: the

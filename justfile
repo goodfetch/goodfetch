@@ -569,6 +569,7 @@ fetch:
     ci/alpine/fetch.sh
     ci/source-build/fetch.sh
     ci/valkey/fetch.sh
+    ci/registry/fetch.sh
 
 # Builds Rust (with the given Cargo profile), TypeScript and Python.
 build profile="dev":
@@ -1178,10 +1179,12 @@ batch-check base="origin/main":
 # static checks' proofs (`all`: the whole workspace). The checks that need Linux run beside
 # the other steps, each in its own container, with their lines marked:
 # `perf`, `linux` (the tests only Linux decides) and `visual` (the visual
-# projects in the pinned Playwright image, ADR 0073) and `windows` (the
-# workspace built for Windows and tested under Wine, in its own image); TLC,
+# projects in the pinned Playwright image, ADR 0073); TLC,
 # Miri and loom run beside them too, on the host, in folders of their own. The suite waits for
-# them and fails when one fails (ci/pre-merge.sh). A red step ends no form:
+# them and fails when one fails (ci/pre-merge.sh). `windows` (the workspace
+# built for Windows and tested under Wine, in its own image) runs last,
+# alone, once every other step has ended, since its tests' start deadlines
+# miss under their load (issue 3780). A red step ends no form:
 # every other step still runs, and the end names each red step. `quick` runs only the
 # checks every change needs, for a change no test reads (ADR 0135), and
 # `batch` those and the Pre-merge suite, the hosted tier's form for a

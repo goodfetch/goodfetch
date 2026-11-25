@@ -37,8 +37,6 @@ fn stored_format(name: &str, storage: &str, rule: &str, definition: &str) -> ser
 /// The formats of the registry that are no settings file, as the bundle
 /// writes them.
 fn file_formats() -> serde_json::Value {
-    let of = |name: &str| json!({ "$ref": format!("#/$defs/{name}") });
-
     json!([
         {
             "name": "protocol",

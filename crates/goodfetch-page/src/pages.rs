@@ -1440,7 +1440,7 @@ impl Pages {
         // A command its lease check withheld ends the page (P31).
         let engine_page = self
             .sessions
-            .engine_page(&page.session, page.driver.value(), EngineWork::Request)
+            .engine_page(&page.session, &page.driver.value(), EngineWork::Request)
             .await
             .map_err(|error| page.life.withheld(error))?;
         let fetched =
@@ -1453,7 +1453,7 @@ impl Pages {
             &self.sessions,
             &params.page_id,
             &page.session,
-            page.driver.value(),
+            &page.driver.value(),
             (&page.run, page.owner.tasks()),
         ) {
             reader.read(steps, &fetched.response.url);

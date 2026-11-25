@@ -881,9 +881,10 @@ impl Interception {
         // browser does, nor the Session's side, which goes with it.
         let shared = Arc::clone(&self.shared);
         let (session, egress, run) = (Arc::downgrade(session), page.egress_handle(), run.clone());
-        // A worker's requests take its Session's pages' value: their gate
-        // admits the navigations the worker carries.
-        let value = page.value().clone();
+        // A worker's requests take its Session's pages' value, that of the
+        // request the page serves now: their gate admits the navigations
+        // the worker carries.
+        let value = page.carried();
         Arc::new(
             move |driver: PageDriver, gone: CancellationToken, browser: RunIdentity| {
                 let (shared, session, egress, run, value) = (
@@ -902,7 +903,7 @@ impl Interception {
                     let log = Arc::new(RequestLog::new(&run.lists.trace));
                     let driver = driver
                         .with_egress(egress)
-                        .with_value(value, run.identity().clock());
+                        .carrying(value, run.identity().clock());
                     let cdp = CdpPage::of(&driver);
                     let events = cdp.paused_events(false);
                     if let Err(error) = cdp.pause_requests_opening().await {

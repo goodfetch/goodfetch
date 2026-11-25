@@ -1565,11 +1565,8 @@ impl PageContext {
         carried: Option<&PageState>,
         body: Option<&[u8]>,
     ) -> Option<CallError> {
-        let gate = self
-            .driver
-            .value()
-            .gate()
-            .filter(|_| !cdp_response::redirects(status))?;
+        let value = self.driver.value();
+        let gate = value.gate().filter(|_| !cdp_response::redirects(status))?;
         let read;
         let body = match body {
             Some(body) => body,

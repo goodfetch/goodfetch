@@ -107,9 +107,9 @@ pub(crate) struct PageLife {
 }
 
 struct PageShared {
-    /// The Page ID of its request now: each request it serves gets one of
-    /// its own (ADR 0146).
-    page_id: watch::Sender<PageId>,
+    /// Its request now: each request it serves gets a Page ID and a lease
+    /// check of its own (ADR 0146).
+    request: watch::Sender<LifeRequest>,
     state: watch::Sender<PageState>,
     /// What its calls in flight raise once it ended under them, and its
     /// later calls after a crash or an end past its memory cap.
@@ -118,9 +118,6 @@ struct PageShared {
     calls: watch::Sender<usize>,
     /// Set once it was found past its memory cap.
     past_cap: OnceLock<()>,
-    /// Its lease check, a crawl handler's page's (ADR 0087); none on a page
-    /// a program opens.
-    lease: Option<Arc<dyn LeaseCheck>>,
     /// Set once its lease ended it, so its target closes.
     ended_by_lease: watch::Sender<bool>,
     /// Set once the program asked it to close running its `beforeunload`
@@ -134,10 +131,18 @@ struct PageShared {
     navigation: watch::Sender<u64>,
 }
 
+/// The request a page serves now.
+struct LifeRequest {
+    page_id: PageId,
+    /// Its lease check, a crawl handler's request's (ADR 0087); none on a
+    /// page a program opens.
+    lease: Option<Arc<dyn LeaseCheck>>,
+}
+
 impl PageLife {
-    /// The page `page_id`, `Open`, under the lease check `lease` when it is
-    /// a crawl handler's, `routed` counting its requests that wait on a
-    /// route handler.
+    /// The page `page_id`, `Open`, under the lease check `lease` when its
+    /// request is a crawl handler's, `routed` counting its requests that
+    /// wait on a route handler.
     pub(crate) fn new(
         page_id: PageId,
         lease: Option<Arc<dyn LeaseCheck>>,
@@ -145,12 +150,11 @@ impl PageLife {
     ) -> Self {
         Self {
             shared: Arc::new(PageShared {
-                page_id: watch::Sender::new(page_id),
+                request: watch::Sender::new(LifeRequest { page_id, lease }),
                 state: watch::Sender::new(PageState::Open),
                 ended: watch::Sender::new(None),
                 calls: watch::Sender::new(0),
                 past_cap: OnceLock::new(),
-                lease,
                 ended_by_lease: watch::Sender::new(false),
                 close_asked: OnceLock::new(),
                 routed,
@@ -161,13 +165,16 @@ impl PageLife {
 
     /// The Page ID of the request it serves now.
     pub(crate) fn page_id(&self) -> PageId {
-        self.shared.page_id.borrow().clone()
+        self.shared.request.borrow().page_id.clone()
     }
 
-    /// It serves its next request as `page_id`, its earlier ID naming
-    /// nothing after (ADR 0146).
-    pub(crate) fn renamed(&self, page_id: PageId) {
-        self.shared.page_id.send_replace(page_id);
+    /// It serves its next request as `page_id` under the lease check
+    /// `lease`, its earlier ID naming nothing after and its earlier lease
+    /// ending it no more (ADR 0146).
+    pub(crate) fn renamed(&self, page_id: PageId, lease: Option<Arc<dyn LeaseCheck>>) {
+        self.shared
+            .request
+            .send_replace(LifeRequest { page_id, lease });
     }
 
     /// Whether it is `Open`: loaded or idle, with no navigation, pause or
@@ -187,12 +194,12 @@ impl PageLife {
         let _ = ended.wait_for(|ended| *ended).await;
     }
 
-    /// `error`, which a call on the page failed with: once its lease check
-    /// refuses, that is the lease's end, which moves the page to `Closing`
-    /// (spec #594's P31, decision 13), its calls in flight raising `error`
-    /// and its later ones `closed`.
+    /// `error`, which a call on the page failed with: once its request's
+    /// lease check refuses, that is the lease's end, which moves the page
+    /// to `Closing` (spec #594's P31, decision 13), its calls in flight
+    /// raising `error` and its later ones `closed`.
     pub(crate) fn withheld(&self, error: CallError) -> CallError {
-        let Some(lease) = &self.shared.lease else {
+        let Some(lease) = self.shared.request.borrow().lease.clone() else {
             return error;
         };
         if lease.check().is_ok() {

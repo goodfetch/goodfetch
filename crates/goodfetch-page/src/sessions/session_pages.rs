@@ -54,7 +54,7 @@ use crate::interception::{OnDocument, PageInterception};
 use crate::page_children::{self, OnChild};
 use crate::page_events::{self, PageEvents, Refusals};
 use crate::page_owner::{PageOwner, PageParts};
-use crate::page_value::{Observer, Reader};
+use crate::page_value::{Observer, PageValue, Reader};
 use crate::page_worlds::PageWorlds;
 use crate::pool::InBrowser;
 use crate::recovery::{Checking, Declared};
@@ -431,7 +431,7 @@ impl Sessions {
         // A page a program opened reads robots.txt for each document its
         // main frame receives, beside its navigation, never before it (ADR
         // 0086).
-        let reader = robots_txt::Reader::of(self, page, session, driver.value(), (run, starting))
+        let reader = robots_txt::Reader::of(self, page, session, &driver.value(), (run, starting))
             .map(|reader| Arc::new(reader) as Arc<dyn OnDocument>);
         let held = self
             .interception
@@ -529,7 +529,7 @@ impl Sessions {
                 proxy: open.proxy.clone(),
                 relay: open.relay.clone(),
             })
-            .with_value(opener.driver.value().clone(), run.clock())
+            .with_value(PageValue::clone(&opener.driver.value()), run.clock())
             .with_reader(opener.driver.reader().map(Reader::for_page));
         let adopted = self
             .adopt(Adopting {
@@ -652,7 +652,8 @@ impl Sessions {
 
     /// Replaces the request part of the open page `page_id` (ADR 0146's "A
     /// released Page"): the page serves its next request under a Page ID
-    /// of its own, which this answers, and a call on `page_id` raises
+    /// of its own, which this answers, and under `value`, that request's
+    /// gate, lease check and Page check, and a call on `page_id` raises
     /// `closed` from then on. It sends the browser nothing. `closed` when
     /// the page is not `Open`: gone, ending, navigating or paused.
     #[cfg_attr(
@@ -662,24 +663,35 @@ impl Sessions {
             reason = "#2182's release replaces a Page's request part with it"
         )
     )]
-    pub(crate) async fn replace_request(&self, page_id: &PageId) -> Result<PageId, CallError> {
+    pub(crate) async fn replace_request(
+        &self,
+        page_id: &PageId,
+        value: PageValue,
+    ) -> Result<PageId, CallError> {
         // Under the table's lock, under which a page's end reads its ID, so
         // that end finds the page by one ID or the other, never by neither.
         let mut state = self.state.lock().await;
         let Some(page) = self.index.page(page_id).filter(|page| page.life.open()) else {
             return Err(page_closed(page_id));
         };
+        let Some(session) = self.index.session(&page.session) else {
+            return Err(page_closed(page_id));
+        };
         let next = next_page_id(&mut state);
         let owner = page.owner.for_request(&next);
         let renamed = OpenPage {
             owner: owner.clone(),
+            page_check: session.checking(value.page_check()),
             ..page.clone()
         };
         if !self.index.renamed(page_id, next.clone(), renamed) {
             return Err(page_closed(page_id));
         }
         self.page_owners.renamed(page_id, next.clone(), owner);
-        page.life.renamed(next.clone());
+        page.life.renamed(next.clone(), value.lease().cloned());
+        // Every clone of the page's driver, its frames' and workers'
+        // included, serves the next request under its value.
+        page.driver.replace_value(value);
         Ok(next)
     }
 

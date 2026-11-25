@@ -58,7 +58,10 @@ use crate::borrowed::CdpUrl;
 use crate::dialogs::Dialogs;
 use crate::interception::{HeldBrowser, Interception};
 use crate::launch::Launcher;
-use crate::page_value::{HeldPlace, ProgramPages};
+use crate::page_value::{
+    Admission, DocumentJudgment, DocumentResponse, HeldPlace, LeaseCheck, LeaseEnded, Navigation,
+    NavigationGate, PageValue, Permit, ProgramPages, Sending,
+};
 
 /// Opens a Run's default Session and stops the Run while the open waits
 /// for its record.
@@ -490,14 +493,18 @@ async fn request_replaced(params: Value, context: CallContext) -> Result<Value, 
             .new_page(&session, &Map::new(), &HeldPlace::default(), &context)
             .await?;
         let first = sessions.page(&opened.page_id).await?;
+        let first_lease = first.lease().is_some();
         let before = *commands.borrow();
-        let next = sessions.replace_request(&opened.page_id).await?;
+        let next = sessions
+            .replace_request(&opened.page_id, PageValue::new(Admits, LeaseGone))
+            .await?;
         let read = *commands.borrow() - before;
         let earlier = sessions.page(&opened.page_id).await.err();
         let now = sessions.page(&next).await;
         let same_page = now
             .as_ref()
             .is_ok_and(|now| now.driver.main_frame() == first.driver.main_frame());
+        let ended = |lease: Option<Arc<dyn LeaseCheck>>| lease.map(|lease| lease.check().is_err());
         Ok::<_, CallError>(json!({
             "first": opened.page_id,
             "next": next,
@@ -506,6 +513,9 @@ async fn request_replaced(params: Value, context: CallContext) -> Result<Value, 
             "next_found": now.is_ok(),
             "same_page": same_page,
             "commands": read,
+            "first_lease": first_lease,
+            "first_handle_lease_ended": ended(first.lease()),
+            "next_lease_ended": now.ok().and_then(|now| ended(now.lease())),
         }))
     };
     let played = async {
@@ -522,6 +532,45 @@ async fn request_replaced(params: Value, context: CallContext) -> Result<Value, 
         played
     );
     replaced
+}
+
+/// A navigation gate that admits every request, the next request's in
+/// `test.request_replaced`.
+#[derive(Debug)]
+struct Admits;
+
+impl NavigationGate for Admits {
+    fn admit<'a>(&'a self, _navigation: &'a Navigation) -> Admission<'a> {
+        Box::pin(async { Ok(Permit::unlimited()) })
+    }
+
+    fn sending<'a>(&'a self, _url: &'a str) -> Sending<'a> {
+        Box::pin(async {})
+    }
+
+    fn judge_document<'a>(&'a self, _response: &'a DocumentResponse<'a>) -> DocumentJudgment<'a> {
+        Box::pin(std::future::ready(Ok(())))
+    }
+
+    fn reads_document_body(&self) -> bool {
+        false
+    }
+}
+
+/// A lease check whose lease ended, the next request's in
+/// `test.request_replaced`, told from a page a program opened, which has
+/// none.
+#[derive(Debug)]
+struct LeaseGone;
+
+impl LeaseCheck for LeaseGone {
+    fn check(&self) -> Result<(), LeaseEnded> {
+        Err(LeaseEnded::Lost)
+    }
+
+    fn withheld(&self, _ended: LeaseEnded, method: &str) -> CallError {
+        crate::errors::page_closed(&PageId(method.to_owned()))
+    }
 }
 
 /// The engine's operations, the page crate's and the test's.
@@ -787,6 +836,11 @@ fn a_page_whose_request_part_is_replaced_answers_its_new_id_alone() {
     assert_eq!(result["next_found"], json!(true), "{reply}");
     assert_eq!(result["same_page"], json!(true), "{reply}");
     assert_eq!(result["commands"], json!(0), "{reply}");
+    // The next request's lease check is the page's, every handle of it
+    // included (#2277).
+    assert_eq!(result["first_lease"], json!(false), "{reply}");
+    assert_eq!(result["first_handle_lease_ended"], json!(true), "{reply}");
+    assert_eq!(result["next_lease_ended"], json!(true), "{reply}");
 }
 
 /// A setting a program's own code sets at no scope is refused at a

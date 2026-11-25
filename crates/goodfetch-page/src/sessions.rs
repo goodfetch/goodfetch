@@ -328,9 +328,9 @@ pub(crate) struct OpenPage {
 
 impl OpenPage {
     /// Its lease, when a handler's page: the attempt whose commands it
-    /// sends (ADR 0106's window).
-    pub(crate) fn lease(&self) -> Option<&dyn LeaseCheck> {
-        self.driver.value().lease().map(AsRef::as_ref)
+    /// sends for the request it serves now (ADR 0106's window).
+    pub(crate) fn lease(&self) -> Option<Arc<dyn LeaseCheck>> {
+        self.driver.value().lease().cloned()
     }
 
     /// Marks sent each body of the page's attempt, or of its Run outside
@@ -342,7 +342,7 @@ impl OpenPage {
     /// `run_state_unavailable` when the mark could not be written:
     /// `command` must not go out.
     pub(crate) async fn sending(&self, command: &str) -> Result<(), CallError> {
-        self.run.sending(self.lease(), command).await
+        self.run.sending(self.lease().as_deref(), command).await
     }
 }
 

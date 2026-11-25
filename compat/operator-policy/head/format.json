@@ -3003,7 +3003,7 @@
                         "type": "null"
                       }
                     ],
-                    "description": "The AWS Region, such as `eu-west-3`, whose Secrets Manager answers `aws-sm:name#key` Secret references: the engine calls `GetSecretValue` for the secret `name`, signed with the access key in its environment's `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` and, for temporary credentials, `AWS_SESSION_TOKEN`, and answers the secret's text, or its JSON object's `key`. Unset, the default, the engine's environment's `AWS_REGION`, then `AWS_DEFAULT_REGION`, names it; with none, an `aws-sm:` reference fails with `secret_unavailable`, `failure: \"not_configured\"`. Taken only from an Operator policy and user and project configuration."
+                    "description": "The AWS Region, such as `eu-west-3`, whose Secrets Manager answers `aws-sm:name#key` Secret references: the engine calls `GetSecretValue` for the secret `name`, signed with the access key in its environment's `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` and, for temporary credentials, `AWS_SESSION_TOKEN`, or else with a role's temporary key, from a web identity token (`AWS_WEB_IDENTITY_TOKEN_FILE` and `AWS_ROLE_ARN`), the container credentials endpoint of ECS or EKS, or the EC2 instance metadata service, and answers the secret's text, or its JSON object's `key`. Unset, the default, the engine's environment's `AWS_REGION`, then `AWS_DEFAULT_REGION`, names it; with none, an `aws-sm:` reference fails with `secret_unavailable`, `failure: \"not_configured\"`. Taken only from an Operator policy and user and project configuration."
                   }
                 },
                 "type": "object"
@@ -7014,7 +7014,7 @@
                         "type": "null"
                       }
                     ],
-                    "description": "The AWS Region, such as `eu-west-3`, whose Secrets Manager answers `aws-sm:name#key` Secret references: the engine calls `GetSecretValue` for the secret `name`, signed with the access key in its environment's `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` and, for temporary credentials, `AWS_SESSION_TOKEN`, and answers the secret's text, or its JSON object's `key`. Unset, the default, the engine's environment's `AWS_REGION`, then `AWS_DEFAULT_REGION`, names it; with none, an `aws-sm:` reference fails with `secret_unavailable`, `failure: \"not_configured\"`. Taken only from an Operator policy and user and project configuration."
+                    "description": "The AWS Region, such as `eu-west-3`, whose Secrets Manager answers `aws-sm:name#key` Secret references: the engine calls `GetSecretValue` for the secret `name`, signed with the access key in its environment's `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` and, for temporary credentials, `AWS_SESSION_TOKEN`, or else with a role's temporary key, from a web identity token (`AWS_WEB_IDENTITY_TOKEN_FILE` and `AWS_ROLE_ARN`), the container credentials endpoint of ECS or EKS, or the EC2 instance metadata service, and answers the secret's text, or its JSON object's `key`. Unset, the default, the engine's environment's `AWS_REGION`, then `AWS_DEFAULT_REGION`, names it; with none, an `aws-sm:` reference fails with `secret_unavailable`, `failure: \"not_configured\"`. Taken only from an Operator policy and user and project configuration."
                   }
                 },
                 "type": "object"

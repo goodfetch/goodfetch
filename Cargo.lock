@@ -3101,6 +3101,7 @@ dependencies = [
  "hyper",
  "hyper-util",
  "jiff",
+ "quick-xml 0.41.0",
  "rcgen",
  "rstest",
  "rustls",

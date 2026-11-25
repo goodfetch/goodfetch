@@ -13,6 +13,7 @@
 #[cfg(unix)]
 mod providers;
 
+mod aws_access_keys;
 mod clouds;
 mod support;
 mod vault;

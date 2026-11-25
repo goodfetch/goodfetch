@@ -4,16 +4,17 @@
 //! (else the engine's environment's `AWS_REGION`, then
 //! `AWS_DEFAULT_REGION`), at `secret_providers.aws_sm.endpoint` or the
 //! Region's public endpoint. Requests are signed with Signature Version 4
-//! by the access key in the engine's environment (`AWS_ACCESS_KEY_ID`,
-//! `AWS_SECRET_ACCESS_KEY`, and `AWS_SESSION_TOKEN` for temporary
-//! credentials). The endpoint is an Operator-configured endpoint reached
-//! through the engine's own HTTP client ([`SecretProviderEndpoint`]).
+//! by the access key the engine's environment gives, its own or a role's
+//! that a web identity token, a container's or an EC2 instance's identity
+//! fetches ([`access_key`]). The endpoint is an Operator-configured
+//! endpoint reached through the engine's own HTTP client
+//! ([`SecretProviderEndpoint`]).
 //!
 //! A translation point (ADR 0127): [`translate`] reads the `__type` an
 //! `awsJson1.1` failure names.
 
-use std::collections::BTreeMap;
-use std::ffi::OsString;
+mod access_key;
+
 use std::time::SystemTime;
 
 use goodfetch_engine::clock::Clock;
@@ -21,6 +22,7 @@ use goodfetch_engine::secret_endpoint::SecretProviderEndpoint;
 use goodfetch_engine::secrets::{
     ConfigProblem, PartyText, ProviderFailure, ProviderInputs, Resolving, SecretProvider,
 };
+use goodfetch_engine::tasks::BlockingThreads;
 use goodfetch_protocol::secret_reference::SecretReference;
 use goodfetch_protocol::secrets::{
     SECRET_PROVIDERS_AWS_SM_ENDPOINT, SECRET_PROVIDERS_AWS_SM_REGION,
@@ -33,6 +35,7 @@ use secrecy::{ExposeSecret as _, SecretString};
 use sha2::{Digest as _, Sha256};
 use url::Url;
 
+use self::access_key::{Reach, Source};
 use crate::endpoint::{json_of, server_url, text_of, unreached, variable};
 
 /// The service's name in failures.
@@ -70,15 +73,17 @@ impl std::fmt::Debug for Credentials {
 pub struct AwsSecretsManager {
     region: Option<String>,
     endpoint_url: Option<String>,
-    credentials: Option<Credentials>,
+    access_key: Source,
     endpoint: SecretProviderEndpoint,
+    blocking: BlockingThreads,
     clock: Clock,
 }
 
 impl AwsSecretsManager {
     /// The provider `secret_providers.aws_sm.*` configure in a Run's
     /// `inputs`, which also give how the endpoint is reached, signed by the
-    /// access key in the engine's environment.
+    /// access key the engine's environment gives, its token files read on
+    /// their blocking threads.
     pub fn configured(inputs: &ProviderInputs<'_>) -> Self {
         let text = |setting| {
             inputs
@@ -86,51 +91,22 @@ impl AwsSecretsManager {
                 .get::<Option<&str>>(setting)
                 .map(str::to_owned)
         };
-        Self::new(
-            text(&SECRET_PROVIDERS_AWS_SM_REGION),
-            text(&SECRET_PROVIDERS_AWS_SM_ENDPOINT),
-            inputs.environment,
-            SecretProviderEndpoint::of(inputs),
-            inputs.clock,
-        )
-    }
-
-    /// The provider reading from `region`'s Secrets Manager, at
-    /// `endpoint_url` when one is given, through `endpoint`, signed by the
-    /// access key in `environment` at `clock`'s time.
-    pub fn new(
-        region: Option<String>,
-        endpoint_url: Option<String>,
-        environment: &BTreeMap<OsString, OsString>,
-        endpoint: SecretProviderEndpoint,
-        clock: Clock,
-    ) -> Self {
-        let region = region
-            .or_else(|| variable(environment, "AWS_REGION"))
-            .or_else(|| variable(environment, "AWS_DEFAULT_REGION"));
-        let credentials = match (
-            variable(environment, "AWS_ACCESS_KEY_ID"),
-            variable(environment, "AWS_SECRET_ACCESS_KEY"),
-        ) {
-            (Some(access_key_id), Some(secret)) => Some(Credentials {
-                access_key_id,
-                secret_access_key: SecretString::from(secret),
-                session_token: variable(environment, "AWS_SESSION_TOKEN").map(SecretString::from),
-            }),
-            _ => None,
-        };
+        let region = text(&SECRET_PROVIDERS_AWS_SM_REGION)
+            .or_else(|| variable(inputs.environment, "AWS_REGION"))
+            .or_else(|| variable(inputs.environment, "AWS_DEFAULT_REGION"));
         Self {
             region,
-            endpoint_url,
-            credentials,
-            endpoint,
-            clock,
+            endpoint_url: text(&SECRET_PROVIDERS_AWS_SM_ENDPOINT),
+            access_key: Source::of(inputs.environment),
+            endpoint: SecretProviderEndpoint::of(inputs),
+            blocking: inputs.blocking.clone(),
+            clock: inputs.clock,
         }
     }
 
-    /// The Region, the endpoint's URL and the access key, when all are
-    /// usable.
-    fn checked(&self) -> Result<(&str, Url, &Credentials), ConfigProblem> {
+    /// The Region, the endpoint's URL and the access key's source, when
+    /// all are usable.
+    fn checked(&self) -> Result<(&str, Url, &Source), ConfigProblem> {
         let region_setting = SECRET_PROVIDERS_AWS_SM_REGION.name;
         let Some(region) = self.region.as_deref() else {
             return Err(ConfigProblem {
@@ -158,26 +134,28 @@ impl AwsSecretsManager {
         let url = server_url(&address).map_err(|problem| ConfigProblem {
             fix: format!("`{endpoint_setting}` is `{address}`, {problem}."),
         })?;
-        let Some(credentials) = &self.credentials else {
-            return Err(ConfigProblem {
-                fix: "Set `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY`, and `AWS_SESSION_TOKEN` for temporary credentials, in the engine's environment to an access key whose policy allows `secretsmanager:GetSecretValue`.".to_owned(),
-            });
-        };
-        Ok((region, url, credentials))
+        self.access_key.check()?;
+        Ok((region, url, &self.access_key))
     }
 }
 
 impl SecretProvider for AwsSecretsManager {
     fn resolve<'a>(&'a self, reference: &'a SecretReference) -> Resolving<'a> {
         Box::pin(async move {
-            let (region, server, credentials) =
+            let (region, server, source) =
                 self.checked().map_err(ProviderFailure::NotConfigured)?;
             let (name, key) = match reference.rest().split_once('#') {
                 Some((name, key)) => (name, Some(key)),
                 None => (reference.rest(), None),
             };
+            let reach = Reach {
+                endpoint: &self.endpoint,
+                blocking: &self.blocking,
+                clock: self.clock,
+            };
+            let credentials = source.credentials(region, &reach).await?;
             let body = serde_json::json!({ "SecretId": name }).to_string();
-            let request = signed_request(&server, body, region, credentials, self.clock.wall())?;
+            let request = signed_request(&server, body, region, &credentials, self.clock.wall())?;
             let answer = self.endpoint.send(request).await.map_err(|failure| {
                 unreached(
                     failure,
@@ -190,7 +168,7 @@ impl SecretProvider for AwsSecretsManager {
             if status == 200 {
                 value_of(answer.body(), key)
             } else {
-                Err(translate(status, answer.body())
+                Err(translate(status, answer.body(), source.describe())
                     .retrying_after(self.endpoint.retry_after(&answer)))
             }
         })
@@ -247,7 +225,7 @@ fn signed_request(
             continue;
         }
         let mut value = HeaderValue::from_str(value).map_err(|_| ProviderFailure::Refused {
-            fix: "`AWS_SESSION_TOKEN` holds characters no HTTP header may carry; set it to the session token AWS issued.".to_owned(),
+            fix: "The access key's session token holds characters no HTTP header may carry; give the session token AWS issued.".to_owned(),
         })?;
         if *name == "x-amz-security-token" {
             value.set_sensitive(true);
@@ -256,7 +234,7 @@ fn signed_request(
     }
     let mut authorization =
         HeaderValue::from_str(&authorization).map_err(|_| ProviderFailure::Refused {
-            fix: "`AWS_ACCESS_KEY_ID` holds characters no HTTP header may carry; set it to the access key ID AWS issued.".to_owned(),
+            fix: "The access key ID holds characters no HTTP header may carry; give the access key ID AWS issued.".to_owned(),
         })?;
     authorization.set_sensitive(true);
     Ok(builder
@@ -399,8 +377,9 @@ enum Meaning {
     ServiceFailed,
 }
 
-/// What Secrets Manager meant by answering with `status` and `body`.
-pub(crate) fn translate(status: u16, body: &[u8]) -> ProviderFailure {
+/// What Secrets Manager meant by answering with `status` and `body` a
+/// request signed by the access key `from` gave, in a failure's words.
+pub(crate) fn translate(status: u16, body: &[u8], from: &str) -> ProviderFailure {
     let text = String::from_utf8_lossy(body).into_owned();
     let kind = serde_json::from_str::<serde_json::Value>(&text)
         .ok()
@@ -420,12 +399,12 @@ pub(crate) fn translate(status: u16, body: &[u8]) -> ProviderFailure {
         Some(Meaning::Denied) => refused(
             "the access key may not read the secret, since its policy does not allow `secretsmanager:GetSecretValue` on it; grant it, then try again.",
         ),
-        Some(Meaning::Credentials) => refused(
-            "the access key was refused; set `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY` in the engine's environment to a valid access key.",
-        ),
-        Some(Meaning::Expired) => refused(
-            "the temporary credentials expired; set new `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` and `AWS_SESSION_TOKEN` in the engine's environment.",
-        ),
+        Some(Meaning::Credentials) => refused(&format!(
+            "the access key from {from} was refused; give it a valid access key."
+        )),
+        Some(Meaning::Expired) => refused(&format!(
+            "the temporary credentials from {from} expired; renew them, then try again."
+        )),
         Some(Meaning::Unusable) => refused(
             "the secret cannot be read as it stands, such as one scheduled for deletion; restore it or name another.",
         ),

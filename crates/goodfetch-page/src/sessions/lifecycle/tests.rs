@@ -317,6 +317,7 @@ mod page {
     #[case::target_event(PageEvent::TargetEvent, Ok((PageState::Open, PageEffect::Nothing)))]
     #[case::lease_ended(PageEvent::LeaseEnded, Ok((PageState::Closing, PageEffect::Close)))]
     #[case::memory_exceeded(PageEvent::MemoryExceeded, Ok((PageState::Closing, PageEffect::Close)))]
+    #[case::events_lost(PageEvent::EventsLost, Ok((PageState::Closing, PageEffect::Close)))]
     fn open(#[case] event: PageEvent, #[case] expected: Outcome) {
         assert_eq!(outcome(PageState::Open, event), expected);
     }
@@ -342,6 +343,7 @@ mod page {
     #[case::target_event(PageEvent::TargetEvent, Ok((PageState::Navigating, PageEffect::Nothing)))]
     #[case::lease_ended(PageEvent::LeaseEnded, Ok((PageState::Closing, PageEffect::Close)))]
     #[case::memory_exceeded(PageEvent::MemoryExceeded, Ok((PageState::Closing, PageEffect::Close)))]
+    #[case::events_lost(PageEvent::EventsLost, Ok((PageState::Closing, PageEffect::Close)))]
     fn navigating(#[case] event: PageEvent, #[case] expected: Outcome) {
         assert_eq!(outcome(PageState::Navigating, event), expected);
     }
@@ -367,6 +369,7 @@ mod page {
     #[case::target_event(PageEvent::TargetEvent, Ok((PageState::Paused, PageEffect::Nothing)))]
     #[case::lease_ended(PageEvent::LeaseEnded, Ok((PageState::Closing, PageEffect::Close)))]
     #[case::memory_exceeded(PageEvent::MemoryExceeded, Ok((PageState::Closing, PageEffect::Close)))]
+    #[case::events_lost(PageEvent::EventsLost, Ok((PageState::Closing, PageEffect::Close)))]
     fn paused(#[case] event: PageEvent, #[case] expected: Outcome) {
         assert_eq!(outcome(PageState::Paused, event), expected);
     }
@@ -392,6 +395,7 @@ mod page {
     #[case::target_event(PageEvent::TargetEvent, Ok((PageState::Crashed, PageEffect::Nothing)))]
     #[case::lease_ended(PageEvent::LeaseEnded, Ok((PageState::Crashed, PageEffect::Release)))]
     #[case::memory_exceeded(PageEvent::MemoryExceeded, Ok((PageState::Crashed, PageEffect::Release)))]
+    #[case::events_lost(PageEvent::EventsLost, Ok((PageState::Crashed, PageEffect::Release)))]
     fn crashed(#[case] event: PageEvent, #[case] expected: Outcome) {
         assert_eq!(outcome(PageState::Crashed, event), expected);
     }
@@ -417,6 +421,7 @@ mod page {
     #[case::target_event(PageEvent::TargetEvent, Ok((PageState::Closing, PageEffect::Nothing)))]
     #[case::lease_ended(PageEvent::LeaseEnded, Ok((PageState::Closing, PageEffect::Nothing)))]
     #[case::memory_exceeded(PageEvent::MemoryExceeded, Ok((PageState::Closing, PageEffect::Nothing)))]
+    #[case::events_lost(PageEvent::EventsLost, Ok((PageState::Closing, PageEffect::Nothing)))]
     fn closing(#[case] event: PageEvent, #[case] expected: Outcome) {
         assert_eq!(outcome(PageState::Closing, event), expected);
     }
@@ -442,6 +447,7 @@ mod page {
     #[case::target_event(PageEvent::TargetEvent, Ok((PageState::Closed, PageEffect::Nothing)))]
     #[case::lease_ended(PageEvent::LeaseEnded, Ok((PageState::Closed, PageEffect::Nothing)))]
     #[case::memory_exceeded(PageEvent::MemoryExceeded, Ok((PageState::Closed, PageEffect::Nothing)))]
+    #[case::events_lost(PageEvent::EventsLost, Ok((PageState::Closed, PageEffect::Nothing)))]
     fn closed(#[case] event: PageEvent, #[case] expected: Outcome) {
         assert_eq!(outcome(PageState::Closed, event), expected);
     }

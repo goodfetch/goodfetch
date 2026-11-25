@@ -25,6 +25,7 @@ use goodfetch_engine::lease::LeaseCheck;
 use goodfetch_engine::transition::{InvalidTransition, Refusal};
 use goodfetch_protocol::connection::{CLOSED, CancelledBy, ClosedValue, ENGINE_PANICKED};
 use goodfetch_protocol::governor::PAGE_MEMORY_EXCEEDED;
+use goodfetch_protocol::page::events::PAGE_EVENTS_LOST;
 use goodfetch_protocol::page::{BrowserExit, PAGE_CRASHED, PageId, SessionId};
 use goodfetch_protocol::settings::SettingLimit;
 use serde_json::json;
@@ -36,7 +37,7 @@ use super::lifecycle::{
 };
 use crate::driver::ENDING_KNOWN_WITHIN;
 use crate::errors::{
-    browser_crashed, cancelled, invalid_transition, page_closed, page_memory_exceeded,
+    browser_crashed, cancelled, events_lost, invalid_transition, page_closed, page_memory_exceeded,
     renderer_crashed,
 };
 
@@ -79,12 +80,16 @@ pub(crate) enum Ending {
     /// makes, ADR 0148): the `engine_panicked` its calls in flight and its
     /// later calls raise.
     Panicked(CallError),
+    /// Its reader fell 4,096 events behind (`EventsLost`, ADR 0146): its
+    /// calls in flight and its later calls raise `page_events_lost`.
+    EventsLost,
 }
 
 impl Ending {
     fn event(&self) -> PageEvent {
         match self {
             Self::Closed(_) | Self::RunStopped(_) | Self::Panicked(_) => PageEvent::Close,
+            Self::EventsLost => PageEvent::EventsLost,
             Self::Destroyed => PageEvent::TargetDestroyed,
             Self::RendererCrash => PageEvent::RendererCrash,
             Self::BrowserQuit => PageEvent::BrowserQuit,
@@ -216,8 +221,9 @@ impl PageLife {
 
     /// Whether the page's later calls raise what ended it again once it
     /// left: the Resource governor ended it past its memory cap
-    /// (`page_memory_exceeded`), or a panic of one of its owner's tasks
-    /// closed it (`engine_panicked`).
+    /// (`page_memory_exceeded`), a panic of one of its owner's tasks closed
+    /// it (`engine_panicked`), or the engine did once its reader fell behind
+    /// (`page_events_lost`).
     pub(crate) fn keeps_its_end(&self) -> bool {
         self.shared.ended.borrow().as_ref().is_some_and(kept_end)
     }
@@ -486,6 +492,7 @@ impl PageLife {
             (PageEffect::Close, Ending::MemoryExceeded { memory, limit }) => Some(
                 page_memory_exceeded(&self.shared.page_id, *memory, limit.clone()),
             ),
+            (PageEffect::Close, Ending::EventsLost) => Some(events_lost(&self.shared.page_id)),
             (PageEffect::Close, _) => Some(cancelled(CancelledBy::Program, ClosedValue::Page)),
             (PageEffect::ClosedInBrowser, _) => {
                 Some(cancelled(CancelledBy::Browser, ClosedValue::Page))
@@ -562,9 +569,15 @@ async fn ending(ended: &mut watch::Receiver<Option<CallError>>) -> Option<CallEr
 }
 
 /// Whether `ended`, what ended a page that closed, is what its later calls
-/// raise in place of `closed`: `page_memory_exceeded` or `engine_panicked`.
+/// raise in place of `closed`: `page_memory_exceeded`, `engine_panicked` or
+/// `page_events_lost`.
 fn kept_end(ended: &CallError) -> bool {
-    [PAGE_MEMORY_EXCEEDED.name, ENGINE_PANICKED.name].contains(&ended.code())
+    [
+        PAGE_MEMORY_EXCEEDED.name,
+        ENGINE_PANICKED.name,
+        PAGE_EVENTS_LOST.name,
+    ]
+    .contains(&ended.code())
 }
 
 /// `closed` for the Session `session`.

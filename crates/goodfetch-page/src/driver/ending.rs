@@ -8,6 +8,7 @@
 
 use std::time::Duration;
 
+use goodfetch_cdp::SubscriptionEnd;
 use goodfetch_protocol::page::BrowserExit;
 
 use super::{Browser, PageDriver, navigation};
@@ -43,6 +44,9 @@ pub(crate) enum Lost {
     BrowserCrashed(Option<BrowserExit>),
     /// The engine closed its browser.
     EngineClosed,
+    /// Its page's reader fell 4,096 events behind, so what the target does
+    /// next is no longer read: the engine closes the page (ADR 0146).
+    FellBehind,
 }
 
 /// The event of a target whose debugging session was detached, on the
@@ -51,7 +55,7 @@ const DETACHED: &str = "Inspector.detached";
 
 impl PageDriver {
     /// Waits until the page's target ends other than by the engine closing
-    /// its browser, and says how.
+    /// its browser, or its reader falls behind, and says how.
     ///
     /// # Cancel safety
     ///
@@ -67,6 +71,11 @@ impl PageDriver {
             if event.method == DETACHED {
                 break;
             }
+        }
+        // A reader that fell behind ends its parts' subscriptions saying
+        // so, this one's among them, while its target may still be there.
+        if page.ended() == Some(SubscriptionEnd::FellBehind) {
+            return Lost::FellBehind;
         }
         // A quitting browser closes its windows before it exits: a target
         // destroyed with the connection ending soon after is the quit's.

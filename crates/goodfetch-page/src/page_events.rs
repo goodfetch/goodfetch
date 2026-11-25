@@ -28,8 +28,9 @@
 //! The reader ends when the page leaves the engine or its target goes, and
 //! so do the page's waiters and body reads. A reader that fell too far
 //! behind the browser's events has lost some: the page's listeners,
-//! waiters and body reads then raise `page_events_lost`, and the Run trace
-//! records it, rather than reading the live page as gone.
+//! waiters and body reads then raise `page_events_lost`, rather than
+//! reading the live page as gone, and the engine closes the page, whose
+//! every call raises it too (ADR 0146).
 //!
 //! What the page's events keep is bounded: every request in flight, and of
 //! those that ended the latest `ENDED_LIMIT`, the main frame's document's
@@ -128,6 +129,7 @@ use crate::cdp::{
 };
 use crate::driver::cdp_response::{cut_by, declared_length};
 use crate::driver::{Child, ChildKind, OnChild, PageDriver, browser_id, hop_id};
+use crate::errors::events_lost;
 use crate::page_value::{Kept, ObservedResponse, Observer};
 use crate::url_pattern::UrlPattern;
 
@@ -1106,18 +1108,6 @@ fn listened(event: PageEventName) -> &'static Event {
         .expect("invariant: `page.on` sends each event it listens to")
 }
 
-/// `page_events_lost` for a call on events of the page `page_id`.
-fn events_lost(page_id: &PageId) -> CallError {
-    CallError::new(
-        &PAGE_EVENTS_LOST,
-        format!(
-            "the engine fell too far behind the events of the page `{}` and no longer reads them: open another page to follow its events",
-            page_id.0
-        ),
-        &serde_json::json!({ "page_id": page_id }),
-    )
-}
-
 /// Answers every waiter of the page, which raises what [`gone`] says, every
 /// body read waiting for its request to end, and every listener's call once
 /// it sent the events it holds.
@@ -1143,8 +1133,9 @@ fn millis_since_epoch(wall: SystemTime) -> f64 {
 
 /// Reads the page's events until the page leaves the engine or its target
 /// goes. A subscription that fell too far behind while the page was open
-/// lost events: its calls on events raise `page_events_lost` from then, and
-/// the Run trace records it.
+/// lost events, its reader's having fallen behind: its waiters, body reads
+/// and listeners raise `page_events_lost`, as the page's close, which the
+/// Run trace records, makes every call on it do.
 async fn read(mut followed: FollowedEvents, shared: Arc<Shared>) {
     let mut closed = shared.closed.subscribe();
     loop {
@@ -1164,8 +1155,6 @@ async fn read(mut followed: FollowedEvents, shared: Arc<Shared>) {
             page_id = %shared.page_id.0,
             "the page's events fell too far behind and some are lost: its calls on events raise `page_events_lost`"
         );
-        // The Run trace holds the Error code no reply may carry (ADR 0072).
-        shared.record_outcome(PAGE_EVENTS_LOST.name);
         shared.lost.send_replace(true);
         answer_every_waiter(&shared);
     } else {

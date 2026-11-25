@@ -57,6 +57,10 @@
 //! | `TargetEvent` | `Open` | `Navigating` | `Paused` | late | late | late |
 //! | `LeaseEnded` | `Closing`, closes | `Closing`, closes | `Closing`, closes | `Crashed`, released | late | late |
 //! | `MemoryExceeded` | `Closing`, closes | `Closing`, closes | `Closing`, closes | `Crashed`, released | late | late |
+//! | `EventsLost` | `Closing`, closes | `Closing`, closes | `Closing`, closes | `Crashed`, released | late | late |
+//!
+//! `EventsLost` is ADR 0146's: a Page whose reader fell 4,096 events behind
+//! is closed, and its calls raise `page_events_lost`.
 //!
 //! A quit or a crash racing a close (`Closing`) ends the page with nothing
 //! raised, since its calls already ended, and the crash does not count in
@@ -493,6 +497,9 @@ pub(crate) enum PageEvent {
     /// The Resource governor ends it past its memory cap while memory is
     /// critical (ADR 0040).
     MemoryExceeded,
+    /// Its reader fell 4,096 events behind, so the engine closes it (ADR
+    /// 0146).
+    EventsLost,
 }
 
 /// What a page does on an allowed event, besides changing state.
@@ -552,7 +559,7 @@ pub(crate) type InvalidPageTransition = InvalidTransition<PageState, PageEvent>;
 /// or why it is refused.
 #[expect(
     clippy::too_many_lines,
-    reason = "one table of six states by sixteen events, which ADR 0128 keeps in one function"
+    reason = "one table of six states by eighteen events, which ADR 0128 keeps in one function"
 )]
 pub(crate) fn page(
     state: PageState,
@@ -575,9 +582,10 @@ pub(crate) fn page(
             }
             PageEvent::Judged => Ok((PageState::Open, PageEffect::Judge)),
             PageEvent::Pause => Ok((PageState::Paused, PageEffect::Pause)),
-            PageEvent::Close | PageEvent::LeaseEnded | PageEvent::MemoryExceeded => {
-                Ok((PageState::Closing, PageEffect::Close))
-            }
+            PageEvent::Close
+            | PageEvent::LeaseEnded
+            | PageEvent::MemoryExceeded
+            | PageEvent::EventsLost => Ok((PageState::Closing, PageEffect::Close)),
             PageEvent::TargetDestroyed => Ok((PageState::Closed, PageEffect::ClosedInBrowser)),
             PageEvent::RendererCrash => Ok((PageState::Crashed, PageEffect::RendererCrash)),
             PageEvent::BrowserQuit => Ok((PageState::Closed, PageEffect::Quit)),
@@ -594,9 +602,10 @@ pub(crate) fn page(
             PageEvent::Committed => Ok((PageState::Open, PageEffect::Commit)),
             PageEvent::NavFailed => Ok((PageState::Open, PageEffect::FailNavigation)),
             PageEvent::TargetEvent => Ok((PageState::Navigating, PageEffect::Nothing)),
-            PageEvent::Close | PageEvent::LeaseEnded | PageEvent::MemoryExceeded => {
-                Ok((PageState::Closing, PageEffect::Close))
-            }
+            PageEvent::Close
+            | PageEvent::LeaseEnded
+            | PageEvent::MemoryExceeded
+            | PageEvent::EventsLost => Ok((PageState::Closing, PageEffect::Close)),
             PageEvent::TargetDestroyed => Ok((PageState::Closed, PageEffect::ClosedInBrowser)),
             PageEvent::RendererCrash => Ok((PageState::Crashed, PageEffect::RendererCrash)),
             PageEvent::BrowserQuit => Ok((PageState::Closed, PageEffect::Quit)),
@@ -613,9 +622,10 @@ pub(crate) fn page(
             }
             PageEvent::Judged => Ok((PageState::Paused, PageEffect::Defer)),
             PageEvent::PauseEnded => Ok((PageState::Open, PageEffect::EndPause)),
-            PageEvent::Close | PageEvent::LeaseEnded | PageEvent::MemoryExceeded => {
-                Ok((PageState::Closing, PageEffect::Close))
-            }
+            PageEvent::Close
+            | PageEvent::LeaseEnded
+            | PageEvent::MemoryExceeded
+            | PageEvent::EventsLost => Ok((PageState::Closing, PageEffect::Close)),
             PageEvent::TargetDestroyed => Ok((PageState::Closed, PageEffect::ClosedInBrowser)),
             PageEvent::RendererCrash => Ok((PageState::Crashed, PageEffect::RendererCrash)),
             PageEvent::BrowserQuit => Ok((PageState::Closed, PageEffect::Quit)),
@@ -626,9 +636,10 @@ pub(crate) fn page(
             PageEvent::Gesture | PageEvent::Read | PageEvent::Goto | PageEvent::Pause => {
                 refused(Refusal::Program(PAGE_CRASHED.name))
             }
-            PageEvent::Close | PageEvent::LeaseEnded | PageEvent::MemoryExceeded => {
-                Ok((PageState::Crashed, PageEffect::Release))
-            }
+            PageEvent::Close
+            | PageEvent::LeaseEnded
+            | PageEvent::MemoryExceeded
+            | PageEvent::EventsLost => Ok((PageState::Crashed, PageEffect::Release)),
             PageEvent::ExternalNav
             | PageEvent::Committed
             | PageEvent::NavFailed
@@ -657,7 +668,8 @@ pub(crate) fn page(
             | PageEvent::RendererCrash
             | PageEvent::TargetEvent
             | PageEvent::LeaseEnded
-            | PageEvent::MemoryExceeded => late,
+            | PageEvent::MemoryExceeded
+            | PageEvent::EventsLost => late,
         },
         PageState::Closed => match event {
             PageEvent::Gesture | PageEvent::Read | PageEvent::Goto | PageEvent::Pause => {
@@ -675,7 +687,8 @@ pub(crate) fn page(
             | PageEvent::BrowserCrash
             | PageEvent::TargetEvent
             | PageEvent::LeaseEnded
-            | PageEvent::MemoryExceeded => late,
+            | PageEvent::MemoryExceeded
+            | PageEvent::EventsLost => late,
         },
     }
 }

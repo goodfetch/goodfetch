@@ -27,6 +27,7 @@ use goodfetch_protocol::connection::{
 };
 use goodfetch_protocol::governor::{PAGE_MEMORY_EXCEEDED, PageMemoryExceededDetails};
 use goodfetch_protocol::jsonrpc::{ErrorData, ProtocolFailure};
+use goodfetch_protocol::page::events::PAGE_EVENTS_LOST;
 use goodfetch_protocol::page::{
     BROWSER_LAUNCH_FAILED, BrowserExit, BrowserLaunchFailedDetails, NAVIGATION_FAILED,
     NAVIGATION_INTERRUPTED, NavigationFailedDetails, NavigationInterruptedDetails, PAGE_CRASHED,
@@ -213,6 +214,20 @@ pub(crate) fn page_closed(page_id: &PageId) -> CallError {
     CallError::new(
         &CLOSED,
         format!("the page `{}` is closed, or its Run ended", page_id.0),
+        &serde_json::json!({ "page_id": page_id }),
+    )
+}
+
+/// `page_events_lost` for the page `page_id`, which the engine closed once
+/// its reader fell 4,096 events behind (ADR 0146): every call on it raises
+/// this, which names it alone.
+pub(crate) fn events_lost(page_id: &PageId) -> CallError {
+    CallError::new(
+        &PAGE_EVENTS_LOST,
+        format!(
+            "the engine fell too far behind the events of the page `{}` and closed it: open another page and act again",
+            page_id.0
+        ),
         &serde_json::json!({ "page_id": page_id }),
     )
 }

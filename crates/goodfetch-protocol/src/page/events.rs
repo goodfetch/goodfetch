@@ -337,12 +337,13 @@ pub const BODY_UNAVAILABLE: ErrorCodeDefinition = ErrorCodeDefinition {
     arrived_in: ARRIVED_IN,
 };
 
-/// A page whose events the engine fell too far behind and stopped reading.
+/// A page whose events the engine fell too far behind, which it closed, or
+/// one listener whose Client took too few of its events (ADR 0146).
 pub const PAGE_EVENTS_LOST: ErrorCodeDefinition = ErrorCodeDefinition {
     name: "page_events_lost",
-    description: "Some of a page's events are lost. Either the engine fell too far behind the browser's events of a page that is still open and stopped reading them: the page's `page.on` listeners, waits and `response.body` reads raise this rather than answer from missing events, and the Run trace records it, while the page's other calls still work; open another page to follow its events. Or one `page.on` call's Client took too few of its events, granting too few credits, so 1,024 waited unsent: that call raises this once it sent them; listen again and grant credits as events are read.",
+    description: "Some of a page's events are lost. Either the engine fell 4,096 events behind the browser's events of the page `page_id` names and closed that page, ending every request it had paused: its calls in flight and its later calls raise this, and the Run trace records it once; open another page and try again. Or one `page.on` call's Client took too few of its events, granting too few credits, so 1,024 waited unsent: that call alone raises this once it sent them, while the page and its other calls go on; listen again and grant credits as events are read.",
     group: ErrorGroup::Unavailable,
-    retryable: false,
+    retryable: true,
     exit_code: None,
     arrived_in: ARRIVED_IN,
 };

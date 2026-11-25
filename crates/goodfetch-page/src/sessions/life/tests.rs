@@ -233,6 +233,11 @@ fn in_flight_then_later(life: &PageLife, ending: &Ending) -> (CallError, CallErr
     ("engine_panicked", json!({ "ended": "page", "id": "page-1" })),
     ("engine_panicked", json!({ "ended": "page", "id": "page-1" }))
 )]
+#[case::its_reader_fell_behind(
+    Ending::EventsLost,
+    ("page_events_lost", json!({ "page_id": "page-1" })),
+    ("page_events_lost", json!({ "page_id": "page-1" }))
+)]
 #[case::its_renderer_crashed(
     Ending::RendererCrash,
     ("page_crashed", json!({ "browser_exit": null })),

@@ -19,6 +19,7 @@ mod installed_browser;
 mod listener_arming;
 mod locator_fill;
 mod navigation_gate;
+mod page_events_lost;
 mod page_navigation;
 mod page_request;
 mod proxy_challenge;

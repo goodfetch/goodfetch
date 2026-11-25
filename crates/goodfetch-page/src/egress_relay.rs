@@ -428,7 +428,7 @@ impl EgressRelay {
         // An `https://` proxy is verified as an Operator-configured
         // endpoint is: Mozilla's roots and the CAs `tls.trusted_cas` lists
         // for its host (ADR 0042).
-        let upstream_tls = upstream_in_tls.then(|| Arc::new(trust.client_config(clock)));
+        let upstream_tls = upstream_in_tls.then(|| Arc::new(trust.client_config(clock, None)));
         let network = Tcp {
             mapping,
             upstream: address,

@@ -5,7 +5,7 @@ import { strict as assert } from "node:assert";
 import { createServer } from "node:http";
 import { test } from "node:test";
 import { TestEngine } from "@goodfetch/collie/testing";
-import { readTitle } from "../src/title.ts";
+import { readTitle } from "../src/main.ts";
 
 await test("reads the page's title", async () => {
   const server = createServer((_request, response) => {

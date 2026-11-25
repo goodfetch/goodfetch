@@ -11,6 +11,29 @@ use super::*;
 /// The starters folder Collie's executable embeds.
 const STARTERS: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/starters");
 
+/// Collie's docs page that starts a project.
+const START_A_PROJECT: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../docs/start-a-project.md");
+
+/// The text of each fenced code block of `page` whose info string is
+/// `language`, every line ending in a line break.
+fn blocks(page: &str, language: &str) -> Vec<String> {
+    let opening = format!("```{language}");
+    let mut found = Vec::new();
+    let mut open: Option<String> = None;
+    for line in page.lines() {
+        match open.as_mut() {
+            Some(_) if line == "```" => found.extend(open.take()),
+            Some(block) => {
+                block.push_str(line);
+                block.push('\n');
+            }
+            None if line == opening => open = Some(String::new()),
+            None => {}
+        }
+    }
+    found
+}
+
 /// Every file under `folder`, by its `/`-separated path from it.
 fn paths(folder: &Path) -> BTreeSet<String> {
     let mut paths = BTreeSet::new();
@@ -65,6 +88,39 @@ fn collie_embeds_its_starters_folder_and_no_foxhound_starter() {
     assert_eq!(
         (embedded, unchanged, foxhounds),
         (paths(Path::new(STARTERS)), true, Vec::<&str>::new())
+    );
+}
+
+/// Collie's page that starts a project shows each language's `browser`
+/// program as its one sample in that language, so that the program is a
+/// docs sample on Collie's executable (#433), which the docs examples run.
+///
+/// Covers: story:11-275
+#[test]
+fn the_start_page_shows_each_starter_program_as_its_sample() {
+    let page = std::fs::read_to_string(START_A_PROJECT).unwrap();
+    let programs = [
+        ("ts", "typescript/src/main.ts"),
+        ("python", "python/main.py"),
+        ("rust", "rust/src/main.rs"),
+    ];
+
+    let shown: Vec<Vec<String>> = programs
+        .iter()
+        .map(|(language, _)| blocks(&page, language))
+        .collect();
+
+    let starters: Vec<Vec<String>> = programs
+        .iter()
+        .map(|(_, program)| {
+            vec![
+                std::fs::read_to_string(Path::new(STARTERS).join("browser").join(program)).unwrap(),
+            ]
+        })
+        .collect();
+    assert_eq!(
+        (page.lines().any(|line| line == "products: [collie]"), shown),
+        (true, starters)
     );
 }
 

@@ -75,7 +75,6 @@ impl Starters {
         starter_file!("browser/python/main.py"),
         starter_file!("browser/python/pyproject.toml"),
         starter_file!("browser/python/test_title.py"),
-        starter_file!("browser/python/title.py"),
         starter_file!("browser/rust/.gitignore"),
         starter_file!("browser/rust/Cargo.toml.template"),
         starter_file!("browser/rust/src/main.rs"),
@@ -83,7 +82,6 @@ impl Starters {
         starter_file!("browser/typescript/.gitignore"),
         starter_file!("browser/typescript/package.json"),
         starter_file!("browser/typescript/src/main.ts"),
-        starter_file!("browser/typescript/src/title.ts"),
         starter_file!("browser/typescript/test/title.test.ts"),
         starter_file!("browser/typescript/tsconfig.json"),
     ]);

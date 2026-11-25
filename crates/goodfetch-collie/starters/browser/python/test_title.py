@@ -9,7 +9,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import TYPE_CHECKING
 
 from goodfetch_collie.testing import TestEngine
-from title import read_title
+from main import read_title
 
 if TYPE_CHECKING:
     from goodfetch_collie import Settings

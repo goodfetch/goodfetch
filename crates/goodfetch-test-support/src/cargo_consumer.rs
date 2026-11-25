@@ -240,6 +240,12 @@ fn packed(
     unpack(&crate_file, &work.join("unpacked"))
 }
 
+/// `cargo` as the consumers' builds run it, in the test's folder, for a
+/// test that builds a project of its own, such as a starter `init` wrote.
+pub fn cargo_command(env: &TestEnv) -> Command {
+    cargo(env, &Variables::from_process())
+}
+
 /// `cargo` with the test's map and what Cargo needs to find its toolchain:
 /// the test's `HOME` is its own, so Cargo's and rustup's homes default to
 /// the user's, where the toolchain is.

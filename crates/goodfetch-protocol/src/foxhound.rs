@@ -8,7 +8,8 @@
 //! Record was obtained, `report` what a crawl's
 //! Run report adds, `progress` what its progress adds, and `session_pool` the Session of its Session pool that
 //! serves each attempt, and `fetch` the tier that fetches a crawl
-//! request's document, `sql_tab` the SQL tab's `dataset.query`, and `hook`
+//! request's document, `sql_tab` the SQL tab's `dataset.query`, `search`
+//! the full-text search of a crawl's Records, and `hook`
 //! the Error codes a crawl's Hooks in code fail with, and `sink` a crawl's
 //! Sinks' settings and Guarantee classes; `error_code` holds
 //! every Foxhound Error code as a value of the shared `ErrorCode`.
@@ -27,6 +28,7 @@ pub mod progress;
 pub mod provenance;
 pub mod rejections;
 pub mod report;
+pub mod search;
 pub mod session_pool;
 pub mod settings;
 pub mod sink;

@@ -346,6 +346,16 @@ class ConnectionDatasetQuerySettings(TypedDict):
     """
 
 
+class ConnectionDatasetSearchSettings(TypedDict):
+    """The `dataset.search` settings of `FoxhoundSettings`."""
+
+    index: NotRequired[bool]
+    """Whether the crawl indexes each Record it commits for `dataset.search` and `record.search`, in the commit's transaction. On by default. Off, no Record is indexed, so neither search finds one of the crawl's Records, while each is still committed and read as before.
+
+    `dataset.search.index`.
+    """
+
+
 class ConnectionDatasetSettings(TypedDict):
     """The `dataset` settings of `FoxhoundSettings`."""
 
@@ -356,6 +366,8 @@ class ConnectionDatasetSettings(TypedDict):
 
     `dataset.records`.
     """
+
+    search: NotRequired[ConnectionDatasetSearchSettings]
 
 
 class ConnectionEffectOutputSettings(TypedDict):
@@ -2206,6 +2218,16 @@ class RunDatasetQuerySettings(TypedDict):
     """
 
 
+class RunDatasetSearchSettings(TypedDict):
+    """The `dataset.search` settings of `CrawlSettings`."""
+
+    index: NotRequired[bool]
+    """Whether the crawl indexes each Record it commits for `dataset.search` and `record.search`, in the commit's transaction. On by default. Off, no Record is indexed, so neither search finds one of the crawl's Records, while each is still committed and read as before.
+
+    `dataset.search.index`.
+    """
+
+
 class RunDatasetSettings(TypedDict):
     """The `dataset` settings of `CrawlSettings`."""
 
@@ -2216,6 +2238,8 @@ class RunDatasetSettings(TypedDict):
 
     `dataset.records`.
     """
+
+    search: NotRequired[RunDatasetSearchSettings]
 
 
 class RunEffectOutputSettings(TypedDict):

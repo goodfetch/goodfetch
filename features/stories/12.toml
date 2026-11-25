@@ -548,6 +548,23 @@ reason = "The Console left both Products (ADR 0137), and this story was its alon
 product = "foxhound"
 
 [[story]]
+id = 208
+title = "As a user, I want full-text search inside a run's Records, so that I find a Record by any word in it (ADR 0031)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+product = "foxhound"
+
+[[story]]
+id = 209
+title = "As a user, I want to search across runs, every run the filter selects, so that I find which run returned a Record without opening each (ADR 0031)."
+milestone = "M1 Core"
+journey = true
+status = "active"
+product = "foxhound"
+
+[[story]]
 id = 210
 title = "As a developer, I want a read-only SQL tab over the runs I select, each run's tables registered as functions, so that I join and aggregate Records with SQL in place (ADR 0031)."
 milestone = "M1 Core"

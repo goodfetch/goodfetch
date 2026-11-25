@@ -206,6 +206,7 @@ mod robots_txt;
 mod sample_comparison;
 mod scope;
 mod sdk;
+mod search;
 mod seeds;
 mod served_calls;
 mod service_manager;

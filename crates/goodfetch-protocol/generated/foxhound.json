@@ -4283,6 +4283,86 @@
       ],
       "type": "object"
     },
+    "DatasetSearchPage": {
+      "description": "One page of `dataset.search`.",
+      "properties": {
+        "next": {
+          "arrived_in": "0.1",
+          "description": "The next page's `after`; absent once no Record follows.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "records": {
+          "arrived_in": "0.1",
+          "description": "The Records that hold every word, in number order.",
+          "items": {
+            "$ref": "#/$defs/DatasetRecord"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "records"
+      ],
+      "type": "object"
+    },
+    "DatasetSearchParams": {
+      "additionalProperties": false,
+      "description": "What `dataset.search` takes.",
+      "properties": {
+        "_meta": {
+          "$ref": "#/$defs/RequestMeta",
+          "arrived_in": "0.1"
+        },
+        "after": {
+          "arrived_in": "0.1",
+          "description": "The number of the last Record of the previous page, its `next`: the\npage starts after it. Absent, at the first.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "dataset": {
+          "arrived_in": "0.1",
+          "description": "The Dataset's name.",
+          "type": "string"
+        },
+        "limit": {
+          "arrived_in": "0.1",
+          "description": "The most Records the page carries, from 1 to 1000; absent, 100.",
+          "format": "uint32",
+          "maximum": 1000,
+          "minimum": 1,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "run_id": {
+          "$ref": "#/$defs/RunId",
+          "arrived_in": "0.1",
+          "description": "The crawl's Run."
+        },
+        "text": {
+          "arrived_in": "0.1",
+          "description": "The words a Record holds, each anywhere in its values, in any case\nand with or without diacritics.",
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "run_id",
+        "dataset",
+        "text"
+      ],
+      "type": "object"
+    },
     "DatasetSummary": {
       "description": "One Dataset a crawl declares, with what its crawl kept of it.",
       "properties": {
@@ -6634,6 +6714,39 @@
           "description": "The text of the page's main content, a paragraph per block."
         }
       },
+      "type": "object"
+    },
+    "FoundRecord": {
+      "description": "One Record `record.search` found.",
+      "properties": {
+        "dataset": {
+          "arrived_in": "0.1",
+          "description": "Its Dataset.",
+          "type": "string"
+        },
+        "number": {
+          "arrived_in": "0.1",
+          "description": "Its number in its Dataset.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "run_id": {
+          "$ref": "#/$defs/RunId",
+          "arrived_in": "0.1",
+          "description": "The run that returned it."
+        },
+        "value": {
+          "arrived_in": "0.1",
+          "description": "The Record, as JSON."
+        }
+      },
+      "required": [
+        "run_id",
+        "dataset",
+        "number",
+        "value"
+      ],
       "type": "object"
     },
     "GotoParams": {
@@ -12854,6 +12967,76 @@
       },
       "required": [
         "request_id"
+      ],
+      "type": "object"
+    },
+    "RecordSearchParams": {
+      "additionalProperties": false,
+      "description": "What `record.search` takes.",
+      "properties": {
+        "_meta": {
+          "$ref": "#/$defs/RequestMeta",
+          "arrived_in": "0.1"
+        },
+        "datasets": {
+          "arrived_in": "0.1",
+          "description": "The Datasets it searches in each run; absent, every one.",
+          "items": {
+            "type": "string"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "limit": {
+          "arrived_in": "0.1",
+          "description": "The most Records it answers, from 1 to 1000; absent, 100.",
+          "format": "uint32",
+          "maximum": 1000,
+          "minimum": 1,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "runs": {
+          "arrived_in": "0.1",
+          "description": "The runs it searches, from 1 to 100.",
+          "items": {
+            "$ref": "#/$defs/RunId"
+          },
+          "maxItems": 100,
+          "minItems": 1,
+          "type": "array"
+        },
+        "text": {
+          "arrived_in": "0.1",
+          "description": "The words a Record holds, each anywhere in its values, in any case\nand with or without diacritics.",
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "text",
+        "runs"
+      ],
+      "type": "object"
+    },
+    "RecordSearchResult": {
+      "description": "What `record.search` answers.",
+      "properties": {
+        "records": {
+          "arrived_in": "0.1",
+          "description": "The Records that hold every word, the best matches first, then by\nrun, Dataset and number.",
+          "items": {
+            "$ref": "#/$defs/FoundRecord"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "records"
       ],
       "type": "object"
     },
@@ -23672,6 +23855,25 @@
     },
     {
       "arrived_in": "0.1",
+      "cancellable": true,
+      "class": "read",
+      "deprecated": null,
+      "description": "Answers one page of the committed Records of one Dataset of a run that hold every word of `text`, each anywhere in the Record's values, in any case and with or without diacritics, in number order, after `after` and at most `limit` (1 to 1000, 100 by default), with the next page's `after` while more follow. It reads the index a crawl writes as it commits each Record while `dataset.search.index` is on, so a crawl with it off finds none. An empty `text` fails with `invalid_params`, and a Dataset the crawl does not declare with `dataset_unknown`.",
+      "events": [],
+      "kind": "round_trip",
+      "name": "dataset.search",
+      "params": {
+        "$ref": "#/$defs/DatasetSearchParams"
+      },
+      "product": "foxhound",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/DatasetSearchPage"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
       "cancellable": false,
       "class": "effect",
       "deprecated": null,
@@ -24611,6 +24813,25 @@
       "reach": "all_surfaces",
       "result": {
         "$ref": "#/$defs/RunStarted"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": true,
+      "class": "read",
+      "deprecated": null,
+      "description": "Searches the committed Records of the runs `runs` selects, at most 100, for those that hold every word of `text`, each anywhere in the Record's values, in any case and with or without diacritics, in every Dataset or those `datasets` names, and answers at most `limit` (1 to 1000, 100 by default), the best matches first, each with its run, Dataset and number, so the runs that returned one can be read or queried with `dataset.query`. It reads only the selected runs' indexes, which a crawl writes while `dataset.search.index` is on, and runs under `timeout.dataset_query` and `dataset.query.memory_limit`. An empty `text` fails with `invalid_params`, and a run that does not exist with `run_not_found`.",
+      "events": [],
+      "kind": "round_trip",
+      "name": "record.search",
+      "params": {
+        "$ref": "#/$defs/RecordSearchParams"
+      },
+      "product": "foxhound",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/RecordSearchResult"
       },
       "stability": "experimental"
     },
@@ -27042,6 +27263,29 @@
         ]
       },
       "weakens": true
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": false,
+      "default": true,
+      "deprecated": null,
+      "description": "Whether the crawl indexes each Record it commits for `dataset.search` and `record.search`, in the commit's transaction. On by default. Off, no Record is indexed, so neither search finds one of the crawl's Records, while each is still committed and read as before.",
+      "fixed_for_run": false,
+      "name": "dataset.search.index",
+      "product": "foxhound",
+      "products": [
+        "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run"
+      ],
+      "value": {
+        "type": "boolean"
+      },
+      "weakening": null,
+      "weakens": false
     },
     {
       "arrived_in": "0.1",

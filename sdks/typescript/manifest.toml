@@ -3127,7 +3127,7 @@ entries = ["crawl_request.links"]
 reason = "What `enqueueLinks` sends itself, before `crawl_request.enqueue_links`, when it is given a `LinkPayload` function: the function reads each link it answers, so it has no member of its own."
 
 [[unreached]]
-entries = ["dataset.list", "dataset.page", "dataset.query"]
+entries = ["dataset.list", "dataset.page", "dataset.query", "dataset.search", "record.search"]
 reason = "No member reads a Run's Datasets yet."
 
 [[unreached]]

@@ -107,6 +107,7 @@ fn committed() -> Connection {
                 },
                 masks: &Masks::new(),
                 work: &goodfetch_counted_work::CountedWork::default(),
+                index: true,
             },
             &checked,
         )

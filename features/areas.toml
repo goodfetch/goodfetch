@@ -1770,6 +1770,23 @@ number = 12
 kind = "error"
 prefix = "query_"
 
+# Full-text search (#1217, spec #593): `dataset.search` is under `dataset.`
+# above; search across runs, its command, and the indexing setting.
+[[area]]
+number = 12
+kind = "operation"
+prefix = "record."
+
+[[area]]
+number = 11
+kind = "command"
+prefix = "record."
+
+[[area]]
+number = 12
+kind = "setting"
+prefix = "dataset.search."
+
 # Area 11, the Client surfaces (spec #608): the MCP profiles and the agent
 # skills, each a Feature once it exists.
 [[area]]

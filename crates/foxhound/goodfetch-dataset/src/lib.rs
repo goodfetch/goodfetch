@@ -35,9 +35,9 @@ use goodfetch_engine::run_state::RunStateTables;
 
 pub use declaration::{Datasets, Declarations, Refused, counted_validator};
 pub use encoding::ExportOptions;
-pub use open::open_run;
+pub use open::{open_dataset, open_run};
 pub use pipeline::{WriteExportError, write_export};
-pub use records::{Checked, Committing, Query, commit, read};
+pub use records::{Checked, Committing, Query, RECORD_COLUMNS, commit, dataset_record, read};
 pub use rejections::{Rejection, RequestUrl, fuzz_rejection};
 pub use resume::Began;
 pub use run_tables::{ColumnType, RUN_FILE_TABLES, RunColumn, RunFileTable, RunTable};
@@ -53,7 +53,13 @@ pub use run_tables::{ColumnType, RUN_FILE_TABLES, RunColumn, RunFileTable, RunTa
 /// `rejected_records`, each Dataset's rejection table: each rejected Record
 /// by its Dataset and its number there, with the crawl request whose
 /// attempt staged it, the Record as JSON and, as a JSON object, why
-/// (its reason, its issues and the Hook, when one rejected it).
+/// (its reason, its issues and the Hook, when one rejected it); and
+/// `record_search`, the full-text index of the committed Records that
+/// `dataset.search` and `record.search` read: an FTS5 table that keeps
+/// each indexed Record's Dataset and number and indexes the words of its
+/// values, in any case and with or without diacritics (NFC and NFD alike),
+/// the bidirectional isolates splitting words, but keeps no copy of the
+/// text, which the Record's row holds.
 pub const TABLES: RunStateTables = RunStateTables {
     name: "goodfetch-dataset",
     statements: &[
@@ -83,6 +89,15 @@ pub const TABLES: RunStateTables = RunStateTables {
             rejection TEXT NOT NULL,
             PRIMARY KEY (dataset, number)
         ) STRICT",
+        "CREATE VIRTUAL TABLE IF NOT EXISTS record_search USING fts5(
+            dataset UNINDEXED,
+            number UNINDEXED,
+            text,
+            content = '',
+            contentless_delete = 1,
+            contentless_unindexed = 1,
+            tokenize = 'unicode61 remove_diacritics 2 separators ''\u{2066}\u{2067}\u{2068}\u{2069}'''
+        )",
     ],
 };
 

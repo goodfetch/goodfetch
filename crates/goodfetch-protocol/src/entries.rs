@@ -74,6 +74,7 @@ pub const MODULES: [&Entries; 61] = [
     &foxhound::settings::ENTRIES,
     &foxhound::sink::ENTRIES,
     &foxhound::sql_tab::ENTRIES,
+    &foxhound::search::ENTRIES,
     &foxhound::block::ENTRIES,
     &foxhound::usage::ENTRIES,
 ];
@@ -376,6 +377,8 @@ mod tests {
                     "run.retry_failed",
                     "run.rejected_records",
                     "dataset.query",
+                    "dataset.search",
+                    "record.search",
                 ],
             ]
             .concat()

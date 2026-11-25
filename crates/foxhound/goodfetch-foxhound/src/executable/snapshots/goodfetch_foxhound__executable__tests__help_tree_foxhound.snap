@@ -34,6 +34,7 @@ Commands:
   sample           Calls the catalog's `sample` operations
   crawl            Calls the catalog's `crawl` operations
   dataset          Calls the catalog's `dataset` operations
+  record           Calls the catalog's `record` operations
 
 Options:
       --color <WHEN>  When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
@@ -1652,9 +1653,10 @@ Calls the catalog's `dataset` operations
 Usage: goodfetch-foxhound dataset [OPTIONS] <COMMAND>
 
 Commands:
-  list   Lists the Datasets a crawl's Run declares, in the order declared, each with its JSON Schema, its key and how many Records the crawl committed into it, a Hook dropped and were rejected into its rejection table, read from the Run's committed state. A Run no crawl wrote declares none
-  page   Reads one page of a Dataset's committed Records, paged by key: the Records that meet `filter` (conditions on top-level fields, and the `wall` marker a Record's Provenance carries or not), in the order of `sort` (one top-level field, Records that lack it last, then by number), each value keeping only the fields `columns` names, at most `limit`. Filtering, sorting and column selection run in the engine. A page starts after the Record `after` names, the previous page's `next`, and reads only the Records committed through `through`, the number the first page answered, so Records committed meanwhile never make a page repeat or skip one. A Dataset the crawl does not declare fails with `dataset_unknown`; a field name holding `"`, or a `limit` outside 1 to 1000, with `invalid_params`
-  query  Runs one read-only SQL statement, `SELECT` or `WITH`, over the runs `runs` selects, at most 100, and answers its columns, its first rows up to `limit` (at most `dataset.query.max_rows`) and how many rows it produced. Each run's tables are table functions that take its Run ID: `records(run)` (each Dataset's committed Records), `rejected_records(run)` and `datasets(run)`, which read its run file read-only; secret fields are never columns. Any other statement, a write, `ATTACH`, `INSTALL`, `LOAD`, `COPY`, a read of a file or URL, or a run not selected fails with `query_invalid`; past `timeout.dataset_query` it fails with `deadline_exceeded`, and past `dataset.query.memory_limit` with `query_memory_exceeded`. A run that does not exist fails with `run_not_found`
+  list    Lists the Datasets a crawl's Run declares, in the order declared, each with its JSON Schema, its key and how many Records the crawl committed into it, a Hook dropped and were rejected into its rejection table, read from the Run's committed state. A Run no crawl wrote declares none
+  page    Reads one page of a Dataset's committed Records, paged by key: the Records that meet `filter` (conditions on top-level fields, and the `wall` marker a Record's Provenance carries or not), in the order of `sort` (one top-level field, Records that lack it last, then by number), each value keeping only the fields `columns` names, at most `limit`. Filtering, sorting and column selection run in the engine. A page starts after the Record `after` names, the previous page's `next`, and reads only the Records committed through `through`, the number the first page answered, so Records committed meanwhile never make a page repeat or skip one. A Dataset the crawl does not declare fails with `dataset_unknown`; a field name holding `"`, or a `limit` outside 1 to 1000, with `invalid_params`
+  query   Runs one read-only SQL statement, `SELECT` or `WITH`, over the runs `runs` selects, at most 100, and answers its columns, its first rows up to `limit` (at most `dataset.query.max_rows`) and how many rows it produced. Each run's tables are table functions that take its Run ID: `records(run)` (each Dataset's committed Records), `rejected_records(run)` and `datasets(run)`, which read its run file read-only; secret fields are never columns. Any other statement, a write, `ATTACH`, `INSTALL`, `LOAD`, `COPY`, a read of a file or URL, or a run not selected fails with `query_invalid`; past `timeout.dataset_query` it fails with `deadline_exceeded`, and past `dataset.query.memory_limit` with `query_memory_exceeded`. A run that does not exist fails with `run_not_found`
+  search  Answers one page of the committed Records of one Dataset of a run that hold every word of `text`, each anywhere in the Record's values, in any case and with or without diacritics, in number order, after `after` and at most `limit` (1 to 1000, 100 by default), with the next page's `after` while more follow. It reads the index a crawl writes as it commits each Record while `dataset.search.index` is on, so a crawl with it off finds none. An empty `text` fails with `invalid_params`, and a Dataset the crawl does not declare with `dataset_unknown`
 
 Options:
       --color <WHEN>  When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
@@ -1707,3 +1709,48 @@ Options:
       --daemon         Runs the call on the Daemon of the major, starting it if none runs; its refusal ends the command
       --color <WHEN>   When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
   -h, --help           Print help
+
+$ goodfetch-foxhound dataset search --help
+Answers one page of the committed Records of one Dataset of a run that hold every word of `text`, each anywhere in the Record's values, in any case and with or without diacritics, in number order, after `after` and at most `limit` (1 to 1000, 100 by default), with the next page's `after` while more follow. It reads the index a crawl writes as it commits each Record while `dataset.search.index` is on, so a crawl with it off finds none. An empty `text` fails with `invalid_params`, and a Dataset the crawl does not declare with `dataset_unknown`
+
+Usage: goodfetch-foxhound dataset search [OPTIONS] --dataset <DATASET> --run-id <RUN_ID> --text <TEXT>
+
+Options:
+      --after <AFTER>      The number of the last Record of the previous page, its `next`: the page starts after it. Absent, at the first
+      --dataset <DATASET>  The Dataset's name
+      --limit <LIMIT>      The most Records the page carries, from 1 to 1000; absent, 100
+      --run-id <RUN_ID>    The crawl's Run
+      --text <TEXT>        The words a Record holds, each anywhere in its values, in any case and with or without diacritics
+      --json               Prints the result as JSON
+      --attached           Runs the call on an Attached engine in this process, even when a Daemon runs
+      --color <WHEN>       When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+      --daemon             Runs the call on the Daemon of the major, starting it if none runs; its refusal ends the command
+  -h, --help               Print help
+
+$ goodfetch-foxhound record --help
+Calls the catalog's `record` operations
+
+Usage: goodfetch-foxhound record [OPTIONS] <COMMAND>
+
+Commands:
+  search  Searches the committed Records of the runs `runs` selects, at most 100, for those that hold every word of `text`, each anywhere in the Record's values, in any case and with or without diacritics, in every Dataset or those `datasets` names, and answers at most `limit` (1 to 1000, 100 by default), the best matches first, each with its run, Dataset and number, so the runs that returned one can be read or queried with `dataset.query`. It reads only the selected runs' indexes, which a crawl writes while `dataset.search.index` is on, and runs under `timeout.dataset_query` and `dataset.query.memory_limit`. An empty `text` fails with `invalid_params`, and a run that does not exist with `run_not_found`
+
+Options:
+      --color <WHEN>  When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+  -h, --help          Print help
+
+$ goodfetch-foxhound record search --help
+Searches the committed Records of the runs `runs` selects, at most 100, for those that hold every word of `text`, each anywhere in the Record's values, in any case and with or without diacritics, in every Dataset or those `datasets` names, and answers at most `limit` (1 to 1000, 100 by default), the best matches first, each with its run, Dataset and number, so the runs that returned one can be read or queried with `dataset.query`. It reads only the selected runs' indexes, which a crawl writes while `dataset.search.index` is on, and runs under `timeout.dataset_query` and `dataset.query.memory_limit`. An empty `text` fails with `invalid_params`, and a run that does not exist with `run_not_found`
+
+Usage: goodfetch-foxhound record search [OPTIONS] --runs <RUNS> --text <TEXT>
+
+Options:
+      --datasets <DATASETS>  The Datasets it searches in each run; absent, every one
+      --limit <LIMIT>        The most Records it answers, from 1 to 1000; absent, 100
+      --runs <RUNS>          The runs it searches, from 1 to 100
+      --text <TEXT>          The words a Record holds, each anywhere in its values, in any case and with or without diacritics
+      --json                 Prints the result as JSON
+      --attached             Runs the call on an Attached engine in this process, even when a Daemon runs
+      --color <WHEN>         When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+      --daemon               Runs the call on the Daemon of the major, starting it if none runs; its refusal ends the command
+  -h, --help                 Print help

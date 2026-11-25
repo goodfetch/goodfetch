@@ -53,7 +53,7 @@ Each suite contains the one before, so the table gives the first suite that runs
 
 ### Docs site
 
-- **Docusaurus throws on every broken reference:** `onBrokenLinks`, `onBrokenAnchors`, `onDuplicateRoutes` and `markdown.hooks`' `onBrokenMarkdownLinks`, `onBrokenMarkdownImages` and `onUnusedMarkdownDirectives`.
+- **Docusaurus throws on every broken reference:** `onBrokenLinks`, `onBrokenAnchors`, `onDuplicateRoutes` and `markdown.hooks`' `onBrokenMarkdownLinks` and `onBrokenMarkdownImages`. Docusaurus 3.10 only warns on a directive no plugin renders, so the site's remark plugin `directivesUsed` (`website/src/strict-markdown.ts`) fails it, and `fenceLanguage` fails a fenced block that names no language (`text` for output and prose).
 - **Every kept version is built, and every page has its `.md` twin, an `llms.txt` entry and its content in `llms-full.txt`,** in its own Product's section (`/docs/collie/`, `/docs/foxhound/`), or for a root page in the root's; the root `llms.txt` lists both sections' files and the root pages ([ADR 0097](../adr/0097-one-docs-site-renders-each-products-section-from-one-source-and-neither-product-leads-with-access.md)).
 - **lychee runs with `--offline --include-fragments --root-dir <root>` in the suites**, over the built site copied to `<root>/docs/`, so absolute `/docs/` links resolve. External links are the Live check `docs-external-links`.
 - **Playwright tests the built site served locally under `/docs/` on port 0,** never a Vercel preview: every `sitemap.xml` page of every kept version answers 200 with no console, hydration or same-site request error, and the interactive components work. Search is tested against an index built with the site; a hosted search service is tested only by `docs-deploy-smoke`.

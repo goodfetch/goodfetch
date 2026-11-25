@@ -127,6 +127,7 @@ Decided in [Console and docs test stack](https://github.com/goodfetch/goodfetch/
 ### The docs site
 
 - **Docusaurus fails the build on every broken reference:** `onBrokenLinks`, `onBrokenAnchors`, `onDuplicateRoutes`, `markdown.hooks.onBrokenMarkdownLinks`, `markdown.hooks.onBrokenMarkdownImages` and `markdown.hooks.onUnusedMarkdownDirectives` are `throw`.
+  > Note (agent decision), 2026-11-25, [#149](https://github.com/goodfetch/goodfetch/issues/149): Docusaurus 3.10.2 has no `onUnusedMarkdownDirectives`; it only logs a directive no plugin rendered and prints it as text. The site's own remark plugin `directivesUsed`, run after the admonitions plugin, fails the build on one instead, and `fenceLanguage` fails a fenced block that names no language.
 - **Every kept version is built.** A build-output test checks that every page has its `.md` twin, an entry in `llms.txt` and its content in `llms-full.txt`.
   > Amended by [ADR 0097](0097-one-docs-site-renders-each-products-section-from-one-source-and-neither-product-leads-with-access.md): each Product's section has its own `llms.txt` and `llms-full.txt`, so a page's entry and content are checked in its own section's files; the root's `llms.txt` lists both sections' files and the root pages, whose content is in the root's `llms-full.txt`.
 - **lychee runs offline in the suites:** `lychee --offline --include-fragments --root-dir <root>` over the built site copied to `<root>/docs/`, so absolute `/docs/` links resolve to files (lychee flags absolute links as errors without `--root-dir`).

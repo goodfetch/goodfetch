@@ -137,6 +137,7 @@ use crate::ledger::{
 use crate::local_addresses::{self, Rotation};
 use crate::mask::{Masks, Redaction, Scope};
 use crate::metrics::{FolderStorage, Metrics};
+use crate::plugin_kinds::run_plugins::RunPlugins;
 use crate::politeness::{
     Holder, OwnPoliteness, Politeness, PolitenessError, PolitenessOptions, PolitenessTables,
 };
@@ -1561,6 +1562,14 @@ struct Shared {
     /// The send window its commands mark, which the composition passes
     /// in, if any (ADR 0106).
     send_window: Option<Arc<dyn SendWindow>>,
+    /// Its process Plugins, each started as a call first names it.
+    plugins: RunPlugins,
+}
+
+/// The process Plugins of `run`, which start on its owner as its calls
+/// name them: a power of the Run its owner module holds (ADR 0145).
+pub fn plugins(run: &Run) -> &RunPlugins {
+    &run.shared.plugins
 }
 
 /// The Run trace of `run`, whose one writer every entry of the Run goes
@@ -6294,6 +6303,13 @@ impl Registry {
                 attempt_writes: std::sync::OnceLock::new(),
                 trace,
                 send_window: self.setup.send_window.clone(),
+                plugins: RunPlugins::new(
+                    self.setup.engine.home(),
+                    self.setup.engine.places().cloned(),
+                    self.setup.product,
+                    run_id.clone(),
+                    Arc::clone(&owner),
+                ),
             }),
             owner,
             runs: self.handle(connection),

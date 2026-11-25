@@ -8,7 +8,7 @@ use std::path::Path;
 
 use rstest::rstest;
 
-use super::host::{REMOVED_BY_THE_GATE, step_variables};
+use super::host::{REMOVED_BY_THE_GATE, step_variables, worktree};
 use super::plan::{
     Action, Earlier, EarnedPasses, GateRun, Head, Layer, LintReads, MAX_AGE, Outcome, Pin, Planned,
     Touched, UNOWNED, gate_input, hosted_fingerprint, narrowed, plan, unit,
@@ -229,6 +229,26 @@ fn two_worktrees_of_one_host_give_the_same_step_variables() {
     assert_eq!(
         step_variables(preflight, Path::new("/repo/.claude/worktrees/spec-3326")),
         step_variables(merge, Path::new("/repo/.claude/worktrees/merge-gate")),
+    );
+}
+
+/// The gate runs `xtask` in the worktree, which `Environment` names `.`,
+/// while the justfile writes the wrapper from its own absolute folder: the
+/// worktree the callers read the variables against is that folder.
+#[test]
+fn the_folder_xtask_runs_in_reads_the_justfiles_wrapper_relative_to_it() {
+    let folder = std::env::current_dir().expect("the test runs in a folder");
+    let launched = format!(
+        "RUSTC_WRAPPER={}",
+        folder.join("ci/compiler-cache/sccache").display()
+    );
+
+    assert_eq!(
+        step_variables(
+            &launched,
+            &worktree(Path::new(".")).expect("the current folder")
+        ),
+        "RUSTC_WRAPPER=<worktree>/ci/compiler-cache/sccache"
     );
 }
 

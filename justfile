@@ -160,15 +160,9 @@ lint:
     set -euo pipefail
     source ci/keep-going.sh
     steps_begin lint
-    step lint-documents '{{ just_executable() }} lint-documents'
-    step ignored-sources 'ci/ignored-sources.sh'
-    step cargo-lock 'cargo metadata --locked --format-version 1 > /dev/null'
-    step kennel-lock 'cd kennel && cargo metadata --locked --offline --format-version 1 > /dev/null'
-    step lint-drift '{{ just_executable() }} lint-drift'
-    step xtask 'cargo build --quiet --bin xtask'
-    step --after cargo-lock clippy 'cargo clippy --workspace --all-targets --all-features -- -D warnings'
-    # The first-party crates the workspace excludes, the forks under vendor/ aside.
-    step --after cargo-lock --after kennel-lock clippy-excluded 'ci/clippy-excluded.sh'
+    # The steps that build nothing run one after another in a background
+    # lane while Cargo builds for the steps after it (ci/keep-going.sh).
+    steps_lane_begin
     step lint-types '{{ just_executable() }} lint-types'
     step oxlint 'pnpm exec oxlint'
     step ruff 'uv run ruff check .'
@@ -198,6 +192,23 @@ lint:
     # crawlberg's side, the same, its `browser` feature included.
     step cargo-deny-crawlberg 'ci/tool.sh cargo-deny cargo deny --manifest-path xtask/compare-crawlberg/Cargo.toml --config deny.toml check -A license-not-encountered licenses'
     step cargo-deny-chromiumoxide 'ci/tool.sh cargo-deny cargo deny --manifest-path xtask/compare-chromiumoxide/Cargo.toml --config deny.toml check -A license-not-encountered licenses'
+    # The Kennel's workspace (ADR 0141), read without a build: its lock's
+    # licenses against the root allowlist, and its bans and sources with its
+    # own deny.toml.
+    step cargo-deny-kennel-licenses 'ci/tool.sh cargo-deny cargo deny --manifest-path kennel/Cargo.toml --config deny.toml check -A license-not-encountered licenses'
+    step cargo-deny-kennel 'ci/tool.sh cargo-deny cargo deny --manifest-path kennel/Cargo.toml --config kennel/deny.toml check bans sources'
+    step cargo-shear 'ci/tool.sh cargo-shear cargo shear'
+    step tool-versions 'ci/tool-versions.sh'
+    steps_lane_end
+    step lint-documents '{{ just_executable() }} lint-documents'
+    step ignored-sources 'ci/ignored-sources.sh'
+    step cargo-lock 'cargo metadata --locked --format-version 1 > /dev/null'
+    step kennel-lock 'cd kennel && cargo metadata --locked --offline --format-version 1 > /dev/null'
+    step lint-drift '{{ just_executable() }} lint-drift'
+    step xtask 'cargo build --quiet --bin xtask'
+    step --after cargo-lock clippy 'cargo clippy --workspace --all-targets --all-features -- -D warnings'
+    # The first-party crates the workspace excludes, the forks under vendor/ aside.
+    step --after cargo-lock --after kennel-lock clippy-excluded 'ci/clippy-excluded.sh'
     # Crawlee's, Scrapy's and the Collie scenario's arms' sides, no
     # workspace member either: their locks' licenses against the same
     # allowlist, read from what their frozen installs leave beside them, with
@@ -207,14 +218,9 @@ lint:
     step compare-collie-arms-install 'pnpm install --frozen-lockfile --reporter=silent --dir xtask/compare-collie-arms'
     step --after compare-collie-arms-install compare-collie-arms-typecheck 'pnpm --dir xtask/compare-collie-arms run --silent typecheck'
     step --after xtask --after compare-crawlee-install --after compare-scrapy-install --after compare-collie-arms-install xtask-notices 'cargo run --quiet --bin xtask -- notices --side xtask/compare-crawlee --side xtask/compare-scrapy --side xtask/compare-collie-arms'
-    # The Kennel's workspace (ADR 0141), read without a build: its lock's
-    # licenses against the root allowlist, its bans and sources with its own
-    # deny.toml, and its manifest's lints, `rust-version` and shared
-    # dependency versions against the root's.
-    step cargo-deny-kennel-licenses 'ci/tool.sh cargo-deny cargo deny --manifest-path kennel/Cargo.toml --config deny.toml check -A license-not-encountered licenses'
-    step cargo-deny-kennel 'ci/tool.sh cargo-deny cargo deny --manifest-path kennel/Cargo.toml --config kennel/deny.toml check bans sources'
+    # The Kennel's manifest's lints, `rust-version` and shared dependency
+    # versions against the root's (ADR 0141).
     step --after xtask xtask-kennel-manifest 'cargo run --quiet --bin xtask -- kennel-manifest'
-    step cargo-shear 'ci/tool.sh cargo-shear cargo shear'
     step --after xtask xtask-workflow-policy 'cargo run --quiet --bin xtask -- workflow-policy'
     step --after xtask xtask-egress 'cargo run --quiet --bin xtask -- egress check'
     step --after xtask xtask-os-services 'cargo run --quiet --bin xtask -- os-services workflows'
@@ -239,7 +245,6 @@ lint:
     step --after xtask xtask-chromium-surfaces 'cargo run --quiet --bin xtask -- chromium surfaces check --cargo-profile {{ test_profile }}'
     step --after xtask xtask-chromium-protocol 'cargo run --quiet --bin xtask -- chromium protocol check'
     step --after xtask xtask-containment 'cargo run --quiet --bin xtask -- containment'
-    step tool-versions 'ci/tool-versions.sh'
     steps_end
 
 # Regenerates every file generated from goodfetch-protocol's types: the JSON

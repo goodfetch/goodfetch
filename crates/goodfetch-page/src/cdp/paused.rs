@@ -498,6 +498,27 @@ impl CdpPage {
         .await
     }
 
+    /// Lets the response `paused` go on with its status and `headers` in
+    /// place of its own.
+    ///
+    /// # Errors
+    ///
+    /// [`NotTaken`] when the response or the page went first.
+    pub(crate) async fn continue_response_with(
+        &self,
+        paused: &PausedRequest,
+        headers: Vec<Header>,
+    ) -> Result<(), NotTaken> {
+        self.taken(&fetch::ContinueResponseParams {
+            request_id: paused.id.as_str().to_owned(),
+            response_code: paused.event.response_status_code,
+            response_phrase: None,
+            response_headers: Some(headers.into_iter().map(fetch::HeaderEntry::from).collect()),
+            binary_response_headers: None,
+        })
+        .await
+    }
+
     /// The names of the cookies the browser would send with a request to
     /// `url`.
     ///

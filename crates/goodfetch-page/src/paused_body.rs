@@ -5,17 +5,16 @@
 
 use std::collections::BTreeMap;
 
-use goodfetch_cdp::generated::{fetch, io};
 use goodfetch_engine::CallError;
 use goodfetch_engine::response_limits::Limits;
 use goodfetch_protocol::page::{RESPONSE_TRUNCATED, ResponseTruncatedDetails};
 
-use crate::driver::PageDriver;
-use crate::driver::cdp_response::{bytes_of, coded, declared_length};
+use crate::cdp::{CdpPage, PausedId};
+use crate::driver::cdp_response::{coded, declared_length};
 
-/// The bytes the browser reads in one `IO.read` of a body's stream: their
-/// Base64 stays far below what a CDP message carries.
-const STREAM_CHUNK: i64 = 1024 * 1024;
+/// The bytes the browser reads in one chunk of a body's stream: their
+/// Base64 stays far below what one of the browser's messages carries.
+const STREAM_CHUNK: u32 = 1024 * 1024;
 
 /// Refuses the body of `url`, whose response has `headers` by lower-cased
 /// name, when its `Content-Length` declares it past `network.max_body_size`
@@ -56,19 +55,14 @@ pub(crate) fn declared_within_limits(
 /// `response_limit_exceeded` naming the limit the body passed;
 /// `response_truncated` for a stream that broke off.
 pub(crate) async fn streamed(
-    driver: &PageDriver,
-    id: &str,
+    page: &CdpPage,
+    id: &PausedId,
     url: &str,
     declared: Option<u64>,
     limits: &Limits,
 ) -> Result<Vec<u8>, CallError> {
-    let stream = match driver
-        .command(&fetch::TakeResponseBodyAsStreamParams {
-            request_id: id.to_owned(),
-        })
-        .await
-    {
-        Ok(taken) => taken.stream,
+    let stream = match page.take_body_stream(id).await {
+        Ok(stream) => stream,
         Err(failure) => {
             tracing::debug!(%failure, "the browser gave no stream of a paused response's body");
             return Ok(Vec::new());
@@ -76,21 +70,14 @@ pub(crate) async fn streamed(
     };
     let mut bytes = Vec::new();
     let read = loop {
-        let chunk = match driver
-            .command(&io::ReadParams {
-                handle: stream.clone(),
-                offset: None,
-                size: Some(STREAM_CHUNK),
-            })
-            .await
-        {
+        let chunk = match page.read_body_stream(&stream, STREAM_CHUNK).await {
             Ok(chunk) => chunk,
             Err(failure) => {
                 tracing::debug!(%failure, "a paused response's body stream broke off");
                 break Err(broke_off(url, &bytes, declared));
             }
         };
-        match bytes_of(chunk.data, chunk.base64_encoded == Some(true)) {
+        match chunk.bytes {
             Ok(decoded) => bytes.extend_from_slice(&decoded),
             Err(error) => {
                 tracing::warn!(%error, "the browser gave a body's chunk in Base64 that does not decode");
@@ -105,7 +92,7 @@ pub(crate) async fn streamed(
             break Ok(());
         }
     };
-    if let Err(failure) = driver.command(&io::CloseParams { handle: stream }).await {
+    if let Err(failure) = page.close_body_stream(stream).await {
         tracing::debug!(%failure, "a body's stream was closed already");
     }
     read.map(|()| bytes)

@@ -4,7 +4,8 @@
 //! is built. Spec #2256 moves the page crate's calls behind it ticket by
 //! ticket, until this is the one module that names the CDP crate; the
 //! interception's, a Page's events', dialogs' and init scripts', the
-//! Consent prompt runner's and live hiding's calls are behind it already. A
+//! Consent prompt runner's, live hiding's and the browser-fetch tier's
+//! calls are behind it already. A
 //! primitive sends through the page's driver, whose lease check, counted
 //! rows, Run trace and deadlines it keeps.
 //!
@@ -25,6 +26,11 @@
 //! | [`CdpPage::fail`]: a paused request failed with a network error | `Fetch.failRequest` | `network.failRequest` | `Route.abort` |
 //! | [`CdpPage::continue_with_auth`]: a challenge answered by default, with credentials, or cancelled | `Fetch.continueWithAuth` | `network.continueWithAuth` | none: the driver answers with the context's `httpCredentials` |
 //! | [`CdpPage::continue_response`]: a paused response sent on as it came | `Fetch.continueResponse` | `network.continueResponse` | none: Chromium only, as Playwright pauses no response |
+//! | [`CdpPage::continue_response_with`]: a paused response sent on with its status and the headers given in place of its own | `Fetch.continueResponse` with `responseCode` and `responseHeaders` | `network.continueResponse` with `statusCode` and `headers` | none: Chromium only, as Playwright pauses no response |
+//! | [`CdpPage::isolate_opening`]: a page that sends one request alone: its scripts never run, no service worker answers it, every request pauses before it leaves, and the challenges the page answers | `Emulation.setScriptExecutionDisabled`, `Network.setBypassServiceWorker`, and `Fetch.enable` with a request-stage pattern and `handleAuthRequests` | `emulation.setScriptingEnabled` set to false, and `network.addIntercept` at `beforeRequestSent` and `authRequired`; bypassing service workers is Chromium only | a context made with `javaScriptEnabled: false` and `serviceWorkers: "block"`, and `setNetworkInterceptionPatterns` |
+//! | [`CdpPage::load_document`]: a load of a URL as the main frame's document started, the browser's refusal of it answered | `Page.navigate` | `browsingContext.navigate` with `wait: "none"` | `goto` with `waitUntil: "commit"` |
+//! | [`CdpPage::hop_events`]: what the browser-fetch tier follows of its page's events, each read once | `Fetch.requestPaused`, `Fetch.authRequired`, `Network.responseReceived`, `loadingFinished` and `loadingFailed` | `network.beforeRequestSent` and `network.responseStarted` while blocked, `network.authRequired`, `responseCompleted` and `fetchError` | `route`, `response`, `requestFinished` and `requestFailed`; a paused response is Chromium only |
+//! | [`CdpPage::take_body_stream`], [`CdpPage::read_body_stream`] and [`CdpPage::close_body_stream`]: a paused response's body read in chunks from the browser's stream of it, after any content coding, and the stream closed | `Fetch.takeResponseBodyAsStream`, `IO.read` and `IO.close` | none: Chromium only, as `network.getData` reads a body whole | none: Chromium only, as `Route.fetch` reads a body whole |
 //! | [`CdpPage::cookie_names`]: the names of the cookies a request to a URL would carry | `Network.getCookies` | `storage.getCookies` | `BrowserContext.cookies` |
 //! | [`CdpPage::followed_events`] and [`CdpPage::frame_events`]: what a page's events follow of the page's own events, or of one of its out-of-process frames' requests and console, each read once | `Network.requestWillBeSent`, `responseReceived`, `dataReceived`, `loadingFinished` and `loadingFailed`, `Network.webSocketCreated`, `webSocketFrameSent`, `webSocketFrameReceived` and `webSocketClosed`, `Page.domContentEventFired`, `loadEventFired`, `frameNavigated`, `navigatedWithinDocument` and `lifecycleEvent`, `Runtime.consoleAPICalled` and `exceptionThrown` | `network.beforeRequestSent`, `responseStarted`, `responseCompleted` and `fetchError`, `browsingContext.navigationCommitted`, `fragmentNavigated`, `domContentLoaded` and `load`, `log.entryAdded`; a WebSocket's frames and a loader's lifecycle are Chromium only | `request`, `response`, `requestFinished`, `requestFailed`, `webSocket`, a frame's `navigated` and `loadstate`, `console` and `pageError` |
 //! | [`CdpPage::follow_console_opening`], [`CdpPage::follow_frame_console_opening`] and [`CdpPage::follow_frame_console`]: the console calls and uncaught exceptions of the page, or of one of its out-of-process frames, reported | `Runtime.enable` | `session.subscribe` to the `log` module | none: the driver reports a page's console itself |
@@ -60,6 +66,7 @@ mod dialogs;
 mod followed;
 mod functions;
 mod hiding;
+mod hop;
 mod init_scripts;
 mod navigation;
 mod paused;
@@ -79,6 +86,7 @@ pub(crate) use self::followed::{
     FollowedEvent, FollowedEvents, FrameNavigated, RequestSent, SocketFrame,
 };
 pub(crate) use self::hiding::{HidingEvent, HidingEvents};
+pub(crate) use self::hop::{HopEvent, HopEvents};
 pub(crate) use self::init_scripts::InitScriptId;
 pub(crate) use self::navigation::Going;
 pub(crate) use self::paused::{

@@ -455,13 +455,15 @@ pub(crate) enum EngineWork {
 /// A page of a Session that the engine drives itself
 /// ([`Sessions::engine_page`]): closed, and its place in its browser given
 /// back, once its caller closes it or drops it, a cancelled call's
-/// included, so no tab stays open in the Session's browser.
+/// included, so no tab stays open in the Session's browser. It is a child
+/// of its Session's owner, which reads its events and runs its close when
+/// it is dropped: nothing of it runs on the Run.
 pub(crate) struct EnginePage {
     driver: PageDriver,
     /// Its place in its browser, until it closes.
     in_browser: Option<InBrowser>,
-    /// The Run its close runs on when it is dropped.
-    run: Run,
+    /// Its Session's owner, which its close runs on when it is dropped.
+    owner: TaskStarter,
 }
 
 impl EnginePage {
@@ -483,7 +485,7 @@ impl Drop for EnginePage {
     fn drop(&mut self) {
         if let Some(in_browser) = self.in_browser.take() {
             let driver = self.driver.clone();
-            self.run.spawn(async move {
+            self.owner.spawn(async move {
                 driver.close().await;
                 drop(in_browser);
             });
@@ -1128,7 +1130,7 @@ impl Sessions {
         Ok(EnginePage {
             driver: driver.with_value(value.clone(), open.run.clock()),
             in_browser: Some(in_browser),
-            run: open.run.clone(),
+            owner: TaskStarter::clone(&open.owner),
         })
     }
 

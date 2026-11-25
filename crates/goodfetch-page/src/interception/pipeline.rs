@@ -753,15 +753,7 @@ impl PageContext {
                 (read, false)
             }
             None => {
-                match paused_body::streamed(
-                    &self.driver,
-                    paused.id().as_str(),
-                    url,
-                    declared,
-                    &limits,
-                )
-                .await
-                {
+                match paused_body::streamed(&self.cdp, paused.id(), url, declared, &limits).await {
                     Ok(read) => (read, true),
                     Err(refused) => return (Err(refused), Taken::Refused),
                 }

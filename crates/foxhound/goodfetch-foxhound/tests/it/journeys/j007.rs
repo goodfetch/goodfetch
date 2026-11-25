@@ -2,18 +2,19 @@
 //! in-flight cap together", on the `cli` surface (ADRs 0053, 0063, 0075 and
 //! 0094; ticket #2360): a person sets the Proving ground's slow site's
 //! Politeness to the 2 requests in flight it allows, starts two code-free
-//! crawls of its list with Foxhound's shipped executable, each `crawl
-//! start` reaching the one Daemon of the variant's home, follows both to
-//! their end and reads each one's Records.
+//! crawls of its list at once with Foxhound's shipped executable, each
+//! `crawl start` reaching the one Daemon of the variant's home, follows
+//! both to their end and reads each one's Records.
 #![expect(
     clippy::disallowed_methods,
     reason = "the person's steps write the settings and fields files"
 )]
 
+use std::io::Read as _;
 use std::path::{Path, PathBuf};
 
 use goodfetch_protocol::result_document::ResultDocument;
-use goodfetch_test_support::{JourneyRun, TestEnv, cli as command_line};
+use goodfetch_test_support::{JourneyRun, TestEnv, cli as command_line, record_command};
 use serde_json::{Value, json};
 
 use crate::crawl_commands::short_idle;
@@ -21,7 +22,7 @@ use crate::fetch_tiers::settings;
 
 const FOXHOUND: &str = env!("CARGO_BIN_EXE_goodfetch-foxhound");
 
-/// The two crawls, in the order they start.
+/// The two crawls, started at once.
 const RUNS: [&str; 2] = ["first", "second"];
 
 /// The fields each item's Record holds, read from its item page.
@@ -46,6 +47,32 @@ fn daemon_pid(env: &TestEnv) -> Value {
         .json("DaemonStatus")
         .unwrap();
     status.documents[0]["pid"].clone()
+}
+
+/// Starts both crawls of `start` and reads the Run ID each command prints.
+/// The commands run at once and wait for the one Daemon, so a loaded host
+/// delays both crawls, not one past the other's end.
+fn start_both<C>(run: &JourneyRun<C>, start: &str, fields: &Path, settings: &Path) {
+    let (fields, settings) = (fields.to_str().unwrap(), settings.to_str().unwrap());
+    let arguments = RUNS.map(|run_id| {
+        let mut arguments = vec!["crawl", "start", start, "--run-id", run_id];
+        arguments.extend(["--format", "markdown", "--links", "scope", "--json"]);
+        arguments.extend(["--fields", fields, "--settings", settings]);
+        arguments
+    });
+    let started = arguments.each_ref().map(|arguments| {
+        let mut command = run.env().process_command(run.engine());
+        run.env().spawn(command.args(arguments)).unwrap()
+    });
+    for ((run_id, arguments), started) in RUNS.into_iter().zip(&arguments).zip(&started) {
+        let status = started.close_stdin_and_wait().unwrap();
+        record_command(run.env(), arguments, status.code()).unwrap();
+        let mut answer = String::new();
+        let mut stdout = started.child().stdout.take().unwrap();
+        stdout.read_to_string(&mut answer).unwrap();
+        let answer: Value = serde_json::from_str(&answer).unwrap();
+        assert_eq!((status.success(), answer), (true, json!(run_id)));
+    }
 }
 
 /// The Records of `run_id`'s item pages, each its [`ITEM_FIELDS`], as `run
@@ -114,16 +141,7 @@ fn cli() {
             let start = proving_ground.start_url("limits/3").unwrap();
             let fields = run.env().folder().join("fields.json");
             std::fs::write(&fields, fields_read().to_string()).unwrap();
-            for run_id in RUNS {
-                let started = command_line(run.env(), run.engine())
-                    .args(["crawl", "start", &start, "--run-id", run_id])
-                    .args(["--format", "markdown", "--links", "scope"])
-                    .args(["--fields", fields.to_str().unwrap()])
-                    .args(["--settings", settings_path.to_str().unwrap(), "--json"])
-                    .json("RunId")
-                    .unwrap();
-                assert_eq!(started.documents[0], run_id, "{}", started.output);
-            }
+            start_both(run, &start, &fields, &settings_path);
             pids.push(daemon_pid(run.env()));
         },
     );

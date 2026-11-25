@@ -48,6 +48,7 @@ fn a_level_a_test_asks_for_stays() {
 }
 
 /// The lines of the answer record of `env`'s test, none when it has none.
+#[cfg(unix)]
 fn answer_record(env: &TestEnv) -> Vec<Value> {
     std::fs::read_to_string(env.folder().join(goodfetch_test_support::ANSWER_RECORD))
         .unwrap_or_default()

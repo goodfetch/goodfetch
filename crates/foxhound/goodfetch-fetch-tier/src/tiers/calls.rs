@@ -55,7 +55,8 @@ use bytes::Bytes;
 use data_encoding::BASE64;
 use goodfetch_counted_work::{CountedWork, ParsedHtml, Row as CountedRow};
 use goodfetch_engine::hostile_input::check_headers;
-use goodfetch_engine::runs::Run;
+use goodfetch_engine::run_files::RunFiles;
+use goodfetch_engine::runs;
 use goodfetch_engine::{CallError, ReadParams, named};
 use goodfetch_extractor::fields::Fields;
 use goodfetch_page::page_value::{DocumentResponse, NavigationGate, ServedDocument};
@@ -295,7 +296,7 @@ fn body(
     let tiers = tiers.clone();
     let page_id = page_id.clone();
     Box::pin(async move {
-        let stored = run
+        let stored = runs::files(&run)
             .store_body(body)
             .await
             .map_err(|error| failed(&url, &error))?;
@@ -331,8 +332,7 @@ pub(super) fn on_browser(
         return None;
     }
     Some(Box::pin(async move {
-        let stored = held
-            .run
+        let stored = runs::files(&held.run)
             .store_body(held.body.clone())
             .await
             .map_err(|error| failed(&held.request_id, &error))?;
@@ -391,7 +391,10 @@ fn fields_read(page: Arc<ServedPage>, params: &PageReadParams) -> Served {
     let page_id = params.page_id.clone();
     Box::pin(async move {
         let document = Arc::clone(&page.document);
-        let work = document.run.metrics().counted_work().clone();
+        let work = runs::identity(&document.run)
+            .metrics()
+            .counted_work()
+            .clone();
         let findings = crate::document::findings(&fields, &work)
             .map_err(|sentence| CallError::protocol(ProtocolFailure::InvalidParams, sentence))?;
         let base_url = document.base_url.clone();
@@ -443,7 +446,10 @@ fn waited(
     let page_id = page_id.clone();
     Box::pin(async move {
         let document = Arc::clone(&page.document);
-        let work = page.document.run.metrics().counted_work().clone();
+        let work = runs::identity(&page.document.run)
+            .metrics()
+            .counted_work()
+            .clone();
         let met = on_tree(&page.document, move |tree| match wait {
             Wait::Shown(state) => {
                 let shown = shown((tree, &document.html), &selector, &work)?;
@@ -486,12 +492,11 @@ where
         return tree.read(read).await;
     }
     let served = Arc::clone(document);
-    let work = served.run.metrics().counted_work().clone();
+    let run = runs::identity(&document.run);
+    let work = run.metrics().counted_work().clone();
     Some(
-        document
-            .run
-            .owner()
-            .handler_analysis(document.run.metrics().counted_work(), move || {
+        run.owner()
+            .handler_analysis(run.metrics().counted_work(), move || {
                 read(&work.parse_html(CountedRow::PageParses, &served.html))
             })
             .await,
@@ -525,12 +530,12 @@ async fn request(
     page: Arc<ServedPage>,
     params: PageRequestParams,
 ) -> Result<PageResponse, CallError> {
-    let run = page.document.run.clone();
+    let files = runs::files(&page.document.run).clone();
     let fetched = sent(&page, &params).await?;
     // Its answer changes the page, which would copy it while this call
     // held it.
     drop(page);
-    answered(tiers, page_id, &run, fetched).await
+    answered(tiers, page_id, &files, fetched).await
 }
 
 /// What a request `params` of the served page `page` was answered, its
@@ -599,13 +604,14 @@ async fn sent(page: &ServedPage, params: &PageRequestParams) -> Result<Fetched, 
         leased(hand_over, PAGE_REQUEST.name)?;
         // Each hop marks the attempt's send window before it goes out
         // (ADR 0106).
-        run.sending(Some(hand_over.lease.as_ref()), PAGE_REQUEST.name)
+        runs::send_window(&run)
+            .sending(Some(hand_over.lease.as_ref()), PAGE_REQUEST.name)
             .await?;
         let fetched = fetch(
             page.http.transport.as_ref(),
             &hop,
             &page.http.bounds,
-            &run.clock(),
+            &runs::identity(&run).clock(),
         )
         .await;
         drop(permit);
@@ -725,16 +731,16 @@ fn location(fetched: &Fetched) -> Option<Url> {
 }
 
 /// The response `fetched` a `page.request` of the served page `page_id`
-/// got, as the call answers it, its body kept in `run`'s folder for
+/// got, as the call answers it, its body kept in `files`, its Run's, for
 /// `response.body`.
 async fn answered(
     tiers: &FetchTiers,
     page_id: &PageId,
-    run: &Run,
+    files: &RunFiles,
     fetched: Fetched,
 ) -> Result<PageResponse, CallError> {
     let request_id = tiers.next_request(page_id);
-    let stored = run
+    let stored = files
         .store_body(fetched.body)
         .await
         .map_err(|error| failed(fetched.url.as_str(), &error))?;

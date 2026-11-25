@@ -1,11 +1,11 @@
 //! The duplicate-run check (ADR 0135's amendment of 2026-11-22): nothing runs
-//! twice on one tree. It reads every run in the gate's records, and the hosted
-//! runs' records `just merge` downloaded when given them, and finds each unit
-//! a run ran, not reused, on a tree where an earlier run its plan reads had
-//! recorded it green within a day: the later run had that result to reuse,
-//! whichever layer ran each. A local plan reads its own host's runs, and the
-//! hosted runs' for a step the hosted tier owns; a hosted job reads every
-//! hosted run's (spec #3373).
+//! twice on one tree. It reads every run in the gate's records, and the
+//! hosted runs' records `ci/hosted-records.sh` downloaded when given them,
+//! and finds each unit a run ran, not reused, on a tree where an earlier run
+//! its plan reads had recorded it green within a day: the later run had that
+//! result to reuse, whichever layer ran each. A local plan reads its own
+//! host's runs, and the hosted runs' for a step the hosted tier owns; a
+//! hosted job reads every hosted run's (spec #3373).
 //!
 //! A rerun after a red result is none, nor one past a day or on a host no
 //! plan reuses across. Nor is a rerun of a check whose verdict reads

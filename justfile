@@ -2345,8 +2345,9 @@ _gate-steps form:
 # green lint on the same tree, the plan reads each quarantined test's issue
 # again, as lint's quarantine check does, with the same token. The plan is
 # of the form `form` of `just pre-merge`, by the layer `layer`; the hosted
-# runs' records `just merge` or a hosted job downloaded
-# (GOODFETCH_GATE_HOSTED_RECORDS, ci/hosted-records.sh) count for the
+# runs' records a hosted job or the Release suite downloaded
+# (GOODFETCH_GATE_HOSTED_RECORDS, ci/hosted-records.sh; `just merge` reads
+# none, ADR 0135's note of 2026-11-25) count for the
 # hosted-owned steps when they name the repository GOODFETCH_GATE_REPOSITORY
 # names; a hosted job's fingerprint names its runner image
 # (GOODFETCH_GATE_RUNNER_IMAGE).
@@ -2472,8 +2473,7 @@ _gate-compare full runs since="":
 # both layers, on each unit a run in the gate's records (ci/gate-records.sh)
 # ran, not reused, on a tree where an earlier run had recorded it green.
 # `hosted`, a folder of hosted runs' records that `ci/hosted-records.sh`
-# downloaded (`just merge` keeps them in its gate worktree's
-# `target/hosted-records`), adds their runs, so a unit the gate ran after a
+# downloaded, adds their runs, so a unit the gate ran after a
 # hosted job had run it green is found too (spec #3373).
 duplicate-runs hosted="":
     cargo run --quiet --locked --bin xtask -- gate duplicates --records "$(ci/gate-records.sh)" \

@@ -140,6 +140,9 @@ rows! {
     /// `E1.decodes`: a decode of a request's params, by dispatch for what it
     /// reads of them or into the type their handler takes.
     MessageDecodes => "E1.decodes", "json_rpc_message", "decodes";
+    /// `E1.store_reads`: a read of a store or file by dispatch for a
+    /// message, which reads who its Connection is from memory (ADR 0149).
+    MessageStoreReads => "E1.store_reads", "json_rpc_message", "store_reads";
     /// `F5.messages_no_hook`: a message or its formatting for a stage with no
     /// Hook on it.
     HookMessagesNoHook => "F5.messages_no_hook", "hook_stage", "messages_no_hook";
@@ -477,6 +480,15 @@ rows! {
     /// `C5.entries`: an entry sent to the Run trace's writer for its
     /// request log.
     InterceptedEntries => "C5.entries", "intercepted_request", "entries";
+    /// `C5.cache_lookups`: a lookup of a request in the Response cache's
+    /// index, on the statement its connection prepared once (ADR 0046).
+    CacheLookups => "C5.cache_lookups", "intercepted_request", "cache_lookups";
+    /// `C5.cache_file_opens`: a body file of the Response cache opened to
+    /// serve a hit; a miss opens none.
+    CacheFileOpens => "C5.cache_file_opens", "intercepted_request", "cache_file_opens";
+    /// `C5.cache_body_writes`: a body file of the Response cache written to
+    /// store a response, or its bodies' folder made; a hit writes none.
+    CacheBodyWrites => "C5.cache_body_writes", "intercepted_request", "cache_body_writes";
 }
 
 /// The counts of one engine's Counted work, shared by every clone. A thread

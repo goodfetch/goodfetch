@@ -8,6 +8,7 @@
 //! an interface defined here, such as a Run's driver and the tables it keeps
 //! in run state.
 
+pub mod accounts;
 pub mod admission;
 pub mod age_notice;
 mod attached;
@@ -38,6 +39,7 @@ pub mod entropy;
 pub mod events;
 pub mod executables;
 mod forward;
+pub mod framing;
 pub mod governor;
 pub mod happy_eyeballs;
 pub mod heap;
@@ -62,9 +64,14 @@ pub mod net_error;
 pub mod ops;
 pub mod otlp;
 pub mod pinned_download;
+pub mod plugin_host;
+pub mod plugin_kinds;
+pub mod plugin_store;
 pub mod politeness;
 mod product;
+pub mod recipe;
 pub mod request_signing;
+pub mod response_cache;
 pub mod response_limits;
 pub mod retry_after;
 pub mod robots_txt;
@@ -83,6 +90,8 @@ pub mod sandbox_probe;
 mod sdk_handlers;
 pub mod secret_endpoint;
 pub mod secrets;
+pub mod session_bundle;
+pub mod session_transfer;
 pub mod settings;
 mod settings_editor;
 mod signing_key_operations;
@@ -98,6 +107,8 @@ pub mod transition;
 pub mod transport;
 pub mod upgrade;
 mod usage;
+pub mod user_store;
+pub mod webhook_signing;
 mod wire;
 
 pub use call_error::{CallError, named};

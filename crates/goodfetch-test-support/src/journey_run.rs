@@ -28,6 +28,10 @@
 //!   `not_reached` and a task never judged with no answer;
 //! - each check naming a task is judged on its own submission, so a task two
 //!   checks name is written once per check, with that check's answer.
+//!
+//! Size: one concern, a variant's run: the home, Proving ground and
+//! Browser cache it starts on, the outcomes it records by the rules above,
+//! and the document it writes from them.
 #![expect(
     clippy::disallowed_methods,
     reason = "test support reads the Journey file, runs the executable and writes the document outside any async worker (ADR 0062)"
@@ -44,6 +48,7 @@ use serde::Serialize;
 use serde::de::DeserializeOwned;
 use serde_json::{Map, Value, json};
 
+use crate::browsers::{BrowserCacheError, browser_builds, empty_browser_cache};
 use crate::env::{TestEnv, command};
 use crate::proving_ground::{ProvingGround, ProvingGroundError};
 use crate::proving_ground_format::ROUTES;
@@ -180,6 +185,7 @@ pub struct JourneyRun<C> {
     failures: Vec<String>,
     construct: C,
     agent: ureq::Agent,
+    browser_cache: Option<PathBuf>,
     // Before the home, so it stops before the home's teardown runs.
     proving_ground: Option<ProvingGround>,
     env: TestEnv,
@@ -217,10 +223,7 @@ impl<C> JourneyRun<C> {
         if run.journey.id == id {
             Ok(run)
         } else {
-            Err(JourneyRunError::OtherJourney {
-                asked: id.to_owned(),
-                file: run.journey.id.clone(),
-            })
+            Err(run.other_journey(id))
         }
     }
 
@@ -242,6 +245,89 @@ impl<C> JourneyRun<C> {
         engine: &Path,
         construct: C,
     ) -> Result<Self, JourneyRunError> {
+        Self::start_file_with(
+            file,
+            surface,
+            engine,
+            construct,
+            Browser::AsTheVariantLaysOut,
+        )
+    }
+
+    /// Starts the variant as [`JourneyRun::start`] does, its engines on
+    /// their first use of an empty Browser cache (#665): the home's
+    /// `GOODFETCH_BROWSERS_PATH` names an empty cache, the Journey's Proving
+    /// ground serves the pinned build from `browser-builds.test`, and the
+    /// home's user configuration reaches the Proving ground's hosts and
+    /// names that host as `browser.mirror`, as `goodfetch-test-env
+    /// --browser-download=served` does.
+    ///
+    /// # Errors
+    ///
+    /// As [`JourneyRun::start_file_downloading_browser`], and
+    /// [`JourneyRunError::OtherJourney`] when the file holds another ID.
+    ///
+    /// # Panics
+    ///
+    /// When the test's [`TestEnv`] cannot start.
+    pub fn start_downloading_browser(
+        id: &str,
+        surface: &str,
+        engine: &Path,
+        construct: C,
+    ) -> Result<Self, JourneyRunError> {
+        let run = Self::start_file_downloading_browser(
+            &catalog().join(format!("{id}.toml")),
+            surface,
+            engine,
+            construct,
+        )?;
+        if run.journey.id == id {
+            Ok(run)
+        } else {
+            Err(run.other_journey(id))
+        }
+    }
+
+    /// Starts the variant on `surface` of the Journey `file` holds, as
+    /// [`JourneyRun::start_downloading_browser`] does for a catalog file.
+    ///
+    /// # Errors
+    ///
+    /// As [`JourneyRun::start_file`], [`JourneyRunError::NoProvingGround`]
+    /// for a Journey with no `[proving_ground]` table, and
+    /// [`JourneyRunError::BrowserCache`] when the empty cache or the served
+    /// build cannot be laid out.
+    ///
+    /// # Panics
+    ///
+    /// When the test's [`TestEnv`] cannot start.
+    pub fn start_file_downloading_browser(
+        file: &Path,
+        surface: &str,
+        engine: &Path,
+        construct: C,
+    ) -> Result<Self, JourneyRunError> {
+        Self::start_file_with(file, surface, engine, construct, Browser::Downloaded)
+    }
+
+    /// The error of a catalog file holding another ID than `asked`, which
+    /// finishes the run quietly, since its test never got it.
+    fn other_journey(mut self, asked: &str) -> JourneyRunError {
+        self.guard.armed = false;
+        JourneyRunError::OtherJourney {
+            asked: asked.to_owned(),
+            file: self.journey.id.clone(),
+        }
+    }
+
+    fn start_file_with(
+        file: &Path,
+        surface: &str,
+        engine: &Path,
+        construct: C,
+        browser: Browser,
+    ) -> Result<Self, JourneyRunError> {
         let text = std::fs::read_to_string(file).map_err(|source| JourneyRunError::Unreadable {
             path: file.to_owned(),
             source,
@@ -261,14 +347,31 @@ impl<C> JourneyRun<C> {
             });
         }
         let engine = &journey_engine(engine);
+        let seed = journey.proving_ground.as_ref().map(|table| table.seed);
         let env = TestEnv::new();
         let (product, version) = reported_version(&env, engine)?;
         // The Journey's own seed, never the test's (ADR 0063).
-        let proving_ground = journey
-            .proving_ground
-            .as_ref()
-            .map(|table| ProvingGround::start(&env, table.seed))
-            .transpose()?;
+        let (env, browser_cache, proving_ground) = match (browser, seed) {
+            (Browser::AsTheVariantLaysOut, seed) => {
+                let proving_ground = seed
+                    .map(|seed| ProvingGround::start(&env, seed))
+                    .transpose()?;
+                (env, None, proving_ground)
+            }
+            (Browser::Downloaded, None) => {
+                return Err(JourneyRunError::NoProvingGround {
+                    journey: journey.id,
+                });
+            }
+            (Browser::Downloaded, Some(seed)) => {
+                let (env, cache) = empty_browser_cache(env)?;
+                let proving_ground =
+                    ProvingGround::start_serving_builds(&env, seed, &browser_builds(&env)?)?;
+                let reached = proving_ground.description();
+                env.user_configuration(&format!("{}{}", reached.reaching(), reached.mirroring()));
+                (env, Some(cache), Some(proving_ground))
+            }
+        };
         let agent = ureq::Agent::config_builder()
             .http_status_as_error(false)
             .build()
@@ -292,9 +395,16 @@ impl<C> JourneyRun<C> {
             failures: Vec::new(),
             construct,
             agent,
+            browser_cache,
             proving_ground,
             env,
         })
+    }
+
+    /// The empty Browser cache the variant's engines download their browser
+    /// into, for a run started downloading it.
+    pub fn browser_cache(&self) -> Option<&Path> {
+        self.browser_cache.as_deref()
     }
 
     /// The variant's home and cleared environment.
@@ -863,6 +973,15 @@ struct Guard {
     armed: bool,
 }
 
+/// How a variant's engines find their browser.
+#[derive(Clone, Copy)]
+enum Browser {
+    /// As the variant lays the home out, if it launches one.
+    AsTheVariantLaysOut,
+    /// Downloaded on first use from the Journey's Proving ground.
+    Downloaded,
+}
+
 impl Drop for Guard {
     fn drop(&mut self) {
         if !self.armed || std::thread::panicking() {
@@ -937,6 +1056,17 @@ pub enum JourneyRunError {
     /// The Journey's Proving ground did not start.
     #[error(transparent)]
     ProvingGround(#[from] ProvingGroundError),
+    /// A variant downloading its browser was asked of a Journey with no
+    /// `[proving_ground]` table, whose host would serve the build.
+    #[error("Journey {journey} has no Proving ground to download a browser from")]
+    NoProvingGround {
+        /// The Journey.
+        journey: String,
+    },
+    /// The empty Browser cache or the build its Proving ground serves
+    /// cannot be laid out.
+    #[error(transparent)]
+    BrowserCache(#[from] BrowserCacheError),
     /// The constructor's argument does not accept the recorded facts.
     #[error("the constructor does not accept the recorded facts: {0}")]
     Facts(serde_json::Error),

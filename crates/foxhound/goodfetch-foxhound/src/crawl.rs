@@ -25,13 +25,12 @@ use goodfetch_protocol::foxhound::crawl::{
     CRAWL_REQUEST_HANDLE, CRAWL_START, CrawlRequestHandleParams, CrawlRequestHandled,
     CrawlStartParams, HANDLER_FAILED, HandlerFailedDetails, HandlerSkip, LABEL_DUPLICATE,
     LABEL_UNHANDLED, LABEL_UNKNOWN, LabelDeclaration as WireLabel, LabelUnknownDetails,
-    RequestSeed, Seed as SeedRequest, Seeds,
+    Seed as SeedRequest, Seeds,
 };
 use goodfetch_protocol::foxhound::dataset::{
-    DATASET_DUPLICATE, DatasetDeclaration, DatasetDuplicateDetails,
+    DATASET_DUPLICATE, DatasetDeclaration as WireDataset, DatasetDuplicateDetails,
 };
 use goodfetch_protocol::foxhound::error_code;
-use goodfetch_protocol::foxhound::frontier::HttpMethod;
 use goodfetch_protocol::foxhound::report::CrawlRunReport;
 use goodfetch_protocol::run::{RunId, Tags};
 use serde::de::DeserializeOwned;
@@ -49,9 +48,10 @@ mod run;
 #[cfg(test)]
 mod tests;
 
-pub use context::CrawlContext;
 use context::{Attempt, Ending, retry_requested};
-pub use declaration::LabelDeclaration;
+pub use context::{AttemptRun, CrawlContext, Enqueue, EnqueueLinks, LinkPayload};
+pub use declaration::{DatasetDeclaration, LabelDeclaration};
+use handles::Seeded;
 pub use handles::{Dataset, Label, Seed};
 pub use run::{CrawlCall, CrawlRun};
 
@@ -122,7 +122,7 @@ pub struct Crawl<'a> {
     id: CrawlId,
     /// Each Label in the order declared.
     labels: Vec<Declared<'a>>,
-    datasets: Vec<DatasetDeclaration>,
+    datasets: Vec<WireDataset>,
 }
 
 /// A Label a crawl declares: its name, what `crawl.start` declares it
@@ -257,14 +257,24 @@ impl<'a> Crawl<'a> {
         Ok(())
     }
 
-    /// Declares the Dataset `name`, whose Records are of type `I`, and
-    /// returns it, the handle a handler pushes Records into.
+    /// Declares a Dataset, whose Records are of type `I`, and returns it,
+    /// the handle a handler pushes Records into: a bare name,
+    /// `crawl.dataset::<I>(name)`, which takes any JSON object, or a
+    /// [`DatasetDeclaration`] with the schema of its Records and its key
+    /// (ADRs 0099 and 0103). A push into it takes an `I`, so the compiler
+    /// refuses another type.
     ///
     /// # Errors
     ///
-    /// `dataset_duplicate` when the crawl already declares a Dataset
-    /// `name`.
-    pub fn dataset<I>(&mut self, name: &str) -> Result<Dataset<I>, Error> {
+    /// `dataset_duplicate` when the crawl already declares a Dataset of its
+    /// name, and `dataset_key_invalid` for a key naming a field that is no
+    /// top-level field its schema requires; neither declares it.
+    pub fn dataset<I>(
+        &mut self,
+        declaration: impl Into<DatasetDeclaration<I>>,
+    ) -> Result<Dataset<I>, Error> {
+        let declaration = declaration.into();
+        let name = declaration.name();
         if self.datasets.iter().any(|declared| declared.name == name) {
             return Err(Error::of_sdk(
                 &DATASET_DUPLICATE,
@@ -275,14 +285,13 @@ impl<'a> Crawl<'a> {
                 },
             ));
         }
-        self.datasets.push(DatasetDeclaration {
-            name: name.to_owned(),
-            schema: None,
-            key: Vec::new(),
-        });
+        let (wire, encoder) = declaration.into_parts()?;
+        let name = Arc::from(wire.name.as_str());
+        self.datasets.push(wire);
         Ok(Dataset {
-            name: Arc::from(name),
+            name,
             crawl: self.id,
+            encoder,
             record: PhantomData,
         })
     }
@@ -418,19 +427,7 @@ impl<'a> Crawl<'a> {
         }
         let mut requests = Vec::with_capacity(seeds.len());
         for seed in seeds {
-            if seed.crawl != self.id {
-                return Err(self.label_unknown(&seed.label));
-            }
-            requests.push(SeedRequest::Request(RequestSeed {
-                url: seed.url,
-                label: seed.label.to_string(),
-                payload: Some(seed.payload?),
-                priority: 0,
-                forefront: false,
-                method: HttpMethod::default(),
-                body: None,
-                key: None,
-            }));
+            requests.push(self.own_seed(seed)?);
         }
         let Some(seeds) = Seeds::new(requests) else {
             return Err(Error::refused(
@@ -458,6 +455,50 @@ impl<'a> Crawl<'a> {
             // 0102).
             detached: false,
         })
+    }
+
+    /// `seed` as `crawl.start` takes it, or `label_unknown` for a Label of
+    /// another crawl, the `payload_invalid` of its Payload, or the refusal
+    /// of a request option given to a sitemap seed.
+    fn own_seed(&self, seed: Seed) -> Result<SeedRequest, Error> {
+        match seed.seeded {
+            Seeded::Request {
+                mut request,
+                crawl,
+                payload,
+            } => {
+                if crawl != self.id {
+                    return Err(self.label_unknown(&request.label));
+                }
+                request.payload = Some(payload?);
+                Ok(SeedRequest::Request(request))
+            }
+            Seeded::Sitemap {
+                sitemap,
+                crawls,
+                refused,
+            } => {
+                if let Some(option) = refused {
+                    return Err(Error::refused(
+                        CRAWL_START.name,
+                        &format!(
+                            "the sitemap seed `{}` was given `{option}`, which only a request seed takes",
+                            sitemap.sitemap
+                        ),
+                        "Give the request options to `Seed::new`'s seeds; a sitemap's entries are each a `GET` of their Label's.",
+                    ));
+                }
+                if let Some(rule) = sitemap
+                    .rules
+                    .iter()
+                    .zip(&crawls)
+                    .find_map(|(rule, crawl)| (*crawl != self.id).then_some(rule))
+                {
+                    return Err(self.label_unknown(&rule.label));
+                }
+                Ok(SeedRequest::Sitemap(sitemap))
+            }
+        }
     }
 }
 
@@ -497,13 +538,9 @@ fn delivered(
 ) -> Result<Delivered, serde_json::Error> {
     let mut params = CrawlRequestHandleParams::deserialize(call.params())?;
     let payload = params.crawl_request.payload.take().unwrap_or(Value::Null);
-    let page = params
-        .page_id
-        .clone()
-        .map(|page_id| run.page_of(page_id, params.session.id.clone()));
     let attempt = Arc::new(Attempt::new(
         connection.clone(),
-        page,
+        run,
         params,
         crawl,
         Arc::clone(declared),
@@ -734,4 +771,9 @@ const _: () = {
     send_static::<Seed>();
     send_static::<StartCrawl>();
     send_static::<<StartCrawl as IntoFuture>::IntoFuture>();
+    send_static::<Enqueue>();
+    send_static::<<Enqueue as IntoFuture>::IntoFuture>();
+    send_static::<EnqueueLinks>();
+    send_static::<<EnqueueLinks as IntoFuture>::IntoFuture>();
+    send_static::<LinkPayload<()>>();
 };

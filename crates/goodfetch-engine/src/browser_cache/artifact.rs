@@ -155,15 +155,26 @@ impl Pins {
 pub fn content_digest(root: &Path) -> io::Result<Digest> {
     let mut files = Vec::new();
     collect(root, "", &mut files)?;
-    files.sort_by(|left, right| left.0.cmp(&right.0));
+    Ok(tree_digest(files))
+}
+
+/// A file's kind in a tree's digest.
+pub(crate) const FILE: u8 = b'f';
+
+/// The digest of a tree of `entries`, each a `/`-separated relative path,
+/// its kind, [`FILE`] or `l` for a symbolic link, and the digest of its
+/// bytes or target, by the rule this module's header states; a Recipe's
+/// digest is the same rule over its package's files.
+pub(crate) fn tree_digest(mut entries: Vec<(String, u8, Digest)>) -> Digest {
+    entries.sort_by(|left, right| left.0.cmp(&right.0));
     let mut tree = Sha256::new();
-    for (relative, kind, digest) in files {
+    for (relative, kind, digest) in entries {
         tree.update(relative.as_bytes());
         tree.update([0, kind, 0]);
         tree.update(digest.as_bytes());
         tree.update(b"\n");
     }
-    Ok(Digest::from_hasher(tree))
+    Digest::from_hasher(tree)
 }
 
 fn collect(folder: &Path, prefix: &str, files: &mut Vec<(String, u8, Digest)>) -> io::Result<()> {
@@ -189,13 +200,14 @@ fn collect(folder: &Path, prefix: &str, files: &mut Vec<(String, u8, Digest)>) -
         } else if file_type.is_dir() {
             collect(&path, &relative, files)?;
         } else {
-            files.push((relative, b'f', file_digest(&path)?));
+            files.push((relative, FILE, file_digest(&path)?));
         }
     }
     Ok(())
 }
 
-fn file_digest(path: &Path) -> io::Result<Digest> {
+/// The digest of the file at `path`'s bytes, read in pieces.
+pub(crate) fn file_digest(path: &Path) -> io::Result<Digest> {
     let mut file = fs::File::open(path)?;
     let mut hasher = Sha256::new();
     let mut buffer = vec![0; 64 * 1024];

@@ -9,27 +9,24 @@ use crate::output;
 use super::super::collie::{self, page_load};
 use super::super::trial::Outcome;
 use super::super::trials::QUIET_LOAD;
-use super::super::trials::{CollieScenario, CollieStopped, Contender, LoadStopped};
-use super::machine::{load, quiet};
+use super::super::trials::{CollieScenario, CollieStopped, Contender, LoadStopped, Started};
 use super::watch::{Retried, retried};
-use super::{Options, next, waits_for_quiet};
+use super::{Options, next, started, waits_for_quiet};
 
-/// One trial by `run`, handed the load it started at once the machine is
-/// quiet (or at once, in a quicker try), run once more when the comparison
-/// stopped it; the run's line names it `subject` when it was retried or
-/// stopped twice.
+/// One trial by `run`, handed what the machine was when it started, once
+/// the quiet check passed (or at once, in a quicker try), run once more
+/// when the comparison stopped it; the run's line names it `subject` when
+/// it was retried or stopped twice.
 fn attempted<T>(
     options: &Options,
     subject: &str,
-    mut run: impl FnMut(Option<f64>) -> Result<Outcome<T>>,
+    mut run: impl FnMut(Started) -> Result<Outcome<T>>,
 ) -> Result<Retried<T>> {
     let attempt = retried(|| {
-        let load = if waits_for_quiet(options) {
-            quiet(QUIET_LOAD)
-        } else {
-            load()
-        };
-        run(load)
+        run(started(
+            options,
+            waits_for_quiet(options).then_some(QUIET_LOAD),
+        )?)
     })
     .with_context(|| format!("running {subject}"))?;
     match &attempt {
@@ -71,8 +68,8 @@ pub(super) fn collie_trials(
             continue;
         }
         let subject = format!("collie {} {} trial {number}", exercise.name(), tool.name());
-        match attempted(options, &subject, |load| {
-            collie::trial(tools, exercise, tool, number, load)
+        match attempted(options, &subject, |machine| {
+            collie::trial(tools, exercise, tool, number, machine)
         })? {
             Retried::Done {
                 measured: mut done,
@@ -104,8 +101,8 @@ pub(super) fn collie_trials(
             continue;
         }
         let subject = page_load::subject(page, row, number);
-        match attempted(options, &subject, |load| {
-            page_load::trial(tools, &ad_hosts, page, row, number, load)
+        match attempted(options, &subject, |machine| {
+            page_load::trial(tools, &ad_hosts, page, row, number, machine)
         })? {
             Retried::Done {
                 measured: mut done,

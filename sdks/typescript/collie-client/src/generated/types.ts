@@ -1235,7 +1235,8 @@ export type SessionSource =
        */
       format?: StateFileFormat | null;
       /**
-       * The Secret reference that opens a session export bundle.
+       * The Secret reference that opens a session export bundle: its
+       * age identity or its passphrase, never the value itself.
        */
       key?: string | null;
       kind: "state_file";
@@ -1748,6 +1749,58 @@ export type StartedAs = "new" | "resumed" | "ended";
  */
 export type RunStateFilesystem = "nfs" | "smb" | "fuse_object_storage";
 /**
+ * A Schedule ID (ADR 0036): lowercase letters, digits and `-`, at most 63, starting and ending with a letter or a digit.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "ScheduleId".
+ */
+export type ScheduleId = string;
+/**
+ * What a Schedule starts: a Recipe with its inputs, or a code-free
+ * catalog run by its own start parameters, each with the run's settings
+ * and timeout (ADRs 0036 and 0080). The scheduler sets the run's ID,
+ * labels and Limits.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "ScheduleTarget".
+ */
+export type ScheduleTarget = RecipeTarget | RunTarget;
+/**
+ * When a Schedule's occurrences fall (ADR 0036).
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "ScheduleTrigger".
+ */
+export type ScheduleTrigger = EveryTrigger;
+/**
+ * Whether a Schedule fires.
+ *
+ * A value this package does not know, which a newer engine may send, is kept as received (ADR 0079).
+ *
+ * - `on`: It fires at its occurrences.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "ScheduleState".
+ */
+export type ScheduleState = "on" | (string & {});
+/**
+ * Why a trigger does not parse.
+ *
+ * A value this package does not know, which a newer engine may send, is kept as received (ADR 0079).
+ *
+ * - `unknown_field`: A field it does not know.
+ * - `out_of_range`: A value out of its field's range, such as an interval of 0.
+ * - `bad_step`: A step that does not divide its range.
+ * - `bad_macro`: A macro it does not know.
+ * - `field_count`: Too few or too many fields.
+ * - `other`: Another reason, which the message gives.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "TriggerInvalidReason".
+ */
+export type TriggerInvalidReason =
+  "unknown_field" | "out_of_range" | "bad_step" | "bad_macro" | "field_count" | "other" | (string & {});
+/**
  * What a resolution failed on, which `secret_unavailable` carries.
  *
  * This interface was referenced by `CollieTypes`'s JSON-Schema
@@ -1777,6 +1830,14 @@ export type Seed = RequestSeed | SitemapSeed;
  * via the `definition` "SessionEventName".
  */
 export type SessionEventName = "page";
+/**
+ * Why a session export bundle did not open, which
+ * `session_export_open_failed` carries.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "SessionExportFailure".
+ */
+export type SessionExportFailure = "wrong_key" | "not_an_identity" | "not_a_bundle" | "excessive_work" | "too_large";
 /**
  * Which of a site's preferences refused a navigation (ADR 0086, as ADR
  * 0093 amends it).
@@ -3148,6 +3209,12 @@ export interface DaemonParams {}
  */
 export interface DaemonState {
   /**
+   * Whether it has accounts (`accounts.enabled`, ADR 0149): its Accounts
+   * store is open. Without, its person is the OS user, on its own
+   * machine only, as with a Daemon that does not say.
+   */
+  accounts?: boolean;
+  /**
    * How many Clients are connected, the caller included.
    */
   clients: number;
@@ -4084,6 +4151,24 @@ export interface LastRead {
   position: Position;
 }
 /**
+ * A fixed interval: an occurrence every `every` milliseconds from the
+ * anchor.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "EveryTrigger".
+ */
+export interface EveryTrigger {
+  /**
+   * The instant the intervals count from; the Schedule's creation when
+   * absent.
+   */
+  anchor?: PointInTime | null;
+  /**
+   * The interval, in milliseconds, at least 1.
+   */
+  every: number;
+}
+/**
  * What `executable_blocked_by_smart_app_control` details.
  *
  * This interface was referenced by `CollieTypes`'s JSON-Schema
@@ -4223,6 +4308,75 @@ export interface SettingLimit {
   value: {
     [k: string]: unknown;
   };
+}
+/**
+ * What `extract.content` reads a page's main content from: the document
+ * the page holds, after the Clean-up rules, and the URL it came from.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "ExtractContentParams".
+ */
+export interface ExtractContentParams {
+  /**
+   * The page's document, serialized as HTML.
+   */
+  html: string;
+  /**
+   * The page's URL, which its relative links resolve against.
+   */
+  url: string;
+}
+/**
+ * A page's main content, as an Extractor read it. Everything in it is
+ * page content (ADR 0014): it reaches a model only marked as such.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "ExtractContentResult".
+ */
+export interface ExtractContentResult {
+  /**
+   * The main content as Markdown.
+   */
+  markdown: string;
+  /**
+   * What the Extractor read about the page, such as its author or its
+   * date, each a text under its `snake_case` name.
+   */
+  metadata: {
+    [k: string]: string;
+  };
+  /**
+   * The main content as plain text.
+   */
+  text: string;
+  /**
+   * The main content's title, when the Extractor found one.
+   */
+  title?: string | null;
+}
+/**
+ * What `extract_handler_failed` details.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "ExtractHandlerFailedDetails".
+ */
+export interface ExtractHandlerFailedDetails {
+  /**
+   * The Extractor, as `content.extractor` names it.
+   */
+  extractor: string;
+}
+/**
+ * What `extractor_unavailable` details.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "ExtractorUnavailableDetails".
+ */
+export interface ExtractorUnavailableDetails {
+  /**
+   * The Extractor, as `content.extractor` names it.
+   */
+  extractor: string;
 }
 /**
  * The `match` before a field's transform (ADR 0123): a capture group of a
@@ -6851,6 +7005,13 @@ export interface PatternUnsupportedDetails {
   pattern: string;
 }
 /**
+ * What `person_required` details.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "PersonRequiredDetails".
+ */
+export interface PersonRequiredDetails {}
+/**
  * What a Run did with its Plan file (ADR 0091).
  *
  * This interface was referenced by `CollieTypes`'s JSON-Schema
@@ -6894,6 +7055,27 @@ export interface PluginRun {
    * The network level it ran at.
    */
   networkLevel: string;
+}
+/**
+ * What a Run's calls into one implementation of a Plugin kind used: its
+ * `plugin_calls` and `plugin_time` (ADR 0033).
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "PluginUsage".
+ */
+export interface PluginUsage {
+  /**
+   * The calls made into it, failed ones included.
+   */
+  calls: number;
+  /**
+   * The implementation's name, as the setting that chose it names it.
+   */
+  plugin: string;
+  /**
+   * The time those calls took, in milliseconds.
+   */
+  time: number;
 }
 /**
  * One change `config.policy_write` makes.
@@ -7192,6 +7374,23 @@ export interface ReachedLimit {
   usageKind: string;
 }
 /**
+ * What `recipe_invalid` details.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "RecipeInvalidDetails".
+ */
+export interface RecipeInvalidDetails {
+  /**
+   * The field, dotted from the manifest's root such as `entry.program`,
+   * or the package's path of a file it refuses.
+   */
+  field: string;
+  /**
+   * What is wrong with it.
+   */
+  reason: string;
+}
+/**
  * What `recipe.start` takes.
  *
  * This interface was referenced by `CollieTypes`'s JSON-Schema
@@ -7239,6 +7438,35 @@ export interface RecipeStartParams {
    * How long the Run may last, in milliseconds, at least 1, as
    * `timeout.run` for this Run: absent for the setting's value, `null`
    * for none.
+   */
+  timeout?: number | null;
+}
+/**
+ * A Recipe a Schedule starts.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "RecipeTarget".
+ */
+export interface RecipeTarget {
+  /**
+   * Its inputs, by name.
+   */
+  inputs?: {
+    [k: string]: unknown;
+  } | null;
+  /**
+   * The Recipe: published, by its digest, or local, by its path.
+   */
+  recipe: string;
+  /**
+   * The run's settings, by key.
+   */
+  settings?: {
+    [k: string]: unknown;
+  } | null;
+  /**
+   * The run's `timeout.run`, in milliseconds, at least 1: absent for
+   * the setting's value, `null` for none (ADR 0080).
    */
   timeout?: number | null;
 }
@@ -8330,6 +8558,11 @@ export interface RunUsage {
    */
   paidSolves?: UsageAmount[];
   /**
+   * Its calls into Plugin kinds' implementations, of every form, and the
+   * time they took, by implementation (ADR 0033), in name order.
+   */
+  plugins?: PluginUsage[];
+  /**
    * The bytes it sent and received through a proxy.
    */
   proxyBytes: number;
@@ -8590,6 +8823,32 @@ export interface RunStopping {
   runId: RunId;
 }
 /**
+ * A code-free catalog run a Schedule starts.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "RunTarget".
+ */
+export interface RunTarget {
+  /**
+   * The run's own start parameters, as its kind defines them, without
+   * its Run ID, labels and Limits.
+   */
+  run: {
+    [k: string]: unknown;
+  };
+  /**
+   * The run's settings, by key.
+   */
+  settings?: {
+    [k: string]: unknown;
+  } | null;
+  /**
+   * The run's `timeout.run`, in milliseconds, at least 1: absent for
+   * the setting's value, `null` for none (ADR 0080).
+   */
+  timeout?: number | null;
+}
+/**
  * What `run_target_unbuilt`'s details hold.
  *
  * This interface was referenced by `CollieTypes`'s JSON-Schema
@@ -8659,6 +8918,237 @@ export interface SampleStorePutResult {
    * Whether a value was already kept under the key.
    */
   replaced: boolean;
+}
+/**
+ * What `schedule.create` takes.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "ScheduleCreateParams".
+ */
+export interface ScheduleCreateParams {
+  /**
+   * The Schedule.
+   */
+  definition: ScheduleDefinition;
+  /**
+   * How long the call may take, in milliseconds, at least 1: absent for
+   * `timeout.wait`, `null` for none (ADR 0080).
+   */
+  timeout?: number | null;
+}
+/**
+ * What a Schedule is, as a program writes it.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "ScheduleDefinition".
+ */
+export interface ScheduleDefinition {
+  /**
+   * Its ID; one is made when absent: `s` and a lowercase ULID.
+   */
+  id?: ScheduleId | null;
+  /**
+   * What it starts.
+   */
+  target: ScheduleTarget;
+  /**
+   * The IANA time zone its triggers read, such as `Europe/Paris`; the
+   * Daemon host's when absent, never "local".
+   */
+  timeZone?: string | null;
+  /**
+   * When.
+   */
+  trigger: ScheduleTrigger;
+}
+/**
+ * What `schedule.create` answers.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "ScheduleCreated".
+ */
+export interface ScheduleCreated {
+  /**
+   * The Schedule's ID, as given or made.
+   */
+  scheduleId: ScheduleId;
+  /**
+   * What its program should know.
+   */
+  warnings: ScheduleWarning[];
+}
+/**
+ * Something about a created Schedule its program should know, which did
+ * not stop its creation.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "ScheduleWarning".
+ */
+export interface ScheduleWarning {
+  /**
+   * What it is about, such as `env_unresolved`.
+   */
+  kind: string;
+  /**
+   * What it says, in the engine's English.
+   */
+  message: string;
+}
+/**
+ * What `schedule.delete` answers.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "ScheduleDeleted".
+ */
+export interface ScheduleDeleted {
+  /**
+   * Whether it deleted the Schedule: false when the store held none of
+   * that ID, as after a resent delete.
+   */
+  deleted: boolean;
+}
+/**
+ * What `schedule_exists` details.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "ScheduleExistsDetails".
+ */
+export interface ScheduleExistsDetails {
+  /**
+   * The Schedule ID.
+   */
+  scheduleId: ScheduleId;
+}
+/**
+ * What `schedule.get` takes.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "ScheduleGetParams".
+ */
+export interface ScheduleGetParams {
+  /**
+   * The Schedule's ID.
+   */
+  id: ScheduleId;
+  /**
+   * How long the call may take, in milliseconds, at least 1: absent for
+   * `timeout.wait`, `null` for none (ADR 0080).
+   */
+  timeout?: number | null;
+}
+/**
+ * A Schedule as its store holds it.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "ScheduleInfo".
+ */
+export interface ScheduleInfo {
+  /**
+   * When it was created.
+   */
+  createdAt: PointInTime;
+  /**
+   * The person who created it, for whom its occurrences fire.
+   */
+  creator: string;
+  /**
+   * Its ID.
+   */
+  scheduleId: ScheduleId;
+  /**
+   * Whether it fires.
+   */
+  state: ScheduleState;
+  /**
+   * What it starts, as given.
+   */
+  target: ScheduleTarget;
+  /**
+   * The IANA time zone its triggers read.
+   */
+  timeZone: string;
+  /**
+   * When.
+   */
+  trigger: ScheduleTrigger;
+  /**
+   * Its definition's version: 1 at creation, one more at each edit.
+   */
+  version: number;
+}
+/**
+ * What `schedule.list` answers.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "ScheduleList".
+ */
+export interface ScheduleList {
+  /**
+   * Every Schedule of the store, by ID.
+   */
+  schedules: ScheduleInfo[];
+}
+/**
+ * What `schedule.list` takes.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "ScheduleListParams".
+ */
+export interface ScheduleListParams {
+  /**
+   * How long the call may take, in milliseconds, at least 1: absent for
+   * `timeout.wait`, `null` for none (ADR 0080).
+   */
+  timeout?: number | null;
+}
+/**
+ * What `schedule_not_found` details.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "ScheduleNotFoundDetails".
+ */
+export interface ScheduleNotFoundDetails {
+  /**
+   * The Schedule ID.
+   */
+  scheduleId: ScheduleId;
+}
+/**
+ * What `schedule.info` and `schedule.delete` take: the Schedule.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "ScheduleParams".
+ */
+export interface ScheduleParams {
+  /**
+   * The Schedule's ID.
+   */
+  scheduleId: ScheduleId;
+  /**
+   * How long the call may take, in milliseconds, at least 1: absent for
+   * `timeout.wait`, `null` for none (ADR 0080).
+   */
+  timeout?: number | null;
+}
+/**
+ * What `schedule_trigger_invalid` details.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "ScheduleTriggerInvalidDetails".
+ */
+export interface ScheduleTriggerInvalidDetails {
+  /**
+   * The trigger's expression, as given.
+   */
+  expression: string;
+  /**
+   * The character of the expression where it stops reading, from 0.
+   */
+  position: number;
+  /**
+   * Why.
+   */
+  reason: TriggerInvalidReason;
 }
 /**
  * What `schema_validator_failed` details: the schema, where in the value,
@@ -8856,6 +9346,22 @@ export interface SessionBoundToMachineDetails {}
  * via the `definition` "SessionClosed".
  */
 export interface SessionClosed {}
+/**
+ * What `session_export_open_failed` details.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "SessionExportOpenFailedDetails".
+ */
+export interface SessionExportOpenFailedDetails {
+  /**
+   * What failed.
+   */
+  failure: SessionExportFailure;
+  /**
+   * The Secret reference given as the bundle's key.
+   */
+  reference: string;
+}
 /**
  * What `session.on` answers when its Session goes, closed or with its
  * Run.

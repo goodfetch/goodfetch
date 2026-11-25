@@ -16,10 +16,8 @@
 )]
 
 use std::path::Path;
-use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 
-use bytes::Bytes;
 use goodfetch_engine::clock::Clock;
 use goodfetch_engine::entropy::Entropy;
 use goodfetch_engine::home::{Home, RunStateLocation};
@@ -27,7 +25,7 @@ use goodfetch_engine::run_state::RunStateOptions;
 use goodfetch_engine::tasks::BlockingPolicy;
 use goodfetch_engine::transport::{self, Network};
 use goodfetch_engine::{Channel, Dependencies, Engine, Identity};
-use goodfetch_fetch_tier::{Body, FetchTiers, Hop, Reuse, Sending, Sent, Transport};
+use goodfetch_memory_site::{MemorySite, Page, Url};
 use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::connection::ProductVersion;
 use goodfetch_protocol::connection::{HELLO, Surface};
@@ -45,57 +43,25 @@ const RUN_ID: &str = "restarted";
 /// The Product version the engine runs as.
 const PRODUCT_VERSION: &str = "1.4.0";
 
-/// The site, served from memory: `/a`, `/b` and `/c`, each page naming
-/// itself in its `<title>`, its `<h1>` and its `<h2>`.
-struct Site;
-
-impl Transport for Site {
-    fn send<'a>(&'a self, hop: &'a Hop, _reuse: Reuse) -> Sending<'a, Sent> {
-        let name = hop.url.path().trim_start_matches('/').to_owned();
-        let page = ["a", "b", "c"].contains(&name.as_str()).then(|| {
-            format!(
-                "<!doctype html><html><head><title>Title {name}</title></head><body><h1>Heading {name}</h1><h2>Price {name}</h2></body></html>"
-            )
-        });
-        Box::pin(async move {
-            let (status, body) = match page {
-                Some(page) => (200, page),
-                None => (404, String::new()),
-            };
-            Ok(Sent {
-                status,
-                headers: vec![
-                    (
-                        "content-type".to_owned(),
-                        "text/html; charset=utf-8".to_owned(),
-                    ),
-                    ("content-length".to_owned(), body.len().to_string()),
-                ],
-                body: Box::new(Whole(Some(Bytes::from(body)))),
-                reused: false,
-                decoded: false,
-                certificate_exception: None,
-            })
-        })
+/// The site's page at `url`, served from memory: `/a`, `/b` and `/c`, each
+/// page naming itself in its `<title>`, its `<h1>` and its `<h2>`.
+fn page(url: &Url) -> Page {
+    let name = url.path().trim_start_matches('/');
+    if ["a", "b", "c"].contains(&name) {
+        Page::html(format!(
+            "<!doctype html><html><head><title>Title {name}</title></head><body><h1>Heading {name}</h1><h2>Price {name}</h2></body></html>"
+        ))
+    } else {
+        Page::not_found()
     }
 }
 
-/// A page's body, sent in one chunk.
-struct Whole(Option<Bytes>);
-
-impl Body for Whole {
-    fn chunk(&mut self) -> Sending<'_, Option<Bytes>> {
-        let chunk = self.0.take().filter(|chunk| !chunk.is_empty());
-        Box::pin(std::future::ready(Ok(chunk)))
-    }
-}
-
-/// Runs a Foxhound engine whose fetch tiers serve [`Site`] on the home
+/// Runs a Foxhound engine whose fetch tiers serve [`page`]'s site on the home
 /// `home`, its paused clock starting at `start`, sends `hello` and then
 /// each of `calls`, each `(method, params)`, once the previous one was
 /// answered, and answers each call's reply.
 fn session(home: &Path, start: SystemTime, seed: u64, calls: &[(&str, Value)]) -> Vec<Value> {
-    let tiers = FetchTiers::serving(Arc::new(Site));
+    let tiers = MemorySite::new(page).tiers();
     let identity = Identity {
         product: Product::Foxhound,
         product_version: ProductVersion::parse(PRODUCT_VERSION).unwrap(),

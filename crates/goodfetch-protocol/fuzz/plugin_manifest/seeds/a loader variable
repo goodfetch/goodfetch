@@ -1,0 +1,1 @@
+{"manifest_version":"0.1","name":"shop-hooks","version":"1.2.0","kinds":["hook"],"protocol":{"min":"0.1","max":"0.1"},"entrypoint":"shop-hooks","env":{"LD_PRELOAD":"preload","NODE_OPTIONS":"options"}}

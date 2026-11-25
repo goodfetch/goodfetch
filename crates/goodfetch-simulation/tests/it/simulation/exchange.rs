@@ -334,13 +334,18 @@ impl<const SLOW_ONLY: bool> ReferenceStateMachine for ServerFaults<SLOW_ONLY> {
 }
 
 /// The scenario's generator, which draws from the Simulation's Fault plan
-/// stream of the test's seed.
+/// stream of the test's seed, after the scenario's committed plans.
 fn generator(env: &TestEnv) -> FaultPlanGenerator {
-    FaultPlanGenerator::new(env, SCENARIO, GENERATOR_VERSION).with_config(Config {
-        // The written Fault plan is the regression to commit.
-        failure_persistence: None,
-        ..proptest_config_for(env.suite(), Simulation::fault_plan_seed(env.seed()))
-    })
+    let committed = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/it/simulation/fixtures/fault_plans")
+        .join(SCENARIO);
+    FaultPlanGenerator::new(env, SCENARIO, GENERATOR_VERSION)
+        .with_committed_plans(&committed)
+        .with_config(Config {
+            // The written Fault plan is the regression to commit.
+            failure_persistence: None,
+            ..proptest_config_for(env.suite(), Simulation::fault_plan_seed(env.seed()))
+        })
 }
 
 /// The plan's faults, as the Simulation injects them.
@@ -434,7 +439,7 @@ fn a_lost_message_or_server_shrinks_to_one_fault_written_with_its_replay_command
 fn a_committed_plan_replays_the_same_failure() {
     let env = TestEnv::new();
     let committed = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("tests/it/simulation/fixtures/fault_plans/server_crash.json");
+        .join("tests/it/simulation/fixtures/failing_fault_plans/server_crash.json");
     let replay = || {
         generator(&env)
             .replaying(&committed)

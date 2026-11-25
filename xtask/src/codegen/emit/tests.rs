@@ -20,6 +20,20 @@ fn the_bundle_holds_the_schema_of_the_releases_file() {
     );
 }
 
+/// A format of the registry at version 0.1 that no hello names, as the
+/// bundle writes it: `name`, its `storage`, its `rule` and the schema of
+/// its `definition` in the bundle's `$defs`.
+fn stored_format(name: &str, storage: &str, rule: &str, definition: &str) -> serde_json::Value {
+    json!({
+        "name": name,
+        "version": "0.1",
+        "storage": storage,
+        "rule": rule,
+        "hello_from": [],
+        "schema": { "$ref": format!("#/$defs/{definition}") },
+    })
+}
+
 /// The formats of the registry that are no settings file, as the bundle
 /// writes them.
 fn file_formats() -> serde_json::Value {
@@ -32,78 +46,16 @@ fn file_formats() -> serde_json::Value {
             "hello_from": ["client", "browser_host"],
             "schema": { "$ref": "#/$defs/Message" },
         },
-        {
-            "name": "browser-cache",
-            "version": "0.1",
-            "storage": "json",
-            "rule": "default",
-            "hello_from": [],
-            "schema": { "$ref": "#/$defs/BrowserCacheEntry" },
-        },
-        {
-            "name": "clean-up-rules",
-            "version": "0.1",
-            "storage": "json",
-            "rule": "newest_readable",
-            "hello_from": [],
-            "schema": { "$ref": "#/$defs/CleanUpRulesManifest" },
-        },
-        {
-            "name": "run-index",
-            "version": "0.1",
-            "storage": "sqlite",
-            "rule": "shared_store",
-            "hello_from": [],
-            "schema": { "$ref": "#/$defs/RunIndexRow" },
-        },
-        {
-            "name": "run-state",
-            "version": "0.1",
-            "storage": "sqlite",
-            "rule": "default",
-            "hello_from": [],
-            "schema": { "$ref": "#/$defs/RunStateRow" },
-        },
-        {
-            "name": "installed-executables",
-            "version": "0.1",
-            "storage": "json",
-            "rule": "frozen_major",
-            "hello_from": [],
-            "schema": { "$ref": "#/$defs/InstalledExecutables" },
-        },
-        {
-            "name": "usage-ledger",
-            "version": "0.1",
-            "storage": "sqlite",
-            "rule": "frozen_major",
-            "hello_from": [],
-            "schema": { "$ref": "#/$defs/Limit" },
-        },
-        {
-            "name": "politeness-file",
-            "version": "0.1",
-            "storage": "sqlite",
-            "rule": "frozen_major",
-            "hello_from": [],
-            "schema": { "$ref": "#/$defs/PermitRow" },
-        },
-        {
-            "name": "audit-log",
-            "version": "0.1",
-            "storage": "sqlite",
-            "rule": "frozen_major",
-            "hello_from": [],
-            "schema": { "$ref": "#/$defs/AuditEntry" },
-        },
-        {
-            "name": "known-certificates",
-            "version": "0.1",
-            "storage": "sqlite",
-            "rule": "frozen_major",
-            "hello_from": [],
-            "schema": { "$ref": "#/$defs/CertificatePin" },
-        },
+        stored_format("browser-cache", "json", "default", "BrowserCacheEntry"),
+        stored_format("clean-up-rules", "json", "newest_readable", "CleanUpRulesManifest"),
+        stored_format("run-index", "sqlite", "shared_store", "RunIndexRow"),
+        stored_format("run-state", "sqlite", "default", "RunStateRow"),
+        stored_format("installed-executables", "json", "frozen_major", "InstalledExecutables"),
+        stored_format("usage-ledger", "sqlite", "frozen_major", "Limit"),
+        stored_format("politeness-file", "sqlite", "frozen_major", "PermitRow"),
+        stored_format("audit-log", "sqlite", "frozen_major", "AuditEntry"),
+        stored_format("known-certificates", "sqlite", "frozen_major", "CertificatePin"),
+        stored_format("response-cache", "sqlite", "run_without", "ResponseCacheEntry"),
         {
             "name": "export",
             "version": "0.1",
@@ -112,6 +64,10 @@ fn file_formats() -> serde_json::Value {
             "hello_from": [],
             "schema": { "type": "array", "items": true },
         },
+        stored_format("session-export", "json", "default", "SessionExport"),
+        stored_format("recipe-manifest", "toml", "default", "RecipeManifest"),
+        stored_format("plugin-protocol", "transcript", "lower_minor", "Message"),
+        stored_format("plugin-manifest", "json", "default", "PluginManifest"),
     ])
 }
 
@@ -365,6 +321,8 @@ fn the_bundle_holds_each_commands_json_output() {
             "daemon.stop": { "$ref": "#/$defs/DaemonStatus" },
             "daemon.uninstall": { "$ref": "#/$defs/DaemonUninstallOutput" },
             "doctor": { "$ref": "#/$defs/DoctorReport" },
+            "init": { "$ref": "#/$defs/InitResult" },
+            "recipe.digest": { "$ref": "#/$defs/RecipeDigestOutput" },
             "runs.reindex": { "$ref": "#/$defs/RunsReindexOutput" },
             "skill.install": { "$ref": "#/$defs/SkillsInstalled" },
             "upgrade-files": { "$ref": "#/$defs/FilesUpgraded" },

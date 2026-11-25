@@ -31,12 +31,14 @@ use std::sync::Arc;
 
 use goodfetch_counted_work::{CountedWork, Row};
 use goodfetch_protocol::catalog::Product;
-use goodfetch_protocol::settings::{ProjectSettings, RecipeManifest, RunOrigin, SettingsLayer};
+use goodfetch_protocol::recipe::RecipeManifest;
+use goodfetch_protocol::settings::{ProjectSettings, RunOrigin, SettingsLayer};
 use serde_json::{Map, Value};
 
 pub use environment::{check_environment, deployment_variable, taken_value};
 pub use error::SettingsError;
 pub(crate) use error::not_registrable;
+pub(crate) use files::json_of_table;
 pub use files::{
     LOWEST_MINOR_KEY, MachineLayers, SettingsFiles, configuration, find_project,
     fuzz_settings_file, operator_policy, policy_version, project_settings, rewrite, set,
@@ -213,7 +215,7 @@ pub struct Opening {
     /// Whether the Client reached an Exposed Daemon, where the project
     /// configuration it sent keeps its rank with only the run layer's
     /// authority, so it widens nothing reserved to configuration (ADR
-    /// 0083).
+    /// 0083), and its `cdp_url` may not use loopback (ADR 0056).
     pub exposed: bool,
 }
 
@@ -488,9 +490,12 @@ impl Settings {
             registered,
             run,
         };
-        let resolved = resolve(&layers, engine, opening.run.unwrap_or(engine))
+        let mut resolved = resolve(&layers, engine, opening.run.unwrap_or(engine))
             .and_then(|resolved| resolved.refuse_unbuilt().map(|()| resolved))
             .map_err(|error| self.0.files.named_in(error))?;
+        if opening.exposed {
+            resolved = resolved.opened_on_an_exposed_daemon();
+        }
         Ok((
             RunSettings {
                 resolved,

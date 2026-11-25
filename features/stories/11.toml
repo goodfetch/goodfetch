@@ -2353,6 +2353,15 @@ not_journey = "part"
 status = "active"
 
 [[story]]
+id = 1001
+title = "As a developer, I want one Foxhound package per language, `@goodfetch/foxhound` on npm and `goodfetch-foxhound` on PyPI and crates.io (imported as `goodfetch_foxhound`), that finds Foxhound's executable through the platform packages it depends on, so that the first crawl needs no download beyond the browser fetched on first use (ADRs 0024, 0090, 0095; SDK-01; P24, K09)."
+milestone = "M2 Client surfaces"
+journey = false
+not_journey = "part"
+product = "foxhound"
+status = "active"
+
+[[story]]
 id = 1002
 title = "As a developer, I want `Foxhound.connect()`, Python's `AsyncFoxhound` and `Foxhound`, and Rust's `Foxhound::connect()` with its `blocking` module to finish `hello` before they return, to allow many per process and to install no signal handler or import side effect, so that a crawl can live inside any program (ADRs 0078, 0081; SDK-06; P05, K04)."
 milestone = "M2 Client surfaces"
@@ -2389,8 +2398,44 @@ product = "foxhound"
 status = "active"
 
 [[story]]
+id = 1006
+title = "As a developer, I want a Foxhound program on `engine: \"auto\"` that meets a Daemon refusing it by Product to run the engine it would run with no Daemon, record why in `EngineInfo.fallback` and log it once at warning, and `engine: \"daemon\"` to fail with a `fix` naming `daemon restart` of the Client's own executable, so that a Collie Daemon on the machine never stops a crawl and the failure says how to mend it (ADR 0098; G4)."
+milestone = "M2 Client surfaces"
+journey = false
+not_journey = "part"
+product = "foxhound"
+status = "active"
+
+[[story]]
 id = 1007
 title = "As a developer, I want the SDK to recognize both engine-path variables and read only `GOODFETCH_FOXHOUND_ENGINE_PATH`, so that pointing a program at a Foxhound build never moves a Collie program (ADR 0090)."
+milestone = "M2 Client surfaces"
+journey = false
+not_journey = "part"
+product = "foxhound"
+status = "active"
+
+[[story]]
+id = 1008
+title = "As a developer, I want `ConnectOptions` to extend Collie's and add `fetchBackends` and `sinks` (Python `fetch_backends`, `sinks`; Rust `fetch_backend(name)`, `sink(name)`), and `settings` to take Foxhound's keys beside Collie's, so that one `connect()` carries a program's crawl settings and its own Plugins (ADRs 0083, 0088, 0104)."
+milestone = "M2 Client surfaces"
+journey = false
+not_journey = "part"
+product = "foxhound"
+status = "active"
+
+[[story]]
+id = 1009
+title = "As a developer, I want keys an engine reads only from its configuration (`storage.*`, `log.*`, `http_listener.*`, `notifications.*`, `mcp.*`, `daemon.*`) left out of `settings` types and refused at `connect()` with `setting_not_applicable` naming the configuration file, while `explainSettings()` still reports them, so that a program cannot believe it set what only the install can (ADR 0083; P38)."
+milestone = "M2 Client surfaces"
+journey = false
+not_journey = "part"
+product = "foxhound"
+status = "active"
+
+[[story]]
+id = 1010
+title = "As a Python developer, I want `import goodfetch_foxhound` to load no adapter, no AI provider and no Playwright until used, held by the import-cost snapshot, so that importing Foxhound's SDK stays cheap (ADR 0071; K09)."
 milestone = "M2 Client surfaces"
 journey = false
 not_journey = "part"
@@ -2470,8 +2515,89 @@ product = "foxhound"
 status = "active"
 
 [[story]]
+id = 1019
+title = "As a developer, I want seeds as `seed(url, label, payload?)` (Rust `Seed::new` with `.method()`, `.header()`, `.body()`) and sitemap seeds as `sitemap(url, rules)`, rules being ordered pattern-to-Label pairs where the first match wins, so that a crawl starts from URLs and sitemaps with the checks of an enqueue (ADRs 0093, 0120; CO-10)."
+milestone = "M2 Client surfaces"
+journey = false
+not_journey = "part"
+product = "foxhound"
+status = "active"
+
+[[story]]
+id = 1020
+title = "As a developer, I want `enqueue(url, label, payload?, { method, body, priority, forefront, key })` to answer `added` with the Crawl request's ID or `not_added` with its reason (`duplicate`, `out_of_scope`, `domain_policy`, `max_depth`, `max_requests`, `unsupported_scheme`, `invalid_url`, `max_url_length`, `max_path_segments`, `max_segment_repeats`, `path_budget`, `no_rule`), a reason an SDK does not know arriving as a string, Rust taking each option as a builder method named after it, so that a handler knows what became of each request it enqueues (ADRs 0093, 0099, 0120)."
+milestone = "M2 Client surfaces"
+journey = false
+not_journey = "part"
+product = "foxhound"
+status = "active"
+
+[[story]]
+id = 1021
+title = "As a developer, I want `enqueueLinks(locator, label, payload?, { include, exclude, limit, priority })` to take a Payload or a function of the link that returns a Payload or null, and to answer `added` and `notAdded` with `no_link` and `skipped_by_payload`, Rust folding both forms into one name `enqueue_links` by ADR 0099's one-name rule **(shape)**, so that one call follows every link a locator matches (ADRs 0093, 0099)."
+milestone = "M2 Client surfaces"
+journey = false
+not_journey = "part"
+product = "foxhound"
+status = "active"
+
+[[story]]
+id = 1022
+title = "As a developer, I want a relative URL given to `enqueue` to resolve against the document's base URL, a seed to be absolute, and an `href`'s query to be percent-encoded in its document's encoding, so that a link is fetched at the URL a browser would use (ADRs 0119, 0120; pitfalls U05, U06, U07)."
+milestone = "M2 Client surfaces"
+journey = false
+not_journey = "part"
+product = "foxhound"
+status = "active"
+
+[[story]]
+id = 1023
+title = "As a developer, I want no transform function on `enqueue`, URL rewriting to be a Hook's work, and the Frontier's identity (method, URL key, body hash) to be replaceable by `key`, so that one rule decides when two Crawl requests are the same (ADRs 0093, 0120)."
+milestone = "M2 Client surfaces"
+journey = false
+not_journey = "part"
+product = "foxhound"
+status = "active"
+
+[[story]]
 id = 1025
 title = "As a developer, I want handlers to run on the TypeScript event loop, in the connection's thread pool for sync Python, as tasks in the Run's task group for async Python, and inside `serve` in Rust, so that the SDK spawns nothing of its own on my executor (ADRs 0081, 0093; K04)."
+milestone = "M2 Client surfaces"
+journey = false
+not_journey = "part"
+product = "foxhound"
+status = "active"
+
+[[story]]
+id = 1057
+title = "As a developer, I want `crawl.dataset(name, { schema, key })` to return a typed `Dataset<I, O>` with no I/O (Python `dataset(name, schema=…, key=…)`; Rust one `crawl.dataset` with no `dataset_with`), the key being top-level fields the schema requires and `dataset_key_invalid` otherwise, so that a Dataset is declared as a Label is (ADRs 0099, 0103; CO-25)."
+milestone = "M2 Client surfaces"
+journey = false
+not_journey = "part"
+product = "foxhound"
+status = "active"
+
+[[story]]
+id = 1058
+title = "As a developer, I want `ctx.push(dataset, record)` to type the Record from the Dataset alone, stage it with the attempt and commit it once with the attempt's enqueues and Key-value writes, and a misspelled Dataset or a missing field to be a type error, so that a retried handler never doubles a Record (ADR 0103; P18)."
+milestone = "M2 Client surfaces"
+journey = false
+not_journey = "part"
+product = "foxhound"
+status = "active"
+
+[[story]]
+id = 1059
+title = "As a developer, I want a Record that fails its schema, is not JSON or lacks key fields to raise `record_invalid` from `push`, caught to keep the attempt and escaped to fail the request without a retry, so that no Record is silently diverted (ADR 0103; P18)."
+milestone = "M2 Client surfaces"
+journey = false
+not_journey = "part"
+product = "foxhound"
+status = "active"
+
+[[story]]
+id = 1064
+title = "As a developer, I want `ctx.run` to reach the Key-value store with writes staged with the attempt and my own Run value's writes to commit at once, the docs naming the trap of a captured Run value (unfenced, written by every attempt, discarded ones included), so that a handler does not write state it cannot take back (ADR 0103; CO-26)."
 milestone = "M2 Client surfaces"
 journey = false
 not_journey = "part"

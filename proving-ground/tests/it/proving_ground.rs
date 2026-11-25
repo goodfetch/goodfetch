@@ -80,6 +80,15 @@ impl Answer {
             .map(|(_, value)| value.as_str())
     }
 
+    /// The value of each header `name` the response has.
+    pub(crate) fn every_header(&self, name: &str) -> Vec<&str> {
+        self.headers
+            .iter()
+            .filter(|(header, _)| header.eq_ignore_ascii_case(name))
+            .map(|(_, value)| value.as_str())
+            .collect()
+    }
+
     /// The `name=value` pair of the cookie `name` the response sets.
     pub(crate) fn cookie(&self, name: &str) -> Option<String> {
         self.headers
@@ -105,9 +114,17 @@ impl ProvingGround {
     /// Starts the Proving ground with `arguments`, `serve`'s from
     /// [`serve_arguments`] and any after them, in an empty environment.
     pub(crate) fn start_with(arguments: &[String]) -> Self {
+        Self::start_with_env(arguments, &[])
+    }
+
+    /// Starts the Proving ground as [`Self::start_with`] does, in an
+    /// environment of `variables` alone, such as the online copy's vendor
+    /// secrets.
+    pub(crate) fn start_with_env(arguments: &[String], variables: &[(&str, &str)]) -> Self {
         let mut child = Command::new(env!("CARGO_BIN_EXE_goodfetch-proving-ground"))
             .args(arguments)
             .env_clear()
+            .envs(variables.iter().copied())
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::inherit())
@@ -265,13 +282,27 @@ impl ProvingGround {
         form: &[(&str, &str)],
         cookie: Option<&str>,
     ) -> Answer {
+        match cookie {
+            Some(cookie) => self.post_form_with_headers(url, form, &[("cookie", cookie)]),
+            None => self.post_form_with_headers(url, form, &[]),
+        }
+    }
+
+    /// Posts a form as [`Self::post_form`] does, sending `headers` after
+    /// `Host`.
+    pub(crate) fn post_form_with_headers(
+        &self,
+        url: &str,
+        form: &[(&str, &str)],
+        headers: &[(&str, &str)],
+    ) -> Answer {
         let (host, path) = split(url);
         let mut request = self
             .agent
             .post(format!("http://{}{path}", self.address))
             .header("host", host);
-        if let Some(cookie) = cookie {
-            request = request.header("cookie", cookie);
+        for (name, value) in headers {
+            request = request.header(*name, *value);
         }
         Self::answer(
             request
@@ -402,15 +433,30 @@ impl ProvingGround {
     /// Posts JSON to a URL on one of the Proving ground's host names, as a
     /// page's script does.
     pub(crate) fn post_json(&self, url: &str, value: &Value) -> Answer {
-        let rest = url.strip_prefix("http://").expect("an http URL");
-        let (host, path) = rest.split_at(rest.find('/').unwrap_or(rest.len()));
-        let response = self
+        self.post_json_with_headers(url, &[], value)
+    }
+
+    /// Posts JSON as [`Self::post_json`] does, sending `headers` after
+    /// `Host`.
+    pub(crate) fn post_json_with_headers(
+        &self,
+        url: &str,
+        headers: &[(&str, &str)],
+        value: &Value,
+    ) -> Answer {
+        let (host, path) = split(url);
+        let mut request = self
             .agent
             .post(format!("http://{}{path}", self.address))
-            .header("host", host)
-            .send_json(value)
-            .expect("the Proving ground answers");
-        Self::answer(response)
+            .header("host", host);
+        for (name, value) in headers {
+            request = request.header(*name, *value);
+        }
+        Self::answer(
+            request
+                .send_json(value)
+                .expect("the Proving ground answers"),
+        )
     }
 
     /// The oracle's verdict on a submitted result, which it must answer

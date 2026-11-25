@@ -89,7 +89,7 @@ const CHANGED_HOST_CALLS: [&str; 18] = [
 /// The calls of the steps the full gate and `just pre-merge` alone run beside
 /// the host's, TLC's with `all` in the full gate, without it alone, and the
 /// Windows step's, which runs once they and the host's have ended.
-const BESIDE_CALLS: [&str; 9] = [
+const BESIDE_CALLS: [&str; 10] = [
     "perf",
     "counted-rows",
     "linux",
@@ -98,17 +98,19 @@ const BESIDE_CALLS: [&str; 9] = [
     "_tlc",
     "miri",
     "loom",
+    "simulation",
     "windows",
 ];
 
 /// The full gate's calls beside the host's and after them, sorted.
-const ALL_BESIDE_CALLS: [&str; 8] = [
+const ALL_BESIDE_CALLS: [&str; 9] = [
     "_tlc all",
     "counted-rows",
     "linux",
     "loom",
     "miri",
     "perf",
+    "simulation",
     "visual",
     "windows",
 ];
@@ -430,6 +432,7 @@ fn without_all_the_suites_run_over_what_changed() {
             "loom",
             "miri",
             "perf",
+            "simulation",
             "visual",
             "windows"
         ]
@@ -666,7 +669,7 @@ fn a_red_check_leaves_every_other_check_of_the_quick_and_docs_forms_running(
 
 /// The steps a full gate records, in the order it records them: the host's
 /// as each ends, then the steps beside once it has waited for them.
-const RECORDED_STEPS: [&str; 25] = [
+const RECORDED_STEPS: [&str; 26] = [
     "dco",
     "commit-messages",
     "floor-guard",
@@ -691,6 +694,7 @@ const RECORDED_STEPS: [&str; 25] = [
     "tlc",
     "miri",
     "loom",
+    "simulation",
     "windows",
 ];
 
@@ -758,13 +762,15 @@ fn one_red_step_leaves_every_other_step_of_the_full_gate_running_and_recorded(
     one_red_step(call, step, recorded_red, host_calls);
 }
 
-/// The same for TLC, Miri (#2090's F7) and loom (#2200), which run beside
-/// the host's steps, and the Windows build (#2767), which runs after them
-/// (#3780). Cases of their own, so the cases above keep their names.
+/// The same for TLC, Miri (#2090's F7), loom (#2200) and the Simulation
+/// (issue 359), which run beside the host's steps, and the Windows build
+/// (#2767), which runs after them (#3780). Cases of their own, so the cases
+/// above keep their names.
 #[rstest]
 #[case::tlc("_tlc all", "tlc")]
 #[case::miri("miri", "miri")]
 #[case::loom("loom", "loom")]
+#[case::simulation("simulation", "simulation")]
 #[case::windows("windows", "windows")]
 fn a_red_step_beside_the_hosts_leaves_every_other_step_of_the_full_gate_running_and_recorded(
     #[case] call: &str,

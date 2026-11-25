@@ -1,0 +1,14 @@
+{
+  "id": "hang",
+  "host_class": { "requested": "local-dev", "allow_downgrade": false },
+  "order_seed": 1,
+  "blocks": 1,
+  "warmup": 0,
+  "iterations": 8,
+  "concurrency": 4,
+  "timeout_ms": 2000,
+  "max_duration_ms": 120000,
+  "max_restarts": 1,
+  "adapters": [{ "id": "hangs-once", "command": ["node", "../stub-adapter.ts", "--hang-once"] }],
+  "tasks": ["catalog/2"]
+}

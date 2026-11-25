@@ -784,6 +784,7 @@ dependencies = [
 name = "goodfetch-workspace-hack"
 version = "0.0.0"
 dependencies = [
+ "aho-corasick",
  "anyhow",
  "bitflags 2.13.2",
  "cc",
@@ -796,6 +797,7 @@ dependencies = [
  "errno",
  "flatbuffers",
  "flate2",
+ "form_urlencoded",
  "i18n-embed",
  "icu_locale_core",
  "icu_provider",

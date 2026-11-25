@@ -163,6 +163,14 @@ impl Received {
         Self { line, range }
     }
 
+    /// The value whose JSON text is `json`: what an implementation called
+    /// in process answers, which no line carried.
+    #[must_use]
+    pub fn of_json(json: String) -> Self {
+        let range = 0..json.len();
+        Self::new(json, range)
+    }
+
     /// Its JSON text.
     pub fn json(&self) -> &str {
         &self.line[self.range.clone()]

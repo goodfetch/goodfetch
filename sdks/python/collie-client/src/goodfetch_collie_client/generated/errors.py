@@ -11,7 +11,7 @@ from typing import Final, Literal, Unpack
 
 from goodfetch_collie_client.caller import details_of
 from goodfetch_collie_client.goodfetch_error import ErrorClass, ErrorFields, GoodfetchError, retry_after_duration_of, retry_after_of
-from .models import AddressFamilyUnavailableDetails, ArtifactDownloadFailedDetails, ArtifactUnavailableOfflineDetails, BlockedDetails, BodyNotFoundDetails, BodyUnavailableDetails, BrowserLaunchFailedDetails, BrowserNeedsGuiSessionDetails, BrowserNotInstalledDetails, BrowserSandboxUnavailableDetails, CallCancelledDetails, CapabilityUnavailableDetails, CdpUrlNotAllowedDetails, CdpUrlNotBrowserDetails, CdpUrlUnauthorizedDetails, CdpUrlUnreachableDetails, CertificateChangedDetails, CertificateInvalidDetails, CheckpointBehindDetails, ConnectionOverloadedDetails, DaemonDrainingDetails, DaemonUnreachableDetails, DetachUnsupportedDetails, DialogAlreadyHandledDetails, EdgeHandlersUnsupportedDetails, EgressRefusedDetails, EngineExitedDetails, EnginePanickedDetails, ExecutableBlockedBySmartAppControlDetails, FileWriteFailedDetails, FormatVersionUnsupportedDetails, HeaderValueInvalidDetails, HookFailedDetails, LimitNotUnderstoodDetails, LimitRaiseRefusedDetails, ListenerEventsLostDetails, LocalAddressUnavailableDetails, LoggedOutDetails, ModelUnavailableDetails, NameLookupFailedDetails, NameNotResolvedDetails, NavigationFailedDetails, NavigationInterruptedDetails, NotADaemonDetails, NotInProductDetails, NotVerifiedDetails, PageCheckFailedDetails, PageCrashedDetails, PageFunctionFailedDetails, PageHandlerFailedDetails, PageMemoryExceededDetails, PageNavigatedDuringCallDetails, PageValueInvalidDetails, PathNotWritableDetails, PathUnsafeDetails, PatternUnsupportedDetails, PolicyConflictDetails, ProtocolVersionUnsupportedDetails, ProxyAuthFailedDetails, ProxyProviderUnavailableDetails, ProxyRelayUnavailableDetails, ProxyUnavailableDetails, ReachedLimit, ResourcesExhaustedDetails, ResponseLimitExceededDetails, ResponseTruncatedDetails, RouteAlreadyHandledDetails, RunConflictDetails, RunDetails, RunIdInvalidDetails, RunInterruptedDetails, RunKeyMismatchDetails, RunStateFilesystemUnsupportedDetails, RunTargetUnbuiltDetails, SchemaValidatorFailedDetails, SecretDomainNotAllowedDetails, SecretInputRefusedDetails, SecretUnavailableDetails, SecretUnboundDetails, SessionBoundToMachineDetails, SettingInvalidDetails, SettingLockedDetails, SettingNotApplicableDetails, SettingUnknownDetails, SitePreferencesRefusedDetails, TargetNotUniqueDetails, TooManyCallsDetails, TooManyRedirectsDetails, ValueInvalidDetails
+from .models import AddressFamilyUnavailableDetails, ArtifactDownloadFailedDetails, ArtifactUnavailableOfflineDetails, BlockedDetails, BodyNotFoundDetails, BodyUnavailableDetails, BrowserLaunchFailedDetails, BrowserNeedsGuiSessionDetails, BrowserNotInstalledDetails, BrowserSandboxUnavailableDetails, CallCancelledDetails, CapabilityUnavailableDetails, CdpUrlNotAllowedDetails, CdpUrlNotBrowserDetails, CdpUrlUnauthorizedDetails, CdpUrlUnreachableDetails, CertificateChangedDetails, CertificateInvalidDetails, CheckpointBehindDetails, ConnectionOverloadedDetails, DaemonDrainingDetails, DaemonUnreachableDetails, DetachUnsupportedDetails, DialogAlreadyHandledDetails, EdgeHandlersUnsupportedDetails, EgressRefusedDetails, EngineExitedDetails, EnginePanickedDetails, ExecutableBlockedBySmartAppControlDetails, ExtractHandlerFailedDetails, ExtractorUnavailableDetails, FileWriteFailedDetails, FormatVersionUnsupportedDetails, HeaderValueInvalidDetails, HookFailedDetails, LimitNotUnderstoodDetails, LimitRaiseRefusedDetails, ListenerEventsLostDetails, LocalAddressUnavailableDetails, LoggedOutDetails, ModelUnavailableDetails, NameLookupFailedDetails, NameNotResolvedDetails, NavigationFailedDetails, NavigationInterruptedDetails, NotADaemonDetails, NotInProductDetails, NotVerifiedDetails, PageCheckFailedDetails, PageCrashedDetails, PageFunctionFailedDetails, PageHandlerFailedDetails, PageMemoryExceededDetails, PageNavigatedDuringCallDetails, PageValueInvalidDetails, PathNotWritableDetails, PathUnsafeDetails, PatternUnsupportedDetails, PersonRequiredDetails, PolicyConflictDetails, ProtocolVersionUnsupportedDetails, ProxyAuthFailedDetails, ProxyProviderUnavailableDetails, ProxyRelayUnavailableDetails, ProxyUnavailableDetails, ReachedLimit, RecipeInvalidDetails, ResourcesExhaustedDetails, ResponseLimitExceededDetails, ResponseTruncatedDetails, RouteAlreadyHandledDetails, RunConflictDetails, RunDetails, RunIdInvalidDetails, RunInterruptedDetails, RunKeyMismatchDetails, RunStateFilesystemUnsupportedDetails, RunTargetUnbuiltDetails, ScheduleExistsDetails, ScheduleNotFoundDetails, ScheduleTriggerInvalidDetails, SchemaValidatorFailedDetails, SecretDomainNotAllowedDetails, SecretInputRefusedDetails, SecretUnavailableDetails, SecretUnboundDetails, SessionBoundToMachineDetails, SessionExportOpenFailedDetails, SettingInvalidDetails, SettingLockedDetails, SettingNotApplicableDetails, SettingUnknownDetails, SitePreferencesRefusedDetails, TargetNotUniqueDetails, TooManyCallsDetails, TooManyRedirectsDetails, ValueInvalidDetails
 
 ErrorGroup = Literal["program", "refused", "page", "model", "deadline_exceeded", "unavailable", "internal"]
 """The seven groups of Error codes, named for their remedy."""
@@ -210,7 +210,7 @@ class CapabilityUnavailableError(UnavailableError):
 
 
 class CDPURLNotAllowedError(RefusedError):
-    """A `cdp_url` Session source names an address ADR 0056's rules refuse, before any connection: a private address from a value that is not Operator-configured, loopback from a Client acting for a model (its project configuration included) or a Recipe, or a private address under `egress.no_private_endpoints`. The details name the address without its query or credentials, the settings layer that gave it, the rule, the address it resolved to and the fix: set the address in Operator policy or in user configuration, or give a public address."""
+    """A `cdp_url` Session source names an address ADR 0056's rules refuse, before any connection: a private address from a value that is not Operator-configured, loopback from a Client acting for a model (its project configuration included) or a Recipe, or from any Client of an Exposed Daemon, or a private address under `egress.no_private_endpoints`. The details name the address without its query or credentials, the settings layer that gave it, the rule, the address it resolved to and the fix: set the address in Operator policy or in user configuration, or give a public address."""
 
     typed_details: CdpUrlNotAllowedDetails | None
     """The code's details, typed; `None` when they lack a field the model requires, as those of an error a program builds without details do."""
@@ -507,6 +507,30 @@ class ExecutableBlockedBySmartAppControlError(RefusedError):
         """Takes the message the engine rendered, and what it carries."""
         super().__init__(message, code="executable_blocked_by_smart_app_control", group="refused", retryable=False, **fields)
         self.typed_details = details_of(ExecutableBlockedBySmartAppControlDetails, self.details)
+
+
+class ExtractHandlerFailedError(ProgramError):
+    """The Extractor `content.extractor` names answered `extract.content` with what the engine cannot take: an answer it cannot read, a result whose shape is not `{ title, text, markdown, metadata }`, or an Error code the catalog does not know. Its text is logged, never returned. The details name the Extractor and the page's URL. Fix the Extractor, or set `content.extractor` to a built-in one."""
+
+    typed_details: ExtractHandlerFailedDetails | None
+    """The code's details, typed; `None` when they lack a field the model requires, as those of an error a program builds without details do."""
+
+    def __init__(self, message: str, **fields: Unpack[ErrorFields]) -> None:
+        """Takes the message the engine rendered, and what it carries."""
+        super().__init__(message, code="extract_handler_failed", group="program", retryable=False, **fields)
+        self.typed_details = details_of(ExtractHandlerFailedDetails, self.details)
+
+
+class ExtractorUnavailableError(UnavailableError):
+    """No one answers for the Extractor `content.extractor` names: no built-in has its name and no installed Plugin of the Extractor kind does, its Plugin cannot start, or it is a handler the program registered that left its call unanswered. The details name the Extractor. Install the Plugin or name another Extractor, or retry once the program reads its Extractor's calls again."""
+
+    typed_details: ExtractorUnavailableDetails | None
+    """The code's details, typed; `None` when they lack a field the model requires, as those of an error a program builds without details do."""
+
+    def __init__(self, message: str, **fields: Unpack[ErrorFields]) -> None:
+        """Takes the message the engine rendered, and what it carries."""
+        super().__init__(message, code="extractor_unavailable", group="unavailable", retryable=True, **fields)
+        self.typed_details = details_of(ExtractorUnavailableDetails, self.details)
 
 
 class FileWriteFailedError(UnavailableError):
@@ -866,11 +890,15 @@ class PatternUnsupportedError(ProgramError):
 
 
 class PersonRequiredError(RefusedError):
-    """Only a person gives this answer: no agent surface, SDK, script or command run under `--json` or without a terminal may. Run the Operation's command in a terminal, where the CLI has one, or answer it in the Kennel where the Kennel offers the Operation."""
+    """Only a person gives this answer: no agent surface, SDK, script or command run under `--json` or without a terminal may, and no Client that reaches the engine from another machine, through an Exposed Daemon's address or a gateway, whatever surface it claims. Run the Operation's command in a terminal on the engine's machine, where the CLI has one, or answer it in the Kennel there."""
+
+    typed_details: PersonRequiredDetails | None
+    """The code's details, typed; `None` when they lack a field the model requires, as those of an error a program builds without details do."""
 
     def __init__(self, message: str, **fields: Unpack[ErrorFields]) -> None:
         """Takes the message the engine rendered, and what it carries."""
         super().__init__(message, code="person_required", group="refused", retryable=False, **fields)
+        self.typed_details = details_of(PersonRequiredDetails, self.details)
 
 
 class PluginCrashedError(UnavailableError):
@@ -895,6 +923,14 @@ class PluginProtocolUnsupportedError(UnavailableError):
     def __init__(self, message: str, **fields: Unpack[ErrorFields]) -> None:
         """Takes the message the engine rendered, and what it carries."""
         super().__init__(message, code="plugin_protocol_unsupported", group="unavailable", retryable=False, **fields)
+
+
+class PluginQuarantinedError(UnavailableError):
+    """The process Plugin crashed three times within 10 minutes of the run, so it stays quarantined for the rest of the run: its queued and later calls fail with this code, and one "a Plugin quarantined" Notification is sent. A later run starts it again; fix or replace the Plugin first."""
+
+    def __init__(self, message: str, **fields: Unpack[ErrorFields]) -> None:
+        """Takes the message the engine rendered, and what it carries."""
+        super().__init__(message, code="plugin_quarantined", group="unavailable", retryable=False, **fields)
 
 
 class PolicyConflictError(RefusedError):
@@ -967,6 +1003,26 @@ class ProxyUnavailableError(UnavailableError):
         """Takes the message the engine rendered, and what it carries."""
         super().__init__(message, code="proxy_unavailable", group="unavailable", retryable=True, **fields)
         self.typed_details = details_of(ProxyUnavailableDetails, self.details)
+
+
+class RecipeInvalidError(ProgramError):
+    """A Recipe manifest, `goodfetch-recipe.toml`, or its package that is not valid: a manifest that does not parse, lacks a required field or holds an unknown one, names no entry or two, names a program without a runtime or a runtime it does not list, names a `CrawlDeclaration` for Collie, or an entry the package does not hold; or a package holding a symbolic link, or a path with no portable digest: absolute, escaping its root, holding `\\` or `:`, or the same as another in Unicode NFC or but for case. The details name the field or path and the fix."""
+
+    typed_details: RecipeInvalidDetails | None
+    """The code's details, typed; `None` when they lack a field the model requires, as those of an error a program builds without details do."""
+
+    def __init__(self, message: str, **fields: Unpack[ErrorFields]) -> None:
+        """Takes the message the engine rendered, and what it carries."""
+        super().__init__(message, code="recipe_invalid", group="program", retryable=False, **fields)
+        self.typed_details = details_of(RecipeInvalidDetails, self.details)
+
+
+class ReplayNotAllowedError(ProgramError):
+    """A Schedule's target sets `cache.mode` to `replay`, whose replayed pages would hide a change from the Baseline. Set `revalidate` or `off` for a scheduled target."""
+
+    def __init__(self, message: str, **fields: Unpack[ErrorFields]) -> None:
+        """Takes the message the engine rendered, and what it carries."""
+        super().__init__(message, code="replay_not_allowed", group="program", retryable=False, **fields)
 
 
 class ResourcesExhaustedError(UnavailableError):
@@ -1110,7 +1166,7 @@ class RunKeyMismatchError(UnavailableError):
 
 
 class RunLiveError(ProgramError):
-    """The engine still runs the Run, so it cannot be discarded: stop it first with `run.stop` or `run.abort`, or let it finish, then discard it. The details name the Run."""
+    """The engine still runs the Run, so it cannot be discarded, nor a Dataset of it erased: stop it first with `run.stop` or `run.abort`, or let it finish, then try again. The details name the Run."""
 
     typed_details: RunDetails | None
     """The code's details, typed; `None` when they lack a field the model requires, as those of an error a program builds without details do."""
@@ -1189,6 +1245,42 @@ class SampleRefusedError(RefusedError):
         super().__init__(message, code="sample_refused", group="refused", retryable=False, **fields)
 
 
+class ScheduleExistsError(ProgramError):
+    """A Schedule has this Schedule ID already: create it under another ID, or omit the ID for a new one. The details name the ID."""
+
+    typed_details: ScheduleExistsDetails | None
+    """The code's details, typed; `None` when they lack a field the model requires, as those of an error a program builds without details do."""
+
+    def __init__(self, message: str, **fields: Unpack[ErrorFields]) -> None:
+        """Takes the message the engine rendered, and what it carries."""
+        super().__init__(message, code="schedule_exists", group="program", retryable=False, **fields)
+        self.typed_details = details_of(ScheduleExistsDetails, self.details)
+
+
+class ScheduleNotFoundError(ProgramError):
+    """No Schedule has this Schedule ID: the Schedule store does not hold it. The details name the ID."""
+
+    typed_details: ScheduleNotFoundDetails | None
+    """The code's details, typed; `None` when they lack a field the model requires, as those of an error a program builds without details do."""
+
+    def __init__(self, message: str, **fields: Unpack[ErrorFields]) -> None:
+        """Takes the message the engine rendered, and what it carries."""
+        super().__init__(message, code="schedule_not_found", group="program", retryable=False, **fields)
+        self.typed_details = details_of(ScheduleNotFoundDetails, self.details)
+
+
+class ScheduleTriggerInvalidError(ProgramError):
+    """The Schedule's trigger does not parse, such as an `every` of 0. The details give the `expression`, the `position` where reading stopped and the `reason`."""
+
+    typed_details: ScheduleTriggerInvalidDetails | None
+    """The code's details, typed; `None` when they lack a field the model requires, as those of an error a program builds without details do."""
+
+    def __init__(self, message: str, **fields: Unpack[ErrorFields]) -> None:
+        """Takes the message the engine rendered, and what it carries."""
+        super().__init__(message, code="schedule_trigger_invalid", group="program", retryable=False, **fields)
+        self.typed_details = details_of(ScheduleTriggerInvalidDetails, self.details)
+
+
 class SchemaValidatorFailedError(ProgramError):
     """A schema's own validation, run by the SDK in the program's process, raised something other than a rejection, so the call stopped at once: only the library's own rejection (Standard Schema issues, Pydantic's `ValidationError`) is one, and a bug is never retried or reported as a value the schema refused. The message always names the exception, and the original is the error's cause. The details name the schema by its JSON Schema `title` (`null` without one), the field path where known (`null` otherwise), and the exception's type and message. Fix the validator so that it rejects with the library's own issue, or never raises."""
 
@@ -1259,6 +1351,18 @@ class SessionBoundToMachineError(RefusedError):
         """Takes the message the engine rendered, and what it carries."""
         super().__init__(message, code="session_bound_to_machine", group="refused", retryable=False, **fields)
         self.typed_details = details_of(SessionBoundToMachineDetails, self.details)
+
+
+class SessionExportOpenFailedError(ProgramError):
+    """A session export bundle, encrypted with age to a public key or a passphrase, did not open under the Secret reference given as its `key`: the value opens none of its recipients, is no age identity where the bundle was sealed to a public key, or the file is no bundle, asks more scrypt work than an import does, or holds more than the engine reads. `failure` says which, and the details name the reference, never its value. Give the reference of the identity or passphrase the bundle was exported to, or export it again."""
+
+    typed_details: SessionExportOpenFailedDetails | None
+    """The code's details, typed; `None` when they lack a field the model requires, as those of an error a program builds without details do."""
+
+    def __init__(self, message: str, **fields: Unpack[ErrorFields]) -> None:
+        """Takes the message the engine rendered, and what it carries."""
+        super().__init__(message, code="session_export_open_failed", group="program", retryable=False, **fields)
+        self.typed_details = details_of(SessionExportOpenFailedDetails, self.details)
 
 
 class SettingInvalidError(ProgramError):
@@ -1461,6 +1565,8 @@ ERROR_CLASSES: Final[Mapping[str, ErrorClass]] = {
     "engine_panicked": EnginePanickedError,
     "event_loop_mismatch": EventLoopMismatchError,
     "executable_blocked_by_smart_app_control": ExecutableBlockedBySmartAppControlError,
+    "extract_handler_failed": ExtractHandlerFailedError,
+    "extractor_unavailable": ExtractorUnavailableError,
     "file_write_failed": FileWriteFailedError,
     "format_version_unsupported": FormatVersionUnsupportedError,
     "header_value_invalid": HeaderValueInvalidError,
@@ -1495,12 +1601,15 @@ ERROR_CLASSES: Final[Mapping[str, ErrorClass]] = {
     "plugin_crashed": PluginCrashedError,
     "plugin_manifest_mismatch": PluginManifestMismatchError,
     "plugin_protocol_unsupported": PluginProtocolUnsupportedError,
+    "plugin_quarantined": PluginQuarantinedError,
     "policy_conflict": PolicyConflictError,
     "protocol_version_unsupported": ProtocolVersionUnsupportedError,
     "proxy_auth_failed": ProxyAuthFailedError,
     "proxy_provider_unavailable": ProxyProviderUnavailableError,
     "proxy_relay_unavailable": ProxyRelayUnavailableError,
     "proxy_unavailable": ProxyUnavailableError,
+    "recipe_invalid": RecipeInvalidError,
+    "replay_not_allowed": ReplayNotAllowedError,
     "resources_exhausted": ResourcesExhaustedError,
     "response_limit_exceeded": ResponseLimitExceededError,
     "response_not_json": ResponseNotJSONError,
@@ -1520,12 +1629,16 @@ ERROR_CLASSES: Final[Mapping[str, ErrorClass]] = {
     "run_state_unavailable": RunStateUnavailableError,
     "run_target_unbuilt": RunTargetUnbuiltError,
     "sample_refused": SampleRefusedError,
+    "schedule_exists": ScheduleExistsError,
+    "schedule_not_found": ScheduleNotFoundError,
+    "schedule_trigger_invalid": ScheduleTriggerInvalidError,
     "schema_validator_failed": SchemaValidatorFailedError,
     "secret_domain_not_allowed": SecretDomainNotAllowedError,
     "secret_input_refused": SecretInputRefusedError,
     "secret_unavailable": SecretUnavailableError,
     "secret_unbound": SecretUnboundError,
     "session_bound_to_machine": SessionBoundToMachineError,
+    "session_export_open_failed": SessionExportOpenFailedError,
     "setting_invalid": SettingInvalidError,
     "setting_locked": SettingLockedError,
     "setting_not_applicable": SettingNotApplicableError,

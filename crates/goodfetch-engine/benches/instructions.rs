@@ -144,6 +144,19 @@ fn mask_joins(joins: usize) -> usize {
     black_box(scenarios::mask_joins_of_one_value(black_box(joins)))
 }
 
+#[library_benchmark]
+#[bench::hundred_fresh_hits(args = (100), setup = scenarios::response_cache_input)]
+fn response_cache_lookup(
+    input: scenarios::ResponseCacheInput,
+) -> (usize, scenarios::ResponseCacheInput) {
+    let hits = black_box(scenarios::response_cache_lookups(
+        &input.1,
+        black_box(&input.2),
+        black_box(&input.3),
+    ));
+    (hits, input)
+}
+
 library_benchmark_group!(
     name = engine,
     benchmarks = [
@@ -154,7 +167,8 @@ library_benchmark_group!(
         egress_judge,
         egress_judge_private_ranges,
         mask_stream,
-        mask_joins
+        mask_joins,
+        response_cache_lookup
     ]
 );
 

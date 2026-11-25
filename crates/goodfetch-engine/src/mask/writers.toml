@@ -103,6 +103,11 @@ count = 2
 how = "masked: the SQLite Sink's target table holds the Records the run file holds, masked as `Scope::Kept` when the crawl committed them (`goodfetch-dataset`'s `records.rs`, #972), with their Run's ID, run epoch, Dataset, number and commit time; its delivery log `_goodfetch_deliveries` holds only target and Dataset names, a Run's ID, its run epoch and a number"
 
 [[writer]]
+path = "crates/goodfetch-collie/src/executable/init.rs"
+count = 1
+how = "holds no value: `init` writes the starter files the executable embeds, no Run's value"
+
+[[writer]]
 path = "crates/goodfetch-collie/src/executable/logs.rs"
 count = 5
 how = "masked: every log writer is `Masked`, `Scope::KeptOutput`"
@@ -121,6 +126,26 @@ how = "holds no value: the service manager's definitions and the Daemon's token 
 path = "crates/goodfetch-collie/src/executable/skills.rs"
 count = 1
 how = "holds no value: `skill install` writes the skill files the executable embeds and their digest marker, no Run's value"
+
+[[writer]]
+path = "crates/goodfetch-confinement/src/bin/goodfetch-confinement-probe.rs"
+count = 1
+how = "holds no value: the probe maps its own user ID to itself in `/proc/self/uid_map`, numbers only"
+
+[[writer]]
+path = "crates/goodfetch-confinement/src/linux/mounts.rs"
+count = 1
+how = "holds no value: an empty file the Plugin's mount namespace binds a granted file over; no bytes are written"
+
+[[writer]]
+path = "crates/goodfetch-confinement/src/linux/namespaces.rs"
+count = 1
+how = "holds no value: the user namespace's `uid_map`, `gid_map` and `setgroups` lines, numbers and `deny` the launcher computes"
+
+[[writer]]
+path = "crates/goodfetch-engine/src/accounts/store.rs"
+count = 4
+how = "holds no resolved value: the Accounts store's tables hold the Account's name, its passkeys' public keys, and the SHA-256 digests of its recovery codes and named tokens, never a code, a token or a Secret a Run resolved"
 
 [[writer]]
 path = "crates/goodfetch-engine/src/age_notice.rs"
@@ -196,6 +221,11 @@ how = "holds no value: a pinned download's bytes"
 path = "crates/goodfetch-engine/src/politeness.rs"
 count = 4
 how = "holds no value: per-domain Politeness state, and each domain key's Delegation: the Run, its folder, its engine and wake endpoint"
+
+[[writer]]
+path = "crates/goodfetch-engine/src/response_cache.rs"
+count = 3
+how = "holds no resolved value: the cache's index table, its bodies folder and each body file hold only public responses fetched with no cookie or credential, never a response a Secret was sent for"
 
 [[writer]]
 path = "crates/goodfetch-engine/src/robots_txt.rs"
@@ -296,3 +326,8 @@ how = "holds no value: proxy limits by endpoint and username, never a password"
 path = "crates/goodfetch-page/src/sessions.rs"
 count = 1
 how = "holds no value: Sessions' settings, Secret settings by reference"
+
+[[writer]]
+path = "crates/goodfetch-schedule/src/store.rs"
+count = 2
+how = "holds no value: the store's identity and each Schedule's target, trigger, time zone, state, creator and creation time"

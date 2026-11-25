@@ -169,6 +169,42 @@ pub mod browser_cache {
     );
 }
 
+/// The `cache.*` settings.
+pub mod cache {
+
+    /// What the per-user Response cache does: `off` (the default) stores and serves nothing, so a run never serves a stale page silently; `revalidate` stores GET and HEAD responses sent with no cookie or credential, whose response sets no cookie and is not `private`, serves a fresh one with no request and revalidates a stale one with `ETag` and `Last-Modified` under RFC 9111, serving the stored body on a 304; `replay`, for development, stores every response to a request sent with no cookie or credential, which sets no cookie and is not `private`, whatever its method, status or freshness, and serves it again with no request and no revalidation. The key is the method, the URL without its fragment, the request headers the response's `Vary` names and, under `replay`, the SHA-256 of the request's canonical body: a JSON body with its object keys sorted, a form with its fields sorted by name and each name's values in their order, a body sent with no `Content-Type` read as JSON or a form by its bytes; a `Vary: *` response is never stored. A Schedule's target never sets `replay`. An engine that finds a cache written by a newer format runs without it, reading and writing nothing. When a site's service worker answers a request the Response cache must serve, set `browser.service_workers` to `block` (ADR 0121).
+    ///
+    /// `cache.mode`.
+    pub const MODE: crate::settings::Setting<Mode> = crate::settings::Setting::new(
+        "cache.mode",
+        &[
+            ::goodfetch_protocol::catalog::SettingScope::Connection,
+            ::goodfetch_protocol::catalog::SettingScope::Run,
+        ],
+    );
+
+    /// A word a setting of this module takes, as the catalog spells it.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+    pub enum Mode {
+        /// `off`.
+        Off,
+        /// `revalidate`.
+        Revalidate,
+        /// `replay`.
+        Replay,
+    }
+
+    impl ::goodfetch_protocol::catalog::SettingWord for Mode {
+        fn word(&self) -> &'static str {
+            match self {
+                Self::Off => "off",
+                Self::Revalidate => "revalidate",
+                Self::Replay => "replay",
+            }
+        }
+    }
+}
+
 /// The `checkpoint.*` settings.
 pub mod checkpoint {
 
@@ -351,37 +387,20 @@ pub mod consent {
 /// The `content.*` settings.
 pub mod content {
 
-    /// The main-content step `page.formats` reads a page's main content with, before its Markdown, its main HTML and its text: `dom_smoothie` (the default), Readability's algorithm, or `trafilatura`, the rs-trafilatura port. A step that finds no text in a document holding text outside its navigation landmarks answers that text. Set at any scope down to a page: a Run, a Session's or a page's own `settings`.
+    /// The main-content step `page.formats` reads a page's main content with, before its Markdown and its text: `dom_smoothie` (the default), Readability's algorithm, `trafilatura`, the rs-trafilatura port, or the name of an installed Extractor Plugin. A built-in step that finds no text in a document holding text outside its navigation landmarks answers that text. An Extractor Plugin reads the page as the Clean-up rules left it and answers its Markdown and its text; it has no main HTML. Set at any scope down to a page: a Run, a Session's or a page's own `settings`. A Session or a page naming no built-in and no installed Extractor is refused; a Run's name is checked as its page reads with it.
     ///
     /// `content.extractor`.
-    pub const EXTRACTOR: crate::settings::Setting<Extractor> = crate::settings::Setting::new(
-        "content.extractor",
-        &[
-            ::goodfetch_protocol::catalog::SettingScope::Connection,
-            ::goodfetch_protocol::catalog::SettingScope::Run,
-            ::goodfetch_protocol::catalog::SettingScope::Label,
-            ::goodfetch_protocol::catalog::SettingScope::Session,
-            ::goodfetch_protocol::catalog::SettingScope::Page,
-        ],
-    );
-
-    /// A word a setting of this module takes, as the catalog spells it.
-    #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-    pub enum Extractor {
-        /// `dom_smoothie`.
-        DomSmoothie,
-        /// `trafilatura`.
-        Trafilatura,
-    }
-
-    impl ::goodfetch_protocol::catalog::SettingWord for Extractor {
-        fn word(&self) -> &'static str {
-            match self {
-                Self::DomSmoothie => "dom_smoothie",
-                Self::Trafilatura => "trafilatura",
-            }
-        }
-    }
+    pub const EXTRACTOR: crate::settings::Setting<::goodfetch_protocol::page::ExtractorName> =
+        crate::settings::Setting::new(
+            "content.extractor",
+            &[
+                ::goodfetch_protocol::catalog::SettingScope::Connection,
+                ::goodfetch_protocol::catalog::SettingScope::Run,
+                ::goodfetch_protocol::catalog::SettingScope::Label,
+                ::goodfetch_protocol::catalog::SettingScope::Session,
+                ::goodfetch_protocol::catalog::SettingScope::Page,
+            ],
+        );
 }
 
 /// The `effect.*` settings.
@@ -1285,7 +1304,7 @@ pub mod secrets {
 /// The `security.*` settings.
 pub mod security {
 
-    /// Whether the run's Audit log entries are hash-chained (ADR 0016). On by default; off, that run's entries are written unchained, each marked `chained: false`, which `audit verify` steps over while it verifies the chain around them; the switch itself is a chained entry, and the run says so in its report's `weakened` and in one warning.
+    /// Whether the run's Audit log entries are hash-chained (ADR 0016). On by default; off, that run's entries are written unchained, each marked `chained: false`, which `audit verify` steps over while it verifies the chain around them; the switch itself is a chained entry, and the run says so in its report's `weakened` and in one warning. A Recipe or a Client acting for a model never switches it off: its `false` is `setting_locked`.
     ///
     /// `security.audit_chain`.
     pub const AUDIT_CHAIN: crate::settings::Setting<bool> = crate::settings::Setting::new(
@@ -1296,7 +1315,7 @@ pub mod security {
         ],
     );
 
-    /// Whether the run's state seals its secret fields with the run's data key (ADR 0015). On by default; off, they are written in the clear, and the run says so in its report's `weakened`, in the Audit log and in one warning.
+    /// Whether the run's state seals its secret fields with the run's data key (ADR 0015). On by default; off, they are written in the clear and the run makes no data key, and the run says so in its report's `weakened`, in the Audit log and in one warning. A field written in the clear opens only in a run that lists this switch as weakened. A Recipe or a Client acting for a model never switches it off: its `false` is `setting_locked`.
     ///
     /// `security.field_encryption`.
     pub const FIELD_ENCRYPTION: crate::settings::Setting<bool> = crate::settings::Setting::new(
@@ -1307,7 +1326,7 @@ pub mod security {
         ],
     );
 
-    /// Whether every browser Session the engine launches reaches the network through the egress relay, which holds a raw CDP client or a Lent page at the network layer (ADR 0017). On by default; off, a Session with no certificate exception and no local address connects directly, held by interception alone, and the run says so in its report's `weakened`, in the Audit log and in one warning. It never removes the relay that carries certificate exceptions or local addresses.
+    /// Whether every browser Session the engine launches reaches the network through the egress relay, which holds a raw CDP client or a Lent page at the network layer (ADR 0017). On by default; off, a Session with no certificate exception and no local address connects directly, held by interception alone, and the run says so in its report's `weakened`, in the Audit log and in one warning. It never removes the relay that carries certificate exceptions or local addresses. A Recipe or a Client acting for a model never switches it off: its `false` is `setting_locked`.
     ///
     /// `security.raw_cdp_egress_proxy`.
     pub const RAW_CDP_EGRESS_PROXY: crate::settings::Setting<bool> = crate::settings::Setting::new(
@@ -1318,7 +1337,7 @@ pub mod security {
         ],
     );
 
-    /// Whether logs, traces and HAR files are redacted and screenshots and recordings kept as outputs are masked (ADR 0014). On by default; off lifts that guarantee for those outputs only: secrets still never reach the model, Plans, caches, the Effect journal or observations. The run says so in its report's `weakened`, in the Audit log and in one warning.
+    /// Whether logs, traces and HAR files are redacted and screenshots and recordings kept as outputs are masked (ADR 0014). On by default; off lifts that guarantee for those outputs only: secrets still never reach the model, Plans, caches, the Effect journal or observations. The run says so in its report's `weakened`, in the Audit log and in one warning. A Recipe or a Client acting for a model never switches it off: its `false` is `setting_locked`.
     ///
     /// `security.redaction`.
     pub const REDACTION: crate::settings::Setting<bool> = crate::settings::Setting::new(
@@ -1329,7 +1348,7 @@ pub mod security {
         ],
     );
 
-    /// Whether every address a name resolves to is checked against the egress policy before a connection is made (ADR 0017). On by default; off, the domain policy alone applies, and the run says so in its report's `weakened`, in the Audit log and in one warning.
+    /// Whether every address a name resolves to is checked against the egress policy before a connection is made (ADR 0017). On by default; off, the domain policy alone applies, and the run says so in its report's `weakened`, in the Audit log and in one warning. A Recipe or a Client acting for a model never switches it off: its `false` is `setting_locked`.
     ///
     /// `security.resolved_ip_check`.
     pub const RESOLVED_IP_CHECK: crate::settings::Setting<bool> = crate::settings::Setting::new(
@@ -1340,7 +1359,7 @@ pub mod security {
         ],
     );
 
-    /// Whether the run's secret tables overwrite what they delete, SQLite's `secure_delete` (ADR 0015). On by default; off, deleted values may stay on disk until overwritten, and the run says so in its report's `weakened`, in the Audit log and in one warning.
+    /// Whether the run's state overwrites what it deletes, its secret fields included, SQLite's `secure_delete` (ADR 0015). On by default; off, deleted values may stay in the run file's free pages until overwritten, and the run says so in its report's `weakened`, in the Audit log and in one warning. A discard overwrites the run's data key whatever its value. A Recipe or a Client acting for a model never switches it off: its `false` is `setting_locked`.
     ///
     /// `security.secure_delete`.
     pub const SECURE_DELETE: crate::settings::Setting<bool> = crate::settings::Setting::new(
@@ -1690,6 +1709,18 @@ pub mod timeout {
     pub const NAVIGATION: crate::settings::Setting<::std::time::Duration> =
         crate::settings::Setting::new(
             "timeout.navigation",
+            &[
+                ::goodfetch_protocol::catalog::SettingScope::Connection,
+                ::goodfetch_protocol::catalog::SettingScope::Run,
+            ],
+        );
+
+    /// How long a call into a Plugin, of any form, may wait for its answer before it is abandoned and fails with `deadline_exceeded`: 30 s. A kind with a timeout of its own, such as a Hook's `timeout.hook`, waits under that one instead.
+    ///
+    /// `timeout.plugin`.
+    pub const PLUGIN: crate::settings::Setting<::std::time::Duration> =
+        crate::settings::Setting::new(
+            "timeout.plugin",
             &[
                 ::goodfetch_protocol::catalog::SettingScope::Connection,
                 ::goodfetch_protocol::catalog::SettingScope::Run,

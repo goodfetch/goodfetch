@@ -94,6 +94,7 @@ mod no_console;
 ))]
 mod no_exec;
 mod observation;
+mod older_engine;
 mod player;
 mod process;
 mod protocol_fuzz;
@@ -103,6 +104,7 @@ mod proxy_in_front;
 mod pty;
 mod raw_calls;
 mod received_requests;
+mod recordings;
 mod resident;
 mod resolver;
 mod runtime;
@@ -130,6 +132,7 @@ mod user_namespaces;
 #[cfg(target_os = "linux")]
 mod valkey;
 mod variables;
+mod webhook_signatures;
 
 #[cfg(unix)]
 pub use browsers::ReadOnlyBrowserCache;
@@ -144,7 +147,9 @@ pub use canaries::{
     Canaries, Canary, CanaryError, Encoding, Hit, Output, Placement, PlantAccount, SHORT_VALUE,
     SecretKind, Sighting, gitleaks_rule,
 };
-pub use cargo_consumer::{CargoRun, Consumer, ConsumerError, cargo_consumer, cargo_install};
+pub use cargo_consumer::{
+    CargoRun, Consumer, ConsumerError, cargo_command, cargo_consumer, cargo_install,
+};
 pub use claude_code::{ClaudeCodeError, PluginValidation, claude_code_copy, validate_plugin};
 pub use cli::{
     Cli, CliError, CliJson, CliOutput, Mode, Stream, cli, record_command, record_command_in,
@@ -169,7 +174,7 @@ pub use dns_namespace::{
 };
 pub use endpoints::{
     AuditUnreadable, AuditVerifier, Endpoint, EndpointRunError, EndpointRunner, Expected, Failure,
-    Hello, Listener, ListenerAddress, ListenerKind, Observed, RowFailure, Rule,
+    Hello, Listener, ListenerAddress, ListenerKind, ListenerTls, Observed, RowFailure, Rule,
 };
 pub use env::{START_TIME, TEST_SETTINGS, TestEnv, TestEnvError, command};
 pub use exercise::{ANSWER_RECORD, AnsweredCalls, COMMAND_RECORD, COMMAND_TARGET};
@@ -225,6 +230,7 @@ pub use no_exec::NoExec;
 pub use observation::{
     Epoch, Fault, LOG_FILE, ObservationLog, Operation, REDACTED, Record, Redacted, ValueDigest,
 };
+pub use older_engine::older_engine;
 pub use player::{
     ATTACHED_ENVIRONMENT, ATTACHED_RECORD, ATTACHED_SCRIPT, Ending, PlayError, play, play_relinking,
 };
@@ -249,6 +255,10 @@ pub use proving_ground_format::{
 pub use proxy_in_front::proxy_in_front;
 pub use pty::{Pty, PtyError, PtyOutput, PtyRun, pty};
 pub use raw_calls::raw_call_lines;
+pub use recordings::{
+    ExchangeName, ModelRecording, Payload, RecordedExchange, RecordedRequest, RecordedResponse,
+    Recordings, RecordingsError, ServedExchanges, Unfinished, UnmatchedRequest,
+};
 pub use resident::{peak_resident_bytes, private_resident_bytes_of};
 pub use resolver::{Lookup, LookupFailure, ResolverHandle, ScriptedResolver};
 pub use runtime::{
@@ -304,7 +314,11 @@ pub use variables::{
     CALLGRIND_AT_ONCE_VARIABLE, CASE_LOGS_VARIABLE, CHROME_FOR_TESTING_DOWNLOADS_VARIABLE,
     CLAUDE_CODE_DOWNLOADS_VARIABLE, CallgrindAtOnceError, DNS_NAMESPACE_VARIABLE, ENGINE_VARIABLE,
     FAULT_PLAN_VARIABLE, LAZYFS_FOLDER_VARIABLE, LAZYFS_VARIABLE, LIGHTPANDA_DOWNLOADS_VARIABLE,
-    MAX_SEED, NO_GUI_SESSION_VARIABLE, RECORDS_VARIABLE, RESULT_DOCUMENTS_VARIABLE, SEED_VARIABLE,
-    SUITE_VARIABLE, SeedError, Suite, SuiteError, TOOLS_VARIABLE, TOXIPROXY_DOWNLOADS_VARIABLE,
-    Variables, case_logs, current_test,
+    MAX_SEED, MODEL_TRACES_VARIABLE, NO_GUI_SESSION_VARIABLE, OLDER_ENGINE_VARIABLE,
+    RECORDS_VARIABLE, RESULT_DOCUMENTS_VARIABLE, SEED_VARIABLE, SUITE_VARIABLE, SeedError, Suite,
+    SuiteError, TOOLS_VARIABLE, TOXIPROXY_DOWNLOADS_VARIABLE, Variables, case_logs, current_test,
+    model_traces,
+};
+pub use webhook_signatures::{
+    SignedVector, VerificationCase, VerificationOutcome, WebhookSignatures, webhook_signatures,
 };

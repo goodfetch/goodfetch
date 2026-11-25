@@ -6,7 +6,7 @@ use goodfetch_test_support::{TestEnv, assert_cli_snapshot, cli};
 
 use crate::client_conformance::COLLIE;
 
-/// Covers: story:11-204, command:sample.echo
+/// Covers: story:11-204, story:1-31, command:sample.echo
 #[test]
 fn attached() {
     let env = TestEnv::new();

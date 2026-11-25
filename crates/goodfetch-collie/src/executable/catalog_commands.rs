@@ -21,7 +21,10 @@
 //! may write some commands by hand in place of their generated flags, its
 //! [`OwnCommands`]: Foxhound's `crawl start <url>…` and `run export <run>
 //! <dataset> --out <path|->` live in Foxhound's crate (ADR 0087), which
-//! passes them to [`main`](super::main).
+//! passes them to [`main`](super::main). A person-only operation, which
+//! [`offer`] gives no command, is one only as such a hand-written command,
+//! which asks its person through [`prompts`](super::prompts), as Foxhound's
+//! `dataset erase` does.
 //!
 //! A command calls its operation on the engine [`engine_choice`] gives it
 //! and prints the result: an opener prints the new value's ID, any other
@@ -69,6 +72,7 @@ use super::engine_choice::{
     Pager, ReadValues, Values,
 };
 use super::limit_flags::LimitFlags;
+use super::needs_you::ItemPrompt;
 use super::operation::failed;
 use super::output::text;
 use super::output::{ColourFlag, Human};
@@ -110,7 +114,8 @@ pub trait OwnCall {
     ) -> ExitCode;
 }
 
-/// The commands an executable writes by hand among its generated ones, and
+/// The commands an executable writes by hand among its generated ones, the
+/// prompts its own kinds of "Needs you" items get in `needs-you answer`, and
 /// the commands of its generated groups, which clap builds only once it
 /// reaches a group, through a plain function: [`members`] of the
 /// executable's Product with these commands.
@@ -121,6 +126,9 @@ pub struct OwnCommands {
     /// The commands of a generated group: `members(group, <the executable's
     /// Product>, commands)`.
     pub members: fn(Command) -> Command,
+    /// The prompts of the executable's own kinds of "Needs you" items,
+    /// beside Collie's kinds'.
+    pub answers: &'static [ItemPrompt],
 }
 
 impl OwnCommands {
@@ -128,6 +136,7 @@ impl OwnCommands {
     pub const COLLIE: Self = Self {
         commands: &[],
         members: collies_members,
+        answers: &[],
     };
 }
 
@@ -136,6 +145,14 @@ fn own_of(commands: &'static [OwnCommand], operation: &Operation) -> Option<&'st
     commands
         .iter()
         .find(|command| command.operation == operation.name)
+}
+
+/// Whether `operation` is a command among the hand-written `own`: one
+/// [`offer`] gives, or a person-only one `own` writes by hand, whose prompt
+/// asks its person (ADR 0031).
+fn offered(own: &'static [OwnCommand], operation: &Operation) -> bool {
+    offer(operation).is_some()
+        || (operation.reach == Reach::PersonOnly && own_of(own, operation).is_some())
 }
 
 /// The Product whose catalog the commands of a hand-written group's
@@ -302,7 +319,9 @@ fn call_in(
     matches: &ArgMatches,
 ) -> Option<Call> {
     let name = format!("{namespace}.{}", canonical(member));
-    let operation = commands(product).find(|operation| operation.name == name)?;
+    let operation = operations_of(product)
+        .filter(|operation| offered(own, operation))
+        .find(|operation| operation.name == name)?;
     Some(Call::of(
         product,
         operation,
@@ -527,7 +546,7 @@ fn members_of(
     let namespace = canonical(group.get_name());
     group.subcommands(
         operations
-            .filter(|operation| offer(operation).is_some())
+            .filter(|operation| offered(own, operation))
             .filter(|operation| self::namespace(operation) == namespace)
             .map(|operation| command(operation, own_of(own, operation))),
     )

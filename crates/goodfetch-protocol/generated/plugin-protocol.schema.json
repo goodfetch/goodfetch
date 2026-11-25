@@ -351,15 +351,21 @@
           "description": "The plugin protocol versions the starter speaks."
         },
         "run_id": {
-          "$ref": "#/$defs/RunId",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RunId"
+            },
+            {
+              "type": "null"
+            }
+          ],
           "arrived_in": "0.1",
-          "description": "The Run the instance serves."
+          "description": "The Run the instance serves: none for a task outside any Run, such\nas a probe or `plugins test`."
         }
       },
       "required": [
         "protocol",
         "product",
-        "run_id",
         "network_level"
       ],
       "type": "object"
@@ -591,7 +597,7 @@
           ]
         },
         "runtime": {
-          "$ref": "#/$defs/Runtime",
+          "$ref": "#/$defs/Runtime2",
           "arrived_in": "0.1",
           "default": {
             "kind": "none"
@@ -736,7 +742,7 @@
       "pattern": "^[a-z0-9]([a-z0-9._-]{0,126}[a-z0-9])?$",
       "type": "string"
     },
-    "Runtime": {
+    "Runtime2": {
       "description": "The language runtime a Plugin runs on.",
       "oneOf": [
         {

@@ -46,7 +46,7 @@ pub async fn open_run(context: &CallContext, run_id: RunId) -> Result<RunReader,
 /// # Cancel safety
 ///
 /// Cancel safe: it only reads.
-pub(crate) async fn open_dataset(
+pub async fn open_dataset(
     context: &CallContext,
     run_id: RunId,
     dataset: &str,

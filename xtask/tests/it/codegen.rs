@@ -59,6 +59,7 @@ fn generated_files(workspace: &Workspace) -> Vec<(String, String)> {
             workspace.read_text(JOURNEY_SCHEMA),
         ),
         (SCRIPT_SCHEMA.to_owned(), workspace.read_text(SCRIPT_SCHEMA)),
+        (SKEW_JOBS.to_owned(), workspace.read_text(SKEW_JOBS)),
     ];
     let mut pending: Vec<String> = GENERATED_FOLDERS
         .iter()
@@ -124,6 +125,7 @@ const SAMPLE: &str = "crates/goodfetch-protocol/src/sample.rs";
 const FOXHOUND: &str = "crates/goodfetch-protocol/src/foxhound.rs";
 const JOURNEY: &str = "crates/goodfetch-protocol/src/journey.rs";
 const JOURNEY_SCHEMA: &str = "journeys/journey.schema.json";
+const SKEW_JOBS: &str = "ci/release/skew-jobs.json";
 const RESULT_DOCUMENT: &str = "crates/goodfetch-protocol/src/result_document.rs";
 
 /// The fixture's `goodfetch-protocol` holds the protocol crate's `catalog`
@@ -240,19 +242,32 @@ fn check_fails_after_a_type_change_that_was_not_regenerated(
 }
 
 /// The Feature inventory follows the stories and rows files it reads, as it
-/// follows the types (ADR 0072).
+/// follows the types (ADR 0072), and the skew jobs their checks (ADR 0066).
 /// Covers: story:1-57
 #[rstest]
+#[case::skew_check_given_another_estimate(
+    "compat/skew-checks.toml",
+    "minutes = 8",
+    "minutes = 9",
+    SKEW_JOBS
+)]
 #[case::story_added(
     "features/stories/1.toml",
     "not_journey = \"actor\"\nstatus = \"active\"\n",
-    "not_journey = \"actor\"\nstatus = \"active\"\n\n[[story]]\nid = 3\ntitle = \"A new story.\"\nmilestone = \"M1 Core\"\njourney = true\nstatus = \"active\"\n"
+    "not_journey = \"actor\"\nstatus = \"active\"\n\n[[story]]\nid = 3\ntitle = \"A new story.\"\nmilestone = \"M1 Core\"\njourney = true\nstatus = \"active\"\n",
+    "features/inventory.json"
 )]
-#[case::row_given_another_milestone("features/rows.toml", "M1 Core", "M2 Next")]
-fn check_fails_after_a_feature_source_change_that_was_not_regenerated(
+#[case::row_given_another_milestone(
+    "features/rows.toml",
+    "M1 Core",
+    "M2 Next",
+    "features/inventory.json"
+)]
+fn check_fails_after_a_source_file_change_that_was_not_regenerated(
     #[case] source: &str,
     #[case] from: &str,
     #[case] to: &str,
+    #[case] generated: &str,
 ) {
     let workspace = Workspace::from_fixture("codegen");
     workspace.edit(source, from, to);
@@ -261,7 +276,7 @@ fn check_fails_after_a_feature_source_change_that_was_not_regenerated(
 
     assert_eq!(
         outcome.findings(),
-        vec![finding("drift", "features/inventory.json")],
+        vec![finding("drift", generated)],
         "{}",
         outcome.stderr
     );
@@ -329,6 +344,7 @@ fn check_fails_after_a_generator_version_bump_that_was_not_regenerated(
 #[case::stories_schema("features/stories.schema.json", "drift")]
 #[case::journey_schema(JOURNEY_SCHEMA, "drift")]
 #[case::canary_rule(CANARY_RULE, "drift")]
+#[case::skew_jobs(SKEW_JOBS, "drift")]
 fn check_detects_a_hand_edit_under_generated(#[case] path: &str, #[case] kind: &str) {
     let workspace = Workspace::from_fixture("codegen");
     let edited = format!("{}\n", workspace.read_text(path));

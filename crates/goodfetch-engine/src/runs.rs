@@ -91,7 +91,9 @@ use goodfetch_protocol::run::{
 };
 use goodfetch_protocol::secret_reference::SecretReference;
 use goodfetch_protocol::secrets::{RUN_STATE_KEY_REFERENCE, TIMEOUT_SECRET};
-use goodfetch_protocol::security::SECURITY_REDACTION;
+use goodfetch_protocol::security::{
+    SECURITY_FIELD_ENCRYPTION, SECURITY_REDACTION, SECURITY_SECURE_DELETE,
+};
 use goodfetch_protocol::settings::{ExplainedSetting, SettingsLayer, WeakenedSetting};
 use goodfetch_protocol::storage::{SampledFolder, StorageLevel};
 use goodfetch_protocol::usage::{LEDGER_READ_INTERVAL, Limit};
@@ -149,6 +151,7 @@ use crate::ledger::{Allowance, ChargeError, Charged, ChargingParts, RunCharging,
 use crate::local_addresses::{self, Rotation};
 use crate::mask::{Masks, Redaction, Scope};
 use crate::metrics::{FolderStorage, Metrics};
+use crate::plugin_kinds::run_plugins::RunPlugins;
 use crate::politeness::{
     Holder, OnStorageFailures, Politeness, PolitenessError, PolitenessOptions, PolitenessTables,
     RunPoliteness, RunPolitenessParts, SharedPoliteness, SharedPolitenessParts,
@@ -768,11 +771,35 @@ fn storage_low(storage: &RunStorage) -> RunWarning {
     }
 }
 
-/// What a live Run resolves its Secret references through, and its data
-/// key once unwrapped.
+/// What a live Run resolves its Secret references through, its data key
+/// once unwrapped, and whether a field stored unsealed opens in it.
 struct Keys {
     secrets: RunSecrets,
     key: Option<RunKey>,
+    /// Whether the Run lists `security.field_encryption` as weakened, so
+    /// that its fields may be stored unsealed: in any other Run, one is
+    /// refused as a sealed field that does not open is.
+    unsealed_open: bool,
+}
+
+/// A starting or resuming Run's Secret references and data key, before
+/// its settings say whether a field stored unsealed opens in it.
+struct Unlocked {
+    secrets: RunSecrets,
+    key: Option<RunKey>,
+}
+
+impl Unlocked {
+    /// Its keys in a Run whose report lists `weakened` as weakened.
+    fn keys(self, weakened: &[WeakenedSetting]) -> Keys {
+        Keys {
+            secrets: self.secrets,
+            key: self.key,
+            unsealed_open: weakened
+                .iter()
+                .any(|setting| setting.key == SECURITY_FIELD_ENCRYPTION.name),
+        }
+    }
 }
 
 /// A resumed Run's data key, unwrapped, with the wrapped key its file held.
@@ -1233,7 +1260,7 @@ enum Command {
         oneshot::Sender<Result<watch::Receiver<Option<Ended>>, RunError>>,
     ),
     Resume(
-        Box<(Resume, Link, Keys, Option<StoredKey>)>,
+        Box<(Resume, Link, Unlocked, Option<StoredKey>)>,
         Option<ConnectionId>,
         oneshot::Sender<Result<Resumed, RunError>>,
     ),
@@ -1255,6 +1282,7 @@ enum Command {
     Locate(RunId, oneshot::Sender<Result<Option<Located>, RunError>>),
     Index(oneshot::Sender<RunIndex>),
     Discard(RunId, oneshot::Sender<Result<(), RunError>>),
+    Edit(RunId, oneshot::Sender<Result<edit::Editing, RunError>>),
     Discarded(Box<Erased>, oneshot::Sender<Result<(), RunError>>),
     Drain(
         DrainCause,
@@ -1295,7 +1323,8 @@ impl Command {
             | Self::Reader(run_id, _)
             | Self::Progress(run_id, _)
             | Self::Locate(run_id, _)
-            | Self::Discard(run_id, _) => Reach::Run(run_id.clone()),
+            | Self::Discard(run_id, _)
+            | Self::Edit(run_id, _) => Reach::Run(run_id.clone()),
             Self::Outlive(_) => Reach::InOrder,
             Self::Drain(..) | Self::StopAll(..) | Self::StopConnection(..) => Reach::Every,
             Self::Ended(..)
@@ -1491,6 +1520,15 @@ struct Shared {
     /// Its send window, which its commands mark before they go out and
     /// its safe point waits for (ADRs 0106 and 0145).
     send_window: RunSendWindow,
+    /// Its process Plugins, each started as a call first names it, the
+    /// Plugin kinds' module's (ADR 0145).
+    plugins: RunPlugins,
+}
+
+/// The process Plugins of `run`, which start on its owner as its calls
+/// name them: a power of the Run its owner module holds (ADR 0145).
+pub fn plugins(run: &Run) -> &RunPlugins {
+    &run.shared.plugins
 }
 
 /// The Run trace of `run`, whose one writer every entry of the Run goes
@@ -2662,7 +2700,12 @@ impl Runs {
         let (answer, answered) = oneshot::channel();
         self.commands
             .send(Command::Resume(
-                Box::new((resume, Link::to_current(), Keys { secrets, key }, stored)),
+                Box::new((
+                    resume,
+                    Link::to_current(),
+                    Unlocked { secrets, key },
+                    stored,
+                )),
                 self.connection,
                 answer,
             ))
@@ -3078,6 +3121,38 @@ impl Runs {
             .await
             .map_err(|_| RunError::Stopped)?;
         answered.await.map_err(|_| RunError::Stopped)?
+    }
+
+    /// Runs `work`, a person's change, in one transaction of the state of
+    /// the Run `run_id`, which no engine runs (ADR 0031), and answers what
+    /// it answers, as erasing one of its Datasets does: under the Run's
+    /// writer lock and a run epoch of its own, with `secure_delete` on, the
+    /// run file's WAL truncated after, and every Export kept of the Run
+    /// deleted, since one may hold what `work` erased.
+    ///
+    /// # Errors
+    ///
+    /// `Live` when this engine runs it, `Discarding` while it is being
+    /// discarded, `InUse` when another engine holds its writer lock through
+    /// every retry, `NotFound` when no Run has this Run ID, and
+    /// `Unavailable` when its state cannot be written.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future may leave `work` committed and the Exports
+    /// still kept.
+    pub async fn edit<T, F>(&self, run_id: RunId, work: F) -> Result<T, RunError>
+    where
+        T: Send + 'static,
+        F: FnOnce(&rusqlite::Connection) -> rusqlite::Result<T> + Send + 'static,
+    {
+        let (answer, answered) = oneshot::channel();
+        self.commands
+            .send(Command::Edit(run_id, answer))
+            .await
+            .map_err(|_| RunError::Stopped)?;
+        let editing = answered.await.map_err(|_| RunError::Stopped)??;
+        editing.edit(work).await
     }
 
     /// The same Runs, each Run started through them belonging to the
@@ -3889,6 +3964,7 @@ impl Registry {
             Command::Locate(run_id, answer) => _ = answer.send(Ok(self.locate(&run_id))),
             Command::Index(answer) => _ = answer.send(self.setup.engine.run_index().clone()),
             Command::Discard(run_id, answer) => self.discard(run_id, answer),
+            Command::Edit(run_id, answer) => self.edit(run_id, answer),
             Command::Discarded(erased, answer) => self.discarded(*erased, answer),
             Command::Storage(sample) => self.storage(&sample),
             Command::StorageFailed(folder) => self.storage_failed(&folder),
@@ -4401,6 +4477,26 @@ impl Registry {
         });
     }
 
+    /// Answers what a person's write to the state of the Run `run_id`
+    /// needs, which runs beside the registry: a Run this engine runs is
+    /// refused, and so is one being discarded.
+    fn edit(&mut self, run_id: RunId, answer: oneshot::Sender<Result<edit::Editing, RunError>>) {
+        if self.live.contains_key(&run_id) {
+            let _ = answer.send(Err(RunError::Live(run_id)));
+            return;
+        }
+        let editing = edit::Editing {
+            folder: self.folder(&run_id),
+            run_id,
+            run_state: self.setup.run_state.clone(),
+            tables: self.setup.tables.clone(),
+            clock: self.setup.engine.clock(),
+            entropy: self.setup.entropy.fork(),
+            owner: self.for_one_run.child(),
+        };
+        let _ = answer.send(Ok(editing));
+    }
+
     /// Takes the end of a discard: the Run is no longer being discarded,
     /// and once its state is gone the registry forgets its end too.
     fn discarded(&mut self, erased: Erased, answer: oneshot::Sender<Result<(), RunError>>) {
@@ -4432,7 +4528,8 @@ impl Registry {
             | Command::StoredKey(run_id, ..)
             | Command::Reader(run_id, _)
             | Command::Progress(run_id, _)
-            | Command::Locate(run_id, _) => Some(run_id),
+            | Command::Locate(run_id, _)
+            | Command::Edit(run_id, _) => Some(run_id),
             _ => None,
         };
         let Some(run_id) = run_id.filter(|run_id| self.discarding.contains(*run_id)) else {
@@ -4462,18 +4559,23 @@ impl Registry {
             Command::Reader(_, answer) => _ = answer.send(Err(refused())),
             Command::Progress(_, answer) => _ = answer.send(Err(refused())),
             Command::Locate(_, answer) => _ = answer.send(Err(refused())),
+            Command::Edit(_, answer) => _ = answer.send(Err(refused())),
             other => return Some(other),
         }
         None
     }
 
     /// How a Run's run file opens under its `settings`: at the Durability
-    /// level `run_state.durability` names, `full` when it has none.
+    /// level `run_state.durability` names, `full` when it has none, and
+    /// overwriting what it deletes unless `security.secure_delete` is off.
     fn opened_with(&self, settings: Option<&RunSettings>) -> RunStateOptions {
         RunStateOptions {
             durability: durability_of(settings),
             memory_budget: settings.map_or(self.setup.run_state.memory_budget, |settings| {
                 settings.resolved().get(&RUN_STATE_MEMORY_BUDGET)
+            }),
+            secure_delete: settings.map_or(self.setup.run_state.secure_delete, |settings| {
+                settings.resolved().get(&SECURITY_SECURE_DELETE)
             }),
             clock: self.setup.engine.clock(),
             ..self.setup.run_state.clone()
@@ -4781,6 +4883,7 @@ impl Registry {
         let keys = RunKeys::new(KeysParts {
             secrets: keys.secrets,
             key: keys.key,
+            unsealed_open: keys.unsealed_open,
             identity: identity.clone(),
             state: state.clone(),
             settings: self.setup.engine.settings().clone(),
@@ -4825,6 +4928,7 @@ impl Registry {
                 trace,
                 entropy: RunEntropy::new(self.setup.entropy.fork()),
                 send_window,
+                plugins: self.plugins(run_id, &owner),
             }),
             identity,
             state,
@@ -4832,6 +4936,18 @@ impl Registry {
             runs,
         };
         (run, let_finish)
+    }
+
+    /// The process Plugins of the Run `run_id`, started as tasks of its
+    /// `owner` (ADR 0145).
+    fn plugins(&self, run_id: &RunId, owner: &Arc<TaskOwner>) -> RunPlugins {
+        RunPlugins::new(
+            self.setup.engine.home(),
+            self.setup.engine.places().cloned(),
+            self.setup.product,
+            run_id.clone(),
+            Arc::clone(owner),
+        )
     }
 
     /// The progress of the live Run `run_id`, as `start` is, whose every
@@ -5835,6 +5951,7 @@ impl Closing {
 mod beside;
 mod clean_up;
 mod discard;
+mod edit;
 mod end;
 mod ended;
 mod folder;

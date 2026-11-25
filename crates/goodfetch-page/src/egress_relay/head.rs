@@ -1,8 +1,9 @@
 //! A request head the browser sends the egress relay, read within a bound
 //! (STYLE.md: every buffer is bounded): a `CONNECT` to an authority, or an
 //! absolute-form HTTP request (RFC 9112, section 3.2), with the
-//! `Proxy-Authorization` the browser gave, and the head the relay sends
-//! on for it.
+//! `Proxy-Authorization` the browser gave, how its body ends, and the head
+//! the relay sends on for it; and the answer heads a plain request gets,
+//! read for where each answer ends (RFC 9112, section 6.3).
 
 use tokio::io::{AsyncRead, AsyncReadExt as _};
 
@@ -85,10 +86,26 @@ pub(crate) struct Head {
     pub(crate) target: Target,
     /// The `Proxy-Authorization` field's value, if the browser gave one.
     pub(crate) authorization: Option<String>,
+    /// Where a plain request's body ends: none for a tunnel's head.
+    pub(crate) body: Body,
+    /// Whether the browser asked to close its connection after this
+    /// request's answer.
+    pub(crate) closes: bool,
     /// The other fields in the order sent, hop-by-hop ones left out.
     fields: Vec<(String, Vec<u8>)>,
     /// The request's path and query, for a plain request.
     path: String,
+}
+
+/// Where a message's body ends (RFC 9112, section 6.3).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Body {
+    /// After these many bytes: none for zero.
+    Length(u64),
+    /// After its last chunk and its trailer fields.
+    Chunked,
+    /// When its connection closes, which only an answer's may.
+    UntilClose,
 }
 
 /// Why a head was refused.
@@ -96,8 +113,8 @@ pub(crate) struct Head {
 pub(crate) enum Unread {
     /// The connection closed or failed before a whole head came.
     Closed,
-    /// The head is longer than [`HEAD_LIMIT`], or not HTTP/1.1 as the
-    /// relay takes it.
+    /// The head is longer than [`HEAD_LIMIT`], not HTTP/1.1 as the relay
+    /// takes it, or leaves where its body ends in doubt.
     Malformed,
 }
 
@@ -160,16 +177,96 @@ pub(crate) fn parse(buffer: &[u8]) -> Result<Option<(Head, usize)>, Unread> {
             kept.push((field.name.to_owned(), field.value.to_vec()));
         }
     }
+    let (body, closes) = match &target {
+        Target::Tunnel { .. } => (Body::Length(0), false),
+        Target::Absolute { .. } => (
+            request_body(request.headers)?,
+            has_token(request.headers, "connection", "close")
+                || has_token(request.headers, "proxy-connection", "close"),
+        ),
+    };
     Ok(Some((
         Head {
             method,
             target,
             authorization,
+            body,
+            closes,
             fields: kept,
             path,
         },
         length,
     )))
+}
+
+/// Where a request's body ends: in chunks when its last transfer coding is
+/// `chunked`, else after its one `Content-Length`, else none. A request
+/// whose end is in doubt, with both fields, another last coding, `chunked`
+/// twice or lengths that differ, is refused, so no byte of one request is
+/// ever read as the next (RFC 9112, sections 6.1 and 6.3).
+fn request_body(fields: &[httparse::Header<'_>]) -> Result<Body, Unread> {
+    let length = content_length(fields)?;
+    let codings = codings(fields);
+    if codings.is_empty() {
+        return Ok(Body::Length(length.unwrap_or(0)));
+    }
+    let chunked = codings
+        .iter()
+        .filter(|coding| coding.eq_ignore_ascii_case(b"chunked"))
+        .count();
+    let last_chunked = codings
+        .last()
+        .is_some_and(|coding| coding.eq_ignore_ascii_case(b"chunked"));
+    if length.is_some() || chunked != 1 || !last_chunked {
+        return Err(Unread::Malformed);
+    }
+    Ok(Body::Chunked)
+}
+
+/// The one length the `Content-Length` fields give, if any: each value
+/// decimal digits alone, and all of them the same.
+fn content_length(fields: &[httparse::Header<'_>]) -> Result<Option<u64>, Unread> {
+    let mut length = None;
+    for field in fields {
+        if !field.name.eq_ignore_ascii_case("content-length") {
+            continue;
+        }
+        for value in field.value.split(|byte| *byte == b',') {
+            let value = value.trim_ascii();
+            if value.is_empty() || !value.iter().all(u8::is_ascii_digit) {
+                return Err(Unread::Malformed);
+            }
+            let value = std::str::from_utf8(value)
+                .ok()
+                .and_then(|value| value.parse::<u64>().ok())
+                .ok_or(Unread::Malformed)?;
+            if length.is_some_and(|length| length != value) {
+                return Err(Unread::Malformed);
+            }
+            length = Some(value);
+        }
+    }
+    Ok(length)
+}
+
+/// The transfer codings of `fields`, in the order applied.
+fn codings<'a>(fields: &[httparse::Header<'a>]) -> Vec<&'a [u8]> {
+    fields
+        .iter()
+        .filter(|field| field.name.eq_ignore_ascii_case("transfer-encoding"))
+        .flat_map(|field| field.value.split(|byte| *byte == b','))
+        .map(<[u8]>::trim_ascii)
+        .filter(|coding| !coding.is_empty())
+        .collect()
+}
+
+/// Whether a `name` field of `fields` lists `token`.
+fn has_token(fields: &[httparse::Header<'_>], name: &str, token: &str) -> bool {
+    fields
+        .iter()
+        .filter(|field| field.name.eq_ignore_ascii_case(name))
+        .flat_map(|field| field.value.split(|byte| *byte == b','))
+        .any(|listed| listed.trim_ascii().eq_ignore_ascii_case(token.as_bytes()))
 }
 
 /// A `CONNECT`'s authority-form target, `host:port`.
@@ -219,9 +316,7 @@ impl Head {
     /// The head sent on for a plain request: to the site in origin form,
     /// or to an upstream HTTP proxy in absolute form with `authorization`,
     /// its credentials; the hop-by-hop fields left out and nothing added,
-    /// so the site answers it as it answers the browser's own request: the
-    /// egress relay closes the browser's connection after one answer
-    /// instead ([`closing`]).
+    /// so the site answers it as it answers the browser's own request.
     pub(crate) fn as_sent(&self, to_proxy: bool, authorization: Option<&str>) -> Vec<u8> {
         let target = match (&self.target, to_proxy) {
             (Target::Absolute { url, .. }, true) => url.as_str(),
@@ -244,92 +339,65 @@ impl Head {
     }
 }
 
-/// The fields of an answer's head that concern only its connection, which
-/// the relay's own `Connection: close` replaces.
-const CONNECTION_FIELDS: [&str; 3] = ["connection", "keep-alive", "proxy-connection"];
+/// An answer head to a plain request, as the relay reads it to find where
+/// the answer ends; its bytes go to the browser as they came.
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) struct Answered {
+    pub(crate) status: u16,
+    /// The head's length, its blank line included.
+    pub(crate) length: usize,
+    /// Where the answer's body ends.
+    pub(crate) body: Body,
+    /// Whether the site closes the connection after this answer.
+    pub(crate) closes: bool,
+}
 
-/// Reads a site's answer head to a plain request from `stream`, within
-/// [`HEAD_LIMIT`]: the head the browser gets for it, its fields as sent
-/// but those of its connection, and `Connection: close`, so the browser
-/// sends no other request on a connection whose host the relay judged
-/// once; and the bytes that came after it. An interim answer (`1xx`) goes
-/// to the browser as it came, ahead of the final one, and a protocol
-/// switch (`101`) is the last head read.
+/// The answer head `buffer` starts with, if whole, to a `HEAD` request when
+/// `to_head` (RFC 9112, section 6.3): no body after a `HEAD`, an interim
+/// (`1xx`), a `204` or a `304`; chunks when the last transfer coding is
+/// `chunked`; the site's close for another coding; the one
+/// `Content-Length`; else the site's close. An answer whose length is in
+/// doubt is refused, and one with both a coding and a length is read by
+/// its coding and its connection closed after it, as an intermediary must
+/// (RFC 9112, section 6.1).
 ///
 /// # Errors
 ///
-/// [`Unread`] when no whole head came, or one the relay does not read.
-///
-/// # Cancel safety
-///
-/// Not cancel safe: dropping the future loses the bytes read.
-pub(crate) async fn closing(
-    stream: &mut (impl AsyncRead + Unpin),
-) -> Result<(Vec<u8>, Vec<u8>), Unread> {
-    let mut buffer = Vec::with_capacity(1024);
-    let mut chunk = [0; 2048];
-    let mut to_browser = Vec::new();
-    loop {
-        while let Some((status, length)) = answer_head(&buffer)? {
-            let rest = buffer.split_off(length);
-            if (100..200).contains(&status) && status != 101 {
-                to_browser.extend_from_slice(&buffer);
-            } else {
-                to_browser.extend_from_slice(&marked_closing(&buffer));
-                return Ok((to_browser, rest));
-            }
-            buffer = rest;
-        }
-        if buffer.len() >= HEAD_LIMIT {
-            return Err(Unread::Malformed);
-        }
-        let read = stream.read(&mut chunk).await.map_err(|_| Unread::Closed)?;
-        if read == 0 {
-            return Err(Unread::Closed);
-        }
-        buffer.extend_from_slice(&chunk[..read]);
-    }
-}
-
-/// The status and length of the answer head `buffer` starts with, if whole.
-fn answer_head(buffer: &[u8]) -> Result<Option<(u16, usize)>, Unread> {
+/// [`Unread::Malformed`] for a head longer than [`HEAD_LIMIT`], not HTTP,
+/// or whose lengths differ.
+pub(crate) fn answered(buffer: &[u8], to_head: bool) -> Result<Option<Answered>, Unread> {
     let mut fields = [httparse::EMPTY_HEADER; FIELD_LIMIT];
     let mut response = httparse::Response::new(&mut fields);
-    match response.parse(buffer) {
-        Ok(httparse::Status::Complete(length)) if length <= HEAD_LIMIT => {
-            Ok(Some((response.code.ok_or(Unread::Malformed)?, length)))
+    let length = match response.parse(buffer) {
+        Ok(httparse::Status::Complete(length)) if length <= HEAD_LIMIT => length,
+        Ok(httparse::Status::Complete(_)) | Err(_) => return Err(Unread::Malformed),
+        Ok(httparse::Status::Partial) => return Ok(None),
+    };
+    let status = response.code.ok_or(Unread::Malformed)?;
+    let fields = &*response.headers;
+    let mut closes = has_token(fields, "connection", "close")
+        || (response.version == Some(0) && !has_token(fields, "connection", "keep-alive"));
+    let content_length = content_length(fields)?;
+    let codings = codings(fields);
+    let body = if to_head || (100..200).contains(&status) || status == 204 || status == 304 {
+        Body::Length(0)
+    } else if let Some(last) = codings.last() {
+        closes |= content_length.is_some();
+        if last.eq_ignore_ascii_case(b"chunked") {
+            Body::Chunked
+        } else {
+            Body::UntilClose
         }
-        Ok(httparse::Status::Complete(_)) | Err(_) => Err(Unread::Malformed),
-        Ok(httparse::Status::Partial) => Ok(None),
-    }
-}
-
-/// `head`, a whole answer head, its connection's fields left out and
-/// `Connection: close` added; its other lines kept byte for byte.
-fn marked_closing(head: &[u8]) -> Vec<u8> {
-    let mut marked = Vec::with_capacity(head.len() + 19);
-    let mut lines = head.split_inclusive(|byte| *byte == b'\n');
-    if let Some(status) = lines.next() {
-        marked.extend_from_slice(status);
-    }
-    for line in lines {
-        if line == b"\r\n" || line == b"\n" {
-            break;
-        }
-        let name = line
-            .split(|byte| *byte == b':')
-            .next()
-            .unwrap_or_default()
-            .trim_ascii();
-        if !CONNECTION_FIELDS
-            .iter()
-            .any(|field| name.eq_ignore_ascii_case(field.as_bytes()))
-        {
-            marked.extend_from_slice(line);
-        }
-    }
-    marked.extend_from_slice(b"Connection: close\r\n\r\n");
-    marked
+    } else {
+        content_length.map_or(Body::UntilClose, Body::Length)
+    };
+    closes |= body == Body::UntilClose;
+    Ok(Some(Answered {
+        status,
+        length,
+        body,
+        closes,
+    }))
 }
 
 /// An answer head an upstream proxy sent to a `CONNECT`, read within the

@@ -36,6 +36,7 @@ mod cli;
 mod contribution;
 mod endpoint;
 pub mod gcp_sm;
+mod identity;
 pub mod one_password;
 pub mod vault;
 

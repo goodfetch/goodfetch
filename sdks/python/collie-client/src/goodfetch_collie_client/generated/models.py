@@ -16,6 +16,8 @@ from goodfetch_collie_client.generated.open_values import (
     ModelUnavailableReason,
     NotAddedReason,
     ReportedHookStage,
+    ScheduleState,
+    TriggerInvalidReason,
     Verdict,
 )
 from goodfetch_collie_client.point_in_time import PointInTime
@@ -1107,6 +1109,25 @@ class Evaluated(BaseModel):
     """The result as JSON; absent when it was `undefined`."""
 
 
+class EveryTrigger(BaseModel):
+    """
+    A fixed interval: an occurrence every `every` milliseconds from the
+    anchor.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+        arbitrary_types_allowed=True,
+    )
+    anchor: PointInTime | None = None
+    """
+    The instant the intervals count from; the Schedule's creation when
+    absent.
+    """
+    every: Annotated[int, Field(ge=0)]
+    """The interval, in milliseconds, at least 1."""
+
+
 class ExecutableBlockedBySmartAppControlDetails(BaseModel):
     """What `executable_blocked_by_smart_app_control` details."""
 
@@ -1115,6 +1136,63 @@ class ExecutableBlockedBySmartAppControlDetails(BaseModel):
     )
     file: str
     """The path of the file Windows refused to start."""
+
+
+class ExtractContentParams(BaseModel):
+    """
+    What `extract.content` reads a page's main content from: the document
+    the page holds, after the Clean-up rules, and the URL it came from.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    html: str
+    """The page's document, serialized as HTML."""
+    url: str
+    """The page's URL, which its relative links resolve against."""
+
+
+class ExtractContentResult(BaseModel):
+    """
+    A page's main content, as an Extractor read it. Everything in it is
+    page content (ADR 0014): it reaches a model only marked as such.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    markdown: str
+    """The main content as Markdown."""
+    metadata: dict[str, str]
+    """
+    What the Extractor read about the page, such as its author or its
+    date, each a text under its `snake_case` name.
+    """
+    text: str
+    """The main content as plain text."""
+    title: str | None = None
+    """The main content's title, when the Extractor found one."""
+
+
+class ExtractHandlerFailedDetails(BaseModel):
+    """What `extract_handler_failed` details."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    extractor: str
+    """The Extractor, as `content.extractor` names it."""
+
+
+class ExtractorUnavailableDetails(BaseModel):
+    """What `extractor_unavailable` details."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    extractor: str
+    """The Extractor, as `content.extractor` names it."""
 
 
 class FetchTier(StrEnum):
@@ -2607,6 +2685,14 @@ class PeriodLength(StrEnum):
     """From the first day's midnight to the next month's."""
 
 
+class PersonRequiredDetails(BaseModel):
+    """What `person_required` details."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+
+
 class Phone(BaseModel):
     """A telephone number the page shows."""
 
@@ -2670,6 +2756,23 @@ class PluginRun(BaseModel):
     """Its name."""
     network_level: str
     """The network level it ran at."""
+
+
+class PluginUsage(BaseModel):
+    """
+    What a Run's calls into one implementation of a Plugin kind used: its
+    `plugin_calls` and `plugin_time` (ADR 0033).
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    calls: Annotated[int, Field(ge=0)]
+    """The calls made into it, failed ones included."""
+    plugin: str
+    """The implementation's name, as the setting that chose it names it."""
+    time: Annotated[int, Field(ge=0)]
+    """The time those calls took, in milliseconds."""
 
 
 class PolicyConflictDetails(BaseModel):
@@ -2928,6 +3031,40 @@ class Reached(BaseModel):
     model_config = ConfigDict(
         extra="allow",
     )
+
+
+class RecipeInvalidDetails(BaseModel):
+    """What `recipe_invalid` details."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    field: str
+    """
+    The field, dotted from the manifest's root such as `entry.program`,
+    or the package's path of a file it refuses.
+    """
+    reason: str
+    """What is wrong with it."""
+
+
+class RecipeTarget(BaseModel):
+    """A Recipe a Schedule starts."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    inputs: dict[str, Any] | None = None
+    """Its inputs, by name."""
+    recipe: str
+    """The Recipe: published, by its digest, or local, by its path."""
+    settings: dict[str, Any] | None = None
+    """The run's settings, by key."""
+    timeout: Annotated[int | None, Field(ge=0)] = None
+    """
+    The run's `timeout.run`, in milliseconds, at least 1: absent for
+    the setting's value, `null` for none (ADR 0080).
+    """
 
 
 class RecordingMode(StrEnum):
@@ -3672,6 +3809,26 @@ class RunStopParams(BaseModel):
     """
 
 
+class RunTarget(BaseModel):
+    """A code-free catalog run a Schedule starts."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    run: dict[str, Any]
+    """
+    The run's own start parameters, as its kind defines them, without
+    its Run ID, labels and Limits.
+    """
+    settings: dict[str, Any] | None = None
+    """The run's settings, by key."""
+    timeout: Annotated[int | None, Field(ge=0)] = None
+    """
+    The run's `timeout.run`, in milliseconds, at least 1: absent for
+    the setting's value, `null` for none (ADR 0080).
+    """
+
+
 class RunTargetUnbuiltDetails(BaseModel):
     """What `run_target_unbuilt`'s details hold."""
 
@@ -3806,6 +3963,107 @@ class SandboxEnvironment(StrEnum):
     A refusal the probe does not recognise, such as
     `user.max_user_namespaces` at 0; the message names what it met.
     """
+
+
+class ScheduleDeleted(BaseModel):
+    """What `schedule.delete` answers."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    deleted: bool
+    """
+    Whether it deleted the Schedule: false when the store held none of
+    that ID, as after a resent delete.
+    """
+
+
+class ScheduleId(RootModel[str]):
+    root: Annotated[str, Field(pattern="^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$")]
+    """A Schedule ID (ADR 0036): lowercase letters, digits and `-`, at most 63, starting and ending with a letter or a digit."""
+
+
+class ScheduleListParams(BaseModel):
+    """What `schedule.list` takes."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    timeout: Annotated[int | None, Field(ge=0)] = None
+    """
+    How long the call may take, in milliseconds, at least 1: absent for
+    `timeout.wait`, `null` for none (ADR 0080).
+    """
+
+
+class ScheduleNotFoundDetails(BaseModel):
+    """What `schedule_not_found` details."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    schedule_id: ScheduleId
+    """The Schedule ID."""
+
+
+class ScheduleParams(BaseModel):
+    """What `schedule.info` and `schedule.delete` take: the Schedule."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    schedule_id: ScheduleId
+    """The Schedule's ID."""
+    timeout: Annotated[int | None, Field(ge=0)] = None
+    """
+    How long the call may take, in milliseconds, at least 1: absent for
+    `timeout.wait`, `null` for none (ADR 0080).
+    """
+
+
+class ScheduleTarget(RootModel[RecipeTarget | RunTarget]):
+    root: RecipeTarget | RunTarget
+    """
+    What a Schedule starts: a Recipe with its inputs, or a code-free
+    catalog run by its own start parameters, each with the run's settings
+    and timeout (ADRs 0036 and 0080). The scheduler sets the run's ID,
+    labels and Limits.
+    """
+
+
+class ScheduleTrigger(RootModel[EveryTrigger]):
+    root: EveryTrigger
+    """When a Schedule's occurrences fall (ADR 0036)."""
+
+
+class ScheduleTriggerInvalidDetails(BaseModel):
+    """What `schedule_trigger_invalid` details."""
+
+    model_config = ConfigDict(
+        extra="allow",
+        arbitrary_types_allowed=True,
+    )
+    expression: str
+    """The trigger's expression, as given."""
+    position: Annotated[int, Field(ge=0)]
+    """The character of the expression where it stops reading, from 0."""
+    reason: TriggerInvalidReason
+    """Why."""
+
+
+class ScheduleWarning(BaseModel):
+    """
+    Something about a created Schedule its program should know, which did
+    not stop its creation.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    kind: str
+    """What it is about, such as `env_unresolved`."""
+    message: str
+    """What it says, in the engine's English."""
 
 
 class SchemaValidatorFailedDetails(BaseModel):
@@ -3950,6 +4208,48 @@ class SessionEventName(StrEnum):
 
     page = "page"
     """`session.page`."""
+
+
+class SessionExportFailure(StrEnum):
+    """
+    Why a session export bundle did not open, which
+    `session_export_open_failed` carries.
+    """
+
+    wrong_key = "wrong_key"
+    """
+    The key's value opens none of the bundle's recipients: another age
+    identity, or a wrong passphrase.
+    """
+    not_an_identity = "not_an_identity"
+    """
+    The bundle was sealed to a public key, and the key's value is no age
+    identity (`AGE-SECRET-KEY-1…`).
+    """
+    not_a_bundle = "not_a_bundle"
+    """
+    The file is no age file, or what it holds is no session export:
+    truncated, changed, or another format.
+    """
+    excessive_work = "excessive_work"
+    """
+    The bundle's passphrase asks more scrypt work than the engine does
+    for an import.
+    """
+    too_large = "too_large"
+    """What the bundle holds is larger than the engine reads."""
+
+
+class SessionExportOpenFailedDetails(BaseModel):
+    """What `session_export_open_failed` details."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    failure: SessionExportFailure
+    """What failed."""
+    reference: str
+    """The Secret reference given as the bundle's key."""
 
 
 class SessionId(RootModel[str]):
@@ -5727,6 +6027,12 @@ class DaemonState(BaseModel):
     model_config = ConfigDict(
         extra="allow",
     )
+    accounts: bool | None = False
+    """
+    Whether it has accounts (`accounts.enabled`, ADR 0149): its Accounts
+    store is open. Without, its person is the OS user, on its own
+    machine only, as with a Daemon that does not say.
+    """
     clients: Annotated[int, Field(ge=0)]
     """How many Clients are connected, the caller included."""
     endpoint: DaemonEndpoint
@@ -7592,6 +7898,97 @@ class RunStorage(BaseModel):
     """The level."""
 
 
+class ScheduleCreated(BaseModel):
+    """What `schedule.create` answers."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    schedule_id: ScheduleId
+    """The Schedule's ID, as given or made."""
+    warnings: list[ScheduleWarning]
+    """What its program should know."""
+
+
+class ScheduleDefinition(BaseModel):
+    """What a Schedule is, as a program writes it."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    id: ScheduleId | None = None
+    """Its ID; one is made when absent: `s` and a lowercase ULID."""
+    target: ScheduleTarget
+    """What it starts."""
+    time_zone: str | None = None
+    """
+    The IANA time zone its triggers read, such as `Europe/Paris`; the
+    Daemon host's when absent, never "local".
+    """
+    trigger: ScheduleTrigger
+    """When."""
+
+
+class ScheduleExistsDetails(BaseModel):
+    """What `schedule_exists` details."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    schedule_id: ScheduleId
+    """The Schedule ID."""
+
+
+class ScheduleGetParams(BaseModel):
+    """What `schedule.get` takes."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    id: ScheduleId
+    """The Schedule's ID."""
+    timeout: Annotated[int | None, Field(ge=0)] = None
+    """
+    How long the call may take, in milliseconds, at least 1: absent for
+    `timeout.wait`, `null` for none (ADR 0080).
+    """
+
+
+class ScheduleInfo(BaseModel):
+    """A Schedule as its store holds it."""
+
+    model_config = ConfigDict(
+        extra="allow",
+        arbitrary_types_allowed=True,
+    )
+    created_at: PointInTime
+    """When it was created."""
+    creator: str
+    """The person who created it, for whom its occurrences fire."""
+    schedule_id: ScheduleId
+    """Its ID."""
+    state: ScheduleState
+    """Whether it fires."""
+    target: ScheduleTarget
+    """What it starts, as given."""
+    time_zone: str
+    """The IANA time zone its triggers read."""
+    trigger: ScheduleTrigger
+    """When."""
+    version: Annotated[int, Field(ge=0)]
+    """Its definition's version: 1 at creation, one more at each edit."""
+
+
+class ScheduleList(BaseModel):
+    """What `schedule.list` answers."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    schedules: list[ScheduleInfo]
+    """Every Schedule of the store, by ID."""
+
+
 class SecretInputRefusedDetails(BaseModel):
     """What `secret_input_refused` details."""
 
@@ -7665,7 +8062,10 @@ class SessionSource2(BaseModel):
     format: StateFileFormat | None = None
     """Its format, detected when left out."""
     key: str | None = None
-    """The Secret reference that opens a session export bundle."""
+    """
+    The Secret reference that opens a session export bundle: its
+    age identity or its passphrase, never the value itself.
+    """
     kind: Literal["state_file"]
     path: str
     """The file."""
@@ -9041,6 +9441,11 @@ class RunUsage(BaseModel):
     """Its Paid fetches, by currency (ADR 0045)."""
     paid_solves: list[UsageAmount] | None = None
     """Its paid solves, by currency (ADR 0035)."""
+    plugins: list[PluginUsage] | None = None
+    """
+    Its calls into Plugin kinds' implementations, of every form, and the
+    time they took, by implementation (ADR 0033), in name order.
+    """
     proxy_bytes: Annotated[int, Field(ge=0)]
     """The bytes it sent and received through a proxy."""
     proxy_bytes_by_kind: list[ProxyKindBytes] | None = None
@@ -9059,6 +9464,21 @@ class RunUsage(BaseModel):
     """
     Whether it spent, or reserved, money in a currency no Limit holding
     it caps (ADR 0041): *uncapped*.
+    """
+
+
+class ScheduleCreateParams(BaseModel):
+    """What `schedule.create` takes."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    definition: ScheduleDefinition
+    """The Schedule."""
+    timeout: Annotated[int | None, Field(ge=0)] = None
+    """
+    How long the call may take, in milliseconds, at least 1: absent for
+    `timeout.wait`, `null` for none (ADR 0080).
     """
 
 

@@ -91,6 +91,7 @@ pub(crate) fn commit_all(values: Vec<Value>) -> Connection {
                 provenance: &provenance,
                 masks: &masks,
                 work: &goodfetch_counted_work::CountedWork::default(),
+                index: true,
             },
             &checked,
         )

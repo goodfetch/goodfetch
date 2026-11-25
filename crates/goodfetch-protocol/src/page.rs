@@ -33,6 +33,7 @@ use std::time::SystemTime;
 
 use std::borrow::Cow;
 use std::collections::BTreeMap;
+use std::fmt;
 
 use schemars::generate::SchemaSettings;
 use schemars::{JsonSchema, Schema, SchemaGenerator, json_schema};
@@ -43,7 +44,7 @@ use crate::block::BlockCause;
 use crate::catalog::{
     Authority, Entries, ErrorCodeDefinition, ErrorGroup, Event, EventClass, Operation,
     OperationClass, OperationKind, ProtocolVersion, Reach, Setting, Stability, ValueKind,
-    schema_of,
+    ValueShape, schema_of,
 };
 use crate::jsonrpc::{ErrorData, RequestId};
 use crate::run::RunId;
@@ -1139,15 +1140,138 @@ fn allow() -> serde_json::Value {
     serde_json::Value::String("allow".to_owned())
 }
 
-/// The values of `content.extractor`: the built-in main-content steps
-/// (ADR 0007).
+/// The built-in main-content steps (ADR 0007), which `content.extractor`
+/// names beside the installed Extractor Plugins.
 pub const CONTENT_EXTRACTORS: &[&str] = &["dom_smoothie", "trafilatura"];
 
-/// `content.extractor` (ADRs 0007, 0083 and 0104; spec #580).
+/// A value of `content.extractor`: the name of a built-in main-content
+/// step or of an Extractor, one namespace (spec #596), which names a
+/// folder of the Plugin store, so it holds no path.
+pub const EXTRACTOR_NAME_SHAPE: ValueShape = ValueShape {
+    name: "ExtractorName",
+    check: |value| match value.as_str() {
+        Some(name) => ExtractorName::new(name)
+            .map(drop)
+            .map_err(|error| error.to_string()),
+        None => Err("is no text".to_owned()),
+    },
+    schema: || {
+        // No path separator or control character, as `ExtractorName::new`.
+        let others = r"/\\\u0000-\u001f\u007f-\u009f";
+        serde_json::json!({
+            "type": "string",
+            "minLength": 1,
+            "pattern": format!(r"^([^{others}.][^{others}]*|\.[^{others}.][^{others}]*|\.\.[^{others}]+)$"),
+            "description": "A built-in main-content step, `dom_smoothie` or `trafilatura`, or an installed Extractor Plugin's name.",
+        })
+    },
+    examples: || {
+        vec![
+            serde_json::json!("dom_smoothie"),
+            serde_json::json!("trafilatura"),
+        ]
+    },
+};
+
+/// The name of an Extractor, the value of `content.extractor`
+/// ([`EXTRACTOR_NAME_SHAPE`]): a built-in main-content step's, as
+/// [`ExtractorName::DOM_SMOOTHIE`], or an installed Extractor Plugin's.
+/// It is text, neither `.` nor `..`, with no path separator or control
+/// character, since it names a folder of the Plugin store.
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[serde(try_from = "String", into = "String")]
+pub struct ExtractorName(Cow<'static, str>);
+
+impl ExtractorName {
+    /// dom-smoothie, Readability's algorithm: the default.
+    pub const DOM_SMOOTHIE: Self = Self(Cow::Borrowed("dom_smoothie"));
+    /// rs-trafilatura, the trafilatura port.
+    pub const TRAFILATURA: Self = Self(Cow::Borrowed("trafilatura"));
+
+    /// `name` as an Extractor's name.
+    ///
+    /// # Errors
+    ///
+    /// [`NoExtractorName`] when `name` is empty, `.` or `..`, or holds a
+    /// path separator or a control character.
+    pub fn new(name: impl Into<String>) -> Result<Self, NoExtractorName> {
+        let name = name.into();
+        let holds_no_path = !name.is_empty()
+            && name != "."
+            && name != ".."
+            && !name
+                .chars()
+                .any(|character| matches!(character, '/' | '\\') || character.is_control());
+        if holds_no_path {
+            Ok(Self(Cow::Owned(name)))
+        } else {
+            Err(NoExtractorName(name))
+        }
+    }
+
+    /// The name, as `content.extractor` spells it.
+    #[must_use]
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl fmt::Display for ExtractorName {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(&self.0)
+    }
+}
+
+impl std::str::FromStr for ExtractorName {
+    type Err = NoExtractorName;
+
+    fn from_str(name: &str) -> Result<Self, Self::Err> {
+        Self::new(name)
+    }
+}
+
+impl TryFrom<String> for ExtractorName {
+    type Error = NoExtractorName;
+
+    fn try_from(name: String) -> Result<Self, Self::Error> {
+        Self::new(name)
+    }
+}
+
+impl From<ExtractorName> for String {
+    fn from(name: ExtractorName) -> Self {
+        name.0.into_owned()
+    }
+}
+
+impl crate::catalog::SettingJson for ExtractorName {
+    fn into_setting_json(self) -> serde_json::Value {
+        serde_json::Value::String(self.into())
+    }
+}
+
+/// Text that names no Extractor ([`ExtractorName::new`]), which it holds.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct NoExtractorName(pub String);
+
+impl fmt::Display for NoExtractorName {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            formatter,
+            "`{}` is no Extractor's name: give a built-in one, {}, or an installed Plugin's, with no path in it",
+            self.0,
+            CONTENT_EXTRACTORS.join(", ")
+        )
+    }
+}
+
+impl std::error::Error for NoExtractorName {}
+
+/// `content.extractor` (ADRs 0007, 0083 and 0104; specs #580 and #596).
 pub const CONTENT_EXTRACTOR: Setting = Setting {
     name: "content.extractor",
-    description: "The main-content step `page.formats` reads a page's main content with, before its Markdown, its main HTML and its text: `dom_smoothie` (the default), Readability's algorithm, or `trafilatura`, the rs-trafilatura port. A step that finds no text in a document holding text outside its navigation landmarks answers that text. Set at any scope down to a page: a Run, a Session's or a page's own `settings`.",
-    kind: ValueKind::Choice(CONTENT_EXTRACTORS),
+    description: "The main-content step `page.formats` reads a page's main content with, before its Markdown and its text: `dom_smoothie` (the default), Readability's algorithm, `trafilatura`, the rs-trafilatura port, or the name of an installed Extractor Plugin. A built-in step that finds no text in a document holding text outside its navigation landmarks answers that text. An Extractor Plugin reads the page as the Clean-up rules left it and answers its Markdown and its text; it has no main HTML. Set at any scope down to a page: a Run, a Session's or a page's own `settings`. A Session or a page naming no built-in and no installed Extractor is refused; a Run's name is checked as its page reads with it.",
+    kind: ValueKind::Shape(&EXTRACTOR_NAME_SHAPE),
     default: dom_smoothie,
     clearable: false,
     authority: Authority::Every,

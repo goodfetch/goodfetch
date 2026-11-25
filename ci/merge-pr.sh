@@ -23,10 +23,8 @@
 #     sub-issue once the issues the pull request closes are closed, as one
 #     GitHub query reads them; `just pre-merge quick` on every other pull
 #     request, an unfinished spec's included.
-# On a batch's or a spec's pull request from this repository, the gate first
-# waits for the hosted tier's run on its head and reuses the green units of
-# that run and of the runs on its ancestors (ci/hosted-records.sh, ADR 0135's
-# amendment of 2026-11-22); a red one ends the gate red.
+# Every gate runs all its units on the gate host: it reads no hosted run of
+# the pull-request workflow (ADR 0135's note of 2026-11-25).
 # The gate's log and the merge's message name the gate that ran and why, and
 # a quick merge of a change a test reads says what it did not run. First the
 # merge cap (ci/merge-cap.sh) refuses once 10 merges have
@@ -248,9 +246,9 @@ JQ
 # the gate commits and gates (merge_the_bases_tip); one that holds it leaves
 # it empty.
 read_pull_request() {
-  IFS=$'\t' read -r state draft fork head base branch title < <(
-    gh pr view "$number" --json state,isDraft,isCrossRepository,headRefOid,baseRefName,headRefName,title \
-      --jq '[.state, (.isDraft | tostring), (.isCrossRepository | tostring), .headRefOid, .baseRefName, .headRefName, .title] | @tsv'
+  IFS=$'\t' read -r state draft head base branch title < <(
+    gh pr view "$number" --json state,isDraft,headRefOid,baseRefName,headRefName,title \
+      --jq '[.state, (.isDraft | tostring), .headRefOid, .baseRefName, .headRefName, .title] | @tsv'
   )
   if [[ $state != OPEN ]]; then
     echo "error: pull request #$number is $state, not open" >&2
@@ -455,33 +453,9 @@ else
   ran="\`just pre-merge quick\` (a test reads the change, and the full gate runs only once per finished spec, on the pull request of its \`spec/<n>\` branch that leaves none of its sub-issues open;${not_finished:+ $not_finished;} the Pre-merge suite, perf, the stress run, the visual tests, the Linux-only tests and the full gate's other steps did not run)"
 fi
 echo "The gate is ${ran%,}"
-# The hosted tier (ADR 0135's amendment of 2026-11-22) runs a batch's or a
-# spec's pull request's hosted-owned units, lint, the Quick suite, the
-# Journey task lists and xtask's codegen tests, on GitHub's standard runners,
-# a batch's Pre-merge suite too, and on the pull request that finishes a spec
-# the full form's (#3382): the proofs, the visual tests, the Pre-merge suite,
-# the feature tests, the Kennel's check and the MSRV build.
-# The gate waits for the run on its head and reads the records of the runs
-# on it and its ancestors (ci/hosted-records.sh): the plan reuses their green
-# units, and a red one ends the gate red. A fork's runs are never read, and
-# the documents' gate runs none of those units.
-hosted_records=""
-repository=""
-if [[ $gate == docs ]]; then
-  :
-elif [[ $fork == true ]]; then
-  echo "No hosted run serves this gate: pull request #$number comes from a fork, whose hosted runs the gate never reads"
-elif [[ ! $branch =~ ^(batch/.+|spec/[0-9]+)$ ]]; then
-  echo "No hosted run serves this gate: the hosted tier runs a batch's or a spec's pull request, and #$number is from $branch"
-elif ! repository=$(gh api 'repos/{owner}/{repo}' --jq .full_name) || [[ -z $repository ]]; then
-  echo "warning: GitHub did not name this repository, so no hosted run serves this gate: it runs every unit no local record holds" >&2
-else
-  hosted_records=$worktree/target/hosted-records
-  if ! (cd "$worktree" && "$here/hosted-records.sh" await "$repository" "$head" "origin/$base" "$branch" "$hosted_records"); then
-    keep_failed_gate
-    exit 1
-  fi
-fi
+# The gate runs every unit itself: it neither waits for, nor reads, nor
+# cancels the pull-request workflow's hosted runs (ADR 0135's note of
+# 2026-11-25, the owner's « Fais-les en local, arrête le truc GitHub »).
 echo "Running the local gate ($gate) on #$number at $head in $worktree"
 started=$(date -u +%s)
 status=0
@@ -495,9 +469,6 @@ set -m
 (
   trap 'exit 143' TERM
   cd "$worktree"
-  if [[ -n $hosted_records ]]; then
-    export GOODFETCH_GATE_HOSTED_RECORDS=$hosted_records GOODFETCH_GATE_REPOSITORY=$repository
-  fi
   # Before any build: whether the gate's checkout reuses the C and C++
   # objects other checkouts compiled (TESTING.md, Compiler cache); a gap
   # fails the gate.

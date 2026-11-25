@@ -241,7 +241,7 @@ const WHOLE_RUN: &str = "counts::main";
 /// channel that hands it over, and the Connection's mask pass.
 const WIRE: [&str; 11] = [
     "<goodfetch_engine::rpc::connection::Reading>::read::{closure#0}",
-    "goodfetch_engine::rpc::framing::decode",
+    "goodfetch_engine::framing::decode",
     "<goodfetch_engine::composition::params::Params>::read::<*>",
     "goodfetch_fetch_tier::tiers::calls::encoded::<*>",
     "goodfetch_engine::wire::success_line::<*>",

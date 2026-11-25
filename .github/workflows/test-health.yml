@@ -3,8 +3,9 @@
 #
 # - the daily test-health job, on `main`'s head, 15 minutes in all: the 10
 #   oldest quarantined tests 50 times each (`quarantined`), then the scan of
-#   the results store, the drift check of `xtask perf` (ADR 0071) and the
-#   Allure Report 3 build from it (`report`). The Feature report (ADR 0072)
+#   the results store, the drift check of `xtask perf` (ADR 0071), the model
+#   manifest's retirement check (ADR 0065) and the Allure Report 3 build from
+#   the store (`report`). The Feature report (ADR 0072)
 #   and the Journey report (ADR 0063) with the next owner test's "Journeys to
 #   try" are `just reports`, which the server's cron runs daily and which
 #   writes them into the results store (ADR 0135).
@@ -115,17 +116,18 @@ jobs:
     permissions:
       contents: read
       # The scan opens and reopens flaky-test and live-check issues, and the
-      # drift check needs-triage ones.
+      # drift and model checks needs-triage ones.
       issues: write
-      # Both find the pull request that added a test or a benchmark (ADR 0136).
+      # Each finds the pull request that added a test, a benchmark or a
+      # model (ADR 0136).
       pull-requests: read
     steps:
       - name: Check out main's head
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: main
-          # Both find the commit that added a test or a benchmark in the whole
-          # history.
+          # Each finds the commit that added a test, a benchmark or a model in
+          # the whole history.
           fetch-depth: 0
           persist-credentials: false
       - name: Check out the results store
@@ -153,6 +155,15 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
         run: >-
           cargo run --quiet --locked --bin xtask -- perf drift --store test-results
+          --repository "$GITHUB_REPOSITORY"
+      # ADR 0065: a model the manifest pins, from 30 days before the
+      # retirement its provider announced.
+      - name: Check the model manifest for retirements
+        if: always()
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: >-
+          cargo run --quiet --locked --bin xtask -- models check
           --repository "$GITHUB_REPOSITORY"
       - name: Build the Allure report from the store
         if: always()

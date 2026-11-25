@@ -1,0 +1,165 @@
+{
+  "name": "response-cache",
+  "schema": {
+    "$defs": {
+      "ResponseCacheEntry": {
+        "additionalProperties": false,
+        "description": "One entry of the Response cache's index, as its rows hold it (ADR\n0046): the request it answers, the response's head, where its body\nlies and which Run fetched it.",
+        "properties": {
+          "body_sha256": {
+            "arrived_in": "0.1",
+            "description": "The SHA-256 of its body, as lower-case hex: the name of its body\nfile.",
+            "type": "string"
+          },
+          "body_size": {
+            "arrived_in": "0.1",
+            "description": "Its body's length in bytes.",
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "country": {
+            "arrived_in": "0.1",
+            "description": "The proxy's exit country it was fetched through, as the Proxy\ndeclares it; empty when it left directly or the Proxy declares none.",
+            "type": "string"
+          },
+          "device": {
+            "arrived_in": "0.1",
+            "description": "The Identity profile's device class it was fetched with, `desktop`\nor `mobile`; empty without one.",
+            "type": "string"
+          },
+          "fetched_at": {
+            "arrived_in": "0.1",
+            "description": "When the response was received, which its freshness counts from.",
+            "format": "date-time",
+            "type": "string"
+          },
+          "language": {
+            "arrived_in": "0.1",
+            "description": "The Identity profile's language it was fetched with; empty without\none.",
+            "type": "string"
+          },
+          "method": {
+            "arrived_in": "0.1",
+            "description": "The request's method.",
+            "type": "string"
+          },
+          "partition": {
+            "arrived_in": "0.1",
+            "description": "Its partition: `public` for a response sent with no cookie or\ncredential, which set no cookie and is not `private`.",
+            "type": "string"
+          },
+          "person": {
+            "arrived_in": "0.1",
+            "description": "The person it was fetched for, on a shared Daemon the partition's\nperson (ADR 0031).",
+            "type": "string"
+          },
+          "replay_key": {
+            "arrived_in": "0.1",
+            "description": "The SHA-256 of the request's canonical body, as lower-case hex, for\nan entry `replay` stored; empty for one `revalidate` stored.",
+            "type": "string"
+          },
+          "request_headers": {
+            "arrived_in": "0.1",
+            "description": "The request headers the response's `Vary` names, and the request's\n`host`, as the request sent them: names in lower case.",
+            "items": {
+              "maxItems": 2,
+              "minItems": 2,
+              "prefixItems": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "string"
+                }
+              ],
+              "type": "array"
+            },
+            "type": "array"
+          },
+          "response_headers": {
+            "arrived_in": "0.1",
+            "description": "The response's headers, names in lower case, in the order received.",
+            "items": {
+              "maxItems": 2,
+              "minItems": 2,
+              "prefixItems": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "string"
+                }
+              ],
+              "type": "array"
+            },
+            "type": "array"
+          },
+          "run_id": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/RunId"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "arrived_in": "0.1",
+            "description": "The Run that fetched it; none outside a Run."
+          },
+          "status": {
+            "arrived_in": "0.1",
+            "description": "The response's status.",
+            "format": "uint16",
+            "maximum": 65535,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "url": {
+            "arrived_in": "0.1",
+            "description": "The request's URL, without its fragment.",
+            "type": "string"
+          },
+          "used_at": {
+            "arrived_in": "0.1",
+            "description": "When it was last stored or served.",
+            "format": "date-time",
+            "type": "string"
+          },
+          "vary_key": {
+            "arrived_in": "0.1",
+            "description": "The SHA-256 of the request headers the response's `Vary` names, as\nlower-case hex: the variant of the URL it answers.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "partition",
+          "person",
+          "country",
+          "language",
+          "device",
+          "method",
+          "url",
+          "vary_key",
+          "replay_key",
+          "request_headers",
+          "status",
+          "response_headers",
+          "fetched_at",
+          "body_sha256",
+          "body_size",
+          "used_at"
+        ],
+        "type": "object"
+      },
+      "RunId": {
+        "description": "A Run ID (ADR 0036): lowercase letters, digits, `.`, `_` and `-`, starting and ending with a letter or a digit, never a name Windows reserves for a device.",
+        "pattern": "^[a-z0-9]([a-z0-9._-]{0,126}[a-z0-9])?$",
+        "type": "string"
+      }
+    },
+    "$ref": "#/$defs/ResponseCacheEntry"
+  },
+  "storage": "sqlite",
+  "version": "0.1"
+}

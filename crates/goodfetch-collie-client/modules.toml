@@ -65,18 +65,22 @@
 # `start_catalog_run`, and the Run it leaves, detached when asked (issue
 # 3396), through `call`'s builder. `run_view` is the view `open_run` opens of
 # a Run another program started, by its Run ID, with no round trip (ADR 0102).
+# `key_value_store` is a Run's Key-value store, reached with no round trip,
+# whose values cross the wire through `schema` (ADRs 0081 and 0103).
 # `testing` is the testing kit's shared part (ADR 0105): the options a
 # Product's test engine starts with, the settings it isolates it with, and
 # what every Product's test engine is.
+# `schedules` is a Connection's Schedules and the answer `create` gives,
+# the blocking face's with its own handle (spec 589).
 [modules]
 ai_work = ["error"]
 answer = []
-blocking = ["answer", "call", "connection", "error", "event_stream", "field_values", "generated", "handlerless", "limits", "raw_call", "response", "run", "run_view", "settings"]
+blocking = ["answer", "call", "connection", "error", "event_stream", "field_values", "generated", "handlerless", "key_value_store", "limits", "raw_call", "response", "run", "run_view", "schedules", "settings"]
 call = ["error", "rpc", "trace_context"]
 call_bounds = ["error"]
 connect_timeout = ["call", "error"]
 connection = ["call", "call_bounds", "connect_timeout", "error", "event_stream", "file_saving", "handler", "listener_queue", "logging", "published", "raw_call", "relink", "rpc", "sync", "trace_context", "transport"]
-connection_type = ["call", "error", "handlerless", "raw_call", "run", "run_view"]
+connection_type = ["call", "error", "handlerless", "raw_call", "run", "run_view", "schedules"]
 error = []
 event_stream = ["error", "published", "rpc", "sync", "trace_context"]
 field_values = ["answer", "call", "error"]
@@ -84,7 +88,8 @@ file_saving = ["error"]
 generated = ["answer", "call", "event_stream", "host", "markers", "response", "settings"]
 handler = ["error", "line", "opening_process", "sync", "write_queue"]
 handlerless = ["call", "connection", "error", "generated", "limits", "markers", "settings"]
-host =["call", "connection", "error", "event_stream", "published", "raw_call", "sync"]
+key_value_store = ["call", "connection", "error", "generated", "host", "markers", "schema"]
+host =["call","connection", "error", "event_stream", "published", "raw_call", "sync"]
 limits = []
 line = []
 listener_queue = ["error"]
@@ -98,6 +103,7 @@ response = ["call", "connection", "error", "host"]
 rpc = ["call_bounds", "error", "handler", "line", "logging", "opening_process", "relink", "trace_context", "transport", "write_queue"]
 run = ["answer", "call", "connection", "error", "event_stream", "generated", "host", "limits", "logging", "markers", "settings", "sync"]
 run_view = ["connection", "error"]
+schedules = ["call", "connection", "generated", "host", "markers"]
 schema = []
 settings = ["call", "error", "markers"]
 sync = []

@@ -12,7 +12,10 @@
 #   - macos-arm64 on `macos-15` and macos-x64 natively on `macos-15-intel`,
 #     on `main` only, with the visual projects in the pinned Playwright image
 #     (ADR 0073) on `ubuntu-24.04` beside them;
-#   - Windows arm64 first runs in the release pipeline's own Release run.
+#   - Windows arm64 first runs in the release pipeline's own Release run;
+#   - linux-x64-gnu also runs the Plugin confinement probes on
+#     `ubuntu-22.04`, whose kernel lacks Landlock ABI 6, under the
+#     PID-namespace mechanism (ADR 0067).
 # A dispatch off `main` runs the other cells alone, on the branch's pushed
 # head. On `main` it tests the commit the `commit` input names, `main`'s
 # head by default, and the `plan` job refuses a commit off `main`'s history
@@ -36,10 +39,11 @@
 # lines with Bun, Deno 2 and free-threaded CPython on the other Linux cells
 # (release-linux), and the same without free-threaded CPython on Windows and
 # macOS (release-other). The suites of other areas (every Sink's suite on
-# Foxhound's executable, browser conformance on Collie's, skew and upgrades
-# from released artifacts, the security suites, the resident-memory
-# ceilings) join each cell as steps, or through
-# `just test release`, as their areas add them.
+# Foxhound's executable, browser conformance on Collie's, upgrades from
+# released artifacts, the security suites, the resident-memory ceilings)
+# join each cell as steps, or through `just test release`, as their areas
+# add them. The skew checks (ADR 0066) are jobs of linux-x64-gnu beside the
+# cell's own, one for each entry of ci/release/skew-jobs.json.
 #
 # A step whose name starts with "Test" is a test step (ADR 0064): a cell
 # with a failed test step in any attempt leaves its commit red. Every job is
@@ -87,6 +91,7 @@ jobs:
       cells: ${{ steps.plan.outputs.cells }}
       linux-x64: ${{ steps.plan.outputs.linux-x64 }}
       linux-arm64: ${{ steps.plan.outputs.linux-arm64 }}
+      skew: ${{ steps.plan.outputs.skew }}
     steps:
       - name: Check out
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -146,6 +151,9 @@ jobs:
       # namespaces, so `DnsNamespace` comes up through `sudo` (ADR 0067);
       # declared, a fallback to another way fails.
       GOODFETCH_TEST_DNS_NAMESPACE: sudo
+      # The image's kernel (7.0) has Landlock ABI 6, which confines a
+      # Plugin alone (issue 813); declared, a fallback fails.
+      GOODFETCH_TEST_CONFINEMENT: landlock
       # xtask's own `dev` build with line tables only, as the `ci-test`
       # profile's: a third less of the runner's disk (3.0 to 2.1 GB).
       CARGO_PROFILE_DEV_DEBUG: line-tables-only
@@ -333,6 +341,93 @@ jobs:
           path: target/release-suite/size-report-*.json
           retention-days: 90
 
+  # The skew jobs the tested commit's ci/release/skew-jobs.json lists, which
+  # `xtask compat jobs` writes (ADR 0066). Each is named as a job of
+  # linux-x64-gnu, so `xtask release-suite` counts it in that cell.
+  skew:
+    name: linux-x64-gnu skew ${{ matrix.job }}
+    needs: plan
+    if: needs.plan.outputs.skew != '[]'
+    runs-on: ubuntu-24.04
+    # ADR 0061's hard cap, which stops a hang: the job `current` took 34
+    # minutes in run 45493008860.
+    timeout-minutes: 90
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        job: ${{ fromJSON(needs.plan.outputs.skew) }}
+    env:
+      JOB: ${{ matrix.job }}
+      # As in the linux-x64 cells.
+      GOODFETCH_TEST_DNS_NAMESPACE: sudo
+      CARGO_PROFILE_DEV_DEBUG: line-tables-only
+    steps:
+      - name: Check out the commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.plan.outputs.commit }}
+          persist-credentials: false
+          # A released minor's Journeys run from its tag's tree.
+          fetch-depth: 0
+      - name: Free the runner's disk
+        run: ci/host/free-disk.sh
+      # Saved by the linux-x64 cells.
+      - name: Read the pinned Chrome for Testing build
+        id: chrome-for-testing
+        run: echo "build=$(jq -r .chrome_for_testing.build crates/goodfetch-collie/src/pins.json)" >>"$GITHUB_OUTPUT"
+      - name: Restore the tests' copy of Chrome for Testing
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/goodfetch/chrome-for-testing
+          key: chrome-for-testing-${{ steps.chrome-for-testing.outputs.build }}-linux64
+      - name: Install the toolchains, tools and runtimes
+        uses: ./.github/actions/host-tools
+        with:
+          target: x86_64-unknown-linux-gnu
+          runtimes: pre-merge
+      - name: Restore the build cache
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          shared-key: release-suite-skew
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - name: Build both executables and fetch the minor's dependencies and executables
+        run: ci/release/skew.sh build "$JOB"
+      - name: Set up the OS services the tests use
+        run: ci/os-services.sh setup
+      - name: Pull the install harness's Alpine image
+        run: ci/alpine/fetch.sh
+      - name: Deny outbound traffic
+        run: ci/egress/egress.sh deny
+      - name: Refuse the Egress canary
+        run: ci/egress/egress.sh canary
+      - name: "Test: the skew job's checks"
+        run: ci/egress/under-deny.sh ci/release/skew.sh run "$JOB"
+      - name: Check that the deny refused nothing else
+        if: always()
+        run: ci/egress/egress.sh check
+      - name: Record the job's context beside its JUnit files
+        if: always()
+        shell: bash
+        run: ci/junit-context.sh
+      - name: Summarize the failed tests
+        if: always()
+        run: ci/junit-summary.sh
+      - name: Scan the job's outputs for secrets before they upload
+        id: leaks
+        if: always()
+        run: ci/leaks.sh target/junit/
+      - name: Upload the JUnit files
+        if: always() && steps.leaks.outcome == 'success'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          # A suite of its own, so a Journey run here is no proof of the
+          # Feature it declares on the cell (xtask's results store).
+          name: junit-skew-dispatch-linux-x64-${{ matrix.job }}-1
+          path: target/junit/
+          if-no-files-found: ignore
+
   linux-arm64:
     name: ${{ matrix.cell }}
     needs: plan
@@ -359,6 +454,9 @@ jobs:
       # namespaces, so `DnsNamespace` comes up through `sudo` (ADR 0067);
       # declared, a fallback to another way fails.
       GOODFETCH_TEST_DNS_NAMESPACE: sudo
+      # The image's kernel (6.14) has Landlock ABI 6, which confines a
+      # Plugin alone (issue 813); declared, a fallback fails.
+      GOODFETCH_TEST_CONFINEMENT: landlock
       # xtask's own `dev` build with line tables only, as the `ci-test`
       # profile's: a third less of the runner's disk (3.0 to 2.1 GB).
       CARGO_PROFILE_DEV_DEBUG: line-tables-only
@@ -461,6 +559,55 @@ jobs:
           name: size-report-${{ steps.size.outputs.tree }}-${{ matrix.target }}
           path: target/release-suite/size-report-*.json
           retention-days: 90
+
+  # The Plugin confinement probes on Ubuntu 22.04's kernel, which lacks
+  # Landlock ABI 6 (ADR 0067; issue 813): goodfetch-confinement's own tests
+  # alone, which must confine with a PID namespace there, beside the linux-x64-gnu cell on `ubuntu-24.04`. It belongs to
+  # that cell's dispatch, whose name it carries, so the verdict counts it
+  # there. Its cargo installs the toolchain rust-toolchain.toml pins, as the
+  # plan job's does.
+  confinement-22-04:
+    name: linux-x64-gnu ubuntu-22.04
+    needs: plan
+    if: contains(fromJSON(needs.plan.outputs.cells), 'linux-x64-gnu')
+    runs-on: ubuntu-22.04
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    steps:
+      - name: Check out the commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.plan.outputs.commit }}
+          persist-credentials: false
+      - name: Build the confinement tests and xtask
+        run: |
+          cargo test --locked -p goodfetch-confinement --test it --no-run
+          cargo build --locked --bin xtask
+      - name: Set up the OS services the tests use
+        run: ci/os-services.sh setup
+      - name: Deny outbound traffic
+        run: ci/egress/egress.sh deny
+      - name: Refuse the Egress canary
+        run: ci/egress/egress.sh canary
+      # Stock Ubuntu 22.04 leaves unprivileged user namespaces open; a newer
+      # kernel's AppArmor may restrict them, where the `goodfetch-sandbox`
+      # helper's profile stands in (ADR 0033). The runner opens them so the
+      # PID-namespace mechanism is the one tested.
+      - name: Allow unprivileged user namespaces
+        run: |
+          if [ -e /proc/sys/kernel/apparmor_restrict_unprivileged_userns ]; then
+            sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          fi
+      - name: "Test: the confinement probes"
+        env:
+          # A kernel before Landlock ABI 6 confines signals with a PID
+          # namespace: a silent fallback to another mechanism fails.
+          GOODFETCH_TEST_CONFINEMENT: pid_namespace
+        run: ci/egress/under-deny.sh cargo test --locked --offline -p goodfetch-confinement --test it
+      - name: Check that the deny refused nothing else
+        if: always()
+        run: ci/egress/egress.sh check
 
   windows-x64:
     name: windows-x64
@@ -858,7 +1005,8 @@ jobs:
   # cells have saved theirs.
   caches:
     name: caches
-    needs: [plan, linux-x64, linux-arm64, windows-x64, macos-arm64, macos-x64, visual, ci-image]
+    needs:
+      [plan, linux-x64, skew, linux-arm64, windows-x64, macos-arm64, macos-x64, visual, ci-image]
     if: "!cancelled() && github.ref == 'refs/heads/main'"
     runs-on: ubuntu-24.04
     timeout-minutes: 5
@@ -895,7 +1043,7 @@ jobs:
   # their verdict as it is.
   budgets:
     name: budgets
-    needs: [plan, linux-x64, linux-arm64, windows-x64, macos-arm64, macos-x64, visual, caches]
+    needs: [plan, linux-x64, skew, linux-arm64, windows-x64, macos-arm64, macos-x64, visual, caches]
     if: "!cancelled()"
     runs-on: ubuntu-24.04
     timeout-minutes: 5

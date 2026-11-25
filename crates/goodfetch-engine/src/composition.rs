@@ -38,6 +38,7 @@ use serde_json::{Map, Value};
 
 use tokio_util::sync::CancellationToken;
 
+use crate::accounts::Principal;
 use crate::admission::Gates;
 use crate::call_error::CallError;
 use crate::client::Client;
@@ -53,6 +54,7 @@ use crate::runs::{CleanUpVersions, Driving, ProgressPart, ReportPart, Run, Runs,
 use crate::secrets::ProviderFactory;
 use crate::settings::RunSettings;
 use crate::staging::{AttemptStaging, AttemptWrites};
+use crate::user_store::UserStoreKind;
 use goodfetch_protocol::run::{RunId, RunKind};
 use goodfetch_protocol::secret_reference::Provider;
 
@@ -99,6 +101,9 @@ pub(crate) struct ConnectionContext {
     pub(crate) identity: Arc<Identity>,
     pub(crate) client: Client,
     pub(crate) surface: OnceLock<Surface>,
+    /// Who it is, resolved at its `hello` from how it reached the engine
+    /// (ADR 0149); set with the surface.
+    pub(crate) principal: OnceLock<Principal>,
     /// The form its `hello` declared, or its surface's (ADR 0099); set
     /// with the surface.
     pub(crate) form: OnceLock<Form>,
@@ -128,6 +133,18 @@ pub(crate) struct ConnectionContext {
     pub(crate) exposed: bool,
     /// The log events the Connection receives, at the level it asks for.
     pub(crate) log: ConnectionLog,
+}
+
+impl ConnectionContext {
+    /// Whether the Connection answers as a person: gives a person-only
+    /// answer and names the person it acts for, from its principal and the
+    /// surface its `hello` claimed (ADR 0149). Before its `hello`, no.
+    pub(crate) fn answers_as_a_person(&self) -> bool {
+        match (self.principal.get(), self.surface.get()) {
+            (Some(principal), Some(surface)) => principal.answers_as_a_person(*surface),
+            _ => false,
+        }
+    }
 }
 
 /// Whether a Client's Connection holds the Daemon it reaches (ADR 0141).
@@ -246,6 +263,12 @@ impl CallContext {
             .get()
             .copied()
             .expect("invariant: a call runs only on a Connection whose `hello` was answered")
+    }
+
+    /// Whether the call's Connection answers as a person: names the person
+    /// it acts for in what it does (ADR 0149).
+    pub(crate) fn answers_as_a_person(&self) -> bool {
+        self.connection.answers_as_a_person()
     }
 
     /// The form the Connection's Client writes names in, which the engine
@@ -643,6 +666,7 @@ pub struct Contribution {
     controls: Vec<(&'static Setting, Recorded)>,
     secret_providers: Vec<(Provider, ProviderFactory)>,
     runs_of_calls: Vec<Arc<dyn RunOfCall>>,
+    user_stores: Vec<&'static UserStoreKind>,
     attempt_stagings: Vec<Arc<dyn AttemptStaging>>,
 }
 
@@ -650,6 +674,7 @@ impl Contribution {
     /// An empty contribution of the crate or concern `name`.
     pub fn new(name: &'static str) -> Self {
         Self {
+            user_stores: Vec::new(),
             secret_providers: Vec::new(),
             runs_of_calls: Vec::new(),
             attempt_stagings: Vec::new(),
@@ -720,6 +745,15 @@ impl Contribution {
     #[must_use]
     pub fn with_secret_provider(mut self, provider: Provider, factory: ProviderFactory) -> Self {
         self.secret_providers.push((provider, factory));
+        self
+    }
+
+    /// The same, keeping the user's store `kind` (ADR 0098), which the
+    /// engine opens in its major's folder and its handlers reach through
+    /// [`EngineContext::user_store`].
+    #[must_use]
+    pub fn with_user_store(mut self, kind: &'static UserStoreKind) -> Self {
+        self.user_stores.push(kind);
         self
     }
 
@@ -1000,6 +1034,14 @@ impl Composition {
         self.contributions
             .iter()
             .flat_map(|contribution| contribution.secret_providers.iter().cloned())
+            .collect()
+    }
+
+    /// Every contribution's user stores, in order.
+    pub(crate) fn user_stores(&self) -> Vec<&'static UserStoreKind> {
+        self.contributions
+            .iter()
+            .flat_map(|contribution| contribution.user_stores.iter().copied())
             .collect()
     }
 

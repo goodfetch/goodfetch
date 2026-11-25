@@ -1,0 +1,11 @@
+# A committed Fault plan the exchange scenario still fails on (TESTING.md,
+# Simulation, model checking and crash testing): written by hand in the
+# format of the scenario's generator, which shrinks a lost server to this one
+# step. The server crashes while the client waits for an acknowledgement,
+# and the exchange, which has no retry, fails;
+# `a_committed_plan_replays_the_same_failure` replays it. It sits outside
+# `fault_plans/exchange/`, whose plans every run of the scenario must pass.
+generator = "proptest-state-machine, scenario exchange"
+version = 1
+seed = 7
+command = "just simulate exchange --plan crates/goodfetch-simulation/tests/it/simulation/fixtures/failing_fault_plans/server_crash.json"

@@ -100,7 +100,8 @@ cookies = []
 deadlines = []
 head = []
 leg = []
-serve = ["answers", "client_hello", "deadlines", "head", "terminate"]
+message = ["head"]
+serve = ["answers", "client_hello", "deadlines", "head", "message", "terminate"]
 terminate = ["application_settings", "authority", "client_hello", "cookies"]
 
 # Which of `proxy`'s own modules may import which.
@@ -143,6 +144,7 @@ arrival = []
 blocked = []
 blocking_off = ["arrival", "blocked"]
 clean_up = []
+plugin_extractor = []
 served_formats = ["clean_up"]
 waits = []
 

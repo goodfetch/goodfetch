@@ -11,7 +11,9 @@
 #   `endpoints` ("<host>:<port>"). Its `exception` says which of ADR 0043's
 #   jobs it is: saas-sinks, benchmark, testnets, vendor-conformance,
 #   clean-up-rules-daily, cloud-run-deploy, model, integration-account,
-#   unpinned-releases or fixture-licence.
+#   unpinned-releases or fixture-licence. Every one but fixture-licence runs
+#   on a schedule, by hand or from another workflow, never in a workflow a
+#   pull request or the merge queue starts.
 # - [[outside]]: a job that runs none of the product, or one ADR 0043 lets run
 #   it without the deny, with the reason.
 
@@ -66,7 +68,13 @@ job = "update-screenshots.yml#update"
 job = "release-suite.yml#linux-x64"
 
 [[deny]]
+job = "release-suite.yml#skew"
+
+[[deny]]
 job = "release-suite.yml#linux-arm64"
+
+[[deny]]
+job = "release-suite.yml#confinement-22-04"
 
 [[deny]]
 job = "release-suite.yml#windows-x64"
@@ -183,3 +191,66 @@ reason = "It reads the vendor names of the two public watchlists, webappanalyzer
 [[outside]]
 job = "codeql.yml#analyze"
 reason = "CodeQL reads the sources without building them (`build-mode: none`) and runs none of the product (ADR 0067); it is skipped while the repository is private."
+
+[[outside]]
+job = "proving-ground-online.yml#deploy"
+reason = "It builds the Proving ground at a release tag and ships it, with Anubis and cloudflared, to the online copy's host over SSH and BotID's page to Vercel (#168, ADR 0032); it runs none of the product."
+
+# The nightly tier (ADRs 0061 and 0064). The Release suite's rerun is its own
+# release-suite.yml run; this job only dispatches and watches it.
+[[outside]]
+job = "nightly.yml#release-suite"
+reason = "It dispatches the Release suite on `main`'s head through GitHub's API and waits for that run; it runs none of the product."
+
+[[deny]]
+job = "nightly.yml#free-threaded-windows"
+
+[[outside]]
+job = "nightly.yml#free-threaded-macos"
+reason = "As the Release suite's macOS cells, which run the same tests outside the deny (ADR 0043's amendment of 2026-11-22)."
+
+[[outside]]
+job = "nightly.yml#scorecard"
+reason = "OpenSSF Scorecard reads the repository through GitHub's interface, and its Live check reads Scorecard's results; it runs none of the product."
+
+# ADR 0043's named jobs. Each area adds the endpoints its Live checks reach
+# in the pull request that adds them: the Sinks' free-tier accounts (ADR
+# 0076), the Paid fetch testnets and the real vendors are not chosen yet.
+[[named]]
+job = "nightly.yml#sinks"
+exception = "saas-sinks"
+endpoints = []
+
+[[named]]
+job = "nightly.yml#testnets"
+exception = "testnets"
+endpoints = []
+
+[[named]]
+job = "nightly.yml#releases"
+exception = "unpinned-releases"
+endpoints = ["registry.npmjs.org:443", "pypi.org:443", "files.pythonhosted.org:443"]
+
+[[named]]
+job = "nightly.yml#models"
+exception = "model"
+endpoints = ["ai-gateway.vercel.sh:443"]
+
+[[named]]
+job = "live.yml#vendors"
+exception = "vendor-conformance"
+endpoints = []
+
+[[named]]
+job = "live.yml#provider"
+exception = "model"
+endpoints = ["ai-gateway.vercel.sh:443"]
+
+# ADR 0073's screen reader: under the deny on Windows, outside it on macOS
+# as the Release suite's macOS cells.
+[[deny]]
+job = "live.yml#screen-reader-windows"
+
+[[outside]]
+job = "live.yml#screen-reader-macos"
+reason = "VoiceOver runs on macOS itself, where the runner's standard user has no deny (ADR 0043's amendment of 2026-11-22)."

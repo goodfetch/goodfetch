@@ -25,6 +25,7 @@ fn daemon_client(
     goodfetch_test_client::DaemonClient::opened(&found.endpoint, &daemon_hello(&found.token))
 }
 
+mod accounts;
 mod ai_work;
 mod attached;
 mod audit;
@@ -61,7 +62,9 @@ mod endpoint;
 mod engine_choice;
 mod events;
 mod exit_codes;
+mod exposed_cdp_url;
 mod extra_loopback;
+mod extractor_suite;
 #[cfg(target_os = "linux")]
 mod governor;
 mod help;
@@ -73,6 +76,7 @@ mod huge_pages;
 mod human_output;
 #[cfg(unix)]
 mod identified;
+mod init;
 mod install_docs;
 mod invalid_calls;
 mod journeys;
@@ -99,12 +103,21 @@ mod page_ends;
 mod page_events;
 mod parent_death;
 mod plugin;
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+mod plugin_extractor;
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+mod plugin_host;
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+mod plugin_kinds;
 mod private_endpoint;
 mod private_ranges;
 mod proxy;
 #[cfg(unix)]
 mod proxy_limits;
+mod recipe;
 mod relay_fingerprint;
+#[cfg(any(target_os = "macos", windows))]
+mod renderer_sandbox;
 mod request_kinds;
 mod run;
 mod rust_client;
@@ -125,7 +138,9 @@ mod source_build;
 mod storage;
 #[cfg(target_os = "linux")]
 mod threads;
+mod tls;
 mod upgrade_files;
+mod upstream;
 mod usage;
 mod views;
 #[cfg(target_os = "linux")]

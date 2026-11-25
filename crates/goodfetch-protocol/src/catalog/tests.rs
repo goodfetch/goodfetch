@@ -157,6 +157,7 @@ fn a_deprecation_reads_back_as_the_catalog_writes_it() {
 
 /// Every deprecation of the catalog names a replacement of its own section,
 /// if any, and a removal no earlier than the next major (ADR 0030).
+/// Covers: story:1-31
 #[test]
 fn every_deprecation_names_an_entry_of_its_section_and_a_later_major() {
     let modules = crate::entries::MODULES;

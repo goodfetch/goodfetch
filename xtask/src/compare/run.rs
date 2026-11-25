@@ -34,7 +34,7 @@ use super::trials::{
     GrowthCell, INSTRUCTION_RUNS, Measured, OPENSPIDER_COMMIT, PAGESIFT_VERSION,
     PLAYWRIGHT_VERSION, QUIET_LOAD, RULE_RUNS, Redone, RuledRun, SCRAPY_PLAYWRIGHT_VERSION,
     SCRAPY_VERSION, SITE_PAGES, SIZE_CONCURRENCIES, SIZES, SPIDER_VERSION, STATISTIC,
-    STRACE_QUIET_LOAD, SizesCell, StoppedPoint, StoppedRun, Trial, instruction_counted,
+    STRACE_QUIET_LOAD, SizesCell, Started, StoppedPoint, StoppedRun, Trial, instruction_counted,
     size_not_run, size_tools,
 };
 
@@ -97,6 +97,10 @@ pub(crate) struct Options {
     /// The cells the run measures, or a redo measures again ([`redo`]);
     /// every cell of `scenarios` when it names none.
     pub(crate) only: Vec<CellName>,
+    /// The time its waits for a quiet machine must end by (`--quiet-until`):
+    /// past it, a trial on a machine the quiet check fails does not start,
+    /// and the run fails, naming the reading.
+    pub(crate) quiet_until: Option<jiff::Timestamp>,
 }
 
 /// What a run's parts measure into: a fresh run's trials, every part run
@@ -116,6 +120,20 @@ pub(crate) type CellName = (Scenario, &'static str);
 /// report flags as short, never sleeps.
 pub(crate) fn waits_for_quiet(options: &Options) -> bool {
     options.trials >= super::trials::TRIALS
+}
+
+/// What the machine is as a trial starts: once the quiet check passes,
+/// given `waits`, the 1-minute load it must be under where the OS gives no
+/// pressure files (see [`machine::quiet`]); at once given none.
+fn started(options: &Options, waits: Option<f64>) -> Result<Started> {
+    let quiet = match waits {
+        Some(load) => quiet(load, options.quiet_until)?,
+        None => None,
+    };
+    Ok(Started {
+        load: load(),
+        quiet,
+    })
 }
 
 /// Whether a run of `options` runs `cell`: a cell of its scenarios, and of
@@ -523,13 +541,9 @@ fn timed(
             crawl.pages,
             crawl.concurrency,
         );
-        let mut started_at = None;
+        let mut started_at = Started::default();
         let outcome = retried(|| {
-            started_at = if waits_for_quiet(options) {
-                quiet(QUIET_LOAD)
-            } else {
-                load()
-            };
+            started_at = started(options, waits_for_quiet(options).then_some(QUIET_LOAD))?;
             let outcome = trial(
                 executables,
                 cell,
@@ -574,7 +588,7 @@ fn timed(
             number,
             site_pages: crawl.pages,
             concurrency: crawl.concurrency,
-            load: started_at,
+            started: started_at,
             retried,
             measured,
         });
@@ -655,10 +669,10 @@ impl Counting {
 
 /// Runs a counted cell: `runs` runs of each of `cells` under `counting`,
 /// one of a cell that runs one ([`Cell::one_trial`]), each run's counting
-/// tool writing its output into `outputs`, and each recording the 1-minute
-/// load it started at. Under strace, a run of the full trials first waits
-/// for a load under [`STRACE_QUIET_LOAD`], as a timed trial waits for
-/// [`QUIET_LOAD`]; and a run whose crawl stalls is stopped (see
+/// tool writing its output into `outputs`, and each recording what the
+/// machine was when it started. Under strace, a run of the full trials
+/// first waits for the quiet check to pass, as a timed trial does, its load
+/// fallback [`STRACE_QUIET_LOAD`]; and a run whose crawl stalls is stopped (see
 /// [`watch::stopped`]): its cell is not measured, and its later runs do not
 /// run; nor do the later runs of a cell one of whose runs did not fetch the
 /// site, which the report sets aside as not measured (the same-work check's
@@ -691,11 +705,10 @@ fn counted(
         }
         let out = counted_output(outputs, cell, number);
         let pages = pages_of(cell.scenario, config, SITE_PAGES, options.spider_pages);
-        let started_at = if watched && waits_for_quiet(options) {
-            quiet(STRACE_QUIET_LOAD)
-        } else {
-            load()
-        };
+        let started_at = started(
+            options,
+            (watched && waits_for_quiet(options)).then_some(STRACE_QUIET_LOAD),
+        )?;
         let outcome = trial(
             executables,
             cell,
@@ -739,7 +752,7 @@ fn counted(
             cell: cell.name.to_owned(),
             tool: config.tool(),
             number,
-            load: started_at,
+            started: started_at,
             count: counted.count,
             syncs: counted.syncs,
             work: counted.work,

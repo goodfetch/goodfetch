@@ -6,15 +6,17 @@
 //! (`PUT /limited-proxy-hold`), certificate authority
 //! (`GET /certificate-authority`), observations (`GET /observations`), the
 //! replay proxy's refusals (`GET /replay`), the Fake model's calls
-//! (`GET /model-calls`) and the revocation of the portal's sessions
-//! (`POST /revoke-sessions`), which a harness asks for while a tool is
-//! stopped.
+//! (`GET /model-calls`), the solver-service stand-ins' accounts
+//! (`POST /solver-accounts`) and calls (`GET /solver-calls`), and the
+//! revocation of the portal's sessions (`POST /revoke-sessions`), which a
+//! harness asks for while a tool is stopped.
 
 use crate::interface::ROUTES;
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use hyper::body::Bytes;
+use hyper::header::HeaderMap;
 use hyper::http::uri::PathAndQuery;
 use hyper::{Method, StatusCode, Uri};
 use serde::{Deserialize, Serialize};
@@ -26,6 +28,7 @@ use crate::browser_builds::{self, BrowserBuilds};
 use crate::browser_pages;
 use crate::catalog;
 use crate::certificates;
+use crate::challenges;
 use crate::clean_up;
 use crate::codecs;
 use crate::consent;
@@ -41,19 +44,25 @@ use crate::google_hosts;
 use crate::handmade;
 use crate::hostile;
 use crate::languages;
+use crate::locales;
 use crate::login::canaries::{self, Canaries, Plant};
 use crate::login::{self, Logins};
-use crate::model::{self, Answers, FakeModel, Subject};
+use crate::model::{self, Answers, FakeModel, Subject, Verbs};
 use crate::observation::{self, Observations, Recorded, Report};
+use crate::online::{self, Online};
 use crate::oracle::{self, Finding, Submission};
 use crate::page_load;
 use crate::portal::{self, Portal};
 use crate::protection;
 use crate::push::Push;
+use crate::quotes;
 use crate::raw_site;
 use crate::rendered;
 use crate::replay::{self, Refusals};
 use crate::schedule;
+use crate::search;
+use crate::site_tools;
+use crate::solvers::{self, Solvers};
 use crate::task::{Task, TaskList};
 use crate::version::VERSION;
 
@@ -71,10 +80,14 @@ pub(crate) struct Site {
     portal: Portal,
     model: FakeModel,
     refusals: Refusals,
+    solvers: Solvers,
     /// What the Crawl families saw crawls do.
     crawl: Families,
     /// The files `browser-builds.test` serves.
     builds: BrowserBuilds,
+    /// The online copy's vendors, which `challenges.test` carries; `None`
+    /// on the local copy.
+    online: Option<Online>,
 }
 
 /// The Proving ground's time step, as `PUT /time-step` sets it.
@@ -93,7 +106,16 @@ struct LimitedHold {
 
 /// The families' own host names, each family's tasks served on
 /// `<ordinal>.<host>`.
-const FAMILY_HOSTS: [&str; 4] = [catalog::HOST, rendered::HOST, login::HOST, schedule::HOST];
+const FAMILY_HOSTS: [&str; 8] = [
+    catalog::HOST,
+    rendered::HOST,
+    login::HOST,
+    locales::HOST,
+    quotes::HOST,
+    search::HOST,
+    site_tools::HOST,
+    schedule::HOST,
+];
 
 /// What the site hands a client of the seed's certificates, each as PEM.
 pub(crate) struct Pems {
@@ -112,6 +134,7 @@ impl Site {
         pems: Pems,
         observations: Arc<Observations>,
         builds: BrowserBuilds,
+        online: Option<Online>,
     ) -> Self {
         Self {
             seed,
@@ -124,8 +147,10 @@ impl Site {
             portal: Portal::new(seed),
             model: FakeModel::new(seed),
             refusals: Refusals::default(),
+            solvers: Solvers::default(),
             crawl: Families::new(),
             builds,
+            online,
         }
     }
 
@@ -163,10 +188,12 @@ impl Site {
                 fonts::HOST,
                 codecs::HOST,
                 page_load::HOST,
+                online::HOST,
                 forward_proxy::TLS_HOST,
             ])
             .chain(page_load::AD_HOSTS)
             .chain(google_hosts::HOSTS)
+            .chain(solvers::hosts())
             .map(|host| (host.to_owned(), None))
             .collect();
         hosts.extend(
@@ -192,9 +219,14 @@ impl Site {
         hosts
     }
 
-    /// Every family's tasks, as this `serve` lists them.
+    /// Every family's tasks, as this `serve` lists them: the online copy
+    /// adds its vendors' challenges.
     fn tasks(&self) -> Vec<Task> {
-        Self::every_task(self.seed, Some(self.port))
+        let mut tasks = Self::every_task(self.seed, Some(self.port));
+        if let Some(online) = &self.online {
+            tasks.extend(challenges::tasks(online, Some(self.port)));
+        }
+        tasks
     }
 
     /// Every family's tasks for `seed`, in the task list's order, their start
@@ -220,6 +252,10 @@ impl Site {
         tasks.extend(raw_site::tasks(seed, port));
         tasks.extend(hostile::tasks(seed, port));
         tasks.extend(canaries::tasks(seed, port));
+        tasks.extend(quotes::tasks(seed, port));
+        tasks.extend(locales::tasks(seed, port));
+        tasks.extend(search::tasks(seed, port));
+        tasks.extend(site_tools::tasks(seed, port));
         tasks
     }
 
@@ -256,7 +292,7 @@ impl Site {
     }
 
     /// Answers one request as [`Self::respond`] does, with how long the
-    /// server holds the reply first, which only a Crawl family asks for.
+    /// server holds the reply first, if it does.
     pub(crate) fn respond_held(
         &self,
         host: &str,
@@ -280,6 +316,7 @@ impl Site {
         }
         let held = browser_pages::hold(&name, request.path)
             .or_else(|| access::hold(&name, request.path))
+            .or_else(|| self.solvers.hold(&name, request))
             .map(crawl::Held::after);
         (self.respond(host, request), held)
     }
@@ -362,14 +399,18 @@ impl Site {
         if let Some(reply) = google_hosts::respond(&name, request) {
             return reply;
         }
+        if let Some(reply) = self.solvers.respond(self.seed, &name, request) {
+            return reply;
+        }
         if let Some(reply) = fonts::respond(&name, request) {
             return reply;
         }
         if let Some(reply) = codecs::respond(&name, request) {
             return reply;
         }
-        if name == model::HOST {
-            // The Fake model answers its own paths (`Self::model`).
+        if name == model::HOST || name == online::HOST {
+            // The Fake model answers its own paths (`Self::model`), and the
+            // online copy its vendors' (`Self::challenge`).
             return Reply::not_found();
         }
         if replay::serves(&name) {
@@ -382,23 +423,41 @@ impl Site {
             if let Some(reply) = self.extraction(&name, request) {
                 return reply;
             }
-            let family = FAMILY_HOSTS
-                .into_iter()
-                .find(|family| {
-                    name == *family
-                        || name
-                            .strip_suffix(family)
-                            .is_some_and(|prefix| prefix.ends_with('.'))
-                })
-                .expect("invariant: every served host name is a family's or its task's");
-            return match family {
-                catalog::HOST => self.catalog(host, request),
-                rendered::HOST => rendered::respond(self.seed, request),
-                login::HOST => login::respond(self.seed, &self.logins, request),
-                _ => schedule::respond(self.seed, self.observations.time_step(), request),
-            };
+            return self.family(host, &name, request);
         }
         self.control(request)
+    }
+
+    /// The reply of the family that serves `name`, its own host name or
+    /// one of its tasks'.
+    fn family(&self, host: &str, name: &str, request: &Request<'_>) -> Reply {
+        let family = FAMILY_HOSTS
+            .into_iter()
+            .find(|family| {
+                name == *family
+                    || name
+                        .strip_suffix(family)
+                        .is_some_and(|prefix| prefix.ends_with('.'))
+            })
+            .expect("invariant: every served host name is a family's or its task's");
+        let time_step = self.observations.time_step();
+        match family {
+            catalog::HOST => self.catalog(host, request),
+            rendered::HOST => rendered::respond(self.seed, request),
+            login::HOST => login::respond(
+                &login::Visit {
+                    seed: self.seed,
+                    logins: &self.logins,
+                    time_step,
+                },
+                request,
+            ),
+            locales::HOST => locales::respond(self.seed, request),
+            quotes::HOST => quotes::respond(self.seed, request),
+            search::HOST => search::respond(self.seed, time_step, request),
+            site_tools::HOST => site_tools::respond(self.seed, request),
+            _ => schedule::respond(self.seed, time_step, request),
+        }
     }
 
     /// Answers a request on a host name no page family is served on, such
@@ -422,6 +481,8 @@ impl Site {
             (&Method::PUT, "/limited-proxy-hold") => self.set_limited_hold(request.body),
             (&Method::POST, "/canaries") => self.plant(request),
             (&Method::GET, "/canaries") => self.canaries.document(),
+            (&Method::POST, "/solver-accounts") => self.open_solver_account(request),
+            (&Method::GET, "/solver-calls") => self.solvers.document(),
             (&Method::POST, "/revoke-sessions") => {
                 self.portal.revoke();
                 Reply::no_content()
@@ -503,6 +564,16 @@ impl Site {
             Ok(plant) => self.canaries.plant(self.seed, &plant),
             Err(_) => Reply::error(StatusCode::BAD_REQUEST, "malformed_plant"),
         }
+    }
+
+    /// Opens an account on a solver-service stand-in for a harness on a
+    /// loopback address, never for a request from elsewhere, so the online
+    /// copy hands out no key.
+    fn open_solver_account(&self, request: &Request<'_>) -> Reply {
+        if !request.peer.is_loopback() {
+            return Reply::error(StatusCode::FORBIDDEN, "solver_account_refused");
+        }
+        self.solvers.open(self.seed, request.body)
     }
 
     /// Records each planted Secret canary a request carries in its target,
@@ -602,7 +673,10 @@ impl Site {
                     fault: agent::fault(self.seed, &id),
                     answers: Answers {
                         records,
-                        verbs: agent::verbs(self.seed, &id, step),
+                        verbs: Verbs {
+                            point: browser_pages::point(self.seed, &id),
+                            ..agent::verbs(self.seed, &id, step)
+                        },
                     },
                     id,
                     description: task.entry.description,
@@ -611,6 +685,29 @@ impl Site {
             })
             .collect();
         self.model.answer(target, body, &subjects)
+    }
+
+    /// The online copy's answer to a request on `challenges.test` to
+    /// `path`, recording the vendor's verdict it read; `None` on the local
+    /// copy, for another host or a path of no configured vendor, which
+    /// [`Self::respond`] answers.
+    pub(crate) async fn challenge(
+        &self,
+        method: &Method,
+        host: &str,
+        path: &str,
+        headers: &HeaderMap,
+        body: &Bytes,
+    ) -> Option<Reply> {
+        let online = self.online.as_ref()?;
+        if observation::host_name(host) != online::HOST {
+            return None;
+        }
+        let (reply, verdict) = online.respond(method, path, headers, body).await?;
+        if let Some(verdict) = verdict {
+            self.observations.record(host, Recorded::Verdict(verdict));
+        }
+        Some(reply)
     }
 
     /// Answers a request to an archived host on its own name, as through a
@@ -696,6 +793,13 @@ impl Site {
                 let answer = oracle::judge(expected, submission, &effects, &requests, findings)
                     .refuted_by(self.reported(&task.entry.id));
                 let answer = answer.refuted_by(browser_pages::findings(&task.entry.id, &requests));
+                if let Some(online) = &self.online
+                    && task.entry.family == challenges::FAMILY
+                {
+                    let answer =
+                        challenges::judge(&task.entry.id, answer, online, &self.observations);
+                    return Reply::json(StatusCode::OK, &answer);
+                }
                 if task.entry.family == access::FAMILY {
                     let answer = access::judge(&task.entry.id, answer, &self.observations);
                     return Reply::json(StatusCode::OK, &answer);

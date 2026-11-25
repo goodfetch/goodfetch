@@ -12,25 +12,27 @@ Commands:
   audit            Exports and verifies the user's Audit log
   certs            Lists, accepts and forgets the certificate pins of the user's known-certificates store
   config           Shows the settings and where each value comes from
-  doctor           Checks the installation: Goodfetch home, the installed executables, the Daemon, the version it runs and the browser build a Run launches, with a fix for each finding not in order. Exits 0 whatever it finds
+  doctor           Checks the installation: Goodfetch home, the installed executables, the Daemon, the version it runs and the browser build a Run launches, with a fix for each finding not in order, and writes a bug-report file to attach to an issue, which it sends nowhere. Exits 0 whatever it finds
+  init             Writes a starter project this executable carries, which runs and tests itself, in TypeScript, Python or Rust, never replacing a file already there
   daemon           Starts, stops and shows the Daemon of this executable's major, which both Products share
+  needs-you        Lists what waits for a person, and takes them through it
+  recipe           Starts a Recipe and prints the digest that names a version of one
   runs             Works on the runs of this executable's major, of both Products
   skill            Installs the agent skills this executable carries for a coding agent
   usage            Shows, sets and raises the Limits of the user's Usage ledger, which hold every engine of the user
   upgrade-files    Gives this executable's major its own copy of an older major's settings, Operator policy, Run index and runs in Goodfetch home, never changing the older major's files
   engine           Calls the catalog's `engine` operations
   events           Calls the catalog's `events` operations
-  needs-you        Calls the catalog's `needs_you` operations
   run              Calls the catalog's `run` operations
   session          Calls the catalog's `session` operations
   page             Calls the catalog's `page` operations
   locator          Calls the catalog's `locator` operations
   response         Calls the catalog's `response` operations
   signing-key      Calls the catalog's `signing_key` operations
-  recipe           Calls the catalog's `recipe` operations
   catalog-run      Calls the catalog's `catalog_run` operations
   key-value-store  Calls the catalog's `key_value_store` operations
   sample           Calls the catalog's `sample` operations
+  schedule         Calls the catalog's `schedule` operations
 
 Options:
       --color <WHEN>  When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
@@ -216,14 +218,30 @@ Options:
   -h, --help               Print help
 
 $ goodfetch-collie doctor --help
-Checks the installation: Goodfetch home, the installed executables, the Daemon, the version it runs and the browser build a Run launches, with a fix for each finding not in order. Exits 0 whatever it finds
+Checks the installation: Goodfetch home, the installed executables, the Daemon, the version it runs and the browser build a Run launches, with a fix for each finding not in order, and writes a bug-report file to attach to an issue, which it sends nowhere. Exits 0 whatever it finds
 
 Usage: goodfetch-collie doctor [OPTIONS]
 
 Options:
       --json          Prints the findings as JSON
+      --include-urls  Keeps each URL in the bug-report file whole, but its credentials; without it, each is reduced to its scheme and host
       --color <WHEN>  When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
   -h, --help          Print help
+
+$ goodfetch-collie init --help
+Writes a starter project this executable carries, which runs and tests itself, in TypeScript, Python or Rust, never replacing a file already there
+
+Usage: goodfetch-collie init [OPTIONS] [DIRECTORY]
+
+Arguments:
+  [DIRECTORY]  The project's folder, created when missing; the working folder when not given
+
+Options:
+      --starter <NAME>   The starter to write, such as `browser`; asked on a terminal when not given
+      --lang <LANGUAGE>  Its language; asked on a terminal when not given [possible values: typescript, python, rust]
+      --json             Prints the result as JSON
+      --color <WHEN>     When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+  -h, --help             Print help
 
 $ goodfetch-collie daemon --help
 Starts, stops and shows the Daemon of this executable's major, which both Products share
@@ -361,6 +379,110 @@ Options:
       --environment <NAME=VALUE>  A deployment variable the service passes, as `NAME=VALUE`; repeatable
       --color <WHEN>              When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
   -h, --help                      Print help
+
+$ goodfetch-collie needs-you --help
+Lists what waits for a person, and takes them through it
+
+Usage: goodfetch-collie needs-you [OPTIONS] <COMMAND>
+
+Commands:
+  list     Lists what waits for a person across every Run in the Run index and the stores beside it, the longest waiting first, a page at a time: `after` takes the `next` of the page before. `kinds` keeps the items of those kinds. Each change after the answer arrives as `needs_you.changed` on the event stream
+  dismiss  Hides an item of "Needs you" whose source lets a person dismiss it, for every Client, and answers whether it did; an item the list no longer holds, or one only resolving it removes, stays as it is. The item leaves the list with `needs_you.changed`
+  answer   Takes a person at the terminal through what waits for them, each item answered by its kind's prompt; refused with `person_required` under `--json` or when stdin is no terminal
+
+Options:
+      --color <WHEN>  When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+  -h, --help          Print help
+
+$ goodfetch-collie needs-you list --help
+Lists what waits for a person across every Run in the Run index and the stores beside it, the longest waiting first, a page at a time: `after` takes the `next` of the page before. `kinds` keeps the items of those kinds. Each change after the answer arrives as `needs_you.changed` on the event stream
+
+Usage: goodfetch-collie needs-you list [OPTIONS]
+
+Options:
+      --after <AFTER>  The `next` of the page read before: the list goes on after it
+      --kinds <KINDS>  Only the items of these kinds; every kind when absent
+      --json           Prints the result as JSON
+      --attached       Runs the call on an Attached engine in this process, even when a Daemon runs
+      --daemon         Runs the call on the Daemon of the major, starting it if none runs; its refusal ends the command
+      --color <WHEN>   When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+  -h, --help           Print help
+
+$ goodfetch-collie needs-you dismiss --help
+Hides an item of "Needs you" whose source lets a person dismiss it, for every Client, and answers whether it did; an item the list no longer holds, or one only resolving it removes, stays as it is. The item leaves the list with `needs_you.changed`
+
+Usage: goodfetch-collie needs-you dismiss [OPTIONS] --item <ITEM>
+
+Options:
+      --item <ITEM>   The item's ID
+      --json          Prints the result as JSON
+      --attached      Runs the call on an Attached engine in this process, even when a Daemon runs
+      --daemon        Runs the call on the Daemon of the major, starting it if none runs; its refusal ends the command
+      --color <WHEN>  When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+  -h, --help          Print help
+
+$ goodfetch-collie needs-you answer --help
+Takes a person at the terminal through what waits for them, each item answered by its kind's prompt; refused with `person_required` under `--json` or when stdin is no terminal
+
+Usage: goodfetch-collie needs-you answer [OPTIONS] [ITEM]
+
+Arguments:
+  [ITEM]  The ID of the one item to answer; the whole list when not given
+
+Options:
+      --json          Refused: a person answers at a terminal, never under `--json`
+      --attached      Runs the call on an Attached engine in this process, even when a Daemon runs
+      --daemon        Runs the call on the Daemon of the major, starting it if none runs; its refusal ends the command
+      --color <WHEN>  When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+  -h, --help          Print help
+
+$ goodfetch-collie recipe --help
+Starts a Recipe and prints the digest that names a version of one
+
+Usage: goodfetch-collie recipe [OPTIONS] <COMMAND>
+
+Commands:
+  start   Starts a Recipe's run, a Run with no handler in the program, and answers once it is started. Its Run ID works as `run.start`'s. With `detached`, the Run outlives the program that started it: closing its value frees only the value, `run.finish` waits for its end and `run.stop` stops it
+  digest  Prints the digest of the Recipe whose package's root is DIRECTORY, which names that version of the Recipe on every system: SHA-256 over the files the package holds, by their paths in Unicode NFC and their bytes as they are. It starts no engine
+
+Options:
+      --color <WHEN>  When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+  -h, --help          Print help
+
+$ goodfetch-collie recipe start --help
+Starts a Recipe's run, a Run with no handler in the program, and answers once it is started. Its Run ID works as `run.start`'s. With `detached`, the Run outlives the program that started it: closing its value frees only the value, `run.finish` waits for its end and `run.stop` stops it
+
+Usage: goodfetch-collie recipe start [OPTIONS] --recipe <RECIPE>
+
+Options:
+      --detached               Whether the Run outlives the program (ADR 0102): closing its value then frees only the value, `run.finish` waits for its end and `run.stop` stops it
+      --limit <KIND=AMOUNT>    Holds the Run to AMOUNT of the Usage kind KIND: a count, such as `requests=500`, or a price with its currency, such as `paid_fetch=0.50USD`; repeatable, and a start that names the Run again only lowers a Limit
+      --project <PROJECT>      The project configuration the Client found, layer 3 (ADR 0083)
+      --recipe <RECIPE>        The Recipe: an installed Recipe's name, or the path to its manifest
+      --recording <RECORDING>  The Response recording the Run replays or records (ADR 0105)
+      --run-id <RUN_ID>        The Run's ID, as `run.start`'s
+      --color <WHEN>           When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+      --set <KEY=VALUE>        Sets a setting for this run, as `key=value`, the value read as JSON when it parses as JSON and as text otherwise, a duration as milliseconds or as `45s`, `2m` or `1h`; repeatable
+      --settings <FILE|->      Reads settings for this run from a JSON object, nested by key, in FILE, or from standard input for `-`; `--set` beats it
+      --tags <TAGS>            The Run's opaque tags
+      --timeout <DURATION>     How long the Run may last, in milliseconds, at least 1, as `timeout.run` for this Run: absent for the setting's value, `null` for none
+      --json                   Prints the result as JSON
+      --attached               Runs the call on an Attached engine in this process, even when a Daemon runs
+      --daemon                 Runs the call on the Daemon of the major, starting it if none runs; its refusal ends the command
+  -h, --help                   Print help
+
+$ goodfetch-collie recipe digest --help
+Prints the digest of the Recipe whose package's root is DIRECTORY, which names that version of the Recipe on every system: SHA-256 over the files the package holds, by their paths in Unicode NFC and their bytes as they are. It starts no engine
+
+Usage: goodfetch-collie recipe digest [OPTIONS] <DIRECTORY>
+
+Arguments:
+  <DIRECTORY>  The package's root, the folder holding `goodfetch-recipe.toml`
+
+Options:
+      --json          Prints the digest and the files it covers as JSON
+      --color <WHEN>  When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+  -h, --help          Print help
 
 $ goodfetch-collie runs --help
 Works on the runs of this executable's major, of both Products
@@ -535,46 +657,6 @@ Options:
       --daemon         Runs the call on the Daemon of the major, starting it if none runs; its refusal ends the command
       --color <WHEN>   When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
   -h, --help           Print help
-
-$ goodfetch-collie needs-you --help
-Calls the catalog's `needs_you` operations
-
-Usage: goodfetch-collie needs-you [OPTIONS] <COMMAND>
-
-Commands:
-  list     Lists what waits for a person across every Run in the Run index and the stores beside it, the longest waiting first, a page at a time: `after` takes the `next` of the page before. `kinds` keeps the items of those kinds. Each change after the answer arrives as `needs_you.changed` on the event stream
-  dismiss  Hides an item of "Needs you" whose source lets a person dismiss it, for every Client, and answers whether it did; an item the list no longer holds, or one only resolving it removes, stays as it is. The item leaves the list with `needs_you.changed`
-
-Options:
-      --color <WHEN>  When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
-  -h, --help          Print help
-
-$ goodfetch-collie needs-you list --help
-Lists what waits for a person across every Run in the Run index and the stores beside it, the longest waiting first, a page at a time: `after` takes the `next` of the page before. `kinds` keeps the items of those kinds. Each change after the answer arrives as `needs_you.changed` on the event stream
-
-Usage: goodfetch-collie needs-you list [OPTIONS]
-
-Options:
-      --after <AFTER>  The `next` of the page read before: the list goes on after it
-      --kinds <KINDS>  Only the items of these kinds; every kind when absent
-      --json           Prints the result as JSON
-      --attached       Runs the call on an Attached engine in this process, even when a Daemon runs
-      --daemon         Runs the call on the Daemon of the major, starting it if none runs; its refusal ends the command
-      --color <WHEN>   When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
-  -h, --help           Print help
-
-$ goodfetch-collie needs-you dismiss --help
-Hides an item of "Needs you" whose source lets a person dismiss it, for every Client, and answers whether it did; an item the list no longer holds, or one only resolving it removes, stays as it is. The item leaves the list with `needs_you.changed`
-
-Usage: goodfetch-collie needs-you dismiss [OPTIONS] --item <ITEM>
-
-Options:
-      --item <ITEM>   The item's ID
-      --json          Prints the result as JSON
-      --attached      Runs the call on an Attached engine in this process, even when a Daemon runs
-      --daemon        Runs the call on the Daemon of the major, starting it if none runs; its refusal ends the command
-      --color <WHEN>  When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
-  -h, --help          Print help
 
 $ goodfetch-collie run --help
 Calls the catalog's `run` operations
@@ -1177,40 +1259,6 @@ Options:
       --color <WHEN>                 When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
   -h, --help                         Print help
 
-$ goodfetch-collie recipe --help
-Calls the catalog's `recipe` operations
-
-Usage: goodfetch-collie recipe [OPTIONS] <COMMAND>
-
-Commands:
-  start  Starts a Recipe's run, a Run with no handler in the program, and answers once it is started. Its Run ID works as `run.start`'s. With `detached`, the Run outlives the program that started it: closing its value frees only the value, `run.finish` waits for its end and `run.stop` stops it
-
-Options:
-      --color <WHEN>  When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
-  -h, --help          Print help
-
-$ goodfetch-collie recipe start --help
-Starts a Recipe's run, a Run with no handler in the program, and answers once it is started. Its Run ID works as `run.start`'s. With `detached`, the Run outlives the program that started it: closing its value frees only the value, `run.finish` waits for its end and `run.stop` stops it
-
-Usage: goodfetch-collie recipe start [OPTIONS] --recipe <RECIPE>
-
-Options:
-      --detached               Whether the Run outlives the program (ADR 0102): closing its value then frees only the value, `run.finish` waits for its end and `run.stop` stops it
-      --limit <KIND=AMOUNT>    Holds the Run to AMOUNT of the Usage kind KIND: a count, such as `requests=500`, or a price with its currency, such as `paid_fetch=0.50USD`; repeatable, and a start that names the Run again only lowers a Limit
-      --project <PROJECT>      The project configuration the Client found, layer 3 (ADR 0083)
-      --recipe <RECIPE>        The Recipe: an installed Recipe's name, or the path to its manifest
-      --recording <RECORDING>  The Response recording the Run replays or records (ADR 0105)
-      --run-id <RUN_ID>        The Run's ID, as `run.start`'s
-      --color <WHEN>           When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
-      --set <KEY=VALUE>        Sets a setting for this run, as `key=value`, the value read as JSON when it parses as JSON and as text otherwise, a duration as milliseconds or as `45s`, `2m` or `1h`; repeatable
-      --settings <FILE|->      Reads settings for this run from a JSON object, nested by key, in FILE, or from standard input for `-`; `--set` beats it
-      --tags <TAGS>            The Run's opaque tags
-      --timeout <DURATION>     How long the Run may last, in milliseconds, at least 1, as `timeout.run` for this Run: absent for the setting's value, `null` for none
-      --json                   Prints the result as JSON
-      --attached               Runs the call on an Attached engine in this process, even when a Daemon runs
-      --daemon                 Runs the call on the Daemon of the major, starting it if none runs; its refusal ends the command
-  -h, --help                   Print help
-
 $ goodfetch-collie catalog-run --help
 Calls the catalog's `catalog_run` operations
 
@@ -1381,3 +1429,92 @@ Options:
   -h, --help          Print help
 
 Deprecated. Since 0.1, removed no earlier than 1.0: A sample entry, which the real catalog replaces.
+
+$ goodfetch-collie schedule --help
+Calls the catalog's `schedule` operations
+
+Usage: goodfetch-collie schedule [OPTIONS] <COMMAND>
+
+Commands:
+  create  Records a Schedule in the Schedule store, which the Daemon keeps, and answers its ID, as given or made (`s` and a lowercase ULID), with warnings. Nothing fires yet. A taken ID fails with `schedule_exists`, a trigger that does not parse with `schedule_trigger_invalid`. Its time zone is the Daemon host's when the definition names none. One store transaction: a cancel stops it only before it commits
+  list    Lists every Schedule of the Schedule store, by ID
+  get     Reads the Schedule of an ID. An ID the store does not hold fails with `schedule_not_found`
+  info    Reads the Schedule as its store holds it now. One the store no longer holds fails with `schedule_not_found`
+  delete  Deletes the Schedule from its store, so it never fires again, and answers whether it did: false when the store held none of that ID, as after a resent delete. One store transaction: a cancel stops it only before it commits
+
+Options:
+      --color <WHEN>  When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+  -h, --help          Print help
+
+$ goodfetch-collie schedule create --help
+Records a Schedule in the Schedule store, which the Daemon keeps, and answers its ID, as given or made (`s` and a lowercase ULID), with warnings. Nothing fires yet. A taken ID fails with `schedule_exists`, a trigger that does not parse with `schedule_trigger_invalid`. Its time zone is the Daemon host's when the definition names none. One store transaction: a cancel stops it only before it commits
+
+Usage: goodfetch-collie schedule create [OPTIONS] --definition <DEFINITION>
+
+Options:
+      --definition <DEFINITION>  The Schedule
+      --timeout <DURATION>       How long the call may take, in milliseconds, at least 1: absent for `timeout.wait`, `null` for none (ADR 0080)
+      --json                     Prints the result as JSON
+      --attached                 Runs the call on an Attached engine in this process, even when a Daemon runs
+      --daemon                   Runs the call on the Daemon of the major, starting it if none runs; its refusal ends the command
+      --color <WHEN>             When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+  -h, --help                     Print help
+
+$ goodfetch-collie schedule list --help
+Lists every Schedule of the Schedule store, by ID
+
+Usage: goodfetch-collie schedule list [OPTIONS]
+
+Options:
+      --timeout <DURATION>  How long the call may take, in milliseconds, at least 1: absent for `timeout.wait`, `null` for none (ADR 0080)
+      --json                Prints the result as JSON
+      --attached            Runs the call on an Attached engine in this process, even when a Daemon runs
+      --daemon              Runs the call on the Daemon of the major, starting it if none runs; its refusal ends the command
+      --color <WHEN>        When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+  -h, --help                Print help
+
+$ goodfetch-collie schedule get --help
+Reads the Schedule of an ID. An ID the store does not hold fails with `schedule_not_found`
+
+Usage: goodfetch-collie schedule get [OPTIONS] --id <ID>
+
+Options:
+      --id <ID>             The Schedule's ID
+      --timeout <DURATION>  How long the call may take, in milliseconds, at least 1: absent for `timeout.wait`, `null` for none (ADR 0080)
+      --json                Prints the result as JSON
+      --attached            Runs the call on an Attached engine in this process, even when a Daemon runs
+      --daemon              Runs the call on the Daemon of the major, starting it if none runs; its refusal ends the command
+      --color <WHEN>        When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+  -h, --help                Print help
+
+$ goodfetch-collie schedule info --help
+Reads the Schedule as its store holds it now. One the store no longer holds fails with `schedule_not_found`
+
+Usage: goodfetch-collie schedule info [OPTIONS] <SCHEDULE_ID>
+
+Arguments:
+  <SCHEDULE_ID>  The Schedule's ID
+
+Options:
+      --timeout <DURATION>  How long the call may take, in milliseconds, at least 1: absent for `timeout.wait`, `null` for none (ADR 0080)
+      --json                Prints the result as JSON
+      --attached            Runs the call on an Attached engine in this process, even when a Daemon runs
+      --daemon              Runs the call on the Daemon of the major, starting it if none runs; its refusal ends the command
+      --color <WHEN>        When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+  -h, --help                Print help
+
+$ goodfetch-collie schedule delete --help
+Deletes the Schedule from its store, so it never fires again, and answers whether it did: false when the store held none of that ID, as after a resent delete. One store transaction: a cancel stops it only before it commits
+
+Usage: goodfetch-collie schedule delete [OPTIONS] <SCHEDULE_ID>
+
+Arguments:
+  <SCHEDULE_ID>  The Schedule's ID
+
+Options:
+      --timeout <DURATION>  How long the call may take, in milliseconds, at least 1: absent for `timeout.wait`, `null` for none (ADR 0080)
+      --json                Prints the result as JSON
+      --attached            Runs the call on an Attached engine in this process, even when a Daemon runs
+      --daemon              Runs the call on the Daemon of the major, starting it if none runs; its refusal ends the command
+      --color <WHEN>        When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+  -h, --help                Print help

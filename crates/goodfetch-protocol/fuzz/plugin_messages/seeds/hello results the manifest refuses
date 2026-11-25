@@ -1,0 +1,5 @@
+{"jsonrpc":"2.0","id":0,"result":{"kinds":[{"capabilities":[],"kind":"sample_store"}],"name":"sample-store","protocol_version":"0.2","version":"1.0.0"}}
+{"jsonrpc":"2.0","id":0,"result":{"kinds":[{"capabilities":[],"kind":"sample_store"},{"capabilities":[],"kind":"hook"}],"hook_stages":["page_ready"],"name":"sample-store","protocol_version":"0.1","version":"1.0.0"}}
+{"jsonrpc":"2.0","id":0,"result":{"kinds":[{"capabilities":[],"kind":"sample_store"},{"capabilities":[],"kind":"sample_store"}],"name":"sample-store","protocol_version":"0.1","version":"1.0.0"}}
+{"jsonrpc":"2.0","id":0,"result":{"kinds":[{"capabilities":[],"kind":"sample_store"}],"name":"sample-store","network_level":"direct","protocol_version":"0.1","version":"1.0.0"}}
+{"jsonrpc":"2.0","id":0,"error":{"code":-32004,"message":"no shared version","data":{"code":"plugin_protocol_unsupported","retryable":false,"found":"0.1"}}}

@@ -277,6 +277,46 @@ fn browser_cache_max_unused_age_in_a_runs_settings_is_not_applicable() {
     );
 }
 
+/// A program's code that declares a Notification channel is refused with
+/// the files that may hold it (ADR 0028).
+///
+/// Covers: story:11-262, error:setting_not_applicable, setting:notifications.channels
+#[test]
+fn a_notification_channel_in_a_runs_settings_is_not_applicable_naming_the_files() {
+    let env = TestEnv::new();
+
+    let (started, _) = start_and_finish(
+        &env,
+        Product::Collie,
+        json!({
+            "run_id": "set",
+            "settings": { "notifications": { "channels": { "ops": {
+                "type": "webhook",
+                "url": "env:HOOK_URL",
+                "webhook": { "secret": "env:HOOK_SECRET" },
+            } } } },
+        }),
+    );
+
+    let folder = env.home().join("1");
+    assert_eq!(
+        (
+            &started["error"]["data"]["code"],
+            &started["error"]["data"]["layer"],
+            &started["error"]["data"]["fix"],
+        ),
+        (
+            &json!("setting_not_applicable"),
+            &json!("run"),
+            &json!(format!(
+                "set `notifications.channels` in user configuration, `{}`, or an Operator policy, `{}`",
+                folder.join("configuration.toml").display(),
+                folder.join("operator-policy.toml").display()
+            )),
+        )
+    );
+}
+
 /// Covers: story:3-86, error:setting_unknown
 #[test]
 fn a_user_configuration_that_does_not_read_refuses_the_run_with_its_error_code() {

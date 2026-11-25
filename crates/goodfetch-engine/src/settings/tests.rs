@@ -997,6 +997,35 @@ fn browser_cache_max_unused_age_is_set_only_by_the_machines_own_layers(
     assert_eq!(outcome.err().map(|error| error.code()), refused);
 }
 
+/// A Notification channel names a destination and the secrets that reach
+/// it, so only the machine's own layers set one (ADR 0028): a project file,
+/// a Recipe and a Run are refused.
+///
+/// Covers: story:11-262, setting:notifications.channels
+#[rstest]
+#[case::the_operator_policy(SettingsLayer::OperatorPolicy, None)]
+#[case::user_configuration(SettingsLayer::UserConfiguration, None)]
+#[case::project_configuration(SettingsLayer::ProjectConfiguration, Some("setting_not_applicable"))]
+#[case::the_recipe(SettingsLayer::Recipe, Some("setting_not_applicable"))]
+#[case::the_run(SettingsLayer::Run, Some("setting_not_applicable"))]
+fn notifications_channels_is_set_only_by_the_machines_own_layers(
+    #[case] layer: SettingsLayer,
+    #[case] refused: Option<&str>,
+) {
+    let channel = json!({
+        "ops": {
+            "type": "webhook",
+            "url": "env:HOOK_URL",
+            "webhook": { "secret": "env:HOOK_SECRET" },
+        },
+    });
+    let layers = only(layer, "notifications.channels", &channel);
+
+    let outcome = resolve(&layers, Product::Collie, Product::Collie);
+
+    assert_eq!(outcome.err().map(|error| error.code()), refused);
+}
+
 /// Covers: setting:stealth.allowed_builds
 #[rstest]
 #[case::the_operator_policy(SettingsLayer::OperatorPolicy, None)]

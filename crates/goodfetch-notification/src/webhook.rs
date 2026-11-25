@@ -38,16 +38,8 @@ pub const SEND_TIMEOUT: Duration = Duration::from_secs(30);
 /// party text.
 const PARTY_TEXT_LIMIT: usize = 1024;
 
-/// What a delivery's `data` holds.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Payload {
-    /// The whole Notification: its IDs, event, Product, title, text and
-    /// link.
-    Full,
-    /// Its IDs and link only, which Integrations' triggers fetch the rest
-    /// from (ADR 0027).
-    Thin,
-}
+/// What a delivery's `data` holds: the channel's `webhook.payload`.
+pub use goodfetch_protocol::notifications::WebhookPayload as Payload;
 
 /// A `webhook` channel.
 #[derive(Debug)]

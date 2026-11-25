@@ -44,6 +44,7 @@ pub mod log;
 pub mod model;
 pub mod naming;
 pub mod needs_you;
+pub mod notifications;
 pub mod open_value;
 pub mod ops;
 pub mod page;

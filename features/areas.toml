@@ -1379,6 +1379,12 @@ number = 11
 kind = "setting"
 prefix = "connection.max_"
 
+# The Notification channels (ADR 0027; issue 1385).
+[[area]]
+number = 11
+kind = "setting"
+prefix = "notifications."
+
 # The Error code an SDK's `json()` raises itself for a body that is not
 # the JSON asked for (ADR 0085; issue 2803).
 [[area]]

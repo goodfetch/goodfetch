@@ -9922,6 +9922,17 @@
       ]
     },
     {
+      "id": "setting:notifications.channels",
+      "kind": "setting",
+      "area": null,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "setting:ops.address",
       "kind": "setting",
       "area": 3,

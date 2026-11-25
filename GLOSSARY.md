@@ -285,7 +285,7 @@ A run's or an AI task's statement of whether its Success checks, Page checks and
 _Avoid_: status, success, result (for the verdict)
 
 **Recipe**:
-A portable package of user code, described by a manifest, that runs the same locally or on Goodfetch Cloud and can be published.
+A portable package, described by its manifest, whose one entry is a program of user code, a list of steps or a crawl declared as data, so that a Recipe of data holds no code; it runs the same locally or on Goodfetch Cloud and can be published.
 _Avoid_: actor, app, pack, script
 
 **Setting**:

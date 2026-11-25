@@ -2407,6 +2407,24 @@ product = "foxhound"
 status = "active"
 
 [[story]]
+id = 1008
+title = "As a developer, I want `ConnectOptions` to extend Collie's and add `fetchBackends` and `sinks` (Python `fetch_backends`, `sinks`; Rust `fetch_backend(name)`, `sink(name)`), and `settings` to take Foxhound's keys beside Collie's, so that one `connect()` carries a program's crawl settings and its own Plugins (ADRs 0083, 0088, 0104)."
+milestone = "M2 Client surfaces"
+journey = false
+not_journey = "part"
+product = "foxhound"
+status = "active"
+
+[[story]]
+id = 1009
+title = "As a developer, I want keys an engine reads only from its configuration (`storage.*`, `log.*`, `http_listener.*`, `notifications.*`, `mcp.*`, `daemon.*`) left out of `settings` types and refused at `connect()` with `setting_not_applicable` naming the configuration file, while `explainSettings()` still reports them, so that a program cannot believe it set what only the install can (ADR 0083; P38)."
+milestone = "M2 Client surfaces"
+journey = false
+not_journey = "part"
+product = "foxhound"
+status = "active"
+
+[[story]]
 id = 1011
 title = "As a developer using both SDKs in one program, I want each Product's package to pin the client package at exactly its own version and a library serving both to take the client package as a peer dependency, so that two Product versions never meet in one environment and their values stay one type (ADR 0095)."
 milestone = "M2 Client surfaces"

@@ -55,10 +55,8 @@ pub use crawl::{
     AttemptRun, Crawl, CrawlCall, CrawlContext, CrawlRun, Dataset, DatasetDeclaration, Enqueue,
     EnqueueLinks, Label, LabelDeclaration, LinkPayload, Seed, StartCrawl,
 };
-pub use foxhound::{Foxhound, PAID_FETCHES};
-pub use goodfetch_collie::{
-    ConnectOptions, EngineChoice, EngineFallback, EngineInfo, EngineKind, RemoteDaemon,
-};
+pub use foxhound::{ConnectOptions, Foxhound, PAID_FETCHES};
+pub use goodfetch_collie::{EngineChoice, EngineFallback, EngineInfo, EngineKind, RemoteDaemon};
 pub use goodfetch_collie_client::{
     Answer, BoxError, Call, Connection, Error, ErrorCode, ErrorDetails, EventStream, Exchange,
     FieldValues, HandlerlessStart, KeyValueStore, Limits, Locator, Money, MoneyError, Page, Query,

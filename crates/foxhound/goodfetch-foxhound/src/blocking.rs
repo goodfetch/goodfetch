@@ -9,8 +9,8 @@
 
 use std::sync::Arc;
 
+use goodfetch_collie::EngineInfo;
 use goodfetch_collie::linked::ProductConnection;
-use goodfetch_collie::{ConnectOptions, EngineInfo};
 use goodfetch_collie_client::{Error, RunView, blocking};
 use goodfetch_protocol::run::{CatalogTarget, RunId};
 use goodfetch_protocol::settings::{ConfigExplainParams, SettingsExplanation};
@@ -22,7 +22,7 @@ pub use goodfetch_collie_client::blocking::{
 };
 
 use crate::crawl_requests::CrawlRequests;
-use crate::foxhound::ENGINE;
+use crate::foxhound::{ConnectOptions, ENGINE};
 
 mod crawl;
 
@@ -64,7 +64,7 @@ impl Foxhound {
     ///
     /// As [`crate::Foxhound::connect`].
     pub fn connect(options: ConnectOptions) -> Result<Self, Error> {
-        let linked = ProductConnection::connect_blocking(ENGINE, options)?;
+        let linked = ProductConnection::connect_blocking(ENGINE, options.into_collie())?;
         Ok(Self {
             connection: blocking::ClientConnection::from(linked.connection().clone()),
             linked,

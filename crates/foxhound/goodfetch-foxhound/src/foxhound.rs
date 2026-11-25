@@ -5,10 +5,14 @@
 //! (ADRs 0024 and 0087), through Collie's crate's linked connection, or
 //! reaches a Daemon ([`crate::EngineChoice`]).
 
+use std::collections::{BTreeMap, BTreeSet};
+use std::ffi::OsString;
+use std::path::PathBuf;
 use std::sync::Arc;
+use std::time::Duration;
 
+use goodfetch_collie::EngineInfo;
 use goodfetch_collie::linked::{Composed, ProductConnection};
-use goodfetch_collie::{ConnectOptions, EngineInfo};
 use goodfetch_collie_client::{
     ClientConnection, Connection, Error, HandlerlessStart, Query, RawCall, RunView, Start,
     UsageKind,
@@ -29,6 +33,148 @@ pub(crate) const ENGINE: Composed = Composed {
 /// (ADR 0087): a Collie engine refuses it with `not_in_product`.
 pub const PAID_FETCHES: UsageKind =
     UsageKind::named(goodfetch_protocol::foxhound::usage::PAID_FETCH);
+
+/// What a Foxhound connection opens with: every option of Collie's, under
+/// the same names, with Foxhound's settings and Limits, and the program's
+/// own Fetch backends and Sinks, each registered by name, which settings
+/// choose (ADR 0104). A key the engine reads only from its configuration,
+/// such as `storage.low_free`, is no key of [`crate::settings::Settings`],
+/// and an engine refuses it with `setting_not_applicable`, naming the
+/// files that set it.
+///
+/// ```
+/// use goodfetch_foxhound::settings::{Settings, crawl};
+/// use goodfetch_foxhound::{ConnectOptions, Foxhound};
+///
+/// # fn main() -> Result<(), Box<dyn std::error::Error>> {
+/// # let home = tempfile::tempdir()?;
+/// let options = ConnectOptions::default()
+///     .settings(Settings::new().set(crawl::MAX_DEPTH, 2))
+///     .fetch_backend("in-house")
+///     .sink("warehouse");
+/// # let options = options
+/// #     .environment([("GOODFETCH_HOME".into(), home.path().into())].into());
+/// # goodfetch_runtime::current_thread().enable_all().build()?.block_on(async {
+/// let foxhound = Foxhound::connect(options).await?;
+/// foxhound.close().await?;
+/// # Ok::<(), goodfetch_foxhound::Error>(())
+/// # })?;
+/// # Ok(())
+/// # }
+/// ```
+#[derive(Clone, Debug, Default)]
+pub struct ConnectOptions {
+    collie: goodfetch_collie::ConnectOptions,
+    /// The names of the program's own Fetch backends, which the engine
+    /// calls once #1484 lands.
+    fetch_backends: BTreeSet<String>,
+    /// The names of the program's own Sinks, which the engine delivers to
+    /// once #1491 lands.
+    sinks: BTreeSet<String>,
+}
+
+impl ConnectOptions {
+    /// The engine the connection reaches, in place of
+    /// [`crate::EngineChoice::Auto`], whatever `GOODFETCH_URL` says.
+    #[must_use]
+    pub fn engine(self, engine: crate::EngineChoice) -> Self {
+        self.collie(|collie| collie.engine(engine))
+    }
+
+    /// The environment variables the connection and its linked engine
+    /// read, such as `GOODFETCH_HOME` and `GOODFETCH_URL`, in place of the
+    /// process's own, as Collie's `ConnectOptions::environment` checks them.
+    #[must_use]
+    pub fn environment(self, environment: BTreeMap<OsString, OsString>) -> Self {
+        self.collie(|collie| collie.environment(environment))
+    }
+
+    /// The connection's own `limits` (ADR 0080), in place of any given
+    /// before: each only lowers what covers the connection's work,
+    /// [`crate::PAID_FETCHES`] among them.
+    #[must_use]
+    pub fn limits(self, limits: crate::Limits) -> Self {
+        self.collie(|collie| collie.limits(limits))
+    }
+
+    /// The connection's own settings, Collie's and Foxhound's (ADR 0083),
+    /// in place of any given before: they travel in `hello`, over
+    /// configuration and the Operator policy, and every Run the connection
+    /// starts inherits what its own settings leave out.
+    #[must_use]
+    pub fn settings(self, settings: crate::settings::Settings) -> Self {
+        self.collie(|collie| collie.settings(settings))
+    }
+
+    /// Fails the connect if the engine has not answered `hello` within
+    /// `timeout`, with `deadline_exceeded` naming `timeout.connect`, as
+    /// Collie's `ConnectOptions::timeout` does.
+    #[must_use]
+    pub fn timeout(self, timeout: Duration) -> Self {
+        self.collie(|collie| collie.timeout(timeout))
+    }
+
+    /// Waits for the engine to answer `hello` as long as it takes.
+    #[must_use]
+    pub fn no_timeout(self) -> Self {
+        self.collie(goodfetch_collie::ConnectOptions::no_timeout)
+    }
+
+    /// Reads the project file `path` (ADR 0083) in place of the
+    /// `goodfetch.toml` found upward from the working directory, as
+    /// Collie's `ConnectOptions::project` reads it.
+    #[must_use]
+    pub fn project(self, path: impl Into<PathBuf>) -> Self {
+        self.collie(|collie| collie.project(path))
+    }
+
+    /// Reads no project file: the connection's Runs and its
+    /// `explain_settings()` have no layer 3.
+    #[must_use]
+    pub fn no_project(self) -> Self {
+        self.collie(goodfetch_collie::ConnectOptions::no_project)
+    }
+
+    /// How many unread events each stream of a Session's events holds
+    /// (ADR 0081), in place of 1,024, as Collie's
+    /// `ConnectOptions::max_listener_queue` bounds it.
+    #[must_use]
+    pub fn max_listener_queue(self, bound: usize) -> Self {
+        self.collie(|collie| collie.max_listener_queue(bound))
+    }
+
+    /// Registers the program's own Fetch backend under `name`, the name
+    /// settings such as `fetch.backend` choose it by (ADR 0104). It runs
+    /// with the program's full rights, never confined.
+    #[must_use]
+    pub fn fetch_backend(mut self, name: impl Into<String>) -> Self {
+        self.fetch_backends.insert(name.into());
+        self
+    }
+
+    /// Registers the program's own Sink under `name`, the name of the
+    /// `sinks.<name>` entry it serves (ADR 0104). It runs with the
+    /// program's full rights, never confined.
+    #[must_use]
+    pub fn sink(mut self, name: impl Into<String>) -> Self {
+        self.sinks.insert(name.into());
+        self
+    }
+
+    /// Collie's options, changed by `change`.
+    fn collie(
+        mut self,
+        change: impl FnOnce(goodfetch_collie::ConnectOptions) -> goodfetch_collie::ConnectOptions,
+    ) -> Self {
+        self.collie = change(self.collie);
+        self
+    }
+
+    /// Collie's options, which open the linked connection.
+    pub(crate) fn into_collie(self) -> goodfetch_collie::ConnectOptions {
+        self.collie
+    }
+}
 
 /// A connection to Foxhound, which is the Product: it carries every member
 /// of a Collie connection under the same names, so `foxhound.start()`
@@ -99,7 +245,7 @@ impl Foxhound {
     /// Dropping the future before it completes stops the linked engine it
     /// started.
     pub async fn connect(options: ConnectOptions) -> Result<Self, Error> {
-        let linked = ProductConnection::connect(ENGINE, options).await?;
+        let linked = ProductConnection::connect(ENGINE, options.into_collie()).await?;
         Ok(Self {
             linked,
             crawl_requests: Arc::default(),

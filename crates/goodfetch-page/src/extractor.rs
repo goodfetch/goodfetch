@@ -39,6 +39,32 @@ pub fn chosen(
     Chosen { built_in, attempts }
 }
 
+/// The Extractor Plugin a browser page reads its main content with (spec
+/// #596): the name `content.extractor` holds at the nearest scope that
+/// sets it, in [`chosen`]'s order, when no built-in has that name. None
+/// when that name is a built-in's or its crawl request's Label chose one,
+/// whose choices are built-ins. A Session's or a page's name was checked
+/// against the Plugin store where it was set; a Run's is checked as the
+/// page reads with it.
+#[must_use]
+pub fn plugin(
+    run: Option<&Resolved>,
+    (session, label): (&Values, Option<BuiltIn>),
+    page: &Values,
+) -> Option<String> {
+    fn set(values: &Values) -> Option<&str> {
+        values.get(CONTENT_EXTRACTOR.name).and_then(Value::as_str)
+    }
+    let nearest = match set(page) {
+        Some(name) => Some(name),
+        None if label.is_some() => None,
+        None => set(session).or_else(|| run.map(|run| run.get(&CONTENT_EXTRACTOR))),
+    };
+    nearest
+        .filter(|name| BuiltIn::named(name).is_none())
+        .map(str::to_owned)
+}
+
 /// The main-content step of a document a fetch tier served, which has no
 /// Session's or page's settings: its Label's `label`, else its Run's `run`.
 #[must_use]

@@ -4367,6 +4367,18 @@ export interface ExtractHandlerFailedDetails {
   extractor: string;
 }
 /**
+ * What `extractor_unavailable` details.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "ExtractorUnavailableDetails".
+ */
+export interface ExtractorUnavailableDetails {
+  /**
+   * The Extractor, as `content.extractor` names it.
+   */
+  extractor: string;
+}
+/**
  * The `match` before a field's transform (ADR 0123): a capture group of a
  * regular expression, in the `regex` crate's syntax (ADR 0081), over the
  * text read; that group's text is what the transform reads.

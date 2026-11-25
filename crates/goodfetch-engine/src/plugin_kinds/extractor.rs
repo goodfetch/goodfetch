@@ -9,8 +9,8 @@ use futures_util::future::BoxFuture;
 use goodfetch_protocol::connection::WaitedFor;
 use goodfetch_protocol::page::CONTENT_EXTRACTOR;
 use goodfetch_protocol::plugin::extractor::{
-    EXTRACT_CONTENT, EXTRACT_HANDLER_FAILED, ExtractContentParams, ExtractContentResult,
-    ExtractHandlerFailedDetails,
+    EXTRACT_CONTENT, EXTRACT_HANDLER_FAILED, EXTRACTOR_UNAVAILABLE, ExtractContentParams,
+    ExtractContentResult, ExtractHandlerFailedDetails, ExtractorUnavailableDetails,
 };
 use url::Url;
 
@@ -151,6 +151,22 @@ impl<'a> ExtractorDriver<'a> {
             },
         )
     }
+}
+
+/// The `extractor_unavailable` of the Extractor `extractor`, which no
+/// built-in and no installed Plugin of the Extractor kind answers for, or
+/// whose Plugin cannot start. It names the Extractor, never a path.
+pub fn unavailable(extractor: &str) -> CallError {
+    CallError::new(
+        &EXTRACTOR_UNAVAILABLE,
+        format!(
+            "No one answers for the Extractor `{extractor}` that {} names: no built-in has its name, and no installed Plugin of the Extractor kind does or its Plugin cannot start; why is in the log at `warn`.",
+            named::setting(CONTENT_EXTRACTOR.name),
+        ),
+        &ExtractorUnavailableDetails {
+            extractor: extractor.to_owned(),
+        },
+    )
 }
 
 /// Whether `key` is a `snake_case` name: a lowercase ASCII letter, then

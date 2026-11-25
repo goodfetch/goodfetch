@@ -12,7 +12,8 @@ use std::path::{Path, PathBuf};
 use goodfetch_protocol::connection::ProductVersion;
 use goodfetch_protocol::home::{
     ACCOUNTS_STORE, AUDIT_LOG, AUDIT_LOG_HEAD, ENGINE_KEY_LOCK, KNOWN_CERTIFICATES, LOGS,
-    POLITENESS_FILE, RESPONSE_CACHE, RUN_INDEX, RUNS, SECRET_FILES, USAGE_LEDGER, per_major,
+    PLUGIN_INSTANCES, PLUGINS, POLITENESS_FILE, RESPONSE_CACHE, RUN_INDEX, RUNS, SECRET_FILES,
+    USAGE_LEDGER, per_major,
 };
 
 /// One user's Goodfetch data folder, and the copy of the Browser cache
@@ -132,6 +133,18 @@ impl Home {
     /// of any major and either Product, make one between them.
     pub fn engine_key_lock(&self) -> PathBuf {
         self.root.join(ENGINE_KEY_LOCK)
+    }
+
+    /// The Plugin store, outside the per-major folders, which every major
+    /// and both Products share (ADR 0033).
+    pub fn plugins(&self) -> PathBuf {
+        self.root.join(PLUGINS)
+    }
+
+    /// The folder of the running Plugin instances' own folders, outside
+    /// the per-major folders.
+    pub fn plugin_instances(&self) -> PathBuf {
+        self.root.join(PLUGIN_INSTANCES)
     }
 }
 

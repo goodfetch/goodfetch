@@ -43,7 +43,7 @@ use crate::block::BlockCause;
 use crate::catalog::{
     Authority, Entries, ErrorCodeDefinition, ErrorGroup, Event, EventClass, Operation,
     OperationClass, OperationKind, ProtocolVersion, Reach, Setting, Stability, ValueKind,
-    schema_of,
+    ValueShape, schema_of,
 };
 use crate::jsonrpc::{ErrorData, RequestId};
 use crate::run::RunId;
@@ -1139,15 +1139,55 @@ fn allow() -> serde_json::Value {
     serde_json::Value::String("allow".to_owned())
 }
 
-/// The values of `content.extractor`: the built-in main-content steps
-/// (ADR 0007).
+/// The built-in main-content steps (ADR 0007), which `content.extractor`
+/// names beside the installed Extractor Plugins.
 pub const CONTENT_EXTRACTORS: &[&str] = &["dom_smoothie", "trafilatura"];
 
-/// `content.extractor` (ADRs 0007, 0083 and 0104; spec #580).
+/// A value of `content.extractor`: the name of a built-in main-content
+/// step or of an Extractor, one namespace (spec #596), which names a
+/// folder of the Plugin store, so it holds no path.
+pub const EXTRACTOR_NAME_SHAPE: ValueShape = ValueShape {
+    name: "ExtractorName",
+    check: |value| match value.as_str() {
+        Some(name) if is_extractor_name(name) => Ok(()),
+        Some(name) => Err(format!(
+            "`{name}` is no Extractor's name: give a built-in one, {}, or an installed Plugin's, with no path in it",
+            CONTENT_EXTRACTORS.join(", ")
+        )),
+        None => Err("is no text".to_owned()),
+    },
+    schema: || {
+        serde_json::json!({
+            "type": "string",
+            "minLength": 1,
+            "pattern": "^([^/\\\\.][^/\\\\]*|\\.[^/\\\\.][^/\\\\]*|\\.\\.[^/\\\\]+)$",
+            "description": "A built-in main-content step, `dom_smoothie` or `trafilatura`, or an installed Extractor Plugin's name.",
+        })
+    },
+    examples: || {
+        vec![
+            serde_json::json!("dom_smoothie"),
+            serde_json::json!("trafilatura"),
+        ]
+    },
+};
+
+/// Whether `name` can name an Extractor: text, neither `.` nor `..`, with
+/// no path separator or control character.
+pub fn is_extractor_name(name: &str) -> bool {
+    !name.is_empty()
+        && name != "."
+        && name != ".."
+        && !name
+            .chars()
+            .any(|character| matches!(character, '/' | '\\') || character.is_control())
+}
+
+/// `content.extractor` (ADRs 0007, 0083 and 0104; specs #580 and #596).
 pub const CONTENT_EXTRACTOR: Setting = Setting {
     name: "content.extractor",
-    description: "The main-content step `page.formats` reads a page's main content with, before its Markdown, its main HTML and its text: `dom_smoothie` (the default), Readability's algorithm, or `trafilatura`, the rs-trafilatura port. A step that finds no text in a document holding text outside its navigation landmarks answers that text. Set at any scope down to a page: a Run, a Session's or a page's own `settings`.",
-    kind: ValueKind::Choice(CONTENT_EXTRACTORS),
+    description: "The main-content step `page.formats` reads a page's main content with, before its Markdown and its text: `dom_smoothie` (the default), Readability's algorithm, `trafilatura`, the rs-trafilatura port, or the name of an installed Extractor Plugin. A built-in step that finds no text in a document holding text outside its navigation landmarks answers that text. An Extractor Plugin reads the page as the Clean-up rules left it and answers its Markdown and its text; it has no main HTML. Set at any scope down to a page: a Run, a Session's or a page's own `settings`. A Session or a page naming no built-in and no installed Extractor is refused; a Run's name is checked as its page reads with it.",
+    kind: ValueKind::Shape(&EXTRACTOR_NAME_SHAPE),
     default: dom_smoothie,
     clearable: false,
     authority: Authority::Every,

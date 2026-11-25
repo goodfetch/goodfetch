@@ -192,6 +192,7 @@ details! {
     crate::page::route::RouteAlreadyHandledDetails => ErrorCode::ROUTE_ALREADY_HANDLED,
     crate::plugin::extractor::ExtractHandlerFailedDetails => ErrorCode::EXTRACT_HANDLER_FAILED,
     crate::recipe::RecipeInvalidDetails => ErrorCode::RECIPE_INVALID,
+    crate::plugin::extractor::ExtractorUnavailableDetails => ErrorCode::EXTRACTOR_UNAVAILABLE,
     crate::response_limits::ResponseLimitExceededDetails => ErrorCode::RESPONSE_LIMIT_EXCEEDED,
     crate::run::DetachUnsupportedDetails => ErrorCode::DETACH_UNSUPPORTED,
     crate::run::ResourcesExhaustedDetails => ErrorCode::RESOURCES_EXHAUSTED,

@@ -11,7 +11,7 @@
 //!
 //! let settings = Settings::new()
 //!     .set(timeout::NAVIGATION, Duration::from_secs(60))
-//!     .set(content::EXTRACTOR, content::Extractor::Trafilatura);
+//!     .set(content::EXTRACTOR, "trafilatura");
 //! ```
 //!
 //! A key left out inherits, `None` clears a setting that can be cleared,

@@ -61,6 +61,14 @@ pub struct ExtractHandlerFailedDetails {
     pub url: String,
 }
 
+/// What `extractor_unavailable` details.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct ExtractorUnavailableDetails {
+    /// The Extractor, as `content.extractor` names it.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub extractor: String,
+}
+
 /// An Extractor whose answer the engine cannot take (ADRs 0104 and 0127).
 pub const EXTRACT_HANDLER_FAILED: ErrorCodeDefinition = ErrorCodeDefinition {
     name: "extract_handler_failed",
@@ -74,7 +82,7 @@ pub const EXTRACT_HANDLER_FAILED: ErrorCodeDefinition = ErrorCodeDefinition {
 /// An Extractor that no one answers for (ADR 0104).
 pub const EXTRACTOR_UNAVAILABLE: ErrorCodeDefinition = ErrorCodeDefinition {
     name: "extractor_unavailable",
-    description: "The Extractor `content.extractor` names is a handler the program registered, which left its call unanswered: the call was dropped, or the stream that reads its calls closed. Retry once the program reads its Extractor's calls again.",
+    description: "No one answers for the Extractor `content.extractor` names: no built-in has its name and no installed Plugin of the Extractor kind does, its Plugin cannot start, or it is a handler the program registered that left its call unanswered. The details name the Extractor. Install the Plugin or name another Extractor, or retry once the program reads its Extractor's calls again.",
     group: ErrorGroup::Unavailable,
     retryable: true,
     exit_code: None,

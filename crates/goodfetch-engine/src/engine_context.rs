@@ -9,8 +9,10 @@
 
 use std::collections::BTreeMap;
 use std::ffi::{OsStr, OsString};
+use std::path::PathBuf;
 use std::sync::{Arc, PoisonError};
 
+use goodfetch_confinement::deny_list::Places;
 use goodfetch_counted_work::CountedWork;
 use goodfetch_protocol::connection::ProductVersion;
 use goodfetch_protocol::response_cache::{CACHE_MODE, CacheMode};
@@ -77,8 +79,31 @@ pub(crate) fn host_zone(environment: &BTreeMap<OsString, OsString>) -> String {
     "UTC".to_owned()
 }
 
+/// The user's folders a Plugin's confinement denies paths under (ADR
+/// 0033), from the engine's environment map: the home folder, `HOME` on
+/// macOS and Linux, `USERPROFILE` on Windows, with `APPDATA` and
+/// `LOCALAPPDATA` when set, and the Goodfetch home `home`. None without a
+/// home folder, as for a Daemon started with an empty environment: no
+/// Plugin starts then, since its deny list cannot be placed.
+pub(crate) fn places(home: &Home, environment: &BTreeMap<OsString, OsString>) -> Option<Places> {
+    let folder = |name: &str| {
+        environment
+            .get(&OsString::from(name))
+            .filter(|value| !value.is_empty())
+            .map(PathBuf::from)
+    };
+    let user_home = if cfg!(windows) { "USERPROFILE" } else { "HOME" };
+    Some(Places {
+        home: folder(user_home)?,
+        goodfetch_home: home.root().to_owned(),
+        app_data: folder("APPDATA"),
+        local_app_data: folder("LOCALAPPDATA"),
+    })
+}
+
 /// What the engine knows of its host beside its stores: the person it
-/// acts for, its time zone and the stream its handlers draw from.
+/// acts for, its time zone, the stream its handlers draw from and the
+/// person's folders a Plugin's confinement denies.
 pub(crate) struct Host {
     /// The OS user's name ([`os_user`]).
     pub(crate) person: String,
@@ -86,6 +111,8 @@ pub(crate) struct Host {
     pub(crate) zone: String,
     /// The handlers' own stream of the engine's entropy.
     pub(crate) entropy: Entropy,
+    /// The person's folders ([`places`]).
+    pub(crate) places: Option<Places>,
 }
 
 /// The user's known-certificates store, Usage ledger, Run index, Response
@@ -181,6 +208,7 @@ struct Held {
     person: String,
     zone: String,
     entropy: Mutex<Entropy>,
+    places: Option<Arc<Places>>,
 }
 
 impl std::fmt::Debug for EngineContext {
@@ -196,7 +224,8 @@ impl EngineContext {
     /// The engine at `home` on `clock` under `settings`, recording in
     /// `audit` and its listeners' refusals in `refusals`, with `stores`, its
     /// blocking work under their owner, with `needs_you` and
-    /// `sandbox_probe`, acting for `host`'s person.
+    /// `sandbox_probe`, acting for `host`'s person, whose folders are its
+    /// places.
     #[expect(
         clippy::too_many_arguments,
         reason = "each is one of the engine's own values, built once at its start and held together here"
@@ -215,6 +244,7 @@ impl EngineContext {
             person,
             zone,
             entropy,
+            places,
         } = host;
         Self {
             stores: Arc::new(stores),
@@ -229,6 +259,7 @@ impl EngineContext {
                 person,
                 zone,
                 entropy: Mutex::new(entropy),
+                places: places.map(Arc::new),
             }),
         }
     }
@@ -332,6 +363,12 @@ impl EngineContext {
             .contributed
             .iter()
             .find(|store| store.kind().file() == kind.file())
+    }
+
+    /// The person's folders a Plugin's confinement denies, none when the
+    /// engine's environment names no home folder.
+    pub(crate) fn places(&self) -> Option<&Arc<Places>> {
+        self.held.places.as_ref()
     }
 
     /// Where the engine's listeners record their refusals: the user's

@@ -6,7 +6,9 @@
 //! It refuses to run, writing nothing on stdout and exiting 1, unless its
 //! environment holds the plugin protocol's cookie, as a Plugin's SDK-free
 //! start does. Then it reads its script, the JSON file its one argument
-//! names, relative to its working folder or not:
+//! names, relative to its working folder or not, else the `script.json`
+//! beside its executable, as when the engine starts it from the Plugin
+//! store with no argument:
 //!
 //! ```json
 //! {
@@ -57,6 +59,11 @@ const COOKIE_VARIABLE: &str = "GOODFETCH_PLUGIN_COOKIE";
 /// The cookie's value.
 const COOKIE: &str = "goodfetch-plugin-protocol";
 
+/// The script it plays when no argument names one, beside its executable,
+/// as a Plugin the engine starts from the Plugin store, with no argument,
+/// finds it in its bundle.
+const SCRIPT: &str = "script.json";
+
 /// JSON-RPC's code for a method the Plugin does not have.
 const METHOD_NOT_FOUND: i64 = -32601;
 
@@ -76,9 +83,15 @@ fn main() -> ExitCode {
     }
 }
 
-/// Plays the script its argument names until its stdin closes.
+/// Plays the script its argument names, else the `script.json` beside its
+/// executable, until its stdin closes.
 fn play() -> Result<(), String> {
-    let path = std::env::args_os().nth(1).ok_or("no script is named")?;
+    let path = match std::env::args_os().nth(1) {
+        Some(path) => std::path::PathBuf::from(path),
+        None => std::env::current_exe()
+            .map_err(|error| format!("cannot find its executable: {error}"))?
+            .with_file_name(SCRIPT),
+    };
     let text = fs::read_to_string(&path)
         .map_err(|error| format!("cannot read {}: {error}", path.display()))?;
     let script: Value = serde_json::from_str(&text)

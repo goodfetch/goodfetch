@@ -228,7 +228,7 @@ impl ErrorCode {
 
     /// `extractor_unavailable`, in the `unavailable` group, retryable.
     ///
-    /// The Extractor `content.extractor` names is a handler the program registered, which left its call unanswered: the call was dropped, or the stream that reads its calls closed. Retry once the program reads its Extractor's calls again.
+    /// No one answers for the Extractor `content.extractor` names: no built-in has its name and no installed Plugin of the Extractor kind does, its Plugin cannot start, or it is a handler the program registered that left its call unanswered. The details name the Extractor. Install the Plugin or name another Extractor, or retry once the program reads its Extractor's calls again.
     pub const EXTRACTOR_UNAVAILABLE: Self = ErrorCode::from_static("extractor_unavailable");
 
     /// `file_write_failed`, in the `unavailable` group, not retryable.

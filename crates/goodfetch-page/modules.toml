@@ -143,6 +143,7 @@ arrival = []
 blocked = []
 blocking_off = ["arrival", "blocked"]
 clean_up = []
+plugin_extractor = []
 served_formats = ["clean_up"]
 waits = []
 

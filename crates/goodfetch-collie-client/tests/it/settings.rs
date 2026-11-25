@@ -54,7 +54,7 @@ fn each_scope_sends_its_own_settings_and_a_key_it_does_not_set_is_refused_unsent
             .unwrap();
         let page = session
             .new_page()
-            .settings(Settings::new().set(content::EXTRACTOR, content::Extractor::Trafilatura))
+            .settings(Settings::new().set(content::EXTRACTOR, "trafilatura"))
             .await
             .unwrap();
         connection.close().await.unwrap();

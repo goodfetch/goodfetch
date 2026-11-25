@@ -252,7 +252,7 @@ fn a_seeds_file_past_half_the_message_limit_leaves_its_last_seeds_to_run_add_see
     // Compared whole but shown short: the seeds hold 20 MB.
     assert_eq!(
         (
-            start_bytes <= goodfetch_engine::rpc::framing::MAX_MESSAGE_BYTES / 2,
+            start_bytes <= goodfetch_engine::framing::MAX_MESSAGE_BYTES / 2,
             !flags.added.is_empty(),
             urls == expected.iter().map(String::as_str).collect::<Vec<_>>(),
         ),

@@ -3413,6 +3413,25 @@
     },
     {
       "arrived_in": "0.1",
+      "cancellable": true,
+      "class": "read",
+      "deprecated": null,
+      "description": "Answers one page of the committed Records of one Dataset of a run that hold every word of `text`, each anywhere in the Record's values, in any case and with or without diacritics, in number order, after `after` and at most `limit` (1 to 1000, 100 by default), with the next page's `after` while more follow. It reads the index a crawl writes as it commits each Record while `dataset.search.index` is on, so a crawl with it off finds none. An empty `text` fails with `invalid_params`, and a Dataset the crawl does not declare with `dataset_unknown`.",
+      "events": [],
+      "kind": "round_trip",
+      "name": "dataset.search",
+      "params": {
+        "$ref": "#/$defs/DatasetSearchParams"
+      },
+      "product": "foxhound",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/DatasetSearchPage"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
       "cancellable": false,
       "class": "effect",
       "deprecated": null,
@@ -4352,6 +4371,25 @@
       "reach": "all_surfaces",
       "result": {
         "$ref": "#/$defs/RunStarted"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": true,
+      "class": "read",
+      "deprecated": null,
+      "description": "Searches the committed Records of the runs `runs` selects, at most 100, for those that hold every word of `text`, each anywhere in the Record's values, in any case and with or without diacritics, in every Dataset or those `datasets` names, and answers at most `limit` (1 to 1000, 100 by default), the best matches first, each with its run, Dataset and number, so the runs that returned one can be read or queried with `dataset.query`. It reads only the selected runs' indexes, which a crawl writes while `dataset.search.index` is on, and runs under `timeout.dataset_query` and `dataset.query.memory_limit`. An empty `text` fails with `invalid_params`, and a run that does not exist with `run_not_found`.",
+      "events": [],
+      "kind": "round_trip",
+      "name": "record.search",
+      "params": {
+        "$ref": "#/$defs/RecordSearchParams"
+      },
+      "product": "foxhound",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/RecordSearchResult"
       },
       "stability": "experimental"
     },
@@ -6695,6 +6733,29 @@
         ]
       },
       "weakens": true
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": false,
+      "default": true,
+      "deprecated": null,
+      "description": "Whether the crawl indexes each Record it commits for `dataset.search` and `record.search`, in the commit's transaction. On by default. Off, no Record is indexed, so neither search finds one of the crawl's Records, while each is still committed and read as before.",
+      "fixed_for_run": false,
+      "name": "dataset.search.index",
+      "product": "foxhound",
+      "products": [
+        "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run"
+      ],
+      "value": {
+        "type": "boolean"
+      },
+      "weakening": null,
+      "weakens": false
     },
     {
       "arrived_in": "0.1",

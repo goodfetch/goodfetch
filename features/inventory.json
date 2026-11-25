@@ -359,6 +359,16 @@
       ]
     },
     {
+      "id": "command:dataset.search",
+      "kind": "command",
+      "area": 11,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "foxhound"
+      ]
+    },
+    {
       "id": "command:doctor",
       "kind": "command",
       "area": 11,
@@ -608,6 +618,16 @@
       "status": "active",
       "products": [
         "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "command:record.search",
+      "kind": "command",
+      "area": 11,
+      "milestone": null,
+      "status": "active",
+      "products": [
         "foxhound"
       ]
     },
@@ -3554,6 +3574,16 @@
       ]
     },
     {
+      "id": "operation:dataset.search",
+      "kind": "operation",
+      "area": 12,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "foxhound"
+      ]
+    },
+    {
       "id": "operation:dialog.accept",
       "kind": "operation",
       "area": 5,
@@ -4076,6 +4106,16 @@
       "status": "active",
       "products": [
         "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "operation:record.search",
+      "kind": "operation",
+      "area": 12,
+      "milestone": null,
+      "status": "active",
+      "products": [
         "foxhound"
       ]
     },
@@ -8943,6 +8983,16 @@
       "id": "setting:dataset.records",
       "kind": "setting",
       "area": 6,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "foxhound"
+      ]
+    },
+    {
+      "id": "setting:dataset.search.index",
+      "kind": "setting",
+      "area": 12,
       "milestone": null,
       "status": "active",
       "products": [
@@ -16430,6 +16480,26 @@
       "area": 12,
       "milestone": "M1 Core",
       "status": "retired",
+      "products": [
+        "foxhound"
+      ]
+    },
+    {
+      "id": "story:12-208",
+      "kind": "story",
+      "area": 12,
+      "milestone": "M1 Core",
+      "status": "active",
+      "products": [
+        "foxhound"
+      ]
+    },
+    {
+      "id": "story:12-209",
+      "kind": "story",
+      "area": 12,
+      "milestone": "M1 Core",
+      "status": "active",
       "products": [
         "foxhound"
       ]

@@ -8,8 +8,8 @@
     }
   },
   "sdks/python/foxhound/src/goodfetch_foxhound/generated/models.py": {
-    "input": "0e82635c0ed12d86576a0d8748bc60da9e8067fa9c5daadd98d809b5e503a34a",
-    "output": "96e55602953472e2489cd389e240d37097ba88c4cbbadc46960bc5db56afcc3f",
+    "input": "2f75dda27f61909a3845f3e325c8257266d9aa13d1469b4e8cabedfeb6b805a3",
+    "output": "34df712ffd8cf48766fa63d875e8c24eda2425356f1a6fb6a3827cf7a8b0a0fa",
     "tools": {
       "datamodel-code-generator": "0.86.0",
       "ruff": "0.17.1"
@@ -23,8 +23,8 @@
     }
   },
   "sdks/typescript/foxhound/src/generated/types.ts": {
-    "input": "022f28e9baad5e89dbcac183334c376f06a599cf42e26e64b5010707ef6592d3",
-    "output": "04d6d2e919c580dcfaad90d36369cb18f73e3a87b6e3e07023e624f3e5a32d54",
+    "input": "b5d785946e82b00a8e7f6c8db67d1a8354e4fb75325814ea37b523e6ddf6c99e",
+    "output": "d6a684ff5b0c80a0fb6b76831c573e5d6fe0fe3ae3598d48d0af295464d8ba62",
     "tools": {
       "json-schema-to-typescript": "16.0.0"
     }

@@ -854,9 +854,22 @@
           {
             "commands": [],
             "name": "query"
+          },
+          {
+            "commands": [],
+            "name": "search"
           }
         ],
         "name": "dataset"
+      },
+      {
+        "commands": [
+          {
+            "commands": [],
+            "name": "search"
+          }
+        ],
+        "name": "record"
       }
     ],
     "name": "goodfetch-foxhound"

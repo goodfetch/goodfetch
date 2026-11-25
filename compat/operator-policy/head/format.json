@@ -1533,6 +1533,16 @@
               "records": {
                 "description": "Whether the crawl keeps Records (ADR 0103): each Record a handler answers or pushes, or a code-free crawl reads from a page, checked against its Dataset's schema and committed with its attempt. On by default. Off, for a crawl that only fetches and follows, no Record is validated, encoded or committed, and a code-free crawl reads no format or field for one; a Record named for a Dataset the crawl does not declare is still refused with `dataset_unknown`. Each succeeded request's outcome says `records_off`, `run.records` reads none, and the Run report's warning `records_off` says why; it is recorded in the Audit log and listed in the run's result.",
                 "type": "boolean"
+              },
+              "search": {
+                "additionalProperties": false,
+                "properties": {
+                  "index": {
+                    "description": "Whether the crawl indexes each Record it commits for `dataset.search` and `record.search`, in the commit's transaction. On by default. Off, no Record is indexed, so neither search finds one of the crawl's Records, while each is still committed and read as before.",
+                    "type": "boolean"
+                  }
+                },
+                "type": "object"
               }
             },
             "type": "object"
@@ -5544,6 +5554,16 @@
               "records": {
                 "description": "Whether the crawl keeps Records (ADR 0103): each Record a handler answers or pushes, or a code-free crawl reads from a page, checked against its Dataset's schema and committed with its attempt. On by default. Off, for a crawl that only fetches and follows, no Record is validated, encoded or committed, and a code-free crawl reads no format or field for one; a Record named for a Dataset the crawl does not declare is still refused with `dataset_unknown`. Each succeeded request's outcome says `records_off`, `run.records` reads none, and the Run report's warning `records_off` says why; it is recorded in the Audit log and listed in the run's result.",
                 "type": "boolean"
+              },
+              "search": {
+                "additionalProperties": false,
+                "properties": {
+                  "index": {
+                    "description": "Whether the crawl indexes each Record it commits for `dataset.search` and `record.search`, in the commit's transaction. On by default. Off, no Record is indexed, so neither search finds one of the crawl's Records, while each is still committed and read as before.",
+                    "type": "boolean"
+                  }
+                },
+                "type": "object"
               }
             },
             "type": "object"

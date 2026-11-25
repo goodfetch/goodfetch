@@ -315,6 +315,14 @@ export interface FoxhoundSettings {
      * `dataset.records`.
      */
     readonly records?: boolean;
+    readonly search?: {
+      /**
+       * Whether the crawl indexes each Record it commits for `dataset.search` and `record.search`, in the commit's transaction. On by default. Off, no Record is indexed, so neither search finds one of the crawl's Records, while each is still committed and read as before.
+       *
+       * `dataset.search.index`.
+       */
+      readonly index?: boolean;
+    };
   };
   readonly effect?: {
     readonly output?: {
@@ -1567,6 +1575,14 @@ export interface CrawlSettings {
      * `dataset.records`.
      */
     readonly records?: boolean;
+    readonly search?: {
+      /**
+       * Whether the crawl indexes each Record it commits for `dataset.search` and `record.search`, in the commit's transaction. On by default. Off, no Record is indexed, so neither search finds one of the crawl's Records, while each is still committed and read as before.
+       *
+       * `dataset.search.index`.
+       */
+      readonly index?: boolean;
+    };
   };
   readonly effect?: {
     readonly output?: {
@@ -2709,6 +2725,9 @@ const SPELLING: Spelling = {
       memoryLimit: "memory_limit",
     }],
     records: "records",
+    search: ["search", {
+      index: "index",
+    }],
   }],
   delivery: ["delivery", {
     reportGuaranteeClass: "report_guarantee_class",

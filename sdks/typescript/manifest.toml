@@ -2973,7 +2973,7 @@ entries = ["crawl_request.links"]
 reason = "What `enqueueLinks`'s Payload function reads for each link; the member takes one Payload for every link, so nothing reads it yet."
 
 [[unreached]]
-entries = ["dataset.list", "dataset.page", "dataset.query"]
+entries = ["dataset.list", "dataset.page", "dataset.query", "dataset.search", "record.search"]
 reason = "No member reads a Run's Datasets yet."
 
 [[unreached]]

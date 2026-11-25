@@ -22,6 +22,7 @@ use goodfetch_engine::egress::Policy;
 use goodfetch_engine::runs::Run;
 use goodfetch_engine::settings::{RunSettings, get_or_default};
 use goodfetch_protocol::foxhound::crawl::CRAWL_MAX_STAGED_ENQUEUES;
+use goodfetch_protocol::foxhound::search::DATASET_SEARCH_INDEX;
 use goodfetch_protocol::foxhound::settings::DATASET_RECORDS;
 use goodfetch_protocol::run::RunId;
 use tokio::sync::{Mutex, mpsc, oneshot};
@@ -110,6 +111,16 @@ pub(crate) fn keeps_records(run: &Run) -> bool {
     get_or_default(run.settings().map(RunSettings::resolved), &DATASET_RECORDS)
 }
 
+/// Whether the crawl `run` indexes the Records it keeps for full-text
+/// search, its `dataset.search.index` (ADR 0138): off, it writes no index
+/// row.
+fn indexes_records(run: &Run) -> bool {
+    get_or_default(
+        run.settings().map(RunSettings::resolved),
+        &DATASET_SEARCH_INDEX,
+    )
+}
+
 impl Crawls {
     /// Opens the crawl `run`, under its domain policy `egress`, with the
     /// `invariants` its admissions read and the Datasets it declares,
@@ -123,7 +134,7 @@ impl Crawls {
         invariants: Invariants,
         datasets: Datasets,
     ) -> Opened {
-        let datasets = datasets.keeping_records(keeps_records(run));
+        let datasets = datasets.keeping_records(keeps_records(run), indexes_records(run));
         let (joining, joined) = mpsc::channel(JOINING);
         let (asking, asked) = run_state::mailbox(run.metrics().counted_work().clone());
         let staging = Staging::bounded(get_or_default(

@@ -1,0 +1,34 @@
+#:schema ./journey.schema.json
+id = "J-040"
+title = "Find which runs returned a Record with search across runs, then query them with the SQL tab"
+goal = """
+A person who crawled a site in several runs searches every run they select \
+for a word, to find which runs returned a Record holding it without opening \
+each. The search MUST find the Record of each run whose page holds the word \
+and none of a run whose page does not, and a read-only SQL query over the \
+runs it found MUST read those same Records (ADR 0031)."""
+area = 12
+product = "foxhound"
+status = "active"
+covers = ["story:12-209", "story:12-210"]
+
+[proving_ground]
+seed = 40
+
+[surfaces]
+cli = "M1"
+
+[[steps]]
+text = "Crawl three pages of a site from the command line, each as a run of its own on the Daemon"
+
+[[steps]]
+text = "Search the three runs for a word with search across runs (`record search`)"
+
+[[steps]]
+text = "Query the runs the search found with the SQL tab (`dataset query`)"
+
+[[expect]]
+text = "The search found the Record of each run whose page holds the word, and none of the run whose page does not"
+
+[[expect]]
+text = "The query over the runs the search found read the same Records"

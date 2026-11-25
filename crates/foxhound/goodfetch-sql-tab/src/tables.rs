@@ -55,6 +55,17 @@ impl Registered {
         })
     }
 
+    /// What opens the selected run `run`'s file; none when it was not
+    /// selected.
+    pub(crate) fn run(&self, run: &str) -> Option<&OpenRun> {
+        self.runs.get(run)
+    }
+
+    /// The selected runs' IDs, in order.
+    pub(crate) fn runs(&self) -> impl Iterator<Item = &str> {
+        self.runs.keys().map(String::as_str)
+    }
+
     /// What a table function refused in the last query, taken.
     pub(crate) fn refusal(&self) -> Option<Refusal> {
         self.refusal
@@ -126,7 +137,7 @@ impl VTab for RunTableFunction {
         // function is registered, so for every bind of it.
         let extra = unsafe { &*bind.get_extra_info::<Extra>() };
         let run = bind.get_parameter(0).to_string();
-        let Some(open) = extra.registered.runs.get(&run) else {
+        let Some(open) = extra.registered.run(&run) else {
             extra.registered.refuse(Refusal::RunNotSelected);
             return Err(format!("the run {run} is not one this query selected").into());
         };

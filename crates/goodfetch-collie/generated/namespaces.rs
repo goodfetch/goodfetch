@@ -121,4 +121,10 @@
         about: "Calls the catalog's `dataset` operations",
         product: Product::Foxhound,
     },
+    Namespace {
+        name: "record",
+        spelled: "record",
+        about: "Calls the catalog's `record` operations",
+        product: Product::Foxhound,
+    },
 ]

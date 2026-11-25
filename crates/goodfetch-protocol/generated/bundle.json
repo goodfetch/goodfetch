@@ -5180,6 +5180,86 @@
       ],
       "type": "object"
     },
+    "DatasetSearchPage": {
+      "description": "One page of `dataset.search`.",
+      "properties": {
+        "next": {
+          "arrived_in": "0.1",
+          "description": "The next page's `after`; absent once no Record follows.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "records": {
+          "arrived_in": "0.1",
+          "description": "The Records that hold every word, in number order.",
+          "items": {
+            "$ref": "#/$defs/DatasetRecord"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "records"
+      ],
+      "type": "object"
+    },
+    "DatasetSearchParams": {
+      "additionalProperties": false,
+      "description": "What `dataset.search` takes.",
+      "properties": {
+        "_meta": {
+          "$ref": "#/$defs/RequestMeta",
+          "arrived_in": "0.1"
+        },
+        "after": {
+          "arrived_in": "0.1",
+          "description": "The number of the last Record of the previous page, its `next`: the\npage starts after it. Absent, at the first.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "dataset": {
+          "arrived_in": "0.1",
+          "description": "The Dataset's name.",
+          "type": "string"
+        },
+        "limit": {
+          "arrived_in": "0.1",
+          "description": "The most Records the page carries, from 1 to 1000; absent, 100.",
+          "format": "uint32",
+          "maximum": 1000,
+          "minimum": 1,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "run_id": {
+          "$ref": "#/$defs/RunId",
+          "arrived_in": "0.1",
+          "description": "The crawl's Run."
+        },
+        "text": {
+          "arrived_in": "0.1",
+          "description": "The words a Record holds, each anywhere in its values, in any case\nand with or without diacritics.",
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "run_id",
+        "dataset",
+        "text"
+      ],
+      "type": "object"
+    },
     "DatasetSummary": {
       "description": "One Dataset a crawl declares, with what its crawl kept of it.",
       "properties": {
@@ -7969,6 +8049,39 @@
           "description": "The text of the page's main content, a paragraph per block."
         }
       },
+      "type": "object"
+    },
+    "FoundRecord": {
+      "description": "One Record `record.search` found.",
+      "properties": {
+        "dataset": {
+          "arrived_in": "0.1",
+          "description": "Its Dataset.",
+          "type": "string"
+        },
+        "number": {
+          "arrived_in": "0.1",
+          "description": "Its number in its Dataset.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "run_id": {
+          "$ref": "#/$defs/RunId",
+          "arrived_in": "0.1",
+          "description": "The run that returned it."
+        },
+        "value": {
+          "arrived_in": "0.1",
+          "description": "The Record, as JSON."
+        }
+      },
+      "required": [
+        "run_id",
+        "dataset",
+        "number",
+        "value"
+      ],
       "type": "object"
     },
     "GotoParams": {
@@ -15658,6 +15771,76 @@
       "required": [
         "id",
         "record"
+      ],
+      "type": "object"
+    },
+    "RecordSearchParams": {
+      "additionalProperties": false,
+      "description": "What `record.search` takes.",
+      "properties": {
+        "_meta": {
+          "$ref": "#/$defs/RequestMeta",
+          "arrived_in": "0.1"
+        },
+        "datasets": {
+          "arrived_in": "0.1",
+          "description": "The Datasets it searches in each run; absent, every one.",
+          "items": {
+            "type": "string"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "limit": {
+          "arrived_in": "0.1",
+          "description": "The most Records it answers, from 1 to 1000; absent, 100.",
+          "format": "uint32",
+          "maximum": 1000,
+          "minimum": 1,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "runs": {
+          "arrived_in": "0.1",
+          "description": "The runs it searches, from 1 to 100.",
+          "items": {
+            "$ref": "#/$defs/RunId"
+          },
+          "maxItems": 100,
+          "minItems": 1,
+          "type": "array"
+        },
+        "text": {
+          "arrived_in": "0.1",
+          "description": "The words a Record holds, each anywhere in its values, in any case\nand with or without diacritics.",
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "text",
+        "runs"
+      ],
+      "type": "object"
+    },
+    "RecordSearchResult": {
+      "description": "What `record.search` answers.",
+      "properties": {
+        "records": {
+          "arrived_in": "0.1",
+          "description": "The Records that hold every word, the best matches first, then by\nrun, Dataset and number.",
+          "items": {
+            "$ref": "#/$defs/FoundRecord"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "records"
       ],
       "type": "object"
     },
@@ -25398,6 +25581,16 @@
                   "records": {
                     "description": "Whether the crawl keeps Records (ADR 0103): each Record a handler answers or pushes, or a code-free crawl reads from a page, checked against its Dataset's schema and committed with its attempt. On by default. Off, for a crawl that only fetches and follows, no Record is validated, encoded or committed, and a code-free crawl reads no format or field for one; a Record named for a Dataset the crawl does not declare is still refused with `dataset_unknown`. Each succeeded request's outcome says `records_off`, `run.records` reads none, and the Run report's warning `records_off` says why; it is recorded in the Audit log and listed in the run's result.",
                     "type": "boolean"
+                  },
+                  "search": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "index": {
+                        "description": "Whether the crawl indexes each Record it commits for `dataset.search` and `record.search`, in the commit's transaction. On by default. Off, no Record is indexed, so neither search finds one of the crawl's Records, while each is still committed and read as before.",
+                        "type": "boolean"
+                      }
+                    },
+                    "type": "object"
                   }
                 },
                 "type": "object"
@@ -29409,6 +29602,16 @@
                   "records": {
                     "description": "Whether the crawl keeps Records (ADR 0103): each Record a handler answers or pushes, or a code-free crawl reads from a page, checked against its Dataset's schema and committed with its attempt. On by default. Off, for a crawl that only fetches and follows, no Record is validated, encoded or committed, and a code-free crawl reads no format or field for one; a Record named for a Dataset the crawl does not declare is still refused with `dataset_unknown`. Each succeeded request's outcome says `records_off`, `run.records` reads none, and the Run report's warning `records_off` says why; it is recorded in the Audit log and listed in the run's result.",
                     "type": "boolean"
+                  },
+                  "search": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "index": {
+                        "description": "Whether the crawl indexes each Record it commits for `dataset.search` and `record.search`, in the commit's transaction. On by default. Off, no Record is indexed, so neither search finds one of the crawl's Records, while each is still committed and read as before.",
+                        "type": "boolean"
+                      }
+                    },
+                    "type": "object"
                   }
                 },
                 "type": "object"
@@ -33436,6 +33639,16 @@
                   "records": {
                     "description": "Whether the crawl keeps Records (ADR 0103): each Record a handler answers or pushes, or a code-free crawl reads from a page, checked against its Dataset's schema and committed with its attempt. On by default. Off, for a crawl that only fetches and follows, no Record is validated, encoded or committed, and a code-free crawl reads no format or field for one; a Record named for a Dataset the crawl does not declare is still refused with `dataset_unknown`. Each succeeded request's outcome says `records_off`, `run.records` reads none, and the Run report's warning `records_off` says why; it is recorded in the Audit log and listed in the run's result.",
                     "type": "boolean"
+                  },
+                  "search": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "index": {
+                        "description": "Whether the crawl indexes each Record it commits for `dataset.search` and `record.search`, in the commit's transaction. On by default. Off, no Record is indexed, so neither search finds one of the crawl's Records, while each is still committed and read as before.",
+                        "type": "boolean"
+                      }
+                    },
+                    "type": "object"
                   }
                 },
                 "type": "object"

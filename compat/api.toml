@@ -171,3 +171,7 @@ reason = "The reason an enqueue gives for a URL it did not add is an open enumer
 [[announced]]
 entry = "typescript @goodfetch/foxhound/generated NotAddedReason"
 reason = "The reason an enqueue gives for a URL it did not add is an open enumeration (ADR 0079): a reason a newer engine adds reads as received instead of failing the answer (issue 1471)."
+
+[[announced]]
+entry = "typescript @goodfetch/foxhound/generated FoxhoundOperationTypes"
+reason = "Foxhound's operation map gains full-text search in a run, `dataset.search`, and search across runs, `record.search` (ADR 0031, issue 1217): a type written to the map needs both entries."

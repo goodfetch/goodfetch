@@ -11,3 +11,13 @@
 # [[live-check]]
 # id = "saas-sinks snowflake"
 # area = 6
+
+# The docs site's (ADR 0068; .github/workflows/docs.yml): Playwright tests,
+# named by their file and title.
+[[live-check]]
+id = "website/tests/live/external-links.live.ts › docs-external-links"
+area = 1
+
+[[live-check]]
+id = "website/tests/live/deploy-smoke.live.ts › docs-deploy-smoke"
+area = 1

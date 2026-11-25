@@ -76,7 +76,7 @@ describe("a Connection's Schedules on an Attached engine", () => {
       await clientCase.check("get of an unknown ID fails with schedule_not_found", () =>
         expect(unknown).toMatchObject({
           code: "schedule_not_found",
-          details: { scheduleId: "never-created" },
+          typedDetails: { scheduleId: "never-created" },
         }),
       );
       await clientCase.check("delete answers whether it deleted, and info then fails", () => {

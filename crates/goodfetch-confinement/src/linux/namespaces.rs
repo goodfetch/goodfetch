@@ -3,7 +3,8 @@
 //! first process of a PID namespace of its own, inside a user namespace of
 //! its own. No process outside can be named from there, so none can be
 //! signalled. Its former self stays outside, waits for it and ends as it
-//! ends.
+//! ends. The mount-namespace mechanism adds a mount namespace, in which
+//! the first process sees only the policy's paths (`mounts`).
 #![expect(
     unsafe_code,
     reason = "entering namespaces, forking, waiting and dropping capabilities are raw system calls"
@@ -11,7 +12,8 @@
 
 use std::io;
 
-use super::ConfineError;
+use super::{ConfineError, mounts};
+use crate::policy::Policy;
 
 /// `capset`'s version for 64-bit capability sets, held in two words
 /// (`_LINUX_CAPABILITY_VERSION_3`).
@@ -32,18 +34,24 @@ struct CapabilitySets {
 }
 
 /// Enters a user namespace and a PID namespace of its own, mapping only the
-/// caller's own user and group, then forks. The child, the PID namespace's
-/// first process, returns with no capability and ends when its parent
-/// does. The parent never returns: it waits for the child and ends with its
-/// status, or by its signal.
+/// caller's own user and group, then forks. With `files`, it also enters a
+/// mount namespace, where the child sees only that policy's paths. The
+/// child, the PID namespace's first process, returns with no capability
+/// and ends when its parent does. The parent never returns: it waits for
+/// the child and ends with its status, or by its signal.
 ///
 /// The calling process must have one thread: the kernel refuses a user
 /// namespace to any other.
-pub(super) fn enter() -> Result<(), ConfineError> {
+pub(super) fn enter(files: Option<&Policy>) -> Result<(), ConfineError> {
     // SAFETY: neither call reads or writes memory.
     let (user, group) = unsafe { (libc::getuid(), libc::getgid()) };
+    let mount = if files.is_some() {
+        libc::CLONE_NEWNS
+    } else {
+        0
+    };
     // SAFETY: `unshare` takes flags only.
-    if unsafe { libc::unshare(libc::CLONE_NEWUSER | libc::CLONE_NEWPID) } == -1 {
+    if unsafe { libc::unshare(libc::CLONE_NEWUSER | libc::CLONE_NEWPID | mount) } == -1 {
         let error = io::Error::last_os_error();
         return Err(match error.raw_os_error() {
             Some(libc::EPERM | libc::ENOSPC | libc::EUSERS) => ConfineError::Unavailable(
@@ -67,7 +75,7 @@ pub(super) fn enter() -> Result<(), ConfineError> {
             call: "fork",
             error: io::Error::last_os_error(),
         }),
-        0 => first_process(),
+        0 => first_process(files),
         child => relay(child),
     }
 }
@@ -91,15 +99,18 @@ fn written(path: &'static str, map: &str) -> Result<(), ConfineError> {
     })
 }
 
-/// The child: ends with its parent, and drops every capability the new
-/// user namespace gave it.
-fn first_process() -> Result<(), ConfineError> {
+/// The child: ends with its parent, sees only `files`' paths when given,
+/// and drops every capability the new user namespace gave it.
+fn first_process(files: Option<&Policy>) -> Result<(), ConfineError> {
     // SAFETY: `prctl` takes numbers only.
     if unsafe { libc::prctl(libc::PR_SET_PDEATHSIG, libc::SIGKILL) } == -1 {
         return Err(ConfineError::Namespace {
             call: "prctl",
             error: io::Error::last_os_error(),
         });
+    }
+    if let Some(policy) = files {
+        mounts::expose_only(policy)?;
     }
     let mut header = CapabilityHeader {
         version: CAPABILITY_VERSION_3,

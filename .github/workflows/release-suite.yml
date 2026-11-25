@@ -149,6 +149,9 @@ jobs:
       # namespaces, so `DnsNamespace` comes up through `sudo` (ADR 0067);
       # declared, a fallback to another way fails.
       GOODFETCH_TEST_DNS_NAMESPACE: sudo
+      # The image's kernel (7.0) has Landlock ABI 6, which confines a
+      # Plugin alone (issue 813); declared, a fallback fails.
+      GOODFETCH_TEST_CONFINEMENT: landlock
       # xtask's own `dev` build with line tables only, as the `ci-test`
       # profile's: a third less of the runner's disk (3.0 to 2.1 GB).
       CARGO_PROFILE_DEV_DEBUG: line-tables-only
@@ -362,6 +365,9 @@ jobs:
       # namespaces, so `DnsNamespace` comes up through `sudo` (ADR 0067);
       # declared, a fallback to another way fails.
       GOODFETCH_TEST_DNS_NAMESPACE: sudo
+      # The image's kernel (6.14) has Landlock ABI 6, which confines a
+      # Plugin alone (issue 813); declared, a fallback fails.
+      GOODFETCH_TEST_CONFINEMENT: landlock
       # xtask's own `dev` build with line tables only, as the `ci-test`
       # profile's: a third less of the runner's disk (3.0 to 2.1 GB).
       CARGO_PROFILE_DEV_DEBUG: line-tables-only

@@ -6,26 +6,27 @@
 //!
 //! The exit statuses: 0 for a call that returned without an error; 1 to 99
 //! for a call that ended the process with that status; 100 plus the error's
-//! number for an error; 200 plus the ABI for the mechanism (201 to 205 the
-//! PID-namespace mechanism, 206 and up Landlock alone); 216 plus the
+//! number for an error; 200 plus the ABI for the mechanism (200 the mount
+//! namespace, 201 to 205 the PID-namespace mechanism, 206 and up Landlock
+//! alone); 216 plus the
 //! kernel's Landlock ABI; 240 and up for a probe that could not run.
 
 use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 
-use super::{ConfineError, Mechanism, SIGNAL_SCOPE_ABI, SignalScope};
+use super::{ConfineError, Mechanism, MechanismKind, SIGNAL_SCOPE_ABI};
 use crate::policy::Policy;
 use crate::probes::{Access, Arg, Errno, Outcome};
 use crate::seccomp::Call;
 
 /// The probe to make, confined to `policy` first when there is one, with
-/// the signal scope `scope`, or the kernel's without one.
+/// `mechanism`, or the kernel's without one.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Request {
     pub probe: Probe,
     pub policy: Option<Policy>,
-    pub scope: Option<SignalScope>,
+    pub mechanism: Option<MechanismKind>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -122,6 +123,7 @@ impl Report {
             Self::Mechanism(Mechanism::Landlock { abi } | Mechanism::PidNamespace { abi }) => {
                 MECHANISM_BASE.saturating_add(abi)
             }
+            Self::Mechanism(Mechanism::MountNamespace) => MECHANISM_BASE,
             Self::KernelAbi(abi) => KERNEL_ABI_BASE.saturating_add(abi),
             Self::Fault(fault) => FAULTS
                 .iter()
@@ -139,9 +141,10 @@ impl Report {
             0 => Self::Outcome(Outcome::Ok),
             1..ERRNO_BASE => Self::Outcome(Outcome::Exit(status)),
             ERRNO_BASE..MECHANISM_BASE => Self::errno(i32::from(status - ERRNO_BASE)),
-            // The PID-namespace mechanism's ABIs lie below Landlock's.
+            // The mount namespace has no Landlock, and the PID-namespace
+            // mechanism's ABIs lie below Landlock's own.
             MECHANISM_BASE..KERNEL_ABI_BASE => Self::Mechanism(match status - MECHANISM_BASE {
-                0 => return None,
+                0 => Mechanism::MountNamespace,
                 abi @ 1..SIGNAL_SCOPE_ABI => Mechanism::PidNamespace { abi },
                 abi => Mechanism::Landlock { abi },
             }),

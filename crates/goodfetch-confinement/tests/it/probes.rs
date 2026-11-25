@@ -17,7 +17,7 @@ use std::process::{Command, Stdio};
 
 use goodfetch_confinement::deny_list::Host;
 use goodfetch_confinement::linux::probe::{Fault, Probe, Report, Request};
-use goodfetch_confinement::linux::{Mechanism, SignalScope};
+use goodfetch_confinement::linux::{Mechanism, MechanismKind};
 use goodfetch_confinement::policy::{Instance, Policy};
 use goodfetch_confinement::probes::{self, Access, Layout, Outcome, ProbeTable};
 use goodfetch_protocol::plugin::{NetworkLevel, PluginManifest};
@@ -32,15 +32,15 @@ const SIGNAL_SCOPE_ABI: u8 = 6;
 
 /// The mechanism a runner declares it must confine with by default, so that
 /// a host that refuses it fails rather than passing on the refusal (ADR
-/// 0067): `landlock` or `pid_namespace`.
+/// 0067): `landlock`, `pid_namespace` or `mount_namespace`.
 const DECLARED_MECHANISM: &str = "GOODFETCH_TEST_CONFINEMENT";
 
-/// The policy to confine a probe to, with the signal scope to use, the
+/// The policy to confine a probe to, with the mechanism to use, the
 /// kernel's when none.
 #[derive(Clone, Copy)]
 struct Confined<'a> {
     policy: &'a Policy,
-    scope: Option<SignalScope>,
+    kind: Option<MechanismKind>,
 }
 
 /// What `probe` reports, run confined when asked; an error for a probe
@@ -49,7 +49,7 @@ fn run(probe: Probe, confined: Option<Confined<'_>>) -> Result<Report, String> {
     let request = Request {
         probe,
         policy: confined.map(|confined| confined.policy.clone()),
-        scope: confined.and_then(|confined| confined.scope),
+        mechanism: confined.and_then(|confined| confined.kind),
     };
     let status = Command::new(PROBE)
         .arg(serde_json::to_string(&request).unwrap())
@@ -126,21 +126,30 @@ fn every_probe_at_the_none_level_gives_its_outcome_unconfined_then_exactly_its_r
 /// Covers: story:7-54
 #[test]
 fn every_probe_at_the_none_level_gives_its_refusal_under_the_pid_namespace_mechanism_too() {
-    assert_every_probe_at_none(Some(SignalScope::PidNamespace));
+    assert_every_probe_at_none(Some(MechanismKind::PidNamespace));
+}
+
+/// The mount-namespace mechanism, which a kernel without Landlock gets,
+/// made on any kernel.
+///
+/// Covers: story:7-54
+#[test]
+fn every_probe_at_the_none_level_gives_its_refusal_under_the_mount_namespace_mechanism_too() {
+    assert_every_probe_at_none(Some(MechanismKind::MountNamespace));
 }
 
 /// Makes every case of the `none` table unconfined, then confined with
-/// `scope` (the kernel's when none), after asserting the mechanism against
+/// `kind` (the kernel's when none), after asserting the mechanism against
 /// the kernel's own answers to the raw calls: Landlock where it scopes
-/// signals, a PID namespace where user namespaces are allowed, a refusal to
+/// signals, a namespace where user namespaces are allowed, a refusal to
 /// confine elsewhere.
-fn assert_every_probe_at_none(scope: Option<SignalScope>) {
+fn assert_every_probe_at_none(kind: Option<MechanismKind>) {
     let table =
         ProbeTable::read(probes::committed(Host::Linux, NetworkLevel::None).unwrap()).unwrap();
     let plugin = Plugin::new(&table, NetworkLevel::None);
     let confined = Confined {
         policy: &plugin.policy,
-        scope,
+        kind,
     };
     let (used, enforced) = assert_mechanism(confined);
     let refused = Report::Fault(Fault::Unavailable);
@@ -169,8 +178,10 @@ fn assert_every_probe_at_none(scope: Option<SignalScope>) {
             run(probe(), Some(confined)),
             match (enforced, used) {
                 (false, _) => refused,
-                (true, SignalScope::Landlock) => Report::Outcome(case.confined),
-                (true, SignalScope::PidNamespace) => Report::Outcome(case.in_pid_namespace()),
+                (true, MechanismKind::Landlock) => Report::Outcome(case.confined),
+                (true, MechanismKind::PidNamespace | MechanismKind::MountNamespace) => {
+                    Report::Outcome(case.in_pid_namespace())
+                }
             },
         );
     }
@@ -188,12 +199,12 @@ fn assert_every_probe_at_none(scope: Option<SignalScope>) {
         check(
             &case.rule,
             "confined",
-            // Landlock keeps the files under both mechanisms.
+            // Landlock keeps the files under the PID namespace too.
             run(probe(), Some(confined)),
-            if enforced {
-                Report::Outcome(case.landlock)
-            } else {
-                refused
+            match (enforced, used) {
+                (false, _) => refused,
+                (true, MechanismKind::MountNamespace) => Report::Outcome(case.fallback),
+                (true, _) => Report::Outcome(case.landlock),
             },
         );
     }
@@ -201,24 +212,23 @@ fn assert_every_probe_at_none(scope: Option<SignalScope>) {
 }
 
 /// Asserts the mechanism `confined` gets against the kernel's own answers,
-/// and the one this runner declares; gives the signal scope used and
-/// whether it is enforced here.
-fn assert_mechanism(confined: Confined<'_>) -> (SignalScope, bool) {
-    let scope = confined.scope;
+/// and the one this runner declares; gives the mechanism used and whether
+/// it is enforced here.
+fn assert_mechanism(confined: Confined<'_>) -> (MechanismKind, bool) {
     let Ok(Report::KernelAbi(kernel)) = run(Probe::KernelAbi, None) else {
         panic!("the probe did not report the kernel's Landlock ABI");
     };
     let user_namespace = run(Probe::UserNamespace, None);
-    let used = scope.unwrap_or(if kernel >= SIGNAL_SCOPE_ABI {
-        SignalScope::Landlock
-    } else {
-        SignalScope::PidNamespace
+    let namespaces = user_namespace == Ok(Report::Outcome(Outcome::Ok));
+    let used = confined.kind.unwrap_or(match kernel {
+        0 => MechanismKind::MountNamespace,
+        abi if abi < SIGNAL_SCOPE_ABI => MechanismKind::PidNamespace,
+        _ => MechanismKind::Landlock,
     });
     let enforced = match used {
-        SignalScope::Landlock => kernel >= SIGNAL_SCOPE_ABI,
-        SignalScope::PidNamespace => {
-            kernel > 0 && user_namespace == Ok(Report::Outcome(Outcome::Ok))
-        }
+        MechanismKind::Landlock => kernel >= SIGNAL_SCOPE_ABI,
+        MechanismKind::PidNamespace => kernel > 0 && namespaces,
+        MechanismKind::MountNamespace => namespaces,
     };
     let host =
         format!("the kernel gives Landlock ABI {kernel} and a user namespace {user_namespace:?}");
@@ -229,18 +239,20 @@ fn assert_mechanism(confined: Confined<'_>) -> (SignalScope, bool) {
             Report::Fault(Fault::Unavailable),
             "{host}, so confining with {used:?} must be refused"
         ),
-        (true, SignalScope::Landlock, Report::Mechanism(Mechanism::Landlock { abi }))
+        (true, MechanismKind::Landlock, Report::Mechanism(Mechanism::Landlock { abi }))
             if (SIGNAL_SCOPE_ABI..=kernel).contains(&abi) => {}
-        (true, SignalScope::PidNamespace, Report::Mechanism(Mechanism::PidNamespace { abi }))
+        (true, MechanismKind::PidNamespace, Report::Mechanism(Mechanism::PidNamespace { abi }))
             if abi == kernel.min(SIGNAL_SCOPE_ABI - 1) => {}
+        (true, MechanismKind::MountNamespace, Report::Mechanism(Mechanism::MountNamespace)) => {}
         (true, _, found) => panic!("{host}, and the probe was confined by {found:?} with {used:?}"),
     }
-    if scope.is_none()
+    if confined.kind.is_none()
         && let Ok(declared) = std::env::var(DECLARED_MECHANISM)
     {
         let kind = match mechanism {
             Report::Mechanism(Mechanism::Landlock { .. }) => "landlock",
             Report::Mechanism(Mechanism::PidNamespace { .. }) => "pid_namespace",
+            Report::Mechanism(Mechanism::MountNamespace) => "mount_namespace",
             _ => "none",
         };
         assert_eq!(

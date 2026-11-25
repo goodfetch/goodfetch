@@ -2398,6 +2398,15 @@ product = "foxhound"
 status = "active"
 
 [[story]]
+id = 1006
+title = "As a developer, I want a Foxhound program on `engine: \"auto\"` that meets a Daemon refusing it by Product to run the engine it would run with no Daemon, record why in `EngineInfo.fallback` and log it once at warning, and `engine: \"daemon\"` to fail with a `fix` naming `daemon restart` of the Client's own executable, so that a Collie Daemon on the machine never stops a crawl and the failure says how to mend it (ADR 0098; G4)."
+milestone = "M2 Client surfaces"
+journey = false
+not_journey = "part"
+product = "foxhound"
+status = "active"
+
+[[story]]
 id = 1007
 title = "As a developer, I want the SDK to recognize both engine-path variables and read only `GOODFETCH_FOXHOUND_ENGINE_PATH`, so that pointing a program at a Foxhound build never moves a Collie program (ADR 0090)."
 milestone = "M2 Client surfaces"

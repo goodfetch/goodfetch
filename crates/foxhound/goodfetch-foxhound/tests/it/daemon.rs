@@ -4,9 +4,10 @@
 //! Daemon that is idle hands over to it when a Foxhound Client meets it; a
 //! busy one fails the Client with a `fix` whose `daemon restart` makes
 //! Foxhound the pick; and Clients of the two Products alternating restart
-//! the Daemon at most once (ADR 0098); and a Collie program on the Daemon
-//! Foxhound started shares its Runs with both. Collie's executable comes
-//! from the test tool manifest.
+//! the Daemon at most once (ADR 0098); a Collie program on the Daemon
+//! Foxhound started shares its Runs with both; and a Foxhound program a
+//! busy Collie Daemon refuses links its own engine at `auto` and fails at
+//! `daemon`. Collie's executable comes from the test tool manifest.
 #![expect(
     clippy::doc_markdown,
     reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
@@ -16,14 +17,17 @@ use std::path::{Path, PathBuf};
 use std::process::Stdio;
 
 use goodfetch_collie::{Collie, ConnectOptions, EngineChoice, EngineKind, RunId};
+use goodfetch_foxhound::{ErrorCode, Foxhound};
 use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::connection::Surface;
 use goodfetch_test_client::{DaemonClient, Hello};
 use goodfetch_test_support::{
-    RuntimeFile, SnapshotValues, TestEnv, Tool, cli, engine_script, real_time_runtime,
+    RuntimeFile, SnapshotValues, TestEnv, Tool, capturing, cli, engine_script, real_time_runtime,
     reported_address, snapshot_settings, tools,
 };
 use serde_json::{Value, json};
+use tracing::Level;
+use tracing::subscriber::with_default;
 
 const FOXHOUND: &str = env!("CARGO_BIN_EXE_goodfetch-foxhound");
 
@@ -285,4 +289,92 @@ fn under_daemon_a_daemon_of_another_product_fails_with_exit_11_and_its_daemon_re
     snapshot_settings(&values).bind(|| {
         insta::assert_snapshot!("run_start_refused_by_product", refused.stderr.trim());
     });
+}
+
+/// What a Foxhound program opens with: the test's environment, which names
+/// its Goodfetch home, at `engine`.
+fn foxhound_options(env: &TestEnv, engine: EngineChoice) -> goodfetch_foxhound::ConnectOptions {
+    goodfetch_foxhound::ConnectOptions::default()
+        .environment(env.env_os())
+        .engine(engine)
+}
+
+/// The `fix` a busy Collie Daemon's refusal ends with for a Rust program
+/// linking Foxhound (ADR 0098): the install of Foxhound's executable, then
+/// its `daemon restart`.
+const FOXHOUND_RESTART: &str = "Install Foxhound's executable at 0.0.0 (`cargo install goodfetch-foxhound --locked --features executable`), then run its `daemon restart` to restart the Daemon on its major's pick.";
+
+/// A Foxhound program on `auto` that a busy Collie Daemon refuses by
+/// Product links its own engine, as it would with no Daemon: `engine()`
+/// says why in `fallback`, one warning reaches `goodfetch::client`, and
+/// the Collie Daemon serves on (ADR 0098).
+///
+/// Covers: story:11-1006, error:not_in_product
+#[test]
+fn a_foxhound_program_on_auto_links_its_own_engine_past_a_busy_collie_daemon() {
+    let env = TestEnv::new();
+    short_idle(&env);
+    let _stops = StopsTheDaemon(&env);
+    json_of(&collie(), &env, &["daemon", "start", "--json"]);
+    let busy = Busy::on(&env);
+    let (subscriber, log) = capturing(&[("goodfetch::client", Level::WARN)]);
+
+    let engine = with_default(subscriber, || {
+        real_time_runtime().block_on(async {
+            let foxhound = Foxhound::connect(foxhound_options(&env, EngineChoice::Auto))
+                .await
+                .unwrap();
+            let engine = foxhound.engine().clone();
+            foxhound.close().await.unwrap();
+            engine
+        })
+    });
+    let after = running(&env);
+    drop(busy);
+
+    let fallback = engine.fallback.clone().expect("the fallback is reported");
+    assert_eq!(
+        (engine.kind, engine.product, after.0),
+        (EngineKind::Linked, Product::Foxhound, json!("collie"))
+    );
+    assert!(
+        fallback.cause.contains("not_in_product") && fallback.fix.ends_with(FOXHOUND_RESTART),
+        "{fallback:?}"
+    );
+    let written = String::from_utf8(log.written()).unwrap();
+    assert!(
+        written.lines().count() == 1 && written.contains("refused it with not_in_product"),
+        "{written}"
+    );
+}
+
+/// A Foxhound program on `daemon` that a busy Collie Daemon refuses by
+/// Product fails the connect with `not_in_product`, whose `fix` names the
+/// install of Foxhound's executable and its `daemon restart`; nothing is
+/// warned (ADR 0098).
+///
+/// Covers: story:11-1006, error:not_in_product
+#[test]
+fn a_foxhound_program_on_daemon_fails_past_a_busy_collie_daemon_with_its_daemon_restart() {
+    let env = TestEnv::new();
+    short_idle(&env);
+    let _stops = StopsTheDaemon(&env);
+    json_of(&collie(), &env, &["daemon", "start", "--json"]);
+    let busy = Busy::on(&env);
+    let (subscriber, log) = capturing(&[("goodfetch::client", Level::WARN)]);
+
+    let refused = with_default(subscriber, || {
+        real_time_runtime().block_on(async {
+            Foxhound::connect(foxhound_options(&env, EngineChoice::Daemon))
+                .await
+                .err()
+        })
+    });
+    drop(busy);
+
+    let error = refused.expect("the connect fails");
+    assert_eq!(error.code(), ErrorCode::NOT_IN_PRODUCT, "{error:?}");
+    let fix = error.fix().unwrap_or_default();
+    assert!(fix.ends_with(FOXHOUND_RESTART), "{fix}");
+    assert_eq!(String::from_utf8(log.written()).unwrap(), "");
 }

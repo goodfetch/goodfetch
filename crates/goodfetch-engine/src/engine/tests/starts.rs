@@ -2,7 +2,9 @@
 //! 0102): a Schedule's reserved tags are refused, a `detached` start on an
 //! engine that ends with its Connection fails with `detach_unsupported`,
 //! and a detached Run on the Daemon outlives the Connection that started
-//! it.
+//! it. A `run.start`'s own `timeout` bounds its Run, on a fresh clock when
+//! it resumes, and its Plan file and Response recording are inputs a start
+//! naming the Run again gives unchanged.
 
 use std::collections::BTreeMap;
 
@@ -192,6 +194,202 @@ fn a_detached_start_on_an_attached_engine_is_detach_unsupported_naming_the_daemo
         ),
         (&json!("detach_unsupported"), &json!("engine"), true, false),
         "{refused}"
+    );
+}
+
+/// A start's own `timeout` is the Run's `timeout.run`, over the one its
+/// Connection's settings give: past it the Run checkpoints and stops,
+/// incomplete, and a start that resumes it counts its own on a fresh clock
+/// (ADRs 0080 and 0102).
+///
+/// Covers: operation:run.start, setting:timeout.run
+#[test]
+fn a_starts_own_timeout_stops_the_run_with_a_checkpoint_and_a_resume_counts_it_afresh() {
+    let env = TestEnv::new();
+    let listed = &env;
+    let mut short = hello("collie", "0.1");
+    short["params"]["settings"] = json!({ "timeout": { "run": 1_000 } });
+    let start = json!({ "run_id": "timed", "timeout": 60_000 });
+
+    let (lifecycles, ended, resumed, again) = attached_on(
+        &engine_with(Product::Collie, None),
+        &env,
+        |mut client| async move {
+            client.send(&[short]).await;
+            client.next().await;
+            let mut lifecycles = Vec::new();
+            call(&mut client, 1, "run.start", start.clone()).await;
+            tokio::time::sleep(std::time::Duration::from_secs(59)).await;
+            lifecycles.push(index_row(listed, "timed")["lifecycle"].clone());
+            tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+            let ended = call(&mut client, 2, "run.finish", json!({ "run_id": "timed" })).await;
+            let resumed = call(&mut client, 3, "run.start", start).await;
+            tokio::time::sleep(std::time::Duration::from_secs(59)).await;
+            lifecycles.push(index_row(listed, "timed")["lifecycle"].clone());
+            tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+            let again = call(&mut client, 4, "run.finish", json!({ "run_id": "timed" })).await;
+            (lifecycles, ended, resumed, again)
+        },
+    );
+
+    let ending = |report: &Value| {
+        json!({
+            "lifecycle": report["result"]["lifecycle"],
+            "completeness": report["result"]["completeness"],
+            "stop_reason": report["result"]["stop_reason"],
+            "checkpoint": report["result"]["checkpoint"]["run_id"],
+        })
+    };
+    let stopped = json!({
+        "lifecycle": "stopped",
+        "completeness": "incomplete",
+        "stop_reason": { "kind": "timeout" },
+        "checkpoint": "timed",
+    });
+    assert_eq!(
+        (
+            lifecycles,
+            ending(&ended),
+            resumed["result"]["started_as"].clone(),
+            ending(&again),
+        ),
+        (
+            vec![json!("running"), json!("running")],
+            stopped.clone(),
+            json!("resumed"),
+            stopped,
+        ),
+        "{ended} {resumed} {again}"
+    );
+}
+
+/// A start's `timeout` of `null` gives the Run none, whatever its
+/// Connection's `timeout.run` says.
+///
+/// Covers: operation:run.start, setting:timeout.run
+#[test]
+fn a_starts_null_timeout_runs_past_the_timeout_its_settings_give() {
+    let env = TestEnv::new();
+    let listed = &env;
+    let mut short = hello("collie", "0.1");
+    short["params"]["settings"] = json!({ "timeout": { "run": 1_000 } });
+
+    let lifecycle = attached_on(
+        &engine_with(Product::Collie, None),
+        &env,
+        |mut client| async move {
+            client.send(&[short]).await;
+            client.next().await;
+            let start = json!({ "run_id": "unbounded", "timeout": null });
+            call(&mut client, 1, "run.start", start).await;
+            tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+            index_row(listed, "unbounded")["lifecycle"].clone()
+        },
+    );
+
+    assert_eq!(lifecycle, json!("running"));
+}
+
+/// A start's `timeout` of 0 would end the Run at once: it fails with
+/// `setting_invalid`, whose `limit` comes from the argument and whose
+/// `fix` gives the null form, and no Run begins.
+///
+/// Covers: operation:run.start, error:setting_invalid
+#[test]
+fn a_starts_zero_timeout_is_setting_invalid_from_the_argument_and_starts_no_run() {
+    let env = TestEnv::new();
+
+    let refused = attached_call(
+        &env,
+        "run.start",
+        json!({ "run_id": "never", "timeout": 0 }),
+    );
+
+    let data = &refused["error"]["data"];
+    assert_eq!(
+        (
+            &data["code"],
+            &data["key"],
+            &data["limit"]["origin"],
+            data["fix"]
+                .as_str()
+                .is_some_and(|fix| fix.contains("`timeout: null`")),
+            env.home().join("1").join("runs").join("never").exists(),
+        ),
+        (
+            &json!("setting_invalid"),
+            &json!("timeout.run"),
+            &json!("argument"),
+            true,
+            false
+        ),
+        "{refused}"
+    );
+}
+
+/// A Run's Plan file and its Response recording are inputs of the Run: a
+/// start that names it again with either changed or left out fails with
+/// `run_conflict` naming it, and one that gives both unchanged resumes it
+/// (ADR 0102).
+///
+/// Covers: operation:run.start, error:run_conflict
+#[rstest]
+#[case::same(json!({}), json!(null))]
+#[case::other_plan(json!({ "plan": "other.plan.json" }), json!(["plan"]))]
+#[case::no_plan(json!({ "plan": null }), json!(["plan"]))]
+#[case::other_mode(
+    json!({ "recording": { "mode": "record", "path": "site.warc" } }),
+    json!(["recording"])
+)]
+#[case::other_path(
+    json!({ "recording": { "mode": "replay", "path": "other.warc" } }),
+    json!(["recording"])
+)]
+fn a_start_naming_a_run_again_gives_its_plan_and_recording_unchanged(
+    #[case] changed: Value,
+    #[case] differences: Value,
+) {
+    let env = TestEnv::new();
+    let began = json!({
+        "run_id": "planned",
+        "plan": "prices.plan.json",
+        "recording": { "mode": "replay", "path": "site.warc" },
+    });
+    let mut again = began.clone();
+    for (key, value) in changed.as_object().unwrap() {
+        if value.is_null() {
+            again.as_object_mut().unwrap().remove(key);
+        } else {
+            again[key] = value.clone();
+        }
+    }
+
+    let resumed = attached_on(
+        &engine_with(Product::Collie, None),
+        &env,
+        |mut client| async move {
+            client.send(&[hello("collie", "0.1")]).await;
+            client.next().await;
+            call(&mut client, 1, "run.start", began).await;
+            call(&mut client, 2, "run.stop", json!({ "run_id": "planned" })).await;
+            call(&mut client, 3, "run.start", again).await
+        },
+    );
+
+    assert_eq!(
+        (
+            resumed["error"]["data"]["differences"].clone(),
+            resumed["result"]["started_as"].clone(),
+        ),
+        (
+            differences.clone(),
+            if differences.is_null() {
+                json!("resumed")
+            } else {
+                json!(null)
+            },
+        ),
+        "{resumed}"
     );
 }
 

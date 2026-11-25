@@ -37,7 +37,7 @@ pub struct Values {
     pub(super) applied: BTreeMap<&'static str, Value>,
     /// The keys only the other Product honours, kept aside in a
     /// configuration file.
-    pub(super) others: BTreeMap<&'static str, Value>,
+    others: BTreeMap<&'static str, Value>,
     pub(crate) origin: Option<RunOrigin>,
     /// Whether a Client acting for a model gave them (ADR 0092).
     pub(crate) for_model: bool,

@@ -26,6 +26,9 @@
 
 use std::io;
 
+#[cfg(windows)]
+pub(crate) use windows::Job;
+
 /// Whether the process was started with transparent huge pages turned
 /// off for it, read before the executable's allocator turns them off for
 /// the engine itself (`governor.huge_pages`, ADR 0138), so that the
@@ -265,9 +268,11 @@ mod windows {
         child
     }
 
-    /// A kill-on-close Job Object whose only handle this value holds.
+    /// A kill-on-close Job Object whose only handle this value holds: the
+    /// engine's children's, and the one an Attached engine joins and hands
+    /// its parent (`attached::parent`).
     #[derive(Debug)]
-    pub(super) struct Job(HANDLE);
+    pub(crate) struct Job(HANDLE);
 
     // SAFETY: a Job Object's handle may be used from any thread.
     unsafe impl Send for Job {}
@@ -275,7 +280,7 @@ mod windows {
     unsafe impl Sync for Job {}
 
     impl Job {
-        pub(super) fn new() -> io::Result<Self> {
+        pub(crate) fn new() -> io::Result<Self> {
             // SAFETY: no security attributes and no name: an anonymous job.
             let handle = unsafe { CreateJobObjectW(std::ptr::null(), std::ptr::null()) };
             if handle.is_null() {
@@ -301,6 +306,12 @@ mod windows {
                 return Err(io::Error::last_os_error());
             }
             Ok(job)
+        }
+
+        /// Its handle, live while this value lives, which closes it once
+        /// dropped: a caller that hands the job on duplicates it first.
+        pub(crate) const fn handle(&self) -> HANDLE {
+            self.0
         }
 
         pub(super) fn assign(&self, child: &tokio::process::Child) -> io::Result<()> {

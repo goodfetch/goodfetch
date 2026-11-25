@@ -2,94 +2,72 @@
 //! the payload of the secret's version (`latest` for the newest), read
 //! with `GET /v1/projects/<project>/secrets/<secret>/versions/<version>:access`
 //! from `secret_providers.gcp_sm.endpoint`, with the OAuth 2.0 access token
-//! in the engine's environment's `GOOGLE_OAUTH_ACCESS_TOKEN`. The API is an
-//! Operator-configured endpoint reached through the engine's own HTTP
-//! client ([`SecretProviderEndpoint`]).
+//! the engine's environment gives: its own, a service account key's or the
+//! metadata server's ([`access_token`]). The API is an Operator-configured
+//! endpoint reached through the engine's own HTTP client
+//! ([`SecretProviderEndpoint`]).
 //!
 //! A translation point (ADR 0127): [`translate`] reads the `status` of the
 //! Google API error a failed access answers.
 
-use std::collections::BTreeMap;
-use std::ffi::OsString;
+mod access_token;
 
+use goodfetch_engine::clock::Clock;
 use goodfetch_engine::secret_endpoint::SecretProviderEndpoint;
 use goodfetch_engine::secrets::{
     ConfigProblem, PartyText, ProviderFailure, ProviderInputs, Resolving, SecretProvider,
 };
+use goodfetch_engine::tasks::BlockingThreads;
 use goodfetch_protocol::secret_reference::SecretReference;
 use goodfetch_protocol::secrets::SECRET_PROVIDERS_GCP_SM_ENDPOINT;
 use hyper::Request;
 use hyper::body::Bytes;
-use hyper::header::HeaderValue;
-use secrecy::{ExposeSecret as _, SecretString};
+use secrecy::SecretString;
 use url::Url;
 
-use crate::endpoint::{json_of, server_url, unreached, variable};
+use self::access_token::Source;
+use crate::endpoint::{json_of, server_url, unreached};
+use crate::identity::Reach;
 
 /// The service's name in failures.
 const SERVICE: &str = "GCP Secret Manager";
-
-/// The variable that holds the access token.
-const TOKEN_VARIABLE: &str = "GOOGLE_OAUTH_ACCESS_TOKEN";
 
 /// Google Cloud Secret Manager's provider over its REST API.
 #[derive(Clone, Debug)]
 pub struct GcpSecretManager {
     endpoint_url: String,
-    token: Option<SecretString>,
+    token: Source,
     endpoint: SecretProviderEndpoint,
+    blocking: BlockingThreads,
+    clock: Clock,
 }
 
 impl GcpSecretManager {
     /// The provider `secret_providers.gcp_sm.endpoint` configures in a
     /// Run's `inputs`, which also give how the API is reached, with the
-    /// access token in the engine's environment.
+    /// access token the engine's environment gives, its key file read on
+    /// their blocking threads.
     pub fn configured(inputs: &ProviderInputs<'_>) -> Self {
-        Self::new(
-            inputs
+        Self {
+            endpoint_url: inputs
                 .settings
                 .get::<&str>(&SECRET_PROVIDERS_GCP_SM_ENDPOINT)
                 .to_owned(),
-            inputs.environment,
-            SecretProviderEndpoint::of(inputs),
-        )
-    }
-
-    /// The provider reading from the API at `endpoint_url` through
-    /// `endpoint`, with the access token in `environment`.
-    pub fn new(
-        endpoint_url: String,
-        environment: &BTreeMap<OsString, OsString>,
-        endpoint: SecretProviderEndpoint,
-    ) -> Self {
-        Self {
-            endpoint_url,
-            token: variable(environment, TOKEN_VARIABLE).map(SecretString::from),
-            endpoint,
+            token: Source::of(inputs.environment),
+            endpoint: SecretProviderEndpoint::of(inputs),
+            blocking: inputs.blocking.clone(),
+            clock: inputs.clock,
         }
     }
 
-    /// The API's URL and the token's header, when both are usable.
-    fn checked(&self) -> Result<(Url, HeaderValue), ConfigProblem> {
+    /// The API's URL and the token's source, when both are usable.
+    fn checked(&self) -> Result<(Url, &Source), ConfigProblem> {
         let name = SECRET_PROVIDERS_GCP_SM_ENDPOINT.name;
         let url = server_url(&self.endpoint_url).map_err(|problem| ConfigProblem {
             fix: format!("`{name}` is `{}`, {problem}.", self.endpoint_url),
         })?;
-        let Some(token) = &self.token else {
-            return Err(ConfigProblem {
-                fix: format!(
-                    "Set `{TOKEN_VARIABLE}` in the engine's environment to an OAuth 2.0 access token, such as `gcloud auth print-access-token` prints, of an account with the Secret Manager Secret Accessor role."
-                ),
-            });
-        };
-        let mut header = HeaderValue::from_str(&format!("Bearer {}", token.expose_secret()))
-            .map_err(|_| ConfigProblem {
-                fix: format!(
-                    "`{TOKEN_VARIABLE}` holds characters no HTTP header may carry; set it to the access token Google issued."
-                ),
-            })?;
-        header.set_sensitive(true);
-        Ok((url, header))
+        self.token.check()?;
+        Ok((url, &self.token))
     }
 }
 
@@ -114,7 +92,7 @@ fn access_url(server: &Url, project: &str, secret: &str, version: &str) -> Url {
 impl SecretProvider for GcpSecretManager {
     fn resolve<'a>(&'a self, reference: &'a SecretReference) -> Resolving<'a> {
         Box::pin(async move {
-            let (server, token) = self.checked().map_err(ProviderFailure::NotConfigured)?;
+            let (server, source) = self.checked().map_err(ProviderFailure::NotConfigured)?;
             let (project, rest) = reference
                 .rest()
                 .split_once('/')
@@ -122,6 +100,12 @@ impl SecretProvider for GcpSecretManager {
             let (secret, version) = rest
                 .split_once('/')
                 .expect("invariant: a `gcp-sm:` reference holds project/secret/version");
+            let reach = Reach {
+                endpoint: &self.endpoint,
+                blocking: &self.blocking,
+                clock: self.clock,
+            };
+            let token = source.header(&reach).await?;
             let request = Request::get(access_url(&server, project, secret, version).as_str())
                 .header("authorization", token)
                 .body(Bytes::new())
@@ -138,7 +122,7 @@ impl SecretProvider for GcpSecretManager {
             if status == 200 {
                 payload_of(answer.body())
             } else {
-                Err(translate(status, answer.body())
+                Err(translate(status, answer.body(), source.describe())
                     .retrying_after(self.endpoint.retry_after(&answer)))
             }
         })
@@ -195,8 +179,9 @@ enum Meaning {
     ServiceFailed,
 }
 
-/// What the API meant by answering an access with `status` and `body`.
-pub(crate) fn translate(status: u16, body: &[u8]) -> ProviderFailure {
+/// What the API meant by answering with `status` and `body` an access
+/// carrying the token `from` gave, in a failure's words.
+pub(crate) fn translate(status: u16, body: &[u8], from: &str) -> ProviderFailure {
     let text = String::from_utf8_lossy(body).into_owned();
     let known = serde_json::from_str::<serde_json::Value>(&text)
         .ok()
@@ -220,7 +205,7 @@ pub(crate) fn translate(status: u16, body: &[u8]) -> ProviderFailure {
             "the account of the access token may not access the secret; grant it the Secret Manager Secret Accessor role on the secret or its project.",
         ),
         Some(Meaning::Token) => refused(&format!(
-            "the access token was refused; set `{TOKEN_VARIABLE}` in the engine's environment to a current token, such as `gcloud auth print-access-token` prints."
+            "the access token from {from} was refused; give the engine a current token, such as `gcloud auth print-access-token` prints."
         )),
         Some(Meaning::Disabled) => refused(
             "the secret's version is disabled or destroyed; enable it, or name another version.",

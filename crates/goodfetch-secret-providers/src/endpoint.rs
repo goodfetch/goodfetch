@@ -16,15 +16,18 @@ pub(crate) fn server_url(address: &str) -> Result<Url, &'static str> {
     url_of(address, &[])
 }
 
-/// The link-local addresses where AWS serves an instance's or a task's
-/// identity over plain HTTP: the instance metadata service, IPv4 and IPv6,
-/// and the container credentials endpoint of ECS and of EKS Pod Identity.
-const IDENTITY_HOSTS: [&str; 5] = [
+/// The link-local addresses where the clouds serve an instance's or a
+/// task's identity over plain HTTP: AWS's instance metadata service, IPv4
+/// and IPv6, which GCP's and Azure's share at 169.254.169.254, and the
+/// container credentials endpoint of ECS and of EKS Pod Identity; and the
+/// name GCP's metadata server answers at.
+const IDENTITY_HOSTS: [&str; 6] = [
     "169.254.169.254",
     "[fd00:ec2::254]",
     "169.254.170.2",
     "169.254.170.23",
     "[fd00:ec2::23]",
+    "metadata.google.internal",
 ];
 
 /// `address` as an identity endpoint's URL: as [`server_url`] takes it, or

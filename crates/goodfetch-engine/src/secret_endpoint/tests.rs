@@ -6,6 +6,7 @@
     reason = "tests run on the test Clock (ADR 0059)"
 )]
 
+use std::collections::BTreeMap;
 use std::time::{Duration, UNIX_EPOCH};
 
 use goodfetch_protocol::catalog::Product;
@@ -15,6 +16,7 @@ use rstest::rstest;
 
 use super::SecretProviderEndpoint;
 use crate::clock::Clock;
+use crate::secrets::ProviderInputs;
 use crate::settings::{Layers, resolve};
 use crate::tasks::{BlockingPolicy, TaskOwner};
 
@@ -25,11 +27,13 @@ const RECEIVED: u64 = 1_445_412_480;
 /// [`RECEIVED`].
 fn endpoint() -> SecretProviderEndpoint {
     let settings = resolve(&Layers::default(), Product::Collie, Product::Collie).unwrap();
-    SecretProviderEndpoint::of(
-        &settings,
-        Clock::paused(UNIX_EPOCH + Duration::from_secs(RECEIVED)),
-        TaskOwner::root(BlockingPolicy::Inline).blocking_threads(),
-    )
+    SecretProviderEndpoint::of(&ProviderInputs {
+        settings: &settings,
+        environment: &BTreeMap::new(),
+        clock: Clock::paused(UNIX_EPOCH + Duration::from_secs(RECEIVED)),
+        blocking: &TaskOwner::root(BlockingPolicy::Inline).blocking_threads(),
+        endpoint_keys: None,
+    })
 }
 
 /// An answer holding `headers`.

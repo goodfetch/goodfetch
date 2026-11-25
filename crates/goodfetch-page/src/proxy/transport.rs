@@ -9,10 +9,9 @@
 //! Session's navigation does, never the site's answer (the proxy-or-site
 //! rule).
 
-use goodfetch_cdp::NetError;
 use goodfetch_engine::CallError;
 use goodfetch_engine::run::state_unavailable;
-use goodfetch_engine::runs::Run;
+use goodfetch_engine::runs::{self, Run, charging, identity, keys, warnings};
 use goodfetch_engine::settings::Resolved;
 use goodfetch_protocol::page::SessionId;
 use goodfetch_protocol::page::proxy::PROXY_PROVIDER;
@@ -22,7 +21,8 @@ use secrecy::SecretString;
 use super::limits::ProxyPermit;
 use super::party::{Answer, Party, party, proxy_error, relays};
 use super::relay::{Mode, Relay};
-use super::{Opening, SessionProxy, lookup, proxy_addresses, relay_unavailable};
+use super::{Opening, RunPowers, SessionProxy, lookup, proxy_addresses, relay_unavailable};
+use crate::errors::NetError;
 
 /// The proxy one Session's HTTP transport sends through, as it opened.
 pub struct TransportProxy {
@@ -104,7 +104,16 @@ impl TransportProxy {
             ordinal,
             currencies: &currencies,
         };
-        let Some(proxy) = SessionProxy::open(settings, run, &opening).await? else {
+        // A fetch tier's Session has no owner of its own: its proxy's tasks
+        // start on the Run's, which its end stops.
+        let powers = RunPowers {
+            identity: identity(run).clone(),
+            secrets: keys(run).secrets().clone(),
+            politeness: runs::politeness(run).clone(),
+            charging: charging(run).clone(),
+            refusals: run.refusals(),
+        };
+        let Some(proxy) = SessionProxy::open(settings, &powers, &opening).await? else {
             return Ok(None);
         };
         let socks = if proxy.relay.is_none() && proxy.server.scheme.is_socks() {
@@ -114,7 +123,7 @@ impl TransportProxy {
             .await?;
             let mode = Mode::Socks5 { credentials: None };
             Some(
-                Relay::open(run, addresses, mode, None, false)
+                Relay::open(&powers, addresses, mode, None, false)
                     .await
                     .map_err(|error| relay_unavailable(&proxy.server, &error))?,
             )
@@ -258,7 +267,9 @@ impl TransportProxy {
     ///
     /// Dropping the future may leave the warning unwritten.
     pub async fn warn_if_outlived(&self, run: &Run) {
-        self.proxy.warn_if_outlived(run, &self.session).await;
+        self.proxy
+            .warn_if_outlived(warnings(run), &self.session)
+            .await;
     }
 }
 

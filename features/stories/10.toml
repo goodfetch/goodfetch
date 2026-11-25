@@ -1,0 +1,684 @@
+# Area 10's user stories (specs #588 and #589, Scheduling, Collie, parts 1
+# and 2), the declared `story:10-<id>` Features of ADR 0072: every story of
+# Collie's part, 1 to 86, with the flag the spec gives it inline. Each
+# story's milestone is that of the earliest ticket that makes it tested; a
+# story without a Journey carries ADR 0075's reason (`actor`, `part` or
+# `reach`). The spec's issue keeps the full text; this copy is the one the
+# Feature check reads. Foxhound's part (spec #590) adds its stories from
+# 1001. Never renumber or reuse an ID: a removed story stays with
+# `status = "retired"` and a `reason`.
+
+[[story]]
+id = 1
+title = "As a user, I want to create a Schedule from the CLI (`goodfetch-collie schedule create`), naming one target and one trigger, so that a recurring automation runs without cron (RT-13; pain 15)."
+milestone = "M4 Everything else"
+journey = true
+status = "active"
+
+[[story]]
+id = 2
+title = "As a developer, I want `schedules.create(definition)` on my Collie connection in TypeScript, Python and Rust, returning a `Schedule` handle, so that my program sets up the recurrence it needs (ADR 0099)."
+milestone = "M4 Everything else"
+journey = true
+status = "active"
+
+[[story]]
+id = 3
+title = "As the person behind an agent, I want the agent to create, pause, resume and run a Schedule now through the MCP tools `schedule_create`, `schedule_pause`, `schedule_resume` and `schedule_run_now`, so that one call sets up a recurring task (ADR 0036)."
+milestone = "M4 Everything else"
+journey = true
+status = "active"
+
+[[story]]
+id = 4
+title = "As a user, I want a Schedule's target to be a Recipe, or a code-free catalog run (an extraction, a Plan replay, an agent task), with its inputs and the run's own settings within what the Recipe exposes, so that each run is reproducible and confined (ADRs 0028, 0036)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 5
+title = "As a Recipe user, I want a published Recipe pinned by digest, and a local Recipe named by path and run as it is on disk at each occurrence with the digest that ran recorded on the run, so that I know which code ran (ADR 0036)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 6
+title = "As a developer whose script has handlers, I want a target that is neither a Recipe nor a code-free run, or that names a Response recording, refused with `schedule_target_invalid` and a `fix` saying that an SDK script becomes a local Recipe through `init`, so that I learn why the Daemon cannot call a process that is not running (ADRs 0036, 0105)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 7
+title = "As a user, I want to name a Schedule's ID or have one generated, and a second Schedule with a taken ID refused, so that files, logs and run IDs name it stably."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 8
+title = "As a user, I want every Schedule to store an explicit IANA time zone, the Daemon host's by default and never \"local\", so that it means the same thing in Goodfetch Cloud (ADR 0036)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 9
+title = "As a user, I want the CLI and the Console to show a Schedule's next occurrences in plain words before saving, and `schedule preview` to do so for any trigger from any instant, so that I see what I am about to create, a DST night included."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 10
+title = "As an operator, I want Operator policy to cap the number of Schedules, their minimum interval and their period Limits, and a creation past a cap refused naming it, so that a shared Daemon stays within bounds (ADR 0036)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 11
+title = "As a user creating or enabling a Schedule in a major the active-major marker does not name, I want a warning that it will not fire there and an offer to switch, so that I never wait for a Schedule that cannot fire (ADR 0036)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 12
+title = "As a user, I want creating the first Schedule on a Daemon not installed as a service to offer `daemon install`, and the CLI and Console to warn until then that Schedules fire only while the Daemon runs, so that laptop Schedules are not silently idle."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "reach"
+status = "active"
+
+[[story]]
+id = 13
+title = "As a CLI user with no Daemon running, I want `schedule` commands to reach the Daemon, starting it, whether the CLI runs attached or not, so that a Schedule is kept where it fires (ADRs 0024, 0036)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 14
+title = "As a Recipe user scheduling a Plan replay, I want the run to read its Plan file and promote a new version only after a `verified` run, versions from other runs waiting in \"Needs you\", so that an unattended replay learns as a program's does (ADR 0091)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 15
+title = "As a user, I want cron triggers with five fields plus optional seconds, `L`, `W`, `#` and the `@daily`-style macros, parsed by `croner`, and a malformed expression refused at the character it fails, with the error naming why in a stable reason, so that I write what I already know (ADRs 0036, 0127)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 16
+title = "As a user, I want a fixed-interval trigger (`every 15m`) counted from the Schedule's anchor time, never from when it was saved, so that editing a Schedule never shifts its rhythm."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 17
+title = "As a user, I want a fixed-time cron occurrence in the skipped spring hour to fire once at the first valid time after the gap and once in the repeated autumn hour, a wildcard or step expression to skip the gap and fire at each matching time of the repeated hour, and intervals to count elapsed time, so that DST nights never double or lose a run (ADR 0036)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 18
+title = "As a user, I want an optional jitter, the same delay at every occurrence of a Schedule and 0 by default, so that many Schedules on one hour do not hit a site together."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 19
+title = "As a user, I want a Watch trigger, whose occurrence first runs a small Watch checking chosen pages with a conditional request (`ETag`, `Last-Modified`) or a hash of the page or of a field a locator reads, with no model call, and starts the target only on change, so that I act on change as changedetection.io does (ADR 0036)."
+milestone = "M4 Everything else"
+journey = true
+status = "active"
+
+[[story]]
+id = 20
+title = "As a user, I want a Watch to compare with what it saw before the Schedule's latest run that qualifies as a Baseline, even when another Baseline is pinned, so that a change whose target run failed, stopped, was rejected or ended incomplete is still detected next time (ADR 0036)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 21
+title = "As a user, I want the target to start whenever no comparison point exists, and \"run now\" to start the target without a Watch, so that a first run and a manual run never wait on a Watch."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 22
+title = "As a user, I want a Watch to be a run like any other, with its Usage, Limits, Sessions and Access mode, counting toward period Limits, being the Schedule's live run for overlap, and counting toward auto-pause when it fails, so that a Watch is never a hidden cost (ADR 0036)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 23
+title = "As a user whose Watch hashes extracted content, I want it to hold to the Clean-up rules version its comparison point recorded, and to start the target saying why when it cannot get that version, so that a rules update is never mistaken for a change on the site (ADR 0047)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 24
+title = "As a user, I want an after-a-run trigger that fires when a run of another Schedule or of a Recipe ends with a chosen outcome, verified by default, so that I chain work without a workflow tool (ADR 0036)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 25
+title = "As a user, I want a chain that would lead back to the same Schedule, directly or through Recipe triggers, refused with `schedule_cycle`, so that Schedules never fire each other forever."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 26
+title = "As a user, I want Watches never to use the Response cache, a target to use `revalidate` but a target that sets `replay` refused with `replay_not_allowed`, and a Schedule to name no Response recording, so that replayed pages never hide a change (ADRs 0046, 0105)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 27
+title = "As a user, I want an occurrence that fires while the Schedule's previous run is live, including one waiting in a Human pause or resumed by hand, skipped and recorded as *skipped: overlap* by default, so that runs never pile up (ADR 0036)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 28
+title = "As a user, I want the overlap policies `queue_one` (at most one occurrence waits), `allow` (concurrent runs, still under the engine's admission) and `replace` (the live run aborts, checkpoints and stops at its next safe point, its Effect in flight finishing or reported uncertain, then the new run starts), so that I choose what a late run means."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 29
+title = "As a developer whose scheduled run was replaced, I want its stop reason to read `abort` by `schedule`, so that my program and the Console tell a Schedule's abort from a person's (ADR 0102)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 30
+title = "As a user, I want an occurrence missed while the Daemon was not running or the machine slept, detected on start or by the wall clock jumping, to run once on start or wake when it is the latest missed one and falls within the catch-up window, and every other to be recorded as *missed*, so that a laptop catches up without ten identical runs (ADR 0036)."
+milestone = "M4 Everything else"
+journey = true
+status = "active"
+
+[[story]]
+id = 31
+title = "As a user, I want the catch-up window to default to \"until the occurrence after it is due\" and to be settable, 0 meaning never, so that a weekday 9:00 Schedule missed on Friday can still catch up until Monday 9:00."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 32
+title = "As a user, I want a Daemon holding an enabled Schedule of the active major never to stop idle, so that Schedules fire while I am away (ADR 0036, amending ADR 0024)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 33
+title = "As a user, I want one \"missed occurrences\" Notification per wake, never one per occurrence, so that a weekend of sleep is one message (ADRs 0027, 0036)."
+milestone = "M4 Everything else"
+journey = true
+status = "active"
+
+[[story]]
+id = 34
+title = "As a user, I want edits to apply from the next occurrence, and \"run now\" to start an occurrence at once under the overlap policy, so that an edit never disturbs a live run."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 35
+title = "As a user, I want period Limits on a Schedule, caps on its runs' total Usage per day, week or month counted in its time zone, so that a recurring automation has a total cap (pain 5)."
+milestone = "M4 Everything else"
+journey = true
+status = "active"
+
+[[story]]
+id = 36
+title = "As a user, I want each run's Limits clamped before it starts to what is left of the period, and that clamp reserved until the run ends and its actual Usage replaces it, so that overlapping runs (`allow`, Watches, a resumed run) never jointly exceed the period (ADR 0036)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 37
+title = "As a user, I want a run to count in the period in which it started, and resuming it, or raising its Limit to resume it, clamped and reserved against that same period, so that a resume never escapes the cap."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 38
+title = "As a user, I want occurrences after a period's Limit is used up recorded as *skipped: Limit*, one Notification per period, a \"Needs you\" item, and the Schedule resuming next period, so that a used-up period is visible without noise (ADRs 0027, 0041)."
+milestone = "M4 Everything else"
+journey = true
+status = "active"
+
+[[story]]
+id = 39
+title = "As an operator, I want a scheduled run to count against the Limits that apply to its Schedule's creator (the install, the Daemon, the person and the named token), so that a Schedule never escapes its creator's caps (ADR 0041)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 40
+title = "As a person, I want a change that raises a period Limit from any surface other than the Console or an interactive CLI prompt, `schedule apply` included, held as a \"Needs you\" item until I confirm it, the previous Limit applying meanwhile and the rest of the change applying at once, so that an agent never lifts its own cap (ADR 0041)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 41
+title = "As a developer, I want a scheduled run's `run.usage()` and Run report to list the Schedule's Limit with its scope `schedule`, the Schedule's ID and its period, so that my program sees which cap held (ADRs 0101, 0102)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 42
+title = "As a user, I want a target whose `ai.model` has no price warned at creation when a currency period Limit applies, and its occurrences failing to start with `model_price_unknown`, so that an unpriced model never escapes the period's cap (ADRs 0101, 0117)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 43
+title = "As a user, I want a Schedule's Baseline to be its latest run whose Lifecycle is `finished`, whose Verdict is not `rejected` and whose Completeness is not `incomplete`, so that `verified` and `needs-review` runs, `complete` or `unverified`, may serve, and a `failed` or `stopped` run never does (ADR 0036)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 44
+title = "As a user, I want to pin a Baseline run and unpin it, the pinned run kept by retention, so that I compare against a run I trust."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 45
+title = "As a user, I want a Schedule to pause itself after 3 consecutive occurrences whose run's Lifecycle is `failed`, whose Verdict is `rejected`, or that failed to start (settable, 0 meaning never), `stopped` runs and skipped or missed occurrences neither counting nor resetting the count, so that a broken Schedule stops spending (ADRs 0036, 0040)."
+milestone = "M4 Everything else"
+journey = true
+status = "active"
+
+[[story]]
+id = 46
+title = "As a user, I want a Schedule to pause itself when its creator loses the right to run its target, so that no one's rights are lent through a Schedule."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 47
+title = "As a user, I want each auto-pause to send the \"Schedule auto-paused\" Notification and add a \"Needs you\" item naming its cause, and resuming to reset the count, so that I learn of it once and can act (ADRs 0027, 0036)."
+milestone = "M4 Everything else"
+journey = true
+status = "active"
+
+[[story]]
+id = 48
+title = "As a user, I want to pause and resume a Schedule by hand, a paused Schedule firing and recording nothing and resuming at its next occurrence with no catch-up of the paused span, and \"run now\" still starting one occurrence of a paused or auto-paused Schedule without resuming it, so that its history shows only what it was asked to do and I can try a fix before resuming."
+milestone = "M4 Everything else"
+journey = true
+status = "active"
+
+[[story]]
+id = 49
+title = "As a user, I want a scheduled run to resolve Secret references in the Daemon's context; a target that needs the program that created it (the `caller` Secret provider, an SDK handler its connection registered, a `client_browser` Session source) refused with `schedule_target_unattended`; an `env:` reference the Daemon cannot resolve, or a `running_browser` source whose dialog needs a person at each occurrence, warned at creation; and a reference that does not resolve at an occurrence to fail the run before it starts, naming the reference, so that unattended runs fail early and clearly (ADRs 0015, 0056, 0101, 0104)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 50
+title = "As a user, I want a Human pause in a scheduled run to send its Notification and \"Needs you\" item as usual, and to time out at the Schedule's next due occurrence for a time or Watch trigger and after 24 hours for an after-a-run trigger, both settable, so that an unanswered pause never blocks every later occurrence (ADRs 0036, 0092)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 51
+title = "As a user, I want that timeout to count only while paused work is all that keeps the run from ending, and on expiry the run aborted (`stopped`, resumable by its ID), the due and queued occurrences recorded as *skipped: paused*, and the Schedule auto-paused with a \"Needs you\" item naming the pause, such as a login needed on a domain, so that I fix the cause once (ADR 0036)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 52
+title = "As a developer, I want `progress().pauses[].deadline` in a scheduled run to show the first of `timeout.human_pause` set at any layer and the Schedule's pause timeout, so that my program knows when the pause ends (ADRs 0080, 0092, 0102)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 53
+title = "As a user, I want each occurrence recorded with its due and fire times, its trigger (time, Watch, after a run, run now), the Schedule version it used and its outcome (`started` with its run IDs, *skipped: overlap*, *skipped: Limit*, *skipped: paused*, *skipped: no change*, *missed* with its reason, *failed to start* with its Error code), so that I see why a run did or did not happen (ADR 0036)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 54
+title = "As a developer, I want `schedule.occurrences()` to iterate a Schedule's occurrences, newest first or following new ones, so that a program or the Console reads the timeline."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 55
+title = "As a user, I want occurrence history kept 90 days by default, so that the timeline stays bounded."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 56
+title = "As a Console user, I want every scheduled run to carry the Schedule ID, occurrence ID, trigger kind, creator and role as run labels shown in Run index rows and restored by `run reindex`, and Watch runs listed but hidden from the Runs list by default, so that a run's drawer names the Schedule and occurrence that started it (ADRs 0031, 0036)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 57
+title = "As a user, I want each scheduled run's ID derived from the Schedule store's own random ID, the occurrence and the run's role, so that a scheduler restarted after a crash never starts an occurrence twice and one Schedule applied on two machines never yields the same run ID (ADRs 0036, 0102)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 58
+title = "As a user, I want a Schedule to keep its last 10 runs, its current Baseline, pinned runs, any run still in \"Needs you\", the last 10 Watch runs, the last 10 Watches that found a change and the Watch before the Schedule's latest run that qualifies as a Baseline, so that what I need survives and disk use stays bounded (ADR 0036)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 59
+title = "As a user, I want an older run discarded with its data key destroyed and its files or rows removed, and its Run index row marked *erased*, never dropped, so that discarding is visible and leaves no secret behind (ADRs 0015, 0031)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 60
+title = "As an operator, I want each retention number to be a setting that Operator policy can cap, so that a shared Daemon's disk is bounded."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 61
+title = "As a developer, I want Schedules kept in a Schedule file in my project, a versioned contract format, and `schedule apply` to reconcile them into the Daemon (create, update, delete those it created earlier from the same file and that the file no longer holds), so that Schedules are reviewed in pull requests (ADR 0036)."
+milestone = "M4 Everything else"
+journey = true
+status = "active"
+
+[[story]]
+id = 62
+title = "As a developer, I want `apply` to leave a Schedule's paused or running state alone unless the file sets `enabled`, so that a pause during an incident survives the next deploy."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 63
+title = "As a user, I want a Schedule from a file marked *from file*, `schedule edit` and `schedule delete` refused on every surface with `schedule_from_file`, and pause, resume and run now still working, so that a later `apply` never silently undoes an edit."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 64
+title = "As a team lead, I want `apply` to need the role that creates a Schedule and to record the person or token that ran it as the creator, so that the file's owner is accountable (ADR 0036)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 65
+title = "As a developer, I want `apply` to validate the whole file first and change nothing when any Schedule in it is refused, so that a half-applied file never leaves the Daemon between two versions."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 66
+title = "As a Recipe author, I want my manifest to suggest a default Schedule that `schedule create` offers to prefill but never creates by itself, so that users start from a sensible rhythm."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 67
+title = "As a user moving between my machine and Goodfetch Cloud, I want Schedules to move through the file form and `schedule apply`, so that one file serves both."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "reach"
+status = "active"
+
+[[story]]
+id = 68
+title = "As a viewer on a shared Daemon, I want to read Schedules and their history; as a member, to create, edit, pause, resume and run now Schedules for targets I may run; as an operator, to act on any Schedule, so that rights match ADR 0031's roles."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 69
+title = "As an operator, I want named tokens limitable to `schedule.*` and to certain Recipes, so that a deploy token manages Schedules and nothing else."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 70
+title = "As a member, I want a Schedule's creator to be whoever last created, edited or applied its definition, never changed by pause, resume or run now, and the creator's rights checked at every occurrence, so that editing another member's Schedule never lends it someone else's rights."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 71
+title = "As an operator, I want every change to a Schedule in the Audit log with a before-and-after diff, and each run to record its Schedule and creator, so that a Schedule's history is accountable."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 72
+title = "As a user with two majors installed, I want a per-user active-major marker to name the one major whose scheduler fires, a Daemon of another major firing nothing, neither kept from stopping idle nor recording missed occurrences, so that two majors never fire one Schedule twice (ADR 0036)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 73
+title = "As a user, I want `schedule activate --major <n>`, also offered as a prompt when a newer major's Daemon finds Schedules only in an older one, to copy and upgrade the older major's Schedules into the new store after confirmation, report and skip IDs the new store holds, and start each at its next occurrence with no catch-up, so that moving to a new major is one confirmed step."
+milestone = "M4 Everything else"
+journey = true
+status = "active"
+
+[[story]]
+id = 74
+title = "As a user, I want rolling back to be the same command naming the older major, whose store is as it was, the command saying that changes made under the newer major are not carried back, so that a rollback holds no surprise."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "reach"
+status = "active"
+
+[[story]]
+id = 75
+title = "As a user, I want `upgrade-files` to upgrade Schedule files in projects but never switch the marker, and to warn when the project holds a Recipe that a Schedule of the active major targets, so that trying a preview never breaks my running Schedules silently."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 76
+title = "As a user with both Products, I want a Schedule to record the Product its target needs, a Collie Daemon to record each occurrence of a Schedule that needs Foxhound as missed with `not_in_product`, and one \"Needs you\" item per such Schedule naming the fix, so that I learn which Product to install (ADR 0098)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 77
+title = "As a Collie user, I want creating, editing or applying a Schedule whose target needs Foxhound refused with `not_in_product`, naming what needs Foxhound and Foxhound's install command, so that I learn the fix before any occurrence (ADRs 0087, 0095)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 78
+title = "As a user, I want a Collie engine that rewrites the Schedule store to keep Foxhound's Schedules and their history untouched, so that a temporary Collie Daemon never deletes my crawl Schedules (ADR 0098)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 79
+title = "As a user running engines of several versions of one major, I want the Schedule store to record the lowest minor that can use it, raised only for what an older engine would misread, and an older engine to refuse a store marked newer than itself naming the version to install (ADR 0098)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 80
+title = "As a team operator, I want only the Lead Daemon to fire, that role replacing the store's OS lock, its runs placed like any other, so that a Schedule fires once per occurrence across the group (ADR 0055)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 81
+title = "As a team operator, I want a Lead Daemon that is up but cut off to keep firing while it may lead, and one that was down to catch up the latest missed occurrence once only after confirming its lead epoch, so that a failover never fires an occurrence twice (ADR 0055)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 82
+title = "As a team member, I want the Schedule store cached on every Group member for reads, so that any pod answers `schedule.list`."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 83
+title = "As a user, I want Notifications for a Schedule auto-paused, occurrences skipped by a Limit (once per period) and occurrences missed (once per wake), deduplicated by Schedule and period or wake through ADR 0027's delivery ledger and, in a group, at the Lead Daemon, so that I am told once (ADRs 0027, 0055)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 84
+title = "As a Console user, I want the operations to answer everything the Schedules screen and drawer show: target, trigger and timing in plain words, next occurrences, last outcome, period Usage against its Limit, state (on, paused, auto-paused), the *from file* badge, and the timeline with skip reasons, so that area 12 builds the screens on the catalog alone (ADR 0031)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 85
+title = "As a Console user, I want a Recipe's page to list its Schedules and \"Needs you\" to hold auto-paused Schedules, Schedules held back by a used-up period Limit, Schedules that need a missing Product and the warning that the Daemon is not installed as a service, so that everything waiting on me is in one list."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 86
+title = "As a Goodfetch Cloud user, I want its gateway to implement the same `schedule.*` operations with the same semantics, so that Schedules behave the same everywhere (ADRs 0001, 0036)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "reach"
+status = "active"

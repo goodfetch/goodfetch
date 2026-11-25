@@ -84,4 +84,3 @@ pending = "Area 9 builds the aria snapshot and its count line (ADR 0121)."
 [[obligation]]
 text = "When a site's service worker answers a request the Response cache must serve, set `browser.service_workers` to `block` (ADR 0121)."
 settings = ["cache.mode"]
-pending = "Area 5 builds the Response cache (ADR 0046)."

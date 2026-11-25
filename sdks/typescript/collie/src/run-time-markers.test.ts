@@ -1,10 +1,10 @@
 // ADR 0030's run-time warning from what no generated member sends (ADR
 // 0099): the hand-written `start` warns of `run.start`'s markers, and `on`
-// of the event it listens to, once per process. Its own file, so no other
-// test of the process warned first.
+// of the event it listens to, once per process. The test loads a fresh copy
+// of the SDK, so no earlier run warned first, a repeat of the stress run's
+// included.
 import { playScript, test } from "@goodfetch/test-support";
 import { expect, vi } from "vitest";
-import { connectOver } from "./testing.ts";
 
 /** The warning an Experimental entry `name` gives, as the warning listener records it. */
 function experimental(name: string): string {
@@ -21,6 +21,8 @@ test(
         warnings.push(`${warning.name}: ${warning.message}`);
       }
     };
+    vi.resetModules();
+    const { connectOver } = await import("./testing.ts");
     process.on("warning", listen);
     try {
       const played = playScript("page/listened.json");

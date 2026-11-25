@@ -6,8 +6,25 @@
 # The scan (`xtask results scan`) opens or updates a Live check's one
 # `live-check` issue on a fail or three inconclusive results in a row, with
 # its area in the title, and fails on a Live check this list does not name.
-# Each area adds its checks in the pull request that adds their jobs:
+#
+# A check a shell job runs also names that `job` ("<workflow file>#<job>")
+# and the command it runs (`run`, through `bash -c` from the checkout's
+# root). The job's `xtask results live-run --job <job>` runs each of them
+# and writes its JUnit file: exit 0 passes, exit 75 (the outside side was
+# unavailable) is inconclusive, and any other exit fails. A check written by
+# another command, such as `xtask results live-check`, has neither. Each area
+# adds its checks in the pull request that adds their jobs:
 #
 # [[live-check]]
 # id = "saas-sinks snowflake"
 # area = 6
+# job = "nightly.yml#sinks"
+# run = "<the command that writes one row and reads it back>"
+
+# OpenSSF Scorecard against ci/scorecard.toml's floors (#146). It blocks
+# nothing: a check under its floor opens this check's issue.
+[[live-check]]
+id = "scorecard"
+area = 1
+job = "nightly.yml#scorecard"
+run = "target/debug/xtask results scorecard --results target/scorecard/results.json"

@@ -22,7 +22,7 @@ use serde::Deserialize;
 use super::collie;
 use super::matrix::Scenario;
 use super::trial::Outcome;
-use super::trials::{Contender, Exercise};
+use super::trials::{Contender, Exercise, Started};
 use crate::rss;
 
 /// The executables a workload runs.
@@ -187,7 +187,7 @@ fn act(executables: &Executables<'_>, exercise: Exercise) -> Result<f64> {
         goodfetch_variables: executables.goodfetch_variables,
     };
     rss::page_cache::drop_cached(executables.collie)?;
-    match collie::trial(&tools, exercise, Contender::Collie, 1, None)? {
+    match collie::trial(&tools, exercise, Contender::Collie, 1, Started::default())? {
         Outcome::Done(trial) => Ok(trial.wall_seconds),
         Outcome::Stopped(reason) => bail!("Collie's {exercise:?} trial stopped: {reason}"),
     }

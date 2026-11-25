@@ -36,7 +36,7 @@ use crate::check::Finding;
 use super::super::relay::{EngineCounts, EngineReader, Mark, Relay};
 use super::super::report::{Figure, Unit, cell_text, float, median, spread};
 use super::super::trial::{self, Outcome};
-use super::super::trials::{Contender, LoadPage, LoadStopped, LoadTrial, Row};
+use super::super::trials::{Contender, LoadPage, LoadStopped, LoadTrial, Row, Started};
 use super::Tools;
 
 /// The host name the Proving ground serves both pages on.
@@ -277,7 +277,7 @@ pub(crate) fn trial(
     page: LoadPage,
     row: Row,
     number: u32,
-    load: Option<f64>,
+    started: Started,
 ) -> Result<Outcome<LoadTrial>> {
     let serving = crate::rss::crawl::serve(tools.proving_ground, "none")?;
     let port: u16 = serving
@@ -364,7 +364,7 @@ pub(crate) fn trial(
         page,
         row,
         number,
-        load,
+        started,
         status: printed.status,
         read: printed
             .read

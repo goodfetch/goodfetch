@@ -28,9 +28,10 @@ use goodfetch_protocol::page::proxy::ProxyProviderConfiguration;
 use sha2::{Digest as _, Sha256};
 
 use goodfetch_engine::CallError;
+use goodfetch_engine::ledger::RunCharging;
 use goodfetch_engine::ledger::{Allowance, ChargeError, Refusal as LedgerRefusal};
 use goodfetch_engine::run::{limit_not_understood, limit_reached};
-use goodfetch_engine::runs::Run;
+use goodfetch_engine::run_identity::RunIdentity;
 use goodfetch_protocol::catalog::PriceValue;
 use goodfetch_protocol::page::proxy::{CountryCode, ProxyKind, ProxyServer};
 use goodfetch_protocol::run::RunWarning;
@@ -394,7 +395,11 @@ impl Tally {
 /// direction of each connection reserves an allowance before its bytes
 /// pass ([`Ahead`]), settled at what passed.
 pub(crate) struct ProxyUsage {
-    run: Run,
+    /// Its Run's identity, starting its reserves and settles on its
+    /// Session's owner, whose stop waits for them (ADR 0146).
+    run: RunIdentity,
+    /// What its bytes are charged to.
+    charging: RunCharging,
     kind: ProxyKind,
     price: Option<PriceValue>,
     tally: Mutex<Tally>,
@@ -404,11 +409,17 @@ pub(crate) struct ProxyUsage {
 }
 
 impl ProxyUsage {
-    /// The usage of a Session of `run` whose proxy is of `kind`, priced at
-    /// `price` per GB.
-    pub(crate) fn new(run: Run, kind: ProxyKind, price: Option<PriceValue>) -> Self {
+    /// The usage of a Session of `run`'s Run, charged to `charging`, whose
+    /// proxy is of `kind`, priced at `price` per GB.
+    pub(crate) fn new(
+        run: RunIdentity,
+        charging: RunCharging,
+        kind: ProxyKind,
+        price: Option<PriceValue>,
+    ) -> Self {
         Self {
             run,
+            charging,
             kind,
             price,
             tally: Mutex::new(Tally::default()),
@@ -445,13 +456,13 @@ impl ProxyUsage {
     }
 
     /// Reserves `wanted` bytes ahead, or else as many down to `least` as
-    /// the Limits allow, on a task of the Run, which runs to its end even
-    /// when the caller stops waiting, as a relayed connection does when its
-    /// Session's proxy closes or its Run ends: an allowance no one took is
-    /// given back in full ([`Granted`]), whether the caller stopped before
-    /// the task granted it or after, while it waited in the answer. None
-    /// when a Limit refused it, or once the Run ended: no byte may pass
-    /// then.
+    /// the Limits allow, on a task of its Session's owner, which runs to
+    /// its end even when the caller stops waiting, as a relayed connection
+    /// does when its Session's proxy closes, its Session ends or its Run
+    /// does: an allowance no one took is given back in full ([`Granted`]),
+    /// whether the caller stopped before the task granted it or after,
+    /// while it waited in the answer. None when a Limit refused it, or once
+    /// the Run ended: no byte may pass then.
     async fn reserve(self: &Arc<Self>, wanted: u64, least: u64) -> Option<Allowance> {
         let (answer, answered) = oneshot::channel();
         let usage = Arc::clone(self);
@@ -473,13 +484,14 @@ impl ProxyUsage {
 
     /// Reserves `wanted` bytes ahead, or else as many down to `least` as
     /// the Limits allow, with their price at its worst. Dropping the future
-    /// may leave the allowance charged in full ([`Run::reserve_part`]'s
-    /// cancel safety), so only [`ProxyUsage::reserve`]'s task awaits it.
+    /// may leave the allowance charged in full
+    /// ([`RunCharging::reserve_part`]'s cancel safety), so only
+    /// [`ProxyUsage::reserve`]'s task awaits it.
     async fn reserved(&self, wanted: u64, least: u64) -> Option<Allowance> {
         let currency = self.price.as_ref().map(|price| price.currency.as_str());
         let millionths = self.price.as_ref().map_or(0, |price| price.millionths);
         match self
-            .run
+            .charging
             .reserve_part(
                 PROXY_BYTES,
                 self.kind.as_str(),
@@ -499,9 +511,10 @@ impl ProxyUsage {
         }
     }
 
-    /// Settles `allowance` at `used` bytes on a task of the Run, to its end
-    /// even when the connection is gone: the provider bills every byte it
-    /// carried, and the Run waits for its tasks before it writes its report.
+    /// Settles `allowance` at `used` bytes on a task of its Session's owner,
+    /// to its end even when the connection is gone: the provider bills
+    /// every byte it carried, and the Run's end stops each Session's owner,
+    /// which waits for its tasks, before it writes its report.
     fn settle_to_the_end(self: &Arc<Self>, allowance: Allowance, used: u64) {
         let usage = Arc::clone(self);
         self.run
@@ -515,7 +528,7 @@ impl ProxyUsage {
             Some(price) => self.tally.lock().await.add(used, price.millionths),
             None => 0,
         };
-        if let Err(error) = self.run.settle_part(allowance, used, cost).await {
+        if let Err(error) = self.charging.settle_part(allowance, used, cost).await {
             tracing::warn!(%error, "what a Session's proxy carried of an allowance was not settled: the allowance stays charged in full");
         }
     }

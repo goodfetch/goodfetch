@@ -31,12 +31,14 @@ use std::sync::Arc;
 
 use goodfetch_counted_work::{CountedWork, Row};
 use goodfetch_protocol::catalog::Product;
-use goodfetch_protocol::settings::{ProjectSettings, RecipeManifest, RunOrigin, SettingsLayer};
+use goodfetch_protocol::recipe::RecipeManifest;
+use goodfetch_protocol::settings::{ProjectSettings, RunOrigin, SettingsLayer};
 use serde_json::{Map, Value};
 
 pub use environment::{check_environment, deployment_variable, taken_value};
 pub use error::SettingsError;
 pub(crate) use error::not_registrable;
+pub(crate) use files::json_of_table;
 pub use files::{
     LOWEST_MINOR_KEY, MachineLayers, SettingsFiles, configuration, find_project,
     fuzz_settings_file, operator_policy, policy_version, project_settings, rewrite, set,

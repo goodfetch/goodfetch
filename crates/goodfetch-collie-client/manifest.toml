@@ -331,6 +331,15 @@ form = "opener"
 [[member]]
 crate = "goodfetch-collie-client"
 receiver = "ClientConnection"
+member = "schedules"
+entry = "none"
+reason = "The Schedules of the engine's major, whose methods serve the `schedule` operations on no Schedule, reached without a round trip (spec 589)."
+words = ["schedules"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "ClientConnection"
 member = "explain_settings"
 entry = "config.explain"
 words = ["explain", "settings"]
@@ -432,6 +441,15 @@ entry = "none"
 reason = "Opens a view of a Run another program started, by its Run ID, with no round trip (ADR 0102)."
 words = ["open", "run"]
 form = "opener"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "Connection"
+member = "schedules"
+entry = "none"
+reason = "The Schedules of the engine's major, reached without a round trip (spec 589); `ClientConnection::schedules`'s member under the same name."
+words = ["schedules"]
+form = "read"
 
 [[member]]
 crate = "goodfetch-collie-client"
@@ -1516,6 +1534,76 @@ form = "closer"
 [[member]]
 crate = "goodfetch-collie-client"
 receiver = "(crate)"
+member = "Schedules"
+entry = "none"
+reason = "A Connection's Schedules: `connection.schedules()`, whose methods serve the `schedule` operations on no Schedule (spec 589)."
+words = ["schedules"]
+form = "type"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "Schedules"
+member = "create"
+entry = "schedule.create"
+words = ["create"]
+form = "round_trip"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "Schedules"
+member = "list"
+entry = "schedule.list"
+words = ["list"]
+form = "round_trip"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "Schedules"
+member = "get"
+entry = "schedule.get"
+words = ["get"]
+form = "round_trip"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "(crate)"
+member = "CreatedSchedule"
+entry = "none"
+reason = "What `schedules.create` answers: the `Schedule` and its warnings, `schedule.create`'s result with the handle in place of the ID."
+words = ["created", "schedule"]
+form = "type"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "CreatedSchedule"
+member = "schedule"
+entry = "none"
+reason = "The Schedule, under the ID given or made."
+words = ["schedule"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "CreatedSchedule"
+member = "warnings"
+entry = "none"
+reason = "What did not stop its creation but its program should know."
+words = ["warnings"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "CreatedSchedule"
+member = "into_parts"
+entry = "none"
+reason = "The Schedule and its warnings, taken out of the answer."
+only = "Rust's answer keeps its fields private behind reads; TypeScript's and Python's are plain fields."
+words = ["into", "parts"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "(crate)"
 member = "TraceContextSource"
 entry = "none"
 reason = "Reads the host program's current Trace context, which each request the Connection sends carries (ADR 0132)."
@@ -1731,6 +1819,15 @@ form = "opener"
 [[member]]
 crate = "goodfetch-collie-client"
 receiver = "blocking::ClientConnection"
+member = "schedules"
+entry = "none"
+reason = "The Schedules of the engine's major, reached without a round trip (spec 589)."
+words = ["schedules"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "blocking::ClientConnection"
 member = "explain_settings"
 entry = "config.explain"
 words = ["explain", "settings"]
@@ -1805,6 +1902,15 @@ entry = "none"
 reason = "Opens a view of a Run another program started, by its Run ID, with no round trip (ADR 0102)."
 words = ["open", "run"]
 form = "opener"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "blocking::Connection"
+member = "schedules"
+entry = "none"
+reason = "The Schedules of the engine's major, reached without a round trip (spec 589)."
+words = ["schedules"]
+form = "read"
 
 [[member]]
 crate = "goodfetch-collie-client"
@@ -2317,6 +2423,48 @@ entry = "none"
 reason = "Starts the Run and blocks the calling thread until it is started."
 words = ["send"]
 form = "opener"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "blocking"
+member = "Schedules"
+entry = "none"
+reason = "A Connection's Schedules, whose calls block, as `crate::Schedules` are (spec 589)."
+words = ["schedules"]
+form = "type"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "blocking::Schedules"
+member = "create"
+entry = "schedule.create"
+words = ["create"]
+form = "round_trip"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "blocking::Schedules"
+member = "list"
+entry = "schedule.list"
+words = ["list"]
+form = "round_trip"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "blocking::Schedules"
+member = "get"
+entry = "schedule.get"
+words = ["get"]
+form = "round_trip"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "blocking"
+member = "CreatedSchedule"
+entry = "none"
+reason = "What `schedules.create` answers, whose `Schedule`'s calls block."
+words = ["created", "schedule"]
+form = "type"
 
 [[member]]
 crate = "goodfetch-collie-client"

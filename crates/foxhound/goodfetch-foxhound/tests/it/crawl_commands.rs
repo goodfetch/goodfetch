@@ -233,10 +233,10 @@ fn a_code_free_crawl_started_followed_and_read_from_the_command_line(#[case] mod
 /// The other reads of a crawl that ended, and `run retry-failed`, each
 /// under `--json` and as human output, on an Attached engine and on the
 /// Daemon alike: its seeds, its rejected Records, its Datasets, a page of
-/// one, an SQL query over it and a retry with nothing to retry, each one
-/// JSON value of the bundle's type.
+/// one, an SQL query over it, a search of its Records for a word and a
+/// retry with nothing to retry, each one JSON value of the bundle's type.
 ///
-/// Covers: story:11-1131, command:run.seeds, command:run.rejected-records, command:run.retry-failed, command:dataset.list, command:dataset.page, command:dataset.query
+/// Covers: story:11-1131, command:run.seeds, command:run.rejected-records, command:run.retry-failed, command:dataset.list, command:dataset.page, command:dataset.query, command:dataset.search
 #[rstest]
 #[case::attached(Mode::Attached)]
 #[case::daemon(Mode::Daemon)]
@@ -254,7 +254,7 @@ fn a_crawls_other_commands_each_print_one_value_of_their_type(#[case] mode: Mode
         .run()
         .unwrap();
 
-    let commands: [(&[&str], &str); 6] = [
+    let commands: [(&[&str], &str); 7] = [
         (&["run", "seeds", "read"], "RunSeeds"),
         (
             &["run", "rejected-records", "read", "--dataset", "pages"],
@@ -276,6 +276,19 @@ fn a_crawls_other_commands_each_print_one_value_of_their_type(#[case] mode: Mode
                 "SELECT count(*) AS records FROM records('read')",
             ],
             "DatasetQueryResult",
+        ),
+        (
+            &[
+                "dataset",
+                "search",
+                "--run-id",
+                "read",
+                "--dataset",
+                "pages",
+                "--text",
+                "blockquote",
+            ],
+            "DatasetSearchPage",
         ),
     ];
     let flag = engine_flag(mode);

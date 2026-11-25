@@ -1,6 +1,10 @@
 //! The startup of Foxhound's executable (ADRs 0071 and 0094), under
 //! gungraun's Callgrind: an Attached engine over stdio answering `hello` and
-//! exiting at the end of its input, and `goodfetch-foxhound --version`.
+//! exiting at the end of its input, `engine info` on the choice `engine:
+//! "auto"` makes, its Daemon probe counted, and `goodfetch-foxhound
+//! --version`. The probe, which reads the home's Daemon runtime file, is
+//! the one the Rust SDK's `EngineChoice::Auto` runs before it links its
+//! engine (ADR 0098).
 //!
 //! The Attached engine runs in gungraun's sandbox, on a Goodfetch home the
 //! benchmark's setup makes there. Its user configuration gives the engine one
@@ -89,6 +93,29 @@ fn attached_engine_answers_hello() -> gungraun::Command {
         .build()
 }
 
+// `engine info` with no `--daemon` or `--attached`, the choice `engine:
+// "auto"` makes: the Daemon probe reads the home's runtime file, finds no
+// Daemon running, and the call runs on an Attached engine in the command's
+// own process. gungraun's attribute takes no doc comment.
+#[binary_benchmark(
+    setup = pinned_home(),
+    config = BinaryBenchmarkConfig::default()
+        .sandbox(Sandbox::new(true))
+        .tool(Callgrind::with_args([
+            "--toggle-collect=_dl_start",
+            "--toggle-collect=_dl_init",
+            "--toggle-collect=__libc_start_main*",
+            "--toggle-collect=start_thread",
+            "--toggle-collect=__nptl_deallocate_tsd",
+        ]))
+)]
+fn engine_info_on_auto() -> gungraun::Command {
+    gungraun::Command::new(env!("CARGO_BIN_EXE_goodfetch-foxhound"))
+        .args(["engine", "info", "--json"])
+        .env(HOME_VARIABLE, HOME)
+        .build()
+}
+
 #[binary_benchmark]
 fn version() -> gungraun::Command {
     gungraun::Command::new(env!("CARGO_BIN_EXE_goodfetch-foxhound"))
@@ -98,7 +125,7 @@ fn version() -> gungraun::Command {
 
 binary_benchmark_group!(
     name = startup,
-    benchmarks = [attached_engine_answers_hello, version]
+    benchmarks = [attached_engine_answers_hello, engine_info_on_auto, version]
 );
 
 main!(binary_benchmark_groups = startup);

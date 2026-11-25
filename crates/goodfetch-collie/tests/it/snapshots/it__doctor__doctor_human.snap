@@ -10,4 +10,5 @@ ok daemon: No Daemon of major 0.0 runs; the first command that needs one starts 
 ok version_skew: No Daemon runs another version than this executable
 failing browsers: The chrome-for-testing build this version pins is not in the Browser cache at [FOLDER]/home/browsers, and `egress.offline` forbids downloading it
   fix: Run `goodfetch-collie browser install` where the network can be reached, point GOODFETCH_BROWSERS_PATH at a cache that holds it, or lift `egress.offline`
+bug report: written to [FOLDER]/home/bug-report.json, for you to attach to an issue; doctor sent nothing
 ----- stderr -----

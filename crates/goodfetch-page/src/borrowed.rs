@@ -24,6 +24,7 @@ use goodfetch_engine::egress::{
     CdpUrlOrigin, EndpointPolicy, Policy, cdp_url_address, judge_cdp_url,
 };
 use goodfetch_engine::http_client;
+use goodfetch_engine::run_identity::RunIdentity;
 use goodfetch_engine::runs::Run;
 use goodfetch_engine::settings::{Resolved, RunSettings};
 use goodfetch_protocol::page::{BROWSER_LAUNCH_FAILED, BrowserLaunchFailedDetails};
@@ -81,7 +82,9 @@ pub(crate) fn resolve_of(settings: Option<&Resolved>) -> HostMapping {
 }
 
 /// Opens the engine's connection to the browser at `cdp_url` for `run`,
-/// once ADR 0056's rules allow its address.
+/// once ADR 0056's rules allow its address. The connection's driver and
+/// its bridge to the WebSocket are tasks of `on`'s owner, the browser's
+/// (ADR 0146), whose stop ends the connection.
 ///
 /// # Errors
 ///
@@ -90,7 +93,10 @@ pub(crate) fn resolve_of(settings: Option<&Resolved>) -> HostMapping {
 /// `ws://` one; `setting_invalid` for a Run whose domain lists hold no
 /// host; and `browser_launch_failed` naming the address when nothing
 /// answers there as a browser (#743 gives each case its own code).
-pub(crate) async fn connect(run: &Run, cdp_url: &CdpUrl) -> Result<Connection, CallError> {
+pub(crate) async fn connect(
+    (run, on): (&Run, &RunIdentity),
+    cdp_url: &CdpUrl,
+) -> Result<Connection, CallError> {
     let address = cdp_url.address();
     let (host, port) = cdp_url
         .host_and_port()
@@ -127,11 +133,11 @@ pub(crate) async fn connect(run: &Run, cdp_url: &CdpUrl) -> Result<Connection, C
     let (reader, writer) = tokio::io::split(engine);
     let (connection, driver) =
         Connection::new(reader, writer, run.metrics().counted_work().clone(), log);
-    run.spawn(async move {
+    on.spawn(async move {
         let ended = driver.run().await;
         tracing::debug!(?ended, "a Borrowed browser's connection ended");
     });
-    run.spawn(bridge(socket, bridge_end, run.cancellation().clone()));
+    on.spawn(bridge(socket, bridge_end, on.owner().child_token()));
     Ok(connection)
 }
 

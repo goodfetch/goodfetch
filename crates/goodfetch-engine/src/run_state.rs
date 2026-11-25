@@ -291,6 +291,9 @@ pub struct RunStateOptions {
     /// Where it reports its WAL's size and the checkpoints a reader
     /// blocked: none by default.
     pub metrics: Option<Metrics>,
+    /// Whether its writer's connections overwrite what they delete, SQLite's
+    /// `secure_delete` (`security.secure_delete`, ADR 0015): on by default.
+    pub secure_delete: bool,
 }
 
 impl Default for RunStateOptions {
@@ -303,6 +306,7 @@ impl Default for RunStateOptions {
             wal_checkpoint_after: WAL_CHECKPOINT_AFTER_BYTES,
             clock: Clock::system(),
             metrics: None,
+            secure_delete: true,
         }
     }
 }
@@ -1734,8 +1738,7 @@ fn open_file(
             OpenError::Format(refusal) => refusal.into(),
             other => sqlite_error(path, &other),
         })?;
-    tune(&connection, PAGE_CACHE_KIB, options.wal_checkpoint_after)
-        .map_err(|error| sqlite_error(path, &error))?;
+    tune(&connection, PAGE_CACHE_KIB, options).map_err(|error| sqlite_error(path, &error))?;
     Ok(connection)
 }
 
@@ -1797,12 +1800,7 @@ fn open_deferring(path: &Path, options: &RunStateOptions) -> Result<Connection, 
     }
     .count_commits(&connection)
     .map_err(failed)?;
-    tune(
-        &connection,
-        DEFERRING_PAGE_CACHE_KIB,
-        options.wal_checkpoint_after,
-    )
-    .map_err(failed)?;
+    tune(&connection, DEFERRING_PAGE_CACHE_KIB, options).map_err(failed)?;
     connection_durability(Synchronous::Normal, Synchronous::Normal)
         .apply(&connection)
         .map_err(failed)?;
@@ -1811,14 +1809,26 @@ fn open_deferring(path: &Path, options: &RunStateOptions) -> Result<Connection, 
 }
 
 /// Sets up a writer's connection beyond its durability: its statement
-/// cache, a page cache of `cache_kib`, and a WAL it truncates to
-/// `wal_limit` bytes at its first commit after the WAL started again.
-fn tune(connection: &Connection, cache_kib: u32, wal_limit: u64) -> rusqlite::Result<()> {
+/// cache, a page cache of `cache_kib`, a WAL it truncates to `options`'
+/// `wal_checkpoint_after` bytes at its first commit after the WAL started
+/// again, and SQLite's `secure_delete` as `options` say.
+fn tune(
+    connection: &Connection,
+    cache_kib: u32,
+    options: &RunStateOptions,
+) -> rusqlite::Result<()> {
     connection.set_prepared_statement_cache_capacity(STATEMENTS);
     connection.pragma_update(
         None,
         "journal_size_limit",
-        i64::try_from(wal_limit).unwrap_or(i64::MAX),
+        i64::try_from(options.wal_checkpoint_after).unwrap_or(i64::MAX),
+    )?;
+    // What a write deletes or overwrites is zeroed in its page, and a page
+    // it frees is zeroed whole, so no free page keeps it (ADR 0015).
+    connection.pragma_update(
+        None,
+        "secure_delete",
+        if options.secure_delete { "ON" } else { "OFF" },
     )?;
     // Savepoints' statement journals stay in memory, never in `$TMPDIR`
     // (ADR 0138).

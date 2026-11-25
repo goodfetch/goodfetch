@@ -11,7 +11,7 @@ import {
   type ErrorIdentity,
   type ErrorLimit,
 } from "../goodfetch-error.ts";
-import type { AddressFamilyUnavailableDetails, ArtifactDownloadFailedDetails, ArtifactUnavailableOfflineDetails, BlockedDetails, BodyNotFoundDetails, BodyUnavailableDetails, BrowserLaunchFailedDetails, BrowserNeedsGuiSessionDetails, BrowserNotInstalledDetails, BrowserSandboxUnavailableDetails, CallCancelledDetails, CapabilityUnavailableDetails, CdpUrlNotAllowedDetails, CdpUrlNotBrowserDetails, CdpUrlUnauthorizedDetails, CdpUrlUnreachableDetails, CertificateChangedDetails, CertificateInvalidDetails, CheckpointBehindDetails, ConnectionOverloadedDetails, DaemonDrainingDetails, DaemonUnreachableDetails, DetachUnsupportedDetails, DialogAlreadyHandledDetails, EdgeHandlersUnsupportedDetails, EgressRefusedDetails, EngineExitedDetails, EnginePanickedDetails, ExecutableBlockedBySmartAppControlDetails, FileWriteFailedDetails, FormatVersionUnsupportedDetails, HeaderValueInvalidDetails, HookFailedDetails, LimitNotUnderstoodDetails, LimitRaiseRefusedDetails, ListenerEventsLostDetails, LocalAddressUnavailableDetails, LoggedOutDetails, ModelUnavailableDetails, NameLookupFailedDetails, NameNotResolvedDetails, NavigationFailedDetails, NavigationInterruptedDetails, NotADaemonDetails, NotInProductDetails, NotVerifiedDetails, PageCheckFailedDetails, PageCrashedDetails, PageFunctionFailedDetails, PageHandlerFailedDetails, PageMemoryExceededDetails, PageNavigatedDuringCallDetails, PageValueInvalidDetails, PathNotWritableDetails, PathUnsafeDetails, PatternUnsupportedDetails, PersonRequiredDetails, PolicyConflictDetails, ProtocolVersionUnsupportedDetails, ProxyAuthFailedDetails, ProxyProviderUnavailableDetails, ProxyRelayUnavailableDetails, ProxyUnavailableDetails, ReachedLimit, ResourcesExhaustedDetails, ResponseLimitExceededDetails, ResponseTruncatedDetails, RouteAlreadyHandledDetails, RunConflictDetails, RunDetails, RunIdInvalidDetails, RunInterruptedDetails, RunKeyMismatchDetails, RunStateFilesystemUnsupportedDetails, RunTargetUnbuiltDetails, SchemaValidatorFailedDetails, SecretDomainNotAllowedDetails, SecretInputRefusedDetails, SecretUnavailableDetails, SecretUnboundDetails, SessionBoundToMachineDetails, SessionExportOpenFailedDetails, SettingInvalidDetails, SettingLockedDetails, SettingNotApplicableDetails, SettingUnknownDetails, SitePreferencesRefusedDetails, TargetNotUniqueDetails, TooManyCallsDetails, TooManyRedirectsDetails, ValueInvalidDetails } from "./types.ts";
+import type { AddressFamilyUnavailableDetails, ArtifactDownloadFailedDetails, ArtifactUnavailableOfflineDetails, BlockedDetails, BodyNotFoundDetails, BodyUnavailableDetails, BrowserLaunchFailedDetails, BrowserNeedsGuiSessionDetails, BrowserNotInstalledDetails, BrowserSandboxUnavailableDetails, CallCancelledDetails, CapabilityUnavailableDetails, CdpUrlNotAllowedDetails, CdpUrlNotBrowserDetails, CdpUrlUnauthorizedDetails, CdpUrlUnreachableDetails, CertificateChangedDetails, CertificateInvalidDetails, CheckpointBehindDetails, ConnectionOverloadedDetails, DaemonDrainingDetails, DaemonUnreachableDetails, DetachUnsupportedDetails, DialogAlreadyHandledDetails, EdgeHandlersUnsupportedDetails, EgressRefusedDetails, EngineExitedDetails, EnginePanickedDetails, ExecutableBlockedBySmartAppControlDetails, FileWriteFailedDetails, FormatVersionUnsupportedDetails, HeaderValueInvalidDetails, HookFailedDetails, LimitNotUnderstoodDetails, LimitRaiseRefusedDetails, ListenerEventsLostDetails, LocalAddressUnavailableDetails, LoggedOutDetails, ModelUnavailableDetails, NameLookupFailedDetails, NameNotResolvedDetails, NavigationFailedDetails, NavigationInterruptedDetails, NotADaemonDetails, NotInProductDetails, NotVerifiedDetails, PageCheckFailedDetails, PageCrashedDetails, PageFunctionFailedDetails, PageHandlerFailedDetails, PageMemoryExceededDetails, PageNavigatedDuringCallDetails, PageValueInvalidDetails, PathNotWritableDetails, PathUnsafeDetails, PatternUnsupportedDetails, PersonRequiredDetails, PolicyConflictDetails, ProtocolVersionUnsupportedDetails, ProxyAuthFailedDetails, ProxyProviderUnavailableDetails, ProxyRelayUnavailableDetails, ProxyUnavailableDetails, ReachedLimit, RecipeInvalidDetails, ResourcesExhaustedDetails, ResponseLimitExceededDetails, ResponseTruncatedDetails, RouteAlreadyHandledDetails, RunConflictDetails, RunDetails, RunIdInvalidDetails, RunInterruptedDetails, RunKeyMismatchDetails, RunStateFilesystemUnsupportedDetails, RunTargetUnbuiltDetails, ScheduleExistsDetails, ScheduleNotFoundDetails, ScheduleTriggerInvalidDetails, SchemaValidatorFailedDetails, SecretDomainNotAllowedDetails, SecretInputRefusedDetails, SecretUnavailableDetails, SecretUnboundDetails, SessionBoundToMachineDetails, SessionExportOpenFailedDetails, SettingInvalidDetails, SettingLockedDetails, SettingNotApplicableDetails, SettingUnknownDetails, SitePreferencesRefusedDetails, TargetNotUniqueDetails, TooManyCallsDetails, TooManyRedirectsDetails, ValueInvalidDetails } from "./types.ts";
 import { collieWire } from "./wire.ts";
 
 export {
@@ -1095,11 +1095,11 @@ export class PageCrashedError extends UnavailableError<"page_crashed"> {
 }
 
 /**
- * Some of a page's events are lost. Either the engine fell too far behind the browser's events of a page that is still open and stopped reading them: the page's `page.on` listeners, waits and `response.body` reads raise this rather than answer from missing events, and the Run trace records it, while the page's other calls still work; open another page to follow its events. Or one `page.on` call's Client took too few of its events, granting too few credits, so 1,024 waited unsent: that call raises this once it sent them; listen again and grant credits as events are read.
+ * Some of a page's events are lost. Either the engine fell 4,096 events behind the browser's events of the page `page_id` names and closed that page, ending every request it had paused: its calls in flight and its later calls raise this, and the Run trace records it once; open another page and try again. Or one `page.on` call's Client took too few of its events, granting too few credits, so 1,024 waited unsent: that call alone raises this once it sent them, while the page and its other calls go on; listen again and grant credits as events are read.
  */
 export class PageEventsLostError extends UnavailableError<"page_events_lost"> {
   constructor(message: string, fields: ErrorFields = {}) {
-    super(message, { ...fields, name: "PageEventsLostError", code: "page_events_lost", group: "unavailable", retryable: false });
+    super(message, { ...fields, name: "PageEventsLostError", code: "page_events_lost", group: "unavailable", retryable: true });
   }
 }
 
@@ -1371,6 +1371,31 @@ export class ProxyUnavailableError extends UnavailableError<"proxy_unavailable">
 }
 
 /**
+ * A Recipe manifest, `goodfetch-recipe.toml`, or its package that is not valid: a manifest that does not parse, lacks a required field or holds an unknown one, names no entry or two, names a program without a runtime or a runtime it does not list, names a `CrawlDeclaration` for Collie, or an entry the package does not hold; or a package holding a symbolic link, or a path with no portable digest: absolute, escaping its root, holding `\` or `:`, or the same as another in Unicode NFC or but for case. The details name the field or path and the fix.
+ */
+export class RecipeInvalidError extends ProgramError<"recipe_invalid"> {
+  /**
+   * The code's details, typed; `undefined` when they lack a field the type
+   * requires, as those of an error a program builds without details do.
+   */
+  readonly typedDetails: Readonly<RecipeInvalidDetails> | undefined;
+
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, name: "RecipeInvalidError", code: "recipe_invalid", group: "program", retryable: false });
+    this.typedDetails = detailsOf<RecipeInvalidDetails>(fields.details, ["field", "reason"]);
+  }
+}
+
+/**
+ * A Schedule's target sets `cache.mode` to `replay`, whose replayed pages would hide a change from the Baseline. Set `revalidate` or `off` for a scheduled target.
+ */
+export class ReplayNotAllowedError extends ProgramError<"replay_not_allowed"> {
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, name: "ReplayNotAllowedError", code: "replay_not_allowed", group: "program", retryable: false });
+  }
+}
+
+/**
  * The engine ran out of memory or storage for the Run: it checkpointed and stopped it, or refused to start it where its run file would go. The details name the `resource`. Resume it once memory or space frees up, on an engine with a larger allowance, or with lower ceilings.
  */
 export class ResourcesExhaustedError extends UnavailableError<"resources_exhausted"> {
@@ -1556,7 +1581,7 @@ export class RunKeyMismatchError extends UnavailableError<"run_key_mismatch"> {
 }
 
 /**
- * The engine still runs the Run, so it cannot be discarded: stop it first with `run.stop` or `run.abort`, or let it finish, then discard it. The details name the Run.
+ * The engine still runs the Run, so it cannot be discarded, nor a Dataset of it erased: stop it first with `run.stop` or `run.abort`, or let it finish, then try again. The details name the Run.
  */
 export class RunLiveError extends ProgramError<"run_live"> {
   /**
@@ -1657,6 +1682,54 @@ export class RunTargetUnbuiltError extends UnavailableError<"run_target_unbuilt"
 export class SampleRefusedError extends RefusedError<"sample_refused"> {
   constructor(message: string, fields: ErrorFields = {}) {
     super(message, { ...fields, name: "SampleRefusedError", code: "sample_refused", group: "refused", retryable: false });
+  }
+}
+
+/**
+ * A Schedule has this Schedule ID already: create it under another ID, or omit the ID for a new one. The details name the ID.
+ */
+export class ScheduleExistsError extends ProgramError<"schedule_exists"> {
+  /**
+   * The code's details, typed; `undefined` when they lack a field the type
+   * requires, as those of an error a program builds without details do.
+   */
+  readonly typedDetails: Readonly<ScheduleExistsDetails> | undefined;
+
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, name: "ScheduleExistsError", code: "schedule_exists", group: "program", retryable: false });
+    this.typedDetails = detailsOf<ScheduleExistsDetails>(fields.details, ["scheduleId"], { path: { type: "ScheduleExistsDetails" }, types: collieWire.types });
+  }
+}
+
+/**
+ * No Schedule has this Schedule ID: the Schedule store does not hold it. The details name the ID.
+ */
+export class ScheduleNotFoundError extends ProgramError<"schedule_not_found"> {
+  /**
+   * The code's details, typed; `undefined` when they lack a field the type
+   * requires, as those of an error a program builds without details do.
+   */
+  readonly typedDetails: Readonly<ScheduleNotFoundDetails> | undefined;
+
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, name: "ScheduleNotFoundError", code: "schedule_not_found", group: "program", retryable: false });
+    this.typedDetails = detailsOf<ScheduleNotFoundDetails>(fields.details, ["scheduleId"], { path: { type: "ScheduleNotFoundDetails" }, types: collieWire.types });
+  }
+}
+
+/**
+ * The Schedule's trigger does not parse, such as an `every` of 0. The details give the `expression`, the `position` where reading stopped and the `reason`.
+ */
+export class ScheduleTriggerInvalidError extends ProgramError<"schedule_trigger_invalid"> {
+  /**
+   * The code's details, typed; `undefined` when they lack a field the type
+   * requires, as those of an error a program builds without details do.
+   */
+  readonly typedDetails: Readonly<ScheduleTriggerInvalidDetails> | undefined;
+
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, name: "ScheduleTriggerInvalidError", code: "schedule_trigger_invalid", group: "program", retryable: false });
+    this.typedDetails = detailsOf<ScheduleTriggerInvalidDetails>(fields.details, ["expression", "position", "reason"]);
   }
 }
 
@@ -2019,6 +2092,8 @@ export const collieErrorClasses: Readonly<Record<string, ErrorClass>> = {
   proxy_provider_unavailable: ProxyProviderUnavailableError,
   proxy_relay_unavailable: ProxyRelayUnavailableError,
   proxy_unavailable: ProxyUnavailableError,
+  recipe_invalid: RecipeInvalidError,
+  replay_not_allowed: ReplayNotAllowedError,
   resources_exhausted: ResourcesExhaustedError,
   response_limit_exceeded: ResponseLimitExceededError,
   response_not_json: ResponseNotJSONError,
@@ -2038,6 +2113,9 @@ export const collieErrorClasses: Readonly<Record<string, ErrorClass>> = {
   run_state_unavailable: RunStateUnavailableError,
   run_target_unbuilt: RunTargetUnbuiltError,
   sample_refused: SampleRefusedError,
+  schedule_exists: ScheduleExistsError,
+  schedule_not_found: ScheduleNotFoundError,
+  schedule_trigger_invalid: ScheduleTriggerInvalidError,
   schema_validator_failed: SchemaValidatorFailedError,
   secret_domain_not_allowed: SecretDomainNotAllowedError,
   secret_input_refused: SecretInputRefusedError,
@@ -2145,6 +2223,8 @@ export type CollieErrorCode =
   | "proxy_provider_unavailable"
   | "proxy_relay_unavailable"
   | "proxy_unavailable"
+  | "recipe_invalid"
+  | "replay_not_allowed"
   | "resources_exhausted"
   | "response_limit_exceeded"
   | "response_not_json"
@@ -2164,6 +2244,9 @@ export type CollieErrorCode =
   | "run_state_unavailable"
   | "run_target_unbuilt"
   | "sample_refused"
+  | "schedule_exists"
+  | "schedule_not_found"
+  | "schedule_trigger_invalid"
   | "schema_validator_failed"
   | "secret_domain_not_allowed"
   | "secret_input_refused"
@@ -2183,7 +2266,7 @@ export type CollieErrorCode =
   | "upgrade_source_unsupported"
   | "value_invalid";
 
-const collieErrorCodes: ReadonlySet<string> = new Set<CollieErrorCode>(["address_family_unavailable", "artifact_download_failed", "artifact_unavailable_offline", "blocked", "body_not_found", "body_unavailable", "browser_host_outdated", "browser_host_unreachable", "browser_launch_failed", "browser_needs_gui_session", "browser_not_installed", "browser_sandbox_unavailable", "call_cancelled", "capability_unavailable", "cdp_url_not_allowed", "cdp_url_not_browser", "cdp_url_unauthorized", "cdp_url_unreachable", "certificate_changed", "certificate_invalid", "challenge_unsolved", "checkpoint_behind", "closed", "confinement_unavailable", "connection_forked", "connection_lost", "connection_overloaded", "daemon_draining", "daemon_unreachable", "deadline_exceeded", "detach_unsupported", "dialog_already_handled", "edge_handlers_unsupported", "effect_key_invalid", "effect_key_reused", "effect_output_invalid", "effect_uncertain", "egress_refused", "engine_exited", "engine_not_found", "engine_output_invalid", "engine_panicked", "event_loop_mismatch", "executable_blocked_by_smart_app_control", "file_write_failed", "format_version_unsupported", "header_value_invalid", "hook_failed", "internal", "limit_not_understood", "limit_raise_refused", "limit_reached", "listener_events_lost", "listener_failed", "local_address_unavailable", "logged_out", "model_unavailable", "name_lookup_failed", "name_not_resolved", "navigation_failed", "navigation_interrupted", "not_a_daemon", "not_in_product", "not_verified", "page_check_failed", "page_crashed", "page_events_lost", "page_function_failed", "page_handler_failed", "page_memory_exceeded", "page_navigated_during_call", "page_value_invalid", "path_not_writable", "path_unsafe", "pattern_unsupported", "person_required", "plugin_crashed", "plugin_manifest_mismatch", "plugin_protocol_unsupported", "policy_conflict", "protocol_version_unsupported", "proxy_auth_failed", "proxy_provider_unavailable", "proxy_relay_unavailable", "proxy_unavailable", "resources_exhausted", "response_limit_exceeded", "response_not_json", "response_truncated", "route_already_handled", "run_busy", "run_conflict", "run_ended", "run_id_invalid", "run_in_use", "run_interrupted", "run_key_mismatch", "run_live", "run_not_found", "run_not_owned", "run_state_filesystem_unsupported", "run_state_unavailable", "run_target_unbuilt", "sample_refused", "schema_validator_failed", "secret_domain_not_allowed", "secret_input_refused", "secret_unavailable", "secret_unbound", "session_bound_to_machine", "session_export_open_failed", "setting_invalid", "setting_locked", "setting_not_applicable", "setting_unknown", "site_preferences_refused", "skill_install_refused", "target_not_unique", "too_many_calls", "too_many_redirects", "upgrade_source_unsupported", "value_invalid"]);
+const collieErrorCodes: ReadonlySet<string> = new Set<CollieErrorCode>(["address_family_unavailable", "artifact_download_failed", "artifact_unavailable_offline", "blocked", "body_not_found", "body_unavailable", "browser_host_outdated", "browser_host_unreachable", "browser_launch_failed", "browser_needs_gui_session", "browser_not_installed", "browser_sandbox_unavailable", "call_cancelled", "capability_unavailable", "cdp_url_not_allowed", "cdp_url_not_browser", "cdp_url_unauthorized", "cdp_url_unreachable", "certificate_changed", "certificate_invalid", "challenge_unsolved", "checkpoint_behind", "closed", "confinement_unavailable", "connection_forked", "connection_lost", "connection_overloaded", "daemon_draining", "daemon_unreachable", "deadline_exceeded", "detach_unsupported", "dialog_already_handled", "edge_handlers_unsupported", "effect_key_invalid", "effect_key_reused", "effect_output_invalid", "effect_uncertain", "egress_refused", "engine_exited", "engine_not_found", "engine_output_invalid", "engine_panicked", "event_loop_mismatch", "executable_blocked_by_smart_app_control", "file_write_failed", "format_version_unsupported", "header_value_invalid", "hook_failed", "internal", "limit_not_understood", "limit_raise_refused", "limit_reached", "listener_events_lost", "listener_failed", "local_address_unavailable", "logged_out", "model_unavailable", "name_lookup_failed", "name_not_resolved", "navigation_failed", "navigation_interrupted", "not_a_daemon", "not_in_product", "not_verified", "page_check_failed", "page_crashed", "page_events_lost", "page_function_failed", "page_handler_failed", "page_memory_exceeded", "page_navigated_during_call", "page_value_invalid", "path_not_writable", "path_unsafe", "pattern_unsupported", "person_required", "plugin_crashed", "plugin_manifest_mismatch", "plugin_protocol_unsupported", "policy_conflict", "protocol_version_unsupported", "proxy_auth_failed", "proxy_provider_unavailable", "proxy_relay_unavailable", "proxy_unavailable", "recipe_invalid", "replay_not_allowed", "resources_exhausted", "response_limit_exceeded", "response_not_json", "response_truncated", "route_already_handled", "run_busy", "run_conflict", "run_ended", "run_id_invalid", "run_in_use", "run_interrupted", "run_key_mismatch", "run_live", "run_not_found", "run_not_owned", "run_state_filesystem_unsupported", "run_state_unavailable", "run_target_unbuilt", "sample_refused", "schedule_exists", "schedule_not_found", "schedule_trigger_invalid", "schema_validator_failed", "secret_domain_not_allowed", "secret_input_refused", "secret_unavailable", "secret_unbound", "session_bound_to_machine", "session_export_open_failed", "setting_invalid", "setting_locked", "setting_not_applicable", "setting_unknown", "site_preferences_refused", "skill_install_refused", "target_not_unique", "too_many_calls", "too_many_redirects", "upgrade_source_unsupported", "value_invalid"]);
 
 /** An error with one of the Error codes Collie raises, which its `code` narrows to the code's class. */
 export type CollieError =
@@ -2272,6 +2355,8 @@ export type CollieError =
   | ProxyProviderUnavailableError
   | ProxyRelayUnavailableError
   | ProxyUnavailableError
+  | RecipeInvalidError
+  | ReplayNotAllowedError
   | ResourcesExhaustedError
   | ResponseLimitExceededError
   | ResponseNotJSONError
@@ -2291,6 +2376,9 @@ export type CollieError =
   | RunStateUnavailableError
   | RunTargetUnbuiltError
   | SampleRefusedError
+  | ScheduleExistsError
+  | ScheduleNotFoundError
+  | ScheduleTriggerInvalidError
   | SchemaValidatorFailedError
   | SecretDomainNotAllowedError
   | SecretInputRefusedError

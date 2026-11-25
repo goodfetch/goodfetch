@@ -2,15 +2,18 @@ use std::time::Duration;
 
 use goodfetch_counted_work::{CountedWork, Row};
 use goodfetch_test_support::runtime;
+use rstest::rstest;
 use serde_json::{Value, json};
 use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _, DuplexStream, ReadHalf, WriteHalf};
 use tokio::sync::oneshot;
 
 use super::{Connection, Driver, Ended, Request, SessionId, SubscriptionEnd};
-use crate::Failure;
+use crate::failure::PartyText;
 use crate::framing::{Framer, frame};
 use crate::generated::browser::GetVersionParams;
 use crate::generated::fetch;
+use crate::generated::input::InsertTextParams;
+use crate::{Failure, Refusal};
 
 const TIMEOUT: Duration = Duration::from_secs(5);
 
@@ -748,10 +751,7 @@ fn an_event_whose_params_do_not_read_is_logged_at_warn_with_its_method() {
 
     let (warned, warnings) = std::sync::mpsc::channel();
     let subscriber = tracing_subscriber::registry().with(Warned(warned));
-    let event = super::Event {
-        method: "Page.loadEventFired".to_owned(),
-        params: json!({ "timestamp": "not a time" }),
-    };
+    let event = super::Event::new("Page.loadEventFired", &json!({ "timestamp": "not a time" }));
 
     let read = tracing::subscriber::with_default(subscriber, || {
         event.read::<crate::generated::page::LoadEventFiredEvent>()
@@ -814,6 +814,700 @@ fn a_frame_detached_on_its_page_session_ends_only_the_frame_subscriptions() {
                     None
                 )
             )
+        );
+    });
+}
+
+/// A connection, its driver and the browser's end, counting on `work`.
+fn connected_on(work: &CountedWork) -> (Connection, Pipe, Browser) {
+    let (client, browser) = tokio::io::duplex(1 << 16);
+    let (reader, writer) = tokio::io::split(client);
+    let (connection, driver) = Connection::new(reader, writer, work.clone(), None);
+    (
+        connection,
+        driver,
+        Browser {
+            stream: browser,
+            framer: Framer::default(),
+        },
+    )
+}
+
+/// C1's seam (ADR 0140): the driver hands an event to the readers of its
+/// session alone, visiting no other session's.
+#[test]
+fn an_event_visits_the_readers_of_its_session_alone() {
+    let work = CountedWork::default();
+    let (connection, driver, mut browser) = connected_on(&work);
+    let sessions = ["page", "frame", "worker"].map(|on| SessionId(on.to_owned()));
+    runtime().block_on(async {
+        let (_, method) = tokio::join!(driver.run(), async {
+            let mut readers = sessions
+                .each_ref()
+                .map(|session| connection.subscribe(Some(session)));
+            browser
+                .send(&json!({ "method": "Page.loadEventFired", "params": { "timestamp": 1.0 }, "sessionId": "frame" }))
+                .await;
+            let method = readers[1].next().await.map(|event| event.method.clone());
+            drop((connection, browser));
+            method
+        });
+        assert_eq!(method.as_deref(), Some("Page.loadEventFired"));
+    });
+
+    assert_eq!(work.read(Row::CdpEventVisits), 1);
+}
+
+/// C1's seam (ADR 0140): a command whose caller's timeout ended its wait
+/// leaves the pending map, though the browser never answers it.
+#[test]
+fn a_command_whose_caller_timed_out_leaves_the_pending_map() {
+    let work = CountedWork::default();
+    let (connection, driver, mut browser) = connected_on(&work);
+    runtime().block_on(async {
+        let (_, answer) = tokio::join!(driver.run(), async {
+            let (answer, _) = tokio::join!(
+                connection.send_raw(
+                    "Browser.getVersion",
+                    None,
+                    json!({}),
+                    Duration::from_secs(1)
+                ),
+                browser.received(),
+            );
+            drop((connection, browser));
+            answer
+        });
+        assert_eq!(
+            answer.err(),
+            Some(Failure::TimedOut {
+                method: "Browser.getVersion"
+            })
+        );
+    });
+
+    assert_eq!(work.read(Row::CdpPendingOrphans), 0);
+}
+
+/// C1's seam (ADR 0140): a command whose caller dropped its wait leaves the
+/// pending map, though the browser never answers it.
+#[test]
+fn a_command_whose_caller_was_dropped_leaves_the_pending_map() {
+    let work = CountedWork::default();
+    let (connection, driver, mut browser) = connected_on(&work);
+    runtime().block_on(async {
+        let (_, received) = tokio::join!(driver.run(), async {
+            let received = tokio::select! {
+                answer = connection.send_raw("Browser.getVersion", None, json!({}), HUNG) => {
+                    panic!("the browser answered nothing, yet the caller got {answer:?}")
+                }
+                command = browser.received() => command,
+            };
+            drop((connection, browser));
+            received
+        });
+        assert_eq!(received["method"], "Browser.getVersion");
+    });
+
+    assert_eq!(work.read(Row::CdpPendingOrphans), 0);
+}
+
+/// The browser's answer to a command whose caller had gone is dropped: no
+/// other command takes it, no reader sees it, and the connection goes on.
+#[test]
+fn an_answer_to_a_command_whose_caller_had_gone_is_dropped() {
+    runtime().block_on(async {
+        let (connection, driver, mut browser) = connected();
+        let (_, (late, next, unread)) = tokio::join!(driver.run(), async {
+            let mut on_browser = connection.subscribe(None);
+            let (late, command) = tokio::join!(
+                connection.send_raw(
+                    "Browser.getVersion",
+                    None,
+                    json!({}),
+                    Duration::from_secs(1)
+                ),
+                browser.received(),
+            );
+            browser
+                .send(&json!({ "id": command["id"], "result": { "late": true } }))
+                .await;
+            let (next, ()) = tokio::join!(
+                connection.send(None, &GetVersionParams {}, TIMEOUT),
+                async {
+                    let command = browser.received().await;
+                    browser
+                        .send(&json!({ "id": command["id"], "result": version() }))
+                        .await;
+                },
+            );
+            let unread = tokio::time::timeout(TIMEOUT, on_browser.next()).await;
+            drop((connection, browser));
+            (late, next, unread.is_err())
+        });
+        assert_eq!(
+            (late.err(), next.map(|version| version.product), unread),
+            (
+                Some(Failure::TimedOut {
+                    method: "Browser.getVersion"
+                }),
+                Ok("Chrome/156.0.8078.4".to_owned()),
+                true
+            )
+        );
+    });
+}
+
+/// An event of the page's session, and its length as the browser's message.
+fn page_event() -> (Value, usize) {
+    let event = json!({ "method": "Page.loadEventFired", "params": { "timestamp": 1.0 }, "sessionId": "page" });
+    let length = serde_json::to_vec(&event).unwrap().len();
+    (event, length)
+}
+
+/// Sends `events` on the page's session, then one on the browser's, and
+/// waits for the driver to have handed that one on, so it has handed on
+/// every event before.
+async fn handed_on(browser: &mut Browser, connection: &Connection, events: &[Value]) {
+    let mut on_browser = connection.subscribe(None);
+    for event in events {
+        browser.send(event).await;
+    }
+    browser
+        .send(&json!({ "method": "Target.targetCreated", "params": {} }))
+        .await;
+    on_browser.next().await.unwrap();
+}
+
+/// The events a subscription holds, taken until it ends, and why it ended.
+async fn held(subscription: &mut super::Subscription) -> (usize, Option<SubscriptionEnd>) {
+    let mut count = 0;
+    while tokio::time::timeout(Duration::from_millis(100), subscription.next())
+        .await
+        .ok()
+        .flatten()
+        .is_some()
+    {
+        count += 1;
+    }
+    (count, subscription.ended())
+}
+
+/// A reader that leaves events untaken holds no more bytes than its quota:
+/// the event that would take it past its quota ends it, as one that fell
+/// too many events behind, and the events it holds stay its to take.
+#[test]
+fn a_reader_that_leaves_events_untaken_holds_no_more_bytes_than_its_quota() {
+    let (event, length) = page_event();
+    let quota = 10 * length + length / 2;
+    runtime().block_on(async {
+        let (connection, driver, mut browser) = connected();
+        let driver = driver.with_event_bytes(quota);
+        let page = SessionId("page".to_owned());
+        let (_, (count, ended)) = tokio::join!(driver.run(), async {
+            let mut untaken = connection.subscribe(Some(&page));
+            handed_on(&mut browser, &connection, &vec![event; 100]).await;
+            let held = held(&mut untaken).await;
+            drop((connection, browser));
+            held
+        });
+        assert!(count * length <= quota, "{count} events of {length} bytes");
+        assert_eq!((count, ended), (10, Some(SubscriptionEnd::FellBehind)));
+    });
+}
+
+/// An event larger than the quota alone reaches a reader that holds none,
+/// so a reader that keeps up loses no event; a taken event no longer counts
+/// against it, and one over the quota while it holds another ends it.
+#[test]
+fn an_event_over_the_quota_reaches_a_reader_that_holds_none() {
+    let (event, length) = page_event();
+    runtime().block_on(async {
+        let (connection, driver, mut browser) = connected();
+        let driver = driver.with_event_bytes(length / 2);
+        let page = SessionId("page".to_owned());
+        let (_, (taken, held)) = tokio::join!(driver.run(), async {
+            let mut reader = connection.subscribe(Some(&page));
+            let mut taken = 0;
+            for _ in 0..2 {
+                browser.send(&event).await;
+                taken += usize::from(reader.next().await.is_some());
+            }
+            handed_on(&mut browser, &connection, &[event.clone(), event.clone()]).await;
+            let held = held(&mut reader).await;
+            drop((connection, browser));
+            (taken, held)
+        });
+        assert_eq!((taken, held), (2, (1, Some(SubscriptionEnd::FellBehind))));
+    });
+}
+
+/// C1's seam (ADR 0140): the driver reads only what routes an event, so one
+/// no reader of its session wants is not decoded past its envelope, and its
+/// params are decoded once, from the browser's message, for all its readers.
+#[test]
+fn an_event_is_decoded_once_for_all_its_readers() {
+    let work = CountedWork::default();
+    let (connection, driver, mut browser) = connected_on(&work);
+    let page = SessionId("page".to_owned());
+    runtime().block_on(async {
+        let (_, read) = tokio::join!(driver.run(), async {
+            let mut readers = [
+                connection.subscribe(Some(&page)),
+                connection.subscribe(Some(&page)),
+            ];
+            browser
+                .send(&json!({ "method": "Page.loadEventFired", "params": { "timestamp": 1.0 }, "sessionId": "frame" }))
+                .await;
+            browser.send(&page_event().0).await;
+            let mut read = Vec::new();
+            for reader in &mut readers {
+                let event = reader.next().await.unwrap();
+                read.push(
+                    event
+                        .read::<crate::generated::page::LoadEventFiredEvent>()
+                        .map(|read| read.timestamp),
+                );
+            }
+            drop((connection, browser));
+            read
+        });
+        assert!(read.iter().all(Option::is_some), "{read:?}");
+    });
+
+    assert_eq!(work.read(Row::CdpEventDecodes), 1);
+}
+
+/// The browser's next message, which must come within a second.
+async fn written(browser: &mut Browser) -> Value {
+    tokio::time::timeout(Duration::from_secs(1), browser.received())
+        .await
+        .expect("the command is written without its answer being awaited")
+}
+
+/// A started command is written without its answer being awaited, in the
+/// order started, and its answer comes back later, whatever the order the
+/// browser answers in; each counts C1's encodes and send as a sent one does.
+#[test]
+fn a_started_command_is_written_before_its_answer_is_awaited() {
+    let work = CountedWork::default();
+    let (connection, driver, mut browser) = connected_on(&work);
+    runtime().block_on(async {
+        let (_, products) = tokio::join!(driver.run(), async {
+            let first = connection.start(None, &GetVersionParams {}, TIMEOUT);
+            let second = connection.start(None, &fetch::EnableParams::default(), TIMEOUT);
+            let commands = [written(&mut browser).await, written(&mut browser).await];
+            let methods = commands.each_ref().map(|command| command["method"].clone());
+            assert_eq!(
+                methods,
+                ["Browser.getVersion", "Fetch.enable"].map(Value::from)
+            );
+            for command in commands.iter().rev() {
+                let result = if command["method"] == "Fetch.enable" {
+                    json!({})
+                } else {
+                    version()
+                };
+                browser
+                    .send(&json!({ "id": command["id"], "result": result }))
+                    .await;
+            }
+            let products = (first.await.unwrap().product, second.await);
+            drop((connection, browser));
+            products
+        });
+        assert_eq!(products.0, "Chrome/156.0.8078.4");
+        products.1.unwrap();
+    });
+
+    assert_eq!(work.read(Row::CdpEncodes), 4);
+    assert_eq!(work.read(Row::CdpSends), 2);
+}
+
+/// A started command whose answer was dropped is still written, as nothing
+/// takes it back, and leaves the commands in flight: its answer is dropped.
+#[test]
+fn a_started_command_is_written_though_its_answer_was_dropped() {
+    let work = CountedWork::default();
+    let (connection, driver, mut browser) = connected_on(&work);
+    runtime().block_on(async {
+        let (_, method) = tokio::join!(driver.run(), async {
+            drop(connection.start(None, &GetVersionParams {}, TIMEOUT));
+            let command = written(&mut browser).await;
+            browser
+                .send(&json!({ "id": command["id"], "result": version() }))
+                .await;
+            // The dropped one's answer goes to no later command.
+            let (answer, ()) = tokio::join!(
+                connection.send(None, &GetVersionParams {}, TIMEOUT),
+                async {
+                    let command = written(&mut browser).await;
+                    browser
+                        .send(&json!({ "id": command["id"], "result": version() }))
+                        .await;
+                }
+            );
+            answer.unwrap();
+            drop((connection, browser));
+            command["method"].clone()
+        });
+        assert_eq!(method, "Browser.getVersion");
+    });
+
+    assert_eq!(work.read(Row::CdpPendingOrphans), 0);
+}
+
+/// A command started while the connection's queue is full waits for its
+/// place as its answer is awaited, and is then written and answered.
+#[test]
+fn a_command_started_on_a_full_queue_is_written_as_its_answer_is_awaited() {
+    let work = CountedWork::default();
+    let (connection, driver, mut browser) = connected_on(&work);
+    runtime().block_on(async {
+        let started: Vec<_> = (0..=super::REQUESTS)
+            .map(|_| connection.start(None, &GetVersionParams {}, TIMEOUT))
+            .collect();
+        let (_, answered) = tokio::join!(driver.run(), async {
+            let answers = async {
+                for _ in 0..=super::REQUESTS {
+                    let command = written(&mut browser).await;
+                    browser
+                        .send(&json!({ "id": command["id"], "result": version() }))
+                        .await;
+                }
+                browser
+            };
+            let (browser, answered) = tokio::join!(answers, async {
+                let mut answered = 0;
+                for answer in started {
+                    answer.await.unwrap();
+                    answered += 1;
+                }
+                answered
+            });
+            drop((connection, browser));
+            answered
+        });
+        assert_eq!(answered, super::REQUESTS + 1);
+    });
+
+    assert_eq!(work.read(Row::CdpSends), 65);
+}
+
+/// Text inserted, one command of a burst of them.
+fn inserted(text: &str) -> InsertTextParams {
+    InsertTextParams {
+        text: text.to_owned(),
+    }
+}
+
+/// A burst's commands are all written, in order, before any is answered; it
+/// ends once each is answered, and each counts C1's encodes and send as one
+/// sent alone does.
+#[test]
+fn a_burst_is_written_whole_before_its_first_answer() {
+    let work = CountedWork::default();
+    let (connection, driver, mut browser) = connected_on(&work);
+    let texts = runtime().block_on(async {
+        let burst = [inserted("a"), inserted("b"), inserted("c")];
+        let (_, texts) = tokio::join!(driver.run(), async {
+            let (sent, texts) = tokio::join!(connection.burst(None, &burst, TIMEOUT), async {
+                let mut texts = Vec::new();
+                let mut ids = Vec::new();
+                for _ in &burst {
+                    let command = written(&mut browser).await;
+                    texts.push(command["params"]["text"].clone());
+                    ids.push(command["id"].clone());
+                }
+                for id in ids {
+                    browser.send(&json!({ "id": id, "result": {} })).await;
+                }
+                texts
+            });
+            sent.unwrap();
+            drop((connection, browser));
+            texts
+        });
+        texts
+    });
+
+    assert_eq!(texts, ["a", "b", "c"]);
+    assert_eq!(work.read(Row::CdpEncodes), 6);
+    assert_eq!(work.read(Row::CdpSends), 3);
+}
+
+/// A burst ends with the first failure of its commands, though the others
+/// succeed, and within its one timeout however many answers are late.
+#[rstest]
+#[case::a_command_the_browser_refuses(Some(1), Failure::Refused {
+    method: "Input.insertText",
+    refusal: Refusal::Unrecognized,
+    code: -32000,
+    message: PartyText::new("refused"),
+})]
+#[case::a_command_the_browser_never_answers(None, Failure::TimedOut {
+    method: "Input.insertText",
+})]
+fn a_burst_fails_as_its_first_command_that_does(
+    #[case] refused: Option<usize>,
+    #[case] failure: Failure,
+) {
+    let (connection, driver, mut browser) = connected();
+    let sent = runtime().block_on(async {
+        let burst = [inserted("a"), inserted("b"), inserted("c")];
+        let (_, sent) = tokio::join!(driver.run(), async {
+            let timeout = Duration::from_millis(300);
+            let (sent, ()) = tokio::join!(connection.burst(None, &burst, timeout), async {
+                for index in 0..burst.len() {
+                    let id = written(&mut browser).await["id"].clone();
+                    if Some(index) == refused {
+                        let error = json!({ "code": -32000, "message": "refused" });
+                        browser.send(&json!({ "id": id, "error": error })).await;
+                    } else if refused.is_some() {
+                        browser.send(&json!({ "id": id, "result": {} })).await;
+                    }
+                }
+            });
+            drop((connection, browser));
+            sent
+        });
+        sent
+    });
+
+    assert_eq!(sent, Err(failure));
+}
+
+/// A burst dropped once queued is written whole, as nothing takes it back;
+/// one dropped while the queue has no room for all of it is not written at
+/// all, so no part of it stands alone.
+#[test]
+fn a_dropped_burst_is_written_whole_or_not_at_all() {
+    let (connection, driver, mut browser) = connected();
+    let burst = [inserted("a"), inserted("b"), inserted("c")];
+    let texts = runtime().block_on(async {
+        // The driver does not run yet, so what is queued stays there: room
+        // for two commands of the second burst's three is left.
+        let queued = tokio::time::timeout(
+            Duration::from_millis(50),
+            connection.burst(None, &burst, TIMEOUT),
+        );
+        queued.await.unwrap_err();
+        let filled: Vec<_> = (burst.len()..super::REQUESTS - 2)
+            .map(|_| connection.start(None, &inserted("filled"), TIMEOUT))
+            .collect();
+        let unqueued = tokio::time::timeout(
+            Duration::from_millis(50),
+            connection.burst(None, &burst, TIMEOUT),
+        );
+        unqueued.await.unwrap_err();
+        let last = connection.start(None, &inserted("last"), TIMEOUT);
+        let (_, texts) = tokio::join!(driver.run(), async {
+            let mut texts = Vec::new();
+            while texts.last().is_none_or(|text| text != "last") {
+                texts.push(written(&mut browser).await["params"]["text"].clone());
+            }
+            drop((filled, last, connection, browser));
+            texts
+        });
+        texts
+    });
+
+    let filled = texts.len() - 4;
+    assert_eq!(texts[..3], ["a", "b", "c"]);
+    assert_eq!(texts[3..], [vec!["filled"; filled], vec!["last"]].concat());
+    assert_eq!(texts.len(), super::REQUESTS - 1);
+}
+
+/// An event on `session`, sent by the browser.
+fn on(session: &str, method: &str) -> Value {
+    json!({ "method": method, "params": {}, "sessionId": session })
+}
+
+/// The detach of `gone`'s target, sent on `session`.
+fn detach(gone: &str, session: &str) -> Value {
+    json!({ "method": "Target.detachedFromTarget", "params": { "sessionId": gone, "targetId": gone }, "sessionId": session })
+}
+
+/// The methods of the events a subscription takes until none comes for a
+/// while, and why it ended, if it did.
+async fn taken(subscription: &mut super::Subscription) -> (Vec<String>, Option<SubscriptionEnd>) {
+    let mut methods = Vec::new();
+    while let Ok(Some(event)) =
+        tokio::time::timeout(Duration::from_millis(100), subscription.next()).await
+    {
+        methods.push(event.method.clone());
+    }
+    (methods, subscription.ended())
+}
+
+/// A subscription listed under more sessions takes their events in the one
+/// order the browser sent them, and no other session's; the detach of a
+/// session it was listed under after takes that listing out alone.
+#[test]
+fn a_subscription_listed_under_more_sessions_takes_their_events_in_order() {
+    let work = CountedWork::default();
+    let (connection, driver, mut browser) = connected_on(&work);
+    runtime().block_on(async {
+        let (_, taken) = tokio::join!(driver.run(), async {
+            let mut reader = connection.subscribe(Some(&SessionId("page".to_owned())));
+            reader
+                .more_sessions()
+                .add(Some(&SessionId("frame".to_owned())));
+            for event in [
+                on("frame", "Frame.first"),
+                on("page", "Page.second"),
+                on("worker", "Worker.unlisted"),
+                detach("frame", "page"),
+                on("frame", "Frame.afterItsDetach"),
+                on("page", "Page.last"),
+            ] {
+                browser.send(&event).await;
+            }
+            let taken = taken(&mut reader).await;
+            drop((connection, browser));
+            taken
+        });
+        assert_eq!(
+            taken,
+            (
+                [
+                    "Frame.first",
+                    "Page.second",
+                    "Target.detachedFromTarget",
+                    "Page.last"
+                ]
+                .map(str::to_owned)
+                .to_vec(),
+                None
+            )
+        );
+    });
+
+    assert_eq!(work.read(Row::CdpEventVisits), 4);
+}
+
+/// The detach of a subscription's first session ends it with every listing
+/// under more sessions, and so does falling behind on any of them: no
+/// listing keeps it open.
+#[test]
+fn a_subscription_ends_with_all_its_listings() {
+    runtime().block_on(async {
+        let (connection, driver, mut browser) = connected();
+        let (_, ends) = tokio::join!(driver.run(), async {
+            let [mut detached, mut behind] = ["page", "other"].map(|first| {
+                let subscription = connection.subscribe(Some(&SessionId(first.to_owned())));
+                subscription
+                    .more_sessions()
+                    .add(Some(&SessionId(format!("{first}-frame"))));
+                subscription
+            });
+            browser.send(&detach("page", "page")).await;
+            browser.send(&on("page-frame", "Frame.afterItsPage")).await;
+            for _ in 0..5_000 {
+                browser.send(&on("other-frame", "Frame.untaken")).await;
+            }
+            let ends = (taken(&mut detached).await, held(&mut behind).await.1);
+            drop((connection, browser));
+            ends
+        });
+        assert_eq!(
+            ends,
+            (
+                (Vec::new(), Some(SubscriptionEnd::Detached)),
+                Some(SubscriptionEnd::FellBehind)
+            )
+        );
+    });
+}
+
+/// A reader's handout hands each event on to the subscriptions of its
+/// session that started before the connection took it in, though the
+/// reader hands it on after; its visits are not the connection's.
+#[test]
+fn a_handout_hands_each_event_to_the_subscriptions_that_started_before_it() {
+    let work = CountedWork::default();
+    let (connection, driver, mut browser) = connected_on(&work);
+    let page = SessionId("page".to_owned());
+    runtime().block_on(async {
+        let (_, (early, late, unlisted)) = tokio::join!(driver.run(), async {
+            let (handout, mut handing) = connection.handout();
+            let mut reader = connection.subscribe(Some(&page));
+            let mut early = handout.subscribe(Some(&page));
+            let mut unlisted = handout.subscribe(Some(&SessionId("frame".to_owned())));
+            browser.send(&on("page", "Page.first")).await;
+            let first = reader.next().await.unwrap();
+            let mut late = handout.subscribe(Some(&page));
+            browser.send(&on("page", "Page.second")).await;
+            let second = reader.next().await.unwrap();
+            for event in [first, second] {
+                handing.hand(&event);
+            }
+            let taken = (
+                taken(&mut early).await.0,
+                taken(&mut late).await.0,
+                taken(&mut unlisted).await.0,
+            );
+            drop((connection, browser));
+            taken
+        });
+        assert_eq!(
+            (early, late, unlisted),
+            (
+                vec!["Page.first".to_owned(), "Page.second".to_owned()],
+                vec!["Page.second".to_owned()],
+                Vec::<String>::new()
+            )
+        );
+    });
+
+    assert_eq!(work.read(Row::CdpEventVisits), 2);
+}
+
+/// A handing ends the subscriptions of a session its reader read the
+/// detach of, saying so, and every other with its own end, as does one
+/// that subscribes after.
+#[test]
+fn a_handing_ends_its_subscriptions_on_a_detach_and_with_its_end() {
+    runtime().block_on(async {
+        let (connection, _driver, _browser) = connected();
+        let (handout, mut handing) = connection.handout();
+        let [mut frame, mut page] =
+            ["frame", "page"].map(|on| handout.subscribe(Some(&SessionId(on.to_owned()))));
+        handing.detached(&SessionId("frame".to_owned()));
+        let frame_end = taken(&mut frame).await;
+        handing.end(SubscriptionEnd::Disconnected);
+        let mut after = handout.subscribe(None);
+        assert_eq!(
+            (frame_end, taken(&mut page).await, taken(&mut after).await),
+            (
+                (Vec::new(), Some(SubscriptionEnd::Detached)),
+                (Vec::new(), Some(SubscriptionEnd::Disconnected)),
+                (Vec::new(), Some(SubscriptionEnd::Disconnected))
+            )
+        );
+    });
+}
+
+/// A connection is closed once its driver ended, or was dropped without
+/// running, and not before.
+#[test]
+fn a_connection_is_closed_once_its_driver_ended() {
+    runtime().block_on(async {
+        let (connection, driver, browser) = connected();
+        let (_, (before, after)) = tokio::join!(driver.run(), async {
+            let before = tokio::time::timeout(Duration::from_millis(50), connection.closed()).await;
+            drop(browser);
+            let after = tokio::time::timeout(TIMEOUT, connection.closed()).await;
+            (before.is_ok(), (after.is_ok(), connection.is_closed()))
+        });
+        assert_eq!((before, after), (false, (true, true)));
+
+        let (connection, driver, _browser) = connected();
+        drop(driver);
+        assert!(
+            tokio::time::timeout(TIMEOUT, connection.closed())
+                .await
+                .is_ok()
         );
     });
 }

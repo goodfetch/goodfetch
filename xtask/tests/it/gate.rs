@@ -570,7 +570,16 @@ fn a_ci_file_a_test_names_reaches_that_tests_member() {
     );
     // Its evidence reaches xtask's tests alone, which no crate depends on.
     for step in [
-        "perf", "counts", "msrv", "miri", "loom", "windows", "tlc", "visual", "kennel",
+        "perf",
+        "counts",
+        "msrv",
+        "miri",
+        "loom",
+        "simulation",
+        "windows",
+        "tlc",
+        "visual",
+        "kennel",
     ] {
         assert_eq!(action(&second, step).0, "reuse", "{step}: {:?}", second.why);
     }
@@ -1392,8 +1401,8 @@ const HOSTED_OWNED_FULL: [&str; 8] = [
 /// change, perf, the Linux-only tests, which the Pre-merge suite runs on a
 /// Linux runner and `ci/linux.sh` skips on the Linux gate host, and the
 /// steps no 4-vCPU hosted job finishes within ADR 0061's 30-minute cap
-/// (#3382).
-const RUN_BY_THE_FULL_GATE: [&str; 15] = [
+/// (#3382), and the Simulation, built under a cfg of its own (issue 359).
+const RUN_BY_THE_FULL_GATE: [&str; 16] = [
     "dco",
     "commit-messages",
     "floor-guard",
@@ -1405,6 +1414,7 @@ const RUN_BY_THE_FULL_GATE: [&str; 15] = [
     "tlc",
     "miri",
     "loom",
+    "simulation",
     "windows",
     "feature-combinations",
     "semver-checks",
@@ -2817,7 +2827,15 @@ fn a_red_stress_run_leaves_its_clean_members_their_passes_and_the_fix_reruns_wha
     suites.insert("xtask".to_owned());
     assert_eq!(members(&second, "pre-merge"), suites);
     for step in [
-        "perf", "visual", "tlc", "kennel", "msrv", "miri", "loom", "windows",
+        "perf",
+        "visual",
+        "tlc",
+        "kennel",
+        "msrv",
+        "miri",
+        "loom",
+        "simulation",
+        "windows",
     ] {
         assert_eq!(action(&second, step).0, "reuse", "{step}: {:?}", second.why);
     }

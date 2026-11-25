@@ -8,22 +8,16 @@
 //! added the test or declared the Live check (ADR 0136), or to triage when
 //! none is found.
 
-#![expect(
-    clippy::disallowed_methods,
-    reason = "xtask is synchronous; the blocking-fs ban targets async crates (STYLE.md)"
-)]
-
 use std::collections::BTreeMap;
 use std::fmt::Write as _;
-use std::num::NonZeroU8;
 use std::path::Path;
 
-use anyhow::{Context as _, Result};
-use serde::Deserialize;
+use anyhow::Result;
 
 use crate::check::Finding;
 use crate::github::Api;
 use crate::issues::{Issues, Label};
+use crate::live_checks::{LIVE_CHECKS, LiveChecks};
 use crate::output;
 use crate::owners::{Added, Owners};
 use crate::results::{self, Outcome, TestRun};
@@ -48,44 +42,6 @@ struct Inputs {
     os: String,
     arch: String,
     runtime: Option<String>,
-}
-
-/// The Live checks and their owning areas, numbered as ADR 0037 numbers them.
-pub(crate) const LIVE_CHECKS: &str = "ci/live-checks.toml";
-
-#[derive(Deserialize, Default)]
-#[serde(deny_unknown_fields)]
-struct LiveChecks {
-    #[serde(default, rename = "live-check")]
-    checks: Vec<LiveCheck>,
-}
-
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct LiveCheck {
-    /// The check's ID, as its results name it.
-    id: String,
-    area: NonZeroU8,
-}
-
-impl LiveChecks {
-    /// The list in the workspace at `root`; none when the file is absent.
-    fn read(root: &Path) -> Result<Self> {
-        let path = root.join(LIVE_CHECKS);
-        if !path.exists() {
-            return Ok(Self::default());
-        }
-        let text = std::fs::read_to_string(&path)
-            .with_context(|| format!("reading {}", path.display()))?;
-        toml::from_str(&text).with_context(|| format!("parsing {}", path.display()))
-    }
-
-    fn area(&self, id: &str) -> Option<NonZeroU8> {
-        self.checks
-            .iter()
-            .find(|check| check.id == id)
-            .map(|check| check.area)
-    }
 }
 
 /// Scans the store at `store` and opens, updates or reopens the issues

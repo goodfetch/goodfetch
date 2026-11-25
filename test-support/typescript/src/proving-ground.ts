@@ -124,16 +124,24 @@ export async function taskStartUrl(
 export interface ObservedRequest {
   /** The host name it named, without the port. */
   readonly host: string;
+  /** Its method. */
+  readonly method: string;
   /** Its target: the path and query. */
   readonly target: string;
+  /** Every header but its cookies, in the order sent, each a name as sent and a value. */
+  readonly headers: readonly (readonly [string, string])[];
   /** Its cookies, in the order sent, each a name and a value. */
   readonly cookies: readonly (readonly [string, string])[];
+  /** The TLS `ClientHello` of its connection, over TLS; absent or null otherwise. */
+  readonly tls?: unknown;
 }
 
 /** What the Proving ground has observed so far, from its connection record. */
 export interface ProvingGroundObservations {
   /** Every request its page hosts received, in arrival order. */
   readonly requests: readonly ObservedRequest[];
+  /** How many requests came past the record's bound. */
+  readonly unrecorded_requests: number;
   /** The relays its forward proxies made, each as the connection record lists it. */
   readonly relays?: unknown;
 }

@@ -20702,7 +20702,7 @@
       "value": {
         "description": "A built-in main-content step, `dom_smoothie` or `trafilatura`, or an installed Extractor Plugin's name.",
         "minLength": 1,
-        "pattern": "^([^/\\\\.][^/\\\\]*|\\.[^/\\\\.][^/\\\\]*|\\.\\.[^/\\\\]+)$",
+        "pattern": "^([^/\\\\\\u0000-\\u001f\\u007f-\\u009f.][^/\\\\\\u0000-\\u001f\\u007f-\\u009f]*|\\.[^/\\\\\\u0000-\\u001f\\u007f-\\u009f.][^/\\\\\\u0000-\\u001f\\u007f-\\u009f]*|\\.\\.[^/\\\\\\u0000-\\u001f\\u007f-\\u009f]+)$",
         "type": "string"
       },
       "weakening": null,

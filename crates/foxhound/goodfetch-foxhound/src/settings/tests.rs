@@ -2,6 +2,7 @@ use std::time::Duration;
 
 use goodfetch_protocol::catalog::SettingScope;
 use goodfetch_protocol::foxhound::frontier::PathBudget;
+use goodfetch_protocol::page::ExtractorName;
 use goodfetch_protocol::settings::{SettingNotApplicableDetails, SettingsLayer};
 use serde_json::json;
 
@@ -15,7 +16,7 @@ fn a_label_sets_foxhounds_and_collies_label_keys_nested_by_segment() {
         .set(fetch::ENCODING, None)
         .set(crawl::KEEP_URL_FRAGMENT, true)
         .set(timeout::HOOK, Duration::from_secs(2))
-        .set(content::EXTRACTOR, "trafilatura")
+        .set(content::EXTRACTOR, ExtractorName::TRAFILATURA)
         .set(session::SOURCE, None);
 
     let sent = label.within(SettingScope::Label).unwrap();

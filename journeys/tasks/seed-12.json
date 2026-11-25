@@ -67,6 +67,19 @@
       "start_url": "http://2.login.test/login"
     },
     {
+      "account": {
+        "password": "HLYWG7VXYLoGrbu3",
+        "username": "user-e223bd5e"
+      },
+      "description": "Log in as the task's account with its password, or bring in its login from the Firefox profile `firefox-profile` writes, and return one Record per order the account page lists, read from its order page, with the fields `id`, `item` and `total`, while the Proving ground's time step goes from 0 to the last of the task's time steps. The login expires when the time step changes: log in again whenever the site sends to its login page.",
+      "digest": "a5253db1a1cbc8f08d99a7ac043ab8bad12781a4112483f600c452829b28bd21",
+      "family": "login",
+      "id": "login/3",
+      "kind": "crawl",
+      "start_url": "http://3.login.test/login",
+      "time_steps": 2
+    },
+    {
       "description": "Watch this page while the Proving ground's time step goes from 0 to the last of the task's time steps, one step after another, and return one Record per revision the page shows, with the fields `id` (the revision), `headline` and `price`.",
       "digest": "9a33f9af2d8a1cb47f62047af3fd3e8cc09e2af1339d99a351f5c7ff4c62936b",
       "family": "schedule",
@@ -776,6 +789,30 @@
       "id": "protection/2",
       "kind": "extract",
       "start_url": "http://2.protection.test/captcha"
+    },
+    {
+      "description": "Extract the article behind this page's Turnstile widget as one Record with the fields `id` and `title`. The page takes the token a solver-service stand-in answers for its site key and URL.",
+      "digest": "7f7182332e3019f0d9a17aec93e4530b9c40028de9bd20f425b5ac96cd0cb70d",
+      "family": "protection",
+      "id": "protection/3",
+      "kind": "extract",
+      "start_url": "http://3.protection.test/turnstile"
+    },
+    {
+      "description": "Extract the article behind this page's sensor check as one Record with the fields `id` and `title`. The page takes the sensor data a solver-service stand-in answers for its URL, cookies, script and client.",
+      "digest": "a01f22b5fef6b041e1c63db7a465a9f88c58c98529fe9750b45f796fa4651c73",
+      "family": "protection",
+      "id": "protection/4",
+      "kind": "extract",
+      "start_url": "http://4.protection.test/sensor"
+    },
+    {
+      "description": "Extract the article behind this page's Challenge as one Record with the fields `id` and `title`. The Challenge passes only when a service worker it registers answers its check.",
+      "digest": "d78f5f78df79863a5f037c93e9a87241808d26b70aa757fd718df61c84ef124e",
+      "family": "protection",
+      "id": "protection/5",
+      "kind": "extract",
+      "start_url": "https://5.protection.test/service-worker"
     },
     {
       "description": "Fetch this page over HTTP and the page it links to in the browser, in one Session, and return each page's Record with the fields `id` and `code`. The server compares the fingerprints of the two requests.",
@@ -1777,6 +1814,48 @@
       "id": "canaries/4",
       "kind": "crawl",
       "start_url": "http://4.canaries.test/api/record"
+    },
+    {
+      "description": "Choose the author \"Cleo Marsh\": the page reloads and the tag list then offers that author's tags. Choose the tag \"inspirational\", type the tag to confirm it, press Search, and return one Record per quote shown, with the fields `id` (its `data-id`), `text`, `author` and `tag`. The page may reject the confirmation and say what to type: type that, and press Search again.",
+      "digest": "d948afe1351bc2e62d15f1a073bc1e8d5ad702fb16561b2ee5855e40dd6a69a0",
+      "family": "quotes",
+      "id": "quotes/1",
+      "kind": "crawl",
+      "start_url": "http://1.quotes.test/search"
+    },
+    {
+      "description": "Crawl the pages this index links and return one Record per page with the fields `id` (the article's `data-id`), `language` (the page's language: its root element's `lang`, else the one tag of its `content-language` meta tag, else the one tag of its `Content-Language` header, else `und`) and `amount` (the number the page shows, read in that language, as a plain decimal).",
+      "digest": "2de6438ad272eeeedd0ab41716deead5be1c528abc8379d6f9d5e9555587e178",
+      "family": "locales",
+      "id": "locales/1",
+      "kind": "crawl",
+      "start_url": "http://1.locales.test/documents"
+    },
+    {
+      "description": "Crawl the notices this index links, whose times are in the time zone `Europe/Paris` and relative to the moment each notice was served, its response's `Date` header. Return one Record per notice with the fields `id` (the article's `data-id`), `day` (its day, as a date such as `2024-01-31`), `posted` and `seen` (its times, as RFC 3339 with Paris's offset then, such as `2024-01-31T09:05:00+01:00`).",
+      "digest": "e12cb39ef766a5c09cbebe2bdedbe1bf715836b8aa8f79d7c0290fead226b5a0",
+      "family": "locales",
+      "id": "locales/2",
+      "kind": "crawl",
+      "start_url": "http://2.locales.test/notices"
+    },
+    {
+      "description": "Open this search results page at each of the Proving ground's time steps, from 0 to the last of the task's, and return one Record per result it shows at any step, with the fields `id` (the result's `data-id`), `url`, `title` and `snippet`.",
+      "digest": "b1cb6ca882997d0148a17b0bcd488e89bb13cec43761e26cc75c17b70bbf9fa1",
+      "family": "search",
+      "id": "search/1",
+      "kind": "watch",
+      "start_url": "http://1.search.test/search?q=stone%20bridge",
+      "time_steps": 4
+    },
+    {
+      "description": "Ask this SearXNG search for its results at each of the Proving ground's time steps, from 0 to the last of the task's, and return one Record per result it answers at any step, with the fields `id` (the last part of the result's URL), `url`, `title` and `snippet`.",
+      "digest": "4bd23d8301cd98bc22193642e1298c41d0eecf82b923ff6779cbde315855aa69",
+      "family": "search",
+      "id": "search/2",
+      "kind": "watch",
+      "start_url": "http://2.search.test/search?q=paper%20kite&format=json",
+      "time_steps": 4
     }
   ]
 }

@@ -161,6 +161,7 @@ from goodfetch_collie_client.generated.errors import (
     SecretUnavailableError,
     SecretUnboundError,
     SessionBoundToMachineError,
+    SessionExportOpenFailedError,
     SettingInvalidError,
     SettingLockedError,
     SettingNotApplicableError,
@@ -206,7 +207,11 @@ from goodfetch_collie_client.handlerless import (
     PlanReplayTarget,
 )
 from goodfetch_collie_client.json_values import JSONObject, JSONValue
-from goodfetch_collie_client.key_value_store import AsyncKeyValueStore, KeyValueStore
+from goodfetch_collie_client.key_value_store import (
+    AsyncKeyValueStore,
+    KeyValueStore,
+    StoredBytes,
+)
 from goodfetch_collie_client.limits import Limits, Money, Prices
 from goodfetch_collie_client.markers import ExperimentalWarning
 from goodfetch_collie_client.response import AsyncResponse, Response
@@ -396,6 +401,7 @@ __all__ = [
     "SecretUnboundError",
     "Sequence",
     "SessionBoundToMachineError",
+    "SessionExportOpenFailedError",
     "SessionSettings",
     "SettingInvalidError",
     "SettingLockedError",
@@ -409,6 +415,7 @@ __all__ = [
     "SkillInstallRefusedError",
     "StartedAs",
     "Stopped",
+    "StoredBytes",
     "Subscription",
     "TargetNotUniqueError",
     "TooManyCallsError",

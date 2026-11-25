@@ -61,6 +61,7 @@ mod endpoint;
 mod engine_choice;
 mod events;
 mod exit_codes;
+mod exposed_cdp_url;
 mod extra_loopback;
 #[cfg(target_os = "linux")]
 mod governor;
@@ -126,7 +127,9 @@ mod source_build;
 mod storage;
 #[cfg(target_os = "linux")]
 mod threads;
+mod tls;
 mod upgrade_files;
+mod upstream;
 mod usage;
 mod views;
 #[cfg(target_os = "linux")]

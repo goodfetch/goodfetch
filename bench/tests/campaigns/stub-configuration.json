@@ -1,0 +1,4 @@
+{
+  "tool": "the stub adapter",
+  "defaults": { "filter_list_blocking": false, "consent_prompt_handling": false }
+}

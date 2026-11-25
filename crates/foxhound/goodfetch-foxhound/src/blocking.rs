@@ -15,10 +15,10 @@ use goodfetch_collie_client::{Error, RunView, blocking};
 use goodfetch_protocol::run::{CatalogTarget, RunId};
 use goodfetch_protocol::settings::{ConfigExplainParams, SettingsExplanation};
 
-pub use crawl::{Crawl, CrawlContext, CrawlRun, StartCrawl};
+pub use crawl::{AttemptRun, Crawl, CrawlContext, CrawlRun, Enqueue, EnqueueLinks, StartCrawl};
 pub use goodfetch_collie_client::blocking::{
-    Call, Connection, CreatedSchedule, EventIter, Exchange, HandlerlessStart, Locator, Page, Query,
-    RawCall, Response, Run, Schedule, Schedules, Session, Start,
+    Call, Connection, CreatedSchedule, EventIter, Exchange, HandlerlessStart, KeyValueStore,
+    Locator, Page, Query, RawCall, Response, Run, Schedule, Schedules, Session, Start,
 };
 
 use crate::crawl_requests::CrawlRequests;

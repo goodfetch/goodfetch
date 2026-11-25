@@ -1,0 +1,14 @@
+# The deployed online copy's vendors (`serve --online-config`; the sections
+# `src/online.rs` lists). Only the vendors that need no vendor account are
+# on; README.md says how the owner turns on each other one. Each
+# `secret_env` names a secret of the protected `proving-ground-online`
+# environment, which the workflow passes the deploy under the same name.
+origin = "https://challenges.goodfetch.dev"
+
+[altcha]
+secret_env = "PROVING_GROUND_ALTCHA_KEY"
+
+[anubis]
+secret_env = "PROVING_GROUND_ANUBIS_HS512_SECRET"
+
+[klaro]

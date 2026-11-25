@@ -213,7 +213,7 @@ pub struct Opening {
     /// Whether the Client reached an Exposed Daemon, where the project
     /// configuration it sent keeps its rank with only the run layer's
     /// authority, so it widens nothing reserved to configuration (ADR
-    /// 0083).
+    /// 0083), and its `cdp_url` may not use loopback (ADR 0056).
     pub exposed: bool,
 }
 
@@ -488,9 +488,12 @@ impl Settings {
             registered,
             run,
         };
-        let resolved = resolve(&layers, engine, opening.run.unwrap_or(engine))
+        let mut resolved = resolve(&layers, engine, opening.run.unwrap_or(engine))
             .and_then(|resolved| resolved.refuse_unbuilt().map(|()| resolved))
             .map_err(|error| self.0.files.named_in(error))?;
+        if opening.exposed {
+            resolved = resolved.opened_on_an_exposed_daemon();
+        }
         Ok((
             RunSettings {
                 resolved,

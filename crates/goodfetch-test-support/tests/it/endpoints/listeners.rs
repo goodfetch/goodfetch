@@ -1,15 +1,18 @@
 //! Fixture listeners for the endpoint runner's tests: a JSON-RPC stream
-//! listener, a WebSocket listener, an HTTP ops listener, a signed-address
-//! listener and an HTTP proxy, each strict (it refuses every row as
-//! the table says and records each refusal in its own Audit log, a channel),
-//! permissive (it accepts everything) or refusing everything.
+//! listener, a WebSocket listener, each in plain or terminating TLS, an
+//! HTTP ops listener, a signed-address listener and an HTTP proxy, each
+//! strict (it refuses every row as the table says and records each refusal
+//! in its own Audit log, a channel), permissive (it accepts everything) or
+//! refusing everything.
 
-use std::io::{BufRead as _, BufReader, Read as _, Write as _};
+use std::io::{BufRead as _, BufReader, Read, Write};
 use std::net::{SocketAddr, TcpListener, TcpStream};
+use std::sync::Arc;
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::time::Duration;
 
 use goodfetch_test_support::Rule;
+use rustls::pki_types::PrivateKeyDer;
 
 /// The token every fixture listener issues.
 pub(super) const TOKEN: &str = "fixture-token-7Hq2";
@@ -35,6 +38,7 @@ pub(super) enum Reason {
     ForeignHost,
     ForeignOrigin,
     MissingOrigin,
+    PlainWhereTls,
 }
 
 /// A fixture listener's Audit log, read as a product's verifier reads its
@@ -56,9 +60,76 @@ impl AuditLog {
             Rule::OriginForeign => Reason::ForeignOrigin,
             Rule::OriginMissing => Reason::MissingOrigin,
             Rule::HelloNotFirst => Reason::NotHello,
+            Rule::PlainWhereTlsConfigured => Reason::PlainWhereTls,
             Rule::ProbesAnswerStatusOnly => return false,
         };
         self.0.recv_timeout(Duration::from_secs(5)) == Ok(expected)
+    }
+}
+
+/// The name a fixture listener that terminates TLS is reached by, which its
+/// certificate is for.
+pub(super) const SERVER_NAME: &str = "localhost";
+
+/// A fixture listener's TLS: a self-signed certificate for
+/// [`SERVER_NAME`], in DER as its Clients trust it, and the server's side.
+pub(super) struct FixtureTls {
+    pub(super) trusted: Vec<u8>,
+    config: Arc<rustls::ServerConfig>,
+}
+
+impl FixtureTls {
+    fn generated() -> Self {
+        let key = rcgen::KeyPair::generate().unwrap();
+        let certificate = rcgen::CertificateParams::new(vec![SERVER_NAME.to_owned()])
+            .unwrap()
+            .self_signed(&key)
+            .unwrap();
+        let config = rustls::ServerConfig::builder_with_provider(Arc::new(
+            rustls::crypto::ring::default_provider(),
+        ))
+        .with_safe_default_protocol_versions()
+        .unwrap()
+        .with_no_client_auth()
+        .with_single_cert(
+            vec![certificate.der().clone()],
+            PrivateKeyDer::Pkcs8(key.serialize_der().into()),
+        )
+        .unwrap();
+        Self {
+            trusted: certificate.der().to_vec(),
+            config: Arc::new(config),
+        }
+    }
+}
+
+/// A Connection's stream, in plain or over TLS.
+trait Stream: Read + Write {}
+
+impl<S: Read + Write> Stream for S {}
+
+/// What a listener that terminates `tls` serves on `stream`: the TLS
+/// stream, or a Connection in plain, which only a permissive listener
+/// serves and a strict one refuses, recording it.
+fn terminated(
+    stream: TcpStream,
+    tls: &FixtureTls,
+    behaviour: Behaviour,
+    audit: &Sender<Reason>,
+) -> Option<Box<dyn Stream>> {
+    let mut first = [0_u8; 1];
+    let handshake = stream.peek(&mut first).unwrap_or(0) == 1 && first[0] == 0x16;
+    if handshake {
+        let connection = rustls::ServerConnection::new(Arc::clone(&tls.config)).unwrap();
+        return Some(Box::new(rustls::StreamOwned::new(connection, stream)));
+    }
+    match behaviour {
+        Behaviour::Permissive => Some(Box::new(stream)),
+        Behaviour::Strict => {
+            audit.send(Reason::PlainWhereTls).unwrap();
+            None
+        }
+        Behaviour::RefuseAll => None,
     }
 }
 
@@ -75,6 +146,24 @@ pub(super) fn json_rpc_on_tcp(behaviour: Behaviour) -> (SocketAddr, AuditLog) {
     (address, AuditLog(log))
 }
 
+/// Starts a JSON-RPC stream listener on loopback TCP that terminates TLS,
+/// and gives the certificate its Clients trust, in DER.
+pub(super) fn json_rpc_over_tls(behaviour: Behaviour) -> (SocketAddr, AuditLog, Vec<u8>) {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let address = listener.local_addr().unwrap();
+    let (sender, log) = mpsc::channel();
+    let tls = FixtureTls::generated();
+    let trusted = tls.trusted.clone();
+    std::thread::spawn(move || {
+        for connection in listener.incoming() {
+            if let Some(stream) = terminated(connection.unwrap(), &tls, behaviour, &sender) {
+                serve_json_rpc(stream, behaviour, &sender);
+            }
+        }
+    });
+    (address, AuditLog(log), trusted)
+}
+
 /// Starts a JSON-RPC stream listener on a Unix socket at `path`.
 #[cfg(unix)]
 pub(super) fn json_rpc_on_unix(path: &std::path::Path, behaviour: Behaviour) -> AuditLog {
@@ -88,10 +177,7 @@ pub(super) fn json_rpc_on_unix(path: &std::path::Path, behaviour: Behaviour) -> 
     AuditLog(log)
 }
 
-fn serve_json_rpc<S>(stream: S, behaviour: Behaviour, audit: &Sender<Reason>)
-where
-    S: std::io::Read + std::io::Write,
-{
+fn serve_json_rpc<S: Read + Write>(stream: S, behaviour: Behaviour, audit: &Sender<Reason>) {
     let mut reader = BufReader::new(stream);
     let mut line = String::new();
     if reader.read_line(&mut line).unwrap_or(0) == 0 {
@@ -133,23 +219,54 @@ pub(super) fn websocket(behaviour: Behaviour) -> (SocketAddr, AuditLog) {
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let address = listener.local_addr().unwrap();
     let (sender, log) = mpsc::channel();
+    let authority = address.to_string();
+    let origin = format!("http://{authority}");
     std::thread::spawn(move || {
         for connection in listener.incoming() {
-            serve_websocket(connection.unwrap(), address, behaviour, &sender);
+            serve_websocket(
+                connection.unwrap(),
+                [&authority, &origin],
+                behaviour,
+                &sender,
+            );
         }
     });
     (address, AuditLog(log))
 }
 
-fn serve_websocket(
-    stream: TcpStream,
-    address: SocketAddr,
+/// Starts a WebSocket listener on loopback TCP that terminates TLS, whose
+/// handshake must name [`SERVER_NAME`] and its port as `Host` and
+/// `https://` with them as `Origin`, and gives the certificate its Clients
+/// trust, in DER.
+pub(super) fn websocket_over_tls(behaviour: Behaviour) -> (SocketAddr, AuditLog, Vec<u8>) {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let address = listener.local_addr().unwrap();
+    let (sender, log) = mpsc::channel();
+    let tls = FixtureTls::generated();
+    let trusted = tls.trusted.clone();
+    let authority = format!("{SERVER_NAME}:{}", address.port());
+    let origin = format!("https://{authority}");
+    std::thread::spawn(move || {
+        for connection in listener.incoming() {
+            if let Some(stream) = terminated(connection.unwrap(), &tls, behaviour, &sender) {
+                serve_websocket(stream, [&authority, &origin], behaviour, &sender);
+            }
+        }
+    });
+    (address, AuditLog(log), trusted)
+}
+
+/// Serves one WebSocket on `stream`, whose handshake must name `expected`'s
+/// `Host` and `Origin`.
+fn serve_websocket<S: Read + Write>(
+    stream: S,
+    expected: [&str; 2],
     behaviour: Behaviour,
     audit: &Sender<Reason>,
 ) {
     use tungstenite::handshake::server::{ErrorResponse, Request, Response};
 
-    let authority = address.to_string();
+    let [authority, expected_origin] = expected;
     let mut refused = None;
     let mut query_token = false;
     #[expect(
@@ -170,14 +287,12 @@ fn serve_websocket(
         let refusal = match behaviour {
             Behaviour::Permissive => None,
             Behaviour::RefuseAll => Some(None),
-            Behaviour::Strict if header("host") != Some(authority.as_str()) => {
+            Behaviour::Strict if header("host") != Some(authority) => {
                 Some(Some(Reason::ForeignHost))
             }
             Behaviour::Strict => match header("origin") {
                 None => Some(Some(Reason::MissingOrigin)),
-                Some(origin) if origin != format!("http://{authority}") => {
-                    Some(Some(Reason::ForeignOrigin))
-                }
+                Some(origin) if origin != expected_origin => Some(Some(Reason::ForeignOrigin)),
                 Some(_) => None,
             },
         };

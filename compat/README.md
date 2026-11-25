@@ -8,6 +8,7 @@ The Compatibility corpus (ADR 0066): committed files, one set per version of eac
 - `releases.toml` records what each release shipped.
 - `api.toml` names the previous release's commit that `xtask api-check` compares the contracts with, `just semver-checks` the Rust crates under semver, and `xtask sdk-api` the TypeScript and Python SDK packages, and the breaks announced for the next major.
 - `upgrade-paths.toml` lists the majors `upgrade-files` upgrades from (ADR 0066), empty before the first release; `goodfetch-engine`'s `upgrade` module reads it, and its tests derive the refusals from it.
+- `skew-checks.toml` lists the checks each released minor takes against the current build, with their estimates, and `skew-exclusions.toml` the Journey variants a minor's checks leave out, with a reason. `xtask compat jobs`, which `xtask codegen` also runs, writes the Release suite's jobs from them and `releases.toml` to `ci/release/skew-jobs.json`.
 
 `xtask compat check` (Quick suite) fails on a `head/` set that differs from what `write` produces, a writer whose second run writes other bytes than its first (each writer runs twice, and a passing check notes the digest both runs wrote, `note[identical]`), a changed frozen byte, a missing `head/` set or a missing frozen set for a version `releases.toml` records, incomplete schema coverage, and a schema changed while its version equals its newest frozen version. Pre-release, only `head/` sets exist; each area adds its format's set in the change that creates the format.
 

@@ -103,6 +103,7 @@ mod proxy_in_front;
 mod pty;
 mod raw_calls;
 mod received_requests;
+mod recordings;
 mod resident;
 mod resolver;
 mod runtime;
@@ -130,6 +131,7 @@ mod user_namespaces;
 #[cfg(target_os = "linux")]
 mod valkey;
 mod variables;
+mod webhook_signatures;
 
 #[cfg(unix)]
 pub use browsers::ReadOnlyBrowserCache;
@@ -169,7 +171,7 @@ pub use dns_namespace::{
 };
 pub use endpoints::{
     AuditUnreadable, AuditVerifier, Endpoint, EndpointRunError, EndpointRunner, Expected, Failure,
-    Hello, Listener, ListenerAddress, ListenerKind, Observed, RowFailure, Rule,
+    Hello, Listener, ListenerAddress, ListenerKind, ListenerTls, Observed, RowFailure, Rule,
 };
 pub use env::{START_TIME, TEST_SETTINGS, TestEnv, TestEnvError, command};
 pub use exercise::{ANSWER_RECORD, AnsweredCalls, COMMAND_RECORD, COMMAND_TARGET};
@@ -249,6 +251,10 @@ pub use proving_ground_format::{
 pub use proxy_in_front::proxy_in_front;
 pub use pty::{Pty, PtyError, PtyOutput, PtyRun, pty};
 pub use raw_calls::raw_call_lines;
+pub use recordings::{
+    ExchangeName, ModelRecording, Payload, RecordedExchange, RecordedRequest, RecordedResponse,
+    Recordings, RecordingsError, ServedExchanges, Unfinished, UnmatchedRequest,
+};
 pub use resident::{peak_resident_bytes, private_resident_bytes_of};
 pub use resolver::{Lookup, LookupFailure, ResolverHandle, ScriptedResolver};
 pub use runtime::{
@@ -307,4 +313,7 @@ pub use variables::{
     MAX_SEED, NO_GUI_SESSION_VARIABLE, RECORDS_VARIABLE, RESULT_DOCUMENTS_VARIABLE, SEED_VARIABLE,
     SUITE_VARIABLE, SeedError, Suite, SuiteError, TOOLS_VARIABLE, TOXIPROXY_DOWNLOADS_VARIABLE,
     Variables, case_logs, current_test,
+};
+pub use webhook_signatures::{
+    SignedVector, VerificationCase, VerificationOutcome, WebhookSignatures, webhook_signatures,
 };

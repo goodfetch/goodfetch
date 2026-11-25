@@ -268,6 +268,43 @@ form = "read"
 
 [[member]]
 package = "@goodfetch/foxhound"
+receiver = "(module)"
+member = "sitemap"
+entry = "none"
+reason = "Builds a sitemap seed, one of the seeds `crawl.start` carries, whose rules give each entry the Label of the first that matches it (ADRs 0093 and 0120), with no round trip."
+only = "Rust builds a sitemap seed with `Seed::sitemap` (ADR 0099)."
+words = ["sitemap"]
+form = "read"
+
+[[member]]
+package = "@goodfetch/foxhound"
+receiver = "CrawlContext"
+member = "run"
+entry = "none"
+reason = "The crawl's Run bound to the attempt, from `crawl_request.handle`'s request (ADR 0093)."
+words = ["run"]
+form = "read"
+
+[[member]]
+package = "@goodfetch/foxhound"
+receiver = "AttemptRun"
+member = "id"
+entry = "none"
+reason = "The Run's ID, from the Run's start, with no round trip."
+words = ["id"]
+form = "read"
+
+[[member]]
+package = "@goodfetch/foxhound"
+receiver = "AttemptRun"
+member = "keyValueStore"
+entry = "none"
+reason = "The Run's Key-value store bound to the attempt, whose methods serve the `key_value_store` operations, with no round trip."
+words = ["key", "value", "store"]
+form = "read"
+
+[[member]]
+package = "@goodfetch/foxhound"
 receiver = "CrawlContext"
 member = "page"
 entry = "none"
@@ -599,6 +636,15 @@ member = "openOver"
 entry = "none"
 reason = "What each Product's `connectOver` is: the common Connection opened over a transport a test holds, `hello` naming the Product (ADRs 0069 and 0095)."
 words = ["open", "over"]
+form = "runtime"
+
+[[member]]
+package = "@goodfetch/collie-client/runtime"
+receiver = "(module)"
+member = "attemptStoreOf"
+entry = "none"
+reason = "The Run's Key-value store a Product's handler is served, bound to its attempt and its signal (ADR 0093)."
+words = ["attempt", "store", "of"]
 form = "runtime"
 
 [[member]]
@@ -1563,7 +1609,6 @@ receiver = "Run"
 member = "keyValueStore"
 entry = "none"
 reason = "The Run's Key-value store, opened with the Run, with no round trip."
-only = "Rust's SDK has no Key-value store yet; issue 1284 adds it."
 words = ["key", "value", "store"]
 form = "read"
 
@@ -1745,7 +1790,6 @@ receiver = "(module)"
 member = "KeyValueStore"
 entry = "none"
 reason = "A Run's Key-value store: `run.keyValueStore`, whose methods serve the `key_value_store` operations."
-only = "Rust's SDK has no Key-value store yet; issue 1284 adds it."
 words = ["key", "value", "store"]
 form = "type"
 
@@ -1795,6 +1839,7 @@ receiver = "KeyValueStore"
 member = "constructor"
 entry = "none"
 reason = "A Run opens its store; a program never constructs one."
+only = "Python's and Rust's stores have no constructor a program calls."
 words = ["key", "value", "store"]
 form = "read"
 
@@ -1804,7 +1849,6 @@ receiver = "(module)"
 member = "StoredBytes"
 entry = "none"
 reason = "Bytes the Key-value store keeps, with their content type, as `key_value_store.get_bytes` answers them."
-only = "Rust's SDK has no Key-value store yet; issue 1284 adds it."
 words = ["stored", "bytes"]
 form = "type"
 
@@ -1814,7 +1858,7 @@ receiver = "(module)"
 member = "StoredValue"
 entry = "none"
 reason = "What the Key-value store keeps: any JSON value but a top-level null."
-only = "Rust's SDK has no Key-value store yet; issue 1284 adds it."
+only = "TypeScript's type of a JSON value but null; Python's `set` takes any value its schema writes, and Rust's any the program's type serializes."
 words = ["stored", "value"]
 form = "type"
 
@@ -2537,15 +2581,6 @@ form = "runtime"
 [[member]]
 package = "@goodfetch/collie-client/runtime"
 receiver = "RunHost"
-member = "keyValueStore"
-entry = "none"
-reason = "What a Run reaches through its Connection: its Key-value store's calls."
-words = ["key", "value", "store"]
-form = "runtime"
-
-[[member]]
-package = "@goodfetch/collie-client/runtime"
-receiver = "RunHost"
 member = "logger"
 entry = "none"
 reason = "What a Run reaches through its Connection: the host program's logger."
@@ -2777,11 +2812,60 @@ form = "type"
 [[member]]
 package = "@goodfetch/foxhound"
 receiver = "(module)"
+member = "AttemptRun"
+entry = "none"
+reason = "A crawl's Run bound to one attempt (ADR 0093): `context.run`."
+words = ["attempt", "run"]
+form = "type"
+
+[[member]]
+package = "@goodfetch/foxhound"
+receiver = "(module)"
 member = "DatasetOptions"
 entry = "none"
-reason = "What `crawl.dataset` takes."
+reason = "What `crawl.dataset` takes: the key, the top-level fields that identify a Record (ADR 0103)."
 only = "Rust's `Crawl::dataset` takes its name alone."
 words = ["dataset", "options"]
+form = "type"
+
+[[member]]
+package = "@goodfetch/foxhound"
+receiver = "(module)"
+member = "DatasetSchemaOptions"
+entry = "none"
+reason = "What `crawl.dataset` takes with a schema, which types the Dataset's Records and whose required fields the key must name (ADR 0103)."
+only = "Python's `dataset` takes the schema and the key as keyword arguments; Rust's `Crawl::dataset` takes its name alone."
+words = ["dataset", "schema", "options"]
+form = "type"
+
+[[member]]
+package = "@goodfetch/foxhound"
+receiver = "(module)"
+member = "RecordSchema"
+entry = "none"
+reason = "A Dataset's Record schema: a Standard Schema with Standard JSON Schema whose input is an object, or a JSON Schema written by hand (ADR 0103)."
+only = "Python's Record schema is a pydantic model or a JSON Schema, with no type of its own; Rust types a Record by the Dataset's type parameter."
+words = ["record", "schema"]
+form = "type"
+
+[[member]]
+package = "@goodfetch/foxhound"
+receiver = "(module)"
+member = "RecordInput"
+entry = "none"
+reason = "What a handler pushes as a Record under a Dataset's schema: its input type, or a JSON object for a hand-written one (ADR 0103)."
+only = "Rust's Record is the Dataset's type parameter; Python's is the model's instance or a JSON object."
+words = ["record", "input"]
+form = "type"
+
+[[member]]
+package = "@goodfetch/foxhound"
+receiver = "(module)"
+member = "RecordOutput"
+entry = "none"
+reason = "What a Dataset's schema makes of a Record: its output type, or a JSON object for a hand-written one (ADR 0103)."
+only = "Rust's Record is the Dataset's type parameter; Python's is the model's instance or a JSON object."
+words = ["record", "output"]
 form = "type"
 
 [[member]]
@@ -2790,8 +2874,28 @@ receiver = "(module)"
 member = "EnqueueLinksOptions"
 entry = "none"
 reason = "What `context.enqueueLinks` takes besides the locator, the Label and the Payload."
-only = "Rust's `enqueue_links` takes the locator, the Label and the Payload alone, as its `enqueue` does."
+only = "Rust's `enqueue_links` takes each as a builder method named after it, Python's as a keyword argument."
 words = ["enqueue", "links", "options"]
+form = "type"
+
+[[member]]
+package = "@goodfetch/foxhound"
+receiver = "(module)"
+member = "LinkPayload"
+entry = "none"
+reason = "The Payload function `context.enqueueLinks` takes, which answers each matched link's Payload, or `null` to leave it out, from what `crawl_request.links` read (ADR 0093)."
+only = "Python's `enqueue_links` takes the function itself in the Payload's place, with no type of its own."
+words = ["link", "payload"]
+form = "type"
+
+[[member]]
+package = "@goodfetch/foxhound"
+receiver = "(module)"
+member = "LinksPayload"
+entry = "none"
+reason = "What `context.enqueueLinks` takes after its Label: one Payload for every link or a `LinkPayload` function, nothing for a Label without a Payload."
+only = "Rust's `enqueue_links` takes a `LinkPayload`, which any Payload converts into; Python's takes a Payload or a function, with no type of its own."
+words = ["links", "payload"]
 form = "type"
 
 [[member]]
@@ -2850,7 +2954,7 @@ receiver = "(module)"
 member = "RequestOptions"
 entry = "none"
 reason = "What `context.enqueue` and `seed` take besides the URL, the Label and the Payload."
-only = "Rust's `enqueue` and `Seed::new` take the URL, the Label and the Payload alone."
+only = "Rust's `Seed::new` and `enqueue` take them as builder methods named after each, Python's as keyword arguments."
 words = ["request", "options"]
 form = "type"
 
@@ -3108,7 +3212,7 @@ reason = "A handler process of `workers=N` offers its handler with it (ADR 0024)
 
 [[unreached]]
 entries = ["crawl_request.links"]
-reason = "What `enqueueLinks`'s Payload function reads for each link; the member takes one Payload for every link, so nothing reads it yet."
+reason = "What `enqueueLinks` sends itself, before `crawl_request.enqueue_links`, when it is given a `LinkPayload` function: the function reads each link it answers, so it has no member of its own."
 
 [[unreached]]
 entries = ["dataset.list", "dataset.page", "dataset.query"]

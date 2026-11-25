@@ -19,6 +19,7 @@
 use std::collections::BTreeMap;
 use std::ffi::OsString;
 use std::io;
+use std::net::SocketAddr;
 use std::path::Path;
 use std::pin::Pin;
 use std::task::{Context, Poll};
@@ -49,6 +50,16 @@ const IN_MEMORY_BUFFER: usize = 64 * 1024;
 pub struct Connection {
     reader: ConnectionReader,
     writer: ConnectionWriter,
+    addresses: Option<TcpAddresses>,
+}
+
+/// The two ends of a Connection over TCP.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct TcpAddresses {
+    /// The listener's end: the address its Client connected to.
+    pub local: SocketAddr,
+    /// The Client's end.
+    pub peer: SocketAddr,
 }
 
 impl Connection {
@@ -59,7 +70,26 @@ impl Connection {
         Self {
             reader: ConnectionReader(Box::new(reader)),
             writer: ConnectionWriter(Box::new(writer)),
+            addresses: None,
         }
+    }
+
+    /// The Connection that `stream` carries both ways, such as the TLS
+    /// session a listener terminated on one of `addresses`.
+    pub fn over(
+        stream: impl AsyncRead + AsyncWrite + Send + 'static,
+        addresses: Option<TcpAddresses>,
+    ) -> Self {
+        let (reader, writer) = tokio::io::split(stream);
+        Self {
+            addresses,
+            ..Self::new(reader, writer)
+        }
+    }
+
+    /// Its ends, when it runs over TCP.
+    pub fn addresses(&self) -> Option<TcpAddresses> {
+        self.addresses
     }
 
     /// Its two directions, which separate tasks may own.
@@ -397,12 +427,16 @@ impl DaemonListener {
                 Ok(Connection::new(reader, writer))
             }
             Listening::Tcp(listener) => {
-                let (stream, _) = listener.accept().await.map_err(accept_failure)?;
+                let (stream, peer) = listener.accept().await.map_err(accept_failure)?;
                 // The stream's own failure, whatever its code, never the
                 // listener's.
                 stream.set_nodelay(true).map_err(TransportError::Stream)?;
+                let local = stream.local_addr().map_err(TransportError::Stream)?;
                 let (reader, writer) = stream.into_split();
-                Ok(Connection::new(reader, writer))
+                Ok(Connection {
+                    addresses: Some(TcpAddresses { local, peer }),
+                    ..Connection::new(reader, writer)
+                })
             }
         }
     }

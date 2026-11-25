@@ -31,6 +31,11 @@
 //! answer; a second one, or one during a call that cannot be cancelled,
 //! ends the command at once (ADRs 0069, 0080 and 0093).
 //!
+//! A person's session, `needs-you answer`, makes several calls on its one
+//! Connection, beside a subscription whose events it reads while it waits
+//! for the person: [`converse`] opens it on the engine chosen as any
+//! command's, and an interrupt ends it at once.
+//!
 //! The Daemon is found, opened with `hello` and looked for again by the one
 //! Daemon client, [`Machine`]'s, which the `daemon` commands open their
 //! Connections through too, listening for no interrupt, so `SIGINT` keeps
@@ -234,8 +239,18 @@ impl ReadValues {
         }
     }
 
+    /// The next value, once it comes; none at their end, or before the
+    /// reader started.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future loses no value.
+    pub(super) async fn next(&mut self) -> Option<Value> {
+        self.receiver.as_mut()?.recv().await
+    }
+
     /// Starts the reader on a blocking thread of `owner`, once.
-    fn start(&mut self, owner: &TaskOwner) {
+    pub(super) fn start(&mut self, owner: &TaskOwner) {
         let Some(reader) = self.reader.take() else {
             return;
         };
@@ -318,10 +333,10 @@ impl<'a> CommandCall<'a> {
     }
 }
 
-/// How a call ended.
-pub enum Answer {
+/// How a call, or a conversation of several, ended.
+pub enum Answer<T = Value> {
     /// Its result.
-    Result(Value),
+    Result(T),
     /// The engine's error, or its refusal of `hello`.
     Error(ErrorObject),
     /// Under `--daemon`, the Daemon's refusal of `hello` by Product or by
@@ -339,15 +354,27 @@ pub enum Answer {
     Interrupted(Interrupt),
 }
 
-impl Answer {
+impl<T> Answer<T> {
     /// Its result, or how the call failed.
-    pub fn into_result(self) -> Result<Value, Failed> {
+    pub fn into_result(self) -> Result<T, Failed> {
         match self {
             Self::Result(value) => Ok(value),
             Self::Error(error) => Err(Failed::Error(error)),
             Self::Refused(error) => Err(Failed::Refused(error)),
             Self::Unanswered(error) => Err(Failed::Unanswered(error)),
             Self::Interrupted(interrupt) => Err(Failed::Interrupted(interrupt)),
+        }
+    }
+}
+
+impl<T> From<Result<T, Failed>> for Answer<T> {
+    fn from(ended: Result<T, Failed>) -> Self {
+        match ended {
+            Ok(value) => Self::Result(value),
+            Err(Failed::Error(error)) => Self::Error(error),
+            Err(Failed::Refused(error)) => Self::Refused(error),
+            Err(Failed::Unanswered(error)) => Self::Unanswered(error),
+            Err(Failed::Interrupted(interrupt)) => Self::Interrupted(interrupt),
         }
     }
 }
@@ -406,17 +433,69 @@ pub fn call(
     reach: &EngineChoice<'_>,
     call: CommandCall<'_>,
 ) -> Answer {
+    let reads = call.reads();
+    on(
+        engine,
+        dependencies,
+        needs,
+        reach,
+        reads,
+        async move |link: &mut Link| link.call(call).await,
+    )
+}
+
+/// Holds `conversation`, several calls and what they send, over one
+/// Connection to the engine `reach` chooses, as [`call`] chooses it for a
+/// command's one call, and answers what it ended with, or how it failed. It
+/// reads what a person types on a blocking thread, which its runtime does
+/// not wait for at its end.
+///
+/// # Panics
+///
+/// If Tokio cannot build its runtime.
+pub(super) fn converse<T>(
+    engine: &Engine,
+    dependencies: Dependencies,
+    needs: Product,
+    reach: &EngineChoice<'_>,
+    conversation: impl AsyncFnOnce(&mut Link) -> Result<T, Failed>,
+) -> Result<T, Failed> {
+    on(
+        engine,
+        dependencies,
+        needs,
+        reach,
+        true,
+        async move |link: &mut Link| Answer::from(conversation(link).await),
+    )
+    .into_result()
+}
+
+/// Runs `conversation` over one Connection to the engine `reach` chooses,
+/// opened by a Client that needs `needs`, on a runtime whose end waits for
+/// its blocking work unless it `reads` values on a blocking thread.
+///
+/// # Panics
+///
+/// If Tokio cannot build its runtime.
+fn on<T>(
+    engine: &Engine,
+    dependencies: Dependencies,
+    needs: Product,
+    reach: &EngineChoice<'_>,
+    reads: bool,
+    conversation: impl AsyncFnOnce(&mut Link) -> Answer<T>,
+) -> Answer<T> {
     // Settings it cannot read leave their defaults here: the engine, or
     // the Daemon, refuses the call with their Error code.
     let threads = Threads::of(reach.machine.settings().ok());
+    let attached =
+        |conversation| on_attached(engine, dependencies, needs, threads, reads, conversation);
     let start = match (reach.choice, reach.lifetime) {
-        (Choice::Attached, _) => {
-            return call_attached(engine, dependencies, needs, threads, call);
-        }
+        (Choice::Attached, _) => return attached(conversation),
         (Choice::Daemon, _) | (Choice::Auto, Lifetime::Lasting) => true,
         (Choice::Auto, Lifetime::Passing) => false,
     };
-    let reads = call.reads();
     let runtime = runtime::multi_thread(threads);
     let wanted = Wanted {
         start,
@@ -431,7 +510,7 @@ pub fn call(
         Ok(Some(opened)) => opened,
         Ok(None) => {
             drop(runtime);
-            return call_attached(engine, dependencies, needs, threads, call);
+            return attached(conversation);
         }
         Err(NotOpened::Interrupted(interrupt)) => return Answer::Interrupted(interrupt),
         Err(NotOpened::Refused(refusal)) => return Answer::Error(refusal),
@@ -448,11 +527,11 @@ pub fn call(
                 refusal.data.details["fix"].as_str().unwrap_or_default()
             ));
             drop(runtime);
-            return call_attached(engine, dependencies, needs, threads, call);
+            return attached(conversation);
         }
     };
     let answer = runtime.block_on(async {
-        let answer = link.call(call).await;
+        let answer = conversation(&mut link).await;
         link.close().await;
         answer
     });
@@ -475,28 +554,28 @@ pub fn unreachable(message: String, fix: &str) -> ErrorObject {
     CallError::new(&DAEMON_UNREACHABLE, message, &details).to_error_object()
 }
 
-/// Calls `call` on an Attached engine in this process, `engine` on
+/// Runs `conversation` on an Attached engine in this process, `engine` on
 /// `dependencies` and a runtime of `threads`, opened by a Client that
-/// needs `needs`.
+/// needs `needs`; the runtime ends as [`on`]'s does.
 ///
 /// # Panics
 ///
 /// If Tokio cannot build its runtime.
-fn call_attached(
+fn on_attached<T>(
     engine: &Engine,
     dependencies: Dependencies,
     needs: Product,
     threads: Threads,
-    call: CommandCall<'_>,
-) -> Answer {
-    let reads = call.reads();
+    reads: bool,
+    conversation: impl AsyncFnOnce(&mut Link) -> Answer<T>,
+) -> Answer<T> {
     let runtime = runtime::multi_thread(threads);
     let hello = hello(engine.identity(), needs, None);
     let (network, dialer) = transport::in_memory();
     let answer = runtime.block_on(async {
         let client = async {
             match dialer.connect().await {
-                Ok(connection) => exchange(connection, &hello, call).await,
+                Ok(connection) => exchange(connection, &hello, conversation).await,
                 Err(error) => Answer::Unanswered(exit_codes::internal(format!(
                     "The Attached engine took no Connection: {error}."
                 ))),
@@ -574,12 +653,16 @@ pub fn connection_lost(endpoint: &DaemonEndpoint, method: &str) -> ErrorObject {
     .to_error_object()
 }
 
-/// Opens `connection` with `hello`, then makes the one call, and closes
-/// the Connection once it is answered, which stops the Attached engine.
-async fn exchange(connection: Connection, hello: &HelloParams, call: CommandCall<'_>) -> Answer {
+/// Opens `connection` with `hello`, then runs `conversation`, and closes
+/// the Connection once it ended, which stops the Attached engine.
+async fn exchange<T>(
+    connection: Connection,
+    hello: &HelloParams,
+    conversation: impl AsyncFnOnce(&mut Link) -> Answer<T>,
+) -> Answer<T> {
     let mut link = Link::of(connection, Interrupts::listening());
     let answer = match link.hello(hello).await {
-        Ok(()) => link.call(call).await,
+        Ok(()) => conversation(&mut link).await,
         Err(Opening::Interrupted(interrupt)) => Answer::Interrupted(interrupt),
         Err(Opening::Refused(error) | Opening::HandOver(error)) => Answer::Error(error),
         Err(Opening::Gone | Opening::Unreachable) => closed(HELLO),
@@ -689,6 +772,50 @@ impl Link {
                 Some(_) => {}
             }
         }
+    }
+
+    /// Sends the call `id` of `method` with `params`, whose answer
+    /// [`Self::heard`] gives.
+    pub(super) async fn begin(
+        &mut self,
+        id: i64,
+        method: &str,
+        params: Value,
+    ) -> Result<(), Failed> {
+        method.clone_into(&mut self.method);
+        if self.send(&request(id, method, params)).await {
+            Ok(())
+        } else {
+            Err(self.gone())
+        }
+    }
+
+    /// Grants the call `id` `credits` more events.
+    pub(super) async fn grant(&mut self, id: i64, credits: u32) -> Result<(), Failed> {
+        if self.credit(id, credits).await {
+            Ok(())
+        } else {
+            Err(self.gone())
+        }
+    }
+
+    /// The next message the engine sends, or how the conversation failed:
+    /// interrupted, or its Connection closed.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future loses no message and no signal.
+    pub(super) async fn heard(&mut self) -> Result<Message, Failed> {
+        tokio::select! {
+            interrupt = self.interrupts.next() => Err(Failed::Interrupted(interrupt)),
+            message = next(&mut self.lines) => message.ok_or_else(|| self.gone()),
+        }
+    }
+
+    /// The failure of a conversation whose Connection ended before the last
+    /// call made was answered.
+    fn gone(&self) -> Failed {
+        Failed::Unanswered(unanswered(&self.method))
     }
 
     /// Says `hello` and reads its answer.
@@ -1037,8 +1164,13 @@ fn notification(method: &str, params: &impl Serialize) -> Notification {
 /// The answer of a call whose Connection ended before `method` was
 /// answered: a Daemon's call fails with `connection_lost`; an Attached
 /// engine never ends it first but by a bug.
-fn closed(method: &str) -> Answer {
-    Answer::Unanswered(exit_codes::internal(format!(
+fn closed<T>(method: &str) -> Answer<T> {
+    Answer::Unanswered(unanswered(method))
+}
+
+/// The failure of a Connection that ended before `method` was answered.
+fn unanswered(method: &str) -> ErrorObject {
+    exit_codes::internal(format!(
         "The engine closed the Connection before it answered `{method}`."
-    )))
+    ))
 }

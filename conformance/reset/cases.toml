@@ -17,7 +17,7 @@ product = "collie"
 
 [suite]
 name = "reset"
-version = "2"
+version = "3"
 
 [[capability]]
 name = "run.discard"
@@ -29,3 +29,9 @@ covers = ["story:3-39", "operation:run.discard"]
 [[capability.case]]
 id = "a-discarded-runs-session-cookie-reaches-no-later-run"
 covers = ["story:3-39", "operation:run.discard"]
+
+# The lab's leak (ADR 0015's regression fixture): a pool reused without
+# reset sent one Run's cookie to the next 30 times out of 30.
+[[capability.case]]
+id = "thirty-runs-in-a-row-on-one-engine-each-log-in-afresh"
+covers = ["story:3-39", "story:4-65", "operation:run.discard"]

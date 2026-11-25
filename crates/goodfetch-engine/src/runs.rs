@@ -91,7 +91,9 @@ use goodfetch_protocol::run::{
 };
 use goodfetch_protocol::secret_reference::SecretReference;
 use goodfetch_protocol::secrets::{RUN_STATE_KEY_REFERENCE, TIMEOUT_SECRET};
-use goodfetch_protocol::security::SECURITY_REDACTION;
+use goodfetch_protocol::security::{
+    SECURITY_FIELD_ENCRYPTION, SECURITY_REDACTION, SECURITY_SECURE_DELETE,
+};
 use goodfetch_protocol::settings::{ExplainedSetting, SettingsLayer, WeakenedSetting};
 use goodfetch_protocol::storage::{SampledFolder, StorageLevel};
 use goodfetch_protocol::usage::{LEDGER_READ_INTERVAL, Limit};
@@ -768,11 +770,35 @@ fn storage_low(storage: &RunStorage) -> RunWarning {
     }
 }
 
-/// What a live Run resolves its Secret references through, and its data
-/// key once unwrapped.
+/// What a live Run resolves its Secret references through, its data key
+/// once unwrapped, and whether a field stored unsealed opens in it.
 struct Keys {
     secrets: RunSecrets,
     key: Option<RunKey>,
+    /// Whether the Run lists `security.field_encryption` as weakened, so
+    /// that its fields may be stored unsealed: in any other Run, one is
+    /// refused as a sealed field that does not open is.
+    unsealed_open: bool,
+}
+
+/// A starting or resuming Run's Secret references and data key, before
+/// its settings say whether a field stored unsealed opens in it.
+struct Unlocked {
+    secrets: RunSecrets,
+    key: Option<RunKey>,
+}
+
+impl Unlocked {
+    /// Its keys in a Run whose report lists `weakened` as weakened.
+    fn keys(self, weakened: &[WeakenedSetting]) -> Keys {
+        Keys {
+            secrets: self.secrets,
+            key: self.key,
+            unsealed_open: weakened
+                .iter()
+                .any(|setting| setting.key == SECURITY_FIELD_ENCRYPTION.name),
+        }
+    }
 }
 
 /// A resumed Run's data key, unwrapped, with the wrapped key its file held.
@@ -1233,7 +1259,7 @@ enum Command {
         oneshot::Sender<Result<watch::Receiver<Option<Ended>>, RunError>>,
     ),
     Resume(
-        Box<(Resume, Link, Keys, Option<StoredKey>)>,
+        Box<(Resume, Link, Unlocked, Option<StoredKey>)>,
         Option<ConnectionId>,
         oneshot::Sender<Result<Resumed, RunError>>,
     ),
@@ -2664,7 +2690,12 @@ impl Runs {
         let (answer, answered) = oneshot::channel();
         self.commands
             .send(Command::Resume(
-                Box::new((resume, Link::to_current(), Keys { secrets, key }, stored)),
+                Box::new((
+                    resume,
+                    Link::to_current(),
+                    Unlocked { secrets, key },
+                    stored,
+                )),
                 self.connection,
                 answer,
             ))
@@ -4525,12 +4556,16 @@ impl Registry {
     }
 
     /// How a Run's run file opens under its `settings`: at the Durability
-    /// level `run_state.durability` names, `full` when it has none.
+    /// level `run_state.durability` names, `full` when it has none, and
+    /// overwriting what it deletes unless `security.secure_delete` is off.
     fn opened_with(&self, settings: Option<&RunSettings>) -> RunStateOptions {
         RunStateOptions {
             durability: durability_of(settings),
             memory_budget: settings.map_or(self.setup.run_state.memory_budget, |settings| {
                 settings.resolved().get(&RUN_STATE_MEMORY_BUDGET)
+            }),
+            secure_delete: settings.map_or(self.setup.run_state.secure_delete, |settings| {
+                settings.resolved().get(&SECURITY_SECURE_DELETE)
             }),
             clock: self.setup.engine.clock(),
             ..self.setup.run_state.clone()
@@ -4838,6 +4873,7 @@ impl Registry {
         let keys = RunKeys::new(KeysParts {
             secrets: keys.secrets,
             key: keys.key,
+            unsealed_open: keys.unsealed_open,
             identity: identity.clone(),
             state: state.clone(),
             settings: self.setup.engine.settings().clone(),

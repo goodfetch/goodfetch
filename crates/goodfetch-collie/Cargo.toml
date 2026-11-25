@@ -13,7 +13,7 @@ readme = "README.md"
 # The executable's own dependencies (ADR 0094): `cargo install
 # goodfetch-collie --locked --features executable` builds Collie's
 # executable; a program embedding the crate never compiles them.
-executable = ["dep:clap", "dep:jiff", "dep:mimalloc", "dep:regex", "dep:schemars", "dep:secrecy", "dep:serde", "dep:tempfile", "dep:thiserror", "dep:libc", "dep:windows-sys", "dep:tracing-subscriber", "dep:opentelemetry", "dep:opentelemetry_sdk", "dep:opentelemetry-otlp", "dep:opentelemetry-http", "dep:opentelemetry-prometheus", "dep:prometheus", "dep:tracing-opentelemetry", "dep:async-trait", "dep:bytes", "dep:http", "tokio/io-util", "tokio/macros", "tokio/rt-multi-thread", "tokio/signal"]
+executable = ["dep:clap", "dep:jiff", "dep:mimalloc", "dep:regex", "dep:schemars", "dep:secrecy", "dep:serde", "dep:tempfile", "dep:thiserror", "dep:url", "dep:libc", "dep:windows-sys", "dep:tracing-subscriber", "dep:opentelemetry", "dep:opentelemetry_sdk", "dep:opentelemetry-otlp", "dep:opentelemetry-http", "dep:opentelemetry-prometheus", "dep:prometheus", "dep:tracing-opentelemetry", "dep:async-trait", "dep:bytes", "dep:http", "tokio/io-util", "tokio/macros", "tokio/rt-multi-thread", "tokio/signal"]
 # The program's OpenTelemetry context, read from its current `tracing` span
 # through `tracing-opentelemetry`, in each request it sends (ADR 0132);
 # without it, a request carries none. The engine, which the SDK links,
@@ -57,6 +57,9 @@ serde_json.workspace = true
 # The Browser cache's write check before a Daemon's copy goes in it.
 tempfile = { workspace = true, optional = true }
 thiserror = { workspace = true, optional = true }
+# `doctor`'s bug-report file reduces each URL in it to its scheme and host
+# (spec #564).
+url = { workspace = true, optional = true }
 tokio = { workspace = true, features = ["rt", "time"] }
 # A linked engine's task, and the foreground Daemon's drain (ADR 0049).
 tokio-util = { workspace = true, features = ["rt"] }

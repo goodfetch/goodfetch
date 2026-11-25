@@ -12,7 +12,9 @@
 #   - macos-arm64 on `macos-15` and macos-x64 natively on `macos-15-intel`,
 #     on `main` only, with the visual projects in the pinned Playwright image
 #     (ADR 0073) on `ubuntu-24.04` beside them;
-#   - Windows arm64 first runs in the release pipeline's own Release run.
+#   - Windows arm64 first runs in the release pipeline's own Release run;
+#   - linux-x64-gnu also runs the Plugin confinement probes on
+#     `ubuntu-22.04`, whose kernel lacks Landlock ABI 6 (ADR 0067).
 # A dispatch off `main` runs the other cells alone, on the branch's pushed
 # head. On `main` it tests the commit the `commit` input names, `main`'s
 # head by default, and the `plan` job refuses a commit off `main`'s history
@@ -461,6 +463,40 @@ jobs:
           name: size-report-${{ steps.size.outputs.tree }}-${{ matrix.target }}
           path: target/release-suite/size-report-*.json
           retention-days: 90
+
+  # The Plugin confinement probes on Ubuntu 22.04's kernel, which lacks
+  # Landlock ABI 6 (ADR 0067; issue 813): goodfetch-confinement's own tests
+  # alone, beside the linux-x64-gnu cell on `ubuntu-24.04`. It belongs to
+  # that cell's dispatch, whose name it carries, so the verdict counts it
+  # there. Its cargo installs the toolchain rust-toolchain.toml pins, as the
+  # plan job's does.
+  confinement-22-04:
+    name: linux-x64-gnu ubuntu-22.04
+    needs: plan
+    if: contains(fromJSON(needs.plan.outputs.cells), 'linux-x64-gnu')
+    runs-on: ubuntu-22.04
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    steps:
+      - name: Check out the commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.plan.outputs.commit }}
+          persist-credentials: false
+      - name: Build the confinement tests and xtask
+        run: |
+          cargo test --locked -p goodfetch-confinement --test it --no-run
+          cargo build --locked --bin xtask
+      - name: Deny outbound traffic
+        run: ci/egress/egress.sh deny
+      - name: Refuse the Egress canary
+        run: ci/egress/egress.sh canary
+      - name: "Test: the confinement probes"
+        run: ci/egress/under-deny.sh cargo test --locked --offline -p goodfetch-confinement --test it
+      - name: Check that the deny refused nothing else
+        if: always()
+        run: ci/egress/egress.sh check
 
   windows-x64:
     name: windows-x64

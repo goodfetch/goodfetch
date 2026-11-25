@@ -69,6 +69,9 @@ job = "release-suite.yml#linux-x64"
 job = "release-suite.yml#linux-arm64"
 
 [[deny]]
+job = "release-suite.yml#confinement-22-04"
+
+[[deny]]
 job = "release-suite.yml#windows-x64"
 
 [[outside]]

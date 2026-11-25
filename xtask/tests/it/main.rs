@@ -140,6 +140,7 @@ mod sweep_target;
 mod targets;
 mod telemetry;
 mod test_health;
+mod test_recipe;
 mod test_tools;
 mod tlc;
 mod watchlist;

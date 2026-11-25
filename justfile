@@ -673,16 +673,28 @@ test suite *packages:
     vitest+=(${vitest_files[@]+"${vitest_files[@]}"})
     # Every runner's tests read the suite from GOODFETCH_TEST_SUITE, and find
     # the commit's executables through the test tool manifest (ADRs 0062 and
-    # 0094): those the workspace has, built here with the tests' profile.
+    # 0094): those the workspace has, built here with the tests' profile. The
+    # Quick suite builds none and leaves GOODFETCH_TEST_TOOLS unset, a stale
+    # path from the shell included: its tests run in process (nextest's
+    # `quick` profile, Vitest's unit project, pytest outside
+    # tests/integration) and none runs a tool, while the build of the seven
+    # tools rebuilt every crate above the touched one and linked about 1.3 GB
+    # of executables on each run, most of a `just test quick`'s time (the
+    # implementation audit of 2026-11-25, measure 1). A quick test that asks
+    # for one fails at once, naming `just test` (`tools()`).
     # Each Rust Journey variant writes its result document, `<id>@<surface>.json`,
     # into target/result-documents/ (ADR 0063).
     export GOODFETCH_TEST_SUITE="{{ suite }}"
-    {{ just_executable() }} _test-tools ${GOODFETCH_TEST_ENGINE:+--engine "$GOODFETCH_TEST_ENGINE"}
-    export GOODFETCH_TEST_TOOLS="$PWD/target/test-tools.json"
-    export GOODFETCH_TEST_RESULT_DOCUMENTS="$PWD/target/result-documents"
-    if [[ -n "${GOODFETCH_TEST_ENGINE:-}" ]]; then
-      echo "Engine: $GOODFETCH_TEST_ENGINE, for both Products"
+    if [[ "{{ suite }}" == quick ]]; then
+      unset GOODFETCH_TEST_TOOLS
+    else
+      {{ just_executable() }} _test-tools ${GOODFETCH_TEST_ENGINE:+--engine "$GOODFETCH_TEST_ENGINE"}
+      export GOODFETCH_TEST_TOOLS="$PWD/target/test-tools.json"
+      if [[ -n "${GOODFETCH_TEST_ENGINE:-}" ]]; then
+        echo "Engine: $GOODFETCH_TEST_ENGINE, for both Products"
+      fi
     fi
+    export GOODFETCH_TEST_RESULT_DOCUMENTS="$PWD/target/result-documents"
     select_nextest=() select_vitest=() select_playwright=() select_pytest=()
     vitest_runs=$vitest_given playwright_runs=$playwright_given
     $typescript || vitest_runs=false playwright_runs=false

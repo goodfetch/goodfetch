@@ -13,12 +13,15 @@
 //!    (none for a nightly, ADR 0030);
 //! 3. npm: the Collie client package, then each Product's platform packages
 //!    before its root package (ADR 0090);
-//! 4. the tag, only after both Products' npm packages (ADR 0094);
+//! 4. the tag, only after both Products' npm packages (ADR 0094): `held`
+//!    while one of them is not out;
 //! 5. PyPI: the client's and each Product's wheels (none for a nightly,
 //!    ADR 0057), with a warning when a Product's project passes 70% of the
 //!    storage limit `ci/pypi-quota.toml` records for it (ADRs 0057, 0094);
 //! 6. the GitHub Release's publishing, which makes it immutable, once both
-//!    Products' files are on it (ADR 0094).
+//!    Products' files are on it (ADR 0094): `held` while any other step of
+//!    either Product is left, so a failed step of one Product holds both,
+//!    and the re-run that finishes it lets the publishing go.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
@@ -135,6 +138,20 @@ impl fmt::Display for PackageState {
     }
 }
 
+impl Step {
+    /// Whether its registry already has it: a later step that waits on it
+    /// may go.
+    fn done(&self) -> bool {
+        match self {
+            Self::Package { state, .. } => *state == PackageState::Published,
+            Self::GitHub { state, .. } => !matches!(
+                state,
+                GitHubState::Create | GitHubState::Push | GitHubState::Publish | GitHubState::Held
+            ),
+        }
+    }
+}
+
 #[derive(Clone, Copy)]
 enum GitHubState {
     /// No GitHub Release of the version yet.
@@ -145,6 +162,10 @@ enum GitHubState {
     Pushed,
     Publish,
     Published,
+    /// Waits on a step of either Product that is not out yet: the tag on
+    /// both Products' npm packages, the GitHub Release's publishing on
+    /// every other step (ADR 0094).
+    Held,
 }
 
 impl fmt::Display for GitHubState {
@@ -156,6 +177,7 @@ impl fmt::Display for GitHubState {
             Self::Pushed => "pushed",
             Self::Publish => "publish",
             Self::Published => "published",
+            Self::Held => "held",
         })
     }
 }
@@ -207,12 +229,26 @@ pub(crate) fn run(root: &Path, arguments: &Arguments, token: Option<&str>) -> Re
     let tagged = api
         .find::<serde_json::Value>(&format!("/repos/{repository}/git/ref/tags/{tag}"))?
         .is_some();
+    let npm_out = steps
+        .iter()
+        .filter(|step| {
+            matches!(
+                step,
+                Step::Package {
+                    registry: "npm",
+                    ..
+                }
+            )
+        })
+        .all(Step::done);
     steps.push(Step::GitHub {
         name: format!("tag {tag}"),
         state: if tagged {
             GitHubState::Pushed
-        } else {
+        } else if npm_out {
             GitHubState::Push
+        } else {
+            GitHubState::Held
         },
     });
     let mut notes = Vec::new();
@@ -221,11 +257,13 @@ pub(crate) fn run(root: &Path, arguments: &Arguments, token: Option<&str>) -> Re
         steps.extend(pypi);
         notes = warnings;
     }
+    let rest_out = steps.iter().all(Step::done);
     steps.push(Step::GitHub {
         name: format!("release {tag}"),
         state: match release {
             Some(release) if !release.draft => GitHubState::Published,
-            _ => GitHubState::Publish,
+            _ if rest_out => GitHubState::Publish,
+            _ => GitHubState::Held,
         },
     });
 

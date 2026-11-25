@@ -344,12 +344,113 @@ fn plan_skips_each_step_a_partial_publish_finished() {
         ("npm @goodfetch/collie-win32-x64 1.4.0", "published"),
         ("npm @goodfetch/collie 1.4.0", "publish"),
         ("npm @goodfetch/foxhound-darwin-arm64 1.4.0", "publish"),
-        ("github tag v1.4.0", "push"),
+        ("github tag v1.4.0", "held"),
         ("pypi goodfetch-collie 1.4.0", "publish"),
-        ("github release v1.4.0", "publish"),
+        ("github release v1.4.0", "held"),
     ] {
         assert_eq!(states.get(step), Some(&state), "{step}\n{}", outcome.stdout);
     }
+}
+
+/// Every step of both Products out but `left`, whose registry still lacks
+/// it.
+fn published_but(left: &str) -> Published {
+    let mut published = Published::previous_release();
+    published.release = Some(true);
+    for name in [
+        "goodfetch-collie",
+        "goodfetch-collie-client",
+        "goodfetch-foxhound",
+    ] {
+        published.crate_out(name, "1.4.0");
+    }
+    for name in npm_packages() {
+        published.npm_out(&name, "1.4.0");
+    }
+    for project in PYPI_PROJECTS {
+        published.pypi_out(project, "1.4.0", vec![GIB]);
+    }
+    published.tag = true;
+    match left.split_once(' ') {
+        Some(("npm", name)) => {
+            published
+                .npm
+                .get_mut(name)
+                .unwrap()
+                .retain(|v| v != "1.4.0");
+            published.tag = false;
+        }
+        Some(("pypi", name)) => {
+            published
+                .pypi
+                .get_mut(name)
+                .unwrap()
+                .retain(|(v, _)| v != "1.4.0");
+        }
+        Some(("crates.io", name)) => {
+            published
+                .crates
+                .get_mut(name)
+                .unwrap()
+                .retain(|v| v != "1.4.0");
+        }
+        Some(("github", "tag")) => published.tag = false,
+        _ => unreachable!("{left}"),
+    }
+    published
+}
+
+/// A step of either Product left holds what waits on both: the tag waits
+/// on every npm package of both Products, the GitHub Release's publishing
+/// on every other step (ADR 0094).
+#[rstest]
+#[case::foxhound_npm_root("npm @goodfetch/foxhound", "held", "held")]
+#[case::collie_platform_package("npm @goodfetch/collie-linux-arm64", "held", "held")]
+#[case::collie_wheel("pypi goodfetch-collie", "pushed", "held")]
+#[case::foxhound_crate("crates.io goodfetch-foxhound", "pushed", "held")]
+#[case::tag_alone("github tag", "push", "held")]
+fn plan_holds_what_waits_on_a_step_either_product_left(
+    #[case] left: &str,
+    #[case] tag: &str,
+    #[case] release: &str,
+) {
+    let workspace = prepared("1.4.0");
+    let registries = Registries::serving(&published_but(left));
+
+    let outcome = plan(&workspace, "1.4.0", &registries);
+
+    assert_eq!(outcome.code, 0, "{}", outcome.stderr);
+    let states = states(&outcome.stdout);
+    assert_eq!(
+        states.get("github tag v1.4.0"),
+        Some(&tag),
+        "{}",
+        outcome.stdout
+    );
+    assert_eq!(
+        states.get("github release v1.4.0"),
+        Some(&release),
+        "{}",
+        outcome.stdout
+    );
+}
+
+#[test]
+fn plan_publishes_the_release_once_every_other_step_is_out() {
+    let workspace = prepared("1.4.0");
+    let mut published = published_but("github tag");
+    published.tag = true;
+    let registries = Registries::serving(&published);
+
+    let outcome = plan(&workspace, "1.4.0", &registries);
+
+    assert_eq!(outcome.code, 0, "{}", outcome.stderr);
+    assert_eq!(
+        states(&outcome.stdout).get("github release v1.4.0"),
+        Some(&"publish"),
+        "{}",
+        outcome.stdout
+    );
 }
 
 #[test]

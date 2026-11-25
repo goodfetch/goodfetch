@@ -123,12 +123,12 @@ use self::document::{Document, InFlight, UrlWaiter};
 use self::latest::Latest;
 use self::requests::Requests;
 use self::waiters::{Armed, answer_armed};
+use crate::cdp::driver::cdp_response::{cut_by, declared_length};
+use crate::cdp::driver::{PageDriver, browser_id, hop_id};
 use crate::cdp::{
     CdpPage, FollowedEvent, FollowedEvents, LoadingFailed, NetError, RequestSent, SocketFrame,
     TargetSession,
 };
-use crate::driver::cdp_response::{cut_by, declared_length};
-use crate::driver::{PageDriver, browser_id, hop_id};
 use crate::errors::events_lost;
 use crate::page_children::{Child, ChildKind, OnChild};
 use crate::page_value::{Kept, ObservedResponse, Observer};

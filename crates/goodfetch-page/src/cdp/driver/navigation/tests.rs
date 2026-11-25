@@ -8,8 +8,8 @@ use goodfetch_test_support::runtime;
 use serde_json::{Value, json};
 
 use super::{Arrived, Ended, Expected, Followed, Navigation};
-use crate::driver::page_reader::PageReader;
-use crate::driver::replay::{self, SESSION};
+use crate::cdp::driver::page_reader::PageReader;
+use crate::cdp::driver::replay::{self, SESSION};
 
 /// The page's main frame.
 const FRAME: &str = "main";

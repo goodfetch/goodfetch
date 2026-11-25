@@ -11,8 +11,8 @@ use serde_json::{Value, json};
 use tokio::sync::mpsc::error::TryRecvError;
 
 use super::{Listening, PageEvents, Refusals, listener_fell_behind};
-use crate::driver::PageDriver;
-use crate::driver::replay::{answer, event};
+use crate::cdp::driver::PageDriver;
+use crate::cdp::driver::replay::{answer, event};
 use crate::live_run::{LiveRun, played_page};
 
 /// The events of the page `page_id`, which `driver` drives for the test's

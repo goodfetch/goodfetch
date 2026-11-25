@@ -49,14 +49,14 @@ use goodfetch_protocol::page::{
     PageResponse, RedirectLimit, TOO_MANY_REDIRECTS, TooManyRedirectsDetails,
 };
 
+use crate::cdp::driver::PageDriver;
+use crate::cdp::driver::cdp_response::{
+    bodiless, coded, cut_after_sent_on, cut_though_finished, declared_length, encoded_bytes,
+    redirects, whole_body,
+};
 use crate::cdp::{
     AuthChallenge, CdpPage, ContinueRequest, Header, HopEvent, HopEvents, NetError, NetworkId,
     NotTaken, PausedId, PausedRequest,
-};
-use crate::driver::PageDriver;
-use crate::driver::cdp_response::{
-    bodiless, coded, cut_after_sent_on, cut_though_finished, declared_length, encoded_bytes,
-    redirects, whole_body,
 };
 use crate::errors::{gate_refused, network_error};
 use crate::interception::{EngineRequest, EngineRequests, Overrides, authentication};

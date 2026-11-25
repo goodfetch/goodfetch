@@ -42,10 +42,10 @@ use super::{
     OpenPage, Session, Sessions, State, action_timeout, events_run, interception_run, wait_deadline,
 };
 use crate::cdp::CdpPage;
+use crate::cdp::driver::{OnPopup, PageDriver, PopupHandler, SessionEgress};
 use crate::consent;
 use crate::consent_walls::Walls;
 use crate::dialogs::PageDialogs;
-use crate::driver::{OnPopup, PageDriver, PopupHandler, SessionEgress};
 use crate::errors::page_closed;
 use crate::gesture_order::{GestureOrder, PointerAsks};
 use crate::hiding::{Hiding, PageHiding, Sheets};

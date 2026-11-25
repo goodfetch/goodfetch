@@ -47,7 +47,7 @@ use serde::Deserialize;
 
 use self::check::{CHECK, Seen, Step, Target};
 use crate::cdp::CdpPage;
-use crate::driver::PageDriver;
+use crate::cdp::driver::PageDriver;
 use crate::errors::Unanswered;
 use crate::hiding::Hidden;
 use crate::page_owner::PageOwner;

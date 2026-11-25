@@ -35,7 +35,7 @@ use super::lifecycle::{
     self, Attributes, Owner, PageEffect, PageEvent, PageState, SessionEffect, SessionEvent,
     SessionState,
 };
-use crate::driver::ENDING_KNOWN_WITHIN;
+use crate::cdp::driver::ENDING_KNOWN_WITHIN;
 use crate::errors::{
     browser_crashed, cancelled, events_lost, invalid_transition, page_closed, page_memory_exceeded,
     renderer_crashed,

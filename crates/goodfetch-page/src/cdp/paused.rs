@@ -15,8 +15,8 @@ use goodfetch_engine::mask::{Masks, Scope};
 use goodfetch_protocol::page::route::AbortReason;
 
 use super::CdpPage;
+use super::driver::cdp_response;
 use super::requests::{ContinueRequest, Fulfill, Header, PausedId, RequestHeaders, kind_of};
-use crate::driver::cdp_response;
 
 /// The browser's ID of a request's hop, as the page's events and its
 /// responses name it.

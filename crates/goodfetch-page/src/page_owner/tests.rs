@@ -13,9 +13,9 @@ use serde_json::{Value, json};
 
 use super::{BrowserPagePart, PageOwner, PageParts, RequestPart};
 use crate::cdp::CdpPage;
+use crate::cdp::driver::PageDriver;
 use crate::consent_walls::Walls;
 use crate::dialogs::Dialogs;
-use crate::driver::PageDriver;
 use crate::gesture_order::GestureOrder;
 use crate::hiding::{Hiding, Sheets};
 use crate::init_scripts::InitScripts;

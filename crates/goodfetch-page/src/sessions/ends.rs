@@ -28,7 +28,7 @@ use tracing::Instrument as _;
 use super::life::Ending;
 use super::lifecycle::{PageEffect, SessionEffect, SessionEvent};
 use super::{OpenPage, PageLife, Session, Sessions};
-use crate::driver::{Lost, PageDriver};
+use crate::cdp::driver::{Lost, PageDriver};
 use crate::errors::{run_stopped, session_panicked};
 use crate::pool::BrowserLoss;
 

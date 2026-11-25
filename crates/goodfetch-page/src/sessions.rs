@@ -104,10 +104,10 @@ use self::lifecycle::{
 };
 use crate::access_mode::{self, BrowserFamily, SessionIdentityPlan, SessionSettings, SigningPlan};
 use crate::borrowed::{CdpUrl, resolve_of};
+use crate::cdp::driver::{PageDriver, SessionEgress, Visibility, counted_as_opening};
 use crate::consent::Consent;
 use crate::dialogs::Dialogs;
 use crate::document_request::{DocumentRequest, Unread};
-use crate::driver::{PageDriver, SessionEgress, Visibility, counted_as_opening};
 use crate::egress_relay::{self, EgressRelay};
 pub(crate) use crate::errors::page_closed;
 use crate::errors::{cancelled, invalid_transition};

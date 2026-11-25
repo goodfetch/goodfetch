@@ -67,7 +67,7 @@ use tokio_util::sync::CancellationToken;
 use tracing::Instrument as _;
 
 use crate::borrowed::CdpUrl;
-use crate::driver::{
+use crate::cdp::driver::{
     Behind, BorrowedBrowser, Carried, LocalBrowser, Lost, Origins, PageDriver, SessionDriver,
     SessionEgress, Visibility,
 };

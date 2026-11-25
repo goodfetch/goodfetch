@@ -101,9 +101,9 @@ use tokio::runtime::Runtime;
 use tokio::sync::oneshot;
 
 use crate::cdp::CdpPage;
+use crate::cdp::driver::PageDriver;
+use crate::cdp::driver::replay::{self, Played, SESSION};
 use crate::dialogs::{Answer, Dialogs};
-use crate::driver::PageDriver;
-use crate::driver::replay::{self, Played, SESSION};
 use crate::gesture_order::{GestureOrder, GestureTurn, LentPointer, PointerAsks};
 use crate::init_scripts::Registered;
 use crate::interception::tests::{hold_page, session_side};

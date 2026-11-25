@@ -63,6 +63,7 @@
 mod children;
 mod consent;
 mod dialogs;
+pub(crate) mod driver;
 mod followed;
 mod functions;
 mod hiding;
@@ -82,6 +83,7 @@ pub(crate) use goodfetch_cdp::{NetError, SessionId as TargetSession};
 pub(crate) use self::children::{AttachedChild, ChildEvent, ChildEvents, ChildKind};
 pub(crate) use self::consent::{ConsentEvent, ConsentEvents};
 pub(crate) use self::dialogs::{DialogEvent, DialogEvents, OpenedDialog};
+use self::driver::{PageDriver, pointer_click};
 pub(crate) use self::followed::{
     FollowedEvent, FollowedEvents, FrameNavigated, RequestSent, SocketFrame,
 };
@@ -95,7 +97,6 @@ pub(crate) use self::paused::{
 };
 pub(crate) use self::reads::{Evaluated, SerializedDocument};
 pub(crate) use self::requests::{ContinueRequest, Fulfill, Header, PausedId, RequestHeaders};
-use crate::driver::{PageDriver, pointer_click};
 use crate::errors::Call;
 
 /// One page of a browser as the page's logic sees the protocol: the

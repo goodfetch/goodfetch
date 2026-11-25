@@ -67,9 +67,9 @@ use tokio::sync::{Mutex, OnceCell};
 
 use self::frames::{Frame, Frames};
 use self::messages::{ANSWER, Action, BINDING, DETECTING, Message, Outcome, RESTART, START};
+use crate::cdp::driver::{GUARD_WORLD, PageDriver};
 use crate::cdp::{CdpPage, ConsentEvent, ConsentEvents, NotTaken, TargetSession};
 use crate::consent_walls::{Approval, Wall, Walls};
-use crate::driver::{GUARD_WORLD, PageDriver};
 use crate::gesture_order::PointerAsks;
 use crate::guard::{self, Element, Readiness};
 use crate::hiding::{Part, Sheets};

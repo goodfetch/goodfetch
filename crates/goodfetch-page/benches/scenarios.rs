@@ -87,7 +87,7 @@ pub(crate) mod steps;
     reason = "the scenario's relay terminates, so it never asks whether a tunnel's ClientHello can be mirrored whole"
 )]
 pub(crate) mod terminate;
-#[path = "../src/driver/world.rs"]
+#[path = "../src/cdp/driver/world.rs"]
 mod world;
 
 use std::sync::Arc;

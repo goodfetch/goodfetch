@@ -178,7 +178,7 @@ impl Pages {
         page_id: &PageId,
         page: &OpenPage,
         again: Destination<'_>,
-        navigated: crate::driver::Arrived,
+        navigated: crate::cdp::driver::Arrived,
         events: &Events,
     ) -> Result<Option<(PageResponse, Result<(), CallError>, Option<Block>)>, CallError> {
         let Some(response) = arrived(page_id, navigated, events).await else {

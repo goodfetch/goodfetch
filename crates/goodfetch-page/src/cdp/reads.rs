@@ -11,9 +11,9 @@ use goodfetch_engine::CallError;
 use serde_json::Value;
 
 use super::CdpPage;
+use super::driver::{GUARD_WORLD, world};
 use super::functions::{evaluation, page_function_world};
 use super::paused::NotTaken;
-use crate::driver::{GUARD_WORLD, world};
 use crate::errors::Call;
 
 /// What a page function's evaluation answered, which `page_functions`

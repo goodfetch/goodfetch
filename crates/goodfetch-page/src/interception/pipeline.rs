@@ -55,11 +55,11 @@ use super::lookups::Lookups;
 use super::routes::Route;
 use super::steps::{self, Blocking, Overrides, Stopped, entries};
 use super::{PageState, RunPowers, lock};
+use crate::cdp::driver::{PageDriver, cdp_response};
 use crate::cdp::{
     AuthChallenge, CdpPage, ContinueRequest, Fulfill, Header, InterceptionEvent,
     InterceptionEvents, LoadingFailed, NetError, NetworkId, PausedId, PausedRequest,
 };
-use crate::driver::{PageDriver, cdp_response};
 use crate::errors::{gate_failure, gate_refused};
 use crate::page_events::Refusals;
 use crate::page_value::{

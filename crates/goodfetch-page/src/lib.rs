@@ -1,6 +1,6 @@
 //! Collie's pages, Sessions and the browsers behind them (spec #577): the
-//! driver, which drives Chromium-family browsers over their debugging pipe
-//! through the CDP client, the Session-level driver every browser behind a
+//! CDP module, whose driver drives Chromium-family browsers over their
+//! debugging pipe through the CDP client, the Session-level driver every browser behind a
 //! Session shares (ADR 0129), and the page API's operation handlers, which
 //! the composition value [`contribution`] hands to the engine (ADR 0087),
 //! and the pure functions both Products' code calls: the engine's one URL
@@ -23,7 +23,6 @@ mod consent;
 mod consent_walls;
 mod dialogs;
 pub mod document_request;
-mod driver;
 mod egress_relay;
 mod errors;
 pub mod extractor;

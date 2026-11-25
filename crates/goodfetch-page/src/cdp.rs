@@ -60,7 +60,9 @@
 //! | [`CdpPage::child_events`], [`CdpPage::attach_children_opening`] and [`CdpPage::attach_children`]: the page's out-of-process frames and dedicated workers, and each frame's own, attached before they run and told when they go | `Target.setAutoAttach` with `waitForDebuggerOnStart` and a filter, `Target.attachedToTarget` and `detachedFromTarget` | `browsingContext.contextCreated` and `contextDestroyed`, `script.realmCreated` and `realmDestroyed`; a child held before it runs is Chromium only | a frame's `attached` and `detached`, and `worker`; a child held before it runs is Chromium only |
 //! | [`CdpPage::let_run`]: a child held before it runs let run | `Runtime.runIfWaitingForDebugger` | none: Chromium only | none: Chromium only |
 
+pub(crate) mod borrowed;
 mod children;
+mod command_log;
 mod consent;
 mod dialogs;
 pub(crate) mod driver;
@@ -70,6 +72,7 @@ mod functions;
 mod hiding;
 mod hop;
 mod init_scripts;
+pub(crate) mod launch;
 mod navigation;
 mod paused;
 mod reads;

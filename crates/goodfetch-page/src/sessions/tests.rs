@@ -54,10 +54,10 @@ use tokio::sync::watch;
 
 use super::life::{Ending, PageLife};
 use super::{Opener, Sessions, held_browser, set_outside_code};
-use crate::borrowed::CdpUrl;
+use crate::cdp::borrowed::CdpUrl;
+use crate::cdp::launch::Launcher;
 use crate::dialogs::Dialogs;
 use crate::interception::{HeldBrowser, Interception};
-use crate::launch::Launcher;
 use crate::page_value::{
     Admission, DocumentJudgment, DocumentResponse, HeldPlace, LeaseCheck, LeaseEnded, Navigation,
     NavigationGate, PageValue, Permit, ProgramPages, Sending,

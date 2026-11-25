@@ -101,6 +101,7 @@ use serde_json::Value;
 
 use crate::blocks::{Block, BlockClassifier, NoBlocks};
 use crate::browser_fetch;
+use crate::cdp::launch::Launcher;
 use crate::cdp::{CdpPage, SerializedDocument};
 use crate::dialogs::{self, Dialogs};
 use crate::document_request::{DocumentRequest, Unread};
@@ -111,7 +112,6 @@ use crate::init_scripts::Pending;
 use crate::interception::{
     Answer, ConsentHandling, Fulfillment, Interception, Overrides, Reply, Scope,
 };
-use crate::launch::Launcher;
 use crate::page_events::{PageEvents, Requested};
 use crate::page_functions::{self, Injection, Matches};
 use crate::page_navigation::{self, Destination};

@@ -103,8 +103,9 @@ use self::lifecycle::{
     Attributes, Owner, PageEffect, SessionEffect, SessionEvent, SessionState, Source,
 };
 use crate::access_mode::{self, BrowserFamily, SessionIdentityPlan, SessionSettings, SigningPlan};
-use crate::borrowed::{CdpUrl, resolve_of};
+use crate::cdp::borrowed::{CdpUrl, resolve_of};
 use crate::cdp::driver::{PageDriver, SessionEgress, Visibility, counted_as_opening};
+use crate::cdp::launch::Launcher;
 use crate::consent::Consent;
 use crate::dialogs::Dialogs;
 use crate::document_request::{DocumentRequest, Unread};
@@ -113,7 +114,6 @@ pub(crate) use crate::errors::page_closed;
 use crate::errors::{cancelled, invalid_transition};
 use crate::hiding::SessionHiding;
 use crate::interception::{HeldBrowser, Interception, Lookups, RunPowers, SessionInterception};
-use crate::launch::Launcher;
 use crate::page_events;
 use crate::page_functions::Injections;
 use crate::page_owner::{PageOwner, PageOwners};

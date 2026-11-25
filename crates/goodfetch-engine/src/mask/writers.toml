@@ -278,12 +278,12 @@ count = 1
 how = "holds no value: downloaded Clean-up rules"
 
 [[writer]]
-path = "crates/goodfetch-page/src/launch.rs"
+path = "crates/goodfetch-page/src/cdp/launch.rs"
 count = 1
 how = "holds no value: the browser profile's starting preferences"
 
 [[writer]]
-path = "crates/goodfetch-page/src/launch/named_pipes.rs"
+path = "crates/goodfetch-page/src/cdp/launch/named_pipes.rs"
 count = 1
 how = "holds no value: the browser's ends of its debugging pipe on Windows, which the engine opens only to hand them to the browser and never writes through"
 

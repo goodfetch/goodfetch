@@ -85,12 +85,12 @@ use self::permit_waits::PermitWaits;
 pub(crate) use self::popups::{OnPopup, PopupHandler};
 pub(crate) use self::service_workers::{OnWorker, ServiceWorkers};
 pub(crate) use self::targets::pointer_click;
+use super::borrowed::{self, CdpUrl};
 use super::failures::call_error;
-use crate::borrowed::CdpUrl;
+use super::launch::{Launcher, launch};
 use crate::egress_relay::EgressRelay;
 use crate::egress_relay::authority::Authority;
 use crate::errors::Call;
-use crate::launch::{Launcher, launch};
 use crate::page_value::{self, PageValue};
 use crate::proxy::{ProxyPermit, SessionProxy};
 use identity::Identity;
@@ -620,8 +620,7 @@ impl Connect for BorrowedBrowser {
         self.connected
             .get_or_try_init(|| async {
                 let tasks = identity(&self.run).starting_on(&self.owner);
-                let connection =
-                    crate::borrowed::connect((&self.run, &tasks), &self.cdp_url).await?;
+                let connection = borrowed::connect((&self.run, &tasks), &self.cdp_url).await?;
                 let address = self.cdp_url.address();
                 let browser = Browser {
                     connection,

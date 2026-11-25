@@ -15,7 +15,6 @@
 
 mod access_mode;
 pub mod blocks;
-mod borrowed;
 mod browser_fetch;
 mod cdp;
 mod clean_up_versions;
@@ -33,7 +32,6 @@ mod hiding;
 mod init_scripts;
 mod interception;
 pub mod kept_tree;
-mod launch;
 #[cfg(test)]
 mod live_run;
 pub mod noindex;
@@ -58,8 +56,8 @@ mod trace;
 pub mod url_pattern;
 mod version_check;
 
+pub use cdp::launch::{Launcher, Scripted, ScriptedBrowsers};
 pub use clean_up_versions::manifest_file;
-pub use launch::{Launcher, Scripted, ScriptedBrowsers};
 pub use pages::{contribution, contribution_with};
 /// The proxy-or-site rule (spec #577): who answered a request sent through
 /// a proxy, which Foxhound's fetch tiers apply to their own answers too

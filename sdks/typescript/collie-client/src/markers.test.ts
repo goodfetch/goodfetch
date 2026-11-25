@@ -35,21 +35,25 @@ async function emitted(act: () => void): Promise<[string, string][]> {
     .map((warning) => [warning.name, warning.message]);
 }
 
-test("a deprecated entry warns once per process through process.emitWarning", async () => {
-  const { warnDeprecated } = await freshMarkers();
-  const warnings = await emitted(() => {
-    warnDeprecated("fixture.old", "Since 0.1: use `fixture.new`.");
-    warnDeprecated("fixture.old", "Since 0.1: use `fixture.new`.");
-  });
+test(
+  "a deprecated entry warns once per process through process.emitWarning",
+  { tags: ["story:1-31"] },
+  async () => {
+    const { warnDeprecated } = await freshMarkers();
+    const warnings = await emitted(() => {
+      warnDeprecated("fixture.old", "Since 0.1: use `fixture.new`.");
+      warnDeprecated("fixture.old", "Since 0.1: use `fixture.new`.");
+    });
 
-  expect(warnings).toEqual([
-    ["DeprecationWarning", "`fixture.old` is deprecated. Since 0.1: use `fixture.new`."],
-  ]);
-});
+    expect(warnings).toEqual([
+      ["DeprecationWarning", "`fixture.old` is deprecated. Since 0.1: use `fixture.new`."],
+    ]);
+  },
+);
 
 test(
   "an Experimental entry warns once per process through process.emitWarning",
-  { tags: ["story:11-184"] },
+  { tags: ["story:11-184", "story:1-32"] },
   async () => {
     const { warnExperimental } = await freshMarkers();
     const warnings = await emitted(() => {

@@ -10,6 +10,7 @@ fn count(log: &[u8], text: &str) -> usize {
     String::from_utf8_lossy(log).matches(text).count()
 }
 
+/// Covers: story:1-31
 #[test]
 fn a_deprecated_entry_warns_once_per_process_through_tracing() {
     let ((), log) = logged(|| {
@@ -29,7 +30,7 @@ fn a_deprecated_entry_warns_once_per_process_through_tracing() {
     assert!(shown.contains("WARN"), "{shown}");
 }
 
-/// Covers: story:11-184
+/// Covers: story:11-184, story:1-32
 #[test]
 fn an_experimental_entry_warns_once_per_process_through_tracing() {
     let ((), log) = logged(|| {

@@ -119,7 +119,7 @@ def shown(program: str) -> list[str]:
     return [line for line in ran.stderr.splitlines() if "Warning: " in line]
 
 
-@pytest.mark.covers("story:11-184")
+@pytest.mark.covers("story:11-184", "story:1-31", "story:1-32")
 def test_a_deprecated_experimental_member_warns_once_of_each_per_process() -> None:
     """Two calls show one `DeprecationWarning` and one `ExperimentalWarning`."""
     lines = shown(SAMPLE_ECHO_TWICE)

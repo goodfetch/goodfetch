@@ -130,4 +130,5 @@ mod tlc;
 mod watchlist;
 mod wording;
 mod workflow_policy;
+mod workflow_secrets;
 mod workspace_hack;

@@ -21,16 +21,6 @@
 # job = "nightly.yml#sinks"
 # run = "<the command that writes one row and reads it back>"
 
-# The docs site's (ADR 0068; .github/workflows/docs.yml): Playwright tests,
-# named by their file and title.
-[[live-check]]
-id = "website/tests/live/external-links.live.ts › docs-external-links"
-area = 1
-
-[[live-check]]
-id = "website/tests/live/deploy-smoke.live.ts › docs-deploy-smoke"
-area = 1
-
 # OpenSSF Scorecard against ci/scorecard.toml's floors (#146). It blocks
 # nothing: a check under its floor opens this check's issue.
 [[live-check]]

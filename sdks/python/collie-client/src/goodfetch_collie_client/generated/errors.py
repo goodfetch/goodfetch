@@ -11,7 +11,7 @@ from typing import Final, Literal, Unpack
 
 from goodfetch_collie_client.caller import details_of
 from goodfetch_collie_client.goodfetch_error import ErrorClass, ErrorFields, GoodfetchError, retry_after_duration_of, retry_after_of
-from .models import AddressFamilyUnavailableDetails, ArtifactDownloadFailedDetails, ArtifactUnavailableOfflineDetails, BlockedDetails, BodyNotFoundDetails, BodyUnavailableDetails, BrowserLaunchFailedDetails, BrowserNeedsGuiSessionDetails, BrowserNotInstalledDetails, BrowserSandboxUnavailableDetails, CallCancelledDetails, CapabilityUnavailableDetails, CdpUrlNotAllowedDetails, CdpUrlNotBrowserDetails, CdpUrlUnauthorizedDetails, CdpUrlUnreachableDetails, CertificateChangedDetails, CertificateInvalidDetails, CheckpointBehindDetails, ConnectionOverloadedDetails, DaemonDrainingDetails, DaemonUnreachableDetails, DetachUnsupportedDetails, DialogAlreadyHandledDetails, EdgeHandlersUnsupportedDetails, EgressRefusedDetails, EngineExitedDetails, EnginePanickedDetails, ExecutableBlockedBySmartAppControlDetails, FileWriteFailedDetails, FormatVersionUnsupportedDetails, HeaderValueInvalidDetails, HookFailedDetails, LimitNotUnderstoodDetails, LimitRaiseRefusedDetails, ListenerEventsLostDetails, LocalAddressUnavailableDetails, LoggedOutDetails, ModelUnavailableDetails, NameLookupFailedDetails, NameNotResolvedDetails, NavigationFailedDetails, NavigationInterruptedDetails, NotADaemonDetails, NotInProductDetails, NotVerifiedDetails, PageCheckFailedDetails, PageCrashedDetails, PageFunctionFailedDetails, PageHandlerFailedDetails, PageMemoryExceededDetails, PageNavigatedDuringCallDetails, PageValueInvalidDetails, PathNotWritableDetails, PathUnsafeDetails, PatternUnsupportedDetails, PersonRequiredDetails, PolicyConflictDetails, ProtocolVersionUnsupportedDetails, ProxyAuthFailedDetails, ProxyProviderUnavailableDetails, ProxyRelayUnavailableDetails, ProxyUnavailableDetails, ReachedLimit, ResourcesExhaustedDetails, ResponseLimitExceededDetails, ResponseTruncatedDetails, RouteAlreadyHandledDetails, RunConflictDetails, RunDetails, RunIdInvalidDetails, RunInterruptedDetails, RunKeyMismatchDetails, RunStateFilesystemUnsupportedDetails, RunTargetUnbuiltDetails, SchemaValidatorFailedDetails, SecretDomainNotAllowedDetails, SecretInputRefusedDetails, SecretUnavailableDetails, SecretUnboundDetails, SessionBoundToMachineDetails, SessionExportOpenFailedDetails, SettingInvalidDetails, SettingLockedDetails, SettingNotApplicableDetails, SettingUnknownDetails, SitePreferencesRefusedDetails, TargetNotUniqueDetails, TooManyCallsDetails, TooManyRedirectsDetails, ValueInvalidDetails
+from .models import AddressFamilyUnavailableDetails, ArtifactDownloadFailedDetails, ArtifactUnavailableOfflineDetails, BlockedDetails, BodyNotFoundDetails, BodyUnavailableDetails, BrowserLaunchFailedDetails, BrowserNeedsGuiSessionDetails, BrowserNotInstalledDetails, BrowserSandboxUnavailableDetails, CallCancelledDetails, CapabilityUnavailableDetails, CdpUrlNotAllowedDetails, CdpUrlNotBrowserDetails, CdpUrlUnauthorizedDetails, CdpUrlUnreachableDetails, CertificateChangedDetails, CertificateInvalidDetails, CheckpointBehindDetails, ConnectionOverloadedDetails, DaemonDrainingDetails, DaemonUnreachableDetails, DetachUnsupportedDetails, DialogAlreadyHandledDetails, EdgeHandlersUnsupportedDetails, EgressRefusedDetails, EngineExitedDetails, EnginePanickedDetails, ExecutableBlockedBySmartAppControlDetails, FileWriteFailedDetails, FormatVersionUnsupportedDetails, HeaderValueInvalidDetails, HookFailedDetails, LimitNotUnderstoodDetails, LimitRaiseRefusedDetails, ListenerEventsLostDetails, LocalAddressUnavailableDetails, LoggedOutDetails, ModelUnavailableDetails, NameLookupFailedDetails, NameNotResolvedDetails, NavigationFailedDetails, NavigationInterruptedDetails, NotADaemonDetails, NotInProductDetails, NotVerifiedDetails, PageCheckFailedDetails, PageCrashedDetails, PageFunctionFailedDetails, PageHandlerFailedDetails, PageMemoryExceededDetails, PageNavigatedDuringCallDetails, PageValueInvalidDetails, PathNotWritableDetails, PathUnsafeDetails, PatternUnsupportedDetails, PersonRequiredDetails, PolicyConflictDetails, ProtocolVersionUnsupportedDetails, ProxyAuthFailedDetails, ProxyProviderUnavailableDetails, ProxyRelayUnavailableDetails, ProxyUnavailableDetails, ReachedLimit, RecipeInvalidDetails, ResourcesExhaustedDetails, ResponseLimitExceededDetails, ResponseTruncatedDetails, RouteAlreadyHandledDetails, RunConflictDetails, RunDetails, RunIdInvalidDetails, RunInterruptedDetails, RunKeyMismatchDetails, RunStateFilesystemUnsupportedDetails, RunTargetUnbuiltDetails, ScheduleExistsDetails, ScheduleNotFoundDetails, ScheduleTriggerInvalidDetails, SchemaValidatorFailedDetails, SecretDomainNotAllowedDetails, SecretInputRefusedDetails, SecretUnavailableDetails, SecretUnboundDetails, SessionBoundToMachineDetails, SessionExportOpenFailedDetails, SettingInvalidDetails, SettingLockedDetails, SettingNotApplicableDetails, SettingUnknownDetails, SitePreferencesRefusedDetails, TargetNotUniqueDetails, TooManyCallsDetails, TooManyRedirectsDetails, ValueInvalidDetails
 
 ErrorGroup = Literal["program", "refused", "page", "model", "deadline_exceeded", "unavailable", "internal"]
 """The seven groups of Error codes, named for their remedy."""
@@ -957,6 +957,18 @@ class ProxyUnavailableError(UnavailableError):
         self.typed_details = details_of(ProxyUnavailableDetails, self.details)
 
 
+class RecipeInvalidError(ProgramError):
+    """A Recipe manifest, `goodfetch-recipe.toml`, or its package that is not valid: a manifest that does not parse, lacks a required field or holds an unknown one, names no entry or two, names a program without a runtime or a runtime it does not list, names a `CrawlDeclaration` for Collie, or an entry the package does not hold; or a package holding a symbolic link, or a path with no portable digest: absolute, escaping its root, holding `\\` or `:`, or the same as another in Unicode NFC or but for case. The details name the field or path and the fix."""
+
+    typed_details: RecipeInvalidDetails | None
+    """The code's details, typed; `None` when they lack a field the model requires, as those of an error a program builds without details do."""
+
+    def __init__(self, message: str, **fields: Unpack[ErrorFields]) -> None:
+        """Takes the message the engine rendered, and what it carries."""
+        super().__init__(message, code="recipe_invalid", group="program", retryable=False, **fields)
+        self.typed_details = details_of(RecipeInvalidDetails, self.details)
+
+
 class ReplayNotAllowedError(ProgramError):
     """A Schedule's target sets `cache.mode` to `replay`, whose replayed pages would hide a change from the Baseline. Set `revalidate` or `off` for a scheduled target."""
 
@@ -1183,6 +1195,42 @@ class SampleRefusedError(RefusedError):
     def __init__(self, message: str, **fields: Unpack[ErrorFields]) -> None:
         """Takes the message the engine rendered, and what it carries."""
         super().__init__(message, code="sample_refused", group="refused", retryable=False, **fields)
+
+
+class ScheduleExistsError(ProgramError):
+    """A Schedule has this Schedule ID already: create it under another ID, or omit the ID for a new one. The details name the ID."""
+
+    typed_details: ScheduleExistsDetails | None
+    """The code's details, typed; `None` when they lack a field the model requires, as those of an error a program builds without details do."""
+
+    def __init__(self, message: str, **fields: Unpack[ErrorFields]) -> None:
+        """Takes the message the engine rendered, and what it carries."""
+        super().__init__(message, code="schedule_exists", group="program", retryable=False, **fields)
+        self.typed_details = details_of(ScheduleExistsDetails, self.details)
+
+
+class ScheduleNotFoundError(ProgramError):
+    """No Schedule has this Schedule ID: the Schedule store does not hold it. The details name the ID."""
+
+    typed_details: ScheduleNotFoundDetails | None
+    """The code's details, typed; `None` when they lack a field the model requires, as those of an error a program builds without details do."""
+
+    def __init__(self, message: str, **fields: Unpack[ErrorFields]) -> None:
+        """Takes the message the engine rendered, and what it carries."""
+        super().__init__(message, code="schedule_not_found", group="program", retryable=False, **fields)
+        self.typed_details = details_of(ScheduleNotFoundDetails, self.details)
+
+
+class ScheduleTriggerInvalidError(ProgramError):
+    """The Schedule's trigger does not parse, such as an `every` of 0. The details give the `expression`, the `position` where reading stopped and the `reason`."""
+
+    typed_details: ScheduleTriggerInvalidDetails | None
+    """The code's details, typed; `None` when they lack a field the model requires, as those of an error a program builds without details do."""
+
+    def __init__(self, message: str, **fields: Unpack[ErrorFields]) -> None:
+        """Takes the message the engine rendered, and what it carries."""
+        super().__init__(message, code="schedule_trigger_invalid", group="program", retryable=False, **fields)
+        self.typed_details = details_of(ScheduleTriggerInvalidDetails, self.details)
 
 
 class SchemaValidatorFailedError(ProgramError):
@@ -1507,6 +1555,7 @@ ERROR_CLASSES: Final[Mapping[str, ErrorClass]] = {
     "proxy_provider_unavailable": ProxyProviderUnavailableError,
     "proxy_relay_unavailable": ProxyRelayUnavailableError,
     "proxy_unavailable": ProxyUnavailableError,
+    "recipe_invalid": RecipeInvalidError,
     "replay_not_allowed": ReplayNotAllowedError,
     "resources_exhausted": ResourcesExhaustedError,
     "response_limit_exceeded": ResponseLimitExceededError,
@@ -1527,6 +1576,9 @@ ERROR_CLASSES: Final[Mapping[str, ErrorClass]] = {
     "run_state_unavailable": RunStateUnavailableError,
     "run_target_unbuilt": RunTargetUnbuiltError,
     "sample_refused": SampleRefusedError,
+    "schedule_exists": ScheduleExistsError,
+    "schedule_not_found": ScheduleNotFoundError,
+    "schedule_trigger_invalid": ScheduleTriggerInvalidError,
     "schema_validator_failed": SchemaValidatorFailedError,
     "secret_domain_not_allowed": SecretDomainNotAllowedError,
     "secret_input_refused": SecretInputRefusedError,

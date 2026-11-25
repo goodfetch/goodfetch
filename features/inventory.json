@@ -2281,6 +2281,17 @@
       ]
     },
     {
+      "id": "error:replay_not_allowed",
+      "kind": "error",
+      "area": 6,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "error:resources_exhausted",
       "kind": "error",
       "area": 3,
@@ -3442,6 +3453,17 @@
       "id": "format:recipe-manifest",
       "kind": "format",
       "area": 11,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "format:response-cache",
+      "kind": "format",
+      "area": 6,
       "milestone": null,
       "status": "active",
       "products": [
@@ -8786,6 +8808,39 @@
       "id": "setting:browser_cache.read_only",
       "kind": "setting",
       "area": 3,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "setting:cache.max_age_ceiling",
+      "kind": "setting",
+      "area": 6,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "setting:cache.max_size",
+      "kind": "setting",
+      "area": 6,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "setting:cache.mode",
+      "kind": "setting",
+      "area": 6,
       "milestone": null,
       "status": "active",
       "products": [

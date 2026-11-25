@@ -1296,7 +1296,8 @@ impl Command {
             | Self::Reader(run_id, _)
             | Self::Progress(run_id, _)
             | Self::Locate(run_id, _)
-            | Self::Discard(run_id, _) => Reach::Run(run_id.clone()),
+            | Self::Discard(run_id, _)
+            | Self::Edit(run_id, _) => Reach::Run(run_id.clone()),
             Self::Outlive(_) => Reach::InOrder,
             Self::Drain(..) | Self::StopAll(..) | Self::StopConnection(..) => Reach::Every,
             Self::Ended(..)

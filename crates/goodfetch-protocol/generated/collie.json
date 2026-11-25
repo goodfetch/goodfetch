@@ -16214,6 +16214,16 @@
     },
     {
       "arrived_in": "0.1",
+      "description": "A Schedule's target sets `cache.mode` to `replay`, whose replayed pages would hide a change from the Baseline. Set `revalidate` or `off` for a scheduled target.",
+      "exit_code": null,
+      "group": "program",
+      "json_rpc_class": -32001,
+      "name": "replay_not_allowed",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
       "description": "The engine ran out of memory or storage for the Run: it checkpointed and stopped it, or refused to start it where its run file would go. The details name the `resource`. Resume it once memory or space frees up, on an engine with a larger allowance, or with lower ceilings.",
       "details": {
         "$ref": "#/$defs/ResourcesExhaustedDetails"
@@ -17390,6 +17400,9 @@
             "batches",
             "block_classifications",
             "builds",
+            "cache_body_writes",
+            "cache_file_opens",
+            "cache_lookups",
             "calls",
             "check_commands",
             "click_commands",
@@ -20080,6 +20093,78 @@
       ],
       "value": {
         "type": "boolean"
+      },
+      "weakening": null,
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "machine",
+      "clearable": false,
+      "default": 2592000000,
+      "deprecated": null,
+      "description": "How long the Response cache keeps an entry, whatever its freshness: 30 days, after which it is deleted in every mode. Set in user configuration or an Operator policy only.",
+      "fixed_for_run": false,
+      "name": "cache.max_age_ceiling",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "scopes": [],
+      "value": {
+        "description": "A duration in milliseconds.",
+        "minimum": 0,
+        "type": "integer"
+      },
+      "weakening": null,
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "machine",
+      "clearable": false,
+      "default": 10000000000,
+      "deprecated": null,
+      "description": "The most bytes the Response cache keeps for a user, its index and its bodies together: 10 GB, beyond which the least recently used entries are evicted. Set in user configuration or an Operator policy only.",
+      "fixed_for_run": false,
+      "name": "cache.max_size",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "scopes": [],
+      "value": {
+        "minimum": 0,
+        "type": "integer"
+      },
+      "weakening": null,
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": false,
+      "default": "off",
+      "deprecated": null,
+      "description": "What the per-user Response cache does: `off` (the default) stores and serves nothing, so a run never serves a stale page silently; `revalidate` stores GET and HEAD responses sent with no cookie or credential, whose response sets no cookie and is not `private`, serves a fresh one with no request and revalidates a stale one with `ETag` and `Last-Modified` under RFC 9111, serving the stored body on a 304. The key is the method, the URL without its fragment and the request headers the response's `Vary` names; a `Vary: *` response is never stored. An engine that finds a cache written by a newer format runs without it, reading and writing nothing. When a site's service worker answers a request the Response cache must serve, set `browser.service_workers` to `block` (ADR 0121).",
+      "fixed_for_run": false,
+      "name": "cache.mode",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run"
+      ],
+      "value": {
+        "enum": [
+          "off",
+          "revalidate"
+        ]
       },
       "weakening": null,
       "weakens": false

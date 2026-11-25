@@ -1,4 +1,6 @@
+# Which of goodfetch-confinement's top-level modules may import which (ADR 0126).
 [modules]
 deny_list = []
 policy = ["deny_list"]
+probes = ["deny_list", "policy", "seccomp"]
 seccomp = []

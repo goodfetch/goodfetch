@@ -764,6 +764,23 @@ number = 6
 kind = "setting"
 prefix = "session.pool."
 
+# The Response cache (spec #580, #793, ADR 0046): its settings, the
+# refusal of a `replay` the Operator policy does not allow, and its format.
+[[area]]
+number = 6
+kind = "setting"
+prefix = "cache."
+
+[[area]]
+number = 6
+kind = "error"
+prefix = "replay_not_allowed"
+
+[[area]]
+number = 6
+kind = "format"
+prefix = "response-cache"
+
 # The tier that fetches a crawl request's document (spec #579, #759).
 [[area]]
 number = 5

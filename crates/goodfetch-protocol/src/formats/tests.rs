@@ -211,6 +211,27 @@ fn the_newest_readable_rule_reads_a_manifest_of_its_major_up_to_its_own_minor(
     );
 }
 
+/// The Response cache's run-without rule, case by case (ADRs 0030 and
+/// 0046): a reader reads a cache of its own major up to its own minor, as
+/// the default rule does, and each `0.y` minor counts as a major; a cache it
+/// cannot read, it runs without.
+/// Covers: format:response-cache
+#[rstest]
+#[case::same_version(version(1, 4), version(1, 4), Compatibility::Compatible)]
+#[case::older_minor(version(1, 4), version(1, 0), Compatibility::Compatible)]
+#[case::newer_minor(version(1, 4), version(1, 5), Compatibility::NewerMinor)]
+#[case::older_major(version(2, 0), version(1, 9), Compatibility::OlderMajor)]
+#[case::newer_major(version(1, 9), version(2, 0), Compatibility::NewerMajor)]
+#[case::newer_preview(version(0, 1), version(0, 2), Compatibility::NewerMajor)]
+#[case::older_preview(version(0, 2), version(0, 1), Compatibility::OlderMajor)]
+fn the_run_without_rule_reads_a_cache_of_its_major_up_to_its_own_minor(
+    #[case] reader: ProtocolVersion,
+    #[case] found: ProtocolVersion,
+    #[case] compatibility: Compatibility,
+) {
+    assert_eq!(Rule::RunWithout.compatibility(reader, found), compatibility);
+}
+
 /// The rule of a handshake whose two sides settle on the lower minor, a
 /// Browser host's with its engine (ADR 0096): only another major is refused.
 #[rstest]
@@ -246,6 +267,7 @@ fn the_registry_lists_every_format_under_its_rule() {
             ("politeness-file", Rule::FrozenMajor),
             ("audit-log", Rule::FrozenMajor),
             ("known-certificates", Rule::FrozenMajor),
+            ("response-cache", Rule::RunWithout),
             ("operator-policy", Rule::SharedStore),
             ("user-configuration", Rule::SharedStore),
             ("export", Rule::Default)

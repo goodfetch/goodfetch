@@ -456,6 +456,15 @@ rows! {
     /// `C5.entries`: an entry sent to the Run trace's writer for its
     /// request log.
     InterceptedEntries => "C5.entries", "intercepted_request", "entries";
+    /// `C5.cache_lookups`: a lookup of a request in the Response cache's
+    /// index, on the statement its connection prepared once (ADR 0046).
+    CacheLookups => "C5.cache_lookups", "intercepted_request", "cache_lookups";
+    /// `C5.cache_file_opens`: a body file of the Response cache opened to
+    /// serve a hit; a miss opens none.
+    CacheFileOpens => "C5.cache_file_opens", "intercepted_request", "cache_file_opens";
+    /// `C5.cache_body_writes`: a body file of the Response cache written to
+    /// store a response, or its bodies' folder made; a hit writes none.
+    CacheBodyWrites => "C5.cache_body_writes", "intercepted_request", "cache_body_writes";
 }
 
 /// The counts of one engine's Counted work, shared by every clone. A thread

@@ -51,6 +51,7 @@ pub mod point_in_time;
 pub mod politeness;
 pub mod refusals;
 pub mod releases;
+pub mod response_cache;
 pub mod response_limits;
 pub mod result_document;
 pub mod routing;

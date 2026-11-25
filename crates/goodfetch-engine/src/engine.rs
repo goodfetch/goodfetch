@@ -378,8 +378,11 @@ impl Engine {
             &dependencies.home,
             &self.identity().product_version,
             dependencies.run_state.vfs.clone(),
-            Arc::new(owner.part("engine's stores")),
-            part_stopped_with(owner, "engine's store connections"),
+            (
+                Arc::new(owner.part("engine's stores")),
+                part_stopped_with(owner, "engine's store connections"),
+            ),
+            self.metrics.counted_work().clone(),
         );
         let needs_you = NeedsYou::start(
             &self.needs_you_sources,

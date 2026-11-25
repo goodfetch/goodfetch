@@ -105,6 +105,14 @@ fn file_formats() -> serde_json::Value {
             "schema": { "$ref": "#/$defs/CertificatePin" },
         },
         {
+            "name": "response-cache",
+            "version": "0.1",
+            "storage": "sqlite",
+            "rule": "run_without",
+            "hello_from": [],
+            "schema": { "$ref": "#/$defs/ResponseCacheEntry" },
+        },
+        {
             "name": "export",
             "version": "0.1",
             "storage": "json",

@@ -983,8 +983,9 @@ const B2_ROWS: &str = "\
 | `C5.answers` | CDP answers per paused request | 1 | after #1583 | B2 | must not grow | `xtask counts` | implementer done |
 | `C5.compilations` | compilations per paused request | 0 | after #1583 | B2 | must not grow | `xtask counts` | implementer done |
 | `C5.entries` | entries per refused request | 1 | after #1583 | B2 | must not grow | `xtask counts` | implementer done |
-| `C5.cache_lookups` | Response cache lookups per request | 1 | not run yet (#793) | B2 | must not grow | `xtask counts --path C5` | implementer done |
-| `C5.cache_file_opens` | body files opened per cache hit | 1 | not run yet (#793) | B2 | must not grow | `xtask counts --path C5` | implementer done |
+| `C5.cache_lookups` | Response cache lookups per request | 1 | not run yet (#796) | B2 | must not grow | `xtask counts --path C5` | implementer done |
+| `C5.cache_file_opens` | body files opened per cache hit | 1 | not run yet (#796) | B2 | must not grow | `xtask counts --path C5` | implementer done |
+| `C5.cache_body_writes` | body files written per stored response | 1 | not run yet (#796) | B2 | must not grow | `xtask counts --path C5` | implementer done |
 | `C5.body_reads` | body reads per recorded response | 1 | not run yet (#1291) | B2 | must not grow | `xtask counts --path C5` | implementer done |
 | `C5.charset_refetches` | second GETs per document on the charset path | ≤ 1 | not run yet (#1783) | B2 | must not grow | `xtask counts --path C5` | implementer done |
 ";
@@ -1184,7 +1185,7 @@ fn a_plant_goes_to_the_family_of_its_row_alone() {
     assert!(
         outcome
             .stdout
-            .contains("C5.cache_lookups: not run yet, limit 1, until #793 builds its path"),
+            .contains("C5.cache_lookups: not run yet, limit 1, until #796 builds its path"),
         "{}",
         outcome.stdout
     );

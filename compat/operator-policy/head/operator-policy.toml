@@ -124,6 +124,11 @@ local_addresses = ["192.0.2.10", "2001:db8::10"]
 ipv4 = 24
 ipv6 = 64
 
+[settings.cache]
+mode = "off"
+max_size = 4
+max_age_ceiling = 30000
+
 [settings.tls]
 trusted_cas = { "example.test" = ["example"] }
 client_certificates = { "example.test" = { certificate = "client.pem", key = "env:CLIENT_KEY" } }
@@ -543,6 +548,11 @@ local_addresses = ["192.0.2.10", "2001:db8::10"]
 ipv4 = 24
 ipv6 = 64
 
+[lock.cache]
+mode = "off"
+max_size = 4
+max_age_ceiling = 30000
+
 [lock.tls]
 trusted_cas = { "example.test" = ["example"] }
 client_certificates = { "example.test" = { certificate = "client.pem", key = "env:CLIENT_KEY" } }
@@ -910,6 +920,10 @@ max_unused_age = 30000
 [cap.resolver]
 resolution_delay = 30000
 attempt_delay = 30000
+
+[cap.cache]
+max_size = 4
+max_age_ceiling = 30000
 
 [cap.proxy]
 sticky_lifetime = 30000

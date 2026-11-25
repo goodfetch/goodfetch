@@ -34,6 +34,11 @@ pub const RUNS: &str = "runs";
 /// The Run index's file in the per-major folder.
 pub const RUN_INDEX: &str = "run-index.sqlite";
 
+/// The Response cache's folder in the per-major folder, its index and its
+/// body files, which `upgrade-files` never copies, so an upgrade starts
+/// with an empty cache (ADR 0046).
+pub const RESPONSE_CACHE: &str = "response-cache";
+
 /// The Operator policy's file in the per-major folder, which both
 /// Products read (ADRs 0028 and 0098).
 pub const OPERATOR_POLICY_FILE: &str = "operator-policy.toml";

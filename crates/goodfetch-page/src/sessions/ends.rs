@@ -15,13 +15,15 @@
 
 use std::sync::Arc;
 
-use goodfetch_engine::runs::Run;
+use goodfetch_engine::runs::{Run, identity};
+use goodfetch_engine::tasks::TaskStarter;
 use goodfetch_protocol::connection::ENGINE_PANICKED;
+use goodfetch_protocol::page::PageId;
 use goodfetch_protocol::page::events::{PAGE_CLOSE, PAGE_CRASH, PAGE_EVENTS_LOST, PageEventName};
-use goodfetch_protocol::page::{PageId, SessionId};
 use goodfetch_protocol::run::RunId;
 use goodfetch_protocol::usage::PAGE_CRASHES;
 use tokio::sync::mpsc;
+use tracing::Instrument as _;
 
 use super::life::Ending;
 use super::lifecycle::{PageEffect, SessionEffect, SessionEvent};
@@ -76,11 +78,10 @@ impl Sessions {
                         .publish_end(PageEventName::Close, &PAGE_CLOSE);
                 }
                 let mut state = self.state.lock().await;
-                state.pages.remove(page_id);
                 // One the Resource governor ended past its memory cap, or a
                 // panic of one of its owner's tasks or its reader fallen
-                // behind closed, goes straight to the ended pages under the
-                // same lock, so a call finds it in one or the other and
+                // behind closed, goes into the ended pages before it leaves
+                // its Session, so a call finds it in one or the other and
                 // raises `page_memory_exceeded`, `engine_panicked` or
                 // `page_events_lost` again until its Run stops; once the
                 // Run's clean-up took it out, nothing keeps it.
@@ -89,6 +90,7 @@ impl Sessions {
                         .crashed
                         .insert(page_id.clone(), (run.id().clone(), life.clone()));
                 }
+                self.index.remove_page(page_id);
                 drop(state);
                 self.page_owners.close(pages);
             }
@@ -116,10 +118,12 @@ impl Sessions {
     async fn release(&self, page_id: &PageId, run: &Run) {
         let pages = std::slice::from_ref(page_id);
         let mut state = self.state.lock().await;
-        if let Some(page) = state.pages.remove(page_id) {
+        // It goes into the ended pages before it leaves its Session.
+        if let Some(page) = self.index.page(page_id) {
             state
                 .crashed
                 .insert(page_id.clone(), (run.id().clone(), page.life));
+            self.index.remove_page(page_id);
         }
         drop(state);
         self.page_owners.close(pages);
@@ -175,31 +179,25 @@ impl Sessions {
     /// Every Session of the Run `run_id` seated where `loss` happened takes
     /// it.
     async fn browser_lost(&self, run_id: &RunId, loss: &BrowserLoss) {
-        let seated: Vec<(SessionId, Arc<Session>)> = self
-            .state
-            .lock()
-            .await
-            .sessions
-            .iter()
-            .filter(|(_, open)| open.run.id() == run_id)
-            .map(|(session, open)| (session.clone(), Arc::clone(open)))
-            .collect();
-        for (session, open) in seated {
+        for (session, open) in self.index.sessions_of(run_id) {
             if !open.seat.was_at(&loss.at).await {
                 continue;
             }
             if self
                 .session_lost(&open, loss.at.browser(), &loss.lost)
                 .await
-                && let Err(error) = self.session_ended(&open, &session).await
             {
-                tracing::warn!(%error, "a Session its browser's quit ended is not recorded closed");
+                if let Err(error) = self.session_ended(&open, &session).await {
+                    tracing::warn!(%error, "a Session its browser's quit ended is not recorded closed");
+                }
+                stop_after_its_quit(open);
             }
         }
     }
 
     /// Follows the page `page_id`, which `page` is, of the Session `open`,
-    /// in its Run's browser `browser`, until it ends: its lease ended, a
+    /// as a task of the Session's owner, in its Run's browser `browser`,
+    /// until it ends or its Session does: its lease ended, a
     /// panic of one of its owner's tasks (ADR 0148) or its reader fallen
     /// 4,096 events behind (ADR 0146), each of which closes its target, a
     /// target the browser destroyed, a renderer that
@@ -217,8 +215,12 @@ impl Sessions {
             session,
             ..
         } = page;
-        let stopping = run.cancellation().clone();
-        run.clone().spawn(async move {
+        let (stopping, ended) = (run.cancellation().clone(), open.owner.child_token());
+        let (open_owner, span) = (
+            TaskStarter::clone(&open.owner),
+            identity(&run).span().clone(),
+        );
+        let task = async move {
             let closed_by_the_engine = || {
                 if let Err(error) = life.end(&Ending::RunStopped(run_stopped(&run))) {
                     tracing::error!(%error, "a page's end with its Run was refused");
@@ -228,6 +230,14 @@ impl Sessions {
                 lost = driver.lost() => lost,
                 () = life.terminal() => return,
                 () = stopping.cancelled() => return closed_by_the_engine(),
+                // Its Session's end stops it, once that end ended the page,
+                // unless its Run's stop is what ended the Session.
+                () = ended.cancelled() => {
+                    if stopping.is_cancelled() {
+                        closed_by_the_engine();
+                    }
+                    return;
+                }
                 () = life.ended_by_lease() => {
                     // Its lease ended it (P31): the engine closes its target,
                     // whatever the lease, and the close is confirmed (P29).
@@ -266,7 +276,9 @@ impl Sessions {
                         "the page's reader fell 4,096 events behind: the engine closes the page alone"
                     );
                     let ending = (Ending::EventsLost, PAGE_EVENTS_LOST.name);
-                    return sessions.close_alone(&page_id, &run, &life, &driver, ending).await;
+                    return sessions
+                        .close_alone(&page_id, &run, &life, &driver, ending)
+                        .await;
                 }
             };
             // The Session takes its browser's loss before the page's calls
@@ -285,10 +297,14 @@ impl Sessions {
                 }
                 Err(error) => tracing::error!(%error, "a page's end was refused"),
             }
-            if quit && let Err(error) = sessions.session_ended(&open, &session).await {
-                tracing::warn!(%error, "a Session its browser's quit ended is not recorded closed");
+            if quit {
+                if let Err(error) = sessions.session_ended(&open, &session).await {
+                    tracing::warn!(%error, "a Session its browser's quit ended is not recorded closed");
+                }
+                stop_after_its_quit(open);
             }
-        });
+        };
+        open_owner.spawn(task.instrument(span));
     }
 
     /// Closes the page `page_id` of `run`, whose state `life` is, through
@@ -322,6 +338,14 @@ impl Sessions {
             Err(error) => tracing::error!(%error, "a page's end was refused"),
         }
     }
+}
+
+/// Stops the owner of the Session `open`, which its browser's quit ended,
+/// as a task of its Run: the task that took the quit may be one of the
+/// Session's own, which its stop waits for.
+fn stop_after_its_quit(open: Arc<Session>) {
+    let run = open.run.clone();
+    run.spawn(async move { open.owner.stop().await });
 }
 
 /// Counts the crash of the browser `browser`, where a page of `open` was,

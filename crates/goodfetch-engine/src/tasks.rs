@@ -143,8 +143,10 @@ pub struct TaskOwner {
 /// Run hands out its own owner as this alone, so whoever starts work on a
 /// Run never ends it: the Runs' registry does (ADR 0145's note of
 /// 2026-11-10). A child made from it is a full owner, which its holder
-/// stops.
-#[derive(Debug)]
+/// stops. A clone starts its tasks on the same owner, so the parts of one
+/// value, such as a Session's seat and its egress relay, each start theirs
+/// on it.
+#[derive(Clone, Debug)]
 pub struct TaskStarter {
     token: CancellationToken,
     tracker: TaskTracker,

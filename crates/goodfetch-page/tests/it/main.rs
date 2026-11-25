@@ -27,5 +27,6 @@ mod robots_txt;
 mod root_events_lost;
 mod served_calls;
 mod session_counts;
+mod session_end;
 mod url_pattern;
 mod version_check;

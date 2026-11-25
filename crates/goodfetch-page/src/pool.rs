@@ -55,11 +55,14 @@ use goodfetch_engine::governor::{BrowserUse, GovernedBrowser, PageHold, footprin
 use goodfetch_engine::home::Home;
 use goodfetch_engine::host_name;
 use goodfetch_engine::local_addresses::{self, Rotation, Unavailable};
-use goodfetch_engine::runs::Run;
+use goodfetch_engine::runs::{Run, identity};
 use goodfetch_engine::settings::RunSettings;
+use goodfetch_engine::tasks::TaskStarter;
 use goodfetch_engine::tls::{CertificateExceptions, PinBook, Trust};
 use goodfetch_protocol::tls::{TLS_ACCEPT_INVALID_CERTS, TLS_TRUSTED_CAS};
 use tokio::sync::{OnceCell, mpsc, oneshot};
+use tokio_util::sync::CancellationToken;
+use tracing::Instrument as _;
 
 use crate::borrowed::CdpUrl;
 use crate::driver::{
@@ -446,28 +449,34 @@ impl Pool {
 
     /// A seat for a Session whose requests leave through `egress`, its
     /// proxy and its egress relay, in every browser it is seated in, placed
-    /// under `placement` on its first use.
-    pub(crate) fn seat(&self, placement: Placement, egress: SessionEgress) -> Seat {
-        self.seat_of(placement, egress, None)
+    /// under `placement` on its first use. Its place actor and its pages'
+    /// readers are tasks of `tasks`, its Session's owner.
+    pub(crate) fn seat(
+        &self,
+        placement: Placement,
+        egress: SessionEgress,
+        tasks: TaskStarter,
+    ) -> Seat {
+        self.seat_of((placement, egress), None, tasks)
     }
 
     /// A seat for a Session on the Borrowed browser at `cdp_url`, which
     /// never enters the pool: it is neither recycled, nor counted, nor
-    /// closed (ADR 0056).
-    pub(crate) fn borrowed_seat(&self, cdp_url: CdpUrl) -> Seat {
+    /// closed (ADR 0056). Its tasks are `tasks`', as [`Pool::seat`]'s.
+    pub(crate) fn borrowed_seat(&self, cdp_url: CdpUrl, tasks: TaskStarter) -> Seat {
         let browser = BorrowedBrowser::new(self.shared.run.clone(), cdp_url);
         self.seat_of(
-            Placement::Shared,
-            SessionEgress::default(),
+            (Placement::Shared, SessionEgress::default()),
             Some(Arc::new(browser)),
+            tasks,
         )
     }
 
     fn seat_of(
         &self,
-        placement: Placement,
-        egress: SessionEgress,
+        (placement, egress): (Placement, SessionEgress),
         borrowed: Option<Arc<BorrowedBrowser>>,
+        tasks: TaskStarter,
     ) -> Seat {
         let number = {
             let mut browsers = lock(&self.shared.browsers);
@@ -483,10 +492,10 @@ impl Pool {
             borrowed,
             origins: Origins::default(),
             place,
+            tasks,
         });
-        self.shared
-            .run
-            .spawn(keep_place(Arc::downgrade(&shared), commands));
+        let ended = shared.tasks.child_token();
+        shared.spawn(keep_place(Arc::downgrade(&shared), commands, ended));
         Seat { shared }
     }
 
@@ -926,6 +935,10 @@ struct SeatShared {
     /// closing it and evacuating a closing browser each run whole, one at a
     /// time, in the order they were asked.
     place: mpsc::Sender<PlaceCommand>,
+    /// Its Session's owner's starting side, on which its place actor and
+    /// its pages' readers run, in its Run's span: its Session's end stops
+    /// them (ADR 0146).
+    tasks: TaskStarter,
 }
 
 /// What a seat's place actor is asked, each with where its answer goes.
@@ -1031,11 +1044,7 @@ impl Seat {
         let in_browser = self.shared.pool.page_opening(number, self.shared.number);
         drop(opening);
         let page = driver.new_page(visibility).await?;
-        self.shared
-            .pool
-            .shared
-            .run
-            .spawn(page.reading(Some(self.shared.origins.clone().watcher())));
+        self.shared.read(&page);
         Ok((page, in_browser))
     }
 
@@ -1044,11 +1053,7 @@ impl Seat {
     /// Session opened, and its documents' origins are carried as theirs.
     pub(crate) fn popup_in(&self, number: u64, popup: &PageDriver) -> InBrowser {
         let in_browser = self.shared.pool.page_opening(number, self.shared.number);
-        self.shared
-            .pool
-            .shared
-            .run
-            .spawn(popup.reading(Some(self.shared.origins.clone().watcher())));
+        self.shared.read(popup);
         in_browser
     }
 
@@ -1126,9 +1131,38 @@ impl SeatShared {
     }
 
     /// The failure of an ask its place actor never answered: the actor
-    /// ends with its Run, so the ask fails as the Run's stop does.
+    /// ends with its Session, as its close does, or with its Run, whose
+    /// stop the ask then fails as.
     fn place_ended(&self) -> CallError {
-        crate::errors::run_stopped(&self.pool.shared.run)
+        if self.pool.shared.run.cancellation().is_cancelled() {
+            crate::errors::run_stopped(&self.pool.shared.run)
+        } else {
+            place_closed()
+        }
+    }
+
+    /// Starts `task` on its Session's owner, in its Run's span.
+    fn spawn<F>(&self, task: F)
+    where
+        F: Future<Output = ()> + Send + 'static,
+    {
+        let span = identity(&self.pool.shared.run).span().clone();
+        self.tasks.spawn(task.instrument(span));
+    }
+
+    /// Reads the events of `page`, one of its Session's pages, taking its
+    /// documents' origins as its own, until they end or its Session ends.
+    fn read(&self, page: &PageDriver) {
+        let (reading, ended) = (
+            page.reading(Some(self.origins.clone().watcher())),
+            self.tasks.child_token(),
+        );
+        self.spawn(async move {
+            tokio::select! {
+                () = reading => {}
+                () = ended.cancelled() => {}
+            }
+        });
     }
 
     /// The browser `number` closes: the Session leaves it if seated there,
@@ -1149,10 +1183,22 @@ impl SeatShared {
 
 /// The place actor of the seat `seat`: it alone holds the seat's
 /// [`Place`], and answers `commands` one at a time until the seat is
-/// dropped or its Run ends.
-async fn keep_place(seat: Weak<SeatShared>, mut commands: mpsc::Receiver<PlaceCommand>) {
+/// dropped or `ended` is cancelled, as its Session's owner is at its end
+/// or its Run's.
+async fn keep_place(
+    seat: Weak<SeatShared>,
+    mut commands: mpsc::Receiver<PlaceCommand>,
+    ended: CancellationToken,
+) {
     let mut place = Place::default();
-    while let Some(command) = commands.recv().await {
+    loop {
+        let command = tokio::select! {
+            command = commands.recv() => command,
+            () = ended.cancelled() => None,
+        };
+        let Some(command) = command else {
+            break;
+        };
         let Some(seat) = seat.upgrade() else {
             break;
         };

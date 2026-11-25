@@ -197,14 +197,7 @@ async fn stopped_open(params: Value, context: CallContext) -> Result<Value, Call
         }
         open.await
     };
-    let left = sessions
-        .state
-        .lock()
-        .await
-        .sessions
-        .values()
-        .filter(|session| session.run.id() == run.id())
-        .count();
+    let left = sessions.index.sessions_of(run.id()).len();
     Ok(json!({ "opened": opened.is_ok(), "left": left }))
 }
 
@@ -228,7 +221,7 @@ async fn session_ended(params: Value, context: CallContext) -> Result<Value, Cal
         .open_held(&run, None, None, opener, &context)
         .await?;
     let session = super::session_id(run.id(), position);
-    let open = Arc::clone(&sessions.state.lock().await.sessions[&session]);
+    let open = sessions.index.session(&session).unwrap();
     let commits = run.state().commits();
     let before = *commits.borrow();
 

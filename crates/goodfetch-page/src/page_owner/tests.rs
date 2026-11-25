@@ -43,6 +43,7 @@ pub(crate) fn parts(
         walls: Walls::default(),
         hiding: Hiding::new(None, Arc::new(Sheets::new(driver, run))),
         worlds: PageWorlds::default(),
+        tasks: run.clone(),
     }
 }
 

@@ -193,6 +193,15 @@ impl RunPowers {
     pub(crate) fn identity(&self) -> &RunIdentity {
         &self.lists.identity
     }
+
+    /// The same powers, with `page`, the Run's identity that starts its
+    /// tasks on a page's owner: what the page's own requests are answered
+    /// with, so that the page's end waits for their tasks (ADR 0146).
+    fn of_page(&self, page: &RunIdentity) -> Self {
+        let mut powers = self.clone();
+        powers.lists.identity = page.clone();
+        powers
+    }
 }
 
 /// Whose requests a route answers.
@@ -617,7 +626,9 @@ impl Interception {
     }
 
     /// Puts the page `page_id` of the Session `session`, which `driver`
-    /// drives for `run`, under the interception: every request of its
+    /// drives for `run`, under the interception, its own requests and its
+    /// frames' answered on `page_tasks`, the Run's identity that starts
+    /// tasks on the page's owner: every request of its
     /// target is paused and passes the pipeline from now on, its Clean-up
     /// rules chosen by `own`, the Session's own settings, over the Run's,
     /// each refusal left in `refusals` for the request's failure to carry,
@@ -642,7 +653,7 @@ impl Interception {
         page_id: &PageId,
         session: &SessionId,
         driver: &PageDriver,
-        run: &RunPowers,
+        (run, page_tasks): (&RunPowers, &RunIdentity),
         own: &Values,
         (refusals, on_document): (Refusals, Option<Arc<dyn OnDocument>>),
     ) -> Result<HeldPage, CallError> {
@@ -699,6 +710,9 @@ impl Interception {
         // handler holds them; a worker's are not the page's.
         let routed = Arc::new(watch::Sender::new(0));
         let answers = self.shared.answers.counting(Arc::clone(&routed));
+        // The page's and its frames' requests are answered on the page's
+        // owner, its workers' on the Run's.
+        let run = &run.of_page(page_tasks);
         let children = Self::children_of(
             page_id,
             (&state, answers.clone()),

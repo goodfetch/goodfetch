@@ -1465,7 +1465,8 @@ async fn quiet(units: &Units, work: &CountedWork) {
 
 /// The program's way to a page of the Run's browser pool, as Foxhound's
 /// crawl opens one for a handler: `{ run_id, url }`, answered with the page's
-/// `page_id`, which the program then drives as its own.
+/// `page_id`, which the program then drives as its own. Its Session is the
+/// one the pool names `pooled` when the call gives one, else [`POOLED`].
 const OPEN_POOL_PAGE: Operation = Operation {
     name: "test.open_pool_page",
     description: "Opens a page of the Run's browser pool through BrowserPages, navigated to a URL.",
@@ -1490,10 +1491,30 @@ const CLOSE_POOL_PAGE: Operation = Operation {
     ..OPEN_POOL_PAGE
 };
 
-/// The pool's one Session, a fresh one, as the crawl's Session pool names it.
-fn pooled() -> PooledSession {
+/// Retires a Session of the pool, `{ run_id, pooled }`, as the crawl's
+/// Session pool retires one, and answers the runtime's alive tasks once the
+/// retirement returned, before anything else runs: `{ alive }`.
+const RETIRE_POOL_SESSION: Operation = Operation {
+    name: "test.retire_pool_session",
+    description: "Retires a Session of the Run's browser pool and answers the alive tasks after.",
+    ..OPEN_POOL_PAGE
+};
+
+/// The runtime's alive tasks: `{ alive }`.
+const ALIVE_TASKS: Operation = Operation {
+    name: "test.alive_tasks",
+    description: "Answers the runtime's alive tasks.",
+    ..OPEN_POOL_PAGE
+};
+
+/// The name of the pool's Session a program opens its pages in.
+const POOLED: &str = "pooled";
+
+/// The pool's Session `name`, a fresh one, as the crawl's Session pool
+/// names it.
+fn pooled(name: &str) -> PooledSession {
     PooledSession {
-        id: SessionId("pooled".to_owned()),
+        id: SessionId(name.to_owned()),
         source: Some(None),
         address_ordinal: None,
         place: HeldPlace::default(),
@@ -1528,7 +1549,7 @@ impl HandlerPages for PoolPages {
 
 /// The program's operations on the browser pool's pages.
 fn pool_pages(pages: &PoolPages) -> Contribution {
-    let (opening, closing) = (pages.clone(), pages.clone());
+    let (opening, closing, retiring) = (pages.clone(), pages.clone(), pages.clone());
     Contribution::new("test")
         .with_handler(Handler::new(
             &OPEN_POOL_PAGE,
@@ -1543,7 +1564,8 @@ fn pool_pages(pages: &PoolPages) -> Contribution {
                         method: "GET",
                         body: None,
                     };
-                    let (page_id, _) = pages.open(&run_id, &pooled(), own, &context).await?;
+                    let pooled = pooled(params["pooled"].as_str().unwrap_or(POOLED));
+                    let (page_id, _) = pages.open(&run_id, &pooled, own, &context).await?;
                     Ok::<_, CallError>(json!({ "page_id": page_id }))
                 }
             },
@@ -1559,6 +1581,32 @@ fn pool_pages(pages: &PoolPages) -> Contribution {
                 }
             },
         ))
+        .with_handler(Handler::new(
+            &RETIRE_POOL_SESSION,
+            move |params: Value, context: CallContext| {
+                let pages = retiring.pages();
+                async move {
+                    let run_id = RunId::parse(params["run_id"].as_str().unwrap_or_default())
+                        .expect("invariant: the program names its Run");
+                    let pooled = SessionId(params["pooled"].as_str().unwrap_or(POOLED).to_owned());
+                    pages.retire(&run_id, &pooled, &context).await?;
+                    Ok::<_, CallError>(json!({ "alive": alive_tasks() }))
+                }
+            },
+        ))
+        .with_handler(Handler::new(
+            &ALIVE_TASKS,
+            move |_params: Value, _context: CallContext| async move {
+                Ok::<_, CallError>(json!({ "alive": alive_tasks() }))
+            },
+        ))
+}
+
+/// The tasks alive on the runtime the engine runs on.
+fn alive_tasks() -> usize {
+    tokio::runtime::Handle::current()
+        .metrics()
+        .num_alive_tasks()
 }
 
 /// The Collie engine the scenario drives, counting on `metrics`, its pages
@@ -1681,6 +1729,65 @@ pub(crate) fn counted(
         work,
         during_reads,
     }
+}
+
+/// The tasks alive on the engine's runtime around a Session's end, in the
+/// browser pool: once a page of the pool's Session `kept` opened (which
+/// launches the browser) and the browser went quiet, and right after a page
+/// of a second Session opened, the browser went quiet again and that Session
+/// retired. A Session's end stops and waits for every task it and its pages
+/// started, so the two are equal.
+#[cfg(test)]
+pub(crate) fn alive_around_a_retirement(home: &Path, metrics: Metrics) -> (u64, u64) {
+    let settings = Map::from_iter([(
+        "egress".to_owned(),
+        json!({ "private_ranges": [PAGES_RANGE] }),
+    )]);
+    let work = metrics.counted_work().clone();
+    let (launcher, started) = Launcher::scripted(Some(std::process::id()));
+    let engine = engine(metrics, launcher);
+    let heard = Heard::default();
+    let runtime = goodfetch_runtime::current_thread()
+        .enable_all()
+        .build()
+        .expect("invariant: the runtime starts");
+    runtime.block_on(async {
+        let (network, dialer) = transport::in_memory();
+        let served = launched_ends(started, heard.clone(), None);
+        let client = async {
+            let mut client = Client::connected(&dialer).await;
+            client.start_run(settings).await;
+            let open = |pooled: &str| json!({ "run_id": RUN, "url": PAGES[0], "pooled": pooled });
+            let alive = |answer: Value| {
+                answer["alive"]
+                    .as_u64()
+                    .expect("invariant: the program's operations answer a count")
+            };
+            client.call(OPEN_POOL_PAGE.name, &open("kept")).await;
+            quiet(&heard.units, &work).await;
+            let before = alive(client.call(ALIVE_TASKS.name, &json!({})).await);
+            client.call(OPEN_POOL_PAGE.name, &open("retired")).await;
+            quiet(&heard.units, &work).await;
+            let retired = json!({ "run_id": RUN, "pooled": "retired" });
+            let after = alive(client.call(RETIRE_POOL_SESSION.name, &retired).await);
+            client.close().await;
+            (before, after)
+        };
+        let dependencies = dependencies(home);
+        let ran = async {
+            tokio::join!(
+                engine.run_attached(Network::InMemory(network), dependencies),
+                client,
+            )
+        };
+        tokio::pin!(ran);
+        let (engine_ended, alive) = tokio::select! {
+            ran = &mut ran => ran,
+            () = served => ran.await,
+        };
+        engine_ended.expect("invariant: the engine got its Connection");
+        alive
+    })
 }
 
 /// What the engine runs on: its home in `home`, an environment map holding

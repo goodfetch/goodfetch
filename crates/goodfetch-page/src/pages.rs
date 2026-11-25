@@ -1053,7 +1053,7 @@ impl BrowserPages for Opener {
                 .sessions
                 .pool_session(run_id, pooled, context)
                 .await?;
-            let (run, own) = self.pages.sessions.own_settings(&session).await?;
+            let (run, own) = self.pages.sessions.own_settings(&session)?;
             let steps = self
                 .pages
                 .interception
@@ -1453,7 +1453,7 @@ impl Pages {
             &params.page_id,
             &page.session,
             page.driver.value(),
-            &page.run,
+            (&page.run, page.owner.tasks()),
         ) {
             reader.read(steps, &fetched.response.url);
         }
@@ -1780,7 +1780,7 @@ impl Pages {
             .call(PageEvent::Read, page_reads::document(&cdp))
             .await?;
         let request = params.formats;
-        let (_, session) = self.sessions.own_settings(&page.session).await?;
+        let (_, session) = self.sessions.own_settings(&page.session)?;
         let extractor = extractor::chosen(
             page.run.settings().map(RunSettings::resolved),
             (&session, page.driver.value().extractor()),

@@ -77,9 +77,9 @@ use goodfetch_engine::http_client::{self, LocalBinding};
 use goodfetch_engine::known_certificates::ExceptionKind;
 use goodfetch_engine::local_addresses::SessionAddresses;
 use goodfetch_engine::run_trace::RequestLog;
-use goodfetch_engine::runs::{Run, run_trace};
+use goodfetch_engine::runs::{Run, identity, run_trace};
 use goodfetch_engine::settings::{Resolved as ResolvedSettings, RunSettings};
-use goodfetch_engine::tasks;
+use goodfetch_engine::tasks::{self, TaskStarter};
 use goodfetch_engine::tls::{
     CertificateExceptions, CertificateInvalid, Examiner, ExceptionUsed, Trust,
 };
@@ -92,6 +92,7 @@ use serde_json::json;
 use tokio::io::AsyncWriteExt as _;
 use tokio::net::{TcpListener, TcpStream};
 use tokio_util::sync::{CancellationToken, DropGuard};
+use tracing::Instrument as _;
 
 use self::answers::USERNAME;
 use self::application_settings::ApplicationSettings;
@@ -108,7 +109,8 @@ const KEPT_REFUSALS: usize = 64;
 const KEPT_CLIENT_HELLOS: usize = 64;
 
 /// The relay of one Session: its loopback address and credentials, closed
-/// with every connection it relays when dropped or when its Run stops.
+/// with every connection it relays when dropped or when its Session ends,
+/// with its Run or before.
 pub(crate) struct EgressRelay {
     address: SocketAddr,
     password: String,
@@ -339,12 +341,13 @@ impl EgressRelay {
     /// Opens the relay of a Session of `run`, chained through `chain` when
     /// the Session has an upstream proxy, its connections leaving from
     /// `local`'s addresses when it has them, binding port 0 of loopback.
+    /// Its tasks are `tasks`', its Session's owner's, in its Run's span.
     ///
     /// # Errors
     ///
     /// The bind's failure, or the OS generator's.
     pub(crate) async fn open(
-        run: &Run,
+        (run, tasks): (&Run, TaskStarter),
         chain: Option<Chain>,
         tls: RelayTls,
         local: Option<Local>,
@@ -418,13 +421,13 @@ impl EgressRelay {
             unreached: Mutex::new(BTreeMap::new()),
             client_hellos: Mutex::new(VecDeque::new()),
             sequence: AtomicU64::new(0),
+            tasks,
         });
         let stop = CancellationToken::new();
-        run.spawn(accept(
+        record.spawn(accept(
             listener,
             Arc::new((relaying, network)),
             Arc::clone(&record),
-            run.clone(),
             stop.clone(),
         ));
         Ok(Self {
@@ -640,6 +643,20 @@ struct Record {
     /// The latest ClientHello the browser sent on a tunnel the relay
     /// passed as it is, of each authority, the latest last.
     client_hellos: Mutex<VecDeque<(String, ClientHello)>>,
+    /// Its Session's owner's starting side, on which its tasks run: its
+    /// Session's end stops them (ADR 0146).
+    tasks: TaskStarter,
+}
+
+impl Record {
+    /// Starts `task` on its Session's owner, in its Run's span.
+    fn spawn<F>(&self, task: F)
+    where
+        F: Future<Output = ()> + Send + 'static,
+    {
+        let span = identity(&self.run).span().clone();
+        self.tasks.spawn(task.instrument(span));
+    }
 }
 
 impl Observe for Record {
@@ -682,7 +699,7 @@ impl Observe for Record {
             "spki_sha256": used.map(|used| used.certificate.to_string()),
         });
         let run = self.run.clone();
-        self.run.spawn(async move {
+        self.spawn(async move {
             if let Err(error) = run.provenance(entry).await {
                 tracing::warn!(%error, "the Run's Provenance did not take a host the egress relay terminated");
             }
@@ -722,7 +739,7 @@ impl Observe for Record {
             return;
         }
         let refusals = self.run.refusals();
-        self.run.spawn(async move {
+        self.spawn(async move {
             refusals
                 .refused(Listener::EgressRelay, RefusalReason::TokenWrong)
                 .await;
@@ -842,17 +859,16 @@ impl Network for Tcp {
     }
 }
 
-/// Accepts the browser's connections until `stop` or the Run's end, each
-/// served on a task of its own.
+/// Accepts the browser's connections until `stop` or its Session's end, its
+/// Run's among them, each served on a task of its own.
 async fn accept(
     listener: TcpListener,
     relay: Arc<(Relaying, Tcp)>,
     record: Arc<Record>,
-    run: Run,
     stop: CancellationToken,
 ) {
-    let ending = run.cancellation().clone();
-    let clock = run.clock();
+    let ending = record.tasks.child_token();
+    let clock = record.run.clock();
     loop {
         let accepted = tokio::select! {
             () = stop.cancelled() => return,
@@ -871,16 +887,16 @@ async fn accept(
                 continue;
             }
         };
-        let (relay, record, stop, ending) = (
+        let (relay, served, stop, ending) = (
             Arc::clone(&relay),
             Arc::clone(&record),
             stop.clone(),
             ending.clone(),
         );
-        run.spawn(async move {
+        record.spawn(async move {
             let (relaying, network) = &*relay;
             tokio::select! {
-                _ = serve::serve(browser, relaying, network, &*record) => {}
+                _ = serve::serve(browser, relaying, network, &*served) => {}
                 () = stop.cancelled() => {}
                 () = ending.cancelled() => {}
             }

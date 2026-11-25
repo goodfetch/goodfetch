@@ -240,14 +240,18 @@ impl PageContext {
     }
 }
 
-/// Reads the page's paused requests until its target goes, each through the
-/// pipeline: one whose verdict waits, for a route's handler, the page's
-/// navigation gate or its proxy's Permit, as a task of its own, any other
-/// answered by the reader itself (#2269).
+/// Reads the page's paused requests until its target goes or the owner its
+/// tasks start on is cancelled, each through the pipeline: one whose verdict
+/// waits, for a route's handler, the page's navigation gate or its proxy's
+/// Permit, as a task of its own, any other answered by the reader itself
+/// (#2269). A cancelled owner's reader answers nothing more: what it
+/// answers itself goes with it (ADR 0146).
 pub(super) async fn dispatch(mut events: InterceptionEvents, context: Arc<PageContext>) {
     let mut answering = Answering::new(&context);
+    let owner = context.run.identity().owner().clone();
     loop {
         let event = tokio::select! {
+            () = owner.cancelled() => return,
             event = events.next() => event,
             Some(()) = answering.answers.next(), if !answering.answers.is_empty() => continue,
         };

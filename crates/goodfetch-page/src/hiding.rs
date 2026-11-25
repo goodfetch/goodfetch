@@ -243,11 +243,20 @@ impl PageHiding {
     }
 }
 
-/// Reads the page's events until its target goes, writing a frame's sheet
+/// Reads the page's events until its target goes or the owner its tasks
+/// start on, the page's, is cancelled (ADR 0146), writing a frame's sheet
 /// again, as a task of its own, each time the frame commits a document or
 /// reaches its `DOMContentLoaded` or its `load`.
 async fn follow(mut events: HidingEvents, page: Arc<PageHiding>) {
-    while let Some(event) = events.next().await {
+    let owner = page.identity.owner().clone();
+    loop {
+        let event = tokio::select! {
+            () = owner.cancelled() => return,
+            event = events.next() => event,
+        };
+        let Some(event) = event else {
+            return;
+        };
         let frame = match event {
             HidingEvent::Navigated(navigated) => {
                 page.sheets

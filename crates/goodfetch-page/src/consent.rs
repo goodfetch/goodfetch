@@ -273,11 +273,20 @@ async fn prepare(shared: &Shared, cdp: &CdpPage) -> Result<(), CallError> {
         .await
 }
 
-/// Reads `session`'s events until its connection ends, handing each one
-/// that asks something to a task of its own, so the connection never waits
-/// on this page.
+/// Reads `session`'s events until its connection ends or the owner its
+/// tasks start on, the page's, is cancelled, which takes every wall with it
+/// (ADR 0146), handing each one that asks something to a task of its own, so
+/// the connection never waits on this page.
 async fn listen(shared: Arc<Shared>, session: TargetSession, mut events: ConsentEvents) {
-    while let Some(event) = events.next().await {
+    let owner = shared.identity.owner().clone();
+    loop {
+        let event = tokio::select! {
+            () = owner.cancelled() => return,
+            event = events.next() => event,
+        };
+        let Some(event) = event else {
+            break;
+        };
         react(&shared, &session, event).await;
     }
     // The page's own target is gone: so is any wall it left.

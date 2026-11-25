@@ -24,6 +24,7 @@ use std::sync::Arc;
 use goodfetch_counted_work::{CountedWork, Row};
 use goodfetch_engine::CallError;
 use goodfetch_engine::metrics::Metrics;
+use goodfetch_engine::run_identity::RunIdentity;
 use goodfetch_engine::tasks::{TaskOwner, TaskStarter};
 use goodfetch_protocol::page::PageId;
 use tokio::sync::{mpsc, oneshot, watch};
@@ -82,6 +83,9 @@ pub(crate) struct PageParts {
     pub(crate) hiding: Hiding,
     /// The worlds the engine keeps in its documents.
     pub(crate) worlds: PageWorlds,
+    /// Its Run's identity that starts tasks on its owner, as its other
+    /// parts start theirs, such as a call's reading of robots.txt.
+    pub(crate) tasks: RunIdentity,
 }
 
 /// The open Pages' owners, by their ID: the index from ID to handle (ADR
@@ -91,7 +95,7 @@ pub(crate) struct PageParts {
 pub(crate) struct PageOwners(
     #[expect(
         clippy::disallowed_types,
-        reason = "one map read and changed for one operation, never across another lock or an `.await`; a page is listed under the Sessions lock, which is never taken under this one, so there is no lock order to test under loom (ADR 0060)"
+        reason = "one map read and changed for one operation, never across another lock or an `.await`; the Sessions table's lock may be held around it, and is never taken under it, so there is no lock order to test under loom (ADR 0060)"
     )]
     Arc<std::sync::Mutex<BTreeMap<PageId, PageOwner>>>,
 );
@@ -183,6 +187,11 @@ impl PageOwner {
     /// The worlds the engine keeps in its Page's documents.
     pub(crate) fn worlds(&self) -> &PageWorlds {
         &self.parts.worlds
+    }
+
+    /// Its Run's identity that starts tasks on it, which its end waits for.
+    pub(crate) fn tasks(&self) -> &RunIdentity {
+        &self.parts.tasks
     }
 
     /// The reads of a call of the Page API on the page `cdp` drives,

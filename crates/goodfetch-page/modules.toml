@@ -75,6 +75,7 @@ steps = []
 # Which of `sessions`' own modules may import which.
 [submodules.sessions]
 ends = ["life", "lifecycle"]
+index = []
 life = ["lifecycle"]
 lifecycle = []
 memory = ["life", "lifecycle"]

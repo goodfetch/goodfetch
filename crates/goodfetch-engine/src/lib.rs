@@ -96,6 +96,7 @@ pub mod transition;
 pub mod transport;
 pub mod upgrade;
 mod usage;
+pub mod user_store;
 mod wire;
 
 pub use call_error::{CallError, named};

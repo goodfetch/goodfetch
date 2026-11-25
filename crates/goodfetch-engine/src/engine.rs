@@ -36,7 +36,7 @@ use crate::composition::{Composition, CompositionError};
 use crate::controls::Controls;
 use crate::daemon::{self, DaemonEnd, DaemonOptions};
 use crate::endpoint::Refusals;
-use crate::engine_context::{EngineContext, Stores, os_user};
+use crate::engine_context::{EngineContext, Host, Stores, host_zone, os_user};
 use crate::entropy::Entropy;
 use crate::events::{Events, EventsOptions};
 use crate::forward::ToOwner;
@@ -64,6 +64,11 @@ use crate::transition::{
     engine::{EngineEvent, EngineState},
 };
 use crate::transport::{Connection, DaemonListener, Network, TransportError};
+use crate::user_store::UserStoreKind;
+
+/// The stream of the engine's entropy its handlers draw from, such as a
+/// schedule's ID; drawn from the seed alone, so no other owner's draws move.
+const HANDLERS_STREAM: u64 = 1;
 
 /// An engine of one Product, composed and ready to serve.
 #[derive(Clone)]
@@ -79,6 +84,7 @@ pub struct Engine {
     gates: Option<Arc<dyn Gates>>,
     needs_you_sources: Vec<NeedsYouSource>,
     secret_providers: Vec<(Provider, ProviderFactory)>,
+    user_stores: Vec<&'static UserStoreKind>,
     controls: Controls,
     events: EventsOptions,
     metrics: Metrics,
@@ -137,6 +143,7 @@ impl Engine {
             gates: composition.admission_gates()?,
             needs_you_sources: composition.needs_you_sources(),
             secret_providers: composition.secret_providers(),
+            user_stores: composition.user_stores(),
             controls: composition.controls(),
             events: EventsOptions::default(),
             metrics,
@@ -378,8 +385,11 @@ impl Engine {
             &dependencies.home,
             &self.identity().product_version,
             dependencies.run_state.vfs.clone(),
-            Arc::new(owner.part("engine's stores")),
-            part_stopped_with(owner, "engine's store connections"),
+            (
+                Arc::new(owner.part("engine's stores")),
+                part_stopped_with(owner, "engine's store connections"),
+            ),
+            &self.user_stores,
         );
         let needs_you = NeedsYou::start(
             &self.needs_you_sources,
@@ -488,7 +498,11 @@ impl Engine {
             stores,
             needs_you,
             sandbox_probe,
-            os_user(&dependencies.environment),
+            Host {
+                person: os_user(&dependencies.environment),
+                zone: host_zone(&dependencies.environment),
+                entropy: dependencies.entropy.stream(HANDLERS_STREAM),
+            },
         );
         let secrets = Secrets::new(
             Carried {

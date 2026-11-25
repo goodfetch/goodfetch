@@ -48,6 +48,7 @@ use crate::run_state::RunStateTables;
 use crate::runs::{CleanUpVersions, Driving, ProgressPart, ReportPart, Run, Runs, SendWindow};
 use crate::secrets::ProviderFactory;
 use crate::settings::RunSettings;
+use crate::user_store::UserStoreKind;
 use goodfetch_protocol::run::{RunId, RunKind};
 use goodfetch_protocol::secret_reference::Provider;
 
@@ -618,12 +619,14 @@ pub struct Contribution {
     controls: Vec<(&'static Setting, Recorded)>,
     secret_providers: Vec<(Provider, ProviderFactory)>,
     runs_of_calls: Vec<Arc<dyn RunOfCall>>,
+    user_stores: Vec<&'static UserStoreKind>,
 }
 
 impl Contribution {
     /// An empty contribution of the crate or concern `name`.
     pub fn new(name: &'static str) -> Self {
         Self {
+            user_stores: Vec::new(),
             secret_providers: Vec::new(),
             runs_of_calls: Vec::new(),
             name,
@@ -693,6 +696,15 @@ impl Contribution {
     #[must_use]
     pub fn with_secret_provider(mut self, provider: Provider, factory: ProviderFactory) -> Self {
         self.secret_providers.push((provider, factory));
+        self
+    }
+
+    /// The same, keeping the user's store `kind` (ADR 0098), which the
+    /// engine opens in its major's folder and its handlers reach through
+    /// [`EngineContext::user_store`].
+    #[must_use]
+    pub fn with_user_store(mut self, kind: &'static UserStoreKind) -> Self {
+        self.user_stores.push(kind);
         self
     }
 
@@ -954,6 +966,14 @@ impl Composition {
         self.contributions
             .iter()
             .flat_map(|contribution| contribution.secret_providers.iter().cloned())
+            .collect()
+    }
+
+    /// Every contribution's user stores, in order.
+    pub(crate) fn user_stores(&self) -> Vec<&'static UserStoreKind> {
+        self.contributions
+            .iter()
+            .flat_map(|contribution| contribution.user_stores.iter().copied())
             .collect()
     }
 

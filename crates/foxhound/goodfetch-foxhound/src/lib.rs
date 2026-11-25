@@ -4,18 +4,20 @@
 //! composition of the engine: Collie's, then Foxhound's own contributions.
 //! Its own crate, since it is a separate executable (STYLE.md, reason 1).
 //!
+//! Where the main types live (ADR 0117): `goodfetch-collie` holds
+//! [`Collie`](goodfetch_collie::Collie); `goodfetch-collie-client` holds
+//! every value a connection hands out, [`Run`], [`Session`], [`Page`],
+//! [`Locator`], [`Error`] and [`Connection`], the trait both Products'
+//! connections implement, which a helper written for either Product takes
+//! (ADRs 0095 and 0099), which this crate re-exports; this crate holds
+//! [`Foxhound`] and its composition, and a crawl's [`Crawl`], [`Label`],
+//! [`Dataset`] and [`CrawlContext`].
+//!
 //! As the SDK, a connection is the Product: [`Foxhound::connect`] opens one
 //! to a linked Foxhound engine of its own, which runs in the program's
 //! process, [`Foxhound::scope`] opens one around a body and closes it, and
 //! [`blocking::Foxhound`] does the same for a program without async. Its
 //! handles are cheap clones, `Send + Sync + 'static`.
-//!
-//! Which crate holds which type (ADR 0117): this crate holds [`Foxhound`]
-//! and its composition; `goodfetch-collie-client` holds every value a
-//! connection hands out, [`Run`], [`Session`], [`Page`], [`Locator`],
-//! [`Error`] and [`Connection`], the trait both Products' connections
-//! implement, which a helper written for either Product takes (ADRs 0095
-//! and 0099), which this crate re-exports.
 //!
 //! ```
 //! use goodfetch_foxhound::{ConnectOptions, Foxhound};
@@ -53,15 +55,13 @@ pub use crawl::{
     AttemptRun, Crawl, CrawlCall, CrawlContext, CrawlRun, Dataset, DatasetDeclaration, Enqueue,
     EnqueueLinks, Label, LabelDeclaration, LinkPayload, Seed, StartCrawl,
 };
-pub use foxhound::{Foxhound, PAID_FETCHES};
-pub use goodfetch_collie::{
-    ConnectOptions, EngineChoice, EngineFallback, EngineInfo, EngineKind, RemoteDaemon,
-};
+pub use foxhound::{ConnectOptions, Foxhound, PAID_FETCHES};
+pub use goodfetch_collie::{EngineChoice, EngineFallback, EngineInfo, EngineKind, RemoteDaemon};
 pub use goodfetch_collie_client::{
-    Answer, BoxError, Call, Connection, Error, ErrorCode, ErrorDetails, EventStream, Exchange,
-    FieldValues, HandlerlessStart, KeyValueStore, Limits, Locator, Money, MoneyError, Page, Query,
-    RawCall, Response, Run, RunView, Schema, SchemaError, Session, Start, StoredBytes, UsageKind,
-    events, schemars,
+    Answer, BoxError, Call, Connection, CreatedSchedule, Error, ErrorCode, ErrorDetails,
+    EventStream, Exchange, FieldValues, HandlerlessStart, KeyValueStore, Limits, Locator, Money,
+    MoneyError, Page, Query, RawCall, Response, Run, RunView, Schedule, Schedules, Schema,
+    SchemaError, Session, Start, StoredBytes, UsageKind, events, schemars,
 };
 pub use goodfetch_protocol::foxhound::dataset::DatasetRecord;
 /// Foxhound's Error codes, each a value of [`ErrorCode`] (ADR 0099):
@@ -79,6 +79,10 @@ pub use goodfetch_protocol::page::read::{
 };
 pub use goodfetch_protocol::run::{
     CatalogTarget, Recording, RecordingMode, RunId, RunReport, StartedAs,
+};
+pub use goodfetch_protocol::schedule::{
+    EveryTrigger, RecipeTarget, RunTarget, ScheduleDefinition, ScheduleId, ScheduleInfo,
+    ScheduleState, ScheduleTarget, ScheduleTrigger, ScheduleWarning,
 };
 pub use goodfetch_protocol::settings::{
     ExplainedSetting, RunOrigin, SettingsExplanation, SettingsLayer,

@@ -511,7 +511,7 @@ fn tls_proxy_network(port: u16, trust: &Trust) -> super::Tcp {
         ]),
         upstream: Some((TLS_PROXY.to_owned(), port)),
         upstream_tls: Some(std::sync::Arc::new(
-            trust.client_config(goodfetch_engine::clock::Clock::system()),
+            trust.client_config(goodfetch_engine::clock::Clock::system(), None),
         )),
         judged: None,
         local: None,

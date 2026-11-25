@@ -95,6 +95,15 @@ form = "opener"
 [[member]]
 crate = "goodfetch-collie"
 receiver = "Collie"
+member = "schedules"
+entry = "none"
+reason = "The Schedules of the engine's major, reached without a round trip (spec 589); `Connection::schedules`'s member under the same name."
+words = ["schedules"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-collie"
+receiver = "Collie"
 member = "explain_settings"
 entry = "config.explain"
 words = ["explain", "settings"]
@@ -340,6 +349,15 @@ form = "opener"
 [[member]]
 crate = "goodfetch-collie"
 receiver = "blocking::Collie"
+member = "schedules"
+entry = "none"
+reason = "The Schedules of the engine's major, reached without a round trip (spec 589); `blocking::Connection::schedules`'s member under the same name."
+words = ["schedules"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-collie"
+receiver = "blocking::Collie"
 member = "explain_settings"
 entry = "config.explain"
 words = ["explain", "settings"]
@@ -497,6 +515,51 @@ receiver = "executable::Skills"
 member = "files"
 entry = "none"
 reason = "Their files, which each executable's unit test reads for the options its skills name."
+words = ["files"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-collie"
+receiver = "executable"
+member = "StarterFile"
+entry = "none"
+reason = "One file of a starter an executable embeds, which `init` writes: its path from the starters folder and its bytes."
+words = ["starter", "file"]
+form = "type"
+
+[[member]]
+crate = "goodfetch-collie"
+receiver = "executable"
+member = "Starters"
+entry = "none"
+reason = "The starters an executable embeds, which `init` writes into a new project's folder."
+words = ["starters"]
+form = "type"
+
+[[member]]
+crate = "goodfetch-collie"
+receiver = "executable::Starters"
+member = "COLLIE"
+entry = "none"
+reason = "Collie's executable's: its renderings of `starters/`."
+words = ["collie"]
+form = "constant"
+
+[[member]]
+crate = "goodfetch-collie"
+receiver = "executable::Starters"
+member = "new"
+entry = "none"
+reason = "The starters of `files`, such as a Product's own list."
+words = ["new"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-collie"
+receiver = "executable::Starters"
+member = "files"
+entry = "none"
+reason = "Their files, which each executable's unit test reads."
 words = ["files"]
 form = "read"
 
@@ -1317,6 +1380,33 @@ member = "text"
 entry = "none"
 reason = "A value as human output shows it: text as it is, anything else as JSON."
 words = ["text"]
+form = "runtime"
+
+[[member]]
+crate = "goodfetch-collie"
+receiver = "executable::prompts"
+member = "Prompt"
+entry = "none"
+reason = "A person-only prompt: the operation its answer calls, for an executable's own person-only command such as Foxhound's `dataset erase` (ADR 0031)."
+words = ["prompt"]
+form = "type"
+
+[[member]]
+crate = "goodfetch-collie"
+receiver = "executable::prompts::Prompt"
+member = "person_present"
+entry = "none"
+reason = "Refuses the command with `person_required` under `--json` or when stdin is no terminal, before any engine call."
+words = ["person", "present"]
+form = "runtime"
+
+[[member]]
+crate = "goodfetch-collie"
+receiver = "executable::prompts::Prompt"
+member = "ask"
+entry = "none"
+reason = "Asks the person the question once at the terminal, after its warning, and answers whether they said yes."
+words = ["ask"]
 form = "runtime"
 
 [[member]]

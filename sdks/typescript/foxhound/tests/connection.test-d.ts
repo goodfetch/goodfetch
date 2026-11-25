@@ -31,6 +31,7 @@ expectTypeOf<keyof Connection>().toEqualTypeOf<
   | "openRun"
   | "call"
   | "explainSettings"
+  | "schedules"
   | "close"
   | typeof Symbol.asyncDispose
 >();

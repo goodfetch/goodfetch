@@ -532,7 +532,7 @@ fn counted(
                 cell: cell.name.to_owned(),
                 tool: config.tool(),
                 number,
-                load: None,
+                started: crate::compare::trials::Started::default(),
                 count: 9,
                 syncs: 0,
                 work: on_site(cell.scenario, work(cell.scenario, cell.name, number)),
@@ -739,7 +739,7 @@ fn sizes() -> SizesCell {
                                 number,
                                 site_pages: pages,
                                 concurrency,
-                                load: None,
+                                started: crate::compare::trials::Started::default(),
                                 retried: None,
                                 measured: Measured {
                                     seconds: 1.0,

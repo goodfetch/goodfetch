@@ -1,0 +1,8 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 346874575de6446de70734ee602cc303dc49257b766d8b36a304fed0a5546ee6 # shrinks to (initial_state, transitions, seen_counter) = (Reference { parts: [], listeners: [], waits: [], handlers: [], answers: [], failure: false, took: [], scripts: [], commands: [], pending: 0, added: 0, frames: [Frame { listed: false, detached: false }, Frame { listed: false, detached: false }], order: Order { turns: [], pointers: [], lending: false, ended: false, asks: 0 }, page_detached: false, closed: false, sent: 0, visits: 0 }, [Dialog(false)], None)
+cc 8e4c990143b87d30055377e57b85e86dfb38896e4e98890120ced4ff10dc0ea2 # shrinks to (initial_state, transitions, seen_counter) = (Reference { parts: [], listeners: [], waits: [], handlers: [], answers: [], failure: false, took: [], scripts: [], commands: [], pending: 0, added: 0, frames: [Frame { listed: false, detached: false }, Frame { listed: false, detached: false }], order: Order { turns: [], pointers: [], lending: false, ended: false, asks: 0 }, page_detached: false, closed: false, sent: 0, visits: 0 }, [AddScript, DropScript(Index(0)), Script(Index(0))], None)

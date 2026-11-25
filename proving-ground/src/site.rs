@@ -47,7 +47,7 @@ use crate::languages;
 use crate::locales;
 use crate::login::canaries::{self, Canaries, Plant};
 use crate::login::{self, Logins};
-use crate::model::{self, Answers, FakeModel, Subject};
+use crate::model::{self, Answers, FakeModel, Subject, Verbs};
 use crate::observation::{self, Observations, Recorded, Report};
 use crate::online::{self, Online};
 use crate::oracle::{self, Finding, Submission};
@@ -61,6 +61,7 @@ use crate::rendered;
 use crate::replay::{self, Refusals};
 use crate::schedule;
 use crate::search;
+use crate::site_tools;
 use crate::solvers::{self, Solvers};
 use crate::task::{Task, TaskList};
 use crate::version::VERSION;
@@ -105,13 +106,14 @@ struct LimitedHold {
 
 /// The families' own host names, each family's tasks served on
 /// `<ordinal>.<host>`.
-const FAMILY_HOSTS: [&str; 7] = [
+const FAMILY_HOSTS: [&str; 8] = [
     catalog::HOST,
     rendered::HOST,
     login::HOST,
     locales::HOST,
     quotes::HOST,
     search::HOST,
+    site_tools::HOST,
     schedule::HOST,
 ];
 
@@ -253,6 +255,7 @@ impl Site {
         tasks.extend(quotes::tasks(seed, port));
         tasks.extend(locales::tasks(seed, port));
         tasks.extend(search::tasks(seed, port));
+        tasks.extend(site_tools::tasks(seed, port));
         tasks
     }
 
@@ -452,6 +455,7 @@ impl Site {
             locales::HOST => locales::respond(self.seed, request),
             quotes::HOST => quotes::respond(self.seed, request),
             search::HOST => search::respond(self.seed, time_step, request),
+            site_tools::HOST => site_tools::respond(self.seed, request),
             _ => schedule::respond(self.seed, time_step, request),
         }
     }
@@ -669,7 +673,10 @@ impl Site {
                     fault: agent::fault(self.seed, &id),
                     answers: Answers {
                         records,
-                        verbs: agent::verbs(self.seed, &id, step),
+                        verbs: Verbs {
+                            point: browser_pages::point(self.seed, &id),
+                            ..agent::verbs(self.seed, &id, step)
+                        },
                     },
                     id,
                     description: task.entry.description,

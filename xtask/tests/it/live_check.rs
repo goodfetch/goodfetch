@@ -12,8 +12,7 @@ use goodfetch_protocol::result_document::{
 };
 use serde_json::Value;
 
-use crate::github::GitHub;
-use crate::store::{STORE, read_store_file};
+use crate::store::ingest_artifact;
 use crate::workspace::Workspace;
 
 const ARTIFACT: &str = "junit-conformance-live-linux-x64-1";
@@ -137,71 +136,21 @@ fn each_gate_run_is_a_live_check_the_store_keeps_as_failed_inconclusive_or_passe
         &format!("artifacts/{ARTIFACT}/conformance.xml"),
     ]);
     assert_eq!(written.code, 0, "{}", written.stderr);
-    workspace.write(
-        &format!("artifacts/{ARTIFACT}/context.json"),
-        br#"{ "commit": "c1", "tree": "t1", "job": "conformance", "order_seed": null, "entropy_seed": null }"#,
-    );
-    let github = GitHub::serving(&[
-        (
-            "/repos/goodfetch/goodfetch/actions/runs/42/attempts/1",
-            r#"{
-              "id": 42, "run_attempt": 1, "path": ".github/workflows/daily.yml",
-              "event": "schedule", "head_branch": "main", "head_sha": "c1",
-              "head_commit": { "id": "c1", "tree_id": "t1" },
-              "run_started_at": "2026-11-23T03:00:00Z", "conclusion": "failure"
-            }"#,
-        ),
-        (
-            "/repos/goodfetch/goodfetch/actions/runs/42/attempts/1/jobs?per_page=100&page=1",
-            r#"{ "total_count": 1, "jobs": [
-              { "name": "conformance", "labels": ["ubuntu-24.04"], "conclusion": "failure",
-                "started_at": "2026-11-23T03:00:05Z", "completed_at": "2026-11-23T03:20:05Z" }
-            ] }"#,
-        ),
-        (
-            "/repos/goodfetch/goodfetch/actions/runs/42/artifacts?per_page=100&page=1",
-            &format!(
-                r#"{{ "total_count": 1, "artifacts": [
-                  {{ "name": "{ARTIFACT}", "created_at": "2026-11-23T03:20:00Z", "expired": false }}
-                ] }}"#
-            ),
-        ),
-    ]);
 
-    let ingested = workspace.xtask(&[
-        "results",
-        "ingest",
-        "--repository",
-        "goodfetch/goodfetch",
-        "--run-id",
-        "42",
-        "--attempt",
-        "1",
-        "--artifacts",
-        "artifacts",
-        "--store",
-        STORE,
-        "--api-url",
-        github.url(),
-    ]);
+    let kept = ingest_artifact(&workspace, ARTIFACT, "conformance");
 
-    assert_eq!(ingested.code, 0, "{}", ingested.stderr);
-    let file = read_store_file(&workspace, &format!("{STORE}/runs/2026/11/42-1.tar.gz"));
-    let kept: Vec<(&str, &str, &str)> = file
-        .test_runs
-        .iter()
-        .map(|run| {
-            let field = |name: &str| run[name].as_str().unwrap();
-            (field("test"), field("tier"), field("outcome"))
-        })
-        .collect();
     assert_eq!(
         kept,
-        vec![
+        [
             ("conformance page blocked gate", "live", "failed"),
             ("conformance page outage gate", "live", "inconclusive"),
             ("conformance page steady gate", "live", "passed"),
         ]
+        .map(|(test, tier, outcome)| (
+            test.to_owned(),
+            tier.to_owned(),
+            outcome.to_owned()
+        ))
     );
     let junit = workspace.read_text(&format!("artifacts/{ARTIFACT}/conformance.xml"));
     assert!(junit.contains("failed: vendor"), "{junit}");

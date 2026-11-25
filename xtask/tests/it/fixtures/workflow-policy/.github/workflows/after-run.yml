@@ -13,3 +13,5 @@ jobs:
           ref: main
           persist-credentials: false
       - run: echo report
+        env:
+          RESULTS_TOKEN: ${{ secrets.TEST_RESULTS_TOKEN }}

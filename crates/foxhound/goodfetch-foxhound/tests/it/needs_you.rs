@@ -187,6 +187,7 @@ fn foxhounds_executable_with_the_toy() {
             ..COMMANDS
         },
         skills: SKILLS,
+        starters: goodfetch_foxhound::executable::STARTERS,
         arguments: ["goodfetch-foxhound", "needs-you", "answer", "--attached"]
             .map(Into::into)
             .into(),

@@ -30,6 +30,9 @@ pub(crate) struct Workflow {
     pub(crate) events: BTreeSet<String>,
     /// The workflow's top-level `permissions:`.
     pub(crate) permissions: Permissions,
+    /// The secrets its expressions outside `jobs:` read, such as a
+    /// workflow-level `env:`'s, which every job then gets.
+    pub(crate) secrets: BTreeSet<String>,
     pub(crate) jobs: Vec<Job>,
 }
 
@@ -54,6 +57,12 @@ pub(crate) struct Job {
     pub(crate) runner: Runner,
     /// The images of its job container and its service containers, as written.
     pub(crate) images: Vec<String>,
+    /// The secrets its expressions read, by their upper-case name; `*` for
+    /// the whole `secrets` context.
+    pub(crate) secrets: BTreeSet<String>,
+    /// Whether it calls a reusable workflow with `secrets: inherit`, which
+    /// passes it every secret.
+    pub(crate) inherits_secrets: bool,
     pub(crate) steps: Vec<Step>,
 }
 
@@ -136,16 +145,85 @@ fn parse(file: String, document: &Value) -> Result<Workflow> {
                 uses: job.get("uses").map(scalar).transpose()?,
                 runner: runner(job)?,
                 images: images(job)?,
+                secrets: secrets(job),
+                inherits_secrets: job.get("secrets").and_then(Value::as_str) == Some("inherit"),
                 steps: steps(job)?,
             });
         }
     }
+    let secrets = match document {
+        Value::Object(entries) => entries
+            .iter()
+            .filter(|(key, _)| key.as_str() != "jobs")
+            .flat_map(|(_, value)| secrets(value))
+            .collect(),
+        _ => BTreeSet::new(),
+    };
     Ok(Workflow {
         file,
         events,
         permissions,
+        secrets,
         jobs,
     })
+}
+
+/// The secrets read by the expressions (`${{ … }}`) of every string under
+/// `value`: `secrets.<name>` and `secrets['<name>']`, by their upper-case
+/// name, since GitHub's secret names are case-insensitive, and `*` for the
+/// bare `secrets` context.
+fn secrets(value: &Value) -> BTreeSet<String> {
+    let mut found = BTreeSet::new();
+    let mut pending = vec![value];
+    while let Some(value) = pending.pop() {
+        match value {
+            Value::String(text) => {
+                let mut rest = text.as_str();
+                while let Some(start) = rest.find("${{") {
+                    let expression = &rest[start + 3..];
+                    let end = expression.find("}}").unwrap_or(expression.len());
+                    secrets_in_expression(&expression[..end], &mut found);
+                    rest = &expression[end..];
+                }
+            }
+            Value::Array(items) => pending.extend(items),
+            Value::Object(entries) => pending.extend(entries.values()),
+            _ => {}
+        }
+    }
+    found
+}
+
+fn secrets_in_expression(expression: &str, found: &mut BTreeSet<String>) {
+    let is_name = |character: char| character.is_ascii_alphanumeric() || character == '_';
+    let mut offset = 0;
+    while let Some(position) = expression[offset..].find("secrets") {
+        let start = offset + position;
+        let after = &expression[start + "secrets".len()..];
+        offset = start + "secrets".len();
+        let preceded = expression[..start]
+            .chars()
+            .next_back()
+            .is_some_and(|character| is_name(character) || character == '.');
+        if preceded || after.chars().next().is_some_and(is_name) {
+            continue;
+        }
+        let name = if let Some(member) = after.strip_prefix('.') {
+            member.split(|character: char| !is_name(character)).next()
+        } else if let Some(index) = after.trim_start().strip_prefix('[') {
+            let index = index.trim_start();
+            index
+                .chars()
+                .next()
+                .filter(|quote| *quote == '\'' || *quote == '"')
+                .and_then(|quote| index[1..].split(quote).next())
+        } else {
+            Some("*")
+        };
+        if let Some(name) = name.filter(|name| !name.is_empty()) {
+            found.insert(name.to_ascii_uppercase());
+        }
+    }
 }
 
 fn steps(job: &Value) -> Result<Vec<Step>> {

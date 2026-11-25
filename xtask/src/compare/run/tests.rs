@@ -156,6 +156,7 @@ fn only_a_run_of_the_full_trials_waits_for_a_quiet_machine() {
             scenarios: crate::compare::matrix::Scenario::ALL.to_vec(),
             callgrind_outputs: Path::new("/t/compare/callgrind").to_owned(),
             only: Vec::new(),
+            quiet_until: None,
         })
     };
 
@@ -306,7 +307,7 @@ fn a_cell_whose_strace_run_missed_pages_runs_no_later_run() {
         cell: name.to_owned(),
         tool: Tool::Spider,
         number: 1,
-        load: None,
+        started: crate::compare::trials::Started::default(),
         count: 9,
         syncs: 0,
         work: Work {
@@ -557,6 +558,7 @@ fn the_sizes_cell_runs_every_tool_at_16_in_flight_and_two_at_1_and_64() {
         scenarios: vec![Scenario::Raw],
         callgrind_outputs: Path::new("/nowhere").to_owned(),
         only: Vec::new(),
+        quiet_until: None,
     };
 
     let points = size_points(&options);
@@ -614,6 +616,7 @@ fn the_sizes_cell_runs_spider_at_16_and_at_64_on_a_wider_channel() {
         scenarios: vec![Scenario::Raw],
         callgrind_outputs: Path::new("/nowhere").to_owned(),
         only: Vec::new(),
+        quiet_until: None,
     };
 
     let mut points: Vec<(Tool, u32, Option<usize>)> = size_points(&options)
@@ -662,6 +665,7 @@ fn asking(only: Vec<super::CellName>) -> Options {
         scenarios: Scenario::ALL.to_vec(),
         callgrind_outputs: Path::new("/t/compare/callgrind").to_owned(),
         only,
+        quiet_until: None,
     }
 }
 

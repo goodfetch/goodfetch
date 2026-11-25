@@ -28,8 +28,9 @@
 //! The reader ends when the page leaves the engine or its target goes, and
 //! so do the page's waiters and body reads. A reader that fell too far
 //! behind the browser's events has lost some: the page's listeners,
-//! waiters and body reads then raise `page_events_lost`, and the Run trace
-//! records it, rather than reading the live page as gone.
+//! waiters and body reads then raise `page_events_lost`, rather than
+//! reading the live page as gone, and the engine closes the page, whose
+//! every call raises it too (ADR 0146).
 //!
 //! What the page's events keep is bounded: every request in flight, and of
 //! those that ended the latest `ENDED_LIMIT`, the main frame's document's
@@ -72,26 +73,26 @@
 //! so each event changes that state in one place, under one lock.
 #![expect(
     clippy::disallowed_types,
-    reason = "listeners and waiters are armed as their call arrives, before any `.await`: each lock guards the open pages, one page's state or its refusals for one step, never across an `.await` or another of them (a request's refusal and its relay's error are taken before `state`), and the Tokio `watch` values updated under `state` never take one, so there is no lock order to test under loom (ADR 0060)"
+    reason = "listeners and waiters are armed as their call arrives, before any `.await`: each lock guards one page's state or its refusals for one step, never across an `.await` or another of them (a request's refusal and its relay's error are taken before `state`), and the Tokio `watch` values updated under `state` never take one, so there is no lock order to test under loom (ADR 0060)"
 )]
 
 use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::{Duration, SystemTime};
 
-use data_encoding::BASE64;
-use goodfetch_cdp::generated::{network, page, runtime};
-use goodfetch_cdp::{NetError, SessionId as TargetSession, Subscription, SubscriptionEnd};
 use goodfetch_counted_work::{CountedWork, Row};
 use goodfetch_engine::clock::Clock;
 use goodfetch_engine::deadline::Deadline;
 use goodfetch_engine::events::Events;
 use goodfetch_engine::events::{Envelope, EventData};
-use goodfetch_engine::mask::{Masks, Scope};
 use goodfetch_engine::response_limits::{LimitExceeded, Limits};
 use goodfetch_engine::rpc::send_events;
-use goodfetch_engine::run_trace::RequestLog;
-use goodfetch_engine::runs::{Run, run_trace};
+use goodfetch_engine::run_files::RunFiles;
+use goodfetch_engine::run_identity::RunIdentity;
+use goodfetch_engine::run_trace::{RequestLog, RunTrace};
+use goodfetch_engine::runs::outcome::record_outcome;
+use goodfetch_engine::secrets::RunSecrets;
+use goodfetch_engine::tasks;
 use goodfetch_engine::{CallError, CallStream, named};
 use goodfetch_protocol::catalog::Event;
 use goodfetch_protocol::connection::{Form, WaitedFor};
@@ -115,17 +116,21 @@ use tokio_util::sync::CancellationToken;
 mod document;
 mod latest;
 mod requests;
-mod runtime_values;
 mod waiters;
 
 pub(crate) use self::document::WaitDeadline;
 use self::document::{Document, InFlight, UrlWaiter};
 use self::latest::Latest;
 use self::requests::Requests;
-use self::runtime_values::{console_message, web_error};
 use self::waiters::{Armed, answer_armed};
-use crate::driver::cdp_response::{bytes_of, cut_by, declared_length, headers, response_of};
-use crate::driver::{Child, ChildKind, OnChild, PageDriver, browser_id, hop_id};
+use crate::cdp::{
+    CdpPage, FollowedEvent, FollowedEvents, LoadingFailed, NetError, RequestSent, SocketFrame,
+    TargetSession,
+};
+use crate::driver::cdp_response::{cut_by, declared_length};
+use crate::driver::{PageDriver, browser_id, hop_id};
+use crate::errors::events_lost;
+use crate::page_children::{Child, ChildKind, OnChild};
 use crate::page_value::{Kept, ObservedResponse, Observer};
 use crate::url_pattern::UrlPattern;
 
@@ -201,57 +206,22 @@ fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
         .unwrap_or_else(std::sync::PoisonError::into_inner)
 }
 
-/// The open pages' events, by page, which a call reaches as it arrives.
-#[derive(Clone, Default)]
-pub(crate) struct Table(Arc<Mutex<BTreeMap<PageId, PageEvents>>>);
-
-impl Table {
-    pub(crate) fn insert(&self, page_id: PageId, events: PageEvents) {
-        lock(&self.0).insert(page_id, events);
-    }
-
-    /// The events of the open page `page_id`, or `closed`.
-    pub(crate) fn get(&self, page_id: &PageId) -> Result<PageEvents, CallError> {
-        lock(&self.0).get(page_id).cloned().ok_or_else(|| {
-            CallError::new(
-                &goodfetch_protocol::connection::CLOSED,
-                format!("the page `{}` is closed, or its Run ended", page_id.0),
-                &serde_json::json!({ "page_id": page_id }),
-            )
-        })
-    }
-
-    /// The wait until no `page.on` of the page `page_id` sent before now is
-    /// still turning `Runtime` on; none while none is, or for a page that is
-    /// not open.
-    ///
-    /// # Cancel safety
-    ///
-    /// Dropping the future gives up the wait.
-    pub(crate) fn arming(
-        &self,
-        page_id: &PageId,
-    ) -> Option<impl Future<Output = ()> + Send + use<>> {
-        let mut arming = lock(&self.0).get(page_id)?.shared.arming.subscribe();
-        let on = *arming.borrow_and_update();
-        on.then_some(async move {
-            let _ = arming.wait_for(|arming| !*arming).await;
-        })
-    }
-
-    /// Takes the pages `pages` out, as they go: their calls answer.
-    pub(crate) fn close(&self, pages: &[PageId]) {
-        let taken: Vec<PageEvents> = {
-            let mut table = lock(&self.0);
-            pages.iter().filter_map(|page| table.remove(page)).collect()
-        };
-        for events in taken {
-            events.close();
-        }
-    }
+/// What a page's events use of a live Run (ADR 0145): its identity, whose
+/// tasks they start, whose clock dates them and whose settings bound the
+/// bodies they read, and whose outcome a lost event or a refused request
+/// records; its files, which store those bodies; its Secrets, which a
+/// request's posted data is masked by; and its trace, which logs refused
+/// requests. Cloning it is four reference counts.
+#[derive(Clone)]
+pub(crate) struct RunPowers {
+    pub(crate) identity: RunIdentity,
+    pub(crate) files: RunFiles,
+    pub(crate) secrets: RunSecrets,
+    pub(crate) trace: RunTrace,
 }
 
-/// One open page's events and bodies; clones share them.
+/// One open page's events and bodies, which its owner holds (ADR 0146);
+/// clones share them.
 #[derive(Clone)]
 pub(crate) struct PageEvents {
     shared: Arc<Shared>,
@@ -260,7 +230,9 @@ pub(crate) struct PageEvents {
 struct Shared {
     page_id: PageId,
     driver: PageDriver,
-    run: Run,
+    /// The primitives its events turn on and read bodies by.
+    cdp: CdpPage,
+    run: RunPowers,
     /// The engine's event stream the page's Session publishes on, which
     /// the page's own events never take.
     events: Events,
@@ -290,6 +262,19 @@ struct Shared {
     /// The response observer its Session registered, and what it keeps,
     /// read once when the page opened.
     observing: Option<(Observer, Kept)>,
+}
+
+impl Shared {
+    /// Starts `future` as one of the Run's tasks, in its span.
+    fn spawn(&self, future: impl Future<Output = ()> + Send + 'static) {
+        self.run.identity.spawn(future);
+    }
+
+    /// Records that the Run's driver recorded `error_code`, which no reply
+    /// carries.
+    fn record_outcome(&self, error_code: &str) {
+        record_outcome(&self.run.identity, error_code);
+    }
 }
 
 /// How many `page.request` bodies a page keeps for `response.body`: the
@@ -505,13 +490,9 @@ fn arm_runtime(shared: &Arc<Shared>) -> oneshot::Receiver<Result<(), CallError>>
     }
     let (answer, answered) = oneshot::channel();
     let ending = ArmingEnds(Arc::clone(shared));
-    shared.run.spawn(async move {
+    shared.spawn(async move {
         let shared = &ending.0;
-        let enabled = shared
-            .driver
-            .opening_command(&runtime::EnableParams {})
-            .await
-            .map(drop);
+        let enabled = shared.cdp.follow_console_opening().await;
         if enabled.is_ok() {
             enable_runtime_on_frames(shared).await;
         }
@@ -536,11 +517,7 @@ async fn enable_runtime_on_frames(shared: &Shared) {
             .collect()
     };
     for session in frames {
-        if let Err(error) = shared
-            .driver
-            .opening_command_on(&session, &runtime::EnableParams {})
-            .await
-        {
+        if let Err(error) = shared.cdp.follow_frame_console_opening(&session).await {
             tracing::debug!(%error, "an out-of-process frame went before its console was read");
         }
     }
@@ -548,35 +525,31 @@ async fn enable_runtime_on_frames(shared: &Shared) {
 
 impl PageEvents {
     /// Starts reading the events of the page `page_id`, which `driver`
-    /// drives for `run`, from `subscription`, publishing on `events`; its
-    /// waiters wait at most `wait`, and each response `observer` keeps is
-    /// passed to it.
-    #[expect(
-        clippy::too_many_arguments,
-        reason = "one value per part of the page its events follow, each its own owner's"
-    )]
+    /// drives for `run`, from now, publishing on `events`; its waiters wait
+    /// at most `wait`, and each response `observer` keeps is passed to it.
     pub(crate) fn start(
         page_id: PageId,
         driver: PageDriver,
-        run: &Run,
+        run: RunPowers,
         events: Events,
         refusals: Refusals,
-        subscription: Subscription,
         wait: Deadline,
         observer: Option<Observer>,
     ) -> Self {
+        let cdp = CdpPage::of(&driver);
+        let followed = cdp.followed_events();
         let shared = Arc::new(Shared {
             page_id,
+            cdp,
             driver,
-            run: run.clone(),
             events,
             refusals,
             wait,
-            clock: run.clock(),
-            log: Arc::new(RequestLog::new(run_trace(run))),
+            clock: run.identity.clock(),
+            log: Arc::new(RequestLog::new(&run.trace)),
             state: Mutex::new(State {
                 url: "about:blank".to_owned(),
-                work: run.metrics().counted_work().clone(),
+                work: run.identity.metrics().counted_work().clone(),
                 ..State::default()
             }),
             changed: Notify::new(),
@@ -589,14 +562,15 @@ impl PageEvents {
                 let kept = observer.kept();
                 (observer, kept)
             }),
+            run,
         });
-        run.spawn(read(subscription, Arc::clone(&shared)));
-        run.spawn(document::watch_idle(Arc::clone(&shared)));
+        shared.spawn(read(followed, Arc::clone(&shared)));
+        shared.spawn(document::watch_idle(Arc::clone(&shared)));
         Self { shared }
     }
 
     /// What the page's events do with each of its out-of-process frames,
-    /// which `driver::follow_children` hands over: each one's network is
+    /// which `page_children::follow` hands over: each one's network is
     /// read from before it runs, so its requests count in the page's
     /// `networkidle` and reach its waiters and events, their bodies read on
     /// the frame's session, and a document request the page started ends
@@ -611,32 +585,23 @@ impl PageEvents {
                 if kind != ChildKind::Frame {
                     return true;
                 }
-                let events = shared.driver.events_on(&session);
-                // Listed before `Runtime` is asked for, so a call that
+                let events = shared.cdp.frame_events(&session);
+                // Listed before its console is asked for, so a call that
                 // listens from now turns it on here, or finds it on.
-                let runtime = {
+                let console = {
                     let mut state = lock(&shared.state);
                     state.frames.retain(|(_, gone)| !gone.is_cancelled());
                     state.frames.push((session.clone(), gone.clone()));
                     state.runtime_since.is_some()
                 };
-                match shared
-                    .driver
-                    .command_on(&session, &network::EnableParams::default())
-                    .await
-                {
-                    Ok(_) => {
-                        if runtime
-                            && let Err(failure) = shared
-                                .driver
-                                .command_on(&session, &runtime::EnableParams {})
-                                .await
+                match shared.cdp.follow_frame_network(&session).await {
+                    Ok(()) => {
+                        if console
+                            && let Err(failure) = shared.cdp.follow_frame_console(&session).await
                         {
                             tracing::debug!(%failure, "an out-of-process frame went before its console was read");
                         }
-                        shared
-                            .run
-                            .spawn(read_frame(events, gone, session, Arc::clone(&shared)));
+                        shared.spawn(read_frame(events, gone, session, Arc::clone(&shared)));
                     }
                     Err(failure) => {
                         tracing::debug!(%failure, "an out-of-process frame went before its network was read");
@@ -762,6 +727,20 @@ impl PageEvents {
         // Closed first, so a listener armed from now arms nothing.
         self.shared.closed.send_replace(true);
         answer_every_waiter(&self.shared);
+    }
+
+    /// The wait until no `page.on` of the page sent before now is still
+    /// turning `Runtime` on; none while none is.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future gives up the wait.
+    pub(crate) fn arming(&self) -> Option<impl Future<Output = ()> + Send + use<>> {
+        let mut arming = self.shared.arming.subscribe();
+        let on = *arming.borrow_and_update();
+        on.then_some(async move {
+            let _ = arming.wait_for(|arming| !*arming).await;
+        })
     }
 
     /// Arms a waiter for the next request whose URL `pattern` matches, any
@@ -934,7 +913,7 @@ async fn read_body(
     counted: (u64, Option<u64>),
 ) -> Result<BodyHandle, Unread> {
     let bytes = judged_body(shared, request_id, url, counted).await?;
-    match shared.run.store_body(bytes.into()).await {
+    match shared.run.files.store_body(bytes.into()).await {
         Ok(handle) => Ok(handle),
         Err(error) => {
             tracing::warn!(%error, "a response's body was not stored");
@@ -954,7 +933,7 @@ async fn judged_body(
     url: &str,
     (received, declared): (u64, Option<u64>),
 ) -> Result<Vec<u8>, Unread> {
-    let limits = Limits::of_run(shared.run.settings());
+    let limits = Limits::of_run(shared.run.identity.settings());
     let past = |exceeded: LimitExceeded| Unread::PastLimit(exceeded.error());
     limits
         .judge_decoded(url, received, declared)
@@ -979,15 +958,7 @@ async fn body_bytes(shared: &Shared, request_id: &str) -> Option<Vec<u8>> {
         .requests
         .get(browser)
         .and_then(|tracked| tracked.session.clone());
-    let params = network::GetResponseBodyParams {
-        request_id: browser.to_owned(),
-    };
-    let read = match &session {
-        Some(session) => shared.driver.command_on(session, &params).await,
-        None => shared.driver.command(&params).await,
-    }
-    .ok()?;
-    bytes_of(read.body, read.base64_encoded).ok()
+    shared.cdp.response_body(browser, session.as_ref()).await
 }
 
 /// Passes `response` to the page's response observer when it keeps its URL
@@ -1008,8 +979,8 @@ fn observe(shared: &Arc<Shared>, response: &PageResponse, received: Option<u64>)
         return;
     }
     let (shared, response) = (Arc::clone(shared), response.clone());
-    let run = shared.run.clone();
-    run.spawn(async move {
+    let identity = shared.run.identity.clone();
+    identity.spawn(async move {
         let body = match received {
             Some(received) => {
                 let counted = (received, declared_length(&response.headers));
@@ -1138,18 +1109,6 @@ fn listened(event: PageEventName) -> &'static Event {
         .expect("invariant: `page.on` sends each event it listens to")
 }
 
-/// `page_events_lost` for a call on events of the page `page_id`.
-fn events_lost(page_id: &PageId) -> CallError {
-    CallError::new(
-        &PAGE_EVENTS_LOST,
-        format!(
-            "the engine fell too far behind the events of the page `{}` and no longer reads them: open another page to follow its events",
-            page_id.0
-        ),
-        &serde_json::json!({ "page_id": page_id }),
-    )
-}
-
 /// Answers every waiter of the page, which raises what [`gone`] says, every
 /// body read waiting for its request to end, and every listener's call once
 /// it sent the events it holds.
@@ -1175,29 +1134,28 @@ fn millis_since_epoch(wall: SystemTime) -> f64 {
 
 /// Reads the page's events until the page leaves the engine or its target
 /// goes. A subscription that fell too far behind while the page was open
-/// lost events: its calls on events raise `page_events_lost` from then, and
-/// the Run trace records it.
-async fn read(mut subscription: Subscription, shared: Arc<Shared>) {
+/// lost events, its reader's having fallen behind: its waiters, body reads
+/// and listeners raise `page_events_lost`, as the page's close, which the
+/// Run trace records, makes every call on it do.
+async fn read(mut followed: FollowedEvents, shared: Arc<Shared>) {
     let mut closed = shared.closed.subscribe();
     loop {
         let event = tokio::select! {
             biased;
             _ = closed.wait_for(|closed| *closed) => break,
-            event = subscription.next() => event,
+            event = followed.next() => event,
         };
         let Some(event) = event else {
             break;
         };
-        take_in(&shared, &event, None);
+        take_in(&shared, event, None);
     }
-    let lost = subscription.ended() == Some(SubscriptionEnd::FellBehind) && !*closed.borrow();
+    let lost = followed.fell_behind() && !*closed.borrow();
     if lost {
         tracing::warn!(
             page_id = %shared.page_id.0,
             "the page's events fell too far behind and some are lost: its calls on events raise `page_events_lost`"
         );
-        // The Run trace holds the Error code no reply may carry (ADR 0072).
-        shared.run.record_outcome(PAGE_EVENTS_LOST.name);
         shared.lost.send_replace(true);
         answer_every_waiter(&shared);
     } else {
@@ -1211,32 +1169,18 @@ async fn read(mut subscription: Subscription, shared: Arc<Shared>) {
 /// (`gone`), as the page's own: a document request the page started and
 /// the frame finished ends there.
 async fn read_frame(
-    mut subscription: Subscription,
+    mut followed: FollowedEvents,
     gone: CancellationToken,
     session: TargetSession,
     shared: Arc<Shared>,
 ) {
-    while let Some(event) = gone
-        .run_until_cancelled(subscription.next())
-        .await
-        .flatten()
-    {
-        if !event.method.starts_with(NETWORK) && !FRAME_RUNTIME.contains(&event.method.as_str()) {
-            continue;
-        }
-        take_in(&shared, &event, Some(&session));
+    while let Some(event) = gone.run_until_cancelled(followed.next()).await.flatten() {
+        take_in(&shared, event, Some(&session));
     }
     lock(&shared.state)
         .frames
         .retain(|(frame, _)| *frame != session);
 }
-
-/// The prefix of the `Network` domain's events.
-const NETWORK: &str = "Network.";
-
-/// The events of the `Runtime` domain a frame's own console and uncaught
-/// exceptions come as.
-const FRAME_RUNTIME: [&str; 2] = ["Runtime.consoleAPICalled", "Runtime.exceptionThrown"];
 
 /// One event a page's events send a listener: its catalog entry and its
 /// data.
@@ -1276,20 +1220,37 @@ fn emit(
 /// Takes in one event of the page's target, or of one of its
 /// out-of-process frames on `session`, as it changes the page's state and
 /// sends the page's events it makes.
-fn take_in(shared: &Arc<Shared>, event: &goodfetch_cdp::RawEvent, session: Option<&TargetSession>) {
+fn take_in(shared: &Arc<Shared>, event: FollowedEvent, session: Option<&TargetSession>) {
+    let FollowedEvent::LoadingFailed(failed) = event else {
+        take_in_locked(shared, &mut lock(&shared.state), event, session);
+        return;
+    };
     // A failed request's refusal and its relay's error are taken before the
     // page's state, so its lock never holds another.
-    let failed = event.read::<network::LoadingFailedEvent>().map(|failed| {
-        let how = failure_of(shared, &failed);
-        (failed, how)
-    });
+    let how = failure_of(shared, &failed);
     let mut guard = lock(&shared.state);
     let state = &mut *guard;
-    if let Some(sent) = event.read::<network::RequestWillBeSentEvent>() {
-        sent_request(shared, state, sent, session);
-    } else if let Some(received) = event.read::<network::ResponseReceivedEvent>() {
-        if let Some(tracked) = state.requests.get_mut(&received.request_id) {
-            let response = response_of(&tracked.request.request_id, &received.response);
+    failed_request(shared, state, &failed, how);
+    ended(shared, state, failed.network_id());
+    document::ended(shared, state, failed.network_id());
+    shared.changed.notify_waiters();
+}
+
+/// Takes in an event other than a request's failure, under the page's
+/// state's lock.
+fn take_in_locked(
+    shared: &Arc<Shared>,
+    state: &mut State,
+    event: FollowedEvent,
+    session: Option<&TargetSession>,
+) {
+    match event {
+        FollowedEvent::RequestSent(sent) => sent_request(shared, state, sent, session),
+        FollowedEvent::ResponseReceived(received) => {
+            let Some(tracked) = state.requests.get_mut(received.network_id()) else {
+                return;
+            };
+            let response = received.response().of(&tracked.request.request_id);
             tracked.response = Some(response.clone());
             tracked.answered_at = Some(shared.clock.wall());
             let exchange = PageExchange {
@@ -1303,43 +1264,43 @@ fn take_in(shared: &Arc<Shared>, event: &goodfetch_cdp::RawEvent, session: Optio
             );
             emit(state, PageEventName::Response, &PAGE_RESPONSE, &exchange);
         }
-    } else if let Some(data) = event.read::<network::DataReceivedEvent>() {
-        if let Some(tracked) = state.requests.get_mut(&data.request_id) {
-            tracked.received += u64::try_from(data.data_length).unwrap_or_default();
-        }
-    } else if let Some(finished) = event.read::<network::LoadingFinishedEvent>() {
-        if let Some(tracked) = state.requests.get_mut(&finished.request_id) {
-            tracked.ended = Some(Ended::Finished);
-            let (request, response, received) = (
-                tracked.request.clone(),
-                tracked.response.clone(),
-                tracked.received,
-            );
-            emit(
-                state,
-                PageEventName::RequestFinished,
-                &PAGE_REQUEST_FINISHED,
-                &request,
-            );
-            if let Some(response) = response {
-                observe(shared, &response, Some(received));
-                answer_waiters(shared, state, request, response, Some(received));
+        FollowedEvent::DataReceived { network_id, length } => {
+            if let Some(tracked) = state.requests.get_mut(&network_id) {
+                tracked.received += length;
             }
         }
-        ended(shared, state, &finished.request_id);
-        document::ended(shared, state, &finished.request_id);
-        shared.changed.notify_waiters();
-    } else if let Some((failed, how)) = failed {
-        failed_request(shared, state, &failed, how);
-        ended(shared, state, &failed.request_id);
-        document::ended(shared, state, &failed.request_id);
-        shared.changed.notify_waiters();
-    } else {
-        // An out-of-process frame's own document is no page's document.
-        if session.is_none() {
-            document::take_in(shared, state, event);
+        FollowedEvent::LoadingFinished { network_id } => {
+            if let Some(tracked) = state.requests.get_mut(&network_id) {
+                tracked.ended = Some(Ended::Finished);
+                let (request, response, received) = (
+                    tracked.request.clone(),
+                    tracked.response.clone(),
+                    tracked.received,
+                );
+                emit(
+                    state,
+                    PageEventName::RequestFinished,
+                    &PAGE_REQUEST_FINISHED,
+                    &request,
+                );
+                if let Some(response) = response {
+                    observe(shared, &response, Some(received));
+                    answer_waiters(shared, state, request, response, Some(received));
+                }
+            }
+            ended(shared, state, &network_id);
+            document::ended(shared, state, &network_id);
+            shared.changed.notify_waiters();
         }
-        take_in_other(shared, state, event);
+        event @ (FollowedEvent::FrameNavigated(_)
+        | FollowedEvent::NavigatedWithinDocument { .. }
+        | FollowedEvent::Lifecycle { .. }) => {
+            // An out-of-process frame's own document is no page's document.
+            if session.is_none() {
+                document::take_in(shared, state, event);
+            }
+        }
+        event => take_in_other(shared, state, event),
     }
 }
 
@@ -1349,17 +1310,17 @@ fn take_in(shared: &Arc<Shared>, event: &goodfetch_cdp::RawEvent, session: Optio
 fn sent_request(
     shared: &Arc<Shared>,
     state: &mut State,
-    sent: network::RequestWillBeSentEvent,
+    sent: RequestSent,
     session: Option<&TargetSession>,
 ) {
     let mut chain = Vec::new();
     let mut from = None;
-    if let Some(redirect) = &sent.redirect_response
-        && let Some(before) = state.requests.get(&sent.request_id)
+    if let Some(redirect) = sent.redirect()
+        && let Some(before) = state.requests.get(sent.network_id())
     {
         let exchange = PageExchange {
             request: before.request.clone(),
-            response: response_of(&before.request.request_id, redirect),
+            response: redirect.of(&before.request.request_id),
         };
         chain.clone_from(&exchange.request.redirect_chain);
         chain.push(exchange.request.url.clone());
@@ -1386,13 +1347,13 @@ fn sent_request(
     }
     let request = PageRequest {
         page_id: shared.page_id.clone(),
-        request_id: hop_id(&sent.request_id, chain.len()),
-        url: sent.request.url.clone(),
-        method: sent.request.method.clone(),
-        headers: headers(&sent.request.headers),
-        post_data: post_data(&sent.request, shared.run.secrets().mask().masks()),
-        resource_type: resource_type(sent.r#type.unwrap_or(network::ResourceType::Other)),
-        is_navigation_request: is_navigation(sent.r#type),
+        request_id: hop_id(sent.network_id(), chain.len()),
+        url: sent.url().to_owned(),
+        method: sent.method().to_owned(),
+        headers: sent.headers(),
+        post_data: sent.post_data(shared.run.secrets.mask().masks()),
+        resource_type: sent.resource_type(),
+        is_navigation_request: sent.is_navigation(),
         redirect_chain: chain,
         redirected_from: from,
         failure: None,
@@ -1401,7 +1362,7 @@ fn sent_request(
     document::sent(shared, state, &sent);
     emit(state, PageEventName::Request, &PAGE_REQUEST, &request);
     state.requests.insert(
-        sent.request_id,
+        sent.into_network_id(),
         Tracked {
             request,
             session: session.cloned(),
@@ -1434,14 +1395,14 @@ struct HowItFailed {
 
 /// Takes the interception's refusal of the request `failed` names and the
 /// failure its relay met, if any.
-fn failure_of(shared: &Shared, failed: &network::LoadingFailedEvent) -> HowItFailed {
+fn failure_of(shared: &Shared, failed: &LoadingFailed) -> HowItFailed {
     let url = lock(&shared.state)
         .requests
-        .get(&failed.request_id)
+        .get(failed.network_id())
         .map(|tracked| tracked.request.url.clone());
-    let error = NetError::of(&failed.error_text);
+    let error = failed.error();
     HowItFailed {
-        refusal: shared.refusals.take(&failed.request_id),
+        refusal: shared.refusals.take(failed.network_id()),
         error: url
             .and_then(|url| {
                 shared
@@ -1456,14 +1417,9 @@ fn failure_of(shared: &Shared, failed: &network::LoadingFailedEvent) -> HowItFai
 /// A request failed: its failure carries the interception's refusal, which
 /// the Run trace records when no call waited on the request, as the Run's
 /// outcome record names its Error code.
-fn failed_request(
-    shared: &Shared,
-    state: &mut State,
-    failed: &network::LoadingFailedEvent,
-    how: HowItFailed,
-) {
+fn failed_request(shared: &Shared, state: &mut State, failed: &LoadingFailed, how: HowItFailed) {
     let HowItFailed { refusal, error } = how;
-    let Some(tracked) = state.requests.get_mut(&failed.request_id) else {
+    let Some(tracked) = state.requests.get_mut(failed.network_id()) else {
         return;
     };
     let mut request = tracked.request.clone();
@@ -1474,17 +1430,12 @@ fn failed_request(
     tracked.ended = Some(Ended::Failed(error));
     if let Some((refused, true)) = &refusal {
         // The Run trace holds the Error code no reply carries (ADR 0072).
-        shared.run.record_outcome(&refused.code);
-        let (log, request) = (Arc::clone(&shared.log), request.clone());
-        shared
-            .run
-            .metrics()
-            .counted_work()
-            .count(Row::InterceptedSpawns);
-        shared.run.spawn(async move {
-            if let Err(error) = log.record(&PAGE_REQUEST_FAILED, &request).await {
-                tracing::warn!(%error, "the Run trace did not take a refused request");
-            }
+        shared.record_outcome(&refused.code);
+        // Its entry goes to the Run trace's writer with no task started,
+        // unless it is the Run's first (`C5.spawns`).
+        let counted = shared.run.identity.metrics().counted_work().clone();
+        tasks::counting_starts_now(counted, Row::InterceptedSpawns, || {
+            shared.log.record_now(&PAGE_REQUEST_FAILED, &request);
         });
     }
     emit(
@@ -1497,72 +1448,82 @@ fn failed_request(
 
 /// The events of sockets, of the main frame's document and of the
 /// `Runtime` domain.
-fn take_in_other(shared: &Shared, state: &mut State, event: &goodfetch_cdp::RawEvent) {
+fn take_in_other(shared: &Shared, state: &mut State, event: FollowedEvent) {
     let page_id = &shared.page_id;
-    if let Some(created) = event.read::<network::WebSocketCreatedEvent>() {
-        state
-            .sockets
-            .insert(created.request_id.clone(), created.url.clone());
-        let socket = PageWebSocket {
-            page_id: page_id.clone(),
-            web_socket_id: created.request_id,
-            url: created.url,
-        };
-        emit(state, PageEventName::WebSocket, &PAGE_WEB_SOCKET, &socket);
-    } else if let Some(sent) = event.read::<network::WebSocketFrameSentEvent>() {
-        let frame = frame_of(page_id, sent.request_id, &sent.response);
-        emit(
-            state,
-            PageEventName::WebSocket,
-            &WEB_SOCKET_FRAME_SENT,
-            &frame,
-        );
-    } else if let Some(received) = event.read::<network::WebSocketFrameReceivedEvent>() {
-        let frame = frame_of(page_id, received.request_id, &received.response);
-        emit(
-            state,
-            PageEventName::WebSocket,
-            &WEB_SOCKET_FRAME_RECEIVED,
-            &frame,
-        );
-    } else if let Some(closed) = event.read::<network::WebSocketClosedEvent>() {
-        if state.sockets.remove(&closed.request_id).is_some() {
-            let closed = WebSocketClosed {
+    match event {
+        FollowedEvent::SocketCreated { id, url } => {
+            state.sockets.insert(id.clone(), url.clone());
+            let socket = PageWebSocket {
                 page_id: page_id.clone(),
-                web_socket_id: closed.request_id,
+                web_socket_id: id,
+                url,
             };
-            emit(state, PageEventName::WebSocket, &WEB_SOCKET_CLOSE, &closed);
+            emit(state, PageEventName::WebSocket, &PAGE_WEB_SOCKET, &socket);
         }
-    } else if event.read::<page::DomContentEventFiredEvent>().is_some() {
-        let fired = PageFired {
-            page_id: page_id.clone(),
-        };
-        emit(
-            state,
-            PageEventName::DomContentLoaded,
-            &PAGE_DOM_CONTENT_LOADED,
-            &fired,
-        );
-    } else if event.read::<page::LoadEventFiredEvent>().is_some() {
-        let fired = PageFired {
-            page_id: page_id.clone(),
-        };
-        emit(state, PageEventName::Load, &PAGE_LOAD, &fired);
-    } else if let Some(called) = event.read::<runtime::ConsoleAPICalledEvent>() {
-        if state
-            .runtime_since
-            .is_some_and(|since| called.timestamp >= since)
+        FollowedEvent::SocketFrameSent { id, frame } => {
+            let frame = frame_of(page_id, id, frame);
+            emit(
+                state,
+                PageEventName::WebSocket,
+                &WEB_SOCKET_FRAME_SENT,
+                &frame,
+            );
+        }
+        FollowedEvent::SocketFrameReceived { id, frame } => {
+            let frame = frame_of(page_id, id, frame);
+            emit(
+                state,
+                PageEventName::WebSocket,
+                &WEB_SOCKET_FRAME_RECEIVED,
+                &frame,
+            );
+        }
+        FollowedEvent::SocketClosed { id } => {
+            if state.sockets.remove(&id).is_some() {
+                let closed = WebSocketClosed {
+                    page_id: page_id.clone(),
+                    web_socket_id: id,
+                };
+                emit(state, PageEventName::WebSocket, &WEB_SOCKET_CLOSE, &closed);
+            }
+        }
+        FollowedEvent::DomContentLoaded => {
+            let fired = PageFired {
+                page_id: page_id.clone(),
+            };
+            emit(
+                state,
+                PageEventName::DomContentLoaded,
+                &PAGE_DOM_CONTENT_LOADED,
+                &fired,
+            );
+        }
+        FollowedEvent::Loaded => {
+            let fired = PageFired {
+                page_id: page_id.clone(),
+            };
+            emit(state, PageEventName::Load, &PAGE_LOAD, &fired);
+        }
+        FollowedEvent::ConsoleCalled(called)
+            if state
+                .runtime_since
+                .is_some_and(|since| called.timestamp() >= since) =>
         {
-            let message = console_message(page_id, &called);
+            let message = called.message(page_id);
             emit(state, PageEventName::Console, &PAGE_CONSOLE, &message);
         }
-    } else if let Some(thrown) = event.read::<runtime::ExceptionThrownEvent>()
-        && state
-            .runtime_since
-            .is_some_and(|since| thrown.timestamp >= since)
-    {
-        let error = web_error(page_id, &thrown.exception_details);
-        emit(state, PageEventName::PageError, &PAGE_PAGE_ERROR, &error);
+        FollowedEvent::ExceptionThrown(thrown)
+            if state
+                .runtime_since
+                .is_some_and(|since| thrown.timestamp() >= since) =>
+        {
+            let error = thrown.error(page_id);
+            emit(state, PageEventName::PageError, &PAGE_PAGE_ERROR, &error);
+        }
+        // A request's events and its document's are taken in before, and a
+        // console call or exception from before the console was followed
+        // is not the page's to pass on.
+        _ => {}
     }
 }
 
@@ -1604,8 +1565,8 @@ fn answer_waiters(
     };
     let declared = declared_length(&response.headers);
     let shared = Arc::clone(shared);
-    let run = shared.run.clone();
-    run.spawn(async move {
+    let identity = shared.run.identity.clone();
+    identity.spawn(async move {
         let request_id = request.request_id.clone();
         let kept = read_body(&shared, &request_id, &request.url, (received, declared)).await;
         let gone = matches!(kept, Err(Unread::Gone));
@@ -1638,56 +1599,16 @@ fn answer_waiters(
     });
 }
 
-/// A request's body in Base64, from its entries' bytes or else its text,
-/// with every value `masks` masks in what a call returns replaced by its
-/// `%name%` before it is encoded: a Secret a form sent is masked in the
-/// body itself, however the form encoded it (ADR 0092).
-pub(crate) fn post_data(request: &network::Request, masks: &Masks) -> Option<String> {
-    let bytes = if let Some(entries) = &request.post_data_entries {
-        let mut bytes = Vec::new();
-        for entry in entries {
-            bytes.extend(BASE64.decode(entry.bytes.as_deref()?.as_bytes()).ok()?);
-        }
-        bytes
-    } else {
-        request.post_data.as_ref()?.as_bytes().to_vec()
-    };
-    Some(BASE64.encode(&masks.apply_bytes(&bytes, Scope::Returned)))
-}
-
-/// What a request loads, as Playwright's `resourceType()` names it: the
-/// browser's name in lowercase, such as `document` or `xhr`.
-pub(crate) fn resource_type(resource_type: network::ResourceType) -> String {
-    serde_json::to_value(resource_type)
-        .ok()
-        .and_then(|name| name.as_str().map(str::to_ascii_lowercase))
-        .unwrap_or_else(|| "other".to_owned())
-}
-
-/// Whether a request of `resource_type` loads a frame's document, the main
-/// frame's or an iframe's, as Playwright's `isNavigationRequest()` says.
-pub(crate) fn is_navigation(resource_type: Option<network::ResourceType>) -> bool {
-    resource_type == Some(network::ResourceType::Document)
-}
-
 /// One frame of the socket `web_socket_id`: text, or bytes in Base64,
 /// which the browser already gives.
-fn frame_of(
-    page_id: &PageId,
-    web_socket_id: String,
-    frame: &network::WebSocketFrame,
-) -> WebSocketFrame {
+fn frame_of(page_id: &PageId, web_socket_id: String, frame: SocketFrame) -> WebSocketFrame {
     WebSocketFrame {
         page_id: page_id.clone(),
         web_socket_id,
-        payload: frame.payload_data.clone(),
-        #[expect(
-            clippy::float_cmp,
-            reason = "the browser gives an opcode, a small integer, as a JSON number"
-        )]
-        binary: frame.opcode == 2.0,
+        payload: frame.payload,
+        binary: frame.binary,
     }
 }
 
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;

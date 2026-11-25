@@ -285,7 +285,7 @@ A run's or an AI task's statement of whether its Success checks, Page checks and
 _Avoid_: status, success, result (for the verdict)
 
 **Recipe**:
-A portable package of user code, described by a manifest, that runs the same locally or on Goodfetch Cloud and can be published.
+A portable package, described by its manifest, whose one entry is a program of user code, a list of steps or a crawl declared as data, so that a Recipe of data holds no code; it runs the same locally or on Goodfetch Cloud and can be published.
 _Avoid_: actor, app, pack, script
 
 **Setting**:
@@ -621,6 +621,10 @@ _Avoid_: KVS, blob store, cache
 **Export**:
 A file the engine writes from a run's results in a chosen format.
 _Avoid_: dump, download
+
+**Saved file**:
+A file written at a path the program gives, such as an Export, a Download, a Checkpoint or a screenshot: the path ends up holding the whole file or what it held before.
+_Avoid_: atomic file, atomic save
 
 **Sink**:
 A system outside the engine that receives a run's committed Records, as rows or messages or as Export files, while the run is in progress or afterwards.

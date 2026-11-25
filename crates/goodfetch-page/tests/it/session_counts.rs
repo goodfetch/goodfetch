@@ -9,7 +9,7 @@
 )]
 
 #[path = "../../benches/session.rs"]
-mod session;
+pub(crate) mod session;
 
 use std::collections::BTreeMap;
 use std::path::Path;
@@ -22,7 +22,9 @@ use goodfetch_test_client::HomeLayout;
 use rstest::rstest;
 use serde_json::{Map, Value, json};
 
-use session::{Browsers, Counted, READ_ROWS, RUN, counted, counting, identified, page_check};
+use session::{
+    Armed, Browsers, Counted, READ_ROWS, RUN, counted, counting, identified, page_check,
+};
 
 fn run(planted: Option<Row>) -> Counted {
     run_with(Map::new(), planted)
@@ -45,7 +47,7 @@ fn run_at(
 ) -> Counted {
     let metrics = Metrics::none();
     let plant = planted.map(|row| counting(metrics.counted_work(), row));
-    counted(browsers, home, metrics, settings, plant)
+    counted((browsers, Armed::Nothing), home, metrics, settings, plant)
 }
 
 /// The methods the Run trace's CDP command log of the Run in `home` holds,
@@ -85,17 +87,21 @@ fn judged(work: &goodfetch_counted_work::CountedWork) -> [u64; 4] {
 /// command log off, its default, nothing goes to the Run trace's writer; a
 /// typed command's params serialized first are an encode of their own (X21);
 /// the page a Borrowed browser opens walks no memory, as the pool never
-/// measures it.
+/// measures it. The browser sends events, and no command is left in the
+/// connection's pending map with no caller waiting for it.
 #[test]
 fn a_session_counts_each_commands_work() {
     let Counted {
         commands,
+        events,
         pages_opened,
         work,
         ..
     } = run(None);
 
     assert!(commands > 0, "the Session sent no command");
+    assert!(events > 0, "the browser sent no event");
+    assert_eq!(work.read(Row::CdpPendingOrphans), 0);
     let encodes = work.read(Row::CdpEncodes);
     assert!(
         encodes > commands && encodes <= 2 * commands,
@@ -105,6 +111,26 @@ fn a_session_counts_each_commands_work() {
     assert_eq!(work.read(Row::CdpLogSendsOff), 0);
     assert_eq!((pages_opened, work.read(Row::PoolWalks)), (1, 0));
     assert_eq!(work.read(Row::CdpFileOpens), 0);
+}
+
+/// A Page reads its sessions' events through its one reader, whatever reads
+/// them in the Page: with a Route and a `page.on` listener on it, beside the
+/// Page's standing parts, each event the browser sent visits one reader of
+/// the connection, the browser's own reader for its root session's.
+#[test]
+fn each_event_visits_one_reader_of_the_connection_with_a_route_and_a_listener_on_the_page() {
+    let home = tempfile::tempdir().expect("invariant: the OS gives a temporary folder");
+    let metrics = Metrics::none();
+    let Counted { events, work, .. } = counted(
+        (Browsers::Borrowed, Armed::RouteAndListener),
+        home.path(),
+        metrics,
+        Map::new(),
+        None,
+    );
+
+    assert!(events > 0, "the browser sent no event");
+    assert_eq!(work.read(Row::CdpEventVisits), events);
 }
 
 /// On each of the two documents with actions, a click, a fill and a press
@@ -137,6 +163,8 @@ fn a_sessions_actions_count_each_check_and_their_commands_by_kind() {
         .map(|row| counted.count(row)),
         [10, 4, 8]
     );
+    // Each attempt asks its Page's owner for its turn, once.
+    assert_eq!(counted.count(Row::ActionOwnerRoundTrips), 6);
 }
 
 /// A plant adds one unit of its row per command, which takes the row past
@@ -210,16 +238,22 @@ fn a_planted_encode_adds_one_a_command() {
 
 /// Each engine read in a frame sends two commands, its isolated world's
 /// creation and its call, and makes its world again even in a document it
-/// read before (X10): every command sent while the program read is a read's,
-/// and two reads ran in each of the three documents.
+/// read before (X10), once its Page's owner answered its one ask (ADR
+/// 0146): every command sent while the program read is a read's, and two
+/// reads ran in each of the three documents.
 #[test]
-fn each_read_counts_its_commands_and_its_world() {
+fn each_read_counts_its_commands_its_world_and_its_ask() {
     let counted = run(None);
 
     assert_eq!((counted.reads, counted.documents), (6, 3));
     assert_eq!(
         READ_ROWS.map(|row| counted.count(row)),
-        [2 * counted.reads, counted.reads, counted.reads]
+        [
+            2 * counted.reads,
+            counted.reads,
+            counted.reads,
+            counted.reads
+        ]
     );
     assert_eq!(counted.read_commands, counted.count(Row::PageReadCommands));
 }
@@ -287,6 +321,7 @@ fn a_planted_unit_adds_two_a_serialization() {
 #[case::commands(Row::PageReadCommands, 2)]
 #[case::world_creations(Row::PageReadWorldCreations, 1)]
 #[case::document_worlds(Row::PageReadDocumentWorlds, 1)]
+#[case::owner_round_trips(Row::PageReadOwnerRoundTrips, 1)]
 fn a_planted_unit_adds_two_a_read(#[case] row: Row, #[case] per_read: u64) {
     let counted = run(Some(row));
 
@@ -307,6 +342,7 @@ fn a_planted_unit_adds_two_a_read(#[case] row: Row, #[case] per_read: u64) {
 #[case::click_commands(Row::ActionClickCommands)]
 #[case::fill_commands(Row::ActionFillCommands)]
 #[case::press_commands(Row::ActionPressCommands)]
+#[case::owner_round_trips(Row::ActionOwnerRoundTrips)]
 fn a_planted_unit_adds_one_a_command_to_an_actions_row(#[case] row: Row) {
     let unplanted = run(None);
 
@@ -324,7 +360,8 @@ fn a_planted_unit_adds_one_a_command_to_an_actions_row(#[case] row: Row) {
 /// Every request the page sends passes the interception (C5): each pause and
 /// each answer to it is a `Fetch` message, as is the page's `Fetch.enable`;
 /// each request leaving is matched once against the Filter lists, which are
-/// on by default; each refusal spawns one task, which sends one entry to the
+/// on by default; no pause waits for anything, so the page's reader answers
+/// each one with no task started, and each refusal sends one entry to the
 /// Run trace's writer, which opens no file for it; nothing is compiled.
 #[test]
 fn a_session_counts_each_intercepted_requests_work() {
@@ -351,7 +388,7 @@ fn a_session_counts_each_intercepted_requests_work() {
             Row::InterceptedCompilations,
         ]
         .map(|row| work.read(row)),
-        [2 * paused + 1, paused, requests, refused, refused, 0, 0]
+        [2 * paused + 1, paused, requests, 0, refused, 0, 0]
     );
 }
 

@@ -68,6 +68,16 @@ class ConnectionBrowserCacheSettings(TypedDict):
     """
 
 
+class ConnectionCacheSettings(TypedDict):
+    """The `cache` settings of `FoxhoundSettings`."""
+
+    mode: NotRequired[Literal["off", "revalidate"]]
+    """What the per-user Response cache does: `off` (the default) stores and serves nothing, so a run never serves a stale page silently; `revalidate` stores GET and HEAD responses sent with no cookie or credential, whose response sets no cookie and is not `private`, serves a fresh one with no request and revalidates a stale one with `ETag` and `Last-Modified` under RFC 9111, serving the stored body on a 304. The key is the method, the URL without its fragment and the request headers the response's `Vary` names; a `Vary: *` response is never stored. An engine that finds a cache written by a newer format runs without it, reading and writing nothing. When a site's service worker answers a request the Response cache must serve, set `browser.service_workers` to `block` (ADR 0121).
+
+    `cache.mode`.
+    """
+
+
 class ConnectionCheckpointSettings(TypedDict):
     """The `checkpoint` settings of `FoxhoundSettings`."""
 
@@ -346,6 +356,16 @@ class ConnectionDatasetQuerySettings(TypedDict):
     """
 
 
+class ConnectionDatasetSearchSettings(TypedDict):
+    """The `dataset.search` settings of `FoxhoundSettings`."""
+
+    index: NotRequired[bool]
+    """Whether the crawl indexes each Record it commits for `dataset.search` and `record.search`, in the commit's transaction. On by default. Off, no Record is indexed, so neither search finds one of the crawl's Records, while each is still committed and read as before.
+
+    `dataset.search.index`.
+    """
+
+
 class ConnectionDatasetSettings(TypedDict):
     """The `dataset` settings of `FoxhoundSettings`."""
 
@@ -356,6 +376,8 @@ class ConnectionDatasetSettings(TypedDict):
 
     `dataset.records`.
     """
+
+    search: NotRequired[ConnectionDatasetSearchSettings]
 
 
 class ConnectionEffectOutputSettings(TypedDict):
@@ -1169,7 +1191,7 @@ class ConnectionSecuritySettings(TypedDict):
     """
 
     field_encryption: NotRequired[bool]
-    """Whether the run's state seals its secret fields with the run's data key (ADR 0015). On by default; off, they are written in the clear, and the run says so in its report's `weakened`, in the Audit log and in one warning. A Recipe or a Client acting for a model never switches it off: its `false` is `setting_locked`.
+    """Whether the run's state seals its secret fields with the run's data key (ADR 0015). On by default; off, they are written in the clear and the run makes no data key, and the run says so in its report's `weakened`, in the Audit log and in one warning. A field written in the clear opens only in a run that lists this switch as weakened. A Recipe or a Client acting for a model never switches it off: its `false` is `setting_locked`.
 
     `security.field_encryption`.
     """
@@ -1193,7 +1215,7 @@ class ConnectionSecuritySettings(TypedDict):
     """
 
     secure_delete: NotRequired[bool]
-    """Whether the run's secret tables overwrite what they delete, SQLite's `secure_delete` (ADR 0015). On by default; off, deleted values may stay on disk until overwritten, and the run says so in its report's `weakened`, in the Audit log and in one warning. A Recipe or a Client acting for a model never switches it off: its `false` is `setting_locked`.
+    """Whether the run's state overwrites what it deletes, its secret fields included, SQLite's `secure_delete` (ADR 0015). On by default; off, deleted values may stay in the run file's free pages until overwritten, and the run says so in its report's `weakened`, in the Audit log and in one warning. A discard overwrites the run's data key whatever its value. A Recipe or a Client acting for a model never switches it off: its `false` is `setting_locked`.
 
     `security.secure_delete`.
     """
@@ -1827,6 +1849,8 @@ class FoxhoundSettings(TypedDict):
 
     browser_cache: NotRequired[ConnectionBrowserCacheSettings]
 
+    cache: NotRequired[ConnectionCacheSettings]
+
     checkpoint: NotRequired[ConnectionCheckpointSettings]
 
     clean_up: NotRequired[ConnectionCleanUpSettings]
@@ -1957,6 +1981,16 @@ class RunBrowserCacheSettings(TypedDict):
     """Whether a Run's Chromium launches only read the Browser cache: `false` by default. When on, a build with its pinned digest is launched with no use recorded, a build of the wrong digest is refused with `browser_not_installed` and left in place, and a missing build is never downloaded: `artifact_unavailable_offline` under `egress.offline`, `browser_not_installed` otherwise. The engine then writes no file of its own in the cache, its write check's included; the browser still writes in its build's files as it does at every launch. Each Product's testing kit turns it on, so a test leaves the caller's cache as it found it.
 
     `browser_cache.read_only`.
+    """
+
+
+class RunCacheSettings(TypedDict):
+    """The `cache` settings of `CrawlSettings`."""
+
+    mode: NotRequired[Literal["off", "revalidate"]]
+    """What the per-user Response cache does: `off` (the default) stores and serves nothing, so a run never serves a stale page silently; `revalidate` stores GET and HEAD responses sent with no cookie or credential, whose response sets no cookie and is not `private`, serves a fresh one with no request and revalidates a stale one with `ETag` and `Last-Modified` under RFC 9111, serving the stored body on a 304. The key is the method, the URL without its fragment and the request headers the response's `Vary` names; a `Vary: *` response is never stored. An engine that finds a cache written by a newer format runs without it, reading and writing nothing. When a site's service worker answers a request the Response cache must serve, set `browser.service_workers` to `block` (ADR 0121).
+
+    `cache.mode`.
     """
 
 
@@ -2206,6 +2240,16 @@ class RunDatasetQuerySettings(TypedDict):
     """
 
 
+class RunDatasetSearchSettings(TypedDict):
+    """The `dataset.search` settings of `CrawlSettings`."""
+
+    index: NotRequired[bool]
+    """Whether the crawl indexes each Record it commits for `dataset.search` and `record.search`, in the commit's transaction. On by default. Off, no Record is indexed, so neither search finds one of the crawl's Records, while each is still committed and read as before.
+
+    `dataset.search.index`.
+    """
+
+
 class RunDatasetSettings(TypedDict):
     """The `dataset` settings of `CrawlSettings`."""
 
@@ -2216,6 +2260,8 @@ class RunDatasetSettings(TypedDict):
 
     `dataset.records`.
     """
+
+    search: NotRequired[RunDatasetSearchSettings]
 
 
 class RunEffectOutputSettings(TypedDict):
@@ -2996,7 +3042,7 @@ class RunSecuritySettings(TypedDict):
     """
 
     field_encryption: NotRequired[bool]
-    """Whether the run's state seals its secret fields with the run's data key (ADR 0015). On by default; off, they are written in the clear, and the run says so in its report's `weakened`, in the Audit log and in one warning. A Recipe or a Client acting for a model never switches it off: its `false` is `setting_locked`.
+    """Whether the run's state seals its secret fields with the run's data key (ADR 0015). On by default; off, they are written in the clear and the run makes no data key, and the run says so in its report's `weakened`, in the Audit log and in one warning. A field written in the clear opens only in a run that lists this switch as weakened. A Recipe or a Client acting for a model never switches it off: its `false` is `setting_locked`.
 
     `security.field_encryption`.
     """
@@ -3020,7 +3066,7 @@ class RunSecuritySettings(TypedDict):
     """
 
     secure_delete: NotRequired[bool]
-    """Whether the run's secret tables overwrite what they delete, SQLite's `secure_delete` (ADR 0015). On by default; off, deleted values may stay on disk until overwritten, and the run says so in its report's `weakened`, in the Audit log and in one warning. A Recipe or a Client acting for a model never switches it off: its `false` is `setting_locked`.
+    """Whether the run's state overwrites what it deletes, its secret fields included, SQLite's `secure_delete` (ADR 0015). On by default; off, deleted values may stay in the run file's free pages until overwritten, and the run says so in its report's `weakened`, in the Audit log and in one warning. A discard overwrites the run's data key whatever its value. A Recipe or a Client acting for a model never switches it off: its `false` is `setting_locked`.
 
     `security.secure_delete`.
     """
@@ -3320,6 +3366,8 @@ class CrawlSettings(TypedDict):
     browser: NotRequired[RunBrowserSettings]
 
     browser_cache: NotRequired[RunBrowserCacheSettings]
+
+    cache: NotRequired[RunCacheSettings]
 
     checkpoint: NotRequired[RunCheckpointSettings]
 

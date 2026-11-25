@@ -13,6 +13,33 @@ use url::{Host, Url};
 /// only, as a development server's or a local stand-in's; otherwise why
 /// not, as a clause.
 pub(crate) fn server_url(address: &str) -> Result<Url, &'static str> {
+    url_of(address, &[])
+}
+
+/// The link-local addresses where the clouds serve an instance's or a
+/// task's identity over plain HTTP: AWS's instance metadata service, IPv4
+/// and IPv6, which GCP's and Azure's share at 169.254.169.254, and the
+/// container credentials endpoint of ECS and of EKS Pod Identity; and the
+/// name GCP's metadata server answers at.
+const IDENTITY_HOSTS: [&str; 6] = [
+    "169.254.169.254",
+    "[fd00:ec2::254]",
+    "169.254.170.2",
+    "169.254.170.23",
+    "[fd00:ec2::23]",
+    "metadata.google.internal",
+];
+
+/// `address` as an identity endpoint's URL: as [`server_url`] takes it, or
+/// plain `http:` at one of the link-local addresses a cloud serves an
+/// instance's identity at, which never leaves the host's link.
+pub(crate) fn metadata_url(address: &str) -> Result<Url, &'static str> {
+    url_of(address, &IDENTITY_HOSTS)
+}
+
+/// `address` as a server's URL, plain `http:` taken for loopback and for
+/// the hosts `plain` lists.
+fn url_of(address: &str, plain: &[&str]) -> Result<Url, &'static str> {
     let url = Url::parse(address).map_err(|_| "which is no URL")?;
     if url.query().is_some() || url.fragment().is_some() || !url.username().is_empty() {
         return Err(
@@ -27,7 +54,7 @@ pub(crate) fn server_url(address: &str) -> Result<Url, &'static str> {
     };
     match url.scheme() {
         "https" => Ok(url),
-        "http" if loopback => Ok(url),
+        "http" if loopback || url.host_str().is_some_and(|host| plain.contains(&host)) => Ok(url),
         "http" => Err(
             "a plain `http:` URL off loopback, which would send the credentials unencrypted; use `https:`",
         ),
@@ -50,6 +77,9 @@ pub(crate) fn unreached(
         )),
         EndpointFailure::CertificateInvalid(invalid) => refused(format!(
             "{service} at `{server}` presented a certificate that failed verification ({invalid}); list the authority that signed it under `tls.trusted_cas` for its host. `tls.accept_invalid_certs` makes no exception for a Secret provider."
+        )),
+        EndpointFailure::ClientCertificate(failure) => refused(format!(
+            "{service} at `{server}` was not reached because its client certificate cannot be presented ({failure}); fix its entry under `tls.client_certificates`."
         )),
         EndpointFailure::Network => refused(format!(
             "{service} at `{server}` did not answer; check `{setting}` and the network, then try again."

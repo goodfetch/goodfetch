@@ -38,6 +38,7 @@ mod counted_governor;
 mod counted_messages;
 mod dns;
 mod downloads;
+mod endpoint_client_certificates;
 mod extra_loopback;
 mod governor;
 // B3's governor scenario, which `counted_governor` checks.
@@ -66,3 +67,7 @@ mod operator_endpoints;
 #[cfg(target_os = "linux")]
 mod politeness_store;
 mod resolver_cache;
+// The Simulation's scenarios (ADR 0060), built only under `--cfg
+// tokio_unstable` by `just simulate` and `just simulation`.
+#[cfg(tokio_unstable)]
+mod simulation;

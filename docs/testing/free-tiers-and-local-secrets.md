@@ -11,4 +11,11 @@ Decided in [ADR 0076](../adr/0076-tests-and-ci-run-on-free-tiers-and-ai-calls-go
 - **Use free tiers for outside accounts.** Real SaaS Sink accounts and Integration platform accounts use free plans only; a Sink with no free tier keeps its emulator suite and its Live check waits. LocalStack runs on its free open-source licence; if that is refused, the affected Sinks use free emulators such as MinIO, or wait.
 - **Keep local secrets in `.env`, written by `scripts/env-setup.sh`.** It is git-ignored and mode 600; `.env.example` lists every name, what it is for, the milestone that needs it and the page that creates it. Add a new secret to `.env.example` in the pull request that first needs it.
 - **Never read `.env` from a test.** Test support clears the environment (ADR 0059); only the recipes that run Live checks load `.env`, each on its own, so the `justfile` never uses a global `set dotenv-load`. CI reads the same names from GitHub Actions secrets.
+- **A CI secret reaches only the jobs that need it.** `ci/secrets.toml` lists each Actions secret, what it is for and each job that reads it; add a secret there in the pull request that adds the job that reads it. `xtask workflow-policy` fails in these cases:
+  - a job reads a secret not listed for it;
+  - an expression outside `jobs:` reads a secret, such as a workflow-level `env:`, which every job would get;
+  - a reusable-workflow call passes `secrets: inherit`;
+  - a job is listed for a secret it no longer reads.
+
+  The job's own `GITHUB_TOKEN` is not listed: its `permissions:` set its reach.
 - **Never print, log or commit a secret's value,** including in a failure message or a recording; Secret canaries and `gitleaks` check it (ADR 0067).

@@ -26,7 +26,7 @@ import anyio.to_thread
 import pytest
 
 from goodfetch_test_support.case_log import host_platform, host_runtime
-from goodfetch_test_support.environment import Product, TestEnv
+from goodfetch_test_support.environment import BrowserDownload, Product, TestEnv
 from goodfetch_test_support.generated.result_document import (
     CheckOutcome,
     CheckResult,
@@ -560,7 +560,12 @@ class JourneyRun:
 
 
 def start_journey_run(
-    file: Path, surface: str, *, test_name: str, environ: Mapping[str, str]
+    file: Path,
+    surface: str,
+    *,
+    test_name: str,
+    environ: Mapping[str, str],
+    browser_download: BrowserDownload | None = None,
 ) -> JourneyRun:
     """Starts the variant on `surface` of the Journey `file` holds.
 
@@ -571,6 +576,10 @@ def start_journey_run(
         test_name: The test's full name, from which its seed and folder come.
         environ: The runner's environment, which names the tool manifest and
             may name `GOODFETCH_TEST_RESULT_DOCUMENTS`.
+        browser_download: How the engine's first use of an empty Browser
+            cache goes, as `TestEnv.open`'s, from the Journey's Proving
+            ground (#665): `SERVED` for a variant whose engine downloads its
+            browser.
 
     Raises:
         JourneyUnreadable: The file cannot be read.
@@ -587,7 +596,12 @@ def start_journey_run(
         )
         raise SurfaceUnlisted(message)
     # The Journey's own seed, never the test's (ADR 0063).
-    test_env = TestEnv.open(test_name, environ, proving_ground_seed=journey.seed)
+    test_env = TestEnv.open(
+        test_name,
+        environ,
+        proving_ground_seed=journey.seed,
+        browser_download=browser_download,
+    )
     try:
         engine = test_env.tools.path(journey.product.tool)
         executable = _reported_version(test_env, engine)
@@ -606,7 +620,7 @@ def start_journey_run(
 
 
 def journey(
-    journey_id: str, surface: str
+    journey_id: str, surface: str, *, browser_download: BrowserDownload | None = None
 ) -> Callable[
     [Callable[[JourneyRun], Awaitable[None]]], Callable[[pytest.FixtureRequest], None]
 ]:
@@ -616,6 +630,7 @@ def journey(
     to the decorated `async def` to take the steps and checks on asyncio,
     finishes it and fails unless it is proved. A raise outside a step or
     check fails the test with no document, as the Rust helper's panic does.
+    `browser_download` lays the home out as `start_journey_run`'s does.
     """
 
     def declare(
@@ -629,6 +644,7 @@ def journey(
                 surface,
                 test_name=item.nodeid,
                 environ=os.environ,
+                browser_download=browser_download,
             ) as run:
                 if run.id != journey_id:
                     message = (

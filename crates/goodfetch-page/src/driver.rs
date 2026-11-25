@@ -7,57 +7,56 @@
 //! later. The driver never enables `Runtime`: `page_events` does, on a page
 //! whose `page.on` call listens to `console` or `page_error`, and nothing
 //! turns it off again. The guard's script lives in an isolated world no
-//! page script reaches (ADR 0019). A page's navigations
-//! each wait for their document's `load` event, or the state the call
-//! names, and answer its response with the encoding it was decoded with,
-//! read in the guard's world (ADR 0119); the back/forward cache is off at
-//! launch, so going back or forward always loads its document again (ADR
-//! 0121). Every page reports itself focused, so one behind another tab of
-//! its Session keeps its timers (ADR 0085's question), and a headless
-//! browser's pages show the identity it shows with a window (`identity`).
-//! Each browser attaches the engine to its service workers before they run
-//! (`service_workers`; ADR 0121), and each page to its out-of-process
-//! frames and dedicated workers (`children`; ADR 0014). Each browser the
+//! page script reaches (ADR 0019). A page's navigations run on its owner
+//! (`page_navigation`), which this driver serves with the navigation
+//! tracking (`navigation`), the call's deadline and its permit waits; the
+//! back/forward cache is off at launch, so going back or forward always
+//! loads its document again (ADR 0121). Every page reports itself focused,
+//! so one behind another tab of its Session keeps its timers (ADR 0085's
+//! question), and a headless browser's pages show the identity it shows
+//! with a window (`identity`). Each browser attaches the engine to its
+//! service workers before they run (`service_workers`; ADR 0121); a page's
+//! owner attaches it to the page's out-of-process frames and dedicated
+//! workers (`page_children`; ADR 0014). Each browser the
 //! engine launches is graded against the shipped release table before a
 //! Session uses it (`version_check`; ADR 0035). A page carries what Foxhound sets on it
 //! (`page_value`): its lease check is asked before each command it sends,
 //! and its waits for its navigation gate's permits count against none of
-//! its deadlines (`permit_waits`).
+//! its deadlines (`permit_waits`). What is a browser's own, its service
+//! workers, its popups and its hidden pages (`hidden_pages`), its owner's
+//! value holds (ADR 0146); a panic of one of that owner's tasks is the
+//! browser's crash (ADR 0148).
 //!
 //! Size: one page's driver, whose commands, navigations and turns all read
 //! the page's one connection and state; its navigation tracking, worlds,
-//! targets, service workers, encoding reads, endings, permit waits and how
+//! targets, service workers, hidden pages, endings, permit waits and how
 //! a response the browser reports is read (`cdp_response`) are in their own
 //! modules.
 
 mod carry;
 pub(crate) mod cdp_response;
-mod children;
-mod encoding;
 mod ending;
-mod functions;
 mod gestures;
+mod hidden_pages;
 mod identity;
 
-mod navigation;
+pub(crate) mod navigation;
+mod page_reader;
 mod permit_waits;
 mod popups;
 #[cfg(test)]
-mod replay;
+pub(crate) mod replay;
 mod service_workers;
 mod targets;
-mod world;
+pub(crate) mod world;
 
 use std::borrow::Cow;
-use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 use std::time::Duration;
 
-use bytestring::ByteString;
-use goodfetch_cdp::generated::{browser, dom, emulation, input, network, page, runtime, target};
+use goodfetch_cdp::generated::{browser, emulation, network, page, target};
 use goodfetch_cdp::{
-    Command, Connection, Failure, NetError, Refusal, SessionId as TargetSession, Subscription,
-    SubscriptionEnd,
+    Command, Connection, Failure, SessionId as TargetSession, Subscription, SubscriptionEnd,
 };
 use goodfetch_counted_work::{CountedWork, Row};
 use goodfetch_engine::CallError;
@@ -66,41 +65,33 @@ use goodfetch_engine::clock::Clock;
 use goodfetch_engine::deadline::Deadline;
 use goodfetch_engine::home::Home;
 use goodfetch_engine::lease::{LeaseCheck, LeaseEnded};
-use goodfetch_engine::runs::Run;
+use goodfetch_engine::runs::{Run, identity};
 use goodfetch_engine::settings::RunSettings;
-use goodfetch_engine::tls::CertificateInvalid;
+use goodfetch_engine::tasks::{self, TaskOwner, TaskStarter};
 use goodfetch_protocol::connection::WaitedFor;
-use goodfetch_protocol::jsonrpc::ProtocolFailure;
-use goodfetch_protocol::page::functions::World;
-use goodfetch_protocol::page::{
-    BrowserExit, PAGE_GO_BACK, PAGE_GO_FORWARD, PAGE_GOTO, PAGE_RELOAD, PageResponse, WaitUntil,
-};
+use goodfetch_protocol::page::BrowserExit;
 use goodfetch_protocol::settings::{
     TIMEOUT_ACTION, TIMEOUT_CLOSE, TIMEOUT_LAUNCH, TIMEOUT_NAVIGATION,
 };
-use tokio::sync::{Mutex, MutexGuard, OnceCell, watch};
+use tokio::sync::{Mutex, OnceCell, watch};
 use tokio_util::sync::CancellationToken;
 
-pub(crate) use self::carry::{Carried, Origins};
-pub(crate) use self::children::{Child, ChildKind, OnChild};
-use self::encoding::{encoding_of, encoding_read, isolated_world};
+pub(crate) use self::carry::{Carried, Origins, Watcher};
 pub(crate) use self::ending::{ENDING_KNOWN_WITHIN, Lost};
-use self::functions::{evaluation, page_function_world};
+use self::hidden_pages::HiddenPages;
 pub(crate) use self::navigation::{Arrived, browser_id, hop_id};
-use self::navigation::{Ended, Expected, Followed, Navigation};
+use self::page_reader::PageReader;
 use self::permit_waits::PermitWaits;
 pub(crate) use self::popups::{OnPopup, PopupHandler};
 pub(crate) use self::service_workers::{OnWorker, ServiceWorkers};
+pub(crate) use self::targets::pointer_click;
 use crate::borrowed::CdpUrl;
 use crate::egress_relay::EgressRelay;
 use crate::egress_relay::authority::Authority;
-use crate::errors::{
-    self, Call, call_error, interrupted, network_error, renderer_crashed, too_many_redirects,
-    truncated,
-};
+use crate::errors::{Call, call_error};
 use crate::launch::{Launcher, launch};
 use crate::page_value::{self, PageValue};
-use crate::proxy::{PROXY_STATUS, Party, ProxyPermit, SessionProxy, party, proxy_error};
+use crate::proxy::{ProxyPermit, SessionProxy};
 use identity::Identity;
 
 /// No bound of a command's own: its call's deadline bounds it, such as a
@@ -201,12 +192,14 @@ pub(crate) struct Browser {
     /// from a crash; a Borrowed browser's ended connection is its quit
     /// (spec #594's decision 11).
     launched: bool,
-    /// Its service workers, which it attaches the engine to (ADR 0121).
-    service_workers: Arc<service_workers::ServiceWorkerChoices>,
-    /// What each browser context does with the popups its pages open.
-    popups: Arc<popups::Popups>,
-    /// Its hidden pages still open, by their browser context.
-    hidden: Arc<HiddenPages>,
+    /// Its own state, its owner's: its service workers, its popups, its
+    /// hidden pages.
+    state: Arc<BrowserState>,
+    /// Cancelled once the reader of its own events, its workers' and new
+    /// pages' attachments, fell 4,096 events behind: what it attached
+    /// meanwhile may wait for the engine forever, so its pool takes it out
+    /// of service (spec #2256, #3261).
+    root_fell_behind: CancellationToken,
     /// The lease check of the page this connection drives, asked before
     /// each command it sends; none on the browser's own connection and on
     /// a page whose value has none (ADR 0087).
@@ -230,46 +223,30 @@ tokio::task_local! {
 }
 
 /// Runs `opening`, a page's opening, from its target's creation to its last
-/// set-up, counting each command it sends on `C7.opening_commands`.
-pub(crate) async fn counted_as_opening<F: Future>(opening: F) -> F::Output {
-    OPENING.scope((), opening).await
+/// set-up, counting each command it sends on `C7.opening_commands` and
+/// each task it starts on `C7.page_tasks`, on `work`, its Run's.
+/// The opening is boxed, once a page: its two scopes would otherwise grow
+/// every future that awaits it.
+pub(crate) async fn counted_as_opening<F: Future>(work: &CountedWork, opening: F) -> F::Output {
+    let opening = Box::pin(OPENING.scope((), opening));
+    tasks::counting_starts(work.clone(), Row::PageTasks, opening).await
 }
 
-/// A browser's hidden pages (`Target.createTarget`'s `hidden`, as an
-/// engine page is) still open, by their browser context: Chromium keeps a
-/// hidden page open past its context's disposal, its commands in flight
-/// left unanswered, so a Session's close closes its own first. Each page
-/// leaves the list as it closes.
+/// What is a browser's own, which its owner's value holds and every handle
+/// of the browser shares (ADR 0146): its service workers, its popups and
+/// its hidden pages, and whether the engine treats it as crashed.
 #[derive(Default)]
-struct HiddenPages(Mutex<BTreeMap<browser::BrowserContextID, BTreeSet<target::TargetID>>>);
-
-impl HiddenPages {
-    /// The page `page` opened hidden in the context `context`.
-    async fn opened(&self, context: &browser::BrowserContextID, page: &target::TargetID) {
-        self.0
-            .lock()
-            .await
-            .entry(context.clone())
-            .or_default()
-            .insert(page.clone());
-    }
-
-    /// The page `page` of the context `context` closed, if it was hidden.
-    async fn closed(&self, context: &browser::BrowserContextID, page: &target::TargetID) {
-        let mut contexts = self.0.lock().await;
-        if let Some(pages) = contexts.get_mut(context) {
-            pages.remove(page);
-            if pages.is_empty() {
-                contexts.remove(context);
-            }
-        }
-    }
-
-    /// The hidden pages of the context `context` still open, which leave
-    /// the list.
-    async fn take(&self, context: &browser::BrowserContextID) -> BTreeSet<target::TargetID> {
-        self.0.lock().await.remove(context).unwrap_or_default()
-    }
+struct BrowserState {
+    /// Its service workers, which it attaches the engine to (ADR 0121).
+    service_workers: service_workers::ServiceWorkerChoices,
+    /// What each browser context does with the popups its pages open.
+    popups: popups::Popups,
+    /// Its hidden pages still open, by their browser context.
+    hidden: HiddenPages,
+    /// Cancelled once a task of its owner panicked: the engine treats the
+    /// browser as crashed, so its connection's end reads as a crash
+    /// whatever its exit (ADR 0148).
+    panicked: CancellationToken,
 }
 
 #[cfg(test)]
@@ -285,9 +262,8 @@ impl Browser {
             process: None,
             closing: CancellationToken::new(),
             launched: false,
-            service_workers: Arc::default(),
-            popups: Arc::default(),
-            hidden: Arc::default(),
+            state: Arc::default(),
+            root_fell_behind: CancellationToken::new(),
             lease: None,
             counting: None,
             deadlines: Arc::new(Deadlines {
@@ -297,6 +273,32 @@ impl Browser {
                 close: Deadline::declared(&TIMEOUT_CLOSE),
             }),
             work: CountedWork::default(),
+        }
+    }
+}
+
+#[cfg(test)]
+impl PageDriver {
+    /// The driver of the page whose session is [`replay::SESSION`] and main
+    /// frame [`replay::FRAME`], in a browser no Run holds, over
+    /// `connection`, as a test plays one in process: its reader is read
+    /// once the test runs [`PageDriver::reading`].
+    pub(crate) fn played(connection: Connection) -> Self {
+        let browser = Browser::played(connection);
+        let session = TargetSession(replay::SESSION.to_owned());
+        Self {
+            page_reader: PageReader::new(&browser.connection, &session),
+            browser,
+            session,
+            egress: SessionEgress::default(),
+            context: "context".to_owned(),
+            frame: replay::FRAME.to_owned(),
+            started: Arc::new(watch::Sender::new(0)),
+            navigating: Arc::new(watch::Sender::new(0)),
+            spent: Duration::ZERO,
+            value: PageValue::empty(),
+            waits: None,
+            reader: None,
         }
     }
 }
@@ -337,13 +339,49 @@ impl Browser {
         params: &C,
         limit: Duration,
     ) -> Result<C::Returns, Failure> {
-        if let Some(lease) = &self.lease
-            && lease.check().is_err()
-        {
-            return Err(Failure::Withheld { method: C::METHOD });
-        }
+        self.leased::<C>()?;
         self.counted();
         self.connection.send(session, params, limit).await
+    }
+
+    /// Sends `commands` on `session` as one burst
+    /// ([`Connection::burst`](goodfetch_cdp::Connection::burst)) within the
+    /// deadline of `call`; a failure raises the code of `call`.
+    async fn burst<C: Command>(
+        &self,
+        session: Option<&TargetSession>,
+        commands: &[C],
+        call: &Call,
+    ) -> Result<(), CallError> {
+        let limit = self.deadlines.command_limit(call);
+        match self.try_burst_within(session, commands, limit).await {
+            Ok(()) => Ok(()),
+            Err(failure) => Err(self.failed(call, &failure).await),
+        }
+    }
+
+    /// Sends `commands` on `session` as one burst, waiting for its answers
+    /// at most `limit`, answering the failure itself. The lease is checked
+    /// once, as the burst goes out whole or not at all.
+    async fn try_burst_within<C: Command>(
+        &self,
+        session: Option<&TargetSession>,
+        commands: &[C],
+        limit: Duration,
+    ) -> Result<(), Failure> {
+        self.leased::<C>()?;
+        for _ in commands {
+            self.counted();
+        }
+        self.connection.burst(session, commands, limit).await
+    }
+
+    /// Withholds the command `C` once the page's work item's lease ended.
+    fn leased<C: Command>(&self) -> Result<(), Failure> {
+        match &self.lease {
+            Some(lease) if lease.check().is_err() => Err(Failure::Withheld { method: C::METHOD }),
+            _ => Ok(()),
+        }
     }
 
     /// Sends `params` on `session` whatever the lease, as the engine closes
@@ -439,11 +477,65 @@ impl<B: Connect> Connect for Arc<B> {
 
 /// The browser behind a Session: one the engine launched, or a Borrowed
 /// one.
+#[derive(Clone)]
 pub(crate) enum Behind {
     /// A browser of the Run's browser pool.
     Launched(Arc<LocalBrowser>),
     /// A Borrowed browser, outside the pool.
     Borrowed(Arc<BorrowedBrowser>),
+}
+
+impl Behind {
+    /// The browser's owner and its own state.
+    fn owned(&self) -> (&TaskOwner, &BrowserState) {
+        match self {
+            Self::Launched(browser) => (&browser.owner, &browser.state),
+            Self::Borrowed(browser) => (&browser.owner, &browser.state),
+        }
+    }
+
+    /// The starting side of the browser's owner, whose tasks end with it.
+    pub(crate) fn tasks(&self) -> &TaskStarter {
+        self.owned().0
+    }
+
+    /// Waits until a task of the browser's owner panics; at once if one
+    /// did.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future loses nothing: it only reads.
+    pub(crate) fn panicked(&self) -> impl Future<Output = ()> + Send + 'static {
+        self.owned().0.panicked()
+    }
+
+    /// Whether a task of the browser's owner panicked.
+    pub(crate) fn has_panicked(&self) -> bool {
+        self.owned().0.has_panicked()
+    }
+
+    /// The name of the crash report the panic of a task of the browser's
+    /// owner left, when one was written.
+    pub(crate) fn panicked_crash_report(&self) -> Option<&str> {
+        self.owned().0.panicked_crash_report()
+    }
+
+    /// Treats the browser as crashed, so its connection's end, the
+    /// engine's close included, reads as a crash (ADR 0148).
+    pub(crate) fn treat_as_crashed(&self) {
+        self.owned().1.panicked.cancel();
+    }
+
+    /// Closes a launched browser, or ends the engine's connection to a
+    /// Borrowed one, which stays open; answers once every task its owner
+    /// started ended.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future stops waiting: the browser still closes.
+    pub(crate) async fn stop(&self) {
+        self.owned().0.stop().await;
+    }
 }
 
 impl Connect for Behind {
@@ -465,6 +557,12 @@ impl Connect for Behind {
 pub(crate) struct BorrowedBrowser {
     run: Run,
     cdp_url: CdpUrl,
+    /// The browser's owner, beside its Run's Sessions (ADR 0146): it holds
+    /// the engine's connection, the readers of the browser's own events and
+    /// every task started for the browser, so its stop ends them all.
+    owner: TaskOwner,
+    /// The browser's own state, which its owner holds.
+    state: Arc<BrowserState>,
     /// Closed and empty: the engine sees no exit of a browser it did not
     /// launch, so a call that lost its connection waits for none to name
     /// the loss (fix queue 104: each such call waited `timeout.close`).
@@ -474,12 +572,30 @@ pub(crate) struct BorrowedBrowser {
 
 impl BorrowedBrowser {
     pub(crate) fn new(run: Run, cdp_url: CdpUrl) -> Self {
+        let owner = run.owner().child();
         Self {
             run,
             cdp_url,
+            owner,
+            state: Arc::default(),
             exit: watch::channel(None).1,
             connected: OnceCell::new(),
         }
+    }
+
+    /// The starting side of the browser's owner, whose tasks end with it.
+    pub(crate) fn tasks(&self) -> &TaskStarter {
+        &self.owner
+    }
+
+    /// Ends the engine's connection to the browser, which stays open, and
+    /// answers once every task its owner started ended.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future stops waiting: the connection still ends.
+    pub(crate) async fn stop(&self) {
+        self.owner.stop().await;
     }
 }
 
@@ -502,7 +618,9 @@ impl Connect for BorrowedBrowser {
     async fn connect(&self) -> Result<Browser, CallError> {
         self.connected
             .get_or_try_init(|| async {
-                let connection = crate::borrowed::connect(&self.run, &self.cdp_url).await?;
+                let tasks = identity(&self.run).starting_on(&self.owner);
+                let connection =
+                    crate::borrowed::connect((&self.run, &tasks), &self.cdp_url).await?;
                 let address = self.cdp_url.address();
                 let browser = Browser {
                     connection,
@@ -510,11 +628,10 @@ impl Connect for BorrowedBrowser {
                     executable: address,
                     identity: None,
                     process: None,
-                    closing: self.run.cancellation().child_token(),
+                    closing: self.owner.child_token(),
                     launched: false,
-                    service_workers: Arc::default(),
-                    popups: Arc::default(),
-                    hidden: Arc::default(),
+                    state: Arc::clone(&self.state),
+                    root_fell_behind: CancellationToken::new(),
                     lease: None,
                     counting: None,
                     deadlines: Deadlines::of(&self.run),
@@ -524,7 +641,7 @@ impl Connect for BorrowedBrowser {
                 browser
                     .send(None, &browser::GetVersionParams {}, &browser.launching())
                     .await?;
-                service_workers::start(&browser, &self.run).await?;
+                service_workers::start(&browser, &tasks).await?;
                 Ok(browser)
             })
             .await
@@ -545,7 +662,13 @@ pub(crate) struct LocalBrowser {
     home: Home,
     pins: Pins,
     number: u64,
-    stopping: CancellationToken,
+    /// The browser's owner, beside its Run's Sessions (ADR 0146): it
+    /// supervises the browser's process, reads its own events and holds
+    /// every task started for it, so its stop closes the browser and ends
+    /// them all.
+    owner: TaskOwner,
+    /// The browser's own state, which its owner holds.
+    state: Arc<BrowserState>,
     launched: OnceCell<Browser>,
     /// Cancelled once the browser the last launch started is gone, its
     /// Browser data folder with it: a launch whose browser did not come up
@@ -563,14 +686,15 @@ impl LocalBrowser {
         number: u64,
         authority: Option<Arc<Authority>>,
     ) -> Self {
-        let stopping = run.cancellation().child_token();
+        let owner = run.owner().child();
         Self {
             run,
             launcher,
             home,
             pins,
             number,
-            stopping,
+            owner,
+            state: Arc::default(),
             launched: OnceCell::new(),
             released: Mutex::new(None),
             authority,
@@ -578,9 +702,19 @@ impl LocalBrowser {
     }
 
     /// Closes the browser, if it was launched: asked to close, then killed
-    /// if it does not.
-    pub(crate) fn close(&self) {
-        self.stopping.cancel();
+    /// if it does not; answers once it is gone and every task its owner
+    /// started ended.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future stops waiting: the browser still closes.
+    pub(crate) async fn close(&self) {
+        self.owner.stop().await;
+    }
+
+    /// The starting side of the browser's owner, whose tasks end with it.
+    pub(crate) fn tasks(&self) -> &TaskStarter {
+        &self.owner
     }
 
     /// Its process's ID, once launched.
@@ -605,6 +739,19 @@ impl LocalBrowser {
         match self.launched.get() {
             Some(browser) => browser.ended().await,
             None => Lost::EngineClosed,
+        }
+    }
+
+    /// Waits until the reader of the browser's own events, once it came
+    /// up, fell behind; never for one that did not come up.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future loses nothing: it only reads.
+    pub(crate) async fn root_fell_behind(&self) {
+        match self.launched.get() {
+            Some(browser) => browser.root_fell_behind.cancelled().await,
+            None => std::future::pending().await,
         }
     }
 }
@@ -633,9 +780,10 @@ impl Connect for LocalBrowser {
                 if let Some(released) = earlier {
                     released.cancelled().await;
                 }
-                let attempt = self.stopping.child_token();
+                let tasks = identity(&self.run).starting_on(&self.owner);
+                let attempt = self.owner.child_token();
                 let launched = launch(
-                    &self.run,
+                    (&self.run, &tasks),
                     (&self.launcher, &self.home, &self.pins),
                     (
                         self.number,
@@ -654,9 +802,8 @@ impl Connect for LocalBrowser {
                     process: launched.process,
                     closing: attempt,
                     launched: true,
-                    service_workers: Arc::default(),
-                    popups: Arc::default(),
-                    hidden: Arc::default(),
+                    state: Arc::clone(&self.state),
+                    root_fell_behind: CancellationToken::new(),
                     lease: None,
                     counting: None,
                     deadlines: Deadlines::of(&self.run),
@@ -670,7 +817,7 @@ impl Connect for LocalBrowser {
                     browser.identity = Some(identity::read(&browser, &version.user_agent).await?);
                 }
                 crate::version_check::check(&self.run, &version.product).await;
-                service_workers::start(&browser, &self.run).await?;
+                service_workers::start(&browser, &tasks).await?;
                 coming_up.up();
                 Ok(browser)
             })
@@ -803,7 +950,7 @@ impl<B: Connect> SessionDriver<B> {
             return;
         };
         // Its service workers' choice goes with it, and what that holds.
-        browser.service_workers.forget(context);
+        browser.state.service_workers.forget(context);
         if self.browser.borrowed() {
             for target_id in std::mem::take(&mut *self.opened.lock().await) {
                 if let Err(failure) = browser
@@ -817,7 +964,7 @@ impl<B: Connect> SessionDriver<B> {
         }
         // Closed, each one's target detaches, and its commands in flight
         // fail at once.
-        for target_id in browser.hidden.take(context).await {
+        for target_id in browser.state.hidden.take(context) {
             if let Err(failure) = browser
                 .try_send(None, &target::CloseTargetParams { target_id })
                 .await
@@ -842,7 +989,8 @@ impl<B: Connect> SessionDriver<B> {
     /// deadline its Run's `timeout.navigation`.
     pub(crate) async fn new_page(&self, visibility: Visibility) -> Result<PageDriver, CallError> {
         let browser = self.browser.connect().await?;
-        counted_as_opening(self.new_page_in(browser, visibility)).await
+        let work = browser.work.clone();
+        counted_as_opening(&work, self.new_page_in(browser, visibility)).await
     }
 
     /// Opens a page in the Session, of `visibility`, in its browser
@@ -882,7 +1030,7 @@ impl<B: Connect> SessionDriver<B> {
         if self.browser.borrowed() {
             self.opened.lock().await.push(created.target_id.clone());
         } else if visibility == Visibility::Hidden {
-            browser.hidden.opened(&context, &created.target_id).await;
+            browser.state.hidden.opened(&context, &created.target_id);
         }
         let prepared = async {
             let session = browser.attach_own(&created.target_id, &opening).await?;
@@ -893,7 +1041,7 @@ impl<B: Connect> SessionDriver<B> {
         let session = match prepared.await {
             Ok(session) => session,
             Err(error) => {
-                browser.hidden.closed(&context, &created.target_id).await;
+                browser.state.hidden.closed(&context, &created.target_id);
                 if let Err(failure) = browser
                     .send_unleased(
                         None,
@@ -909,6 +1057,7 @@ impl<B: Connect> SessionDriver<B> {
             }
         };
         Ok(PageDriver {
+            page_reader: PageReader::new(&browser.connection, &session),
             browser,
             session,
             egress: self.egress.clone(),
@@ -917,8 +1066,6 @@ impl<B: Connect> SessionDriver<B> {
             started: Arc::new(watch::Sender::new(0)),
             navigating: Arc::new(watch::Sender::new(0)),
             spent: Duration::ZERO,
-            turn: Arc::new(Mutex::new(None)),
-            gesture: Arc::new(Mutex::new(())),
             value: PageValue::empty(),
             waits: None,
             reader: None,
@@ -972,21 +1119,14 @@ async fn prepare(browser: &Browser, session: &TargetSession) -> Result<(), CallE
     Ok(())
 }
 
-/// A page's document as it stands, serialized once.
-pub(crate) struct SerializedDocument {
-    /// Its HTML.
-    pub(crate) html: ByteString,
-    /// Its URL.
-    pub(crate) url: String,
-    /// Its base URL.
-    pub(crate) base_url: String,
-}
-
 /// One page's target, driven over its CDP session.
 #[derive(Clone)]
 pub(crate) struct PageDriver {
     browser: Browser,
     session: TargetSession,
+    /// Its page's one reader, which its parts subscribe to, those of its
+    /// frames' drivers included.
+    page_reader: PageReader,
     /// Its Session's proxy and egress relay.
     egress: SessionEgress,
     /// Its Session's browser context.
@@ -996,15 +1136,6 @@ pub(crate) struct PageDriver {
     /// How many navigations the engine started on the page, by which one
     /// the browser cancelled is known to be superseded.
     started: Arc<watch::Sender<u64>>,
-    /// The page's input order (ADR 0085): a gesture holds it from its first
-    /// command to its last, and waiters take it in arrival order, as Tokio
-    /// grants its lock (`STYLE.md`'s one exception to holding a lock across
-    /// `.await`). It keeps the guard's world in the current document, once
-    /// one was made.
-    turn: Arc<Mutex<Option<runtime::ExecutionContextId>>>,
-    /// The page's pointer, held from a check that arms the guard's listener
-    /// to its disarm, so no two gestures interleave (`targets`).
-    gesture: Arc<Mutex<()>>,
     /// How many navigation calls wait on the page now: a request the
     /// navigation gate refuses raises from them, or else is recorded.
     navigating: Arc<watch::Sender<u32>>,
@@ -1022,7 +1153,7 @@ pub(crate) struct PageDriver {
 }
 
 /// A navigation call waiting on its page, counted until dropped.
-struct NavigationCall<'page>(&'page watch::Sender<u32>);
+pub(crate) struct NavigationCall<'page>(&'page watch::Sender<u32>);
 
 impl<'page> NavigationCall<'page> {
     fn start(navigating: &'page watch::Sender<u32>) -> Self {
@@ -1036,188 +1167,6 @@ impl Drop for NavigationCall<'_> {
         self.0
             .send_modify(|navigating| *navigating = navigating.saturating_sub(1));
     }
-}
-
-/// A gesture's turn on its page: its commands, sent while no other
-/// gesture's are.
-pub(crate) struct Turn<'page> {
-    page: &'page PageDriver,
-    world: MutexGuard<'page, Option<runtime::ExecutionContextId>>,
-    call: Call,
-}
-
-/// Why a function did not answer in the guard's world.
-pub(crate) enum Unanswered {
-    /// The document it ran in went away, by a navigation: the world is made
-    /// again in the next document.
-    WorldGone,
-    /// The call fails with this Error code.
-    Failed(CallError),
-}
-
-impl Turn<'_> {
-    /// Calls `function`, a JavaScript function's source, with `argument` in
-    /// the guard's isolated world of the page's main frame, made on first
-    /// use in each document, and answers its value.
-    pub(crate) async fn call(
-        &mut self,
-        function: &str,
-        argument: serde_json::Value,
-    ) -> Result<serde_json::Value, Unanswered> {
-        let context = self.world().await?;
-        self.called(function, argument, context).await
-    }
-
-    /// Calls the guard's check `check`, a JavaScript function's source, with
-    /// `argument`, as [`call`](Self::call) does, counting the command it sends
-    /// and the source it carries (ADR 0140's C3). The world it may make
-    /// first is its document's, made once there, so no check's own.
-    pub(crate) async fn check(
-        &mut self,
-        check: &str,
-        argument: serde_json::Value,
-    ) -> Result<serde_json::Value, Unanswered> {
-        let context = self.world().await?;
-        let work = self.page.work();
-        work.count(Row::ActionCheckCommands);
-        work.count(Row::ActionScriptSends);
-        self.called(check, argument, context).await
-    }
-
-    /// Calls `function` with `argument` in the guard's world, whose context
-    /// is `context`, and answers its value.
-    async fn called(
-        &mut self,
-        function: &str,
-        argument: serde_json::Value,
-        context: runtime::ExecutionContextId,
-    ) -> Result<serde_json::Value, Unanswered> {
-        let called = self.send(&world::call(function, argument, context)).await?;
-        if let Some(thrown) = called.exception_details {
-            return Err(Unanswered::Failed(CallError::protocol(
-                ProtocolFailure::InternalError,
-                format!("the guard's script threw in the page: {}", thrown.text),
-            )));
-        }
-        Ok(called.result.value.unwrap_or(serde_json::Value::Null))
-    }
-
-    /// Moves the pointer to (`x`, `y`) in the page's viewport and clicks
-    /// there with its left button: input the page receives as trusted.
-    pub(crate) async fn click(&mut self, x: f64, y: f64) -> Result<(), CallError> {
-        for params in targets::pointer_click(x, y) {
-            self.page
-                .browser
-                .send(Some(&self.page.session), &params, &self.call)
-                .await?;
-        }
-        Ok(())
-    }
-
-    /// Sends one key event to the focused element.
-    pub(crate) async fn key(
-        &mut self,
-        event: &input::DispatchKeyEventParams,
-    ) -> Result<(), CallError> {
-        self.page
-            .browser
-            .send(Some(&self.page.session), event, &self.call)
-            .await
-            .map(|_| ())
-    }
-
-    /// Inserts `text` where the focused element's selection is, as an
-    /// input method commits text: one trusted `input` event.
-    pub(crate) async fn insert_text(&mut self, text: &str) -> Result<(), CallError> {
-        self.page
-            .browser
-            .send(
-                Some(&self.page.session),
-                &input::InsertTextParams {
-                    text: text.to_owned(),
-                },
-                &self.call,
-            )
-            .await
-            .map(|_| ())
-    }
-
-    /// The context of the guard's isolated world in the page's main frame,
-    /// made on first use in each document.
-    async fn world(&mut self) -> Result<runtime::ExecutionContextId, Unanswered> {
-        if let Some(context) = *self.world {
-            return Ok(context);
-        }
-        let made = self.send(&isolated_world(self.page.frame.clone())).await?;
-        *self.world = Some(made.execution_context_id);
-        Ok(made.execution_context_id)
-    }
-
-    /// The encoding the main frame's document was decoded with, read in
-    /// the guard's world.
-    async fn document_encoding(&mut self) -> Result<Option<String>, Unanswered> {
-        let context = self.world().await?;
-        let evaluated = self.send(&encoding_read(context)).await?;
-        Ok(encoding_of(evaluated))
-    }
-
-    /// Sends a command of the guard's world, a lost document being
-    /// [`Unanswered::WorldGone`].
-    async fn send<C: Command>(&mut self, params: &C) -> Result<C::Returns, Unanswered> {
-        match self
-            .page
-            .browser
-            .try_send(Some(&self.page.session), params)
-            .await
-        {
-            Ok(returned) => Ok(returned),
-            Err(Failure::Refused {
-                refusal: Refusal::ContextGone,
-                ..
-            }) => {
-                *self.world = None;
-                Err(Unanswered::WorldGone)
-            }
-            Err(failure) => Err(Unanswered::Failed(
-                self.page.browser.failed(&self.call, &failure).await,
-            )),
-        }
-    }
-}
-
-/// Where a navigation goes.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum Destination<'a> {
-    /// To a URL.
-    Url(&'a str),
-    /// To the page's document again.
-    Reload,
-    /// To the previous entry of the page's history.
-    Back,
-    /// To the next entry of the page's history.
-    Forward,
-}
-
-impl Destination<'_> {
-    /// The operation that navigates there, which a page's span records.
-    pub(crate) fn operation(self) -> &'static str {
-        match self {
-            Self::Url(_) => PAGE_GOTO.name,
-            Self::Reload => PAGE_RELOAD.name,
-            Self::Back => PAGE_GO_BACK.name,
-            Self::Forward => PAGE_GO_FORWARD.name,
-        }
-    }
-}
-
-/// The command that starts a navigation.
-enum Step {
-    /// `Page.navigate`.
-    Navigate,
-    /// `Page.reload`.
-    Reload,
-    /// `Page.navigateToHistoryEntry` to this entry.
-    Entry(i64),
 }
 
 impl PageDriver {
@@ -1415,7 +1364,7 @@ impl PageDriver {
     /// `deadline_exceeded` naming the deadline's setting and `waited_for`
     /// once the deadline passed first; it counts as elapsed the time the
     /// deadline counted, its permit waits left out (ADRs 0080 and 0093).
-    async fn within<F: Future>(
+    pub(crate) async fn within<F: Future>(
         &self,
         deadline: Option<&Deadline>,
         waited_for: WaitedFor,
@@ -1448,7 +1397,7 @@ impl PageDriver {
         {
             tracing::debug!(%failure, "the engine's page was gone already");
         }
-        self.browser.hidden.closed(&self.context, &self.frame).await;
+        self.browser.state.hidden.closed(&self.context, &self.frame);
     }
 
     /// Asks the page to close as a person closing its tab does: its
@@ -1471,9 +1420,18 @@ impl PageDriver {
             .map(drop)
     }
 
-    /// The events of the page's target, from when this answers.
+    /// The events of the page's target, from when this answers, which its
+    /// page's reader hands on.
     pub(crate) fn events(&self) -> Subscription {
-        self.browser.connection.subscribe(Some(&self.session))
+        self.page_reader.events_on(&self.session)
+    }
+
+    /// Its page's reader's task, which hands each event on to the page's
+    /// parts and, given `origins`, watches the origins its documents show:
+    /// spawned once, where the page is taken in. A later call's ends at
+    /// once.
+    pub(crate) fn reading(&self, origins: Option<Watcher>) -> impl Future<Output = ()> + use<> {
+        self.page_reader.reading(origins)
     }
 
     /// Sends `params` on the page's target as one of the commands that open the page: a failure raises
@@ -1487,6 +1445,30 @@ impl PageDriver {
             .await
     }
 
+    /// Sends `commands` on the page's target as one burst, which goes out
+    /// whole or not at all, within the deadline of `call`, recorded in the
+    /// Run trace; a failure raises the code of `call`: the CDP module's
+    /// primitives' commands.
+    pub(crate) async fn burst<C: Command>(
+        &self,
+        commands: &[C],
+        call: &Call,
+    ) -> Result<(), CallError> {
+        self.browser
+            .burst(Some(&self.session), commands, call)
+            .await
+    }
+
+    /// Sends `params` on the page's target within the deadline of `call`,
+    /// recorded in the Run trace; a failure raises the code of `call`.
+    pub(crate) async fn command_for<C: Command>(
+        &self,
+        params: &C,
+        call: &Call,
+    ) -> Result<C::Returns, CallError> {
+        self.browser.send(Some(&self.session), params, call).await
+    }
+
     /// Sends `params` on the page's target, recorded in the Run trace,
     /// answering the failure itself: the interception's commands, whose
     /// request may be gone.
@@ -1494,156 +1476,10 @@ impl PageDriver {
         self.browser.try_send(Some(&self.session), params).await
     }
 
-    /// Calls `function`, a JavaScript function's source, with `argument` in
-    /// the guard's isolated world of the frame `frame`'s document, made or
-    /// found by its name, outside any gesture's turn: the reads engine
-    /// scripts make of a frame, such as live hiding's (ADR 0047). A frame
-    /// gone, or a function that throws, answers none.
-    ///
-    /// The one way an engine read reaches a frame, so it counts C2's work
-    /// (ADR 0140): each command it sends, and the world it makes, which,
-    /// with no registry of each frame's document yet, it makes on every read
-    /// and so counts as one past its document's first (X10).
-    pub(crate) async fn read_in_frame(
-        &self,
-        frame: &page::FrameId,
-        function: &str,
-        argument: serde_json::Value,
-    ) -> Result<Option<serde_json::Value>, Failure> {
-        let work = &self.browser.work;
-        for row in [
-            Row::PageReadCommands,
-            Row::PageReadDocumentWorlds,
-            Row::PageReadWorldCreations,
-        ] {
-            work.count(row);
-        }
-        let made = self
-            .browser
-            .try_send(Some(&self.session), &isolated_world(frame.clone()))
-            .await?;
-        work.count(Row::PageReadCommands);
-        let called = self
-            .browser
-            .try_send(
-                Some(&self.session),
-                &world::call(function, argument, made.execution_context_id),
-            )
-            .await?;
-        if called.exception_details.is_some() {
-            return Ok(None);
-        }
-        Ok(called.result.value)
-    }
-
-    /// Calls `function` with `argument` in the guard's isolated world of the
-    /// page's main frame, outside any gesture's turn, as
-    /// [`read_in_frame`](Self::read_in_frame) does: the locator waits'
-    /// checks. A document gone or not there yet, or a function that throws,
-    /// answers none; a failure raises the code of the operation `operation`.
-    pub(crate) async fn read_in_page(
-        &self,
-        function: &str,
-        argument: serde_json::Value,
-        operation: &'static str,
-    ) -> Result<Option<serde_json::Value>, CallError> {
-        match self.read_in_frame(&self.frame, function, argument).await {
-            Ok(value) => Ok(value),
-            Err(Failure::Refused {
-                refusal: Refusal::ContextGone,
-                ..
-            }) => Ok(None),
-            Err(failure) => Err(self
-                .browser
-                .failed(&Call::Action { operation }, &failure)
-                .await),
-        }
-    }
-
-    /// Evaluates `expression`, a page function's, in the page's main frame:
-    /// in its main world, or in the page functions' isolated world, made or
-    /// found by its name; its promise awaited and its value answered by
-    /// value, outside any gesture's turn (ADR 0085), for as long as it
-    /// takes, as Playwright's `evaluate` has no timeout. A document replaced
-    /// under it is tried once more in the next one; a failure raises the
-    /// code of the operation `operation`.
-    pub(crate) async fn evaluate(
-        &self,
-        expression: &str,
-        world: World,
-        operation: &'static str,
-    ) -> Result<runtime::EvaluateReturns, CallError> {
-        let call = &Call::Action { operation };
-        let mut tries = 2;
-        loop {
-            tries -= 1;
-            let context = match world {
-                World::Main => None,
-                World::Isolated => Some(
-                    self.browser
-                        .send(
-                            Some(&self.session),
-                            &page_function_world(self.frame.clone()),
-                            call,
-                        )
-                        .await?
-                        .execution_context_id,
-                ),
-            };
-            match self
-                .browser
-                .try_send_within(
-                    Some(&self.session),
-                    &evaluation(expression, context),
-                    UNBOUNDED,
-                )
-                .await
-            {
-                Ok(returned) => return Ok(returned),
-                Err(Failure::Refused {
-                    refusal: Refusal::ContextGone,
-                    ..
-                }) if tries > 0 => {}
-                Err(failure) => return Err(self.browser.failed(call, &failure).await),
-            }
-        }
-    }
-
-    /// Registers `source` to run in the main world of every document the
-    /// page loads from now on, its frames' included, before their own
-    /// scripts, answering the script's identifier; a failure raises the
-    /// code of the operation `operation`.
-    pub(crate) async fn add_init_script(
-        &self,
-        source: String,
-        operation: &'static str,
-    ) -> Result<page::ScriptIdentifier, CallError> {
-        let call = &Call::Action { operation };
-        Ok(self
-            .browser
-            .send(
-                Some(&self.session),
-                &page::AddScriptToEvaluateOnNewDocumentParams {
-                    source,
-                    world_name: None,
-                    include_command_line_api: None,
-                    run_immediately: None,
-                },
-                call,
-            )
-            .await?
-            .identifier)
-    }
-
-    /// Removes the init script `identifier`; a page gone has none left.
-    pub(crate) async fn remove_init_script(&self, identifier: page::ScriptIdentifier) {
-        let _ = self
-            .browser
-            .try_send(
-                Some(&self.session),
-                &page::RemoveScriptToEvaluateOnNewDocumentParams { identifier },
-            )
-            .await;
+    /// The Error code `failure` raises from `call`, naming how the browser
+    /// ended when it was lost.
+    pub(crate) async fn raised(&self, call: &Call, failure: &Failure) -> CallError {
+        self.browser.failed(call, failure).await
     }
 
     /// This page's driver with each command it sends counted on `row` as
@@ -1660,424 +1496,39 @@ impl PageDriver {
         &self.browser.work
     }
 
-    /// Waits for the page's turn, in arrival order, for the gesture
-    /// `operation`, whose failures raise its codes.
-    ///
-    /// # Cancel safety
-    ///
-    /// Dropping the future gives up the place in the order.
-    pub(crate) async fn turn(&self, operation: &'static str) -> Turn<'_> {
-        Turn {
-            page: self,
-            world: self.turn.lock().await,
-            call: Call::Action { operation },
-        }
-    }
-
-    /// Navigates the page to `destination` and waits until its document
-    /// reaches the state `wait_until` names, answering where it arrived:
-    /// the document's response, with the encoding it was decoded with once
-    /// it was; none for a navigation within the document, to a URL no
-    /// server answers, or to a history entry the page does not have; or the
-    /// file the browser downloads instead.
-    ///
-    /// A navigation takes no turn among the locator actions, so that a
-    /// later one supersedes it; a guard's world it leaves behind is made
-    /// again in the next document when the browser no longer knows it.
-    ///
-    /// # Cancel safety
-    ///
-    /// Dropping the future leaves the navigation to go on in the browser.
-    pub(crate) async fn navigate(
-        &self,
-        destination: Destination<'_>,
-        wait_until: WaitUntil,
-        deadline: Option<&Deadline>,
-    ) -> Result<Arrived, CallError> {
-        let Some((url, step)) = self.step_to(destination).await? else {
-            return Ok(Arrived::Document(None));
-        };
-        let call = Call::Navigation { url: url.clone() };
-        // The relay's refusals from here on are this navigation's to raise.
-        let relay_mark = self.relay().map(EgressRelay::mark);
-        let mut events = self.browser.connection.subscribe(Some(&self.session));
+    /// Marks the start of a navigation the engine sends on the page, and
+    /// answers whether the engine started another after it since: a
+    /// navigation the browser cancelled for that one is superseded.
+    pub(crate) fn navigation_started(&self) -> impl Fn() -> bool + Send + Sync + 'static {
         let mut generation = 0;
         self.started.send_modify(|started| {
             *started += 1;
             generation = *started;
         });
-        let superseded = || *self.started.borrow() > generation;
-        let command = async {
-            Ok(match step {
-                Step::Navigate => {
-                    let navigated = self
-                        .browser
-                        .send(
-                            Some(&self.session),
-                            &page::NavigateParams {
-                                url: url.clone(),
-                                referrer: None,
-                                transition_type: None,
-                                frame_id: None,
-                                referrer_policy: None,
-                            },
-                            &call,
-                        )
-                        .await?;
-                    navigation::navigated(&url, navigated, superseded())
-                }
-                Step::Reload => {
-                    self.browser
-                        .send(Some(&self.session), &page::ReloadParams::default(), &call)
-                        .await?;
-                    Ok(Some(Expected::FirstStarted))
-                }
-                Step::Entry(entry_id) => {
-                    self.browser
-                        .send(
-                            Some(&self.session),
-                            &page::NavigateToHistoryEntryParams { entry_id },
-                            &call,
-                        )
-                        .await?;
-                    Ok(Some(Expected::FirstStarted))
-                }
-            })
-        };
-        let waiting = NavigationCall::start(&self.navigating);
-        let followed = self
-            .within(
-                deadline,
-                waited_for(wait_until),
-                // Boxed: the deadline that leaves out permit waits keeps it
-                // in its own state across its sleeps.
-                Box::pin(self.follow(command, &mut events, &call, wait_until, superseded)),
-            )
-            .await;
-        // No later command waits on a subscription nobody reads.
-        drop((waiting, events));
-        let (followed, stopped) = self.as_the_site_sent(followed?);
-        match followed {
-            Ok(Ok(Arrived::Document(Some(response))))
-                if let Some(failed) = self.answered_by_proxy(&url, &response) =>
-            {
-                Err(failed)
-            }
-            Ok(Ok(Arrived::Document(Some(response))))
-                if wait_until != WaitUntil::Commit && !stopped =>
-            {
-                Ok(Arrived::Document(Some(PageResponse {
-                    encoding: self.document_encoding(&call).await?,
-                    ..response
-                })))
-            }
-            Ok(Ok(arrived)) => Ok(arrived),
-            Ok(Err(Ended::Failed(error))) => Err(self.failed(&url, &error, relay_mark).await),
-            Ok(Err(Ended::Interrupted)) => Err(interrupted(&url)),
-            Ok(Err(Ended::TooManyRedirects(chain))) => Err(too_many_redirects(&url, chain)),
-            Ok(Err(Ended::Truncated { received, expected })) => {
-                Err(truncated(&url, received, expected))
-            }
-            Ok(Err(Ended::Crashed)) => Err(renderer_crashed()),
-            Err(failed) => Err(failed),
+        let started = Arc::clone(&self.started);
+        move || *started.borrow() > generation
+    }
+
+    /// A navigation call waiting on the page from now until it is dropped:
+    /// a request the navigation gate refuses meanwhile raises from it.
+    pub(crate) fn navigation_waiting(&self) -> NavigationCall<'_> {
+        NavigationCall::start(&self.navigating)
+    }
+
+    /// Runs `command`, a command the page's target answers, and answers
+    /// once every event the browser sent before that answer is handed on.
+    pub(crate) async fn after_events<T>(&self, command: impl Future<Output = T>) -> T {
+        self.page_reader.after_events(command).await
+    }
+
+    /// The driver of the page's child target on `session`: its commands go
+    /// there, and it shares everything else with the page's, so its page's
+    /// main frame is never one of its own frames.
+    pub(crate) fn on_child(&self, session: TargetSession) -> Self {
+        Self {
+            session,
+            ..self.clone()
         }
-    }
-
-    /// `followed`, a navigation's end, its response holding the site's own
-    /// headers where the page's document reader had the browser read it
-    /// otherwise (ADR 0119); and whether the reader stopped that navigation
-    /// at the interception, the page then holding no document whose
-    /// encoding could be read.
-    fn as_the_site_sent(
-        &self,
-        followed: Result<Result<Arrived, Ended>, CallError>,
-    ) -> (Result<Result<Arrived, Ended>, CallError>, bool) {
-        match followed {
-            Ok(Ok(Arrived::Document(Some(mut response)))) => {
-                let site = self
-                    .reader
-                    .as_ref()
-                    .and_then(|reader| reader.site(&response.request_id));
-                let stopped = site.as_ref().is_some_and(|site| site.stopped);
-                if let Some(site) = site {
-                    response.headers = site.headers;
-                }
-                (Ok(Ok(Arrived::Document(Some(response)))), stopped)
-            }
-            other => (other, false),
-        }
-    }
-
-    /// The URL of the document the main frame holds: the one it could not
-    /// reach when it shows the browser's error page.
-    pub(crate) async fn document_url(&self) -> Result<String, CallError> {
-        let tree = self
-            .browser
-            .send(
-                Some(&self.session),
-                &page::GetFrameTreeParams {},
-                &Call::Document,
-            )
-            .await?;
-        let frame = tree.frame_tree.frame;
-        Ok(frame.unreachable_url.unwrap_or(frame.url))
-    }
-
-    /// The error of a navigation to `url` that failed with the browser's
-    /// network error `error`, the Session's egress relay standing at
-    /// `mark` as it began: the relay's refusal, else the proxy's own
-    /// failure, else the site's, named as the browser names it when it
-    /// connects itself, since behind the relay it sees only the relay's
-    /// answer. A certificate the browser refused is `certificate_invalid`,
-    /// named by the relay's own look at it where it can.
-    async fn failed(&self, url: &str, error: &NetError, mark: Option<u64>) -> CallError {
-        let relayed = self
-            .relay()
-            .and_then(|relay| relay.net_error(url, error, mark));
-        let error = relayed.as_ref().unwrap_or(error);
-        if let Some(refused) = self.refused_by_relay(mark, url) {
-            return refused;
-        }
-        if let Some(failure) = errors::certificate_failure(error) {
-            let examined = match self.relay() {
-                Some(relay) => relay.examine(url).await,
-                None => None,
-            };
-            let host = url::Url::parse(url)
-                .ok()
-                .and_then(|url| url.host_str().map(str::to_owned))
-                .unwrap_or_default();
-            return examined
-                .unwrap_or(CertificateInvalid { host, failure })
-                .error();
-        }
-        self.egress
-            .proxy
-            .as_ref()
-            .and_then(|proxy| proxy.failure(url, error))
-            .unwrap_or_else(|| network_error(url, error.name()))
-    }
-
-    /// `egress_refused` when the Session's egress relay refused a
-    /// connection since `mark`, as it was when the navigation to `url`
-    /// began: the browser reports that refusal only as a network error.
-    fn refused_by_relay(&self, mark: Option<u64>, url: &str) -> Option<CallError> {
-        Some(self.relay()?.take_refusal(url, Some(mark?))?.error())
-    }
-
-    /// `proxy_unavailable` when `response`, the document's response to a
-    /// navigation to `url`, is the Session's proxy's own, never the site's
-    /// (the proxy-or-site rule).
-    fn answered_by_proxy(&self, url: &str, response: &PageResponse) -> Option<CallError> {
-        let proxy = self.egress.proxy.as_deref()?;
-        let proxy_status = response.headers.get(PROXY_STATUS).map(String::as_str);
-        if party(proxy.response(&response.url, proxy_status)) != Party::Proxy {
-            return None;
-        }
-        let error = proxy_status.and_then(proxy_error).unwrap_or_default();
-        Some(proxy.answered(url, &error))
-    }
-
-    /// The encoding the main frame's document was decoded with, read in
-    /// the guard's world; none when the frame holds no document that names
-    /// one. The world is the one the page's turn keeps when no gesture
-    /// holds the turn, so that the next gesture finds it made; otherwise
-    /// the browser gives the read the same world by its name.
-    async fn document_encoding(&self, call: &Call) -> Result<Option<String>, CallError> {
-        let Ok(world) = self.turn.try_lock() else {
-            let made = self
-                .browser
-                .send(
-                    Some(&self.session),
-                    &isolated_world(self.frame.clone()),
-                    call,
-                )
-                .await?;
-            let evaluated = self
-                .browser
-                .send(
-                    Some(&self.session),
-                    &encoding_read(made.execution_context_id),
-                    call,
-                )
-                .await?;
-            return Ok(encoding_of(evaluated));
-        };
-        let mut turn = Turn {
-            page: self,
-            world,
-            call: call.clone(),
-        };
-        // A world kept from the document before is gone: made again once.
-        for _ in 0..2 {
-            match turn.document_encoding().await {
-                Ok(encoding) => return Ok(encoding),
-                Err(Unanswered::WorldGone) => {}
-                Err(Unanswered::Failed(error)) => return Err(error),
-            }
-        }
-        Ok(None)
-    }
-
-    /// The URL `destination` names and the command that goes there; none
-    /// for a history entry the page does not have.
-    async fn step_to(
-        &self,
-        destination: Destination<'_>,
-    ) -> Result<Option<(String, Step)>, CallError> {
-        let offset = match destination {
-            Destination::Url(url) => return Ok(Some((url.to_owned(), Step::Navigate))),
-            Destination::Reload => 0,
-            Destination::Back => -1,
-            Destination::Forward => 1,
-        };
-        let history = self
-            .browser
-            .send(
-                Some(&self.session),
-                &page::GetNavigationHistoryParams {},
-                &Call::History,
-            )
-            .await?;
-        let Some(entry) = usize::try_from(history.current_index + offset)
-            .ok()
-            .and_then(|index| history.entries.get(index))
-        else {
-            return Ok(None);
-        };
-        let step = if offset == 0 {
-            Step::Reload
-        } else {
-            Step::Entry(entry.id)
-        };
-        Ok(Some((entry.url.clone(), step)))
-    }
-
-    /// Follows the navigation `command` starts through the page's `events`,
-    /// read while the command runs too, until it ends or reaches the state
-    /// `wait_until` names.
-    async fn follow(
-        &self,
-        command: impl Future<Output = Result<Result<Option<Expected>, Ended>, CallError>>,
-        events: &mut Subscription,
-        call: &Call,
-        wait_until: WaitUntil,
-        superseded: impl Fn() -> bool,
-    ) -> Result<Result<Arrived, Ended>, CallError> {
-        let mut navigation = Navigation::of(self.frame.clone());
-        let (outcome, expected) = match navigation
-            .follow(command, events, wait_until, &superseded)
-            .await?
-        {
-            Followed::Ended { outcome, expected } => (outcome, expected),
-            Followed::Disconnected => {
-                return Err(self.browser.failed(call, &Failure::Disconnected).await);
-            }
-        };
-        match outcome {
-            Err(Ended::Failed(error)) if navigation::abandoned(&error) => {
-                if self.renderer_crashed(events, &mut navigation, call).await? {
-                    return Ok(Err(Ended::Crashed));
-                }
-                // Every event the browser sent before the renderer answered
-                // is read now: a navigation the page started that cancelled
-                // this one has started by then.
-                Ok(Err(expected
-                    .and_then(|expected| navigation.outcome(&expected, wait_until, superseded()))
-                    .and_then(Result::err)
-                    .unwrap_or(Ended::Failed(error))))
-            }
-            outcome => Ok(outcome),
-        }
-    }
-
-    /// Whether the renderer of a navigation the browser abandoned crashed;
-    /// else it is the browser's own failure of it, such as for an answer
-    /// with no document, or a navigation the page started superseded it.
-    /// The pinned Chromium abandons the navigation of a renderer that
-    /// crashes before it reports the crash, once the crash's dump is
-    /// written (~200 ms idle, longer under load), so the page's renderer is
-    /// asked for its frame tree, the main frame's events read meanwhile: a
-    /// live one answers, and a crashed one never does before its crash is
-    /// reported. A target the browser detached meanwhile, as when the
-    /// engine closes its browser, did not crash: the frame tree's answer,
-    /// failed with it, ends the check, so the navigation raises its own
-    /// failure, such as a Limit's that stopped the Run.
-    async fn renderer_crashed(
-        &self,
-        events: &mut Subscription,
-        navigation: &mut Navigation,
-        call: &Call,
-    ) -> Result<bool, CallError> {
-        let alive = self
-            .browser
-            .try_send(Some(&self.session), &page::GetFrameTreeParams {});
-        let mut alive = std::pin::pin!(alive);
-        let mut reading = true;
-        loop {
-            if navigation.crashed() {
-                return Ok(true);
-            }
-            tokio::select! {
-                biased;
-                event = events.next(), if reading => match event {
-                    Some(event) => navigation.feed(&event),
-                    None if detached(events) => reading = false,
-                    None => return Err(self.browser.failed(call, &Failure::Disconnected).await),
-                },
-                answered = &mut alive => return match answered {
-                    Err(Failure::Disconnected) => {
-                        Err(self.browser.failed(call, &Failure::Disconnected).await)
-                    }
-                    Ok(_) | Err(_) => Ok(false),
-                },
-            }
-        }
-    }
-
-    /// The page's document as the DOM holds it now, serialized once, with
-    /// its URL and base URL: two commands, each counted on
-    /// `C2.serialization_commands` (ADR 0140).
-    pub(crate) async fn document(&self) -> Result<SerializedDocument, CallError> {
-        let call = Call::Document;
-        let work = &self.browser.work;
-        work.count(Row::PageSerializationCommands);
-        let root = self
-            .browser
-            .send(
-                Some(&self.session),
-                &dom::GetDocumentParams {
-                    depth: Some(0),
-                    pierce: None,
-                },
-                &call,
-            )
-            .await?
-            .root;
-        work.count(Row::PageSerializationCommands);
-        let html = self
-            .browser
-            .send(
-                Some(&self.session),
-                &dom::GetOuterHTMLParams {
-                    node_id: Some(root.node_id),
-                    backend_node_id: None,
-                    object_id: None,
-                    // Every shadow root, open or closed, serialized as a
-                    // `<template shadowrootmode>`, so that extraction-side
-                    // removal walks them (ADR 0047).
-                    include_shadow_dom: Some(true),
-                },
-                &call,
-            )
-            .await?
-            .outer_html;
-        let url = root.document_url.unwrap_or_default();
-        Ok(SerializedDocument {
-            html: ByteString::from(html),
-            base_url: root.base_url.unwrap_or_else(|| url.clone()),
-            url,
-        })
     }
 }
 
@@ -2087,14 +1538,4 @@ impl PageDriver {
 /// the call.
 pub(crate) fn detached(events: &mut Subscription) -> bool {
     events.ended() == Some(SubscriptionEnd::Detached)
-}
-
-/// What a navigation that answers at `wait_until` waits for, as its
-/// `deadline_exceeded` names it: the state, as the call spells it.
-fn waited_for(wait_until: WaitUntil) -> WaitedFor {
-    match wait_until {
-        WaitUntil::Commit => WaitedFor::COMMIT,
-        WaitUntil::DomContentLoaded => WaitedFor::DOM_CONTENT_LOADED,
-        WaitUntil::Load => WaitedFor::LOAD,
-    }
 }

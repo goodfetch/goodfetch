@@ -19,7 +19,8 @@ const PERMISSIVE_DIST: &str =
 
 /// The fixture's installed packages, as `pnpm install` and `uv sync` leave
 /// them, each `(fixture file, path in the workspace)`. The platform package
-/// is for AIX, and the Windows-only distribution is not installed either.
+/// is for AIX, so neither it nor the runtime only it depends on is
+/// installed, and the Windows-only distribution is not installed either.
 const INSTALLED: [(&str, &str); 8] = [
     (
         "notices-installed/permissive-package.json",

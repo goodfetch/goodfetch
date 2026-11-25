@@ -13,8 +13,6 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 use std::time::Duration;
 
-use goodfetch_cdp::generated::network::{self, LoaderId, ResourceType};
-use goodfetch_cdp::generated::page;
 use goodfetch_engine::CallError;
 use goodfetch_engine::clock::Clock;
 use goodfetch_engine::deadline::Deadline;
@@ -25,7 +23,11 @@ use tokio::sync::{oneshot, watch};
 use tokio::time::Instant;
 
 use super::{PageEvents, Shared, State, gone, lock};
+use crate::cdp::{FollowedEvent, FrameNavigated, RequestSent};
 use crate::url_pattern::UrlPattern;
+
+/// The browser's ID of a load, which is its document request's.
+type LoaderId = String;
 
 /// How long no request of the page may be in flight, once its document
 /// fired `load`, before `networkidle` comes.
@@ -115,21 +117,17 @@ fn waited_for(state: LoadState) -> WaitedFor {
 }
 
 /// Whether `networkidle` counts the request `sent` while it is in flight.
-fn counted(sent: &network::RequestWillBeSentEvent) -> bool {
-    !matches!(
-        sent.r#type,
-        Some(ResourceType::EventSource | ResourceType::WebSocket)
-    ) && !sent.request.url.starts_with("data:")
-        && !sent.request.url.starts_with("blob:")
+fn counted(sent: &RequestSent) -> bool {
+    !sent.streams() && !sent.url().starts_with("data:") && !sent.url().starts_with("blob:")
 }
 
 /// A request sent: in flight until it ends, when `networkidle` counts it.
-pub(super) fn sent(shared: &Shared, state: &mut State, sent: &network::RequestWillBeSentEvent) {
+pub(super) fn sent(shared: &Shared, state: &mut State, sent: &RequestSent) {
     if counted(sent) {
         state
             .in_flight
             .0
-            .insert(sent.request_id.clone(), sent.loader_id.clone());
+            .insert(sent.network_id().to_owned(), sent.loader().to_owned());
         shared.document.send_if_modified(|document| {
             let was = document.quiet_since.take();
             was.is_some()
@@ -155,68 +153,75 @@ pub(super) fn ended(shared: &Shared, state: &mut State, request_id: &str) {
 /// An event of the main frame's document: a navigation committed, one
 /// within the document, or a lifecycle event of its document. Answers the
 /// URL waiters whose URL came.
-pub(super) fn take_in(shared: &Shared, state: &mut State, event: &goodfetch_cdp::RawEvent) {
+pub(super) fn take_in(shared: &Shared, state: &mut State, event: FollowedEvent) {
     let main = shared.driver.main_frame();
-    if let Some(navigated) = event.read::<page::FrameNavigatedEvent>() {
-        if &navigated.frame.id != main || navigated.frame.parent_id.is_some() {
-            return;
-        }
-        let frame = navigated.frame;
-        state.url = format!(
-            "{}{}",
-            frame.url,
-            frame.url_fragment.as_deref().unwrap_or_default()
-        );
-        // The requests of the document it replaced no longer count.
-        state
-            .in_flight
-            .0
-            .retain(|_, loader| *loader == frame.loader_id);
-        let blank = state.url == BLANK;
-        // A blank document may report no lifecycle: it has loaded, and is
-        // quiet from now when nothing is in flight.
-        let quiet_since = (blank && state.in_flight.0.is_empty()).then(|| shared.clock.now());
-        let mut generation = 0;
-        shared.document.send_modify(|document| {
-            document.generation += 1;
-            generation = document.generation;
-            document.loader = Some(frame.loader_id.clone());
-            document.dom_content_loaded = blank;
-            document.load = blank;
-            document.network_idle = false;
-            document.quiet_since = quiet_since;
-        });
-        answer_url_waiters(state, UrlReached::Committed(generation));
-    } else if let Some(within) = event.read::<page::NavigatedWithinDocumentEvent>() {
-        if &within.frame_id == main {
-            state.url = within.url;
-            answer_url_waiters(state, UrlReached::Here);
-        }
-    } else if let Some(lifecycle) = event.read::<page::LifecycleEventEvent>()
-        && &lifecycle.frame_id == main
-    {
-        let quiet = state.in_flight.0.is_empty();
-        let now = shared.clock.now();
-        shared.document.send_if_modified(|document| {
-            if document.loader.as_ref() != Some(&lifecycle.loader_id) {
-                return false;
+    match event {
+        FollowedEvent::FrameNavigated(navigated) => {
+            if &navigated.frame == main && navigated.main {
+                navigated_to(shared, state, navigated);
             }
-            match lifecycle.name.as_str() {
-                "DOMContentLoaded" if !document.dom_content_loaded => {
-                    document.dom_content_loaded = true;
-                    true
+        }
+        FollowedEvent::NavigatedWithinDocument { frame, url } => {
+            if &frame == main {
+                state.url = url;
+                answer_url_waiters(state, UrlReached::Here);
+            }
+        }
+        FollowedEvent::Lifecycle {
+            frame,
+            loader,
+            name,
+        } if &frame == main => {
+            let quiet = state.in_flight.0.is_empty();
+            let now = shared.clock.now();
+            shared.document.send_if_modified(|document| {
+                if document.loader.as_ref() != Some(&loader) {
+                    return false;
                 }
-                "load" if !document.load => {
-                    document.load = true;
-                    if quiet {
-                        document.quiet_since = Some(now);
+                match name.as_str() {
+                    "DOMContentLoaded" if !document.dom_content_loaded => {
+                        document.dom_content_loaded = true;
+                        true
                     }
-                    true
+                    "load" if !document.load => {
+                        document.load = true;
+                        if quiet {
+                            document.quiet_since = Some(now);
+                        }
+                        true
+                    }
+                    _ => false,
                 }
-                _ => false,
-            }
-        });
+            });
+        }
+        _ => {}
     }
+}
+
+/// The main frame committed the navigation `frame` reports: its document
+/// is the page's from now.
+fn navigated_to(shared: &Shared, state: &mut State, frame: FrameNavigated) {
+    state.url = frame.url;
+    // The requests of the document it replaced no longer count.
+    state
+        .in_flight
+        .0
+        .retain(|_, loader| *loader == frame.loader);
+    let blank = state.url == BLANK;
+    // A blank document may report no lifecycle: it has loaded, and is
+    // quiet from now when nothing is in flight.
+    let quiet_since = (blank && state.in_flight.0.is_empty()).then(|| shared.clock.now());
+    let mut generation = 0;
+    shared.document.send_modify(|document| {
+        document.generation += 1;
+        generation = document.generation;
+        document.loader = Some(frame.loader);
+        document.dom_content_loaded = blank;
+        document.load = blank;
+        document.network_idle = false;
+        document.quiet_since = quiet_since;
+    });
+    answer_url_waiters(state, UrlReached::Committed(generation));
 }
 
 /// Answers each URL waiter whose pattern matches the page's URL now.

@@ -11,4 +11,5 @@
 mod limits;
 mod refusals;
 mod run_files;
+mod search;
 mod tables;

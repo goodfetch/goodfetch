@@ -27,6 +27,12 @@ paths = [
 ]
 
 [[allowlists]]
+description = "The service account key GCP Secret Manager's tests sign with (issue 1658): a key made once for the tests, which only their loopback stand-in of Google's token endpoint knows, so it signs for no account"
+paths = [
+  '''(^|/)crates/goodfetch-secret-providers/tests/fixtures/service-account-key\.pem$''',
+]
+
+[[allowlists]]
 description = "Third-party filter lists vendored as published (ADR 0047, #713): their comments cite upstream commit IDs, which match token rules"
 paths = [
   '''(^|/)crates/goodfetch-clean-up-rules/rules/[^/]+\.txt$''',

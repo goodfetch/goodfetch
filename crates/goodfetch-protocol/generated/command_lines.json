@@ -66,6 +66,10 @@
         "name": "doctor"
       },
       {
+        "commands": [],
+        "name": "init"
+      },
+      {
         "commands": [
           {
             "commands": [],
@@ -130,6 +134,19 @@
           }
         ],
         "name": "needs-you"
+      },
+      {
+        "commands": [
+          {
+            "commands": [],
+            "name": "start"
+          },
+          {
+            "commands": [],
+            "name": "digest"
+          }
+        ],
+        "name": "recipe"
       },
       {
         "commands": [
@@ -349,15 +366,6 @@
             "name": "start"
           }
         ],
-        "name": "recipe"
-      },
-      {
-        "commands": [
-          {
-            "commands": [],
-            "name": "start"
-          }
-        ],
         "name": "catalog-run"
       },
       {
@@ -397,6 +405,31 @@
           }
         ],
         "name": "sample"
+      },
+      {
+        "commands": [
+          {
+            "commands": [],
+            "name": "create"
+          },
+          {
+            "commands": [],
+            "name": "list"
+          },
+          {
+            "commands": [],
+            "name": "get"
+          },
+          {
+            "commands": [],
+            "name": "info"
+          },
+          {
+            "commands": [],
+            "name": "delete"
+          }
+        ],
+        "name": "schedule"
       }
     ],
     "name": "goodfetch-collie"
@@ -468,6 +501,10 @@
         "name": "doctor"
       },
       {
+        "commands": [],
+        "name": "init"
+      },
+      {
         "commands": [
           {
             "commands": [],
@@ -532,6 +569,19 @@
           }
         ],
         "name": "needs-you"
+      },
+      {
+        "commands": [
+          {
+            "commands": [],
+            "name": "start"
+          },
+          {
+            "commands": [],
+            "name": "digest"
+          }
+        ],
+        "name": "recipe"
       },
       {
         "commands": [
@@ -787,15 +837,6 @@
             "name": "start"
           }
         ],
-        "name": "recipe"
-      },
-      {
-        "commands": [
-          {
-            "commands": [],
-            "name": "start"
-          }
-        ],
         "name": "catalog-run"
       },
       {
@@ -844,6 +885,31 @@
         "commands": [
           {
             "commands": [],
+            "name": "create"
+          },
+          {
+            "commands": [],
+            "name": "list"
+          },
+          {
+            "commands": [],
+            "name": "get"
+          },
+          {
+            "commands": [],
+            "name": "info"
+          },
+          {
+            "commands": [],
+            "name": "delete"
+          }
+        ],
+        "name": "schedule"
+      },
+      {
+        "commands": [
+          {
+            "commands": [],
             "name": "start"
           }
         ],
@@ -862,9 +928,26 @@
           {
             "commands": [],
             "name": "query"
+          },
+          {
+            "commands": [],
+            "name": "search"
+          },
+          {
+            "commands": [],
+            "name": "erase"
           }
         ],
         "name": "dataset"
+      },
+      {
+        "commands": [
+          {
+            "commands": [],
+            "name": "search"
+          }
+        ],
+        "name": "record"
       }
     ],
     "name": "goodfetch-foxhound"

@@ -49,6 +49,16 @@ impl Entropy {
         self.0.fill_bytes(&mut key);
         Self(ChaCha20Rng::from_seed(key))
     }
+
+    /// An `Entropy` of its own on the stream `stream` of this one's seed,
+    /// which draws nothing from this one, so the draws of every other owner
+    /// stay where they were.
+    #[must_use]
+    pub fn stream(&self, stream: u64) -> Self {
+        let mut generator = ChaCha20Rng::from_seed(self.0.get_seed());
+        generator.set_stream(stream);
+        Self(generator)
+    }
 }
 
 /// A live Run's entropy (ADRs 0059 and 0145): the stream the engine forked

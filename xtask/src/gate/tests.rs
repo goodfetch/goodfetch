@@ -364,8 +364,8 @@ fn a_change_to_one_package_reruns_its_tests_and_the_jobs_it_selects() {
         part,
         BTreeMap::from([("pre-merge", only.clone()), ("stress", only)])
     );
-    // Perf, the counted rows, TLC, the MSRV build, Miri, loom and the
-    // Windows build read nothing the change reaches.
+    // Perf, the counted rows, TLC, the MSRV build, Miri, loom, the
+    // Simulation and the Windows build read nothing the change reaches.
     for step in [
         Step::Perf,
         Step::Counts,
@@ -373,6 +373,7 @@ fn a_change_to_one_package_reruns_its_tests_and_the_jobs_it_selects() {
         Step::Msrv,
         Step::Miri,
         Step::Loom,
+        Step::Simulation,
         Step::Windows,
     ] {
         assert!(
@@ -402,7 +403,16 @@ fn a_change_reaching_a_crate_reruns_the_crate_builds() {
 
     let (full, _) = reruns(&planned(Some(&record), &touched_since_earlier(touched)));
 
-    for step in ["perf", "counts", "linux", "msrv", "miri", "loom", "windows"] {
+    for step in [
+        "perf",
+        "counts",
+        "linux",
+        "msrv",
+        "miri",
+        "loom",
+        "simulation",
+        "windows",
+    ] {
         assert!(full.contains(&step), "{step} in {full:?}");
     }
     assert!(!full.contains(&"tlc") && !full.contains(&"visual"));
@@ -429,6 +439,7 @@ fn a_change_reaching_the_kennel_alone_reruns_its_checks_and_no_products_tests() 
         "msrv",
         "miri",
         "loom",
+        "simulation",
         "windows",
         "quick",
         "pre-merge",
@@ -1220,7 +1231,16 @@ const WHOLE_CHANGE_STEPS: [&str; 6] = [
 
 /// The steps that run beside the host's: each builds and writes in folders
 /// no host step reads, and its verdict is the one it gives after them.
-const BESIDE_STEPS: [&str; 7] = ["perf", "counts", "linux", "visual", "tlc", "miri", "loom"];
+const BESIDE_STEPS: [&str; 8] = [
+    "perf",
+    "counts",
+    "linux",
+    "visual",
+    "tlc",
+    "miri",
+    "loom",
+    "simulation",
+];
 
 /// Each entry's owning layer, as the spec's table of owning layers sets it
 /// (spec #3373): `just merge` judges the change in seconds, the gate host
@@ -1246,6 +1266,9 @@ fn each_entry_has_the_owner_the_table_of_owning_layers_names(#[case] form: Form)
         "loom",
         "miri",
     ];
+    // Built again under `--cfg tokio_unstable` in a folder of its own, as
+    // loom is under its cfg, which no hosted job does (issue 359).
+    const OWN_BUILD: &str = "simulation";
     let owners: Vec<(&str, Owner)> = entries(form)
         .iter()
         .map(|entry| (entry.name, entry.owner))
@@ -1256,6 +1279,7 @@ fn each_entry_has_the_owner_the_table_of_owning_layers_names(#[case] form: Form)
             let owner = if WHOLE_CHANGE_STEPS.contains(name)
                 || *name == "linux"
                 || TOO_LONG_FOR_A_HOSTED_JOB.contains(name)
+                || *name == OWN_BUILD
             {
                 Owner::Local
             } else if GATE_HOST.contains(name) {

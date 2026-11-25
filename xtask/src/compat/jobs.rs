@@ -51,16 +51,27 @@ struct Check {
     product: Product,
     minutes: u32,
     journeys: Option<Journeys>,
+    /// Whether it runs the older executable on what the current Foxhound
+    /// wrote.
+    #[serde(default)]
+    older_engine: bool,
     /// The ticket whose change gives the check its harness or its tests.
     awaiting: Option<u32>,
 }
 
+/// What a check runs.
+enum Harness<'a> {
+    Journeys(&'a Journeys),
+    OlderEngine,
+}
+
 impl Check {
     /// What it runs; none while it awaits its ticket.
-    fn runnable(&self) -> Option<&Journeys> {
-        match self.awaiting {
-            Some(_) => None,
-            None => self.journeys.as_ref(),
+    fn runnable(&self) -> Option<Harness<'_>> {
+        match (self.awaiting, &self.journeys) {
+            (Some(_), _) => None,
+            (None, Some(journeys)) => Some(Harness::Journeys(journeys)),
+            (None, None) => self.older_engine.then_some(Harness::OlderEngine),
         }
     }
 }
@@ -110,15 +121,30 @@ struct Job {
     steps: Vec<Step>,
 }
 
-/// One `just journeys` run of a job.
+/// One test run of a job.
 #[derive(Serialize)]
 struct Step {
     checks: Vec<String>,
-    /// The Product's executable that the Journeys run against.
-    executable: &'static str,
-    stdio: bool,
-    /// The arguments of `just journeys`, the executable's aside.
-    journeys: Vec<String>,
+    #[serde(flatten)]
+    run: Run,
+}
+
+#[derive(Serialize)]
+#[serde(untagged)]
+enum Run {
+    /// `just journeys`.
+    Journeys {
+        /// The Product's executable that the Journeys run against.
+        executable: &'static str,
+        stdio: bool,
+        /// The arguments of `just journeys`, the executable's aside.
+        journeys: Vec<String>,
+    },
+    /// `just older-engine`.
+    OlderEngine {
+        /// The Product whose older executable it runs.
+        older_engine: &'static str,
+    },
 }
 
 #[derive(Serialize)]
@@ -216,6 +242,9 @@ fn refuse_bad_checks(checks: &[Check]) -> Result<()> {
             bail!("`{id}` takes no minute");
         }
         match &check.journeys {
+            Some(_) if check.older_engine => {
+                bail!("`{id}` runs Journeys and an older engine: make them two checks");
+            }
             Some(journeys) if journeys.surfaces.is_empty() => {
                 bail!("`{id}` runs the Journeys of no surface");
             }
@@ -224,7 +253,7 @@ fn refuse_bad_checks(checks: &[Check]) -> Result<()> {
                     bail!("`{id}` names `{unknown}`, no surface of ADR 0063, nor `foxhound-cli`");
                 }
             }
-            None if check.awaiting.is_none() => {
+            None if check.awaiting.is_none() && !check.older_engine => {
                 bail!("`{id}` runs nothing and awaits no ticket");
             }
             None => {}
@@ -306,9 +335,9 @@ fn jobs_of(
     checks: &ChecksFile,
 ) -> Vec<Job> {
     let room = crate::release_suite::JOB_BUDGET_MINUTES.saturating_sub(checks.setup_minutes);
-    let mut groups: Vec<(u32, Vec<(&Check, &Journeys)>)> = Vec::new();
+    let mut groups: Vec<(u32, Vec<(&Check, Harness<'_>)>)> = Vec::new();
     for check in &checks.check {
-        let Some(journeys) = check.runnable() else {
+        let Some(harness) = check.runnable() else {
             continue;
         };
         match groups
@@ -317,9 +346,9 @@ fn jobs_of(
         {
             Some((used, group)) => {
                 *used += check.minutes;
-                group.push((check, journeys));
+                group.push((check, harness));
             }
-            None => groups.push((check.minutes, vec![(check, journeys)])),
+            None => groups.push((check.minutes, vec![(check, harness)])),
         }
     }
     let alone = groups.len() == 1;
@@ -345,53 +374,79 @@ fn tag(version: &str) -> String {
     format!("v{version}")
 }
 
-/// One step per executable and connection of a job's checks, in their order,
-/// so each Product's tests are built and listed once.
+/// The steps of a job's checks, in their order. Journeys take one per
+/// executable and connection, so each Product's tests are built and listed
+/// once.
 fn steps(
-    group: &[(&Check, &Journeys)],
+    group: &[(&Check, Harness<'_>)],
     version: Option<&str>,
     excluded: &[&VariantId],
 ) -> Vec<Step> {
+    let mut steps: Vec<Step> = Vec::new();
     let mut kinds: Vec<(Product, bool)> = Vec::new();
-    for (check, journeys) in group {
-        let kind = (check.product, journeys.stdio);
-        if !kinds.contains(&kind) {
-            kinds.push(kind);
+    for (check, harness) in group {
+        match harness {
+            Harness::Journeys(journeys) => {
+                let kind = (check.product, journeys.stdio);
+                if !kinds.contains(&kind) {
+                    kinds.push(kind);
+                    steps.push(journeys_step(group, kind, version, excluded));
+                }
+            }
+            Harness::OlderEngine => steps.push(Step {
+                checks: vec![check.id.clone()],
+                run: Run::OlderEngine {
+                    older_engine: check.product.key(),
+                },
+            }),
         }
     }
-    kinds
-        .into_iter()
-        .map(|(product, stdio)| {
-            let of: Vec<_> = group
-                .iter()
-                .filter(|(check, journeys)| check.product == product && journeys.stdio == stdio)
-                .collect();
-            let mut surfaces: Vec<&str> = Vec::new();
-            for surface in of.iter().flat_map(|(_, journeys)| &journeys.surfaces) {
-                if !surfaces.contains(&surface.as_str()) {
-                    surfaces.push(surface);
-                }
+    steps
+}
+
+/// The step of a job's Journey checks of one executable and connection.
+fn journeys_step(
+    group: &[(&Check, Harness<'_>)],
+    (product, stdio): (Product, bool),
+    version: Option<&str>,
+    excluded: &[&VariantId],
+) -> Step {
+    let mut checks = Vec::new();
+    let mut surfaces: Vec<&str> = Vec::new();
+    for (check, harness) in group {
+        let Harness::Journeys(journeys) = harness else {
+            continue;
+        };
+        if (check.product, journeys.stdio) != (product, stdio) {
+            continue;
+        }
+        checks.push(check.id.clone());
+        for surface in &journeys.surfaces {
+            if !surfaces.contains(&surface.as_str()) {
+                surfaces.push(surface);
             }
-            let mut journeys = Vec::new();
-            let mut flag = |flag: &str, value: String| journeys.extend([flag.to_owned(), value]);
-            if let Some(version) = version {
-                flag("--tag", tag(version));
-            }
-            flag("--product", product.key().to_owned());
-            for surface in &surfaces {
-                flag("--surface", (*surface).to_owned());
-            }
-            for variant in excluded {
-                if surfaces.contains(&variant.surface()) {
-                    flag("--exclude", variant.to_string());
-                }
-            }
-            Step {
-                checks: of.iter().map(|(check, _)| check.id.clone()).collect(),
-                executable: product.executable().package,
-                stdio,
-                journeys,
-            }
-        })
-        .collect()
+        }
+    }
+    let mut journeys = Vec::new();
+    let mut flag = |flag: &str, value: String| journeys.extend([flag.to_owned(), value]);
+    if let Some(version) = version {
+        flag("--tag", tag(version));
+    }
+    flag("--product", product.key().to_owned());
+    for surface in &surfaces {
+        flag("--surface", (*surface).to_owned());
+    }
+    for variant in excluded {
+        if surfaces.contains(&variant.surface()) {
+            flag("--exclude", variant.to_string());
+        }
+    }
+    Step {
+        checks,
+        run: Run::Journeys {
+            executable: product.executable().package,
+            stdio,
+            journeys,
+        },
+    }
 }

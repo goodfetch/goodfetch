@@ -1337,6 +1337,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "crossbeam-deque"
+version = "0.8.8"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "622f3fc73690be383c7214310406f28a90e6edeadc3cea882f9d71e495b9711a"
+dependencies = [
+ "crossbeam-epoch",
+ "crossbeam-utils",
+]
+
+[[package]]
 name = "crossbeam-epoch"
 version = "0.9.21"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2401,6 +2411,19 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e4eba85ea1d0a966a983acd07deee566e67395d2d96b6fb39e62b5a833f1eb0b"
 
 [[package]]
+name = "globset"
+version = "0.4.22"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "71217a07f20b48b4938c14203b77b610f8a7fa6762c3f75394a10c5f31e5aee0"
+dependencies = [
+ "aho-corasick",
+ "bstr",
+ "log",
+ "regex-automata",
+ "regex-syntax 0.8.11",
+]
+
+[[package]]
 name = "goodfetch-cdp"
 version = "0.0.0"
 dependencies = [
@@ -2460,6 +2483,7 @@ dependencies = [
  "goodfetch-page",
  "goodfetch-protocol",
  "goodfetch-runtime",
+ "goodfetch-schedule",
  "goodfetch-secret-providers",
  "goodfetch-test-client",
  "goodfetch-test-support",
@@ -2518,6 +2542,7 @@ dependencies = [
  "goodfetch-engine",
  "goodfetch-protocol",
  "goodfetch-runtime",
+ "goodfetch-saved-file",
  "goodfetch-test-support",
  "goodfetch-workspace-hack",
  "libc",
@@ -2537,7 +2562,6 @@ dependencies = [
  "tracing-log",
  "tracing-subscriber",
  "trybuild",
- "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -2675,17 +2699,22 @@ dependencies = [
  "goodfetch-counted-work",
  "goodfetch-protocol",
  "goodfetch-runtime",
+ "goodfetch-saved-file",
+ "goodfetch-simulation",
  "goodfetch-test-support",
  "goodfetch-workspace-hack",
  "gungraun",
  "hickory-resolver",
  "hkdf",
  "hmac 0.12.1",
+ "http",
  "http-body-util",
+ "http-cache-semantics",
  "httpdate",
  "hyper",
  "hyper-util",
  "icu_normalizer",
+ "ignore",
  "indexmap",
  "insta",
  "jiff",
@@ -2991,6 +3020,7 @@ dependencies = [
  "libc",
  "mimalloc",
  "proptest",
+ "proptest-state-machine",
  "psl",
  "rcgen",
  "regex",
@@ -3107,6 +3137,34 @@ dependencies = [
 ]
 
 [[package]]
+name = "goodfetch-saved-file"
+version = "0.0.0"
+dependencies = [
+ "goodfetch-workspace-hack",
+ "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "goodfetch-schedule"
+version = "0.0.0"
+dependencies = [
+ "goodfetch-engine",
+ "goodfetch-protocol",
+ "goodfetch-test-support",
+ "goodfetch-workspace-hack",
+ "jiff",
+ "proptest",
+ "proptest-state-machine",
+ "rstest",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.21",
+ "tokio",
+ "ulid",
+]
+
+[[package]]
 name = "goodfetch-scripted-model"
 version = "0.0.0"
 dependencies = [
@@ -3138,6 +3196,7 @@ dependencies = [
  "hyper",
  "hyper-util",
  "jiff",
+ "quick-xml 0.41.0",
  "rcgen",
  "rstest",
  "rustls",
@@ -3300,6 +3359,7 @@ dependencies = [
 name = "goodfetch-workspace-hack"
 version = "0.0.0"
 dependencies = [
+ "aho-corasick",
  "anyhow",
  "bitflags 2.13.2",
  "cc",
@@ -3711,6 +3771,16 @@ dependencies = [
  "http",
  "http-body",
  "pin-project-lite",
+]
+
+[[package]]
+name = "http-cache-semantics"
+version = "3.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0603b99309a1e404c2c0945650c0f775b50bb72ac90ae570cb93f9ff05d9efe7"
+dependencies = [
+ "http",
+ "time",
 ]
 
 [[package]]
@@ -4192,6 +4262,22 @@ checksum = "cb68373c0d6620ef8105e855e7745e18b0d00d3bdb07fb532e434244cdb9a714"
 dependencies = [
  "icu_normalizer",
  "icu_properties",
+]
+
+[[package]]
+name = "ignore"
+version = "0.4.35"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "df0a7d5f105e76bda602bed0a44af048542d3c9af12ec35aaf16f106c6f34270"
+dependencies = [
+ "crossbeam-deque",
+ "globset",
+ "log",
+ "memchr",
+ "regex-automata",
+ "same-file",
+ "walkdir",
+ "winapi-util",
 ]
 
 [[package]]

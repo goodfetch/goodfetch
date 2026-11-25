@@ -25,7 +25,7 @@ name: results ingest
 # and the ingest reads their JUnit files as data, never as code.
 on: # zizmor: ignore[dangerous-triggers]
   workflow_run:
-    workflows: [test health, diagnostic, release suite, coverage]
+    workflows: [test health, diagnostic, release suite, coverage, nightly, live]
     types: [completed]
   schedule:
     - cron: "53 4 * * *"

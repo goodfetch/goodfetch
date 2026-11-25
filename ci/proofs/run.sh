@@ -201,11 +201,55 @@ else
   fail oxlint-contexts "findings: ${codes:-none}"
 fi
 
+# A copy of Rust code the tree already holds (ci/copies.sh): refused, with
+# both sides named, when the list does not hold it; allowed between jscpd's
+# markers under a comment, or when listed; markers no comment explains are
+# refused, and so is a listed copy the tree lacks.
+copies() { ci/copies.sh "ci/proofs/copies/$1" "ci/proofs/copies/$2.json" 2>&1; }
+if output=$(copies pair empty); then
+  fail copies "a copy the list does not hold passed"
+elif ! grep -q 'pair/left.rs:4-26 copies ci/proofs/copies/pair/right.rs:4-26' <<<"$output"; then
+  fail copies "the refusal does not name both sides: $output"
+elif ! copies marked empty >/dev/null; then
+  fail copies "a copy between jscpd's markers was refused"
+elif output=$(copies bare empty); then
+  fail copies "a marker with no comment above it passed"
+elif ! grep -q 'bare/right.rs:5: the marker has no comment above it' <<<"$output"; then
+  fail copies "the bare marker failed for another reason: $output"
+elif ! copies pair pair >/dev/null; then
+  fail copies "a listed copy was refused"
+elif output=$(copies marked pair); then
+  fail copies "a list that holds a copy the tree lacks passed"
+elif ! grep -q 'are gone from the tree' <<<"$output"; then
+  fail copies "the stale list failed for another reason: $output"
+else
+  pass "the copy check refuses an unlisted copy, an unexplained marker and a stale list, and allows an explained or a listed copy"
+fi
+
+# The TypeScript escapes: an explicit `any`, a non-null assertion, and a
+# suppression that does not say why.
+codes=$(pnpm exec oxlint -c ci/proofs/oxlint/proof.oxlintrc.json --format json ci/proofs/oxlint/escapes.ts 2>/dev/null |
+  jq -r '.diagnostics[].code | select(test("no-explicit-any|no-non-null-assertion|ban-ts-comment"))' | tally | tr '\n' ' ')
+if [[ "$codes" == "2 typescript(ban-ts-comment) 1 typescript(no-explicit-any) 1 typescript(no-non-null-assertion) " ]]; then
+  pass "oxlint refuses an explicit any, a non-null assertion, @ts-ignore and an unexplained @ts-expect-error, and allows an explained one"
+else
+  fail oxlint-escapes "findings: ${codes:-none}"
+fi
+
 codes=$(uv run ruff check --no-cache --output-format json ci/proofs/ruff/mocking.py 2>/dev/null | jq -r '.[].code' | tally)
 if [[ "$codes" == "3 TID251" ]]; then
   pass "ruff refuses unittest.mock, pytest.MonkeyPatch and _pytest.monkeypatch"
 else
   fail ruff "findings: ${codes:-none}"
+fi
+
+# An exception swallowed in silence, and code kept in a comment.
+codes=$(uv run ruff check --no-cache --output-format json ci/proofs/ruff/silences.py 2>/dev/null |
+  jq -r '.[].code | select(test("^(S110|S112|ERA001)$"))' | tally | tr '\n' ' ')
+if [[ "$codes" == "1 ERA001 1 S110 1 S112 " ]]; then
+  pass "ruff refuses an except that only passes, one that only continues, and commented-out code"
+else
+  fail ruff-silences "findings: ${codes:-none}"
 fi
 
 # Each snapshot proof fails for its own reason, the message its tool gives

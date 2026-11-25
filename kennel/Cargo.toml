@@ -119,6 +119,7 @@ clone_on_ref_ptr = "deny"
 exit = "deny"
 iter_over_hash_type = "deny"
 undocumented_unsafe_blocks = "deny"
+unused_result_ok = "deny"
 
 # One executable of at most 6 MB, stripped, with LTO (ADR 0141's
 # Performance targets); #1915 measured this profile at 4.77 MB.

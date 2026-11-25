@@ -537,6 +537,178 @@ form = "closer"
 
 [[member]]
 package = "goodfetch_collie"
+receiver = "AsyncConnection"
+member = "schedules"
+entry = "none"
+reason = "The Schedules of the engine's major, whose methods serve the `schedule` operations on no Schedule, reached without a round trip (spec 589)."
+words = ["schedules"]
+form = "read"
+
+[[member]]
+package = "goodfetch_collie"
+receiver = "Connection"
+member = "schedules"
+entry = "none"
+reason = "The Schedules of the engine's major, reached without a round trip (spec 589); `AsyncConnection.schedules`'s member under the same name."
+words = ["schedules"]
+form = "read"
+
+[[member]]
+package = "goodfetch_collie"
+receiver = "AsyncCollie"
+member = "schedules"
+entry = "none"
+reason = "The Schedules of the engine's major, reached without a round trip (spec 589); `AsyncConnection.schedules`'s member under the same name."
+words = ["schedules"]
+form = "read"
+
+[[member]]
+package = "goodfetch_collie"
+receiver = "Collie"
+member = "schedules"
+entry = "none"
+reason = "The Schedules of the engine's major, reached without a round trip (spec 589); `Connection.schedules`'s member under the same name."
+words = ["schedules"]
+form = "read"
+
+[[member]]
+package = "goodfetch_foxhound"
+receiver = "AsyncFoxhound"
+member = "schedules"
+entry = "none"
+reason = "The Schedules of the engine's major, reached without a round trip (spec 589); `AsyncConnection.schedules`'s member under the same name."
+words = ["schedules"]
+form = "read"
+
+[[member]]
+package = "goodfetch_foxhound"
+receiver = "Foxhound"
+member = "schedules"
+entry = "none"
+reason = "The Schedules of the engine's major, reached without a round trip (spec 589); `Connection.schedules`'s member under the same name."
+words = ["schedules"]
+form = "read"
+
+[[member]]
+package = "goodfetch_collie"
+receiver = "(module)"
+member = "AsyncSchedules"
+entry = "none"
+reason = "A Connection's Schedules in the async API: `connection.schedules`, whose methods serve the `schedule` operations on no Schedule (spec 589)."
+only = "A re-export, which Python lists where its package's `__all__` names it, and TypeScript and Rust in the package that declares it."
+words = ["async", "schedules"]
+form = "type"
+
+[[member]]
+package = "goodfetch_collie_client.schedules"
+receiver = "AsyncSchedules"
+member = "create"
+entry = "schedule.create"
+words = ["create"]
+form = "round_trip"
+
+[[member]]
+package = "goodfetch_collie_client.schedules"
+receiver = "AsyncSchedules"
+member = "list"
+entry = "schedule.list"
+words = ["list"]
+form = "round_trip"
+
+[[member]]
+package = "goodfetch_collie_client.schedules"
+receiver = "AsyncSchedules"
+member = "get"
+entry = "schedule.get"
+words = ["get"]
+form = "round_trip"
+
+[[member]]
+package = "goodfetch_collie"
+receiver = "(module)"
+member = "Schedules"
+entry = "none"
+reason = "A Connection's Schedules in the sync API, as `AsyncSchedules` are (spec 589)."
+only = "A re-export, which Python lists where its package's `__all__` names it, and TypeScript and Rust in the package that declares it."
+words = ["schedules"]
+form = "type"
+
+[[member]]
+package = "goodfetch_collie_client.schedules"
+receiver = "Schedules"
+member = "create"
+entry = "schedule.create"
+words = ["create"]
+form = "round_trip"
+
+[[member]]
+package = "goodfetch_collie_client.schedules"
+receiver = "Schedules"
+member = "list"
+entry = "schedule.list"
+words = ["list"]
+form = "round_trip"
+
+[[member]]
+package = "goodfetch_collie_client.schedules"
+receiver = "Schedules"
+member = "get"
+entry = "schedule.get"
+words = ["get"]
+form = "round_trip"
+
+[[member]]
+package = "goodfetch_collie"
+receiver = "(module)"
+member = "AsyncSchedule"
+entry = "none"
+reason = "A Schedule a program holds in the async API, by its ID, whose generated members serve the `schedule` operations on one Schedule; `schedules.create` and `schedules.get` answer it (spec 589)."
+only = "A re-export, which Python lists where its package's `__all__` names it, and TypeScript and Rust in the package that declares it."
+words = ["async", "schedule"]
+form = "type"
+
+[[member]]
+package = "goodfetch_collie_client.schedules"
+receiver = "AsyncSchedule"
+member = "id"
+entry = "none"
+reason = "The Schedule's ID, read without a round trip (spec 589)."
+only = "Rust's `Schedule::id` is generated (ADR 0099)."
+words = ["id"]
+form = "read"
+
+[[member]]
+package = "goodfetch_collie"
+receiver = "(module)"
+member = "Schedule"
+entry = "none"
+reason = "A Schedule a program holds in the sync API, as `AsyncSchedule` is (spec 589)."
+only = "A re-export, which Python lists where its package's `__all__` names it, and TypeScript and Rust in the package that declares it."
+words = ["schedule"]
+form = "type"
+
+[[member]]
+package = "goodfetch_collie_client.schedules"
+receiver = "Schedule"
+member = "id"
+entry = "none"
+reason = "The Schedule's ID, read without a round trip (spec 589)."
+only = "Rust's `Schedule::id` is generated (ADR 0099)."
+words = ["id"]
+form = "read"
+
+[[member]]
+package = "goodfetch_collie"
+receiver = "(module)"
+member = "CreatedSchedule"
+entry = "none"
+reason = "What `schedules.create` answers: the Schedule and its warnings, `schedule.create`'s result with the handle in place of the ID; one generic type for both APIs."
+only = "A re-export, which Python lists where its package's `__all__` names it, and TypeScript and Rust in the package that declares it."
+words = ["created", "schedule"]
+form = "type"
+
+[[member]]
+package = "goodfetch_collie"
 receiver = "AsyncRun"
 member = "id"
 entry = "none"
@@ -2016,6 +2188,76 @@ words = ["crawl", "request"]
 form = "type"
 
 [[member]]
+package = "goodfetch_foxhound"
+receiver = "(module)"
+member = "BackendRequest"
+entry = "none"
+reason = "A request the engine hands a program's own Fetch backend (ADR 0104)."
+only = "Rust's crate reads a Fetch backend's requests with their own types, #1484's work."
+words = ["backend", "request"]
+form = "type"
+
+[[member]]
+package = "goodfetch_foxhound"
+receiver = "(module)"
+member = "BackendResponse"
+entry = "none"
+reason = "What a program's own Fetch backend answers a request with (ADR 0104)."
+only = "Rust's crate reads a Fetch backend's requests with their own types, #1484's work."
+words = ["backend", "response"]
+form = "type"
+
+[[member]]
+package = "goodfetch_foxhound"
+receiver = "(module)"
+member = "FetchBackendHandler"
+entry = "none"
+reason = "A program's own Fetch backend, a plain function, which `Foxhound.connect()`'s `fetch_backends` registers by name (ADR 0104)."
+only = "Rust registers a Fetch backend by name with `ConnectOptions::fetch_backend` and reads its requests as #1484 builds them."
+words = ["fetch", "backend", "handler"]
+form = "type"
+
+[[member]]
+package = "goodfetch_foxhound"
+receiver = "(module)"
+member = "AsyncFetchBackendHandler"
+entry = "none"
+reason = "A program's own Fetch backend, a coroutine function, which `AsyncFoxhound.connect()`'s `fetch_backends` registers by name (ADR 0104)."
+only = "Python's async twin (ADR 0081): TypeScript is async only, and Rust registers a Fetch backend by name with `ConnectOptions::fetch_backend`."
+words = ["async", "fetch", "backend", "handler"]
+form = "type"
+
+[[member]]
+package = "goodfetch_foxhound"
+receiver = "(module)"
+member = "SinkDelivery"
+entry = "none"
+reason = "A delivery of committed Records to a program's own Sink (ADRs 0008 and 0104)."
+only = "Rust's crate reads a Sink's deliveries as `SinkCall`s, #1491's work."
+words = ["sink", "delivery"]
+form = "type"
+
+[[member]]
+package = "goodfetch_foxhound"
+receiver = "(module)"
+member = "SinkHandler"
+entry = "none"
+reason = "A program's own Sink, a plain function, which `Foxhound.connect()`'s `sinks` registers by name (ADR 0104)."
+only = "Rust registers a Sink by name with `ConnectOptions::sink` and reads its deliveries as #1491 builds them."
+words = ["sink", "handler"]
+form = "type"
+
+[[member]]
+package = "goodfetch_foxhound"
+receiver = "(module)"
+member = "AsyncSinkHandler"
+entry = "none"
+reason = "A program's own Sink, a coroutine function, which `AsyncFoxhound.connect()`'s `sinks` registers by name (ADR 0104)."
+only = "Python's async twin (ADR 0081): TypeScript is async only, and Rust registers a Sink by name with `ConnectOptions::sink`."
+words = ["async", "sink", "handler"]
+form = "type"
+
+[[member]]
 package = "goodfetch_foxhound.testing"
 receiver = "(module)"
 member = "connect_over"
@@ -2961,7 +3203,7 @@ entries = ["crawl_request.links"]
 reason = "What `enqueue_links` sends itself, before `crawl_request.enqueue_links`, when it is given a Payload function: the function reads each link it answers, so it has no member of its own."
 
 [[unreached]]
-entries = ["dataset.list", "dataset.page", "dataset.query"]
+entries = ["dataset.list", "dataset.page", "dataset.query", "dataset.search", "record.search"]
 reason = "No member reads a Run's Datasets yet."
 
 [[unreached]]

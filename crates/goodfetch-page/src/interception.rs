@@ -44,14 +44,14 @@
 //! ([`Interception::answer`]), so a handler's answer is always read before
 //! its reply that it ended. A handler that fails leaves its failure on its
 //! page, which the call waiting on the request, or else the next call on
-//! the page, raises ([`Interception::take_failure`]); one that fails on a
+//! the page, raises ([`PageInterception::take_failure`]); one that fails on a
 //! service worker's request, which belongs to no page, leaves it on its
 //! Session, for the next call on any of its pages.
 //!
 //! A request the engine sends itself from a page's Session, as
 //! `page.request` does through the browser-fetch tier, passes steps 3 to 8
-//! as the page's Session chose them ([`Interception::engine_requests`]), never a
-//! route.
+//! as the page's Session chose them ([`PageInterception::engine_requests`]),
+//! never a route.
 //!
 //! Step 4's Filter lists are off for a page while it loads once more with
 //! blocking off, and for every page's requests from a document on a domain
@@ -64,8 +64,12 @@
 //! Session, is held as a service worker is, before it runs: a frame's
 //! requests pass its page's pipeline, a shared worker's its Session's.
 //!
-//! Size: the one table of the pages, Sessions and workers the interception
-//! holds, and how each is put under it; the pipeline, its steps, routes,
+//! Each page's side of the interception is its own value, which its owner
+//! holds ([`PageInterception`], ADR 0146): no table keyed by a page's ID
+//! holds it.
+//!
+//! Size: the one table of the Sessions the interception holds, each page's
+//! side and each worker's, and how each is put under it; the pipeline, its steps, routes,
 //! answers, hops, pending navigations and the lookups of a browser no
 //! relay is under are in their own modules.
 #![expect(
@@ -85,24 +89,26 @@ mod pipeline;
 mod routes;
 mod steps;
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, Weak};
 
 use data_encoding::BASE64;
-use goodfetch_cdp::NetError;
-use goodfetch_cdp::generated::{fetch, network};
 use goodfetch_clean_up_rules::matching::{Choices, ResourceKind};
 use goodfetch_clean_up_rules::removal::HostCache;
 use goodfetch_clean_up_rules::rules::FilterLists;
 use goodfetch_engine::CallError;
 use goodfetch_engine::client::Client;
 use goodfetch_engine::egress::{self, Navigator, Policy, RequestKind};
+use goodfetch_engine::governor::RunGovernor;
 use goodfetch_engine::request_signing::RequestSigner;
-use goodfetch_engine::run_trace::RequestLog;
-use goodfetch_engine::runs::{Run, run_trace};
+use goodfetch_engine::run_identity::RunIdentity;
+use goodfetch_engine::run_state::RunState;
+use goodfetch_engine::run_trace::{RequestLog, RunTrace};
+use goodfetch_engine::runs::ReportWarnings;
+use goodfetch_engine::secrets::RunSecrets;
 use goodfetch_engine::settings::{RunSettings, Values};
 use goodfetch_protocol::jsonrpc::RequestId;
 use goodfetch_protocol::page::route::{RouteId, UrlMatcher};
@@ -118,15 +124,19 @@ use tokio_util::sync::CancellationToken;
 
 use self::answers::Answers;
 pub(crate) use self::answers::{Answer, Fulfillment, Overrides, Reply};
+// The values steps 3 to 8 build, which `steps` takes from its parent so the
+// benchmark's scenarios hand it their own.
 use self::clean_up::CleanUp;
 use self::hosts::HostCaches;
 pub(crate) use self::lookups::{HeldBrowser, Lookups};
-use self::navigations::{NavigatingPage, Pending};
+use self::navigations::{NavigatingPage, Pending, PendingNavigation};
 use self::pipeline::{PageContext, Sender};
 pub(crate) use self::routes::Armed;
 use self::routes::{Route, RouteTable};
-use crate::clean_up_versions::Versions;
-use crate::driver::{Child, ChildKind, OnChild, OnWorker, PageDriver, ServiceWorkers};
+use crate::cdp::{CdpPage, ContinueRequest, Fulfill, Header, NetError, PausedId, RequestHeaders};
+use crate::clean_up_versions::{ListsRun, Versions};
+use crate::driver::{OnWorker, PageDriver, ServiceWorkers};
+use crate::page_children::{Child, ChildKind, OnChild};
 use crate::page_events::Refusals;
 use crate::page_value::OwnFetch;
 use crate::url_pattern::UrlPattern;
@@ -144,18 +154,70 @@ enum Worker {
     Shared,
 }
 
-/// Whose requests a route answers.
-#[derive(Clone, Copy, Debug)]
-pub(crate) enum Scope<'a> {
-    /// One page's.
-    Page(&'a PageId),
-    /// Every page's of a Session, after their own routes.
-    Session(&'a SessionId),
+/// What the interception uses of a live Run (ADR 0145): what loading its
+/// Filter lists uses, its identity among them; its Secrets, which a held
+/// request's view is masked by; and its part of the Resource governor,
+/// whose samples empty its host cache. Cloning it is six reference counts.
+#[derive(Clone)]
+pub(crate) struct RunPowers {
+    pub(crate) lists: ListsRun,
+    pub(crate) secrets: RunSecrets,
+    pub(crate) governor: RunGovernor,
 }
 
-/// The engine's interception: every open page's and Session's routes, the
-/// failures their handlers left on their pages, and the requests their
-/// handlers are answering. Clones share it.
+impl RunPowers {
+    /// The identity and the powers of a Run that its pages' interception
+    /// takes: its state, its trace and its warnings for the Filter lists'
+    /// versions, its secrets to mask, and its governor's samples.
+    pub(crate) fn new(
+        identity: RunIdentity,
+        state: RunState,
+        trace: RunTrace,
+        warnings: ReportWarnings,
+        secrets: RunSecrets,
+        governor: RunGovernor,
+    ) -> Self {
+        Self {
+            lists: ListsRun {
+                identity,
+                state,
+                trace,
+                warnings,
+            },
+            secrets,
+            governor,
+        }
+    }
+
+    /// The Run's identity.
+    pub(crate) fn identity(&self) -> &RunIdentity {
+        &self.lists.identity
+    }
+
+    /// The same powers, with `page`, the Run's identity that starts its
+    /// tasks on a page's owner, or a browser's for a worker it attached:
+    /// what the page's own requests are answered with, so that the page's
+    /// end, or the browser's, waits for their tasks (ADR 0146).
+    fn of_page(&self, page: &RunIdentity) -> Self {
+        let mut powers = self.clone();
+        powers.lists.identity = page.clone();
+        powers
+    }
+}
+
+/// Whose requests a route answers.
+#[derive(Clone, Copy)]
+pub(crate) enum Scope<'a> {
+    /// One page's.
+    Page(&'a PageInterception),
+    /// Every page's of a Session, after their own routes.
+    Session(&'a SessionInterception),
+}
+
+/// The engine's interception: what every Session and page shares, the
+/// Clean-up rules, each Run's learned domains, served cosmetic rules and
+/// host cache, and the requests the route handlers are answering; each
+/// Session's and page's own side is its owner's. Clones share it.
 #[derive(Clone, Default)]
 pub(crate) struct Interception {
     shared: Arc<Shared>,
@@ -163,7 +225,6 @@ pub(crate) struct Interception {
 
 #[derive(Default)]
 struct Shared {
-    tables: Mutex<Tables>,
     answers: Answers,
     /// The Clean-up rules step 4 matches, loaded once for every Session.
     clean_up: CleanUp,
@@ -243,27 +304,60 @@ pub(crate) enum Lists {
     On,
 }
 
-#[derive(Default)]
-struct Tables {
-    pages: BTreeMap<PageId, Arc<PageState>>,
-    sessions: BTreeMap<SessionId, Arc<RouteTable>>,
-    /// Each Session's pending navigations, which its service workers'
-    /// requests may carry.
-    pending: BTreeMap<SessionId, Arc<Pending>>,
-    /// The Sessions whose Run was warned that `browser.block_resources`
-    /// shows.
-    warned: BTreeSet<SessionId>,
-    /// The Sessions no relay is under, on a Borrowed browser or launched
-    /// with none, each with the lookups its requests' hosts are resolved
-    /// through.
-    interception_only: BTreeMap<SessionId, Arc<Lookups>>,
-    /// The `identified` Sessions, each with the signer its requests are
-    /// signed with (ADR 0045; #1551).
-    signing: BTreeMap<SessionId, Arc<RequestSigner>>,
-    /// Each Session's own failure slot: where a Session route's handler
-    /// that failed on a service worker's request leaves its failure, for
-    /// the next call on any page of the Session.
-    failures: BTreeMap<SessionId, LeftFailure>,
+/// One Session's side of the interception, which its Session holds, so it
+/// goes with the Session's owner (ADR 0146): its routes, its pages'
+/// pending navigations, which its service workers' requests may carry,
+/// whether its Run was warned that `browser.block_resources` shows, its
+/// lookups and its signer, and its failure slot.
+pub(crate) struct SessionInterception {
+    id: SessionId,
+    routes: Arc<RouteTable>,
+    pending: Arc<Pending>,
+    /// Set once its Run was warned that `browser.block_resources` shows.
+    warned: AtomicBool,
+    /// On a Borrowed browser, or launched with no relay, the lookups its
+    /// requests' hosts are resolved through: no relay is under it, so the
+    /// interception alone holds it to the policy (ADR 0056; #2435).
+    lookups: Option<Arc<Lookups>>,
+    /// When it is `identified`, the signer its requests are signed with
+    /// (ADR 0045; #1551).
+    signing: Option<Arc<RequestSigner>>,
+    /// Where a Session route's handler that failed on a service worker's
+    /// request leaves its failure, for the next call on any of its pages.
+    failure: LeftFailure,
+}
+
+impl SessionInterception {
+    /// The side of the Session `id`: held by interception alone through
+    /// `lookups` when no relay is under it, its requests signed by
+    /// `signing` when it is `identified`.
+    pub(crate) fn new(
+        id: SessionId,
+        lookups: Option<Lookups>,
+        signing: Option<Arc<RequestSigner>>,
+    ) -> Self {
+        Self {
+            id,
+            routes: Arc::default(),
+            pending: Arc::default(),
+            warned: AtomicBool::new(false),
+            lookups: lookups.map(Arc::new),
+            signing,
+            failure: LeftFailure::default(),
+        }
+    }
+
+    /// Whether one of its pages started a main-frame navigation, whoever
+    /// started it, that its `load` has not ended.
+    pub(crate) fn navigation_pending(&self) -> bool {
+        self.pending.any()
+    }
+
+    /// Closes it, as its Session ends, once its pages' sides closed: every
+    /// Session route ends its subscription.
+    pub(crate) fn close(&self) {
+        self.routes.close();
+    }
 }
 
 /// Where a handler's failure waits for the call it blocked, or else the
@@ -289,6 +383,8 @@ pub(super) struct PageState {
     engine_requests: EngineRequests,
     /// Its Session's pending navigations.
     pending: Arc<Pending>,
+    /// Its main frame's navigation, while one is pending.
+    navigation: PendingNavigation,
     /// What a service worker's request carrying one of its navigations is
     /// admitted and refused through; none for a service worker's own.
     navigating: Option<NavigatingPage>,
@@ -356,6 +452,15 @@ pub(crate) struct EngineRequests {
     signing: Option<Arc<RequestSigner>>,
 }
 
+/// A request the engine sent itself, paused at `id`, as the browser sent
+/// it.
+pub(crate) struct EngineRequest<'a> {
+    pub(crate) id: &'a PausedId,
+    pub(crate) url: &'a str,
+    pub(crate) method: &'a str,
+    pub(crate) headers: RequestHeaders<'a>,
+}
+
 impl EngineRequests {
     /// Steps 3 to 7 for the request `paused`, sent with `overrides`, and
     /// step 8's command, which pauses its response; its source is its own
@@ -369,19 +474,16 @@ impl EngineRequests {
     /// further, and its caller fails it.
     pub(crate) fn send_on(
         &self,
-        paused: &fetch::RequestPausedEvent,
+        paused: &EngineRequest<'_>,
         overrides: &Overrides,
-    ) -> Result<fetch::ContinueRequestParams, CallError> {
-        let url = overrides.url.as_deref().unwrap_or(&paused.request.url);
+    ) -> Result<ContinueRequest, CallError> {
+        let url = overrides.url.as_deref().unwrap_or(paused.url);
         let request = steps::Paused {
-            id: &paused.request_id,
+            id: paused.id,
             url,
-            method: overrides
-                .method
-                .as_deref()
-                .unwrap_or(&paused.request.method),
+            method: overrides.method.as_deref().unwrap_or(paused.method),
             overrides,
-            headers: &paused.request.headers,
+            headers: paused.headers,
             kind: ResourceKind::Xhr,
             source_url: url,
             egress: RequestKind::Page,
@@ -436,10 +538,10 @@ impl Cosmetic {
     fn of(
         blocking: &steps::Blocking,
         version: Option<String>,
-        run: &Run,
+        run: &RunPowers,
         hosts: &HostCaches,
     ) -> Option<Self> {
-        if ConsentHandling::of(run) == ConsentHandling::Off {
+        if ConsentHandling::of(run.identity()) == ConsentHandling::Off {
             return None;
         }
         blocking
@@ -469,9 +571,20 @@ pub(crate) struct PageCleanUp {
 /// runs, and how many of its requests, its out-of-process frames'
 /// included, wait on a route handler now.
 pub(crate) struct HeldPage {
+    pub(crate) page: PageInterception,
     pub(crate) clean_up: PageCleanUp,
     pub(crate) children: OnChild,
     pub(crate) routed: watch::Receiver<usize>,
+}
+
+/// A page's side of the interception, as its owner holds it (ADR 0146):
+/// its routes, its Filter lists' state, its handlers' failures and its
+/// pending navigation. Clones share it. Once closed, it answers as for a
+/// page the interception does not hold.
+#[derive(Clone)]
+pub(crate) struct PageInterception {
+    state: Arc<PageState>,
+    page_id: PageId,
 }
 
 impl PageState {
@@ -519,36 +632,10 @@ impl Interception {
         self.shared.clean_up.versions()
     }
 
-    /// Opens the Session `session`'s route table, once.
-    pub(crate) fn open_session(&self, session: &SessionId) {
-        lock(&self.shared.tables)
-            .sessions
-            .entry(session.clone())
-            .or_default();
-    }
-
-    /// Holds the Session `session`, on a Borrowed browser or launched with
-    /// no relay, to the policy by interception alone (ADR 0056; #2435): no
-    /// relay is under that browser, so each request's host is resolved by
-    /// the engine through `lookups`, the Run's `network.resolve` mapping
-    /// first, and its answers judged before it is sent on.
-    pub(crate) fn hold_by_interception_only(&self, session: &SessionId, lookups: Lookups) {
-        lock(&self.shared.tables)
-            .interception_only
-            .insert(session.clone(), Arc::new(lookups));
-    }
-
-    /// Signs each request of the `identified` Session `session` with
-    /// `signer`, its pages', their frames' and its workers', and the
-    /// engine's own from it, as step 7's last addition (ADR 0045; #1551).
-    pub(crate) fn sign_with(&self, session: &SessionId, signer: Arc<RequestSigner>) {
-        lock(&self.shared.tables)
-            .signing
-            .insert(session.clone(), signer);
-    }
-
-    /// Puts the page `page_id` of the Session `session`, which `driver`
-    /// drives for `run`, under the interception: every request of its
+    /// Puts the page `page_id` of the Session whose side is `session`,
+    /// which `driver` drives for `run`, under the interception, its own requests and its
+    /// frames' answered on `page_tasks`, the Run's identity that starts
+    /// tasks on the page's owner: every request of its
     /// target is paused and passes the pipeline from now on, its Clean-up
     /// rules chosen by `own`, the Session's own settings, over the Run's,
     /// each refusal left in `refusals` for the request's failure to carry,
@@ -571,61 +658,41 @@ impl Interception {
     pub(crate) async fn start(
         &self,
         page_id: &PageId,
-        session: &SessionId,
+        session: &Arc<SessionInterception>,
         driver: &PageDriver,
-        run: &Run,
+        (run, page_tasks): (&RunPowers, &RunIdentity),
         own: &Values,
         (refusals, on_document): (Refusals, Option<Arc<dyn OnDocument>>),
     ) -> Result<HeldPage, CallError> {
-        let policy = policy_of(run)?;
-        let resolved = run.settings().map(RunSettings::resolved);
+        let policy = policy_of(run.identity())?;
+        let resolved = run.identity().settings().map(RunSettings::resolved);
         let choices = clean_up::choices(resolved, own);
         let blocked = (!choices.block_resources.is_empty())
             .then(|| clean_up::effective(resolved, own, &BROWSER_BLOCK_RESOURCES).to_string());
-        let (blocking, version) = self.shared.clean_up.blocking(choices, run).await;
+        let (blocking, version) = self.shared.clean_up.blocking(choices, &run.lists).await;
         let clean_up = PageCleanUp {
             cosmetic: Cosmetic::of(&blocking, version, run, &self.shared.hosts),
             live_hiding: clean_up::live_hiding(resolved, own),
         };
         if let Some(blocked) = blocked {
-            self.warn_of_blocked_resources(session, run, &blocked).await;
+            Self::warn_of_blocked_resources(session, run, &blocked).await;
         }
-        let (state, lookups) = {
-            let mut tables = lock(&self.shared.tables);
-            let lookups = tables.interception_only.get(session).cloned();
-            let signing = tables.signing.get(session).cloned();
-            let pending = Arc::clone(tables.pending.entry(session.clone()).or_default());
-            let session_failure = Arc::clone(tables.failures.entry(session.clone()).or_default());
-            let session = Arc::clone(tables.sessions.entry(session.clone()).or_default());
-            let state = Arc::new(PageState {
-                routes: Arc::default(),
-                session,
-                pending,
-                navigating: Some(NavigatingPage {
-                    driver: driver.clone(),
-                    refusals: refusals.clone(),
-                }),
-                failure: LeftFailure::default(),
-                session_failure,
-                files: Mutex::new(None),
-                own: Mutex::new(None),
-                lists_on: blocking.lists.is_some(),
-                retrying: AtomicBool::new(false),
-                lists_blocked: AtomicU64::new(0),
-                learned: self.shared.learned(run.id()),
-                cosmetic: clean_up.cosmetic.clone(),
-                engine_requests: EngineRequests {
-                    policy: policy.clone(),
-                    blocking: blocking.clone(),
-                    signing,
-                },
-                on_document,
-            });
-            tables.pages.insert(page_id.clone(), Arc::clone(&state));
-            (state, lookups)
-        };
-        let events = driver.events();
-        pause_requests(driver).await?;
+        let (state, lookups) = self.page_state(
+            session,
+            NavigatingPage {
+                driver: driver.clone(),
+                refusals: refusals.clone(),
+            },
+            run,
+            (&policy, &blocking),
+            (clean_up.cosmetic.clone(), on_document),
+        );
+        let (page, cdp) = (
+            PageInterception::joined(page_id, &state),
+            CdpPage::of(driver),
+        );
+        let events = cdp.paused_events(true);
+        cdp.pause_requests_opening().await?;
         let workers = match clean_up::effective(resolved, own, &BROWSER_SERVICE_WORKERS).as_str() {
             Some(BLOCK) => ServiceWorkers::Block,
             _ => ServiceWorkers::Allow(self.workers_of(
@@ -650,6 +717,9 @@ impl Interception {
         // handler holds them; a worker's are not the page's.
         let routed = Arc::new(watch::Sender::new(0));
         let answers = self.shared.answers.counting(Arc::clone(&routed));
+        // The page's and its frames' requests are answered on the page's
+        // owner, its workers' on their browser's.
+        let run = &run.of_page(page_tasks);
         let children = Self::children_of(
             page_id,
             (&state, answers.clone()),
@@ -671,12 +741,51 @@ impl Interception {
             )
             .with_lookups(lookups),
         );
-        run.spawn(pipeline::dispatch(events, context));
+        run.identity().spawn(pipeline::dispatch(events, context));
         Ok(HeldPage {
+            page,
             clean_up,
             children,
             routed: routed.subscribe(),
         })
+    }
+
+    /// The interception's side of a page of the Session whose side is
+    /// `session`, which `navigating` names, for `run`, under the Session's
+    /// `policy` and `blocking`, its cosmetic rules `cosmetic` and each
+    /// document its main frame receives handed to `on_document`; and the
+    /// Session's lookups of an interception-only Session.
+    fn page_state(
+        &self,
+        session: &SessionInterception,
+        navigating: NavigatingPage,
+        run: &RunPowers,
+        (policy, blocking): (&Policy, &steps::Blocking),
+        (cosmetic, on_document): (Option<Cosmetic>, Option<Arc<dyn OnDocument>>),
+    ) -> (Arc<PageState>, Option<Arc<Lookups>>) {
+        let state = Arc::new(PageState {
+            routes: Arc::default(),
+            session: Arc::clone(&session.routes),
+            pending: Arc::clone(&session.pending),
+            navigation: PendingNavigation::default(),
+            navigating: Some(navigating),
+            failure: LeftFailure::default(),
+            session_failure: Arc::clone(&session.failure),
+            files: Mutex::new(None),
+            own: Mutex::new(None),
+            lists_on: blocking.lists.is_some(),
+            retrying: AtomicBool::new(false),
+            lists_blocked: AtomicU64::new(0),
+            learned: self.shared.learned(run.identity().id()),
+            cosmetic,
+            engine_requests: EngineRequests {
+                policy: policy.clone(),
+                blocking: blocking.clone(),
+                signing: session.signing.clone(),
+            },
+            on_document,
+        });
+        (state, session.lookups.clone())
     }
 
     /// What the page `page_id`, whose side of the interception is `state`,
@@ -692,7 +801,7 @@ impl Interception {
         page_id: &PageId,
         (state, answers): (&Arc<PageState>, Answers),
         page: &PageDriver,
-        run: &Run,
+        run: &RunPowers,
         (policy, lookups): (Policy, Option<Arc<Lookups>>),
         blocking: steps::Blocking,
     ) -> OnChild {
@@ -716,20 +825,15 @@ impl Interception {
                 let Some((frame, url)) = frame else {
                     return true;
                 };
-                let events = frame.events();
-                let enabled = frame
-                    .command(&fetch::EnableParams {
-                        patterns: Some(patterns()),
-                        handle_auth_requests: frame.answers_authentication().then_some(true),
-                    })
-                    .await;
-                if let Err(failure) = enabled {
+                let cdp = CdpPage::of(&frame);
+                let events = cdp.paused_events(false);
+                if let Err(failure) = cdp.pause_requests().await {
                     tracing::warn!(%failure, "an out-of-process frame's requests could not be paused, so it does not run");
                     return false;
                 }
                 // Its WebSockets, which no interception sees, are judged as
                 // they open.
-                if let Err(failure) = frame.command(&network::EnableParams::default()).await {
+                if let Err(failure) = cdp.follow_web_sockets().await {
                     tracing::debug!(%failure, "an out-of-process frame went before its WebSockets were followed");
                 }
                 let context = Arc::new(
@@ -746,163 +850,115 @@ impl Interception {
                     .with_lookups(lookups)
                     .with_document(&url),
                 );
-                run.spawn(pipeline::dispatch(events, context));
+                run.identity().spawn(pipeline::dispatch(events, context));
                 true
             })
         })
     }
 
-    /// What the Session `session`, whose page `page` of `run` its context
-    /// chose for, does with each service or shared worker of its sites,
-    /// as `worker` says, before it runs (ADRs 0014 and 0121): its requests
-    /// pause and pass the pipeline as a page's do, under the Session's
-    /// routes alone and the same domain policy and Filter lists, until the
-    /// worker goes; a service worker's are each recorded in the Run trace,
-    /// a shared worker's when refused.
+    /// What the Session whose side is `session`, whose page `page` of `run`
+    /// its context chose for, does with each service or shared worker of
+    /// its sites, as `worker` says, before it runs (ADRs 0014 and 0121): its
+    /// requests pause and pass the pipeline as a page's do, under the
+    /// Session's routes alone and the same domain policy and Filter lists,
+    /// until the worker goes; a service worker's are each recorded in the
+    /// Run trace, a shared worker's when refused. Once the Session ended, a
+    /// worker does not run. Its requests are answered on the owner of the
+    /// browser that attached it (ADR 0146).
     fn workers_of(
         &self,
-        (session, worker): (&SessionId, Worker),
+        (session, worker): (&Arc<SessionInterception>, Worker),
         page: &PageDriver,
-        run: &Run,
+        run: &RunPowers,
         (policy, lookups): (Policy, Option<Arc<Lookups>>),
         blocking: steps::Blocking,
     ) -> OnWorker {
         // The browser keeps this choice, so it holds no driver of the
         // browser and nothing that must end with the Run before the
-        // browser does.
+        // browser does, nor the Session's side, which goes with it.
         let shared = Arc::clone(&self.shared);
-        let (session, egress, run) = (session.clone(), page.egress_handle(), run.clone());
+        let (session, egress, run) = (Arc::downgrade(session), page.egress_handle(), run.clone());
         // A worker's requests take its Session's pages' value: their gate
         // admits the navigations the worker carries.
         let value = page.value().clone();
-        Arc::new(move |driver: PageDriver, gone: CancellationToken| {
-            let (shared, session, egress, run, value) = (
-                Arc::clone(&shared),
-                session.clone(),
-                egress.clone(),
-                run.clone(),
-                value.clone(),
-            );
-            let (policy, blocking, lookups) = (policy.clone(), blocking.clone(), lookups.clone());
-            Box::pin(async move {
-                let (routes, pending, session_failure, signing) = {
-                    let mut tables = lock(&shared.tables);
-                    let Some(routes) = tables.sessions.get(&session).cloned() else {
+        Arc::new(
+            move |driver: PageDriver, gone: CancellationToken, browser: RunIdentity| {
+                let (shared, session, egress, run, value) = (
+                    Arc::clone(&shared),
+                    Weak::clone(&session),
+                    egress.clone(),
+                    run.of_page(&browser),
+                    value.clone(),
+                );
+                let (policy, blocking, lookups) =
+                    (policy.clone(), blocking.clone(), lookups.clone());
+                Box::pin(async move {
+                    let Some(session) = session.upgrade().filter(|s| !s.routes.is_closed()) else {
                         return false;
                     };
-                    (
-                        routes,
-                        tables.pending.get(&session).cloned().unwrap_or_default(),
-                        Arc::clone(tables.failures.entry(session.clone()).or_default()),
-                        tables.signing.get(&session).cloned(),
-                    )
-                };
-                let log = Arc::new(RequestLog::new(run_trace(&run)));
-                let driver = driver.with_egress(egress).with_value(value, run.clock());
-                let events = driver.events();
-                if let Err(error) = pause_requests(&driver).await {
-                    tracing::warn!(%error, ?worker, "a worker's requests could not be paused, so it does not run");
-                    return false;
-                }
-                let state = Arc::new(PageState {
-                    routes: Arc::default(),
-                    session: routes,
-                    pending,
-                    navigating: None,
-                    // A worker belongs to no page: its handlers' failures
-                    // wait on its Session.
-                    failure: Arc::clone(&session_failure),
-                    session_failure,
-                    files: Mutex::new(None),
-                    own: Mutex::new(None),
-                    lists_on: blocking.lists.is_some(),
-                    retrying: AtomicBool::new(false),
-                    lists_blocked: AtomicU64::new(0),
-                    learned: shared.learned(run.id()),
-                    cosmetic: None,
-                    engine_requests: EngineRequests {
-                        policy: policy.clone(),
-                        blocking: blocking.clone(),
-                        signing,
-                    },
-                    on_document: None,
-                });
-                let context = Arc::new(
-                    PageContext::new(
-                        driver,
-                        match worker {
-                            Worker::Service => Sender::ServiceWorker { session, log },
-                            Worker::Shared => Sender::SharedWorker,
-                        },
-                        state,
-                        shared.answers.clone(),
-                        policy,
-                        blocking,
-                        Refusals::default(),
-                        run.clone(),
-                    )
-                    .with_lookups(lookups),
-                );
-                run.spawn(async move {
-                    tokio::select! {
-                        () = gone.cancelled() => {}
-                        () = pipeline::dispatch(events, context) => {}
+                    let log = Arc::new(RequestLog::new(&run.lists.trace));
+                    let driver = driver
+                        .with_egress(egress)
+                        .with_value(value, run.identity().clock());
+                    let cdp = CdpPage::of(&driver);
+                    let events = cdp.paused_events(false);
+                    if let Err(error) = cdp.pause_requests_opening().await {
+                        tracing::warn!(%error, ?worker, "a worker's requests could not be paused, so it does not run");
+                        return false;
                     }
-                });
-                true
-            })
-        })
-    }
-
-    /// What step 4's Filter lists do for the page `page_id`'s document at
-    /// `url`; [`Lists::Off`] for a page the interception does not hold.
-    pub(crate) fn lists_for(&self, page_id: &PageId, url: &str) -> Lists {
-        let Some(state) = lock(&self.shared.tables).pages.get(page_id).cloned() else {
-            return Lists::Off;
-        };
-        if !state.lists_on {
-            Lists::Off
-        } else if state.learned.holds(url) {
-            Lists::LearnedOff
-        } else {
-            Lists::On
-        }
-    }
-
-    /// How many of the page `page_id`'s requests the Filter lists blocked
-    /// so far.
-    pub(crate) fn lists_blocked(&self, page_id: &PageId) -> u64 {
-        lock(&self.shared.tables)
-            .pages
-            .get(page_id)
-            .map_or(0, |state| state.lists_blocked.load(Ordering::Acquire))
-    }
-
-    /// Turns the Filter lists off for every request of the page `page_id`,
-    /// as it loads once more with blocking off, until the [`ListsOff`]
-    /// answered goes.
-    pub(crate) fn lists_off(&self, page_id: &PageId) -> ListsOff {
-        let state = lock(&self.shared.tables).pages.get(page_id).cloned();
-        if let Some(state) = &state {
-            state.retrying.store(true, Ordering::Release);
-        }
-        ListsOff(state)
-    }
-
-    /// Learns blocking off for the domain of `url` for every page of the
-    /// page `page_id`'s Run (ADR 0047), and answers that domain.
-    pub(crate) fn learn_off(&self, page_id: &PageId, url: &str) -> Option<String> {
-        let domain = domain_key(url)?;
-        let state = lock(&self.shared.tables).pages.get(page_id).cloned()?;
-        lock(&state.learned.0).insert(domain.clone());
-        Some(domain)
-    }
-
-    /// The cosmetic rules of the page `page_id`'s Session, when any of its
-    /// Filter lists is on.
-    pub(crate) fn cosmetic(&self, page_id: &PageId) -> Option<Cosmetic> {
-        let state = lock(&self.shared.tables).pages.get(page_id).cloned()?;
-        state.cosmetic.clone()
+                    let state = Arc::new(PageState {
+                        routes: Arc::default(),
+                        session: Arc::clone(&session.routes),
+                        pending: Arc::clone(&session.pending),
+                        navigation: PendingNavigation::default(),
+                        navigating: None,
+                        // A worker belongs to no page: its handlers' failures
+                        // wait on its Session.
+                        failure: Arc::clone(&session.failure),
+                        session_failure: Arc::clone(&session.failure),
+                        files: Mutex::new(None),
+                        own: Mutex::new(None),
+                        lists_on: blocking.lists.is_some(),
+                        retrying: AtomicBool::new(false),
+                        lists_blocked: AtomicU64::new(0),
+                        learned: shared.learned(run.identity().id()),
+                        cosmetic: None,
+                        engine_requests: EngineRequests {
+                            policy: policy.clone(),
+                            blocking: blocking.clone(),
+                            signing: session.signing.clone(),
+                        },
+                        on_document: None,
+                    });
+                    let context = Arc::new(
+                        PageContext::new(
+                            driver,
+                            match worker {
+                                Worker::Service => Sender::ServiceWorker {
+                                    session: session.id.clone(),
+                                    log,
+                                },
+                                Worker::Shared => Sender::SharedWorker,
+                            },
+                            state,
+                            shared.answers.clone(),
+                            policy,
+                            blocking,
+                            Refusals::default(),
+                            run.clone(),
+                        )
+                        .with_lookups(lookups),
+                    );
+                    run.identity().spawn(async move {
+                        tokio::select! {
+                            () = gone.cancelled() => {}
+                            () = pipeline::dispatch(events, context) => {}
+                        }
+                    });
+                    true
+                })
+            },
+        )
     }
 
     /// The cosmetic rules a document a fetch tier served `run` is read with,
@@ -912,11 +968,12 @@ impl Interception {
     ///
     /// They are made on the Run's first served document and held until the
     /// Run ends, so its Filter lists are compiled once for it.
-    pub(crate) async fn served_cosmetic(&self, run: &Run) -> Option<Cosmetic> {
+    pub(crate) async fn served_cosmetic(&self, run: &RunPowers) -> Option<Cosmetic> {
+        let identity = run.identity();
         // A fetch tier already sent the served document's request, so the
         // lists' cosmetic rules are all it would take from them: under
         // `off` it takes nothing, and the lists are not loaded for it.
-        if ConsentHandling::of(run) == ConsentHandling::Off {
+        if ConsentHandling::of(identity) == ConsentHandling::Off {
             return None;
         }
         let cell = {
@@ -924,9 +981,9 @@ impl Interception {
             served.retain(|_, held| !held.live.is_cancelled());
             Arc::clone(
                 &served
-                    .entry(run.id().clone())
+                    .entry(identity.id().clone())
                     .or_insert_with(|| ServedCosmetic {
-                        live: run.cancellation().clone(),
+                        live: identity.owner().child_token(),
                         cosmetic: Arc::default(),
                     })
                     .cosmetic,
@@ -934,25 +991,30 @@ impl Interception {
         };
         cell.get_or_init(|| async {
             let choices = clean_up::choices(
-                run.settings().map(RunSettings::resolved),
+                identity.settings().map(RunSettings::resolved),
                 &Values::default(),
             );
-            let (blocking, version) = self.shared.clean_up.blocking(choices, run).await;
+            let (blocking, version) = self.shared.clean_up.blocking(choices, &run.lists).await;
             Cosmetic::of(&blocking, version, run, &self.shared.hosts)
         })
         .await
         .clone()
     }
 
-    /// Warns `run`, once for the Session `session`, that its
+    /// Warns `run`, once for the Session whose side is `session`, that its
     /// `browser.block_resources`, `blocked`, blocks loads the site can see missing,
     /// since few people block images or fonts (ADRs 0047, 0117). It warns
     /// in `standard` and `stealth`, never in `identified`; until area 8's
     /// Access mode setting, every Session is `standard`.
-    async fn warn_of_blocked_resources(&self, session: &SessionId, run: &Run, blocked: &str) {
-        if !lock(&self.shared.tables).warned.insert(session.clone()) {
+    async fn warn_of_blocked_resources(
+        session: &SessionInterception,
+        run: &RunPowers,
+        blocked: &str,
+    ) {
+        if session.warned.swap(true, Ordering::Relaxed) {
             return;
         }
+        let session = &session.id;
         let warning = RunWarning {
             code: BLOCK_RESOURCES_VISIBLE.to_owned(),
             message: format!(
@@ -962,7 +1024,7 @@ impl Interception {
             sessions: vec![session.0.clone()],
             folder: None,
         };
-        if let Err(error) = run.warn(warning).await {
+        if let Err(error) = run.lists.warnings.warn(warning).await {
             tracing::warn!(%error, "the warning of `browser.block_resources` was not kept");
         }
     }
@@ -977,7 +1039,6 @@ impl Interception {
     /// `pattern_unsupported` for a pattern the matcher cannot read, and
     /// `closed` for a page or Session the interception does not hold.
     pub(crate) fn arm(
-        &self,
         scope: Scope<'_>,
         matcher: &UrlMatcher,
         client: &Client,
@@ -987,16 +1048,13 @@ impl Interception {
             UrlMatcher::Glob { pattern } => UrlPattern::glob(pattern)?,
             UrlMatcher::Regex { pattern } => UrlPattern::regex(pattern)?,
         };
-        let tables = lock(&self.shared.tables);
         let table = match scope {
-            Scope::Page(page) => tables
-                .pages
-                .get(page)
-                .map(|state| Arc::clone(&state.routes)),
-            Scope::Session(session) => tables.sessions.get(session).map(Arc::clone),
+            Scope::Page(page) => page.held().map(|state| Arc::clone(&state.routes)),
+            Scope::Session(session) => {
+                (!session.routes.is_closed()).then(|| Arc::clone(&session.routes))
+            }
         }
         .ok_or_else(|| closed(scope))?;
-        drop(tables);
         Ok(table.arm(Route::new(pattern, client.clone(), call.clone())))
     }
 
@@ -1015,9 +1073,9 @@ impl Interception {
         self.shared.answers.deliver(route_id, answer)
     }
 
-    /// Steps 3 to 8 for the engine's own requests from the Session
-    /// `session` of `run`, whose own settings are `own`, as its pages'
-    /// would be: its domain policy, the Filter lists and
+    /// Steps 3 to 8 for the engine's own requests from the Session whose
+    /// side is `session`, of `run`, whose own settings are `own`, as its
+    /// pages' would be: its domain policy, the Filter lists and
     /// `browser.block_resources` it chose, and its signer when it is
     /// `identified`, for a request no page of the Session sends.
     ///
@@ -1026,52 +1084,112 @@ impl Interception {
     /// `setting_invalid` for a domain list of the Run's that holds no host.
     pub(crate) async fn engine_requests_of(
         &self,
-        session: &SessionId,
-        run: &Run,
+        session: &SessionInterception,
+        run: &RunPowers,
         own: &Values,
     ) -> Result<EngineRequests, CallError> {
-        let policy = policy_of(run)?;
-        let choices = clean_up::choices(run.settings().map(RunSettings::resolved), own);
-        let (blocking, _) = self.shared.clean_up.blocking(choices, run).await;
-        let signing = lock(&self.shared.tables).signing.get(session).cloned();
+        let policy = policy_of(run.identity())?;
+        let choices = clean_up::choices(run.identity().settings().map(RunSettings::resolved), own);
+        let (blocking, _) = self.shared.clean_up.blocking(choices, &run.lists).await;
         Ok(EngineRequests {
             policy,
             blocking,
-            signing,
+            signing: session.signing.clone(),
         })
     }
+}
 
-    /// Steps 3 to 8 of the page `page_id`'s pipeline, for a request the
-    /// engine sends itself from its Session.
+impl PageInterception {
+    /// The page `page_id`'s side, `state`, listed among its Session's
+    /// pages, whose navigations its service workers' requests may carry.
+    fn joined(page_id: &PageId, state: &Arc<PageState>) -> Self {
+        state.pending.join(state);
+        Self {
+            state: Arc::clone(state),
+            page_id: page_id.clone(),
+        }
+    }
+
+    /// Its page's side of the interception, until it closed.
+    fn held(&self) -> Option<&Arc<PageState>> {
+        (!self.state.routes.is_closed()).then_some(&self.state)
+    }
+
+    /// What step 4's Filter lists do for its page's document at `url`;
+    /// [`Lists::Off`] once it closed.
+    pub(crate) fn lists_for(&self, url: &str) -> Lists {
+        let Some(state) = self.held() else {
+            return Lists::Off;
+        };
+        if !state.lists_on {
+            Lists::Off
+        } else if state.learned.holds(url) {
+            Lists::LearnedOff
+        } else {
+            Lists::On
+        }
+    }
+
+    /// How many of its page's requests the Filter lists blocked so far.
+    pub(crate) fn lists_blocked(&self) -> u64 {
+        self.held()
+            .map_or(0, |state| state.lists_blocked.load(Ordering::Acquire))
+    }
+
+    /// Turns the Filter lists off for every request of its page, as it
+    /// loads once more with blocking off, until the [`ListsOff`] answered
+    /// goes.
+    pub(crate) fn lists_off(&self) -> ListsOff {
+        let state = self.held().cloned();
+        if let Some(state) = &state {
+            state.retrying.store(true, Ordering::Release);
+        }
+        ListsOff(state)
+    }
+
+    /// Learns blocking off for the domain of `url` for every page of its
+    /// page's Run (ADR 0047), and answers that domain.
+    pub(crate) fn learn_off(&self, url: &str) -> Option<String> {
+        let domain = domain_key(url)?;
+        let state = self.held()?;
+        lock(&state.learned.0).insert(domain.clone());
+        Some(domain)
+    }
+
+    /// The cosmetic rules of its page's Session, when any of its Filter
+    /// lists is on.
+    pub(crate) fn cosmetic(&self) -> Option<Cosmetic> {
+        self.held()?.cosmetic.clone()
+    }
+
+    /// Steps 3 to 8 of its page's pipeline, for a request the engine sends
+    /// itself from its Session.
     ///
     /// # Errors
     ///
-    /// `closed` for a page the interception does not hold.
-    pub(crate) fn engine_requests(&self, page_id: &PageId) -> Result<EngineRequests, CallError> {
-        lock(&self.shared.tables)
-            .pages
-            .get(page_id)
+    /// `closed` once it closed.
+    pub(crate) fn engine_requests(&self) -> Result<EngineRequests, CallError> {
+        self.held()
             .map(|state| state.engine_requests.clone())
-            .ok_or_else(|| closed(Scope::Page(page_id)))
+            .ok_or_else(|| closed(Scope::Page(self)))
     }
 
-    /// Lets the main frame of the page `page_id` load a `file:` URL, as
-    /// `navigator` asked, until the [`FilesAllowed`] answered goes: the
-    /// navigation call's hops are then judged as the call's (the `file:`
-    /// rule, spec #564).
-    pub(crate) fn allow_files(&self, page_id: &PageId, navigator: Navigator) -> FilesAllowed {
-        let state = lock(&self.shared.tables).pages.get(page_id).cloned();
+    /// Lets its page's main frame load a `file:` URL, as `navigator` asked,
+    /// until the [`FilesAllowed`] answered goes: the navigation call's hops
+    /// are then judged as the call's (the `file:` rule, spec #564).
+    pub(crate) fn allow_files(&self, navigator: Navigator) -> FilesAllowed {
+        let state = self.held().cloned();
         if let Some(state) = &state {
             *lock(&state.files) = Some(navigator);
         }
         FilesAllowed(state)
     }
 
-    /// Has the main frame of the page `page_id` fetch `own`'s document
-    /// with its method and body, until the [`OwnFetchSent`] answered goes:
-    /// each request for its URL that no redirect sent, the load once more
-    /// with blocking off included. A bodiless `GET` changes nothing.
-    pub(crate) fn send_own(&self, page_id: &PageId, own: OwnFetch<'_>) -> OwnFetchSent {
+    /// Has its page's main frame fetch `own`'s document with its method and
+    /// body, until the [`OwnFetchSent`] answered goes: each request for its
+    /// URL that no redirect sent, the load once more with blocking off
+    /// included. A bodiless `GET` changes nothing.
+    pub(crate) fn send_own(&self, own: OwnFetch<'_>) -> OwnFetchSent {
         if own.is_bodiless_get() {
             return OwnFetchSent(None);
         }
@@ -1080,7 +1198,7 @@ impl Interception {
             return OwnFetchSent(None);
         };
         url.set_fragment(None);
-        let state = lock(&self.shared.tables).pages.get(page_id).cloned();
+        let state = self.held().cloned();
         if let Some(state) = &state {
             *lock(&state.own) = Some(OwnSent {
                 url,
@@ -1094,72 +1212,38 @@ impl Interception {
         OwnFetchSent(state)
     }
 
-    /// Judges whether the `javascript:` URL `url` may run in the main frame
-    /// of the page `page_id`, whose document is at `document_url`: only
-    /// where the page's domain policy allows that document's origin (ADR
-    /// 0014).
+    /// Judges whether the `javascript:` URL `url` may run in its page's
+    /// main frame, whose document is at `document_url`: only where the
+    /// page's domain policy allows that document's origin (ADR 0014).
     ///
     /// # Errors
     ///
-    /// `egress_refused` when the policy refuses it, and `closed` for a page
-    /// the interception does not hold.
-    pub(crate) fn judge_javascript(
-        &self,
-        page_id: &PageId,
-        url: &str,
-        document_url: &str,
-    ) -> Result<(), CallError> {
-        let requests = self.engine_requests(page_id)?;
+    /// `egress_refused` when the policy refuses it, and `closed` once it
+    /// closed.
+    pub(crate) fn judge_javascript(&self, url: &str, document_url: &str) -> Result<(), CallError> {
+        let requests = self.engine_requests()?;
         egress::judge_javascript(url, document_url, &requests.policy)
             .map_err(|refused| refused.error())
     }
 
-    /// Whether a page of the Session `session` started a main-frame
-    /// navigation, whoever started it, that its `load` has not ended.
-    pub(crate) fn navigation_pending(&self, session: &SessionId) -> bool {
-        lock(&self.shared.tables)
-            .pending
-            .get(session)
-            .is_some_and(|pending| pending.any())
-    }
-
-    /// The failure a handler left on the page `page_id` for its next call,
-    /// or else on its Session (a Session route's, on a service worker's
-    /// request), taken.
-    pub(crate) fn take_failure(&self, page_id: &PageId) -> Option<CallError> {
-        let state = lock(&self.shared.tables).pages.get(page_id).cloned()?;
+    /// The failure a handler left on its page for its next call, or else
+    /// on its Session (a Session route's, on a service worker's request),
+    /// taken.
+    pub(crate) fn take_failure(&self) -> Option<CallError> {
+        let state = self.held()?;
         let own = lock(&state.failure).take();
         own.or_else(|| lock(&state.session_failure).take())
     }
 
-    /// Takes the pages `pages` out of the interception, as each ends: their
-    /// own routes' subscriptions end, and a navigation pending on one,
-    /// whose `load` never comes now, gives back the permit a service
-    /// worker's request took for it. Their Session's routes stay with its
-    /// other pages.
-    pub(crate) fn close_pages(&self, pages: &[PageId]) {
-        let mut tables = lock(&self.shared.tables);
-        for page in pages {
-            if let Some(state) = tables.pages.remove(page) {
-                state.routes.close();
-                state.pending.ended(page);
-            }
+    /// Closes it, as its page ends: its own routes' subscriptions end, and
+    /// a navigation pending on its page, whose `load` never comes now,
+    /// gives back the permit a service worker's request took for it. Its
+    /// Session's routes stay with its other pages.
+    pub(crate) fn close(&self) {
+        if self.held().is_some() {
+            self.state.routes.close();
+            self.state.navigation.ended();
         }
-    }
-
-    /// Takes the Session `session` and its pages `pages` out of the
-    /// interception, as the Session or its Run ends: every route of theirs
-    /// ends its subscription.
-    pub(crate) fn close_session(&self, session: &SessionId, pages: &[PageId]) {
-        self.close_pages(pages);
-        let mut tables = lock(&self.shared.tables);
-        if let Some(table) = tables.sessions.remove(session) {
-            table.close();
-        }
-        tables.pending.remove(session);
-        tables.failures.remove(session);
-        tables.interception_only.remove(session);
-        tables.signing.remove(session);
     }
 }
 
@@ -1187,49 +1271,13 @@ impl Drop for OwnFetchSent {
     }
 }
 
-/// Pauses the requests of `driver`'s page or service worker at
-/// [`patterns`]: an HTTP or HTTPS proxy's 407 reaches the engine too, which
-/// answers it with the Session's credentials (SA-22).
-///
-/// # Errors
-///
-/// The code of opening a page when the browser refuses.
-async fn pause_requests(driver: &PageDriver) -> Result<(), CallError> {
-    driver
-        .opening_command(&fetch::EnableParams {
-            patterns: Some(patterns()),
-            handle_auth_requests: driver.answers_authentication().then_some(true),
-        })
-        .await
-        .map(drop)
-}
-
-/// What a target's requests pause at: every request before it leaves, and
-/// a document's response, whose redirect the egress policy judges (a
-/// `Location` to a scheme no request may use sends no request of its own)
-/// and a navigation gate judges before the page renders it.
-fn patterns() -> Vec<fetch::RequestPattern> {
-    let stage = |resource_type, request_stage| fetch::RequestPattern {
-        url_pattern: Some("*".to_owned()),
-        resource_type,
-        request_stage: Some(request_stage),
-    };
-    vec![
-        stage(None, fetch::RequestStage::Request),
-        stage(
-            Some(network::ResourceType::Document),
-            fetch::RequestStage::Response,
-        ),
-    ]
-}
-
 /// The domain policy of `run`'s pages, every host's when it has no
 /// settings.
 ///
 /// # Errors
 ///
 /// `setting_invalid` for a domain list of the Run's that holds no host.
-fn policy_of(run: &Run) -> Result<Policy, CallError> {
+fn policy_of(run: &RunIdentity) -> Result<Policy, CallError> {
     match run.settings() {
         Some(settings) => Policy::of(settings.resolved()),
         None => Policy::new(&["*"], &[] as &[&str]),
@@ -1256,12 +1304,12 @@ fn policy_of(run: &Run) -> Result<Policy, CallError> {
 fn closed(scope: Scope<'_>) -> CallError {
     let (message, details) = match scope {
         Scope::Page(page) => (
-            format!("the page `{}` is closed, or its Run ended", page.0),
-            serde_json::json!({ "page_id": page }),
+            format!("the page `{}` is closed, or its Run ended", page.page_id.0),
+            serde_json::json!({ "page_id": page.page_id }),
         ),
         Scope::Session(session) => (
-            format!("the Session `{}` is closed, or its Run ended", session.0),
-            serde_json::json!({ "session_id": session }),
+            format!("the Session `{}` is closed, or its Run ended", session.id.0),
+            serde_json::json!({ "session_id": session.id }),
         ),
     };
     CallError::new(&goodfetch_protocol::connection::CLOSED, message, &details)

@@ -3,7 +3,8 @@
 //! home (its folder of that major: the Operator policy, user configuration,
 //! the Run index and the run folders), and never changes the older major's
 //! files, so that a person can go back. Its own Daemon's files, each
-//! `DaemonFile`, its tokens among them, are no state, and are not copied.
+//! `DaemonFile`, its tokens among them, are no state, and are not copied,
+//! nor is its Response cache, which a new major starts without (ADR 0046).
 //! Shared files outside the per-major folders (the Browser cache, the Usage
 //! ledger's family, the list of installed executables) need no copy; the
 //! Usage ledger's managed rows of older majors are replaced with the new
@@ -30,7 +31,7 @@ use std::io;
 use std::path::{Path, PathBuf};
 
 use goodfetch_protocol::connection::{ProductVersion, VersionLine};
-use goodfetch_protocol::home::DaemonFile;
+use goodfetch_protocol::home::{DaemonFile, RESPONSE_CACHE};
 use toml_edit::DocumentMut;
 
 use crate::home::Home;
@@ -275,7 +276,8 @@ fn newest_older_major(root: &Path, current: VersionLine) -> Result<Option<Major>
     Ok(newest)
 }
 
-/// Every regular file under `folder` but its Daemon's, in path order.
+/// Every regular file under `folder` but its Daemon's and its Response
+/// cache's, which a new major starts without (ADR 0046), in path order.
 fn files_of(folder: &Path) -> Result<Vec<PathBuf>, UpgradeError> {
     let mut files = Vec::new();
     let mut folders = vec![folder.to_owned()];
@@ -288,7 +290,9 @@ fn files_of(folder: &Path) -> Result<Vec<PathBuf>, UpgradeError> {
                 .map_err(|error| io_error(&entry.path(), &error))?;
             let name = entry.file_name();
             if kind.is_dir() {
-                folders.push(entry.path());
+                if !(current == folder && name == RESPONSE_CACHE) {
+                    folders.push(entry.path());
+                }
             } else if kind.is_file()
                 && !(current == folder && name.to_str().and_then(DaemonFile::named).is_some())
             {

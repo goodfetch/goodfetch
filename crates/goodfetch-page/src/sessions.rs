@@ -72,7 +72,7 @@ use goodfetch_engine::runs::{
 use goodfetch_engine::secrets::Purpose;
 use goodfetch_engine::settings::{RunSettings, SettingsError, Values, setting};
 use goodfetch_engine::tasks::TaskOwner;
-use goodfetch_engine::{CallContext, CallError, RunOfCall};
+use goodfetch_engine::{CallContext, CallError, RunIndex, RunOfCall};
 use goodfetch_protocol::browser_cache::PinnedBy;
 use goodfetch_protocol::catalog::{Authority, SettingScope};
 use goodfetch_protocol::connection::{CLOSED, CancelledBy, ClosedValue};
@@ -107,7 +107,7 @@ use crate::driver::{PageDriver, SessionEgress, Visibility, counted_as_opening};
 use crate::egress_relay::{self, EgressRelay};
 pub(crate) use crate::errors::page_closed;
 use crate::errors::{cancelled, invalid_transition};
-use crate::hiding::{Hiding, PageHiding};
+use crate::hiding::SessionHiding;
 use crate::interception::{HeldBrowser, Interception, Lookups, RunPowers};
 use crate::launch::Launcher;
 use crate::page_events;
@@ -155,7 +155,6 @@ pub(crate) struct Sessions {
     interception: Interception,
     /// The Consent prompt runner every page starts.
     consent: Consent,
-    hiding: Hiding,
     /// The open dialogs' slots, which each page's reader of its dialogs
     /// opens.
     dialogs: Dialogs,
@@ -228,6 +227,12 @@ struct Session {
     held_frames: Option<session_pages::HeldFrames>,
     /// Its marks of main-world injections in Provenance, each once.
     injections: Injections,
+    /// The live hiding its pages share: the clicks' lifted rules and its
+    /// pages under live hiding.
+    hiding: Arc<SessionHiding>,
+    /// The engine's Run index, where its pages' consent walls are recorded
+    /// for "Needs you".
+    run_index: RunIndex,
 }
 
 /// A fresh Session a program opened, in a browser the engine launched.
@@ -293,11 +298,6 @@ pub(crate) struct OpenPage {
     pub(crate) action_timeout: (SettingLimit, Duration),
     /// Its Run's clock.
     pub(crate) clock: Clock,
-    /// Its live hiding, when it hides anything.
-    pub(crate) hiding: Option<Arc<PageHiding>>,
-    /// Its documents' hiding sheets, which the Consent prompt runner writes
-    /// into too.
-    pub(crate) sheets: Arc<crate::hiding::Sheets>,
     /// How its Session's pages are judged: its Page check, when it declares
     /// one, and whether it may hold a login.
     pub(crate) page_check: Arc<Checking>,
@@ -494,7 +494,6 @@ impl Sessions {
             launcher,
             interception,
             consent: Consent::default(),
-            hiding: Hiding::default(),
             dialogs,
             handler_pages,
             page_listeners: session_pages::PageListeners::default(),
@@ -515,12 +514,6 @@ impl Sessions {
         run: &Run,
     ) -> Result<Option<DocumentRequest>, Unread> {
         DocumentRequest::of_browser(&self.pins, run).await
-    }
-
-    /// The consent walls the pages' Consent prompt runners left for each
-    /// page's next call.
-    pub(crate) fn consent_walls(&self) -> &crate::consent::Walls {
-        self.consent.walls()
     }
 
     /// Opens a Session of the live Run `params` names, from its own source,
@@ -581,6 +574,8 @@ impl Sessions {
                     .as_ref()
                     .map(|_| session_pages::HeldFrames::default()),
                 injections: Injections::default(),
+                hiding: Arc::default(),
+                run_index: context.engine().run_index().clone(),
             });
             state.sessions.insert(session.clone(), Arc::clone(&open));
             self.open_in_interception(&session, &open, borrowed.as_ref(), signing);
@@ -714,6 +709,8 @@ impl Sessions {
             reopen_failed: None,
             held_frames: borrowed.map(|_| session_pages::HeldFrames::default()),
             injections: Injections::default(),
+            hiding: Arc::default(),
+            run_index: context.engine().run_index().clone(),
         });
         let mut state = self.state.lock().await;
         reached(&mut state, run)?;
@@ -972,7 +969,6 @@ impl Sessions {
                 .await;
         }
         if crashed {
-            self.hiding.close(session).await;
             return Ok(());
         }
         open.life.apply(SessionEvent::ChildrenClosed, None)?;
@@ -1022,7 +1018,6 @@ impl Sessions {
         };
         self.page_owners.close(&pages);
         self.interception.close_session(session);
-        self.hiding.close(session).await;
         if open.life.pooled() {
             return Ok(());
         }
@@ -1227,6 +1222,8 @@ impl Sessions {
                     .as_ref()
                     .map(|_| session_pages::HeldFrames::default()),
                 injections: Injections::default(),
+                hiding: Arc::default(),
+                run_index: context.engine().run_index().clone(),
             };
             reopened.push((held, borrowed, signing));
         }
@@ -1295,7 +1292,6 @@ impl Sessions {
                 let pages = pages.remove(session).unwrap_or_default();
                 sessions.page_owners.close(&pages);
                 sessions.interception.close_session(session);
-                sessions.hiding.close(session).await;
             }
         });
     }

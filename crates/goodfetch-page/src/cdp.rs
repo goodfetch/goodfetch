@@ -3,8 +3,8 @@
 //! calls, in ADR 0129's shape, with no trait until a second implementation
 //! is built. Spec #2256 moves the page crate's calls behind it ticket by
 //! ticket, until this is the one module that names the CDP crate; the
-//! interception's and a Page's events', dialogs' and init scripts' calls
-//! are behind it already. A
+//! interception's, a Page's events', dialogs' and init scripts', the
+//! Consent prompt runner's and live hiding's calls are behind it already. A
 //! primitive sends through the page's driver, whose lease check, counted
 //! rows, Run trace and deadlines it keeps.
 //!
@@ -33,9 +33,21 @@
 //! | [`CdpPage::dialog_events`]: the JavaScript dialogs the page opens and closes, each read once | `Page.javascriptDialogOpening` and `Page.javascriptDialogClosed` | `browsingContext.userPromptOpened` and `browsingContext.userPromptClosed` | `dialog`; a dialog the page closes itself is Chromium only |
 //! | [`CdpPage::answer_dialog`]: the page's open dialog accepted, with a prompt's text, or dismissed | `Page.handleJavaScriptDialog` | `browsingContext.handleUserPrompt` | `Dialog.accept` and `Dialog.dismiss` |
 //! | [`CdpPage::add_init_script`] and [`CdpPage::remove_init_script`]: a script run in the main world of each document, before its own, or no more | `Page.addScriptToEvaluateOnNewDocument` and `Page.removeScriptToEvaluateOnNewDocument`, on the page's target and on each out-of-process frame's | `script.addPreloadScript` and `script.removePreloadScript` | `addInitScript`, and `dispose` on the `Disposable` it answers |
+//! | [`CdpPage::consent_events`]: what the Consent prompt runner follows of one of the page's targets, each read once | `Target.detachedFromTarget`, `Page.frameNavigated`, `navigatedWithinDocument` and `frameDetached`, and `Runtime.bindingCalled` | `browsingContext.contextDestroyed`, `navigationCommitted` and `fragmentNavigated`, and `script.message` on a channel | a frame's `navigated` and `detached`, and a binding's call; a call from an isolated world is Chromium only |
+//! | [`CdpPage::add_world_script_opening`]: a script run in a named isolated world of each document, before the page's own, and of those the target holds | `Page.addScriptToEvaluateOnNewDocument` with a `worldName` and `runImmediately` | `script.addPreloadScript` with a `sandbox` | none: Chromium only, as the driver runs no client's script in an isolated world |
+//! | [`CdpPage::follow_frames_opening`]: an out-of-process frame's target reports its frames' navigations | `Page.enable` | `session.subscribe` to the `browsingContext` module, which covers the page's frames | none: the driver reports a frame's navigations itself |
+//! | [`CdpPage::isolated_world`] and [`CdpPage::bind`]: a named isolated world in a frame's document, and a function there whose calls the engine reads | `Page.createIsolatedWorld`, and `Runtime.addBinding` named by the world's name | `script.addPreloadScript` with a `sandbox` and a `channel` argument | none: Chromium only, as the driver's `exposeBinding` binds in the main world |
+//! | [`CdpPage::frame_owner_origin`]: where a frame's owner element starts in its parent's viewport, scrolled into view | `DOM.getFrameOwner`, `DOM.scrollIntoViewIfNeeded` and `DOM.getBoxModel` | `script.callFunction` on the frame's owner element, reading its bounding box | `Frame.frameElement`, then `ElementHandle.scrollIntoViewIfNeeded` and `boundingBox` |
+//! | [`CdpPage::true_in_main_world`]: a snippet run on the main world's `document` of a frame whose guard world is known | `Runtime.evaluate` in the guard's world, `DOM.describeNode`, `DOM.resolveNode`, `Runtime.callFunctionOn` and `Runtime.releaseObject` | `script.callFunction` in the frame's window realm | `Frame.evaluate` |
+//! | [`CdpPage::pointer_press`] and [`CdpPage::pointer_move`]: a left click, or a move, at a point of the page's viewport, as trusted input, with no deadline | `Input.dispatchMouseEvent`: ×3 written as one burst, or one `mouseMoved` | `input.performActions` with a `pointer` source | `mouseClick` and `mouseMove` |
+//! | [`CdpPage::hiding_events`]: what live hiding follows of the page's events, each read once | `Page.frameNavigated` and `Page.lifecycleEvent` | `browsingContext.navigationCommitted`, `domContentLoaded` and `load` | a frame's `navigated` and `loadstate` |
+//! | [`CdpPage::take_styles_opening`] and [`CdpPage::take_styles`]: the page's target, or an out-of-process frame's, takes style sheets | `DOM.enable` and `CSS.enable` | none: nothing is enabled first | none: nothing is enabled first |
+//! | [`CdpPage::create_style_sheet`] and [`CdpPage::set_style_sheet`]: a style sheet no element of a document owns, which `document.styleSheets` never lists, and its text | `CSS.createStyleSheet` and `CSS.setStyleSheetText` | none: Chromium only | none: Chromium only |
 
+mod consent;
 mod dialogs;
 mod followed;
+mod hiding;
 mod init_scripts;
 mod paused;
 mod requests;
@@ -46,14 +58,16 @@ use goodfetch_engine::CallError;
 
 pub(crate) use goodfetch_cdp::{NetError, SessionId as TargetSession};
 
+pub(crate) use self::consent::{ConsentEvent, ConsentEvents};
 pub(crate) use self::dialogs::{DialogEvent, DialogEvents, OpenedDialog};
 pub(crate) use self::followed::{
     FollowedEvent, FollowedEvents, FrameNavigated, RequestSent, SocketFrame,
 };
+pub(crate) use self::hiding::{HidingEvent, HidingEvents};
 pub(crate) use self::init_scripts::InitScriptId;
 pub(crate) use self::paused::{
     AuthAnswer, AuthChallenge, InterceptionEvent, InterceptionEvents, LoadingFailed, NetworkId,
-    PausedRequest,
+    NotTaken, PausedRequest,
 };
 pub(crate) use self::requests::{ContinueRequest, Fulfill, Header, PausedId, RequestHeaders};
 use crate::driver::{PageDriver, pointer_click};

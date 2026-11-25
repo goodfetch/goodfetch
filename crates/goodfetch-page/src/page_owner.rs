@@ -22,9 +22,11 @@ use goodfetch_protocol::page::PageId;
 use tokio::sync::{mpsc, oneshot, watch};
 use tracing::Instrument as _;
 
+use crate::consent_walls::Walls;
 use crate::dialogs::PageDialogs;
 use crate::errors::{page_closed, page_panicked};
 use crate::gesture_order::{GestureOrder, GestureTurn};
+use crate::hiding::Hiding;
 use crate::init_scripts::InitScripts;
 use crate::interception::PageInterception;
 use crate::page_events::PageEvents;
@@ -63,6 +65,11 @@ pub(crate) struct PageParts {
     /// Its side of the interception: its Routes, its Filter lists' state,
     /// its handlers' failures and its pending navigation.
     pub(crate) interception: PageInterception,
+    /// The consent walls the Consent prompt runner leaves in it, and
+    /// whether its first pass on its document goes on.
+    pub(crate) walls: Walls,
+    /// Its hiding sheets and live hiding's rules in them.
+    pub(crate) hiding: Hiding,
 }
 
 /// The open Pages' owners, by their ID: the index from ID to handle (ADR
@@ -161,6 +168,16 @@ impl PageOwner {
     /// Its Page's side of the interception.
     pub(crate) fn interception(&self) -> &PageInterception {
         &self.parts.interception
+    }
+
+    /// Its Page's consent walls.
+    pub(crate) fn consent_walls(&self) -> &Walls {
+        &self.parts.walls
+    }
+
+    /// Its Page's hiding.
+    pub(crate) fn hiding(&self) -> &Hiding {
+        &self.parts.hiding
     }
 
     /// Waits for a Gesture's turn on the Page, in arrival order. One round

@@ -360,6 +360,19 @@ impl InterceptionEvents {
 /// page did.
 pub(crate) struct NotTaken(pub(super) Failure);
 
+impl NotTaken {
+    /// A command never sent, as what sends the page's commands went.
+    pub(crate) fn gone() -> Self {
+        Self(Failure::Disconnected)
+    }
+}
+
+impl From<Failure> for NotTaken {
+    fn from(failure: Failure) -> Self {
+        Self(failure)
+    }
+}
+
 impl fmt::Display for NotTaken {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         fmt::Display::fmt(&self.0, formatter)

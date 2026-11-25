@@ -55,7 +55,7 @@ use goodfetch_engine::hostile_input::check_headers;
 use goodfetch_engine::ledger::{ChargeError, Refusal as LedgerRefusal};
 use goodfetch_engine::response_limits::Limits;
 use goodfetch_engine::run::{limit_not_understood, limit_reached};
-use goodfetch_engine::runs::{Run, identity};
+use goodfetch_engine::runs::{Run, identity, run_trace};
 use goodfetch_engine::settings::RunSettings;
 use goodfetch_engine::{CallContext, CallError, Contribution, Enclose, Guard, Handler, named};
 use goodfetch_extractor::{BuiltIn, Serialization};
@@ -107,7 +107,6 @@ use crate::driver::{Destination, SerializedDocument};
 use crate::extractor;
 use crate::fields;
 use crate::guard::{self, Action, Request, SentMark, Window};
-use crate::hiding::Hidden;
 use crate::init_scripts::Pending;
 use crate::interception::{
     Answer, ConsentHandling, Fulfillment, Interception, Overrides, Reply, Scope,
@@ -1116,10 +1115,7 @@ impl BrowserPages for Opener {
     ) -> Opening<'a, Result<Option<Value>, CallError>> {
         Box::pin(async move {
             let page = self.pages.sessions.page(page_id).await?;
-            let cosmetic = match &page.hiding {
-                Some(hiding) => hiding.applied().await,
-                None => Vec::new(),
-            };
+            let cosmetic = page.owner.hiding().applied().await;
             if let Some(fields) = argument.as_object_mut() {
                 fields.insert("cosmetic".to_owned(), cosmetic.into());
             }
@@ -1378,13 +1374,10 @@ impl Pages {
                 spent,
             },
             form: context.form(),
-            hiding: Hidden {
-                live: page.hiding.as_deref(),
-                sheets: &page.sheets,
-                run: &page.run,
-                page_id: &locator.page_id,
-                session_id: &page.session,
-            },
+            hiding: page
+                .owner
+                .hiding()
+                .hidden(run_trace(&page.run), (&locator.page_id, &page.session)),
             owner: &page.owner,
             sent: SentMark {
                 run: &page.run,
@@ -1607,7 +1600,7 @@ impl Pages {
         page: &OpenPage,
         navigated: bool,
     ) -> Result<(), CallError> {
-        let walls = self.sessions.consent_walls();
+        let walls = page.owner.consent_walls();
         // With `consent.handling: off` no runner looks, so there is nothing
         // to ask (#2434).
         if navigated
@@ -1615,10 +1608,10 @@ impl Pages {
             && crate::consent::first_pass_found(&page.driver, page.run.metrics().counted_work())
                 .await
         {
-            walls.detected(page_id);
+            walls.detected();
         }
         let (_, limit) = &page.action_timeout;
-        if !walls.verdict(page_id, *limit, page.clock).await {
+        if !walls.verdict(*limit, page.clock).await {
             tracing::debug!(page_id = %page_id.0, "the Consent prompt runner gave no verdict on a prompt it found within the action deadline");
         }
         self.consent_wall(page_id)
@@ -1627,9 +1620,11 @@ impl Pages {
     /// Raises the consent wall the Consent prompt runner left in the
     /// document the page `page_id` holds, once (ADR 0048).
     fn consent_wall(&self, page_id: &PageId) -> Result<(), CallError> {
-        let walled = self.events(page_id).ok().and_then(|events| {
-            blocked::consent_wall(self.sessions.consent_walls(), page_id, &events)
-        });
+        let walled = self
+            .sessions
+            .page_owners()
+            .get(page_id)
+            .and_then(|owner| blocked::consent_wall(owner.consent_walls(), owner.events()));
         walled.map_or(Ok(()), Err)
     }
 
@@ -1788,7 +1783,7 @@ impl Pages {
         );
         let measure = clean_up::ShareMeasure::of(page.run.settings().map(RunSettings::resolved));
         let cosmetic = page.owner.interception().cosmetic();
-        let hidden = page.sheets.runner_hidden();
+        let hidden = page.owner.hiding().runner_hidden();
         let work = page.run.metrics().counted_work().clone();
         let (formats, read) = page
             .run

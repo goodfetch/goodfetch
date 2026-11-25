@@ -91,17 +91,7 @@ impl FollowedEvent {
     /// The event of the main frame's document `event` is, if any.
     fn of_document(event: &RawEvent) -> Option<Self> {
         if let Some(navigated) = event.read::<page::FrameNavigatedEvent>() {
-            let frame = navigated.frame;
-            Some(Self::FrameNavigated(FrameNavigated {
-                url: format!(
-                    "{}{}",
-                    frame.url,
-                    frame.url_fragment.as_deref().unwrap_or_default()
-                ),
-                main: frame.parent_id.is_none(),
-                frame: frame.id,
-                loader: frame.loader_id,
-            }))
+            Some(Self::FrameNavigated(FrameNavigated::of(navigated)))
         } else if let Some(within) = event.read::<page::NavigatedWithinDocumentEvent>() {
             Some(Self::NavigatedWithinDocument {
                 frame: within.frame_id,
@@ -304,6 +294,23 @@ pub(crate) struct FrameNavigated {
     pub(crate) url: String,
     /// The ID of the load its document came by.
     pub(crate) loader: String,
+}
+
+impl FrameNavigated {
+    /// The navigation `navigated` tells.
+    pub(super) fn of(navigated: page::FrameNavigatedEvent) -> Self {
+        let frame = navigated.frame;
+        Self {
+            url: format!(
+                "{}{}",
+                frame.url,
+                frame.url_fragment.as_deref().unwrap_or_default()
+            ),
+            main: frame.parent_id.is_none(),
+            frame: frame.id,
+            loader: frame.loader_id,
+        }
+    }
 }
 
 /// The events a page's events follow, each read from its subscription

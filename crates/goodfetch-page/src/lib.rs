@@ -20,6 +20,7 @@ mod browser_fetch;
 mod cdp;
 mod clean_up_versions;
 mod consent;
+mod consent_walls;
 mod dialogs;
 pub mod document_request;
 mod driver;

@@ -29,9 +29,12 @@
 //! - records what it did with each prompt in the Run trace's Provenance,
 //!   an acceptance with its domain and the approval it came from, and
 //!   keeps a wall left in the page's main frame for the page's next call,
-//!   which raises it as `blocked` with `consent_required` (`walls`), and
-//!   records its domain in the Run index, which "Needs you" offers for
-//!   `consent.domains`.
+//!   which raises it as `blocked` with `consent_required` ([`Walls`], which
+//!   the page's owner holds, ADR 0146), and records its domain in the Run
+//!   index, which "Needs you" offers for `consent.domains`.
+//!
+//! The browser's protocol is behind the page's [`CdpPage`]: the runner
+//! names none of its types.
 //!
 //! With `consent.handling: detect` the runner still starts, to run the wall
 //! test, but only looks: it clicks nothing, hides nothing and runs nothing
@@ -45,19 +48,16 @@
 
 mod frames;
 mod messages;
-mod walls;
 
 use std::sync::Arc;
 use std::time::Duration;
 
-use goodfetch_cdp::SessionId as TargetSession;
-use goodfetch_cdp::Subscription;
-use goodfetch_cdp::generated::{dom, page, runtime, target};
 use goodfetch_clean_up_rules::consent::{self as bundle, Runner, World};
 use goodfetch_counted_work::{CountedWork, Row};
-use goodfetch_engine::CallError;
 use goodfetch_engine::clock::Clock;
-use goodfetch_engine::runs::{Run, identity};
+use goodfetch_engine::run_identity::RunIdentity;
+use goodfetch_engine::run_trace::RunTrace;
+use goodfetch_engine::{CallError, RunIndex};
 use goodfetch_protocol::page::PageId;
 use goodfetch_protocol::settings::{
     CAPABILITY_UNAVAILABLE, CONSENT_DOMAINS, CONSENT_ON_WALL, CapabilityUnavailableDetails,
@@ -67,14 +67,14 @@ use tokio::sync::{Mutex, OnceCell};
 
 use self::frames::{Frame, Frames};
 use self::messages::{ANSWER, Action, BINDING, DETECTING, Message, Outcome, RESTART, START};
-pub(crate) use self::walls::Walls;
-use self::walls::{Approval, Wall};
+use crate::cdp::{CdpPage, ConsentEvent, ConsentEvents, NotTaken, TargetSession};
+use crate::consent_walls::{Approval, Wall, Walls};
 use crate::driver::{Child, ChildKind, GUARD_WORLD, OnChild, PageDriver};
 use crate::gesture_order::PointerAsks;
 use crate::guard::{self, Element, Readiness};
 use crate::hiding::{Part, Sheets};
 use crate::interception::{ConsentHandling, domain_key};
-use crate::trace;
+use crate::trace::provenance_in;
 
 /// How long the runner's click may wait for its target to be ready.
 const CLICK_WINDOW: Duration = Duration::from_secs(3);
@@ -95,24 +95,28 @@ const MOVE_WAIT: Duration = Duration::from_millis(100);
 const POINTER: &str = include_str!("consent/pointer.js");
 
 /// The engine's runner bundle, decompressed on the first page that needs
-/// it, through a blocking task of that page's Run (ADR 0060), then shared;
-/// and the consent walls each page's runner left for its next call.
+/// it, through a blocking task of that page's Run (ADR 0060), then shared.
 #[derive(Clone, Default)]
 pub(crate) struct Consent {
     runner: Arc<OnceCell<Arc<Runner>>>,
-    walls: Walls,
+}
+
+/// The identity and the powers of a Run its pages' Consent prompt runner
+/// takes (ADR 0145): its Run trace, whose Provenance records what the
+/// runner did with each prompt, and the Run index, where a wall's domain
+/// is recorded for "Needs you".
+pub(crate) struct RunPowers {
+    pub(crate) identity: RunIdentity,
+    pub(crate) trace: RunTrace,
+    pub(crate) run_index: RunIndex,
 }
 
 impl Consent {
-    /// The consent walls the pages' runners left.
-    pub(crate) fn walls(&self) -> &Walls {
-        &self.walls
-    }
-
     /// Starts the Consent prompt runner on the page `page_id`, which
-    /// `driver` drives for `run`: the bundle in the guard's world of every
-    /// frame from the next document on, out-of-process iframes attached as
-    /// they appear, hiding through the page's `sheets`; with the Run's
+    /// `driver` drives for the Run of `run`: the bundle in the guard's
+    /// world of every frame from the next document on, out-of-process
+    /// iframes attached as they appear, hiding through the page's `sheets`
+    /// and leaving its walls in the page's `walls`; with the Run's
     /// `consent.handling: detect`, only looking; with `off`, not at all
     /// (#2434). It answers what the runner does with each of the page's
     /// children before it runs: an out-of-process iframe is prepared as the
@@ -127,16 +131,18 @@ impl Consent {
         &self,
         page_id: &PageId,
         (driver, pointer): (&PageDriver, PointerAsks),
-        run: &Run,
+        run: RunPowers,
         sheets: &Arc<Sheets>,
+        walls: &Walls,
     ) -> Result<OnChild, CallError> {
-        let answering = match ConsentHandling::of(identity(run)) {
+        let answering = match ConsentHandling::of(&run.identity) {
             ConsentHandling::Answer => true,
             ConsentHandling::Detect => false,
             // Nothing judges a wall, so `consent.on_wall` asks nothing either.
             ConsentHandling::Off => return Ok(Arc::new(|_: &Child| Box::pin(async { true }))),
         };
         let resolved = run
+            .identity
             .settings()
             .map(goodfetch_engine::settings::RunSettings::resolved);
         if let Some(asked) = resolved
@@ -163,17 +169,23 @@ impl Consent {
         let runner = self
             .runner
             .get_or_init(|| async {
-                let loaded = run.owner().blocking(Runner::embedded).await.expect(
+                let loaded = run.identity.owner().blocking(Runner::embedded).await.expect(
                     "invariant: the build wrote the Consent prompt runner's bundle with this binary",
                 );
                 Arc::new(loaded)
             })
             .await;
+        let cdp = CdpPage::of(driver);
+        let session = driver.session().clone();
+        let events = cdp.consent_events(&session);
         let shared = Arc::new(Shared {
             driver: driver.clone(),
+            cdp,
             pointer,
-            run: run.clone(),
-            clock: run.clock(),
+            clock: run.identity.clock(),
+            identity: run.identity,
+            trace: run.trace,
+            run_index: run.run_index,
             runner: Arc::clone(runner),
             frames: Mutex::new(Frames::new(
                 driver.session().clone(),
@@ -183,12 +195,12 @@ impl Consent {
             page_id: page_id.clone(),
             answering,
             approval,
-            walls: self.walls.clone(),
+            walls: walls.clone(),
         });
-        let session = driver.session().clone();
-        let events = driver.events_on(&session);
-        prepare(&shared, driver).await?;
-        run.spawn(listen(Arc::clone(&shared), session, events));
+        prepare(&shared, &shared.cdp).await?;
+        shared
+            .identity
+            .spawn(listen(Arc::clone(&shared), session, events));
         Ok(Arc::new(move |child: &Child| {
             let frame = (child.kind == ChildKind::Frame).then(|| {
                 (
@@ -228,9 +240,16 @@ pub(crate) async fn first_pass_found(driver: &PageDriver, work: &CountedWork) ->
 /// it answers, who approved accepting a wall, and the walls it leaves.
 struct Shared {
     driver: PageDriver,
+    /// The browser's primitives it drives the page with.
+    cdp: CdpPage,
     /// Where it asks for the page's pointer, which each click holds.
     pointer: PointerAsks,
-    run: Run,
+    /// Its Run, whose tasks its own are and whose work it counts.
+    identity: RunIdentity,
+    /// Its Run's Run trace.
+    trace: RunTrace,
+    /// Where a wall's domain is recorded for "Needs you".
+    run_index: RunIndex,
     clock: Clock,
     runner: Arc<Runner>,
     frames: Mutex<Frames>,
@@ -238,109 +257,106 @@ struct Shared {
     page_id: PageId,
     answering: bool,
     approval: Option<Approval>,
+    /// The page's walls, which its owner holds.
     walls: Walls,
 }
 
-/// Puts the bundle on every new document of the target `driver` sends its
+/// Puts the bundle on every new document of the target `cdp` sends its
 /// commands to, the page's or an out-of-process iframe's, a failure
 /// translated as opening a page's (`errors`); the driver attaches the
 /// iframes, each paused until it is prepared too (`driver::follow_children`).
-async fn prepare(shared: &Shared, driver: &PageDriver) -> Result<(), CallError> {
-    driver
-        .opening_command(&page::AddScriptToEvaluateOnNewDocumentParams {
-            source: shared.runner.source().to_owned(),
-            world_name: Some(GUARD_WORLD.to_owned()),
-            include_command_line_api: None,
-            run_immediately: Some(true),
-        })
-        .await?;
-    Ok(())
+async fn prepare(shared: &Shared, cdp: &CdpPage) -> Result<(), CallError> {
+    cdp.add_world_script_opening(shared.runner.source().to_owned(), GUARD_WORLD)
+        .await
 }
 
 /// Reads `session`'s events until its connection ends, handing each one
 /// that asks something to a task of its own, so the connection never waits
 /// on this page.
-async fn listen(shared: Arc<Shared>, session: TargetSession, mut events: Subscription) {
+async fn listen(shared: Arc<Shared>, session: TargetSession, mut events: ConsentEvents) {
     while let Some(event) = events.next().await {
-        react(&shared, &session, &event).await;
+        react(&shared, &session, event).await;
     }
     // The page's own target is gone: so is any wall it left.
     if session == *shared.driver.session() {
-        shared.walls.new_document(&shared.page_id);
+        shared.walls.new_document();
     }
 }
 
 /// What `event` of `session` asks of the runner.
-async fn react(shared: &Arc<Shared>, session: &TargetSession, event: &goodfetch_cdp::RawEvent) {
-    if let Some(detached) = event.read::<target::DetachedFromTargetEvent>() {
-        let detached = TargetSession(detached.session_id);
-        shared.frames.lock().await.forget_session(&detached);
-        shared.sheets.forget_session(&detached);
-    } else if let Some(navigated) = event.read::<page::FrameNavigatedEvent>() {
-        shared
-            .sheets
-            .navigated(session, &navigated.frame.id, &navigated.frame.loader_id);
-        // A new document in the page's main frame leaves the last one's
-        // wall behind.
-        if *session == *shared.driver.session() && navigated.frame.parent_id.is_none() {
-            shared.walls.new_document(&shared.page_id);
+async fn react(shared: &Arc<Shared>, session: &TargetSession, event: ConsentEvent) {
+    match event {
+        ConsentEvent::Detached(detached) => {
+            shared.frames.lock().await.forget_session(&detached);
+            shared.sheets.forget_session(&detached);
         }
-        let shared = Arc::clone(shared);
-        let session = session.clone();
-        shared.run.clone().spawn(async move {
-            let frame = navigated.frame;
-            begin(&shared, &session, frame.id, frame.loader_id).await;
-        });
-    } else if let Some(moved) = event.read::<page::NavigatedWithinDocumentEvent>() {
-        let context = shared.frames.lock().await.context(session, &moved.frame_id);
-        if let Some(context) = context {
+        ConsentEvent::Navigated(navigated) => {
+            shared
+                .sheets
+                .navigated(session, &navigated.frame, &navigated.loader);
+            // A new document in the page's main frame leaves the last one's
+            // wall behind.
+            if *session == *shared.driver.session() && navigated.main {
+                shared.walls.new_document();
+            }
             let shared = Arc::clone(shared);
             let session = session.clone();
-            shared.run.clone().spawn(async move {
-                let _ = shared
-                    .driver
-                    .call_in(&session, context, RESTART, Value::Null)
-                    .await;
+            shared.identity.clone().spawn(async move {
+                begin(&shared, &session, navigated.frame, navigated.loader).await;
             });
         }
-    } else if let Some(detached) = event.read::<page::FrameDetachedEvent>() {
-        shared
-            .frames
-            .lock()
-            .await
-            .forget_frame(session, &detached.frame_id);
-        shared.sheets.forget_frame(session, &detached.frame_id);
-    } else if let Some(called) = event.read::<runtime::BindingCalledEvent>()
-        && called.name == BINDING
-    {
-        let frame = shared
-            .frames
-            .lock()
-            .await
-            .frame_of(session, called.execution_context_id);
-        let Some(frame) = frame else { return };
-        let Some(message) = Message::read(&called.payload) else {
-            tracing::debug!("the Consent prompt runner sent a message the engine does not read");
-            return;
-        };
-        // What the first pass found, and a wall left, are taken in the
-        // order the runner reported them, before the page's next event, so
-        // a call waiting on the pass's end finds its wall.
-        match &message {
-            Message::Detected | Message::Settled => {
-                first_pass(shared, &frame, &message).await;
-                return;
+        ConsentEvent::WithinDocument { frame } => {
+            let context = shared.frames.lock().await.context(session, &frame);
+            if let Some(context) = context {
+                let shared = Arc::clone(shared);
+                let session = session.clone();
+                shared.identity.clone().spawn(async move {
+                    let _ = shared
+                        .driver
+                        .call_in(&session, context, RESTART, Value::Null)
+                        .await;
+                });
             }
-            Message::Outcome(outcome) if outcome.action == Action::Wall => {
-                left_wall(shared, &frame, outcome).await;
-            }
-            _ => {}
         }
-        let shared = Arc::clone(shared);
-        shared.run.clone().spawn(async move {
-            answer(&shared, &frame, message).await;
-        });
+        ConsentEvent::FrameDetached { frame } => {
+            shared.frames.lock().await.forget_frame(session, &frame);
+            shared.sheets.forget_frame(session, &frame);
+        }
+        ConsentEvent::BindingCalled {
+            name,
+            context,
+            payload,
+        } if name == BINDING => called(shared, session, context, &payload).await,
+        ConsentEvent::BindingCalled { .. } => {}
     }
+}
+
+/// Takes the message `payload` the runner sent from the world whose
+/// context is `context` on `session`.
+async fn called(shared: &Arc<Shared>, session: &TargetSession, context: i64, payload: &str) {
+    let frame = shared.frames.lock().await.frame_of(session, context);
+    let Some(frame) = frame else { return };
+    let Some(message) = Message::read(payload) else {
+        tracing::debug!("the Consent prompt runner sent a message the engine does not read");
+        return;
+    };
+    // What the first pass found, and a wall left, are taken in the order
+    // the runner reported them, before the page's next event, so a call
+    // waiting on the pass's end finds its wall.
+    match &message {
+        Message::Detected | Message::Settled => {
+            first_pass(shared, &frame, &message).await;
+            return;
+        }
+        Message::Outcome(outcome) if outcome.action == Action::Wall => {
+            left_wall(shared, &frame, outcome).await;
+        }
+        _ => {}
+    }
+    let shared = Arc::clone(shared);
+    shared.identity.clone().spawn(async move {
+        answer(&shared, &frame, message).await;
+    });
 }
 
 /// Prepares the out-of-process iframe on `session`, whose target is
@@ -349,20 +365,21 @@ async fn attach(
     shared: Arc<Shared>,
     parent: TargetSession,
     session: TargetSession,
-    target: target::TargetID,
+    target: String,
 ) {
     shared.frames.lock().await.attach(&parent, &session, target);
-    let events = shared.driver.events_on(&session);
-    let iframe = shared.driver.on_child(session.clone());
+    let events = shared.cdp.consent_events(&session);
+    let iframe = CdpPage::of(&shared.driver.on_child(session.clone()));
     let prepared = async {
-        iframe
-            .opening_command(&page::EnableParams::default())
-            .await?;
+        iframe.follow_frames_opening().await?;
         prepare(&shared, &iframe).await
     }
     .await;
     match prepared {
-        Ok(()) => shared.run.clone().spawn(listen(shared, session, events)),
+        Ok(()) => shared
+            .identity
+            .clone()
+            .spawn(listen(shared, session, events)),
         Err(failure) => {
             tracing::debug!(%failure, "an out-of-process iframe was not prepared for the Consent prompt runner");
         }
@@ -370,43 +387,24 @@ async fn attach(
 }
 
 /// Starts the runner in the guard's world of `frame`'s new document on
-/// `session`, once its binding is there.
-async fn begin(
-    shared: &Shared,
-    session: &TargetSession,
-    frame: page::FrameId,
-    loader: goodfetch_cdp::generated::network::LoaderId,
-) {
-    let driver = &shared.driver;
-    let made = driver
-        .command_on(
-            session,
-            &page::CreateIsolatedWorldParams {
-                frame_id: frame.clone(),
-                world_name: Some(GUARD_WORLD.to_owned()),
-                grant_univeral_access: None,
-                content_security_policy: None,
-            },
-        )
+/// `session`, the document of `loader`, once its binding is there.
+async fn begin(shared: &Shared, session: &TargetSession, frame: String, loader: String) {
+    let made = shared
+        .cdp
+        .isolated_world((session, &frame), GUARD_WORLD)
         .await;
-    let Ok(made) = made else { return };
-    let context = made.execution_context_id;
+    let Ok(context) = made else { return };
     shared
         .frames
         .lock()
         .await
         .document(session, frame, context, loader);
-    let bound = driver
-        .command_on(
-            session,
-            &runtime::AddBindingParams {
-                name: BINDING.to_owned(),
-                execution_context_id: None,
-                execution_context_name: Some(GUARD_WORLD.to_owned()),
-            },
-        )
-        .await;
-    if bound.is_err() {
+    if shared
+        .cdp
+        .bind(session, BINDING, GUARD_WORLD)
+        .await
+        .is_err()
+    {
         return;
     }
     let options = json!({ "binding": BINDING, "answering": shared.answering });
@@ -414,10 +412,11 @@ async fn begin(
     // apart from the read that judges it once its navigation ended (ADR
     // 0140, open question 3).
     shared
-        .run
+        .identity
         .metrics()
         .counted_work()
         .count(Row::NavigationDetectionReads);
+    let driver = &shared.driver;
     if let Ok(Value::String(started)) = driver.call_in(session, context, START, options).await
         && started == "absent"
     {
@@ -532,14 +531,22 @@ async fn recorded(shared: &Shared, frame: &Frame, outcome: &Outcome) {
             // "Needs you" offers the domain for `consent.domains`.
             if main(shared, frame)
                 && let Some(domain) = domain_key(&outcome.url)
-                && let Err(error) = shared.run.record_consent_wall(domain).await
+                && let Err(error) = shared
+                    .run_index
+                    .record_consent_wall(&shared.identity, domain)
+                    .await
             {
                 tracing::warn!(%error, "the Run index did not record the consent wall: \"Needs you\" does not offer its domain");
             }
         }
         Action::Refused | Action::Hidden | Action::Left | Action::Failed => {}
     }
-    trace::counted_provenance(&shared.run, Row::NavigationProvenanceEntries, entry).await;
+    shared
+        .identity
+        .metrics()
+        .counted_work()
+        .count(Row::NavigationProvenanceEntries);
+    provenance_in(&shared.trace, entry).await;
 }
 
 /// Whether `frame` is the page's main frame.
@@ -572,9 +579,7 @@ async fn left_wall(shared: &Shared, frame: &Frame, outcome: &Outcome) {
         && current
         && let Some(loader) = loader
     {
-        shared
-            .walls
-            .put(shared.page_id.clone(), Wall { loader, rule });
+        shared.walls.put(Wall { loader, rule });
     }
 }
 
@@ -588,10 +593,10 @@ async fn first_pass(shared: &Shared, frame: &Frame, message: &Message) {
     }
     let main = main(shared, frame);
     match message {
-        Message::Detected if main => shared.walls.detected(&shared.page_id),
+        Message::Detected if main => shared.walls.detected(),
         Message::Settled => {
             if main {
-                shared.walls.settled(&shared.page_id);
+                shared.walls.settled();
             }
             if let Err(failure) = shared.sheets.release(&frame.session, &frame.id, None).await {
                 tracing::debug!(%failure, "live hiding did not start on a document after the Consent prompt runner's first pass");
@@ -638,7 +643,7 @@ async fn click(shared: &Shared, frame: &Frame, handle: u64) -> bool {
                 let reached =
                     chain.is_empty() || reach(shared, &element, (x + dx, y + dy), end).await;
                 let pressed = if reached {
-                    driver.press(x + dx, y + dy).await
+                    shared.cdp.pointer_press(x + dx, y + dy).await
                 } else {
                     Ok(())
                 };
@@ -687,7 +692,7 @@ async fn reach(
     }
     loop {
         let remaining = end.saturating_duration_since(shared.clock.now());
-        if remaining.is_zero() || driver.move_pointer(x, y).await.is_err() {
+        if remaining.is_zero() || shared.cdp.pointer_move(x, y).await.is_err() {
             return false;
         }
         match watch(remaining.min(MOVE_WAIT)).await {
@@ -703,43 +708,13 @@ async fn reach(
 /// each owner scrolled into its parent's view first.
 async fn offset(
     shared: &Shared,
-    chain: &[(TargetSession, page::FrameId)],
-) -> Result<(f64, f64), goodfetch_cdp::Failure> {
-    let driver = &shared.driver;
+    chain: &[(TargetSession, String)],
+) -> Result<(f64, f64), NotTaken> {
     let (mut x, mut y) = (0.0, 0.0);
     for (session, frame) in chain {
-        let owner = driver
-            .command_on(
-                session,
-                &dom::GetFrameOwnerParams {
-                    frame_id: frame.clone(),
-                },
-            )
-            .await?;
-        let _ = driver
-            .command_on(
-                session,
-                &dom::ScrollIntoViewIfNeededParams {
-                    node_id: None,
-                    backend_node_id: Some(owner.backend_node_id),
-                    object_id: None,
-                    rect: None,
-                },
-            )
-            .await;
-        let model = driver
-            .command_on(
-                session,
-                &dom::GetBoxModelParams {
-                    node_id: None,
-                    backend_node_id: Some(owner.backend_node_id),
-                    object_id: None,
-                },
-            )
-            .await?
-            .model;
-        x += model.content.first().copied().unwrap_or_default();
-        y += model.content.get(1).copied().unwrap_or_default();
+        let (dx, dy) = shared.cdp.frame_owner_origin((session, frame)).await?;
+        x += dx;
+        y += dy;
     }
     Ok((x, y))
 }
@@ -747,97 +722,9 @@ async fn offset(
 /// Runs `code` in `frame`'s main world with `Runtime` off: the guard's
 /// world's `document` resolved, by its node, into the main world, where
 /// `Runtime.callFunctionOn` calls it; its result as a boolean.
-async fn main_world(
-    shared: &Shared,
-    frame: &Frame,
-    code: &str,
-) -> Result<bool, goodfetch_cdp::Failure> {
-    let driver = &shared.driver;
-    let document = driver
-        .command_on(
-            &frame.session,
-            &runtime::EvaluateParams {
-                expression: "document".to_owned(),
-                object_group: None,
-                include_command_line_api: None,
-                silent: Some(true),
-                context_id: Some(frame.context),
-                return_by_value: Some(false),
-                generate_preview: None,
-                user_gesture: None,
-                await_promise: None,
-                throw_on_side_effect: None,
-                timeout: None,
-                disable_breaks: None,
-                repl_mode: None,
-                allow_unsafe_eval_blocked_by_csp: None,
-                unique_context_id: None,
-                serialization_options: None,
-            },
-        )
-        .await?;
-    let Some(isolated) = document.result.object_id else {
-        return Ok(false);
-    };
-    let node = driver
-        .command_on(
-            &frame.session,
-            &dom::DescribeNodeParams {
-                node_id: None,
-                backend_node_id: None,
-                object_id: Some(isolated.clone()),
-                depth: None,
-                pierce: None,
-            },
-        )
-        .await;
-    release(shared, frame, isolated).await;
-    let resolved = driver
-        .command_on(
-            &frame.session,
-            &dom::ResolveNodeParams {
-                node_id: None,
-                backend_node_id: Some(node?.node.backend_node_id),
-                object_group: None,
-                execution_context_id: None,
-            },
-        )
-        .await?;
-    let Some(main) = resolved.object.object_id else {
-        return Ok(false);
-    };
-    let called = driver
-        .command_on(
-            &frame.session,
-            &runtime::CallFunctionOnParams {
-                function_declaration: format!("function () {{ return Boolean({code}); }}"),
-                object_id: Some(main.clone()),
-                arguments: None,
-                silent: Some(true),
-                return_by_value: Some(true),
-                generate_preview: None,
-                user_gesture: None,
-                await_promise: Some(true),
-                execution_context_id: None,
-                object_group: None,
-                throw_on_side_effect: None,
-                unique_context_id: None,
-                serialization_options: None,
-            },
-        )
-        .await;
-    release(shared, frame, main).await;
-    let called = called?;
-    Ok(called.exception_details.is_none() && called.result.value == Some(Value::Bool(true)))
-}
-
-/// Lets the browser forget `object`.
-async fn release(shared: &Shared, frame: &Frame, object: runtime::RemoteObjectId) {
-    let _ = shared
-        .driver
-        .command_on(
-            &frame.session,
-            &runtime::ReleaseObjectParams { object_id: object },
-        )
-        .await;
+async fn main_world(shared: &Shared, frame: &Frame, code: &str) -> Result<bool, NotTaken> {
+    shared
+        .cdp
+        .true_in_main_world((&frame.session, frame.context), code)
+        .await
 }

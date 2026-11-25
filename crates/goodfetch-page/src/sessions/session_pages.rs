@@ -19,7 +19,7 @@ use std::sync::Arc;
 use goodfetch_cdp::generated::target;
 use goodfetch_engine::events::Events;
 use goodfetch_engine::governor::Permit;
-use goodfetch_engine::runs::{Run, identity};
+use goodfetch_engine::runs::{Run, identity, run_trace};
 use goodfetch_engine::settings::Values;
 use goodfetch_engine::{CallContext, CallError};
 use goodfetch_protocol::connection::ClosedValue;
@@ -39,11 +39,13 @@ use super::{
     OpenPage, Session, Sessions, action_timeout, events_run, interception_run, wait_deadline,
 };
 use crate::cdp::CdpPage;
+use crate::consent;
+use crate::consent_walls::Walls;
 use crate::dialogs::PageDialogs;
 use crate::driver::{OnChild, OnPopup, PageDriver, PopupHandler, SessionEgress};
 use crate::errors::page_closed;
 use crate::gesture_order::{GestureOrder, PointerAsks};
-use crate::hiding::{PageHiding, Sheets};
+use crate::hiding::{Hiding, PageHiding, Sheets};
 use crate::init_scripts::InitScripts;
 use crate::interception::{OnDocument, PageInterception};
 use crate::page_events::{PageEvents, Refusals};
@@ -91,6 +93,10 @@ struct TakenIn {
     init_scripts: Option<InitScripts>,
     /// Its side of the interception, once the interception holds it.
     interception: Option<PageInterception>,
+    /// The consent walls its Consent prompt runner leaves.
+    walls: Walls,
+    /// Its hiding, once live hiding and the Consent prompt runner started.
+    hiding: Option<Hiding>,
 }
 
 impl TakenIn {
@@ -118,6 +124,10 @@ impl TakenIn {
             .interception
             .take()
             .expect("invariant: a page is kept once the interception holds it");
+        let hiding = self
+            .hiding
+            .take()
+            .expect("invariant: a page is kept once its hiding started");
         (
             in_browser,
             PageParts {
@@ -125,6 +135,8 @@ impl TakenIn {
                 dialogs,
                 init_scripts,
                 interception,
+                walls: self.walls.clone(),
+                hiding,
             },
         )
     }
@@ -285,6 +297,8 @@ impl Sessions {
             dialogs: Some(self.dialogs.start(page.clone(), cdp, identity(run))),
             init_scripts: Some(init_scripts),
             interception: None,
+            walls: Walls::default(),
+            hiding: None,
         };
         (taken_in, refusals, in_frames)
     }
@@ -317,12 +331,10 @@ impl Sessions {
         // The runner clicks on the page while it is taken in, before its
         // owner starts and lends it the pointer.
         let (order, pointer) = GestureOrder::new();
-        let (hiding, sheets, routed) = self
+        let routed = self
             .hold(
                 (&mut taken_in, session),
-                &driver,
-                &run,
-                &open.settings,
+                (&driver, open.as_ref()),
                 (refusals, in_frames, pointer),
             )
             .await?;
@@ -353,8 +365,6 @@ impl Sessions {
             owner,
             life,
             action_timeout,
-            hiding,
-            sheets,
             page_check,
             injections: open.injections.clone(),
             _admission: Arc::new(admission),
@@ -382,22 +392,21 @@ impl Sessions {
         Ok(page)
     }
 
-    /// Puts the page `taken_in` takes in, of the Session `session`, which
-    /// `driver` drives with the Session's own `settings`, under the
+    /// Puts the page `taken_in` takes in, of the Session `session`, `open`,
+    /// which `driver` drives with the Session's own settings, under the
     /// interception, live hiding and the Consent prompt runner, each of its
     /// out-of-process frames and dedicated workers held by them, and then
     /// by `in_frames`, before it runs; `taken_in` then holds its side of
-    /// the interception. Answers its live hiding, the documents' hiding
-    /// sheets it shares with the runner, and how many of its requests wait
+    /// the interception and its hiding, the documents' hiding sheets live
+    /// hiding shares with the runner. Answers how many of its requests wait
     /// on a route handler now.
     async fn hold(
         &self,
         (taken_in, session): (&mut TakenIn, &SessionId),
-        driver: &PageDriver,
-        run: &Run,
-        settings: &Values,
+        (driver, open): (&PageDriver, &Session),
         (refusals, in_frames, pointer): (Refusals, Vec<OnChild>, PointerAsks),
-    ) -> Result<(Option<Arc<PageHiding>>, Arc<Sheets>, watch::Receiver<usize>), CallError> {
+    ) -> Result<watch::Receiver<usize>, CallError> {
+        let (run, settings) = (&open.run, &open.settings);
         let page = &taken_in.page.clone();
         // A page a program opened reads robots.txt for each document its
         // main frame receives, beside its navigation, never before it (ADR
@@ -418,14 +427,30 @@ impl Sessions {
         taken_in.interception = Some(held.page);
         // Live hiding and the Consent prompt runner share each document's
         // one hiding sheet.
-        let sheets = Arc::new(Sheets::new(driver.clone(), run));
-        let hiding = self
-            .hiding
-            .start(page, session, driver, run, &held.clean_up, &sheets)
-            .await?;
+        let sheets = Arc::new(Sheets::new(driver, identity(run)));
+        let live = PageHiding::start(
+            (page, session),
+            driver,
+            (identity(run), run_trace(run)),
+            &held.clean_up,
+            &sheets,
+            &open.hiding,
+        )
+        .await?;
+        taken_in.hiding = Some(Hiding::new(live, Arc::clone(&sheets)));
         let consent = self
             .consent
-            .start(page, (driver, pointer), run, &sheets)
+            .start(
+                page,
+                (driver, pointer),
+                consent::RunPowers {
+                    identity: identity(run).clone(),
+                    trace: run_trace(run).clone(),
+                    run_index: open.run_index.clone(),
+                },
+                &sheets,
+                &taken_in.walls,
+            )
             .await?;
         // Each out-of-process frame and dedicated worker waits until the
         // interception holds it, the runner prepared it and the page's
@@ -433,7 +458,7 @@ impl Sessions {
         let mut handlers = vec![held.children, consent];
         handlers.extend(in_frames);
         driver.follow_children(run, handlers).await?;
-        Ok((hiding, sheets, held.routed))
+        Ok(held.routed)
     }
 
     /// Hands the page targets the pages of `driver`'s browser context open

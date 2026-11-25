@@ -9,9 +9,12 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use goodfetch_cdp::SessionId as TargetSession;
-use goodfetch_cdp::generated::dom::StyleSheetId;
-use goodfetch_cdp::generated::page::FrameId;
+use crate::cdp::TargetSession;
+
+/// The browser's ID of a style sheet.
+type StyleSheetId = String;
+/// The browser's ID of a frame.
+pub(super) type FrameId = String;
 
 /// Who writes a part of a document's sheet.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]

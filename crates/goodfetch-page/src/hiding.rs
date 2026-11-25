@@ -15,6 +15,11 @@
 //! hides a consent wall before it is judged (ADR 0048), or at most
 //! [`RUNNER_WAIT`] for a document the runner never settles in.
 //!
+//! Each page's owner holds the page's hiding ([`Hiding`]), and each
+//! Session the rules lifted for it and its pages under live hiding
+//! ([`SessionHiding`]), so no table keyed by a Page's ID holds either (ADR
+//! 0146).
+//!
 //! `live_view.hiding` chooses: `auto`, the default, and `always` hide (on
 //! Firefox and `WebKit`, where any hiding is visible, `auto` will hide only
 //! on demand, A05-45); `off` enables neither the `DOM` nor the `CSS`
@@ -32,21 +37,22 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Weak};
 
-use goodfetch_cdp::generated::{css, dom, page};
-use goodfetch_cdp::{Failure, Subscription};
 use goodfetch_clean_up_rules::cosmetic::{CssRule, PageRules};
 use goodfetch_clean_up_rules::hiding;
 use goodfetch_engine::CallError;
-use goodfetch_engine::runs::Run;
+use goodfetch_engine::run_identity::RunIdentity;
+use goodfetch_engine::run_trace::RunTrace;
 use goodfetch_protocol::page::{PageId, SessionId};
 use serde::Deserialize;
 use serde_json::{Value, json};
 use tokio::sync::Mutex;
 
+use crate::cdp::{CdpPage, HidingEvent, HidingEvents, NotTaken};
 use crate::driver::{PageDriver, Turn, Unanswered};
 use crate::interception::{Cosmetic, PageCleanUp};
-use crate::trace;
+use crate::trace::provenance_in;
 
+use self::documents::FrameId;
 pub(crate) use self::documents::Part;
 pub(crate) use self::sheets::Sheets;
 
@@ -89,19 +95,24 @@ impl Mode {
     }
 }
 
-/// The engine's live hiding: each Session's lifted rules and its pages.
-/// Clones share it.
-#[derive(Clone, Default)]
-pub(crate) struct Hiding {
-    sessions: Arc<Mutex<BTreeMap<SessionId, Arc<SessionHiding>>>>,
+/// One Session's side of live hiding: the rules the guard lifted for it,
+/// and its pages under live hiding. Its Session holds it, so it goes with
+/// the Session.
+#[derive(Default)]
+pub(crate) struct SessionHiding {
+    lifted: Mutex<BTreeSet<String>>,
+    /// Its pages under live hiding; a page that went is dropped from it
+    /// when the next one comes.
+    pages: Mutex<Vec<Weak<PageHiding>>>,
 }
 
-/// One Session's side: the rules the guard lifted for it, and its pages
-/// under live hiding.
-#[derive(Default)]
-struct SessionHiding {
-    lifted: Mutex<BTreeSet<String>>,
-    pages: Mutex<BTreeMap<PageId, Weak<PageHiding>>>,
+/// One page's hiding, which its owner holds: its live hiding, when it
+/// hides anything, and its documents' sheets, which the Consent prompt
+/// runner writes into too. Clones share them.
+#[derive(Clone)]
+pub(crate) struct Hiding {
+    live: Option<Arc<PageHiding>>,
+    sheets: Arc<Sheets>,
 }
 
 /// One page under live hiding.
@@ -109,13 +120,14 @@ pub(crate) struct PageHiding {
     page_id: PageId,
     session_id: SessionId,
     driver: PageDriver,
-    run: Run,
+    identity: RunIdentity,
+    trace: RunTrace,
     cosmetic: Cosmetic,
     sheets: Arc<Sheets>,
     session: Arc<SessionHiding>,
     /// The rules each frame's sheet holds now, with the order of the
     /// refresh that wrote them.
-    frames: Mutex<BTreeMap<page::FrameId, (u64, Vec<CssRule>)>>,
+    frames: Mutex<BTreeMap<FrameId, (u64, Vec<CssRule>)>>,
     /// The order of the next refresh of a frame's sheet.
     refreshes: AtomicU64,
 }
@@ -129,28 +141,69 @@ struct Collected {
 }
 
 impl Hiding {
+    /// The hiding of a page: `live`, its live hiding when it hides
+    /// anything, and `sheets`, its documents' sheets.
+    pub(crate) fn new(live: Option<Arc<PageHiding>>, sheets: Arc<Sheets>) -> Self {
+        Self { live, sheets }
+    }
+
+    /// The selectors of the cosmetic rules the sheet of the page's main
+    /// frame applies now, but for those lifted for its Session; none when
+    /// live hiding hides nothing on it.
+    pub(crate) async fn applied(&self) -> Vec<String> {
+        match &self.live {
+            Some(live) => live.applied().await,
+            None => Vec::new(),
+        }
+    }
+
+    /// The selectors of the rules the Consent prompt runner hides prompts
+    /// with in the page's main document, which extraction removes too
+    /// (ADR 0048).
+    pub(crate) fn runner_hidden(&self) -> Vec<String> {
+        self.sheets.runner_hidden()
+    }
+
+    /// What hides elements on the page `page_id` of the Session
+    /// `session_id`, whose lifts `trace`, its Run's, records.
+    pub(crate) fn hidden<'a>(
+        &'a self,
+        trace: &'a RunTrace,
+        (page_id, session_id): (&'a PageId, &'a SessionId),
+    ) -> Hidden<'a> {
+        Hidden {
+            live: self.live.as_deref(),
+            sheets: &self.sheets,
+            trace,
+            page_id,
+            session_id,
+        }
+    }
+}
+
+impl PageHiding {
     /// Puts the page `page_id` of the Session `session_id`, which `driver`
-    /// drives for `run`, under live hiding as `clean_up` chose, writing into
-    /// the page's `sheets` and recording the choice in Provenance; none
-    /// under `off` or with no Filter list on.
+    /// drives for the Run of `identity`, whose Run trace is `trace`, under
+    /// live hiding as `clean_up` chose, writing into the page's `sheets`,
+    /// listing it among `session`'s pages and recording the choice in
+    /// Provenance; none under `off` or with no Filter list on.
     ///
     /// # Errors
     ///
     /// The code of opening a page when the browser refuses the `DOM` or
     /// the `CSS` domain.
     pub(crate) async fn start(
-        &self,
-        page_id: &PageId,
-        session_id: &SessionId,
+        (page_id, session_id): (&PageId, &SessionId),
         driver: &PageDriver,
-        run: &Run,
+        (identity, trace): (&RunIdentity, &RunTrace),
         clean_up: &PageCleanUp,
         sheets: &Arc<Sheets>,
-    ) -> Result<Option<Arc<PageHiding>>, CallError> {
+        session: &Arc<SessionHiding>,
+    ) -> Result<Option<Arc<Self>>, CallError> {
         let mode = Mode::of(&clean_up.live_hiding);
         let cosmetic = clean_up.cosmetic.clone().filter(|_| mode != Mode::Off);
-        trace::provenance(
-            run,
+        provenance_in(
+            trace,
             json!({
                 "action": "live_hiding",
                 "page_id": page_id,
@@ -163,88 +216,69 @@ impl Hiding {
         let Some(cosmetic) = cosmetic else {
             return Ok(None);
         };
-        let session = Arc::clone(
-            self.sessions
-                .lock()
-                .await
-                .entry(session_id.clone())
-                .or_default(),
-        );
-        let page = Arc::new(PageHiding {
+        let page = Arc::new(Self {
             page_id: page_id.clone(),
             session_id: session_id.clone(),
             driver: driver.clone(),
-            run: run.clone(),
+            identity: identity.clone(),
+            trace: trace.clone(),
             cosmetic,
             sheets: Arc::clone(sheets),
-            session: Arc::clone(&session),
+            session: Arc::clone(session),
             frames: Mutex::new(BTreeMap::new()),
             refreshes: AtomicU64::new(0),
         });
-        session
-            .pages
-            .lock()
-            .await
-            .insert(page_id.clone(), Arc::downgrade(&page));
-        let events = driver.events();
-        driver
-            .opening_command(&dom::EnableParams::default())
-            .await?;
-        driver.opening_command(&css::EnableParams {}).await?;
+        let mut pages = session.pages.lock().await;
+        pages.retain(|page| page.strong_count() > 0);
+        pages.push(Arc::downgrade(&page));
+        drop(pages);
+        let cdp = CdpPage::of(driver);
+        let events = cdp.hiding_events();
+        cdp.take_styles_opening().await?;
         sheets.styled(driver.session());
-        run.spawn(follow(events, Arc::clone(&page)));
+        identity.spawn(follow(events, Arc::clone(&page)));
         Ok(Some(page))
-    }
-
-    /// Takes the Session `session_id` out of live hiding, as it closes or
-    /// its Run stops.
-    pub(crate) async fn close(&self, session_id: &SessionId) {
-        self.sessions.lock().await.remove(session_id);
     }
 }
 
 /// Reads the page's events until its target goes, writing a frame's sheet
 /// again, as a task of its own, each time the frame commits a document or
 /// reaches its `DOMContentLoaded` or its `load`.
-async fn follow(mut events: Subscription, page: Arc<PageHiding>) {
+async fn follow(mut events: HidingEvents, page: Arc<PageHiding>) {
     while let Some(event) = events.next().await {
-        let frame = if let Some(navigated) = event.read::<page::FrameNavigatedEvent>() {
-            page.sheets.navigated(
-                page.driver.session(),
-                &navigated.frame.id,
-                &navigated.frame.loader_id,
-            );
-            let waited = Arc::clone(&page);
-            let (frame, loader) = (
-                navigated.frame.id.clone(),
-                navigated.frame.loader_id.clone(),
-            );
-            page.run.spawn(async move {
-                // The Run's end does not wait out the runner's pass.
-                let clock = waited.run.clock();
-                tokio::select! {
-                    () = waited.run.cancellation().cancelled() => return,
-                    () = clock.sleep(RUNNER_WAIT) => {}
-                }
-                let released = waited
-                    .sheets
-                    .release(waited.driver.session(), &frame, Some(&loader))
-                    .await;
-                if let Err(failure) = released {
-                    tracing::debug!(%failure, "a document's live hiding did not start: its document went");
-                }
-            });
-            navigated.frame.id
-        } else if let Some(reached) = event.read::<page::LifecycleEventEvent>()
-            && matches!(reached.name.as_str(), "DOMContentLoaded" | "load")
-        {
-            reached.frame_id
-        } else {
-            continue;
+        let frame = match event {
+            HidingEvent::Navigated(navigated) => {
+                page.sheets
+                    .navigated(page.driver.session(), &navigated.frame, &navigated.loader);
+                let waited = Arc::clone(&page);
+                let (frame, loader) = (navigated.frame.clone(), navigated.loader);
+                page.identity.spawn(async move {
+                    // The Run's end does not wait out the runner's pass.
+                    let clock = waited.identity.clock();
+                    tokio::select! {
+                        () = waited.identity.owner().cancelled() => return,
+                        () = clock.sleep(RUNNER_WAIT) => {}
+                    }
+                    let released = waited
+                        .sheets
+                        .release(waited.driver.session(), &frame, Some(&loader))
+                        .await;
+                    if let Err(failure) = released {
+                        tracing::debug!(%failure, "a document's live hiding did not start: its document went");
+                    }
+                });
+                navigated.frame
+            }
+            HidingEvent::Lifecycle { frame, name }
+                if matches!(name.as_str(), "DOMContentLoaded" | "load") =>
+            {
+                frame
+            }
+            HidingEvent::Lifecycle { .. } => continue,
         };
         let page = Arc::clone(&page);
-        let run = page.run.clone();
-        run.spawn(async move { page.refresh(&frame).await });
+        let identity = page.identity.clone();
+        identity.spawn(async move { page.refresh(&frame).await });
     }
 }
 
@@ -253,7 +287,7 @@ impl PageHiding {
     /// for the rules lifted for the Session. Refreshes of one frame may run
     /// at once: the sheets send the last one begun, and the frame keeps its
     /// rules, never an earlier one's.
-    async fn refresh(&self, frame: &page::FrameId) {
+    async fn refresh(&self, frame: &FrameId) {
         let order = self.refreshes.fetch_add(1, Ordering::AcqRel);
         let lifted = self.session.lifted.lock().await.clone();
         let written = self.write(frame, &lifted, order).await;
@@ -280,10 +314,10 @@ impl PageHiding {
     /// such as `about:blank`.
     async fn write(
         &self,
-        frame: &page::FrameId,
+        frame: &FrameId,
         lifted: &BTreeSet<String>,
         order: u64,
-    ) -> Result<Option<Vec<CssRule>>, Failure> {
+    ) -> Result<Option<Vec<CssRule>>, NotTaken> {
         let Some(read) = self
             .driver
             .read_in_frame(frame, COLLECT, Value::Null)
@@ -329,7 +363,7 @@ impl PageHiding {
 
     /// The selectors of the cosmetic rules the sheet of the page's main
     /// frame applies now, but for those lifted for its Session.
-    pub(crate) async fn applied(&self) -> Vec<String> {
+    async fn applied(&self) -> Vec<String> {
         self.applied_rules()
             .await
             .into_iter()
@@ -357,11 +391,11 @@ impl PageHiding {
             .pages
             .lock()
             .await
-            .values()
+            .iter()
             .filter_map(Weak::upgrade)
             .collect();
         for page in pages {
-            let frames: Vec<page::FrameId> = page.frames.lock().await.keys().cloned().collect();
+            let frames: Vec<FrameId> = page.frames.lock().await.keys().cloned().collect();
             for frame in frames {
                 page.refresh(&frame).await;
             }
@@ -370,8 +404,8 @@ impl PageHiding {
             .iter()
             .filter(|rule| hiding.contains(&rule.selector))
         {
-            trace::provenance(
-                &self.run,
+            provenance_in(
+                &self.trace,
                 json!({
                     "action": "live_hiding_lifted",
                     "page_id": self.page_id,
@@ -393,15 +427,15 @@ impl PageHiding {
 #[derive(Clone, Copy)]
 pub(crate) struct Hidden<'a> {
     /// The page's live hiding, when it hides anything.
-    pub(crate) live: Option<&'a PageHiding>,
+    live: Option<&'a PageHiding>,
     /// Its documents' sheets, which the runner writes into.
-    pub(crate) sheets: &'a Sheets,
-    /// Its Run, whose Provenance records each lift.
-    pub(crate) run: &'a Run,
+    sheets: &'a Sheets,
+    /// Its Run's Run trace, whose Provenance records each lift.
+    trace: &'a RunTrace,
     /// The page.
-    pub(crate) page_id: &'a PageId,
+    page_id: &'a PageId,
     /// Its Session.
-    pub(crate) session_id: &'a SessionId,
+    session_id: &'a SessionId,
 }
 
 impl Hidden<'_> {
@@ -451,8 +485,8 @@ impl Hidden<'_> {
                 tracing::debug!(%failure, "the Consent prompt runner's lifted rules were not written: its document went");
             }
             for rule in &runner {
-                trace::provenance(
-                    self.run,
+                provenance_in(
+                    self.trace,
                     json!({
                         "action": "live_hiding_lifted",
                         "page_id": self.page_id,

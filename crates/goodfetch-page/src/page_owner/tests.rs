@@ -1,5 +1,7 @@
 //! A Page's owner's answer to a panic of one of its tasks (ADR 0148).
 
+use std::sync::Arc;
+
 use goodfetch_engine::CallError;
 use goodfetch_engine::metrics::Metrics;
 use goodfetch_engine::runs::identity;
@@ -11,9 +13,11 @@ use serde_json::{Value, json};
 
 use super::{PageOwner, PageParts};
 use crate::cdp::CdpPage;
+use crate::consent_walls::Walls;
 use crate::dialogs::Dialogs;
 use crate::driver::PageDriver;
 use crate::gesture_order::GestureOrder;
+use crate::hiding::{Hiding, Sheets};
 use crate::init_scripts::InitScripts;
 use crate::interception::tests::hold_page;
 use crate::interception::{Interception, PageInterception};
@@ -23,7 +27,7 @@ use crate::page_events::tests::started;
 
 /// The parts of the page `page_id`, which `driver` drives for the test's
 /// Run: `events` and `interception`, its dialogs, which `dialogs` answers,
-/// and its init scripts, none yet.
+/// its init scripts, none yet, and no wall nor live hiding.
 pub(crate) fn parts(
     (page_id, driver, live): (&PageId, &PageDriver, &LiveRun),
     dialogs: &Dialogs,
@@ -35,6 +39,8 @@ pub(crate) fn parts(
         dialogs: dialogs.start(page_id.clone(), CdpPage::of(driver), run),
         init_scripts: InitScripts::new(CdpPage::of(driver), run.clone()),
         interception,
+        walls: Walls::default(),
+        hiding: Hiding::new(None, Arc::new(Sheets::new(driver, run))),
     }
 }
 

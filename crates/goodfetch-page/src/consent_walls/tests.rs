@@ -6,7 +6,6 @@
 use std::time::{Duration, SystemTime};
 
 use goodfetch_engine::clock::Clock;
-use goodfetch_protocol::page::PageId;
 use goodfetch_protocol::settings::SettingsLayer;
 use rstest::rstest;
 use serde_json::json;
@@ -44,22 +43,22 @@ fn an_empty_list_approves_nothing() {
 /// What a call waiting on the runner's first pass sees when `steps` run on
 /// the walls 2 s into its wait: whether the pass ended in time, and how
 /// long it waited, of a 30 s limit.
-fn waited(detected: bool, steps: fn(&Walls, &PageId)) -> (bool, Duration) {
+fn waited(detected: bool, steps: fn(&Walls)) -> (bool, Duration) {
     goodfetch_test_support::runtime().block_on(async {
         let clock = Clock::paused(SystemTime::UNIX_EPOCH);
-        let (walls, page) = (Walls::default(), PageId("page-1".to_owned()));
+        let walls = Walls::default();
         if detected {
-            walls.detected(&page);
+            walls.detected();
         }
         let started = clock.now();
         let (seen, ()) = tokio::join!(
             async {
-                let ended = walls.verdict(&page, Duration::from_secs(30), clock).await;
+                let ended = walls.verdict(Duration::from_secs(30), clock).await;
                 (ended, clock.now() - started)
             },
             async {
                 tokio::time::sleep(Duration::from_secs(2)).await;
-                steps(&walls, &page);
+                steps(&walls);
             }
         );
         seen
@@ -69,13 +68,13 @@ fn waited(detected: bool, steps: fn(&Walls, &PageId)) -> (bool, Duration) {
 /// A call waits on the runner's first pass only once it found a prompt, and
 /// then until the pass ends or the document goes, within its limit.
 #[rstest]
-#[case::nothing_detected(false, |_: &Walls, _: &PageId| {}, (true, Duration::ZERO))]
-#[case::the_pass_settles(true, |walls: &Walls, page: &PageId| walls.settled(page), (true, Duration::from_secs(2)))]
-#[case::the_document_goes(true, |walls: &Walls, page: &PageId| walls.new_document(page), (true, Duration::from_secs(2)))]
-#[case::the_pass_never_ends(true, |_: &Walls, _: &PageId| {}, (false, Duration::from_secs(30)))]
+#[case::nothing_detected(false, |_: &Walls| {}, (true, Duration::ZERO))]
+#[case::the_pass_settles(true, |walls: &Walls| walls.settled(), (true, Duration::from_secs(2)))]
+#[case::the_document_goes(true, |walls: &Walls| walls.new_document(), (true, Duration::from_secs(2)))]
+#[case::the_pass_never_ends(true, |_: &Walls| {}, (false, Duration::from_secs(30)))]
 fn a_call_waits_on_the_first_pass_only_once_it_found_a_prompt(
     #[case] detected: bool,
-    #[case] steps: fn(&Walls, &PageId),
+    #[case] steps: fn(&Walls),
     #[case] seen: (bool, Duration),
 ) {
     assert_eq!(waited(detected, steps), seen);
@@ -85,10 +84,10 @@ fn a_call_waits_on_the_first_pass_only_once_it_found_a_prompt(
 /// wait again on the same document.
 #[test]
 fn a_settled_pass_is_never_pending_again() {
-    let (walls, page) = (Walls::default(), PageId("page-1".to_owned()));
+    let walls = Walls::default();
 
-    walls.settled(&page);
-    walls.detected(&page);
+    walls.settled();
+    walls.detected();
 
-    assert!(!walls.pending(&page));
+    assert!(!walls.pending());
 }

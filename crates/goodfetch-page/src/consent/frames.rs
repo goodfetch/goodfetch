@@ -6,10 +6,14 @@
 
 use std::collections::BTreeMap;
 
-use goodfetch_cdp::SessionId as TargetSession;
-use goodfetch_cdp::generated::network::LoaderId;
-use goodfetch_cdp::generated::page::FrameId;
-use goodfetch_cdp::generated::runtime::ExecutionContextId;
+use crate::cdp::TargetSession;
+
+/// The browser's ID of a frame.
+type FrameId = String;
+/// The browser's ID of a document's load.
+type LoaderId = String;
+/// The browser's ID of a world in a document.
+type ExecutionContextId = i64;
 
 /// One frame's document, by the guard's world in it.
 #[derive(Clone, Debug, PartialEq, Eq)]

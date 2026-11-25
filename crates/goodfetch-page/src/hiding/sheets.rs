@@ -13,13 +13,11 @@
 
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
-use goodfetch_cdp::Failure;
-use goodfetch_cdp::SessionId as TargetSession;
-use goodfetch_cdp::generated::{css, dom, page};
-use goodfetch_engine::runs::Run;
+use goodfetch_engine::run_identity::RunIdentity;
 use tokio::sync::{mpsc, oneshot};
 
-use super::documents::{Documents, Key, Part, Write};
+use super::documents::{Documents, FrameId, Key, Part, Write};
+use crate::cdp::{CdpPage, NotTaken, TargetSession};
 use crate::driver::PageDriver;
 
 /// How many changes wait for the page's sender, at most, before the next
@@ -28,7 +26,8 @@ const QUEUED: usize = 16;
 
 /// One page's hiding sheets.
 pub(crate) struct Sheets {
-    driver: PageDriver,
+    /// The page's own document.
+    page: Key,
     documents: Arc<Mutex<Documents>>,
     /// The changes the page's sender sends, in the order they were made, so
     /// the browser gets each document's texts in the order they were set.
@@ -38,7 +37,7 @@ pub(crate) struct Sheets {
 /// One change of a page's sheets, and where its outcome goes once sent.
 struct Queued {
     change: Change,
-    sent: oneshot::Sender<Result<(), Failure>>,
+    sent: oneshot::Sender<Result<(), NotTaken>>,
 }
 
 /// What a change of a page's sheets does.
@@ -68,22 +67,27 @@ enum Change {
 /// The page's sender: it sends each change's commands, one change at a
 /// time.
 struct Sender {
-    driver: PageDriver,
+    cdp: CdpPage,
+    /// The page's own document.
+    page: Key,
     documents: Arc<Mutex<Documents>>,
 }
 
 impl Sheets {
-    /// The hiding sheets of the page `driver` drives for `run`, whose
-    /// sender runs as a task of the Run's until the sheets go.
-    pub(crate) fn new(driver: PageDriver, run: &Run) -> Self {
+    /// The hiding sheets of the page `driver` drives for the Run of
+    /// `identity`, whose sender runs as a task of the Run's until the
+    /// sheets go.
+    pub(crate) fn new(driver: &PageDriver, identity: &RunIdentity) -> Self {
+        let page = (driver.session().clone(), driver.main_frame().clone());
         let documents = Arc::new(Mutex::new(Documents::default()));
         let (changes, mut queued) = mpsc::channel::<Queued>(QUEUED);
         let mut sender = Sender {
-            driver: driver.clone(),
+            cdp: CdpPage::of(driver),
+            page: page.clone(),
             documents: Arc::clone(&documents),
         };
-        let live = run.cancellation().clone();
-        run.spawn(async move {
+        let live = identity.owner().child_token();
+        identity.spawn(async move {
             loop {
                 let Queued { change, sent } = tokio::select! {
                     () = live.cancelled() => return,
@@ -98,7 +102,7 @@ impl Sheets {
             }
         });
         Self {
-            driver,
+            page,
             documents,
             changes,
         }
@@ -111,7 +115,7 @@ impl Sheets {
 
     /// `frame` of `session` committed the document of `loader`, which starts
     /// with an empty sheet.
-    pub(crate) fn navigated(&self, session: &TargetSession, frame: &page::FrameId, loader: &str) {
+    pub(crate) fn navigated(&self, session: &TargetSession, frame: &FrameId, loader: &str) {
         self.documents().navigated(session, frame, loader);
     }
 
@@ -121,7 +125,7 @@ impl Sheets {
     }
 
     /// `frame` of `session` detached.
-    pub(crate) fn forget_frame(&self, session: &TargetSession, frame: &page::FrameId) {
+    pub(crate) fn forget_frame(&self, session: &TargetSession, frame: &FrameId) {
         self.documents().forget_frame(session, frame);
     }
 
@@ -133,7 +137,8 @@ impl Sheets {
     /// # Errors
     ///
     /// The browser's failure when the document went or a domain was
-    /// refused, and `Disconnected` once the page's Run stopped its sender.
+    /// refused, and [`NotTaken::gone`] once the page's Run stopped its
+    /// sender.
     ///
     /// # Cancel safety
     ///
@@ -141,11 +146,11 @@ impl Sheets {
     /// all the same.
     pub(crate) async fn set(
         &self,
-        (session, frame): (&TargetSession, &page::FrameId),
+        (session, frame): (&TargetSession, &FrameId),
         part: Part,
         text: String,
         order: Option<u64>,
-    ) -> Result<(), Failure> {
+    ) -> Result<(), NotTaken> {
         self.queue(Change::Set {
             key: (session.clone(), frame.clone()),
             part,
@@ -165,9 +170,9 @@ impl Sheets {
     pub(crate) async fn release(
         &self,
         session: &TargetSession,
-        frame: &page::FrameId,
+        frame: &FrameId,
         loader: Option<&str>,
-    ) -> Result<(), Failure> {
+    ) -> Result<(), NotTaken> {
         self.queue(Change::Release {
             key: (session.clone(), frame.clone()),
             loader: loader.map(ToOwned::to_owned),
@@ -179,13 +184,13 @@ impl Sheets {
     /// with in the page's main document, which extraction removes too
     /// (ADR 0048).
     pub(crate) fn runner_hidden(&self) -> Vec<String> {
-        self.documents().consent_selectors(&page_key(&self.driver))
+        self.documents().consent_selectors(&self.page)
     }
 
     /// The selectors of [`Self::runner_hidden`] that still hide there: those
     /// the guard did not lift.
     pub(crate) fn runner_applied(&self) -> Vec<String> {
-        self.documents().consent_applied(&page_key(&self.driver))
+        self.documents().consent_applied(&self.page)
     }
 
     /// Lifts the runner's rules of `selectors` from the sheet of the page's
@@ -195,9 +200,9 @@ impl Sheets {
     /// # Errors
     ///
     /// As [`Self::set`].
-    pub(crate) async fn lift_runner(&self, selectors: Vec<String>) -> Result<(), Failure> {
+    pub(crate) async fn lift_runner(&self, selectors: Vec<String>) -> Result<(), NotTaken> {
         self.queue(Change::LiftConsent {
-            key: page_key(&self.driver),
+            key: self.page.clone(),
             selectors,
         })
         .await
@@ -206,7 +211,7 @@ impl Sheets {
     /// Empties every other document's sheet while a click in `frame` of
     /// `session` goes in, so no hidden owner swallows it, until
     /// [`Self::restore`]; nothing for a click in the page's own frame.
-    pub(crate) async fn lift(&self, session: &TargetSession, frame: &page::FrameId) {
+    pub(crate) async fn lift(&self, session: &TargetSession, frame: &FrameId) {
         let _ = self
             .queue(Change::Lift {
                 key: (session.clone(), frame.clone()),
@@ -220,23 +225,18 @@ impl Sheets {
     }
 
     /// Hands `change` to the page's sender and waits until it was sent.
-    async fn queue(&self, change: Change) -> Result<(), Failure> {
+    async fn queue(&self, change: Change) -> Result<(), NotTaken> {
         let (sent, outcome) = oneshot::channel();
         if self.changes.send(Queued { change, sent }).await.is_err() {
-            return Err(Failure::Disconnected);
+            return Err(NotTaken::gone());
         }
-        outcome.await.unwrap_or(Err(Failure::Disconnected))
+        outcome.await.unwrap_or_else(|_| Err(NotTaken::gone()))
     }
 
     /// The documents, for one step of bookkeeping.
     fn documents(&self) -> MutexGuard<'_, Documents> {
         locked(&self.documents)
     }
-}
-
-/// The page `driver` drives' own document.
-fn page_key(driver: &PageDriver) -> Key {
-    (driver.session().clone(), driver.main_frame().clone())
 }
 
 /// `documents`, for one step of bookkeeping.
@@ -246,7 +246,7 @@ fn locked(documents: &Mutex<Documents>) -> MutexGuard<'_, Documents> {
 
 impl Sender {
     /// Sends what `change` asks the browser for.
-    async fn apply(&mut self, change: Change) -> Result<(), Failure> {
+    async fn apply(&mut self, change: Change) -> Result<(), NotTaken> {
         let write = match change {
             Change::Set {
                 key,
@@ -265,7 +265,7 @@ impl Sender {
                 self.documents().lift_consent(&key, &selectors)
             }
             Change::Lift { key } => {
-                let writes = self.documents().lift(&key, &page_key(&self.driver));
+                let writes = self.documents().lift(&key, &self.page);
                 return self.send_each(writes).await;
             }
             Change::Restore => {
@@ -280,7 +280,7 @@ impl Sender {
     }
 
     /// Sends each of `writes`, whatever the others did.
-    async fn send_each(&self, writes: Vec<Write>) -> Result<(), Failure> {
+    async fn send_each(&self, writes: Vec<Write>) -> Result<(), NotTaken> {
         for write in writes {
             let _ = self.send(write).await;
         }
@@ -295,7 +295,7 @@ impl Sender {
     /// Sends `write`'s commands and records what they did; a sheet the
     /// browser no longer knows, as its document went before the page's
     /// listeners saw it go, is made again once.
-    async fn send(&self, write: Write) -> Result<(), Failure> {
+    async fn send(&self, write: Write) -> Result<(), NotTaken> {
         let mut sent = self.commands(&write).await;
         if sent.is_err() && write.sheet.is_some() {
             sent = self
@@ -313,38 +313,17 @@ impl Sender {
     }
 
     /// `write`'s commands; the document's sheet.
-    async fn commands(&self, write: &Write) -> Result<dom::StyleSheetId, Failure> {
+    async fn commands(&self, write: &Write) -> Result<String, NotTaken> {
         let (session, frame) = &write.key;
-        let driver = &self.driver;
         if write.enable {
-            driver
-                .command_on(session, &dom::EnableParams::default())
-                .await?;
-            driver.command_on(session, &css::EnableParams {}).await?;
+            self.cdp.take_styles(session).await?;
         }
         let sheet = match &write.sheet {
             Some(sheet) => sheet.clone(),
-            None => {
-                driver
-                    .command_on(
-                        session,
-                        &css::CreateStyleSheetParams {
-                            frame_id: frame.clone(),
-                            force: None,
-                        },
-                    )
-                    .await?
-                    .style_sheet_id
-            }
+            None => self.cdp.create_style_sheet((session, frame)).await?,
         };
-        driver
-            .command_on(
-                session,
-                &css::SetStyleSheetTextParams {
-                    style_sheet_id: sheet.clone(),
-                    text: write.text.clone(),
-                },
-            )
+        self.cdp
+            .set_style_sheet((session, &sheet), write.text.clone())
             .await?;
         Ok(sheet)
     }

@@ -3,6 +3,37 @@ source: xtask/tests/it/release_publish.rs
 expression: outcome.stdout
 ---
 github draft v1.4.0: create
+github asset SHA256SUMS: upload
+github asset goodfetch-collie-aarch64-apple-darwin-debug.tar.xz: upload
+github asset goodfetch-collie-aarch64-apple-darwin.tar.xz: upload
+github asset goodfetch-collie-aarch64-unknown-linux-gnu-debug.tar.xz: upload
+github asset goodfetch-collie-aarch64-unknown-linux-gnu.tar.xz: upload
+github asset goodfetch-collie-aarch64-unknown-linux-musl-debug.tar.xz: upload
+github asset goodfetch-collie-aarch64-unknown-linux-musl.tar.xz: upload
+github asset goodfetch-collie-x86_64-apple-darwin-debug.tar.xz: upload
+github asset goodfetch-collie-x86_64-apple-darwin.tar.xz: upload
+github asset goodfetch-collie-x86_64-pc-windows-msvc-debug.tar.xz: upload
+github asset goodfetch-collie-x86_64-pc-windows-msvc.tar.xz: upload
+github asset goodfetch-collie-x86_64-unknown-linux-gnu-debug.tar.xz: upload
+github asset goodfetch-collie-x86_64-unknown-linux-gnu.tar.xz: upload
+github asset goodfetch-collie-x86_64-unknown-linux-musl-debug.tar.xz: upload
+github asset goodfetch-collie-x86_64-unknown-linux-musl.tar.xz: upload
+github asset goodfetch-collie.cdx.json: upload
+github asset goodfetch-foxhound-aarch64-apple-darwin-debug.tar.xz: upload
+github asset goodfetch-foxhound-aarch64-apple-darwin.tar.xz: upload
+github asset goodfetch-foxhound-aarch64-unknown-linux-gnu-debug.tar.xz: upload
+github asset goodfetch-foxhound-aarch64-unknown-linux-gnu.tar.xz: upload
+github asset goodfetch-foxhound-aarch64-unknown-linux-musl-debug.tar.xz: upload
+github asset goodfetch-foxhound-aarch64-unknown-linux-musl.tar.xz: upload
+github asset goodfetch-foxhound-x86_64-apple-darwin-debug.tar.xz: upload
+github asset goodfetch-foxhound-x86_64-apple-darwin.tar.xz: upload
+github asset goodfetch-foxhound-x86_64-pc-windows-msvc-debug.tar.xz: upload
+github asset goodfetch-foxhound-x86_64-pc-windows-msvc.tar.xz: upload
+github asset goodfetch-foxhound-x86_64-unknown-linux-gnu-debug.tar.xz: upload
+github asset goodfetch-foxhound-x86_64-unknown-linux-gnu.tar.xz: upload
+github asset goodfetch-foxhound-x86_64-unknown-linux-musl-debug.tar.xz: upload
+github asset goodfetch-foxhound-x86_64-unknown-linux-musl.tar.xz: upload
+github asset goodfetch-foxhound.cdx.json: upload
 crates.io goodfetch-engine 0.0.0: published
 crates.io goodfetch-collie-client 1.4.0: publish
 crates.io goodfetch-collie 1.4.0: publish

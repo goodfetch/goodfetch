@@ -157,10 +157,11 @@ validate = ["models", "run", "tools"]
 
 # Which of `release`'s own modules may import which.
 [submodules.release]
+assets = []
 changelog = ["line"]
 gates = []
 line = []
-publish = []
+publish = ["assets"]
 pull_request = ["changelog"]
 
 # Which of `release_suite`'s own modules may import which.

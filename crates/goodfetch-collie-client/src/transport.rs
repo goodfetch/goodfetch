@@ -27,6 +27,8 @@ use tokio::io::{AsyncBufReadExt as _, AsyncRead, AsyncWrite, BufReader};
 use tokio::process::{Child, ChildStderr};
 use tokio::sync::oneshot;
 
+use crate::logging;
+
 mod websocket;
 
 /// The most of an Attached engine's stderr `engine_exited` carries (ADR
@@ -320,11 +322,11 @@ impl Process {
         };
         let (exit_code, signal) = match self.child.wait().await {
             Ok(status) => {
-                tracing::debug!(target: "goodfetch::client", %status, "the Attached engine exited");
+                tracing::debug!(target: logging::CLIENT, %status, "the Attached engine exited");
                 (status.code(), signal_of(status))
             }
             Err(error) => {
-                tracing::warn!(target: "goodfetch::client", %error, "the Attached engine's exit could not be read");
+                tracing::warn!(target: logging::CLIENT, %error, "the Attached engine's exit could not be read");
                 (None, None)
             }
         };
@@ -347,7 +349,7 @@ async fn read_stderr(stderr: ChildStderr) -> Tail {
         let read = match stderr.fill_buf().await {
             Ok(read) => read,
             Err(error) => {
-                tracing::warn!(target: "goodfetch::client", %error, "the Attached engine's stderr could not be read");
+                tracing::warn!(target: logging::CLIENT, %error, "the Attached engine's stderr could not be read");
                 break;
             }
         };
@@ -373,7 +375,7 @@ async fn read_stderr(stderr: ChildStderr) -> Tail {
 /// Logs the line `line` the Attached engine wrote to its stderr.
 fn log_stderr(line: &[u8]) {
     let line = String::from_utf8_lossy(line.strip_suffix(b"\n").unwrap_or(line));
-    tracing::warn!(target: "goodfetch::client", %line, "the Attached engine wrote to its stderr");
+    tracing::warn!(target: logging::CLIENT, %line, "the Attached engine wrote to its stderr");
 }
 
 /// The last bytes an Attached engine wrote to its stderr.

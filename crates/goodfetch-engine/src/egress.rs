@@ -77,7 +77,9 @@ mod address_classification {
 }
 
 /// A Session's egress policy: its domain policy, which [`judge`] applies,
-/// and the private addresses its [`Gate`] lets it reach.
+/// the private addresses its [`Gate`] lets it reach, and whether its Run
+/// was opened on an Exposed Daemon, where [`judge_cdp_url`] lets no
+/// Client's `cdp_url` use loopback.
 #[derive(Clone, Debug)]
 pub struct Policy {
     allowed: Entries,
@@ -85,6 +87,7 @@ pub struct Policy {
     private_ranges: Vec<Block>,
     private_hosts: HashSet<Box<str>, FixedKeys>,
     resolved_ip_check: bool,
+    on_an_exposed_daemon: bool,
 }
 
 /// A range of private addresses a page may reach.
@@ -137,11 +140,13 @@ impl Policy {
             private_ranges: Vec::new(),
             private_hosts: HashSet::default(),
             resolved_ip_check: true,
+            on_an_exposed_daemon: false,
         })
     }
 
     /// The policy a Run's resolved settings give: its domain policy, its
-    /// `egress.private_ranges` and its `security.resolved_ip_check`.
+    /// `egress.private_ranges`, its `security.resolved_ip_check`, and
+    /// whether it was opened on an Exposed Daemon.
     ///
     /// # Errors
     ///
@@ -163,6 +168,7 @@ impl Policy {
         )?
         .with_private_ranges(&list(&EGRESS_PRIVATE_RANGES))?;
         policy.resolved_ip_check = settings.get(&SECURITY_RESOLVED_IP_CHECK);
+        policy.on_an_exposed_daemon = settings.on_an_exposed_daemon();
         Ok(policy)
     }
 }

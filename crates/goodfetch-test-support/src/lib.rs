@@ -24,6 +24,11 @@
 //! (`under_default_seccomp`, `under_apparmor_restriction`),
 //! `DnsNamespace`, which starts a child on Linux whose resolver is the
 //! Proving ground's DNS fixture,
+//! the Goodfetch Chromium's test helpers over the Proving ground's pages
+//! (ADR 0074): `identity_report`, which compares one Identity profile
+//! surface across every script context and the headers, the codec and font
+//! samples an Identity profile's tests expect, and `NetLog::read`, which
+//! lists every socket a browser launch connected,
 //! and the Secret canaries, planted and searched for in every encoding
 //! with their `gitleaks` rule (ADR 0067); `refused_matches`, which finds
 //! what would let a new state or event through a transition table's
@@ -68,13 +73,16 @@ mod fuzz;
 mod held_vfs;
 mod host_test;
 mod hostile;
+mod identity_consistency;
 mod invariants;
 mod journey_run;
 mod kill;
 #[cfg(target_os = "linux")]
 mod lazyfs;
 mod locales;
+mod media_samples;
 mod model_trace;
+mod net_log;
 #[cfg(all(
     target_os = "linux",
     any(target_arch = "x86_64", target_arch = "aarch64")
@@ -95,6 +103,7 @@ mod proxy_in_front;
 mod pty;
 mod raw_calls;
 mod received_requests;
+mod recordings;
 mod resident;
 mod resolver;
 mod runtime;
@@ -122,6 +131,7 @@ mod user_namespaces;
 #[cfg(target_os = "linux")]
 mod valkey;
 mod variables;
+mod webhook_signatures;
 
 #[cfg(unix)]
 pub use browsers::ReadOnlyBrowserCache;
@@ -161,7 +171,7 @@ pub use dns_namespace::{
 };
 pub use endpoints::{
     AuditUnreadable, AuditVerifier, Endpoint, EndpointRunError, EndpointRunner, Expected, Failure,
-    Hello, Listener, ListenerAddress, ListenerKind, Observed, RowFailure, Rule,
+    Hello, Listener, ListenerAddress, ListenerKind, ListenerTls, Observed, RowFailure, Rule,
 };
 pub use env::{START_TIME, TEST_SETTINGS, TestEnv, TestEnvError, command};
 pub use exercise::{ANSWER_RECORD, AnsweredCalls, COMMAND_RECORD, COMMAND_TARGET};
@@ -179,6 +189,10 @@ pub use hostile::{
     PathName, PathTarget, RefKeyword, ResourceLimit, Schedule, SchemaRef, SchemaUse,
     SecretPlacement, SecretRedirect, ServedBy, TableGap, TableGaps,
 };
+pub use identity_consistency::{
+    CONSISTENCY_FRAME_HOST, CONSISTENCY_HOST, ConsistencyError, IdentityReport, PageValues,
+    ProbeContext, ValueSource, identity_report,
+};
 /// insta, for [`assert_cli_snapshot!`], whose expansion names it.
 #[doc(hidden)]
 pub use insta as __insta;
@@ -194,7 +208,12 @@ pub use kill::{KILL_DEADLINE, KillAtError, Killed, Moment, kill_at, kill_at_with
 #[cfg(target_os = "linux")]
 pub use lazyfs::{LAZYFS_DEADLINE, LazyFs, LazyFsError};
 pub use locales::{LocaleTableError, TimeZoneCase, locales, time_zones};
+pub use media_samples::{
+    CODECS_HOST, CodecSample, FONTS_HOST, FontAvailability, FontSample, FontSamples, MediaKind,
+    SamplesError,
+};
 pub use model_trace::model_trace;
+pub use net_log::{NetLog, NetLogError, NetLogSocket, SocketTransport};
 #[cfg(all(
     target_os = "linux",
     any(target_arch = "x86_64", target_arch = "aarch64")
@@ -232,6 +251,10 @@ pub use proving_ground_format::{
 pub use proxy_in_front::proxy_in_front;
 pub use pty::{Pty, PtyError, PtyOutput, PtyRun, pty};
 pub use raw_calls::raw_call_lines;
+pub use recordings::{
+    ExchangeName, ModelRecording, Payload, RecordedExchange, RecordedRequest, RecordedResponse,
+    Recordings, RecordingsError, ServedExchanges, Unfinished, UnmatchedRequest,
+};
 pub use resident::{peak_resident_bytes, private_resident_bytes_of};
 pub use resolver::{Lookup, LookupFailure, ResolverHandle, ScriptedResolver};
 pub use runtime::{
@@ -290,4 +313,7 @@ pub use variables::{
     MAX_SEED, NO_GUI_SESSION_VARIABLE, RECORDS_VARIABLE, RESULT_DOCUMENTS_VARIABLE, SEED_VARIABLE,
     SUITE_VARIABLE, SeedError, Suite, SuiteError, TOOLS_VARIABLE, TOXIPROXY_DOWNLOADS_VARIABLE,
     Variables, case_logs, current_test,
+};
+pub use webhook_signatures::{
+    SignedVector, VerificationCase, VerificationOutcome, WebhookSignatures, webhook_signatures,
 };

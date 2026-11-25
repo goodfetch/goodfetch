@@ -377,6 +377,33 @@ form = "runtime"
 [[member]]
 crate = "goodfetch-collie"
 receiver = "executable"
+member = "Confirmation"
+entry = "none"
+reason = "What a person confirms before an answer of `needs-you answer` is given: the question, its warning and the params its operation is called with."
+words = ["confirmation"]
+form = "type"
+
+[[member]]
+crate = "goodfetch-collie"
+receiver = "executable"
+member = "ItemAnswer"
+entry = "none"
+reason = "One answer of an `ItemPrompt`: the person-only operation a yes calls and how it is asked."
+words = ["item", "answer"]
+form = "type"
+
+[[member]]
+crate = "goodfetch-collie"
+receiver = "executable"
+member = "ItemPrompt"
+entry = "none"
+reason = "The prompt of one kind of \"Needs you\" item, through which an executable's `OwnCommands` give `needs-you answer` the kinds of its own (ADR 0087)."
+words = ["item", "prompt"]
+form = "type"
+
+[[member]]
+crate = "goodfetch-collie"
+receiver = "executable"
 member = "Machine"
 entry = "none"
 reason = "What every `daemon` command and every Client of the Daemon works with: the executable's machine, as `main` read it once, and the one Daemon client every command reaches its major's Daemon through."

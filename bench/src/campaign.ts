@@ -4,7 +4,9 @@
 import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
+import { BenchError } from "./errors.ts";
 import { hostClasses, type HostClass } from "./host.ts";
+import { checkRegistry, loadRegistry, type Declared } from "./registry.ts";
 import { parserOf } from "./schema.ts";
 
 /** One competitor adapter of a campaign. */
@@ -12,7 +14,40 @@ export interface CampaignAdapter {
   readonly id: string;
   /** The program and its arguments, run in the campaign file's folder. */
   readonly command: readonly [string, ...string[]];
+  /**
+   * The tool's published configuration, a file beside the campaign's: what
+   * it does by default where a Product has a control (ADR 0025).
+   */
+  readonly configuration?: string;
+  /**
+   * A matched row (ADR 0025's equal guarantees): the Product with the
+   * controls the adapter `against` lacks switched off, by the settings
+   * named here, and with Filter-list blocking and Consent prompt handling
+   * set as that tool's published configuration declares its defaults.
+   */
+  readonly matched?: {
+    readonly against: string;
+    readonly settings: Readonly<Record<string, unknown>>;
+  };
 }
+
+/** What a tool's published configuration declares it does by default (ADRs 0047 and 0048). */
+export interface CompetitorDefaults {
+  /** Whether it blocks requests by filter lists, as a blocker does. */
+  readonly filter_list_blocking: boolean;
+  /** Whether it answers or hides Consent prompts. */
+  readonly consent_prompt_handling: boolean;
+}
+
+/** The row an adapter runs as, which `prepare` hands it. */
+export type Row =
+  | { readonly kind: "default" }
+  | {
+      readonly kind: "matched";
+      readonly against: string;
+      readonly settings: Readonly<Record<string, unknown>>;
+      readonly competitor_defaults: CompetitorDefaults;
+    };
 
 /** A campaign, as its file declares it. */
 export interface Campaign {
@@ -37,6 +72,11 @@ export interface Campaign {
   readonly adapters: readonly CampaignAdapter[];
   /** The Proving ground tasks each adapter runs, by ID. */
   readonly tasks: readonly string[];
+  /**
+   * The decisions the campaign measures, from the registry folder beside
+   * it; each one's claims come with it, checked before anything is measured.
+   */
+  readonly registry?: { readonly folder: string; readonly decisions: readonly string[] };
 }
 
 const count = { type: "integer", minimum: 0 };
@@ -88,10 +128,43 @@ const campaignFile = parserOf<Campaign>({
         properties: {
           id: { type: "string", pattern: "^[a-z0-9][a-z0-9-]*$" },
           command: { type: "array", minItems: 1, items: { type: "string" } },
+          configuration: { type: "string", minLength: 1 },
+          matched: {
+            type: "object",
+            additionalProperties: false,
+            required: ["against", "settings"],
+            properties: { against: { type: "string" }, settings: { type: "object" } },
+          },
         },
       },
     },
     tasks: { type: "array", minItems: 1, items: { type: "string" } },
+    registry: {
+      type: "object",
+      additionalProperties: false,
+      required: ["folder", "decisions"],
+      properties: {
+        folder: { type: "string", minLength: 1 },
+        decisions: { type: "array", minItems: 1, items: { type: "string" } },
+      },
+    },
+  },
+});
+
+/** A tool's published configuration, of which bench reads its defaults; the rest is the tool's. */
+const publishedConfiguration = parserOf<{ readonly defaults: CompetitorDefaults }>({
+  type: "object",
+  required: ["defaults"],
+  properties: {
+    defaults: {
+      type: "object",
+      additionalProperties: false,
+      required: ["filter_list_blocking", "consent_prompt_handling"],
+      properties: {
+        filter_list_blocking: { type: "boolean" },
+        consent_prompt_handling: { type: "boolean" },
+      },
+    },
   },
 });
 
@@ -103,17 +176,94 @@ export interface LoadedCampaign {
   readonly folder: string;
   /** The SHA-256 of the file's bytes. */
   readonly sha256: string;
+  /** Each adapter's row, by its ID. */
+  readonly rows: ReadonlyMap<string, Row>;
+  /** The decisions and claims it measures, as dated when it was read. */
+  readonly declared: Declared;
 }
 
-/** Reads and checks the campaign file at `path`. */
+/**
+ * Reads and checks the campaign file at `path`, the published configurations
+ * its matched rows read, and the decisions and claims it declares.
+ */
 export async function loadCampaign(path: string): Promise<LoadedCampaign> {
   const absolute = resolve(path);
   const bytes = await readFile(absolute);
   const campaign = campaignFile.parse(JSON.parse(bytes.toString("utf8")), absolute);
+  const folder = dirname(absolute);
+  const rows = new Map<string, Row>();
+  for (const adapter of campaign.adapters) {
+    rows.set(adapter.id, await rowOf(adapter, campaign, folder, absolute));
+  }
   return {
     campaign,
     path: absolute,
-    folder: dirname(absolute),
+    folder,
     sha256: createHash("sha256").update(bytes).digest("hex"),
+    rows,
+    declared: await declaredBy(campaign, folder, absolute),
   };
+}
+
+/**
+ * The decisions `campaign` declares and their claims, with their dates.
+ * The whole registry must pass its checks, nothing in it dated later than
+ * now, and each declared decision's options must be adapters of the
+ * campaign; otherwise the campaign is refused before it measures anything.
+ */
+async function declaredBy(campaign: Campaign, folder: string, what: string): Promise<Declared> {
+  if (campaign.registry === undefined) {
+    return { decisions: [], claims: [] };
+  }
+  const registry = await loadRegistry(resolve(folder, campaign.registry.folder));
+  const errors = checkRegistry(registry, { now: new Date() });
+  const adapters = new Set(campaign.adapters.map((adapter) => adapter.id));
+  const decisions = campaign.registry.decisions.flatMap((id) => {
+    const decision = registry.decisions.find((one) => one.id === id);
+    if (decision === undefined) {
+      errors.push(`the campaign declares unknown decision ${id}`);
+      return [];
+    }
+    for (const option of decision.options) {
+      if (!adapters.has(option.adapter)) {
+        errors.push(
+          `${id}: option ${option.id}'s adapter ${option.adapter} is not one of the campaign's`,
+        );
+      }
+    }
+    return [decision];
+  });
+  if (errors.length > 0) {
+    throw new BenchError("registry_refused", `${what}: ${errors.join("; ")}`);
+  }
+  const ids = new Set(decisions.map((one) => one.id));
+  return {
+    decisions: decisions.map(({ id, declared_at }) => ({ id, declared_at })),
+    claims: registry.claims
+      .filter((claim) => ids.has(claim.decision))
+      .map(({ id, declared_at }) => ({ id, declared_at })),
+  };
+}
+
+/** `adapter`'s row: matched against another adapter of `campaign` whose published configuration it reads. */
+async function rowOf(
+  adapter: CampaignAdapter,
+  campaign: Campaign,
+  folder: string,
+  what: string,
+): Promise<Row> {
+  if (adapter.matched === undefined) {
+    return { kind: "default" };
+  }
+  const { against, settings } = adapter.matched;
+  const tool = campaign.adapters.find((other) => other.id === against && other !== adapter);
+  if (tool?.configuration === undefined) {
+    throw new BenchError(
+      "invalid_document",
+      `${what}: the adapter ${adapter.id} is matched against ${against}, which is no other adapter of the campaign with a published configuration`,
+    );
+  }
+  const file = resolve(folder, tool.configuration);
+  const { defaults } = publishedConfiguration.parse(JSON.parse(await readFile(file, "utf8")), file);
+  return { kind: "matched", against, settings, competitor_defaults: defaults };
 }

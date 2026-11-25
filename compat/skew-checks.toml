@@ -1,0 +1,204 @@
+# The checks each released minor of the current major takes against the
+# current build in the Release suite (ADR 0066), per Product (ADR 0094).
+# `xtask compat jobs` groups each minor's into as few jobs as fit the
+# 45-minute job budget and writes `ci/release/skew-jobs.json`; while no older
+# minor exists, the current build takes them against itself.
+#
+# `minutes` estimates a check, and `setup_minutes` what every job spends before
+# its first one. Correct an estimate from measured runs; a check is never
+# removed for its length.
+#
+# `journeys` runs the old tag's own Journeys of `product` on `surfaces`,
+# against the current executable; `stdio` gives the SDKs that executable
+# through their Product's engine-path variable.
+#
+# `awaiting` is the ticket that gives the check its harness or its first
+# Journey test: until that change removes the line, the check runs nowhere and
+# the generated file lists it as awaiting, so nothing counts it as passed.
+
+setup_minutes = 25
+
+# Collie's five Clients, and its SDKs over stdio.
+
+[[check]]
+id = "collie-sdk-typescript"
+product = "collie"
+minutes = 4
+journeys = { surfaces = ["sdk-typescript"] }
+awaiting = 688
+
+[[check]]
+id = "collie-sdk-python"
+product = "collie"
+minutes = 4
+journeys = { surfaces = ["sdk-python"] }
+awaiting = 688
+
+[[check]]
+id = "collie-sdk-rust"
+product = "collie"
+minutes = 4
+journeys = { surfaces = ["sdk-rust"] }
+awaiting = 688
+
+[[check]]
+id = "collie-cli"
+product = "collie"
+minutes = 4
+journeys = { surfaces = ["cli"] }
+
+[[check]]
+id = "collie-mcp"
+product = "collie"
+minutes = 4
+journeys = { surfaces = ["mcp-stdio", "mcp-http"] }
+awaiting = 1452
+
+[[check]]
+id = "collie-sdk-typescript-stdio"
+product = "collie"
+minutes = 4
+journeys = { surfaces = ["sdk-typescript"], stdio = true }
+awaiting = 688
+
+[[check]]
+id = "collie-sdk-python-stdio"
+product = "collie"
+minutes = 4
+journeys = { surfaces = ["sdk-python"], stdio = true }
+awaiting = 688
+
+[[check]]
+id = "collie-sdk-rust-stdio"
+product = "collie"
+minutes = 4
+journeys = { surfaces = ["sdk-rust"], stdio = true }
+awaiting = 688
+
+# Foxhound's five Clients, its CLI on Collie's Journeys among them, and its
+# SDKs over stdio.
+
+[[check]]
+id = "foxhound-sdk-typescript"
+product = "foxhound"
+minutes = 4
+journeys = { surfaces = ["sdk-typescript"] }
+awaiting = 1509
+
+[[check]]
+id = "foxhound-sdk-python"
+product = "foxhound"
+minutes = 4
+journeys = { surfaces = ["sdk-python"] }
+awaiting = 1509
+
+[[check]]
+id = "foxhound-sdk-rust"
+product = "foxhound"
+minutes = 4
+journeys = { surfaces = ["sdk-rust"] }
+awaiting = 1509
+
+[[check]]
+id = "foxhound-cli"
+product = "foxhound"
+minutes = 6
+journeys = { surfaces = ["cli", "foxhound-cli"] }
+
+[[check]]
+id = "foxhound-mcp"
+product = "foxhound"
+minutes = 4
+journeys = { surfaces = ["mcp-stdio", "mcp-http"] }
+awaiting = 1517
+
+[[check]]
+id = "foxhound-sdk-typescript-stdio"
+product = "foxhound"
+minutes = 4
+journeys = { surfaces = ["sdk-typescript"], stdio = true }
+awaiting = 1509
+
+[[check]]
+id = "foxhound-sdk-python-stdio"
+product = "foxhound"
+minutes = 4
+journeys = { surfaces = ["sdk-python"], stdio = true }
+awaiting = 1509
+
+[[check]]
+id = "foxhound-sdk-rust-stdio"
+product = "foxhound"
+minutes = 4
+journeys = { surfaces = ["sdk-rust"], stdio = true }
+awaiting = 1509
+
+# The Browser host in both directions (ADR 0096).
+
+[[check]]
+id = "older-engine-current-browser-host"
+product = "collie"
+minutes = 4
+awaiting = 755
+
+[[check]]
+id = "current-engine-older-browser-host"
+product = "collie"
+minutes = 4
+awaiting = 755
+
+# Older first-party Plugins through their kind's suite.
+
+[[check]]
+id = "collie-plugins"
+product = "collie"
+minutes = 5
+awaiting = 1082
+
+[[check]]
+id = "foxhound-plugins"
+product = "foxhound"
+minutes = 5
+awaiting = 597
+
+# Rolling upgrades and the Helm upgrade, on Foxhound.
+
+[[check]]
+id = "rolling-upgrade-lead-last"
+product = "foxhound"
+minutes = 8
+awaiting = 436
+
+[[check]]
+id = "rolling-upgrade-lead-first"
+product = "foxhound"
+minutes = 8
+awaiting = 436
+
+[[check]]
+id = "helm-upgrade"
+product = "foxhound"
+minutes = 15
+awaiting = 438
+
+# Older engines opening the files the current one wrote.
+
+[[check]]
+id = "collie-older-engine"
+product = "collie"
+minutes = 3
+awaiting = 439
+
+[[check]]
+id = "foxhound-older-engine"
+product = "foxhound"
+minutes = 3
+awaiting = 439
+
+# The previous major's last release beside the current build.
+
+[[check]]
+id = "two-majors"
+product = "collie"
+minutes = 5
+awaiting = 983

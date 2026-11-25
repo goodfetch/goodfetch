@@ -176,7 +176,7 @@ lint:
     step zizmor 'ci/tool.sh zizmor zizmor --config zizmor.yml --persona=regular .github/workflows .github/actions'
     step actionlint 'ci/tool.sh actionlint actionlint'
     step gitleaks 'ci/tool.sh gitleaks ci/canary-rule.sh'
-    step shellcheck 'ci/tool.sh shellcheck shellcheck ci/*.sh ci/compiler-cache/sccache ci/deny/*.sh ci/egress/*.sh ci/host/*.sh ci/hosted/*.sh ci/musl/*.sh ci/musl/cargo ci/musl/link-cc ci/musl/stable-metadata/sccache ci/release/*.sh ci/results/*.sh ci/runner/*.sh ci/source-build/*.sh ci/test-health/*.sh ci/vm/*.sh ci/visual/*.sh ci/proofs/run.sh ci/proofs/live.sh kennel/scripts/*.sh .githooks/pre-commit .githooks/pre-push'
+    step shellcheck 'ci/tool.sh shellcheck shellcheck ci/*.sh ci/compiler-cache/sccache ci/deny/*.sh ci/egress/*.sh ci/host/*.sh ci/hosted/*.sh ci/musl/*.sh ci/musl/cargo ci/musl/link-cc ci/musl/stable-metadata/sccache ci/release/*.sh ci/results/*.sh ci/runner/*.sh ci/source-build/*.sh ci/test-health/*.sh ci/vm/*.sh ci/visual/*.sh ci/proofs/run.sh ci/proofs/live.sh kennel/scripts/*.sh proving-ground/deploy/*.sh .githooks/pre-commit .githooks/pre-push'
     step cargo-deny 'ci/tool.sh cargo-deny cargo deny check -A unused-wrapper -A license-not-encountered bans licenses sources'
     step cargo-deny-products 'ci/tool.sh cargo-deny ci/deny/products.sh'
     # The Collie client crate, which takes no OpenTelemetry crate: the
@@ -230,8 +230,14 @@ lint:
     step --after xtask xtask-telemetry 'cargo run --quiet --bin xtask -- telemetry'
     step --after xtask xtask-no-retry 'cargo run --quiet --bin xtask -- no-retry'
     step --after xtask xtask-received-requests 'cargo run --quiet --bin xtask -- received-requests'
+    step --after xtask xtask-recordings 'cargo run --quiet --bin xtask -- recordings check'
     step --after xtask xtask-mask-writers 'cargo run --quiet --bin xtask -- mask-writers'
     step --after xtask xtask-quarantine 'GITHUB_TOKEN="${GITHUB_TOKEN:-$(gh auth token 2>/dev/null || true)}" cargo run --quiet --bin xtask -- quarantine check --cargo-profile {{ test_profile }}'
+    # The Goodfetch Chromium's patches each have a tested row of the surface
+    # table, and the driver's CDP use is in the build's protocol JSON
+    # (ADR 0074); both pass while `chromium/` is empty.
+    step --after xtask xtask-chromium-surfaces 'cargo run --quiet --bin xtask -- chromium surfaces check --cargo-profile {{ test_profile }}'
+    step --after xtask xtask-chromium-protocol 'cargo run --quiet --bin xtask -- chromium protocol check'
     step --after xtask xtask-containment 'cargo run --quiet --bin xtask -- containment'
     step tool-versions 'ci/tool-versions.sh'
     steps_end
@@ -326,19 +332,24 @@ features-audit scope="ran" verdict=exercise_audit:
     exit "$status"
 
 # Runs chosen Journey variants through `just test pre-merge` (ADRs 0063 and
-# 0066): `--id J-001`, `--surface cli`, `--milestone M1` and `--area 3`, each
-# repeatable; values of one flag add variants, different flags intersect.
+# 0066): `--id J-001`, `--surface cli`, `--milestone M1`, `--area 3` and
+# `--product collie`, each repeatable; values of one flag add variants,
+# different flags intersect. `--exclude J-001@cli`, repeatable, removes one.
 # `--engine <path>` runs them against that executable, for both Products.
 # `--tag <tag>` (with `--engine`) runs the tag's own Journey tests and helpers,
 # checked out in a temporary worktree that is removed afterwards.
+# `--junit <folder>` moves each runner's JUnit file there as `<runner>.xml`,
+# pass or fail, from the tree the tests ran in.
 [positional-arguments]
 journeys *arguments:
     #!/usr/bin/env bash
     set -euo pipefail
     just="{{ just_executable() }}"
-    select=() engine="" tag=""
+    select=() engine="" tag="" junit=""
     while [[ $# -gt 0 ]]; do
       case "$1" in
+        --junit) junit="${2:?--junit takes a folder}"; shift 2 ;;
+        --junit=*) junit="${1#--junit=}"; shift ;;
         --engine) engine="${2:?--engine takes a path}"; shift 2 ;;
         --engine=*) engine="${1#--engine=}"; shift ;;
         --tag) tag="${2:?--tag takes a tag}"; select+=(--tag "$tag"); shift 2 ;;
@@ -380,15 +391,29 @@ journeys *arguments:
       [[ -x "$GOODFETCH_TEST_ENGINE" ]] || { echo "error: $engine is not an executable" >&2; exit 2; }
       export GOODFETCH_TEST_ENGINE
     fi
-    if [[ -z "$tag" ]]; then
-      "$just" test pre-merge
-    else
+    reports=(nextest/ci/junit.xml junit/{vitest,playwright,pytest}.xml)
+    if [[ -n "$junit" ]]; then
+      mkdir -p "$junit"
+      junit=$(cd "$junit" && pwd)
+    fi
+    if [[ -n "$tag" ]]; then
       git worktree add --quiet --detach "$tree" "$tag^{commit}"
       cd "$tree"
       pnpm install --frozen-lockfile
       uv sync --frozen --all-extras
-      "$just" test pre-merge
+    elif [[ -n "$junit" ]]; then
+      rm -f "${reports[@]/#/target/}"
     fi
+    status=0
+    "$just" test pre-merge || status=$?
+    if [[ -n "$junit" ]]; then
+      for report in "${reports[@]}"; do
+        runner=$(basename "$report" .xml)
+        [[ "$runner" != junit ]] || runner=nextest
+        if [[ -f "target/$report" ]]; then mv "target/$report" "$junit/$runner.xml"; fi
+      done
+    fi
+    exit "$status"
 
 # What the changed packages declare and miss (ADR 0072): the Features each
 # crate, npm package and Python package `xtask affected` selects declares,
@@ -545,6 +570,7 @@ fetch:
     ci/alpine/fetch.sh
     ci/source-build/fetch.sh
     ci/valkey/fetch.sh
+    ci/registry/fetch.sh
 
 # Builds Rust (with the given Cargo profile), TypeScript and Python.
 build profile="dev":

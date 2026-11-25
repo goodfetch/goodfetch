@@ -201,6 +201,9 @@ goodfetch-fetch-tier = { path = "crates/foxhound/goodfetch-fetch-tier" }
 goodfetch-frontier = { path = "crates/foxhound/goodfetch-frontier" }
 # The Model provider interface every model call goes through (spec #602).
 goodfetch-model-provider = { path = "crates/goodfetch-model-provider" }
+# The Memory site, a site served from memory through the fetch tiers' test
+# seam, a test adapter: only ever a dev-dependency (ADR 0125, issue 2512).
+goodfetch-memory-site = { path = "crates/foxhound/goodfetch-memory-site" }
 # Collie's pages, Sessions and browsers (spec #577).
 goodfetch-page = { path = "crates/goodfetch-page" }
 goodfetch-protocol = { path = "crates/goodfetch-protocol" }
@@ -297,6 +300,9 @@ httparse = { version = "1.10.1", default-features = false, features = ["std"] }
 # A `Retry-After`'s HTTP-date in RFC 9110's three formats (ADR 0118), which
 # hyper already brings.
 httpdate = { version = "1.0.3", default-features = false }
+# Model recordings replay at an adapter's base URL (ADR 0065): each exchange
+# is one mock of its local server, matched on method, path and JSON body.
+httpmock = { version = "0.9.0", default-features = false }
 http-body-util = { version = "0.1.5", default-features = false }
 hyper = { version = "1.12.0", default-features = false }
 hyper-util = { version = "0.1.21", default-features = false }

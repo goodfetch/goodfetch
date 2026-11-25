@@ -2,7 +2,8 @@
 # (ci/fuzz-nightly.sh) on `main`'s head, in a worktree of its own, every fuzz
 # target for one hour in all on 4 cores at the lowest priority. It goes into
 # the gate host's crontab (`crontab -e`), with GOODFETCH_CHECKOUT set to the
-# main checkout. Times are UTC, before the backstop's 03:37 start
+# main checkout, once `ci/fuzz-user.sh` has set up the user its untrusted
+# steps run as. Times are UTC, before the backstop's 03:37 start
 # (ci/gate-backstop.crontab). A night that finds a gate, the backstop or a
 # test-health run holding its lock lists itself as skipped in
 # ~/fuzz-nightly/results.txt; a gate that starts during a night stops it. It

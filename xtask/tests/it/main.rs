@@ -9,6 +9,8 @@
     reason = "test code, where STYLE.md allows unwrap; Clippy's test exemption does not reach integration-test helpers"
 )]
 
+#[cfg(target_os = "linux")]
+mod container;
 mod github;
 mod store;
 mod workspace;
@@ -24,7 +26,9 @@ mod browser_releases;
 mod budgets;
 mod chromium_expectations;
 mod chromium_package;
+mod chromium_protocol;
 mod chromium_regenerate;
+mod chromium_surfaces;
 mod clients;
 #[cfg(unix)]
 mod clippy_excluded;
@@ -68,6 +72,7 @@ mod ingest;
 mod journey_selection;
 mod journey_variants;
 mod journeys;
+mod journeys_recipe;
 mod journeys_report;
 mod junit_summary;
 mod kennel_manifest;
@@ -79,6 +84,7 @@ mod merge_cap;
 mod merge_pr;
 mod minute_ceiling;
 mod mocking_lockfile;
+mod models;
 mod modules;
 mod mutants_typescript;
 mod no_retry;
@@ -102,6 +108,7 @@ mod pre_merge;
 mod quarantine;
 mod quick;
 mod received_requests;
+mod recordings;
 mod refusals;
 mod register;
 mod register_coverage;
@@ -120,6 +127,8 @@ mod sdk_exports;
 mod sdk_manifests;
 mod semver_checks;
 mod size;
+mod skew_jobs;
+mod skew_script;
 mod static_pie;
 mod stress;
 mod sweep_target;

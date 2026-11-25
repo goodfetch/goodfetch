@@ -56,6 +56,16 @@ pub(crate) const BUNDLE: &str = concat!(protocol_generated!(), "/bundle.json");
 /// and the checks read (ADR 0038).
 pub(crate) const CATALOG: &str = concat!(protocol_generated!(), "/catalog.json");
 
+/// The plugin protocol's types on their own, from the bundle's `plugin`, for
+/// Plugin authors (ADR 0033), from the root.
+pub(crate) const PLUGIN_PROTOCOL_SCHEMA: &str =
+    concat!(protocol_generated!(), "/plugin-protocol.schema.json");
+
+/// The schema of a Plugin's manifest, `goodfetch-plugin.json`, on its own,
+/// from the root.
+pub(crate) const PLUGIN_MANIFEST_SCHEMA: &str =
+    concat!(protocol_generated!(), "/plugin-manifest.schema.json");
+
 /// Whether no walk enters a folder named `name`, wherever it lies: for a
 /// walk of a folder whose path from the root it does not follow.
 pub(crate) fn generated(name: &str) -> bool {

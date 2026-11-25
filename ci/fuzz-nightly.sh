@@ -14,7 +14,12 @@
 # corpus is kept between nights on the volume, in `<log>/corpus/<crate>/
 # <target>/`, listed first so a run grows it and never the committed seeds,
 # and is pruned with `cargo fuzz cmin` after the run. The build and the runs
-# get no token and no `.env`: only the variables `untrusted` keeps.
+# get no token and no `.env`: only the variables `untrusted` keeps. They run
+# as the system user GOODFETCH_FUZZ_USER (goodfetch-fuzz, which
+# ci/fuzz-user.sh sets up; empty runs them as the job's user), which cannot
+# read the files that hold the job's credentials: a night whose untrusted
+# steps can read gh's hosts.yml, git's credentials or the main checkout's
+# `.env` fails before it builds.
 #
 # It gives way to a gate: a night that finds `just merge`'s gate running, or
 # the backstop or a test-health run in the backstop's worktree, starts nothing
@@ -83,19 +88,30 @@ source "$(dirname "$0")/gate-worktree.sh"
 # when the step ends, and ends the whole group.
 set -m
 groups=()
+fuzz_user=${GOODFETCH_FUZZ_USER-goodfetch-fuzz}
+# Sends signal `$1` to process group `$2`, as the job's user and, when the
+# untrusted steps run as another user, as that one too, since neither can
+# signal the other's processes; it succeeds when a process of the group took
+# it.
+signal() {
+  local sent=1
+  if kill "-$1" -- "-$2" 2>/dev/null; then sent=0; fi
+  if [[ -n $fuzz_user ]] && sudo -n -u "$fuzz_user" kill "-$1" -- "-$2" 2>/dev/null; then sent=0; fi
+  return "$sent"
+}
 stop() {
   trap '' TERM HUP INT
   echo "== $(date -u +%FT%TZ) stopped: ending what the night started"
   local group tries
   for group in ${groups[@]+"${groups[@]}"}; do
-    kill -TERM -- "-$group" 2>/dev/null || true
+    signal TERM "$group" || true
   done
   for group in ${groups[@]+"${groups[@]}"}; do
     wait "$group" 2>/dev/null || true
     tries=0
-    while kill -0 -- "-$group" 2>/dev/null; do
+    while signal 0 "$group"; do
       tries=$((tries + 1))
-      if ((tries == 300)); then kill -KILL -- "-$group" 2>/dev/null || true; fi
+      if ((tries == 300)); then signal KILL "$group" || true; fi
       sleep 0.1
     done
   done
@@ -117,21 +133,30 @@ step() {
   return "$status"
 }
 
-# Runs `$@` at the lowest priority, with no variable but those that find
-# the toolchain and name the user: no token, nothing of `.env`. Its HOME is
-# an empty folder of the night's, so nothing it runs finds gh's or git's
-# configuration, which holds the token, under the user's; the toolchain is
-# found through CARGO_HOME and RUSTUP_HOME, set to the user's.
+# Runs `$@` at the lowest priority, as `fuzz_user` when it names one, with no
+# variable but those that find the toolchain and name the user: no token,
+# nothing of `.env`. Its HOME is an empty folder of the night's, so nothing
+# it runs finds gh's or git's configuration, which holds the token, under the
+# job user's; the toolchain is found through CARGO_HOME and RUSTUP_HOME, set
+# to the job user's, which every user can read. As `fuzz_user`, it is named
+# by USER and LOGNAME, and its TMPDIR is a folder of the night's; sudo runs
+# it in the step's process group (ci/fuzz-user.sh's `!use_pty`).
 cargo_home=${CARGO_HOME:-$HOME/.cargo}
 rustup_home=${RUSTUP_HOME:-$HOME/.rustup}
 untrusted() {
-  local keep=() name lower=(nice -n 19)
-  for name in PATH USER LOGNAME LANG LC_ALL TMPDIR CARGO_BUILD_JOBS; do
+  local keep=() name names=(PATH LANG LC_ALL CARGO_BUILD_JOBS) lower=(nice -n 19) as=()
+  if [[ -n $fuzz_user ]]; then
+    as=(sudo -n -u "$fuzz_user" --)
+    keep=(USER="$fuzz_user" LOGNAME="$fuzz_user" TMPDIR="$night/tmp")
+  else
+    names+=(USER LOGNAME TMPDIR)
+  fi
+  for name in "${names[@]}"; do
     [[ -z ${!name:-} ]] || keep+=("$name=${!name}")
   done
   if command -v ionice >/dev/null; then lower+=(ionice -c 3); fi
-  env -i ${keep[@]+"${keep[@]}"} HOME="$night/home" CARGO_HOME="$cargo_home" RUSTUP_HOME="$rustup_home" \
-    "${lower[@]}" "$@"
+  ${as[@]+"${as[@]}"} env -i ${keep[@]+"${keep[@]}"} HOME="$night/home" CARGO_HOME="$cargo_home" \
+    RUSTUP_HOME="$rustup_home" "${lower[@]}" "$@"
 }
 
 holder=$(gate_worktree_holder "$lock")
@@ -171,7 +196,37 @@ cores=${GOODFETCH_FUZZ_CORES:-4}
 seconds=${GOODFETCH_FUZZ_SECONDS:-3600}
 night="$logs/$day"
 rm -rf "$night"
-mkdir -p "$night/home"
+mkdir -p "$night/home" "$night/tmp" "$logs/corpus" "$worktree/target/fuzz"
+
+# `fuzz_user` writes the night's folder, the corpora, the build folder and
+# the fuzz crates' folders, where `cargo fuzz` keeps its own artifacts and
+# `cmin` its new corpus; what it writes there stays the job user's to read
+# and remove. Inherited ACLs reach what each night adds below them.
+if [[ -n $fuzz_user ]]; then
+  grants=("$night" "$logs/corpus" "$worktree/target/fuzz")
+  while IFS= read -r manifest; do grants+=("$(dirname "$manifest")"); done < <(
+    git ls-files -- 'fuzz/Cargo.toml' '*/fuzz/Cargo.toml'
+  )
+  setfacl -m "u:$fuzz_user:x" "$logs" "$worktree/target"
+  setfacl -m "u:$fuzz_user:rwx,d:u:$fuzz_user:rwx,d:u:$(id -un):rwx" "${grants[@]}"
+fi
+
+# No untrusted step may read the files that hold the job's credentials. A
+# night that cannot run as `fuzz_user`, or whose untrusted steps can read one
+# of them, ends here, before anything builds.
+if [[ -n $fuzz_user ]] && ! untrusted true; then
+  echo "== $fuzz_user cannot run the untrusted steps: run ci/fuzz-user.sh"
+  result "fail (cannot run as $fuzz_user)"
+  exit 1
+fi
+for secret in "${GH_CONFIG_DIR:-${XDG_CONFIG_HOME:-${HOME:-}/.config}/gh}/hosts.yml" \
+  "${HOME:-}/.git-credentials" "$root/.env"; do
+  if [[ -e $secret ]] && untrusted cat -- "$secret" >/dev/null 2>&1; then
+    echo "== the untrusted steps can read $secret: run them as a user that cannot (ci/fuzz-user.sh)"
+    result "fail (the untrusted steps can read $secret)"
+    exit 1
+  fi
+done
 
 # The targets, from the fuzz crates' manifests: `crates[i]` is the fuzz
 # crate's folder, `names[i]` the target, `keys[i]` `<crate>/<target>`, the

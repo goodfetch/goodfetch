@@ -219,12 +219,12 @@ number = 7
 kind = "error"
 prefix = "hook_"
 
-# A process Plugin that crashed, and one the host cannot confine (ADR 0033,
-# spec #596).
+# A process Plugin refused at its `hello`, one that crashed, and one the
+# host cannot confine (ADR 0033, spec #596).
 [[area]]
 number = 7
 kind = "error"
-prefix = "plugin_crashed"
+prefix = "plugin_"
 
 [[area]]
 number = 7
@@ -667,6 +667,18 @@ prefix = "certificate_"
 number = 4
 kind = "error"
 prefix = "secret_"
+
+# Area 4's session export bundles (#663): the Error code an import fails
+# with when a bundle does not open, and the format of what one holds.
+[[area]]
+number = 4
+kind = "error"
+prefix = "session_export_"
+
+[[area]]
+number = 4
+kind = "format"
+prefix = "session-export"
 
 # Area 4's external Secret providers (#645): each provider's
 # `secret_providers.<scheme>.*` settings.

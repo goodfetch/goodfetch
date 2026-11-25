@@ -23,9 +23,11 @@
 //! soak read private memory, whose growth stopped about crawl 22 (fix-queue
 //! 128).
 //!
-//! Each crawl fetches 300 pages, not 1,000: the 40 crawls took 61 s in
-//! the CI test profile and 145 to 246 s in the local one under load (ADR
-//! 0134), and the crawl count never drops. Up to 8 requests are in flight
+//! Each crawl fetches 300 pages, not 1,000, and the crawl count never
+//! drops. The 40 crawls run alone, in the Pre-merge suite as in Release,
+//! and took 38 to 48 s in the local test profile, under load or pinned to
+//! one or two cores, against the five-minute kill (#1733, ADR 0134's
+//! note). Up to 8 requests are in flight
 //! on the Proving ground at once. The Runs' stores sit on a memory file
 //! system, which no busy disk slows. The pages fetched are counted on the
 //! Proving ground (`GET /requests-of-the-case`), since the record of

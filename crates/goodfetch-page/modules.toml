@@ -26,7 +26,7 @@ page_navigation = ["cdp", "egress_relay", "errors", "page_owner", "page_worlds",
 page_value = ["blocks", "document_request", "kept_tree", "url_pattern"]
 page_functions = ["trace"]
 page_owner = ["cdp", "consent_walls", "dialogs", "errors", "gesture_order", "hiding", "init_scripts", "interception", "page_events", "page_reads", "page_worlds"]
-page_reads = ["cdp", "errors", "gesture_order", "page_worlds"]
+page_reads = ["cdp", "errors", "gesture_order", "page_functions", "page_worlds"]
 page_worlds = []
 paused_body = ["cdp"]
 pages = ["blocks", "browser_fetch", "cdp", "consent", "consent_walls", "dialogs", "document_request", "extractor", "fields", "guard", "init_scripts", "interception", "page_events", "page_functions", "page_navigation", "page_owner", "page_reads", "page_value", "proxy", "recovery", "sessions", "trace", "url_pattern"]
@@ -40,6 +40,11 @@ robots_txt = []
 trace = []
 url_pattern = []
 version_check = []
+
+# The other crates only some top-level modules may name (ADR 0146): the CDP
+# crate is the CDP module's alone.
+[crates]
+goodfetch_cdp = ["cdp"]
 
 # Which of the CDP module's driver's own modules may import which.
 [submodules."cdp::driver"]
@@ -130,7 +135,6 @@ messages = []
 # Which of `guard`'s own modules may import which.
 [submodules.guard]
 check = []
-keys = []
 target = []
 
 # Which of `pages`'s own modules may import which.

@@ -17,7 +17,6 @@ use std::pin::Pin;
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
 
-use goodfetch_cdp::generated::target;
 use goodfetch_engine::events::Events;
 use goodfetch_engine::governor::Permit;
 use goodfetch_engine::run_identity::RunIdentity;
@@ -41,8 +40,8 @@ use super::robots_txt;
 use super::{
     OpenPage, Session, Sessions, State, action_timeout, events_run, interception_run, wait_deadline,
 };
-use crate::cdp::CdpPage;
 use crate::cdp::driver::{OnPopup, PageDriver, PopupHandler, SessionEgress};
+use crate::cdp::{CdpPage, TargetId};
 use crate::consent;
 use crate::consent_walls::Walls;
 use crate::dialogs::PageDialogs;
@@ -208,7 +207,7 @@ impl PageListeners {
 /// only their popups are the Session's, since the person's own windows share
 /// its browser context (ADR 0056).
 #[derive(Clone, Default)]
-pub(super) struct HeldFrames(Arc<tokio::sync::Mutex<BTreeSet<target::TargetID>>>);
+pub(super) struct HeldFrames(Arc<tokio::sync::Mutex<BTreeSet<TargetId>>>);
 
 /// What a Session does with the page targets its browser context's pages
 /// open: in a browser context of its own, each is its popup; on a Borrowed
@@ -221,7 +220,7 @@ struct SessionPopups {
 }
 
 impl PopupHandler for SessionPopups {
-    fn holds(&self, opener: target::TargetID) -> Pin<Box<dyn Future<Output = bool> + Send>> {
+    fn holds(&self, opener: TargetId) -> Pin<Box<dyn Future<Output = bool> + Send>> {
         let held = self.held.clone();
         Box::pin(async move {
             match held {
@@ -234,7 +233,7 @@ impl PopupHandler for SessionPopups {
     fn take_in(
         &self,
         driver: PageDriver,
-        opener: target::TargetID,
+        opener: TargetId,
     ) -> Pin<Box<dyn Future<Output = bool> + Send>> {
         let (sessions, session) = (self.sessions.clone(), self.session.clone());
         Box::pin(async move { sessions.popup(&session, driver, &opener).await })
@@ -509,12 +508,7 @@ impl Sessions {
     /// opened in the Session `session`, as a page of the Session, and
     /// announces it on its opener: whether it did. A popup of a page the
     /// engine no longer holds, or of a Session gone, is not taken in.
-    async fn popup(
-        &self,
-        session: &SessionId,
-        driver: PageDriver,
-        opener: &target::TargetID,
-    ) -> bool {
+    async fn popup(&self, session: &SessionId, driver: PageDriver, opener: &TargetId) -> bool {
         let Some(open) = self.index.session(session) else {
             return false;
         };

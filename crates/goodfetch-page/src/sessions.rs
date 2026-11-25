@@ -55,8 +55,6 @@ use std::pin::Pin;
 use std::sync::Arc;
 use std::time::Duration;
 
-use goodfetch_cdp::Command as _;
-use goodfetch_cdp::generated::target;
 use goodfetch_engine::browser_cache::{PinnedArtifact, Pins};
 use goodfetch_engine::clock::Clock;
 use goodfetch_engine::deadline::Deadline;
@@ -103,6 +101,7 @@ use self::lifecycle::{
     Attributes, Owner, PageEffect, SessionEffect, SessionEvent, SessionState, Source,
 };
 use crate::access_mode::{self, BrowserFamily, SessionIdentityPlan, SessionSettings, SigningPlan};
+use crate::cdp::CREATE_TARGET;
 use crate::cdp::borrowed::{CdpUrl, resolve_of};
 use crate::cdp::driver::{PageDriver, SessionEgress, Visibility, counted_as_opening};
 use crate::cdp::launch::Launcher;
@@ -456,7 +455,7 @@ fn lease_holds(value: &PageValue) -> Result<(), CallError> {
     match value.lease() {
         Some(lease) => lease
             .check()
-            .map_err(|ended| lease.withheld(ended, target::CreateTargetParams::METHOD)),
+            .map_err(|ended| lease.withheld(ended, CREATE_TARGET)),
         None => Ok(()),
     }
 }

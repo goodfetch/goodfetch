@@ -6,7 +6,6 @@
 //! emits `close`, and its later calls raise `page_memory_exceeded`, which
 //! is retryable, as a crashed page's raise `page_crashed`.
 
-use goodfetch_cdp::generated::runtime::{GetHeapUsageParams, GetHeapUsageReturns};
 use goodfetch_engine::runs::Run;
 use goodfetch_engine::settings::{catalog_value, value_as};
 use goodfetch_protocol::governor::{BROWSER_PAGE_MEMORY_CAP, GovernorLevel};
@@ -16,6 +15,7 @@ use goodfetch_protocol::settings::{SettingLimit, SettingsLayer};
 use super::life::Ending;
 use super::lifecycle::PageEffect;
 use super::{OpenPage, Sessions};
+use crate::cdp::CdpPage;
 
 impl Sessions {
     /// Ends each page of `run` past its memory cap at every sample that
@@ -36,10 +36,9 @@ impl Sessions {
                     continue;
                 }
                 for (page_id, page) in sessions.index.pages_of(&run_id) {
-                    let Ok(heap) = page.driver.command(&GetHeapUsageParams {}).await else {
+                    let Ok(memory) = CdpPage::of(&page.driver).memory_held().await else {
                         continue;
                     };
-                    let memory = held(&heap);
                     let cap: u64 = value_as(&BROWSER_PAGE_MEMORY_CAP, &limit.value);
                     if memory > cap && page.life.past_cap() {
                         let ending = sessions.clone();
@@ -108,15 +107,4 @@ fn page_memory_cap(run: &Run) -> SettingLimit {
                 origin: effective.origin,
             },
         )
-}
-
-/// What a page holds, in bytes: its JavaScript heap, its embedder's heap
-/// and the buffers it holds.
-#[expect(
-    clippy::cast_possible_truncation,
-    clippy::cast_sign_loss,
-    reason = "the renderer reports byte counts as JSON numbers: whole, never negative, far below 2^53, and `as` saturates"
-)]
-fn held(heap: &GetHeapUsageReturns) -> u64 {
-    (heap.used_size + heap.embedder_heap_used_size + heap.backing_storage_size) as u64
 }

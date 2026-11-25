@@ -5,7 +5,7 @@
 //! element's selection is.
 
 use bytestring::ByteString;
-use goodfetch_cdp::generated::{dom, input, page, runtime};
+use goodfetch_cdp::generated::{dom, input, page};
 use goodfetch_counted_work::{CountedWork, Row};
 use goodfetch_engine::CallError;
 use serde_json::Value;
@@ -14,11 +14,9 @@ use super::CdpPage;
 use super::driver::{GUARD_WORLD, world};
 use super::functions::{evaluation, page_function_world};
 use super::paused::NotTaken;
+use super::runtime_values::returned;
 use crate::errors::Call;
-
-/// What a page function's evaluation answered, which `page_functions`
-/// reads into its result.
-pub(crate) type Evaluated = runtime::EvaluateReturns;
+use crate::page_functions::Returned;
 
 /// A page's document as it stands, serialized once.
 pub(crate) struct SerializedDocument {
@@ -134,8 +132,10 @@ impl CdpPage {
         &self,
         expression: &str,
         world: Option<i64>,
-    ) -> Result<Evaluated, NotTaken> {
-        Ok(self.page.command(&evaluation(expression, world)).await?)
+    ) -> Result<Returned, NotTaken> {
+        Ok(returned(
+            self.page.command(&evaluation(expression, world)).await?,
+        ))
     }
 
     /// The page's document as the DOM holds it now, serialized once, every

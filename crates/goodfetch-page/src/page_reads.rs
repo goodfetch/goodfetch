@@ -12,9 +12,10 @@ use goodfetch_protocol::jsonrpc::ProtocolFailure;
 use goodfetch_protocol::page::functions::World;
 use serde_json::Value;
 
-use crate::cdp::{CdpPage, Evaluated, NotTaken, SerializedDocument};
+use crate::cdp::{CdpPage, NotTaken, SerializedDocument};
 use crate::errors::{Call, Unanswered};
 use crate::gesture_order::GestureTurn;
+use crate::page_functions::Returned;
 use crate::page_worlds::PageWorlds;
 
 /// The engine's reads of one Page's frames: the locator waits' checks,
@@ -120,7 +121,7 @@ pub(crate) async fn evaluate(
     expression: &str,
     world: World,
     operation: &'static str,
-) -> Result<Evaluated, CallError> {
+) -> Result<Returned, CallError> {
     let call = &Call::Action { operation };
     let mut tries = 2;
     loop {

@@ -1,0 +1,29 @@
+PRAGMA foreign_keys=OFF;
+BEGIN TRANSACTION;
+CREATE TABLE account (
+        id INTEGER NOT NULL PRIMARY KEY CHECK (id = 1),
+        name TEXT NOT NULL,
+        created TEXT NOT NULL
+    ) STRICT;
+INSERT INTO "account" VALUES(1,'Grace','2026-01-05T09:00:00Z');
+CREATE TABLE format (name TEXT NOT NULL PRIMARY KEY, version TEXT NOT NULL) STRICT;
+INSERT INTO "format" VALUES('accounts-store','0.1');
+CREATE TABLE named_tokens (
+        name TEXT NOT NULL PRIMARY KEY,
+        sha256 TEXT NOT NULL UNIQUE,
+        created TEXT NOT NULL
+    ) STRICT;
+INSERT INTO "named_tokens" VALUES('ci','8bc0c2cb9b979aede8947c887db9f351d765719bc4f1d8cbc5f4b072572cbb11','2026-01-05T09:00:00Z');
+CREATE TABLE passkeys (
+        credential_id TEXT NOT NULL PRIMARY KEY,
+        public_key TEXT NOT NULL,
+        added TEXT NOT NULL
+    ) STRICT;
+INSERT INTO "passkeys" VALUES('dGhlIHNlY3VyaXR5IGtleSdzIGNyZWRlbnRpYWw','dGhlIHNlY3VyaXR5IGtleSdzIENPU0UgcHVibGljIGtleQ','2026-01-05T09:00:00Z');
+CREATE TABLE recovery_codes (
+        sha256 TEXT NOT NULL PRIMARY KEY,
+        used TEXT
+    ) STRICT;
+INSERT INTO "recovery_codes" VALUES('9b513a38ba0779d9eb0ff1ca60525dccf8e61773fcb7c7863ba752611fe054e5','2026-01-05T10:00:00Z');
+INSERT INTO "recovery_codes" VALUES('c2976f734760f319d47553224265487cb2debc5a61231e8d862361e5f4ae06d9',NULL);
+COMMIT;

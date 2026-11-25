@@ -6,7 +6,7 @@ use crate::catalog::{
     Entries, ErrorCodeDefinition, KindPart, Operation, Product, SharedType, Yielding,
 };
 use crate::{
-    audit, block, browser_cache, checkpoint, connection, daemon, dns, download, effect, egress,
+    accounts, audit, block, browser_cache, checkpoint, connection, daemon, dns, download, effect, egress,
     engine, events, executables, foxhound, governor, hook, hostile_input, key_value_store, log,
     model, needs_you, ops, page, plugin, politeness, recipe, response_cache, response_limits, run,
     sample, schedule, schema_validator, secrets, security, settings, site_preferences, skills,
@@ -14,10 +14,11 @@ use crate::{
 };
 
 /// Every module that defines entries.
-pub const MODULES: [&Entries; 65] = [
+pub const MODULES: [&Entries; 66] = [
     &connection::ENTRIES,
     &log::ENTRIES,
     &daemon::ENTRIES,
+    &accounts::ENTRIES,
     &ops::ENTRIES,
     &governor::ENTRIES,
     &storage::ENTRIES,

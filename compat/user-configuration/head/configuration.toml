@@ -61,6 +61,9 @@ cert_file = "example"
 key_file = "example"
 upstream = true
 
+[settings.accounts]
+enabled = true
+
 [settings.ops]
 address = "example"
 attached_address = "example"

@@ -14,7 +14,7 @@ use tokio::sync::{Mutex, oneshot, watch};
 use tokio_util::sync::CancellationToken;
 
 use crate::cdp::{CdpPage, InitScriptId};
-use crate::driver::{Child, ChildKind, OnChild};
+use crate::page_children::{Child, ChildKind, OnChild};
 
 /// One page's init scripts, as its calls add and remove them, its
 /// out-of-process frames take them and its navigations wait for them.
@@ -72,7 +72,7 @@ impl InitScripts {
     }
 
     /// What the init scripts do with each of the page's out-of-process
-    /// frames, which `driver::follow_children` hands over: each live script
+    /// frames, which `page_children::follow` hands over: each live script
     /// is added on it before it runs.
     pub(crate) fn frames(&self) -> OnChild {
         let scripts = self.clone();

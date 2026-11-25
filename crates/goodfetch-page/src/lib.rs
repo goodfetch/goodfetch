@@ -38,8 +38,10 @@ mod launch;
 #[cfg(test)]
 mod live_run;
 pub mod noindex;
+mod page_children;
 mod page_events;
 mod page_functions;
+mod page_navigation;
 mod page_owner;
 mod page_reads;
 pub mod page_value;

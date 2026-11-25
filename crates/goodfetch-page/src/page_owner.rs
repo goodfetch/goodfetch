@@ -7,7 +7,10 @@
 //! arrival order (ADR 0085); the Gesture's call then sends its input. It
 //! grants a call of the Page API its reads at once ([`Reads`]), while a
 //! Gesture holds the turn too, and holds the worlds the engine keeps in the
-//! Page's documents ([`PageWorlds`]).
+//! Page's documents ([`PageWorlds`]). Each of the Page's navigations runs
+//! as one of its tasks ([`PageOwner::navigation`]), as does the following
+//! of its out-of-process frames and dedicated workers
+//! (`page_children`), so the Page's close ends them.
 //!
 //! A panic of one of its tasks closes its Page alone (ADR 0148): the owner
 //! keeps `engine_panicked`, naming the Page, which each ask in flight and
@@ -15,6 +18,7 @@
 //! to close it. A panic of its loop itself is told to its Session's owner.
 
 use std::collections::BTreeMap;
+use std::pin::Pin;
 use std::sync::Arc;
 
 use goodfetch_counted_work::{CountedWork, Row};
@@ -98,6 +102,9 @@ enum Ask {
     Turn(oneshot::Sender<GestureTurn>),
     /// A call's reads, granted at once.
     Read(oneshot::Sender<()>),
+    /// Work that waits on the browser, such as a navigation, started as one
+    /// of the owner's tasks, which answers its caller itself.
+    Start(Pin<Box<dyn Future<Output = ()> + Send>>),
 }
 
 /// Where the owner's loop keeps what a panic of one of its tasks raises:
@@ -111,33 +118,16 @@ struct Panicked {
 
 impl PageOwner {
     /// Starts the owner of the Page `page_id`, holding `parts` and the
-    /// Gesture order `order`, as a child of `session`, its Session's owner,
-    /// its loop in `span`, its Run's, counting on `metrics`, its Run's; once
-    /// it has gone, each ask raises `closed`, or `engine_panicked` after a
-    /// panic of one of its tasks. It ends once its Session's owner is
-    /// cancelled, once one of its tasks panicked, or once every clone of
-    /// what this answers has gone, after its child tasks.
+    /// Gesture order `order`, its loop a task of `session`, its Session's
+    /// owner, and its own tasks those of `tasks`, a child of `session` that
+    /// the Page's opening may have started tasks on already; its loop runs
+    /// in `span`, its Run's, counting on `metrics`, its Run's. Once it has
+    /// gone, each ask raises `closed`, or `engine_panicked` after a panic of
+    /// one of its tasks. It ends once its Session's owner is cancelled,
+    /// once one of its tasks panicked, or once every clone of what this
+    /// answers has gone, after its tasks.
     pub(crate) fn start(
-        session: &TaskStarter,
-        span: &tracing::Span,
-        (page_id, parts, order): (&PageId, PageParts, GestureOrder),
-        closed: CallError,
-        metrics: &Metrics,
-    ) -> Self {
-        Self::serving(
-            session.child(),
-            session,
-            span,
-            (page_id, parts, order),
-            closed,
-            metrics,
-        )
-    }
-
-    /// The owner [`PageOwner::start`] starts, whose tasks `owner` owns.
-    fn serving(
-        owner: TaskOwner,
-        session: &TaskStarter,
+        (session, owner): (&TaskStarter, TaskOwner),
         span: &tracing::Span,
         (page_id, parts, order): (&PageId, PageParts, GestureOrder),
         closed: CallError,
@@ -215,6 +205,42 @@ impl PageOwner {
         }
         match answered.await {
             Ok(()) => Ok(Reads::of(cdp)),
+            Err(_) => Err(self.gone().await),
+        }
+    }
+
+    /// Runs `work`, one of the Page's navigations, as a task of the owner,
+    /// beside its other asks, and answers what it answers. It counts no
+    /// round trip: a navigation waits on the browser far longer.
+    ///
+    /// # Errors
+    ///
+    /// What `work` raises; once the owner has gone, as when the Page
+    /// closes during it, `closed`, or `engine_panicked` when a panic of one
+    /// of its tasks closed it.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future ends `work` at its next wait.
+    pub(crate) async fn navigation<T: Send + 'static>(
+        &self,
+        work: impl Future<Output = Result<T, CallError>> + Send + 'static,
+    ) -> Result<T, CallError> {
+        let (mut answer, answered) = oneshot::channel();
+        let started = Box::pin(async move {
+            let outcome = tokio::select! {
+                biased;
+                () = answer.closed() => return,
+                outcome = work => outcome,
+            };
+            // Its caller may have given up the wait.
+            let _ = answer.send(outcome);
+        });
+        if self.asks.send(Ask::Start(started)).await.is_err() {
+            return Err(self.gone().await);
+        }
+        match answered.await {
+            Ok(outcome) => outcome,
             Err(_) => Err(self.gone().await),
         }
     }
@@ -380,6 +406,16 @@ async fn serve(
                 Some(Ask::Read(answer)) => {
                     // Its caller may have given up the ask.
                     let _ = answer.send(());
+                }
+                Some(Ask::Start(work)) => {
+                    let token = owner.child_token();
+                    owner.spawn(async move {
+                        tokio::select! {
+                            biased;
+                            () = token.cancelled() => {}
+                            () = work => {}
+                        }
+                    });
                 }
                 None => break,
             },

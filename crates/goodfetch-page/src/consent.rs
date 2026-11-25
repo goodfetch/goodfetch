@@ -69,11 +69,12 @@ use self::frames::{Frame, Frames};
 use self::messages::{ANSWER, Action, BINDING, DETECTING, Message, Outcome, RESTART, START};
 use crate::cdp::{CdpPage, ConsentEvent, ConsentEvents, NotTaken, TargetSession};
 use crate::consent_walls::{Approval, Wall, Walls};
-use crate::driver::{Child, ChildKind, GUARD_WORLD, OnChild, PageDriver};
+use crate::driver::{GUARD_WORLD, PageDriver};
 use crate::gesture_order::PointerAsks;
 use crate::guard::{self, Element, Readiness};
 use crate::hiding::{Part, Sheets};
 use crate::interception::{ConsentHandling, domain_key};
+use crate::page_children::{Child, ChildKind, OnChild};
 use crate::page_reads::Reads;
 use crate::trace::provenance_in;
 
@@ -265,8 +266,8 @@ struct Shared {
 
 /// Puts the bundle on every new document of the target `cdp` sends its
 /// commands to, the page's or an out-of-process iframe's, a failure
-/// translated as opening a page's (`errors`); the driver attaches the
-/// iframes, each paused until it is prepared too (`driver::follow_children`).
+/// translated as opening a page's (`errors`); the page's owner attaches the
+/// iframes, each paused until it is prepared too (`page_children::follow`).
 async fn prepare(shared: &Shared, cdp: &CdpPage) -> Result<(), CallError> {
     cdp.add_world_script_opening(shared.runner.source().to_owned(), GUARD_WORLD)
         .await

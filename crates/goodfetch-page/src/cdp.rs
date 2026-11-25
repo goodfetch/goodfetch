@@ -48,13 +48,20 @@
 //! | [`CdpPage::serialized_document`]: the page's document as the DOM holds it, serialized once with every shadow root, and its URL and base URL | `DOM.getDocument` and `DOM.getOuterHTML` with `includeShadowDOM` | `script.callFunction` reading `getHTML` with `serializableShadowRoots` | `Frame.content`; closed shadow roots are Chromium only |
 //! | [`CdpPage::document_url`]: the URL of the main frame's document, or the one it could not reach | `Page.getFrameTree` | `browsingContext.getTree` | a frame's `url`; the URL behind the browser's error page is Chromium only |
 //! | [`CdpPage::insert_text`]: text inserted where the focused element's selection is, as an input method commits it | `Input.insertText` | `input.performActions` with a `key` source for each character | `keyboardInsertText` |
+//! | [`CdpPage::history_entry`]: the URL of the entry some steps away in the page's history, and the command that goes there | `Page.getNavigationHistory` | none: Chromium only, as `browsingContext.traverseHistory` takes the step itself | none: Chromium only, as `goBack` and `goForward` take the step themselves |
+//! | [`CdpPage::navigation_events`] and [`CdpPage::navigate`]: a navigation to a URL, a reload or a step in the history, followed until it ends or reaches the state it waits for, a renderer that crashed under it told apart | `Page.navigate`, `Page.reload` or `Page.navigateToHistoryEntry`, then `Page.frameStartedNavigating`, `frameRequestedNavigation`, `frameNavigated`, `navigatedWithinDocument`, `frameStoppedLoading`, `lifecycleEvent` and `downloadWillBegin`, `Network.requestWillBeSent`, `responseReceived`, `dataReceived`, `loadingFinished` and `loadingFailed`, `Inspector.targetCrashed`, and `Page.getFrameTree` to tell a crashed renderer | `browsingContext.navigate`, `reload` or `traverseHistory` with `wait`, and the `network` and `browsingContext` events | `goto`, `reload`, `goBack` and `goForward` with `waitUntil` |
+//! | [`CdpPage::document_encoding`]: the encoding a world's document was decoded with | `Runtime.evaluate` in the world | `script.evaluate` in a `sandbox` realm | `Frame.evaluateExpression` in the `utility` world |
+//! | [`CdpPage::child_events`], [`CdpPage::attach_children_opening`] and [`CdpPage::attach_children`]: the page's out-of-process frames and dedicated workers, and each frame's own, attached before they run and told when they go | `Target.setAutoAttach` with `waitForDebuggerOnStart` and a filter, `Target.attachedToTarget` and `detachedFromTarget` | `browsingContext.contextCreated` and `contextDestroyed`, `script.realmCreated` and `realmDestroyed`; a child held before it runs is Chromium only | a frame's `attached` and `detached`, and `worker`; a child held before it runs is Chromium only |
+//! | [`CdpPage::let_run`]: a child held before it runs let run | `Runtime.runIfWaitingForDebugger` | none: Chromium only | none: Chromium only |
 
+mod children;
 mod consent;
 mod dialogs;
 mod followed;
 mod functions;
 mod hiding;
 mod init_scripts;
+mod navigation;
 mod paused;
 mod reads;
 mod requests;
@@ -65,6 +72,7 @@ use goodfetch_engine::CallError;
 
 pub(crate) use goodfetch_cdp::{NetError, SessionId as TargetSession};
 
+pub(crate) use self::children::{AttachedChild, ChildEvent, ChildEvents, ChildKind};
 pub(crate) use self::consent::{ConsentEvent, ConsentEvents};
 pub(crate) use self::dialogs::{DialogEvent, DialogEvents, OpenedDialog};
 pub(crate) use self::followed::{
@@ -72,6 +80,7 @@ pub(crate) use self::followed::{
 };
 pub(crate) use self::hiding::{HidingEvent, HidingEvents};
 pub(crate) use self::init_scripts::InitScriptId;
+pub(crate) use self::navigation::Going;
 pub(crate) use self::paused::{
     AuthAnswer, AuthChallenge, InterceptionEvent, InterceptionEvents, LoadingFailed, NetworkId,
     NotTaken, PausedRequest,

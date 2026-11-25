@@ -8,8 +8,9 @@
 //! init scripts are added and dropped, and the browser takes each addition
 //! and removal in any order; Gestures ask for the turn, come to between two
 //! of their checks, and end or are cut, while what clicks on the page
-//! beside them asks for the pointer and gives it back, and Page API calls
-//! ask for their reads; the browser sends
+//! beside them asks for the pointer and gives it back, Page API calls
+//! ask for their reads, and navigations start on the owner, arrive or are
+//! given up by their calls; the browser sends
 //! events or requests on any session still attached, opens a dialog,
 //! detaches a frame, or detaches the page; the browser floods the page's
 //! session past what its reader may hold, so the reader falls behind; the
@@ -56,6 +57,11 @@
 //! - each Page API call's ask for its reads is answered at once, whatever
 //!   Gestures hold the turn or wait for it, and raises `closed` once the
 //!   Session's owner ended;
+//! - each navigation runs on the owner and is answered once its page
+//!   arrived; its work is dropped once its call gave up, and it raises
+//!   `closed` once the Session's owner ended, while the page's close leaves
+//!   it waiting; the owner runs exactly the works of the navigations still
+//!   waiting;
 //! - each Gesture asked the owner once (`C3.owner_round_trips`), and each
 //!   call's ask for its reads once (`C2.owner_round_trips`);
 //! - each event the browser sent visited one reader of the connection, the
@@ -64,6 +70,7 @@
 //!   many times as it may hold and at most once each.
 
 use std::pin::Pin;
+use std::sync::Arc;
 use std::time::Duration;
 
 use futures_util::FutureExt as _;
@@ -84,6 +91,7 @@ use proptest::sample::Index;
 use proptest_state_machine::{ReferenceStateMachine, StateMachineTest, prop_state_machine};
 use serde_json::{Value, json};
 use tokio::runtime::Runtime;
+use tokio::sync::oneshot;
 
 use crate::cdp::CdpPage;
 use crate::dialogs::{Answer, Dialogs};
@@ -188,6 +196,12 @@ enum OrderStep {
     LeavePointer(Index),
     /// A call of the Page API asks for its reads.
     Read,
+    /// A navigation starts on the page's owner.
+    Navigate,
+    /// The browser answers a navigation: its page arrived.
+    Arrive(Index),
+    /// A navigation's call gives up its wait.
+    GiveUp(Index),
     /// The Session's owner, and the Page's under it, ends.
     EndOwner,
 }
@@ -202,13 +216,15 @@ enum Asked {
 }
 
 /// What the model expects of the Gesture order: each ask for the turn and
-/// for the pointer, the oldest first, and each call's ask for its reads,
-/// which never waits for the turn.
+/// for the pointer, the oldest first, each call's ask for its reads, which
+/// never waits for the turn, and each navigation the owner runs.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 struct Order {
     turns: Vec<Asked>,
     pointers: Vec<Asked>,
     reads: Vec<Asked>,
+    /// Each navigation: waiting for its page, answered, or refused.
+    navigations: Vec<Asked>,
     /// Whether the Gesture whose turn it is waits for the pointer it lent.
     lending: bool,
     /// Whether the page's owner ended.
@@ -227,12 +243,17 @@ impl Order {
             (12, Just(OrderStep::Gesture).boxed()),
             (6, Just(OrderStep::AskPointer).boxed()),
             (6, Just(OrderStep::Read).boxed()),
+            (4, Just(OrderStep::Navigate).boxed()),
         ];
         if !self.turns.is_empty() {
             steps.push((6, index().prop_map(OrderStep::EndGesture).boxed()));
         }
         if !self.pointers.is_empty() {
             steps.push((6, index().prop_map(OrderStep::LeavePointer).boxed()));
+        }
+        if !self.navigations.is_empty() {
+            steps.push((4, index().prop_map(OrderStep::Arrive).boxed()));
+            steps.push((2, index().prop_map(OrderStep::GiveUp).boxed()));
         }
         for (weight, step) in [(6, OrderStep::BetweenChecks), (1, OrderStep::EndOwner)] {
             if self.allows(&step) {
@@ -244,10 +265,13 @@ impl Order {
 
     fn allows(&self, step: &OrderStep) -> bool {
         match step {
-            OrderStep::Gesture | OrderStep::AskPointer | OrderStep::Read => true,
+            OrderStep::Gesture | OrderStep::AskPointer | OrderStep::Read | OrderStep::Navigate => {
+                true
+            }
             OrderStep::BetweenChecks => self.running() && !self.lending,
             OrderStep::EndGesture(_) => !self.turns.is_empty(),
             OrderStep::LeavePointer(_) => !self.pointers.is_empty(),
+            OrderStep::Arrive(_) | OrderStep::GiveUp(_) => !self.navigations.is_empty(),
             OrderStep::EndOwner => !self.ended,
         }
     }
@@ -282,6 +306,22 @@ impl Order {
                     Asked::Held
                 });
             }
+            // It runs on the owner until its page arrives: a close leaves
+            // it waiting, and the owner's end refuses it.
+            OrderStep::Navigate => self.navigations.push(if closed || self.ended {
+                Asked::Refused
+            } else {
+                Asked::Waiting
+            }),
+            OrderStep::Arrive(index) => {
+                let at = index.index(self.navigations.len());
+                if self.navigations[at] == Asked::Waiting {
+                    self.navigations[at] = Asked::Held;
+                }
+            }
+            OrderStep::GiveUp(index) => {
+                self.navigations.remove(index.index(self.navigations.len()));
+            }
             OrderStep::EndOwner => self.ended = true,
         }
         self.settle();
@@ -310,6 +350,7 @@ impl Order {
     fn settle(&mut self) {
         if self.ended {
             Self::refuse(&mut self.turns);
+            Self::refuse(&mut self.navigations);
             // A Gesture whose turn it was keeps the pointer, and lends it.
             if !self.running() {
                 Self::refuse(&mut self.pointers);
@@ -1089,6 +1130,13 @@ impl<T: 'static> Asking<T> {
 /// ended.
 type HandlerEnd = Pin<Box<dyn Future<Output = Result<DialogsEnded, CallError>>>>;
 
+/// A navigation's call, and how the browser answers it.
+struct Navigation {
+    asking: Asking<()>,
+    /// What tells its work its page arrived, until it did.
+    arrive: Option<oneshot::Sender<()>>,
+}
+
 /// A dialog handler's call, as far as it came.
 struct HandlerCall {
     /// The id of its call, which the engine's requests to it name.
@@ -1185,6 +1233,12 @@ struct Subject {
     pointers: Vec<Asking<LentPointer>>,
     /// The Page API calls' asks for their reads.
     reads: Vec<Asking<()>>,
+    navigations: Vec<Navigation>,
+    /// What would tell the works of the navigations given up their page
+    /// arrived, which the browser never does.
+    given_up: Vec<oneshot::Sender<()>>,
+    /// Held by each navigation's work while it lives.
+    working: Arc<()>,
     /// Where the page's owner counts its asks.
     owner_work: CountedWork,
     work: CountedWork,
@@ -1595,6 +1649,42 @@ impl Subject {
                     }
                 }));
             }
+            OrderStep::Navigate => {
+                let owner = (!self.closed).then(|| self.owner.clone());
+                let (arrive, arrived) = oneshot::channel::<()>();
+                let working = Arc::clone(&self.working);
+                let asking = Asking::of(async move {
+                    let work = async move {
+                        let _ = arrived.await;
+                        // Held until its page arrived, or until it was dropped.
+                        drop(working);
+                        Ok(())
+                    };
+                    match owner?.navigation(work).await {
+                        Ok(()) => Some(()),
+                        Err(error) => {
+                            assert_eq!(error.code(), CLOSED.name, "{error:?}");
+                            None
+                        }
+                    }
+                });
+                self.navigations.push(Navigation {
+                    asking,
+                    arrive: Some(arrive),
+                });
+            }
+            OrderStep::Arrive(index) => {
+                let at = index.index(self.navigations.len());
+                if let Some(arrive) = self.navigations[at].arrive.take() {
+                    // Its work may have ended with the owner.
+                    let _ = arrive.send(());
+                }
+            }
+            OrderStep::GiveUp(index) => {
+                let given_up = self.navigations.remove(index.index(self.navigations.len()));
+                // The browser never answers it: only its owner ends its work.
+                self.given_up.extend(given_up.arrive);
+            }
             OrderStep::EndOwner => self.session.cancel(),
         }
     }
@@ -1608,6 +1698,7 @@ impl Subject {
             gestures,
             pointers,
             reads,
+            navigations,
             ..
         } = self;
         runtime.block_on(async {
@@ -1615,6 +1706,9 @@ impl Subject {
                 gestures.iter_mut().for_each(Asking::take);
                 pointers.iter_mut().for_each(Asking::take);
                 reads.iter_mut().for_each(Asking::take);
+                for navigation in navigations.iter_mut() {
+                    navigation.asking.take();
+                }
                 tokio::task::yield_now().await;
             }
         });
@@ -1698,7 +1792,7 @@ impl StateMachineTest for Subject {
                 &json!({ "page_id": page_id() }),
             );
             let owner = PageOwner::start(
-                &session,
+                (&session, session.child()),
                 &tracing::Span::none(),
                 (&page_id(), parts, order),
                 closed,
@@ -1713,6 +1807,9 @@ impl StateMachineTest for Subject {
             gestures: Vec::new(),
             pointers: Vec::new(),
             reads: Vec::new(),
+            navigations: Vec::new(),
+            given_up: Vec::new(),
+            working: Arc::new(()),
             owner_work,
             work,
             connection,
@@ -1888,6 +1985,11 @@ impl StateMachineTest for Subject {
             turns: subject.gestures.iter().map(Asking::asked).collect(),
             pointers: subject.pointers.iter().map(Asking::asked).collect(),
             reads: subject.reads.iter().map(Asking::asked).collect(),
+            navigations: subject
+                .navigations
+                .iter()
+                .map(|navigation| navigation.asking.asked())
+                .collect(),
             lending: subject
                 .gestures
                 .iter()
@@ -1897,6 +1999,17 @@ impl StateMachineTest for Subject {
             read_asks: subject.owner_work.read(Row::PageReadOwnerRoundTrips),
         };
         assert_eq!(order, reference.order, "the Gesture order");
+        let waiting = reference
+            .order
+            .navigations
+            .iter()
+            .filter(|navigation| **navigation == Asked::Waiting)
+            .count();
+        assert_eq!(
+            Arc::strong_count(&subject.working) - 1,
+            waiting,
+            "the navigations' works the owner runs"
+        );
         assert_eq!(
             subject.work.read(Row::CdpEventVisits) - subject.flood_visits,
             reference.visits,

@@ -128,8 +128,9 @@ use crate::cdp::{
     TargetSession,
 };
 use crate::driver::cdp_response::{cut_by, declared_length};
-use crate::driver::{Child, ChildKind, OnChild, PageDriver, browser_id, hop_id};
+use crate::driver::{PageDriver, browser_id, hop_id};
 use crate::errors::events_lost;
+use crate::page_children::{Child, ChildKind, OnChild};
 use crate::page_value::{Kept, ObservedResponse, Observer};
 use crate::url_pattern::UrlPattern;
 
@@ -569,7 +570,7 @@ impl PageEvents {
     }
 
     /// What the page's events do with each of its out-of-process frames,
-    /// which `driver::follow_children` hands over: each one's network is
+    /// which `page_children::follow` hands over: each one's network is
     /// read from before it runs, so its requests count in the page's
     /// `networkidle` and reach its waiters and events, their bodies read on
     /// the frame's session, and a document request the page started ends

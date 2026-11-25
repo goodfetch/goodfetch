@@ -104,7 +104,6 @@ use crate::browser_fetch;
 use crate::cdp::{CdpPage, SerializedDocument};
 use crate::dialogs::{self, Dialogs};
 use crate::document_request::{DocumentRequest, Unread};
-use crate::driver::Destination;
 use crate::extractor;
 use crate::fields;
 use crate::guard::{self, Action, Request, SentMark, Window};
@@ -115,6 +114,7 @@ use crate::interception::{
 use crate::launch::Launcher;
 use crate::page_events::{PageEvents, Requested};
 use crate::page_functions::{self, Injection, Matches};
+use crate::page_navigation::{self, Destination};
 use crate::page_owner::PageOwners;
 use crate::page_reads;
 use crate::page_value::{
@@ -1289,10 +1289,12 @@ impl Pages {
             .life
             .call(
                 PageEvent::Goto,
-                page.driver.having_spent(spent).navigate(
+                page_navigation::navigate(
+                    &page.owner,
+                    page.driver.having_spent(spent).into_owned(),
                     destination,
                     wait_until,
-                    deadline.as_ref(),
+                    deadline,
                 ),
             )
             .await;

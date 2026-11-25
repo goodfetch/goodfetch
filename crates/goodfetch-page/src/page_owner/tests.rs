@@ -24,6 +24,7 @@ use crate::interception::{Interception, PageInterception};
 use crate::live_run::{LiveRun, Served, played_page};
 use crate::page_events::PageEvents;
 use crate::page_events::tests::started;
+use crate::page_worlds::PageWorlds;
 
 /// The parts of the page `page_id`, which `driver` drives for the test's
 /// Run: `events` and `interception`, its dialogs, which `dialogs` answers,
@@ -41,7 +42,7 @@ pub(crate) fn parts(
         interception,
         walls: Walls::default(),
         hiding: Hiding::new(None, Arc::new(Sheets::new(driver, run))),
-        worlds: driver.worlds().clone(),
+        worlds: PageWorlds::default(),
     }
 }
 
@@ -107,9 +108,8 @@ fn a_panic_of_one_of_its_tasks_closes_the_page_with_engine_panicked() {
             let session = run.child();
             let owner = session.child();
             owner.spawn(async { panic!("a bug in one of the Page's tasks") });
-            let page = PageOwner::serving(
-                owner,
-                &session,
+            let page = PageOwner::start(
+                (&session, owner),
                 &tracing::Span::none(),
                 (&page_id, parts, GestureOrder::new().0),
                 page_closed(&page_id),
@@ -141,7 +141,7 @@ fn an_ask_whose_owner_ended_without_a_panic_raises_closed() {
     let asked = runtime().block_on(with_parts(&page_id, async |parts| {
         let session = TaskOwner::root(BlockingPolicy::Inline);
         let page = PageOwner::start(
-            &session,
+            (&session, session.child()),
             &tracing::Span::none(),
             (&page_id, parts, GestureOrder::new().0),
             page_closed(&page_id),

@@ -22,7 +22,7 @@ use goodfetch_engine::CallError;
 use serde_json::{Value, json};
 use tokio::sync::{mpsc, oneshot};
 
-use super::{Browser, Connect, SessionDriver, isolated_world, world};
+use super::{Browser, Connect, GUARD_WORLD, SessionDriver, world};
 use crate::errors::Call;
 
 /// The origins whose documents a Session's pages loaded, which its pages'
@@ -404,6 +404,17 @@ async fn commit(
         }
     }
     Ok(true)
+}
+
+/// The command that makes, or finds by its name, the guard's isolated
+/// world in `frame`'s document.
+fn isolated_world(frame: page::FrameId) -> page::CreateIsolatedWorldParams {
+    page::CreateIsolatedWorldParams {
+        frame_id: frame,
+        world_name: Some(GUARD_WORLD.to_owned()),
+        grant_univeral_access: None,
+        content_security_policy: None,
+    }
 }
 
 #[cfg(test)]

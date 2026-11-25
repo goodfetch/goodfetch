@@ -29,7 +29,6 @@ use tokio::sync::watch;
 use super::{Browser, PageDriver, prepare};
 use crate::errors::Call;
 use crate::page_value::PageValue;
-use crate::page_worlds::PageWorlds;
 
 /// The target type of a page.
 pub(super) const PAGE: &str = "page";
@@ -156,7 +155,6 @@ impl PageDriver {
             started: Arc::new(watch::Sender::new(0)),
             navigating: Arc::new(watch::Sender::new(0)),
             spent: Duration::ZERO,
-            worlds: PageWorlds::default(),
             value: PageValue::empty(),
             waits: None,
             reader: None,

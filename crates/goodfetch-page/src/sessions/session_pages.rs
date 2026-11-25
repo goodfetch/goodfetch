@@ -21,6 +21,7 @@ use goodfetch_engine::events::Events;
 use goodfetch_engine::governor::Permit;
 use goodfetch_engine::runs::{Run, identity, run_trace};
 use goodfetch_engine::settings::Values;
+use goodfetch_engine::tasks::TaskStarter;
 use goodfetch_engine::{CallContext, CallError};
 use goodfetch_protocol::connection::ClosedValue;
 use goodfetch_protocol::governor::WorkKind;
@@ -42,15 +43,17 @@ use crate::cdp::CdpPage;
 use crate::consent;
 use crate::consent_walls::Walls;
 use crate::dialogs::PageDialogs;
-use crate::driver::{OnChild, OnPopup, PageDriver, PopupHandler, SessionEgress};
+use crate::driver::{OnPopup, PageDriver, PopupHandler, SessionEgress};
 use crate::errors::page_closed;
 use crate::gesture_order::{GestureOrder, PointerAsks};
 use crate::hiding::{Hiding, PageHiding, Sheets};
 use crate::init_scripts::InitScripts;
 use crate::interception::{OnDocument, PageInterception};
+use crate::page_children::{self, OnChild};
 use crate::page_events::{PageEvents, Refusals};
 use crate::page_owner::{PageOwner, PageParts};
 use crate::page_value::{Observer, Reader};
+use crate::page_worlds::PageWorlds;
 use crate::pool::InBrowser;
 use crate::recovery::{Checking, Declared};
 
@@ -137,9 +140,7 @@ impl TakenIn {
                 interception,
                 walls: self.walls.clone(),
                 hiding,
-                // The driver's navigations find the guard's world there
-                // until they move to the owner (#2272).
-                worlds: self.driver.worlds().clone(),
+                worlds: PageWorlds::default(),
             },
         )
     }
@@ -334,9 +335,13 @@ impl Sessions {
         // The runner clicks on the page while it is taken in, before its
         // owner starts and lends it the pointer.
         let (order, pointer) = GestureOrder::new();
+        // The owner's tasks, which start before it does: its children's
+        // following ends with the page if the page is never kept.
+        let tasks = open.owner.child();
+        let unkept = tasks.token().clone().drop_guard();
         let routed = self
             .hold(
-                (&mut taken_in, session),
+                (&mut taken_in, session, &tasks),
                 (&driver, open.as_ref()),
                 (refusals, in_frames, pointer),
             )
@@ -352,12 +357,13 @@ impl Sessions {
         let (in_browser, parts) = taken_in.kept();
         // Its owner, under its Session's (ADR 0146).
         let owner = PageOwner::start(
-            &open.owner,
+            (&open.owner, tasks),
             identity(&run).span(),
             (&page, parts, order),
             page_closed(&page),
             run.metrics(),
         );
+        unkept.disarm();
         self.page_owners.kept(page.clone(), owner.clone());
         let opened = OpenPage {
             clock: run.clock(),
@@ -399,13 +405,14 @@ impl Sessions {
     /// which `driver` drives with the Session's own settings, under the
     /// interception, live hiding and the Consent prompt runner, each of its
     /// out-of-process frames and dedicated workers held by them, and then
-    /// by `in_frames`, before it runs; `taken_in` then holds its side of
+    /// by `in_frames`, before it runs, followed on its owner's `tasks`;
+    /// `taken_in` then holds its side of
     /// the interception and its hiding, the documents' hiding sheets live
     /// hiding shares with the runner. Answers how many of its requests wait
     /// on a route handler now.
     async fn hold(
         &self,
-        (taken_in, session): (&mut TakenIn, &SessionId),
+        (taken_in, session, tasks): (&mut TakenIn, &SessionId, &TaskStarter),
         (driver, open): (&PageDriver, &Session),
         (refusals, in_frames, pointer): (Refusals, Vec<OnChild>, PointerAsks),
     ) -> Result<watch::Receiver<usize>, CallError> {
@@ -460,7 +467,12 @@ impl Sessions {
         // other parts took it in.
         let mut handlers = vec![held.children, consent];
         handlers.extend(in_frames);
-        driver.follow_children(run, handlers).await?;
+        page_children::follow(
+            &CdpPage::of(driver),
+            (tasks, identity(run).span()),
+            handlers,
+        )
+        .await?;
         Ok(held.routed)
     }
 

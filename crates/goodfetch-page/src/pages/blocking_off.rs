@@ -22,8 +22,8 @@ use super::Pages;
 use super::arrival::{arrived, judging};
 use super::blocked::{block_of, blocked};
 use crate::blocks::Block;
-use crate::driver::Destination;
 use crate::interception::{self, Lists};
+use crate::page_navigation::{self, Destination};
 use crate::recovery;
 use crate::sessions::{OpenPage, PageEvent};
 use crate::trace;
@@ -127,8 +127,13 @@ impl Pages {
             .life
             .call(
                 PageEvent::Goto,
-                page.driver
-                    .navigate(again, first.wait_until, deadline.as_ref()),
+                page_navigation::navigate(
+                    &page.owner,
+                    page.driver.clone(),
+                    again,
+                    first.wait_until,
+                    deadline,
+                ),
             )
             .await;
         let navigated = match Self::left_failure(page) {

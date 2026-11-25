@@ -9,7 +9,8 @@
 //! a page past its memory cap as its watch does: a page found in neither
 //! the open pages nor the ended ones would answer `closed`. A last one
 //! reads which Sessions interception alone holds (#2435), and one which
-//! Session's end the run file waits for (#2168).
+//! Session's end the run file waits for (#2168). Another panics in a task
+//! of a Session's owner, which closes that Session alone (#3263).
 #![expect(
     clippy::disallowed_methods,
     reason = "tests run on the test Clock and Entropy (ADR 0059)"
@@ -84,6 +85,13 @@ const ENDED_PAST_CAP: Operation = Operation {
 const SESSION_ENDED: Operation = Operation {
     name: "test.session_ended",
     description: "Opens a Session and ends it, counting the commits its end made.",
+    ..STOPPED_OPEN
+};
+
+/// Opens the Run's default Session and panics in a task of its owner.
+const SESSION_PANICKED: Operation = Operation {
+    name: "test.session_panicked",
+    description: "Panics in a task of a Session's owner and calls the Session after.",
     ..STOPPED_OPEN
 };
 
@@ -232,6 +240,46 @@ async fn session_ended(params: Value, context: CallContext) -> Result<Value, Cal
     Ok(json!({ "commits": made }))
 }
 
+/// `test.session_panicked`: starts the Run `run_id`, reaches it in a
+/// Sessions table of its own and opens its default Session, then panics in
+/// a task of the Session's owner and lets the engine close the Session.
+/// Answers whether the table still names it, what a call reading its pages
+/// raises after, and whether the Run is still live.
+async fn session_panicked(params: Value, context: CallContext) -> Result<Value, CallError> {
+    let run_id = RunId::parse(params["run_id"].as_str().unwrap()).unwrap();
+    let run = started(&run_id, &context).await?;
+    let sessions = table();
+    sessions.reach(&run, &context).await?;
+    let position = sessions
+        .open_held(&run, None, None, Opener::Default, &context)
+        .await?;
+    let session = super::session_id(run.id(), position);
+    let open = sessions.index.session(&session).unwrap();
+
+    open.owner
+        .spawn(async { panic!("a bug in a task of the Session's owner") });
+    drop(open);
+
+    // Bounded, so a Session the panic leaves open fails the test, never hangs it.
+    for _ in 0..10_000 {
+        if sessions.index.session(&session).is_none() {
+            break;
+        }
+        tokio::task::yield_now().await;
+    }
+    let named = sessions.index.session(&session).is_some();
+    let raised = sessions.pages(&session, &context).await.err();
+    let run_live = context.runs().live(run.id().clone()).await.is_ok();
+    run.cancellation().cancel();
+    Ok(json!({
+        "session": session.0,
+        "named": named,
+        "raised": raised.as_ref().map(CallError::code),
+        "details": raised.as_ref().and_then(CallError::details),
+        "run_live": run_live,
+    }))
+}
+
 /// The engine's operations, the page crate's and the test's.
 fn engine() -> Engine {
     let identity = Identity {
@@ -246,7 +294,8 @@ fn engine() -> Engine {
             Contribution::new("test")
                 .with_handler(Handler::new(&STOPPED_OPEN, stopped_open))
                 .with_handler(Handler::new(&ENDED_PAST_CAP, ended_past_cap))
-                .with_handler(Handler::new(&SESSION_ENDED, session_ended)),
+                .with_handler(Handler::new(&SESSION_ENDED, session_ended))
+                .with_handler(Handler::new(&SESSION_PANICKED, session_panicked)),
         );
     Engine::new(identity, &composition).unwrap()
 }
@@ -409,6 +458,28 @@ fn only_a_session_the_run_file_records_commits_its_end(#[case] opener: &str, #[c
     );
 
     assert_eq!(reply["result"], json!({ "commits": commits }), "{reply}");
+}
+
+/// A panic in a task of a Session's owner closes that Session alone: the
+/// engine takes it out of the table, a later call on it raises
+/// `engine_panicked` naming it, never `closed`, and its Run goes on
+/// (ADR 0148, #3263).
+#[test]
+fn a_panic_in_a_sessions_task_closes_the_session_alone_and_its_calls_raise_engine_panicked() {
+    let env = TestEnv::new();
+
+    let reply = call(
+        &env,
+        "test.session_panicked",
+        json!({ "run_id": "session-panicked" }),
+    );
+
+    let result = &reply["result"];
+    assert_eq!(result["named"], json!(false), "{reply}");
+    assert_eq!(result["raised"], json!("engine_panicked"), "{reply}");
+    assert_eq!(result["details"]["ended"], json!("session"), "{reply}");
+    assert_eq!(result["details"]["id"], result["session"], "{reply}");
+    assert_eq!(result["run_live"], json!(true), "{reply}");
 }
 
 /// A setting a program's own code sets at no scope is refused at a

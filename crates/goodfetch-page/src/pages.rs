@@ -190,10 +190,7 @@ pub fn contribution_with(
     let contribution = with_session_handlers(contribution, &pages.sessions);
     let contribution = with_locator_handlers(contribution, &pages);
     let contribution = with_event_handlers(contribution, &pages);
-    let contribution = with_route_handlers(
-        contribution,
-        (&pages.interception, pages.sessions.page_owners()),
-    );
+    let contribution = with_route_handlers(contribution, (&pages.interception, &pages.sessions));
     let contribution =
         with_dialog_handlers(contribution, (&pages.dialogs, pages.sessions.page_owners()));
     let contribution = with_function_handlers(contribution, &pages);
@@ -521,10 +518,9 @@ fn with_session_handlers(contribution: Contribution, sessions: &Sessions) -> Con
 /// delivered when its call arrives.
 fn with_route_handlers(
     contribution: Contribution,
-    (interception, owners): (&Interception, &PageOwners),
+    (interception, sessions): (&Interception, &Sessions),
 ) -> Contribution {
-    let (paging, sessioning) = (interception.clone(), interception.clone());
-    let owners = owners.clone();
+    let (owners, sessions) = (sessions.page_owners().clone(), sessions.clone());
     let contribution = contribution
         .with_handler(Handler::new(
             &PAGE_ROUTE,
@@ -532,7 +528,7 @@ fn with_route_handlers(
                 let armed = owners.get(&params.page_id).map_or_else(
                     || Err(sessions::page_closed(&params.page_id)),
                     |owner| {
-                        paging.arm(
+                        Interception::arm(
                             Scope::Page(owner.interception()),
                             &params.url,
                             context.client(),
@@ -546,12 +542,16 @@ fn with_route_handlers(
         .with_handler(Handler::new(
             &SESSION_ROUTE,
             move |params: SessionRouteParams, context: CallContext| {
-                let armed = sessioning.arm(
-                    Scope::Session(&params.session_id),
-                    &params.url,
-                    context.client(),
-                    context.id(),
-                );
+                let armed = sessions
+                    .interception_of(&params.session_id)
+                    .and_then(|session| {
+                        Interception::arm(
+                            Scope::Session(&session),
+                            &params.url,
+                            context.client(),
+                            context.id(),
+                        )
+                    });
                 async move { armed?.ended().await }
             },
         ));
@@ -1054,10 +1054,11 @@ impl BrowserPages for Opener {
                 .pool_session(run_id, pooled, context)
                 .await?;
             let (run, own) = self.pages.sessions.own_settings(&session)?;
+            let side = self.pages.sessions.interception_of(&session)?;
             let steps = self
                 .pages
                 .interception
-                .engine_requests_of(&session, &interception_run(&run), &own)
+                .engine_requests_of(&side, &interception_run(&run), &own)
                 .await?;
             let limits = Limits::of_run(run.settings());
             let headers: BTreeMap<String, String> = request.headers.iter().cloned().collect();

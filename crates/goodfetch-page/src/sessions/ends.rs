@@ -18,8 +18,8 @@ use std::sync::Arc;
 use goodfetch_engine::runs::{Run, identity};
 use goodfetch_engine::tasks::TaskStarter;
 use goodfetch_protocol::connection::ENGINE_PANICKED;
-use goodfetch_protocol::page::PageId;
 use goodfetch_protocol::page::events::{PAGE_CLOSE, PAGE_CRASH, PAGE_EVENTS_LOST, PageEventName};
+use goodfetch_protocol::page::{PageId, SessionId};
 use goodfetch_protocol::run::RunId;
 use goodfetch_protocol::usage::PAGE_CRASHES;
 use tokio::sync::mpsc;
@@ -29,7 +29,7 @@ use super::life::Ending;
 use super::lifecycle::{PageEffect, SessionEffect, SessionEvent};
 use super::{OpenPage, PageLife, Session, Sessions};
 use crate::driver::{Lost, PageDriver};
-use crate::errors::run_stopped;
+use crate::errors::{run_stopped, session_panicked};
 use crate::pool::BrowserLoss;
 
 impl Sessions {
@@ -152,6 +152,55 @@ impl Sessions {
                 false
             }
         }
+    }
+
+    /// Follows the Session `open`, named `session`, as a task of its Run,
+    /// until it ends or its Run stops: a panic of one of its owner's
+    /// tasks, its seat's actor, its egress relay's or its pages' watches,
+    /// closes it alone, with its pages, which raise the panic's
+    /// `engine_panicked`, as its later calls do; its Run goes on (ADRs 0146,
+    /// 0148). A page's own panic is its page owner's, which closes the page
+    /// alone.
+    pub(super) fn watch_session(&self, session: SessionId, open: &Arc<Session>) {
+        let (sessions, open) = (self.clone(), Arc::clone(open));
+        let (run, stopping) = (open.run.clone(), open.run.cancellation().clone());
+        let span = identity(&run).span().clone();
+        let task = async move {
+            tokio::select! {
+                () = open.owner.panicked() => {}
+                () = open.life.ended() => return,
+                () = stopping.cancelled() => return,
+            }
+            tracing::error!(
+                session_id = %session.0,
+                "a task of the Session's owner panicked: the engine closes the Session alone"
+            );
+            let error = session_panicked(
+                open.run.metrics(),
+                &session,
+                open.owner.panicked_crash_report(),
+            );
+            // Recorded before the Session leaves the index, so a call that
+            // no longer finds it raises the panic.
+            open.life.panicked(error.clone());
+            sessions.index.panicked(&session, &open, error.clone());
+            let ended = match open.life.apply(SessionEvent::Close, None) {
+                Ok(effect) => {
+                    sessions
+                        .end_session_with(&open, &session, effect, &Ending::Panicked(error))
+                        .await
+                }
+                Err(error) => Err(error),
+            };
+            match ended {
+                Ok(Ok(())) => {}
+                Ok(Err(error)) => {
+                    tracing::warn!(%error, "a Session a panic closed is not recorded closed");
+                }
+                Err(error) => tracing::error!(%error, "a Session's end after a panic was refused"),
+            }
+        };
+        run.spawn(task.instrument(span));
     }
 
     /// Follows the losses of the browsers of `run`'s pool, `losses`, until

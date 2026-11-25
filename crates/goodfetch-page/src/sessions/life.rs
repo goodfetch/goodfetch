@@ -603,6 +603,9 @@ struct SessionShared {
     crashed: OnceLock<CallError>,
     /// What the calls that waited on its open raise once the open failed.
     failed: OnceLock<CallError>,
+    /// What its later calls raise once a panic of one of its owner's tasks
+    /// closed it (ADR 0148).
+    panicked: OnceLock<CallError>,
 }
 
 impl SessionLife {
@@ -615,8 +618,16 @@ impl SessionLife {
                 state: watch::Sender::new(state),
                 crashed: OnceLock::new(),
                 failed: OnceLock::new(),
+                panicked: OnceLock::new(),
             }),
         }
+    }
+
+    /// A panic of one of its owner's tasks closes the Session: its later
+    /// calls raise `error`, the panic's `engine_panicked`, in place of
+    /// `closed`.
+    pub(crate) fn panicked(&self, error: CallError) {
+        let _ = self.shared.panicked.set(error);
     }
 
     /// Where the Session is.
@@ -730,9 +741,12 @@ impl SessionLife {
         waited: bool,
     ) -> CallError {
         match invalid.refusal {
-            Refusal::Program(code) if code == CLOSED.name => waited
-                .then(|| self.shared.failed.get().cloned())
-                .flatten()
+            Refusal::Program(code) if code == CLOSED.name => self
+                .shared
+                .panicked
+                .get()
+                .cloned()
+                .or_else(|| waited.then(|| self.shared.failed.get().cloned()).flatten())
                 .unwrap_or_else(|| session_closed(&self.shared.session)),
             Refusal::Program(code) if code == PAGE_CRASHED.name => self
                 .shared

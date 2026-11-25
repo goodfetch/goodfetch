@@ -7,7 +7,7 @@ use goodfetch_engine::metrics::Metrics;
 use goodfetch_engine::runs::identity;
 use goodfetch_engine::tasks::{BlockingPolicy, OwnerKind, TaskOwner};
 use goodfetch_protocol::connection::CLOSED;
-use goodfetch_protocol::page::{PageId, SessionId};
+use goodfetch_protocol::page::PageId;
 use goodfetch_test_support::{TestEnv, runtime};
 use serde_json::{Value, json};
 
@@ -19,8 +19,8 @@ use crate::driver::PageDriver;
 use crate::gesture_order::GestureOrder;
 use crate::hiding::{Hiding, Sheets};
 use crate::init_scripts::InitScripts;
-use crate::interception::tests::hold_page;
-use crate::interception::{Interception, PageInterception};
+use crate::interception::PageInterception;
+use crate::interception::tests::{hold_page, session_side};
 use crate::live_run::{LiveRun, Served, played_page};
 use crate::page_events::PageEvents;
 use crate::page_events::tests::started;
@@ -54,15 +54,12 @@ async fn with_parts<T>(page_id: &PageId, body: impl AsyncFnOnce(PageParts) -> T)
     let env = TestEnv::new();
     let (live, mut engine): (LiveRun, Served) = LiveRun::start(&env).await;
     let (driver, played, mut connection) = played_page();
-    let session = SessionId("session-1".to_owned());
-    let interception = Interception::default();
-    interception.open_session(&session);
     let parts = parts(
         (page_id, &driver, &live),
         &Dialogs::default(),
         (
             started(page_id, &driver, &live),
-            hold_page(&interception, page_id, &session),
+            hold_page(page_id, &session_side()),
         ),
     );
     let ran = tokio::select! {

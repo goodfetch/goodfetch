@@ -111,7 +111,7 @@ use crate::egress_relay::{self, EgressRelay};
 pub(crate) use crate::errors::page_closed;
 use crate::errors::{cancelled, invalid_transition};
 use crate::hiding::SessionHiding;
-use crate::interception::{HeldBrowser, Interception, Lookups, RunPowers};
+use crate::interception::{HeldBrowser, Interception, Lookups, RunPowers, SessionInterception};
 use crate::launch::Launcher;
 use crate::page_events;
 use crate::page_functions::Injections;
@@ -167,8 +167,6 @@ pub(crate) struct Sessions {
     /// What each page carries for the Product that hands pages to
     /// handlers: its value and its response observer (ADR 0087).
     handler_pages: Arc<dyn HandlerPages>,
-    /// How many calls listen to each Session's `page` event.
-    page_listeners: session_pages::PageListeners,
     /// Each open page's owner, by its ID.
     page_owners: PageOwners,
 }
@@ -183,6 +181,8 @@ struct State {
     /// The crashed pages a close released, and those the Resource governor
     /// ended past their memory cap, by their Run, whose later calls raise
     /// `page_crashed` or `page_memory_exceeded` again until their Run stops.
+    /// They outlive their Session, so they are their Run's, never their
+    /// Session's (ADR 0146).
     crashed: BTreeMap<PageId, (RunId, PageLife)>,
     opened_pages: u64,
 }
@@ -240,6 +240,11 @@ struct Session {
     /// The live hiding its pages share: the clicks' lifted rules and its
     /// pages under live hiding.
     hiding: Arc<SessionHiding>,
+    /// Its side of the interception: its routes, its pages' pending
+    /// navigations, its lookups and its signer.
+    interception: Arc<SessionInterception>,
+    /// How many calls listen to its `page` event.
+    page_listeners: session_pages::PageListeners,
     /// The engine's Run index, where its pages' consent walls are recorded
     /// for "Needs you".
     run_index: RunIndex,
@@ -505,7 +510,6 @@ impl Sessions {
             consent: Consent::default(),
             dialogs,
             handler_pages,
-            page_listeners: session_pages::PageListeners::default(),
             page_owners: PageOwners::default(),
         }
     }
@@ -573,6 +577,12 @@ impl Sessions {
             };
             let session = session_id(run.id(), position);
             let life = SessionLife::new(session.clone(), attributes, SessionState::Opening);
+            let interception = session_interception(
+                (&session, &run),
+                borrowed.as_ref(),
+                (relay.is_some(), proxy.is_some()),
+                signing,
+            );
             let open = Arc::new(Session {
                 owner,
                 pages: HeldPages::default(),
@@ -590,16 +600,18 @@ impl Sessions {
                     .map(|_| session_pages::HeldFrames::default()),
                 injections: Injections::default(),
                 hiding: Arc::default(),
+                interception,
+                page_listeners: session_pages::PageListeners::default(),
                 run_index: context.engine().run_index().clone(),
             });
             self.index.opened(session.clone(), Arc::clone(&open));
-            self.open_in_interception(&session, &open, borrowed.as_ref(), signing);
+            self.watch_session(session.clone(), &open);
             (session, life, open)
         };
         if let Err(error) = open.seat.open().await {
             life.open_failed(error.clone())?;
             self.index.ended(&session, &open);
-            self.interception.close_session(&session);
+            open.interception.close();
             open.owner.stop().await;
             return Err(error);
         }
@@ -717,6 +729,12 @@ impl Sessions {
         // The Run may have stopped while its record was written: a Session
         // goes into the table only while its Run is there, under the lock
         // its clean-up takes it out under (#1763).
+        let interception = session_interception(
+            (&session, run),
+            borrowed,
+            (relay.is_some(), proxy.is_some()),
+            signing,
+        );
         let held = Arc::new(Session {
             owner,
             pages: HeldPages::default(),
@@ -732,12 +750,14 @@ impl Sessions {
             held_frames: borrowed.map(|_| session_pages::HeldFrames::default()),
             injections: Injections::default(),
             hiding: Arc::default(),
+            interception,
+            page_listeners: session_pages::PageListeners::default(),
             run_index: context.engine().run_index().clone(),
         });
         let mut state = self.state.lock().await;
         reached(&mut state, run)?;
         self.index.opened(session.clone(), Arc::clone(&held));
-        self.open_in_interception(&session, &held, borrowed, signing);
+        self.watch_session(session, &held);
         Ok(position)
     }
 
@@ -878,13 +898,37 @@ impl Sessions {
         Ok(session_id(run.id(), position))
     }
 
+    /// What a call on the Session `session`, which the index no longer
+    /// names, raises: the `engine_panicked` of the panic that closed it,
+    /// until its Run ends, or else `closed`.
+    fn closed_session(&self, session: &SessionId) -> CallError {
+        self.index
+            .panic_of(session)
+            .unwrap_or_else(|| session_closed(session))
+    }
+
     /// The Run of the open Session `session` and its own settings, which
     /// its pages take over the Run's; `closed` once it closed.
     pub(crate) fn own_settings(&self, session: &SessionId) -> Result<(Run, Values), CallError> {
         self.index
             .session(session)
             .map(|open| (open.run.clone(), open.settings.clone()))
-            .ok_or_else(|| session_closed(session))
+            .ok_or_else(|| self.closed_session(session))
+    }
+
+    /// The side of the interception the open Session `session` holds.
+    ///
+    /// # Errors
+    ///
+    /// `closed` when the Session is closed, or its Run ended.
+    pub(crate) fn interception_of(
+        &self,
+        session: &SessionId,
+    ) -> Result<Arc<SessionInterception>, CallError> {
+        self.index
+            .session(session)
+            .map(|open| Arc::clone(&open.interception))
+            .ok_or_else(|| self.closed_session(session))
     }
 
     /// Retires the Session a crawl's Session pool names `pooled` in the
@@ -932,12 +976,28 @@ impl Sessions {
         effect: SessionEffect,
         context: &CallContext,
     ) -> Result<(), CallError> {
+        self.end_session_with(open, session, effect, &Ending::Closed(ClosedValue::Session))
+            .await?
+            .map_err(|error| unavailable(&open.run, &error, context))
+    }
+
+    /// Ends the Session `open`, whose table answered `effect` to its
+    /// `Close`, its `Retire` or a panic of one of its owner's tasks: its
+    /// pages end by `ending`, then its browser context closes. Answers
+    /// whether its run state recorded its end.
+    async fn end_session_with(
+        &self,
+        open: &Arc<Session>,
+        session: &SessionId,
+        effect: SessionEffect,
+        ending: &Ending,
+    ) -> Result<Result<(), RunStateError>, CallError> {
         if let Some(proxy) = &open.proxy {
             proxy.warn_if_outlived(&open.run, session).await;
         }
         let crashed = match effect {
             // Already closing or closed: `close()` changes nothing (C).
-            SessionEffect::Nothing => return Ok(()),
+            SessionEffect::Nothing => return Ok(Ok(())),
             SessionEffect::AbandonOpen
             | SessionEffect::CloseChildren
             | SessionEffect::EndAttachAndClose => false,
@@ -968,7 +1028,7 @@ impl Sessions {
         // Calls in flight on its pages end first (S7, P8); a crashed page
         // releases what is left (P33).
         for (page_id, page) in open.pages.all() {
-            match page.life.end(&Ending::Closed(ClosedValue::Session))? {
+            match page.life.end(ending)? {
                 PageEffect::Close => closing.push((page_id, page)),
                 effect => {
                     self.page_ended(&page_id, &open.run, &page.life, effect)
@@ -986,14 +1046,14 @@ impl Sessions {
         }
         if crashed {
             open.owner.stop().await;
-            return Ok(());
+            return Ok(Ok(()));
         }
         open.life.apply(SessionEvent::ChildrenClosed, None)?;
         let ended = self.session_ended(open, session).await;
         // Its owner stops last, waiting for every task it and its pages
         // started (ADR 0146).
         open.owner.stop().await;
-        ended.map_err(|error| unavailable(&open.run, &error, context))
+        Ok(ended)
     }
 
     /// The Session `session` ended: it leaves, whatever pages it still
@@ -1016,7 +1076,7 @@ impl Sessions {
         // Its pages go once the index no longer names it: a page kept
         // meanwhile is among them.
         self.page_owners.close(&open.pages.end());
-        self.interception.close_session(session);
+        open.interception.close();
         if open.life.pooled() {
             return Ok(());
         }
@@ -1051,11 +1111,11 @@ impl Sessions {
         let open = self
             .index
             .session(session)
-            .ok_or_else(|| session_closed(session))?;
+            .ok_or_else(|| self.closed_session(session))?;
         let races = match work {
             EngineWork::ArrivingDocument => true,
             EngineWork::Request => {
-                self.interception.navigation_pending(session)
+                open.interception.navigation_pending()
                     || open.pages.find(|page| page.life.navigating()).is_some()
             }
         };
@@ -1120,7 +1180,7 @@ impl Sessions {
         self.reach(&run, context).await?;
         self.index
             .session(session)
-            .ok_or_else(|| session_closed(session))
+            .ok_or_else(|| self.closed_session(session))
     }
 
     /// Whether `session` names a closed Session of a Run this engine holds.
@@ -1165,69 +1225,18 @@ impl Sessions {
                 continue;
             }
             let settings = recorded_settings(&settings, run, context)?;
-            let borrowed = match source {
-                Some(sealed) => Some(opened_source(&sealed, position, run, context).await?),
-                None => None,
-            };
-            let owner = run.owner().child();
-            let (proxy, relay, reopen_failed) = reopened_egress(
-                (run, &owner),
-                &settings,
-                &pool,
-                borrowed.as_ref(),
-                position,
-                context,
-            )
-            .await;
-            let (signing, reopen_failed) =
-                match reopened_signing(run, &settings, borrowed.is_some(), context).await {
-                    Ok(signing) => (signing, reopen_failed),
-                    Err(error) => (None, reopen_failed.or(Some(error))),
-                };
-            let session = session_id(run.id(), position);
-            let (seat, attributes) = match &borrowed {
-                Some(cdp_url) => (
-                    pool.borrowed_seat(cdp_url.clone(), TaskStarter::clone(&owner)),
-                    BORROWED,
-                ),
-                None => (
-                    pool.seat(
-                        Placement::Shared,
-                        egress(proxy.as_ref(), relay.as_ref()),
-                        TaskStarter::clone(&owner),
-                    ),
-                    FRESH,
-                ),
-            };
-            let held = Session {
-                owner,
-                pages: HeldPages::default(),
-                run: run.clone(),
-                position,
-                seat,
-                settings,
-                life: SessionLife::new(session, attributes, SessionState::Open),
-                proxy,
-                egress_marked: OnceCell::new(),
-                relay,
-                reopen_failed,
-                held_frames: borrowed
-                    .as_ref()
-                    .map(|_| session_pages::HeldFrames::default()),
-                injections: Injections::default(),
-                hiding: Arc::default(),
-                run_index: context.engine().run_index().clone(),
-            };
-            reopened.push((held, borrowed, signing));
+            reopened
+                .push(reopened_session((run, &pool), position, settings, source, context).await?);
         }
         let mut state = self.state.lock().await;
         if state.runs.contains_key(run.id()) {
             return Ok(());
         }
-        for (open, borrowed, signing) in reopened {
+        for open in reopened {
             let session = session_id(run.id(), open.position);
-            self.open_in_interception(&session, &open, borrowed.as_ref(), signing);
-            self.index.opened(session, Arc::new(open));
+            let open = Arc::new(open);
+            self.index.opened(session.clone(), Arc::clone(&open));
+            self.watch_session(session, &open);
         }
         state.runs.insert(run.id().clone(), runs);
         drop(state);
@@ -1283,9 +1292,9 @@ impl Sessions {
             }
             // Their pages go once the index no longer names them: a page
             // kept meanwhile is among them.
-            for (session, open) in &ended {
+            for (_, open) in &ended {
                 sessions.page_owners.close(&open.pages.end());
-                sessions.interception.close_session(session);
+                open.interception.close();
             }
             // Their owners, cancelled with the Run's, are waited for here,
             // once their pages' parts have gone: a stop of the Run waits for
@@ -1295,35 +1304,6 @@ impl Sessions {
             }
             drop(ended);
         });
-    }
-
-    /// Puts the Session `session`, `held`, under the interception; one no
-    /// egress relay is under, on a Borrowed browser at `borrowed` or
-    /// launched with none, by interception alone, its requests' hosts
-    /// resolved through the Run's `network.resolve`, and a name the engine
-    /// cannot resolve judged by where it would be resolved (ADR 0056;
-    /// #2435).
-    fn open_in_interception(
-        &self,
-        session: &SessionId,
-        held: &Session,
-        borrowed: Option<&CdpUrl>,
-        signing: Option<Arc<RequestSigner>>,
-    ) {
-        self.interception.open_session(session);
-        if let Some(signer) = signing {
-            self.interception.sign_with(session, signer);
-        }
-        let held_by = held_browser(borrowed, held.relay.is_some(), held.proxy.is_some());
-        if let Some(browser) = held_by {
-            self.interception.hold_by_interception_only(
-                session,
-                Lookups::new(
-                    resolve_of(held.run.settings().map(RunSettings::resolved)),
-                    browser,
-                ),
-            );
-        }
     }
 
     /// Records the Session at `position` of `run`, with its own `settings`,
@@ -1682,6 +1662,81 @@ fn recorded_settings(
         .map_err(|error| unavailable(run, &error, context))
 }
 
+/// The open Session at `position` that the run state of `run` records,
+/// reopened on `pool` with its own `settings`, on the Borrowed browser its
+/// sealed `source` names if it has one, under an owner of its own, a child
+/// of the Run's. A proxy or signing key it cannot reopen is kept as its
+/// `reopen_failed`, which each page it is asked for raises.
+async fn reopened_session(
+    (run, pool): (&Run, &Pool),
+    position: u32,
+    settings: Values,
+    source: Option<Sealed>,
+    context: &CallContext,
+) -> Result<Session, CallError> {
+    let borrowed = match source {
+        Some(sealed) => Some(opened_source(&sealed, position, run, context).await?),
+        None => None,
+    };
+    let owner = run.owner().child();
+    let (proxy, relay, reopen_failed) = reopened_egress(
+        (run, &owner),
+        &settings,
+        pool,
+        borrowed.as_ref(),
+        position,
+        context,
+    )
+    .await;
+    let (signing, reopen_failed) =
+        match reopened_signing(run, &settings, borrowed.is_some(), context).await {
+            Ok(signing) => (signing, reopen_failed),
+            Err(error) => (None, reopen_failed.or(Some(error))),
+        };
+    let session = session_id(run.id(), position);
+    let (seat, attributes) = match &borrowed {
+        Some(cdp_url) => (
+            pool.borrowed_seat(cdp_url.clone(), TaskStarter::clone(&owner)),
+            BORROWED,
+        ),
+        None => (
+            pool.seat(
+                Placement::Shared,
+                egress(proxy.as_ref(), relay.as_ref()),
+                TaskStarter::clone(&owner),
+            ),
+            FRESH,
+        ),
+    };
+    let interception = session_interception(
+        (&session, run),
+        borrowed.as_ref(),
+        (relay.is_some(), proxy.is_some()),
+        signing,
+    );
+    Ok(Session {
+        owner,
+        pages: HeldPages::default(),
+        run: run.clone(),
+        position,
+        seat,
+        settings,
+        life: SessionLife::new(session, attributes, SessionState::Open),
+        proxy,
+        egress_marked: OnceCell::new(),
+        relay,
+        reopen_failed,
+        held_frames: borrowed
+            .as_ref()
+            .map(|_| session_pages::HeldFrames::default()),
+        injections: Injections::default(),
+        hiding: Arc::default(),
+        interception,
+        page_listeners: session_pages::PageListeners::default(),
+        run_index: context.engine().run_index().clone(),
+    })
+}
+
 /// The Session source a Session of `run` opens from: `own`, the call's own
 /// `source` when it gave one (`null` for a fresh Session), else the Run's
 /// `session.source`; with who gave it: the layer, and whether a Client
@@ -1972,6 +2027,28 @@ async fn reopened_signing(
     }
     let identity = access_mode_opens(settings, run, None, context)?;
     open_signing(run, identity.signing.as_ref(), context).await
+}
+
+/// The side of the interception of the Session `session` of `run`, which
+/// the Session holds: one no egress relay is under, `relayed` false, on a
+/// Borrowed browser at `borrowed` or launched with none, behind a proxy
+/// when `proxied`, is held by interception alone, its requests' hosts
+/// resolved through the Run's `network.resolve`, and a name the engine
+/// cannot resolve judged by where it would be resolved (ADR 0056; #2435);
+/// its requests are signed by `signing` when it is `identified`.
+fn session_interception(
+    (session, run): (&SessionId, &Run),
+    borrowed: Option<&CdpUrl>,
+    (relayed, proxied): (bool, bool),
+    signing: Option<Arc<RequestSigner>>,
+) -> Arc<SessionInterception> {
+    let lookups = held_browser(borrowed, relayed, proxied).map(|browser| {
+        Lookups::new(
+            resolve_of(run.settings().map(RunSettings::resolved)),
+            browser,
+        )
+    });
+    Arc::new(SessionInterception::new(session.clone(), lookups, signing))
 }
 
 /// The browser interception alone holds for a Session: a Borrowed one at

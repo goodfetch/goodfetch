@@ -12,9 +12,10 @@
 //! A popup waits for the governor's admission of one more browser page, as
 //! a page the program opens does, paused in the browser meanwhile.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeSet;
 use std::pin::Pin;
 use std::sync::Arc;
+use std::sync::atomic::Ordering;
 
 use goodfetch_cdp::generated::target;
 use goodfetch_engine::events::Events;
@@ -34,7 +35,7 @@ use goodfetch_protocol::page::{PageId, PageOpened, SessionId};
 use goodfetch_protocol::settings::page_check::PageCheck;
 use tokio::sync::watch;
 
-use super::life::{Ending, PageLife, session_closed};
+use super::life::{Ending, PageLife};
 use super::lifecycle::PageEffect;
 use super::robots_txt;
 use super::{
@@ -172,38 +173,30 @@ impl Drop for TakenIn {
     }
 }
 
-/// How many calls listen to each Session's `page` event, each counted when
-/// its call arrives, so a page published while the call waits for its
-/// Session is not missed. Clones share them.
+/// How many calls listen to one Session's `page` event, which the Session
+/// holds, so the count goes with it (ADR 0146). A call is counted when it
+/// arrives if its Session is open then, so a page published while the
+/// call waits is not missed. Clones share it.
 #[derive(Clone, Default)]
 pub(super) struct PageListeners(
     #[expect(
         clippy::disallowed_types,
-        reason = "one map read and changed alone, never with another lock or across an `.await`, so there is no interleaving to test under loom (ADR 0060)"
+        reason = "one count, added to and read alone, never with another lock or value it must agree with, so there is no interleaving to test under loom (ADR 0060)"
     )]
-    Arc<std::sync::Mutex<BTreeMap<SessionId, usize>>>,
+    Arc<std::sync::atomic::AtomicUsize>,
 );
 
 impl PageListeners {
-    fn counts(&self) -> std::sync::MutexGuard<'_, BTreeMap<SessionId, usize>> {
-        self.0
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
+    /// Whether any call listens to the Session's `page` event.
+    fn any(&self) -> bool {
+        self.0.load(Ordering::Acquire) > 0
     }
 
-    /// Whether any call listens to the Session `session`'s `page` event.
-    fn any(&self, session: &SessionId) -> bool {
-        self.counts().contains_key(session)
-    }
-
-    /// Counts one listener of the Session `session`'s `page` event while
-    /// the answer lives.
-    fn listen(&self, session: &SessionId) -> Listening {
-        *self.counts().entry(session.clone()).or_default() += 1;
-        Listening {
-            listeners: self.clone(),
-            session: session.clone(),
-        }
+    /// Counts one listener of the Session's `page` event while the answer
+    /// lives.
+    fn listen(&self) -> Listening {
+        self.0.fetch_add(1, Ordering::AcqRel);
+        Listening(Some(self.clone()))
     }
 }
 
@@ -244,20 +237,14 @@ impl PopupHandler for SessionPopups {
     }
 }
 
-/// One listener of a Session's `page` event, counted while it lives.
-pub(crate) struct Listening {
-    listeners: PageListeners,
-    session: SessionId,
-}
+/// One listener of a Session's `page` event, counted while it lives; not
+/// yet counted when its Session was not open as its call arrived.
+pub(crate) struct Listening(Option<PageListeners>);
 
 impl Drop for Listening {
     fn drop(&mut self) {
-        let mut counts = self.listeners.counts();
-        if let Some(count) = counts.get_mut(&self.session) {
-            *count = count.saturating_sub(1);
-            if *count == 0 {
-                counts.remove(&self.session);
-            }
+        if let Some(listeners) = &self.0 {
+            listeners.0.fetch_sub(1, Ordering::AcqRel);
         }
     }
 }
@@ -362,7 +349,7 @@ impl Sessions {
             )
             .await?;
         if !open.pages.open() {
-            return Err(session_closed(session));
+            return Err(self.closed_session(session));
         }
         let life = PageLife::new(page.clone(), driver.value().lease().cloned(), routed);
         let page_check = open.checking(driver.value().page_check());
@@ -396,17 +383,17 @@ impl Sessions {
         // ended meanwhile, or ends now, takes it with its own pages.
         if !open.pages.hold(page.clone(), opened.clone()) {
             self.page_owners.close(std::slice::from_ref(&page));
-            return Err(session_closed(session));
+            return Err(self.closed_session(session));
         }
         if !self.index.kept(page.clone(), (session, &open)) {
-            return Err(session_closed(session));
+            return Err(self.closed_session(session));
         }
         // Its popups are followed once it is in its Session, so no lock of
         // the Sessions is held across the Session's frames' lock
         // (STYLE.md); a popup it opens finds its opener there.
         self.follow_popups(session, &open, &opened.driver).await;
         self.watch(page.clone(), opened, Arc::clone(&open), browser);
-        if self.page_listeners.any(session) {
+        if open.page_listeners.any() {
             stream
                 .publish(
                     &SESSION_PAGE,
@@ -452,7 +439,7 @@ impl Sessions {
             .interception
             .start(
                 page,
-                session,
+                &open.interception,
                 driver,
                 (&interception_run(run), starting),
                 settings,
@@ -596,9 +583,13 @@ impl Sessions {
     }
 
     /// Counts a listener of the Session `session`'s `page` event from now,
-    /// when its call arrives, until the answer drops.
+    /// when its call arrives, until the answer drops, if the Session is
+    /// open now; else [`Self::listen_to_pages`] counts it once it finds the
+    /// Session.
     pub(crate) fn listen_for_pages(&self, session: &SessionId) -> Listening {
-        self.page_listeners.listen(session)
+        self.index
+            .session(session)
+            .map_or(Listening(None), |open| open.page_listeners.listen())
     }
 
     /// Listens to the Session `session`'s `page` event, as `listening`
@@ -606,10 +597,13 @@ impl Sessions {
     pub(crate) async fn listen_to_pages(
         &self,
         session: &SessionId,
-        listening: Listening,
+        mut listening: Listening,
         context: &CallContext,
     ) -> Result<SessionOnEnded, CallError> {
         let open = self.session(session, context).await?;
+        if listening.0.is_none() {
+            listening = open.page_listeners.listen();
+        }
         tokio::select! {
             () = open.life.ended() => {}
             () = open.run.cancellation().cancelled() => {}

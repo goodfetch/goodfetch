@@ -32,7 +32,7 @@ use goodfetch_protocol::page::{
     BROWSER_LAUNCH_FAILED, BrowserExit, BrowserLaunchFailedDetails, NAVIGATION_FAILED,
     NAVIGATION_INTERRUPTED, NavigationFailedDetails, NavigationInterruptedDetails, PAGE_CRASHED,
     PageCrashedDetails, PageId, RESPONSE_TRUNCATED, RedirectLimit, ResponseTruncatedDetails,
-    SITE_PREFERENCES_REFUSED, SitePreferencesRefusedDetails, TOO_MANY_REDIRECTS,
+    SITE_PREFERENCES_REFUSED, SessionId, SitePreferencesRefusedDetails, TOO_MANY_REDIRECTS,
     TooManyRedirectsDetails,
 };
 
@@ -260,6 +260,30 @@ pub(crate) fn page_panicked(
         &format!(
             "The engine hit a bug in Goodfetch while it served the page `{}`, which closed the page; its Session and its Run go on",
             page_id.0
+        ),
+    )
+}
+
+/// `engine_panicked` for a panic of one of the Session `session`'s
+/// owner's tasks, which closed the Session with its pages, alone: its Run
+/// goes on (ADRs 0146, 0148). It names the crash report the panic left,
+/// `crash_report`, when one was written, and is counted on `metrics`, its
+/// Run's.
+pub(crate) fn session_panicked(
+    metrics: &Metrics,
+    session: &SessionId,
+    crash_report: Option<&str>,
+) -> CallError {
+    crash_report::engine_panicked_told(
+        metrics,
+        &EnginePanickedDetails {
+            ended: PanicEnded::Session,
+            id: Some(session.0.clone()),
+            crash_report: crash_report.map(str::to_owned),
+        },
+        &format!(
+            "The engine hit a bug in Goodfetch while it served the Session `{}`, which closed the Session and its pages; its Run goes on",
+            session.0
         ),
     )
 }

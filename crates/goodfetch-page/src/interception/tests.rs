@@ -1,6 +1,6 @@
-//! The interception's tables, without a browser: what a page's or a
-//! Session's end takes out of them, and where a handler's failure waits;
-//! and the headers step 7 sends a request on with when its Session signs.
+//! The interception's sides, without a browser: what a page's end takes
+//! out of its Session's, and where a handler's failure waits; and the
+//! headers step 7 sends a request on with when its Session signs.
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
@@ -18,28 +18,20 @@ use serde_json::{Map, Value, json};
 
 use super::navigations::PendingNavigation;
 use super::{
-    EngineRequests, Interception, Learned, LeftFailure, PageInterception, PageState, lock, steps,
+    EngineRequests, Learned, LeftFailure, PageInterception, PageState, SessionInterception, steps,
 };
 use crate::cdp::{PausedId, RequestHeaders};
 use crate::page_value::Permit;
 
 /// The interception state of a page or a service worker of the Session
-/// `session` in `interception`'s tables: its handlers' failures wait in
-/// `failure`, the page's own slot, or its Session's for a worker.
-fn state_of(
-    interception: &Interception,
-    session: &SessionId,
-    failure: Option<LeftFailure>,
-) -> PageState {
-    let mut tables = lock(&interception.shared.tables);
-    let pending = Arc::clone(tables.pending.entry(session.clone()).or_default());
-    let routes = Arc::clone(tables.sessions.entry(session.clone()).or_default());
-    let session_failure = Arc::clone(tables.failures.entry(session.clone()).or_default());
+/// whose side is `session`: its handlers' failures wait in `failure`, the
+/// page's own slot, or its Session's for a worker.
+fn state_of(session: &SessionInterception, failure: Option<LeftFailure>) -> PageState {
     PageState {
         routes: Arc::default(),
-        session: routes,
-        failure: failure.unwrap_or_else(|| Arc::clone(&session_failure)),
-        session_failure,
+        session: Arc::clone(&session.routes),
+        failure: failure.unwrap_or_else(|| Arc::clone(&session.failure)),
+        session_failure: Arc::clone(&session.failure),
         cosmetic: None,
         engine_requests: EngineRequests {
             policy: Policy::new(&["*"], &[] as &[&str]).expect("invariant: `*` is a host pattern"),
@@ -51,7 +43,7 @@ fn state_of(
             },
             signing: None,
         },
-        pending,
+        pending: Arc::clone(&session.pending),
         navigation: PendingNavigation::default(),
         navigating: None,
         files: Mutex::new(None),
@@ -64,28 +56,23 @@ fn state_of(
     }
 }
 
-/// The side of the interception of the page `page` of the Session
-/// `session`, held as its start holds it once the browser paused its
-/// requests.
-pub(crate) fn hold_page(
-    interception: &Interception,
-    page: &PageId,
-    session: &SessionId,
-) -> PageInterception {
-    let state = Arc::new(state_of(
-        interception,
-        session,
-        Some(LeftFailure::default()),
-    ));
+/// The side of the interception of the page `page` of the Session whose
+/// side is `session`, held as its start holds it once the browser paused
+/// its requests.
+pub(crate) fn hold_page(page: &PageId, session: &SessionInterception) -> PageInterception {
+    let state = Arc::new(state_of(session, Some(LeftFailure::default())));
     PageInterception::joined(page, &state)
 }
 
-/// The page and Session the tests hold.
-fn page_and_session() -> (PageId, SessionId) {
-    (
-        PageId("page-1".to_owned()),
-        SessionId("session-1".to_owned()),
-    )
+/// The side of the interception of a Session `session-1`, held by its
+/// relay and unsigned.
+pub(crate) fn session_side() -> SessionInterception {
+    SessionInterception::new(SessionId("session-1".to_owned()), None, None)
+}
+
+/// The page and the side of the Session the tests hold.
+fn page_and_session() -> (PageId, SessionInterception) {
+    (PageId("page-1".to_owned()), session_side())
 }
 
 /// A page that closes before its navigation's `load` gives back the permit
@@ -93,10 +80,8 @@ fn page_and_session() -> (PageId, SessionId) {
 /// Session's domain is not held for its life.
 #[test]
 fn a_page_that_closes_before_load_gives_back_its_navigations_permit() {
-    let interception = Interception::default();
     let (page, session) = page_and_session();
-    interception.open_session(&session);
-    let held = hold_page(&interception, &page, &session);
+    let held = hold_page(&page, &session);
     held.state.navigation.started("http://a.test/#top");
     let carried = held.state.pending.take("http://a.test/");
     let released = Arc::new(AtomicBool::new(false));
@@ -121,10 +106,8 @@ fn a_page_that_closes_before_load_gives_back_its_navigations_permit() {
 /// once: a second request to its URL carries none.
 #[test]
 fn a_pending_navigation_is_taken_once() {
-    let interception = Interception::default();
     let (page, session) = page_and_session();
-    interception.open_session(&session);
-    let held = hold_page(&interception, &page, &session);
+    let held = hold_page(&page, &session);
     held.state.navigation.started("http://a.test/");
 
     let first = held.state.pending.take("http://a.test/#top");
@@ -138,11 +121,9 @@ fn a_pending_navigation_is_taken_once() {
 /// call on a page of the Session raises it, once.
 #[test]
 fn a_failure_on_a_service_workers_request_waits_for_the_sessions_next_call() {
-    let interception = Interception::default();
     let (page, session) = page_and_session();
-    interception.open_session(&session);
-    let held = hold_page(&interception, &page, &session);
-    let worker = state_of(&interception, &session, None);
+    let held = hold_page(&page, &session);
+    let worker = state_of(&session, None);
 
     worker.leave(CallError::new(
         &CLOSED,
@@ -185,7 +166,7 @@ fn sent_headers(
     overrides: &steps::Overrides,
     signing: Option<&RequestSigner>,
 ) -> Option<Vec<(String, String)>> {
-    let state = state_of(&Interception::default(), &page_and_session().1, None);
+    let state = state_of(&session_side(), None);
     let request_id = PausedId::new("request-1".to_owned());
     let paused = steps::Paused {
         id: &request_id,

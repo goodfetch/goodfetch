@@ -2,7 +2,9 @@
 //! handle (ADR 0146; spec #578's shape of 2026-10-16), and the pages each
 //! Session holds itself. The index is written when a Session opens or
 //! ends, and when a page is kept or goes; a Session's pages are its own,
-//! so no lock holds every Session of the engine with what it holds.
+//! so no lock holds every Session of the engine with what it holds. It
+//! also keeps, until their Run ends, what a call on a Session a panic
+//! closed raises once the Session is gone (ADR 0148).
 //!
 //! Neither lock is ever taken under the other, nor held across an
 //! `.await`: a page is kept in its Session before the index names it, and
@@ -12,6 +14,7 @@
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
+use goodfetch_engine::CallError;
 use goodfetch_protocol::page::{PageId, SessionId};
 use goodfetch_protocol::run::RunId;
 
@@ -34,6 +37,9 @@ struct Entries {
     sessions: BTreeMap<SessionId, Arc<Session>>,
     /// Each page, by its Session, which holds it.
     pages: BTreeMap<PageId, Arc<Session>>,
+    /// What a call on a Session a panic of one of its owner's tasks closed
+    /// raises, by its ID with its Run's, until its Run ends (ADR 0148).
+    panicked: BTreeMap<SessionId, (RunId, CallError)>,
 }
 
 impl Index {
@@ -53,6 +59,23 @@ impl Index {
     /// Names the Session `open` `session`.
     pub(super) fn opened(&self, session: SessionId, open: Arc<Session>) {
         self.entries().sessions.insert(session, open);
+    }
+
+    /// A panic of one of the Session `session`'s owner's tasks closes it:
+    /// a call that no longer finds it raises `error`, until its Run ends.
+    pub(super) fn panicked(&self, session: &SessionId, open: &Session, error: CallError) {
+        self.entries()
+            .panicked
+            .insert(session.clone(), (open.run.id().clone(), error));
+    }
+
+    /// The `engine_panicked` of the panic that closed the Session
+    /// `session`, if one did and its Run has not ended.
+    pub(super) fn panic_of(&self, session: &SessionId) -> Option<CallError> {
+        self.entries()
+            .panicked
+            .get(session)
+            .map(|(_, error)| error.clone())
     }
 
     /// The Sessions of the Run `run`.
@@ -92,6 +115,7 @@ impl Index {
     pub(super) fn run_ended(&self, run: &RunId) -> Vec<(SessionId, Arc<Session>)> {
         let mut entries = self.entries();
         entries.pages.retain(|_, held| held.run.id() != run);
+        entries.panicked.retain(|_, (of, _)| of != run);
         let ended: Vec<SessionId> = entries
             .sessions
             .iter()

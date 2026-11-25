@@ -81,10 +81,10 @@ use goodfetch_engine::metrics::Metrics;
 use goodfetch_engine::tasks::{BlockingPolicy, TaskOwner};
 use goodfetch_protocol::connection::CLOSED;
 use goodfetch_protocol::jsonrpc::RequestId;
+use goodfetch_protocol::page::PageId;
 use goodfetch_protocol::page::dialog::{DialogId, DialogsEnded};
 use goodfetch_protocol::page::events::{PAGE_EVENTS_LOST, PageEventName, PageRequest};
 use goodfetch_protocol::page::route::PAGE_HANDLER_FAILED;
-use goodfetch_protocol::page::{PageId, SessionId};
 use goodfetch_test_support::{TestEnv, runtime};
 use proptest::prelude::*;
 use proptest::sample::Index;
@@ -99,8 +99,7 @@ use crate::driver::PageDriver;
 use crate::driver::replay::{self, Played, SESSION};
 use crate::gesture_order::{GestureOrder, GestureTurn, LentPointer, PointerAsks};
 use crate::init_scripts::Registered;
-use crate::interception::Interception;
-use crate::interception::tests::hold_page;
+use crate::interception::tests::{hold_page, session_side};
 use crate::live_run::LiveRun;
 use crate::page_events::Listening;
 use crate::page_events::tests::started;
@@ -1778,13 +1777,10 @@ impl StateMachineTest for Subject {
         let (sync, owner) = runtime.block_on(async {
             let events = started(&page_id(), &driver, &live);
             let sync = events.listen(PageEventName::Request);
-            let interception = Interception::default();
-            let held = SessionId("session-1".to_owned());
-            interception.open_session(&held);
             let parts = parts(
                 (&page_id(), &driver, &live),
                 &dialogs,
-                (events, hold_page(&interception, &page_id(), &held)),
+                (events, hold_page(&page_id(), &session_side())),
             );
             let closed = CallError::new(
                 &CLOSED,

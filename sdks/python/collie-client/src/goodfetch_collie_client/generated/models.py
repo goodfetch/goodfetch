@@ -1117,6 +1117,53 @@ class ExecutableBlockedBySmartAppControlDetails(BaseModel):
     """The path of the file Windows refused to start."""
 
 
+class ExtractContentParams(BaseModel):
+    """
+    What `extract.content` reads a page's main content from: the document
+    the page holds, after the Clean-up rules, and the URL it came from.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    html: str
+    """The page's document, serialized as HTML."""
+    url: str
+    """The page's URL, which its relative links resolve against."""
+
+
+class ExtractContentResult(BaseModel):
+    """
+    A page's main content, as an Extractor read it. Everything in it is
+    page content (ADR 0014): it reaches a model only marked as such.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    markdown: str
+    """The main content as Markdown."""
+    metadata: dict[str, str]
+    """
+    What the Extractor read about the page, such as its author or its
+    date, each a text under its `snake_case` name.
+    """
+    text: str
+    """The main content as plain text."""
+    title: str | None = None
+    """The main content's title, when the Extractor found one."""
+
+
+class ExtractHandlerFailedDetails(BaseModel):
+    """What `extract_handler_failed` details."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    extractor: str
+    """The Extractor, as `content.extractor` names it."""
+
+
 class FetchTier(StrEnum):
     """
     A tier that fetches a crawl request's document (ADR 0020), from the

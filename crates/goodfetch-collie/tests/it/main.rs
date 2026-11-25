@@ -101,6 +101,8 @@ mod parent_death;
 mod plugin;
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 mod plugin_host;
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+mod plugin_kinds;
 mod private_endpoint;
 mod private_ranges;
 mod proxy;

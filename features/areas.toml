@@ -231,6 +231,18 @@ number = 7
 kind = "error"
 prefix = "confinement_unavailable"
 
+# An Extractor's answer the engine cannot take, and an Extractor no one
+# answers for (ADRs 0104 and 0127, issue 823).
+[[area]]
+number = 7
+kind = "error"
+prefix = "extract_handler_failed"
+
+[[area]]
+number = 7
+kind = "error"
+prefix = "extractor_unavailable"
+
 [[area]]
 number = 3
 kind = "operation"

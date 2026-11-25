@@ -71,6 +71,14 @@ pub const BROWSER_TIME: &str = "browser_time";
 /// 0040; area 5 charges it).
 pub const PAGE_CRASHES: &str = "page_crashes";
 
+/// The Usage kind of the calls a run made into Plugins, of every form,
+/// counted per implementation (ADR 0033; area 7 charges it).
+pub const PLUGIN_CALLS: &str = "plugin_calls";
+
+/// The Usage kind of the time a run's calls into Plugins took, in
+/// milliseconds, counted per implementation (ADR 0033; area 7 charges it).
+pub const PLUGIN_TIME: &str = "plugin_time";
+
 /// One Limit of the Usage ledger: a generic row, which a newer engine may
 /// write with a scope kind, a Usage kind, a currency or a period this one
 /// does not know (ADR 0041).
@@ -478,6 +486,18 @@ pub const ENTRIES: Entries = Entries {
             shared_type: SharedType::UsageKind,
             name: PAGE_CRASHES,
             description: "Crashes of a run: one per renderer that crashed, and one per browser process that crashed, however many pages it held (ADR 0040). A crash racing the page's close does not count.",
+            arrived_in: ARRIVED_IN,
+        },
+        SharedTypeValue {
+            shared_type: SharedType::UsageKind,
+            name: PLUGIN_CALLS,
+            description: "Calls a run made into Plugins, of every form, per implementation (ADR 0033).",
+            arrived_in: ARRIVED_IN,
+        },
+        SharedTypeValue {
+            shared_type: SharedType::UsageKind,
+            name: PLUGIN_TIME,
+            description: "The time a run's calls into Plugins took, in milliseconds, per implementation (ADR 0033).",
             arrived_in: ARRIVED_IN,
         },
         SharedTypeValue {

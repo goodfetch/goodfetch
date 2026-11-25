@@ -7363,6 +7363,82 @@
       ],
       "type": "object"
     },
+    "ExtractContentParams": {
+      "description": "What `extract.content` reads a page's main content from: the document\nthe page holds, after the Clean-up rules, and the URL it came from.",
+      "properties": {
+        "_meta": {
+          "$ref": "#/$defs/RequestMeta",
+          "arrived_in": "0.1"
+        },
+        "html": {
+          "description": "The page's document, serialized as HTML.",
+          "type": "string"
+        },
+        "url": {
+          "description": "The page's URL, which its relative links resolve against.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "url",
+        "html"
+      ],
+      "type": "object"
+    },
+    "ExtractContentResult": {
+      "additionalProperties": false,
+      "description": "A page's main content, as an Extractor read it. Everything in it is\npage content (ADR 0014): it reaches a model only marked as such.",
+      "properties": {
+        "markdown": {
+          "description": "The main content as Markdown.",
+          "type": "string"
+        },
+        "metadata": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "What the Extractor read about the page, such as its author or its\ndate, each a text under its `snake_case` name.",
+          "type": "object"
+        },
+        "text": {
+          "description": "The main content as plain text.",
+          "type": "string"
+        },
+        "title": {
+          "description": "The main content's title, when the Extractor found one.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "text",
+        "markdown",
+        "metadata"
+      ],
+      "type": "object"
+    },
+    "ExtractHandlerFailedDetails": {
+      "description": "What `extract_handler_failed` details.",
+      "properties": {
+        "extractor": {
+          "arrived_in": "0.1",
+          "description": "The Extractor, as `content.extractor` names it.",
+          "type": "string"
+        },
+        "url": {
+          "arrived_in": "0.1",
+          "description": "The URL of the page it was extracting.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "extractor",
+        "url"
+      ],
+      "type": "object"
+    },
     "ExtractionFollow": {
       "description": "Which pages a code-free crawl fetches beyond its seeds.",
       "oneOf": [
@@ -25626,6 +25702,11 @@
                     "minimum": 0,
                     "type": "integer"
                   },
+                  "plugin": {
+                    "description": "How long a call into a Plugin, of any form, may wait for its answer before it is abandoned and fails with `deadline_exceeded`: 30 s. A kind with a timeout of its own, such as a Hook's `timeout.hook`, waits under that one instead.",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
                   "run": {
                     "anyOf": [
                       {
@@ -29518,6 +29599,11 @@
                   },
                   "navigation": {
                     "description": "How long a navigation may take before its attempt fails with `deadline_exceeded`: 30 s, Playwright's default.",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "plugin": {
+                    "description": "How long a call into a Plugin, of any form, may wait for its answer before it is abandoned and fails with `deadline_exceeded`: 30 s. A kind with a timeout of its own, such as a Hook's `timeout.hook`, waits under that one instead.",
                     "minimum": 0,
                     "type": "integer"
                   },
@@ -33529,6 +33615,11 @@
                   },
                   "navigation": {
                     "description": "How long a navigation may take before its attempt fails with `deadline_exceeded`: 30 s, Playwright's default.",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "plugin": {
+                    "description": "How long a call into a Plugin, of any form, may wait for its answer before it is abandoned and fails with `deadline_exceeded`: 30 s. A kind with a timeout of its own, such as a Hook's `timeout.hook`, waits under that one instead.",
                     "minimum": 0,
                     "type": "integer"
                   },
@@ -37556,6 +37647,11 @@
                   },
                   "navigation": {
                     "description": "How long a navigation may take before its attempt fails with `deadline_exceeded`: 30 s, Playwright's default.",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "plugin": {
+                    "description": "How long a call into a Plugin, of any form, may wait for its answer before it is abandoned and fails with `deadline_exceeded`: 30 s. A kind with a timeout of its own, such as a Hook's `timeout.hook`, waits under that one instead.",
                     "minimum": 0,
                     "type": "integer"
                   },

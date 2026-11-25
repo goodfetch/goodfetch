@@ -152,7 +152,13 @@ pub enum CallFailure {
 /// matched on.
 #[derive(Clone, Debug)]
 pub struct Malformed {
-    _detail: String,
+    detail: String,
+}
+
+impl fmt::Display for Malformed {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(&self.detail)
+    }
 }
 
 /// A started instance, which every clone calls: the last one dropped stops
@@ -480,7 +486,7 @@ impl Running {
                 Some(id) if instance.awaits(&id) => (
                     id,
                     Err(CallFailure::Malformed(Malformed {
-                        _detail: error.detail,
+                        detail: error.detail,
                     })),
                 ),
                 _ => {

@@ -964,6 +964,12 @@ class ConnectionTimeoutSettings(TypedDict):
     `timeout.navigation`.
     """
 
+    plugin: NotRequired[timedelta]
+    """How long a call into a Plugin, of any form, may wait for its answer before it is abandoned and fails with `deadline_exceeded`: 30 s. A kind with a timeout of its own, such as a Hook's `timeout.hook`, waits under that one instead.
+
+    `timeout.plugin`.
+    """
+
     run: NotRequired[timedelta | None]
     """How long a Run may go on before it checkpoints and stops at its next safe point, resumable; none by default.
 
@@ -1836,6 +1842,12 @@ class RunTimeoutSettings(TypedDict):
     """How long a navigation may take before its attempt fails with `deadline_exceeded`: 30 s, Playwright's default.
 
     `timeout.navigation`.
+    """
+
+    plugin: NotRequired[timedelta]
+    """How long a call into a Plugin, of any form, may wait for its answer before it is abandoned and fails with `deadline_exceeded`: 30 s. A kind with a timeout of its own, such as a Hook's `timeout.hook`, waits under that one instead.
+
+    `timeout.plugin`.
     """
 
     secret: NotRequired[timedelta]

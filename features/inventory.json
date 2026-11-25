@@ -1563,6 +1563,28 @@
       ]
     },
     {
+      "id": "error:extract_handler_failed",
+      "kind": "error",
+      "area": null,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "error:extractor_unavailable",
+      "kind": "error",
+      "area": null,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "error:file_write_failed",
       "kind": "error",
       "area": 3,
@@ -10973,6 +10995,17 @@
     },
     {
       "id": "setting:timeout.navigation",
+      "kind": "setting",
+      "area": 3,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "setting:timeout.plugin",
       "kind": "setting",
       "area": 3,
       "milestone": null,

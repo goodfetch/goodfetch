@@ -29,6 +29,7 @@ use crate::error_code::ErrorCode;
 use crate::jsonrpc::RequestId;
 use crate::run::RunId;
 
+pub mod extractor;
 mod fuzz;
 mod manifest;
 mod names;

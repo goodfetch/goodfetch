@@ -3,18 +3,22 @@
 //! test's Goodfetch home as an Extractor, which Collie starts confined
 //! through its own executable as a page first reads with it, and whose
 //! answer `page.formats` answers as the page's main content; and its
-//! settings, which value its environment (ticket 861).
+//! settings, which value its environment (ticket 861), and a secret one
+//! of which a discarded Run leaves nowhere (ticket 819).
 #![expect(
     clippy::doc_markdown,
     reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
 )]
 
+use std::collections::BTreeSet;
 use std::fs;
 use std::path::Path;
 
-use goodfetch_protocol::home::RUN_TRACE_PLUGIN_CALLS;
+use goodfetch_protocol::home::{PLUGIN_INSTANCES, RUN_TRACE_PLUGIN_CALLS};
 use goodfetch_test_client::HomeLayout;
-use goodfetch_test_support::{ProvingGround, TestEnv, Tool, browser_cache, tools};
+use goodfetch_test_support::{
+    Canaries, Output, ProvingGround, SecretKind, TestEnv, Tool, browser_cache, tools,
+};
 use serde_json::{Value, json};
 
 use crate::page::{opened, started, started_with};
@@ -292,5 +296,114 @@ fn a_plugins_settings_value_its_environment_and_a_literal_secret_is_refused() {
             (vec![], true)
         ),
         "{scripted}\n{strict}\n{explained}"
+    );
+}
+
+/// Each Secret canary found in the folder `folder`, by its kind and the
+/// name of the file that holds it.
+fn found_in(folder: &Path, canaries: &Canaries) -> BTreeSet<(&'static str, String)> {
+    canaries
+        .search(&[Output::Path(folder)])
+        .unwrap()
+        .into_iter()
+        .map(|hit| {
+            let file = Path::new(&hit.output)
+                .file_name()
+                .map(|name| name.to_string_lossy().into_owned())
+                .unwrap_or_default();
+            (hit.kind.name(), file)
+        })
+        .collect()
+}
+
+/// ADR 0001's reset gate, for a Secret canary planted through a Plugin: a
+/// secret field's value, which the engine resolves and passes into the
+/// Plugin's environment, is answered back and kept by the Plugin in its
+/// instance's folder, where the home holds it while the Run runs (the
+/// rest of the home is searched once the engine exited, as the running
+/// browser's lock files come and go); once
+/// the Run finishes and is discarded, it is found nowhere in the home, raw
+/// or in any of Goodfetch's encodings, and the Plugin's answer held it
+/// masked.
+///
+/// Covers: story:7-28, story:7-30, story:3-39, operation:run.discard, setting:plugins
+#[test]
+fn a_secret_planted_through_a_plugin_is_found_nowhere_once_its_run_is_discarded() {
+    let env = TestEnv::new();
+    let mut canaries = Canaries::new(env.seed());
+    let token = canaries.plant(SecretKind::EndpointToken).value().to_owned();
+    let more = json!({
+        "settings_schema": {
+            "type": "object",
+            "properties": { "token": { "type": "string", "secret": true } },
+        },
+        "env": { "EXTRACT_TOKEN": "token" },
+        "permissions": { "grants": ["secret_value"] },
+    });
+    let answer = json!({
+        "with_environment": true,
+        "writes": { "token.txt": "${EXTRACT_TOKEN}" },
+        "result": {
+            "title": "Kettle",
+            "text": "${EXTRACT_TOKEN}",
+            "markdown": "${EXTRACT_TOKEN}",
+            "metadata": {},
+        },
+    });
+    install_as(env.home(), "scripted", &answer, &more);
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let cache = browser_cache(&env).unwrap();
+    let settings = json!({ "plugins": {
+        "scripted": { "settings": { "token": "env:EXTRACT_SECRET" } },
+    } });
+    let mut engine = started_with(
+        &env,
+        &cache,
+        &proving_ground,
+        "plugins",
+        settings.as_object().unwrap(),
+        |command| {
+            command.env("EXTRACT_SECRET", &token);
+        },
+    );
+    let page = opened(&engine.ask(
+        2,
+        "run.new_page",
+        &json!({ "run_id": "plugins", "settings": { "content": { "extractor": "scripted" } } }),
+    ));
+    engine.ask(
+        3,
+        "page.goto",
+        &json!({
+            "page_id": page.page_id,
+            "url": proving_ground.url("extraction.test", "/markdown/mixed/product"),
+        }),
+    );
+    let formats = engine.ask(
+        4,
+        "page.formats",
+        &json!({ "page_id": page.page_id, "formats": { "text": true } }),
+    );
+    let while_running = found_in(&env.home().join(PLUGIN_INSTANCES), &canaries);
+    engine.ask(5, "run.finish", &json!({ "run_id": "plugins" }));
+    let discarded = engine.ask(6, "run.discard", &json!({ "run_id": "plugins" }));
+    let (rest, exited) = engine.finish();
+
+    assert_eq!(
+        (
+            &formats["result"]["text"],
+            while_running,
+            &discarded["result"],
+            found_in(env.home(), &canaries),
+            (rest, exited),
+        ),
+        (
+            &json!("%plugins.scripted.settings.token%"),
+            BTreeSet::from([("endpoint_token", "token.txt".to_owned())]),
+            &json!({ "run_id": "plugins" }),
+            BTreeSet::new(),
+            (vec![], true)
+        ),
+        "{formats}\n{discarded}"
     );
 }

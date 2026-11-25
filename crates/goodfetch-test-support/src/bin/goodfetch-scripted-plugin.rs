@@ -26,7 +26,10 @@
 //!   method it has no answer for is answered JSON-RPC's method-not-found
 //!   error. On `"with_environment": true`, each `${NAME}` in the answer's
 //!   strings is replaced with its environment variable `NAME`'s value, or
-//!   with nothing when it has none, as a Plugin reads its settings.
+//!   with nothing when it has none, as a Plugin reads its settings. An
+//!   answer's `"writes": { "<path>": "<text>" }` are written, relative to
+//!   its working folder or not, before it is sent, as a Plugin keeps what
+//!   it read; a write the OS refuses answers its error instead.
 //!
 //! It records every message it reads and answers three methods of its own
 //! whatever the script says:
@@ -155,16 +158,34 @@ fn answer(script: &Value, method: &str, params: &Value, calls: &[Value]) -> Valu
         }
         _ => match script["answers"].get(method).cloned() {
             Some(Value::Object(mut scripted)) => {
-                if scripted.remove("with_environment") == Some(json!(true)) {
+                let scripted = if scripted.remove("with_environment") == Some(json!(true)) {
                     expanded(Value::Object(scripted))
                 } else {
                     Value::Object(scripted)
-                }
+                };
+                written(scripted)
             }
             Some(scripted) => scripted,
             None => error(METHOD_NOT_FOUND, &format!("no answer to `{method}`")),
         },
     }
+}
+
+/// `answer` without its `writes`, once each of its texts is written to
+/// the file its path names, or the OS's refusal as an error.
+fn written(mut answer: Value) -> Value {
+    let Some(Value::Object(writes)) = answer
+        .as_object_mut()
+        .and_then(|answer| answer.remove("writes"))
+    else {
+        return answer;
+    };
+    for (path, text) in writes {
+        if let Err(refusal) = fs::write(&path, text.as_str().unwrap_or_default()) {
+            return error(INTERNAL_ERROR, &format!("cannot write {path}: {refusal}"));
+        }
+    }
+    answer
 }
 
 /// `value` with each `${NAME}` in its strings replaced with the

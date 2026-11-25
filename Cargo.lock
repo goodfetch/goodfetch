@@ -2656,6 +2656,7 @@ dependencies = [
  "goodfetch-counted-work",
  "goodfetch-protocol",
  "goodfetch-runtime",
+ "goodfetch-simulation",
  "goodfetch-test-support",
  "goodfetch-workspace-hack",
  "gungraun",

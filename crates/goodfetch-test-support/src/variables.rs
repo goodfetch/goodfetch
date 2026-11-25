@@ -1,7 +1,8 @@
 //! What test support reads from the process that runs a test (ADRs 0059 to
 //! 0062): the running test's name, the seed and its `GOODFETCH_TEST_SEED`
 //! override, the suite `just test` names in `GOODFETCH_TEST_SUITE`, the tool
-//! manifest's path, the folder Journey variants write their result documents
+//! manifest's path, the folder Simulation scenarios write their model
+//! traces into, the folder Journey variants write their result documents
 //! into, the exercise records' folder with the test's ID as nextest gives
 //! it, the way a runner declares `DnsNamespace` comes up on it, the cap on
 //! the Callgrind children a counts benchmark runs at once, what a
@@ -28,6 +29,11 @@ pub const TOOLS_VARIABLE: &str = "GOODFETCH_TEST_TOOLS";
 /// generating plans, which `just simulate <scenario> --plan <file>` sets
 /// (ADR 0060).
 pub const FAULT_PLAN_VARIABLE: &str = "GOODFETCH_FAULT_PLAN";
+
+/// The folder a Simulation scenario writes its TLA+ model traces into, one
+/// folder per model, which `just simulation` sets and validates with TLC
+/// (ADR 0060); unset, a scenario keeps none.
+pub const MODEL_TRACES_VARIABLE: &str = "GOODFETCH_MODEL_TRACES";
 
 /// The path of the pinned LazyFS build, which `just lazyfs-test` sets
 /// (ADR 0060).
@@ -130,6 +136,7 @@ impl Variables {
             SUITE_VARIABLE,
             TOOLS_VARIABLE,
             FAULT_PLAN_VARIABLE,
+            MODEL_TRACES_VARIABLE,
             LAZYFS_VARIABLE,
             LAZYFS_FOLDER_VARIABLE,
             RESULT_DOCUMENTS_VARIABLE,
@@ -238,6 +245,16 @@ pub fn current_test() -> String {
 pub fn case_logs() -> Option<std::path::PathBuf> {
     Variables::from_process()
         .get(CASE_LOGS_VARIABLE)
+        .map(std::path::PathBuf::from)
+}
+
+/// The folder of the model traces, which `just simulation` names in
+/// `GOODFETCH_MODEL_TRACES`: a Simulation scenario writes the trace of its
+/// run into its model's folder there, and keeps none when it is absent
+/// (ADR 0060).
+pub fn model_traces() -> Option<std::path::PathBuf> {
+    Variables::from_process()
+        .get(MODEL_TRACES_VARIABLE)
         .map(std::path::PathBuf::from)
 }
 

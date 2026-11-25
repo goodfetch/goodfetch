@@ -172,6 +172,11 @@ proptest-state-machine.workspace = true
 rstest.workspace = true
 tempfile.workspace = true
 
+# The Simulation's scenarios (tests/it/simulation/), built only by `just
+# simulate` and `just simulation`, which set `--cfg tokio_unstable` (ADR 0060).
+[target.'cfg(tokio_unstable)'.dev-dependencies]
+goodfetch-simulation.workspace = true
+
 # The CPU pool's loom tests (src/tasks/cpu_pool/loom_tests.rs), built only
 # by `just loom`, which sets `--cfg goodfetch_loom` (ADR 0060).
 [target.'cfg(goodfetch_loom)'.dev-dependencies]

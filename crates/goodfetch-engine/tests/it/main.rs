@@ -66,3 +66,7 @@ mod operator_endpoints;
 #[cfg(target_os = "linux")]
 mod politeness_store;
 mod resolver_cache;
+// The Simulation's scenarios (ADR 0060), built only under `--cfg
+// tokio_unstable` by `just simulate` and `just simulation`.
+#[cfg(tokio_unstable)]
+mod simulation;

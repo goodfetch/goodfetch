@@ -208,6 +208,11 @@ pub(crate) struct Browser {
     launched: bool,
     /// Its service workers, which it attaches the engine to (ADR 0121).
     service_workers: Arc<service_workers::ServiceWorkerChoices>,
+    /// Cancelled once the reader of its own events, its workers' and new
+    /// pages' attachments, fell 4,096 events behind: what it attached
+    /// meanwhile may wait for the engine forever, so its pool takes it out
+    /// of service (spec #2256, #3261).
+    root_fell_behind: CancellationToken,
     /// What each browser context does with the popups its pages open.
     popups: Arc<popups::Popups>,
     /// Its hidden pages still open, by their browser context.
@@ -295,6 +300,7 @@ impl Browser {
             closing: CancellationToken::new(),
             launched: false,
             service_workers: Arc::default(),
+            root_fell_behind: CancellationToken::new(),
             popups: Arc::default(),
             hidden: Arc::default(),
             lease: None,
@@ -585,6 +591,7 @@ impl Connect for BorrowedBrowser {
                     closing: self.run.cancellation().child_token(),
                     launched: false,
                     service_workers: Arc::default(),
+                    root_fell_behind: CancellationToken::new(),
                     popups: Arc::default(),
                     hidden: Arc::default(),
                     lease: None,
@@ -679,6 +686,19 @@ impl LocalBrowser {
             None => Lost::EngineClosed,
         }
     }
+
+    /// Waits until the reader of the browser's own events, once it came
+    /// up, fell behind; never for one that did not come up.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future loses nothing: it only reads.
+    pub(crate) async fn root_fell_behind(&self) {
+        match self.launched.get() {
+            Some(browser) => browser.root_fell_behind.cancelled().await,
+            None => std::future::pending().await,
+        }
+    }
 }
 
 /// A browser launched and not yet up: closed, then killed, unless it comes
@@ -727,6 +747,7 @@ impl Connect for LocalBrowser {
                     closing: attempt,
                     launched: true,
                     service_workers: Arc::default(),
+                    root_fell_behind: CancellationToken::new(),
                     popups: Arc::default(),
                     hidden: Arc::default(),
                     lease: None,

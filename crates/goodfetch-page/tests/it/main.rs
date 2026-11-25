@@ -24,6 +24,7 @@ mod page_navigation;
 mod page_request;
 mod proxy_challenge;
 mod robots_txt;
+mod root_events_lost;
 mod served_calls;
 mod session_counts;
 mod url_pattern;

@@ -41,6 +41,7 @@
 mod rules;
 
 use std::collections::BTreeMap;
+use std::pin::pin;
 use std::sync::{Arc, Mutex as SyncMutex, MutexGuard, PoisonError, Weak};
 use std::time::Duration;
 
@@ -279,7 +280,9 @@ impl Pool {
     /// Follows the connection of the browser `number`, once it came up and
     /// once per browser, until it is lost: a browser that quit or crashed
     /// is taken out of service at once, whether or not it holds a page, and
-    /// its loss goes to its Sessions (spec #594's S8 and S9; ADR 0040).
+    /// its loss goes to its Sessions (spec #594's S8 and S9; ADR 0040). One
+    /// whose own events' reader fell behind is taken out of service too,
+    /// once, with no loss for its Sessions (#3261).
     fn follow(&self, number: u64) {
         let browser = {
             let mut browsers = lock(&self.shared.browsers);
@@ -295,9 +298,20 @@ impl Pool {
         let pool = self.clone();
         let stopping = self.shared.run.cancellation().clone();
         self.shared.run.spawn(async move {
-            let lost = tokio::select! {
-                () = stopping.cancelled() => return,
-                lost = browser.ended() => lost,
+            let lost = {
+                let mut ended = pin!(browser.ended());
+                let mut fell_behind = pin!(browser.root_fell_behind());
+                let mut retired = false;
+                loop {
+                    tokio::select! {
+                        () = stopping.cancelled() => return,
+                        lost = &mut ended => break lost,
+                        () = &mut fell_behind, if !retired => {
+                            retired = true;
+                            pool.root_fell_behind(number);
+                        }
+                    }
+                }
             };
             drop(browser);
             pool.lost(LostAt::Browser(number), lost).await;
@@ -742,6 +756,27 @@ impl Pool {
                 "memory is critical: the governor recycles a browser of the Run"
             );
             self.shared.run.metrics().browser_recycled("shed");
+            pooled.stage = Stage::Retiring;
+        }
+        self.settle(&mut browsers, number);
+    }
+
+    /// The reader of the browser `number`'s own events fell behind, so a
+    /// worker or a page it attached meanwhile may wait for the engine
+    /// forever: the browser opens no page any more and closes once none is
+    /// left, its Sessions going to the next browser with their cookies and
+    /// storage. It runs on meanwhile: no Session is crashed and no crash is
+    /// charged (#3261).
+    fn root_fell_behind(&self, number: u64) {
+        let mut browsers = lock(&self.shared.browsers);
+        let Some(pooled) = browsers.list.get_mut(&number) else {
+            return;
+        };
+        if pooled.stage == Stage::Serving {
+            tracing::warn!(
+                browser = number,
+                "a browser of the Run lost some of its own events: it opens no page any more"
+            );
             pooled.stage = Stage::Retiring;
         }
         self.settle(&mut browsers, number);

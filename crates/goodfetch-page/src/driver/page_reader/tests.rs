@@ -10,25 +10,32 @@
 //! of their checks, and end or are cut, while what clicks on the page
 //! beside them asks for the pointer and gives it back; the browser sends
 //! events or requests on any session still attached, opens a dialog,
-//! detaches a frame, or detaches the page; the page closes; and its
-//! Session's owner ends, in any order, against a browser played in process
-//! and a live Run, whose Client replies to the dialog handlers' requests.
-//! After each step, synced by a command whose answer the browser sends
-//! after its events ([`super::PageReader::after_events`]), by a listener of
-//! the test's own that heard the step's requests, and by the browser's
-//! commands each dialog and init script step awaits:
+//! detaches a frame, or detaches the page; the browser floods the page's
+//! session past what its reader may hold, so the reader falls behind; the
+//! page closes; and its Session's owner ends, in any order, against a
+//! browser played in process and a live Run, whose Client replies to the
+//! dialog handlers' requests. After each step, synced by a command whose
+//! answer the browser sends after its events
+//! ([`super::PageReader::after_events`]), by a listener of the test's own
+//! that heard the step's requests, and by the browser's commands each
+//! dialog and init script step awaits:
 //!
 //! - each part holds, in order, exactly the events of its session the
 //!   browser sent after it subscribed, a frame's up to its detach and the
 //!   page's up to the page's, and has ended `Detached` once its session's
-//!   target, or the page's, detached;
+//!   target, or the page's, detached; once the reader fell behind, every
+//!   part has ended `FellBehind`, holding at most a share of the flood, and
+//!   one that subscribes later ends so at once;
 //! - each listener heard, in order, the URL of each request the page sent
-//!   after it started, until the page closed, which ended it; one started
-//!   once the page closed raises `closed`;
+//!   after it started, until the page closed, or its reader fell behind
+//!   while it was open, which ended it; one started once the page closed
+//!   raises `closed`;
 //! - each wait is answered by the first request the page sent after it
 //!   armed, or raises `closed` once the page closed first, or at once when
 //!   it closed before; a page whose target detached leaves its waits
-//!   waiting until it closes, so no call is left unanswered;
+//!   waiting until it closes, so no call is left unanswered; a wait still
+//!   waiting when the reader fell behind while the page was open, or armed
+//!   since, raises `page_events_lost`, at once or once the page closes;
 //! - the Gestures got the turn in the order they asked for it, one at a
 //!   time, whatever else the page did; the pointer is at one holder at a
 //!   time, lent while no Gesture has the turn or as the one that has it
@@ -47,8 +54,9 @@
 //!   once once registered, or else once its addition was taken;
 //! - each Gesture asked the owner once (`C3.owner_round_trips`);
 //! - each event the browser sent visited one reader of the connection, the
-//!   page's, when it is listed under the event's session
-//!   (`C1.event_visits`).
+//!   page's, when it is listed under the event's session, until the reader
+//!   ended (`C1.event_visits`); the flood's events visited it at least as
+//!   many times as it may hold and at most once each.
 
 use std::pin::Pin;
 use std::time::Duration;
@@ -62,7 +70,7 @@ use goodfetch_engine::tasks::{BlockingPolicy, TaskOwner};
 use goodfetch_protocol::connection::CLOSED;
 use goodfetch_protocol::jsonrpc::RequestId;
 use goodfetch_protocol::page::dialog::{DialogId, DialogsEnded};
-use goodfetch_protocol::page::events::{PageEventName, PageRequest};
+use goodfetch_protocol::page::events::{PAGE_EVENTS_LOST, PageEventName, PageRequest};
 use goodfetch_protocol::page::route::PAGE_HANDLER_FAILED;
 use goodfetch_protocol::page::{PageId, SessionId};
 use goodfetch_test_support::{TestEnv, runtime};
@@ -87,6 +95,18 @@ use crate::page_owner::{PageOwner, PageOwners};
 
 /// How many out-of-process frames the page has.
 const FRAMES: usize = 2;
+
+/// How many events a reader of the connection may hold before it falls
+/// behind: the connection's own bound, which the flood's visits reach.
+const READER_HOLDS: u64 = 4_096;
+
+/// How many events the browser floods the page's session with at once: far
+/// past what its reader may hold, so the reader, which takes a share of
+/// them each turn while the connection reads many more, falls behind.
+const FLOOD: usize = 20_000;
+
+/// The method of each event of the flood, which no other step sends.
+const FLOODED: &str = "Test.flood";
 
 /// A session of the page's: its own or a frame's.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -139,6 +159,9 @@ enum Transition {
     DetachFrame(usize),
     /// The browser detaches the page, which it tells on its own session.
     DetachPage,
+    /// The browser floods the page's session at once, past what the page's
+    /// reader may hold: the reader falls behind.
+    FallBehind,
     /// The page closes, as its Session takes it out.
     Close,
     /// A step of the page's Gesture order.
@@ -300,7 +323,8 @@ struct Frame {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Listened {
     Going,
-    /// The page closed while it listened.
+    /// The page closed while it listened, or its reader fell behind while
+    /// the page was open.
     Ended,
     /// The page had closed when it started: its call raised `closed`.
     Refused,
@@ -322,6 +346,10 @@ enum Waited {
     Answered(String),
     /// The page closed while it waited: its call raised `closed`.
     Ended,
+    /// The page's reader fell behind while the page was open, as it waited
+    /// or before it was armed: its call raised `page_events_lost`, at once
+    /// or once the page closed.
+    Lost,
     /// The page had closed when it was armed: its call raised `closed`.
     Refused,
 }
@@ -370,6 +398,25 @@ enum Scripted {
     Remove(usize),
 }
 
+/// How the page's reader ended.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ReaderEnd {
+    /// Its page detached.
+    Detached,
+    /// It fell behind, while its page was open or once it had closed.
+    FellBehind { page_open: bool },
+}
+
+impl ReaderEnd {
+    /// How a subscription made once the reader ended ends.
+    fn subscription_end(self) -> SubscriptionEnd {
+        match self {
+            Self::Detached => SubscriptionEnd::Detached,
+            Self::FellBehind { .. } => SubscriptionEnd::FellBehind,
+        }
+    }
+}
+
 /// What the reference model knows.
 #[derive(Clone, Debug, Default)]
 struct Reference {
@@ -396,10 +443,14 @@ struct Reference {
     frames: [Frame; FRAMES],
     order: Order,
     page_detached: bool,
+    /// How the page's reader ended, once it did: its page detached, or it
+    /// fell behind.
+    reader_ended: Option<ReaderEnd>,
     closed: bool,
     /// How many events the browser sent, which names the next one.
     sent: usize,
-    /// How many readers the connection visited.
+    /// How many readers the connection visited, the flood's visits left
+    /// out.
     visits: u64,
 }
 
@@ -410,6 +461,45 @@ impl Reference {
                 On::Page => true,
                 On::Frame(frame) => !self.frames[frame].detached,
             }
+    }
+
+    /// Whether the page's reader still reads: an event of a session it is
+    /// listed under visits it, and reaches the page's parts.
+    fn reading(&self) -> bool {
+        self.reader_ended.is_none()
+    }
+
+    /// Whether the reader fell behind while the page was open, so its calls
+    /// on events raise `page_events_lost`.
+    fn events_lost(&self) -> bool {
+        self.reader_ended == Some(ReaderEnd::FellBehind { page_open: true })
+    }
+
+    /// The flood made the page's reader fall behind: every part ends saying
+    /// so; while the page is open, its listeners end and its waits raise
+    /// `page_events_lost`.
+    fn fall_behind(&mut self) {
+        self.reader_ended = Some(ReaderEnd::FellBehind {
+            page_open: !self.closed,
+        });
+        for part in &mut self.parts {
+            if part.ended.is_none() {
+                part.ended = Some(SubscriptionEnd::FellBehind);
+            }
+        }
+        if self.closed {
+            return;
+        }
+        for heard in &mut self.listeners {
+            if heard.listened == Listened::Going {
+                heard.listened = Listened::Ended;
+            }
+        }
+        for waited in &mut self.waits {
+            if *waited == Waited::Waiting {
+                *waited = Waited::Lost;
+            }
+        }
     }
 
     /// Hands the event `method` on `on` to each part of `on` still going.
@@ -431,9 +521,10 @@ impl Reference {
     }
 
     /// The page sent a request to `url`: each listener still going hears
-    /// it and each wait still waiting takes it, while the page is open.
+    /// it and each wait still waiting takes it, while the page is open and
+    /// its reader reads.
     fn requested(&mut self, url: &str) {
-        if self.closed {
+        if self.closed || !self.reading() {
             return;
         }
         for heard in &mut self.listeners {
@@ -534,7 +625,9 @@ impl Reference {
         }
     }
 
-    /// The page closes: what listened, waited or was armed on it ends.
+    /// The page closes: what listened, waited or was armed on it ends, a
+    /// wait raising `page_events_lost` once the reader fell behind while
+    /// the page was open.
     fn close(&mut self) {
         self.closed = true;
         for heard in &mut self.listeners {
@@ -542,9 +635,14 @@ impl Reference {
                 heard.listened = Listened::Ended;
             }
         }
+        let ended = if self.events_lost() {
+            Waited::Lost
+        } else {
+            Waited::Ended
+        };
         for waited in &mut self.waits {
             if *waited == Waited::Waiting {
-                *waited = Waited::Ended;
+                *waited = ended.clone();
             }
         }
         for (_, handled) in &mut self.handlers {
@@ -628,8 +726,12 @@ impl ReferenceStateMachine for Reference {
         if !state.commands.is_empty() {
             owned.push(any::<Index>().prop_map(Transition::Script).boxed());
         }
-        if state.attached(On::Page) && !state.closed {
+        // A dialog is read by the page's reader, which no longer reads once
+        // it fell behind.
+        if state.attached(On::Page) && !state.closed && state.reading() {
             owned.push(any::<bool>().prop_map(Transition::Dialog).boxed());
+        }
+        if state.attached(On::Page) && !state.closed {
             owned.push(Just(Transition::AddScript).boxed());
         }
         if state.attached(On::Page) && !state.scripts.is_empty() {
@@ -647,6 +749,9 @@ impl ReferenceStateMachine for Reference {
         if !state.closed {
             groups.push((1, Just(Transition::Close).boxed()));
         }
+        if state.attached(On::Page) && state.reading() {
+            groups.push((1, Just(Transition::FallBehind).boxed()));
+        }
         prop::strategy::Union::new_weighted(groups).boxed()
     }
 
@@ -662,14 +767,14 @@ impl ReferenceStateMachine for Reference {
             Transition::Unlisten(_) => !state.listeners.is_empty(),
             Transition::Disarm(_) => !state.handlers.is_empty(),
             Transition::Script(_) => !state.commands.is_empty(),
-            Transition::Dialog(_) | Transition::AddScript => {
-                state.attached(On::Page) && !state.closed
-            }
+            Transition::Dialog(_) => state.attached(On::Page) && !state.closed && state.reading(),
+            Transition::AddScript => state.attached(On::Page) && !state.closed,
             Transition::DropScript(_) => state.attached(On::Page) && !state.scripts.is_empty(),
             Transition::Send(on, _) => state.attached(*on),
             Transition::Request(_) => state.attached(On::Page),
             Transition::DetachFrame(frame) => state.attached(On::Frame(*frame)),
             Transition::DetachPage => !state.page_detached && state.commands.is_empty(),
+            Transition::FallBehind => state.attached(On::Page) && state.reading(),
             Transition::Close => !state.closed,
         }
     }
@@ -677,8 +782,9 @@ impl ReferenceStateMachine for Reference {
     fn apply(mut state: Self, transition: &Transition) -> Self {
         match transition {
             Transition::Subscribe(on) => {
-                // A subscription made once the reader ended ends at once.
-                let ended = state.page_detached.then_some(SubscriptionEnd::Detached);
+                // A subscription made once the reader ended ends at once,
+                // saying how the reader did.
+                let ended = state.reader_ended.map(ReaderEnd::subscription_end);
                 if let On::Frame(frame) = on
                     && !state.frames[*frame].detached
                 {
@@ -701,7 +807,7 @@ impl ReferenceStateMachine for Reference {
                 for _ in 0..*count {
                     let method = method(state.sent);
                     state.sent += 1;
-                    if listed {
+                    if listed && state.reading() {
                         state.visits += 1;
                     }
                     state.hand(*on, &method);
@@ -711,7 +817,9 @@ impl ReferenceStateMachine for Reference {
                 for _ in 0..*count {
                     let url = url(state.sent);
                     state.sent += 1;
-                    state.visits += 1;
+                    if state.reading() {
+                        state.visits += 1;
+                    }
                     state.hand(On::Page, REQUESTED);
                     state.requested(&url);
                 }
@@ -752,7 +860,9 @@ impl ReferenceStateMachine for Reference {
             Transition::Script(index) => state.script(*index),
             Transition::DropScript(index) => state.drop_script(*index),
             Transition::DetachFrame(frame) => {
-                state.visits += 1;
+                if state.reading() {
+                    state.visits += 1;
+                }
                 state.frames[*frame].detached = true;
                 state.frames[*frame].listed = false;
                 state.detach(|on| on == On::Frame(*frame));
@@ -760,8 +870,10 @@ impl ReferenceStateMachine for Reference {
             }
             Transition::DetachPage => {
                 state.page_detached = true;
+                state.reader_ended.get_or_insert(ReaderEnd::Detached);
                 state.detach(|_| true);
             }
+            Transition::FallBehind => state.fall_behind(),
             Transition::Close => state.close(),
             Transition::Order(step) => state.order.take(step, state.closed),
         }
@@ -889,6 +1001,7 @@ impl Wait {
         if let Some(answered) = waiting.as_mut().now_or_never() {
             *self = Self::Done(match answered {
                 Ok(request) => Waited::Answered(request.url),
+                Err(error) if error.code() == PAGE_EVENTS_LOST.name => Waited::Lost,
                 Err(error) => {
                     assert_eq!(error.code(), CLOSED.name, "{error:?}");
                     Waited::Ended
@@ -1075,6 +1188,12 @@ struct Subject {
     /// How many init scripts were added, which numbers the next one.
     added: usize,
     closed: bool,
+    /// Whether the page's reader fell behind, so the test's own listener
+    /// hears no more.
+    fell_behind: bool,
+    /// How many times the flood's events visited a reader, which the model
+    /// leaves out: as many as the reader took in before it fell behind.
+    flood_visits: u64,
     /// How many events the browser sent, which names the next one.
     sent: usize,
     session: TaskOwner,
@@ -1460,6 +1579,28 @@ impl Subject {
         });
     }
 
+    /// The browser floods the page's session at once, past what its reader
+    /// may hold: the reader falls behind. The flood's events a part took
+    /// before it ended are let go, being no step the model numbers, and the
+    /// reader's visits by them counted apart.
+    fn flood(&mut self) {
+        let before = self.work.read(Row::CdpEventVisits);
+        let flooded = json!({ "method": FLOODED, "params": {}, "sessionId": SESSION });
+        self.step(vec![flooded; FLOOD]);
+        let visits = self.work.read(Row::CdpEventVisits) - before;
+        let flood = u64::try_from(FLOOD).expect("invariant: the flood's size fits a u64");
+        assert!(
+            (READER_HOLDS..=flood).contains(&visits),
+            "the flood visited the reader {visits} times"
+        );
+        self.flood_visits += visits;
+        self.fell_behind = true;
+        for part in &mut self.parts {
+            part.take();
+            part.methods.retain(|method| method != FLOODED);
+        }
+    }
+
     /// Waits until the page's events took in `count` more requests, which
     /// the test's own listener hears.
     fn heard(&mut self, count: usize) {
@@ -1552,6 +1693,8 @@ impl StateMachineTest for Subject {
             commands: Vec::new(),
             added: 0,
             closed: false,
+            fell_behind: false,
+            flood_visits: 0,
             sent: 0,
             session,
             live,
@@ -1587,7 +1730,7 @@ impl StateMachineTest for Subject {
                 let first = subject.sent;
                 subject.sent += count;
                 subject.step((first..first + count).map(requested).collect());
-                if !subject.closed {
+                if !subject.closed && !subject.fell_behind {
                     subject.heard(count);
                 }
             }
@@ -1619,6 +1762,7 @@ impl StateMachineTest for Subject {
                 let detached = json!({ "method": DETACHED, "params": { "sessionId": SESSION } });
                 subject.step(vec![detached]);
             }
+            Transition::FallBehind => subject.flood(),
             Transition::Close => {
                 subject.owners.close(&[page_id()]);
                 subject.closed = true;
@@ -1710,9 +1854,9 @@ impl StateMachineTest for Subject {
         };
         assert_eq!(order, reference.order, "the Gesture order");
         assert_eq!(
-            subject.work.read(Row::CdpEventVisits),
+            subject.work.read(Row::CdpEventVisits) - subject.flood_visits,
             reference.visits,
-            "readers the connection visited"
+            "readers the connection visited, the flood's visits left out"
         );
     }
 }

@@ -34,7 +34,7 @@ use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::Duration;
 
 use goodfetch_cdp::generated::{browser, fetch, network, runtime, target};
-use goodfetch_cdp::{SessionId as TargetSession, Subscription};
+use goodfetch_cdp::{RawEvent, SessionId as TargetSession, Subscription, SubscriptionEnd};
 use goodfetch_engine::CallError;
 use goodfetch_engine::runs::Run;
 use tokio::sync::{OnceCell, watch};
@@ -250,32 +250,56 @@ pub(super) async fn start(browser: &Browser, run: &Run) -> Result<(), CallError>
 /// Reads the browser's own events until its connection ends: each worker
 /// attached is handed on as its context chose, each one gone is let go,
 /// and each script fetch the browser's interception paused is failed or
-/// sent on.
+/// sent on. A reader that fell 4,096 events behind lost what the browser
+/// told meanwhile, so a worker or a page it attached then may wait for the
+/// engine forever: the browser is marked so, which takes a launched one
+/// out of service, and its events are read again from then on, so what it
+/// attaches next is served. No Session is crashed and no crash is charged:
+/// the browser runs on (spec #2256, #3261).
 async fn follow(mut events: Subscription, browser: Browser, run: Run) {
-    while let Some(event) = events.next().await {
-        if let Some(attached) = event.read::<target::AttachedToTargetEvent>() {
-            if attached.target_info.r#type == SERVICE_WORKER {
-                let (browser, task) = (browser.clone(), run.clone());
-                task.spawn(attach(browser, attached, run.clone()));
-            } else if attached.target_info.r#type == SHARED_WORKER {
-                let choice = browser
-                    .service_workers
-                    .shared_of(attached.target_info.browser_context_id.as_ref())
-                    .map(ServiceWorkers::Allow);
-                let (browser, task) = (browser.clone(), run.clone());
-                task.spawn(hold_then_run(browser, attached, run.clone(), choice));
-            } else if attached.target_info.r#type == super::popups::PAGE {
-                run.spawn(super::popups::attach(browser.clone(), attached));
-            }
-        } else if let Some(detached) = event.read::<target::DetachedFromTargetEvent>() {
-            let detached = TargetSession(detached.session_id);
-            browser.popups.forget(&detached);
-            if let Some(gone) = lock(&browser.service_workers.attached).remove(&detached) {
-                gone.cancel();
-            }
-        } else if let Some(paused) = event.read::<fetch::RequestPausedEvent>() {
-            run.spawn(script_fetch(browser.clone(), paused));
+    loop {
+        while let Some(event) = events.next().await {
+            take_in(&event, &browser, &run);
         }
+        if events.ended() != Some(SubscriptionEnd::FellBehind) {
+            return;
+        }
+        tracing::warn!(
+            executable = %browser.executable,
+            "the reader of a browser's own events fell behind and lost some: it reads them again, and what the browser attached meanwhile may never run"
+        );
+        browser.root_fell_behind.cancel();
+        events = browser.connection.subscribe(None);
+    }
+}
+
+/// Acts on `event`, one of the browser's own.
+fn take_in(event: &RawEvent, browser: &Browser, run: &Run) {
+    if let Some(attached) = event.read::<target::AttachedToTargetEvent>() {
+        if attached.target_info.r#type == SERVICE_WORKER {
+            run.spawn(attach(browser.clone(), attached, run.clone()));
+        } else if attached.target_info.r#type == SHARED_WORKER {
+            let choice = browser
+                .service_workers
+                .shared_of(attached.target_info.browser_context_id.as_ref())
+                .map(ServiceWorkers::Allow);
+            run.spawn(hold_then_run(
+                browser.clone(),
+                attached,
+                run.clone(),
+                choice,
+            ));
+        } else if attached.target_info.r#type == super::popups::PAGE {
+            run.spawn(super::popups::attach(browser.clone(), attached));
+        }
+    } else if let Some(detached) = event.read::<target::DetachedFromTargetEvent>() {
+        let detached = TargetSession(detached.session_id);
+        browser.popups.forget(&detached);
+        if let Some(gone) = lock(&browser.service_workers.attached).remove(&detached) {
+            gone.cancel();
+        }
+    } else if let Some(paused) = event.read::<fetch::RequestPausedEvent>() {
+        run.spawn(script_fetch(browser.clone(), paused));
     }
 }
 

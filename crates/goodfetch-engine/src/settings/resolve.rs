@@ -17,8 +17,8 @@ use std::time::Duration;
 use goodfetch_protocol::catalog::{Authority, Product, Setting, ValueKind};
 use goodfetch_protocol::entries::YIELDING;
 use goodfetch_protocol::governor::{THREAD_COUNT_SHAPE, ThreadCount};
-use goodfetch_protocol::recipe::RecipeManifest;
 use goodfetch_protocol::page::EXTRACTOR_NAME_SHAPE;
+use goodfetch_protocol::recipe::RecipeManifest;
 use goodfetch_protocol::run::durability::{
     BATCH_THRESHOLD_SHAPE, BatchThreshold, durability_preset,
 };

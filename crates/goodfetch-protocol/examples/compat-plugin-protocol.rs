@@ -55,8 +55,7 @@ fn main() {
                 protocol: PLUGIN_PROTOCOL,
                 product: Product::Collie,
                 run_id: Some(
-                    RunId::parse("books-2026-01-05")
-                        .expect("invariant: the Run ID is well formed"),
+                    RunId::parse("books-2026-01-05").expect("invariant: the Run ID is well formed"),
                 ),
                 network_level: NetworkLevel::None,
             },

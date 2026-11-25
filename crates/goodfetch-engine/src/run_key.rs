@@ -31,14 +31,41 @@ pub struct RunKey {
 pub struct Wrapped(Vec<u8>);
 
 /// A field as a secret column of run state holds it: sealed under its
-/// Run's data key for its table, column and row. Only a Run seals one
-/// (`Run::seal`), and SQLite stores and gives back its bytes as a `BLOB`.
+/// Run's data key for its table, column and row, or, in a Run whose
+/// `security.field_encryption` is off, unsealed (ADR 0016). Only a Run
+/// seals one (`Run::seal`), and SQLite stores and gives back its bytes as
+/// a `BLOB`.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Sealed(Vec<u8>);
+
+/// The first byte of a field stored unsealed: a sealed field starts with
+/// its layout's, which is never 0.
+const UNSEALED: u8 = 0;
+const _: () = assert!(
+    UNSEALED != sealing::LAYOUT,
+    "an unsealed field reads as no sealed one"
+);
 
 impl Sealed {
     pub(crate) fn new(sealed: Vec<u8>) -> Self {
         Self(sealed)
+    }
+
+    /// `plaintext` as a Run with its field encryption off stores it: after
+    /// a first byte no sealed layout starts with.
+    pub(crate) fn unsealed(plaintext: &[u8]) -> Self {
+        let mut stored = Vec::with_capacity(1 + plaintext.len());
+        stored.push(UNSEALED);
+        stored.extend_from_slice(plaintext);
+        Self(stored)
+    }
+
+    /// Its plaintext, when it was stored unsealed.
+    pub(crate) fn unsealed_plaintext(&self) -> Option<&[u8]> {
+        match self.0.split_first() {
+            Some((&UNSEALED, plaintext)) => Some(plaintext),
+            _ => None,
+        }
     }
 
     pub(crate) fn as_bytes(&self) -> &[u8] {

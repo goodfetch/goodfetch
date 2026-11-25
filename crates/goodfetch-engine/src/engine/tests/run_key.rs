@@ -39,6 +39,8 @@ use crate::run_key::{self, sealing};
 use crate::run_state::{RunStateTables, SecretColumn};
 use crate::runs::{EndedBy, Run, Start, Started};
 
+mod switched_off;
+
 /// Starts a Collie Run its program drives, which the tests seal values in;
 /// with `opens_settings`, its settings opened as a start opens them.
 const KEEP: Operation = Operation {
@@ -59,7 +61,8 @@ const KEEP: Operation = Operation {
 };
 
 /// Seals `value` into the secret column's row `row` of a live Run, and
-/// answers its data key in hexadecimal, which the tests search files for.
+/// answers its data key in hexadecimal, which the tests search files for,
+/// or null when it holds none.
 const SEAL: Operation = Operation {
     name: "test.seal",
     description: "Seals a value into a Run's secret column.",
@@ -67,7 +70,8 @@ const SEAL: Operation = Operation {
 };
 
 /// Opens the secret column's row `row` of a live Run, or, when that row
-/// holds nothing, a value of the sealed layout's shape no key sealed.
+/// holds nothing, a value of the sealed layout's shape no key sealed; with
+/// `unsealed`, that text as a Run with its field encryption off writes it.
 const OPEN: Operation = Operation {
     name: "test.open",
     description: "Opens a value of a Run's secret column.",
@@ -172,7 +176,9 @@ fn sealing() -> Contribution {
                     )
                     .await
                     .map_err(|error| no_key(&error))?;
-                let data_key = data_encoding::HEXLOWER.encode(data_key(&run).await.as_slice());
+                let data_key = data_key(&run)
+                    .await
+                    .map(|key| data_encoding::HEXLOWER.encode(key.as_slice()));
                 run.state()
                     .write(move |connection| {
                         connection
@@ -189,32 +195,37 @@ fn sealing() -> Contribution {
             },
         ))
         .with_handler(stored_key())
-        .with_handler(Handler::new(
-            &OPEN,
-            |params: Value, context: CallContext| async move {
-                let run = live(&context, &params).await;
-                let row = params["row"].as_i64().unwrap();
-                let sealed: crate::run_key::Sealed = run
-                    .state()
-                    .read(move |connection| {
-                        rusqlite::OptionalExtension::optional(connection.query_row(
-                            "SELECT value FROM test_secrets WHERE row = ?1",
-                            [row],
-                            |found| found.get(0),
-                        ))
-                    })
-                    .await
-                    .unwrap()
-                    .unwrap_or_else(|| crate::run_key::Sealed::new(vec![1; 1 + 24 + 16 + 4]));
-                let opened = run
-                    .open(&VALUE, &row.to_string(), &sealed)
-                    .await
-                    .map_err(|error| no_key(&error))?;
-                Ok::<Value, CallError>(json!({
-                    "value": String::from_utf8(opened.to_vec()).unwrap()
-                }))
-            },
-        ))
+        .with_handler(open_value())
+}
+
+/// The handler of `test.open`.
+fn open_value() -> Handler {
+    Handler::new(&OPEN, |params: Value, context: CallContext| async move {
+        let run = live(&context, &params).await;
+        let row = params["row"].as_i64().unwrap();
+        let sealed: crate::run_key::Sealed = match params["unsealed"].as_str() {
+            Some(text) => crate::run_key::Sealed::unsealed(text.as_bytes()),
+            None => run
+                .state()
+                .read(move |connection| {
+                    rusqlite::OptionalExtension::optional(connection.query_row(
+                        "SELECT value FROM test_secrets WHERE row = ?1",
+                        [row],
+                        |found| found.get(0),
+                    ))
+                })
+                .await
+                .unwrap()
+                .unwrap_or_else(|| crate::run_key::Sealed::new(vec![1; 1 + 24 + 16 + 4])),
+        };
+        let opened = run
+            .open(&VALUE, &row.to_string(), &sealed)
+            .await
+            .map_err(|error| no_key(&error))?;
+        Ok::<Value, CallError>(json!({
+            "value": String::from_utf8(opened.to_vec()).unwrap()
+        }))
+    })
 }
 
 /// The handler of `test.stored_key`.
@@ -264,24 +275,20 @@ fn no_key(error: &crate::runs::RunKeyError) -> CallError {
     )
 }
 
-/// The live Run the call's `run_id` names.
 /// The data key of `run`, unwrapped from what its run state stores by the
-/// key-encryption key the Run holds, as the Run itself unwraps it.
-async fn data_key(run: &Run) -> secrecy::zeroize::Zeroizing<[u8; sealing::KEY_LENGTH]> {
-    let stored = run
-        .state()
-        .read(run_key::stored)
-        .await
-        .unwrap()
-        .expect("the Run stored its key");
+/// key-encryption key the Run holds, as the Run itself unwraps it: none
+/// when it stores none, as with its field encryption off.
+async fn data_key(run: &Run) -> Option<secrecy::zeroize::Zeroizing<[u8; sealing::KEY_LENGTH]>> {
+    let stored = run.state().read(run_key::stored).await.unwrap()?;
     let kek = run
         .secrets()
         .held_for(RUN_STATE_KEY_REFERENCE.name)
         .await
         .expect("the Run holds its key-encryption key");
-    sealing::unwrap(run.id().as_str(), stored.wrapped.as_bytes(), &kek).unwrap()
+    Some(sealing::unwrap(run.id().as_str(), stored.wrapped.as_bytes(), &kek).unwrap())
 }
 
+/// The live Run the call's `run_id` names.
 async fn live(context: &CallContext, params: &Value) -> Run {
     let run_id = RunId::parse(params["run_id"].as_str().unwrap()).unwrap();
     context.runs().live(run_id).await.unwrap()
@@ -832,27 +839,31 @@ fn a_run_resumed_with_the_audit_chain_off_writes_its_entries_unchained() {
 /// Discarding a Run overwrites its wrapped data key in its run file before
 /// the run folder goes (ADR 0015): a hard link to the run file, which keeps
 /// its bytes as a disk would keep a removed file's, holds the wrapped key
-/// before the discard and neither its row nor its bytes after, so what the
-/// Run sealed there no longer opens under any key-encryption key.
-/// Covers: story:3-39, operation:run.discard
+/// before the discard, and the key-encryption key then opens the value the
+/// Run sealed there (positive control); after it, the link holds neither
+/// the key's row nor its bytes, so the key-encryption key opens nothing of
+/// it.
+/// Covers: story:3-39, story:4-65, operation:run.discard
 #[test]
 fn a_discarded_runs_wrapped_data_key_is_overwritten_in_its_run_file() {
     let env = TestEnv::new();
     let mut canaries = Canaries::new(env.seed());
     let cookie = canaries.plant(SecretKind::SessionCookie).value().to_owned();
+    let sealed_cookie = cookie.clone();
     let linked = env.folder().join("linked run file.sqlite");
     let link_to = linked.clone();
     let folder = run_folder(&env, "sealed");
     let run_file = folder.join("run.sqlite");
+    let made = &env;
 
-    let (wrapped, discarded) = on(
+    let (wrapped, opened_before, discarded, kek) = on(
         || dependencies(&env),
         |mut talk| async move {
             talk.ok(2, "test.keep", json!({ "run_id": "sealed" })).await;
             talk.ok(
                 3,
                 "test.seal",
-                json!({ "run_id": "sealed", "row": 1, "value": cookie }),
+                json!({ "run_id": "sealed", "row": 1, "value": sealed_cookie }),
             )
             .await;
             talk.ok(4, "run.finish", json!({ "run_id": "sealed" }))
@@ -862,10 +873,12 @@ fn a_discarded_runs_wrapped_data_key_is_overwritten_in_its_run_file() {
             // beside it (#2117): the connection's close copies the WAL, the
             // key with it, into the file the link names too.
             let wrapped = wrapped_key(&run_file);
+            let kek = made_key(made);
+            let opened_before = opened_by(&link_to, "sealed", &kek);
             let discarded = talk
                 .ok(5, "run.discard", json!({ "run_id": "sealed" }))
                 .await;
-            (wrapped, discarded)
+            (wrapped, opened_before, discarded, kek)
         },
     );
 
@@ -874,6 +887,7 @@ fn a_discarded_runs_wrapped_data_key_is_overwritten_in_its_run_file() {
         (
             discarded,
             wrapped.is_some(),
+            opened_before,
             rusqlite::Connection::open(&linked)
                 .unwrap()
                 .query_row("SELECT count(*) FROM run_key", [], |row| row
@@ -881,10 +895,40 @@ fn a_discarded_runs_wrapped_data_key_is_overwritten_in_its_run_file() {
                 .unwrap(),
             wrapped
                 .is_some_and(|wrapped| kept.windows(wrapped.len()).any(|window| window == wrapped)),
+            opened_by(&linked, "sealed", &kek),
             folder.exists(),
         ),
-        (json!({ "run_id": "sealed" }), true, 0, false, false)
+        (
+            json!({ "run_id": "sealed" }),
+            true,
+            Some(cookie),
+            0,
+            false,
+            None,
+            false
+        )
     );
+}
+
+/// What the key-encryption key `kek` opens of row 1 of the secret column in
+/// the run file at `path` of the Run `run_id`, as a copy of that file
+/// would give it: none when the file holds no wrapped data key.
+fn opened_by(path: &Path, run_id: &str, kek: &str) -> Option<String> {
+    let connection = rusqlite::Connection::open(path).unwrap();
+    let stored = run_key::stored(&connection).unwrap()?;
+    let key = run_key::RunKey::unwrap(
+        RunId::parse(run_id).unwrap(),
+        &stored.wrapped,
+        &secrecy::SecretString::from(kek.to_owned()),
+    )
+    .ok()?;
+    let sealed: Vec<u8> = connection
+        .query_row("SELECT value FROM test_secrets WHERE row = 1", [], |row| {
+            row.get(0)
+        })
+        .unwrap();
+    let opened = key.open("test_secrets", "value", "1", &sealed).ok()?;
+    Some(String::from_utf8(opened.to_vec()).unwrap())
 }
 
 /// The wrapped data key the run file at `path` holds.

@@ -79,7 +79,9 @@ use goodfetch_protocol::secret_reference::SecretReference;
 use goodfetch_protocol::secrets::{
     KEY_REFERENCE_IN_KEYCHAIN, RUN_STATE_KEY_REFERENCE, SecretFailure, TIMEOUT_SECRET,
 };
-use goodfetch_protocol::security::SECURITY_REDACTION;
+use goodfetch_protocol::security::{
+    SECURITY_FIELD_ENCRYPTION, SECURITY_REDACTION, SECURITY_SECURE_DELETE,
+};
 use goodfetch_protocol::settings::{
     ExplainedSetting, SettingsLayer, WALL_REFETCH_DOMAINS, WeakenedSetting,
 };
@@ -854,11 +856,41 @@ impl Allowance {
     }
 }
 
-/// What a live Run resolves its Secret references through, and its data
-/// key once unwrapped.
+/// What a live Run resolves its Secret references through, its data key
+/// once unwrapped, and whether a field stored unsealed opens in it.
 struct Keys {
     secrets: RunSecrets,
     key: Option<RunKey>,
+    /// Whether the Run lists `security.field_encryption` as weakened, so
+    /// that its fields may be stored unsealed: in any other Run, one is
+    /// refused as a sealed field that does not open is.
+    unsealed_open: bool,
+}
+
+/// A resuming Run's Secret references and data key, before its settings
+/// say whether a field stored unsealed opens in it.
+struct Unlocked {
+    secrets: RunSecrets,
+    key: Option<RunKey>,
+}
+
+impl Unlocked {
+    /// Its keys in a Run whose report lists `weakened` as weakened.
+    fn keys(self, weakened: &[WeakenedSetting]) -> Keys {
+        Keys {
+            secrets: self.secrets,
+            key: self.key,
+            unsealed_open: lists_unsealed(weakened),
+        }
+    }
+}
+
+/// Whether `weakened`, what a Run's report lists as weakened, lists its
+/// field encryption switched off.
+fn lists_unsealed(weakened: &[WeakenedSetting]) -> bool {
+    weakened
+        .iter()
+        .any(|setting| setting.key == SECURITY_FIELD_ENCRYPTION.name)
 }
 
 /// A resumed Run's data key, unwrapped, with the wrapped key its file held.
@@ -1328,7 +1360,7 @@ enum Command {
         oneshot::Sender<Result<watch::Receiver<Option<Ended>>, RunError>>,
     ),
     Resume(
-        Box<(Resume, Link, Keys, Option<StoredKey>)>,
+        Box<(Resume, Link, Unlocked, Option<StoredKey>)>,
         Option<ConnectionId>,
         oneshot::Sender<Result<Resumed, RunError>>,
     ),
@@ -1532,6 +1564,8 @@ struct Shared {
     secrets: RunSecrets,
     /// Its data key, once made or unwrapped.
     key: tokio::sync::OnceCell<RunKey>,
+    /// Whether a field stored unsealed opens in it, as [`Keys`] says.
+    unsealed_open: bool,
     /// Its share of the Resource governor's admissions.
     governor: RunShare,
     /// Its folder, which the governor samples while the Run lives (ADR
@@ -1684,7 +1718,8 @@ impl Run {
 
     /// `plaintext` sealed under its data key for the row `row` of the secret
     /// column `column`: the only value its owner writes there. Its first
-    /// call makes the data key.
+    /// call makes the data key. With its `security.field_encryption` off,
+    /// `plaintext` is stored unsealed and no key is made (ADR 0016).
     ///
     /// # Errors
     ///
@@ -1702,6 +1737,12 @@ impl Run {
         row: &str,
         plaintext: &[u8],
     ) -> Result<Sealed, RunKeyError> {
+        if !get_or_default::<bool>(
+            self.settings().map(RunSettings::resolved),
+            &SECURITY_FIELD_ENCRYPTION,
+        ) {
+            return Ok(Sealed::unsealed(plaintext));
+        }
         let key = self.key().await?;
         Ok(Sealed::new(key.seal(
             column.table,
@@ -1715,12 +1756,14 @@ impl Run {
     /// column `column`, in this Run or after its resume. It never makes a
     /// data key: a Run with none held, unwrapped at its resume or stored
     /// by a making whose caller was dropped, sealed nothing, so nothing it
-    /// holds opens.
+    /// holds opens. A value stored unsealed opens as it is, only in a Run
+    /// that lists its field encryption as weakened.
     ///
     /// # Errors
     ///
     /// `Key` when the value was sealed for another place or another Run,
-    /// or changed since, or when the Run has no data key.
+    /// or changed since, or when the Run has no data key; or when it was
+    /// stored unsealed and the Run's field encryption was never off.
     ///
     /// # Cancel safety
     ///
@@ -1732,6 +1775,13 @@ impl Run {
         row: &str,
         sealed: &Sealed,
     ) -> Result<Zeroizing<Vec<u8>>, RunKeyError> {
+        if let Some(plaintext) = sealed.unsealed_plaintext() {
+            return if self.shared.unsealed_open {
+                Ok(Zeroizing::new(plaintext.to_vec()))
+            } else {
+                Err(KeyError::DoesNotOpen.into())
+            };
+        }
         let key = self
             .shared
             .key
@@ -3718,7 +3768,12 @@ impl Runs {
         let (answer, answered) = oneshot::channel();
         self.commands
             .send(Command::Resume(
-                Box::new((resume, Link::to_current(), Keys { secrets, key }, stored)),
+                Box::new((
+                    resume,
+                    Link::to_current(),
+                    Unlocked { secrets, key },
+                    stored,
+                )),
                 self.connection,
                 answer,
             ))
@@ -4841,7 +4896,7 @@ impl Registry {
                 }));
             }
             Command::Resume(resume, _, answer) if self.draining => {
-                let (resume, _, _, _) = *resume;
+                let (resume, ..) = *resume;
                 let _ = answer.send(Err(RunError::Draining(resume.run_id)));
             }
             Command::Drain(cause, answer) => {
@@ -4905,8 +4960,8 @@ impl Registry {
                 let _ = answer.send(self.stored_key(&run_id, checkpoint.as_deref()).await);
             }
             Command::Resume(resume, connection, answer) => {
-                let (resume, link, keys, stored) = *resume;
-                let resumed = self.resume(resume, keys, stored, connection).await;
+                let (resume, link, unlocked, stored) = *resume;
+                let resumed = self.resume(resume, unlocked, stored, connection).await;
                 if let Ok(Resumed::New { run, .. }) = &resumed {
                     link.add_to(run.span());
                 }
@@ -5529,12 +5584,16 @@ impl Registry {
     }
 
     /// How a Run's run file opens under its `settings`: at the Durability
-    /// level `run_state.durability` names, `full` when it has none.
+    /// level `run_state.durability` names, `full` when it has none, and
+    /// overwriting what it deletes unless `security.secure_delete` is off.
     fn opened_with(&self, settings: Option<&RunSettings>) -> RunStateOptions {
         RunStateOptions {
             durability: durability_of(settings),
             memory_budget: settings.map_or(self.setup.run_state.memory_budget, |settings| {
                 settings.resolved().get(&RUN_STATE_MEMORY_BUDGET)
+            }),
+            secure_delete: settings.map_or(self.setup.run_state.secure_delete, |settings| {
+                settings.resolved().get(&SECURITY_SECURE_DELETE)
             }),
             clock: self.setup.engine.clock(),
             ..self.setup.run_state.clone()
@@ -5679,15 +5738,8 @@ impl Registry {
                 filesystem,
             })));
         }
-        let started = self
-            .begin(
-                run_id,
-                start,
-                inputs,
-                Keys { secrets, key: None },
-                connection,
-            )
-            .await?;
+        let keys = Unlocked { secrets, key: None }.keys(&start.weakened);
+        let started = self.begin(run_id, start, inputs, keys, connection).await?;
         if let Started::New(run) = &started {
             link.add_to(run.span());
         }
@@ -6009,16 +6061,22 @@ impl Registry {
         if let Some(interval) = start.checkpoint_interval {
             run.spawn(periodic_checkpoints(run.clone(), interval));
         }
+        self.publish_live(run_id, Lifecycle::Running).await;
+        Ok(Started::New(run))
+    }
+
+    /// Publishes the axes of the Run `run_id`, live at `lifecycle`, which
+    /// has no verdict or completeness until it ends.
+    async fn publish_live(&self, run_id: RunId, lifecycle: Lifecycle) {
         self.setup
             .events
             .publish_axes(RunAxes {
                 run_id,
-                lifecycle: Lifecycle::Running,
+                lifecycle,
                 verdict: None,
                 completeness: None,
             })
             .await;
-        Ok(Started::New(run))
     }
 
     fn index_row(
@@ -6278,6 +6336,7 @@ impl Registry {
                 span: tracing::info_span!(parent: None, "run", run_id = %run_id),
                 secrets: keys.secrets,
                 key: tokio::sync::OnceCell::new_with(keys.key),
+                unsealed_open: keys.unsealed_open,
                 governor: self.setup.governor.join(share),
                 _sampled: self.setup.governor.sample(folder.to_owned()),
                 storage: self.setup.governor.storage(),
@@ -6719,11 +6778,13 @@ impl Registry {
         )
     }
 
-    /// Resumes an interrupted Run, as [`Runs::resume`] says.
+    /// Resumes an interrupted Run, as [`Runs::resume`] says, resolving its
+    /// Secret references and data key as `unlocked` holds them, the key
+    /// unwrapped from `stored`.
     async fn resume(
         &mut self,
         resume: Resume,
-        keys: Keys,
+        unlocked: Unlocked,
         stored: Option<StoredKey>,
         connection: Option<ConnectionId>,
     ) -> Result<Resumed, RunError> {
@@ -6768,6 +6829,7 @@ impl Registry {
         let (weakened, changed) = applied(&recorded, settings.as_ref(), &state)
             .await
             .map_err(|error| RunError::of_state(&run_id, &folder, error))?;
+        let keys = unlocked.keys(&weakened);
         let run = self.new_run(&run_id, recorded.kind, state, connection, settings, keys);
         trace_changes(&run, &changed).await;
         self.read_limits(&run).await;
@@ -6810,15 +6872,7 @@ impl Registry {
         let (kind, needs) = (live.kind, live.needs);
         self.setup.metrics.run_live(kind);
         self.live.insert(run_id.clone(), live);
-        self.setup
-            .events
-            .publish_axes(RunAxes {
-                run_id,
-                lifecycle,
-                verdict: None,
-                completeness: None,
-            })
-            .await;
+        self.publish_live(run_id, lifecycle).await;
         if let Some(interval) = checkpoint_interval {
             run.spawn(periodic_checkpoints(run.clone(), interval));
         }

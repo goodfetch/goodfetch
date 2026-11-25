@@ -22,7 +22,7 @@ const NONCE_LENGTH: usize = 24;
 
 /// The first byte of every sealed value and wrapped key: the version of
 /// this layout, `version ‖ nonce ‖ ciphertext and tag`.
-const LAYOUT: u8 = 1;
+pub(crate) const LAYOUT: u8 = 1;
 
 /// What a field's associated data starts with.
 const FIELD: &[u8] = b"goodfetch run_key field";

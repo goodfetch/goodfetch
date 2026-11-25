@@ -17,12 +17,13 @@ use goodfetch_protocol::page::proxy::ProxyKind;
 use goodfetch_protocol::run::completeness::{FAILED, STOPPED};
 use goodfetch_protocol::run::{
     AppliedLimit, AxisReason, Checkpoint, Completeness, EndingError, KindUsage, Lifecycle,
-    NothingDone, ProxyKindBytes, RunId, RunReport, RunUsage, RunWarning, StopReason,
+    NothingDone, PluginUsage, ProxyKindBytes, RunId, RunReport, RunUsage, RunWarning, StopReason,
     UNCERTAIN_EFFECTS, UsageAmount, Verdict,
 };
 use goodfetch_protocol::settings::{ExplainedSetting, WeakenedSetting};
 use goodfetch_protocol::usage::{
-    BROWSER_TIME, MODEL_CALLS, MODEL_TOKENS, PAID_SOLVES, PROXY_BYTES, REQUESTS,
+    BROWSER_TIME, MODEL_CALLS, MODEL_TOKENS, PAID_SOLVES, PLUGIN_CALLS, PLUGIN_TIME, PROXY_BYTES,
+    REQUESTS,
 };
 use rusqlite::{Connection, OptionalExtension as _};
 
@@ -253,6 +254,7 @@ pub(super) fn usage(
             .prepare_cached("SELECT uncapped FROM run")
             .and_then(|mut cached| cached.query_row([], |row| row.get(0)))?,
         proxy_bytes_by_kind: proxy_bytes_by_kind(connection)?,
+        plugins: plugins(connection)?,
         ..RunUsage::default()
     };
     let mut statement = connection.prepare_cached(
@@ -281,6 +283,8 @@ pub(super) fn usage(
             (REQUESTS, None) => usage.requests = amount,
             (PAID_SOLVES, currency) => usage.paid_solves.push(UsageAmount { currency, amount }),
             (PAID_FETCH, currency) => usage.paid_fetches.push(UsageAmount { currency, amount }),
+            // `plugins` holds them, by implementation.
+            (PLUGIN_CALLS | PLUGIN_TIME, None) => {}
             (_, currency) => usage.other.push(KindUsage {
                 usage_kind,
                 currency,
@@ -318,6 +322,42 @@ fn proxy_bytes_by_kind(connection: &Connection) -> rusqlite::Result<Vec<ProxyKin
         ))
     });
     Ok(kinds)
+}
+
+/// What the Run's calls into each implementation of a Plugin kind used, in
+/// name order: the parts of `plugin_calls` and `plugin_time`.
+fn plugins(connection: &Connection) -> rusqlite::Result<Vec<PluginUsage>> {
+    let mut statement = connection.prepare_cached(
+        "SELECT part, usage_kind, amount FROM usage_parts WHERE usage_kind IN (?1, ?2) ORDER BY part",
+    )?;
+    let parts = statement.query_map([PLUGIN_CALLS, PLUGIN_TIME], |row| {
+        let amount: i64 = row.get(2)?;
+        Ok((
+            row.get::<_, String>(0)?,
+            row.get::<_, String>(1)?,
+            u64::try_from(amount).unwrap_or(0),
+        ))
+    })?;
+    let mut plugins: Vec<PluginUsage> = Vec::new();
+    for part in parts {
+        let (plugin, usage_kind, amount) = part?;
+        if plugins.last().is_none_or(|last| last.plugin != plugin) {
+            plugins.push(PluginUsage {
+                plugin,
+                calls: 0,
+                time: 0,
+            });
+        }
+        let usage = plugins
+            .last_mut()
+            .expect("invariant: the implementation's entry is the last");
+        if usage_kind == PLUGIN_CALLS {
+            usage.calls = amount;
+        } else {
+            usage.time = amount;
+        }
+    }
+    Ok(plugins)
 }
 
 /// Adds `delta` to what the Run used of `part` of `usage_kind`.

@@ -11,6 +11,8 @@
 use std::fs;
 use std::path::Path;
 
+use goodfetch_protocol::home::RUN_TRACE_PLUGIN_CALLS;
+use goodfetch_test_client::HomeLayout;
 use goodfetch_test_support::{ProvingGround, TestEnv, Tool, browser_cache, tools};
 use serde_json::{Value, json};
 
@@ -53,11 +55,27 @@ fn install(home: &Path, answer: &Value) {
     fs::write(bundle.join("goodfetch-plugin.json"), manifest.to_string()).unwrap();
 }
 
+/// Each line of the Run `run_id`'s Plugin call log, in the home of `env`.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "the test reads the Run trace on its own thread once the engine exited, never an async worker"
+)]
+fn traced(env: &TestEnv, run_id: &str) -> Vec<Value> {
+    let trace = HomeLayout::of(env.home()).run_trace(run_id, RUN_TRACE_PLUGIN_CALLS);
+    fs::read_to_string(&trace)
+        .unwrap_or_else(|error| panic!("{}: {error}", trace.display()))
+        .lines()
+        .map(|line| serde_json::from_str(line).unwrap())
+        .collect()
+}
+
 /// A page whose `content.extractor` names the installed Extractor reads
-/// its main content with it; a page that names none reads it with the
-/// built-in; a page naming an Extractor no one installed is refused.
+/// its main content with it, the call counted in the Run's Usage and
+/// written in its Run trace by Plugin and method with the engine's class;
+/// a page that names none reads it with the built-in; a page naming an
+/// Extractor no one installed is refused.
 ///
-/// Covers: story:7-87, setting:content.extractor, operation:page.formats, error:setting_invalid
+/// Covers: story:7-87, story:7-38, story:7-39, setting:content.extractor, operation:page.formats, operation:run.usage, error:setting_invalid
 #[test]
 fn a_page_reads_its_main_content_with_the_extractor_plugin_it_names() {
     let env = TestEnv::new();
@@ -105,10 +123,31 @@ fn a_page_reads_its_main_content_with_the_extractor_plugin_it_names() {
         "page.formats",
         &json!({ "page_id": built_in.page_id, "formats": { "markdown": true } }),
     );
-    engine.ask(9, "run.finish", &json!({ "run_id": "plugins" }));
+    let usage = engine.ask(9, "run.usage", &json!({ "run_id": "plugins" }));
+    engine.ask(10, "run.finish", &json!({ "run_id": "plugins" }));
     let (rest, exited) = engine.finish();
 
     let cleaned = plugins["result"]["html"].as_str().unwrap_or_default();
+    let traced = traced(&env, "plugins");
+    let time = traced
+        .first()
+        .map(|call| call["time"].clone())
+        .unwrap_or_default();
+    assert_eq!(
+        (&usage["result"]["plugins"], traced),
+        (
+            &json!([{ "plugin": "scripted", "calls": 1, "time": time }]),
+            vec![json!({
+                "plugin": "scripted",
+                "kind": "extract",
+                "method": "extract.content",
+                "class": "read",
+                "time": time,
+                "failed": null,
+            })]
+        ),
+        "{usage}"
+    );
     assert_eq!(
         (
             &plugins["result"]["main_content"],

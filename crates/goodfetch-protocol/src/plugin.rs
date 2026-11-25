@@ -29,9 +29,11 @@ use crate::error_code::ErrorCode;
 use crate::jsonrpc::RequestId;
 use crate::run::RunId;
 
+mod fuzz;
 mod manifest;
 mod names;
 
+pub use fuzz::{fuzz_plugin_manifest, fuzz_plugin_messages};
 pub use manifest::{
     Download, FILE_NAME, Grant, LOADER_VARIABLES, Limits, MANIFEST_VERSION, MEDIA_TYPE,
     ManifestBrowser, ManifestError, ManifestModel, NetworkLevel, Permissions, PluginManifest,

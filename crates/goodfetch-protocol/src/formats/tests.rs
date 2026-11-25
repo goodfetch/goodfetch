@@ -273,7 +273,9 @@ fn the_registry_lists_every_format_under_its_rule() {
             ("user-configuration", Rule::SharedStore),
             ("export", Rule::Default),
             ("session-export", Rule::Default),
-            ("recipe-manifest", Rule::Default)
+            ("recipe-manifest", Rule::Default),
+            ("plugin-protocol", Rule::LowerMinor),
+            ("plugin-manifest", Rule::Default)
         ]
     );
 }

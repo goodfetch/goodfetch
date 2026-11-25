@@ -37,6 +37,8 @@ fn stored_format(name: &str, storage: &str, rule: &str, definition: &str) -> ser
 /// The formats of the registry that are no settings file, as the bundle
 /// writes them.
 fn file_formats() -> serde_json::Value {
+    let of = |name: &str| json!({ "$ref": format!("#/$defs/{name}") });
+
     json!([
         {
             "name": "protocol",
@@ -66,6 +68,8 @@ fn file_formats() -> serde_json::Value {
         },
         stored_format("session-export", "json", "default", "SessionExport"),
         stored_format("recipe-manifest", "toml", "default", "RecipeManifest"),
+        stored_format("plugin-protocol", "transcript", "lower_minor", "Message"),
+        stored_format("plugin-manifest", "json", "default", "PluginManifest"),
     ])
 }
 

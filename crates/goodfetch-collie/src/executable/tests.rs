@@ -597,6 +597,7 @@ fn the_executables_logs_never_hold_a_websocket_frames_payload_at_trace() {
         settings: None,
         events: &goodfetch_engine::log::LogEvents::new(),
         masks: &Masks::new(),
+        keys: &goodfetch_engine::secrets::DriverSlot::default(),
         product: Product::Collie,
         handles: super::logs::Handles {
             clock: Clock::system(),

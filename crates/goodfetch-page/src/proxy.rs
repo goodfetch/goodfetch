@@ -33,13 +33,17 @@ use data_encoding::BASE64;
 use tokio::sync::Mutex;
 use tokio::time::Instant;
 
-use goodfetch_cdp::NetError;
+use goodfetch_engine::clock::Clock;
 use goodfetch_engine::dns::HostMapping;
 use goodfetch_engine::egress::{EndpointPolicy, Gate};
+use goodfetch_engine::endpoint::Refusals;
 use goodfetch_engine::http_client;
+use goodfetch_engine::ledger::RunCharging;
+use goodfetch_engine::politeness::RunPoliteness;
 use goodfetch_engine::run::secret_error;
-use goodfetch_engine::runs::Run;
-use goodfetch_engine::secrets::Purpose;
+use goodfetch_engine::run_identity::RunIdentity;
+use goodfetch_engine::runs::ReportWarnings;
+use goodfetch_engine::secrets::{Purpose, RunSecrets};
 use goodfetch_engine::settings::Resolved;
 use goodfetch_engine::{CallError, named};
 use goodfetch_protocol::catalog::Setting;
@@ -63,6 +67,7 @@ pub(crate) use self::party::{PROXY_STATUS, proxy_error, refusal};
 use self::relay::{Credentials, Mode, Relay, basic};
 use crate::egress_relay::serve::{Met, Upstream};
 use crate::egress_relay::{Chain, Outcomes};
+use crate::errors::NetError;
 use crate::proxy_provider::failure::{ProviderAnswer, ProviderFailure};
 use crate::proxy_provider::{
     Chosen, ProxyDriver, ProxyUsage, Refusal, Wanted, apify, bright_data, list, oxylabs, priced,
@@ -75,6 +80,23 @@ type Translation = fn(&ProviderAnswer) -> ProviderFailure;
 /// The rule that sends loopback through the proxy too, as Playwright does,
 /// so a Session's every request takes its proxy.
 pub(crate) const PROXIED_LOOPBACK: &str = "<-loopback>";
+
+/// The identity and the powers of a Run a Session's proxy takes in place of
+/// the handle (ADR 0145).
+#[derive(Clone)]
+pub(crate) struct RunPowers {
+    /// The Run's identity, starting the proxy's tasks on its Session's
+    /// owner, whose end stops them (ADR 0146).
+    pub(crate) identity: RunIdentity,
+    /// The Run's Secrets, which resolve the proxy's password.
+    pub(crate) secrets: RunSecrets,
+    /// The Politeness the Run shares, which holds the proxy's limits.
+    pub(crate) politeness: RunPoliteness,
+    /// What a Proxy provider's bytes are charged to.
+    pub(crate) charging: RunCharging,
+    /// The user's Audit log, where a relay records wrong credentials.
+    pub(crate) refusals: Refusals,
+}
 
 /// A Session's proxy, as it opened.
 pub(crate) struct SessionProxy {
@@ -110,6 +132,8 @@ struct Provided {
     usage: Arc<ProxyUsage>,
     /// When the Session opened, on its Run's clock.
     opened: Instant,
+    /// Its Run's clock, which tells how long the Session lived.
+    clock: Clock,
     /// Whether the Run was warned that the Session outlived its sticky
     /// lifetime.
     warned: Mutex<bool>,
@@ -365,9 +389,10 @@ fn needs(key: &str, needed: &str) -> CallError {
 }
 
 impl SessionProxy {
-    /// The proxy `settings`, a Session's, name for a Session of `run`, if
-    /// they name one: its password resolved now, and a SOCKS5 proxy with
-    /// credentials behind a loopback relay opened now.
+    /// The proxy `settings`, a Session's, name for a Session of `run`'s Run,
+    /// if they name one: its password resolved now, and a SOCKS5 proxy with
+    /// credentials behind a loopback relay opened now, whose tasks start on
+    /// `run`'s identity's owner.
     ///
     /// # Errors
     ///
@@ -377,7 +402,7 @@ impl SessionProxy {
     /// cannot open or a SOCKS5 proxy's host has no address.
     pub(crate) async fn open(
         settings: &Resolved,
-        run: &Run,
+        run: &RunPowers,
         opening: &Opening<'_>,
     ) -> Result<Option<Self>, CallError> {
         let text = |setting: &Setting| settings.get::<Option<&str>>(setting).map(str::to_owned);
@@ -428,10 +453,10 @@ impl SessionProxy {
                     domain: Some(&server.host),
                     domains: &[],
                     layer,
-                    run_id: Some(run.id()),
+                    run_id: Some(run.identity.id()),
                 };
                 Some(
-                    run.secrets()
+                    run.secrets
                         .resolve(&reference, &purpose)
                         .await
                         .map_err(|error| secret_error(&error))?,
@@ -480,7 +505,7 @@ impl SessionProxy {
     /// that charges its bytes opened now.
     async fn provided(
         settings: &Resolved,
-        run: &Run,
+        run: &RunPowers,
         opening: &Opening<'_>,
         name: &str,
     ) -> Result<Self, CallError> {
@@ -507,10 +532,10 @@ impl SessionProxy {
                     layer: settings
                         .effective(&PROXY_PROVIDERS)
                         .map(|effective| effective.layer),
-                    run_id: Some(run.id()),
+                    run_id: Some(run.identity.id()),
                 };
                 Some(
-                    run.secrets()
+                    run.secrets
                         .resolve(reference, &purpose)
                         .await
                         .map_err(|error| secret_error(&error))?,
@@ -524,7 +549,12 @@ impl SessionProxy {
         })
         .await?;
         let mode = provided_mode(settings, &chosen, password.as_ref())?;
-        let usage = Arc::new(ProxyUsage::new(run.clone(), chosen.kind, price));
+        let usage = Arc::new(ProxyUsage::new(
+            run.identity.clone(),
+            run.charging.clone(),
+            chosen.kind,
+            price,
+        ));
         let relay = Relay::open(
             run,
             addresses,
@@ -564,7 +594,8 @@ impl SessionProxy {
                 translation,
                 chosen,
                 usage,
-                opened: run.clock().now(),
+                opened: run.identity.clock().now(),
+                clock: run.identity.clock(),
                 warned: Mutex::new(false),
             }),
             through_relay: Outcomes::default(),
@@ -572,14 +603,17 @@ impl SessionProxy {
         })
     }
 
-    /// Warns `run`, once, when the Session `session` outlived its
-    /// provider's sticky lifetime, so its exit may have changed
-    /// (`proxy_exit_may_change`).
-    pub(crate) async fn warn_if_outlived(&self, run: &Run, session: &SessionId) {
+    /// Hands its Run's report, through `warnings`, a warning, once, when the
+    /// Session `session` outlived its provider's sticky lifetime, so its
+    /// exit may have changed (`proxy_exit_may_change`).
+    pub(crate) async fn warn_if_outlived(&self, warnings: &ReportWarnings, session: &SessionId) {
         let Some(provided) = &self.provided else {
             return;
         };
-        let lived = run.clock().now().saturating_duration_since(provided.opened);
+        let lived = provided
+            .clock
+            .now()
+            .saturating_duration_since(provided.opened);
         let Some(warning) = provided.chosen.exit_warning(&session.0, lived) else {
             return;
         };
@@ -588,7 +622,7 @@ impl SessionProxy {
             return;
         }
         drop(warned);
-        if let Err(error) = run.warn(warning).await {
+        if let Err(error) = warnings.warn(warning).await {
             tracing::warn!(%error, "the warning that a Session's proxy exit may change was not kept");
         }
     }

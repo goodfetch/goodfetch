@@ -65,21 +65,21 @@ use std::sync::{Mutex, OnceLock};
 use std::time::Duration;
 
 use data_encoding::BASE64;
-use goodfetch_cdp::NetError;
 use goodfetch_counted_work::Row;
 use goodfetch_engine::CallError;
 use goodfetch_engine::clock::Clock;
 use goodfetch_engine::deadline::Deadline;
 use goodfetch_engine::dns::{Dns, HostMapping};
 use goodfetch_engine::egress::{EndpointPolicy, Gate, Policy, Refused};
-use goodfetch_engine::endpoint::{REFUSAL_TARGET, new_token};
+use goodfetch_engine::endpoint::{REFUSAL_TARGET, Refusals, new_token};
 use goodfetch_engine::http_client::{self, LocalBinding};
 use goodfetch_engine::known_certificates::ExceptionKind;
 use goodfetch_engine::local_addresses::SessionAddresses;
-use goodfetch_engine::run_trace::RequestLog;
-use goodfetch_engine::runs::{Run, identity, run_trace};
+use goodfetch_engine::run_identity::RunIdentity;
+use goodfetch_engine::run_trace::{RequestLog, RunTrace};
+use goodfetch_engine::runs::outcome::record_outcome;
 use goodfetch_engine::settings::{Resolved as ResolvedSettings, RunSettings};
-use goodfetch_engine::tasks::{self, TaskStarter};
+use goodfetch_engine::tasks;
 use goodfetch_engine::tls::{
     CertificateExceptions, CertificateInvalid, Examiner, ExceptionUsed, Trust,
 };
@@ -92,7 +92,6 @@ use serde_json::json;
 use tokio::io::AsyncWriteExt as _;
 use tokio::net::{TcpListener, TcpStream};
 use tokio_util::sync::{CancellationToken, DropGuard};
-use tracing::Instrument as _;
 
 use self::answers::USERNAME;
 use self::application_settings::ApplicationSettings;
@@ -100,6 +99,7 @@ use self::authority::Authority;
 use self::client_hello::ClientHello;
 use self::serve::{Met, Network, Observe, ProxyRefused, Relaying, Resolved, Unreached, Upstream};
 use self::terminate::{Stop, Terminating};
+use crate::errors::NetError;
 
 /// The most refusals a relay keeps for the calls that wait on them.
 const KEPT_REFUSALS: usize = 64;
@@ -228,18 +228,31 @@ const KEPT_OUTCOMES: usize = 64;
 /// shorter ([`connect_deadline`]).
 const CONNECT_DEADLINE: Duration = Duration::from_secs(10);
 
-/// How long a relay of `run` waits for a connection it opens:
-/// [`CONNECT_DEADLINE`], or half the Run's `timeout.navigation` when that is
-/// shorter, so a proxy that never answers fails as the proxy's, with
-/// `proxy_unavailable`, before the navigation's own deadline (deep review
-/// finding 577-4).
-pub(crate) fn connect_deadline(run: &Run) -> Duration {
+/// How long a relay of the Run `run` names waits for a connection it
+/// opens: [`CONNECT_DEADLINE`], or half the Run's `timeout.navigation` when
+/// that is shorter, so a proxy that never answers fails as the proxy's,
+/// with `proxy_unavailable`, before the navigation's own deadline (deep
+/// review finding 577-4).
+pub(crate) fn connect_deadline(run: &RunIdentity) -> Duration {
     let navigation = Deadline::of_resolved(
         run.settings().map(RunSettings::resolved),
         &TIMEOUT_NAVIGATION,
     )
     .duration();
     CONNECT_DEADLINE.min(navigation / 2)
+}
+
+/// The identity and the powers of a Run its Session's relay takes in place
+/// of the handle (ADR 0145).
+#[derive(Clone)]
+pub(crate) struct RunPowers {
+    /// The Run's identity, starting its tasks on its Session's owner, whose
+    /// end stops them (ADR 0146).
+    pub(crate) identity: RunIdentity,
+    /// The Run trace, where its refusals and the hosts it terminated go.
+    pub(crate) trace: RunTrace,
+    /// The user's Audit log, where wrong credentials are recorded.
+    pub(crate) refusals: Refusals,
 }
 
 /// The latest value of each authority a relay's connections asked for, at
@@ -338,16 +351,17 @@ pub(crate) fn relayed(settings: &ResolvedSettings) -> bool {
 }
 
 impl EgressRelay {
-    /// Opens the relay of a Session of `run`, chained through `chain` when
-    /// the Session has an upstream proxy, its connections leaving from
+    /// Opens the relay of a Session of `run`'s Run, chained through `chain`
+    /// when the Session has an upstream proxy, its connections leaving from
     /// `local`'s addresses when it has them, binding port 0 of loopback.
-    /// Its tasks are `tasks`', its Session's owner's, in its Run's span.
+    /// Its tasks start on `run`'s identity's owner, its Session's, in its
+    /// Run's span.
     ///
     /// # Errors
     ///
     /// The bind's failure, or the OS generator's.
     pub(crate) async fn open(
-        (run, tasks): (&Run, TaskStarter),
+        run: RunPowers,
         chain: Option<Chain>,
         tls: RelayTls,
         local: Option<Local>,
@@ -374,7 +388,8 @@ impl EgressRelay {
             "Basic {}",
             BASE64.encode(format!("{USERNAME}:{password}").as_bytes())
         );
-        let settings = run.settings().map(RunSettings::resolved);
+        let clock = run.identity.clock();
+        let settings = run.identity.settings().map(RunSettings::resolved);
         let policy = session_policy(settings)?;
         let mapping = settings.map(HostMapping::of).unwrap_or_default();
         let RelayTls {
@@ -387,7 +402,7 @@ impl EgressRelay {
             Arc::new(Terminating {
                 authority,
                 exceptions,
-                examiner: trust.examiner(run.clock()),
+                examiner: trust.examiner(clock),
                 trust: trust.clone(),
                 application_settings: Arc::clone(&application_settings),
                 sessions: Arc::default(),
@@ -399,8 +414,8 @@ impl EgressRelay {
             upstream,
             bypasses,
             terminating: terminating.clone(),
-            clock: run.clock(),
-            connect_deadline: connect_deadline(run),
+            clock,
+            connect_deadline: connect_deadline(&run.identity),
         };
         let addresses = local.as_ref().map(|local| local.addresses);
         let network = Tcp {
@@ -414,14 +429,13 @@ impl EgressRelay {
         let record = Arc::new(Record {
             address,
             terminated: Mutex::new(BTreeMap::new()),
-            run: run.clone(),
-            log: Arc::new(RequestLog::new(run_trace(run))),
+            log: Arc::new(RequestLog::new(&run.trace)),
+            run,
             met,
             refusals: Mutex::new(VecDeque::new()),
             unreached: Mutex::new(BTreeMap::new()),
             client_hellos: Mutex::new(VecDeque::new()),
             sequence: AtomicU64::new(0),
-            tasks,
         });
         let stop = CancellationToken::new();
         record.spawn(accept(
@@ -439,7 +453,7 @@ impl EgressRelay {
             trust,
             application_settings,
             examiner: OnceLock::new(),
-            clock: run.clock(),
+            clock,
             local: addresses,
             _closed_when_dropped: stop.drop_guard(),
         })
@@ -629,7 +643,8 @@ struct Record {
     /// The hosts it terminated, each recorded once with the
     /// invalid-certificate exception its first connection passed under.
     terminated: Mutex<BTreeMap<String, Option<ExceptionUsed>>>,
-    run: Run,
+    /// Its Run's identity, on its Session's owner, and the powers it uses.
+    run: RunPowers,
     log: Arc<RequestLog>,
     /// Tells the Session's upstream proxy what a connection to it met.
     met: Option<MetTold>,
@@ -643,19 +658,16 @@ struct Record {
     /// The latest ClientHello the browser sent on a tunnel the relay
     /// passed as it is, of each authority, the latest last.
     client_hellos: Mutex<VecDeque<(String, ClientHello)>>,
-    /// Its Session's owner's starting side, on which its tasks run: its
-    /// Session's end stops them (ADR 0146).
-    tasks: TaskStarter,
 }
 
 impl Record {
-    /// Starts `task` on its Session's owner, in its Run's span.
+    /// Starts `task` on its Session's owner, in its Run's span: its
+    /// Session's end stops it (ADR 0146).
     fn spawn<F>(&self, task: F)
     where
         F: Future<Output = ()> + Send + 'static,
     {
-        let span = identity(&self.run).span().clone();
-        self.tasks.spawn(task.instrument(span));
+        self.run.identity.spawn(task);
     }
 }
 
@@ -698,9 +710,9 @@ impl Observe for Record {
             "exception": exception,
             "spki_sha256": used.map(|used| used.certificate.to_string()),
         });
-        let run = self.run.clone();
+        let trace = self.run.trace.clone();
         self.spawn(async move {
-            if let Err(error) = run.provenance(entry).await {
+            if let Err(error) = trace.provenance(entry).await {
                 tracing::warn!(%error, "the Run's Provenance did not take a host the egress relay terminated");
             }
         });
@@ -738,7 +750,7 @@ impl Observe for Record {
             );
             return;
         }
-        let refusals = self.run.refusals();
+        let refusals = self.run.refusals.clone();
         self.spawn(async move {
             refusals
                 .refused(Listener::EgressRelay, RefusalReason::TokenWrong)
@@ -774,7 +786,7 @@ impl Record {
                 refusals.pop_front();
             }
         }
-        self.run.record_outcome(&failure.code);
+        record_outcome(&self.run.identity, &failure.code);
         let failed = RequestFailed {
             url: url.to_owned(),
             method: method.to_owned(),
@@ -782,7 +794,7 @@ impl Record {
         };
         // Its entry goes to the Run trace's writer with no task started,
         // unless it is the Run's first (`C5.spawns`).
-        let counted = self.run.metrics().counted_work().clone();
+        let counted = self.run.identity.metrics().counted_work().clone();
         tasks::counting_starts_now(counted, Row::InterceptedSpawns, || {
             self.log.request_failed(&failed);
         });
@@ -867,8 +879,8 @@ async fn accept(
     record: Arc<Record>,
     stop: CancellationToken,
 ) {
-    let ending = record.tasks.child_token();
-    let clock = record.run.clock();
+    let ending = record.run.identity.owner().child_token();
+    let clock = record.run.identity.clock();
     loop {
         let accepted = tokio::select! {
             () = stop.cancelled() => return,

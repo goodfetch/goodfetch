@@ -7,7 +7,6 @@
     reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
 )]
 
-use goodfetch_cdp::NetError;
 use goodfetch_protocol::page::proxy::{PROXY_PASSWORD, PROXY_USERNAME, ProxyServer};
 use rstest::rstest;
 use secrecy::SecretString;
@@ -22,6 +21,7 @@ use goodfetch_test_support::{Outcome, Refusal, Runner, SsrfCase, SsrfTable};
 use super::{
     Answer, Party, SessionProxy, party, proxy_addresses, relay_unavailable, too_long_for_socks5,
 };
+use crate::errors::NetError;
 
 /// A Session's proxy at `server`, with `bypass`, and no relay or limits.
 fn proxy(server: &str, bypass: Option<&str>) -> SessionProxy {

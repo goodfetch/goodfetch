@@ -94,7 +94,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use goodfetch_cdp::generated::{fetch, network};
-use goodfetch_cdp::{Connection, Framer};
+use goodfetch_cdp::{Connection, Framer, NetError};
 use goodfetch_clean_up_rules::matching::Choices;
 use goodfetch_clean_up_rules::never_block::NeverBlock;
 use goodfetch_clean_up_rules::rules::FilterLists;

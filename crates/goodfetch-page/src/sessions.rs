@@ -69,7 +69,8 @@ use goodfetch_engine::run::{secret_error, settings_error};
 use goodfetch_engine::run_key::Sealed;
 use goodfetch_engine::run_state::{RunStateError, RunStateTables, SecretColumn, run_row};
 use goodfetch_engine::runs::{
-    self, Run, RunError, RunKeyError, files, governor, identity, keys, run_trace, warnings,
+    self, Run, RunError, RunKeyError, charging, files, governor, identity, keys, politeness,
+    run_trace, warnings,
 };
 use goodfetch_engine::secrets::Purpose;
 use goodfetch_engine::settings::{RunSettings, SettingsError, Values, setting};
@@ -118,7 +119,7 @@ use crate::page_functions::Injections;
 use crate::page_owner::{PageOwner, PageOwners};
 use crate::page_value::{HandlerPages, HeldPlace, PageValue, PooledSession};
 use crate::pool::{InBrowser, LocalFailure, Placement, Pool, Seat};
-use crate::proxy::{Opening, SessionProxy};
+use crate::proxy::{self, Opening, SessionProxy};
 use crate::recovery::Checking;
 use crate::trace;
 
@@ -409,6 +410,29 @@ pub(crate) fn interception_run(run: &Run) -> RunPowers {
     )
 }
 
+/// The identity and the powers of `run` a Session's egress relay takes
+/// (ADR 0145), its tasks starting on `tasks`, the Session's owner's
+/// (ADR 0146).
+fn relay_run(run: &Run, tasks: &TaskStarter) -> egress_relay::RunPowers {
+    egress_relay::RunPowers {
+        identity: identity(run).starting_on(tasks),
+        trace: run_trace(run).clone(),
+        refusals: run.refusals(),
+    }
+}
+
+/// The identity and the powers of `run` a Session's proxy takes (ADR
+/// 0145), its tasks starting on `tasks`, the Session's owner's (ADR 0146).
+fn proxy_run(run: &Run, tasks: &TaskStarter) -> proxy::RunPowers {
+    proxy::RunPowers {
+        identity: identity(run).starting_on(tasks),
+        secrets: keys(run).secrets().clone(),
+        politeness: politeness(run).clone(),
+        charging: charging(run).clone(),
+        refusals: run.refusals(),
+    }
+}
+
 /// The failure of a read or write of `run`'s state.
 pub(crate) fn unavailable(
     run: &Run,
@@ -548,9 +572,9 @@ impl Sessions {
         let signing = open_signing(&run, identity.signing.as_ref(), context).await?;
         self.reach(&run, context).await?;
         let (position, pool) = taken(&mut *self.state.lock().await, &run)?;
-        let proxy = open_proxy(&run, &settings, context, position).await?;
-        no_proxy_under(borrowed.as_ref(), proxy.as_deref())?;
         let owner = run.owner().child();
+        let proxy = open_proxy((&run, &owner), &settings, context, position).await?;
+        no_proxy_under(borrowed.as_ref(), proxy.as_deref())?;
         let relay = open_relay(
             (&run, &owner),
             proxy.as_ref(),
@@ -689,7 +713,8 @@ impl Sessions {
         no_local_address_on(run, source_of(borrowed))?;
         let signing = open_signing(run, signing, context).await?;
         let (position, pool) = taken(&mut *self.state.lock().await, run)?;
-        let proxy = open_proxy(run, &Values::default(), context, position).await?;
+        let owner = run.owner().child();
+        let proxy = open_proxy((run, &owner), &Values::default(), context, position).await?;
         no_proxy_under(borrowed, proxy.as_deref())?;
         // A pool Session's relay binds the position its pool gave it, which
         // its HTTP requests leave from too (ADR 0044's #682 note).
@@ -699,7 +724,6 @@ impl Sessions {
             } => ordinal,
             Opener::Default | Opener::Pool { .. } => rotation_ordinal(position),
         };
-        let owner = run.owner().child();
         let relay = open_relay(
             (run, &owner),
             proxy.as_ref(),
@@ -782,7 +806,7 @@ impl Sessions {
         open.life.call().await?;
         let run = open.run.clone();
         if let Some(proxy) = &open.proxy {
-            proxy.warn_if_outlived(&run, session).await;
+            proxy.warn_if_outlived(warnings(&run), session).await;
         }
         let value = self.handler_pages.value(run.id(), session);
         lease_holds(&value)?;
@@ -995,7 +1019,7 @@ impl Sessions {
         ending: &Ending,
     ) -> Result<Result<(), RunStateError>, CallError> {
         if let Some(proxy) = &open.proxy {
-            proxy.warn_if_outlived(&open.run, session).await;
+            proxy.warn_if_outlived(warnings(&open.run), session).await;
         }
         let crashed = match effect {
             // Already closing or closed: `close()` changes nothing (C).
@@ -1289,7 +1313,7 @@ impl Sessions {
             // 0021's #882 note).
             for (session, open) in &ended {
                 if let Some(proxy) = &open.proxy {
-                    proxy.warn_if_outlived(&open.run, session).await;
+                    proxy.warn_if_outlived(warnings(&open.run), session).await;
                 }
             }
             // Their pages go once the index no longer names them: a page
@@ -1517,9 +1541,9 @@ fn set_outside_code(key: &str) -> Option<&'static str> {
 
 /// The proxy a Session of `run` opens with: the one its own settings `own`
 /// name, beneath the Run's, within the Run's locks and each key's
-/// authority, or the Run's.
+/// authority, or the Run's. Its tasks are `tasks`', the Session's owner's.
 async fn open_proxy(
-    run: &Run,
+    (run, tasks): (&Run, &TaskStarter),
     own: &Values,
     context: &CallContext,
     position: u32,
@@ -1565,9 +1589,11 @@ async fn open_proxy(
         ordinal: u64::from(position),
         currencies: &currencies,
     };
-    Ok(SessionProxy::open(&resolved, run, &opening)
-        .await?
-        .map(Arc::new))
+    Ok(
+        SessionProxy::open(&resolved, &proxy_run(run, tasks), &opening)
+            .await?
+            .map(Arc::new),
+    )
 }
 
 /// The failure a call answers when the data key of `run` neither seals nor
@@ -1990,7 +2016,7 @@ async fn reopened_egress(
     if borrowed.is_some() {
         return (None, None, None);
     }
-    let proxy = match open_proxy(run, settings, context, position).await {
+    let proxy = match open_proxy((run, tasks), settings, context, position).await {
         Ok(proxy) => proxy,
         Err(error) => return (None, None, Some(error)),
     };
@@ -2128,7 +2154,7 @@ async fn open_relay(
             None => return Ok(None),
         },
     };
-    EgressRelay::open((run, tasks.clone()), chain, tls, local)
+    EgressRelay::open(relay_run(run, tasks), chain, tls, local)
         .await
         .map(|relay| Some(Arc::new(relay)))
         .map_err(|error| unavailable(run, &error, context))

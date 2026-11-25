@@ -14,7 +14,11 @@
 //! locator action or a page function, which have no generic code.
 
 use futures_util::FutureExt as _;
-use goodfetch_cdp::{BROWSER_REDIRECT_CHAIN, CertificateError, Failure, NetError, Refusal};
+/// The browser's network errors, by which the egress relay and the
+/// Session's proxy tell a site's failure from the proxy's: `cdp`, which
+/// imports the driver that opens them, cannot be what they import it from.
+pub(crate) use goodfetch_cdp::NetError;
+use goodfetch_cdp::{BROWSER_REDIRECT_CHAIN, CertificateError, Failure, Refusal};
 use goodfetch_engine::CallError;
 use goodfetch_engine::crash_report;
 use goodfetch_engine::deadline::Deadline;

@@ -6,7 +6,7 @@ use goodfetch_counted_work::{CountedWork, Row};
 use rstest::rstest;
 use tokio::sync::{mpsc, oneshot};
 
-use super::{BlockingPolicy, OwnerKind, TaskOwner};
+use super::{BlockingPolicy, OwnerKind, TaskOwner, TaskStarter};
 
 #[test]
 fn stopping_an_owner_cancels_its_tasks_and_waits_for_them() {
@@ -46,6 +46,53 @@ fn cancelling_a_parent_cancels_its_child() {
     parent.cancel();
 
     assert!(child.token().is_cancelled());
+}
+
+#[test]
+fn a_child_made_from_the_starting_side_alone_is_a_full_owner() {
+    goodfetch_test_support::runtime().block_on(async {
+        let parent = TaskOwner::root(BlockingPolicy::Inline);
+        let starting: &TaskStarter = &parent;
+        let child = starting.child();
+        let (finished, observed) = oneshot::channel();
+        let token = child.token().clone();
+        child.spawn(async move {
+            token.cancelled().await;
+            let _ = finished.send("stopped with its own owner");
+        });
+
+        child.stop().await;
+
+        assert_eq!(
+            (observed.await, parent.token().is_cancelled()),
+            (Ok("stopped with its own owner"), false)
+        );
+    });
+}
+
+#[test]
+fn the_starting_sides_token_cancels_itself_alone() {
+    let owner = TaskOwner::root(BlockingPolicy::Inline);
+    let starting: &TaskStarter = &owner;
+    let token = starting.child_token();
+
+    token.cancel();
+
+    assert_eq!(
+        (token.is_cancelled(), owner.token().is_cancelled()),
+        (true, false)
+    );
+}
+
+#[test]
+fn the_starting_sides_token_is_cancelled_with_its_owner() {
+    let owner = TaskOwner::root(BlockingPolicy::Inline);
+    let starting: &TaskStarter = &owner;
+    let token = starting.child_token();
+
+    owner.cancel();
+
+    assert!(token.is_cancelled());
 }
 
 #[test]

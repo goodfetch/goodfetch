@@ -53,6 +53,7 @@ pub(crate) mod client_hello;
 pub(crate) mod cookies;
 pub mod deadlines;
 pub(crate) mod head;
+pub(crate) mod leg;
 pub(crate) mod serve;
 pub(crate) mod terminate;
 
@@ -96,6 +97,7 @@ use self::answers::USERNAME;
 use self::application_settings::ApplicationSettings;
 use self::authority::Authority;
 use self::client_hello::ClientHello;
+use self::leg::Leg;
 use self::serve::{Met, Network, Observe, ProxyRefused, Relaying, Resolved, Unreached, Upstream};
 use self::terminate::{Stop, Terminating};
 
@@ -206,6 +208,9 @@ pub(crate) struct Chain {
     /// The proxy's host and port, or those of the loopback relay that
     /// authenticates to it.
     pub(crate) address: (String, u16),
+    /// Whether the relay speaks to the proxy inside TLS, to its host's
+    /// name: an `https://` proxy's.
+    pub(crate) tls: bool,
     /// Whether a URL goes around the proxy, as `proxy.bypass` says.
     pub(crate) bypasses: Box<dyn Fn(&str) -> bool + Send + Sync>,
     /// Tells the proxy what a connection to it met.
@@ -349,13 +354,14 @@ impl EgressRelay {
         local: Option<Local>,
     ) -> io::Result<Self> {
         type Bypasses = Box<dyn Fn(&str) -> bool + Send + Sync>;
-        let (upstream, address, bypasses, met, judged): (_, _, Bypasses, _, _) = match chain {
+        let (upstream, address, bypasses, met, judged, upstream_in_tls) = match chain {
             None => (
                 Upstream::Direct,
                 None,
-                Box::new(|_: &str| false),
+                Box::new(|_: &str| false) as Bypasses,
                 None,
                 None,
+                false,
             ),
             Some(chain) => (
                 chain.upstream,
@@ -363,6 +369,7 @@ impl EgressRelay {
                 chain.bypasses,
                 Some(chain.met),
                 chain.judged,
+                chain.tls,
             ),
         };
         let password = new_token().map_err(io::Error::other)?;
@@ -399,9 +406,14 @@ impl EgressRelay {
             connect_deadline: connect_deadline(run),
         };
         let addresses = local.as_ref().map(|local| local.addresses);
+        // An `https://` proxy is verified as an Operator-configured
+        // endpoint is: Mozilla's roots and the CAs `tls.trusted_cas` lists
+        // for its host (ADR 0042).
+        let upstream_tls = upstream_in_tls.then(|| Arc::new(trust.client_config(run.clock())));
         let network = Tcp {
             mapping,
             upstream: address,
+            upstream_tls,
             judged,
             local: local.map(|local| LocalBinding::new(local.addresses, &local.dns)),
         };
@@ -784,6 +796,9 @@ struct Tcp {
     mapping: HostMapping,
     /// The upstream proxy's host and port, when there is one.
     upstream: Option<(String, u16)>,
+    /// The TLS the relay speaks to an `https://` upstream proxy, inside
+    /// which it chains.
+    upstream_tls: Option<Arc<rustls::ClientConfig>>,
     /// How the upstream proxy's own addresses are judged when the relay
     /// connects to the proxy itself.
     judged: Option<EndpointPolicy>,
@@ -791,8 +806,19 @@ struct Tcp {
     local: Option<LocalBinding>,
 }
 
+impl Tcp {
+    /// A TCP connection to `address`, from the Session's address of its
+    /// family when it has local addresses.
+    async fn tcp(&self, address: SocketAddr) -> io::Result<TcpStream> {
+        match &self.local {
+            Some(local) => local.connect(address).await,
+            None => TcpStream::connect(address).await,
+        }
+    }
+}
+
 impl Network for Tcp {
-    type Stream = TcpStream;
+    type Stream = Leg;
 
     async fn resolve(&self, host: &str, port: u16) -> Option<Resolved> {
         let addresses = match &self.local {
@@ -803,14 +829,11 @@ impl Network for Tcp {
         Some(Resolved { addresses })
     }
 
-    async fn connect(&self, address: SocketAddr) -> io::Result<TcpStream> {
-        match &self.local {
-            Some(local) => local.connect(address).await,
-            None => TcpStream::connect(address).await,
-        }
+    async fn connect(&self, address: SocketAddr) -> io::Result<Leg> {
+        self.tcp(address).await.map(Leg::Plain)
     }
 
-    async fn connect_upstream(&self) -> io::Result<TcpStream> {
+    async fn connect_upstream(&self) -> io::Result<Leg> {
         let Some((host, port)) = &self.upstream else {
             return Err(io::ErrorKind::NotConnected.into());
         };
@@ -835,13 +858,31 @@ impl Network for Tcp {
                 })?;
         }
         let mut last = io::Error::from(io::ErrorKind::NotFound);
+        let mut connected = None;
         for address in resolved.addresses {
-            match self.connect(address).await {
-                Ok(stream) => return Ok(stream),
+            match self.tcp(address).await {
+                Ok(stream) => {
+                    connected = Some(stream);
+                    break;
+                }
                 Err(error) => last = error,
             }
         }
-        Err(last)
+        let stream = connected.ok_or(last)?;
+        let Some(config) = &self.upstream_tls else {
+            return Ok(Leg::Plain(stream));
+        };
+        // A proxy whose certificate the Run does not trust is unreachable,
+        // as one that refuses the connection is: nothing goes to it.
+        Leg::tls(stream, host, Arc::clone(config))
+            .await
+            .inspect_err(|error| {
+                tracing::warn!(
+                    %error,
+                    proxy = %host,
+                    "the egress relay could not open TLS to the upstream proxy"
+                );
+            })
     }
 }
 

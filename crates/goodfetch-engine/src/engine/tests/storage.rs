@@ -505,9 +505,9 @@ fn noting() -> Contribution {
                         .map(drop)
                 };
                 let written = if params["rides"] == json!(true) {
-                    run.state().write_deferred(note).await
+                    crate::runs::state(&run).write_deferred(note).await
                 } else {
-                    run.state().write(note).await
+                    crate::runs::state(&run).write(note).await
                 };
                 Ok(json!({ "acknowledged": written.is_ok() }))
             },
@@ -517,7 +517,7 @@ fn noting() -> Contribution {
             |params: Value, context: CallContext| async move {
                 let run_id = RunId::parse(params["run_id"].as_str().unwrap()).unwrap();
                 let run = context.runs().live(run_id).await.unwrap();
-                let charged = run.charge("requests", 1).await;
+                let charged = crate::runs::charging(&run).charge("requests", 1).await;
                 Ok::<Value, CallError>(json!({ "acknowledged": charged.is_ok() }))
             },
         ))

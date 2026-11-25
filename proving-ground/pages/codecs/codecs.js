@@ -1,14 +1,15 @@
 // The codec page's script (ADR 0074): for each sample `/samples.json`
 // lists, it asks `canPlayType` and Media Capabilities about the sample's
 // type, decodes the sample, and compares what it decoded with the expected
-// result. A video's first frame is drawn to a canvas and read at its
-// center; an audio sample is decoded with Web Audio and its frequency read
-// from its upward zero crossings. It shows each sample's answers, observed
-// result and whether it `decoded` to the expected one as JSON in
-// `#results`, by name, and sets `data-codecs="done"` on the root element.
+// result. A video plays muted to its first presented frame, which is drawn
+// to a canvas and read at its center; an audio sample is decoded with Web
+// Audio and its frequency read from its upward zero crossings. It shows
+// each sample's answers, observed result and whether it `decoded` to the
+// expected one as JSON in `#results`, by name, and sets
+// `data-codecs="done"` on the root element.
 "use strict";
 
-/** How long a video may take to show its first frame. */
+/** How long a video may take to present its first frame. */
 const LOAD_MS = 5000;
 
 /** The sample rate audio is decoded at. */
@@ -46,13 +47,27 @@ const capabilities = async (sample) => {
   }
 };
 
-/** Resolves once `video` shows its first frame; rejects on an error or after `LOAD_MS`. */
+/**
+ * Resolves once `video` has presented its first frame, which it plays to
+ * and pauses on; rejects on an error or after `LOAD_MS`. Drawn as soon as
+ * `loadeddata` fires, a paused video's first frame is not always ready and
+ * sometimes draws nothing, a transparent black; once presented it draws.
+ * The `play()` that `pause()` interrupts rejects after the promise has
+ * settled, which changes nothing.
+ */
 const firstFrame = (video) =>
   new Promise((resolve, reject) => {
     const timer = setTimeout(() => reject(new Error("no frame in time")), LOAD_MS);
-    video.addEventListener("loadeddata", () => {
+    video.requestVideoFrameCallback(() => {
       clearTimeout(timer);
+      video.pause();
       resolve();
+    });
+    video.addEventListener("loadeddata", () => {
+      video.play().catch((error) => {
+        clearTimeout(timer);
+        reject(error);
+      });
     });
     video.addEventListener("error", () => {
       clearTimeout(timer);

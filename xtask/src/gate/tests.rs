@@ -4,10 +4,11 @@
 //! module declares no Feature.
 
 use std::collections::{BTreeMap, BTreeSet};
+use std::path::Path;
 
 use rstest::rstest;
 
-use super::host::{REMOVED_BY_THE_GATE, step_variables};
+use super::host::{REMOVED_BY_THE_GATE, step_variables, worktree};
 use super::plan::{
     Action, Earlier, EarnedPasses, GateRun, Head, Layer, LintReads, MAX_AGE, Outcome, Pin, Planned,
     Touched, UNOWNED, gate_input, hosted_fingerprint, narrowed, plan, unit,
@@ -200,10 +201,10 @@ const ALWAYS: [&str; 13] = [
 
 #[test]
 fn a_variable_only_the_launcher_reads_is_not_one_of_the_steps() {
-    let launched = "CARGO_INCREMENTAL=0\nGOODFETCH_GATE_MIN_FREE_GB=60\nGOODFETCH_GATE_RECORDS=/records\nGOODFETCH_GATE_LAYER=backstop\nGOODFETCH_LAZYFS=/lazyfs\nGOODFETCH_QUICK_BASE=origin/spec\nGOODFETCH_STEPS_DIR=/steps\nGOODFETCH_STEP=lint";
+    let launched = "CARGO_INCREMENTAL=0\nGOODFETCH_GATE_MIN_FREE_GB=60\nGOODFETCH_GATE_RECORDS=/records\nGOODFETCH_GATE_LAYER=backstop\nGOODFETCH_LAZYFS=/lazyfs\nGOODFETCH_PERF_PULL_REQUEST=/merge-gate/target/perf-pull-request.json\nGOODFETCH_QUICK_BASE=origin/spec\nGOODFETCH_STEPS_DIR=/steps\nGOODFETCH_STEP=lint";
 
     assert_eq!(
-        step_variables(launched),
+        step_variables(launched, Path::new("/merge-gate")),
         "CARGO_INCREMENTAL=0\nGOODFETCH_LAZYFS=/lazyfs"
     );
 }
@@ -212,7 +213,56 @@ fn a_variable_only_the_launcher_reads_is_not_one_of_the_steps() {
 fn a_variable_whose_name_only_starts_as_the_launchers_stays() {
     let launched = "GOODFETCH_GATE_MIN_FREE_GB_PER_STEP=2\nNEXTEST_DOUBLE_SPAWN=0";
 
-    assert_eq!(step_variables(launched), launched);
+    assert_eq!(step_variables(launched, Path::new("/worktree")), launched);
+}
+
+/// `just preflight` runs in the spec's worktree and `just merge`'s full gate
+/// in the merge-gate worktree, on one tree (#3791): the justfile's compiler
+/// wrapper names each worktree, and only the gate's launcher sets where the
+/// pull request's performance acceptance is, so neither may tell the two
+/// runs' hosts apart.
+#[test]
+fn two_worktrees_of_one_host_give_the_same_step_variables() {
+    let preflight = "CARGO_INCREMENTAL=0\nRUSTC_WRAPPER=/repo/.claude/worktrees/spec-3326/ci/compiler-cache/sccache";
+    let merge = "CARGO_INCREMENTAL=0\nGOODFETCH_PERF_PULL_REQUEST=/repo/.claude/worktrees/merge-gate/target/perf-pull-request.json\nRUSTC_WRAPPER=/repo/.claude/worktrees/merge-gate/ci/compiler-cache/sccache";
+
+    assert_eq!(
+        step_variables(preflight, Path::new("/repo/.claude/worktrees/spec-3326")),
+        step_variables(merge, Path::new("/repo/.claude/worktrees/merge-gate")),
+    );
+}
+
+/// The gate runs `xtask` in the worktree, which `Environment` names `.`,
+/// while the justfile writes the wrapper from its own absolute folder: the
+/// worktree the callers read the variables against is that folder.
+#[test]
+fn the_folder_xtask_runs_in_reads_the_justfiles_wrapper_relative_to_it() {
+    let folder = std::env::current_dir().expect("the test runs in a folder");
+    let launched = format!(
+        "RUSTC_WRAPPER={}",
+        folder.join("ci/compiler-cache/sccache").display()
+    );
+
+    assert_eq!(
+        step_variables(
+            &launched,
+            &worktree(Path::new(".")).expect("the current folder")
+        ),
+        "RUSTC_WRAPPER=<worktree>/ci/compiler-cache/sccache"
+    );
+}
+
+/// Only a path inside the worktree is read relative to it: a wrapper outside
+/// it, or a sibling folder whose name merely starts as the worktree's, still
+/// tells two hosts apart.
+#[rstest]
+#[case::outside_the_worktree("RUSTC_WRAPPER=/usr/bin/sccache")]
+#[case::a_sibling_folder("RUSTC_WRAPPER=/repo/slot-1-seed/sccache")]
+fn a_path_outside_the_worktree_stays_as_it_is(#[case] variables: &str) {
+    assert_eq!(
+        step_variables(variables, Path::new("/repo/slot-1")),
+        variables
+    );
 }
 
 /// The fingerprint may leave a variable out as removed only while
@@ -1170,9 +1220,7 @@ const WHOLE_CHANGE_STEPS: [&str; 6] = [
 
 /// The steps that run beside the host's: each builds and writes in folders
 /// no host step reads, and its verdict is the one it gives after them.
-const BESIDE_STEPS: [&str; 8] = [
-    "perf", "counts", "linux", "visual", "tlc", "miri", "loom", "windows",
-];
+const BESIDE_STEPS: [&str; 7] = ["perf", "counts", "linux", "visual", "tlc", "miri", "loom"];
 
 /// Each entry's owning layer, as the spec's table of owning layers sets it
 /// (spec #3373): `just merge` judges the change in seconds, the gate host
@@ -1289,6 +1337,25 @@ fn the_steps_beside_are_these_and_start_before_lint(#[case] form: Form) {
         last_beside < Some(position(form, "lint")),
         "{last_beside:?}"
     );
+}
+
+/// The Windows tests under Wine start each Proving ground within a 30 s
+/// deadline, which they miss while the other steps load the host (#3780):
+/// the Windows step is the full gate's last entry and the only one that
+/// starts once every other step has ended.
+#[rstest]
+#[case::all(Form::All)]
+#[case::changed(Form::Changed)]
+fn the_windows_step_runs_last_once_every_other_step_has_ended(#[case] form: Form) {
+    let list = entries(form);
+    let after: Vec<&str> = list
+        .iter()
+        .filter(|entry| entry.kind == Kind::After)
+        .map(|entry| entry.name)
+        .collect();
+
+    assert_eq!(after, ["windows"]);
+    assert_eq!(list.last().map(|entry| entry.name), Some("windows"));
 }
 
 #[test]

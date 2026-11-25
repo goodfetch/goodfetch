@@ -152,6 +152,13 @@ impl Server {
         Arc::clone(&self.observations)
     }
 
+    /// The TLS configuration of the `https://` proxy among the network
+    /// fixtures: its leaf the authority's, HTTP/1.1 alone, as a forward
+    /// proxy speaks.
+    pub(crate) fn proxy_tls(&self) -> Arc<ServerConfig> {
+        Arc::clone(&self.tls.http1)
+    }
+
     /// The bound address.
     pub(crate) fn address(&self) -> SocketAddr {
         self.listener

@@ -87,7 +87,6 @@ fn needs_you<C>(run: &JourneyRun<C>) -> Vec<Value> {
 }
 
 /// Covers: story:12-23, story:12-100
-#[cfg(unix)]
 #[test]
 #[expect(
     clippy::too_many_lines,

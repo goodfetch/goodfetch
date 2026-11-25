@@ -36,6 +36,7 @@ use crate::exchange::{Reply, Request};
 use crate::extraction;
 use crate::files;
 use crate::fonts;
+use crate::forward_proxy;
 use crate::google_hosts;
 use crate::handmade;
 use crate::hostile;
@@ -162,6 +163,7 @@ impl Site {
                 fonts::HOST,
                 codecs::HOST,
                 page_load::HOST,
+                forward_proxy::TLS_HOST,
             ])
             .chain(page_load::AD_HOSTS)
             .chain(google_hosts::HOSTS)

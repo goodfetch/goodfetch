@@ -64,7 +64,7 @@ pub(super) async fn called(
     let label = on.leased.crawl_request.label.as_str();
     let stage = &hook.stage;
     let calling = Calling {
-        run_id: on.run.id(),
+        run_id: on.run.identity.id(),
         hook: &hook.name,
         stage,
         crawl_request: &on.leased.crawl_request,
@@ -83,7 +83,7 @@ pub(super) async fn called(
     else {
         return Some(Answer::ClientGone);
     };
-    let clock = on.run.clock();
+    let clock = on.run.identity.clock();
     let raised = |code, message: &str, details: &Map<String, Value>| {
         Answer::failed(raised(stage, (&hook.name, label), code, message, details))
     };

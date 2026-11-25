@@ -34,7 +34,8 @@ def check_deployment_variables(env: Mapping[str, str]) -> None:
 
     Raises:
         SettingUnknownError: A variable is not on the list.
-        SettingInvalidError: A variable is empty, its value is no Unicode,
+        SettingInvalidError: A variable but `GOODFETCH_EKS_FARGATE_PROFILE`
+            is empty, its value is no Unicode,
             `GOODFETCH_CHANNEL` names no channel,
             `GOODFETCH_DAEMON_DRAIN_GRACE` is no whole number of milliseconds
             or `GOODFETCH_DAEMON_ADDRESS` or `GOODFETCH_OPS_ADDRESS` is no IP
@@ -58,6 +59,8 @@ _CHANNEL = "GOODFETCH_CHANNEL"
 _DRAIN_GRACE = "GOODFETCH_DAEMON_DRAIN_GRACE"
 _DAEMON_ADDRESS = "GOODFETCH_DAEMON_ADDRESS"
 _OPS_ADDRESS = "GOODFETCH_OPS_ADDRESS"
+_EKS_FARGATE_PROFILE = "GOODFETCH_EKS_FARGATE_PROFILE"
+"""The pod's Fargate profile label, which the downward API leaves empty off Fargate."""
 _LARGEST_MILLISECONDS = 2**64 - 1
 """The largest drain grace the engine reads, its `u64`'s."""
 _MILLISECONDS = re.compile(r"\+?([0-9]+)")
@@ -77,7 +80,7 @@ _LARGEST_SCOPE = 2**32 - 1
 def _invalid_reason(name: str, value: str) -> str | None:
     """Why `value` cannot be the deployment variable `name`'s, or `None`."""
     if not value:
-        return "it is empty; unset it instead"
+        return None if name == _EKS_FARGATE_PROFILE else "it is empty; unset it instead"
     try:
         value.encode()
     except UnicodeEncodeError:

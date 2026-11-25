@@ -4,7 +4,7 @@
 //! on its `http` tier at the product's defaults: the resident-memory
 //! check's crawl scenarios, of 100, 1,000 and 10,000 pages (spec #2165).
 //! `just compare` serves its trials' sites with the same Proving ground and
-//! drives its own crawls.
+//! drives its own crawls through the same client.
 #![expect(
     clippy::disallowed_methods,
     reason = "xtask is synchronous; the blocking-fs and process bans target async crates (STYLE.md)"
@@ -13,6 +13,7 @@
 use std::io::{BufRead as _, BufReader, Write as _};
 use std::path::Path;
 use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
+use std::sync::mpsc::{Receiver, channel};
 
 use anyhow::{Context as _, Result, bail};
 use goodfetch_protocol::catalog::Product;
@@ -111,14 +112,41 @@ pub(crate) fn serve(proving_ground: &Path, network_profile: &str) -> Result<Serv
     Ok(serving)
 }
 
-/// A JSON-RPC connection to an Attached engine.
-struct Engine {
+/// A JSON-RPC connection over stdio to a code-free crawl's Attached engine,
+/// its output read by a thread of the `xtask` process, so the engine never
+/// waits on a full pipe while its caller waits on something else.
+pub(crate) struct Client {
     stdin: ChildStdin,
-    stdout: BufReader<ChildStdout>,
+    lines: Receiver<String>,
 }
 
-impl Engine {
-    fn send(&mut self, message: &Value) -> Result<()> {
+impl Client {
+    /// Opens the connection with `hello`, asking for Foxhound.
+    pub(crate) fn open(stdin: ChildStdin, stdout: ChildStdout) -> Result<Self> {
+        let (sender, lines) = channel();
+        std::thread::spawn(move || {
+            for line in BufReader::new(stdout).lines() {
+                let Ok(line) = line else { break };
+                if sender.send(line).is_err() {
+                    break;
+                }
+            }
+        });
+        let mut client = Self { stdin, lines };
+        let hello = serde_json::to_value(HelloParams {
+            needs: Some(Product::Foxhound),
+            ..HelloParams::new(
+                Surface::Rust,
+                ProductVersion::parse(env!("CARGO_PKG_VERSION"))
+                    .context("xtask's version is a Product version")?,
+            )
+        })?;
+        client.call("hello", HELLO, &hello)?;
+        Ok(client)
+    }
+
+    /// Writes `message` as one line.
+    pub(crate) fn send(&mut self, message: &Value) -> Result<()> {
         let mut line = serde_json::to_vec(message)?;
         line.push(b'\n');
         self.stdin
@@ -127,21 +155,22 @@ impl Engine {
             .context("writing to the engine")
     }
 
-    /// Sends the call `id` and reads until its reply, which it answers.
-    fn call(&mut self, id: &str, method: &str, params: &Value) -> Result<Value> {
+    /// The engine's next message.
+    pub(crate) fn next(&self, waiting_for: &str) -> Result<Value> {
+        let line = self
+            .lines
+            .recv()
+            .with_context(|| format!("the engine ended before it answered {waiting_for}"))?;
+        serde_json::from_str(&line)
+            .with_context(|| format!("the engine wrote no JSON: {}", line.trim_end()))
+    }
+
+    /// Sends the call `id` and reads until its reply, which it answers. A
+    /// crawl request's handler call fails it: the crawl is code-free.
+    pub(crate) fn call(&mut self, id: &str, method: &str, params: &Value) -> Result<Value> {
         self.send(&json!({ "jsonrpc": "2.0", "id": id, "method": method, "params": params }))?;
         loop {
-            let mut line = String::new();
-            if self
-                .stdout
-                .read_line(&mut line)
-                .context("reading the engine")?
-                == 0
-            {
-                bail!("the engine ended before it answered {method}");
-            }
-            let message: Value = serde_json::from_str(&line)
-                .with_context(|| format!("the engine wrote no JSON: {}", line.trim_end()))?;
+            let message = self.next(method)?;
             if message["method"] == "crawl_request.handle" {
                 bail!("a code-free crawl sent its program {message}");
             }
@@ -153,24 +182,20 @@ impl Engine {
             }
         }
     }
+
+    /// Ends the input, so the engine exits.
+    pub(crate) fn close(self) {
+        drop(self.stdin);
+        // Its output stays open until it exits, so ending never fails a
+        // write.
+        while self.lines.recv().is_ok() {}
+    }
 }
 
 /// Opens with `hello`, starts a code-free crawl of the site on the `http`
 /// tier, waits for its Run to finish complete, and ends the input.
 pub(crate) fn crawl(stdin: ChildStdin, stdout: ChildStdout, site: &Site<'_>) -> Result<()> {
-    let mut engine = Engine {
-        stdin,
-        stdout: BufReader::new(stdout),
-    };
-    let hello = serde_json::to_value(HelloParams {
-        needs: Some(Product::Foxhound),
-        ..HelloParams::new(
-            Surface::Rust,
-            ProductVersion::parse(env!("CARGO_PKG_VERSION"))
-                .context("xtask's version is a Product version")?,
-        )
-    })?;
-    engine.call("hello", HELLO, &hello)?;
+    let mut engine = Client::open(stdin, stdout)?;
     let concurrency = site.concurrency;
     let run_settings = json!({
         "network": { "resolve": { HOST: [site.ip()] } },
@@ -210,9 +235,6 @@ pub(crate) fn crawl(stdin: ChildStdin, stdout: ChildStdout, site: &Site<'_>) -> 
             site.pages
         );
     }
-    let Engine { stdin, mut stdout } = engine;
-    drop(stdin);
-    // Its output stays open until it exits, so ending never fails a write.
-    std::io::copy(&mut stdout, &mut std::io::sink()).context("reading the engine's output")?;
+    engine.close();
     Ok(())
 }

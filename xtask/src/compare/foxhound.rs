@@ -2,24 +2,17 @@
 //! through one code-free crawl of the scenario's site at a cell's
 //! settings, started, or resumed after a kill, and, once the measured
 //! process is gone, its Records' commit times and samples read by another
-//! engine on the same home, which no figure counts.
-#![expect(
-    clippy::disallowed_methods,
-    reason = "xtask is synchronous: the engine's output is read on a thread of its own with blocking calls (STYLE.md)"
-)]
+//! engine on the same home, which no figure counts. The connection is the
+//! HTTP crawl's client.
 
-use std::io::{BufRead as _, BufReader, Write as _};
 use std::process::{ChildStdin, ChildStdout};
-use std::sync::mpsc::{Receiver, channel};
 
-use anyhow::{Context as _, Result, bail};
-use goodfetch_protocol::catalog::Product;
-use goodfetch_protocol::connection::{HELLO, HelloParams, ProductVersion, Surface};
+use anyhow::{Result, bail};
 use goodfetch_protocol::events::CREDIT;
 use goodfetch_protocol::foxhound::dataset::RECORD;
 use serde_json::{Value, json};
 
-use crate::rss::crawl::Site;
+use crate::rss::crawl::{Client, Site};
 
 use super::matrix::{AtDefaults, Cell, Scenario};
 
@@ -29,85 +22,21 @@ pub(crate) const RUN: &str = "crawl";
 /// The Dataset Foxhound's program pushes each page's Record to (#2317).
 pub(crate) const PROGRAM_DATASET: &str = "pages";
 
-/// A JSON-RPC connection to an Attached engine, its output read by a
-/// thread of its own so the engine never waits on a full pipe while the
-/// trial waits on the Proving ground.
+/// A trial's connection to an Attached engine.
 pub(crate) struct Engine {
-    stdin: ChildStdin,
-    lines: Receiver<String>,
+    client: Client,
 }
 
 impl Engine {
     /// Opens the connection with `hello`.
     pub(crate) fn open(stdin: ChildStdin, stdout: ChildStdout) -> Result<Self> {
-        let (sender, lines) = channel();
-        std::thread::spawn(move || {
-            for line in BufReader::new(stdout).lines() {
-                let Ok(line) = line else { break };
-                if sender.send(line).is_err() {
-                    break;
-                }
-            }
-        });
-        let mut engine = Self { stdin, lines };
-        let hello = serde_json::to_value(HelloParams {
-            needs: Some(Product::Foxhound),
-            ..HelloParams::new(
-                Surface::Rust,
-                ProductVersion::parse(env!("CARGO_PKG_VERSION"))
-                    .context("xtask's version is a Product version")?,
-            )
-        })?;
-        engine.call("hello", HELLO, &hello)?;
-        Ok(engine)
-    }
-
-    fn send(&mut self, message: &Value) -> Result<()> {
-        let mut line = serde_json::to_vec(message)?;
-        line.push(b'\n');
-        self.stdin
-            .write_all(&line)
-            .and_then(|()| self.stdin.flush())
-            .context("writing to the engine")
-    }
-
-    /// The engine's next message.
-    fn next(&self, waiting_for: &str) -> Result<Value> {
-        let line = self
-            .lines
-            .recv()
-            .with_context(|| format!("the engine ended before it answered {waiting_for}"))?;
-        serde_json::from_str(&line)
-            .with_context(|| format!("the engine wrote no JSON: {}", line.trim_end()))
-    }
-
-    /// Sends the call `id` and reads until its reply, handing each other
-    /// message to `other`.
-    fn call_with(
-        &mut self,
-        id: &str,
-        method: &str,
-        params: &Value,
-        mut other: impl FnMut(&Value),
-    ) -> Result<Value> {
-        self.send(&json!({ "jsonrpc": "2.0", "id": id, "method": method, "params": params }))?;
-        loop {
-            let message = self.next(method)?;
-            if message["method"] == "crawl_request.handle" {
-                bail!("a code-free crawl sent its program {message}");
-            }
-            if message["id"] == id {
-                if message.get("error").is_some() {
-                    bail!("{method} failed: {message}");
-                }
-                return Ok(message["result"].clone());
-            }
-            other(&message);
-        }
+        Ok(Self {
+            client: Client::open(stdin, stdout)?,
+        })
     }
 
     fn call(&mut self, id: &str, method: &str, params: &Value) -> Result<Value> {
-        self.call_with(id, method, params, |_| {})
+        self.client.call(id, method, params)
     }
 
     /// Starts the code-free crawl of `cell`'s scenario's site from `start`
@@ -171,18 +100,18 @@ impl Engine {
     pub(crate) fn records(&mut self, site: &Site<'_>, dataset: &str) -> Result<Vec<Record>> {
         let id = "records";
         let mut records = Vec::new();
-        self.send(&json!({
+        self.client.send(&json!({
             "jsonrpc": "2.0", "id": id, "method": "run.records",
             "params": { "run_id": RUN, "dataset": dataset },
         }))?;
         // Credit for every Record at once: a crawl with duplicates after
         // a kill still commits one Record a page.
-        self.send(&json!({
+        self.client.send(&json!({
             "jsonrpc": "2.0", "method": CREDIT,
             "params": { "id": id, "credits": site.pages * 2 },
         }))?;
         loop {
-            let message = self.next("run.records")?;
+            let message = self.client.next("run.records")?;
             if message["id"] == id {
                 if message.get("error").is_some() {
                     bail!("run.records failed: {message}");
@@ -209,10 +138,7 @@ impl Engine {
 
     /// Ends the input, so the engine exits.
     pub(crate) fn close(self) {
-        drop(self.stdin);
-        // Its output stays open until it exits, so ending never fails a
-        // write.
-        while self.lines.recv().is_ok() {}
+        self.client.close();
     }
 }
 

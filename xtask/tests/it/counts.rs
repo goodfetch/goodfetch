@@ -348,6 +348,26 @@ fn a_register_without_the_row_reaches_no_verdict() {
     assert_eq!(outcome.code, 2, "{}", outcome.stdout);
 }
 
+/// An `--executable` value with no family is refused, naming it, where it
+/// would otherwise run as though no executable were given.
+#[test]
+fn an_executable_without_its_family_is_refused_naming_it() {
+    let (workspace, _) = workspace("8", &benchmark(&[("default", 104)], false));
+    let path = workspace.path().join("benchmark.sh");
+    let path = path.display().to_string();
+
+    let outcome = workspace.xtask(&["counts", "--row", "F1.parses", "--executable", &path]);
+
+    assert_eq!(outcome.code, 2, "{}", outcome.stdout);
+    assert!(
+        outcome
+            .stderr
+            .contains(&format!("`{path}` is no FAMILY=PATH")),
+        "{}",
+        outcome.stderr
+    );
+}
+
 /// A register with B3's rows, its counted rows at their first figures.
 const B3_REGISTER: &str = "# Testing\n\n## Quality register\n\n### Measured, not yet enforced\n\n\
      | Row | Metric, per unit | Contract | Today | Benchmark | Direction | Checked by | Runs at |\n\

@@ -1,7 +1,9 @@
 //! A page's or a Session's routes, in the order they were armed: each a URL
 //! pattern, the Client whose handler answers its requests and the call whose
 //! subscription it is. A route leaves its table when its subscription ends,
-//! and its subscription ends when its handler fails or its table closes.
+//! and its subscription ends when its handler fails, its table closes, or
+//! its page's request part, which a page's routes belong to, is replaced
+//! (ADR 0146).
 #![expect(
     clippy::disallowed_types,
     reason = "routes are armed and answers delivered as their call arrives, before any `.await`: each lock guards one table or map for one operation, never across another lock or an `.await`, so there is no lock order to test under loom (ADR 0060)"
@@ -26,8 +28,19 @@ pub(super) struct Route {
     /// The id of the call whose subscription it is.
     pub(super) call: RequestId,
     /// Where its handler's failure goes, once: its subscription's end.
-    failed: Mutex<Option<oneshot::Sender<CallError>>>,
+    failed: Mutex<Failed>,
     ended: Mutex<Option<oneshot::Receiver<CallError>>>,
+}
+
+/// Where a route's handler's failure goes.
+enum Failed {
+    /// To its subscription, which it ends.
+    Live(oneshot::Sender<CallError>),
+    /// Its subscription ended with an earlier failure.
+    Ended,
+    /// Its page's request part, which armed it, was replaced (ADR 0146):
+    /// its subscription ended, and its failures belong to no call.
+    Retired,
 }
 
 impl Route {
@@ -37,7 +50,7 @@ impl Route {
             pattern,
             client,
             call,
-            failed: Mutex::new(Some(failed)),
+            failed: Mutex::new(Failed::Live(failed)),
             ended: Mutex::new(Some(ended)),
         }
     }
@@ -47,11 +60,29 @@ impl Route {
         self.pattern.matches(url)
     }
 
-    /// Ends its subscription with `error`, its handler's failure.
-    pub(super) fn fail(&self, error: CallError) {
-        if let Some(failed) = lock(&self.failed).take() {
-            let _ = failed.send(error);
+    /// Ends its subscription with `error`, its handler's failure, unless
+    /// it ended already: whether the failure is left for its page's next
+    /// call, which it is not once its page's request part was replaced.
+    pub(super) fn fail(&self, error: CallError) -> bool {
+        let mut failed = lock(&self.failed);
+        match std::mem::replace(&mut *failed, Failed::Ended) {
+            Failed::Live(subscription) => {
+                let _ = subscription.send(error);
+                true
+            }
+            Failed::Ended => true,
+            Failed::Retired => {
+                *failed = Failed::Retired;
+                false
+            }
         }
+    }
+
+    /// Ends its subscription without a failure, as its page's request part
+    /// is replaced.
+    fn retire(&self) {
+        let retired = std::mem::replace(&mut *lock(&self.failed), Failed::Retired);
+        drop(retired);
     }
 }
 
@@ -108,6 +139,16 @@ impl RouteTable {
         self.closed.send_replace(true);
     }
 
+    /// Ends the routes its page's earlier request armed, as its request
+    /// part is replaced (ADR 0146): each subscription ends, and the next
+    /// request arms its own.
+    pub(super) fn replace_request(&self) {
+        let earlier = std::mem::take(&mut *lock(&self.routes));
+        for route in earlier {
+            route.retire();
+        }
+    }
+
     /// Whether it closed.
     pub(super) fn is_closed(&self) -> bool {
         *self.closed.borrow()
@@ -124,8 +165,8 @@ pub(crate) struct Armed {
 }
 
 impl Armed {
-    /// Waits for the subscription's end: its handler's failure, or its page
-    /// or Session closing.
+    /// Waits for the subscription's end: its handler's failure, its page
+    /// or Session closing, or its page's request part being replaced.
     ///
     /// # Errors
     ///

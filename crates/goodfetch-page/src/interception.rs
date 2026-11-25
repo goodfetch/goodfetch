@@ -579,12 +579,15 @@ pub(crate) struct HeldPage {
 
 /// A page's side of the interception, as its owner holds it (ADR 0146):
 /// its routes, its Filter lists' state, its handlers' failures and its
-/// pending navigation. Clones share it. Once closed, it answers as for a
-/// page the interception does not hold.
+/// pending navigation, the first and the last two its request part's.
+/// Clones share it. Once closed, it answers as for a page the interception
+/// does not hold.
 #[derive(Clone)]
 pub(crate) struct PageInterception {
     state: Arc<PageState>,
-    page_id: PageId,
+    /// The Page ID of the request the page serves now, which its route
+    /// handlers' requests and its errors name.
+    page_id: Arc<watch::Sender<PageId>>,
 }
 
 impl PageState {
@@ -721,7 +724,7 @@ impl Interception {
         // owner, its workers' on their browser's.
         let run = &run.of_page(page_tasks);
         let children = Self::children_of(
-            page_id,
+            &page.page_id.subscribe(),
             (&state, answers.clone()),
             driver,
             run,
@@ -731,7 +734,7 @@ impl Interception {
         let context = Arc::new(
             PageContext::new(
                 driver.clone(),
-                Sender::Page(page_id.clone()),
+                Sender::Page(page.page_id.subscribe()),
                 state,
                 answers,
                 policy,
@@ -798,7 +801,7 @@ impl Interception {
     /// paused never runs. A dedicated worker's requests pass its page's
     /// own pipeline already.
     fn children_of(
-        page_id: &PageId,
+        page_id: &watch::Receiver<PageId>,
         (state, answers): (&Arc<PageState>, Answers),
         page: &PageDriver,
         run: &RunPowers,
@@ -1106,7 +1109,7 @@ impl PageInterception {
         state.pending.join(state);
         Self {
             state: Arc::clone(state),
-            page_id: page_id.clone(),
+            page_id: Arc::new(watch::Sender::new(page_id.clone())),
         }
     }
 
@@ -1245,6 +1248,21 @@ impl PageInterception {
             self.state.navigation.ended();
         }
     }
+
+    /// Replaces the request its page serves with `next` (ADR 0146): the
+    /// earlier request's routes' subscriptions end, the failure a handler
+    /// left for its next call goes, and a navigation pending on its page
+    /// gives back the permit a service worker's request took for it. Its
+    /// Filter lists' state and its Session's routes and failures stay with
+    /// the page; the next request's routes and requests name `next`.
+    pub(crate) fn replace_request(&self, next: PageId) {
+        if let Some(state) = self.held() {
+            state.routes.replace_request();
+            lock(&state.failure).take();
+            state.navigation.ended();
+        }
+        self.page_id.send_replace(next);
+    }
 }
 
 /// The main frame of a page loading `file:` URLs for a navigation call,
@@ -1303,10 +1321,13 @@ fn policy_of(run: &RunIdentity) -> Result<Policy, CallError> {
 /// `closed` for a page or Session the interception does not hold.
 fn closed(scope: Scope<'_>) -> CallError {
     let (message, details) = match scope {
-        Scope::Page(page) => (
-            format!("the page `{}` is closed, or its Run ended", page.page_id.0),
-            serde_json::json!({ "page_id": page.page_id }),
-        ),
+        Scope::Page(page) => {
+            let page_id = page.page_id.borrow().clone();
+            (
+                format!("the page `{}` is closed, or its Run ended", page_id.0),
+                serde_json::json!({ "page_id": page_id }),
+            )
+        }
         Scope::Session(session) => (
             format!("the Session `{}` is closed, or its Run ended", session.id.0),
             serde_json::json!({ "session_id": session.id }),

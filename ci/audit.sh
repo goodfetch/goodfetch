@@ -70,15 +70,15 @@ osv_database() {
 # Every scan runs to its end; their reports print in the listed order, and
 # the run fails when one did, naming each that did.
 each() {
-  local scratch item ecosystem target tool i status failures=()
+  local item ecosystem target tool i status failures=()
   local pids=() items=()
   [[ $# -gt 0 ]] || { echo "error: each needs at least one ecosystem" >&2; return 2; }
   fetch
   osv_database npm
   osv_database PyPI
-  scratch=$(mktemp -d)
-  # shellcheck disable=SC2064 # the folder is known now
-  trap "rm -rf '$scratch'" EXIT
+  # Global, not local: the EXIT trap runs after the function returns.
+  each_scratch=$(mktemp -d)
+  trap 'rm -rf "$each_scratch"' EXIT
   for item in "$@"; do
     ecosystem=${item%%=*}
     target=
@@ -86,7 +86,7 @@ each() {
     tool=osv-scanner
     [[ $ecosystem == rust ]] && tool=cargo-audit
     GOODFETCH_ADVISORIES_FETCHED=1 "$repository/ci/tool.sh" "$tool" "$0" "$ecosystem" ${target:+"$target"} \
-      >"$scratch/${#items[@]}.log" 2>&1 &
+      >"$each_scratch/${#items[@]}.log" 2>&1 &
     pids+=("$!")
     items+=("$ecosystem${target:+ $target}")
   done
@@ -94,7 +94,7 @@ each() {
     status=0
     wait "${pids[i]}" || status=$?
     echo "== audit ${items[i]}"
-    cat "$scratch/$i.log"
+    cat "$each_scratch/$i.log"
     [[ $status -eq 0 ]] || failures+=("${items[i]} (exit $status)")
   done
   if [[ ${#failures[@]} -gt 0 ]]; then

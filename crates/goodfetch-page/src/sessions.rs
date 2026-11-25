@@ -73,7 +73,9 @@ use goodfetch_engine::runs::{
     run_trace, warnings,
 };
 use goodfetch_engine::secrets::Purpose;
-use goodfetch_engine::settings::{RunSettings, SettingsError, Values, setting};
+use goodfetch_engine::settings::{
+    RunSettings, SettingsError, Values, check_session_source, setting,
+};
 use goodfetch_engine::tasks::{TaskOwner, TaskStarter};
 use goodfetch_engine::{CallContext, CallError, RunIndex, RunOfCall};
 use goodfetch_protocol::browser_cache::PinnedBy;
@@ -565,6 +567,11 @@ impl Sessions {
     ) -> Result<SessionOpened, CallError> {
         let run = live(&params.run_id, context).await?;
         let settings = own_settings(&params.settings, &run, context)?;
+        // The rule `session.source` meets in every layer (ADR 0056).
+        if let Some(Some(source)) = &params.source {
+            check_session_source(source, Some(SettingsLayer::Run))
+                .map_err(|error| settings_error(&error, context))?;
+        }
         let named = named_source(&run, params.source, context);
         let identity = access_mode_opens(&settings, &run, named.as_ref(), context)?;
         let borrowed = opening_source(named)?;

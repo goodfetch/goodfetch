@@ -41,6 +41,7 @@ use goodfetch_protocol::catalog::{
 use goodfetch_protocol::connection::ProductVersion;
 use goodfetch_protocol::governor::BROWSER_PAGE_MEMORY_CAP;
 use goodfetch_protocol::page::PageId;
+use goodfetch_protocol::page::session::NewSessionParams;
 use goodfetch_protocol::run::{RunId, RunKind, Tags};
 use goodfetch_protocol::settings::{SettingLimit, SettingsLayer};
 use goodfetch_test_support::{OUTCOME_TARGET, TestEnv, capturing};
@@ -102,6 +103,13 @@ const SESSION_PANICKED: Operation = Operation {
 const BROWSER_PANICKED: Operation = Operation {
     name: "test.browser_panicked",
     description: "Panics in a task of a browser's owner and reads what its Session and its pages meet.",
+    ..STOPPED_OPEN
+};
+
+/// Opens a Session of a new Run from the source it is given.
+const NEW_SESSION: Operation = Operation {
+    name: "test.new_session",
+    description: "Opens a Session of a new Run from its own source and reads what it raised.",
     ..STOPPED_OPEN
 };
 
@@ -300,6 +308,33 @@ async fn session_panicked(params: Value, context: CallContext) -> Result<Value, 
     }))
 }
 
+/// `test.new_session`: starts the Run `run_id` and opens a Session of it
+/// in a Sessions table of its own from `source`, its own Session source.
+/// Answers the code and details of what the open raised, if anything.
+async fn new_session(params: Value, context: CallContext) -> Result<Value, CallError> {
+    let run_id = RunId::parse(params["run_id"].as_str().unwrap()).unwrap();
+    let run = started(&run_id, &context).await?;
+    let source = serde_json::from_value(params["source"].clone()).unwrap();
+
+    let raised = table()
+        .new_session(
+            NewSessionParams {
+                run_id,
+                source: Some(Some(source)),
+                settings: serde_json::Map::new(),
+            },
+            &context,
+        )
+        .await
+        .err();
+
+    run.cancellation().cancel();
+    Ok(json!({
+        "raised": raised.as_ref().map(CallError::code),
+        "details": raised.as_ref().and_then(CallError::details),
+    }))
+}
+
 /// Longer than a browser treated as crashed takes to say so, on the
 /// paused clock, which moves on only once every task waits.
 const CRASH_KNOWN_WITHIN: Duration = Duration::from_secs(60);
@@ -432,7 +467,8 @@ fn engine() -> Engine {
                 .with_handler(Handler::new(&ENDED_PAST_CAP, ended_past_cap))
                 .with_handler(Handler::new(&SESSION_ENDED, session_ended))
                 .with_handler(Handler::new(&SESSION_PANICKED, session_panicked))
-                .with_handler(Handler::new(&BROWSER_PANICKED, browser_panicked)),
+                .with_handler(Handler::new(&BROWSER_PANICKED, browser_panicked))
+                .with_handler(Handler::new(&NEW_SESSION, new_session)),
         );
     Engine::new(identity, &composition).unwrap()
 }
@@ -535,6 +571,42 @@ fn a_page_ended_past_its_memory_cap_answers_page_memory_exceeded_once_its_close_
     );
 
     assert_eq!(reply["result"], json!({ "raised": "page_memory_exceeded" }));
+}
+
+/// A Session's own source meets the rule `session.source` meets in every
+/// layer (ADR 0056): a domain below its registrable domain is refused
+/// where the Session opens, before anything is reached, with
+/// `setting_invalid` naming the registrable domain to give instead.
+/// Covers: story:5-62, story:11-92
+#[test]
+fn a_sessions_own_source_with_a_domain_below_its_registrable_domain_is_setting_invalid() {
+    let env = TestEnv::new();
+
+    let reply = call(
+        &env,
+        "test.new_session",
+        json!({
+            "run_id": "not-registrable",
+            "source": {
+                "kind": "cdp_url",
+                "url": "http://127.0.0.1:9222",
+                "domains": ["www.example.com"],
+            },
+        }),
+    );
+
+    assert_eq!(
+        reply["result"],
+        json!({
+            "raised": "setting_invalid",
+            "details": {
+                "key": "session.source",
+                "layer": "run",
+                "reason": "`www.example.com` in `domains` is no registrable domain, whose is `example.com`",
+                "fix": "Give `example.com` in `domains`",
+            },
+        })
+    );
 }
 
 /// Interception alone holds a Session no egress relay is under, Borrowed

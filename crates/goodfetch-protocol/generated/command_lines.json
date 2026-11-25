@@ -118,6 +118,23 @@
         "commands": [
           {
             "commands": [],
+            "name": "list"
+          },
+          {
+            "commands": [],
+            "name": "dismiss"
+          },
+          {
+            "commands": [],
+            "name": "answer"
+          }
+        ],
+        "name": "needs-you"
+      },
+      {
+        "commands": [
+          {
+            "commands": [],
             "name": "reindex"
           }
         ],
@@ -170,19 +187,6 @@
           }
         ],
         "name": "events"
-      },
-      {
-        "commands": [
-          {
-            "commands": [],
-            "name": "list"
-          },
-          {
-            "commands": [],
-            "name": "dismiss"
-          }
-        ],
-        "name": "needs-you"
       },
       {
         "commands": [
@@ -516,6 +520,23 @@
         "commands": [
           {
             "commands": [],
+            "name": "list"
+          },
+          {
+            "commands": [],
+            "name": "dismiss"
+          },
+          {
+            "commands": [],
+            "name": "answer"
+          }
+        ],
+        "name": "needs-you"
+      },
+      {
+        "commands": [
+          {
+            "commands": [],
             "name": "reindex"
           }
         ],
@@ -568,19 +589,6 @@
           }
         ],
         "name": "events"
-      },
-      {
-        "commands": [
-          {
-            "commands": [],
-            "name": "list"
-          },
-          {
-            "commands": [],
-            "name": "dismiss"
-          }
-        ],
-        "name": "needs-you"
       },
       {
         "commands": [

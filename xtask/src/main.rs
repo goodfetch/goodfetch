@@ -59,6 +59,7 @@ mod markdown;
 mod mask_writers;
 mod metadata;
 mod mocking_lockfile;
+mod models;
 mod modules;
 mod no_retry;
 mod notices;
@@ -70,10 +71,12 @@ mod package_dependencies;
 mod perf;
 mod pgo;
 mod pinned;
+mod product_version;
 mod products;
 mod quarantine;
 mod rate;
 mod received_requests;
+mod recordings;
 mod register;
 mod release;
 mod release_suite;
@@ -308,6 +311,12 @@ enum Command {
     MaskWriters,
     /// Fails when `uv.lock` holds a mocking library such as pytest-mock (ADR 0062).
     MockingLockfile,
+    /// Checks the model manifest, `test-support/fixtures/models.toml`, for
+    /// models that retire within 30 days (ADR 0065).
+    Models {
+        #[command(subcommand)]
+        command: models::Command,
+    },
     /// Fails on an import between top-level modules that a crate's
     /// `modules.toml` does not allow, and on a long file that does not say
     /// why it is one concern (ADR 0126).
@@ -365,6 +374,11 @@ enum Command {
     /// through `ReceivedRequests`, which says whether a count keeps the
     /// engine's robots.txt reads and the browser's icons (ADRs 0064 and 0086).
     ReceivedRequests,
+    /// The committed Model recordings and their matrix (ADR 0065).
+    Recordings {
+        #[command(subcommand)]
+        command: recordings::Command,
+    },
     /// A release's preparation (spec #130): the Product version in every
     /// released manifest of both Products.
     Release {
@@ -685,6 +699,7 @@ fn run(command: Command, environment: &Environment) -> anyhow::Result<ExitCode> 
         Command::Lazyfs { command } => lazyfs::run(&command, environment),
         Command::MaskWriters => Ok(check::report(&mask_writers::check(root)?)),
         Command::MockingLockfile => Ok(check::report(&mocking_lockfile::check(root)?)),
+        Command::Models { command } => models::run(&command, environment),
         Command::Modules { workspace } => {
             let workspace =
                 workspace.map_or_else(|| root.to_path_buf(), |folder| root.join(folder));
@@ -699,6 +714,7 @@ fn run(command: Command, environment: &Environment) -> anyhow::Result<ExitCode> 
         Command::Pgo { command } => pgo::run(command, environment),
         Command::Quarantine { command } => quarantine::run(command, environment),
         Command::ReceivedRequests => Ok(check::report(&received_requests::check(root)?)),
+        Command::Recordings { command } => recordings::run(&command, root),
         Command::Register { command } => register::run(&command, environment, &Cli::command()),
         Command::Release { command } => release::run(command, environment),
         Command::ReleaseSuite { command } => release_suite::run(command, environment),

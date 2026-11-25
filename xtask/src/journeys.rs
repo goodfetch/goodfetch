@@ -76,6 +76,7 @@ mod select;
 mod variants;
 
 pub(crate) use report::{ManualException, VariantOutcome, VariantTests};
+pub(crate) use variants::{VariantId, is_surface};
 
 /// Each variant's outcome on `main`'s latest Release run in the store at
 /// `store`, judged as the Journey report judges it, by the variant's ID.
@@ -191,6 +192,13 @@ pub(crate) struct Select {
     /// The number of the ADR 0037 area whose spec owns the Journey.
     #[arg(long = "area")]
     areas: Vec<u8>,
+    /// The Product whose executable a variant drives, `collie` or
+    /// `foxhound`: its Journey's, and Foxhound for `foxhound-cli`.
+    #[arg(long = "product", value_parser = parse_product)]
+    products: Vec<Product>,
+    /// A variant to leave out, `J-NNN@<surface>`, of an active Journey.
+    #[arg(long = "exclude")]
+    excluded: Vec<VariantId>,
     /// A Git tag whose catalog to read instead of the working tree's.
     #[arg(long)]
     tag: Option<String>,
@@ -213,6 +221,11 @@ fn parse_surface(text: &str) -> Result<String, String> {
             "`{text}` is no surface of ADR 0063, nor `foxhound-cli`"
         ))
     }
+}
+
+fn parse_product(text: &str) -> Result<Product, String> {
+    Product::deserialize(serde::de::value::StrDeserializer::<serde::de::value::Error>::new(text))
+        .map_err(|_| format!("`{text}` is not collie or foxhound"))
 }
 
 fn parse_milestone(text: &str) -> Result<Milestone, String> {
@@ -814,12 +827,20 @@ fn select_command(arguments: &Select, environment: &Environment) -> Result<ExitC
         surfaces: arguments.surfaces.clone(),
         milestones: arguments.milestones.clone(),
         areas: arguments.areas.clone(),
+        products: arguments.products.clone(),
+        excluded: arguments.excluded.clone(),
     };
-    let active = journeys
+    let active: Vec<variants::Variant<'_>> = journeys
         .iter()
         .filter(|journey| journey.status == Status::Active)
         .flat_map(variants::of)
         .collect();
+    if let Some(excluded) = choice.unknown_exclusion(&active) {
+        output::error(&format!(
+            "error: --exclude names {excluded}, no variant of an active Journey"
+        ));
+        return Ok(ExitCode::from(1));
+    }
     let chosen = select::chosen(active, &choice);
     if chosen.is_empty() {
         output::error("error: no variant of an active Journey matches the flags");

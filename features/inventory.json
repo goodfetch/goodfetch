@@ -491,6 +491,17 @@
       ]
     },
     {
+      "id": "command:needs-you.answer",
+      "kind": "command",
+      "area": 12,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "command:needs-you.dismiss",
       "kind": "command",
       "area": 12,
@@ -2499,6 +2510,17 @@
       ]
     },
     {
+      "id": "error:session_export_open_failed",
+      "kind": "error",
+      "area": 4,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "error:setting_invalid",
       "kind": "error",
       "area": 3,
@@ -3302,6 +3324,17 @@
       "id": "format:run-state",
       "kind": "format",
       "area": 3,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "format:session-export",
+      "kind": "format",
+      "area": 4,
       "milestone": null,
       "status": "active",
       "products": [
@@ -8942,6 +8975,50 @@
       ]
     },
     {
+      "id": "setting:daemon.tls.cert_file",
+      "kind": "setting",
+      "area": 3,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "setting:daemon.tls.key_file",
+      "kind": "setting",
+      "area": 3,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "setting:daemon.tls.upstream",
+      "kind": "setting",
+      "area": 3,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "setting:daemon.trusted_proxies",
+      "kind": "setting",
+      "area": 3,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "setting:dataset.query.max_rows",
       "kind": "setting",
       "area": 12,
@@ -12653,6 +12730,16 @@
       ]
     },
     {
+      "id": "story:11-1019",
+      "kind": "story",
+      "area": 11,
+      "milestone": "M2 Client surfaces",
+      "status": "active",
+      "products": [
+        "foxhound"
+      ]
+    },
+    {
       "id": "story:11-102",
       "kind": "story",
       "area": 11,
@@ -12660,6 +12747,46 @@
       "status": "active",
       "products": [
         "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "story:11-1020",
+      "kind": "story",
+      "area": 11,
+      "milestone": "M2 Client surfaces",
+      "status": "active",
+      "products": [
+        "foxhound"
+      ]
+    },
+    {
+      "id": "story:11-1021",
+      "kind": "story",
+      "area": 11,
+      "milestone": "M2 Client surfaces",
+      "status": "active",
+      "products": [
+        "foxhound"
+      ]
+    },
+    {
+      "id": "story:11-1022",
+      "kind": "story",
+      "area": 11,
+      "milestone": "M2 Client surfaces",
+      "status": "active",
+      "products": [
+        "foxhound"
+      ]
+    },
+    {
+      "id": "story:11-1023",
+      "kind": "story",
+      "area": 11,
+      "milestone": "M2 Client surfaces",
+      "status": "active",
+      "products": [
         "foxhound"
       ]
     },
@@ -12707,6 +12834,36 @@
       ]
     },
     {
+      "id": "story:11-1057",
+      "kind": "story",
+      "area": 11,
+      "milestone": "M2 Client surfaces",
+      "status": "active",
+      "products": [
+        "foxhound"
+      ]
+    },
+    {
+      "id": "story:11-1058",
+      "kind": "story",
+      "area": 11,
+      "milestone": "M2 Client surfaces",
+      "status": "active",
+      "products": [
+        "foxhound"
+      ]
+    },
+    {
+      "id": "story:11-1059",
+      "kind": "story",
+      "area": 11,
+      "milestone": "M2 Client surfaces",
+      "status": "active",
+      "products": [
+        "foxhound"
+      ]
+    },
+    {
       "id": "story:11-106",
       "kind": "story",
       "area": 11,
@@ -12714,6 +12871,16 @@
       "status": "active",
       "products": [
         "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "story:11-1064",
+      "kind": "story",
+      "area": 11,
+      "milestone": "M2 Client surfaces",
+      "status": "active",
+      "products": [
         "foxhound"
       ]
     },
@@ -16320,11 +16487,33 @@
       ]
     },
     {
+      "id": "story:12-139",
+      "kind": "story",
+      "area": 12,
+      "milestone": "M3 Browser automation",
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "story:12-14",
       "kind": "story",
       "area": 12,
       "milestone": "M1 Core",
       "status": "retired",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "story:12-140",
+      "kind": "story",
+      "area": 12,
+      "milestone": "M3 Browser automation",
+      "status": "active",
       "products": [
         "collie",
         "foxhound"

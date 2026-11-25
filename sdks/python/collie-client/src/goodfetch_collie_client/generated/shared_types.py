@@ -22,7 +22,7 @@ received (ADR 0079).
 - `certificate_pinned`: A host's certificate was pinned on first use under its domain's exception, with the SHA-256 of its public key (ADR 0042).
 - `consent_domain_allowed`: A person added a domain, or `*`, to `consent.domains` in user configuration, so later runs accept its consent walls (ADR 0048), with the warning of what they take on that they were shown (ADR 0052).
 - `effect_reconciled`: A person answered about an uncertain Effect (ADRs 0029 and 0106): "it happened", "it did not happen" or "leave uncertain"; `details` give the Run, the Effect journal `entry`, the `key`, the `crawl_request` and the `answer`.
-- `endpoint_authentication_failed`: A listening endpoint refused a request for a missing, wrong, expired or revoked token, a foreign `Host` or a foreign `Origin`, or a Connection whose opening sent no `hello` first, in time or within its size limit. `audit.refusals_per_minute` bounds how many one listener records in a minute.
+- `endpoint_authentication_failed`: A listening endpoint refused a request for a missing, wrong, expired or revoked token, a foreign `Host` or a foreign `Origin`, a Connection whose opening sent no `hello` first, in time or within its size limit, or one opened without TLS where the listener serves TLS. `audit.refusals_per_minute` bounds how many one listener records in a minute.
 - `endpoint_refusals_folded`: A listener refused more attempts in a minute than `audit.refusals_per_minute` records: the count of those not recorded one by one, each still logged.
 - `exposed_daemon_set_up`: An Exposed Daemon's setup completed through its setup link (ADR 0049).
 - `lent_page_attached`: A page was lent to the program's own Playwright client (ADR 0089).

@@ -43,7 +43,7 @@ import {
   type CrawlRequestHandled,
   type CrawlStartParams,
   type FoxhoundOperationTypes,
-  type RequestSeed,
+  type Seed,
 } from "./generated/index.ts";
 import { settingsOnWire, type CrawlSettings, type FoxhoundSettings } from "./generated/settings.ts";
 import { foxhoundWire, type FoxhoundWireType } from "./generated/wire.ts";
@@ -85,8 +85,8 @@ export interface FoxhoundHandlerlessStartOptions extends HandlerlessStartOptions
 
 /** What starting a crawl takes (ADR 0093). */
 export interface StartCrawlOptions {
-  /** The requests the crawl starts from: at least one. */
-  readonly seeds: readonly [RequestSeed, ...RequestSeed[]];
+  /** What the crawl starts from, at least one: `seed` requests and `sitemap` seeds. */
+  readonly seeds: readonly [Seed, ...Seed[]];
   /** The Run's ID; the engine generates one when it is left out. An interrupted Run's ID resumes it; a finished one's returns it as it ended. */
   readonly runId?: string | undefined;
   /** Its tags: at most 16, each at most 64 characters (ADR 0036). */
@@ -238,9 +238,9 @@ export class Foxhound implements Connection {
    *
    * Each work item goes to the handler of its Label, on this process's
    * event loop (ADR 0093). Before anything is sent, a Label without a
-   * handler fails with `label_unhandled`, and a seed whose Label's name
-   * `crawl` does not declare with `label_unknown` (a seed carries its
-   * Label's name only), and a seed whose Payload its Label's schema
+   * handler fails with `label_unhandled`, and a seed, or a sitemap seed's
+   * rule, whose Label's name `crawl` does not declare with `label_unknown`
+   * (a seed carries its Label's name only), and a seed whose Payload its Label's schema
    * refuses with `payload_invalid`, naming each issue's path; the engine
    * checks each Payload again, its size too (ADR 0082). On an edge
    * runtime, whose request ends before the handlers would run, it fails

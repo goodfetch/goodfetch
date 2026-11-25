@@ -1,0 +1,26 @@
+{
+  "jobs": [
+    {
+      "name": "current",
+      "version": null,
+      "tag": null,
+      "minutes": 23,
+      "steps": [
+        {
+          "checks": [
+            "collie-cli"
+          ],
+          "executable": "goodfetch-collie",
+          "stdio": false,
+          "journeys": [
+            "--product",
+            "collie",
+            "--surface",
+            "cli"
+          ]
+        }
+      ]
+    }
+  ],
+  "awaiting": []
+}

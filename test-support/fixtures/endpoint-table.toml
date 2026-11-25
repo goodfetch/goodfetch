@@ -144,6 +144,14 @@ private_endpoint = { expect = "closed" }
 daemon_websocket = { expect = "closed" }
 exposed_daemon = { expect = "closed" }
 
+[rule.plain_where_tls_configured]
+summary = "A connection opens in plain, with the valid `hello` or handshake, where the listener terminates TLS."
+adrs = [49]
+
+[rule.plain_where_tls_configured.listeners]
+daemon_websocket = { expect = "closed" }
+exposed_daemon = { expect = "closed" }
+
 [rule.probes_answer_status_only]
 summary = "`/livez` and `/readyz` answer without a token, with a status and no body."
 adrs = [50]

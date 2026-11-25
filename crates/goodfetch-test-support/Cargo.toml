@@ -20,6 +20,8 @@ expectrl.workspace = true
 flate2.workspace = true
 # `goodfetch-scripted-engine --mode http` reads each request head with it.
 httparse.workspace = true
+# `Recordings` replays Model recordings (ADR 0065).
+httpmock.workspace = true
 insta = { workspace = true, features = ["filters"] }
 jiff.workspace = true
 # Protocol fuzzing checks each generated call and each answer against the
@@ -29,6 +31,9 @@ proptest.workspace = true
 proptest-state-machine.workspace = true
 regex.workspace = true
 rusqlite.workspace = true
+# The endpoint table's runner reaches a listener that terminates TLS over
+# TLS, trusting only its certificate (ADR 0049).
+rustls = { workspace = true, features = ["ring", "std", "tls12"] }
 schemars.workspace = true
 serde.workspace = true
 serde_json.workspace = true
@@ -81,6 +86,8 @@ runs = ["goodfetch-collie", "goodfetch-foxhound", "goodfetch-proving-ground"]
 ignored = ["bindgen"]
 
 [dev-dependencies]
+# The fixture listeners that terminate TLS sign their own certificate.
+rcgen = { workspace = true, features = ["ring"] }
 rstest.workspace = true
 
 [lints]

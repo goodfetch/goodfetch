@@ -41,6 +41,7 @@ use crate::client_hello::ClientHello;
 use crate::clock::Stopwatch;
 use crate::connection_record::{self, ConnectionRecord, Stamp};
 use crate::interface::OWN_TARGETS;
+use crate::online::Verdict;
 use crate::sync::Mutex;
 use crate::task::{Effect, Finding};
 
@@ -77,13 +78,15 @@ struct State {
     requests: Vec<Request>,
     unrecorded_requests: u64,
     hosts: BTreeMap<Arc<str>, ByteCount>,
-    effects: Vec<EffectRecord>,
+    effects: Vec<OfTask<Effect>>,
     /// The latest request each host received, by its sequence.
     latest_of_host: HashMap<Arc<str>, usize>,
     /// The latest request of each host, method and target.
     latest_of_target: HashMap<(Arc<str>, String, String), usize>,
-    reports: Vec<ReportRecord>,
-    findings: Vec<FindingRecord>,
+    reports: Vec<OfTask<Report>>,
+    /// The vendors' verdicts the online copy read.
+    verdicts: Vec<OfTask<Verdict>>,
+    findings: Vec<OfTask<Finding>>,
     unrecorded_findings: u64,
     /// The host name of each handshake that presented a client certificate,
     /// in order.
@@ -393,12 +396,13 @@ struct Timing {
     answered_microseconds: Option<u64>,
 }
 
-/// An Effect the site carried out, with the task of the host it came on.
+/// What the site recorded (an Effect it carried out, a report, a vendor's
+/// verdict or a finding), with the task of the host it came on.
 #[derive(Serialize)]
-struct EffectRecord {
+struct OfTask<T> {
     task: Option<String>,
     #[serde(flatten)]
-    effect: Effect,
+    item: T,
 }
 
 /// What a page's own script reported to the site: that it ran, or what it
@@ -438,22 +442,8 @@ impl Report {
 pub(crate) enum Recorded {
     Effect(Effect),
     Report(Report),
-}
-
-/// A report a page's script sent, with the task of the host it came on.
-#[derive(Serialize)]
-struct ReportRecord {
-    task: Option<String>,
-    #[serde(flatten)]
-    report: Report,
-}
-
-/// A finding of a Crawl family, with the task of the host it came on.
-#[derive(Serialize)]
-struct FindingRecord {
-    task: Option<String>,
-    #[serde(flatten)]
-    finding: Finding,
+    /// A vendor's verdict the online copy read on the server side.
+    Verdict(Verdict),
 }
 
 /// A recorded request's place in the record.
@@ -465,9 +455,10 @@ pub(crate) struct RequestId(usize);
 struct Document<'a> {
     requests: &'a [Request],
     unrecorded_requests: u64,
-    effects: &'a [EffectRecord],
-    reports: &'a [ReportRecord],
-    findings: &'a [FindingRecord],
+    effects: &'a [OfTask<Effect>],
+    reports: &'a [OfTask<Report>],
+    verdicts: &'a [OfTask<Verdict>],
+    findings: &'a [OfTask<Finding>],
     unrecorded_findings: u64,
     tasks: BTreeMap<&'a str, ByteCount>,
     hosts: &'a BTreeMap<Arc<str>, ByteCount>,
@@ -629,7 +620,7 @@ impl Observations {
     /// `authority`.
     pub(crate) fn effect(&self, authority: &str, effect: Effect) {
         let task = self.served(authority).and_then(|(_, task)| task.clone());
-        self.state().effects.push(EffectRecord { task, effect });
+        self.state().effects.push(OfTask { task, item: effect });
     }
 
     /// The Effects carried out for `task`, in order.
@@ -638,21 +629,30 @@ impl Observations {
             .effects
             .iter()
             .filter(|record| record.task.as_deref() == Some(task))
-            .map(|record| record.effect.clone())
+            .map(|record| record.item.clone())
             .collect()
     }
 
     /// Records what the site recorded of a request to `authority`: an
-    /// Effect it carried out, or a report its page's script sent. At most
-    /// [`REQUEST_LIMIT`] reports are kept.
+    /// Effect it carried out, a report its page's script sent, or a
+    /// vendor's verdict. At most [`REQUEST_LIMIT`] reports and as many
+    /// verdicts are kept.
     pub(crate) fn record(&self, authority: &str, recorded: Recorded) {
+        let task = || self.served(authority).and_then(|(_, task)| task.clone());
         match recorded {
             Recorded::Effect(effect) => self.effect(authority, effect),
-            Recorded::Report(report) => {
-                let task = self.served(authority).and_then(|(_, task)| task.clone());
+            Recorded::Report(item) => {
+                let task = task();
                 let mut state = self.state();
                 if state.reports.len() < REQUEST_LIMIT {
-                    state.reports.push(ReportRecord { task, report });
+                    state.reports.push(OfTask { task, item });
+                }
+            }
+            Recorded::Verdict(item) => {
+                let task = task();
+                let mut state = self.state();
+                if state.verdicts.len() < REQUEST_LIMIT {
+                    state.verdicts.push(OfTask { task, item });
                 }
             }
         }
@@ -664,7 +664,7 @@ impl Observations {
             .reports
             .iter()
             .filter(|record| record.task.as_deref() == Some(task))
-            .map(|record| record.report.clone())
+            .map(|record| record.item.clone())
             .collect()
     }
 
@@ -675,7 +675,10 @@ impl Observations {
         if state.findings.len() >= FINDING_LIMIT {
             state.unrecorded_findings += 1;
         } else {
-            state.findings.push(FindingRecord { task, finding });
+            state.findings.push(OfTask {
+                task,
+                item: finding,
+            });
         }
     }
 
@@ -685,12 +688,13 @@ impl Observations {
             .findings
             .iter()
             .filter(|record| record.task.as_deref() == Some(task))
-            .map(|record| record.finding.clone())
+            .map(|record| record.item.clone())
             .collect()
     }
 
     /// The record as JSON: the requests, the Effects, the reports, the
-    /// findings, the bytes per task and per host, and the connection record.
+    /// vendors' verdicts, the findings, the bytes per task and per host,
+    /// and the connection record.
     pub(crate) fn document(&self) -> Vec<u8> {
         let state = self.state();
         let mut tasks = BTreeMap::new();
@@ -708,6 +712,7 @@ impl Observations {
                 unrecorded_requests: state.unrecorded_requests,
                 effects: &state.effects,
                 reports: &state.reports,
+                verdicts: &state.verdicts,
                 findings: &state.findings,
                 unrecorded_findings: state.unrecorded_findings,
                 client_certificates: &state.client_certificates,

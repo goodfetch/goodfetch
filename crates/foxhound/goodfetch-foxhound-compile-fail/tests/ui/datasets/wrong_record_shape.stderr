@@ -1,0 +1,15 @@
+error[E0308]: mismatched types
+  --> tests/ui/datasets/wrong_record_shape.rs:18:33
+   |
+18 |     let _ = ctx.push(&products, &note).await;
+   |                 ----            ^^^^^ expected `&Product`, found `&Note`
+   |                 |
+   |                 arguments to this method are incorrect
+   |
+   = note: expected reference `&Product`
+              found reference `&Note`
+note: method defined here
+  --> $WORKSPACE/crates/foxhound/goodfetch-foxhound/src/crawl/context.rs
+   |
+   |     pub fn push<I: Serialize>(
+   |            ^^^^

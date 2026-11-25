@@ -23,8 +23,10 @@ use crate::answer::Answer;
 use crate::error::Error;
 use crate::field_values::FieldValues;
 use crate::run_view::RunView;
+pub use key_value_store::KeyValueStore;
 pub use twins::{Locator, Page, Run, Session, WebSocket};
 
+mod key_value_store;
 /// The blocking twins of the handles, which `xtask codegen` writes.
 #[path = "generated/blocking.rs"]
 mod twins;

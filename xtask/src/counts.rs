@@ -217,7 +217,7 @@ const LARGE: &str = "large_params";
 
 /// Every row with a counter. Adding one here, with its counter and its
 /// plant in the family's benchmark, is what gives a row its command.
-const ROWS: [Row; 141] = [
+const ROWS: [Row; 142] = [
     Row {
         name: "F1.parses",
         family: "B1",
@@ -583,6 +583,15 @@ const ROWS: [Row; 141] = [
         family: "B3",
         unit: "requests",
         happens: true,
+        valgrind: None,
+    },
+    // 0 in every cell: dispatch reads a Connection's principal from memory
+    // (ADR 0149), so the row has no counting site but its plant's.
+    Row {
+        name: "E1.store_reads",
+        family: "B3",
+        unit: "incoming_messages",
+        happens: false,
         valgrind: None,
     },
     Row {

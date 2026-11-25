@@ -138,6 +138,9 @@ pub enum Rule {
     OriginMissingWithoutHeaderToken,
     /// The connection's first message is not a `hello`.
     HelloNotFirst,
+    /// A connection opens in plain, with the valid `hello` or handshake,
+    /// where the listener terminates TLS.
+    PlainWhereTlsConfigured,
     /// The ops listener's probes answer with a status and no body.
     ProbesAnswerStatusOnly,
 }
@@ -160,7 +163,7 @@ impl Rule {
             | Self::HostForeign
             | Self::OriginForeign => http || websocket,
             Self::ProbesAnswerStatusOnly | Self::OriginMissingWithoutHeaderToken => http,
-            Self::HelloNotFirst => !http && !proxy,
+            Self::HelloNotFirst | Self::PlainWhereTlsConfigured => !http && !proxy,
         }
     }
 

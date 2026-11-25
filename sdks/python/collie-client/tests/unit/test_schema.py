@@ -8,7 +8,7 @@ JSON, or one that would read back as another value, is refused, naming its
 field path, and keys pass untouched. The Pydantic cases run at the floor
 of the supported range, which `uv.lock` pins. TypeScript's
 `typed-data.test.ts` and `json.test.ts` are its twins; the Key-value round
-trip is issue 1284's.
+trip is in `goodfetch_collie`'s `test_key_value_store_attached.py`.
 """
 
 import json

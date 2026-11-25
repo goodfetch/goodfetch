@@ -90,6 +90,12 @@ from goodfetch_test_support.unicode_record import (
     unicode_record,
 )
 from goodfetch_test_support.ways import Way, three_ways, until
+from goodfetch_test_support.webhook_signatures import (
+    SignedVector,
+    VerificationCase,
+    WebhookSignatures,
+    webhook_signatures,
+)
 from goodfetch_test_support.workspace import WORKSPACE
 
 __all__ = [
@@ -138,6 +144,7 @@ __all__ = [
     "ScriptedDaemonFailed",
     "ScriptedDaemonMode",
     "SecretKind",
+    "SignedVector",
     "SurfaceUnlisted",
     "TestEnv",
     "TestEnvError",
@@ -150,7 +157,9 @@ __all__ = [
     "UnicodeRecord",
     "UnusedStep",
     "VariantNotProved",
+    "VerificationCase",
     "Way",
+    "WebhookSignatures",
     "journey",
     "judge_task",
     "locales",
@@ -170,5 +179,6 @@ __all__ = [
     "unicode_record",
     "until",
     "until_scripted_engine_read",
+    "webhook_signatures",
     "write_journey_document",
 ]

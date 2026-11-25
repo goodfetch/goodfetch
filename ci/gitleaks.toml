@@ -43,3 +43,7 @@ regexes = ['''AgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQg''']
 [[allowlists]]
 description = "The made-up token the Kennel's Text tests mask where the truncation cuts it (spec #2052): sixteen hex digits counting up, no key at all"
 regexes = ['''0123456789abcdef''']
+
+[[allowlists]]
+description = "The name of the environment variable the Proving ground's online copy reads its Anubis signing key from (#168), in its module docs and settings: a variable's name, not its value"
+regexes = ['''PROVING_GROUND_ANUBIS_HS512_SECRET''']

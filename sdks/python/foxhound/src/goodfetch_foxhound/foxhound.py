@@ -88,7 +88,7 @@ if TYPE_CHECKING:
 
     from goodfetch_foxhound.crawl import AsyncCrawl, Crawl
     from goodfetch_foxhound.crawl_run import AsyncCrawlRun, CrawlRun
-    from goodfetch_foxhound.generated.models import RequestSeed
+    from goodfetch_foxhound.generated.models import RequestSeed, SitemapSeed
     from goodfetch_foxhound.generated.settings import CrawlSettings, FoxhoundSettings
 
 __all__ = [
@@ -288,7 +288,7 @@ class AsyncFoxhound(AsyncConnection):
         self,
         crawl: AsyncCrawl,
         *,
-        seeds: Iterable[RequestSeed],
+        seeds: Iterable[RequestSeed | SitemapSeed],
         run_id: str | None = None,
         tags: Iterable[str] | None = None,
         settings: CrawlSettings | None = None,
@@ -303,10 +303,12 @@ class AsyncFoxhound(AsyncConnection):
         `run.start`'s.
 
         Each work item goes to the handler of its Label, as a task beside
-        this Connection's (ADR 0093). Before anything is sent, a Label
-        without a handler fails with `label_unhandled`, and a seed whose
-        Label's name `crawl` does not declare with `label_unknown`, since a
-        seed carries its Label's name only. `settings` are the Run's own,
+        this Connection's (ADR 0093). A seed is a `seed` request, or a
+        `sitemap` seed of a sitemap's entries. Before anything is sent, a
+        Label without a handler fails with `label_unhandled`, and a seed, or
+        a sitemap seed's rule, whose Label's name `crawl` does not declare
+        with `label_unknown`, since a seed carries its Label's name only.
+        `settings` are the Run's own,
         Collie's and Foxhound's, such as
         `{"crawl": {"handler": {"concurrency": 4}}}` (ADRs 0083 and 0093).
 
@@ -575,7 +577,7 @@ class Foxhound(Connection):
         self,
         crawl: Crawl,
         *,
-        seeds: Iterable[RequestSeed],
+        seeds: Iterable[RequestSeed | SitemapSeed],
         run_id: str | None = None,
         tags: Iterable[str] | None = None,
         settings: CrawlSettings | None = None,

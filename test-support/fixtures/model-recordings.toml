@@ -1,0 +1,129 @@
+# The Model recordings' allowlist and coverage matrix (ADR 0065), which
+# `xtask recordings check` holds every committed recording to, in the Quick
+# suite. A recording is a JSON file in a folder named `recordings/`
+# (`goodfetch-test-support`'s `ModelRecording`).
+#
+# The check fails on a header outside these lists, a query parameter that
+# carries a key, a request or organization ID left as the provider wrote it
+# (the recorder writes `<request-id>` and `<organization-id>` in their
+# place), a string shaped like a provider key (gitleaks 8.30.1's
+# `openai-api-key`, `anthropic-api-key`, `anthropic-admin-api-key` and
+# `gcp-api-key` rules) and a cell of the matrix whose recording is missing.
+
+# The headers a recording keeps. Request: the content type and the version
+# and beta headers the Anthropic Messages adapter sends on purpose
+# (https://platform.claude.com/docs/en/api/versioning,
+# https://platform.claude.com/docs/en/api/beta-headers). Response: the
+# content type, `retry-after` and the rate-limit headers OpenAI
+# (https://developers.openai.com/api/docs/guides/rate-limits) and Anthropic
+# (https://platform.claude.com/docs/en/api/rate-limits) document; the Vercel
+# AI Gateway documents only `retry-after`
+# (https://vercel.com/docs/ai-gateway/rate-limits).
+[headers]
+request = ["content-type", "anthropic-version", "anthropic-beta"]
+response = [
+  "content-type",
+  "retry-after",
+  "x-ratelimit-limit-requests",
+  "x-ratelimit-limit-tokens",
+  "x-ratelimit-remaining-requests",
+  "x-ratelimit-remaining-tokens",
+  "x-ratelimit-reset-requests",
+  "x-ratelimit-reset-tokens",
+  "anthropic-ratelimit-requests-limit",
+  "anthropic-ratelimit-requests-remaining",
+  "anthropic-ratelimit-requests-reset",
+  "anthropic-ratelimit-tokens-limit",
+  "anthropic-ratelimit-tokens-remaining",
+  "anthropic-ratelimit-tokens-reset",
+  "anthropic-ratelimit-input-tokens-limit",
+  "anthropic-ratelimit-input-tokens-remaining",
+  "anthropic-ratelimit-input-tokens-reset",
+  "anthropic-ratelimit-output-tokens-limit",
+  "anthropic-ratelimit-output-tokens-remaining",
+  "anthropic-ratelimit-output-tokens-reset",
+]
+
+# The matrix. Each cell is `{ recording = "<path from the repository's
+# root>" }`, with `via = "vercel-ai-gateway"` on a direct-provider cell
+# recorded through the gateway, which counts (ADR 0076), or
+# `{ waits = "<reason>" }`, which the check reports without failing:
+#
+# - `recorder`: recordable through the Vercel AI Gateway's free tier, by
+#   the recorder job (#1073), which has not recorded it yet;
+# - `revenue`: a direct provider, another gateway or a hosted Decision
+#   provider, which waits until revenue (ADR 0076);
+# - `gemini-native`: the gateway does not serve Gemini's native format
+#   (ADR 0076).
+
+# Each format on its direct provider.
+[openai-compatible.direct]
+text = { waits = "recorder" }
+tool-call-and-result = { waits = "recorder" }
+parallel-tool-calls = { waits = "recorder" }
+structured-output = { waits = "recorder" }
+text-stream = { waits = "recorder" }
+tool-call-stream = { waits = "recorder" }
+parallel-tool-calls-stream = { waits = "recorder" }
+structured-output-stream = { waits = "recorder" }
+usage = { waits = "recorder" }
+prompt-caching = { waits = "recorder" }
+search-grounding = { waits = "recorder" }
+image-input = { waits = "recorder" }
+errors = { waits = "recorder" }
+
+[anthropic-messages.direct]
+text = { waits = "recorder" }
+tool-call-and-result = { waits = "recorder" }
+parallel-tool-calls = { waits = "recorder" }
+structured-output = { waits = "recorder" }
+text-stream = { waits = "recorder" }
+tool-call-stream = { waits = "recorder" }
+parallel-tool-calls-stream = { waits = "recorder" }
+structured-output-stream = { waits = "recorder" }
+usage = { waits = "recorder" }
+prompt-caching = { waits = "recorder" }
+search-grounding = { waits = "recorder" }
+image-input = { waits = "recorder" }
+errors = { waits = "recorder" }
+
+[gemini.direct]
+text = { waits = "gemini-native" }
+tool-call-and-result = { waits = "gemini-native" }
+parallel-tool-calls = { waits = "gemini-native" }
+structured-output = { waits = "gemini-native" }
+text-stream = { waits = "gemini-native" }
+tool-call-stream = { waits = "gemini-native" }
+parallel-tool-calls-stream = { waits = "gemini-native" }
+structured-output-stream = { waits = "gemini-native" }
+usage = { waits = "gemini-native" }
+prompt-caching = { waits = "gemini-native" }
+search-grounding = { waits = "gemini-native" }
+image-input = { waits = "gemini-native" }
+errors = { waits = "gemini-native" }
+
+# The OpenAI-compatible format through the gateways of ADR 0012.
+[openai-compatible.vercel-ai-gateway]
+text = { waits = "recorder" }
+tool-call = { waits = "recorder" }
+structured-output = { waits = "recorder" }
+error = { waits = "recorder" }
+
+[openai-compatible.openrouter]
+text = { waits = "revenue" }
+tool-call = { waits = "revenue" }
+structured-output = { waits = "revenue" }
+error = { waits = "revenue" }
+
+# Each hosted Decision provider of ADR 0009.
+[decision.jev]
+choice = { waits = "revenue" }
+abstention = { waits = "revenue" }
+low-confidence-choice = { waits = "revenue" }
+errors = { waits = "revenue" }
+
+[decision.openai]
+choice = { waits = "revenue" }
+abstention = { waits = "revenue" }
+low-confidence-choice = { waits = "revenue" }
+errors = { waits = "revenue" }

@@ -6,13 +6,6 @@ error[E0308]: mismatched types
    |                 |
    |                 arguments to this method are incorrect
    |
-help: the return type of this call is `&'static str` due to the type of the argument passed
-  --> tests/ui/payloads/wrong_payload_shape.rs:11:13
-   |
-11 |     let _ = ctx.enqueue("https://shop.test/3", &shelf, "three").await;
-   |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^-------^
-   |                                                        |
-   |                                                        this argument influences the return type of `enqueue`
 note: method defined here
   --> $WORKSPACE/crates/foxhound/goodfetch-foxhound/src/crawl/context.rs
    |

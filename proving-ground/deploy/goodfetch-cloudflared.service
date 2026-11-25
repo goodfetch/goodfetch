@@ -1,0 +1,25 @@
+# The Cloudflare tunnel in front of the online copy (#168), configured by
+# cloudflared.yml; cloudflared.env names the tunnel, whose credentials are
+# tunnel.json, both written from the protected environment, the
+# credentials handed to the service as a systemd credential.
+[Unit]
+Description=Cloudflare tunnel to the Goodfetch Proving ground's online copy
+After=network-online.target goodfetch-proving-ground.service goodfetch-anubis.service
+Wants=network-online.target
+
+[Service]
+ExecStart=/opt/goodfetch-proving-ground/cloudflared tunnel --config /opt/goodfetch-proving-ground/cloudflared.yml run --credentials-file %d/tunnel.json ${PROVING_GROUND_TUNNEL_ID}
+EnvironmentFile=/etc/goodfetch-proving-ground/cloudflared.env
+LoadCredential=tunnel.json:/etc/goodfetch-proving-ground/tunnel.json
+DynamicUser=yes
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+CapabilityBoundingSet=
+
+[Install]
+WantedBy=multi-user.target

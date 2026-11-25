@@ -7,7 +7,7 @@
 //! clean`, `config explain`,
 //! `daemon start|stop|restart|status|health|install|uninstall|rotate-token|http-listener-token|run`,
 //! with the hidden `daemon launched` a start or the installed service
-//! runs, `runs reindex`, `skill install` and `upgrade-files`, beside the
+//! runs, `needs-you answer`, `runs reindex`, `skill install` and `upgrade-files`, beside the
 //! commands the `catalog_commands` module generates from the catalog for
 //! every other namespace, such as `run start` and `engine info`, and `--color
 //! auto|always|never` on every command; the CLI's other commands join with
@@ -78,6 +78,7 @@ use output::{ColourChoice, ColourFlag, Human};
 use settings_flags::SettingsFlags;
 
 pub use command_line::printed_command_line;
+pub use needs_you::{Confirmation, ItemAnswer, ItemPrompt};
 pub use skills::{SkillFile, Skills};
 
 use crate::linked::home;
@@ -102,6 +103,7 @@ mod limit_flags;
 mod log_file;
 mod logs;
 mod metrics;
+mod needs_you;
 pub mod operation;
 mod other_product;
 mod otlp;
@@ -201,6 +203,13 @@ enum Command {
     Daemon {
         #[command(subcommand)]
         command: DaemonCommand,
+        #[command(flatten)]
+        _colour: ColourFlag,
+    },
+    /// Lists what waits for a person, and takes them through it.
+    NeedsYou {
+        #[command(subcommand)]
+        command: needs_you::NeedsYouCommand,
         #[command(flatten)]
         _colour: ColourFlag,
     },
@@ -780,6 +789,13 @@ fn run(
         Command::Certs { command, .. } => {
             certs::run(command, engine, dependencies, &machine, human)
         }
+        Command::NeedsYou { command, .. } => needs_you::run(
+            command,
+            (engine, dependencies),
+            &machine,
+            own.answers,
+            human,
+        ),
         Command::Skill { command, .. } => command.run(skills, environment, human),
         Command::UpgradeFiles { from, json, .. } => {
             upgrade::upgrade(engine.identity(), &home, from.as_deref(), json, human)

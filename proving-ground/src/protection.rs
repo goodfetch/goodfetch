@@ -4,7 +4,17 @@
 //! a plain HTTP client never does; its oracle records which tier cleared
 //! each page and the fingerprint of every request, and refutes a Record of a
 //! page no tier cleared. The local CAPTCHA holds an article behind a code a
-//! person reads off an image.
+//! person reads off an image. The Turnstile page holds one behind a token the
+//! solver-service stand-ins (`solvers`) answer its widget's task with, and
+//! the sensor page behind the sensor data they answer. The service-worker
+//! Challenge holds one behind a check a service worker must answer.
+
+mod sensor;
+mod service_worker;
+mod turnstile;
+
+pub(crate) use sensor::{Sensed, data as sensor_data, hash, script_hash};
+pub(crate) use turnstile::token as turnstile_token;
 
 use std::fmt::Write as _;
 
@@ -20,10 +30,16 @@ use crate::task::{self, Entry, Expected, Kind, Record, Task};
 /// The host name the family is served on.
 pub(crate) const HOST: &str = "protection.test";
 
+/// A host name the family also answers on, which a browser treats as a
+/// secure context over plain HTTP, resolving every `*.localhost` name to
+/// loopback itself: there the service-worker Challenge registers its worker
+/// in a browser that does not trust the Proving ground's certificates.
+const LOCAL_HOST: &str = "protection.localhost";
+
 const FAMILY: &str = "protection";
 
 /// How many tasks the family has.
-const TASKS: u32 = 2;
+const TASKS: u32 = 5;
 
 /// The tier-move site's task.
 pub(crate) const TIER_MOVE_TASK: &str = "protection/1";
@@ -48,9 +64,22 @@ const NOUN_PLACE: u64 = 2;
 const NONCE_PLACE: u64 = 3;
 const CAPTCHA_PLACE: u64 = 4;
 const CAPTCHA_TOKEN_PLACE: u64 = 5;
+const SITE_KEY_PLACE: u64 = 6;
+const TURNSTILE_COOKIE_PLACE: u64 = 7;
+const SENSOR_PLACE: u64 = 8;
+const SERVICE_WORKER_PLACE: u64 = 9;
 
 /// The CAPTCHA's article, numbered after the tier-move site's.
 const CAPTCHA_ARTICLE: u64 = ARTICLES + 1;
+
+/// The Turnstile page's article, numbered after the CAPTCHA's.
+const TURNSTILE_ARTICLE: u64 = ARTICLES + 2;
+
+/// The sensor page's article, numbered after the Turnstile page's.
+const SENSOR_ARTICLE: u64 = ARTICLES + 3;
+
+/// The service-worker Challenge's article, numbered after the sensor page's.
+const SERVICE_WORKER_ARTICLE: u64 = ARTICLES + 4;
 
 const ADJECTIVES: [&str; 8] = [
     "Quiet", "Hidden", "Northern", "Patient", "Restless", "Silver", "Sunken", "Winding",
@@ -80,7 +109,9 @@ const RAN_SCRIPT: &str = "<script>navigator.sendBeacon(\"/reports\", JSON.string
 
 /// Every host name the family is served on, each with its task.
 pub(crate) fn hosts() -> Vec<(String, Option<String>)> {
-    task::family_hosts(FAMILY, HOST, TASKS)
+    let mut hosts = task::family_hosts(FAMILY, HOST, TASKS);
+    hosts.push((LOCAL_HOST.to_owned(), None));
+    hosts
 }
 
 fn index(value: u64) -> usize {
@@ -147,7 +178,7 @@ pub(crate) fn respond(
     host: &str,
     request: &Request<'_>,
 ) -> Option<(Reply, Option<Recorded>)> {
-    if !task::serves(host, HOST, TASKS) {
+    if host != LOCAL_HOST && !task::serves(host, HOST, TASKS) {
         return None;
     }
     let cleared = request.cookie(CLEARANCE_COOKIE) == Some(clearance(&nonce(seed)).as_str());
@@ -164,7 +195,10 @@ pub(crate) fn respond(
         }
         (&Method::GET, CAPTCHA) => {
             if request.cookie(CAPTCHA_COOKIE) == Some(captcha_token(seed).as_str()) {
-                (Reply::html(captcha_article(seed)), None)
+                (
+                    Reply::html(article_page(seed, CAPTCHA_ARTICLE, "the CAPTCHA")),
+                    None,
+                )
             } else {
                 (Reply::html(captcha_page(seed)), None)
             }
@@ -175,12 +209,40 @@ pub(crate) fn respond(
                 .and_then(|form| exchange::form_value(form, "answer"));
             if answer.as_deref() == Some(captcha_code(seed).as_str()) {
                 (
-                    Reply::html(solved_page()).set_cookie(CAPTCHA_COOKIE, &captcha_token(seed)),
+                    Reply::html(solved_page(CAPTCHA))
+                        .set_cookie(CAPTCHA_COOKIE, &captcha_token(seed)),
                     None,
                 )
             } else {
                 (
                     Reply::html_with_status(StatusCode::FORBIDDEN, captcha_page(seed)),
+                    None,
+                )
+            }
+        }
+        (&Method::GET, turnstile::PATH) => {
+            if request.cookie(turnstile::COOKIE) == Some(turnstile::cookie(seed).as_str()) {
+                (
+                    Reply::html(article_page(seed, TURNSTILE_ARTICLE, "the widget")),
+                    None,
+                )
+            } else {
+                (Reply::html(turnstile::page(seed)), None)
+            }
+        }
+        (&Method::POST, turnstile::PATH) => {
+            let token = std::str::from_utf8(request.body)
+                .ok()
+                .and_then(|form| exchange::form_value(form, turnstile::FIELD));
+            if token.is_some_and(|token| turnstile::accepts(seed, host, &token)) {
+                (
+                    Reply::html(solved_page(turnstile::PATH))
+                        .set_cookie(turnstile::COOKIE, &turnstile::cookie(seed)),
+                    None,
+                )
+            } else {
+                (
+                    Reply::html_with_status(StatusCode::FORBIDDEN, turnstile::page(seed)),
                     None,
                 )
             }
@@ -192,7 +254,14 @@ pub(crate) fn respond(
                 None,
             ),
         },
-        _ => (Reply::not_found(), None),
+        _ => {
+            let sensed = || article_page(seed, SENSOR_ARTICLE, "the sensor");
+            let checked = || article_page(seed, SERVICE_WORKER_ARTICLE, "the service worker");
+            sensor::respond(seed, host, request, sensed)
+                .map(|reply| (reply, None))
+                .or_else(|| service_worker::respond(seed, request, checked))
+                .unwrap_or_else(|| (Reply::not_found(), None))
+        }
     })
 }
 
@@ -262,19 +331,20 @@ fn captcha_page(seed: u64) -> String {
     )
 }
 
-/// The page a solved CAPTCHA answers with, beside its cookie.
-fn solved_page() -> String {
+/// The page a solved CAPTCHA or widget at `path` answers with, beside its
+/// cookie.
+fn solved_page(path: &str) -> String {
     format!(
-        "<!doctype html>\n<html lang=\"en\">\n<head><meta charset=\"utf-8\"><title>Thank you</title></head>\n<body>\n<main>\n<p>Thank you. <a href=\"{CAPTCHA}\">Continue to the article</a>.</p>\n</main>\n</body>\n</html>\n"
+        "<!doctype html>\n<html lang=\"en\">\n<head><meta charset=\"utf-8\"><title>Thank you</title></head>\n<body>\n<main>\n<p>Thank you. <a href=\"{path}\">Continue to the article</a>.</p>\n</main>\n</body>\n</html>\n"
     )
 }
 
-/// The article behind the CAPTCHA.
-fn captcha_article(seed: u64) -> String {
-    let title = title(seed, CAPTCHA_ARTICLE);
+/// The page of the article numbered `number`, which `barrier` held.
+fn article_page(seed: u64, number: u64, barrier: &str) -> String {
+    let title = title(seed, number);
     format!(
-        "<!doctype html>\n<html lang=\"en\">\n<head><meta charset=\"utf-8\"><title>{title}</title></head>\n<body>\n<main>\n<article class=\"article\" data-id=\"{}\">\n<h1 class=\"title\">{title}</h1>\n<p>The article behind the CAPTCHA.</p>\n</article>\n</main>\n</body>\n</html>\n",
-        article_id(CAPTCHA_ARTICLE)
+        "<!doctype html>\n<html lang=\"en\">\n<head><meta charset=\"utf-8\"><title>{title}</title></head>\n<body>\n<main>\n<article class=\"article\" data-id=\"{}\">\n<h1 class=\"title\">{title}</h1>\n<p>The article behind {barrier}.</p>\n</article>\n</main>\n</body>\n</html>\n",
+        article_id(number)
     )
 }
 
@@ -313,6 +383,55 @@ pub(crate) fn tasks(seed: u64, port: Option<u16>) -> Vec<Task> {
                     fields `id` and `title`.",
             },
             expected: Expected::records(vec![record(CAPTCHA_ARTICLE)]),
+        },
+        Task {
+            host: task::task_host(3, HOST),
+            entry: Entry {
+                account: None,
+                time_steps: None,
+                id: format!("{FAMILY}/3"),
+                family: FAMILY,
+                kind: Kind::Extract,
+                start_url: format!("{}{}", origin(3), turnstile::PATH),
+                description: "Extract the article behind this page's Turnstile widget as one \
+                    Record with the fields `id` and `title`. The page takes the token a \
+                    solver-service stand-in answers for its site key and URL.",
+            },
+            expected: Expected::records(vec![record(TURNSTILE_ARTICLE)]),
+        },
+        Task {
+            host: task::task_host(4, HOST),
+            entry: Entry {
+                account: None,
+                time_steps: None,
+                id: format!("{FAMILY}/4"),
+                family: FAMILY,
+                kind: Kind::Extract,
+                start_url: format!("{}{}", origin(4), sensor::PATH),
+                description: "Extract the article behind this page's sensor check as one \
+                    Record with the fields `id` and `title`. The page takes the sensor data a \
+                    solver-service stand-in answers for its URL, cookies, script and client.",
+            },
+            expected: Expected::records(vec![record(SENSOR_ARTICLE)]),
+        },
+        Task {
+            host: task::task_host(5, HOST),
+            entry: Entry {
+                account: None,
+                time_steps: None,
+                id: format!("{FAMILY}/5"),
+                family: FAMILY,
+                kind: Kind::Extract,
+                start_url: format!(
+                    "{}{}",
+                    task::secure_origin(&task::task_host(5, HOST), port),
+                    service_worker::PATH
+                ),
+                description: "Extract the article behind this page's Challenge as one Record \
+                    with the fields `id` and `title`. The Challenge passes only when a service \
+                    worker it registers answers its check.",
+            },
+            expected: Expected::records(vec![record(SERVICE_WORKER_ARTICLE)]),
         },
     ]
 }

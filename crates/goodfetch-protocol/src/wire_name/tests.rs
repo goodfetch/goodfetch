@@ -60,6 +60,7 @@ pub(crate) fn sorted(values: &[&str]) -> Vec<String> {
 #[case::limit_setter(sorted(&all(&crate::run::LimitSetter::ALL)), every_value_of::<crate::run::LimitSetter>())]
 #[case::secret_failure(sorted(&all(&crate::secrets::SecretFailure::ALL)), every_value_of::<crate::secrets::SecretFailure>())]
 #[case::secret_input_refused_reason(sorted(&all(&crate::secrets::SecretInputRefusedReason::ALL)), every_value_of::<crate::secrets::SecretInputRefusedReason>())]
+#[case::session_export_failure(sorted(&all(&crate::secrets::SessionExportFailure::ALL)), every_value_of::<crate::secrets::SessionExportFailure>())]
 #[case::run_origin(sorted(&all(&crate::settings::RunOrigin::ALL)), every_value_of::<crate::settings::RunOrigin>())]
 #[case::settings_layer(sorted(&all(&crate::settings::SettingsLayer::ALL)), every_value_of::<crate::settings::SettingsLayer>())]
 #[case::policy_table(sorted(&all(&crate::settings::edit::PolicyTable::ALL)), every_value_of::<crate::settings::edit::PolicyTable>())]

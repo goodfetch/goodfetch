@@ -72,6 +72,10 @@ goodfetch-conformance.workspace = true
 # The clean-up's removal, which B4's counts example runs once more per page
 # as the plant of its instructions (examples/counts-extraction.rs).
 goodfetch-clean-up-rules.workspace = true
+# The site the tests' and the corpus writers' fetch tiers serve from memory
+# (examples/support/site.rs, tests/it/code_free_resume.rs, tests/it/kept_tree.rs),
+# and the body the tier race's scripted transport sends (tests/it/tier_race/scripted.rs).
+goodfetch-memory-site.workspace = true
 # The robots.txt URLs the run state's corpus writer keeps copies of
 # (examples/compat-run-state.rs).
 url.workspace = true

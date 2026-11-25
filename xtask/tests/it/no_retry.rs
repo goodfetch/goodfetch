@@ -58,6 +58,11 @@ fn workspace_whose_runners_never_retry_passes() {
     "src/sample.test.ts",
     "retry-setting"
 )]
+#[case::vitest_retry_beside_the_crawl_setting(
+    "vitest/retry-beside-the-crawl-setting.test.ts",
+    "src/sample.test.ts",
+    "retry-setting"
+)]
 #[case::playwright_retries_in_the_config(
     "playwright/retries-in-the-config.ts",
     "playwright.config.ts",

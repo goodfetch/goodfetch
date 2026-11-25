@@ -31,13 +31,13 @@ Decided in [ADR 0065](../adr/0065-ai-features-are-tested-without-live-models-and
   - the named gateways, for the OpenAI-compatible format;
   - each hosted Decision provider (Jev, OpenAI's Decisions API): a choice, an abstention, a low-confidence choice, and its errors.
 
-  A missing cell fails a Quick check. While there is no revenue ([ADR 0076](../adr/0076-tests-and-ci-run-on-free-tiers-and-ai-calls-go-through-the-vercel-ai-gateway.md)), cells are recorded through the Vercel AI Gateway and labelled `via gateway`, which counts; the direct-provider, other-gateway and hosted Decision provider cells, and Gemini's native format, which the gateway does not serve, wait and are reported missing without failing.
+  The matrix is `test-support/fixtures/model-recordings.toml`, whose cells each name a recording or the reason they wait, and a missing cell fails the Quick suite's `xtask recordings check`. While there is no revenue ([ADR 0076](../adr/0076-tests-and-ci-run-on-free-tiers-and-ai-calls-go-through-the-vercel-ai-gateway.md)), cells are recorded through the Vercel AI Gateway and labelled `via gateway`, which counts; the direct-provider, other-gateway and hosted Decision provider cells, and Gemini's native format, which the gateway does not serve, wait and are reported missing without failing.
 - **Match on method, path and the canonical JSON body.** An unmatched request fails, and so does an unused recording.
   _Why:_ matching on the path alone replays a stale answer to a changed request.
 - **Replay each stream whole and re-cut at seeded boundaries.** The stream parsers also have `proptest` and a fuzz target.
-- **Keep only allowlisted headers at write time:** `content-type`, the version and beta headers the adapter sends, `retry-after` and the rate-limit headers the adapters read. Remove key query parameters, and replace request and organization IDs. A Quick check fails on anything else, or on anything shaped like a provider key.
+- **Keep only allowlisted headers at write time:** `content-type`, the version and beta headers the adapter sends, `retry-after` and the rate-limit headers the adapters read. Remove key query parameters, and replace request and organization IDs with `<request-id>` and `<organization-id>`. `xtask recordings check` fails on a header outside the allowlist of `test-support/fixtures/model-recordings.toml`, on a key query parameter, on a request or organization ID left as the provider wrote it, and on anything shaped like a provider key (gitleaks' rules for OpenAI's, Anthropic's and Google's keys).
 - **Record only against Proving ground pages and tasks.**
-- **Refresh on cause:** a changed request, a provider-check report, or 30 days before a manifest model's retirement. Use the recorder job, which opens a pull request, and review the diff. Never refresh on a timer or automatically.
+- **Refresh on cause:** a changed request, a provider-check report, or 30 days before a manifest model's retirement, for which `xtask models check`, in the daily test-health job, opens or updates one `needs-triage` issue per model. Use the recorder job, which opens a pull request, and review the diff. Never refresh on a timer or automatically.
 - **Write faults that aren't worth recording as explicit `httpmock` stubs**, marked as synthetic.
 
 ### Pinned local models and the in-engine model
@@ -70,7 +70,7 @@ Decided in [ADR 0065](../adr/0065-ai-features-are-tested-without-live-models-and
 - **A task joins its regression set at pass^3 ≥ 0.9 on every nightly model for five nights.** Add harder tasks once a regression set passes everything for 30 nights. Add a task for every AI bug fixed.
 - **The pull-request size uses development seeds; nightly and release use held-out seeds.**
   _Why:_ prompts tuned on the tasks that judge them overfit.
-- **Pin models in the manifest, chosen from the gateway's free tier, and run old and new side by side for five nights before dropping one.** An Evaluation or skill Evaluation whose model is not in the free tier waits, reported inconclusive, until revenue (ADR 0076). Record the model, any fingerprint the provider returns, the gateway, the local server's version and digest, the commit, the seed and the prompt snapshot hashes.
+- **Pin models in the manifest (`test-support/fixtures/models.toml`: one small and one larger per format, by dated or versioned Model reference, with each provider's announced retirement date), chosen from the gateway's free tier, and run old and new side by side for five nights before dropping one.** An Evaluation or skill Evaluation whose model is not in the free tier waits, reported inconclusive, until revenue (ADR 0076). Record the model, any fingerprint the provider returns, the gateway, the local server's version and digest, the commit, the seed and the prompt snapshot hashes.
 
 ### Agent skills and tool descriptions
 

@@ -6,15 +6,19 @@ use std::io::{BufRead as _, BufReader, ErrorKind, Write as _};
 
 use serde_json::Value;
 
-use super::connection::{Connection, ListenerAddress, is_closed, is_silent};
+use super::connection::{Connection, ListenerAddress, ListenerTls, is_closed, is_silent};
 use super::runner::Observed;
 
-/// Opens a connection to `address`, sends `message` as its first line, and
-/// reads until the listener replies with a `result`, closes, or stays
-/// silent past the deadline. JSON-RPC errors sent before closing are no
-/// reply.
-pub(super) fn attempt(address: &ListenerAddress, message: &Value) -> Observed {
-    let mut connection = match Connection::open(address) {
+/// Opens a connection to `address`, over `tls` if any, sends `message` as
+/// its first line, and reads until the listener replies with a `result`,
+/// closes, or stays silent past the deadline. JSON-RPC errors sent before
+/// closing are no reply.
+pub(super) fn attempt(
+    address: &ListenerAddress,
+    tls: Option<&ListenerTls>,
+    message: &Value,
+) -> Observed {
+    let mut connection = match Connection::open(address, tls) {
         Ok(connection) => connection,
         Err(error) => {
             return Observed::Unreachable {

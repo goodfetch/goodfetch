@@ -996,13 +996,13 @@ const ROWS: [Row; 147] = [
         happens: true,
         valgrind: None,
     },
-    // An engine read's ask to its Page's owner (ADR 0146): no read passes
-    // through the owner until issue 2271 moves them there.
+    // An engine read's ask to its Page's owner (ADR 0146): one per read, a
+    // wait asking once for all its checks.
     Row {
         name: "C2.owner_round_trips",
         family: "B2",
         unit: "reads",
-        happens: false,
+        happens: true,
         valgrind: None,
     },
     Row {

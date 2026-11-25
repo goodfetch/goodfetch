@@ -74,6 +74,7 @@ use crate::gesture_order::PointerAsks;
 use crate::guard::{self, Element, Readiness};
 use crate::hiding::{Part, Sheets};
 use crate::interception::{ConsentHandling, domain_key};
+use crate::page_reads::Reads;
 use crate::trace::provenance_in;
 
 /// How long the runner's click may wait for its target to be ready.
@@ -229,8 +230,9 @@ impl Consent {
 pub(crate) async fn first_pass_found(driver: &PageDriver, work: &CountedWork) -> bool {
     work.count(Row::NavigationDetectionReads);
     matches!(
-        driver
-            .read_in_frame(driver.main_frame(), DETECTING, Value::Null)
+        // A navigation's detection read, the Page's own work: no call's.
+        Reads::of(CdpPage::of(driver))
+            .in_frame(driver.main_frame(), DETECTING, Value::Null)
             .await,
         Ok(Some(Value::String(stands))) if stands != "none"
     )

@@ -43,13 +43,20 @@
 //! | [`CdpPage::hiding_events`]: what live hiding follows of the page's events, each read once | `Page.frameNavigated` and `Page.lifecycleEvent` | `browsingContext.navigationCommitted`, `domContentLoaded` and `load` | a frame's `navigated` and `loadstate` |
 //! | [`CdpPage::take_styles_opening`] and [`CdpPage::take_styles`]: the page's target, or an out-of-process frame's, takes style sheets | `DOM.enable` and `CSS.enable` | none: nothing is enabled first | none: nothing is enabled first |
 //! | [`CdpPage::create_style_sheet`] and [`CdpPage::set_style_sheet`]: a style sheet no element of a document owns, which `document.styleSheets` never lists, and its text | `CSS.createStyleSheet` and `CSS.setStyleSheetText` | none: Chromium only | none: Chromium only |
+//! | [`CdpPage::guard_world`] and [`CdpPage::call_in_world`]: the guard's isolated world in a frame's document, made or found by its name, and a function called there with an argument, its promise awaited and its value answered by value | `Page.createIsolatedWorld` and `Runtime.callFunctionOn` with an `executionContextId` | `script.callFunction` in a `sandbox` realm | `Frame.evaluateExpression` in the `utility` world; a world named by the engine is Chromium only |
+//! | [`CdpPage::page_function_world`] and [`CdpPage::evaluate`]: a page function evaluated in the main frame's main world, or in the page functions' isolated world, its promise awaited and its value answered by value | `Page.createIsolatedWorld` and `Runtime.evaluate` | `script.evaluate` in the window realm or a `sandbox` | `Frame.evaluateExpression` in the `main` or `utility` world |
+//! | [`CdpPage::serialized_document`]: the page's document as the DOM holds it, serialized once with every shadow root, and its URL and base URL | `DOM.getDocument` and `DOM.getOuterHTML` with `includeShadowDOM` | `script.callFunction` reading `getHTML` with `serializableShadowRoots` | `Frame.content`; closed shadow roots are Chromium only |
+//! | [`CdpPage::document_url`]: the URL of the main frame's document, or the one it could not reach | `Page.getFrameTree` | `browsingContext.getTree` | a frame's `url`; the URL behind the browser's error page is Chromium only |
+//! | [`CdpPage::insert_text`]: text inserted where the focused element's selection is, as an input method commits it | `Input.insertText` | `input.performActions` with a `key` source for each character | `keyboardInsertText` |
 
 mod consent;
 mod dialogs;
 mod followed;
+mod functions;
 mod hiding;
 mod init_scripts;
 mod paused;
+mod reads;
 mod requests;
 mod runtime_values;
 
@@ -69,6 +76,7 @@ pub(crate) use self::paused::{
     AuthAnswer, AuthChallenge, InterceptionEvent, InterceptionEvents, LoadingFailed, NetworkId,
     NotTaken, PausedRequest,
 };
+pub(crate) use self::reads::{Evaluated, SerializedDocument};
 pub(crate) use self::requests::{ContinueRequest, Fulfill, Header, PausedId, RequestHeaders};
 use crate::driver::{PageDriver, pointer_click};
 use crate::errors::Call;

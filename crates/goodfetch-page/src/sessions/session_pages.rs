@@ -137,6 +137,9 @@ impl TakenIn {
                 interception,
                 walls: self.walls.clone(),
                 hiding,
+                // The driver's navigations find the guard's world there
+                // until they move to the owner (#2272).
+                worlds: self.driver.worlds().clone(),
             },
         )
     }

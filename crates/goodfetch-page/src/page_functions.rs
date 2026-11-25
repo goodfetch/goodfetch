@@ -26,7 +26,7 @@ use goodfetch_engine::runs::Run;
 use goodfetch_protocol::jsonrpc::ProtocolFailure;
 use goodfetch_protocol::page::functions::{
     Evaluated, PAGE_FUNCTION_FAILED, PAGE_VALUE_INVALID, PageFunctionFailedDetails,
-    PageValueDirection, PageValueInvalidDetails, PageValueKind, World,
+    PageValueDirection, PageValueInvalidDetails, PageValueKind,
 };
 use goodfetch_protocol::page::functions::{LOCATOR_EVALUATE_ALL, PAGE_EVALUATE};
 use goodfetch_protocol::page::waits::{LOCATOR_WAIT_FOR_FUNCTION, PAGE_WAIT_FOR_FUNCTION};
@@ -36,7 +36,6 @@ use serde::{Deserialize, Deserializer};
 use serde_json::{Value, json};
 use tokio::sync::watch;
 
-use crate::driver::PageDriver;
 use crate::trace;
 
 /// The walker, a function expression the engine calls with the thunk of
@@ -142,10 +141,11 @@ struct Thrown {
     stack: Option<String>,
 }
 
-/// Runs `expression`, as [`expression`] built it, in `world` of the page
-/// `driver` drives, again every `interval` on `clock`, and in each new
-/// document, until its result is truthy as JavaScript judges it, and
-/// answers that result; its errors are spelled in `form`.
+/// Runs `evaluate`, which evaluates an expression [`expression`] built for
+/// the operation `operation` in its page, again every `interval` on
+/// `clock`, and in each new document, until its result is truthy as
+/// JavaScript judges it, and answers that result; its errors are spelled
+/// in `form`.
 ///
 /// # Errors
 ///
@@ -155,15 +155,17 @@ struct Thrown {
 /// # Cancel safety
 ///
 /// Dropping the future runs the function no more.
-pub(crate) async fn until_truthy(
-    driver: &PageDriver,
-    (expression, operation): (&str, &'static str),
-    world: World,
+pub(crate) async fn until_truthy<F>(
+    evaluate: impl Fn() -> F,
+    operation: &'static str,
     (interval, clock): (Duration, &Clock),
     form: Form,
-) -> Result<Evaluated, CallError> {
+) -> Result<Evaluated, CallError>
+where
+    F: Future<Output = Result<runtime::EvaluateReturns, CallError>>,
+{
     loop {
-        let returns = driver.evaluate(expression, world, operation).await?;
+        let returns = evaluate().await?;
         let evaluated = answered(returns, (form, operation))?;
         if truthy(evaluated.value.as_ref()) {
             return Ok(evaluated);

@@ -8,7 +8,8 @@
 //! init scripts are added and dropped, and the browser takes each addition
 //! and removal in any order; Gestures ask for the turn, come to between two
 //! of their checks, and end or are cut, while what clicks on the page
-//! beside them asks for the pointer and gives it back; the browser sends
+//! beside them asks for the pointer and gives it back, and Page API calls
+//! ask for their reads; the browser sends
 //! events or requests on any session still attached, opens a dialog,
 //! detaches a frame, or detaches the page; the browser floods the page's
 //! session past what its reader may hold, so the reader falls behind; the
@@ -52,7 +53,11 @@
 //!   the page's navigations wait, while the page is open, exactly while an
 //!   addition or a removal is on its way; a script dropped is removed, at
 //!   once once registered, or else once its addition was taken;
-//! - each Gesture asked the owner once (`C3.owner_round_trips`);
+//! - each Page API call's ask for its reads is answered at once, whatever
+//!   Gestures hold the turn or wait for it, and raises `closed` once the
+//!   Session's owner ended;
+//! - each Gesture asked the owner once (`C3.owner_round_trips`), and each
+//!   call's ask for its reads once (`C2.owner_round_trips`);
 //! - each event the browser sent visited one reader of the connection, the
 //!   page's, when it is listed under the event's session, until the reader
 //!   ended (`C1.event_visits`); the flood's events visited it at least as
@@ -80,6 +85,7 @@ use proptest_state_machine::{ReferenceStateMachine, StateMachineTest, prop_state
 use serde_json::{Value, json};
 use tokio::runtime::Runtime;
 
+use crate::cdp::CdpPage;
 use crate::dialogs::{Answer, Dialogs};
 use crate::driver::PageDriver;
 use crate::driver::replay::{self, Played, SESSION};
@@ -180,6 +186,8 @@ enum OrderStep {
     AskPointer,
     /// What asked for the pointer gives it back, or gives up its wait.
     LeavePointer(Index),
+    /// A call of the Page API asks for its reads.
+    Read,
     /// The Session's owner, and the Page's under it, ends.
     EndOwner,
 }
@@ -194,17 +202,21 @@ enum Asked {
 }
 
 /// What the model expects of the Gesture order: each ask for the turn and
-/// for the pointer, the oldest first.
+/// for the pointer, the oldest first, and each call's ask for its reads,
+/// which never waits for the turn.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 struct Order {
     turns: Vec<Asked>,
     pointers: Vec<Asked>,
+    reads: Vec<Asked>,
     /// Whether the Gesture whose turn it is waits for the pointer it lent.
     lending: bool,
     /// Whether the page's owner ended.
     ended: bool,
     /// How many Gestures asked the page's owner for the turn.
     asks: u64,
+    /// How many calls asked the page's owner for their reads.
+    read_asks: u64,
 }
 
 impl Order {
@@ -214,6 +226,7 @@ impl Order {
         let mut steps = vec![
             (12, Just(OrderStep::Gesture).boxed()),
             (6, Just(OrderStep::AskPointer).boxed()),
+            (6, Just(OrderStep::Read).boxed()),
         ];
         if !self.turns.is_empty() {
             steps.push((6, index().prop_map(OrderStep::EndGesture).boxed()));
@@ -231,7 +244,7 @@ impl Order {
 
     fn allows(&self, step: &OrderStep) -> bool {
         match step {
-            OrderStep::Gesture | OrderStep::AskPointer => true,
+            OrderStep::Gesture | OrderStep::AskPointer | OrderStep::Read => true,
             OrderStep::BetweenChecks => self.running() && !self.lending,
             OrderStep::EndGesture(_) => !self.turns.is_empty(),
             OrderStep::LeavePointer(_) => !self.pointers.is_empty(),
@@ -257,6 +270,17 @@ impl Order {
             OrderStep::AskPointer => self.pointers.push(Asked::Waiting),
             OrderStep::LeavePointer(index) => {
                 self.pointers.remove(index.index(self.pointers.len()));
+            }
+            // Answered at once, whatever holds the turn or waits for it;
+            // `closed` once the owner ended.
+            OrderStep::Read if closed => self.reads.push(Asked::Refused),
+            OrderStep::Read => {
+                self.read_asks += 1;
+                self.reads.push(if self.ended {
+                    Asked::Refused
+                } else {
+                    Asked::Held
+                });
             }
             OrderStep::EndOwner => self.ended = true,
         }
@@ -1159,6 +1183,8 @@ struct Subject {
     pointer: PointerAsks,
     gestures: Vec<Asking<GestureTurn>>,
     pointers: Vec<Asking<LentPointer>>,
+    /// The Page API calls' asks for their reads.
+    reads: Vec<Asking<()>>,
     /// Where the page's owner counts its asks.
     owner_work: CountedWork,
     work: CountedWork,
@@ -1556,6 +1582,19 @@ impl Subject {
             OrderStep::LeavePointer(index) => {
                 self.pointers.remove(index.index(self.pointers.len()));
             }
+            OrderStep::Read => {
+                let owner = (!self.closed).then(|| self.owner.clone());
+                let cdp = CdpPage::of(&self.driver);
+                self.reads.push(Asking::of(async move {
+                    match owner?.reads(cdp).await {
+                        Ok(_) => Some(()),
+                        Err(error) => {
+                            assert_eq!(error.code(), CLOSED.name, "{error:?}");
+                            None
+                        }
+                    }
+                }));
+            }
             OrderStep::EndOwner => self.session.cancel(),
         }
     }
@@ -1568,12 +1607,14 @@ impl Subject {
             runtime,
             gestures,
             pointers,
+            reads,
             ..
         } = self;
         runtime.block_on(async {
             for _ in 0..SETTLED {
                 gestures.iter_mut().for_each(Asking::take);
                 pointers.iter_mut().for_each(Asking::take);
+                reads.iter_mut().for_each(Asking::take);
                 tokio::task::yield_now().await;
             }
         });
@@ -1671,6 +1712,7 @@ impl StateMachineTest for Subject {
             pointer,
             gestures: Vec::new(),
             pointers: Vec::new(),
+            reads: Vec::new(),
             owner_work,
             work,
             connection,
@@ -1845,12 +1887,14 @@ impl StateMachineTest for Subject {
         let order = Order {
             turns: subject.gestures.iter().map(Asking::asked).collect(),
             pointers: subject.pointers.iter().map(Asking::asked).collect(),
+            reads: subject.reads.iter().map(Asking::asked).collect(),
             lending: subject
                 .gestures
                 .iter()
                 .any(|gesture| matches!(gesture, Asking::Waiting { lending: true, .. })),
             ended: reference.order.ended,
             asks: subject.owner_work.read(Row::ActionOwnerRoundTrips),
+            read_asks: subject.owner_work.read(Row::PageReadOwnerRoundTrips),
         };
         assert_eq!(order, reference.order, "the Gesture order");
         assert_eq!(

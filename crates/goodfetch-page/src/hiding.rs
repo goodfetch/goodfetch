@@ -48,8 +48,10 @@ use serde_json::{Value, json};
 use tokio::sync::Mutex;
 
 use crate::cdp::{CdpPage, HidingEvent, HidingEvents, NotTaken};
-use crate::driver::{PageDriver, Turn, Unanswered};
+use crate::driver::PageDriver;
+use crate::errors::Unanswered;
 use crate::interception::{Cosmetic, PageCleanUp};
+use crate::page_reads::{Reads, Turn};
 use crate::trace::provenance_in;
 
 use self::documents::FrameId;
@@ -318,9 +320,9 @@ impl PageHiding {
         lifted: &BTreeSet<String>,
         order: u64,
     ) -> Result<Option<Vec<CssRule>>, NotTaken> {
-        let Some(read) = self
-            .driver
-            .read_in_frame(frame, COLLECT, Value::Null)
+        // Live hiding's own work: no call's read.
+        let Some(read) = Reads::of(CdpPage::of(&self.driver))
+            .in_frame(frame, COLLECT, Value::Null)
             .await?
         else {
             return Ok(None);
@@ -447,7 +449,7 @@ impl Hidden<'_> {
     /// Answers whether it lifted any, so that the guard looks again at once.
     pub(crate) async fn lift(
         &self,
-        turn: &mut Turn<'_>,
+        turn: &mut Turn,
         selector: &str,
         operation: &str,
     ) -> Result<bool, Unanswered> {

@@ -22,9 +22,11 @@ use goodfetch_protocol::page::waits::{
 use goodfetch_protocol::page::{Locator, PageId};
 
 use super::{Pages, in_call, pattern_of};
+use crate::cdp::CdpPage;
 use crate::guard::{self, Awaited, Wait, Waited, Window};
 use crate::page_events::WaitDeadline;
 use crate::page_functions::{self, Injection, Matches};
+use crate::page_reads;
 use crate::sessions::PageEvent;
 
 /// How long `page.wait_for_function` leaves between two checks when the
@@ -326,10 +328,10 @@ impl Pages {
                 .mark(&page.run, &page.session, wait.page_id, injection)
                 .await;
         }
+        let cdp = &CdpPage::of(&page.driver);
         let truthy = Box::pin(page_functions::until_truthy(
-            &page.driver,
-            (wait.expression, operation),
-            world,
+            || page_reads::evaluate(cdp, wait.expression, world, operation),
+            operation,
             (interval, deadline.clock()),
             form,
         ));
@@ -365,6 +367,7 @@ impl Pages {
                 spent,
             }),
             form: context.form(),
+            owner: &page.owner,
         };
         page.life
             .call(

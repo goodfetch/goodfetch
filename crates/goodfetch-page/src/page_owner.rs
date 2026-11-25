@@ -4,7 +4,10 @@
 //! loop never awaits the browser or the program. Spec #2256 moves a Page's
 //! operations and state into it ticket by ticket. It holds the Page's
 //! Gesture order ([`GestureOrder`]) and grants each Gesture its turn, in
-//! arrival order (ADR 0085); the Gesture's call then sends its input.
+//! arrival order (ADR 0085); the Gesture's call then sends its input. It
+//! grants a call of the Page API its reads at once ([`Reads`]), while a
+//! Gesture holds the turn too, and holds the worlds the engine keeps in the
+//! Page's documents ([`PageWorlds`]).
 //!
 //! A panic of one of its tasks closes its Page alone (ADR 0148): the owner
 //! keeps `engine_panicked`, naming the Page, which each ask in flight and
@@ -22,6 +25,7 @@ use goodfetch_protocol::page::PageId;
 use tokio::sync::{mpsc, oneshot, watch};
 use tracing::Instrument as _;
 
+use crate::cdp::CdpPage;
 use crate::consent_walls::Walls;
 use crate::dialogs::PageDialogs;
 use crate::errors::{page_closed, page_panicked};
@@ -30,6 +34,8 @@ use crate::hiding::Hiding;
 use crate::init_scripts::InitScripts;
 use crate::interception::PageInterception;
 use crate::page_events::PageEvents;
+use crate::page_reads::Reads;
+use crate::page_worlds::PageWorlds;
 
 /// How many asks wait for a Page's owner at most: a caller past them waits
 /// for room.
@@ -47,7 +53,7 @@ pub(crate) struct PageOwner {
     /// `engine_panicked`, once a panic of one of its tasks closed it.
     panicked: watch::Receiver<Option<CallError>>,
     /// Where each ask is counted, its Run's (ADR 0140's
-    /// `C3.owner_round_trips`).
+    /// `C2.owner_round_trips` and `C3.owner_round_trips`).
     work: CountedWork,
 }
 
@@ -70,6 +76,8 @@ pub(crate) struct PageParts {
     pub(crate) walls: Walls,
     /// Its hiding sheets and live hiding's rules in them.
     pub(crate) hiding: Hiding,
+    /// The worlds the engine keeps in its documents.
+    pub(crate) worlds: PageWorlds,
 }
 
 /// The open Pages' owners, by their ID: the index from ID to handle (ADR
@@ -88,6 +96,8 @@ pub(crate) struct PageOwners(
 enum Ask {
     /// A Gesture's turn.
     Turn(oneshot::Sender<GestureTurn>),
+    /// A call's reads, granted at once.
+    Read(oneshot::Sender<()>),
 }
 
 /// Where the owner's loop keeps what a panic of one of its tasks raises:
@@ -178,6 +188,35 @@ impl PageOwner {
     /// Its Page's hiding.
     pub(crate) fn hiding(&self) -> &Hiding {
         &self.parts.hiding
+    }
+
+    /// The worlds the engine keeps in its Page's documents.
+    pub(crate) fn worlds(&self) -> &PageWorlds {
+        &self.parts.worlds
+    }
+
+    /// The reads of a call of the Page API on the page `cdp` drives,
+    /// granted at once, while a Gesture holds the turn too. One round trip
+    /// to the owner, counted on `C2.owner_round_trips`.
+    ///
+    /// # Errors
+    ///
+    /// Once the owner has gone, `closed`, or `engine_panicked` when a panic
+    /// of one of its tasks closed it.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future gives up the ask.
+    pub(crate) async fn reads(&self, cdp: CdpPage) -> Result<Reads, CallError> {
+        self.work.count(Row::PageReadOwnerRoundTrips);
+        let (answer, answered) = oneshot::channel();
+        if self.asks.send(Ask::Read(answer)).await.is_err() {
+            return Err(self.gone().await);
+        }
+        match answered.await {
+            Ok(()) => Ok(Reads::of(cdp)),
+            Err(_) => Err(self.gone().await),
+        }
     }
 
     /// Waits for a Gesture's turn on the Page, in arrival order. One round
@@ -338,6 +377,10 @@ async fn serve(
             () = order.changed() => {}
             ask = mailbox.recv() => match ask {
                 Some(Ask::Turn(answer)) => order.ask(answer),
+                Some(Ask::Read(answer)) => {
+                    // Its caller may have given up the ask.
+                    let _ = answer.send(());
+                }
                 None => break,
             },
         }

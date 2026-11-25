@@ -76,6 +76,15 @@ pub(crate) enum Call {
     },
 }
 
+/// Why a function did not answer in a world the engine keeps.
+pub(crate) enum Unanswered {
+    /// The document it ran in went away, by a navigation: the world is made
+    /// again in the next document.
+    WorldGone,
+    /// The call fails with this Error code.
+    Failed(CallError),
+}
+
 /// The Error code `failure` raises from `call`; `exit` says how the browser
 /// ended, when it did, and `deadline` is the call's, which bounded the
 /// command. A command the page's lease check withheld raises the error that

@@ -46,9 +46,11 @@ use serde::Deserialize;
 
 use self::check::{CHECK, Seen, Step, Target};
 use crate::cdp::CdpPage;
-use crate::driver::{PageDriver, Turn, Unanswered};
+use crate::driver::PageDriver;
+use crate::errors::Unanswered;
 use crate::hiding::Hidden;
 use crate::page_owner::PageOwner;
+use crate::page_reads::Turn;
 
 /// The disarm, which says where the gesture landed.
 const DISARM: &str = include_str!("guard/disarm.js");
@@ -235,7 +237,12 @@ async fn attempt(page: &PageDriver, request: Request<'_>, clock: &Clock) -> Resu
     let page = &page.counting(request.action.commands());
     let started = clock.now();
     let end = started + request.window.left();
-    let mut turn = page.turn(request.operation, request.owner.turn().await?);
+    let mut turn = Turn::granted(
+        CdpPage::of(page),
+        request.owner.worlds().clone(),
+        request.operation,
+        request.owner.turn().await?,
+    );
     let mut last = Seen::waiting(Step::Attached, "the action waited its turn on the page");
     loop {
         // The pointer is the turn's from the check that arms the listener
@@ -408,7 +415,7 @@ pub(crate) async fn landed_on(page: &PageDriver, element: &Element<'_>) -> bool 
 /// input before the events its handling sent, such as the main frame's
 /// request to navigate, so those arrive before this answer (Playwright's
 /// input epilogue). A document gone with the input sent them already.
-async fn settled(turn: &mut Turn<'_>) -> Result<(), CallError> {
+async fn settled(turn: &mut Turn) -> Result<(), CallError> {
     match turn.call(SETTLED, serde_json::Value::Null).await {
         Ok(_) | Err(Unanswered::WorldGone) => Ok(()),
         Err(Unanswered::Failed(error)) => Err(error),
@@ -418,7 +425,7 @@ async fn settled(turn: &mut Turn<'_>) -> Result<(), CallError> {
 /// Clicks at the point `(x, y)`, then reads where the click landed.
 async fn click(
     page: &PageDriver,
-    turn: &mut Turn<'_>,
+    turn: &mut Turn,
     (x, y): (f64, f64),
 ) -> Result<Landed, CallError> {
     CdpPage::of(page)
@@ -429,7 +436,7 @@ async fn click(
 
 /// Where the gesture just sent landed; a document gone with it means it
 /// landed, since nothing was left to cancel it.
-async fn landed(turn: &mut Turn<'_>) -> Result<Landed, CallError> {
+async fn landed(turn: &mut Turn) -> Result<Landed, CallError> {
     match turn.call(DISARM, serde_json::Value::Null).await {
         Ok(value) => Landed::deserialize(&value).map_err(|error| unreadable(&value, &error)),
         Err(Unanswered::WorldGone) => Ok(Landed::Landed),
@@ -439,7 +446,7 @@ async fn landed(turn: &mut Turn<'_>) -> Result<Landed, CallError> {
 
 /// Replaces the selected text of the focused field with `value`, as typed
 /// text arrives; an empty value deletes it.
-async fn fill(page: &PageDriver, turn: &mut Turn<'_>, value: &str) -> Result<(), CallError> {
+async fn fill(page: &PageDriver, turn: &mut Turn, value: &str) -> Result<(), CallError> {
     if !value.is_empty() {
         return turn.insert_text(value).await;
     }
@@ -476,7 +483,7 @@ struct ValueSet {
 ///
 /// `invalid_params` for a value the input does not take, which keeps its
 /// own.
-async fn set_picked(turn: &mut Turn<'_>, value: &str) -> Result<bool, CallError> {
+async fn set_picked(turn: &mut Turn, value: &str) -> Result<bool, CallError> {
     let answer = match turn.call(SET_VALUE, serde_json::json!(value)).await {
         Ok(answer) => answer,
         Err(Unanswered::WorldGone) => return Ok(false),
@@ -542,6 +549,8 @@ pub(crate) struct Wait<'a> {
     pub(crate) window: Option<Window>,
     /// The Client's form, in which its errors show targets.
     pub(crate) form: Form,
+    /// The owner of its Page, which grants its reads.
+    pub(crate) owner: &'a PageOwner,
 }
 
 /// Waits on `page` until the matches of `wait`'s locator are as it waits
@@ -574,6 +583,12 @@ pub(crate) async fn wait(
         observed: "the page was not checked yet".to_owned(),
         matches: Vec::new(),
     };
+    // One ask of the Page's owner grants every check of the wait.
+    let checking = wait
+        .owner
+        .reads(CdpPage::of(page))
+        .await?
+        .counting(Row::ActionCheckCommands);
     loop {
         let remaining = end.map_or(SLICE, |end| end.saturating_duration_since(clock.now()));
         if remaining.is_zero()
@@ -592,11 +607,7 @@ pub(crate) async fn wait(
         // Each of a wait's checks makes the guard's world again, a command of
         // its own (X11).
         page.work().count(Row::ActionScriptSends);
-        let checking = page.counting(Row::ActionCheckCommands);
-        let Some(value) = checking
-            .read_in_page(CHECK, argument, wait.operation)
-            .await?
-        else {
+        let Some(value) = checking.in_page(CHECK, argument, wait.operation).await? else {
             // The document went, or is not yet: checked again in the next.
             clock.sleep(remaining.min(RECHECK)).await;
             continue;

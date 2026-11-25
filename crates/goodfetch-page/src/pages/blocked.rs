@@ -24,9 +24,11 @@ use goodfetch_protocol::page::{BLOCKED, BlockedDetails, PageResponse};
 use serde_json::json;
 
 use crate::blocks::{Block, BlockClassifier};
+use crate::cdp::CdpPage;
 use crate::consent_walls::Walls;
 use crate::driver::PageDriver;
 use crate::page_events::PageEvents;
+use crate::page_reads::Reads;
 use crate::proxy;
 
 /// What the page's document is read for: which of the markers asked for
@@ -70,8 +72,9 @@ pub(super) async fn block_of(
         Vec::new()
     } else {
         work.count(Row::NavigationDetectionReads);
-        let read = driver
-            .read_in_page(
+        // A navigation's judgement, the Page's own work: no call's read.
+        let read = Reads::of(CdpPage::of(driver))
+            .in_page(
                 READ,
                 json!({ "markers": markers }),
                 operation.unwrap_or(NEXT_CALL),

@@ -9,7 +9,8 @@ use goodfetch_cdp::{Command, Failure, Refusal, SessionId as TargetSession, Subsc
 use goodfetch_engine::CallError;
 use goodfetch_protocol::jsonrpc::ProtocolFailure;
 
-use super::{PageDriver, UNBOUNDED, Unanswered, world};
+use super::{PageDriver, UNBOUNDED, world};
+use crate::errors::Unanswered;
 
 impl PageDriver {
     /// The page's own session.

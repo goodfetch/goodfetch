@@ -238,16 +238,22 @@ fn a_planted_encode_adds_one_a_command() {
 
 /// Each engine read in a frame sends two commands, its isolated world's
 /// creation and its call, and makes its world again even in a document it
-/// read before (X10): every command sent while the program read is a read's,
-/// and two reads ran in each of the three documents.
+/// read before (X10), once its Page's owner answered its one ask (ADR
+/// 0146): every command sent while the program read is a read's, and two
+/// reads ran in each of the three documents.
 #[test]
-fn each_read_counts_its_commands_and_its_world() {
+fn each_read_counts_its_commands_its_world_and_its_ask() {
     let counted = run(None);
 
     assert_eq!((counted.reads, counted.documents), (6, 3));
     assert_eq!(
         READ_ROWS.map(|row| counted.count(row)),
-        [2 * counted.reads, counted.reads, counted.reads, 0]
+        [
+            2 * counted.reads,
+            counted.reads,
+            counted.reads,
+            counted.reads
+        ]
     );
     assert_eq!(counted.read_commands, counted.count(Row::PageReadCommands));
 }
@@ -315,7 +321,7 @@ fn a_planted_unit_adds_two_a_serialization() {
 #[case::commands(Row::PageReadCommands, 2)]
 #[case::world_creations(Row::PageReadWorldCreations, 1)]
 #[case::document_worlds(Row::PageReadDocumentWorlds, 1)]
-#[case::owner_round_trips(Row::PageReadOwnerRoundTrips, 0)]
+#[case::owner_round_trips(Row::PageReadOwnerRoundTrips, 1)]
 fn a_planted_unit_adds_two_a_read(#[case] row: Row, #[case] per_read: u64) {
     let counted = run(Some(row));
 

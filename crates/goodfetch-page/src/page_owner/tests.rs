@@ -41,6 +41,7 @@ pub(crate) fn parts(
         interception,
         walls: Walls::default(),
         hiding: Hiding::new(None, Arc::new(Sheets::new(driver, run))),
+        worlds: driver.worlds().clone(),
     }
 }
 

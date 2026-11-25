@@ -35,7 +35,6 @@ pub(crate) mod cdp_response;
 mod children;
 mod encoding;
 mod ending;
-mod functions;
 mod gestures;
 mod identity;
 
@@ -47,15 +46,14 @@ mod popups;
 pub(crate) mod replay;
 mod service_workers;
 mod targets;
-mod world;
+pub(crate) mod world;
 
 use std::borrow::Cow;
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 use std::time::Duration;
 
-use bytestring::ByteString;
-use goodfetch_cdp::generated::{browser, dom, emulation, input, network, page, runtime, target};
+use goodfetch_cdp::generated::{browser, emulation, network, page, runtime, target};
 use goodfetch_cdp::{
     Command, Connection, Failure, NetError, Refusal, SessionId as TargetSession, Subscription,
     SubscriptionEnd,
@@ -72,8 +70,6 @@ use goodfetch_engine::settings::RunSettings;
 use goodfetch_engine::tasks;
 use goodfetch_engine::tls::CertificateInvalid;
 use goodfetch_protocol::connection::WaitedFor;
-use goodfetch_protocol::jsonrpc::ProtocolFailure;
-use goodfetch_protocol::page::functions::World;
 use goodfetch_protocol::page::{
     BrowserExit, PAGE_GO_BACK, PAGE_GO_FORWARD, PAGE_GOTO, PAGE_RELOAD, PageResponse, WaitUntil,
 };
@@ -87,7 +83,6 @@ pub(crate) use self::carry::{Carried, Origins, Watcher};
 pub(crate) use self::children::{Child, ChildKind, OnChild};
 use self::encoding::{encoding_of, encoding_read, isolated_world};
 pub(crate) use self::ending::{ENDING_KNOWN_WITHIN, Lost};
-use self::functions::{evaluation, page_function_world};
 pub(crate) use self::navigation::{Arrived, browser_id, hop_id};
 use self::navigation::{Ended, Expected, Followed, Navigation};
 use self::page_reader::PageReader;
@@ -99,12 +94,12 @@ use crate::borrowed::CdpUrl;
 use crate::egress_relay::EgressRelay;
 use crate::egress_relay::authority::Authority;
 use crate::errors::{
-    self, Call, call_error, interrupted, network_error, renderer_crashed, too_many_redirects,
-    truncated,
+    self, Call, Unanswered, call_error, interrupted, network_error, renderer_crashed,
+    too_many_redirects, truncated,
 };
-use crate::gesture_order::GestureTurn;
 use crate::launch::{Launcher, launch};
 use crate::page_value::{self, PageValue};
+use crate::page_worlds::PageWorlds;
 use crate::proxy::{PROXY_STATUS, Party, ProxyPermit, SessionProxy, party, proxy_error};
 use identity::Identity;
 
@@ -335,7 +330,7 @@ impl PageDriver {
             started: Arc::new(watch::Sender::new(0)),
             navigating: Arc::new(watch::Sender::new(0)),
             spent: Duration::ZERO,
-            guard_world: Arc::new(watch::Sender::new(None)),
+            worlds: PageWorlds::default(),
             value: PageValue::empty(),
             waits: None,
             reader: None,
@@ -1012,7 +1007,7 @@ impl<B: Connect> SessionDriver<B> {
             started: Arc::new(watch::Sender::new(0)),
             navigating: Arc::new(watch::Sender::new(0)),
             spent: Duration::ZERO,
-            guard_world: Arc::new(watch::Sender::new(None)),
+            worlds: PageWorlds::default(),
             value: PageValue::empty(),
             waits: None,
             reader: None,
@@ -1066,16 +1061,6 @@ async fn prepare(browser: &Browser, session: &TargetSession) -> Result<(), CallE
     Ok(())
 }
 
-/// A page's document as it stands, serialized once.
-pub(crate) struct SerializedDocument {
-    /// Its HTML.
-    pub(crate) html: ByteString,
-    /// Its URL.
-    pub(crate) url: String,
-    /// Its base URL.
-    pub(crate) base_url: String,
-}
-
 /// One page's target, driven over its CDP session.
 #[derive(Clone)]
 pub(crate) struct PageDriver {
@@ -1093,9 +1078,9 @@ pub(crate) struct PageDriver {
     /// How many navigations the engine started on the page, by which one
     /// the browser cancelled is known to be superseded.
     started: Arc<watch::Sender<u64>>,
-    /// The guard's world in the main frame's current document, once one was
-    /// made there.
-    guard_world: Arc<watch::Sender<Option<runtime::ExecutionContextId>>>,
+    /// The worlds the engine keeps in the page's documents, which its
+    /// owner holds too: its navigations read the encoding in the guard's.
+    worlds: PageWorlds,
     /// How many navigation calls wait on the page now: a request the
     /// navigation gate refuses raises from them, or else is recorded.
     navigating: Arc<watch::Sender<u32>>,
@@ -1126,110 +1111,6 @@ impl Drop for NavigationCall<'_> {
     fn drop(&mut self) {
         self.0
             .send_modify(|navigating| *navigating = navigating.saturating_sub(1));
-    }
-}
-
-/// A gesture's turn on its page, granted by the page's owner: its
-/// commands, sent while no other gesture's are.
-pub(crate) struct Turn<'page> {
-    page: &'page PageDriver,
-    granted: GestureTurn,
-    call: Call,
-}
-
-/// Why a function did not answer in the guard's world.
-pub(crate) enum Unanswered {
-    /// The document it ran in went away, by a navigation: the world is made
-    /// again in the next document.
-    WorldGone,
-    /// The call fails with this Error code.
-    Failed(CallError),
-}
-
-impl Turn<'_> {
-    /// Calls `function`, a JavaScript function's source, with `argument` in
-    /// the guard's isolated world of the page's main frame, made on first
-    /// use in each document, and answers its value.
-    pub(crate) async fn call(
-        &mut self,
-        function: &str,
-        argument: serde_json::Value,
-    ) -> Result<serde_json::Value, Unanswered> {
-        let context = self.page.guard_world(&self.call).await?;
-        self.called(function, argument, context).await
-    }
-
-    /// Calls the guard's check `check`, a JavaScript function's source, with
-    /// `argument`, as [`call`](Self::call) does, counting the command it sends
-    /// and the source it carries (ADR 0140's C3). The world it may make
-    /// first is its document's, made once there, so no check's own.
-    pub(crate) async fn check(
-        &mut self,
-        check: &str,
-        argument: serde_json::Value,
-    ) -> Result<serde_json::Value, Unanswered> {
-        let context = self.page.guard_world(&self.call).await?;
-        let work = self.page.work();
-        work.count(Row::ActionCheckCommands);
-        work.count(Row::ActionScriptSends);
-        self.called(check, argument, context).await
-    }
-
-    /// Calls `function` with `argument` in the guard's world, whose context
-    /// is `context`, and answers its value.
-    async fn called(
-        &mut self,
-        function: &str,
-        argument: serde_json::Value,
-        context: runtime::ExecutionContextId,
-    ) -> Result<serde_json::Value, Unanswered> {
-        let called = self
-            .page
-            .send_in_guard_world(
-                &world::call(function, argument, context),
-                context,
-                &self.call,
-            )
-            .await?;
-        if let Some(thrown) = called.exception_details {
-            return Err(Unanswered::Failed(CallError::protocol(
-                ProtocolFailure::InternalError,
-                format!("the guard's script threw in the page: {}", thrown.text),
-            )));
-        }
-        Ok(called.result.value.unwrap_or(serde_json::Value::Null))
-    }
-
-    /// The call its commands are sent for, whose deadline bounds them and
-    /// whose codes their failures raise.
-    pub(crate) fn gesture_call(&self) -> &Call {
-        &self.call
-    }
-
-    /// Lends the page's pointer between two of the gesture's checks
-    /// ([`GestureTurn::lend_pointer`]).
-    ///
-    /// # Cancel safety
-    ///
-    /// That of [`GestureTurn::lend_pointer`].
-    pub(crate) async fn lend_pointer(&mut self) {
-        self.granted.lend_pointer().await;
-    }
-
-    /// Inserts `text` where the focused element's selection is, as an
-    /// input method commits text: one trusted `input` event.
-    pub(crate) async fn insert_text(&mut self, text: &str) -> Result<(), CallError> {
-        self.page
-            .browser
-            .send(
-                Some(&self.page.session),
-                &input::InsertTextParams {
-                    text: text.to_owned(),
-                },
-                &self.call,
-            )
-            .await
-            .map(|_| ())
     }
 }
 
@@ -1575,119 +1456,15 @@ impl PageDriver {
         self.browser.try_send(Some(&self.session), params).await
     }
 
-    /// Calls `function`, a JavaScript function's source, with `argument` in
-    /// the guard's isolated world of the frame `frame`'s document, made or
-    /// found by its name, outside any gesture's turn: the reads engine
-    /// scripts make of a frame, such as live hiding's (ADR 0047). A frame
-    /// gone, or a function that throws, answers none.
-    ///
-    /// The one way an engine read reaches a frame, so it counts C2's work
-    /// (ADR 0140): each command it sends, and the world it makes, which,
-    /// with no registry of each frame's document yet, it makes on every read
-    /// and so counts as one past its document's first (X10).
-    pub(crate) async fn read_in_frame(
-        &self,
-        frame: &page::FrameId,
-        function: &str,
-        argument: serde_json::Value,
-    ) -> Result<Option<serde_json::Value>, Failure> {
-        let work = &self.browser.work;
-        for row in [
-            Row::PageReadCommands,
-            Row::PageReadDocumentWorlds,
-            Row::PageReadWorldCreations,
-        ] {
-            work.count(row);
-        }
-        let made = self
-            .browser
-            .try_send(Some(&self.session), &isolated_world(frame.clone()))
-            .await?;
-        work.count(Row::PageReadCommands);
-        let called = self
-            .browser
-            .try_send(
-                Some(&self.session),
-                &world::call(function, argument, made.execution_context_id),
-            )
-            .await?;
-        if called.exception_details.is_some() {
-            return Ok(None);
-        }
-        Ok(called.result.value)
+    /// The Error code `failure` raises from `call`, naming how the browser
+    /// ended when it was lost.
+    pub(crate) async fn raised(&self, call: &Call, failure: &Failure) -> CallError {
+        self.browser.failed(call, failure).await
     }
 
-    /// Calls `function` with `argument` in the guard's isolated world of the
-    /// page's main frame, outside any gesture's turn, as
-    /// [`read_in_frame`](Self::read_in_frame) does: the locator waits'
-    /// checks. A document gone or not there yet, or a function that throws,
-    /// answers none; a failure raises the code of the operation `operation`.
-    pub(crate) async fn read_in_page(
-        &self,
-        function: &str,
-        argument: serde_json::Value,
-        operation: &'static str,
-    ) -> Result<Option<serde_json::Value>, CallError> {
-        match self.read_in_frame(&self.frame, function, argument).await {
-            Ok(value) => Ok(value),
-            Err(Failure::Refused {
-                refusal: Refusal::ContextGone,
-                ..
-            }) => Ok(None),
-            Err(failure) => Err(self
-                .browser
-                .failed(&Call::Action { operation }, &failure)
-                .await),
-        }
-    }
-
-    /// Evaluates `expression`, a page function's, in the page's main frame:
-    /// in its main world, or in the page functions' isolated world, made or
-    /// found by its name; its promise awaited and its value answered by
-    /// value, outside any gesture's turn (ADR 0085), for as long as it
-    /// takes, as Playwright's `evaluate` has no timeout. A document replaced
-    /// under it is tried once more in the next one; a failure raises the
-    /// code of the operation `operation`.
-    pub(crate) async fn evaluate(
-        &self,
-        expression: &str,
-        world: World,
-        operation: &'static str,
-    ) -> Result<runtime::EvaluateReturns, CallError> {
-        let call = &Call::Action { operation };
-        let mut tries = 2;
-        loop {
-            tries -= 1;
-            let context = match world {
-                World::Main => None,
-                World::Isolated => Some(
-                    self.browser
-                        .send(
-                            Some(&self.session),
-                            &page_function_world(self.frame.clone()),
-                            call,
-                        )
-                        .await?
-                        .execution_context_id,
-                ),
-            };
-            match self
-                .browser
-                .try_send_within(
-                    Some(&self.session),
-                    &evaluation(expression, context),
-                    UNBOUNDED,
-                )
-                .await
-            {
-                Ok(returned) => return Ok(returned),
-                Err(Failure::Refused {
-                    refusal: Refusal::ContextGone,
-                    ..
-                }) if tries > 0 => {}
-                Err(failure) => return Err(self.browser.failed(call, &failure).await),
-            }
-        }
+    /// The worlds the engine keeps in the page's documents.
+    pub(crate) fn worlds(&self) -> &PageWorlds {
+        &self.worlds
     }
 
     /// This page's driver with each command it sends counted on `row` as
@@ -1704,20 +1481,10 @@ impl PageDriver {
         &self.browser.work
     }
 
-    /// The turn `granted` to the gesture `operation`, whose failures raise
-    /// its codes.
-    pub(crate) fn turn(&self, operation: &'static str, granted: GestureTurn) -> Turn<'_> {
-        Turn {
-            page: self,
-            granted,
-            call: Call::Action { operation },
-        }
-    }
-
     /// The context of the guard's isolated world in the page's main frame,
     /// made for `call` on first use in each document.
     async fn guard_world(&self, call: &Call) -> Result<runtime::ExecutionContextId, Unanswered> {
-        if let Some(context) = *self.guard_world.borrow() {
+        if let Some(context) = self.worlds.guard() {
             return Ok(context);
         }
         let made = self
@@ -1726,8 +1493,7 @@ impl PageDriver {
             .await;
         match made {
             Ok(made) => {
-                self.guard_world
-                    .send_replace(Some(made.execution_context_id));
+                self.worlds.keep_guard(made.execution_context_id);
                 Ok(made.execution_context_id)
             }
             Err(failure) => Err(self.unanswered(&failure, call).await),
@@ -1749,13 +1515,7 @@ impl PageDriver {
                 let unanswered = self.unanswered(&failure, call).await;
                 if matches!(unanswered, Unanswered::WorldGone) {
                     // Another command may have made the next document's.
-                    self.guard_world.send_if_modified(|kept| {
-                        let gone = *kept == Some(context);
-                        if gone {
-                            *kept = None;
-                        }
-                        gone
-                    });
+                    self.worlds.forget_guard(context);
                 }
                 Err(unanswered)
             }
@@ -1906,21 +1666,6 @@ impl PageDriver {
             }
             other => (other, false),
         }
-    }
-
-    /// The URL of the document the main frame holds: the one it could not
-    /// reach when it shows the browser's error page.
-    pub(crate) async fn document_url(&self) -> Result<String, CallError> {
-        let tree = self
-            .browser
-            .send(
-                Some(&self.session),
-                &page::GetFrameTreeParams {},
-                &Call::Document,
-            )
-            .await?;
-        let frame = tree.frame_tree.frame;
-        Ok(frame.unreachable_url.unwrap_or(frame.url))
     }
 
     /// The error of a navigation to `url` that failed with the browser's
@@ -2113,51 +1858,6 @@ impl PageDriver {
                 },
             }
         }
-    }
-
-    /// The page's document as the DOM holds it now, serialized once, with
-    /// its URL and base URL: two commands, each counted on
-    /// `C2.serialization_commands` (ADR 0140).
-    pub(crate) async fn document(&self) -> Result<SerializedDocument, CallError> {
-        let call = Call::Document;
-        let work = &self.browser.work;
-        work.count(Row::PageSerializationCommands);
-        let root = self
-            .browser
-            .send(
-                Some(&self.session),
-                &dom::GetDocumentParams {
-                    depth: Some(0),
-                    pierce: None,
-                },
-                &call,
-            )
-            .await?
-            .root;
-        work.count(Row::PageSerializationCommands);
-        let html = self
-            .browser
-            .send(
-                Some(&self.session),
-                &dom::GetOuterHTMLParams {
-                    node_id: Some(root.node_id),
-                    backend_node_id: None,
-                    object_id: None,
-                    // Every shadow root, open or closed, serialized as a
-                    // `<template shadowrootmode>`, so that extraction-side
-                    // removal walks them (ADR 0047).
-                    include_shadow_dom: Some(true),
-                },
-                &call,
-            )
-            .await?
-            .outer_html;
-        let url = root.document_url.unwrap_or_default();
-        Ok(SerializedDocument {
-            html: ByteString::from(html),
-            base_url: root.base_url.unwrap_or_else(|| url.clone()),
-            url,
-        })
     }
 }
 

@@ -41,6 +41,7 @@ use tokio::sync::{OnceCell, watch};
 use tokio_util::sync::CancellationToken;
 
 use super::{Browser, PageDriver};
+use crate::page_worlds::PageWorlds;
 
 /// The target type of a service worker.
 const SERVICE_WORKER: &str = "service_worker";
@@ -132,7 +133,7 @@ impl PageDriver {
             started: Arc::new(watch::Sender::new(0)),
             navigating: Arc::new(watch::Sender::new(0)),
             spent: Duration::ZERO,
-            guard_world: Arc::new(watch::Sender::new(None)),
+            worlds: PageWorlds::default(),
             value: crate::page_value::PageValue::empty(),
             waits: None,
             reader: None,

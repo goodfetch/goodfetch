@@ -101,9 +101,10 @@ use serde_json::Value;
 
 use crate::blocks::{Block, BlockClassifier, NoBlocks};
 use crate::browser_fetch;
+use crate::cdp::{CdpPage, SerializedDocument};
 use crate::dialogs::{self, Dialogs};
 use crate::document_request::{DocumentRequest, Unread};
-use crate::driver::{Destination, SerializedDocument};
+use crate::driver::Destination;
 use crate::extractor;
 use crate::fields;
 use crate::guard::{self, Action, Request, SentMark, Window};
@@ -115,6 +116,7 @@ use crate::launch::Launcher;
 use crate::page_events::{PageEvents, Requested};
 use crate::page_functions::{self, Injection, Matches};
 use crate::page_owner::PageOwners;
+use crate::page_reads;
 use crate::page_value::{
     BrowserPages, EngineFetch, EngineFetched, FetchedBody, HandlerPages, HeldPlace, Opening,
     OwnFetch, PageValue, PooledSession, ProgramPages, ServedFormatsAhead,
@@ -1120,10 +1122,13 @@ impl BrowserPages for Opener {
                 fields.insert("cosmetic".to_owned(), cosmetic.into());
             }
             page.life
-                .call(
-                    PageEvent::Read,
-                    page.driver.read_in_page(function, argument, operation),
-                )
+                .call(PageEvent::Read, async {
+                    page.owner
+                        .reads(CdpPage::of(&page.driver))
+                        .await?
+                        .in_page(function, argument, operation)
+                        .await
+                })
                 .await
         })
     }
@@ -1260,7 +1265,7 @@ impl Pages {
         if let Destination::Url(url) = destination {
             match egress::navigation(url, navigator).map_err(|refused| refused.error())? {
                 egress::Destination::JavaScript => {
-                    let document = page.driver.document_url().await?;
+                    let document = page_reads::document_url(&CdpPage::of(&page.driver)).await?;
                     page.owner.interception().judge_javascript(url, &document)?;
                 }
                 egress::Destination::Network if charge == Charge::OneRequest => {
@@ -1500,7 +1505,7 @@ impl Pages {
             .life
             .call(
                 PageEvent::Read,
-                page.driver.evaluate(expression, world, operation),
+                page_reads::evaluate(&CdpPage::of(&page.driver), expression, world, operation),
             )
             .await?;
         page_functions::answered(returns, (form, operation))
@@ -1764,15 +1769,13 @@ impl Pages {
             }
             return Ok(formats);
         }
-        let (page, _) = self
-            .open(&params.page_id, |page| {
-                page.driver.navigation_deadline(None)
-            })
-            .await?;
+        let deadline = |page: &OpenPage| page.driver.navigation_deadline(None);
+        let (page, _) = self.open(&params.page_id, deadline).await?;
         tracing::Span::current().record("run_id", page.run.id().as_str());
+        let cdp = CdpPage::of(&page.driver);
         let document = page
             .life
-            .call(PageEvent::Read, page.driver.document())
+            .call(PageEvent::Read, page_reads::document(&cdp))
             .await?;
         let request = params.formats;
         let (_, session) = self.sessions.own_settings(&page.session).await?;
@@ -1826,7 +1829,11 @@ impl Pages {
             })?;
         }
         let declared = goodfetch_extractor::fields::Fields::of(&params.fields, work);
-        let reading = page.driver.counting(Row::PageFieldReadCommands);
+        let reading = page
+            .life
+            .call(PageEvent::Read, page.owner.reads(CdpPage::of(&page.driver)))
+            .await?
+            .counting(Row::PageFieldReadCommands);
         // A document replaced under the read is read once more in the next
         // one, as `page.evaluate`'s is.
         let mut answer = None;
@@ -1835,7 +1842,7 @@ impl Pages {
                 .life
                 .call(
                     PageEvent::Read,
-                    reading.read_in_page(
+                    reading.in_page(
                         fields::READ,
                         fields::argument(&params.fields),
                         PAGE_READ.name,

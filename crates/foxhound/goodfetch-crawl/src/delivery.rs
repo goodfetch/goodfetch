@@ -224,6 +224,9 @@ pub(crate) async fn drive(
 ) {
     // Each stage's chain is built once, as the Run opens (ADR 0104).
     let hooks = std::sync::Arc::new(Hooks::of(hooks, settings.resolved(), &labels.settings));
+    // Where its HTTP hops' responses come from before the network: the
+    // Response cache under `cache.mode` (ADR 0046).
+    let source = context.engine().response_source(settings.resolved());
     let mut servers = vec![Serving {
         context,
         left: None,
@@ -244,7 +247,7 @@ pub(crate) async fn drive(
     // Session's local addresses under `egress.local_addresses` (ADR 0044).
     let interface = local_interface(settings.resolved());
     let built = match run_source(settings.resolved(), interface.as_ref()) {
-        Ok(local) => tiers.built(&run, settings.resolved(), local).await,
+        Ok(local) => tiers.built(&run, settings.resolved(), local, source).await,
         Err(error) => Err(error),
     };
     let http = match built {

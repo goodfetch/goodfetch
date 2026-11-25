@@ -31,6 +31,7 @@
 //! made, on `C5.cache_body_writes`; a miss opens no body file.
 
 pub mod freshness;
+pub mod source;
 
 use std::io::{Read as _, Write as _};
 use std::path::{Path, PathBuf};
@@ -47,6 +48,7 @@ use sha2::{Digest as _, Sha256};
 
 pub use self::freshness::{CacheRequest, ResponseHead};
 use self::freshness::{Freshness, Stored};
+pub use self::source::{Recording, Replaying, ResponseSource, Served, Source};
 use crate::sqlite_store::{
     self, Access, Durability, File, Folder, FormatRefusal, FullFsync, KeptStore, OpenError,
     Opening, Schema, StoreFile, Synchronous, Wait, WalOnClose,

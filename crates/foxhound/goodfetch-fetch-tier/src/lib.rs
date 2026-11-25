@@ -16,6 +16,7 @@
 //! and Collie's `cargo-deny` ban list keeps its HTTP transports out of
 //! Collie's executable (STYLE.md, reason 2).
 
+mod cached;
 mod canonical;
 mod chain;
 mod charset;

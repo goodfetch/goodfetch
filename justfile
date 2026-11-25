@@ -1884,24 +1884,23 @@ notices *arguments:
 # xtask/compare-chromiumoxide), against
 # the advisory snapshot ci/advisories.toml pins (ADR 0064), offline:
 # cargo-deny's and cargo-audit's over RustSec's pinned commit, OSV-Scanner's
-# over OSV's pinned npm and PyPI databases (ci/audit.sh). Its first run
-# downloads the snapshot into target/advisories/; a fail is always the
-# commit's.
+# over OSV's pinned npm and PyPI databases (ci/audit.sh), every lockfile at
+# once after one fetch of the snapshot. Its first run downloads the snapshot
+# into target/advisories/; a fail is always the commit's.
 audit:
-    ci/tool.sh cargo-audit ci/audit.sh rust
-    ci/tool.sh cargo-audit ci/audit.sh rust xtask/compare-spider/Cargo.toml
-    ci/tool.sh cargo-audit ci/audit.sh rust xtask/compare-crawlee-rs/Cargo.toml
-    ci/tool.sh cargo-audit ci/audit.sh rust xtask/compare-pagesift/Cargo.toml
-    ci/tool.sh cargo-audit ci/audit.sh rust xtask/compare-openspider/Cargo.toml
-    ci/tool.sh cargo-audit ci/audit.sh rust xtask/compare-fastcrw/Cargo.toml
-    ci/tool.sh cargo-audit ci/audit.sh rust xtask/compare-crawlberg/Cargo.toml
-    ci/tool.sh cargo-audit ci/audit.sh rust xtask/compare-chromiumoxide/Cargo.toml
-    ci/tool.sh osv-scanner ci/audit.sh npm xtask/compare-crawlee/pnpm-lock.yaml
-    ci/tool.sh osv-scanner ci/audit.sh npm xtask/compare-collie-arms/pnpm-lock.yaml
-    ci/tool.sh osv-scanner ci/audit.sh python xtask/compare-scrapy/uv.lock
-    ci/tool.sh cargo-audit ci/audit.sh rust kennel/Cargo.toml
-    ci/tool.sh osv-scanner ci/audit.sh npm
-    ci/tool.sh osv-scanner ci/audit.sh python
+    ci/audit.sh each rust \
+      rust=xtask/compare-spider/Cargo.toml \
+      rust=xtask/compare-crawlee-rs/Cargo.toml \
+      rust=xtask/compare-pagesift/Cargo.toml \
+      rust=xtask/compare-openspider/Cargo.toml \
+      rust=xtask/compare-fastcrw/Cargo.toml \
+      rust=xtask/compare-crawlberg/Cargo.toml \
+      rust=xtask/compare-chromiumoxide/Cargo.toml \
+      npm=xtask/compare-crawlee/pnpm-lock.yaml \
+      npm=xtask/compare-collie-arms/pnpm-lock.yaml \
+      python=xtask/compare-scrapy/uv.lock \
+      rust=kennel/Cargo.toml \
+      npm python
 
 # The live advisory audit, a Live check (ADR 0064) that runs daily on
 # `main`'s head (from the server's cron while the hosted workflows are off):

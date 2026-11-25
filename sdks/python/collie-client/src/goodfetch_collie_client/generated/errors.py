@@ -897,6 +897,14 @@ class PluginProtocolUnsupportedError(UnavailableError):
         super().__init__(message, code="plugin_protocol_unsupported", group="unavailable", retryable=False, **fields)
 
 
+class PluginQuarantinedError(UnavailableError):
+    """The process Plugin crashed three times within 10 minutes of the run, so it stays quarantined for the rest of the run: its queued and later calls fail with this code, and one "a Plugin quarantined" Notification is sent. A later run starts it again; fix or replace the Plugin first."""
+
+    def __init__(self, message: str, **fields: Unpack[ErrorFields]) -> None:
+        """Takes the message the engine rendered, and what it carries."""
+        super().__init__(message, code="plugin_quarantined", group="unavailable", retryable=False, **fields)
+
+
 class PolicyConflictError(RefusedError):
     """The Operator policy's digest changed since it was read, as by a hand edit, so nothing was written; `fix` says to read it again."""
 
@@ -1495,6 +1503,7 @@ ERROR_CLASSES: Final[Mapping[str, ErrorClass]] = {
     "plugin_crashed": PluginCrashedError,
     "plugin_manifest_mismatch": PluginManifestMismatchError,
     "plugin_protocol_unsupported": PluginProtocolUnsupportedError,
+    "plugin_quarantined": PluginQuarantinedError,
     "policy_conflict": PolicyConflictError,
     "protocol_version_unsupported": ProtocolVersionUnsupportedError,
     "proxy_auth_failed": ProxyAuthFailedError,

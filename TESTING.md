@@ -16,7 +16,7 @@ How Goodfetch is tested: every surface, at every level. Each rule comes with its
 10. [Flaky tests and Live checks](docs/testing/flaky-tests-and-live-checks.md): what a test is, no retries, before and after merge, quarantine, Live checks; read it when a test fails intermittently or reaches the network.
 11. [Test-first process](docs/testing/test-first-process.md): red then green, the Evidence section, a bug fix starting from its test; read it before starting a ticket.
 12. [Checks by role](docs/testing/checks-by-role.md): the checks an implementer, a merger and a pull request run; every implementer, merger and orchestrator reads it.
-13. [Review checklist](docs/testing/review-checklist.md): what a pull request's tests must meet; read it when reviewing tests.
+13. [Review checklist](docs/testing/review-checklist.md): what a pull request's tests must meet, and the proof a review finding takes; read it when reviewing.
 14. [Suites, commands and time budgets](docs/testing/suites-commands-and-time-budgets.md): the three suites, the `just` commands, time budgets, sharding, the compiler cache, the merge queue; read it when running or changing a suite, a recipe or the gate.
 15. [AI features and agent skills](docs/testing/ai-features-and-agent-skills.md): model stand-ins, recordings, pinned models, Evaluations, agent skills and tool descriptions; read it when touching an AI feature, a prompt or a skill.
 16. [Journeys](docs/testing/journeys.md): the Journey catalog, its data, tests, results and owner tests; read it when adding or changing an end-to-end test.

@@ -7,6 +7,7 @@ Goodfetch's docs site at `goodfetch.dev/docs` (ADRs 0030 and 0097): Docusaurus o
 - `versions.json`, which the release's version cut writes, lists the versions built: stable at the root, `next` from `main`, and the last minor of each previous major that is still supported. `next` and the previous majors carry a banner.
 - The header's switcher leads to the same page in the other Product's section, or to its home when that section lacks it.
 - The build fails on a broken link, anchor or image, a duplicate route, a fenced block with no language and a directive no plugin renders.
+- After the build, `src/llms-plugin.ts` writes each page's `.md` twin at its URL with `.md` (`/docs/collie/install.md`; the root's home at `/docs/index.md`), and in each kept version each section's `llms.txt` and `llms-full.txt` and the root's pair. A twin's links to other pages point at their twins from the site's root, so they read the same in `llms-full.txt`. The build then fails when a page lacks its twin, its entry in its own section's `llms.txt` (the root's for a root page, the accessibility statement included) or its text in the matching `llms-full.txt`.
 
 ## Links across sections
 

@@ -8,6 +8,7 @@ import { fileURLToPath } from "node:url";
 import type * as Preset from "@docusaurus/preset-classic";
 import type { Config } from "@docusaurus/types";
 import { themes } from "prism-react-renderer";
+import llmsPlugin from "./src/llms-plugin.ts";
 import { directivesUsed, fenceLanguage } from "./src/strict-markdown.ts";
 import { readVersions, versionsConfig } from "./src/versions.ts";
 
@@ -35,6 +36,7 @@ const config: Config = {
     hooks: { onBrokenMarkdownLinks: "throw", onBrokenMarkdownImages: "throw" },
   },
   i18n: { defaultLocale: "en", locales: ["en"] },
+  plugins: [llmsPlugin],
   presets: [
     [
       "classic",

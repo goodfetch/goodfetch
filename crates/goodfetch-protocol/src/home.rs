@@ -10,6 +10,7 @@
 //!     runs/<run id>/run.sqlite    a run folder and its run file
 //!     runs/<run id>/trace/…       the run's trace files
 //!     run-index.sqlite            the Run index
+//!     schedule-store.sqlite       the Schedule store
 //!     operator-policy.toml,       the major's settings files (ADR 0098)
 //!     configuration.toml
 //!     daemon.json, daemon.lock, … the Daemon's files (`DaemonFile`)
@@ -38,6 +39,10 @@ pub const RUN_INDEX: &str = "run-index.sqlite";
 /// body files, which `upgrade-files` never copies, so an upgrade starts
 /// with an empty cache (ADR 0046).
 pub const RESPONSE_CACHE: &str = "response-cache";
+
+/// The Schedule store's file in the per-major folder, beside the Run index
+/// (ADRs 0036 and 0098).
+pub const SCHEDULE_STORE: &str = "schedule-store.sqlite";
 
 /// The Operator policy's file in the per-major folder, which both
 /// Products read (ADRs 0028 and 0098).

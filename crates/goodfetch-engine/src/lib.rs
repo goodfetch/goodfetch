@@ -102,6 +102,7 @@ pub mod transition;
 pub mod transport;
 pub mod upgrade;
 mod usage;
+pub mod user_store;
 pub mod webhook_signing;
 mod wire;
 

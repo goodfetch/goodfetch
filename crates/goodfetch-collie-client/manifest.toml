@@ -2650,6 +2650,10 @@ entries = ["sample.echo"]
 reason = "The engine's sample operation, which tests and benchmarks call; no Product member serves it."
 
 [[unreached]]
+entries = ["schedule.create", "schedule.list", "schedule.get", "schedule.info", "schedule.delete"]
+reason = "The Schedule operations, whose `connection.schedules()` sub-object and `Schedule` handle come with the SDK part of issue 854."
+
+[[unreached]]
 entries = ["connection.set_log_level"]
 reason = "The Connection sends it itself, following the level the program's `tracing` subscriber enables for the engine's logs (ADR 0078); no member sets it."
 

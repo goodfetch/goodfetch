@@ -8,16 +8,18 @@
 //! Runs.
 
 use std::collections::BTreeMap;
-use std::ffi::OsString;
-use std::sync::Arc;
+use std::ffi::{OsStr, OsString};
+use std::sync::{Arc, PoisonError};
 
 use goodfetch_counted_work::CountedWork;
 use goodfetch_protocol::connection::ProductVersion;
 use jiff::Timestamp;
+use jiff::tz::TimeZone;
 
 use crate::audit::AuditLog;
 use crate::clock::Clock;
 use crate::endpoint::Refusals;
+use crate::entropy::Entropy;
 use crate::home::Home;
 use crate::known_certificates::KnownCertificates;
 use crate::ledger::Ledger;
@@ -26,7 +28,9 @@ use crate::response_cache::ResponseCache;
 use crate::run_index::RunIndex;
 use crate::sandbox_probe::SandboxProbe;
 use crate::settings::Settings;
+use crate::sync::Mutex;
 use crate::tasks::TaskOwner;
+use crate::user_store::{UserStore, UserStoreKind};
 
 /// Who a Connection acts for: the OS user on a single-user install (ADR
 /// 0102), the only caller until accounts arrive (area 12), and the
@@ -49,15 +53,52 @@ pub(crate) fn os_user(environment: &BTreeMap<OsString, OsString>) -> String {
         .to_owned()
 }
 
-/// The user's known-certificates store, Usage ledger, Run index and
-/// Response cache as one engine opens them, and the owner of their blocking
-/// work: built once, before the engine's "Needs you", which reads them too.
+/// The host's time zone as an IANA name, read once from the engine's
+/// environment map as the C library reads `TZ` (with or without a leading
+/// `:`, UTC when empty), the system's when `TZ` is unset; UTC, with a
+/// warning, when neither names an IANA zone, such as a POSIX rule.
+pub(crate) fn host_zone(environment: &BTreeMap<OsString, OsString>) -> String {
+    let zone = match environment
+        .get(OsStr::new("TZ"))
+        .map(|value| value.to_str())
+    {
+        None => TimeZone::try_system().ok(),
+        Some(Some(value)) => match value.strip_prefix(':').unwrap_or(value) {
+            "" => Some(TimeZone::UTC),
+            name => TimeZone::get(name).ok(),
+        },
+        Some(None) => None,
+    };
+    if let Some(name) = zone.as_ref().and_then(TimeZone::iana_name) {
+        return name.to_owned();
+    }
+    tracing::warn!("the host's time zone has no IANA name; schedules default to UTC");
+    "UTC".to_owned()
+}
+
+/// What the engine knows of its host beside its stores: the person it
+/// acts for, its time zone and the stream its handlers draw from.
+pub(crate) struct Host {
+    /// The OS user's name ([`os_user`]).
+    pub(crate) person: String,
+    /// The host's time zone ([`host_zone`]).
+    pub(crate) zone: String,
+    /// The handlers' own stream of the engine's entropy.
+    pub(crate) entropy: Entropy,
+}
+
+/// The user's known-certificates store, Usage ledger, Run index, Response
+/// cache and the contributions' own stores as one engine opens them, and
+/// the owner of their blocking work: built once, before the engine's "Needs
+/// you", which reads them too.
 pub(crate) struct Stores {
     owner: Arc<TaskOwner>,
     known_certificates: KnownCertificates,
     ledger: Ledger,
     run_index: RunIndex,
     response_cache: ResponseCache,
+    /// The contributions' own stores.
+    contributed: Vec<UserStore>,
 }
 
 impl Stores {
@@ -66,14 +107,26 @@ impl Stores {
     /// 0060), their blocking work under `owner` and the actors that keep
     /// their connections under `connections`, which the engine stops once
     /// its Runs and Connections have, the Response cache's work counted on
-    /// `work`.
+    /// `work`; with the contributions' `user_stores` in the major's folder.
     pub(crate) fn of(
         home: &Home,
         version: &ProductVersion,
         vfs: Option<String>,
         (owner, connections): (Arc<TaskOwner>, Arc<TaskOwner>),
         work: CountedWork,
+        user_stores: &[&'static UserStoreKind],
     ) -> Self {
+        let contributed = user_stores
+            .iter()
+            .map(|kind| {
+                UserStore::open(
+                    home.per_major(version).join(kind.file()),
+                    kind,
+                    vfs.clone(),
+                    Arc::clone(&connections),
+                )
+            })
+            .collect();
         Self {
             known_certificates: KnownCertificates::of(home, vfs.clone(), Arc::clone(&connections)),
             response_cache: ResponseCache::of(
@@ -85,6 +138,7 @@ impl Stores {
             run_index: RunIndex::of(home.run_index(version), version, vfs.clone(), connections),
             ledger: Ledger::at(home.usage_ledger(), vfs),
             owner,
+            contributed,
         }
     }
 
@@ -116,8 +170,16 @@ pub struct EngineContext {
     stores: Arc<Stores>,
     needs_you: NeedsYou,
     sandbox_probe: SandboxProbe,
-    person: Arc<str>,
     refusals: Refusals,
+    held: Arc<Held>,
+}
+
+/// What an engine's contexts share behind one pointer, which keeps every
+/// future that holds a context small (clippy's `large_futures`): its host.
+struct Held {
+    person: String,
+    zone: String,
+    entropy: Mutex<Entropy>,
 }
 
 impl std::fmt::Debug for EngineContext {
@@ -133,7 +195,7 @@ impl EngineContext {
     /// The engine at `home` on `clock` under `settings`, recording in
     /// `audit` and its listeners' refusals in `refusals`, with `stores`, its
     /// blocking work under their owner, with `needs_you` and
-    /// `sandbox_probe`, acting for `person`.
+    /// `sandbox_probe`, acting for `host`'s person.
     #[expect(
         clippy::too_many_arguments,
         reason = "each is one of the engine's own values, built once at its start and held together here"
@@ -146,8 +208,13 @@ impl EngineContext {
         stores: Stores,
         needs_you: NeedsYou,
         sandbox_probe: SandboxProbe,
-        person: String,
+        host: Host,
     ) -> Self {
+        let Host {
+            person,
+            zone,
+            entropy,
+        } = host;
         Self {
             stores: Arc::new(stores),
             home,
@@ -156,8 +223,12 @@ impl EngineContext {
             audit,
             needs_you,
             sandbox_probe,
-            person: Arc::from(person),
             refusals,
+            held: Arc::new(Held {
+                person,
+                zone,
+                entropy: Mutex::new(entropy),
+            }),
         }
     }
 
@@ -227,8 +298,36 @@ impl EngineContext {
 
     /// The OS user's name, from the engine's environment map: the person
     /// of a single-user install.
-    pub(crate) fn person(&self) -> &str {
-        &self.person
+    pub fn person(&self) -> &str {
+        &self.held.person
+    }
+
+    /// The host's time zone, an IANA name read once from the engine's
+    /// environment map ([`host_zone`]).
+    pub fn host_zone(&self) -> &str {
+        &self.held.zone
+    }
+
+    /// A draw of 64 random bits from the handlers' own stream of the
+    /// engine's entropy (ADR 0059), such as the random part of a ULID.
+    pub fn draw_u64(&self) -> u64 {
+        self.held
+            .entropy
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .next_u64()
+    }
+
+    /// The user's store `kind`, which a contribution declared with
+    /// [`Contribution::with_user_store`]; none when no contribution of
+    /// this engine did.
+    ///
+    /// [`Contribution::with_user_store`]: crate::composition::Contribution::with_user_store
+    pub fn user_store(&self, kind: &UserStoreKind) -> Option<&UserStore> {
+        self.stores
+            .contributed
+            .iter()
+            .find(|store| store.kind().file() == kind.file())
     }
 
     /// Where the engine's listeners record their refusals: the user's

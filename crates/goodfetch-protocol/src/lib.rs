@@ -58,6 +58,7 @@ pub mod result_document;
 pub mod routing;
 pub mod run;
 pub mod sample;
+pub mod schedule;
 pub mod schema_validator;
 pub mod secret_reference;
 pub mod secrets;

@@ -1442,6 +1442,23 @@ number = 5
 kind = "error"
 prefix = "browser_host_unreachable"
 
+# Area 10, Scheduling (specs #588 and #589): the Schedule operations, the
+# CLI's `schedule` commands and their Error codes (#854).
+[[area]]
+number = 10
+kind = "operation"
+prefix = "schedule."
+
+[[area]]
+number = 10
+kind = "command"
+prefix = "schedule."
+
+[[area]]
+number = 10
+kind = "error"
+prefix = "schedule_"
+
 # Area 12 (spec #592).
 # Foxhound's Datasets screen (#1211, spec #593): `dataset.list` and
 # `dataset.page`, which the Records grid reads.

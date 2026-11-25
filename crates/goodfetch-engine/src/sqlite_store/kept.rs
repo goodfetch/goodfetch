@@ -24,6 +24,12 @@ pub(crate) trait StoreFile: std::fmt::Debug + Send + Sync + 'static {
     /// Where it lies.
     fn path(&self) -> &Path;
 
+    /// Whether the file is there, which a `missing` answer waits for: on
+    /// the disk, unless the file opens through a VFS of its own.
+    fn exists(&self) -> bool {
+        self.path().exists()
+    }
+
     /// A connection for its writes: the file and its tables made when they
     /// are not there.
     ///
@@ -94,7 +100,7 @@ impl<F: StoreFile> KeptStore<F> {
                     kept
                 });
                 match missing {
-                    Some(missing) if kept.is_none() && !file.path().exists() => Ok(missing),
+                    Some(missing) if kept.is_none() && !file.exists() => Ok(missing),
                     _ => on(&*file, &mut kept, F::open_read, work),
                 }
             })
@@ -119,7 +125,7 @@ impl<F: StoreFile> KeptStore<F> {
         let answer = self
             .writer
             .run(move |kept| match missing {
-                Some(missing) if kept.is_none() && !file.path().exists() => Ok(missing),
+                Some(missing) if kept.is_none() && !file.exists() => Ok(missing),
                 _ => on(&*file, kept, F::open, work),
             })
             .await;

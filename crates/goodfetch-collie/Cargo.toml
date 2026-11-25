@@ -37,6 +37,8 @@ goodfetch-page.workspace = true
 # The runtimes the executables and a linked engine build (ADR 0081).
 goodfetch-runtime.workspace = true
 goodfetch-protocol.workspace = true
+# Schedules and their store (spec #589).
+goodfetch-schedule.workspace = true
 # The built-in external Secret providers (spec #564).
 goodfetch-secret-providers.workspace = true
 # Human output's times in the local zone `TZ` names (ADR 0073): the system's

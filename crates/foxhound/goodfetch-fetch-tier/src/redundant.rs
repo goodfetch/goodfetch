@@ -28,7 +28,10 @@ use std::time::Duration;
 
 use bytes::Bytes;
 use goodfetch_engine::admission::{Room, SecondCopies};
-use goodfetch_engine::runs::Run;
+use goodfetch_engine::governor::RunGovernor;
+use goodfetch_engine::ledger::RunCharging;
+use goodfetch_engine::run_identity::RunIdentity;
+use goodfetch_engine::run_trace::RunTrace;
 use goodfetch_engine::settings::Resolved;
 use goodfetch_protocol::foxhound::fetch::{
     FETCH_COALESCE, FETCH_HEDGE_ENABLED, FETCH_HEDGE_MAX_PERCENT,
@@ -70,6 +73,17 @@ pub struct Requester<'a> {
     pub declares_effect: bool,
     /// Whether it is a Paid fetch (ADR 0045).
     pub paid: bool,
+}
+
+/// What a redundant request reads of its Run (ADR 0145): its clock, the
+/// room its share of the Resource governor and its Usage give a hedge, and
+/// its Run trace, where a hedge or a shared response is recorded.
+#[derive(Clone, Copy)]
+pub(crate) struct OfRun<'a> {
+    pub(crate) identity: &'a RunIdentity,
+    pub(crate) trace: &'a RunTrace,
+    pub(crate) charging: &'a RunCharging,
+    pub(crate) governor: &'a RunGovernor,
 }
 
 /// A fetch's outcome, which an identical request in flight may share.
@@ -143,7 +157,8 @@ impl Redundant {
         }
     }
 
-    /// Fetches `hop` through `transport` for `requester` of `run`: the
+    /// Fetches `hop` through `transport` for `requester` of the Run `run`
+    /// reads: the
     /// answer of an identical request in flight from its Session when one
     /// is, else its own, hedged when its route is slow, of its `own`
     /// document as [`fetch_accepting`] says. Requests whose
@@ -162,7 +177,7 @@ impl Redundant {
         &self,
         transport: &dyn Transport,
         bounds: &FetchBounds,
-        run: &Run,
+        run: OfRun<'_>,
         (hop, own): (&Hop, Option<OwnDocument<'_>>),
         requester: &Requester<'_>,
     ) -> Outcome {
@@ -182,7 +197,7 @@ impl Redundant {
                         .ok()
                         .and_then(|outcome| outcome.clone());
                     if let Some(outcome) = outcome {
-                        record_shared(run, hop, requester, &request_id).await;
+                        record_shared(run.trace, hop, requester, &request_id).await;
                         return outcome;
                     }
                 }
@@ -225,12 +240,12 @@ impl Redundant {
         &self,
         transport: &dyn Transport,
         bounds: &FetchBounds,
-        run: &Run,
+        run: OfRun<'_>,
         (hop, own): (&Hop, Option<OwnDocument<'_>>),
         requester: &Requester<'_>,
         repeatable: bool,
     ) -> Outcome {
-        let clock = run.clock();
+        let clock = run.identity.clock();
         if let Some(hedges) = &self.hedges {
             lock(&hedges.budget).sent();
         }
@@ -330,13 +345,13 @@ async fn hedged(
     hedges: &Hedges,
     transport: &dyn Transport,
     bounds: &FetchBounds,
-    run: &Run,
+    run: OfRun<'_>,
     (hop, own): (&Hop, Option<OwnDocument<'_>>),
     requester: &Requester<'_>,
     threshold: Duration,
     mut first: std::pin::Pin<&mut impl Future<Output = Outcome>>,
 ) -> Outcome {
-    let clock = run.clock();
+    let clock = run.identity.clock();
     let copy = loop {
         match requester
             .second_copies
@@ -352,9 +367,9 @@ async fn hedged(
             },
         }
     };
-    let governed = run.governor().try_admit(WorkKind::Http);
+    let governed = run.governor.share().try_admit(WorkKind::Http);
     let spent = governed.is_some() && lock(&hedges.budget).spend();
-    if !spent || run.charge(REQUESTS, 1).await.is_err() {
+    if !spent || run.charging.charge(REQUESTS, 1).await.is_err() {
         requester.second_copies.give_back(copy).await;
         return first.await;
     }
@@ -373,8 +388,8 @@ async fn hedged(
     };
     drop(governed);
     requester.second_copies.give_back(copy).await;
-    goodfetch_page::provenance(
-        run,
+    provenance(
+        run.trace,
         json!({
             "action": HEDGED,
             "session_id": requester.session,
@@ -389,12 +404,12 @@ async fn hedged(
     outcome
 }
 
-/// Records in `run`'s Provenance that `requester` was answered with the
-/// response of `shared_from`, an identical request in flight from its
-/// Session.
-async fn record_shared(run: &Run, hop: &Hop, requester: &Requester<'_>, shared_from: &str) {
-    goodfetch_page::provenance(
-        run,
+/// Records in the Provenance of `trace`, its Run's, that `requester` was
+/// answered with the response of `shared_from`, an identical request in
+/// flight from its Session.
+async fn record_shared(trace: &RunTrace, hop: &Hop, requester: &Requester<'_>, shared_from: &str) {
+    provenance(
+        trace,
         json!({
             "action": RESPONSE_SHARED,
             "session_id": requester.session,
@@ -405,4 +420,12 @@ async fn record_shared(run: &Run, hop: &Hop, requester: &Requester<'_>, shared_f
         }),
     )
     .await;
+}
+
+/// Writes `entry` to the Provenance log of `trace`; a line that cannot be
+/// written is logged and lost, as the tiers' own are.
+async fn provenance(trace: &RunTrace, entry: serde_json::Value) {
+    if let Err(error) = trace.provenance(entry).await {
+        tracing::warn!(%error, "a Provenance entry of the Run trace cannot be written");
+    }
 }

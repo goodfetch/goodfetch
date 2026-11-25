@@ -48,7 +48,7 @@ impl On<'_> {
         if asked.set(()).is_err() {
             return None;
         }
-        let (clock, leased, lease) = (self.run.clock(), self.leased, self.lease);
+        let (clock, leased, lease) = (self.run.identity.clock(), self.leased, self.lease);
         let (id, key) = (&leased.waiting.id, &leased.waiting.key);
         let mut waiting: Option<PermitWait> = None;
         loop {

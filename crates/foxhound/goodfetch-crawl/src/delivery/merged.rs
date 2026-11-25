@@ -5,9 +5,9 @@
 use std::collections::BTreeSet;
 
 use goodfetch_engine::admission::Admission;
-use goodfetch_engine::runs::Run;
 
 use super::{fill, journal, show_counted};
+use crate::crawl_run::CrawlRun;
 use crate::progress::SharedInFlight;
 use crate::run_state::RunState;
 use crate::run_state::teacher::{Move, Moved};
@@ -19,7 +19,7 @@ use crate::run_state::teacher::{Move, Moved};
 /// fills those queues again, which also puts the latter back, then
 /// journals what the queues changed.
 pub(super) async fn merged(
-    run: &Run,
+    run: &CrawlRun,
     (admission, state): (&mut Admission, &mut RunState),
     in_flight: &SharedInFlight,
     (moved, changed): Moved,
@@ -46,7 +46,7 @@ pub(super) async fn merged(
     show_counted(run, state, in_flight, []).await;
     for key in keys {
         if let Err(error) = fill(state, admission, Some(key)).await {
-            tracing::warn!(%error, run_id = %run.id(), "a queue a learned rule thinned was not filled again");
+            tracing::warn!(%error, run_id = %run.identity.id(), "a queue a learned rule thinned was not filled again");
         }
     }
     journal(run, state.stored(), admission).await;

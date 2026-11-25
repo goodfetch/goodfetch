@@ -15,6 +15,9 @@
 # the Release suite's cells, and every job that runs the Pre-merge suite
 # over goodfetch-collie or goodfetch-foxhound. A developer's machine and the
 # gate host, where CI is unset, always download it.
+#
+# `win32-x64` as its argument fetches Windows' copy instead: ci/windows.sh
+# fetches it for the plugin tests under Wine.
 set -euo pipefail
 
 root=$(cd "$(dirname "$0")/.." && pwd)
@@ -26,7 +29,8 @@ if [[ -n "${CI:-}" && "${GOODFETCH_FETCH_CLAUDE_CODE:-}" != yes ]]; then
 fi
 
 executable=claude
-case "$(uname -s)-$(uname -m)" in
+case "${1:-$(uname -s)-$(uname -m)}" in
+  win32-x64) platform=win32-x64 executable=claude.exe ;;
   Linux-x86_64) platform=linux-x64 ;;
   Linux-aarch64 | Linux-arm64) platform=linux-arm64 ;;
   Darwin-arm64) platform=darwin-arm64 ;;

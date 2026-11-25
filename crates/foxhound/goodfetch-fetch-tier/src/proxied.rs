@@ -24,7 +24,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 
 use bytes::Bytes;
-use goodfetch_engine::runs::Run;
+use goodfetch_engine::runs::{self, Run};
 use goodfetch_engine::settings::Resolved;
 use goodfetch_page::document_request::DocumentRequest;
 use goodfetch_page::{TransportPermit, TransportProxy};
@@ -78,7 +78,7 @@ impl SessionProxies {
     /// The transport of the Run's own reads, robots.txt and the AI-use
     /// signal files of its navigation gate, through a proxy of their own.
     pub(crate) fn of_run(&self) -> Arc<Proxied> {
-        let sticky = SessionId(format!("{}.http", self.run.id()));
+        let sticky = SessionId(format!("{}.http", runs::identity(&self.run).id()));
         Arc::new(self.proxied(sticky, self.config.local.clone(), Arc::clone(&self.direct)))
     }
 
@@ -99,7 +99,11 @@ impl SessionProxies {
         Arc::clone(by_session.entry(session.clone()).or_insert_with(|| {
             // Named apart from the Session's browser's, `{run}.session-{n}`,
             // and from every other Run's.
-            let sticky = SessionId(format!("{}.http.{}", self.run.id(), session.0));
+            let sticky = SessionId(format!(
+                "{}.http.{}",
+                runs::identity(&self.run).id(),
+                session.0
+            ));
             let local = local.or_else(|| self.config.local.clone());
             let direct = direct.unwrap_or_else(|| Arc::clone(&self.direct));
             Arc::new(self.proxied(sticky, local, direct))

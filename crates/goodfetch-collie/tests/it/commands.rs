@@ -17,8 +17,7 @@ use std::path::PathBuf;
 
 use goodfetch_protocol::home::RUNS;
 use goodfetch_test_support::{
-    CliOutput, Mode, SnapshotValues, TestEnv, assert_cli_snapshot, cli, record_command,
-    snapshot_settings,
+    CliOutput, Mode, SnapshotValues, TestEnv, assert_cli_snapshot, cli, snapshot_settings,
 };
 use rstest::rstest;
 use serde_json::{Value, json};
@@ -441,7 +440,7 @@ fn events_subscribe_follow_prints_a_runs_progress_as_one_json_object_per_line() 
     }
     process.terminate().unwrap();
     let exit = process.child().wait().ok().and_then(|status| status.code());
-    record_command(&env, &arguments, exit).unwrap();
+    goodfetch_test_support::record_command(&env, &arguments, exit).unwrap();
 
     assert_eq!(
         (&resync["event"], started.exit, finished.exit),

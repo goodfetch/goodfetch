@@ -23,7 +23,7 @@ use std::time::{Duration, SystemTime};
 
 use bytes::Bytes;
 use goodfetch_engine::CallError;
-use goodfetch_engine::runs::Run;
+use goodfetch_engine::runs::{self, Run};
 use goodfetch_extractor::BuiltIn;
 use goodfetch_page::page_value::{DocumentResponse, NavigationGate, Permit};
 use goodfetch_protocol::egress::EGRESS_REFUSED;
@@ -95,7 +95,8 @@ pub(super) async fn navigate(
     };
     let first = Hop::get(url);
     let mut permit = Some(gate.admit(&first).await.map_err(stopped)?);
-    let clock = run.clock();
+    let identity = runs::identity(&run);
+    let clock = identity.clock();
     let http = &page.http;
     // A document tier runs no refresh: a handler's own navigation is given
     // the stub (ADR 0118).
@@ -106,7 +107,7 @@ pub(super) async fn navigate(
     // The transport's refusal of a hop at its connection, which the chain
     // turns into a crawl request's skip: the call answers it as it is.
     let refused_at_connection = OnceLock::new();
-    let on = (&clock, run.owner(), run.metrics().counted_work());
+    let on = (&clock, identity.owner(), identity.metrics().counted_work());
     let fetched = follow(first, &following, &gate, on, |hop| {
         // The first hop's permit is released once its answer arrived; a
         // later hop's, by the chain (ADR 0118).
@@ -168,7 +169,7 @@ pub(super) async fn navigate(
         // `auto` the request moves to the browser, under a forced tier the
         // call fails with `blocked`.
         if let Some((_, error)) = tiers
-            .classified(&run, reached, Arc::clone(&opened.document))
+            .classified(runs::identity(&run), reached, Arc::clone(&opened.document))
             .await
             .filter(|(block, _)| block.checks_the_browser())
         {
@@ -179,7 +180,7 @@ pub(super) async fn navigate(
             });
         }
     }
-    let mut response = answered(tiers, page_id, &run, fetched).await?;
+    let mut response = answered(tiers, page_id, runs::files(&run), fetched).await?;
     response.encoding = opened.read.map(|read| read.encoding.name().to_owned());
     tiers.navigated(page_id, opened, at);
     Ok(Navigated {
@@ -196,8 +197,10 @@ async fn opened_on(
     (extractor, readers): (Option<BuiltIn>, &Arc<UntouchedReaders>),
 ) -> Opened {
     let (reading, read, readers) = (run.clone(), fetched.clone(), Arc::clone(readers));
-    run.owner()
-        .handler_analysis(run.metrics().counted_work(), move || {
+    let identity = runs::identity(run);
+    identity
+        .owner()
+        .handler_analysis(identity.metrics().counted_work(), move || {
             Opened::navigated(&reading, read, extractor, &readers)
         })
         .await
@@ -264,7 +267,7 @@ impl HopGate for Navigating {
     fn wait_until<'a>(&'a self, hop: &'a Hop, until: SystemTime) -> Gating<'a, ()> {
         Box::pin(async move {
             let _waiting = self.hand_over.lease.permit_wait(hop.url.as_str());
-            let clock = self.hand_over.run().clock();
+            let clock = runs::identity(self.hand_over.run()).clock();
             if let Ok(wait) = until.duration_since(clock.wall()) {
                 clock.sleep(wait).await;
             }
@@ -290,8 +293,7 @@ impl HopGate for Navigating {
     fn sending<'a>(&'a self, hop: &'a Hop, _lead: bool) -> Gating<'a, Result<(), Stop>> {
         Box::pin(async move {
             self.hand_over.sending(hop, false).await?;
-            self.hand_over
-                .run()
+            runs::send_window(self.hand_over.run())
                 .sending(Some(self.hand_over.lease.as_ref()), self.operation)
                 .await
                 .map_err(Stop::failed)

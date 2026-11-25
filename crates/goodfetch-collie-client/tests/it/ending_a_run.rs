@@ -7,7 +7,7 @@
 //! expect and on a step left unused, so its clean exit says the crate sent
 //! exactly what the script holds, the read after a value included.
 
-use std::time::Duration;
+use std::time::{Duration, SystemTime};
 
 use goodfetch_collie_client::{Error, ErrorCode};
 use goodfetch_conformance::{ClientCaseRun, RustMode};
@@ -36,6 +36,8 @@ struct Played {
     set: RunProgress,
     waited: Result<(), Error>,
     finished: Value,
+    /// The finished report's start, end and browser time, as Rust's types.
+    finished_times: (SystemTime, SystemTime, Duration),
     stopped: Value,
     failed: [Result<(), Error>; 2],
 }
@@ -70,6 +72,11 @@ async fn play(endpoint: DaemonEndpoint, message: &ProgressMessage) -> Played {
         set: set.into_inner(),
         waited: waited.map(|_| ()),
         finished: serde_json::to_value(&*finished).unwrap(),
+        finished_times: (
+            finished.started_at,
+            finished.ended_at,
+            finished.usage.browser_time,
+        ),
         stopped: serde_json::to_value(&*stopped).unwrap(),
         failed,
     }
@@ -94,6 +101,7 @@ fn finish_and_stop_answer_the_report_a_failed_run_fails_them_and_progress_follow
         set,
         waited,
         finished,
+        finished_times,
         stopped,
         failed,
     } = goodfetch_test_support::real_time_runtime().block_on(play(endpoint, &message));
@@ -136,7 +144,14 @@ fn finish_and_stop_answer_the_report_a_failed_run_fails_them_and_progress_follow
             ("/uncertain_effects/0/entry", json!("submit-order")),
             ("/uncertain_effects/0/since", json!("2026-01-01T00:00:30Z")),
             ("/ended_at", json!("2026-01-01T00:01:00Z")),
+            ("/usage/browser_time", json!(1_500)),
         ],
+    );
+    let (started_at, ended_at, browser_time) = finished_times;
+    assert_eq!(
+        (ended_at.duration_since(started_at).ok(), browser_time),
+        (Some(Duration::from_mins(1)), Duration::from_millis(1_500)),
+        "the report's points in time and durations are Rust's types"
     );
     assert_holds(
         &stopped,

@@ -1153,6 +1153,13 @@ export type MediaKind = "video" | "audio";
  */
 export type MicrodataValue = string | MicrodataItem;
 /**
+ * A duration, in milliseconds.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "Milliseconds".
+ */
+export type Milliseconds = number;
+/**
  * Why a Model provider could not answer (ADR 0101), open (ADR 0079).
  *
  * A value this package does not know, which a newer engine may send, is kept as received (ADR 0079).
@@ -8316,9 +8323,9 @@ export interface RunReport {
  */
 export interface RunUsage {
   /**
-   * How long it held a browser, in milliseconds.
+   * How long it held a browser.
    */
-  browserTime: number;
+  browserTime: Milliseconds;
   /**
    * Each Limit that applies to it, with what is left of it.
    */

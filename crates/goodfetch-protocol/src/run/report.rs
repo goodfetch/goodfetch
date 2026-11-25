@@ -6,8 +6,9 @@
 //! uncertain Effects), its warnings, and what a crawl adds, kept as the
 //! engine sent it so that a Collie reader keeps a crawl's parts.
 
+use crate::milliseconds::Milliseconds;
 use crate::point_in_time::PointInTime;
-use std::time::SystemTime;
+use std::time::{Duration, SystemTime};
 
 use std::collections::BTreeMap;
 
@@ -204,9 +205,10 @@ pub struct RunUsage {
     /// Its model calls.
     #[schemars(extend("arrived_in" = "0.1"))]
     pub model: ModelUsage,
-    /// How long it held a browser, in milliseconds.
-    #[schemars(extend("arrived_in" = "0.1"))]
-    pub browser_time: u64,
+    /// How long it held a browser.
+    #[serde(with = "crate::milliseconds")]
+    #[schemars(with = "Milliseconds", extend("arrived_in" = "0.1"))]
+    pub browser_time: Duration,
     /// The bytes it sent and received through a proxy.
     #[schemars(extend("arrived_in" = "0.1"))]
     pub proxy_bytes: u64,

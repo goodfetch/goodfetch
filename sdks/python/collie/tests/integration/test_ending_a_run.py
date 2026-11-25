@@ -110,6 +110,7 @@ async def test_ends_with_the_report_raises_a_failed_runs_error_and_follows_progr
             finished.verdict,
             finished.completeness,
             finished.usage.requests,
+            finished.usage.browser_time,
             finished.started_at,
             finished.ended_at,
         ) == (
@@ -117,6 +118,7 @@ async def test_ends_with_the_report_raises_a_failed_runs_error_and_follows_progr
             "needs_review",
             "complete",
             3,
+            timedelta(milliseconds=1_500),
             datetime(2026, 1, 1, tzinfo=UTC),
             datetime(2026, 1, 1, 0, 1, tzinfo=UTC),
         )

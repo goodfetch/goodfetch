@@ -168,7 +168,7 @@
               "reasoning_tokens": 0,
               "price": null
             },
-            "browser_time": 0,
+            "browser_time": 1500,
             "proxy_bytes": 0,
             "requests": 3
           },

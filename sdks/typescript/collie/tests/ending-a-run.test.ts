@@ -73,7 +73,8 @@ describe("Ending a Run on the Scripted engine as the Attached engine", () => {
           verdict: "needs_review",
           verdictReasons: [{ code: "uncertain_effect", count: 1 }],
           completeness: "complete",
-          usage: { requests: 3 },
+          // Points in time are `Date`s and durations milliseconds (ADR 0080).
+          usage: { requests: 3, browserTime: 1_500 },
           weakened: [{ key: "consent.handling", value: "off", layer: "run" }],
           plan: { status: "unchanged" },
           settings: [{ key: "timeout.close", value: 30_000, layer: "default" }],

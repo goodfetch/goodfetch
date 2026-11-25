@@ -20,3 +20,11 @@
 # area = 6
 # job = "nightly.yml#sinks"
 # run = "<the command that writes one row and reads it back>"
+
+# OpenSSF Scorecard against ci/scorecard.toml's floors (#146). It blocks
+# nothing: a check under its floor opens this check's issue.
+[[live-check]]
+id = "scorecard"
+area = 1
+job = "nightly.yml#scorecard"
+run = "target/debug/xtask results scorecard --results target/scorecard/results.json"

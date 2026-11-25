@@ -1,0 +1,33 @@
+# OpenSSF Scorecard's floors (TESTING.md, Live checks): the nightly
+# `scorecard` job's Live check (`xtask results scorecard`) fails when a
+# check scores under its floor and is inconclusive when Scorecard could not
+# run a check whose floor is above -1. It blocks nothing: a failure opens
+# its `live-check` issue.
+#
+# The checks the repository's own files decide hold today's score, from a
+# local run of Scorecard v5.6.0 on 2026-11-25; raise a floor in the pull request
+# that raises the score, and lower one only with the owner. The checks that
+# read the project's activity, its review history or settings only the
+# owner changes (Branch-Protection, CII-Best-Practices, Code-Review,
+# Contributors, CI-Tests, Maintained, SAST, Signed-Releases,
+# Vulnerabilities) start at 0, so they report without failing. Packaging
+# finds no publishing workflow before the first publish (-1).
+[floor]
+Binary-Artifacts = 9
+Branch-Protection = 0
+CI-Tests = 0
+CII-Best-Practices = 0
+Code-Review = 0
+Contributors = 0
+Dangerous-Workflow = 10
+Dependency-Update-Tool = 0
+Fuzzing = 10
+License = 10
+Maintained = 0
+Packaging = -1
+Pinned-Dependencies = 8
+SAST = 0
+Security-Policy = 4
+Signed-Releases = 0
+Token-Permissions = 10
+Vulnerabilities = 0

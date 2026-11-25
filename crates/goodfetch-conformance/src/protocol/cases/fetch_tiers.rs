@@ -51,6 +51,9 @@ pub(crate) enum Case {
     FreshResponseIsServed,
     StaleResponseIsRevalidated,
     VaryCookieIsKeyed,
+    RevalidatePostReachesTheSite,
+    ReplayServesAJsonPost,
+    ReplayServesAFormPost,
 }
 
 impl Case {
@@ -108,6 +111,15 @@ impl Case {
             "a-response-varying-on-cookie-is-served-only-for-its-cookie" => {
                 Some(Self::VaryCookieIsKeyed)
             }
+            "under-revalidate-a-post-reaches-the-site-each-time" => {
+                Some(Self::RevalidatePostReachesTheSite)
+            }
+            "replay-serves-a-post-again-to-the-same-json-in-another-key-order" => {
+                Some(Self::ReplayServesAJsonPost)
+            }
+            "replay-serves-a-form-post-again-to-its-fields-in-another-order-each-names-values-in-theirs" => {
+                Some(Self::ReplayServesAFormPost)
+            }
             _ => None,
         }
     }
@@ -137,6 +149,9 @@ impl Case {
             Self::FreshResponseIsServed => cached::fresh(connection, site, checks),
             Self::StaleResponseIsRevalidated => cached::stale(connection, site, checks),
             Self::VaryCookieIsKeyed => cached::vary_cookie(connection, site, checks),
+            Self::RevalidatePostReachesTheSite => cached::revalidate_post(connection, site, checks),
+            Self::ReplayServesAJsonPost => cached::replay_json(connection, site, checks),
+            Self::ReplayServesAFormPost => cached::replay_form(connection, site, checks),
         }
     }
 }

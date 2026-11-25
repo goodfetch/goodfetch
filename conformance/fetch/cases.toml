@@ -11,7 +11,7 @@ product = "foxhound"
 
 [suite]
 name = "fetch"
-version = "7"
+version = "8"
 
 [[capability]]
 name = "fetch.tier.http"
@@ -95,3 +95,15 @@ covers = ["story:6-38", "setting:cache.mode"]
 [[capability.case]]
 id = "a-response-varying-on-cookie-is-served-only-for-its-cookie"
 covers = ["story:6-37", "story:6-38"]
+
+[[capability.case]]
+id = "under-revalidate-a-post-reaches-the-site-each-time"
+covers = ["setting:cache.mode"]
+
+[[capability.case]]
+id = "replay-serves-a-post-again-to-the-same-json-in-another-key-order"
+covers = ["story:6-36", "setting:cache.mode"]
+
+[[capability.case]]
+id = "replay-serves-a-form-post-again-to-its-fields-in-another-order-each-names-values-in-theirs"
+covers = ["story:6-36"]

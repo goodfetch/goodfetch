@@ -99,6 +99,8 @@ tempfile.workspace = true
 thiserror.workspace = true
 # The settings files (ADR 0028): read, and rewritten with every other byte kept (ADR 0098).
 toml_edit.workspace = true
+# A Recipe's package: its folder's files less the ignored ones (issue 1663).
+ignore.workspace = true
 tokio = { workspace = true, features = ["rt", "io-util", "io-std", "sync", "macros", "time", "fs", "net", "process"] }
 tokio-rustls = { workspace = true, features = ["ring"] }
 # The protocol over WebSocket on an Exposed Daemon's address (ADR 0049).

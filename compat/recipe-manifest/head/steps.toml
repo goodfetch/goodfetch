@@ -1,0 +1,6 @@
+version = "0.1"
+name = "sign-in-check"
+product = "collie"
+
+[entry]
+steps = "sign-in.steps.json"

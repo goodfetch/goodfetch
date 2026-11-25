@@ -1,0 +1,6 @@
+version = "0.1"
+name = "catalog-crawl"
+product = "foxhound"
+
+[entry]
+crawl = "catalog.crawl.json"

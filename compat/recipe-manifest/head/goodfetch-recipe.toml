@@ -1,0 +1,20 @@
+version = "0.1"
+name = "price-watch"
+product = "collie"
+
+[entry]
+program = "src/main.ts"
+
+[runtime]
+language = "node"
+version = "24"
+
+[settings.timeout]
+navigation = 20000
+
+[expose."timeout.navigation"]
+minimum = 5000
+maximum = 60000
+
+[expose."security.audit_chain"]
+one_of = [true]

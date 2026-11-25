@@ -20,6 +20,7 @@ workspace = true
 
 ### BEGIN HAKARI SECTION
 [build-dependencies]
+aho-corasick = { version = "1", default-features = false, features = ["perf-literal", "std"] }
 anyhow = { version = "1" }
 bitflags = { version = "2", default-features = false, features = ["serde"] }
 cc = { version = "1", default-features = false, features = ["parallel"] }

@@ -178,6 +178,11 @@ goodfetch-collie = { path = ".", features = ["executable", "test-util"] }
 # child (tests/it/sdk/fork.rs).
 libc.workspace = true
 
+[target.'cfg(windows)'.dev-dependencies]
+# The renderer sandbox test reads each process's token integrity level
+# (tests/it/renderer_sandbox.rs).
+windows-sys = { workspace = true, features = ["Win32_Foundation", "Win32_Security", "Win32_System_SystemServices", "Win32_System_Threading"] }
+
 # `cargo binstall goodfetch-collie` installs the executable from its
 # archive on the GitHub Release of the same version (ADRs 0090 and 0094).
 [package.metadata.binstall]

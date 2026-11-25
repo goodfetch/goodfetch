@@ -25,6 +25,7 @@ counts = ["check", "child_cargo", "environment", "markdown", "metadata", "output
 dco = ["check", "git", "judged_commits"]
 dependency_direction = ["check", "foxhound_module", "metadata"]
 docs_samples = ["check", "environment", "output", "products", "tree"]
+docs_site = ["check", "docs_samples", "environment", "output", "products", "tree"]
 egress = ["check", "environment", "output", "workflow"]
 environment = []
 evict_caches = ["environment", "github", "output"]

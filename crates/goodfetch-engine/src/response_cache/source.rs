@@ -128,7 +128,7 @@ impl ResponseSource {
                 Lookup::Fresh(hit) => Source::Fresh(hit),
                 Lookup::Stale(stale) => Source::Stale(stale),
             },
-            Keeping::Replay(cache) => match cache.replayed(partition, request).await {
+            Keeping::Replay(cache) => match cache.replayed(partition, request, now).await {
                 Some(hit) => Source::Fresh(hit),
                 None => Source::Network,
             },
@@ -150,16 +150,16 @@ impl ResponseSource {
     }
 
     /// Whether a response with `head` to `request` would be stored, so its
-    /// body is kept as it arrives: never with the cache off, or while the
-    /// engine runs without it.
+    /// body is kept as it arrives: never with the cache off, while the
+    /// engine runs without it, or while its filesystem is low on space.
     pub fn stores(&self, request: &CacheRequest, head: &ResponseHead) -> bool {
         match &self.cache {
             Keeping::Off => false,
             Keeping::Revalidate(cache) => {
-                !cache.running_without() && freshness::storable(request, head).is_some()
+                cache.storing() && freshness::storable(request, head).is_some()
             }
             Keeping::Replay(cache) => {
-                !cache.running_without() && freshness::replayable(request, head).is_some()
+                cache.storing() && freshness::replayable(request, head).is_some()
             }
         }
     }

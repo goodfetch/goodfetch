@@ -4,10 +4,17 @@
 //! and a 304 serves its stored body, partitions and variants are kept
 //! apart, and an index of a version this engine cannot read is neither
 //! read nor written while the engine runs on without it, the generated
-//! refusal cases and the `head/` set included.
+//! refusal cases and the `head/` set included. Its bounds too: past
+//! `cache.max_size` the least recently used entries leave with their body
+//! files, past `cache.max_age_ceiling` an entry is served in no mode, and
+//! at a `low` or `critical` storage level nothing new is stored.
 #![expect(
     clippy::disallowed_methods,
     reason = "the tests read the corpus files and the cache's folder, and relabel its index as a newer engine would"
+)]
+#![expect(
+    clippy::doc_markdown,
+    reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
 )]
 
 use std::path::{Path, PathBuf};
@@ -18,10 +25,12 @@ use bytes::Bytes;
 use goodfetch_counted_work::{CountedWork, Row};
 use goodfetch_protocol::formats::Compatibility;
 use goodfetch_protocol::run::RunId;
+use goodfetch_protocol::storage::StorageLevel;
 use goodfetch_test_support::TestEnv;
 use rusqlite::Connection;
 
-use super::{CacheRequest, Hit, Lookup, Partition, ResponseCache, ResponseHead};
+use super::{Bounds, CacheRequest, Hit, Lookup, Partition, ResponseCache, ResponseHead};
+use crate::governor::{Filesystem, Governor, StorageSample};
 use crate::tasks::{BlockingPolicy, TaskOwner};
 
 /// ADR 0059's test `Clock` start.
@@ -216,14 +225,14 @@ async fn a_replayed_form_post_is_served_as_stored_for_its_fields_and_variant() {
     );
 
     let reordered = cache
-        .replayed(&ada(), &form("q=shoes&tag=a&tag=b", "en"))
+        .replayed(&ada(), &form("q=shoes&tag=a&tag=b", "en"), at(1))
         .await;
     let counted = (work.read(Row::CacheLookups), work.read(Row::CacheFileOpens));
     let values_swapped = cache
-        .replayed(&ada(), &form("q=shoes&tag=b&tag=a", "en"))
+        .replayed(&ada(), &form("q=shoes&tag=b&tag=a", "en"), at(1))
         .await;
     let french = cache
-        .replayed(&ada(), &form("q=shoes&tag=a&tag=b", "fr"))
+        .replayed(&ada(), &form("q=shoes&tag=a&tag=b", "fr"), at(1))
         .await;
 
     assert_eq!(
@@ -421,6 +430,184 @@ async fn a_body_is_stored_once_under_its_sha256() {
     );
 }
 
+const MIB: usize = 1024 * 1024;
+
+/// A body of one MiB of `byte`.
+fn mebibyte(byte: u8) -> Bytes {
+    Bytes::from(vec![byte; MIB])
+}
+
+/// `env`'s cache under `max_size` bytes and `max_age_ceiling`.
+fn bounded(env: &TestEnv, max_size: u64, max_age_ceiling: Duration) -> ResponseCache {
+    cache(env).bounded(Bounds {
+        max_size,
+        max_age_ceiling,
+    })
+}
+
+/// `body` stored under `replay` for `path` at `now`.
+async fn replay_stored(cache: &ResponseCache, path: &str, body: Bytes, now: SystemTime) -> bool {
+    cache
+        .store_replayed(&ada(), &get(path, &[]), &minute(), body, None, now)
+        .await
+}
+
+/// The byte that the body `replay` serves for `path` at `now`, one made by
+/// [`mebibyte`], repeats; none when none is served.
+async fn replayed_body(cache: &ResponseCache, path: &str, now: SystemTime) -> Option<u8> {
+    let body = cache.replayed(&ada(), &get(path, &[]), now).await?.body;
+    assert!(body.len() == MIB && body.iter().all(|byte| *byte == body[0]));
+    Some(body[0])
+}
+
+fn sha256(body: &[u8]) -> String {
+    data_encoding::HEXLOWER.encode(&<sha2::Sha256 as sha2::Digest>::digest(body))
+}
+
+fn sorted(mut names: Vec<String>) -> Vec<String> {
+    names.sort();
+    names
+}
+
+/// Past `cache.max_size`, the least recently used entries leave, a hit
+/// counting as a use, and their body files with them: of three MiB under
+/// a cap of two and a half, the one stored second and never served again
+/// leaves.
+/// Covers: story:6-42, setting:cache.max_size
+#[tokio::test]
+async fn past_the_size_cap_the_least_recently_used_entry_leaves_with_its_body_file() {
+    let env = TestEnv::new();
+    let cache = bounded(&env, (5 * MIB / 2) as u64, Duration::from_secs(3600));
+    assert!(replay_stored(&cache, "/a", mebibyte(b'a'), start()).await);
+    assert!(replay_stored(&cache, "/b", mebibyte(b'b'), at(1)).await);
+    assert_eq!(replayed_body(&cache, "/a", at(2)).await, Some(b'a'));
+
+    assert!(replay_stored(&cache, "/c", mebibyte(b'c'), at(3)).await);
+
+    assert_eq!(
+        (
+            replayed_body(&cache, "/a", at(4)).await,
+            replayed_body(&cache, "/b", at(4)).await,
+            replayed_body(&cache, "/c", at(4)).await,
+        ),
+        (Some(b'a'), None, Some(b'c'))
+    );
+    assert_eq!(
+        body_files(&env),
+        sorted(vec![sha256(&mebibyte(b'a')), sha256(&mebibyte(b'c'))])
+    );
+}
+
+/// A body two entries share counts once toward the cap, and its file
+/// leaves only with the last entry holding it.
+/// Covers: story:6-42, setting:cache.max_size
+#[tokio::test]
+async fn a_shared_body_leaves_with_the_last_entry_holding_it() {
+    let env = TestEnv::new();
+    let cache = bounded(&env, (5 * MIB / 2) as u64, Duration::from_secs(3600));
+    assert!(replay_stored(&cache, "/a", mebibyte(b'x'), start()).await);
+    assert!(replay_stored(&cache, "/b", mebibyte(b'x'), at(1)).await);
+    assert!(replay_stored(&cache, "/c", mebibyte(b'c'), at(2)).await);
+    let shared = body_files(&env);
+
+    assert!(replay_stored(&cache, "/d", mebibyte(b'd'), at(3)).await);
+
+    assert_eq!(shared.len(), 2);
+    assert_eq!(
+        (
+            replayed_body(&cache, "/a", at(4)).await,
+            replayed_body(&cache, "/b", at(4)).await,
+        ),
+        (None, None)
+    );
+    assert_eq!(
+        body_files(&env),
+        sorted(vec![sha256(&mebibyte(b'c')), sha256(&mebibyte(b'd'))])
+    );
+}
+
+/// A body larger than the cap is never stored.
+/// Covers: story:6-42, setting:cache.max_size
+#[tokio::test]
+async fn a_body_larger_than_the_cap_is_not_stored() {
+    let env = TestEnv::new();
+    let cache = bounded(&env, (MIB / 2) as u64, Duration::from_secs(3600));
+
+    assert!(!replay_stored(&cache, "/a", mebibyte(b'a'), start()).await);
+    assert_eq!(body_files(&env), Vec::<String>::new());
+}
+
+/// Past `cache.max_age_ceiling`, an entry is served in neither mode,
+/// however fresh its headers say it is, and the next store deletes it
+/// with its body file.
+/// Covers: story:6-43, setting:cache.max_age_ceiling
+#[tokio::test]
+async fn past_the_age_ceiling_an_entry_is_served_in_neither_mode_and_leaves() {
+    let env = TestEnv::new();
+    let hour = Duration::from_secs(3600);
+    let cache = bounded(&env, u64::MAX, hour);
+    assert!(replay_stored(&cache, "/replayed", mebibyte(b'r'), start()).await);
+    stored(&cache, &get("/stale", &[])).await;
+    let within = replayed_body(&cache, "/replayed", start() + hour).await;
+
+    let later = start() + hour + Duration::from_secs(1);
+    let replayed = replayed_body(&cache, "/replayed", later).await;
+    let revalidated = cache.lookup(&ada(), &get("/stale", &[]), later).await;
+    assert!(replay_stored(&cache, "/new", body(), later).await);
+
+    assert_eq!(within, Some(b'r'));
+    assert_eq!((replayed, revalidated), (None, Lookup::Miss));
+    assert_eq!(
+        rows(&env)
+            .into_iter()
+            .map(|(url, _)| url)
+            .collect::<Vec<_>>(),
+        ["https://cache.test/new"]
+    );
+    assert_eq!(body_files(&env), [sha256(&body())]);
+}
+
+/// A sample with `folder`'s filesystem at `level`.
+fn sample(folder: PathBuf, level: StorageLevel) -> Arc<StorageSample> {
+    Arc::new(StorageSample {
+        number: 1,
+        filesystems: vec![Filesystem {
+            folders: vec![folder],
+            level,
+            free: 0,
+            free_inodes: None,
+            limit: None,
+        }],
+    })
+}
+
+/// While its filesystem is at `low` or `critical`, the cache stores
+/// nothing new and evicts nothing, and still serves what it holds
+/// (ADR 0122).
+/// Covers: story:6-42
+#[rstest::rstest]
+#[case::low(StorageLevel::Low)]
+#[case::critical(StorageLevel::Critical)]
+#[tokio::test]
+async fn at_a_low_storage_level_nothing_new_is_stored_and_what_is_held_is_served(
+    #[case] level: StorageLevel,
+) {
+    let env = TestEnv::new();
+    let (samples, storage) = tokio::sync::watch::channel(Arc::new(StorageSample::default()));
+    let cache = bounded(&env, (3 * MIB / 2) as u64, Duration::from_secs(3600))
+        .watching(Governor::unsampled().sample(folder(&env)), storage);
+    assert!(cache.storing());
+    assert!(replay_stored(&cache, "/a", mebibyte(b'a'), start()).await);
+    samples.send_replace(sample(folder(&env), level));
+
+    let stored_while_low = replay_stored(&cache, "/b", mebibyte(b'b'), at(1)).await;
+
+    assert!(!cache.storing());
+    assert!(!stored_while_low);
+    assert_eq!(replayed_body(&cache, "/a", at(2)).await, Some(b'a'));
+    assert_eq!(body_files(&env), [sha256(&mebibyte(b'a'))]);
+}
+
 /// The index at `env`'s cache, relabelled `version` as a newer engine
 /// would have written it.
 fn relabel(env: &TestEnv, version: &str) {
@@ -527,7 +714,8 @@ async fn the_head_sets_index_opens_and_takes_another_entry() {
     )
     .unwrap();
     let cache = cache(&env);
-    let much_later = at(365 * 24 * 60 * 60);
+    // Stale by now, and within `cache.max_age_ceiling`'s 30 days.
+    let much_later = at(24 * 60 * 60);
     let os_user = Partition {
         person: "os_user".to_owned(),
         ..Partition::default()
@@ -552,6 +740,7 @@ async fn the_head_sets_index_opens_and_takes_another_entry() {
                 &[("content-type", "application/json")],
                 r#"{"page":1,"q":"shoes"}"#,
             ),
+            much_later,
         )
         .await;
     stored(&cache, &get("/added", &[])).await;

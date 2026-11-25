@@ -19,11 +19,12 @@ use jiff::Timestamp;
 use crate::audit::AuditLog;
 use crate::clock::Clock;
 use crate::endpoint::Refusals;
+use crate::governor::Governor;
 use crate::home::Home;
 use crate::known_certificates::KnownCertificates;
 use crate::ledger::Ledger;
 use crate::needs_you::NeedsYou;
-use crate::response_cache::{ResponseCache, ResponseSource};
+use crate::response_cache::{Bounds, ResponseCache, ResponseSource};
 use crate::run_index::RunIndex;
 use crate::sandbox_probe::SandboxProbe;
 use crate::settings::{Resolved, Settings};
@@ -67,22 +68,24 @@ impl Stores {
     /// 0060), their blocking work under `owner` and the actors that keep
     /// their connections under `connections`, which the engine stops once
     /// its Runs and Connections have, the Response cache's work counted on
-    /// `work`.
+    /// `work` and its filesystem sampled by `governor`.
     pub(crate) fn of(
         home: &Home,
         version: &ProductVersion,
         vfs: Option<String>,
         (owner, connections): (Arc<TaskOwner>, Arc<TaskOwner>),
-        work: CountedWork,
+        (work, governor): (CountedWork, &Governor),
     ) -> Self {
+        let cache_folder = home.response_cache(version);
         Self {
             known_certificates: KnownCertificates::of(home, vfs.clone(), Arc::clone(&connections)),
             response_cache: ResponseCache::of(
-                home.response_cache(version),
+                cache_folder.clone(),
                 vfs.clone(),
                 Arc::clone(&connections),
                 work,
-            ),
+            )
+            .watching(governor.sample(cache_folder), governor.storage()),
             run_index: RunIndex::of(home.run_index(version), version, vfs.clone(), connections),
             ledger: Ledger::at(home.usage_ledger(), vfs),
             owner,
@@ -210,7 +213,10 @@ impl EngineContext {
     /// cache of the engine's major unless the Run's `cache.mode` is `off`.
     pub fn response_source(&self, settings: &Resolved) -> ResponseSource {
         let mode = CacheMode::parse(settings.get(&CACHE_MODE)).unwrap_or(CacheMode::Off);
-        ResponseSource::of(&self.stores.response_cache, mode)
+        ResponseSource::of(
+            &self.stores.response_cache.bounded(Bounds::of(settings)),
+            mode,
+        )
     }
 
     /// Where reads and writes of these stores block, which the Run registry

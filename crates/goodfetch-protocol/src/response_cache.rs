@@ -86,7 +86,7 @@ pub const CACHE_MAX_SIZE: Setting = Setting {
     authority: Authority::Machine,
     weakens: None,
     fixed_for_run: false,
-    unbuilt: Some("response_cache_bounds"),
+    unbuilt: None,
     deprecated: None,
     arrived_in: ARRIVED_IN,
 };
@@ -105,7 +105,7 @@ pub const CACHE_MAX_AGE_CEILING: Setting = Setting {
     authority: Authority::Machine,
     weakens: None,
     fixed_for_run: false,
-    unbuilt: Some("response_cache_bounds"),
+    unbuilt: None,
     deprecated: None,
     arrived_in: ARRIVED_IN,
 };

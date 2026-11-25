@@ -7,7 +7,8 @@
 //! the check can read, a root may not re-export a module's items with one.
 //! A module's `[submodules.<module>]` table holds its direct submodules to
 //! the same rules among themselves, the module's own `use` items read as the
-//! root's are. A file past 1,000
+//! root's are, and a `[submodules."<module>::<submodule>"]` table a
+//! submodule's, however deep. A file past 1,000
 //! lines must state why it is still one concern in a `Size:` line of its `//!`
 //! header. A `[crates]` table names another crate with the top-level modules
 //! that alone may name it (ADR 0146's boundary): any other module's file, or
@@ -158,7 +159,8 @@ fn check_crate(
     }
 
     for (module, table) in &rules.submodules {
-        let Some((source, _)) = modules.get(module).and_then(|files| files.first()) else {
+        let path: Vec<&str> = module.split("::").collect();
+        let Some(source) = nested_source(modules, &path)? else {
             findings.push(Finding::new(
                 "unknown-module",
                 format!("{name}/{module}"),
@@ -168,9 +170,46 @@ fn check_crate(
             ));
             continue;
         };
-        check_submodules(name, module, source, table, findings)?;
+        check_submodules(name, &path, &source, table, findings)?;
     }
     Ok(())
+}
+
+/// The first file of the module `path` names from the crate's root, each
+/// name after the first a submodule of the one before, if the crate has it
+/// in a file of its own.
+fn nested_source(
+    modules: &BTreeMap<String, Vec<(Source, usize)>>,
+    path: &[&str],
+) -> Result<Option<Source>> {
+    let Some(((top, _), rest)) = path
+        .split_first()
+        .and_then(|(top, rest)| Some((modules.get(*top)?.first()?, rest)))
+    else {
+        return Ok(None);
+    };
+    // The top-level module's file read again, its folder of children kept.
+    let mut source = parse(&top.path, Path::new(""))?;
+    source.children.clone_from(&top.children);
+    for (index, name) in rest.iter().enumerate() {
+        let child = non_test_items(&source.syntax.items).find_map(|item| match item {
+            syn::Item::Mod(child) if child.ident == name => Some(child),
+            _ => None,
+        });
+        let Some(child) = child else {
+            return Ok(None);
+        };
+        let declaring = source
+            .path
+            .parent()
+            .context("a module file sits in a folder")?;
+        let files = module_files(child, &source.children, declaring, index + 2)?;
+        let Some((next, _)) = files.into_iter().next() else {
+            return Ok(None);
+        };
+        source = next;
+    }
+    Ok(Some(source))
 }
 
 /// What a parent holds: the modules it declares and the names its `use`
@@ -337,14 +376,17 @@ fn names_in_tokens(stream: TokenStream, walled: &str) -> bool {
 }
 
 /// The rules of one module's `[submodules.<module>]` table over its direct
-/// submodules, the way the top-level rules hold the crate's modules.
+/// submodules, the way the top-level rules hold the crate's modules. `path`
+/// names the module from the crate's root, each name after the first a
+/// submodule of the one before (`[submodules."<module>::<submodule>"]`).
 fn check_submodules(
     name: &str,
-    module: &str,
+    path: &[&str],
     source: &Source,
     table: &BTreeMap<String, Vec<String>>,
     findings: &mut Vec<Finding>,
 ) -> Result<()> {
+    let module = &path.join("::");
     let mut level = Level::default();
     for item in non_test_items(&source.syntax.items) {
         match item {
@@ -358,11 +400,11 @@ fn check_submodules(
                             .path
                             .parent()
                             .context("a module file sits in a folder")?,
-                        2,
+                        path.len() + 1,
                     )?,
                 );
             }
-            syn::Item::Use(re_export) => level.record_use(re_export, Scope::Within(module)),
+            syn::Item::Use(re_export) => level.record_use(re_export, Scope::Within(path)),
             _ => {}
         }
     }
@@ -384,7 +426,7 @@ fn check_submodules(
         let mut imported = BTreeSet::new();
         for (file, depth) in files {
             for item in non_test_items(&file.syntax.items) {
-                scan_item(item, *depth, Scope::Within(module), &mut imported);
+                scan_item(item, *depth, Scope::Within(path), &mut imported);
             }
         }
         for sibling in level.modules_of(imported) {
@@ -430,10 +472,10 @@ enum Walk<'a> {
     /// start, or past the `self::`, `crate::` or `crate::<module>::` that
     /// names the parent.
     Lead,
-    /// Past `crate::` or `super::` within a module, both the crate's root
-    /// since the module is a top-level one: its name must come next for the
-    /// path to stay in the parent.
-    PastRoot,
+    /// Past `crate::`, or `super::`, within a module: the names of the
+    /// module's path from this index on must come next for the path to stay
+    /// in the parent.
+    Expect(usize),
     /// Past the first name, the one the items come from.
     From(&'a syn::Ident),
 }
@@ -455,14 +497,21 @@ fn record_re_exports(tree: &syn::UseTree, walk: Walk<'_>, scope: Scope<'_>, leve
             let walk = match (walk, scope) {
                 (Walk::From(from), _) => Walk::From(from),
                 (Walk::Lead, Scope::Crate) if path.ident == "crate" => Walk::Lead,
-                (Walk::Lead, Scope::Within(_))
-                    if path.ident == "crate" || path.ident == "super" =>
-                {
-                    Walk::PastRoot
+                (Walk::Lead, Scope::Within(_)) if path.ident == "crate" => Walk::Expect(0),
+                (Walk::Lead, Scope::Within(names)) if path.ident == "super" => {
+                    Walk::Expect(names.len() - 1)
                 }
-                (Walk::PastRoot, Scope::Within(module)) if path.ident == module => Walk::Lead,
+                (Walk::Expect(index), Scope::Within(names))
+                    if names.get(index).is_some_and(|name| path.ident == name) =>
+                {
+                    if index + 1 == names.len() {
+                        Walk::Lead
+                    } else {
+                        Walk::Expect(index + 1)
+                    }
+                }
                 (Walk::Lead, _) if path.ident == "self" => Walk::Lead,
-                (Walk::PastRoot, _) => return,
+                (Walk::Expect(_), _) => return,
                 (Walk::Lead, _) => Walk::From(&path.ident),
             };
             record_re_exports(&path.tree, walk, scope, level);
@@ -480,7 +529,7 @@ fn record_re_exports(tree: &syn::UseTree, walk: Walk<'_>, scope: Scope<'_>, leve
         syn::UseTree::Rename(syn::UseRename { ident, rename, .. }) => match walk {
             Walk::From(from) => record(rename, from),
             Walk::Lead => record(rename, ident),
-            Walk::PastRoot => {}
+            Walk::Expect(_) => {}
         },
         syn::UseTree::Glob(_) => {
             if let Walk::From(from) = walk {
@@ -638,12 +687,12 @@ fn non_test_items(items: &[syn::Item]) -> impl Iterator<Item = &syn::Item> {
         .filter(|item| !is_test_only(item_attributes(item)))
 }
 
-/// Whose siblings an import reaches: the crate's top-level modules, or one
-/// top-level module's direct submodules.
+/// Whose siblings an import reaches: the crate's top-level modules, or the
+/// direct submodules of the module a path of names leads to from the root.
 #[derive(Clone, Copy)]
 enum Scope<'a> {
     Crate,
-    Within(&'a str),
+    Within(&'a [&'a str]),
 }
 
 impl Scope<'_> {
@@ -651,7 +700,7 @@ impl Scope<'_> {
     fn climb(self, depth: usize) -> usize {
         match self {
             Self::Crate => depth,
-            Self::Within(_) => depth.saturating_sub(1),
+            Self::Within(names) => depth.saturating_sub(names.len()),
         }
     }
 }
@@ -685,7 +734,7 @@ pub(crate) fn is_ident(tokens: &[TokenTree], index: usize, word: &str) -> bool {
 }
 
 /// Scans tokens, macro invocations' included, for `crate::<sibling>` (or
-/// `crate::<module>::<sibling>` within a module) and for `super::` chains
+/// `crate::<module>::…::<sibling>` within a module) and for `super::` chains
 /// that climb to the siblings' parent.
 fn scan_tokens(
     stream: TokenStream,
@@ -706,10 +755,16 @@ fn scan_tokens(
         {
             match scope {
                 Scope::Crate => record_targets(&tokens, index + 3, imported),
-                Scope::Within(module) => {
-                    if is_ident(&tokens, index + 3, module) && is_path_separator(&tokens, index + 4)
-                    {
-                        record_targets(&tokens, index + 6, imported);
+                Scope::Within(names) => {
+                    let mut at = index + 3;
+                    let within = names.iter().all(|name| {
+                        let here =
+                            is_ident(&tokens, at, name) && is_path_separator(&tokens, at + 1);
+                        at += 3;
+                        here
+                    });
+                    if within {
+                        record_targets(&tokens, at, imported);
                     }
                 }
             }

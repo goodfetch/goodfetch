@@ -662,3 +662,92 @@ fn crate_table_naming_no_module_fails() {
     );
     assert_eq!(outcome.code, 1);
 }
+
+const ROUTE: &str = "crates/goodfetch-engine/src/dispatch/route.rs";
+const ROUTE_HOP: &str = "crates/goodfetch-engine/src/dispatch/route/hop.rs";
+const ROUTE_TABLE: &str = "crates/goodfetch-engine/src/dispatch/route/table.rs";
+
+/// The fixture with `dispatch`'s submodule `route` split into `hop` and
+/// `table`, whose `[submodules."dispatch::route"]` table is `rules`;
+/// `table`'s body is `body`, and `route` re-exports `hop`'s `Next`.
+fn nested_submodules(rules: &str, body: &str) -> Workspace {
+    let workspace = Workspace::from_fixture("modules");
+    workspace.write(
+        MODULES_FILE,
+        format!(
+            "[modules]\nclock = []\nretry = [\"clock\"]\ndispatch = [\"retry\"]\n\n[submodules.retry]\nbackoff = [\"policy\"]\npolicy = []\n\n[submodules.\"dispatch::route\"]\n{rules}\n"
+        )
+        .as_bytes(),
+    );
+    workspace.write(
+        ROUTE,
+        b"//! Routes.\n\nmod hop;\nmod table;\n\npub(crate) use hop::Next;\n\npub(crate) fn route() -> u64 {\n    super::super::retry::retry() + table::rows()\n}\n",
+    );
+    workspace.write(
+        ROUTE_HOP,
+        b"//! Hops.\n\npub(crate) struct Next;\n\npub(super) fn hops() -> u64 {\n    1\n}\n",
+    );
+    workspace.write(
+        ROUTE_TABLE,
+        format!("//! Tables.\n\npub(super) fn rows() -> u64 {{\n    {body};\n    2\n}}\n")
+            .as_bytes(),
+    );
+    workspace
+}
+
+/// A `[submodules."<module>::<submodule>"]` table holds a submodule's own
+/// submodules to the same rules, however deep it sits.
+#[test]
+fn nested_submodule_import_the_table_allows_passes() {
+    let workspace = nested_submodules("hop = []\ntable = [\"hop\"]", "super::hop::hops()");
+
+    let outcome = workspace.xtask(&["modules"]);
+
+    assert_eq!(outcome.findings(), vec![]);
+    assert_eq!(outcome.code, 0);
+}
+
+#[rstest]
+#[case::through_super("super::hop::hops()")]
+#[case::through_the_crate("crate::dispatch::route::hop::hops()")]
+#[case::through_the_parents_re_export("let _next = super::Next")]
+#[case::through_the_parents_re_export_from_the_crate("let _next = crate::dispatch::route::Next")]
+fn nested_submodule_import_the_table_does_not_allow_fails(#[case] body: &str) {
+    let workspace = nested_submodules("hop = []\ntable = []", body);
+
+    let outcome = workspace.xtask(&["modules"]);
+
+    assert_eq!(
+        outcome.findings(),
+        vec![finding(
+            "forbidden-import",
+            "goodfetch-engine/dispatch::route::table->hop"
+        )]
+    );
+    assert_eq!(outcome.code, 1);
+}
+
+#[rstest]
+#[case::a_submodule_the_module_lacks("dispatch::nowhere")]
+#[case::a_module_the_crate_lacks("nowhere::route")]
+fn nested_submodule_table_for_no_module_fails(#[case] key: &str) {
+    let workspace = nested_submodules("hop = []\ntable = [\"hop\"]", "super::hop::hops()");
+    workspace.write(
+        MODULES_FILE,
+        format!(
+            "[modules]\nclock = []\nretry = [\"clock\"]\ndispatch = [\"retry\"]\n\n[submodules.retry]\nbackoff = [\"policy\"]\npolicy = []\n\n[submodules.\"{key}\"]\nhop = []\n"
+        )
+        .as_bytes(),
+    );
+
+    let outcome = workspace.xtask(&["modules"]);
+
+    assert_eq!(
+        outcome.findings(),
+        vec![finding(
+            "unknown-module",
+            &format!("goodfetch-engine/{key}")
+        )]
+    );
+    assert_eq!(outcome.code, 1);
+}

@@ -10,13 +10,18 @@
 
 use std::collections::BTreeMap;
 use std::ffi::{OsStr, OsString};
+use std::future::Future;
+use std::pin::Pin;
 use std::sync::{Arc, PoisonError};
 
-use goodfetch_protocol::connection::ProductVersion;
+use goodfetch_protocol::catalog::Operation;
+use goodfetch_protocol::connection::{Form, ProductVersion, Surface};
 use jiff::Timestamp;
 use jiff::tz::TimeZone;
+use serde_json::Value;
 
 use crate::audit::AuditLog;
+use crate::call_error::CallError;
 use crate::clock::Clock;
 use crate::endpoint::Refusals;
 use crate::entropy::Entropy;
@@ -75,6 +80,23 @@ pub(crate) fn host_zone(environment: &BTreeMap<OsString, OsString>) -> String {
     "UTC".to_owned()
 }
 
+/// What sends the calls its major's Daemon keeps, such as `schedule.*`
+/// (spec 589), from an Attached engine to that Daemon, starting it when
+/// none runs: the forward module's, which this module cannot name.
+pub(crate) trait ToTheDaemon: Send + Sync {
+    /// Sends `operation` with `params` to the Daemon as a Client of the
+    /// `client`'s surface and form would, running the Daemon's start on
+    /// `owner`'s blocking threads, and answers the Daemon's result or
+    /// failure.
+    fn forward(
+        &self,
+        owner: Arc<TaskOwner>,
+        operation: &'static Operation,
+        params: Value,
+        client: (Surface, Form),
+    ) -> Pin<Box<dyn Future<Output = Result<Value, CallError>> + Send>>;
+}
+
 /// What the engine knows of its host beside its stores: the person it
 /// acts for, its time zone and the stream its handlers draw from.
 pub(crate) struct Host {
@@ -84,6 +106,9 @@ pub(crate) struct Host {
     pub(crate) zone: String,
     /// The handlers' own stream of the engine's entropy.
     pub(crate) entropy: Entropy,
+    /// What forwards the calls the major's Daemon keeps to it: an
+    /// Attached engine's that can start its Daemon; none on a Daemon.
+    pub(crate) daemon: Option<Arc<dyn ToTheDaemon>>,
 }
 
 /// The user's known-certificates store, Usage ledger and Run index as one
@@ -174,6 +199,7 @@ struct Held {
     zone: String,
     entropy: Mutex<Entropy>,
     user_stores: Vec<UserStore>,
+    daemon: Option<Arc<dyn ToTheDaemon>>,
 }
 
 impl std::fmt::Debug for EngineContext {
@@ -208,6 +234,7 @@ impl EngineContext {
             person,
             zone,
             entropy,
+            daemon,
         } = host;
         Self {
             known_certificates: stores.known_certificates,
@@ -226,6 +253,7 @@ impl EngineContext {
                 zone,
                 entropy: Mutex::new(entropy),
                 user_stores: stores.contributed,
+                daemon,
             }),
         }
     }
@@ -298,6 +326,12 @@ impl EngineContext {
     /// environment map ([`host_zone`]).
     pub fn host_zone(&self) -> &str {
         &self.held.zone
+    }
+
+    /// What forwards the calls the major's Daemon keeps to it; `None` on
+    /// a Daemon and on an engine that cannot start one.
+    pub(crate) fn daemon(&self) -> Option<&Arc<dyn ToTheDaemon>> {
+        self.held.daemon.as_ref()
     }
 
     /// A draw of 64 random bits from the handlers' own stream of the

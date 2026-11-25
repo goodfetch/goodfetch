@@ -108,6 +108,7 @@ mod relay_fingerprint;
 mod request_kinds;
 mod run;
 mod rust_client;
+mod schedules;
 mod sdk;
 mod secrets;
 mod security_controls;

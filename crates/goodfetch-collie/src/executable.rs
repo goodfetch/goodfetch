@@ -20,6 +20,10 @@
 //! `goodfetch_confinement::launch`): before any other set-up, it reads its
 //! launch from its one variable, confines itself and becomes the Plugin.
 //!
+//! Size: one concern, the executables' entry: the command line both
+//! Products share, the set-up every command runs first and each command's
+//! dispatch to the module that serves it.
+//!
 //! An executable more than three months past its release date prints the
 //! age notice on stderr before its command, once a day, unless
 //! `version.age_notice` is `false` (ADR 0030); a Daemon a start launched

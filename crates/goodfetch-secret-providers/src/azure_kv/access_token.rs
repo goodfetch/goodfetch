@@ -37,7 +37,7 @@ use serde_json::Value;
 use url::Url;
 
 use crate::endpoint::{metadata_url, unreached, variable};
-use crate::identity::{METADATA_WAIT, Reach, not_configured, unrecognized};
+use crate::identity::{METADATA_WAIT, Reach, access_token, not_configured, unrecognized};
 
 /// The authority's name in failures.
 const AUTHORITY: &str = "Microsoft Entra ID";
@@ -429,19 +429,6 @@ async fn from_imds(
             "answered HTTP {status} in no shape of Azure's"
         ))),
     }
-}
-
-/// The `access_token` of an OAuth 2.0 token answer, `body`, of `service`'s.
-fn access_token(body: &[u8], service: &str) -> Result<SecretString, ProviderFailure> {
-    serde_json::from_slice::<Value>(body)
-        .ok()
-        .and_then(|answer| {
-            answer
-                .get("access_token")
-                .and_then(Value::as_str)
-                .map(|token| SecretString::from(token.to_owned()))
-        })
-        .ok_or_else(|| unrecognized(service, "no `access_token`"))
 }
 
 /// The OAuth 2.0 errors the authority is known to answer, and what each

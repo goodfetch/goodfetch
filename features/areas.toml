@@ -1613,6 +1613,12 @@ number = 11
 kind = "error"
 prefix = "recipe_invalid"
 
+# The command that prints a Recipe's digest (#1664).
+[[area]]
+number = 11
+kind = "command"
+prefix = "recipe.digest"
+
 # The check of the installation (#1206).
 [[area]]
 number = 11

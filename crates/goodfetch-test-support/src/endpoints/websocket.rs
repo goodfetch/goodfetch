@@ -1,8 +1,8 @@
-//! One attempt on a WebSocket listener (ADR 0049): the runner opens a
-//! WebSocket with the handshake a rule sets, such as a foreign `Host` or no
-//! `Origin`, sends a first message, and records whether the listener
-//! refused the handshake with a status, replied with a `result`, closed the
-//! connection, or stayed silent.
+//! One attempt on a WebSocket listener (ADR 0049), the protocol's or a
+//! Live view channel's: the runner opens a WebSocket with the handshake a
+//! rule sets, such as a foreign `Host` or no `Origin`, sends a first
+//! message, and records whether the listener refused the handshake with a
+//! status, replied, closed the connection, or stayed silent.
 
 use std::net::SocketAddr;
 
@@ -24,10 +24,16 @@ pub(super) struct Handshake<'a> {
 }
 
 /// Opens a WebSocket to `address` with `handshake`, sends `message` as its
-/// first message, and reads until the listener replies with a `result`,
-/// closes, or stays silent past the deadline. JSON-RPC errors sent before
-/// closing are no reply.
-pub(super) fn attempt(address: SocketAddr, handshake: &Handshake<'_>, message: &Value) -> Observed {
+/// first message, and reads until the listener replies with an answer
+/// `replied` tells, such as a JSON-RPC `result`, closes, or stays silent
+/// past the deadline. Other messages, such as errors sent before closing,
+/// are no reply.
+pub(super) fn attempt(
+    address: SocketAddr,
+    handshake: &Handshake<'_>,
+    message: &Value,
+    replied: fn(&Value) -> bool,
+) -> Observed {
     let connection = match Connection::open(&ListenerAddress::Tcp(address)) {
         Ok(connection) => connection,
         Err(error) => {
@@ -66,9 +72,7 @@ pub(super) fn attempt(address: SocketAddr, handshake: &Handshake<'_>, message: &
     loop {
         match socket.read() {
             Ok(Message::Text(text)) => {
-                let replied = serde_json::from_str::<Value>(&text)
-                    .is_ok_and(|answer| answer.get("result").is_some());
-                if replied {
+                if serde_json::from_str::<Value>(&text).is_ok_and(|answer| replied(&answer)) {
                     return Observed::Replied;
                 }
             }

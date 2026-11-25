@@ -182,6 +182,7 @@ pub fn contribution_with(
     let contribution = with_page_handlers(
         Contribution::new("page")
             .with_run_of_call(Arc::new(pages.sessions.clone()))
+            .with_watched_sessions(Arc::new(pages.sessions.watched()))
             .with_run_state_tables(sessions::TABLES)
             .with_politeness_tables(proxy::TABLES)
             .with_clean_up_versions(pages.interception.versions()),

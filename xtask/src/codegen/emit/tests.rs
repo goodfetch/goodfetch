@@ -213,6 +213,20 @@ fn the_bundle_holds_the_schemas_of_a_model_call() {
     );
 }
 
+#[test]
+fn the_bundle_holds_the_live_view_channels_messages() {
+    let emitted = emit();
+
+    assert_eq!(
+        emitted.bundle["live_view"],
+        json!({
+            "path": "/live-view",
+            "viewer": { "$ref": "#/$defs/LiveViewViewerMessage" },
+            "engine": { "$ref": "#/$defs/LiveViewEngineMessage" },
+        })
+    );
+}
+
 /// A Run's model Usage is one object on the wire, its counts beside
 /// `by_model`, as ADR 0101 names them, so every SDK reads `usage.calls`.
 #[test]

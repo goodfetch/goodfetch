@@ -42,6 +42,7 @@ pub mod service;
 
 use std::collections::BTreeMap;
 use std::fmt::Write as _;
+use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -64,6 +65,7 @@ use crate::composition::{Answering, CallContext, Closing, DaemonSide, Handler, H
 use crate::endpoint::Authorities;
 use crate::engine_context::EngineContext;
 use crate::events::Events;
+use crate::live_view::LiveView;
 use crate::metrics::Metrics;
 use crate::ops::{self, Health, Ops};
 use crate::product::{Channel, Identity};
@@ -126,6 +128,29 @@ pub struct DaemonOptions {
     /// `Host` may carry, and its `Origin` over `http`; none for a Daemon
     /// on the machine.
     pub websocket: Option<Authorities>,
+    /// Where its Live view channels open (ADR 0031), as `live_view.enabled`
+    /// was when it started; none while it is off.
+    pub live_view: Option<LiveViewAt>,
+}
+
+/// Where a Daemon's Live view channels open: always a WebSocket on
+/// `daemon.address`, with no listener of their own (ADR 0049's note of
+/// 2026-11-01).
+pub enum LiveViewAt {
+    /// Its own listener at this address, which carries WebSocket: the
+    /// foreground or an Exposed Daemon's.
+    Listener(SocketAddr),
+    /// `daemon.address`, which a machine's Daemon opens at loopback beside
+    /// its socket for Live view channels alone, at this address.
+    Address(DaemonListener, SocketAddr),
+}
+
+impl LiveViewAt {
+    fn address(&self) -> SocketAddr {
+        match self {
+            Self::Listener(address) | Self::Address(_, address) => *address,
+        }
+    }
 }
 
 /// How a Daemon drains (ADR 0049): once `asked` is cancelled, or its
@@ -305,6 +330,9 @@ struct Shared {
     runs_held: Holds,
     succession: Arc<dyn Succession>,
     websocket: Option<Arc<Authorities>>,
+    live_view: LiveView,
+    /// Where its Live view channels open, if they do.
+    live_view_at: Option<SocketAddr>,
     presence: watch::Sender<Presence>,
     runs: Runs,
     health: Health,
@@ -324,6 +352,7 @@ impl Shared {
         blocking: TaskOwner,
         asks: mpsc::Sender<Ask>,
         state: watch::Receiver<EngineState>,
+        live_view: (LiveView, Option<SocketAddr>),
     ) -> Self {
         let health = Health {
             runs: serving.runs.clone(),
@@ -341,6 +370,8 @@ impl Shared {
             runs_held: Holds::new(),
             succession: options.succession,
             websocket: options.websocket.map(Arc::new),
+            live_view: live_view.0,
+            live_view_at: live_view.1,
             presence: watch::Sender::new(Presence::default()),
             runs: serving.runs.clone(),
             health,
@@ -536,6 +567,7 @@ impl DaemonSide for ConnectionSide {
                 kept_alive: shared.kept_alive(),
                 idle_timeout: u64::try_from(shared.idle_timeout.as_millis()).unwrap_or(u64::MAX),
                 heap: crate::heap::live(),
+                live_view: shared.live_view_at,
             }
         })
     }
@@ -555,6 +587,10 @@ impl DaemonSide for ConnectionSide {
                 .await;
             DaemonStopping { live_runs }
         })
+    }
+
+    fn live_view(&self) -> LiveView {
+        self.shared.live_view.clone()
     }
 }
 
@@ -578,12 +614,16 @@ pub(crate) async fn serve(
     // Where the Daemon is: only this loop changes it, and a handover is
     // one of its steps, so at most one begins.
     let (state, seen) = watch::channel(EngineState::Serving);
+    let clock = serving.engine.clock();
+    let (live_view, live_view_at, mut live_view_accepts) =
+        live_view_of(&serving, owner, clock, options.live_view.take());
     let shared = Arc::new(Shared::new(
         &serving,
         options,
         owner.part("Daemon's shared state"),
         asks,
         seen,
+        (live_view, live_view_at),
     ));
     serving.metrics.draining(false);
     if let Some(ops) = ops {
@@ -594,14 +634,11 @@ pub(crate) async fn serve(
     let (ended, mut endings_of_connections) = mpsc::channel::<ConnectionId>(ENDED_CONNECTIONS);
     let mut open: BTreeMap<ConnectionId, Closing> = BTreeMap::new();
     let mut next: ConnectionId = 0;
-    let clock = serving.engine.clock();
     let idle = idle(&shared, clock);
     tokio::pin!(idle);
     let mut accepts = Accepts::new(listener, clock);
-    let mut idled = false;
-    let mut drain_asked = false;
+    let (mut idled, mut drain_asked, mut panic_told) = (false, false, false);
     let mut panicked = std::pin::pin!(owner.panicked());
-    let mut panic_told = false;
     let mut lockout = Lockout::of(&shared.runs);
     let end = loop {
         tokio::select! {
@@ -638,19 +675,19 @@ pub(crate) async fn serve(
                 if let Ok(EngineState::Draining) = transition(&state, EngineEvent::Drain) {
                     decide_no_more(&mut asked_of_the_loop);
                     let until = drain_runs(&serving, &state, grace, |effects_by| serving.runs.drain(effects_by)).await;
-                    drop(accepts);
+                    drop((accepts, live_view_accepts));
                     return finish_by(DaemonEnd::Drained, &connections_owner, &shared, clock, until).await;
                 }
             }
             () = &mut panicked, if !panic_told => {
                 panic_told = true;
                 if let Some(until) = stopped_on_panic(&serving, owner, &state, grace, &mut asked_of_the_loop).await {
-                    drop(accepts);
+                    drop((accepts, live_view_accepts));
                     return finish_by(DaemonEnd::Panicked, &connections_owner, &shared, clock, until).await;
                 }
             }
             accepted = accepts.next() => match accepted {
-                Ok(connection) => admit(&mut open, &mut next, |id| serve_connection(&serving, &shared, &connections_owner, connection, id, ended.clone())),
+                Ok(connection) => admit(&mut open, &mut next, |id| serve_connection(&serving, &shared, &connections_owner, connection, id, ended.clone(), Door::Listener)),
                 // It goes on with its Clients.
                 Err(NoMoreConnections::DialersGone) => {}
                 Err(NoMoreConnections::ListenerClosed(error)) => {
@@ -660,15 +697,16 @@ pub(crate) async fn serve(
                     if let Ok(EngineState::Draining) = failed {
                         decide_no_more(&mut asked_of_the_loop);
                         let until = drain_runs(&serving, &state, grace, |effects_by| serving.runs.drain(effects_by)).await;
-                        drop(accepts);
+                        drop((accepts, live_view_accepts));
                         return finish_by(DaemonEnd::ListenerFailed, &connections_owner, &shared, clock, until).await;
                     }
                 }
             },
+            (connection, door) = next_live_view(&mut live_view_accepts) => admit(&mut open, &mut next, |id| serve_connection(&serving, &shared, &connections_owner, connection, id, ended.clone(), door)),
         }
     };
     decide_no_more(&mut asked_of_the_loop);
-    drop(accepts);
+    drop((accepts, live_view_accepts));
     let end = closed_for(end, &open, &mut endings_of_connections, clock).await;
     finish(end, &connections_owner, &shared).await
 }
@@ -912,6 +950,60 @@ fn wait_after(failed: u32) -> Duration {
     }
 }
 
+/// The accepts of `daemon.address` when a machine's Daemon opens it for
+/// Live view channels alone, and the names their handshakes are held to.
+type LiveViewAccepts = Option<(Accepts, Arc<Authorities>)>;
+
+/// The Daemon's Live view, the address its channels open at, if they do,
+/// and the accepts of the listener it opens for them, if it has its own.
+fn live_view_of(
+    serving: &Serving,
+    owner: &TaskOwner,
+    clock: Clock,
+    at: Option<LiveViewAt>,
+) -> (LiveView, Option<SocketAddr>, LiveViewAccepts) {
+    let live_view = LiveView::new(
+        Arc::clone(&serving.dispatch.watched_sessions),
+        &owner.part("Live view"),
+        clock,
+    );
+    let address = at.as_ref().map(LiveViewAt::address);
+    let accepts = match at {
+        Some(LiveViewAt::Address(listener, address)) => Some((
+            Accepts::new(listener, clock),
+            Arc::new(Authorities::loopback(address)),
+        )),
+        Some(LiveViewAt::Listener(_)) | None => None,
+    };
+    (live_view, address, accepts)
+}
+
+/// The next Connection of `daemon.address` opened for Live view channels,
+/// and the door it came by; never once that listener gives none any more,
+/// the Daemon going on without Live view channels.
+async fn next_live_view(accepts: &mut LiveViewAccepts) -> (Connection, Door) {
+    if let Some((listener, authorities)) = accepts {
+        match listener.next().await {
+            Ok(connection) => return (connection, Door::LiveView(Arc::clone(authorities))),
+            Err(NoMoreConnections::DialersGone) => {}
+            Err(NoMoreConnections::ListenerClosed(error)) => {
+                tracing::warn!(%error, "the Daemon's `daemon.address` for Live view channels is closed: it opens none any more");
+            }
+        }
+        *accepts = None;
+    }
+    std::future::pending().await
+}
+
+/// Which listener took a Connection.
+enum Door {
+    /// The Daemon's own.
+    Listener,
+    /// `daemon.address`, opened for Live view channels alone, held to
+    /// these names.
+    LiveView(Arc<Authorities>),
+}
+
 /// Serves the next Connection, `next`, with `serve`, keeping how it is
 /// closed in `open`.
 fn admit(
@@ -935,6 +1027,7 @@ fn serve_connection(
     connection: Connection,
     id: ConnectionId,
     ended: mpsc::Sender<ConnectionId>,
+    door: Door,
 ) -> Closing {
     let token = connections.token().child_token();
     let closing = Closing::default();
@@ -955,9 +1048,10 @@ fn serve_connection(
     let cancelled = token.clone();
     connections.spawn(async move {
         let served = async {
-            let access = match websocket {
-                Some(authorities) => rpc::Access::Exposed(side, authorities),
-                None => rpc::Access::Daemon(side),
+            let access = match (door, websocket) {
+                (Door::LiveView(authorities), _) => rpc::Access::LiveView(side, authorities),
+                (Door::Listener, Some(authorities)) => rpc::Access::Exposed(side, authorities),
+                (Door::Listener, None) => rpc::Access::Daemon(side),
             };
             rpc::serve(
                 dispatch,
@@ -1074,6 +1168,7 @@ async fn drain_runs<Drains: Future<Output = Draining>>(
 /// Closes every Connection, then answers `end`.
 async fn finish(end: DaemonEnd, connections: &TaskOwner, shared: &Shared) -> DaemonEnd {
     connections.stop().await;
+    shared.live_view.stop().await;
     shared.blocking.stop().await;
     tracing::info!(end = ?end, "the Daemon stops");
     end
@@ -1093,6 +1188,7 @@ async fn finish_by(
 ) -> DaemonEnd {
     let closed = async {
         connections.stop().await;
+        shared.live_view.stop().await;
         shared.blocking.stop().await;
     };
     tokio::select! {

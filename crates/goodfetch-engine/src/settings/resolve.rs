@@ -551,6 +551,16 @@ impl SettingValue<'_> for u64 {
     }
 }
 
+impl SettingValue<'_> for std::num::NonZeroU64 {
+    fn reads(kind: &ValueKind) -> bool {
+        matches!(kind, ValueKind::CountFromOne)
+    }
+
+    fn read(value: &Value) -> Option<Self> {
+        value.as_u64().and_then(Self::new)
+    }
+}
+
 impl SettingValue<'_> for Duration {
     fn reads(kind: &ValueKind) -> bool {
         matches!(kind, ValueKind::Duration)

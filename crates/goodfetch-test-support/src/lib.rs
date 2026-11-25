@@ -164,7 +164,7 @@ pub use dns_namespace::{
 };
 pub use endpoints::{
     AuditUnreadable, AuditVerifier, Endpoint, EndpointRunError, EndpointRunner, Expected, Failure,
-    Hello, Listener, ListenerAddress, ListenerKind, Observed, RowFailure, Rule,
+    Hello, Listener, ListenerAddress, ListenerKind, Observed, Open, RowFailure, Rule,
 };
 pub use env::{START_TIME, TEST_SETTINGS, TestEnv, TestEnvError, command};
 pub use exercise::{ANSWER_RECORD, AnsweredCalls, COMMAND_RECORD, COMMAND_TARGET};

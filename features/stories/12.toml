@@ -221,6 +221,14 @@ not_journey = "part"
 status = "active"
 
 [[story]]
+id = 38
+title = "As a person watching a headless browser, I want frames sized to my screen under acknowledgement-based flow control, every viewer counting against a limit, so that the view keeps up without flooding my connection and a Session cannot be flooded (ADR 0031)."
+milestone = "M3 Browser automation"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
 id = 94
 title = "As a user, I want Engine & settings to show every effective value with its layer and lock, as `config explain` does, so that I see where each value comes from (ADR 0031; J-009; ADR 0037 / RT-22)."
 milestone = "M1 Core"
@@ -484,6 +492,14 @@ status = "active"
 [[story]]
 id = 140
 title = "As a person using a pipe or `--json`, I want the list to read normally and an answer refused with `person_required` naming the exact command, so that a script never answers for me."
+milestone = "M3 Browser automation"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 144
+title = "As an operator, I want to switch the Live view off, so that a deployment that does not want it costs nothing for it."
 milestone = "M3 Browser automation"
 journey = false
 not_journey = "part"

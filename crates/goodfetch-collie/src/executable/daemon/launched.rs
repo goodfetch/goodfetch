@@ -14,6 +14,7 @@
 use std::collections::BTreeMap;
 use std::ffi::OsString;
 use std::io::{BufRead as _, BufReader};
+use std::net::SocketAddr;
 use std::path::Path;
 use std::process::{ExitCode, Stdio};
 use std::sync::Arc;
@@ -23,7 +24,7 @@ use goodfetch_engine::browser_cache;
 use goodfetch_engine::children::give_huge_pages_as_started;
 use goodfetch_engine::daemon::files::{DaemonFiles, FileLock};
 use goodfetch_engine::daemon::service::LaunchedCommand;
-use goodfetch_engine::daemon::{DaemonEnd, DaemonOptions, Drain, Holds, Succession};
+use goodfetch_engine::daemon::{DaemonEnd, DaemonOptions, Drain, Holds, LiveViewAt, Succession};
 use goodfetch_engine::endpoint::new_token;
 use goodfetch_engine::home::Home;
 use goodfetch_engine::ops::Ops;
@@ -33,8 +34,9 @@ use goodfetch_engine::transport::{DaemonListener, Network};
 use goodfetch_engine::{Dependencies, Engine};
 use goodfetch_protocol::browser_cache::{ArtifactId, ArtifactKind};
 use goodfetch_protocol::daemon::{
-    DRAIN_GRACE, DaemonEndpoint, DaemonRuntimeFile, DaemonToken, IDLE_TIMEOUT,
+    ADDRESS, DRAIN_GRACE, DaemonEndpoint, DaemonRuntimeFile, DaemonToken, IDLE_TIMEOUT,
 };
+use goodfetch_protocol::live_view::ENABLED as LIVE_VIEW_ENABLED;
 
 use super::{Failure, Machine, MajorsPick, per_install, unavailable};
 use crate::executable::output;
@@ -217,6 +219,7 @@ pub(in crate::executable) fn launched(
             .map_err(unavailable("the Daemon's runtime file cannot be written"))?;
         output::json(&published);
         tracing::info!(%endpoint, pid, "the Daemon serves");
+        let live_view = live_view_at(settings).await;
         let options = DaemonOptions {
             token,
             endpoint,
@@ -237,6 +240,7 @@ pub(in crate::executable) fn launched(
             install,
             ops: Ops::default(),
             websocket: None,
+            live_view,
         };
         Ok::<_, Failure>((
             engine.run_daemon(listener, dependencies, options).await,
@@ -247,6 +251,45 @@ pub(in crate::executable) fn launched(
     match ended {
         Ok((ended, activated)) => finish(machine, &files, pid, serving, ended, activated),
         Err(failure) => failure.report(),
+    }
+}
+
+/// The listener at `daemon.address` that a machine's Daemon opens at
+/// loopback, beside its socket, for Live view channels alone while
+/// `live_view.enabled` is on (the owner's decision of 2026-11-01): none,
+/// with a warning, when the address is no loopback `host:port` or cannot
+/// be bound, and the Daemon serves its Clients all the same.
+async fn live_view_at(settings: &Resolved) -> Option<LiveViewAt> {
+    if !settings.get::<bool>(&LIVE_VIEW_ENABLED) {
+        return None;
+    }
+    let address = settings.get::<&str>(&ADDRESS);
+    let Some(parsed) = address
+        .parse::<SocketAddr>()
+        .ok()
+        .filter(|parsed| parsed.ip().is_loopback())
+    else {
+        tracing::warn!(
+            address,
+            "`daemon.address` is no loopback `host:port`: the Daemon opens no Live view listener"
+        );
+        return None;
+    };
+    match Network::Os.listen_at(parsed).await {
+        Ok((listener, DaemonEndpoint::Tcp(bound))) => {
+            tracing::info!(%bound, "the Daemon serves Live view channels");
+            Some(LiveViewAt::Address(listener, bound))
+        }
+        // A listener at a `host:port` is never a socket's.
+        Ok((_, DaemonEndpoint::Unix(_))) => None,
+        Err(error) => {
+            tracing::warn!(
+                address,
+                %error,
+                "the Daemon cannot listen at `daemon.address`: it opens no Live view listener"
+            );
+            None
+        }
     }
 }
 

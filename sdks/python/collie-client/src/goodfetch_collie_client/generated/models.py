@@ -1712,6 +1712,14 @@ class ListenerEventsLostDetails(BaseModel):
     """How many of its events the listener lost."""
 
 
+class LiveViewViewerLimitDetails(BaseModel):
+    """What `live_view_viewer_limit` details."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+
+
 class LoadState(StrEnum):
     """A state the page's document reaches (Playwright's `LoadState`)."""
 
@@ -5755,6 +5763,11 @@ class DaemonState(BaseModel):
     """
     live_runs: Annotated[int, Field(ge=0)]
     """How many of its Runs are live."""
+    live_view: str | None = None
+    """
+    Where a Live view channel opens, the WebSocket's `host:port`; none
+    where it accepts none, as with `live_view.enabled` off.
+    """
     pid: Annotated[int, Field(ge=0)]
     """Its process ID."""
     product: Product

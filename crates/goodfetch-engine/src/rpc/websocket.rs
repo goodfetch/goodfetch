@@ -13,7 +13,11 @@
 //! still comes first. A message longer than
 //! [`MAX_MESSAGE_BYTES`](super::framing::MAX_MESSAGE_BYTES) ends in its
 //! typed limit error, and the Connection then closes, since a WebSocket
-//! cannot skip it.
+//! cannot skip it. A handshake at
+//! [`CHANNEL_PATH`](goodfetch_protocol::live_view::CHANNEL_PATH) opens a
+//! Live view channel instead (ADR 0031), under the same `Host` and
+//! `Origin` rules, where `live_view.enabled` is on; a path a listener does
+//! not serve is answered `404`.
 
 use std::io;
 use std::pin::Pin;
@@ -22,6 +26,7 @@ use std::task::{Context, Poll};
 use futures_util::stream::{SplitSink, SplitStream};
 use futures_util::{SinkExt as _, StreamExt as _};
 use goodfetch_protocol::catalog::PROTOCOL_VERSION;
+use goodfetch_protocol::live_view::CHANNEL_PATH;
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 use tokio_tungstenite::WebSocketStream;
 use tokio_tungstenite::tungstenite::handshake::server::{ErrorResponse, Request, Response};
@@ -36,9 +41,10 @@ use crate::transport::{ConnectionReader, ConnectionWriter};
 /// Why no WebSocket opened.
 #[derive(Debug)]
 pub(super) enum NotOpened {
-    /// The handshake broke a rule; it was answered `403`.
-    Refused(Refusal),
-    /// The request was no WebSocket handshake, or the Connection failed.
+    /// The handshake for that path broke a rule; it was answered `403`.
+    Refused(Refusal, Path),
+    /// The request was no WebSocket handshake, was for a path not served,
+    /// or the Connection failed.
     Failed(Error),
 }
 
@@ -124,8 +130,40 @@ impl AsyncWrite for Rejoined {
     }
 }
 
+/// Which WebSocket a handshake asks for, by its path: a Live view channel
+/// at [`CHANNEL_PATH`] (ADR 0031), the protocol at any other.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum Path {
+    Protocol,
+    LiveView,
+}
+
+impl Path {
+    fn of(request: &Request) -> Self {
+        if request.uri().path() == CHANNEL_PATH {
+            Self::LiveView
+        } else {
+            Self::Protocol
+        }
+    }
+}
+
+/// What a handshake opened.
+pub(super) enum Opened {
+    /// The protocol's WebSocket, its two directions.
+    Protocol(MessageReader, MessageWriter),
+    /// A Live view channel, boxed: its stream is several times the
+    /// protocol's two halves.
+    LiveView(Box<LiveViewSocket>),
+}
+
+/// A Live view channel's WebSocket.
+pub(super) type LiveViewSocket = WebSocketStream<Carried>;
+
 /// The handshake on `stream`, its `Host` and `Origin` held to
-/// `authorities`: the WebSocket's two directions, or why it did not open.
+/// `authorities`, for one of the `paths` it serves: what it opened, or why
+/// it did not open. A handshake for a path it does not serve is answered
+/// `404`, a closed door rather than a refusal.
 ///
 /// # Cancel safety
 ///
@@ -133,33 +171,45 @@ impl AsyncWrite for Rejoined {
 pub(super) async fn accept(
     stream: Rejoined,
     authorities: &Authorities,
-) -> Result<(MessageReader, MessageWriter), NotOpened> {
+    paths: &[Path],
+) -> Result<Opened, NotOpened> {
+    let mut asked = None;
     let mut refused = None;
     #[expect(
         clippy::result_large_err,
         reason = "tungstenite's handshake callback answers its own `ErrorResponse`"
     )]
     let check = |request: &Request, response: Response| -> Result<Response, ErrorResponse> {
+        let path = Path::of(request);
+        asked = Some(path);
+        let mut answer = ErrorResponse::new(None);
+        if !paths.contains(&path) {
+            *answer.status_mut() = StatusCode::NOT_FOUND;
+            return Err(answer);
+        }
         match refusal(request, authorities) {
-            None => Ok(with_subprotocol(request, response)),
+            None if path == Path::Protocol => Ok(with_subprotocol(request, response)),
+            None => Ok(response),
             Some(refusal) => {
                 refused = Some(refusal);
-                let mut forbidden = ErrorResponse::new(None);
-                *forbidden.status_mut() = StatusCode::FORBIDDEN;
-                Err(forbidden)
+                *answer.status_mut() = StatusCode::FORBIDDEN;
+                Err(answer)
             }
         }
     };
     let config = config();
     let stream: Carried = Box::new(stream);
     let opened = tokio_tungstenite::accept_hdr_async_with_config(stream, check, Some(config)).await;
-    match (opened, refused) {
-        (Ok(socket), _) => {
+    match (opened, refused, asked) {
+        (Ok(socket), _, Some(Path::LiveView)) => Ok(Opened::LiveView(Box::new(socket))),
+        (Ok(socket), _, _) => {
             let (sink, stream) = socket.split();
-            Ok((MessageReader(stream), MessageWriter(sink)))
+            Ok(Opened::Protocol(MessageReader(stream), MessageWriter(sink)))
         }
-        (Err(_), Some(refusal)) => Err(NotOpened::Refused(refusal)),
-        (Err(error), None) => Err(NotOpened::Failed(error)),
+        (Err(_), Some(refusal), path) => {
+            Err(NotOpened::Refused(refusal, path.unwrap_or(Path::Protocol)))
+        }
+        (Err(error), None, _) => Err(NotOpened::Failed(error)),
     }
 }
 
@@ -177,7 +227,7 @@ pub(crate) trait Duplex: AsyncRead + AsyncWrite + Send + Unpin {}
 
 impl<T: AsyncRead + AsyncWrite + Send + Unpin> Duplex for T {}
 
-type Carried = Box<dyn Duplex>;
+pub(super) type Carried = Box<dyn Duplex>;
 
 /// `response` naming the subprotocol of the protocol's major,
 /// `goodfetch.v<major>`, when `request` offers it among its

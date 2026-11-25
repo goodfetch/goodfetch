@@ -38,6 +38,10 @@
 //! that never proves itself cannot hold a Connection or its buffer (#2324).
 //! An Exposed Daemon's address carries its Connections as lines or over
 //! WebSocket (ADR 0049), whose refused handshakes are logged the same way.
+//! A WebSocket at the Live view's path is a Live view channel instead,
+//! served by the Daemon's [`LiveView`](crate::live_view::LiveView) under
+//! the same bounds, its refusals logged under its own listener; a machine's
+//! Daemon's `daemon.address` carries nothing else.
 //! Only the Client of an Attached engine's stdio is told its private
 //! endpoint, in the reply to its `hello`.
 //!
@@ -64,6 +68,7 @@ use goodfetch_protocol::connection::{
 use goodfetch_protocol::events::{CREDIT, CreditParams};
 use goodfetch_protocol::foxhound_names;
 use goodfetch_protocol::jsonrpc::{ErrorObject, ProtocolFailure, RequestId};
+use goodfetch_protocol::live_view::ENABLED as LIVE_VIEW_ENABLED;
 use goodfetch_protocol::settings::{RunOrigin, SettingLimit};
 use serde_json::{Map, Value};
 use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
@@ -76,7 +81,9 @@ use super::framing::{
     Call, DecodeError, Frame, Framer, Incoming, MAX_MESSAGE_BYTES, Received, decode,
 };
 use super::raw_call::{Named, RawCall};
-use super::websocket::{self, MessageReader, MessageWriter, NotOpened, Prefixed, Rejoined};
+use super::websocket::{
+    self, LiveViewSocket, MessageReader, MessageWriter, NotOpened, Opened, Path, Prefixed, Rejoined,
+};
 use super::{
     Line, cancelled_by_client, failure_line, handshake, not_in_product, notification_line, record,
     record_cancel, success_line,
@@ -94,6 +101,7 @@ use crate::crash_report;
 use crate::endpoint::{Authorities, same_token};
 use crate::engine_context::EngineContext;
 use crate::events::{Credits, Events};
+use crate::live_view::{self, WatchedSessions};
 use crate::log::{ConnectionLog, LogEvents};
 use crate::mask::{Masks, Scope};
 use crate::metrics::Metrics;
@@ -154,6 +162,8 @@ pub(crate) struct Dispatch {
     /// What finds the Run a raw call names by a page or a Session, whose
     /// trace records it (ADR 0099).
     pub(crate) runs_of_calls: Arc<[Arc<dyn RunOfCall>]>,
+    /// The Sessions a Daemon's Live view watches (ADR 0031).
+    pub(crate) watched_sessions: Arc<[Arc<dyn WatchedSessions>]>,
 }
 
 impl Dispatch {
@@ -176,6 +186,10 @@ pub(crate) enum Access {
     /// also carries the protocol over WebSocket, its handshake held to the
     /// names the Daemon is reached at.
     Exposed(Arc<dyn DaemonSide>, Arc<Authorities>),
+    /// A machine's Daemon's `daemon.address`, opened at loopback while
+    /// `live_view.enabled` is on (ADR 0049's note of 2026-11-01): Live
+    /// view channels only, held to the same names, opened with its token.
+    LiveView(Arc<dyn DaemonSide>, Arc<Authorities>),
     /// An Attached engine's private endpoint: its token.
     PrivateEndpoint(Arc<str>),
 }
@@ -185,8 +199,20 @@ impl Access {
     fn token(&self) -> Option<&str> {
         match self {
             Self::Attached(..) => None,
-            Self::Daemon(daemon) | Self::Exposed(daemon, _) => Some(daemon.token()),
+            Self::Daemon(daemon) | Self::Exposed(daemon, _) | Self::LiveView(daemon, _) => {
+                Some(daemon.token())
+            }
             Self::PrivateEndpoint(token) => Some(token),
+        }
+    }
+
+    /// The WebSocket paths it serves and the names their handshakes are
+    /// held to; none where it carries lines only.
+    fn websocket(&self) -> Option<(&Authorities, &'static [Path])> {
+        match self {
+            Self::Exposed(_, authorities) => Some((authorities, &[Path::Protocol, Path::LiveView])),
+            Self::LiveView(_, authorities) => Some((authorities, &[Path::LiveView])),
+            Self::Attached(..) | Self::Daemon(_) | Self::PrivateEndpoint(_) => None,
         }
     }
 
@@ -199,7 +225,7 @@ impl Access {
     fn principal(&self, behind_gateway: bool) -> Principal {
         let carriage = match self {
             _ if behind_gateway => Carriage::Remote,
-            Self::Exposed(..) => Carriage::Remote,
+            Self::Exposed(..) | Self::LiveView(..) => Carriage::Remote,
             Self::Attached(..) | Self::Daemon(_) | Self::PrivateEndpoint(_) => Carriage::Local,
         };
         Principal::of(carriage)
@@ -208,18 +234,22 @@ impl Access {
     /// The Daemon it reaches, if any.
     fn daemon(&self) -> Option<Arc<dyn DaemonSide>> {
         match self {
-            Self::Daemon(daemon) | Self::Exposed(daemon, _) => Some(Arc::clone(daemon)),
+            Self::Daemon(daemon) | Self::Exposed(daemon, _) | Self::LiveView(daemon, _) => {
+                Some(Arc::clone(daemon))
+            }
             Self::Attached(..) | Self::PrivateEndpoint(_) => None,
         }
     }
 
     /// Its listener in the endpoint table (ADR 0067), for a Connection of
-    /// newline-delimited JSON-RPC.
+    /// newline-delimited JSON-RPC, or the Live view's where it carries no
+    /// lines.
     fn listener(&self) -> Listener {
         match self {
             Self::Attached(..) => Listener::Stdio,
             Self::Daemon(_) => Listener::DaemonSocket,
             Self::Exposed(..) => Listener::ExposedDaemon,
+            Self::LiveView(..) => Listener::LiveView,
             Self::PrivateEndpoint(_) => Listener::PrivateEndpoint,
         }
     }
@@ -239,6 +269,8 @@ struct Opening {
     /// None when `timeout.hello` is too long for the clock to reach.
     deadline: Option<Instant>,
     max_size: usize,
+    /// `live_view.enabled`: whether a Live view channel may open.
+    live_view: bool,
 }
 
 impl Opening {
@@ -262,6 +294,7 @@ impl Opening {
             deadline: engine.clock().now().checked_add(timeout),
             max_size: usize::try_from(max_size)
                 .map_or(MAX_MESSAGE_BYTES, |size| size.min(MAX_MESSAGE_BYTES)),
+            live_view: get_or_default(resolved, &LIVE_VIEW_ENABLED),
         })
     }
 }
@@ -332,19 +365,27 @@ enum Writing {
     Messages(MessageWriter),
 }
 
-/// How `connection`, reached through `access`, carries its messages, and
-/// its listener; `None` when an Exposed Daemon's WebSocket handshake
-/// was refused or failed, which closes it.
+/// What a Connection carries.
+enum Way {
+    /// The protocol: how its messages travel, and its listener.
+    Protocol(Reading, Writing, Listener),
+    /// A Live view channel (ADR 0031), boxed as [`Opened`] holds it.
+    LiveView(Box<LiveViewSocket>),
+}
+
+/// What `connection`, reached through `access`, carries; `None` when a
+/// WebSocket handshake was refused or failed, or lines came where only
+/// Live view channels open, which closes it.
 async fn carriage(
     connection: Connection,
     access: &Access,
     engine: &EngineContext,
     opening: Option<Opening>,
-) -> Option<(Reading, Writing, Listener)> {
+) -> Option<Way> {
     let (mut reader, writer) = connection.split();
-    let Access::Exposed(_, authorities) = access else {
+    let Some((authorities, served)) = access.websocket() else {
         let reader = Prefixed::new(Vec::new(), reader);
-        return Some((
+        return Some(Way::Protocol(
             Reading::lines(reader, opening),
             Writing::Lines(writer),
             access.listener(),
@@ -355,29 +396,75 @@ async fn carriage(
     first.truncate(read);
     let reader = Prefixed::new(first, reader);
     if !reader.opens_a_request() {
-        return Some((
+        if !served.contains(&Path::Protocol) {
+            engine
+                .refusals()
+                .refused(access.listener(), RefusalReason::HelloNotFirst)
+                .await;
+            return None;
+        }
+        return Some(Way::Protocol(
             Reading::lines(reader, opening),
             Writing::Lines(writer),
             access.listener(),
         ));
     }
-    match websocket::accept(Rejoined::new(reader, writer), authorities).await {
-        Ok((messages, sent)) => Some((
+    // The Live view's path comes last: with `live_view.enabled` off, its
+    // door is closed.
+    let paths = if opening.is_some_and(|opening| opening.live_view) {
+        served
+    } else {
+        served.strip_suffix(&[Path::LiveView]).unwrap_or(served)
+    };
+    match websocket::accept(Rejoined::new(reader, writer), authorities, paths).await {
+        Ok(Opened::Protocol(messages, sent)) => Some(Way::Protocol(
             Reading::Messages(messages),
             Writing::Messages(sent),
             Listener::DaemonWebsocket,
         )),
-        Err(NotOpened::Refused(refusal)) => {
-            engine
-                .refusals()
-                .refused(Listener::DaemonWebsocket, refusal.reason())
-                .await;
+        Ok(Opened::LiveView(socket)) => Some(Way::LiveView(socket)),
+        Err(NotOpened::Refused(refusal, path)) => {
+            let listener = match path {
+                Path::Protocol => Listener::DaemonWebsocket,
+                Path::LiveView => Listener::LiveView,
+            };
+            engine.refusals().refused(listener, refusal.reason()).await;
             None
         }
         Err(NotOpened::Failed(error)) => {
-            tracing::debug!(%error, "a request that is no WebSocket handshake closes");
+            tracing::debug!(%error, "a request that is no WebSocket handshake, or for a path not served, closes");
             None
         }
+    }
+}
+
+/// Serves the Live view channel `socket`, opened on `access`'s WebSocket
+/// within `opening`'s bounds, until it ends or its Daemon closes it; its
+/// refusal is recorded as the protocol's are.
+async fn watch(
+    socket: LiveViewSocket,
+    access: &Access,
+    masks: Masks,
+    opening: Option<Opening>,
+    engine: &EngineContext,
+) {
+    let (Some(daemon), Some(token)) = (access.daemon(), access.token()) else {
+        return;
+    };
+    let machine = engine.settings().snapshot().await;
+    let channel = live_view::Channel {
+        live_view: daemon.live_view(),
+        token: Arc::from(token),
+        masks,
+        clock: engine.clock(),
+        admission: live_view::Admission::of(machine.resolved().ok()),
+        deadline: opening.and_then(|opening| opening.deadline),
+        max_open_size: opening.map_or(MAX_MESSAGE_BYTES, |opening| opening.max_size),
+    };
+    let closing = daemon.closing().clone();
+    let served = live_view::serve(channel, socket, async move { closing.closed().await }).await;
+    if let Err(reason) = served {
+        engine.refusals().refused(Listener::LiveView, reason).await;
     }
 }
 
@@ -416,8 +503,12 @@ pub(crate) async fn serve(
             },
             None => carrying.await,
         };
-        let Some((reading, writing, listener)) = carried else {
-            return;
+        let (reading, writing, listener) = match carried {
+            Some(Way::Protocol(reading, writing, listener)) => (reading, writing, listener),
+            Some(Way::LiveView(socket)) => {
+                return watch(*socket, &access, dispatch.masks.clone(), opening, &engine).await;
+            }
+            None => return,
         };
         serve_carried(
             dispatch,

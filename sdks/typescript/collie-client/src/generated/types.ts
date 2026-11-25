@@ -3176,6 +3176,11 @@ export interface DaemonState {
    */
   liveRuns: number;
   /**
+   * Where a Live view channel opens, the WebSocket's `host:port`; none
+   * where it accepts none, as with `live_view.enabled` off.
+   */
+  liveView?: string | null;
+  /**
    * Its process ID.
    */
   pid: number;
@@ -5161,6 +5166,13 @@ export interface ListenerEventsLostDetails {
    */
   lost: number;
 }
+/**
+ * What `live_view_viewer_limit` details.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "LiveViewViewerLimitDetails".
+ */
+export interface LiveViewViewerLimitDetails {}
 /**
  * What `local_address_unavailable` details.
  *

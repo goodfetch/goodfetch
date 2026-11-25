@@ -107,6 +107,7 @@ use crate::errors::{cancelled, invalid_transition};
 use crate::hiding::{Hiding, PageHiding};
 use crate::interception::{HeldBrowser, Interception, Lookups};
 use crate::launch::Launcher;
+use crate::live_view::WatchedTabs;
 use crate::page_events;
 use crate::page_functions::{FrameScripts, Injections};
 use crate::page_value::{HandlerPages, HeldPlace, PageValue, PooledSession};
@@ -161,6 +162,9 @@ pub(crate) struct Sessions {
     handler_pages: Arc<dyn HandlerPages>,
     /// How many calls listen to each Session's `page` event.
     page_listeners: session_pages::PageListeners,
+    /// Each open Session's tabs, as the Live view watches them, changed
+    /// under the lock of `state` with its Sessions and pages.
+    watched: WatchedTabs,
 }
 
 #[derive(Default)]
@@ -470,7 +474,13 @@ impl Sessions {
             dialogs,
             handler_pages,
             page_listeners: session_pages::PageListeners::default(),
+            watched: WatchedTabs::default(),
         }
+    }
+
+    /// Its open Sessions' tabs, as the Live view watches them.
+    pub(crate) fn watched(&self) -> WatchedTabs {
+        self.watched.clone()
     }
 
     /// The request a Session's browser sends for a document, read from
@@ -547,12 +557,14 @@ impl Sessions {
                 injections: Injections::default(),
             });
             state.sessions.insert(session.clone(), Arc::clone(&open));
+            self.watched.session_opened(&session);
             self.open_in_interception(&session, &open, borrowed.as_ref(), signing);
             (session, life, open)
         };
         if let Err(error) = open.seat.open().await {
             life.open_failed(error.clone())?;
             self.state.lock().await.sessions.remove(&session);
+            self.watched.session_closed(&session);
             self.interception.close_session(&session, &[]);
             return Err(error);
         }
@@ -682,6 +694,7 @@ impl Sessions {
         let mut state = self.state.lock().await;
         reached(&mut state, run)?;
         state.sessions.insert(session.clone(), Arc::clone(&held));
+        self.watched.session_opened(&session);
         self.open_in_interception(&session, &held, borrowed, signing);
         Ok(position)
     }
@@ -968,6 +981,7 @@ impl Sessions {
         let pages = {
             let mut state = self.state.lock().await;
             state.sessions.remove(session);
+            self.watched.session_closed(session);
             if let Some(runs) = state.runs.get_mut(open.run.id()) {
                 runs.closed.insert(open.position);
             }
@@ -1199,6 +1213,7 @@ impl Sessions {
         for (open, borrowed, signing) in reopened {
             let session = session_id(run.id(), open.position);
             self.open_in_interception(&session, &open, borrowed.as_ref(), signing);
+            self.watched.session_opened(&session);
             state.sessions.insert(session, Arc::new(open));
         }
         state.runs.insert(run.id().clone(), runs);
@@ -1241,6 +1256,9 @@ impl Sessions {
                 .iter()
                 .filter_map(|session| Some((session, state.sessions.remove(session)?)))
                 .collect();
+            for session in &gone {
+                sessions.watched.session_closed(session);
+            }
             state.crashed.retain(|_, (run, _)| run != &run_id);
             drop(state);
             // Each Session ends with its Run: one that outlived its proxy's

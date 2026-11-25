@@ -36,7 +36,7 @@ use goodfetch_engine::browser_cache::{
 };
 use goodfetch_engine::clock::Clock;
 use goodfetch_engine::daemon::files::DaemonFiles;
-use goodfetch_engine::daemon::{DaemonEnd, DaemonOptions, Drain, Holds, Succession};
+use goodfetch_engine::daemon::{DaemonEnd, DaemonOptions, Drain, Holds, LiveViewAt, Succession};
 use goodfetch_engine::endpoint::Authorities;
 use goodfetch_engine::ops::{ConfiguredBrowsers, Ops, OpsOptions};
 use goodfetch_engine::run::local_settings_error;
@@ -48,6 +48,7 @@ use goodfetch_protocol::catalog::Setting;
 use goodfetch_protocol::daemon::{
     ADDRESS, DRAIN_GRACE, DaemonEndpoint, DaemonStatus, DaemonToken, IDLE_TIMEOUT,
 };
+use goodfetch_protocol::live_view::ENABLED as LIVE_VIEW_ENABLED;
 use goodfetch_protocol::ops::{ADDRESS as OPS_ADDRESS, OTLP_METRICS_ENDPOINT};
 use goodfetch_protocol::settings::{
     DAEMON_ADDRESS_VARIABLE as ADDRESS_VARIABLE,
@@ -122,6 +123,19 @@ impl Source {
     }
 }
 
+/// The WebSocket doors a Daemon at `endpoint` opens on its own listener:
+/// the protocol's, and the Live view's while `live_view` is on; a Unix
+/// socket opens neither.
+fn doors(endpoint: &DaemonEndpoint, live_view: bool) -> (Option<Authorities>, Option<LiveViewAt>) {
+    match endpoint {
+        DaemonEndpoint::Tcp(bound) => (
+            Some(Authorities::loopback(*bound)),
+            live_view.then_some(LiveViewAt::Listener(*bound)),
+        ),
+        DaemonEndpoint::Unix(_) => (None, None),
+    }
+}
+
 /// Runs the foreground Daemon until it drains or `daemon.stop` stops it.
 pub(in crate::executable) fn run(
     engine: &Engine,
@@ -175,6 +189,8 @@ pub(in crate::executable) fn run(
         };
         let ops = ops_listener(configured.ops, ops_token, &export, &files).await?;
         let asked = CancellationToken::new();
+        let live_view = configured.settings.get::<bool>(&LIVE_VIEW_ENABLED);
+        let (websocket, live_view) = doors(&endpoint, live_view);
         let options = DaemonOptions {
             token,
             endpoint: endpoint.clone(),
@@ -192,10 +208,8 @@ pub(in crate::executable) fn run(
                 listener: ops,
                 browsers: Some(browsers),
             },
-            websocket: match &endpoint {
-                DaemonEndpoint::Tcp(bound) => Some(Authorities::loopback(*bound)),
-                DaemonEndpoint::Unix(_) => None,
-            },
+            websocket,
+            live_view,
         };
         announce(json, machine, identity, pid, &endpoint);
         tracing::info!(

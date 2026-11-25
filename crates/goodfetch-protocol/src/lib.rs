@@ -39,6 +39,7 @@ pub mod hostile_input;
 pub mod journey;
 pub mod jsonrpc;
 pub mod key_value_store;
+pub mod live_view;
 pub mod log;
 pub mod model;
 pub mod naming;

@@ -131,6 +131,9 @@ accept_invalid_certs = { "example.test" = "example" }
 
 [settings.live_view]
 hiding = "auto"
+enabled = true
+tier = "auto"
+max_viewers = 4
 
 [settings.content]
 extractor = "dom_smoothie"

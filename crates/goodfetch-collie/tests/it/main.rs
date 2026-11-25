@@ -81,6 +81,8 @@ mod launch;
 mod layout;
 #[cfg(target_os = "linux")]
 mod lazyfs;
+#[cfg(unix)]
+mod live_view;
 mod locator;
 mod log;
 mod navigation_egress;

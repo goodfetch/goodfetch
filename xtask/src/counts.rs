@@ -217,7 +217,7 @@ const LARGE: &str = "large_params";
 
 /// Every row with a counter. Adding one here, with its counter and its
 /// plant in the family's benchmark, is what gives a row its command.
-const ROWS: [Row; 142] = [
+const ROWS: [Row; 146] = [
     Row {
         name: "F1.parses",
         family: "B1",
@@ -508,6 +508,39 @@ const ROWS: [Row; 142] = [
         family: "B2",
         unit: "commands",
         happens: false,
+        valgrind: None,
+    },
+    // C6, a Live view frame's work: B2's default cell has a viewer watch
+    // its Session, which gets a frame as the screencast starts and one per
+    // navigation; its other cells have none. Each frame is acknowledged to
+    // the browser with one command, and nothing is opened, compiled or
+    // spawned per frame.
+    Row {
+        name: "C6.file_opens",
+        family: "B2",
+        unit: "frames",
+        happens: false,
+        valgrind: None,
+    },
+    Row {
+        name: "C6.compilations",
+        family: "B2",
+        unit: "frames",
+        happens: false,
+        valgrind: None,
+    },
+    Row {
+        name: "C6.spawns",
+        family: "B2",
+        unit: "frames",
+        happens: false,
+        valgrind: None,
+    },
+    Row {
+        name: "C6.acknowledgements",
+        family: "B2",
+        unit: "frames",
+        happens: true,
         valgrind: None,
     },
     // C7, page opening in the browser pool: B2's pool cell opens its pages
@@ -1116,7 +1149,7 @@ const fn working_copy_row(name: &'static str, builder: &'static str) -> NotRunYe
 const WORKING_COPY: &str = "#1689";
 const MERGE_HOST: &str = "#1998";
 
-const NOT_RUN_YET: [NotRunYet; 26] = [
+const NOT_RUN_YET: [NotRunYet; 22] = [
     NotRunYet {
         name: "F5.messages_no_hook",
         family: "B1",
@@ -1173,34 +1206,12 @@ const NOT_RUN_YET: [NotRunYet; 26] = [
     working_copy_row("E7.transactions", WORKING_COPY),
     working_copy_row("E7.syncs", WORKING_COPY),
     working_copy_row("E7.encodes", WORKING_COPY),
-    NotRunYet {
-        name: "C6.file_opens",
-        family: "B2",
-        builder: "#959",
-        capped: true,
-    },
-    NotRunYet {
-        name: "C6.compilations",
-        family: "B2",
-        builder: "#959",
-        capped: true,
-    },
-    NotRunYet {
-        name: "C6.spawns",
-        family: "B2",
-        builder: "#959",
-        capped: true,
-    },
-    NotRunYet {
-        name: "C6.acknowledgements",
-        family: "B2",
-        builder: "#959",
-        capped: true,
-    },
+    // A relayed viewer's frame is sealed per fragment once the relay
+    // carries the Live view channel.
     NotRunYet {
         name: "C6.seals",
         family: "B2",
-        builder: "#959",
+        builder: "#1646",
         capped: true,
     },
     NotRunYet {

@@ -22,7 +22,9 @@ use goodfetch_test_client::HomeLayout;
 use rstest::rstest;
 use serde_json::{Map, Value, json};
 
-use session::{Browsers, Counted, READ_ROWS, RUN, counted, counting, identified, page_check};
+use session::{
+    Browsers, Counted, READ_ROWS, RUN, Viewer, counted, counting, identified, page_check,
+};
 
 fn run(planted: Option<Row>) -> Counted {
     run_with(Map::new(), planted)
@@ -34,18 +36,57 @@ fn run_with(settings: Map<String, Value>, planted: Option<Row>) -> Counted {
 
 fn run_in(browsers: Browsers, settings: Map<String, Value>, planted: Option<Row>) -> Counted {
     let home = tempfile::tempdir().expect("invariant: the OS gives a temporary folder");
-    run_at(home.path(), browsers, settings, planted)
+    run_at(home.path(), (browsers, Viewer::Off), settings, planted)
 }
 
 fn run_at(
     home: &Path,
-    browsers: Browsers,
+    watched: (Browsers, Viewer),
     settings: Map<String, Value>,
     planted: Option<Row>,
 ) -> Counted {
     let metrics = Metrics::none();
     let plant = planted.map(|row| counting(metrics.counted_work(), row));
-    counted(browsers, home, metrics, settings, plant)
+    counted(watched, home, metrics, settings, plant)
+}
+
+/// C6's rows a Live view frame's work counts on, each one's count.
+fn live_view_frames(work: &goodfetch_counted_work::CountedWork) -> [u64; 5] {
+    [
+        Row::LiveViewFileOpens,
+        Row::LiveViewCompilations,
+        Row::LiveViewSpawns,
+        Row::LiveViewAcknowledgements,
+        Row::LiveViewSeals,
+    ]
+    .map(|row| work.read(row))
+}
+
+/// A person watching the Session through a Live view channel (C6) gets a
+/// frame as the screencast starts and one per navigation, each of which the
+/// engine acknowledges to the browser with one command, sent as any other
+/// (C1): nothing is opened, compiled, spawned or sealed per frame. With no
+/// viewer, none of it happens.
+/// Covers: story:12-38
+#[test]
+fn a_viewer_gets_a_frame_per_navigation_each_acknowledged_with_one_command() {
+    let home = tempfile::tempdir().expect("invariant: the OS gives a temporary folder");
+    let watched = run_at(
+        home.path(),
+        (Browsers::Borrowed, Viewer::On),
+        Map::new(),
+        None,
+    );
+    let unwatched = run(None);
+
+    assert_eq!(watched.frames, 1 + watched.navigations);
+    assert_eq!(
+        live_view_frames(&watched.work),
+        [0, 0, 0, watched.frames, 0]
+    );
+    assert_eq!(watched.work.read(Row::CdpSends), watched.commands);
+    assert_eq!(unwatched.frames, 0);
+    assert_eq!(live_view_frames(&unwatched.work), [0; 5]);
 }
 
 /// The methods the Run trace's CDP command log of the Run in `home` holds,
@@ -161,7 +202,8 @@ fn a_planted_unit_adds_one_a_command(#[case] row: Row, #[case] per_command: u64)
 fn the_command_log_off_writes_no_file() {
     let home = tempfile::tempdir().expect("invariant: the OS gives a temporary folder");
 
-    let Counted { commands, work, .. } = run_at(home.path(), Browsers::Pool, Map::new(), None);
+    let Counted { commands, work, .. } =
+        run_at(home.path(), (Browsers::Pool, Viewer::Off), Map::new(), None);
 
     assert!(commands > 0, "the Session sent no command");
     assert_eq!(
@@ -179,7 +221,8 @@ fn the_command_log_on_holds_every_commands_method() {
     let home = tempfile::tempdir().expect("invariant: the OS gives a temporary folder");
     let settings = Map::from_iter([(BROWSER_CDP_COMMAND_LOG.name.to_owned(), json!(true))]);
 
-    let Counted { commands, work, .. } = run_at(home.path(), Browsers::Pool, settings, None);
+    let Counted { commands, work, .. } =
+        run_at(home.path(), (Browsers::Pool, Viewer::Off), settings, None);
 
     let methods = logged_methods(home.path()).expect("the command log is written");
     assert_eq!(

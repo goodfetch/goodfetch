@@ -10,7 +10,7 @@ mod listeners;
 
 use goodfetch_test_support::{
     AuditUnreadable, Endpoint, EndpointRunError, EndpointRunner, Expected, Failure, Hello,
-    Listener, ListenerAddress, ListenerKind, Observed, RowFailure, Rule,
+    Listener, ListenerAddress, ListenerKind, Observed, Open, RowFailure, Rule,
 };
 use rstest::rstest;
 
@@ -216,6 +216,59 @@ fn a_strict_websocket_listener_passes() {
     let result = EndpointRunner::new(verifier(log)).run(&listener);
 
     assert_eq!(result, Ok(()));
+}
+
+fn live_view(address: std::net::SocketAddr) -> Listener {
+    let open = serde_json::json!({
+        "session": "s1",
+        "screen": { "width": 800, "height": 600, "device_pixel_ratio": 1.0 },
+    });
+    Listener::new(
+        ListenerKind::LiveView,
+        Endpoint::LiveView {
+            address,
+            path: "/live-view".to_owned(),
+            open: Open::new(open.as_object().unwrap().clone()),
+        },
+        TOKEN,
+    )
+    .with_other_listener_token(OTHER_TOKEN)
+}
+
+#[test]
+fn a_strict_live_view_channel_passes() {
+    let (address, log) = listeners::live_view(Behaviour::Strict);
+    let listener = live_view(address);
+
+    let result = EndpointRunner::new(verifier(log)).run(&listener);
+
+    assert_eq!(result, Ok(()));
+}
+
+/// A Live view channel's valid `open` is answered `opened`, no JSON-RPC
+/// `result`, and every row of its column is tried on it.
+#[test]
+fn a_permissive_live_view_channel_fails_every_row_of_its_column() {
+    let (address, log) = listeners::live_view(Behaviour::Permissive);
+    let listener = live_view(address);
+
+    let result = EndpointRunner::new(verifier(log)).run(&listener);
+
+    let forbidden = Expected::Status { status: 403 };
+    let replied = |rule, expected| unexpected(rule, expected, Observed::Replied);
+    assert_eq!(
+        failures(result),
+        vec![
+            replied(Rule::TokenMissing, Expected::Closed),
+            replied(Rule::TokenWrong, Expected::Closed),
+            replied(Rule::TokenFromAnotherListener, Expected::Closed),
+            replied(Rule::TokenInQueryString, Expected::Closed),
+            replied(Rule::HostForeign, forbidden),
+            replied(Rule::OriginForeign, forbidden),
+            replied(Rule::OriginMissing, forbidden),
+            replied(Rule::HelloNotFirst, Expected::Closed),
+        ]
+    );
 }
 
 #[test]

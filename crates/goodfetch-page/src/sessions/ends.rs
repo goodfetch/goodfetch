@@ -69,7 +69,9 @@ impl Sessions {
                     events.publish_end(PageEventName::Close, &PAGE_CLOSE);
                 }
                 let mut state = self.state.lock().await;
-                state.pages.remove(page_id);
+                if let Some(page) = state.pages.remove(page_id) {
+                    self.watched.page_closed(&page.session, page_id);
+                }
                 // One the Resource governor ended past its memory cap goes
                 // straight to the ended pages under the same lock, so a
                 // call finds it in one or the other and raises
@@ -110,6 +112,7 @@ impl Sessions {
         let pages = std::slice::from_ref(page_id);
         let mut state = self.state.lock().await;
         if let Some(page) = state.pages.remove(page_id) {
+            self.watched.page_closed(&page.session, page_id);
             state
                 .crashed
                 .insert(page_id.clone(), (run.id().clone(), page.life));

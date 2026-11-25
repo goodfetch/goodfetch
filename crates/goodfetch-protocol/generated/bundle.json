@@ -4608,6 +4608,14 @@
           "minimum": 0,
           "type": "integer"
         },
+        "live_view": {
+          "arrived_in": "0.1",
+          "description": "Where a Live view channel opens, the WebSocket's `host:port`; none\nwhere it accepts none, as with `live_view.enabled` off.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "pid": {
           "arrived_in": "0.1",
           "description": "Its process ID.",
@@ -10174,6 +10182,1230 @@
         "lost"
       ],
       "type": "object"
+    },
+    "LiveViewClipboard": {
+      "description": "An explicit clipboard transfer, never made without a person's gesture.",
+      "oneOf": [
+        {
+          "description": "Pastes this text in the shown page.",
+          "properties": {
+            "text": {
+              "arrived_in": "0.1",
+              "description": "The text.",
+              "type": "string"
+            },
+            "transfer": {
+              "const": "paste",
+              "type": "string"
+            }
+          },
+          "required": [
+            "transfer",
+            "text"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Copies the shown page's selection out; the engine's message of this\ntransfer answers it.",
+          "properties": {
+            "transfer": {
+              "const": "copy",
+              "type": "string"
+            }
+          },
+          "required": [
+            "transfer"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "LiveViewControl": {
+      "description": "Who holds a Session's control.",
+      "oneOf": [
+        {
+          "const": "automation",
+          "description": "The program.",
+          "type": "string"
+        },
+        {
+          "const": "waiting",
+          "description": "Nobody: the Session waits for a person.",
+          "type": "string"
+        },
+        {
+          "const": "you",
+          "description": "This viewer.",
+          "type": "string"
+        },
+        {
+          "const": "another",
+          "description": "Another viewer.",
+          "type": "string"
+        }
+      ]
+    },
+    "LiveViewControlAct": {
+      "description": "What a viewer does with the control of a Session.",
+      "oneOf": [
+        {
+          "const": "take",
+          "description": "Takes it, or asks its holder for it.",
+          "type": "string"
+        },
+        {
+          "const": "hand_back",
+          "description": "Hands it back.",
+          "type": "string"
+        }
+      ]
+    },
+    "LiveViewDialogAnswer": {
+      "description": "A viewer's answer to a native dialog or a basic-auth prompt.",
+      "oneOf": [
+        {
+          "description": "Accepts it.",
+          "properties": {
+            "answer": {
+              "const": "accept",
+              "type": "string"
+            },
+            "text": {
+              "arrived_in": "0.1",
+              "description": "What a `prompt` is answered with.",
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "answer"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Dismisses it.",
+          "properties": {
+            "answer": {
+              "const": "dismiss",
+              "type": "string"
+            }
+          },
+          "required": [
+            "answer"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Signs in to a basic-auth prompt.",
+          "properties": {
+            "answer": {
+              "const": "sign_in",
+              "type": "string"
+            },
+            "password": {
+              "arrived_in": "0.1",
+              "description": "The password.",
+              "type": "string"
+            },
+            "user_name": {
+              "arrived_in": "0.1",
+              "description": "The user name.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "answer",
+            "user_name",
+            "password"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "LiveViewDialogType": {
+      "description": "What a native dialog asks.",
+      "oneOf": [
+        {
+          "const": "alert",
+          "description": "`alert`.",
+          "type": "string"
+        },
+        {
+          "const": "confirm",
+          "description": "`confirm`.",
+          "type": "string"
+        },
+        {
+          "const": "prompt",
+          "description": "`prompt`.",
+          "type": "string"
+        },
+        {
+          "const": "beforeunload",
+          "description": "Whether to leave the page.",
+          "type": "string"
+        },
+        {
+          "const": "basic_auth",
+          "description": "A basic-auth prompt.",
+          "type": "string"
+        }
+      ]
+    },
+    "LiveViewEnd": {
+      "description": "Why a channel ended.",
+      "oneOf": [
+        {
+          "const": "session_closed",
+          "description": "The Session closed.",
+          "type": "string"
+        },
+        {
+          "const": "capture_lost",
+          "description": "No tier could capture the Session any longer.",
+          "type": "string"
+        },
+        {
+          "const": "daemon_stopping",
+          "description": "The Daemon is stopping.",
+          "type": "string"
+        }
+      ]
+    },
+    "LiveViewEngineMessage": {
+      "description": "A message the engine sends on a channel.",
+      "oneOf": [
+        {
+          "description": "The channel is open: the answer to `open`.",
+          "properties": {
+            "kind": {
+              "const": "opened",
+              "type": "string"
+            },
+            "session": {
+              "$ref": "#/$defs/SessionId",
+              "arrived_in": "0.1",
+              "description": "The Session it watches."
+            },
+            "tier": {
+              "$ref": "#/$defs/LiveViewTier",
+              "arrived_in": "0.1",
+              "description": "The tier that captures it."
+            }
+          },
+          "required": [
+            "kind",
+            "session",
+            "tier"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "The tier that captures the Session from now on, the one before having\nfailed.",
+          "properties": {
+            "kind": {
+              "const": "tier",
+              "type": "string"
+            },
+            "tier": {
+              "$ref": "#/$defs/LiveViewTier",
+              "arrived_in": "0.1",
+              "description": "The tier."
+            }
+          },
+          "required": [
+            "kind",
+            "tier"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "The newest frame, sent once the viewer acknowledged the one before.",
+          "properties": {
+            "data": {
+              "arrived_in": "0.1",
+              "description": "The frame, a JPEG in base64.",
+              "type": "string"
+            },
+            "frame": {
+              "arrived_in": "0.1",
+              "description": "Its number, larger than every earlier one of the channel.",
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "height": {
+              "arrived_in": "0.1",
+              "description": "The shown page's height, in its CSS pixels.",
+              "format": "double",
+              "type": "number"
+            },
+            "kind": {
+              "const": "frame",
+              "type": "string"
+            },
+            "page": {
+              "$ref": "#/$defs/PageId",
+              "arrived_in": "0.1",
+              "description": "The page it shows."
+            },
+            "width": {
+              "arrived_in": "0.1",
+              "description": "The shown page's width, in its CSS pixels.",
+              "format": "double",
+              "type": "number"
+            }
+          },
+          "required": [
+            "kind",
+            "frame",
+            "page",
+            "width",
+            "height",
+            "data"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "The Session's tabs: after `opened`, and after each change.",
+          "properties": {
+            "kind": {
+              "const": "tabs",
+              "type": "string"
+            },
+            "shown": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/PageId"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "arrived_in": "0.1",
+              "description": "The page shown; none when the Session has no tab."
+            },
+            "tabs": {
+              "arrived_in": "0.1",
+              "description": "The tabs, oldest first.",
+              "items": {
+                "$ref": "#/$defs/LiveViewTab"
+              },
+              "type": "array"
+            }
+          },
+          "required": [
+            "kind",
+            "tabs"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "A step of the WebRTC negotiation.",
+          "properties": {
+            "kind": {
+              "const": "signal",
+              "type": "string"
+            },
+            "signal": {
+              "$ref": "#/$defs/LiveViewSignal",
+              "arrived_in": "0.1",
+              "description": "The step."
+            }
+          },
+          "required": [
+            "kind",
+            "signal"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Who holds the Session's control: after each change.",
+          "properties": {
+            "holder": {
+              "$ref": "#/$defs/LiveViewControl",
+              "arrived_in": "0.1",
+              "description": "The holder."
+            },
+            "kind": {
+              "const": "control",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "holder"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "A native dialog or a basic-auth prompt opened in the shown page.",
+          "properties": {
+            "asks": {
+              "$ref": "#/$defs/LiveViewDialogType",
+              "arrived_in": "0.1",
+              "description": "What it asks."
+            },
+            "dialog": {
+              "arrived_in": "0.1",
+              "description": "The dialog, which its answer names.",
+              "type": "string"
+            },
+            "kind": {
+              "const": "dialog",
+              "type": "string"
+            },
+            "message": {
+              "arrived_in": "0.1",
+              "description": "Its text.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "dialog",
+            "asks",
+            "message"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "The shown page asks for files.",
+          "properties": {
+            "chooser": {
+              "arrived_in": "0.1",
+              "description": "The file chooser, which its answer names.",
+              "type": "string"
+            },
+            "kind": {
+              "const": "file_chooser",
+              "type": "string"
+            },
+            "multiple": {
+              "arrived_in": "0.1",
+              "description": "Whether it takes several files.",
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "kind",
+            "chooser",
+            "multiple"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "A download of the Session, which a Client fetches by its handle.",
+          "properties": {
+            "download": {
+              "arrived_in": "0.1",
+              "description": "The download's handle.",
+              "type": "string"
+            },
+            "kind": {
+              "const": "download",
+              "type": "string"
+            },
+            "name": {
+              "arrived_in": "0.1",
+              "description": "The file name the site gave it.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "download",
+            "name"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "What the viewer asked to copy out.",
+          "properties": {
+            "kind": {
+              "const": "clipboard",
+              "type": "string"
+            },
+            "text": {
+              "arrived_in": "0.1",
+              "description": "The text.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "text"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "The Human pause the Session waits in; none once it ended.",
+          "properties": {
+            "kind": {
+              "const": "pause",
+              "type": "string"
+            },
+            "reason": {
+              "arrived_in": "0.1",
+              "description": "Why it waits.",
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "A message of the viewer's that the engine refused. When it answers\n`open`, the channel ends.",
+          "properties": {
+            "error": {
+              "$ref": "#/$defs/ErrorObject",
+              "arrived_in": "0.1",
+              "description": "Why, as a call's error."
+            },
+            "kind": {
+              "const": "error",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "error"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "The channel ends, as its last message.",
+          "properties": {
+            "kind": {
+              "const": "ended",
+              "type": "string"
+            },
+            "reason": {
+              "$ref": "#/$defs/LiveViewEnd",
+              "arrived_in": "0.1",
+              "description": "Why."
+            }
+          },
+          "required": [
+            "kind",
+            "reason"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "LiveViewFile": {
+      "description": "A file a viewer gives the page's file chooser.",
+      "properties": {
+        "data": {
+          "arrived_in": "0.1",
+          "description": "Its bytes, in base64.",
+          "type": "string"
+        },
+        "name": {
+          "arrived_in": "0.1",
+          "description": "Its name, with no folder.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "data"
+      ],
+      "type": "object"
+    },
+    "LiveViewInput": {
+      "description": "A viewer's input in the shown page, in the order it happened. A point is\nin the shown page's CSS pixels.",
+      "oneOf": [
+        {
+          "description": "The mouse or a pen.",
+          "properties": {
+            "button": {
+              "arrived_in": "0.1",
+              "description": "The button, as `MouseEvent.button`; none for a move.",
+              "format": "uint8",
+              "maximum": 255,
+              "minimum": 0,
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "click": {
+              "arrived_in": "0.1",
+              "description": "Which of a run of clicks it is, from 1.",
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "device": {
+              "const": "pointer",
+              "type": "string"
+            },
+            "modifiers": {
+              "arrived_in": "0.1",
+              "description": "The modifier keys held.",
+              "items": {
+                "$ref": "#/$defs/LiveViewModifier"
+              },
+              "type": "array"
+            },
+            "press": {
+              "$ref": "#/$defs/LiveViewPress",
+              "arrived_in": "0.1",
+              "description": "What it did."
+            },
+            "x": {
+              "arrived_in": "0.1",
+              "description": "Where, from the left.",
+              "format": "double",
+              "type": "number"
+            },
+            "y": {
+              "arrived_in": "0.1",
+              "description": "Where, from the top.",
+              "format": "double",
+              "type": "number"
+            }
+          },
+          "required": [
+            "device",
+            "press",
+            "x",
+            "y",
+            "click"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "The wheel.",
+          "properties": {
+            "delta_x": {
+              "arrived_in": "0.1",
+              "description": "How far it scrolls right.",
+              "format": "double",
+              "type": "number"
+            },
+            "delta_y": {
+              "arrived_in": "0.1",
+              "description": "How far it scrolls down.",
+              "format": "double",
+              "type": "number"
+            },
+            "device": {
+              "const": "wheel",
+              "type": "string"
+            },
+            "x": {
+              "arrived_in": "0.1",
+              "description": "Where, from the left.",
+              "format": "double",
+              "type": "number"
+            },
+            "y": {
+              "arrived_in": "0.1",
+              "description": "Where, from the top.",
+              "format": "double",
+              "type": "number"
+            }
+          },
+          "required": [
+            "device",
+            "x",
+            "y",
+            "delta_x",
+            "delta_y"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "The keyboard.",
+          "properties": {
+            "code": {
+              "arrived_in": "0.1",
+              "description": "The physical key, as `KeyboardEvent.code`.",
+              "type": "string"
+            },
+            "device": {
+              "const": "key",
+              "type": "string"
+            },
+            "key": {
+              "arrived_in": "0.1",
+              "description": "What it types under the person's layout, as `KeyboardEvent.key`.",
+              "type": "string"
+            },
+            "modifiers": {
+              "arrived_in": "0.1",
+              "description": "The modifier keys held.",
+              "items": {
+                "$ref": "#/$defs/LiveViewModifier"
+              },
+              "type": "array"
+            },
+            "press": {
+              "$ref": "#/$defs/LiveViewPress",
+              "arrived_in": "0.1",
+              "description": "What it did: pressed or released."
+            }
+          },
+          "required": [
+            "device",
+            "press",
+            "code",
+            "key"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "An input method's composition, as it stands.",
+          "properties": {
+            "device": {
+              "const": "composition",
+              "type": "string"
+            },
+            "ended": {
+              "arrived_in": "0.1",
+              "description": "Whether it ended, which inserts the text.",
+              "type": "boolean"
+            },
+            "text": {
+              "arrived_in": "0.1",
+              "description": "Its text.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "device",
+            "text",
+            "ended"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "The touch screen.",
+          "properties": {
+            "device": {
+              "const": "touch",
+              "type": "string"
+            },
+            "points": {
+              "arrived_in": "0.1",
+              "description": "Where each finger still on the screen is; none once the last\nleft.",
+              "items": {
+                "$ref": "#/$defs/LiveViewPoint"
+              },
+              "type": "array"
+            },
+            "press": {
+              "$ref": "#/$defs/LiveViewPress",
+              "arrived_in": "0.1",
+              "description": "What the fingers did."
+            }
+          },
+          "required": [
+            "device",
+            "press",
+            "points"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "LiveViewModifier": {
+      "description": "A modifier key held during an input.",
+      "oneOf": [
+        {
+          "const": "alt",
+          "description": "Alt, or Option.",
+          "type": "string"
+        },
+        {
+          "const": "control",
+          "description": "Control.",
+          "type": "string"
+        },
+        {
+          "const": "meta",
+          "description": "Meta: Command, or the Windows key.",
+          "type": "string"
+        },
+        {
+          "const": "shift",
+          "description": "Shift.",
+          "type": "string"
+        }
+      ]
+    },
+    "LiveViewPauseAnswer": {
+      "description": "A viewer's answer to the Human pause the Session waits in.",
+      "oneOf": [
+        {
+          "description": "The person is done.",
+          "properties": {
+            "answer": {
+              "const": "done",
+              "type": "string"
+            }
+          },
+          "required": [
+            "answer"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "The person declines.",
+          "properties": {
+            "answer": {
+              "const": "decline",
+              "type": "string"
+            },
+            "note": {
+              "arrived_in": "0.1",
+              "description": "Why, for the program.",
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "answer"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "LiveViewPoint": {
+      "description": "One finger's place on the shown page.",
+      "properties": {
+        "id": {
+          "arrived_in": "0.1",
+          "description": "The finger, the same number while it stays on the screen.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "x": {
+          "arrived_in": "0.1",
+          "description": "Where, from the left.",
+          "format": "double",
+          "type": "number"
+        },
+        "y": {
+          "arrived_in": "0.1",
+          "description": "Where, from the top.",
+          "format": "double",
+          "type": "number"
+        }
+      },
+      "required": [
+        "id",
+        "x",
+        "y"
+      ],
+      "type": "object"
+    },
+    "LiveViewPress": {
+      "description": "What a pointer or a key did.",
+      "oneOf": [
+        {
+          "const": "down",
+          "description": "It was pressed.",
+          "type": "string"
+        },
+        {
+          "const": "up",
+          "description": "It was released.",
+          "type": "string"
+        },
+        {
+          "const": "move",
+          "description": "The pointer moved.",
+          "type": "string"
+        }
+      ]
+    },
+    "LiveViewScreen": {
+      "description": "A viewer's screen: the area its Live view fills.",
+      "properties": {
+        "device_pixel_ratio": {
+          "arrived_in": "0.1",
+          "description": "The device pixels of one of its CSS pixels, as the browser's\n`devicePixelRatio`.",
+          "format": "double",
+          "type": "number"
+        },
+        "height": {
+          "arrived_in": "0.1",
+          "description": "Its height, in CSS pixels.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "width": {
+          "arrived_in": "0.1",
+          "description": "Its width, in CSS pixels.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "width",
+        "height",
+        "device_pixel_ratio"
+      ],
+      "type": "object"
+    },
+    "LiveViewSignal": {
+      "description": "One step of a channel's WebRTC negotiation, either way.",
+      "oneOf": [
+        {
+          "description": "A session description that offers video.",
+          "properties": {
+            "sdp": {
+              "arrived_in": "0.1",
+              "description": "The description, as SDP.",
+              "type": "string"
+            },
+            "step": {
+              "const": "offer",
+              "type": "string"
+            }
+          },
+          "required": [
+            "step",
+            "sdp"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "The session description that answers an offer.",
+          "properties": {
+            "sdp": {
+              "arrived_in": "0.1",
+              "description": "The description, as SDP.",
+              "type": "string"
+            },
+            "step": {
+              "const": "answer",
+              "type": "string"
+            }
+          },
+          "required": [
+            "step",
+            "sdp"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "An ICE candidate.",
+          "properties": {
+            "candidate": {
+              "arrived_in": "0.1",
+              "description": "The candidate, as its `candidate:` line.",
+              "type": "string"
+            },
+            "step": {
+              "const": "candidate",
+              "type": "string"
+            }
+          },
+          "required": [
+            "step",
+            "candidate"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "LiveViewTab": {
+      "description": "One tab of a Session.",
+      "properties": {
+        "page": {
+          "$ref": "#/$defs/PageId",
+          "arrived_in": "0.1",
+          "description": "Its page."
+        }
+      },
+      "required": [
+        "page"
+      ],
+      "type": "object"
+    },
+    "LiveViewTier": {
+      "description": "A tier a Session is captured by.",
+      "oneOf": [
+        {
+          "const": "screencast",
+          "description": "The browser's own screencast of the shown page.",
+          "type": "string"
+        }
+      ]
+    },
+    "LiveViewViewerLimitDetails": {
+      "description": "What `live_view_viewer_limit` details.",
+      "properties": {
+        "limit": {
+          "$ref": "#/$defs/SettingLimit",
+          "arrived_in": "0.1",
+          "description": "`live_view.max_viewers`, its value and its layer."
+        }
+      },
+      "required": [
+        "limit"
+      ],
+      "type": "object"
+    },
+    "LiveViewViewerMessage": {
+      "description": "A message a viewer sends on its channel.",
+      "oneOf": [
+        {
+          "description": "Opens the channel, as its first message: within `timeout.hello`.",
+          "properties": {
+            "kind": {
+              "const": "open",
+              "type": "string"
+            },
+            "screen": {
+              "$ref": "#/$defs/LiveViewScreen",
+              "arrived_in": "0.1",
+              "description": "The viewer's screen."
+            },
+            "session": {
+              "$ref": "#/$defs/SessionId",
+              "arrived_in": "0.1",
+              "description": "The Session to watch."
+            },
+            "token": {
+              "arrived_in": "0.1",
+              "description": "The Daemon's token.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "token",
+            "session",
+            "screen"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "The viewer's screen changed.",
+          "properties": {
+            "kind": {
+              "const": "screen",
+              "type": "string"
+            },
+            "screen": {
+              "$ref": "#/$defs/LiveViewScreen",
+              "arrived_in": "0.1",
+              "description": "Its screen now."
+            }
+          },
+          "required": [
+            "kind",
+            "screen"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "The viewer drew a frame and takes the next one.",
+          "properties": {
+            "frame": {
+              "arrived_in": "0.1",
+              "description": "The frame's number.",
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "kind": {
+              "const": "acknowledge",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "frame"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "A step of the WebRTC negotiation.",
+          "properties": {
+            "kind": {
+              "const": "signal",
+              "type": "string"
+            },
+            "signal": {
+              "$ref": "#/$defs/LiveViewSignal",
+              "arrived_in": "0.1",
+              "description": "The step."
+            }
+          },
+          "required": [
+            "kind",
+            "signal"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Input in the shown page.",
+          "properties": {
+            "input": {
+              "$ref": "#/$defs/LiveViewInput",
+              "arrived_in": "0.1",
+              "description": "The input."
+            },
+            "kind": {
+              "const": "input",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "input"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Takes the Session's control or hands it back.",
+          "properties": {
+            "act": {
+              "$ref": "#/$defs/LiveViewControlAct",
+              "arrived_in": "0.1",
+              "description": "What it does."
+            },
+            "kind": {
+              "const": "control",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "act"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Shows another tab.",
+          "properties": {
+            "kind": {
+              "const": "tab",
+              "type": "string"
+            },
+            "page": {
+              "$ref": "#/$defs/PageId",
+              "arrived_in": "0.1",
+              "description": "The tab's page."
+            }
+          },
+          "required": [
+            "kind",
+            "page"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Answers a dialog.",
+          "properties": {
+            "answer": {
+              "$ref": "#/$defs/LiveViewDialogAnswer",
+              "arrived_in": "0.1",
+              "description": "The answer."
+            },
+            "dialog": {
+              "arrived_in": "0.1",
+              "description": "The dialog.",
+              "type": "string"
+            },
+            "kind": {
+              "const": "dialog",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "dialog",
+            "answer"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Gives a file chooser its files; none cancels it.",
+          "properties": {
+            "chooser": {
+              "arrived_in": "0.1",
+              "description": "The file chooser.",
+              "type": "string"
+            },
+            "files": {
+              "arrived_in": "0.1",
+              "description": "The files.",
+              "items": {
+                "$ref": "#/$defs/LiveViewFile"
+              },
+              "type": "array"
+            },
+            "kind": {
+              "const": "files",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "chooser",
+            "files"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "A clipboard transfer the person asked for.",
+          "properties": {
+            "clipboard": {
+              "$ref": "#/$defs/LiveViewClipboard",
+              "arrived_in": "0.1",
+              "description": "The transfer."
+            },
+            "kind": {
+              "const": "clipboard",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "clipboard"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Answers the Human pause the Session waits in.",
+          "properties": {
+            "answer": {
+              "$ref": "#/$defs/LiveViewPauseAnswer",
+              "arrived_in": "0.1",
+              "description": "The answer."
+            },
+            "kind": {
+              "const": "pause",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "answer"
+          ],
+          "type": "object"
+        }
+      ]
     },
     "LoadState": {
       "description": "A state the page's document reaches (Playwright's `LoadState`).",
@@ -25374,7 +26606,7 @@
                 "additionalProperties": false,
                 "properties": {
                   "address": {
-                    "description": "Where `daemon run`, the foreground Daemon, listens, as `host:port`: `127.0.0.1` on port 7900 plus the major (7600 plus the minor during `0.y` previews). Port 0 takes a free port, which its log names. Only a loopback address, until the Daemon terminates TLS. Set in user configuration or an Operator policy, or for `daemon run` through `GOODFETCH_DAEMON_ADDRESS`.",
+                    "description": "Where `daemon run`, the foreground Daemon, listens, as `host:port`: `127.0.0.1` on port 7900 plus the major (7600 plus the minor during `0.y` previews). Any other Daemon listens there for Live view channels alone, while `live_view.enabled` is on. Port 0 takes a free port, which its log and `daemon.status` name. Only a loopback address, until the Daemon terminates TLS. Set in user configuration or an Operator policy, or for `daemon run` through `GOODFETCH_DAEMON_ADDRESS`.",
                     "type": "string"
                   },
                   "drain_grace": {
@@ -26046,12 +27278,28 @@
               "live_view": {
                 "additionalProperties": false,
                 "properties": {
+                  "enabled": {
+                    "description": "Whether a person may watch this machine's Sessions through a Daemon: on by default. A Daemon then accepts Live view channels on the loopback WebSocket of `daemon.address`, which it opens for them where nothing else did. Off, no channel opens, the Daemon listens there for none, and nothing is captured. Set in user configuration or an Operator policy only.",
+                    "type": "boolean"
+                  },
                   "hiding": {
                     "description": "Whether a Session's pages hide, on the live page, the elements the Filter lists' cosmetic rules match: `auto` (the default) and `always` hide them through a style sheet the site cannot see on Chromium, in every frame and every new document; `off` leaves the live page as served. When the guard finds an action's target hidden, it lifts the rule for the Session and acts. Extracted content has the elements removed whatever this says.",
                     "enum": [
                       "auto",
                       "off",
                       "always"
+                    ]
+                  },
+                  "max_viewers": {
+                    "description": "How many viewers may watch one Session at once: 10. The next one's channel is refused with `live_view_viewer_limit`. Set in user configuration or an Operator policy only.",
+                    "minimum": 1,
+                    "type": "integer"
+                  },
+                  "tier": {
+                    "description": "How a Live view captures its Session: `auto` (the default) takes the best tier the Session's browser offers, `screencast` for a headless one, and falls back to the next when one fails; `screencast` takes the browser's own screencast of the shown page, JPEG frames sized to the largest screen watching. Set in user configuration or an Operator policy only.",
+                    "enum": [
+                      "auto",
+                      "screencast"
                     ]
                   }
                 },
@@ -29385,7 +30633,7 @@
                 "additionalProperties": false,
                 "properties": {
                   "address": {
-                    "description": "Where `daemon run`, the foreground Daemon, listens, as `host:port`: `127.0.0.1` on port 7900 plus the major (7600 plus the minor during `0.y` previews). Port 0 takes a free port, which its log names. Only a loopback address, until the Daemon terminates TLS. Set in user configuration or an Operator policy, or for `daemon run` through `GOODFETCH_DAEMON_ADDRESS`.",
+                    "description": "Where `daemon run`, the foreground Daemon, listens, as `host:port`: `127.0.0.1` on port 7900 plus the major (7600 plus the minor during `0.y` previews). Any other Daemon listens there for Live view channels alone, while `live_view.enabled` is on. Port 0 takes a free port, which its log and `daemon.status` name. Only a loopback address, until the Daemon terminates TLS. Set in user configuration or an Operator policy, or for `daemon run` through `GOODFETCH_DAEMON_ADDRESS`.",
                     "type": "string"
                   },
                   "drain_grace": {
@@ -30057,12 +31305,28 @@
               "live_view": {
                 "additionalProperties": false,
                 "properties": {
+                  "enabled": {
+                    "description": "Whether a person may watch this machine's Sessions through a Daemon: on by default. A Daemon then accepts Live view channels on the loopback WebSocket of `daemon.address`, which it opens for them where nothing else did. Off, no channel opens, the Daemon listens there for none, and nothing is captured. Set in user configuration or an Operator policy only.",
+                    "type": "boolean"
+                  },
                   "hiding": {
                     "description": "Whether a Session's pages hide, on the live page, the elements the Filter lists' cosmetic rules match: `auto` (the default) and `always` hide them through a style sheet the site cannot see on Chromium, in every frame and every new document; `off` leaves the live page as served. When the guard finds an action's target hidden, it lifts the rule for the Session and acts. Extracted content has the elements removed whatever this says.",
                     "enum": [
                       "auto",
                       "off",
                       "always"
+                    ]
+                  },
+                  "max_viewers": {
+                    "description": "How many viewers may watch one Session at once: 10. The next one's channel is refused with `live_view_viewer_limit`. Set in user configuration or an Operator policy only.",
+                    "minimum": 1,
+                    "type": "integer"
+                  },
+                  "tier": {
+                    "description": "How a Live view captures its Session: `auto` (the default) takes the best tier the Session's browser offers, `screencast` for a headless one, and falls back to the next when one fails; `screencast` takes the browser's own screencast of the shown page, JPEG frames sized to the largest screen watching. Set in user configuration or an Operator policy only.",
+                    "enum": [
+                      "auto",
+                      "screencast"
                     ]
                   }
                 },
@@ -33412,7 +34676,7 @@
                 "additionalProperties": false,
                 "properties": {
                   "address": {
-                    "description": "Where `daemon run`, the foreground Daemon, listens, as `host:port`: `127.0.0.1` on port 7900 plus the major (7600 plus the minor during `0.y` previews). Port 0 takes a free port, which its log names. Only a loopback address, until the Daemon terminates TLS. Set in user configuration or an Operator policy, or for `daemon run` through `GOODFETCH_DAEMON_ADDRESS`.",
+                    "description": "Where `daemon run`, the foreground Daemon, listens, as `host:port`: `127.0.0.1` on port 7900 plus the major (7600 plus the minor during `0.y` previews). Any other Daemon listens there for Live view channels alone, while `live_view.enabled` is on. Port 0 takes a free port, which its log and `daemon.status` name. Only a loopback address, until the Daemon terminates TLS. Set in user configuration or an Operator policy, or for `daemon run` through `GOODFETCH_DAEMON_ADDRESS`.",
                     "type": "string"
                   },
                   "drain_grace": {
@@ -34084,12 +35348,28 @@
               "live_view": {
                 "additionalProperties": false,
                 "properties": {
+                  "enabled": {
+                    "description": "Whether a person may watch this machine's Sessions through a Daemon: on by default. A Daemon then accepts Live view channels on the loopback WebSocket of `daemon.address`, which it opens for them where nothing else did. Off, no channel opens, the Daemon listens there for none, and nothing is captured. Set in user configuration or an Operator policy only.",
+                    "type": "boolean"
+                  },
                   "hiding": {
                     "description": "Whether a Session's pages hide, on the live page, the elements the Filter lists' cosmetic rules match: `auto` (the default) and `always` hide them through a style sheet the site cannot see on Chromium, in every frame and every new document; `off` leaves the live page as served. When the guard finds an action's target hidden, it lifts the rule for the Session and acts. Extracted content has the elements removed whatever this says.",
                     "enum": [
                       "auto",
                       "off",
                       "always"
+                    ]
+                  },
+                  "max_viewers": {
+                    "description": "How many viewers may watch one Session at once: 10. The next one's channel is refused with `live_view_viewer_limit`. Set in user configuration or an Operator policy only.",
+                    "minimum": 1,
+                    "type": "integer"
+                  },
+                  "tier": {
+                    "description": "How a Live view captures its Session: `auto` (the default) takes the best tier the Session's browser offers, `screencast` for a headless one, and falls back to the next when one fails; `screencast` takes the browser's own screencast of the shown page, JPEG frames sized to the largest screen watching. Set in user configuration or an Operator policy only.",
+                    "enum": [
+                      "auto",
+                      "screencast"
                     ]
                   }
                 },
@@ -36969,6 +38249,15 @@
       "version": "0.1"
     }
   ],
+  "live_view": {
+    "engine": {
+      "$ref": "#/$defs/LiveViewEngineMessage"
+    },
+    "path": "/live-view",
+    "viewer": {
+      "$ref": "#/$defs/LiveViewViewerMessage"
+    }
+  },
   "model_provider": {
     "request": {
       "$ref": "#/$defs/ModelRequest"

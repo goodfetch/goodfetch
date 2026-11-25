@@ -81,6 +81,7 @@ fn neither_end_of_an_exposed_daemons_websocket_logs_hellos_token_at_trace() {
             install: None,
             ops: Ops::default(),
             websocket: Some(Authorities::loopback(address)),
+            live_view: None,
         };
         let client = async {
             let exposed = Endpoint::Exposed(ExposedDaemon {

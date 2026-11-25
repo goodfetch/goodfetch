@@ -53,6 +53,37 @@ impl Hello {
     }
 }
 
+/// The `open` a Live view channel accepts as its first message, without
+/// its token: its other fields, such as the Session and the screen.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Open {
+    fields: Map<String, Value>,
+}
+
+impl Open {
+    /// An `open` with these fields, whose `token` the runner sets to each
+    /// attempt's token.
+    pub fn new(fields: Map<String, Value>) -> Self {
+        Self { fields }
+    }
+
+    /// The first message: a message of `kind` with the fields and `token`.
+    fn message(&self, kind: &str, token: Option<&str>) -> Value {
+        let mut message = self.fields.clone();
+        message.remove(LIVE_VIEW_TOKEN);
+        message.insert("kind".to_owned(), Value::String(kind.to_owned()));
+        if let Some(token) = token {
+            message.insert(LIVE_VIEW_TOKEN.to_owned(), Value::String(token.to_owned()));
+        }
+        Value::Object(message)
+    }
+}
+
+/// The field of a Live view channel's `open` that carries the token.
+const LIVE_VIEW_TOKEN: &str = "token";
+/// The kind of the Live view's first message that is not an `open`.
+const NOT_OPEN: &str = "acknowledge";
+
 /// How the runner reaches a listener.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Endpoint {
@@ -87,6 +118,18 @@ pub enum Endpoint {
         username: String,
         /// The `host:port` the valid `CONNECT` tunnels to.
         target: String,
+    },
+    /// A Live view channel: a WebSocket at `path` on loopback TCP, whose
+    /// valid handshake names `address` as its `Host` and `http://<address>`
+    /// as its `Origin`, and whose first message is an `open`, answered by
+    /// an `opened`.
+    LiveView {
+        /// Where it listens.
+        address: SocketAddr,
+        /// The channel's path.
+        path: String,
+        /// The `open` it accepts.
+        open: Open,
     },
 }
 
@@ -181,7 +224,8 @@ impl AuditUnreadable {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum Observed {
-    /// A JSON-RPC stream listener replied with a `result`.
+    /// A JSON-RPC stream listener replied with a `result`, or a Live view
+    /// channel with `opened`.
     Replied,
     /// The listener closed the connection without answering.
     Closed,
@@ -368,6 +412,18 @@ impl<A: AuditVerifier> EndpointRunner<A> {
                 username,
                 target,
             }),
+            (
+                Endpoint::LiveView {
+                    address,
+                    path,
+                    open,
+                },
+                Transport::LiveViewChannel,
+            ) => Reach::LiveView {
+                address: *address,
+                path,
+                open,
+            },
             _ => {
                 return Err(EndpointRunError::TransportMismatch {
                     listener: listener.kind,
@@ -494,6 +550,11 @@ enum Reach<'a> {
         hello: &'a Hello,
     },
     HttpProxy(ProxyReach<'a>),
+    LiveView {
+        address: SocketAddr,
+        path: &'a str,
+        open: &'a Open,
+    },
 }
 
 /// An HTTP proxy, and the `CONNECT` target and username of its valid
@@ -525,30 +586,28 @@ impl Reach<'_> {
                 };
                 json_rpc::attempt(address, &message)
             }
-            Self::WebSocket { address, hello } => {
-                let authority = address.to_string();
-                let origin = format!("http://{authority}");
-                let mut handshake = websocket::Handshake {
-                    target: "/".to_owned(),
-                    host: &authority,
-                    origin: Some(&origin),
-                };
-                let mut message = hello.message("hello", Some(token));
-                match attempt {
-                    Attempt::Valid | Attempt::Probe(_) | Attempt::TokenInCookie => {}
-                    Attempt::Token(token) => message = hello.message("hello", token),
-                    Attempt::Given(token) => message = hello.message("hello", Some(token)),
-                    Attempt::TokenInQuery => {
-                        handshake.target = format!("/?access_token={}", percent_encoded(token));
-                        message = hello.message("hello", None);
-                    }
-                    Attempt::ForeignHost => handshake.host = FOREIGN_HOST,
-                    Attempt::ForeignOrigin => handshake.origin = Some(FOREIGN_ORIGIN),
-                    Attempt::NoOrigin => handshake.origin = None,
-                    Attempt::NotHello => message = hello.message(NOT_HELLO, Some(token)),
-                }
-                websocket::attempt(*address, &handshake, &message)
-            }
+            Self::WebSocket { address, hello } => websocket_attempt(
+                *address,
+                "/",
+                token,
+                attempt,
+                |token| hello.message("hello", token),
+                &hello.message(NOT_HELLO, Some(token)),
+                |answer| answer.get("result").is_some(),
+            ),
+            Self::LiveView {
+                address,
+                path,
+                open,
+            } => websocket_attempt(
+                *address,
+                path,
+                token,
+                attempt,
+                |token| open.message("open", token),
+                &open.message(NOT_OPEN, Some(token)),
+                |answer| answer.get("kind").and_then(Value::as_str) == Some("opened"),
+            ),
             Self::HttpProxy(reach) => reach.attempt(token, attempt),
             Self::Http {
                 address,
@@ -587,6 +646,43 @@ impl Reach<'_> {
             }
         }
     }
+}
+
+/// Tries `attempt` on a WebSocket at `path` of `address` whose valid token
+/// is `token`: `first` builds its first message with a token or none,
+/// `not_first` is a first message of another kind, and `replied` tells
+/// the answer that accepts the valid one.
+fn websocket_attempt(
+    address: SocketAddr,
+    path: &str,
+    token: &str,
+    attempt: Attempt<'_>,
+    first: impl Fn(Option<&str>) -> Value,
+    not_first: &Value,
+    replied: fn(&Value) -> bool,
+) -> Observed {
+    let authority = address.to_string();
+    let origin = format!("http://{authority}");
+    let mut handshake = websocket::Handshake {
+        target: path.to_owned(),
+        host: &authority,
+        origin: Some(&origin),
+    };
+    let mut message = first(Some(token));
+    match attempt {
+        Attempt::Valid | Attempt::Probe(_) | Attempt::TokenInCookie => {}
+        Attempt::Token(token) => message = first(token),
+        Attempt::Given(token) => message = first(Some(token)),
+        Attempt::TokenInQuery => {
+            handshake.target = format!("{path}?access_token={}", percent_encoded(token));
+            message = first(None);
+        }
+        Attempt::ForeignHost => handshake.host = FOREIGN_HOST,
+        Attempt::ForeignOrigin => handshake.origin = Some(FOREIGN_ORIGIN),
+        Attempt::NoOrigin => handshake.origin = None,
+        Attempt::NotHello => message = not_first.clone(),
+    }
+    websocket::attempt(address, &handshake, &message, replied)
 }
 
 impl ProxyReach<'_> {

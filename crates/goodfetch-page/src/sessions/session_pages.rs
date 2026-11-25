@@ -287,6 +287,8 @@ impl Sessions {
             in_browser: Arc::new(in_browser),
         };
         state.pages.insert(page.clone(), opened.clone());
+        self.watched
+            .page_opened(session, &page, Arc::new(opened.driver.clone()));
         drop(state);
         // Its popups are followed once it is in the table, so the engine's
         // Sessions lock is never held across the Session's frames' lock

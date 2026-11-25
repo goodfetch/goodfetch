@@ -1,7 +1,7 @@
 //! B2's counts cell (ADR 0140): runs `benches/session.rs`' Session once with
-//! its default features on, once per feature on its paths that can be
-//! switched off, once with no Live view viewer (C6 in ADR 0140: the default
-//! cell is the one with a viewer, which #959 gives it), once with a Page
+//! its default features on, a Live view viewer watching it (C6), once per
+//! feature on its paths that can be switched off, once with no viewer
+//! (C6's `no_viewer`; the other cells have none either), once with a Page
 //! check, once on a browser pool's pages (C7: a pool its scripted launcher
 //! starts, its pages opened and closed through `BrowserPages`) and once on
 //! the pool's pages of an `identified` Session, which signs each request it
@@ -12,7 +12,8 @@
 //!
 //! Its units are the commands the browser read, the engine reads in a frame
 //! the program made, and the documents and frames those reads ran in. C2's
-//! rows count over those reads alone (`session::READ_ROWS`).
+//! rows count over those reads alone (`session::READ_ROWS`). C6's count per
+//! Live view frame the viewer got, its unit `frames`.
 //!
 //! `--plant <row>` does one extra unit of that row's work per command the
 //! browser reads, which is at least one per unit of every row: each request
@@ -48,13 +49,14 @@ use goodfetch_counted_work::{CountedWork, Row};
 use goodfetch_engine::metrics::Metrics;
 use serde_json::{Map, Value, json};
 
-/// One cell: a name, the browsers its pages open in, the settings it runs
-/// with, the rows it must count fewer of than the default cell, as a
-/// feature's work goes with the feature (ADR 0140), and the rows it must count
-/// none of.
+/// One cell: a name, the browsers its pages open in, whether a viewer
+/// watches its Session, the settings it runs with, the rows it must count
+/// fewer of than the default cell, as a feature's work goes with the
+/// feature (ADR 0140), and the rows it must count none of.
 struct Cell {
     name: &'static str,
     browsers: session::Browsers,
+    viewer: session::Viewer,
     settings: Value,
     removes: &'static [Row],
     counts_none_of: &'static [Row],
@@ -76,10 +78,12 @@ const IDENTIFIED: &str = "identified";
 
 fn cells() -> [Cell; 8] {
     [
-        // The cell with a viewer, once #959 gives B2's Session one.
+        // The cell with a viewer: a person watches its Session through a
+        // Live view channel (C6).
         Cell {
             name: "default",
             browsers: session::Browsers::Borrowed,
+            viewer: session::Viewer::On,
             settings: json!({}),
             removes: &[],
             counts_none_of: &[],
@@ -87,6 +91,7 @@ fn cells() -> [Cell; 8] {
         Cell {
             name: "filter_lists_off",
             browsers: session::Browsers::Borrowed,
+            viewer: session::Viewer::Off,
             settings: json!({ "filter_lists": {
                 "ads": false, "trackers": false, "annoyances": false, "first_party_scripts": false,
             } }),
@@ -96,6 +101,7 @@ fn cells() -> [Cell; 8] {
         Cell {
             name: "no_viewer",
             browsers: session::Browsers::Borrowed,
+            viewer: session::Viewer::Off,
             settings: json!({}),
             removes: &[],
             counts_none_of: LIVE_VIEW_FRAME,
@@ -105,6 +111,7 @@ fn cells() -> [Cell; 8] {
         Cell {
             name: "consent_handling_detect",
             browsers: session::Browsers::Borrowed,
+            viewer: session::Viewer::Off,
             settings: json!({ "consent": { "handling": "detect" } }),
             removes: &[],
             counts_none_of: &[],
@@ -117,6 +124,7 @@ fn cells() -> [Cell; 8] {
         Cell {
             name: "consent_handling_off",
             browsers: session::Browsers::Borrowed,
+            viewer: session::Viewer::Off,
             settings: json!({ "consent": { "handling": "off" } }),
             removes: &[
                 Row::NavigationDetectionReads,
@@ -131,6 +139,7 @@ fn cells() -> [Cell; 8] {
         Cell {
             name: "page_check",
             browsers: session::Browsers::Borrowed,
+            viewer: session::Viewer::Off,
             settings: session::page_check(),
             removes: &[Row::NavigationProvenanceEntries],
             counts_none_of: &[],
@@ -140,6 +149,7 @@ fn cells() -> [Cell; 8] {
         Cell {
             name: "pool",
             browsers: session::Browsers::Pool,
+            viewer: session::Viewer::Off,
             settings: json!({}),
             removes: &[],
             counts_none_of: &[],
@@ -150,6 +160,7 @@ fn cells() -> [Cell; 8] {
         Cell {
             name: IDENTIFIED,
             browsers: session::Browsers::Pool,
+            viewer: session::Viewer::Off,
             settings: Value::Object(session::identified()),
             removes: &[],
             counts_none_of: &[],
@@ -189,6 +200,7 @@ fn bypass(bypass: &str, home: &Path, work: &CountedWork) -> session::Plant {
 struct Counted {
     name: &'static str,
     browsers: session::Browsers,
+    viewer: session::Viewer,
     session: session::Counted,
     removes: &'static [Row],
     counts_none_of: &'static [Row],
@@ -215,7 +227,14 @@ fn run(cell: Cell, planted: Option<&str>, bypassed: Option<&str>) -> Counted {
     Counted {
         name: cell.name,
         browsers: cell.browsers,
-        session: session::counted(cell.browsers, home.path(), metrics, settings, plant),
+        viewer: cell.viewer,
+        session: session::counted(
+            (cell.browsers, cell.viewer),
+            home.path(),
+            metrics,
+            settings,
+            plant,
+        ),
         removes: cell.removes,
         counts_none_of: cell.counts_none_of,
     }
@@ -236,6 +255,7 @@ fn units(session: &session::Counted) -> Map<String, Value> {
         ("refusals".to_owned(), json!(session.refused)),
         ("checks".to_owned(), json!(session.checks)),
         ("navigations".to_owned(), json!(session.navigations)),
+        ("frames".to_owned(), json!(session.frames)),
     ]);
     units.extend(
         session
@@ -368,6 +388,13 @@ fn main() {
             "the cell {} navigated nowhere",
             cell.name
         );
+        assert_eq!(
+            session.frames > 0,
+            cell.viewer == session::Viewer::On,
+            "the cell {} sent its viewer {} frames",
+            cell.name,
+            session.frames
+        );
         for row in cell.removes {
             assert!(
                 session.count(*row) < default.count(*row),
@@ -376,7 +403,12 @@ fn main() {
                 row.name()
             );
         }
-        for row in cell.counts_none_of {
+        // A planted row is counted in every cell, by its plant.
+        for row in cell
+            .counts_none_of
+            .iter()
+            .filter(|row| Some(row.name()) != planted)
+        {
             assert_eq!(
                 session.work.read(*row),
                 0,

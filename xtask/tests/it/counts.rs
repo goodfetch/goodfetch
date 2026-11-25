@@ -20,11 +20,7 @@ const NOT_RUN_YET: &str = "\
 | `F6.opens` | store opens per delivered batch | 0 | not run yet (#1121) | B1 | must not grow | `just counts --path F6` | implementer done |
 | `F6.transactions` | transactions per delivered batch | 1 | not run yet (#1121) | B1 | must not grow | `just counts --path F6` | implementer done |
 | `F6.writer_reads` | writer reads per delivered batch | 0 | not run yet (#1121) | B1 | must not grow | `just counts --path F6` | implementer done |
-| `C6.file_opens` | files opened per Live view frame | 0 | not run yet (#959) | B2 | must not grow | `just counts --path C6` | implementer done |
-| `C6.compilations` | compilations per Live view frame | 0 | not run yet (#959) | B2 | must not grow | `just counts --path C6` | implementer done |
-| `C6.spawns` | tasks spawned per Live view frame | 0 | not run yet (#959) | B2 | must not grow | `just counts --path C6` | implementer done |
-| `C6.acknowledgements` | acknowledgements per Live view frame | 1 | not run yet (#959) | B2 | must not grow | `just counts --path C6` | implementer done |
-| `C6.seals` | seals per fragment of a relayed viewer's frame | 1 | not run yet (#959) | B2 | must not grow | `just counts --path C6` | implementer done |
+| `C6.seals` | seals per fragment of a relayed viewer's frame | 1 | not run yet (#1646) | B2 | must not grow | `just counts --path C6` | implementer done |
 ";
 
 /// A register whose `F1.parses` holds `today` under a contract of 1.
@@ -667,7 +663,6 @@ fn proving_fails_a_valgrind_row_blind_to_its_plant() {
 #[case::hook_stage("F5")]
 #[case::sink_delivery("F6")]
 #[case::working_copy_update("E7")]
-#[case::live_view_frame("C6")]
 fn a_path_not_built_yet_reports_its_rows_as_not_run(#[case] path: &str) {
     let repository = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()
@@ -956,7 +951,7 @@ fn proving_leaves_a_row_not_run_yet_out() {
 /// B2's rows, as the register holds them: C1's per command, C2's per read or
 /// per document read, C2's two rows whose reads are not built yet, C7's
 /// walks and opening commands per page opened, C4's per navigation, and C5's
-/// per request, pause or refusal.
+/// per request, pause or refusal, and C6's per Live view frame.
 const B2_ROWS: &str = "\
 | `C1.encodes` | encodes per CDP command | 1 | after #1583 | B2 | must not grow | `just counts` | implementer done |
 | `C1.sends` | sends per CDP command | 1 | after #1583 | B2 | must not grow | `just counts` | implementer done |
@@ -987,13 +982,17 @@ const B2_ROWS: &str = "\
 | `C5.cache_file_opens` | body files opened per cache hit | 1 | not run yet (#793) | B2 | must not grow | `xtask counts --path C5` | implementer done |
 | `C5.body_reads` | body reads per recorded response | 1 | not run yet (#1291) | B2 | must not grow | `xtask counts --path C5` | implementer done |
 | `C5.charset_refetches` | second GETs per document on the charset path | ≤ 1 | not run yet (#1783) | B2 | must not grow | `xtask counts --path C5` | implementer done |
+| `C6.file_opens` | files opened per Live view frame | 0 | 0 | B2 | must not grow | `just counts --path C6` | implementer done |
+| `C6.compilations` | compilations per Live view frame | 0 | 0 | B2 | must not grow | `just counts --path C6` | implementer done |
+| `C6.spawns` | tasks spawned per Live view frame | 0 | 0 | B2 | must not grow | `just counts --path C6` | implementer done |
+| `C6.acknowledgements` | acknowledgement commands per Live view frame | 1 | 1 | B2 | must not grow | `just counts --path C6` | implementer done |
 ";
 
 /// A stand-in of B2 over 20 commands, 4 reads, 2 documents, 2 serializations,
 /// 4 fields' reads, 1 page opened in 1 Session,
 /// 4 requests paused 6 times, 2 of them refused, one check and attempt of each
-/// action kind and 3 navigations, each row at its limit, which counts `extra`
-/// more of `planted` when told to plant it.
+/// action kind, 3 navigations and 2 Live view frames, each row at its limit,
+/// which counts `extra` more of `planted` when told to plant it.
 fn b2_benchmark(planted: &str, extra: u64) -> String {
     let counts = [
         ("C1.encodes", 20),
@@ -1024,6 +1023,10 @@ fn b2_benchmark(planted: &str, extra: u64) -> String {
         ("C4.compilations", 0),
         ("C4.script_compilations", 0),
         ("C4.provenance_entries", 4),
+        ("C6.file_opens", 0),
+        ("C6.compilations", 0),
+        ("C6.spawns", 0),
+        ("C6.acknowledgements", 2),
     ]
     .iter()
     .map(|(row, count)| format!("\"{row}\":'$(({count} + $(planted {row})))'"))
@@ -1032,7 +1035,7 @@ fn b2_benchmark(planted: &str, extra: u64) -> String {
     format!(
         "#!/bin/sh\nplant=$2\n\
          planted() {{ if [ \"$1\" = \"$plant\" ] && [ \"$1\" = {planted} ]; then echo {extra}; else echo 0; fi; }}\n\
-         echo '{{\"cell\":\"default\",\"units\":{{\"commands\":20,\"reads\":4,\"documents\":2,\"serializations\":2,\"field_reads\":4,\"pages_opened\":1,\"sessions_opened\":1,\"requests\":4,\"pauses\":6,\"refusals\":2,\"checks\":1,\"click_attempts\":1,\"fill_attempts\":1,\"press_attempts\":1,\"navigations\":3}},\"counts\":{{{counts}}}}}'\n"
+         echo '{{\"cell\":\"default\",\"units\":{{\"commands\":20,\"reads\":4,\"documents\":2,\"serializations\":2,\"field_reads\":4,\"pages_opened\":1,\"sessions_opened\":1,\"requests\":4,\"pauses\":6,\"refusals\":2,\"checks\":1,\"click_attempts\":1,\"fill_attempts\":1,\"press_attempts\":1,\"navigations\":3,\"frames\":2}},\"counts\":{{{counts}}}}}'\n"
     )
 }
 
@@ -1190,43 +1193,58 @@ fn a_plant_goes_to_the_family_of_its_row_alone() {
     );
 }
 
-/// B2's benchmark holds the Live view frame's rows as not run, so the ticket
-/// that gives B2 its viewer cannot leave them saying so.
-#[test]
-fn b2_doing_a_live_view_frames_work_fails_while_its_rows_say_not_run() {
+/// C6's rows on a stand-in of B2: they divide by the frames the default
+/// cell's viewer got, a cell with no viewer has no frame and must do none of
+/// a frame's work, and the relayed frame's row is held as not run.
+#[rstest]
+#[case::each_within_its_limit("none", 0, &[])]
+#[case::an_acknowledgement_more_per_frame("C6.acknowledgements", 1, &["C6.acknowledgements"])]
+#[case::a_file_opened_with_no_viewer("C6.file_opens", 1, &["C6.file_opens"])]
+fn live_view_rows_divide_by_the_frames_its_viewer_got(
+    #[case] plant: &str,
+    #[case] code: i32,
+    #[case] over: &[&str],
+) {
     let workspace = Workspace::from_fixture("empty");
     workspace.write(
         "TESTING.md",
-        format!("{}{B2_ROWS}{C3_ROWS}", register("8")).as_bytes(),
+        format!("{}{B2_ROWS}", register("8")).as_bytes(),
     );
     let b2 = executable_script(
         &workspace,
         "B2.sh",
-        "#!/bin/sh\necho '{\"cell\":\"default\",\"units\":{\"commands\":4,\"reads\":4,\"documents\":2,\"serializations\":2,\"field_reads\":4,\"pages_opened\":1,\"sessions_opened\":1,\"requests\":4,\"pauses\":6,\"refusals\":2,\"checks\":1,\"click_attempts\":1,\"fill_attempts\":1,\"press_attempts\":1,\"navigations\":3},\"counts\":{\"C1.encodes\":4,\"C1.sends\":4,\"C1.file_opens\":6,\"C1.log_sends_off\":4,\"C2.commands\":8,\"C2.world_creations\":4,\"C2.document_worlds\":4,\"C2.serialization_commands\":4,\"C2.read_commands\":8,\"C7.pool_walks\":0,\"C7.opening_commands\":12,\"C7.contexts_created\":0,\"C5.fetch_messages_no_rule\":13,\"C5.spawns\":2,\"C5.file_opens\":4,\"C5.matches\":4,\"C5.answers\":6,\"C5.compilations\":0,\"C5.entries\":2,\"C3.script_sends\":1,\"C3.check_commands\":1,\"C3.commands.click\":6,\"C3.commands.fill\":2,\"C3.commands.press\":4,\"C4.detection_reads\":12,\"C4.compilations\":0,\"C4.script_compilations\":0,\"C4.provenance_entries\":4,\"C6.acknowledgements\":0}}'\n\
-         echo '{\"cell\":\"no_viewer\",\"units\":{\"commands\":4,\"reads\":4,\"documents\":2,\"serializations\":2,\"field_reads\":4,\"pages_opened\":1,\"sessions_opened\":1,\"requests\":4,\"pauses\":6,\"refusals\":2,\"checks\":1,\"click_attempts\":1,\"fill_attempts\":1,\"press_attempts\":1,\"navigations\":3},\"counts\":{\"C1.encodes\":4,\"C1.sends\":4,\"C1.file_opens\":6,\"C1.log_sends_off\":4,\"C2.commands\":8,\"C2.world_creations\":4,\"C2.document_worlds\":4,\"C2.serialization_commands\":4,\"C2.read_commands\":8,\"C7.pool_walks\":0,\"C7.opening_commands\":12,\"C7.contexts_created\":0,\"C5.fetch_messages_no_rule\":13,\"C5.spawns\":2,\"C5.file_opens\":4,\"C5.matches\":4,\"C5.answers\":6,\"C5.compilations\":0,\"C5.entries\":2,\"C3.script_sends\":1,\"C3.check_commands\":1,\"C3.commands.click\":6,\"C3.commands.fill\":2,\"C3.commands.press\":4,\"C4.detection_reads\":12,\"C4.compilations\":0,\"C4.script_compilations\":0,\"C4.provenance_entries\":4,\"C6.acknowledgements\":1}}'\n",
+        "#!/bin/sh\nacknowledgements=4\nopens=0\n\
+         [ \"$2\" = C6.acknowledgements ] && acknowledgements=5\n\
+         [ \"$2\" = C6.file_opens ] && opens=1\n\
+         echo '{\"cell\":\"default\",\"units\":{\"frames\":4},\"counts\":{\"C6.file_opens\":0,\"C6.compilations\":0,\"C6.spawns\":0,\"C6.acknowledgements\":'$acknowledgements'}}'\n\
+         echo '{\"cell\":\"no_viewer\",\"units\":{\"frames\":0},\"counts\":{\"C6.file_opens\":'$opens',\"C6.compilations\":0,\"C6.spawns\":0,\"C6.acknowledgements\":0}}'\n",
     );
+    let executable = format!("B2={}", b2.display());
+    let mut arguments = vec!["counts", "--path", "C6", "--executable", &executable];
+    if plant != "none" {
+        arguments.extend(["--plant", plant]);
+    }
 
-    let outcome = workspace.xtask(&[
-        "counts",
-        "--family",
-        "B2",
-        "--executable",
-        &format!("B2={}", b2.display()),
-    ]);
+    let outcome = workspace.xtask(&arguments);
 
+    assert_eq!(outcome.code, code, "{}\n{}", outcome.stdout, outcome.stderr);
     assert_eq!(
         outcome.findings(),
-        vec![finding("row-listed-as-not-run", "C6.acknowledgements")],
-        "{}",
-        outcome.stderr
+        over.iter()
+            .map(|row| finding("over-limit", row))
+            .collect::<Vec<_>>()
     );
-    assert!(
-        outcome
-            .stdout
-            .contains("C6.acknowledgements: not run yet, limit 1, until #959 builds its path"),
-        "{}",
-        outcome.stdout
-    );
+    let held = [
+        "C6.acknowledgements [default]: 1 per frame, limit 1 (4 over 4)",
+        "C6.file_opens [no_viewer]: no frames in this cell",
+    ];
+    let lines = if plant == "none" { &held[..] } else { &[] };
+    for line in lines
+        .iter()
+        .chain(&["C6.seals: not run yet, limit 1, until #1646 builds its path"])
+    {
+        assert!(outcome.stdout.contains(line), "{line}\n{}", outcome.stdout);
+    }
 }
 
 /// C2's rows on a stand-in of B2: its read rows divide by the reads or the

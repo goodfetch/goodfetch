@@ -1807,7 +1807,10 @@ const SPELLING: Spelling = {
     signingKey: "signing_key",
   }],
   liveView: ["live_view", {
+    enabled: "enabled",
     hiding: "hiding",
+    maxViewers: "max_viewers",
+    tier: "tier",
   }],
   log: ["log", {
     file: ["file", {

@@ -245,7 +245,7 @@ export const collieWire: Wire<keyof CollieOperationTypes & string, keyof CollieE
     "ConsoleLocation": { fields: { "column_number": "columnNumber", "line_number": "lineNumber" } },
     "ConsoleMessage": { fields: { "location": ["location", { type: "ConsoleLocation" }], "page_id": "pageId" } },
     "CpuReading": { fields: { "tokio_busy": "tokioBusy" } },
-    "DaemonState": { fields: { "idle_timeout": "idleTimeout", "kept_alive": "keptAlive", "live_runs": "liveRuns", "product_version": "productVersion" } },
+    "DaemonState": { fields: { "idle_timeout": "idleTimeout", "kept_alive": "keptAlive", "live_runs": "liveRuns", "live_view": "liveView", "product_version": "productVersion" } },
     "DaemonStopping": { fields: { "live_runs": "liveRuns" } },
     "DatasetRecord": { fields: { "committed_at": ["committedAt", "time"], "provenance": ["provenance", { type: "RecordProvenance" }], "request_id": "requestId" } },
     "DeadlineExceededDetails": { fields: { "ended_by": ["endedBy", { type: "EnclosingCall" }], "waited_for": "waitedFor" } },

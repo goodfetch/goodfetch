@@ -15,7 +15,7 @@ mod websocket;
 pub use connection::ListenerAddress;
 pub use runner::{
     AuditUnreadable, AuditVerifier, Endpoint, EndpointRunError, EndpointRunner, Failure, Hello,
-    Listener, Observed, RowFailure,
+    Listener, Observed, Open, RowFailure,
 };
 pub(crate) use table::EndpointTable;
 pub use table::{Expected, ListenerKind, Rule};

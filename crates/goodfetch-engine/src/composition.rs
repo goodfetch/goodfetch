@@ -41,6 +41,7 @@ use crate::client::Client;
 use crate::controls::{Controls, Recorded};
 use crate::engine_context::EngineContext;
 use crate::events::Events;
+use crate::live_view::{LiveView, WatchedSessions};
 use crate::log::ConnectionLog;
 use crate::needs_you::NeedsYouSource;
 use crate::politeness::PolitenessTables;
@@ -176,6 +177,8 @@ pub(crate) trait DaemonSide: Send + Sync {
     /// closing its other Connections with `closing`, which their calls in
     /// flight raise.
     fn stop(&self, closing: CallError) -> Answering<'_, DaemonStopping>;
+    /// The Daemon's Live view, which its Live view channels watch through.
+    fn live_view(&self) -> LiveView;
 }
 
 impl CallContext {
@@ -640,6 +643,7 @@ pub struct Contribution {
     controls: Vec<(&'static Setting, Recorded)>,
     secret_providers: Vec<(Provider, ProviderFactory)>,
     runs_of_calls: Vec<Arc<dyn RunOfCall>>,
+    watched_sessions: Vec<Arc<dyn WatchedSessions>>,
 }
 
 impl Contribution {
@@ -648,6 +652,7 @@ impl Contribution {
         Self {
             secret_providers: Vec::new(),
             runs_of_calls: Vec::new(),
+            watched_sessions: Vec::new(),
             name,
             handlers: Vec::new(),
             run_state_tables: Vec::new(),
@@ -733,6 +738,14 @@ impl Contribution {
     #[must_use]
     pub fn with_run_of_call(mut self, runs: Arc<dyn RunOfCall>) -> Self {
         self.runs_of_calls.push(runs);
+        self
+    }
+
+    /// The same, offering a Daemon's Live view the Sessions `sessions`
+    /// drives (ADR 0031).
+    #[must_use]
+    pub fn with_watched_sessions(mut self, sessions: Arc<dyn WatchedSessions>) -> Self {
+        self.watched_sessions.push(sessions);
         self
     }
 
@@ -948,6 +961,15 @@ impl Composition {
         self.contributions
             .iter()
             .flat_map(|contribution| contribution.runs_of_calls.iter().cloned())
+            .collect()
+    }
+
+    /// The Sessions a Daemon's Live view watches, each contribution's in
+    /// order.
+    pub(crate) fn watched_sessions(&self) -> Arc<[Arc<dyn WatchedSessions>]> {
+        self.contributions
+            .iter()
+            .flat_map(|contribution| contribution.watched_sessions.iter().cloned())
             .collect()
     }
 

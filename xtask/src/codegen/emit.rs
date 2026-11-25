@@ -13,10 +13,11 @@
 //! document and the case log's entry (ADRs 0063 and 0069). Its
 //! `model_provider` holds the types of one model call, which every Model
 //! provider speaks outside the catalog: the request, and each part of the
-//! streamed answer, the last carrying the whole response (ADR 0101). What
-//! later decisions put in the bundle joins here once its types exist,
-//! through the same `xtask codegen`: the Feature inventory schemas (ADR
-//! 0072). The catalog's `exit_codes` is ADR
+//! streamed answer, the last carrying the whole response (ADR 0101). Its
+//! `live_view` holds the path and the messages of the Live view channel,
+//! each way, which no Connection carries (ADR 0149). What later decisions
+//! put in the bundle joins here once its types exist, through the same
+//! `xtask codegen`: the Feature inventory schemas (ADR 0072). The catalog's `exit_codes` is ADR
 //! 0069's exit-code table by exit code, each row `{name, product, code,
 //! description}`, whose names are the `exit:` Features. Its `kind_parts`
 //! lists what a kind of Run adds to an entry's value, such as a crawl's
@@ -63,6 +64,7 @@ use goodfetch_protocol::foxhound::frontier::{EnqueuedBatch, SeedBatch};
 use goodfetch_protocol::journey::{Journey, JourneyCatalog};
 use goodfetch_protocol::jsonrpc::{META, ProtocolFailure, RequestMeta};
 use goodfetch_protocol::key_value_store::KeyValueStoreKey;
+use goodfetch_protocol::live_view::{CHANNEL_PATH, LiveViewEngineMessage, LiveViewViewerMessage};
 use goodfetch_protocol::log::LogEvent;
 use goodfetch_protocol::model::{ModelRequest, ModelResponsePart};
 use goodfetch_protocol::page::Chunk;
@@ -134,6 +136,11 @@ pub(super) fn emit() -> Emitted {
         "request": generator.subschema_for::<ModelRequest>(),
         "response_part": generator.subschema_for::<ModelResponsePart>(),
     });
+    let live_view = json!({
+        "path": CHANNEL_PATH,
+        "viewer": generator.subschema_for::<LiveViewViewerMessage>(),
+        "engine": generator.subschema_for::<LiveViewEngineMessage>(),
+    });
     let mut definitions = generator.take_definitions(true);
     for params in sections
         .request_params()
@@ -166,6 +173,7 @@ pub(super) fn emit() -> Emitted {
                 "case_log_entry": case_log_entry,
             },
             "model_provider": model_provider,
+            "live_view": live_view,
             "$defs": definitions,
         }),
         catalog: sections.into_catalog(&exit_codes, &protocol_failures),

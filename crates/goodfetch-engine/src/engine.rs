@@ -126,6 +126,7 @@ impl Engine {
                 masks: Masks::new(),
                 metrics: metrics.clone(),
                 runs_of_calls: composition.runs_of_calls(),
+                watched_sessions: composition.watched_sessions(),
             }),
             tables: composition.run_state_tables(),
             driving: composition.driving(),

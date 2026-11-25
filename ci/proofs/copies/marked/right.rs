@@ -1,7 +1,9 @@
 //! A fixture of the copy check's proof (ci/proofs/run.sh): its function is
 //! the same in both files of this folder.
 
-// jscpd:ignore-start: the proof's deliberate copy.
+// The proof's deliberate copy (issue 3776): the check must allow a copy
+// between jscpd's markers, so this side cannot share the other's code.
+// jscpd:ignore-start
 pub fn sum_right(text: &str) -> Result<(u64, usize), String> {
     let mut total = 0_u64;
     let mut longest = 0_usize;

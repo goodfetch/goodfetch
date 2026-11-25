@@ -12,8 +12,11 @@
 #                           (`just copies-shrink`); it never adds one
 #
 # A copy a decision asks for is not listed: it sits between
-# `// jscpd:ignore-start` and `// jscpd:ignore-end`, with a comment that names
-# the decision, where a review reads it.
+# `// jscpd:ignore-start` and `// jscpd:ignore-end`, under a comment that
+# names the decision, where a review reads it. A marker with no comment on
+# the line above it is refused. The list and this script are files of the
+# gate (TESTING.md, Floor): a commit that edits either carries a
+# `Quality-change` trailer naming it.
 #
 # Left out: generated code, tests, benches, fixtures, the test-support and
 # conformance crates, and the two Rust SDK crates, whose façades mirror each
@@ -35,6 +38,11 @@ scanned=${1:-crates}
 list=${2:-ci/copies.json}
 
 left_out='**/generated/**,**/tests/**,**/benches/**,**/fixtures/**,**/test/**,**/dist/**,**/tests.rs,**/goodfetch-test-support/**,**/goodfetch-conformance/**,**/goodfetch-collie/src/**,**/goodfetch-foxhound/src/**'
+
+if [[ ! -f $list ]]; then
+  echo "error[copies] no list of known copies at $list" >&2
+  exit 2
+fi
 
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
@@ -66,16 +74,28 @@ if [[ $shrink == 1 ]]; then
 fi
 
 failed=0
+# A marker whose line above is no comment names no decision.
+unexplained=$({ grep -rl --include='*.rs' 'jscpd:ignore-start' "$scanned" || true; } | sort | while IFS= read -r file; do
+  awk -v file="$file" '
+    /jscpd:ignore-start/ && above !~ /^[[:space:]]*\/\/[[:space:]]*[^[:space:]]/ {
+      print "error[copies] " file ":" FNR ": the marker has no comment above it that names the decision"
+    }
+    { above = $0 }' "$file"
+done)
+if [[ -n $unexplained ]]; then
+  echo "$unexplained" >&2
+  failed=1
+fi
 unlisted=$(jq -r --arg root "$scanned" '.duplicates[] | select(.isNew)
   | "error[copies] \($root)/\(.firstFile.name):\(.firstFile.start)-\(.firstFile.end) copies \($root)/\(.secondFile.name):\(.secondFile.start)-\(.secondFile.end) (\(.lines) lines)"' \
   "$work/jscpd-report.json")
 if [[ -n $unlisted ]]; then
   echo "$unlisted" >&2
-  echo "Use the code that is already there. A copy a decision asks for goes between \`// jscpd:ignore-start\` and \`// jscpd:ignore-end\`, with a comment that names the decision (ci/copies.sh)." >&2
+  echo "Use the code that is already there. A copy a decision asks for goes between \`// jscpd:ignore-start\` and \`// jscpd:ignore-end\`, under a comment that names the decision (STYLE.md, Lints, formatting and toolchain)." >&2
   failed=1
 fi
 if [[ $gone != 0 ]]; then
-  echo "error[copies] $gone of the copies in $list are gone from the tree: run \`just copies-shrink\` and commit the list" >&2
+  echo "error[copies] $gone of the copies in $list are gone from the tree: run \`just copies-shrink\` and commit the list with a \`Quality-change: $list: <what removed the copy>\` trailer" >&2
   failed=1
 fi
 exit "$failed"

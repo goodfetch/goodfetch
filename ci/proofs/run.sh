@@ -206,7 +206,8 @@ fi
 
 # A copy of Rust code the tree already holds (ci/copies.sh): refused, with
 # both sides named, when the list does not hold it; allowed between jscpd's
-# markers or when listed; and a listed copy the tree lacks is refused too.
+# markers under a comment, or when listed; markers no comment explains are
+# refused, and so is a listed copy the tree lacks.
 copies() { ci/copies.sh "ci/proofs/copies/$1" "ci/proofs/copies/$2.json" 2>&1; }
 if output=$(copies pair empty); then
   fail copies "a copy the list does not hold passed"
@@ -214,6 +215,10 @@ elif ! grep -q 'pair/left.rs:4-26 copies ci/proofs/copies/pair/right.rs:4-26' <<
   fail copies "the refusal does not name both sides: $output"
 elif ! copies marked empty >/dev/null; then
   fail copies "a copy between jscpd's markers was refused"
+elif output=$(copies bare empty); then
+  fail copies "a marker with no comment above it passed"
+elif ! grep -q 'bare/right.rs:5: the marker has no comment above it' <<<"$output"; then
+  fail copies "the bare marker failed for another reason: $output"
 elif ! copies pair pair >/dev/null; then
   fail copies "a listed copy was refused"
 elif output=$(copies marked pair); then
@@ -221,7 +226,7 @@ elif output=$(copies marked pair); then
 elif ! grep -q 'are gone from the tree' <<<"$output"; then
   fail copies "the stale list failed for another reason: $output"
 else
-  pass "the copy check refuses an unlisted copy and a stale list, and allows a marked or a listed copy"
+  pass "the copy check refuses an unlisted copy, an unexplained marker and a stale list, and allows an explained or a listed copy"
 fi
 
 # The TypeScript escapes: an explicit `any`, a non-null assertion, and a

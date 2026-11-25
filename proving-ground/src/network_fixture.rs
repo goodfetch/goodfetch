@@ -6,7 +6,8 @@
 //! lists, which a page's STUN and TURN servers over UDP name, so a test sees
 //! that no UDP left around a Session's proxy (ADR 0044).
 //!
-//! The proxies are `open`, `refusing_tunnels` (it refuses `CONNECT`),
+//! The proxies are `open`, `open_tls` (the open one as an `https://`
+//! proxy, named `tls-proxy.test`), `refusing_tunnels` (it refuses `CONNECT`),
 //! `limited` (one page request at a time, until it read the site's
 //! answer, `429` to any other meanwhile; a robots.txt or an icon goes
 //! uncounted),
@@ -64,16 +65,18 @@ pub(crate) struct NetworkFixtures {
 
 impl NetworkFixtures {
     /// Binds every fixture on port 0 of the site's address `site`, recording
-    /// into `observations`.
+    /// into `observations`, the `https://` proxy under `tls`.
     pub(crate) async fn bind(
         site: IpAddr,
         seed: u64,
         observations: Arc<Observations>,
+        tls: Arc<rustls::ServerConfig>,
     ) -> Result<Self> {
         let host = reachable(site);
         let zone = Arc::new(Zone::new(observations.hosts().keys(), host));
         let mut proxies = vec![
             ForwardProxy::bind(host, Proxy::single("open", Access::Open)).await?,
+            ForwardProxy::bind_tls(host, Proxy::single("open_tls", Access::Open), tls).await?,
             ForwardProxy::bind(
                 host,
                 Proxy::single("refusing_tunnels", Access::RefusingTunnels),

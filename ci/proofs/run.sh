@@ -211,6 +211,15 @@ else
   fail ruff "findings: ${codes:-none}"
 fi
 
+# An exception swallowed in silence, and code kept in a comment.
+codes=$(uv run ruff check --no-cache --output-format json ci/proofs/ruff/silences.py 2>/dev/null |
+  jq -r '.[].code | select(test("^(S110|S112|ERA001)$"))' | tally | tr '\n' ' ')
+if [[ "$codes" == "1 ERA001 1 S110 1 S112 " ]]; then
+  pass "ruff refuses an except that only passes, one that only continues, and commented-out code"
+else
+  fail ruff-silences "findings: ${codes:-none}"
+fi
+
 # Each snapshot proof fails for its own reason, the message its tool gives
 # that fault, and writes nothing.
 snapshot_proof() {

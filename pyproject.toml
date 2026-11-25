@@ -107,7 +107,7 @@ norecursedirs = [".*", "rnd", "ci", "fixtures", "node_modules", "target"]
 extend-exclude = ["rnd", "ci/proofs", "**/generated", "**/fixtures"]
 
 [tool.ruff.lint]
-select = ["E", "F", "I", "UP", "B", "C4", "ARG", "T20", "TID251", "PERF", "RUF", "ANN", "PYI", "TC", "ASYNC", "D"]
+select = ["E", "F", "I", "UP", "B", "C4", "ARG", "T20", "TID251", "PERF", "RUF", "ANN", "PYI", "TC", "ASYNC", "D", "S110", "S112", "ERA001"]
 ignore = ["D206", "D300"]
 
 # ASYNC109 asks async functions for no `timeout` parameter, which ADR 0080

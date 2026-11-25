@@ -500,8 +500,7 @@ impl WorkItemLease {
             staging.open(&self.0.work_item, epoch);
             if robots_txt.is_some() {
                 staging.fetched(
-                    &self.0.work_item,
-                    epoch,
+                    AttemptKey::new(&*self.0.work_item, epoch),
                     Fetched {
                         robots_txt,
                         ..Fetched::default()
@@ -517,18 +516,13 @@ impl WorkItemLease {
     /// `discovered_api` run, or the Record stage's Hooks); `None` once the
     /// attempt ended.
     pub(crate) fn set_aside(&self) -> Option<SetAside> {
-        let epoch = self.0.state.borrow().lease.epoch();
-        self.0.leases.staging.set_aside(&self.0.work_item, epoch)
+        self.0.leases.staging.set_aside(self.attempt())
     }
 
     /// Puts back what [`WorkItemLease::set_aside`] set aside, what was
     /// staged since discarded.
     pub(crate) fn put_back(&self, set_aside: SetAside) {
-        let epoch = self.0.state.borrow().lease.epoch();
-        self.0
-            .leases
-            .staging
-            .put_back(&self.0.work_item, epoch, set_aside);
+        self.0.leases.staging.put_back(self.attempt(), set_aside);
     }
 
     /// Notes that its request's URL is one its origin's robots.txt
@@ -536,10 +530,8 @@ impl WorkItemLease {
     /// off, which the Provenance of each Record it commits marks (ADR
     /// 0086).
     pub(crate) fn robots_txt_ignored(&self) {
-        let epoch = self.0.state.borrow().lease.epoch();
         self.0.leases.staging.fetched(
-            &self.0.work_item,
-            epoch,
+            self.attempt(),
             Fetched {
                 robots_txt: Some(RobotsTxtMark::Ignored),
                 ..Fetched::default()
@@ -550,21 +542,18 @@ impl WorkItemLease {
     /// Notes how its attempt's run fetched its document, which the
     /// Provenance of each Record it commits names.
     pub(crate) fn fetched(&self, fetched: Fetched) {
-        let epoch = self.0.state.borrow().lease.epoch();
-        self.0
-            .leases
-            .staging
-            .fetched(&self.0.work_item, epoch, fetched);
+        self.0.leases.staging.fetched(self.attempt(), fetched);
     }
 
     /// Notes what its attempt read of its page's fields, which the
     /// Provenance of the Record it commits names (ADR 0123).
     pub(crate) fn fields_read(&self, fields: FieldsRead) {
-        let epoch = self.0.state.borrow().lease.epoch();
-        self.0
-            .leases
-            .staging
-            .fields_read(&self.0.work_item, epoch, fields);
+        self.0.leases.staging.fields_read(self.attempt(), fields);
+    }
+
+    /// Its attempt: its work item under the lease epoch it holds now.
+    fn attempt(&self) -> AttemptKey<&str> {
+        AttemptKey::new(&*self.0.work_item, self.0.state.borrow().lease.epoch())
     }
 
     /// What its attempt staged so far, which stays staged.

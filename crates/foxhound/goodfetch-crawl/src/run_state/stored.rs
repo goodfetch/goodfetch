@@ -427,7 +427,7 @@ impl Stored {
         Ok(answered.map(|answered| {
             answered.map(|admitted| {
                 self.staging
-                    .suspected(work_item, lease_epoch, admitted.suspected);
+                    .suspected(AttemptKey::new(work_item, lease_epoch), admitted.suspected);
                 admitted.links
             })
         }))

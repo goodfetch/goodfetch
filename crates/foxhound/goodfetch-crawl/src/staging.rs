@@ -345,26 +345,22 @@ impl Staging {
             .unwrap_or_default()
     }
 
-    /// Sets aside what the attempt of `work_item` under `lease_epoch`
-    /// staged so far and stages anew, while a run whose staging is then
-    /// discarded runs after it: a sample's `discovered_api` run, which
-    /// needs the browser's run before it (ADR 0103), or the Record stage's
-    /// Hooks, which read its Records where they are (ADR 0104). `None`
-    /// once the attempt ended.
-    pub(crate) fn set_aside(&self, work_item: &str, lease_epoch: u64) -> Option<SetAside> {
+    /// Sets aside what `attempt` staged so far and stages anew, while a run
+    /// whose staging is then discarded runs after it: a sample's
+    /// `discovered_api` run, which needs the browser's run before it (ADR
+    /// 0103), or the Record stage's Hooks, which read its Records where
+    /// they are (ADR 0104). `None` once the attempt ended.
+    pub(crate) fn set_aside(&self, attempt: AttemptKey<&str>) -> Option<SetAside> {
         let mut entries = self.entries();
-        let entry = entries.get_mut(&AttemptKey::of(work_item, lease_epoch))?;
+        let entry = entries.get_mut(&attempt.owned())?;
         Some(SetAside(std::mem::take(entry)))
     }
 
     /// Puts back what [`Staging::set_aside`] set aside, in place of what
-    /// the attempt staged since, which is discarded; nothing once the
-    /// attempt ended.
-    pub(crate) fn put_back(&self, work_item: &str, lease_epoch: u64, set_aside: SetAside) {
-        if let Some(entry) = self
-            .entries()
-            .get_mut(&AttemptKey::of(work_item, lease_epoch))
-        {
+    /// `attempt` staged since, which is discarded; nothing once the attempt
+    /// ended.
+    pub(crate) fn put_back(&self, attempt: AttemptKey<&str>, set_aside: SetAside) {
+        if let Some(entry) = self.entries().get_mut(&attempt.owned()) {
             *entry = set_aside.0;
         }
     }
@@ -385,15 +381,11 @@ impl Staging {
             .unwrap_or_default()
     }
 
-    /// Notes how the attempt of `work_item` under `lease_epoch` fetched its
-    /// run's document, in place of what an earlier run of it noted, its
-    /// robots.txt mark kept unless `fetched` names one; nothing once the
-    /// attempt ended.
-    pub(crate) fn fetched(&self, work_item: &str, lease_epoch: u64, fetched: Fetched) {
-        if let Some(entry) = self
-            .entries()
-            .get_mut(&AttemptKey::of(work_item, lease_epoch))
-        {
+    /// Notes how `attempt` fetched its run's document, in place of what an
+    /// earlier run of it noted, its robots.txt mark kept unless `fetched`
+    /// names one; nothing once the attempt ended.
+    pub(crate) fn fetched(&self, attempt: AttemptKey<&str>, fetched: Fetched) {
+        if let Some(entry) = self.entries().get_mut(&attempt.owned()) {
             let robots_txt = fetched.robots_txt.or(entry.fetched.robots_txt);
             entry.fetched = Fetched {
                 robots_txt,
@@ -402,32 +394,23 @@ impl Staging {
         }
     }
 
-    /// Notes that an admission the attempt of `work_item` under
-    /// `lease_epoch` staged added `suspected`, each request with its URL,
-    /// through links suspected traps, for the Provenance its commit writes;
-    /// nothing once the attempt ended.
+    /// Notes that an admission `attempt` staged added `suspected`, each
+    /// request with its URL, through links suspected traps, for the
+    /// Provenance its commit writes; nothing once the attempt ended.
     pub(crate) fn suspected(
         &self,
-        work_item: &str,
-        lease_epoch: u64,
+        attempt: AttemptKey<&str>,
         suspected: impl IntoIterator<Item = (String, String)>,
     ) {
-        if let Some(entry) = self
-            .entries()
-            .get_mut(&AttemptKey::of(work_item, lease_epoch))
-        {
+        if let Some(entry) = self.entries().get_mut(&attempt.owned()) {
             entry.suspected.extend(suspected);
         }
     }
 
-    /// Notes what the attempt of `work_item` under `lease_epoch` read of
-    /// its page's fields, in place of what an earlier run of it noted;
-    /// nothing once the attempt ended.
-    pub(crate) fn fields_read(&self, work_item: &str, lease_epoch: u64, fields: FieldsRead) {
-        if let Some(entry) = self
-            .entries()
-            .get_mut(&AttemptKey::of(work_item, lease_epoch))
-        {
+    /// Notes what `attempt` read of its page's fields, in place of what an
+    /// earlier run of it noted; nothing once the attempt ended.
+    pub(crate) fn fields_read(&self, attempt: AttemptKey<&str>, fields: FieldsRead) {
+        if let Some(entry) = self.entries().get_mut(&attempt.owned()) {
             entry.fields = fields;
         }
     }
@@ -662,17 +645,19 @@ impl AttemptWrites for Staging {
         lease_epoch: u64,
         key: &str,
     ) -> Result<StagedKey, Unstaged> {
+        let attempt = AttemptKey::new(crawl_request_id, lease_epoch);
         self.entries()
-            .get(&AttemptKey::of(crawl_request_id, lease_epoch))
+            .get(&attempt.owned())
             .map(|entry| last_of(&entry.writes, key))
-            .ok_or_else(|| ended(AttemptKey::new(crawl_request_id, lease_epoch)))
+            .ok_or_else(|| ended(attempt))
     }
 
     fn begin_effect(&self, crawl_request_id: &str, lease_epoch: u64) -> Result<(), Unstaged> {
+        let attempt = AttemptKey::new(crawl_request_id, lease_epoch);
         self.entries()
-            .get_mut(&AttemptKey::of(crawl_request_id, lease_epoch))
+            .get_mut(&attempt.owned())
             .map(|entry| entry.effects += 1)
-            .ok_or_else(|| ended(AttemptKey::new(crawl_request_id, lease_epoch)))?;
+            .ok_or_else(|| ended(attempt))?;
         self.declaring().insert(crawl_request_id.to_owned());
         Ok(())
     }

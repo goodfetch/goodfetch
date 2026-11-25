@@ -17068,6 +17068,150 @@
       ],
       "type": "object"
     },
+    "ResponseCacheEntry": {
+      "additionalProperties": false,
+      "description": "One entry of the Response cache's index, as its rows hold it (ADR\n0046): the request it answers, the response's head, where its body\nlies and which Run fetched it.",
+      "properties": {
+        "body_sha256": {
+          "arrived_in": "0.1",
+          "description": "The SHA-256 of its body, as lower-case hex: the name of its body\nfile.",
+          "type": "string"
+        },
+        "body_size": {
+          "arrived_in": "0.1",
+          "description": "Its body's length in bytes.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "country": {
+          "arrived_in": "0.1",
+          "description": "The proxy's exit country it was fetched through, as the Proxy\ndeclares it; empty when it left directly or the Proxy declares none.",
+          "type": "string"
+        },
+        "device": {
+          "arrived_in": "0.1",
+          "description": "The Identity profile's device class it was fetched with, `desktop`\nor `mobile`; empty without one.",
+          "type": "string"
+        },
+        "fetched_at": {
+          "arrived_in": "0.1",
+          "description": "When the response was received, which its freshness counts from.",
+          "format": "date-time",
+          "type": "string"
+        },
+        "language": {
+          "arrived_in": "0.1",
+          "description": "The Identity profile's language it was fetched with; empty without\none.",
+          "type": "string"
+        },
+        "method": {
+          "arrived_in": "0.1",
+          "description": "The request's method.",
+          "type": "string"
+        },
+        "partition": {
+          "arrived_in": "0.1",
+          "description": "Its partition: `public` for a response sent with no cookie or\ncredential, which set no cookie and is not `private`.",
+          "type": "string"
+        },
+        "person": {
+          "arrived_in": "0.1",
+          "description": "The person it was fetched for, on a shared Daemon the partition's\nperson (ADR 0031).",
+          "type": "string"
+        },
+        "request_headers": {
+          "arrived_in": "0.1",
+          "description": "The request headers the response's `Vary` names, and the request's\n`host`, as the request sent them: names in lower case.",
+          "items": {
+            "maxItems": 2,
+            "minItems": 2,
+            "prefixItems": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "string"
+              }
+            ],
+            "type": "array"
+          },
+          "type": "array"
+        },
+        "response_headers": {
+          "arrived_in": "0.1",
+          "description": "The response's headers, names in lower case, in the order received.",
+          "items": {
+            "maxItems": 2,
+            "minItems": 2,
+            "prefixItems": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "string"
+              }
+            ],
+            "type": "array"
+          },
+          "type": "array"
+        },
+        "run_id": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RunId"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "The Run that fetched it; none outside a Run."
+        },
+        "status": {
+          "arrived_in": "0.1",
+          "description": "The response's status.",
+          "format": "uint16",
+          "maximum": 65535,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "url": {
+          "arrived_in": "0.1",
+          "description": "The request's URL, without its fragment.",
+          "type": "string"
+        },
+        "used_at": {
+          "arrived_in": "0.1",
+          "description": "When it was last stored or served.",
+          "format": "date-time",
+          "type": "string"
+        },
+        "vary_key": {
+          "arrived_in": "0.1",
+          "description": "The SHA-256 of the request headers the response's `Vary` names, as\nlower-case hex: the variant of the URL it answers.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "partition",
+        "person",
+        "country",
+        "language",
+        "device",
+        "method",
+        "url",
+        "vary_key",
+        "request_headers",
+        "status",
+        "response_headers",
+        "fetched_at",
+        "body_sha256",
+        "body_size",
+        "used_at"
+      ],
+      "type": "object"
+    },
     "ResponseLimitExceededDetails": {
       "description": "What `response_limit_exceeded` details.",
       "properties": {
@@ -24543,6 +24687,16 @@
     },
     {
       "hello_from": [],
+      "name": "response-cache",
+      "rule": "run_without",
+      "schema": {
+        "$ref": "#/$defs/ResponseCacheEntry"
+      },
+      "storage": "sqlite",
+      "version": "0.1"
+    },
+    {
+      "hello_from": [],
       "name": "operator-policy",
       "rule": "shared_store",
       "schema": {
@@ -24610,6 +24764,22 @@
                       }
                     ],
                     "description": "How long a Pinned artifact no installed executable pins stays in the Browser cache unused before the clean-up deletes it, and how long an executable's entry counts as installed after it was last seen: 30 days. `null` turns the automatic clean-up off. Set in user configuration or an Operator policy only."
+                  }
+                },
+                "type": "object"
+              },
+              "cache": {
+                "additionalProperties": false,
+                "properties": {
+                  "max_age_ceiling": {
+                    "description": "How long the Response cache keeps an entry, whatever its freshness: 30 days, after which it is deleted in every mode. Set in user configuration or an Operator policy only.",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "max_size": {
+                    "description": "The most bytes the Response cache keeps for a user, its index and its bodies together: 10 GB, beyond which the least recently used entries are evicted. Set in user configuration or an Operator policy only.",
+                    "minimum": 0,
+                    "type": "integer"
                   }
                 },
                 "type": "object"
@@ -25587,6 +25757,29 @@
                   "read_only": {
                     "description": "Whether a Run's Chromium launches only read the Browser cache: `false` by default. When on, a build with its pinned digest is launched with no use recorded, a build of the wrong digest is refused with `browser_not_installed` and left in place, and a missing build is never downloaded: `artifact_unavailable_offline` under `egress.offline`, `browser_not_installed` otherwise. The engine then writes no file of its own in the cache, its write check's included; the browser still writes in its build's files as it does at every launch. Each Product's testing kit turns it on, so a test leaves the caller's cache as it found it.",
                     "type": "boolean"
+                  }
+                },
+                "type": "object"
+              },
+              "cache": {
+                "additionalProperties": false,
+                "properties": {
+                  "max_age_ceiling": {
+                    "description": "How long the Response cache keeps an entry, whatever its freshness: 30 days, after which it is deleted in every mode. Set in user configuration or an Operator policy only.",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "max_size": {
+                    "description": "The most bytes the Response cache keeps for a user, its index and its bodies together: 10 GB, beyond which the least recently used entries are evicted. Set in user configuration or an Operator policy only.",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "mode": {
+                    "description": "What the per-user Response cache does: `off` (the default) stores and serves nothing, so a run never serves a stale page silently; `revalidate` stores GET and HEAD responses sent with no cookie or credential, whose response sets no cookie and is not `private`, serves a fresh one with no request and revalidates a stale one with `ETag` and `Last-Modified` under RFC 9111, serving the stored body on a 304. The key is the method, the URL without its fragment and the request headers the response's `Vary` names; a `Vary: *` response is never stored. An engine that finds a cache written by a newer format runs without it, reading and writing nothing. When a site's service worker answers a request the Response cache must serve, set `browser.service_workers` to `block` (ADR 0121).",
+                    "enum": [
+                      "off",
+                      "revalidate"
+                    ]
                   }
                 },
                 "type": "object"
@@ -29648,6 +29841,29 @@
                   "read_only": {
                     "description": "Whether a Run's Chromium launches only read the Browser cache: `false` by default. When on, a build with its pinned digest is launched with no use recorded, a build of the wrong digest is refused with `browser_not_installed` and left in place, and a missing build is never downloaded: `artifact_unavailable_offline` under `egress.offline`, `browser_not_installed` otherwise. The engine then writes no file of its own in the cache, its write check's included; the browser still writes in its build's files as it does at every launch. Each Product's testing kit turns it on, so a test leaves the caller's cache as it found it.",
                     "type": "boolean"
+                  }
+                },
+                "type": "object"
+              },
+              "cache": {
+                "additionalProperties": false,
+                "properties": {
+                  "max_age_ceiling": {
+                    "description": "How long the Response cache keeps an entry, whatever its freshness: 30 days, after which it is deleted in every mode. Set in user configuration or an Operator policy only.",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "max_size": {
+                    "description": "The most bytes the Response cache keeps for a user, its index and its bodies together: 10 GB, beyond which the least recently used entries are evicted. Set in user configuration or an Operator policy only.",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "mode": {
+                    "description": "What the per-user Response cache does: `off` (the default) stores and serves nothing, so a run never serves a stale page silently; `revalidate` stores GET and HEAD responses sent with no cookie or credential, whose response sets no cookie and is not `private`, serves a fresh one with no request and revalidates a stale one with `ETag` and `Last-Modified` under RFC 9111, serving the stored body on a 304. The key is the method, the URL without its fragment and the request headers the response's `Vary` names; a `Vary: *` response is never stored. An engine that finds a cache written by a newer format runs without it, reading and writing nothing. When a site's service worker answers a request the Response cache must serve, set `browser.service_workers` to `block` (ADR 0121).",
+                    "enum": [
+                      "off",
+                      "revalidate"
+                    ]
                   }
                 },
                 "type": "object"
@@ -33725,6 +33941,29 @@
                   "read_only": {
                     "description": "Whether a Run's Chromium launches only read the Browser cache: `false` by default. When on, a build with its pinned digest is launched with no use recorded, a build of the wrong digest is refused with `browser_not_installed` and left in place, and a missing build is never downloaded: `artifact_unavailable_offline` under `egress.offline`, `browser_not_installed` otherwise. The engine then writes no file of its own in the cache, its write check's included; the browser still writes in its build's files as it does at every launch. Each Product's testing kit turns it on, so a test leaves the caller's cache as it found it.",
                     "type": "boolean"
+                  }
+                },
+                "type": "object"
+              },
+              "cache": {
+                "additionalProperties": false,
+                "properties": {
+                  "max_age_ceiling": {
+                    "description": "How long the Response cache keeps an entry, whatever its freshness: 30 days, after which it is deleted in every mode. Set in user configuration or an Operator policy only.",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "max_size": {
+                    "description": "The most bytes the Response cache keeps for a user, its index and its bodies together: 10 GB, beyond which the least recently used entries are evicted. Set in user configuration or an Operator policy only.",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "mode": {
+                    "description": "What the per-user Response cache does: `off` (the default) stores and serves nothing, so a run never serves a stale page silently; `revalidate` stores GET and HEAD responses sent with no cookie or credential, whose response sets no cookie and is not `private`, serves a fresh one with no request and revalidates a stale one with `ETag` and `Last-Modified` under RFC 9111, serving the stored body on a 304. The key is the method, the URL without its fragment and the request headers the response's `Vary` names; a `Vary: *` response is never stored. An engine that finds a cache written by a newer format runs without it, reading and writing nothing. When a site's service worker answers a request the Response cache must serve, set `browser.service_workers` to `block` (ADR 0121).",
+                    "enum": [
+                      "off",
+                      "revalidate"
+                    ]
                   }
                 },
                 "type": "object"

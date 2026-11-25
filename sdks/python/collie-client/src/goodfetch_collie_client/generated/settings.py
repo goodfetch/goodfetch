@@ -68,6 +68,16 @@ class ConnectionBrowserCacheSettings(TypedDict):
     """
 
 
+class ConnectionCacheSettings(TypedDict):
+    """The `cache` settings of `Settings`."""
+
+    mode: NotRequired[Literal["off", "revalidate"]]
+    """What the per-user Response cache does: `off` (the default) stores and serves nothing, so a run never serves a stale page silently; `revalidate` stores GET and HEAD responses sent with no cookie or credential, whose response sets no cookie and is not `private`, serves a fresh one with no request and revalidates a stale one with `ETag` and `Last-Modified` under RFC 9111, serving the stored body on a 304. The key is the method, the URL without its fragment and the request headers the response's `Vary` names; a `Vary: *` response is never stored. An engine that finds a cache written by a newer format runs without it, reading and writing nothing. When a site's service worker answers a request the Response cache must serve, set `browser.service_workers` to `block` (ADR 0121).
+
+    `cache.mode`.
+    """
+
+
 class ConnectionCheckpointSettings(TypedDict):
     """The `checkpoint` settings of `Settings`."""
 
@@ -1046,6 +1056,8 @@ class Settings(TypedDict):
 
     browser_cache: NotRequired[ConnectionBrowserCacheSettings]
 
+    cache: NotRequired[ConnectionCacheSettings]
+
     checkpoint: NotRequired[ConnectionCheckpointSettings]
 
     clean_up: NotRequired[ConnectionCleanUpSettings]
@@ -1156,6 +1168,16 @@ class RunBrowserCacheSettings(TypedDict):
     """Whether a Run's Chromium launches only read the Browser cache: `false` by default. When on, a build with its pinned digest is launched with no use recorded, a build of the wrong digest is refused with `browser_not_installed` and left in place, and a missing build is never downloaded: `artifact_unavailable_offline` under `egress.offline`, `browser_not_installed` otherwise. The engine then writes no file of its own in the cache, its write check's included; the browser still writes in its build's files as it does at every launch. Each Product's testing kit turns it on, so a test leaves the caller's cache as it found it.
 
     `browser_cache.read_only`.
+    """
+
+
+class RunCacheSettings(TypedDict):
+    """The `cache` settings of `RunSettings`."""
+
+    mode: NotRequired[Literal["off", "revalidate"]]
+    """What the per-user Response cache does: `off` (the default) stores and serves nothing, so a run never serves a stale page silently; `revalidate` stores GET and HEAD responses sent with no cookie or credential, whose response sets no cookie and is not `private`, serves a fresh one with no request and revalidates a stale one with `ETag` and `Last-Modified` under RFC 9111, serving the stored body on a 304. The key is the method, the URL without its fragment and the request headers the response's `Vary` names; a `Vary: *` response is never stored. An engine that finds a cache written by a newer format runs without it, reading and writing nothing. When a site's service worker answers a request the Response cache must serve, set `browser.service_workers` to `block` (ADR 0121).
+
+    `cache.mode`.
     """
 
 
@@ -1903,6 +1925,8 @@ class RunSettings(TypedDict):
     browser: NotRequired[RunBrowserSettings]
 
     browser_cache: NotRequired[RunBrowserCacheSettings]
+
+    cache: NotRequired[RunCacheSettings]
 
     checkpoint: NotRequired[RunCheckpointSettings]
 

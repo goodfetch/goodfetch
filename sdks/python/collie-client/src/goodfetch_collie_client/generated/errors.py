@@ -957,6 +957,14 @@ class ProxyUnavailableError(UnavailableError):
         self.typed_details = details_of(ProxyUnavailableDetails, self.details)
 
 
+class ReplayNotAllowedError(ProgramError):
+    """A Schedule's target sets `cache.mode` to `replay`, whose replayed pages would hide a change from the Baseline. Set `revalidate` or `off` for a scheduled target."""
+
+    def __init__(self, message: str, **fields: Unpack[ErrorFields]) -> None:
+        """Takes the message the engine rendered, and what it carries."""
+        super().__init__(message, code="replay_not_allowed", group="program", retryable=False, **fields)
+
+
 class ResourcesExhaustedError(UnavailableError):
     """The engine ran out of memory or storage for the Run: it checkpointed and stopped it, or refused to start it where its run file would go. The details name the `resource`. Resume it once memory or space frees up, on an engine with a larger allowance, or with lower ceilings."""
 
@@ -1499,6 +1507,7 @@ ERROR_CLASSES: Final[Mapping[str, ErrorClass]] = {
     "proxy_provider_unavailable": ProxyProviderUnavailableError,
     "proxy_relay_unavailable": ProxyRelayUnavailableError,
     "proxy_unavailable": ProxyUnavailableError,
+    "replay_not_allowed": ReplayNotAllowedError,
     "resources_exhausted": ResourcesExhaustedError,
     "response_limit_exceeded": ResponseLimitExceededError,
     "response_not_json": ResponseNotJSONError,

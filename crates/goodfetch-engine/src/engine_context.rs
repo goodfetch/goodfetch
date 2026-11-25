@@ -1,9 +1,8 @@
 //! What one engine's Runs and handlers are given, built once at its start
 //! (ADR 0059): the Goodfetch home, the clock, the engine's settings, the
-//! user's Audit log, known-certificates store, Usage ledger and Run index,
-//! where their
-//! blocking work runs, the engine's "Needs you", its sandbox probe and the
-//! person a single-user install acts for. The engine builds it beside its
+//! user's Audit log, known-certificates store, Usage ledger, Run index and
+//! Response cache, where their blocking work runs, the engine's "Needs
+//! you", its sandbox probe and the person a single-user install acts for. The engine builds it beside its
 //! Run registry and hands it down: to the registry, to each Connection's
 //! calls and to its listeners, so no module reaches these values through the
 //! Runs.
@@ -12,6 +11,7 @@ use std::collections::BTreeMap;
 use std::ffi::OsString;
 use std::sync::Arc;
 
+use goodfetch_counted_work::CountedWork;
 use goodfetch_protocol::connection::ProductVersion;
 use jiff::Timestamp;
 
@@ -22,6 +22,7 @@ use crate::home::Home;
 use crate::known_certificates::KnownCertificates;
 use crate::ledger::Ledger;
 use crate::needs_you::NeedsYou;
+use crate::response_cache::ResponseCache;
 use crate::run_index::RunIndex;
 use crate::sandbox_probe::SandboxProbe;
 use crate::settings::Settings;
@@ -48,14 +49,15 @@ pub(crate) fn os_user(environment: &BTreeMap<OsString, OsString>) -> String {
         .to_owned()
 }
 
-/// The user's known-certificates store, Usage ledger and Run index as one
-/// engine opens them, and the owner of their blocking work: built once,
-/// before the engine's "Needs you", which reads them too.
+/// The user's known-certificates store, Usage ledger, Run index and
+/// Response cache as one engine opens them, and the owner of their blocking
+/// work: built once, before the engine's "Needs you", which reads them too.
 pub(crate) struct Stores {
     owner: Arc<TaskOwner>,
     known_certificates: KnownCertificates,
     ledger: Ledger,
     run_index: RunIndex,
+    response_cache: ResponseCache,
 }
 
 impl Stores {
@@ -63,16 +65,23 @@ impl Stores {
     /// them through the SQLite VFS named `vfs` (none in production, ADR
     /// 0060), their blocking work under `owner` and the actors that keep
     /// their connections under `connections`, which the engine stops once
-    /// its Runs and Connections have.
+    /// its Runs and Connections have, the Response cache's work counted on
+    /// `work`.
     pub(crate) fn of(
         home: &Home,
         version: &ProductVersion,
         vfs: Option<String>,
-        owner: Arc<TaskOwner>,
-        connections: Arc<TaskOwner>,
+        (owner, connections): (Arc<TaskOwner>, Arc<TaskOwner>),
+        work: CountedWork,
     ) -> Self {
         Self {
             known_certificates: KnownCertificates::of(home, vfs.clone(), Arc::clone(&connections)),
+            response_cache: ResponseCache::of(
+                home.response_cache(version),
+                vfs.clone(),
+                Arc::clone(&connections),
+                work,
+            ),
             run_index: RunIndex::of(home.run_index(version), version, vfs.clone(), connections),
             ledger: Ledger::at(home.usage_ledger(), vfs),
             owner,
@@ -96,17 +105,15 @@ impl Stores {
 }
 
 /// What every Run and call of one engine is given beside its own inputs.
-/// Clones share its stores.
+/// Clones share its stores, held behind one pointer: each Run holds a copy,
+/// and every future holding a Run carries its size.
 #[derive(Clone)]
 pub struct EngineContext {
     home: Home,
     clock: Clock,
     settings: Settings,
     audit: Arc<AuditLog>,
-    known_certificates: KnownCertificates,
-    ledger: Ledger,
-    run_index: RunIndex,
-    owner: Arc<TaskOwner>,
+    stores: Arc<Stores>,
     needs_you: NeedsYou,
     sandbox_probe: SandboxProbe,
     person: Arc<str>,
@@ -142,14 +149,11 @@ impl EngineContext {
         person: String,
     ) -> Self {
         Self {
-            known_certificates: stores.known_certificates,
-            ledger: stores.ledger,
-            run_index: stores.run_index,
+            stores: Arc::new(stores),
             home,
             clock,
             settings,
             audit,
-            owner: stores.owner,
             needs_you,
             sandbox_probe,
             person: Arc::from(person),
@@ -185,24 +189,30 @@ impl EngineContext {
 
     /// The user's known-certificates store (ADR 0042).
     pub fn known_certificates(&self) -> &KnownCertificates {
-        &self.known_certificates
+        &self.stores.known_certificates
     }
 
     /// The user's Usage ledger (ADR 0041).
     pub(crate) fn ledger(&self) -> &Ledger {
-        &self.ledger
+        &self.stores.ledger
     }
 
     /// The Run index of the engine's major (ADRs 0031 and 0098), where a
     /// Run's consent walls and refetch stops are recorded for "Needs you".
     pub fn run_index(&self) -> &RunIndex {
-        &self.run_index
+        &self.stores.run_index
+    }
+
+    /// The user's Response cache of the engine's major (ADR 0046), which
+    /// the fetch tiers and the Crawler's deliveries read and fill.
+    pub fn response_cache(&self) -> &ResponseCache {
+        &self.stores.response_cache
     }
 
     /// Where reads and writes of these stores block, which the Run registry
     /// waits for before it stops.
     pub(crate) fn owner(&self) -> &Arc<TaskOwner> {
-        &self.owner
+        &self.stores.owner
     }
 
     /// The engine's "Needs you" (spec #592).

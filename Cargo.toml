@@ -300,6 +300,9 @@ httparse = { version = "1.10.1", default-features = false, features = ["std"] }
 # A `Retry-After`'s HTTP-date in RFC 9110's three formats (ADR 0118), which
 # hyper already brings.
 httpdate = { version = "1.0.3", default-features = false }
+# The Response cache's freshness and revalidation, RFC 9111's rules as one
+# private cache applies them (ADR 0046).
+http-cache-semantics = { version = "3.0.0", default-features = false }
 # Model recordings replay at an adapter's base URL (ADR 0065): each exchange
 # is one mock of its local server, matched on method, path and JSON body.
 httpmock = { version = "0.9.0", default-features = false }

@@ -8,13 +8,13 @@ use crate::catalog::{
 use crate::{
     audit, block, browser_cache, checkpoint, connection, daemon, dns, download, effect, egress,
     engine, events, executables, foxhound, governor, hook, hostile_input, key_value_store, log,
-    model, needs_you, ops, page, plugin, politeness, recipe, response_limits, run, sample,
-    schema_validator, secrets, security, settings, site_preferences, skills, storage, tls, usage,
-    versions,
+    model, needs_you, ops, page, plugin, politeness, recipe, response_cache, response_limits, run,
+    sample, schema_validator, secrets, security, settings, site_preferences, skills, storage, tls,
+    usage, versions,
 };
 
 /// Every module that defines entries.
-pub const MODULES: [&Entries; 62] = [
+pub const MODULES: [&Entries; 63] = [
     &connection::ENTRIES,
     &log::ENTRIES,
     &daemon::ENTRIES,
@@ -25,6 +25,7 @@ pub const MODULES: [&Entries; 62] = [
     &dns::ENTRIES,
     &egress::ENTRIES,
     &response_limits::ENTRIES,
+    &response_cache::ENTRIES,
     &hostile_input::ENTRIES,
     &tls::ENTRIES,
     &engine::ENTRIES,

@@ -70,6 +70,14 @@ export interface FoxhoundSettings {
      */
     readonly readOnly?: boolean;
   };
+  readonly cache?: {
+    /**
+     * What the per-user Response cache does: `off` (the default) stores and serves nothing, so a run never serves a stale page silently; `revalidate` stores GET and HEAD responses sent with no cookie or credential, whose response sets no cookie and is not `private`, serves a fresh one with no request and revalidates a stale one with `ETag` and `Last-Modified` under RFC 9111, serving the stored body on a 304. The key is the method, the URL without its fragment and the request headers the response's `Vary` names; a `Vary: *` response is never stored. An engine that finds a cache written by a newer format runs without it, reading and writing nothing. When a site's service worker answers a request the Response cache must serve, set `browser.service_workers` to `block` (ADR 0121).
+     *
+     * `cache.mode`.
+     */
+    readonly mode?: "off" | "revalidate";
+  };
   readonly checkpoint?: {
     /**
      * How often a live Run writes a Checkpoint where the engine keeps its Checkpoints, on the engine's clock; none by default locally.
@@ -1349,6 +1357,14 @@ export interface CrawlSettings {
      * `browser_cache.read_only`.
      */
     readonly readOnly?: boolean;
+  };
+  readonly cache?: {
+    /**
+     * What the per-user Response cache does: `off` (the default) stores and serves nothing, so a run never serves a stale page silently; `revalidate` stores GET and HEAD responses sent with no cookie or credential, whose response sets no cookie and is not `private`, serves a fresh one with no request and revalidates a stale one with `ETag` and `Last-Modified` under RFC 9111, serving the stored body on a 304. The key is the method, the URL without its fragment and the request headers the response's `Vary` names; a `Vary: *` response is never stored. An engine that finds a cache written by a newer format runs without it, reading and writing nothing. When a site's service worker answers a request the Response cache must serve, set `browser.service_workers` to `block` (ADR 0121).
+     *
+     * `cache.mode`.
+     */
+    readonly mode?: "off" | "revalidate";
   };
   readonly checkpoint?: {
     /**
@@ -2657,6 +2673,11 @@ const SPELLING: Spelling = {
   browserCache: ["browser_cache", {
     maxUnusedAge: "max_unused_age",
     readOnly: "read_only",
+  }],
+  cache: ["cache", {
+    maxAgeCeiling: "max_age_ceiling",
+    maxSize: "max_size",
+    mode: "mode",
   }],
   checkpoint: ["checkpoint", {
     interval: "interval",

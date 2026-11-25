@@ -66,6 +66,7 @@ pub mod politeness;
 mod product;
 pub mod recipe;
 pub mod request_signing;
+pub mod response_cache;
 pub mod response_limits;
 pub mod retry_after;
 pub mod robots_txt;

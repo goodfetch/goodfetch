@@ -1116,7 +1116,7 @@ const fn working_copy_row(name: &'static str, builder: &'static str) -> NotRunYe
 const WORKING_COPY: &str = "#1689";
 const MERGE_HOST: &str = "#1998";
 
-const NOT_RUN_YET: [NotRunYet; 26] = [
+const NOT_RUN_YET: [NotRunYet; 27] = [
     NotRunYet {
         name: "F5.messages_no_hook",
         family: "B1",
@@ -1212,13 +1212,19 @@ const NOT_RUN_YET: [NotRunYet; 26] = [
     NotRunYet {
         name: "C5.cache_lookups",
         family: "B2",
-        builder: "#793",
+        builder: "#796",
         capped: true,
     },
     NotRunYet {
         name: "C5.cache_file_opens",
         family: "B2",
-        builder: "#793",
+        builder: "#796",
+        capped: true,
+    },
+    NotRunYet {
+        name: "C5.cache_body_writes",
+        family: "B2",
+        builder: "#796",
         capped: true,
     },
     NotRunYet {

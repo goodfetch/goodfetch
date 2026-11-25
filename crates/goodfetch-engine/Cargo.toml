@@ -53,6 +53,10 @@ hyper = { workspace = true, features = ["client", "http1", "server"] }
 hyper-util = { workspace = true, features = ["tokio"] }
 # A `Retry-After`'s HTTP-date in RFC 9110's three formats (ADR 0118).
 httpdate.workspace = true
+# The Response cache (ADR 0046): RFC 9111's freshness and revalidation, on
+# the request and response heads of the `http` crate it takes.
+http.workspace = true
+http-cache-semantics.workspace = true
 # Period Limits count in an explicit IANA time zone (ADR 0041), read from the
 # system database, or a bundled one where the OS has none.
 jiff = { workspace = true, features = ["tzdb-zoneinfo", "tzdb-bundle-platform"] }

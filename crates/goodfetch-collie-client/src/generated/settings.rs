@@ -169,6 +169,39 @@ pub mod browser_cache {
     );
 }
 
+/// The `cache.*` settings.
+pub mod cache {
+
+    /// What the per-user Response cache does: `off` (the default) stores and serves nothing, so a run never serves a stale page silently; `revalidate` stores GET and HEAD responses sent with no cookie or credential, whose response sets no cookie and is not `private`, serves a fresh one with no request and revalidates a stale one with `ETag` and `Last-Modified` under RFC 9111, serving the stored body on a 304. The key is the method, the URL without its fragment and the request headers the response's `Vary` names; a `Vary: *` response is never stored. An engine that finds a cache written by a newer format runs without it, reading and writing nothing. When a site's service worker answers a request the Response cache must serve, set `browser.service_workers` to `block` (ADR 0121).
+    ///
+    /// `cache.mode`.
+    pub const MODE: crate::settings::Setting<Mode> = crate::settings::Setting::new(
+        "cache.mode",
+        &[
+            ::goodfetch_protocol::catalog::SettingScope::Connection,
+            ::goodfetch_protocol::catalog::SettingScope::Run,
+        ],
+    );
+
+    /// A word a setting of this module takes, as the catalog spells it.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+    pub enum Mode {
+        /// `off`.
+        Off,
+        /// `revalidate`.
+        Revalidate,
+    }
+
+    impl ::goodfetch_protocol::catalog::SettingWord for Mode {
+        fn word(&self) -> &'static str {
+            match self {
+                Self::Off => "off",
+                Self::Revalidate => "revalidate",
+            }
+        }
+    }
+}
+
 /// The `checkpoint.*` settings.
 pub mod checkpoint {
 

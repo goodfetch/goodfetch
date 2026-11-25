@@ -1109,6 +1109,26 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "66b7e2430c6dff6a955451e2cfc438f09cea1965a9d6f87f7e3b90decc014099"
 
 [[package]]
+name = "enumflags2"
+version = "0.7.12"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1027f7680c853e056ebcec683615fb6fbbc07dbaa13b4d5d9442b146ded4ecef"
+dependencies = [
+ "enumflags2_derive",
+]
+
+[[package]]
+name = "enumflags2_derive"
+version = "0.7.12"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "67c78a4d8fdf9953a5c9d458f9efe940fd97a0cab0941c075a813ac594733827"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.119",
+]
+
+[[package]]
 name = "equivalent"
 version = "1.0.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1532,6 +1552,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "goodfetch-confinement"
+version = "0.0.0"
+dependencies = [
+ "goodfetch-protocol",
+ "goodfetch-workspace-hack",
+ "landlock",
+ "libc",
+ "seccompiler",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.21",
+ "toml 1.1.8+spec-1.1.0",
+]
+
+[[package]]
 name = "goodfetch-counted-work"
 version = "0.0.0"
 dependencies = [
@@ -1561,6 +1596,7 @@ dependencies = [
  "foldhash",
  "futures-util",
  "getrandom 0.3.4",
+ "goodfetch-confinement",
  "goodfetch-counted-work",
  "goodfetch-protocol",
  "goodfetch-saved-file",
@@ -2655,6 +2691,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "29fbf4b551298c67925f38cf341a1ada797a75f1837bdf8ae1fc8e2ebc6efb59"
 dependencies = [
  "log",
+]
+
+[[package]]
+name = "landlock"
+version = "0.4.8"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "03795bb5dba9d001e861618f7301289e3ad0bb146d0a8192ff5fd8b06d069087"
+dependencies = [
+ "enumflags2",
+ "libc",
+ "thiserror 2.0.21",
 ]
 
 [[package]]
@@ -4004,6 +4051,15 @@ name = "seahash"
 version = "4.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1c107b6f4780854c8b126e228ea8869f4d7b71260f962fefb57b996b8959ba6b"
+
+[[package]]
+name = "seccompiler"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a4ae55de56877481d112a559bbc12667635fdaf5e005712fd4e2b2fa50ffc884"
+dependencies = [
+ "libc",
+]
 
 [[package]]
 name = "secrecy"

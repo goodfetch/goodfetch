@@ -2,8 +2,9 @@
 //! it starts, to a [`Policy`] with Landlock, then the seccomp list of the
 //! policy's network level.
 //!
-//! - Landlock grants reading the policy's reads, reading and starting its
-//!   executables, and every file access under its writes, and nothing
+//! - Landlock grants reading the policy's reads and the system's shared
+//!   libraries, reading and starting its executables and the system's
+//!   loaders, and every file access under its writes, and nothing
 //!   else; from ABI 6 (kernel 6.12) it also scopes signals and abstract
 //!   Unix sockets to the confined processes.
 //! - Before ABI 6, a user and PID namespace of its own scope signals
@@ -170,7 +171,9 @@ fn restrict_files(policy: &Policy, scoped: bool) -> Result<Mechanism, ConfineErr
     let status = ruleset
         .create()?
         .add_rules(granted(&policy.reads, read))?
+        .add_rules(granted(&libraries(), read))?
         .add_rules(granted(&policy.executables, start))?
+        .add_rules(granted(&loaders(), start))?
         .add_rules(granted(&policy.writes, AccessFs::from_all(HANDLED_ABI)))?
         .restrict_self()?;
     let LandlockStatus::Available { effective_abi, .. } = status.landlock else {
@@ -213,6 +216,81 @@ fn kernel_abi() -> u8 {
         )
     };
     u8::try_from(abi).unwrap_or(0)
+}
+
+/// Marks every handle beyond stdio to close when the process starts
+/// another program, so a Plugin inherits none its launcher was given.
+///
+/// # Errors
+///
+/// When the kernel refuses: `close_range`'s flag needs Linux 5.11.
+#[expect(
+    unsafe_code,
+    reason = "marking a range of handles close-on-exec is a raw system call"
+)]
+pub fn close_beyond_stdio() -> io::Result<()> {
+    // SAFETY: `close_range` takes two handle numbers and a flag, and reads
+    // no memory.
+    let result = unsafe {
+        libc::syscall(
+            libc::SYS_close_range,
+            3_u32,
+            u32::MAX,
+            libc::CLOSE_RANGE_CLOEXEC,
+        )
+    };
+    if result == 0 {
+        Ok(())
+    } else {
+        Err(io::Error::last_os_error())
+    }
+}
+
+/// Where a dynamically linked program's loader reads the system's shared
+/// libraries: a Plugin's entrypoint or runtime starts nowhere without them.
+/// They hold no secret, and the deny list covers none of them.
+const LIBRARIES: &[&str] = &[
+    "/etc/ld.so.cache",
+    "/lib",
+    "/lib64",
+    "/usr/lib",
+    "/usr/lib64",
+];
+
+/// The start of the name of each loader, glibc's and musl's, in `/lib` or
+/// `/lib64`.
+const LOADERS: &[&str] = &["ld-linux", "ld-musl"];
+
+/// The places of [`LIBRARIES`] this host has, which every instance reads.
+pub(crate) fn libraries() -> Vec<PathBuf> {
+    LIBRARIES
+        .iter()
+        .map(PathBuf::from)
+        .filter(|path| path.exists())
+        .collect()
+}
+
+/// This host's loaders, which every instance may start, as the kernel
+/// does for each dynamically linked program it starts. A loader maps any
+/// library it reads executable, which Landlock does not check: the
+/// libraries it reads are only [`libraries`].
+#[expect(
+    clippy::disallowed_methods,
+    reason = "the applier runs in a launcher's one thread before the Plugin starts, never on an async worker"
+)]
+fn loaders() -> Vec<PathBuf> {
+    ["/lib", "/lib64"]
+        .iter()
+        .filter_map(|folder| std::fs::read_dir(folder).ok())
+        .flatten()
+        .filter_map(Result::ok)
+        .map(|entry| entry.path())
+        .filter(|path| {
+            path.file_name()
+                .and_then(|name| name.to_str())
+                .is_some_and(|name| LOADERS.iter().any(|start| name.starts_with(start)))
+        })
+        .collect()
 }
 
 /// The Landlock rules granting `access` beneath each of `paths`, narrowed to

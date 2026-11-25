@@ -15,6 +15,11 @@
 //! executable in the list of installed executables (ADR 0098);
 //! `command-line` runs before any of the executable's set-up.
 //!
+//! Run as `plugin-shim`, outside the command line, it is a process
+//! Plugin's launcher, which the engine's Plugin host starts (ADR 0033,
+//! `goodfetch_confinement::launch`): before any other set-up, it reads its
+//! launch from its one variable, confines itself and becomes the Plugin.
+//!
 //! An executable more than three months past its release date prints the
 //! age notice on stderr before its command, once a day, unless
 //! `version.age_notice` is `false` (ADR 0030); a Daemon a start launched
@@ -45,7 +50,7 @@
 //! `goodfetch` folder of the OS's usual data folder.
 
 use std::collections::BTreeMap;
-use std::ffi::OsString;
+use std::ffi::{OsStr, OsString};
 use std::process::ExitCode;
 
 use catalog_commands::{Call, Generated, Joined, Joining};
@@ -54,6 +59,7 @@ use clap::{CommandFactory as _, FromArgMatches as _, Parser, Subcommand};
 pub use daemon::Machine;
 use daemon_command::{DaemonCommand, daemon_command};
 use engine_choice::{Choice, EngineFlags};
+use goodfetch_confinement::launch;
 use goodfetch_engine::age_notice::AgeNotice;
 use goodfetch_engine::audit::AuditEvents;
 use goodfetch_engine::clock::Clock;
@@ -445,6 +451,17 @@ pub struct Start {
 ///
 /// If Tokio cannot build its runtime.
 pub fn main(start: &Start) -> ExitCode {
+    // The hidden `plugin-shim` mode, a Plugin's launcher (ADR 0033), runs
+    // before anything else: it reads one variable, confines its one thread
+    // and becomes the Plugin, or ends with a status the engine reads.
+    if start
+        .arguments
+        .get(1)
+        .is_some_and(|first| first == launch::SHIM_COMMAND)
+    {
+        let request = start.environment.get(OsStr::new(launch::LAUNCH_VARIABLE));
+        return ExitCode::from(launch::shim(request.map(OsString::as_os_str)).status());
+    }
     allocator::purge_at_once();
     let (binary, parsed, colour) = match parse(start) {
         Ok(parsed) => parsed,

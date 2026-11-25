@@ -176,6 +176,9 @@ goodfetch-clean-up-rules = { path = "crates/goodfetch-clean-up-rules" }
 # their values are one type (ADR 0095); `xtask release prepare` repins it.
 goodfetch-collie-client = { path = "crates/goodfetch-collie-client", version = "=0.0.0" }
 goodfetch-collie = { path = "crates/goodfetch-collie" }
+# Plugin confinement (ADR 0033): the engine's Plugin host starts each
+# instance through it, and each Product's executable is its launcher.
+goodfetch-confinement = { path = "crates/goodfetch-confinement" }
 # Counted work (ADR 0140): the counts, and each primitive's counted function.
 goodfetch-counted-work = { path = "crates/goodfetch-counted-work" }
 # The Encoding a document's own bytes declare, read as Chrome reads it (ADR

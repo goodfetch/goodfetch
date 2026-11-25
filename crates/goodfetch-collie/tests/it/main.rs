@@ -102,6 +102,8 @@ mod page_ends;
 mod page_events;
 mod parent_death;
 mod plugin;
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+mod plugin_host;
 mod private_endpoint;
 mod private_ranges;
 mod proxy;

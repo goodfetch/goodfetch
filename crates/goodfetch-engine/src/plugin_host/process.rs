@@ -1,0 +1,138 @@
+//! A process Plugin's instance as the OS runs it (ADR 0033). The engine,
+//! which runs many threads, never confines itself: it starts the launcher,
+//! the Product executable's hidden `plugin-shim` mode, through
+//! [`Children`], in a process group of its own, with the [`Launch`] as its
+//! one variable and nothing inherited. The launcher confines its one
+//! thread and becomes the Plugin, whose stdin and stdout are the plugin
+//! protocol's pipes. Stopping the instance kills its group, waits for it
+//! and deletes its private temporary folder.
+
+use std::io;
+use std::path::{Path, PathBuf};
+use std::process::{ExitStatus, Stdio};
+
+use goodfetch_confinement::launch::{LAUNCH_VARIABLE, Launch, SHIM_COMMAND, UNAVAILABLE_STATUSES};
+use tokio::process::{Child, ChildStdin, ChildStdout, Command};
+
+use crate::children::Children;
+use crate::tasks::TaskOwner;
+
+/// A started instance's process, killed when dropped.
+#[derive(Debug)]
+pub struct PluginProcess {
+    child: Child,
+    group: Children,
+    folder: PathBuf,
+}
+
+/// The plugin protocol's pipes to a started instance: what the engine
+/// writes to it and reads from it.
+#[derive(Debug)]
+pub struct Pipes {
+    pub stdin: ChildStdin,
+    pub stdout: ChildStdout,
+}
+
+impl PluginProcess {
+    /// Starts the Plugin `launch` describes through `launcher`, the
+    /// Product executable. The instance's private temporary folder,
+    /// `launch.folder`, must exist, since the policy grants it: [`stop`]
+    /// deletes it.
+    ///
+    /// Call it from an async task's thread, which lives as long as the
+    /// engine: on Linux, the kernel kills the instance when the thread that
+    /// started it ends ([`Children::spawn`]).
+    ///
+    /// # Errors
+    ///
+    /// When the OS refuses to start the launcher.
+    ///
+    /// [`stop`]: Self::stop
+    pub fn start(launcher: &Path, launch: &Launch) -> io::Result<(Self, Pipes)> {
+        let request = serde_json::to_string(launch).map_err(io::Error::other)?;
+        let mut command = Command::new(launcher);
+        command
+            .arg(SHIM_COMMAND)
+            .env_clear()
+            .env(LAUNCH_VARIABLE, request)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null());
+        let mut group = Children::new()?;
+        let mut child = group.spawn(command)?;
+        let (Some(stdin), Some(stdout)) = (child.stdin.take(), child.stdout.take()) else {
+            return Err(io::Error::other("the instance's pipes were not opened"));
+        };
+        let process = Self {
+            child,
+            group,
+            folder: launch.folder.clone(),
+        };
+        Ok((process, Pipes { stdin, stdout }))
+    }
+
+    /// Waits for the instance to end by itself.
+    ///
+    /// # Errors
+    ///
+    /// When the OS cannot tell how it ended.
+    ///
+    /// # Cancel safety
+    ///
+    /// Cancel-safe: dropping the future leaves the instance running.
+    pub async fn ended(&mut self) -> io::Result<Ended> {
+        self.child.wait().await.map(Ended::of)
+    }
+
+    /// Kills the instance with every process of its group, waits for it,
+    /// then deletes its private temporary folder on `owner`'s blocking
+    /// policy.
+    ///
+    /// # Errors
+    ///
+    /// When the folder cannot be deleted.
+    pub async fn stop(mut self, owner: &TaskOwner) -> io::Result<()> {
+        self.group.kill_all();
+        // Already ended or killed: the status no longer matters.
+        let _ = self.child.wait().await;
+        let folder = self.folder;
+        owner
+            .blocking(move || {
+                #[expect(
+                    clippy::disallowed_methods,
+                    reason = "it runs on the tasks module's blocking policy"
+                )]
+                match std::fs::remove_dir_all(&folder) {
+                    Err(error) if error.kind() != io::ErrorKind::NotFound => Err(error),
+                    _ => Ok(()),
+                }
+            })
+            .await
+    }
+}
+
+/// How an instance ended by itself.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Ended {
+    /// Its launcher found that this host cannot confine it, so it never
+    /// started: `confinement_unavailable`.
+    ConfinementUnavailable,
+    /// It exited with this status, its launcher's when it never started.
+    Exited(Option<i32>),
+}
+
+impl Ended {
+    fn of(status: ExitStatus) -> Self {
+        match status.code() {
+            Some(code)
+                if u8::try_from(code).is_ok_and(|code| UNAVAILABLE_STATUSES.contains(&code)) =>
+            {
+                Self::ConfinementUnavailable
+            }
+            code => Self::Exited(code),
+        }
+    }
+}
+
+#[cfg(all(test, unix))]
+mod tests;

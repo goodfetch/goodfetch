@@ -19,6 +19,7 @@ use std::path::Path;
 use std::process::Command;
 
 use anyhow::{Context as _, Result, bail};
+use goodfetch_protocol::catalog::Stability;
 use goodfetch_protocol::jsonrpc::RequestMeta;
 use schemars::JsonSchema as _;
 use serde::Deserialize;
@@ -71,8 +72,6 @@ struct Exported {
 /// and TypeScript's of one serving an Experimental entry.
 const DEPRECATED: &str = "deprecated";
 const EXPERIMENTAL_TAG: &str = "experimental";
-/// The catalog's stability of an Experimental entry.
-const EXPERIMENTAL: &str = "experimental";
 /// The languages, in the order their findings come.
 const LANGUAGES: [Language; 3] = [Language::TypeScript, Language::Rust, Language::Python];
 
@@ -247,7 +246,8 @@ fn carried(
             Language::TypeScript => found.markers.iter().any(|tag| tag == EXPERIMENTAL_TAG),
             Language::Rust | Language::Python => doc.contains(codegen::EXPERIMENTAL),
         };
-        if operation.stability.as_deref() == Some(EXPERIMENTAL) && !experimental {
+        if operation.stability.as_deref() == Some(Stability::Experimental.as_str()) && !experimental
+        {
             let marker = match language {
                 Language::TypeScript => "the TSDoc tag `@experimental`".to_owned(),
                 Language::Rust | Language::Python => {

@@ -6,7 +6,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use anyhow::{Context as _, Result};
-use goodfetch_protocol::catalog::{Product, ProtocolVersion};
+use goodfetch_protocol::catalog::{Product, ProtocolVersion, Reach};
 use goodfetch_protocol::jsonrpc::{META, RequestMeta};
 use schemars::JsonSchema as _;
 use serde::Deserialize;
@@ -119,7 +119,7 @@ impl Operation {
     /// person's surface, such as the CLI's interactive prompt, gives (ADR
     /// 0041).
     fn offered(&self) -> bool {
-        self.reach.as_deref() != Some("person_only")
+        self.reach.as_deref() != Some(Reach::PersonOnly.as_str())
     }
 
     /// Whether calling it sends the engine a message: every kind but a
@@ -608,15 +608,29 @@ impl Layer {
     /// `run.resume`'s run layer, which no settings type checks, so its
     /// generated member warns of each deprecated key they set (ADR 0099).
     pub(super) fn takes_raw_settings(&self, operation: &Operation) -> bool {
-        let params = &operation.params.0;
-        self.definitions
-            .get(params)
-            .or_else(|| self.collie_definitions.get(params))
+        self.definition(&operation.params.0)
             .and_then(|schema| schema.pointer("/properties/settings"))
             .is_some_and(|settings| {
                 settings.get("type").and_then(Value::as_str) == Some("object")
                     && settings.get("properties").is_none()
             })
+    }
+
+    /// The definition of the type `name`: this layer's own, else the one it
+    /// takes from Collie's client package.
+    pub(super) fn definition(&self, name: &str) -> Option<&Value> {
+        self.definitions
+            .get(name)
+            .or_else(|| self.collie_definitions.get(name))
+    }
+
+    /// Every type the layer's entries reach: those it takes from Collie's
+    /// client package, then its own, which win over Collie's of the same
+    /// name, as [`Layer::definition`] answers.
+    pub(super) fn reachable(&self) -> Map<String, Value> {
+        let mut definitions = self.collie_definitions.clone();
+        definitions.extend(self.definitions.clone());
+        definitions
     }
 
     /// Whether `name` is a type of Collie's client package rather than this

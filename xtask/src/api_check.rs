@@ -44,6 +44,7 @@ use std::process::ExitCode;
 use std::sync::LazyLock;
 
 use anyhow::{Context as _, Result, bail};
+use goodfetch_protocol::catalog::Stability;
 use serde_json::{Map, Value};
 
 use crate::api_baseline::{self, Changes, Outcome};
@@ -284,7 +285,7 @@ fn by_name(entries: &[Value]) -> BTreeMap<String, &Value> {
 }
 
 fn is_experimental(entry: &Value) -> bool {
-    entry.get("stability").and_then(Value::as_str) == Some("experimental")
+    entry.get("stability").and_then(Value::as_str) == Some(Stability::Experimental.as_str())
 }
 
 /// The side each schema-valued field of an entry describes.

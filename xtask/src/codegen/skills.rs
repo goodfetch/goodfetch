@@ -33,6 +33,7 @@ use std::fmt::Write as _;
 use std::path::Path;
 
 use anyhow::{Context as _, Result, bail};
+use goodfetch_protocol::catalog::Reach;
 use serde::Deserialize;
 use serde_json::Value;
 
@@ -273,7 +274,7 @@ impl<'a> Reachable<'a> {
     /// The person-only operation `words`, a command's path, calls, if any.
     fn person_only_command(&self, words: &[&str]) -> bool {
         let path = words.join(".").replace('-', "_");
-        self.operations.get(path.as_str()) == Some(&"person_only")
+        self.operations.get(path.as_str()) == Some(&Reach::PersonOnly.as_str())
     }
 }
 
@@ -492,7 +493,7 @@ fn check_names(
                     if words.first() == Some(&executable) {
                         check_command(&words[1..], false, asks, reachable, &subject, findings);
                     } else if let Some(reach) = operation_named(span, reachable, &subject, findings)
-                        && reach == "person_only"
+                        && reach == Reach::PersonOnly.as_str()
                         && !asks
                     {
                         findings.push(person_only(subject(), span));

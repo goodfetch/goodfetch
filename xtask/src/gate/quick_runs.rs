@@ -216,7 +216,7 @@ fn key(root: &Path, environment: &Environment, key: &KeyArguments) -> Result<Key
         host: host::host_fingerprint(
             root,
             &environment.cargo,
-            &host::step_variables(&key.environment),
+            &host::step_variables(&key.environment, root),
         ),
         unit,
         tree: git::line(

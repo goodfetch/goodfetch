@@ -378,7 +378,7 @@ fn plan_base(root: &Path, layer: Layer, head: &str) -> Result<String> {
 /// The fingerprint the plan's records carry: the hosted one on the hosted
 /// layer, else the gate host's.
 fn plan_host(environment: &Environment, options: &PlanArguments, image: &str) -> String {
-    let variables = host::step_variables(&options.environment);
+    let variables = host::step_variables(&options.environment, &environment.root);
     if options.layer == Layer::Hosted {
         plan::hosted_fingerprint(
             image,

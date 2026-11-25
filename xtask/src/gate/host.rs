@@ -15,10 +15,13 @@ use sha2::{Digest as _, Sha256};
 /// which its run's unit names (`quick_runs`), and what `just merge` and the
 /// hosted tier give the plan: where the hosted runs' records are, the
 /// repository they must name, the one step a hosted job runs and the hosted
-/// runner's image version, which its fingerprint names. None changes what a
-/// step runs or how beyond what the key holds, so every layer fingerprints
-/// one host alike.
-const LAUNCHER_VARIABLES: [&str; 8] = [
+/// runner's image version, which its fingerprint names, and where
+/// `ci/merge-pr.sh` saved the pull request's performance acceptance for
+/// `just perf`, which marks figures accepted and fails none (ADR 0134), and
+/// which `just preflight` never sets (#3791). None changes what a step runs
+/// or how beyond what the key holds, so every layer fingerprints one host
+/// alike.
+const LAUNCHER_VARIABLES: [&str; 9] = [
     "GOODFETCH_GATE_MIN_FREE_GB",
     "GOODFETCH_GATE_RECORDS",
     "GOODFETCH_GATE_LAYER",
@@ -27,6 +30,7 @@ const LAUNCHER_VARIABLES: [&str; 8] = [
     "GOODFETCH_GATE_REPOSITORY",
     "GOODFETCH_GATE_ONLY",
     "GOODFETCH_GATE_RUNNER_IMAGE",
+    "GOODFETCH_PERF_PULL_REQUEST",
 ];
 
 /// The variables of the keep-going steps (`ci/keep-going.sh`), which
@@ -50,8 +54,9 @@ pub(super) const REMOVED_BY_THE_GATE: [&str; 2] = ["NEXTEST_TEST_THREADS", "CARG
 /// gate started under another disk floor still reuses the results of one
 /// started without it, a run inside a step fingerprints the host as one
 /// outside it does, and a plan made in a shell that caps threads or jobs
-/// fingerprints the host as the gate does (#2090's F5).
-pub(super) fn step_variables(variables: &str) -> String {
+/// fingerprints the host as the gate does (#2090's F5). A value that is a
+/// path inside the worktree `root` is read relative to it ([`in_worktree`]).
+pub(super) fn step_variables(variables: &str, root: &Path) -> String {
     variables
         .lines()
         .filter(|line| {
@@ -60,8 +65,27 @@ pub(super) fn step_variables(variables: &str) -> String {
                 && !STEP_RUNNER_VARIABLES.contains(&name)
                 && !REMOVED_BY_THE_GATE.contains(&name)
         })
+        .map(|line| in_worktree(line, root))
         .collect::<Vec<_>>()
         .join("\n")
+}
+
+/// `line` with its value, when that is a path inside the worktree `root`,
+/// written from the worktree as `<worktree>/…`: the justfile points
+/// `RUSTC_WRAPPER` at its own worktree's `ci/compiler-cache/sccache`, so
+/// `just preflight` in a spec's worktree and `just merge` in the merge-gate
+/// worktree would otherwise fingerprint one host twice, and the gate would
+/// reuse none of the preflight's results (#3791). The tree the path points
+/// into is the key's own.
+fn in_worktree(line: &str, root: &Path) -> String {
+    let Some((name, value)) = line.split_once('=') else {
+        return line.to_owned();
+    };
+    match Path::new(value).strip_prefix(root) {
+        Ok(inside) if inside.as_os_str().is_empty() => format!("{name}=<worktree>"),
+        Ok(inside) => format!("{name}=<worktree>/{}", inside.display()),
+        Err(_) => line.to_owned(),
+    }
 }
 
 /// The fingerprint of this host and the tools the gate's steps run: the

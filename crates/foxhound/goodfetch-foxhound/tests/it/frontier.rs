@@ -36,10 +36,8 @@ use crate::site::Site;
 /// The Proving ground's seed.
 const SEED: u64 = 828;
 
-/// A page of the Proving ground as a handler reads it.
+/// A page of the Proving ground as a handler reads it, after its redirects.
 pub(crate) struct Fetched {
-    /// The URL it was reached at, after its redirects.
-    pub(crate) url: String,
     pub(crate) status: u16,
     pub(crate) body: String,
 }
@@ -70,7 +68,6 @@ pub(crate) fn fetch(proving_ground: &ProvingGround, url: &str) -> Fetched {
             fetch(proving_ground, &format!("http://{authority}{path}"))
         }
         _ => Fetched {
-            url: url.to_owned(),
             status,
             body: body.to_owned(),
         },
@@ -238,18 +235,18 @@ impl Inside<'_> {
         reply
     }
 
-    /// `ctx.enqueue(url, label)` from the attempt `handle` gave, read on
-    /// `document` when given; answers its `Enqueued` or its error.
+    /// `ctx.enqueue(url, label)` from the attempt `handle` gave, on the
+    /// page `page_id` when given; answers its `Enqueued` or its error.
     pub(crate) fn enqueue(
         &mut self,
         handle: &Value,
         url: &str,
         label: &str,
-        document: Option<Value>,
+        page_id: Option<&Value>,
     ) -> Value {
         let mut params = enqueue_params(handle, url, label);
-        if let Some(document) = document {
-            params["document"] = document;
+        if let Some(page_id) = page_id {
+            params["page_id"] = page_id.clone();
         }
         let reply = self.call("crawl_request.enqueue", &params);
         reply
@@ -283,7 +280,7 @@ pub(crate) fn not_added(reason: &str, url: &str) -> Value {
 /// of `ftp:`, `file:`, `gopher:` or `data:` is `unsupported_scheme`, and one
 /// that does not parse `invalid_url` (ADRs 0118 and 0120, SC-03).
 ///
-/// Covers: story:6-201, story:6-202, story:6-211, story:4-100, operation:run.seeds, operation:crawl.start, operation:crawl_request.enqueue
+/// Covers: story:6-201, story:6-202, story:6-211, story:4-100, story:11-1022, operation:run.seeds, operation:crawl.start, operation:crawl_request.enqueue
 #[test]
 fn each_seed_is_answered_as_an_enqueue_is_and_run_seeds_lists_the_answers() {
     let env = TestEnv::new();
@@ -414,7 +411,11 @@ fn a_crawl_whose_every_seed_is_refused_finishes_at_once_and_says_why() {
     );
 }
 
-/// Covers: story:6-231, story:6-211, operation:crawl_request.enqueue
+/// An enqueue on the page its attempt was given resolves a relative URL
+/// against that page's document's base URL: its `<base href>` on
+/// `links/1`, the URL `/old/shelf` moved to on `links/2`.
+///
+/// Covers: story:6-231, story:6-211, story:11-1022, operation:crawl_request.enqueue
 #[test]
 fn an_enqueue_resolves_against_its_documents_base_href_and_the_url_it_was_redirected_to() {
     let env = TestEnv::new();
@@ -441,12 +442,8 @@ fn an_enqueue_resolves_against_its_documents_base_href_and_the_url_it_was_redire
                 let id = attributes(&page.body, "data-id");
                 return json!({ "result": { "records": [{ "dataset": "books", "data": { "id": id, "status": page.status } }] } });
             }
-            let document = json!({
-                "url": page.url,
-                "base_href": attributes(&page.body, "base href").first(),
-            });
             for href in attributes(&page.body, "a href") {
-                let answer = inside.enqueue(handle, &href, "book", Some(document.clone()));
+                let answer = inside.enqueue(handle, &href, "book", Some(&handle["page_id"]));
                 enqueued.push(answer["url"].as_str().unwrap().to_owned());
             }
             json!({ "result": { "records": [] } })

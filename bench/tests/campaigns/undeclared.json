@@ -1,0 +1,18 @@
+{
+  "id": "undeclared",
+  "host_class": { "requested": "local-dev", "allow_downgrade": false },
+  "order_seed": 11,
+  "blocks": 5,
+  "warmup": 1,
+  "iterations": 3,
+  "concurrency": 1,
+  "timeout_ms": 10000,
+  "max_duration_ms": 120000,
+  "max_restarts": 1,
+  "adapters": [
+    { "id": "slow", "command": ["node", "../stub-adapter.ts", "--delay-ms", "200"] },
+    { "id": "fast", "command": ["node", "../stub-adapter.ts", "--delay-ms", "10"] }
+  ],
+  "tasks": ["catalog/2"],
+  "registry": { "folder": "registry", "decisions": ["D-stub-speed", "D-stub-undeclared"] }
+}

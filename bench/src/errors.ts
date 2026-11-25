@@ -36,7 +36,9 @@ export type BenchErrorCode =
   /** The campaign names a task the Proving ground does not list. */
   | "task_unknown"
   /** A file or answer read from outside does not have its schema's shape. */
-  | "invalid_document";
+  | "invalid_document"
+  /** The decisions or claims a campaign declares fail the registry's checks, so nothing is measured. */
+  | "registry_refused";
 
 /** An error of the benchmark harness, with its code. */
 export class BenchError extends Error {
@@ -95,6 +97,7 @@ export function statusFor(code: BenchErrorCode): AttemptStatus {
     case "oracle_refused":
     case "task_unknown":
     case "invalid_document":
+    case "registry_refused":
       return "failed";
     default: {
       const exhaustive: never = code;

@@ -1,0 +1,40 @@
+#:schema ./journey.schema.json
+id = "J-040"
+title = "Expose the Daemon over TLS from certificate files, and renew its certificate with no restart"
+goal = """
+An operator exposes the Daemon beyond loopback. `daemon run` MUST refuse an \
+address that is not loopback while no TLS is configured, naming the keys \
+that configure it, so that no token crosses a network in clear; once a \
+certificate and its key are named, it MUST serve its Clients over TLS; and a \
+certificate renewed in place MUST be served from the next Connection, with \
+no restart (ADR 0049)."""
+area = 4
+product = "collie"
+status = "active"
+covers = ["story:4-25"]
+
+[surfaces]
+cli = "M4"
+
+[[steps]]
+text = "Set `daemon.address` to an address that is not loopback, with no TLS configured, and run the Daemon in the foreground (`daemon run`)"
+on = "cli"
+
+[[steps]]
+text = "Name a certificate and its key in `daemon.tls.cert_file` and `daemon.tls.key_file`, and run the Daemon in the foreground again"
+on = "cli"
+
+[[steps]]
+text = "Connect a program to the Daemon over TLS and open its Connection with the Daemon's token"
+
+[[steps]]
+text = "Replace the certificate and key files with a renewed certificate while the Daemon serves, and connect the program again"
+
+[[expect]]
+text = "The first `daemon run` refused the address with `setting_invalid` naming `daemon.tls.cert_file`, `daemon.tls.key_file` and `daemon.tls.upstream`, and exited with a failure"
+
+[[expect]]
+text = "Over TLS, the Daemon presented the named certificate and answered the program's `hello`"
+
+[[expect]]
+text = "After the replacement, the same Daemon, never restarted, presented the renewed certificate and answered the program's next `hello`, and it exits cleanly when stopped"

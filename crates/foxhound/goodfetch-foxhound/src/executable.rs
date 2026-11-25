@@ -20,6 +20,7 @@ mod run_export;
 pub const COMMANDS: OwnCommands = OwnCommands {
     commands: OWN,
     members,
+    answers: &[],
 };
 
 /// The agent skills Foxhound's executable carries, its renderings of

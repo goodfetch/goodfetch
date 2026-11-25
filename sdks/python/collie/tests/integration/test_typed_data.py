@@ -7,7 +7,7 @@ engine started as the executable, which checks every message the SDK sends,
 three ways: async on asyncio, async on Trio and through the sync `Collie`.
 TypeScript's `typed-data.test.ts` is its twin; Python's typed values are
 proved at the codec's seam (`goodfetch_collie_client`'s `test_schema.py`)
-until issue 1284 gives Python its Key-value round trip.
+and through the Key-value store (`test_key_value_store_attached.py`).
 """
 
 import pytest

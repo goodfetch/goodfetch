@@ -38,6 +38,7 @@ mod generated;
 mod handler;
 mod handlerless;
 mod host;
+mod key_value_store;
 mod limits;
 mod line;
 mod listener_queue;
@@ -74,6 +75,7 @@ pub use generated::handles::{Locator, Page, Run, Schedule, Session, WebSocket, W
 pub use goodfetch_protocol::error_code::{ErrorCode, ErrorDetails};
 pub use handler::{HandlerCall, HandlerRequests};
 pub use handlerless::HandlerlessStart;
+pub use key_value_store::{KeyValueStore, StoredBytes};
 pub use limits::{Limits, Money, MoneyError, UsageKind};
 pub use listener_queue::ListenerQueue;
 pub use raw_call::RawCall;
@@ -81,7 +83,7 @@ pub use response::{Exchange, Response};
 pub use run::Start;
 pub use run_view::RunView;
 pub use schedules::{CreatedSchedule, Schedules};
-pub use schema::{Schema, SchemaError};
+pub use schema::{Schema, SchemaError, to_json};
 /// The `schemars` whose `JsonSchema` a [`Schema`] derives from, re-exported
 /// so that a program's derive is the SDK's version (ADR 0082).
 pub use schemars;

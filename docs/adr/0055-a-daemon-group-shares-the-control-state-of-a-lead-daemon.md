@@ -50,6 +50,7 @@ How comparable self-hosted tools run several instances:
 **Routing a Client.**
 - A Client connects to any Group member. A unary call on a run another Group member owns is forwarded over the peer link, after a lookup in the group Run index that the receiving Group member caches.
 - Heavy traffic (the Live view over CDP screencast or WebRTC, and the event stream) is redirected when the owner has an `advertise_url` the Client can reach, such as a per-pod Ingress or a VM address. The SDKs, the CLI and the Console follow the redirect; without an `advertise_url`, those streams are forwarded too.
+  > Amended by [ADR 0149](0149-a-persons-passkey-is-checked-by-the-engine-over-the-connection-its-ceremony-is-the-clients-and-only-a-local-person-surface-answers-as-the-os-user.md) (spec [#1937](https://github.com/goodfetch/goodfetch/issues/1937), not read by the owner): no key replaces the Console key. A Live view redirect's single-use channel token is minted by the owning Group member over the peer link and checked in its memory, so no key is shared across the group.
   > Amended by [ADR 0137](0137-the-console-leaves-both-products-and-the-engine-and-the-owners-monitoring-tool-is-designed-apart.md): no Product carries a Console, so what this says of the Console ends; the rest stands.
 - After a run moves, the former owner answers with the Error code `run_moved`; the receiving Group member refreshes its cache and retries once, and a Client that followed a redirect to the former owner reconnects through any Group member and retries once.
 

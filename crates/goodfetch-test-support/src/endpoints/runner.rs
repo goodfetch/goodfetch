@@ -12,7 +12,7 @@ use std::net::SocketAddr;
 
 use serde_json::{Map, Value};
 
-use super::connection::ListenerAddress;
+use super::connection::{ListenerAddress, ListenerTls};
 use super::table::{EndpointTable, Expected, ListenerKind, Row, Rule, Transport};
 use super::{http, http_proxy, json_rpc, websocket};
 
@@ -69,7 +69,8 @@ pub enum Endpoint {
         address: SocketAddr,
     },
     /// A WebSocket listener on loopback TCP, whose valid handshake names
-    /// `address` as its `Host` and `http://<address>` as its `Origin`, and
+    /// `address` as its `Host` and `http://<address>` as its `Origin`, or
+    /// over TLS its server name and port and `https://` with them, and
     /// whose first message is a `hello`.
     WebSocket {
         /// Where it listens.
@@ -98,6 +99,9 @@ pub struct Listener {
     token: String,
     /// The token each row that presents a token of its own presents.
     given: BTreeMap<Rule, String>,
+    /// The TLS the listener terminates, if any, which every attempt but
+    /// the `plain_where_tls_configured` row's opens.
+    tls: Option<ListenerTls>,
 }
 
 impl Listener {
@@ -108,7 +112,16 @@ impl Listener {
             endpoint,
             token: token.into(),
             given: BTreeMap::new(),
+            tls: None,
         }
+    }
+
+    /// The listener terminates `tls`: every attempt opens it, but the
+    /// `plain_where_tls_configured` row's, which connects in plain.
+    #[must_use]
+    pub fn over_tls(mut self, tls: ListenerTls) -> Self {
+        self.tls = Some(tls);
+        self
     }
 
     /// The valid token of another listener, which the
@@ -252,6 +265,9 @@ pub enum Failure {
     /// The row presents a token of its own, such as another listener's or
     /// an expired one, which the listener's description lacks.
     TokenNotGiven,
+    /// The row connects in plain where the listener terminates TLS, which
+    /// the listener's description does not say it does.
+    TlsNotGiven,
 }
 
 /// A row the listener failed.
@@ -374,7 +390,7 @@ impl<A: AuditVerifier> EndpointRunner<A> {
                 });
             }
         };
-        let control = reach.attempt(&listener.token, Attempt::Valid);
+        let control = reach.attempt(&listener.token, Attempt::Valid, listener.tls.as_ref());
         if !control.accepts() {
             return Err(EndpointRunError::ControlRefused { observed: control });
         }
@@ -408,9 +424,10 @@ fn apply(
     expected: Expected,
 ) -> Option<Failure> {
     let token = listener.token.as_str();
+    let tls = listener.tls.as_ref();
     let observed = match rule {
-        Rule::TokenMissing => reach.attempt(token, Attempt::Token(None)),
-        Rule::TokenWrong => reach.attempt(token, Attempt::Token(Some(&wrong_token(token)))),
+        Rule::TokenMissing => reach.attempt(token, Attempt::Token(None), tls),
+        Rule::TokenWrong => reach.attempt(token, Attempt::Token(Some(&wrong_token(token))), tls),
         Rule::TokenFromAnotherListener
         | Rule::TokenExpired
         | Rule::TokenRevoked
@@ -418,18 +435,24 @@ fn apply(
             let Some(given) = listener.given.get(&rule) else {
                 return Some(Failure::TokenNotGiven);
             };
-            reach.attempt(token, Attempt::Given(given))
+            reach.attempt(token, Attempt::Given(given), tls)
         }
-        Rule::TokenInQueryString => reach.attempt(token, Attempt::TokenInQuery),
-        Rule::HostForeign => reach.attempt(token, Attempt::ForeignHost),
-        Rule::OriginForeign => reach.attempt(token, Attempt::ForeignOrigin),
-        Rule::OriginMissing => reach.attempt(token, Attempt::NoOrigin),
-        Rule::OriginMissingWithoutHeaderToken => reach.attempt(token, Attempt::TokenInCookie),
-        Rule::HelloNotFirst => reach.attempt(token, Attempt::NotHello),
+        Rule::TokenInQueryString => reach.attempt(token, Attempt::TokenInQuery, tls),
+        Rule::HostForeign => reach.attempt(token, Attempt::ForeignHost, tls),
+        Rule::OriginForeign => reach.attempt(token, Attempt::ForeignOrigin, tls),
+        Rule::OriginMissing => reach.attempt(token, Attempt::NoOrigin, tls),
+        Rule::OriginMissingWithoutHeaderToken => reach.attempt(token, Attempt::TokenInCookie, tls),
+        Rule::HelloNotFirst => reach.attempt(token, Attempt::NotHello, tls),
+        Rule::PlainWhereTlsConfigured => {
+            if tls.is_none() {
+                return Some(Failure::TlsNotGiven);
+            }
+            reach.attempt(token, Attempt::Valid, None)
+        }
         Rule::ProbesAnswerStatusOnly => {
             return PROBES
                 .iter()
-                .map(|path| reach.attempt(token, Attempt::Probe(path)))
+                .map(|path| reach.attempt(token, Attempt::Probe(path), tls))
                 .find(|observed| !observed.meets(expected))
                 .map(|observed| Failure::Unexpected { expected, observed });
         }
@@ -505,10 +528,11 @@ struct ProxyReach<'a> {
 }
 
 impl Reach<'_> {
-    /// Tries `attempt` on a listener whose valid token is `token`. The
-    /// table's check keeps each rule to the transports that can carry its
-    /// attempt, so an attempt a transport cannot carry is never asked for.
-    fn attempt(&self, token: &str, attempt: Attempt<'_>) -> Observed {
+    /// Tries `attempt` on a listener whose valid token is `token`, over
+    /// `tls` if any. The table's check keeps each rule to the transports
+    /// that can carry its attempt, so an attempt a transport cannot carry
+    /// is never asked for.
+    fn attempt(&self, token: &str, attempt: Attempt<'_>, tls: Option<&ListenerTls>) -> Observed {
         match self {
             Self::JsonRpc { address, hello } => {
                 let message = match attempt {
@@ -523,11 +547,15 @@ impl Reach<'_> {
                     | Attempt::Probe(_)
                     | Attempt::TokenInCookie => hello.message("hello", Some(token)),
                 };
-                json_rpc::attempt(address, &message)
+                json_rpc::attempt(address, tls, &message)
             }
             Self::WebSocket { address, hello } => {
-                let authority = address.to_string();
-                let origin = format!("http://{authority}");
+                let authority = authority(*address, tls);
+                let origin = if tls.is_some() {
+                    format!("https://{authority}")
+                } else {
+                    format!("http://{authority}")
+                };
                 let mut handshake = websocket::Handshake {
                     target: "/".to_owned(),
                     host: &authority,
@@ -547,14 +575,14 @@ impl Reach<'_> {
                     Attempt::NoOrigin => handshake.origin = None,
                     Attempt::NotHello => message = hello.message(NOT_HELLO, Some(token)),
                 }
-                websocket::attempt(*address, &handshake, &message)
+                websocket::attempt(*address, tls, &handshake, &message)
             }
-            Self::HttpProxy(reach) => reach.attempt(token, attempt),
+            Self::HttpProxy(reach) => reach.attempt(token, attempt, tls),
             Self::Http {
                 address,
                 protected_path,
             } => {
-                let authority = address.to_string();
+                let authority = authority(*address, tls);
                 let cookie = format!("token={token}");
                 let mut request = http::Request {
                     target: (*protected_path).to_owned(),
@@ -583,15 +611,24 @@ impl Reach<'_> {
                         request.bearer = None;
                     }
                 }
-                http::attempt(*address, &request)
+                http::attempt(*address, tls, &request)
             }
         }
     }
 }
 
+/// The authority a Client names the listener at `address` by: the address,
+/// or over `tls` the server name with its port.
+fn authority(address: SocketAddr, tls: Option<&ListenerTls>) -> String {
+    match tls {
+        Some(tls) => format!("{}:{}", tls.server_name(), address.port()),
+        None => address.to_string(),
+    }
+}
+
 impl ProxyReach<'_> {
-    /// Tries `attempt` with the valid password `token`.
-    fn attempt(&self, token: &str, attempt: Attempt<'_>) -> Observed {
+    /// Tries `attempt` with the valid password `token`, over `tls` if any.
+    fn attempt(&self, token: &str, attempt: Attempt<'_>, tls: Option<&ListenerTls>) -> Observed {
         let password = match attempt {
             Attempt::Token(token) => token,
             Attempt::Given(token) => Some(token),
@@ -606,6 +643,7 @@ impl ProxyReach<'_> {
         };
         http_proxy::attempt(
             self.address,
+            tls,
             self.target,
             password.map(|password| (self.username, password)),
         )

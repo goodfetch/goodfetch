@@ -1,5 +1,5 @@
 //! `xtask journeys select`: the runners' filters for the variants chosen by
-//! Journey ID, surface, milestone and area (ADR 0063), from the working
+//! Journey ID, surface, milestone, area and Product (ADR 0063), from the working
 //! tree's catalog or a Git tag's (ADR 0066). Each runner's filter is one
 //! `<runner>\t<argument>` line, which `just journeys` hands to `just test`:
 //! a nextest filterset on test paths, Vitest's tag filter and pytest's `-m`.
@@ -79,6 +79,19 @@ const J003_SDK_PYTHON: &str = "journey(id=\"J-003\", surface=\"sdk-python\")";
 #[case::flags_intersect(&["--area", "6", "--milestone", "M1"], vec![
     ("nextest", format!("--filterset={J003_CLI}")),
 ])]
+#[case::collie(&["--product", "collie"], vec![
+    ("nextest", format!("--filterset={J001_CLI}")),
+    ("vitest", J001_SDK_TYPESCRIPT.to_owned()),
+])]
+#[case::foxhound(&["--product", "foxhound", "--milestone", "M1"], vec![
+    ("nextest", format!("--filterset={J001_FOXHOUND_CLI} | {J003_CLI}")),
+])]
+#[case::exclusion(&["--surface", "cli", "--surface", "foxhound-cli", "--exclude", "J-001@cli"], vec![
+    ("nextest", format!("--filterset={J001_FOXHOUND_CLI} | {J003_CLI}")),
+])]
+#[case::exclusion_of_a_variant_not_chosen(&["--id", "J-001", "--surface", "cli", "--exclude", "J-003@cli"], vec![
+    ("nextest", format!("--filterset={J001_CLI}")),
+])]
 #[case::id_and_surface_intersect(&["--id", "J-001", "--surface", "cli"], vec![
     ("nextest", format!("--filterset={J001_CLI}")),
 ])]
@@ -115,6 +128,9 @@ fn variant_no_runner_runs_yet_is_left_out() {
 #[case::retired_journey(&["--id", "J-002"])]
 #[case::unknown_journey(&["--id", "J-009"])]
 #[case::empty_intersection(&["--id", "J-001", "--surface", "sdk-rust"])]
+#[case::every_chosen_variant_excluded(&["--id", "J-001", "--surface", "cli", "--exclude", "J-001@cli"])]
+#[case::exclusion_of_a_retired_journey(&["--id", "J-001", "--exclude", "J-002@cli"])]
+#[case::exclusion_of_a_surface_the_journey_lacks(&["--id", "J-001", "--exclude", "J-001@sdk-python"])]
 fn selection_of_no_variant_fails(#[case] flags: &[&str]) {
     let workspace = Workspace::from_fixture("journeys");
 
@@ -124,11 +140,15 @@ fn selection_of_no_variant_fails(#[case] flags: &[&str]) {
     assert_eq!(outcome.code, 1, "{}", outcome.stderr);
 }
 
-#[test]
-fn surface_adr_0063_does_not_list_is_refused() {
+#[rstest]
+#[case::surface_adr_0063_does_not_list(&["--surface", "desktop"])]
+#[case::exclusion_on_such_a_surface(&["--exclude", "J-001@desktop"])]
+#[case::exclusion_of_no_variant(&["--exclude", "J-001"])]
+#[case::third_product(&["--product", "kennel"])]
+fn flag_value_that_names_nothing_is_refused(#[case] flags: &[&str]) {
     let workspace = Workspace::from_fixture("journeys");
 
-    let outcome = select(&workspace, &["--surface", "desktop"]);
+    let outcome = select(&workspace, flags);
 
     assert_eq!(filters(&outcome), vec![]);
     assert_eq!(outcome.code, 2, "{}", outcome.stderr);

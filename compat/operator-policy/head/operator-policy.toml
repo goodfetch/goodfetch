@@ -54,6 +54,12 @@ metrics_endpoint = "example"
 idle_timeout = 30000
 address = "example"
 drain_grace = 30000
+trusted_proxies = ["10.0.0.0/8", "192.0.2.7"]
+
+[settings.daemon.tls]
+cert_file = "example"
+key_file = "example"
+upstream = true
 
 [settings.ops]
 address = "example"
@@ -473,6 +479,12 @@ metrics_endpoint = "example"
 idle_timeout = 30000
 address = "example"
 drain_grace = 30000
+trusted_proxies = ["10.0.0.0/8", "192.0.2.7"]
+
+[lock.daemon.tls]
+cert_file = "example"
+key_file = "example"
+upstream = true
 
 [lock.ops]
 address = "example"

@@ -11,15 +11,17 @@
     reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
 )]
 
+use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::egress::{CdpUrlRule, EgressRule};
 use goodfetch_protocol::settings::SettingsLayer;
 use rstest::rstest;
 
 use super::{policy, sockets};
 use crate::egress::{
-    BrowserLocation, CdpUrlOrigin, CdpUrlRefused, EndpointPolicy, Refused, cdp_url_address,
+    BrowserLocation, CdpUrlOrigin, CdpUrlRefused, EndpointPolicy, Policy, Refused, cdp_url_address,
     judge_cdp_url, judge_unresolved,
 };
+use crate::settings::{Layers, resolve};
 
 const URL: &str = "ws://browser.test:9222/devtools/browser/1";
 
@@ -210,6 +212,65 @@ fn a_configured_cdp_url_is_refused_private_addresses_under_no_private_endpoints(
             address,
             Some("egress.no_private_endpoints")
         ))
+    );
+}
+
+/// The Session's policy of a Run opened through an Exposed Daemon's
+/// address (ADR 0049).
+fn on_an_exposed_daemon() -> Policy {
+    let resolved = resolve(&Layers::default(), Product::Collie, Product::Collie)
+        .unwrap()
+        .opened_on_an_exposed_daemon();
+    Policy::of(&resolved).unwrap()
+}
+
+/// ADR 0056's Exposed Daemon row: on an Exposed Daemon, the program's own
+/// code runs on another machine than the Daemon's loopback, so its
+/// `cdp_url` may not use loopback either, and a project configuration a
+/// Client sends there has the run layer's authority (ADR 0083), so its
+/// `cdp_url` is judged as one; the same addresses in Operator policy or
+/// user configuration stay Operator-configured endpoints, and a public
+/// address stays allowed (positive controls).
+///
+/// Covers: story:4-25, error:cdp_url_not_allowed
+#[rstest]
+#[case::the_programs_own_loopback(
+    FROM_THE_PROGRAM,
+    &["127.0.0.1"],
+    Err((CdpUrlRule::Loopback, "127.0.0.1", None))
+)]
+#[case::the_programs_own_ipv4_mapped_loopback(
+    FROM_THE_PROGRAM,
+    &["::ffff:127.0.0.1"],
+    Err((CdpUrlRule::Loopback, "::ffff:127.0.0.1", None))
+)]
+#[case::a_project_configurations_loopback(
+    own(SettingsLayer::ProjectConfiguration),
+    &["::1"],
+    Err((CdpUrlRule::Loopback, "::1", None))
+)]
+#[case::a_project_configurations_private_network(
+    own(SettingsLayer::ProjectConfiguration),
+    &["10.0.0.1"],
+    Err((CdpUrlRule::PrivateAddress, "10.0.0.1", Some("egress.private_ranges")))
+)]
+#[case::the_programs_own_public_address(FROM_THE_PROGRAM, &["93.184.215.14"], Ok(()))]
+#[case::user_configuration(own(SettingsLayer::UserConfiguration), &["127.0.0.1"], Ok(()))]
+#[case::operator_policy(own(SettingsLayer::OperatorPolicy), &["127.0.0.1"], Ok(()))]
+fn on_an_exposed_daemon_a_cdp_url_from_a_client_is_refused_loopback(
+    #[case] origin: CdpUrlOrigin,
+    #[case] addresses: &[&str],
+    #[case] expected: Result<(), (CdpUrlRule, &str, Option<&'static str>)>,
+) {
+    assert_eq!(
+        judge_cdp_url(
+            URL,
+            &sockets(addresses),
+            origin,
+            &on_an_exposed_daemon(),
+            EndpointPolicy::default(),
+        ),
+        expected.map_err(|(rule, address, setting)| refused(origin, rule, address, setting))
     );
 }
 

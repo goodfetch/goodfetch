@@ -1235,7 +1235,8 @@ export type SessionSource =
        */
       format?: StateFileFormat | null;
       /**
-       * The Secret reference that opens a session export bundle.
+       * The Secret reference that opens a session export bundle: its
+       * age identity or its passphrase, never the value itself.
        */
       key?: string | null;
       kind: "state_file";
@@ -1829,6 +1830,14 @@ export type Seed = RequestSeed | SitemapSeed;
  * via the `definition` "SessionEventName".
  */
 export type SessionEventName = "page";
+/**
+ * Why a session export bundle did not open, which
+ * `session_export_open_failed` carries.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "SessionExportFailure".
+ */
+export type SessionExportFailure = "wrong_key" | "not_an_identity" | "not_a_bundle" | "excessive_work" | "too_large";
 /**
  * Which of a site's preferences refused a navigation (ADR 0086, as ADR
  * 0093 amends it).
@@ -6921,6 +6930,13 @@ export interface PatternUnsupportedDetails {
   pattern: string;
 }
 /**
+ * What `person_required` details.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "PersonRequiredDetails".
+ */
+export interface PersonRequiredDetails {}
+/**
  * What a Run did with its Plan file (ADR 0091).
  *
  * This interface was referenced by `CollieTypes`'s JSON-Schema
@@ -9212,6 +9228,22 @@ export interface SessionBoundToMachineDetails {}
  * via the `definition` "SessionClosed".
  */
 export interface SessionClosed {}
+/**
+ * What `session_export_open_failed` details.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "SessionExportOpenFailedDetails".
+ */
+export interface SessionExportOpenFailedDetails {
+  /**
+   * What failed.
+   */
+  failure: SessionExportFailure;
+  /**
+   * The Secret reference given as the bundle's key.
+   */
+  reference: string;
+}
 /**
  * What `session.on` answers when its Session goes, closed or with its
  * Run.

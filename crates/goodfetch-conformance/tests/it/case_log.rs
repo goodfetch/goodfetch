@@ -8,9 +8,10 @@ use goodfetch_conformance::{
 };
 use goodfetch_protocol::journey::FeatureId;
 use goodfetch_protocol::result_document::{
-    CaseOutcome, ConformanceHeader, Outcome, ProvingGroundCopy, ResultDocument, Suite, Target,
-    TargetIdentity,
+    Blocking, CaseOutcome, ConformanceDocument, ConformanceHeader, Outcome, ProvingGroundCopy,
+    ResultDocument, Suite, Target, TargetIdentity,
 };
+use rstest::rstest;
 use serde_json::{Value, json};
 
 use crate::{platform, schema_violations};
@@ -94,7 +95,7 @@ fn log(entries: &[Value]) -> String {
         .collect()
 }
 
-fn outcomes(document: &goodfetch_protocol::result_document::ConformanceDocument) -> Vec<Outcome> {
+fn outcomes(document: &ConformanceDocument) -> Vec<Outcome> {
     document
         .capabilities()
         .iter()
@@ -217,6 +218,128 @@ fn the_document_names_its_suite_target_platform_runtime_and_proving_ground_and_c
         })
     );
     assert_eq!(schema_violations(&document), Vec::<String>::new());
+}
+
+/// An entry whose oracle answer carries a vendor's `verdict` of `outcome`,
+/// for `reason` if any, the answer's check failing as an online task's
+/// does when its vendor did not pass the tool.
+fn judged_by_vendor(case: &str, vendor: &str, outcome: &str, reason: Option<&str>) -> Value {
+    let mut verdict = json!({ "vendor": vendor, "outcome": outcome });
+    if let Some(reason) = reason {
+        verdict["reason"] = json!(reason);
+    }
+    let failed = (outcome != "passed").then_some("the run ends cancelled");
+    let mut judged = entry(case, "cancel", failed);
+    judged["evidence"]["oracle_answers"] = json!([{
+        "task": "challenges/1",
+        "outcome": if outcome == "passed" { "verified" } else { "failed" },
+        "verdict": verdict,
+    }]);
+    judged
+}
+
+/// Covers: story:2-38, story:2-87
+#[test]
+fn a_vendors_inconclusive_verdict_makes_its_case_inconclusive_and_names_the_vendor() {
+    let log = read_case_log(&log(&[
+        judged_by_vendor(
+            "cancel-before-start",
+            "turnstile",
+            "inconclusive",
+            Some("out_of_quota"),
+        ),
+        judged_by_vendor("cancel-mid-run", "botid", "failed", Some("bot")),
+    ]))
+    .unwrap();
+
+    let document = write_document(header(), &case_list(), &log).unwrap();
+
+    let cases = document.capabilities()[0].cases();
+    assert_eq!(
+        cases
+            .iter()
+            .map(|case| (case.outcome(), case.facts().entries[0].unreachable.clone()))
+            .collect::<Vec<_>>(),
+        [
+            (
+                CaseOutcome::Inconclusive,
+                vec!["turnstile (out_of_quota)".to_owned()]
+            ),
+            (CaseOutcome::Failed, Vec::new()),
+        ]
+    );
+}
+
+/// The document of a run on the online copy, in gate mode or not, whose
+/// `cancel-before-start` case ran with blocking on, judged by a vendor as
+/// `on` says, and with blocking off, as `off` says.
+fn online_document(gate: bool, on: &str, off: &str) -> ConformanceDocument {
+    let entries: Vec<Value> = [("on", on), ("off", off)]
+        .into_iter()
+        .map(|(blocking, outcome)| {
+            let reason = (outcome == "inconclusive").then_some("unreachable");
+            let mut judged = judged_by_vendor("cancel-before-start", "turnstile", outcome, reason);
+            judged["blocking"] = json!(blocking);
+            judged
+        })
+        .collect();
+    let log = read_case_log(&log(&entries)).unwrap();
+    let header = ConformanceHeader {
+        online: true,
+        gate,
+        ..header()
+    };
+    write_document(header, &case_list(), &log).unwrap()
+}
+
+/// In gate mode, a case whose vendor was unreachable with blocking on,
+/// whatever it did with blocking off, is inconclusive: it does not hold the
+/// daily channel back and never counts as a pass. Nor does one the vendor
+/// failed with blocking on and could not judge with blocking off.
+///
+/// Covers: story:2-73
+#[rstest]
+#[case::both_ways("inconclusive", "inconclusive")]
+#[case::with_blocking_on_alone("inconclusive", "passed")]
+#[case::with_blocking_on_and_failing_off("inconclusive", "failed")]
+#[case::with_blocking_off_alone("failed", "inconclusive")]
+fn a_gate_case_whose_vendor_was_unreachable_neither_passes_nor_blocks(
+    #[case] on: &str,
+    #[case] off: &str,
+) {
+    let document = online_document(true, on, off);
+
+    let case = &document.capabilities()[0].cases()[0];
+    assert_eq!(case.outcome(), CaseOutcome::Inconclusive);
+    let recorded: Vec<(Option<Blocking>, bool)> = case
+        .facts()
+        .entries
+        .iter()
+        .map(|entry| (entry.blocking, entry.unreachable.is_empty()))
+        .collect();
+    assert_eq!(
+        recorded,
+        [
+            (Some(Blocking::On), on != "inconclusive"),
+            (Some(Blocking::Off), off != "inconclusive"),
+        ]
+    );
+    assert_eq!(document.capabilities()[0].outcome(), Outcome::Unproved);
+    assert!(!document.blocks());
+}
+
+/// The same online failure holds the job that asked for gate mode back, and
+/// only reports everywhere else.
+///
+/// Covers: story:2-74
+#[rstest]
+#[case::in_gate_mode(true)]
+#[case::outside_gate_mode(false)]
+fn an_online_failure_blocks_in_gate_mode_alone(#[case] gate: bool) {
+    let document = online_document(gate, "failed", "passed");
+
+    assert_eq!(document.capabilities()[0].outcome(), Outcome::Failed);
+    assert_eq!(document.blocks(), gate);
 }
 
 /// Covers: story:2-85

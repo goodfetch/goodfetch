@@ -31,7 +31,8 @@ _DATE_TIME = re.compile(
 FORMATS = FormatChecker()
 """The formats the committed schemas use, checked as TypeScript's Ajv
 checks them: `date` and `date-time` as RFC 3339 writes them, schemars's
-`uint64` as a non-negative integer below 2^53, and `uint8`."""
+`uint64` as a non-negative integer below 2^53, `int64` as an integer of
+magnitude below 2^53, and `uint8`."""
 
 
 @FORMATS.checks("date")
@@ -61,6 +62,11 @@ def _date_time(value: object) -> bool:
 @FORMATS.checks("uint64")
 def _uint64(value: object) -> bool:
     return not isinstance(value, int) or 0 <= value < 2**53
+
+
+@FORMATS.checks("int64")
+def _int64(value: object) -> bool:
+    return not isinstance(value, int) or -(2**53) < value < 2**53
 
 
 @FORMATS.checks("uint8")

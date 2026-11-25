@@ -1,0 +1,11 @@
+# The Journey variants a released minor's skew checks leave out (ADR 0066): a
+# Journey of an old tag that asserts something outside semver (ADR 0030), once
+# fixed on `main`. Nothing is released yet, so none is excluded.
+#
+# Each is an `[[exclusion]]` with the released `minor`, the `variant` and the
+# `reason`, in a reviewed change.
+#
+# [[exclusion]]
+# minor = "1.2"
+# variant = "J-003@cli"
+# reason = "asserts the wording of a log line"

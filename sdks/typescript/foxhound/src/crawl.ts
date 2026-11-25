@@ -8,9 +8,11 @@
 import type {
   JSONObject,
   JSONSchema,
+  KeyValueStore,
   Locator,
   Page,
   SchemaInput,
+  SchemaOutput,
   TypedSchema,
 } from "@goodfetch/collie-client";
 import { nonJSON, parse, wireSchema, type SchemaIssue } from "@goodfetch/collie-client/runtime";
@@ -21,14 +23,21 @@ import type {
   Enqueued,
   EnqueuedLinks,
   HttpBody,
+  InvalidRecord,
   LabelDeclaration,
+  MatchedLink,
   RequestSeed,
+  Seed,
+  SitemapSeed,
 } from "./generated/index.ts";
 import {
+  DatasetDuplicateError,
+  DatasetKeyInvalidError,
   LabelDuplicateError,
   LabelUnhandledError,
   LabelUnknownError,
   PayloadInvalidError,
+  RecordInvalidError,
 } from "./generated/errors.ts";
 import { settingsOnWire, type LabelSettings } from "./generated/settings.ts";
 
@@ -92,26 +101,132 @@ export type PayloadThen<P extends object | undefined, O> = [P] extends [undefine
   ? [options?: O]
   : [payload: P, options?: O];
 
-/** What `crawl.dataset` takes. */
+/**
+ * A Dataset's Record schema (ADR 0103): a typed one whose input is an
+ * object, Standard Schema with Standard JSON Schema such as Zod's, or a
+ * JSON Schema written by hand.
+ */
+export type RecordSchema = TypedSchema<object, unknown> | JSONSchema;
+
+/** What a handler pushes into a Dataset of schema `S`: its input type, or a JSON object for a hand-written one. */
+export type RecordInput<S extends RecordSchema> = S extends TypedSchema
+  ? SchemaInput<S>
+  : JSONObject;
+
+/** What a reader reads from a Dataset of schema `S`: its output type, or a JSON object for a hand-written one. */
+export type RecordOutput<S extends RecordSchema> = S extends TypedSchema
+  ? SchemaOutput<S>
+  : JSONObject;
+
+/** What `crawl.dataset` takes for a Dataset whose Records are of type `I`. */
 export interface DatasetOptions<I extends object> {
-  /** The fields whose values name a Record: a Record pushed again under the same key replaces it (ADR 0103). */
+  /**
+   * The fields whose values name a Record: a Record pushed again under the
+   * same key replaces it (ADR 0103). Under a schema, each is a top-level
+   * field the schema requires.
+   */
   readonly key?: readonly (keyof I & string)[] | undefined;
 }
 
+/** What `crawl.dataset` takes for a Dataset of the Record schema `S`. */
+export interface DatasetSchemaOptions<S extends RecordSchema> extends DatasetOptions<
+  RecordInput<S>
+> {
+  /**
+   * The schema of its Records (ADR 0103): a handler's `push` parses each
+   * Record with it first, and the engine checks it again as JSON Schema.
+   */
+  readonly schema: S;
+}
+
+/** Each Dataset's Record schema, set once when it is declared; a Dataset without one has none. */
+const recordSchemas = new WeakMap<Dataset<object, unknown>, RecordSchema>();
+
 /**
  * A named collection of Records a crawl's handlers push (ADR 0103). `I` is
- * the type of each Record.
+ * the type of each Record a handler pushes, and `O` the type a reader
+ * reads it back as, its schema's output.
  */
-export class Dataset<I extends object> {
+export class Dataset<I extends object, O = I> {
   /** Tells a `Dataset<A>` from a `Dataset<B>` to the type checker; never set. */
   declare private readonly record: I;
+  /** Tells a Dataset's output type to the type checker; never set. */
+  declare private readonly output: O;
   /** Its name, unique in its Crawl. */
   readonly name: string;
 
   /** @internal `crawl.dataset` declares a Dataset; a program never constructs one. */
-  constructor(name: string) {
+  constructor(name: string, schema: RecordSchema | undefined) {
     this.name = name;
+    if (schema !== undefined) recordSchemas.set(this, schema);
   }
+}
+
+/** The Records of one push as a handler's `push` checked them in the program (ADR 0103). */
+export interface CheckedRecords {
+  /** Those that hold, in order, each with its position in the push. */
+  readonly held: readonly { readonly position: number; readonly record: WireObject }[];
+  /** Those that do not, in order, each with its position in the push and its issues. */
+  readonly refused: readonly InvalidRecord[];
+}
+
+/**
+ * Checks each of `records`, pushed together into `dataset`, before any is
+ * sent: a Record that is not JSON, or that the Dataset's typed schema's own
+ * parse refuses, is refused with each issue's path (ADR 0103). A
+ * hand-written JSON Schema has no parse in the program: the engine checks
+ * it alone, so no Record is checked twice against one JSON Schema.
+ */
+export async function checkRecords(
+  dataset: Dataset<object, unknown>,
+  records: readonly unknown[],
+): Promise<CheckedRecords> {
+  const schema = recordSchemas.get(dataset);
+  const held: { position: number; record: WireObject }[] = [];
+  const refused: InvalidRecord[] = [];
+  for (const [position, record] of records.entries()) {
+    const found = nonJSON(record);
+    if (found !== undefined) {
+      refused.push({
+        position,
+        issues: [{ path: found.path, message: `${found.found} is not JSON` }],
+      });
+      continue;
+    }
+    if (schema !== undefined) {
+      // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- `nonJSON` found nothing that is not JSON.
+      const parsed = await parse(schema, record as JSONObject);
+      if ("issues" in parsed) {
+        refused.push({
+          position,
+          issues: parsed.issues.map(({ path, message }) => ({ path, message })),
+        });
+        continue;
+      }
+    }
+    // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- `push` types each Record as an object, and `nonJSON` found nothing that is not JSON.
+    held.push({ position, record: wireObject(record as object) });
+  }
+  return { held, refused };
+}
+
+/**
+ * The `record_invalid` of `refused`, the Records of one push into the
+ * Dataset `dataset` that do not hold, in position order, whether the
+ * program or the engine refused them.
+ */
+export function recordsRefused(
+  dataset: string,
+  refused: readonly InvalidRecord[],
+): RecordInvalidError {
+  const named = refused.map(
+    ({ position, issues }) =>
+      `the Record at ${String(position)}: ${issues.map(({ path, message }) => `${path || "its root"}: ${message}`).join(", ")}`,
+  );
+  return new RecordInvalidError(`the Dataset ${dataset} did not stage ${named.join("; ")}`, {
+    fix: "Push Records its Dataset's schema accepts, made of JSON values only, each holding every field of its Dataset's key.",
+    details: { dataset, records: refused },
+  });
 }
 
 /** What `context.enqueue` and `seed` take besides the URL, the Label and the Payload. */
@@ -128,6 +243,28 @@ export interface RequestOptions {
   readonly key?: string | null | undefined;
 }
 
+/**
+ * A Payload function of `context.enqueueLinks` (ADR 0093): called with each
+ * element its locator matched, in document order, it answers that link's
+ * Payload, or `null` to leave the link out, which `enqueueLinks` reports as
+ * `skipped_by_payload`.
+ */
+export type LinkPayload<P extends object> = (link: MatchedLink) => P | null | PromiseLike<P | null>;
+
+/**
+ * What `context.enqueueLinks` takes after a Label with a Payload: one
+ * Payload for every link, or a `LinkPayload` function of each; nothing
+ * after a Label without one.
+ */
+export type LinksPayload<P extends object | undefined> = [P] extends [undefined]
+  ? undefined
+  : Exclude<P, undefined> | LinkPayload<Exclude<P, undefined>>;
+
+/** Whether `payload`, given to `enqueueLinks`, is a `LinkPayload` function, which no JSON Payload is. */
+export function isLinkPayload(payload: unknown): payload is LinkPayload<object> {
+  return typeof payload === "function";
+}
+
 /** What `context.enqueueLinks` takes besides the locator, the Label and the Payload. */
 export interface EnqueueLinksOptions {
   /** URL patterns, globs as `crawl.scope.include`'s, of which a link must match one when there are any; they only narrow the crawl's scope. */
@@ -141,11 +278,41 @@ export interface EnqueueLinksOptions {
 }
 
 /**
+ * A crawl's Run bound to one attempt of a handler, its context's `run`
+ * (ADRs 0093 and 0103): what is written through it is staged with the
+ * attempt, so it commits with the attempt's Records and enqueues when the
+ * handler returns, and is discarded with them when the attempt ends any
+ * other way.
+ *
+ * The trap: the program's own Run value, the one `startCrawl` answered,
+ * captured by a handler from the code around it, is not bound. What a
+ * handler writes through it commits at once, outside the attempt's lease,
+ * and again on every attempt that runs the handler, discarded ones
+ * included. Write through it only state that must outlive a failed attempt.
+ */
+export interface AttemptRun {
+  /** The Run's ID. Read without a round trip. */
+  id(): string;
+  /**
+   * The Run's Key-value store, its writes staged with the attempt. A read
+   * sees the attempt's own writes first; other attempts and the program's
+   * own Run value see them once they commit. Once the attempt ends, each
+   * call fails.
+   */
+  readonly keyValueStore: KeyValueStore;
+}
+
+/**
  * What a handler's attempt at one work item holds (ADR 0093): the page the
  * engine lends it, and what it adds to the crawl, staged with the attempt.
  * Once the attempt ends, or its Run is closed, each call fails.
  */
 export interface CrawlContext {
+  /**
+   * The crawl's Run bound to this attempt (ADR 0093), not the program's own
+   * Run value: its Key-value store's writes are staged with the attempt.
+   */
+  readonly run: AttemptRun;
   /**
    * Already navigated. The handler runs once the request's navigation has
    * happened, so a route set on this page applies from its next navigation.
@@ -209,16 +376,19 @@ export interface CrawlContext {
    * `attempt_ended`.
    *
    * The links go under `label`, each with the Payload that follows it when
-   * the Label has one (ADR 0093). A Label the crawl does not declare fails
-   * with `label_unknown`, and a Payload as `enqueue`'s refuses it with
-   * `payload_invalid`, and nothing is sent.
+   * the Label has one (ADR 0093): one Payload for every link, or a
+   * `LinkPayload` function, which reads each matched element first
+   * (`crawl_request.links`) and answers its link's Payload, or `null` to
+   * leave it out. A Label the crawl does not declare fails with
+   * `label_unknown`, and a Payload as `enqueue`'s refuses it with
+   * `payload_invalid`, and no link is added.
    *
    * @experimental
    */
   enqueueLinks<Q extends object | undefined>(
     locator: Locator,
     label: Label<Q>,
-    ...rest: PayloadThen<NoInfer<Q>, EnqueueLinksOptions>
+    ...rest: PayloadThen<LinksPayload<NoInfer<Q>>, EnqueueLinksOptions>
   ): Promise<EnqueuedLinks>;
   /**
    * Pushes one Record or several, in one message, into a Dataset the crawl
@@ -237,15 +407,20 @@ export interface CrawlContext {
    * position in the list and each of its issues by its path. An attempt
    * that already ended fails with `attempt_ended`.
    *
-   * Each Record is typed from `dataset` alone (ADRs 0103 and 0147). A
-   * handler that catches `record_invalid` keeps what it staged, this
-   * push's other Records included. An empty list is never sent: it pushes
+   * Each Record is typed from `dataset` alone (ADRs 0103 and 0147). Each
+   * is checked in the program first: one that is not JSON, or that the
+   * Dataset's typed schema's own parse refuses, is never sent, and the
+   * call fails with `record_invalid` once the others are staged, naming
+   * each refused Record by its position, the engine's refusals included.
+   * A handler that catches `record_invalid` keeps what it staged, this
+   * push's other Records included; one that lets it escape fails its
+   * request, which is not retried. An empty list is never sent: it pushes
    * nothing and sends no message, so it does not fail.
    *
    * @experimental
    */
-  push<I extends object>(
-    dataset: Dataset<I>,
+  push<I extends object, O>(
+    dataset: Dataset<I, O>,
     records: NoInfer<I> | readonly NoInfer<I>[],
   ): Promise<void>;
 }
@@ -268,7 +443,7 @@ interface Declared {
 let declarationOf: (crawl: Crawl) => Pick<CrawlStartParams, "labels" | "datasets">;
 let handlerIn: (crawl: Crawl, label: string) => Handler | undefined;
 let declaredIn: (crawl: Crawl, label: Label<object | undefined>) => string;
-let checkStartable: (crawl: Crawl, seeds: readonly RequestSeed[]) => void;
+let checkStartable: (crawl: Crawl, seeds: readonly Seed[]) => void;
 let labelNamed: (crawl: Crawl, name: string) => Label<object | undefined> | undefined;
 
 /**
@@ -326,13 +501,36 @@ export class Crawl {
     declared.handler = handler;
   }
 
-  /** Declares the Dataset `name`, whose Records are of type `I`. */
-  dataset<I extends object>(name: string, options: DatasetOptions<I> = {}): Dataset<I> {
+  /**
+   * Declares the Dataset `name` (ADR 0103), whose Records are of `schema`'s
+   * input type, read back as its output type, or of type `I` without a
+   * schema, which takes any JSON object. It does no I/O. A second Dataset
+   * of one name fails with `dataset_duplicate`, and a key on a field that
+   * is no top-level field the schema requires with `dataset_key_invalid`.
+   */
+  dataset<S extends RecordSchema>(
+    name: string,
+    options: DatasetSchemaOptions<S>,
+  ): Dataset<RecordInput<S>, RecordOutput<S>>;
+  dataset<I extends object = JSONObject>(name: string, options?: DatasetOptions<I>): Dataset<I>;
+  dataset(
+    name: string,
+    options: DatasetOptions<JSONObject> & { readonly schema?: RecordSchema } = {},
+  ): Dataset<object, unknown> {
+    if (this.#datasets.has(name)) {
+      throw new DatasetDuplicateError(`the Crawl already declares the Dataset ${name}`, {
+        fix: "Declare each Dataset once, and use the Dataset the first `crawl.dataset` returned.",
+        details: { dataset: name },
+      });
+    }
+    const schema = options.schema === undefined ? undefined : wireSchema(options.schema);
+    if (schema !== undefined) checkKey(name, schema, options.key ?? []);
     this.#datasets.set(name, {
       name,
+      ...(schema === undefined ? {} : { schema }),
       ...(options.key === undefined ? {} : { key: [...options.key] }),
     });
-    return new Dataset<I>(name);
+    return new Dataset(name, options.schema);
   }
 
   /** The declaration of `label`, which must be the very Label this crawl's `crawl.label` returned. */
@@ -343,10 +541,11 @@ export class Crawl {
   }
 
   /**
-   * Fails when a Label has no handler, or a seed names a Label this crawl
-   * does not declare: by name, since a seed carries its Label's name only.
+   * Fails when a Label has no handler, or a seed or a sitemap seed's rule
+   * names a Label this crawl does not declare: by name, since a seed
+   * carries its Label's name only.
    */
-  #checkStartable(seeds: readonly RequestSeed[]): void {
+  #checkStartable(seeds: readonly Seed[]): void {
     for (const [name, { handler }] of this.#labels) {
       if (handler === undefined) {
         throw new LabelUnhandledError(`the Crawl attaches no handler to the Label ${name}`, {
@@ -355,8 +554,8 @@ export class Crawl {
         });
       }
     }
-    const unknown = seeds.find(({ label }) => !this.#labels.has(label));
-    if (unknown !== undefined) throw this.#unknown(unknown.label);
+    const unknown = seeds.flatMap(labelsOf).find((label) => !this.#labels.has(label));
+    if (unknown !== undefined) throw this.#unknown(unknown);
   }
 
   #unknown(name: string): LabelUnknownError {
@@ -381,6 +580,25 @@ export class Crawl {
   }
 }
 
+/**
+ * Fails with `dataset_key_invalid` when `key`, the key of the Dataset
+ * `dataset`, names a field that is no top-level field its JSON Schema
+ * `schema` requires, so a Record could lack it, as the engine refuses it.
+ */
+function checkKey(dataset: string, schema: WireObject, key: readonly string[]): void {
+  const { required } = schema;
+  const requires = Array.isArray(required) ? required : [];
+  const field = key.find((name) => !requires.includes(name));
+  if (field === undefined) return;
+  throw new DatasetKeyInvalidError(
+    `the Dataset ${dataset}'s key names ${field}, which is no top-level field its schema requires`,
+    {
+      fix: "Key a Dataset only by fields its schema requires, or require the field in its schema.",
+      details: { dataset, reason: "not_required", field },
+    },
+  );
+}
+
 /** The Labels and Datasets `crawl.start` declares for `crawl`. */
 export function crawlDeclaration(crawl: Crawl): Pick<CrawlStartParams, "labels" | "datasets"> {
   return declarationOf(crawl);
@@ -391,23 +609,32 @@ export function crawlDeclaration(crawl: Crawl): Pick<CrawlStartParams, "labels" 
  * handler (`label_unhandled`) or a seed names a Label it does not declare by name
  * (`label_unknown`).
  */
-export function checkCrawlStartable(crawl: Crawl, seeds: readonly RequestSeed[]): void {
+export function checkCrawlStartable(crawl: Crawl, seeds: readonly Seed[]): void {
   checkStartable(crawl, seeds);
 }
 
 /**
  * Fails with `payload_invalid`, before anything is sent, when a seed's
  * Payload is refused by its Label's schema's own parse; `seeds` name only
- * Labels `crawl` declares, as `checkCrawlStartable` checked.
+ * Labels `crawl` declares, as `checkCrawlStartable` checked. A sitemap
+ * seed carries no Payload.
  */
-export async function checkSeedPayloads(
-  crawl: Crawl,
-  seeds: readonly RequestSeed[],
-): Promise<void> {
-  for (const { label, payload } of seeds) {
-    const declared = labelNamed(crawl, label);
-    if (declared !== undefined) await checkPayload(declared, payload);
+export async function checkSeedPayloads(crawl: Crawl, seeds: readonly Seed[]): Promise<void> {
+  for (const sent of seeds) {
+    if (isSitemap(sent)) continue;
+    const declared = labelNamed(crawl, sent.label);
+    if (declared !== undefined) await checkPayload(declared, sent.payload);
   }
+}
+
+/** Whether `sent` is a sitemap seed rather than a request. */
+function isSitemap(sent: Seed): sent is SitemapSeed {
+  return "sitemap" in sent;
+}
+
+/** The names of the Labels `sent` gives its requests: a request's own, or each of a sitemap seed's rules'. */
+function labelsOf(sent: Seed): string[] {
+  return isSitemap(sent) ? sent.rules.map(({ label }) => label) : [sent.label];
 }
 
 /** The name of `label`, which `crawl` must declare; another crawl's Label fails with `label_unknown`. */
@@ -436,12 +663,33 @@ export function seed<P extends object | undefined>(
 }
 
 /**
+ * A sitemap seed of a crawl: the entries of `url`'s sitemaps (ADR 0093).
+ * `url` names a sitemap, or a site's robots.txt, whose `Sitemap:` lines
+ * are read, and nested sitemap indexes are followed. Each `[pattern,
+ * label]` of `rules`, in order, is a glob as `crawl.scope.include` takes
+ * one and the Label it gives the entries it matches: the first that
+ * matches an entry picks its Label, and an entry no rule matches is not
+ * added, with `no_rule`. A sitemap entry carries no Payload, so a rule's
+ * Label takes none. The engine reads the sitemap once the Run is running.
+ */
+export function sitemap(
+  url: string,
+  rules: Iterable<readonly [pattern: string, label: Label]>,
+): SitemapSeed {
+  return {
+    sitemap: url,
+    rules: Array.from(rules, ([pattern, label]) => ({ pattern, label: label.name })),
+  };
+}
+
+/**
  * What follows `label` in a call that takes `PayloadThen`: its Payload
  * and options for a Label with a Payload, its options alone for one
- * without.
+ * without, or for `enqueueLinks` a `LinkPayload` function in the
+ * Payload's place.
  */
 export function payloadAndOptions<P extends object | undefined, O>(
-  label: Label<P>,
+  label: Label<object | undefined>,
   rest: PayloadThen<P, O>,
 ): { readonly payload: unknown; readonly options: O | undefined } {
   const given: readonly unknown[] = rest;

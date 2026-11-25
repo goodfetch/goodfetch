@@ -521,7 +521,7 @@ fn path_attribute(attributes: &[syn::Attribute]) -> Option<String> {
     })
 }
 
-fn is_test_only(attributes: &[syn::Attribute]) -> bool {
+pub(crate) fn is_test_only(attributes: &[syn::Attribute]) -> bool {
     attributes.iter().any(|attribute| {
         attribute.path().is_ident("cfg")
             && attribute
@@ -531,7 +531,7 @@ fn is_test_only(attributes: &[syn::Attribute]) -> bool {
     })
 }
 
-fn item_attributes(item: &syn::Item) -> &[syn::Attribute] {
+pub(crate) fn item_attributes(item: &syn::Item) -> &[syn::Attribute] {
     match item {
         syn::Item::Const(item) => &item.attrs,
         syn::Item::Enum(item) => &item.attrs,

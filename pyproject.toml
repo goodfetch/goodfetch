@@ -18,6 +18,9 @@ requires-python = ">=3.11"
 dev = [
   "anyio>=4.15.1",
   "connection-library",
+  # The ed25519 that test support's tests check Standard Webhooks' shared
+  # `v2a` vectors with (ADR 0017); the standard library has none.
+  "cryptography>=50.0.2",
   "datamodel-code-generator==0.86.0",
   "goodfetch-collie",
   "goodfetch-collie-client",

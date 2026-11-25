@@ -9,10 +9,11 @@ use std::time::Duration;
 
 use goodfetch_protocol::catalog::{Product, Setting};
 use goodfetch_protocol::connection::ProductVersion;
+use goodfetch_protocol::recipe::{RECIPE_MANIFEST_VERSION, RecipeEntry, RecipeManifest};
 use goodfetch_protocol::secrets::RUN_STATE_KEY_REFERENCE;
 use goodfetch_protocol::settings::{
-    Exposure, RecipeManifest, RunOrigin, SettingLimit, SettingsLayer, TIMEOUT_NAVIGATION,
-    TIMEOUT_RUN, WeakenedSetting,
+    Exposure, RunOrigin, SettingLimit, SettingsLayer, TIMEOUT_NAVIGATION, TIMEOUT_RUN,
+    WeakenedSetting,
 };
 use proptest::prelude::*;
 use rstest::rstest;
@@ -48,8 +49,11 @@ fn policy(settings: Value, lock: Value, cap: Value) -> Policy {
 fn recipe(settings: Value, expose: &[(&str, Exposure)]) -> Recipe {
     Recipe::read(
         &RecipeManifest {
+            version: RECIPE_MANIFEST_VERSION,
             name: "listings".to_owned(),
             product: Product::Collie,
+            entry: RecipeEntry::Steps("listings.steps.json".to_owned()),
+            runtime: None,
             settings: nested(settings),
             expose: expose
                 .iter()
@@ -1485,8 +1489,11 @@ fn a_crawls_key_on_a_collie_run_of_a_foxhound_engine_is_not_applicable() {
 #[test]
 fn a_collie_engine_refuses_a_recipe_that_names_foxhound() {
     let manifest = RecipeManifest {
+        version: RECIPE_MANIFEST_VERSION,
         name: "catalog-crawl".to_owned(),
         product: Product::Foxhound,
+        entry: RecipeEntry::Crawl("catalog.crawl.json".to_owned()),
+        runtime: None,
         settings: Map::new(),
         expose: std::collections::BTreeMap::new(),
     };

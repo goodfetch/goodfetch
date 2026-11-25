@@ -19,6 +19,7 @@ use crate::entries::MODULES;
 use crate::executables::InstalledExecutables;
 use crate::jsonrpc::Message;
 use crate::politeness::PermitRow;
+use crate::recipe::{RECIPE_MANIFEST_VERSION, RecipeManifest};
 use crate::run::{RunIndexRow, RunStateRow};
 use crate::tls::CertificatePin;
 use crate::usage::Limit;
@@ -389,6 +390,19 @@ pub const EXPORT: Format = Format {
     schema: schema_of::<Vec<Value>>,
 };
 
+/// A Recipe's manifest, `goodfetch-recipe.toml` at its package's root
+/// (issue 1663): its name, Product, entry, runtime and exposed settings.
+/// An engine reads it when it installs or starts the Recipe, so it keeps
+/// the default version rule.
+pub const RECIPE_MANIFEST: Format = Format {
+    name: "recipe-manifest",
+    version: RECIPE_MANIFEST_VERSION,
+    storage: Storage::Toml,
+    rule: Rule::Default,
+    hello_from: &[],
+    schema: schema_of::<RecipeManifest>,
+};
+
 /// Every registered format.
 pub const FORMATS: &[&Format] = &[
     &PROTOCOL,
@@ -404,6 +418,7 @@ pub const FORMATS: &[&Format] = &[
     &OPERATOR_POLICY,
     &USER_CONFIGURATION,
     &EXPORT,
+    &RECIPE_MANIFEST,
 ];
 
 /// A settings file's schema: its `version` and each of `tables`, a table

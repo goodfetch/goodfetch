@@ -1537,6 +1537,18 @@ number = 11
 kind = "command"
 prefix = "catalog-run.start"
 
+# The Recipe format: its manifest and the refusal of a Recipe that is not
+# valid (issue 1663).
+[[area]]
+number = 11
+kind = "format"
+prefix = "recipe-manifest"
+
+[[area]]
+number = 11
+kind = "error"
+prefix = "recipe_invalid"
+
 # The check of the installation (#1206).
 [[area]]
 number = 11

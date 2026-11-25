@@ -189,6 +189,7 @@ details! {
     crate::page::proxy::ProxyUnavailableDetails => ErrorCode::PROXY_UNAVAILABLE,
     crate::page::route::PageHandlerFailedDetails => ErrorCode::PAGE_HANDLER_FAILED,
     crate::page::route::RouteAlreadyHandledDetails => ErrorCode::ROUTE_ALREADY_HANDLED,
+    crate::recipe::RecipeInvalidDetails => ErrorCode::RECIPE_INVALID,
     crate::response_limits::ResponseLimitExceededDetails => ErrorCode::RESPONSE_LIMIT_EXCEEDED,
     crate::run::DetachUnsupportedDetails => ErrorCode::DETACH_UNSUPPORTED,
     crate::run::ResourcesExhaustedDetails => ErrorCode::RESOURCES_EXHAUSTED,

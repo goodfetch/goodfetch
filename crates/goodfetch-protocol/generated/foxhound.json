@@ -12560,6 +12560,32 @@
       ],
       "type": "object"
     },
+    "RecipeInvalidDetails": {
+      "description": "What `recipe_invalid` details.",
+      "properties": {
+        "field": {
+          "arrived_in": "0.1",
+          "description": "The field, dotted from the manifest's root such as `entry.program`,\nor the package's path of a file it refuses.",
+          "type": "string"
+        },
+        "fix": {
+          "arrived_in": "0.1",
+          "description": "What to write instead.",
+          "type": "string"
+        },
+        "reason": {
+          "arrived_in": "0.1",
+          "description": "What is wrong with it.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "field",
+        "reason",
+        "fix"
+      ],
+      "type": "object"
+    },
     "RecipeStartParams": {
       "additionalProperties": false,
       "description": "What `recipe.start` takes.",
@@ -21441,6 +21467,19 @@
       "json_rpc_class": -32001,
       "name": "query_memory_exceeded",
       "product": "foxhound",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "A Recipe manifest, `goodfetch-recipe.toml`, or its package that is not valid: a manifest that does not parse, lacks a required field or holds an unknown one, names no entry or two, names a program without a runtime or a runtime it does not list, names a `CrawlDeclaration` for Collie, or an entry the package does not hold. The details name the field and the fix.",
+      "details": {
+        "$ref": "#/$defs/RecipeInvalidDetails"
+      },
+      "exit_code": null,
+      "group": "program",
+      "json_rpc_class": -32001,
+      "name": "recipe_invalid",
+      "product": "collie",
       "retryable": false
     },
     {

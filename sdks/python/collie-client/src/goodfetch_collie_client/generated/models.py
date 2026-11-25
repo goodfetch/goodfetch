@@ -2930,6 +2930,21 @@ class Reached(BaseModel):
     )
 
 
+class RecipeInvalidDetails(BaseModel):
+    """What `recipe_invalid` details."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    field: str
+    """
+    The field, dotted from the manifest's root such as `entry.program`,
+    or the package's path of a file it refuses.
+    """
+    reason: str
+    """What is wrong with it."""
+
+
 class RecordingMode(StrEnum):
     """What a Run does with the Response recording its start names (ADR 0105)."""
 

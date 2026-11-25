@@ -2142,6 +2142,17 @@
       ]
     },
     {
+      "id": "error:recipe_invalid",
+      "kind": "error",
+      "area": 11,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "error:record_invalid",
       "kind": "error",
       "area": 6,
@@ -3258,6 +3269,17 @@
       "id": "format:protocol",
       "kind": "format",
       "area": 3,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "format:recipe-manifest",
+      "kind": "format",
+      "area": 11,
       "milestone": null,
       "status": "active",
       "products": [

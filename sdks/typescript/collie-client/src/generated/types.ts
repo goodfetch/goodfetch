@@ -7192,6 +7192,23 @@ export interface ReachedLimit {
   usageKind: string;
 }
 /**
+ * What `recipe_invalid` details.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "RecipeInvalidDetails".
+ */
+export interface RecipeInvalidDetails {
+  /**
+   * The field, dotted from the manifest's root such as `entry.program`,
+   * or the package's path of a file it refuses.
+   */
+  field: string;
+  /**
+   * What is wrong with it.
+   */
+  reason: string;
+}
+/**
  * What `recipe.start` takes.
  *
  * This interface was referenced by `CollieTypes`'s JSON-Schema

@@ -11,7 +11,9 @@
 #   `endpoints` ("<host>:<port>"). Its `exception` says which of ADR 0043's
 #   jobs it is: saas-sinks, benchmark, testnets, vendor-conformance,
 #   clean-up-rules-daily, cloud-run-deploy, model, integration-account,
-#   unpinned-releases or fixture-licence.
+#   unpinned-releases or fixture-licence. Every one but fixture-licence runs
+#   on a schedule, by hand or from another workflow, never in a workflow a
+#   pull request or the merge queue starts.
 # - [[outside]]: a job that runs none of the product, or one ADR 0043 lets run
 #   it without the deny, with the reason.
 

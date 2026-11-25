@@ -186,6 +186,7 @@ mod needs_you;
     any(target_arch = "x86_64", target_arch = "aarch64")
 ))]
 mod no_console;
+mod older_engine;
 mod operator_policy;
 mod outcomes;
 mod pacing;

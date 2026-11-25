@@ -12,6 +12,9 @@
 # against the current executable; `stdio` gives the SDKs that executable
 # through their Product's engine-path variable.
 #
+# `older_engine = true` runs the old tag's published executable of `product`,
+# with the current tree's tests, on what the current Foxhound wrote.
+#
 # `awaiting` is the ticket that gives the check its harness or its first
 # Journey test: until that change removes the line, the check runs nowhere and
 # the generated file lists it as awaiting, so nothing counts it as passed.
@@ -187,13 +190,13 @@ awaiting = 438
 id = "collie-older-engine"
 product = "collie"
 minutes = 3
-awaiting = 439
+older_engine = true
 
 [[check]]
 id = "foxhound-older-engine"
 product = "foxhound"
 minutes = 3
-awaiting = 439
+older_engine = true
 
 # The previous major's last release beside the current build.
 

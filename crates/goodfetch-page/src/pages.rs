@@ -1427,7 +1427,7 @@ impl Pages {
         let steps = page.owner.interception().engine_requests()?;
         let events = self.events(&params.page_id)?;
         let limits = Limits::of_run(page.run.settings());
-        let placeholders = self.placeholders(&page, &params).await?;
+        let placeholders = self.placeholders(&page, &params)?;
         let request = browser_fetch::Request {
             url: &params.url,
             method: params.method.as_deref(),
@@ -1485,7 +1485,7 @@ impl Pages {
     /// The Secret placeholders `params` carries, bound through `page`'s
     /// Session's settings beneath its Run's (ADR 0092); none, and no
     /// settings read, when it carries none.
-    async fn placeholders(
+    fn placeholders(
         &self,
         page: &OpenPage,
         params: &PageRequestParams,

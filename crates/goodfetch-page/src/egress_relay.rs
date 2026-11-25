@@ -54,6 +54,7 @@ pub(crate) mod cookies;
 pub mod deadlines;
 pub(crate) mod head;
 pub(crate) mod leg;
+pub(crate) mod message;
 pub(crate) mod serve;
 pub(crate) mod terminate;
 

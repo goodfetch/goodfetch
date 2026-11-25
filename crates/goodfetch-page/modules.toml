@@ -89,7 +89,8 @@ cookies = []
 deadlines = []
 head = []
 leg = []
-serve = ["answers", "client_hello", "deadlines", "head", "terminate"]
+message = ["head"]
+serve = ["answers", "client_hello", "deadlines", "head", "message", "terminate"]
 terminate = ["application_settings", "authority", "client_hello", "cookies"]
 
 # Which of `proxy`'s own modules may import which.

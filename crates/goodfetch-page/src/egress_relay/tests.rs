@@ -37,6 +37,7 @@ use tokio::io::{AsyncRead, AsyncReadExt as _, AsyncWriteExt as _, DuplexStream, 
 
 use super::authority::Authority;
 use super::client_hello::{self, ClientHello};
+use super::head::{Body, Unread};
 use super::serve::{
     Met, Network, Observe, ProxyRefused, Relaying, Resolved, Served, Unreached, Upstream, serve,
 };
@@ -44,6 +45,9 @@ use super::terminate::{Stop, Terminating};
 
 /// The address that stands for a public one.
 const PUBLIC: IpAddr = IpAddr::V4(Ipv4Addr::new(192, 31, 196, 1));
+
+/// Another public address.
+const OTHER: IpAddr = IpAddr::V4(Ipv4Addr::new(192, 31, 196, 2));
 
 /// The Session's credentials, as the browser sends them.
 fn authorization() -> String {
@@ -70,6 +74,9 @@ fn every_host() -> Policy {
     Policy::new(&["*"], &[] as &[&str]).unwrap()
 }
 
+/// What [`Far::Site`] answers.
+const SITE_ANSWER: &str = "HTTP/1.1 200 OK\r\ncontent-length: 2\r\n\r\nok";
+
 /// What the far end of a connection answers its first bytes with.
 #[derive(Clone)]
 enum Far {
@@ -79,6 +86,12 @@ enum Far {
     /// An upstream proxy that answers its first head with `answer`, then
     /// acts as the site.
     Proxy { answer: &'static str },
+    /// A site or an upstream proxy that reads each request on its
+    /// connections whole, its body as its framing says, and answers the
+    /// nth it reads, on any of them, with the nth answer; it closes after
+    /// the last, and after one its close ends (with no length, no chunks
+    /// and no `204` or `304`), and echoes a read of bytes after a `101`.
+    Answers(Vec<&'static str>),
     /// An upstream proxy whose own address the egress policy refuses.
     RefusedProxy(Refused),
     /// An upstream proxy whose connection never opens: a black-holed
@@ -123,6 +136,9 @@ impl Scripted {
         let (far, heads) = (self.far.clone(), std::sync::Arc::clone(&self.heads));
         // The far end runs beside the relay on the test's runtime.
         drop(tokio::task::spawn_local(async move {
+            if let Far::Answers(answers) = far {
+                return answer_each(far_end, &answers, &heads).await;
+            }
             let head = read_head(&mut far_end).await;
             heads.lock().unwrap().push(head);
             if let Far::Proxy { answer } = far {
@@ -133,9 +149,7 @@ impl Scripted {
                 let head = read_head(&mut far_end).await;
                 heads.lock().unwrap().push(head);
             }
-            let _ = far_end
-                .write_all(b"HTTP/1.1 200 OK\r\ncontent-length: 2\r\n\r\nok")
-                .await;
+            let _ = far_end.write_all(SITE_ANSWER.as_bytes()).await;
         }));
         near
     }
@@ -150,6 +164,57 @@ async fn read_head(stream: &mut (impl AsyncRead + Unpin)) -> String {
         }
     }
     String::from_utf8_lossy(&head).into_owned()
+}
+
+/// [`Far::Answers`]' end of one connection, each request it reads recorded
+/// in `heads` with its body.
+async fn answer_each(mut far_end: DuplexStream, answers: &[&str], heads: &Mutex<Vec<String>>) {
+    loop {
+        let mut request = read_head(&mut far_end).await;
+        if request.is_empty() {
+            return;
+        }
+        let fields = request.to_ascii_lowercase();
+        if fields.contains("transfer-encoding: chunked") {
+            while !request.ends_with("0\r\n\r\n") {
+                let Ok(byte) = far_end.read_u8().await else {
+                    return;
+                };
+                request.push(char::from(byte));
+            }
+        } else if let Some(length) = fields
+            .split("content-length: ")
+            .nth(1)
+            .and_then(|rest| rest.split("\r\n").next()?.parse::<usize>().ok())
+        {
+            let mut body = vec![0; length];
+            if far_end.read_exact(&mut body).await.is_err() {
+                return;
+            }
+            request.push_str(&String::from_utf8_lossy(&body));
+        }
+        let nth = {
+            let mut heads = heads.lock().unwrap();
+            heads.push(request);
+            heads.len() - 1
+        };
+        let Some(answer) = answers.get(nth) else {
+            return;
+        };
+        far_end.write_all(answer.as_bytes()).await.unwrap();
+        if answer.starts_with("HTTP/1.1 101") {
+            let mut echoed = [0; 64];
+            let read = far_end.read(&mut echoed).await.unwrap();
+            far_end.write_all(&echoed[..read]).await.unwrap();
+            return;
+        }
+        let framed = ["content-length", "chunked", " 204 ", " 304 "]
+            .iter()
+            .any(|framing| answer.to_ascii_lowercase().contains(framing));
+        if nth + 1 == answers.len() || !framed {
+            return;
+        }
+    }
 }
 
 impl Network for Scripted {
@@ -352,12 +417,15 @@ fn a_client_without_the_sessions_credentials_gets_a_407_and_no_relayed_byte(
 /// a public address and then a private one reaches its public answer on
 /// the first connection, the paired positive control, and its second is
 /// refused naming the private address, before any connection to it; so in
-/// terminating mode, the name listed for a certificate exception.
+/// terminating mode, the name listed for a certificate exception, and so
+/// for a second plain request on the first's own browser connection,
+/// which closes with no answer made up.
 ///
 /// Covers: story:4-10, story:4-8, story:4-89, error:egress_refused
 #[rstest::rstest]
 #[case::tunnelled(Sent::AsATunnel)]
 #[case::terminated(Sent::Terminated)]
+#[case::plain_on_one_connection(Sent::AsTheBrowserSendsIt)]
 fn a_name_that_rebinds_to_a_private_address_is_refused_on_its_next_connection_and_never_reached(
     #[case] sent: Sent,
 ) {
@@ -384,20 +452,39 @@ fn a_name_that_rebinds_to_a_private_address_is_refused_on_its_next_connection_an
             let network = Scripted::new(Some(&resolver), Far::Site);
             let told = Told::default();
             let runtime = goodfetch_test_support::runtime();
-            let first = runtime.block_on(through(
-                &connect(&authority),
-                GET,
-                &relaying,
-                &network,
-                &told,
-            ));
-            let second = runtime.block_on(through(
-                &connect(&authority),
-                GET,
-                &relaying,
-                &network,
-                &told,
-            ));
+            let (first, second) = if let Sent::AsTheBrowserSendsIt = sent {
+                let plain = url::Url::parse(&format!("http://{host}/")).unwrap();
+                let request = head_of(&plain, sent);
+                let (answer, _) = runtime.block_on(through(
+                    &format!("{request}{request}"),
+                    b"",
+                    &relaying,
+                    &network,
+                    &told,
+                ));
+                let rest = answer.strip_prefix(SITE_ANSWER);
+                (
+                    rest.is_some(),
+                    rest.and_then(|rest| rest.lines().next()).map(str::to_owned),
+                )
+            } else {
+                let tunnel = || {
+                    runtime
+                        .block_on(through(
+                            &connect(&authority),
+                            GET,
+                            &relaying,
+                            &network,
+                            &told,
+                        ))
+                        .0
+                };
+                let (first, second) = (tunnel(), tunnel());
+                (
+                    first.starts_with("HTTP/1.1 200 Connection Established"),
+                    second.lines().next().map(str::to_owned),
+                )
+            };
             let refusals: Vec<_> = told
                 .refused
                 .lock()
@@ -405,28 +492,27 @@ fn a_name_that_rebinds_to_a_private_address_is_refused_on_its_next_connection_an
                 .iter()
                 .map(|(refused, method)| (refused.rule, refused.address, method.clone()))
                 .collect();
-            (
-                first.0.starts_with("HTTP/1.1 200 Connection Established"),
-                second.0.lines().next().map(str::to_owned),
-                refusals,
-                network.connections(),
-            )
+            (first, second, refusals, network.connections())
         })
         .collect();
 
+    let (refusal, method, port) = match sent {
+        Sent::AsTheBrowserSendsIt => (None, "GET", 80),
+        _ => (Some("HTTP/1.1 403 Forbidden".to_owned()), "CONNECT", 443),
+    };
     assert_eq!(
         outcomes,
         cases
             .iter()
             .map(|case| (
                 true,
-                Some("HTTP/1.1 403 Forbidden".to_owned()),
+                refusal.clone(),
                 vec![(
                     EgressRule::PrivateAddress,
                     case.target_address(PUBLIC),
-                    "CONNECT".to_owned()
+                    method.to_owned()
                 )],
-                vec![Some(SocketAddr::new(PUBLIC, 443))],
+                vec![Some(SocketAddr::new(PUBLIC, port))],
             ))
             .collect::<Vec<_>>()
     );
@@ -845,10 +931,9 @@ fn a_host_the_domain_policy_refuses_is_refused_at_the_relay_too() {
 
 /// A plain request goes to the site in origin form as the browser sent
 /// it, the relay's credentials left out and no `Connection: close` added,
-/// so the site answers it as it answers a browser's own; the browser's
-/// connection closes after that answer, which the relay marks
-/// `Connection: close` for it. One to a private address is refused with no
-/// answer made up.
+/// so the site answers it as it answers a browser's own, and its answer
+/// reaches the browser unchanged. One to a private address is refused
+/// with no answer made up.
 ///
 /// Covers: story:4-10, error:egress_refused
 #[test]
@@ -879,10 +964,7 @@ fn a_plain_request_reaches_the_site_in_origin_form_and_a_private_one_reaches_not
         &told,
     ));
 
-    assert_eq!(
-        answer,
-        "HTTP/1.1 200 OK\r\ncontent-length: 2\r\nConnection: close\r\n\r\nok"
-    );
+    assert_eq!(answer, SITE_ANSWER);
     assert_eq!(
         network.heads(),
         vec!["GET /page?x=1 HTTP/1.1\r\nHost: 192.31.196.1\r\nAccept: */*\r\n\r\n".to_owned()]
@@ -894,20 +976,24 @@ fn a_plain_request_reaches_the_site_in_origin_form_and_a_private_one_reaches_not
     );
 }
 
-/// Through an upstream HTTP proxy, a plain request goes on in absolute form
-/// with the Session's credentials for the proxy and no `Connection: close`
-/// added, and the browser's connection closes after the proxy's answer,
-/// which the relay marks `Connection: close` for it.
+/// Through an upstream HTTP proxy, each plain request on the browser's
+/// connection is judged on its own and goes on, whatever its host, on one
+/// connection to the proxy, in absolute form with the Session's
+/// credentials for the proxy and no `Connection: close` added, and each
+/// answer reaches the browser unchanged; a later request to a private
+/// address is refused before the proxy sees it, and closes the browser's
+/// connection with no answer made up.
 ///
-/// Covers: story:4-10
+/// Covers: story:4-10, error:egress_refused
 #[test]
-fn through_an_upstream_proxy_a_plain_request_goes_as_sent_and_its_answer_closes_the_connection() {
-    let network = Scripted::new(
-        None,
-        Far::Proxy {
-            answer: "HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: keep-alive\r\n\r\n",
-        },
-    );
+fn through_an_upstream_proxy_each_plain_request_is_judged_and_goes_as_sent() {
+    let answers = vec![
+        "HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: keep-alive\r\n\r\n",
+        SITE_ANSWER,
+        SITE_ANSWER,
+    ];
+    let mut network = Scripted::new(None, Far::Answers(answers.clone()));
+    network.mapping.insert("site.test".to_owned(), vec![PUBLIC]);
     let told = Told::default();
     let upstream_credentials = format!("Basic {}", BASE64.encode(b"user:pass"));
     let relaying = relaying(
@@ -916,23 +1002,293 @@ fn through_an_upstream_proxy_a_plain_request_goes_as_sent_and_its_answer_closes_
             authorization: Some(upstream_credentials.clone()),
         },
     );
-    let request = format!(
-        "GET http://192.31.196.1/page HTTP/1.1\r\nHost: 192.31.196.1\r\nProxy-Authorization: {}\r\nProxy-Connection: keep-alive\r\n\r\n",
+    let requests = format!(
+        "GET http://192.31.196.1/page HTTP/1.1\r\nHost: 192.31.196.1\r\nProxy-Authorization: {}\r\nProxy-Connection: keep-alive\r\n\r\n\
+         GET http://site.test/other HTTP/1.1\r\nHost: site.test\r\nProxy-Connection: keep-alive\r\n\r\n\
+         GET http://127.0.0.1/ HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n",
         authorization()
     );
 
-    let (answer, _) = goodfetch_test_support::runtime()
-        .block_on(through(&request, b"", &relaying, &network, &told));
+    let (answer, served) = goodfetch_test_support::runtime()
+        .block_on(through(&requests, b"", &relaying, &network, &told));
 
-    assert_eq!(
-        answer,
-        "HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
-    );
+    assert_eq!((answer, served), (answers[..2].concat(), Served::Refused));
     assert_eq!(
         network.heads(),
-        vec![format!(
-            "GET http://192.31.196.1/page HTTP/1.1\r\nHost: 192.31.196.1\r\nProxy-Authorization: {upstream_credentials}\r\n\r\n"
-        )]
+        vec![
+            format!(
+                "GET http://192.31.196.1/page HTTP/1.1\r\nHost: 192.31.196.1\r\nProxy-Authorization: {upstream_credentials}\r\n\r\n"
+            ),
+            format!(
+                "GET http://site.test/other HTTP/1.1\r\nHost: site.test\r\nProxy-Authorization: {upstream_credentials}\r\n\r\n"
+            ),
+        ]
+    );
+    assert_eq!(network.connections(), vec![None]);
+    assert_eq!(*told.met.lock().unwrap(), vec![Met::Reached, Met::Reached]);
+    assert_eq!(refused_rules(&told), vec![EgressRule::PrivateAddress]);
+}
+
+/// The rules of the refusals the relay told the Session, in order.
+fn refused_rules(told: &Told) -> Vec<EgressRule> {
+    told.refused
+        .lock()
+        .unwrap()
+        .iter()
+        .map(|(refused, _)| refused.rule)
+        .collect()
+}
+
+/// A browser's connection carries one plain request after another, each
+/// judged on its own: those to one site go on its one connection, a later
+/// one without the browser's credentials too, one to another site on a
+/// connection of its own, and each answer reaches the browser as the site
+/// gave it; a later one the domain policy refuses reaches nothing and
+/// closes the browser's connection with no answer made up.
+///
+/// Covers: story:4-10, error:egress_refused
+#[test]
+fn a_browser_connection_carries_each_plain_request_judged_on_its_own() {
+    let answers = vec![
+        SITE_ANSWER,
+        "HTTP/1.1 201 Created\r\ntransfer-encoding: chunked\r\n\r\n2\r\nok\r\n0\r\n\r\n",
+        "HTTP/1.1 404 Not Found\r\ncontent-length: 0\r\n\r\n",
+    ];
+    let mut network = Scripted::new(None, Far::Answers(answers.clone()));
+    network.mapping.insert("other.test".to_owned(), vec![OTHER]);
+    let told = Told::default();
+    let relaying = relaying(
+        Policy::new(&["*"], &["refused.test"]).unwrap(),
+        Upstream::Direct,
+    );
+    let requests = format!(
+        "GET http://192.31.196.1/a HTTP/1.1\r\nHost: 192.31.196.1\r\nProxy-Authorization: {}\r\n\r\n\
+         POST http://192.31.196.1/b HTTP/1.1\r\nHost: 192.31.196.1\r\ncontent-length: 2\r\n\r\nhi\
+         GET http://other.test/c HTTP/1.1\r\nHost: other.test\r\n\r\n\
+         GET http://refused.test/ HTTP/1.1\r\nHost: refused.test\r\n\r\n",
+        authorization()
+    );
+
+    let (answer, served) = goodfetch_test_support::runtime()
+        .block_on(through(&requests, b"", &relaying, &network, &told));
+
+    assert_eq!((answer, served), (answers.concat(), Served::Refused));
+    assert_eq!(
+        network.heads(),
+        vec![
+            "GET /a HTTP/1.1\r\nHost: 192.31.196.1\r\n\r\n",
+            "POST /b HTTP/1.1\r\nHost: 192.31.196.1\r\ncontent-length: 2\r\n\r\nhi",
+            "GET /c HTTP/1.1\r\nHost: other.test\r\n\r\n",
+        ]
+    );
+    assert_eq!(
+        network.connections(),
+        vec![
+            Some(SocketAddr::new(PUBLIC, 80)),
+            Some(SocketAddr::new(OTHER, 80))
+        ]
+    );
+    assert_eq!(refused_rules(&told), vec![EgressRule::DomainPolicy]);
+    assert_eq!(*told.unauthenticated.lock().unwrap(), Vec::<bool>::new());
+}
+
+/// The browser's next request on its connection, after the one a test
+/// sends first.
+const FOLLOWED: &str = "GET http://192.31.196.1/next HTTP/1.1\r\nHost: 192.31.196.1\r\n\r\n";
+
+/// The site's end of [`FOLLOWED`].
+const FOLLOWED_AS_SENT: &str = "GET /next HTTP/1.1\r\nHost: 192.31.196.1\r\n\r\n";
+
+/// The request `method` with `fields` and `body` as the browser sends it
+/// to the relay, then as the site gets it.
+fn plain_request(method: &str, fields: &str, body: &str) -> (String, String) {
+    (
+        format!(
+            "{method} http://192.31.196.1/ HTTP/1.1\r\nHost: 192.31.196.1\r\nProxy-Authorization: {}\r\n{fields}\r\n{body}",
+            authorization()
+        ),
+        format!("{method} / HTTP/1.1\r\nHost: 192.31.196.1\r\n{fields}\r\n{body}"),
+    )
+}
+
+/// Each request's body and each answer end where their framing says, an
+/// interim answer passed on before the final one, so the browser's next
+/// request goes on the same site connection and gets its own answer.
+///
+/// Covers: story:4-10
+#[rstest::rstest]
+#[case::a_body_of_a_length(
+    "POST",
+    "content-length: 5\r\n",
+    "hello",
+    "HTTP/1.1 200 OK\r\ncontent-length: 0\r\n\r\n"
+)]
+#[case::a_body_in_chunks(
+    "POST",
+    "transfer-encoding: chunked\r\n",
+    "5\r\nhello\r\n0\r\n\r\n",
+    "HTTP/1.1 204 No Content\r\n\r\n"
+)]
+#[case::an_answer_in_chunks_with_a_trailer(
+    "GET",
+    "",
+    "",
+    "HTTP/1.1 200 OK\r\ntransfer-encoding: chunked\r\n\r\n5;x=y\r\nhello\r\n0\r\nserver-timing: a\r\n\r\n"
+)]
+#[case::an_interim_answer_first(
+    "GET",
+    "",
+    "",
+    "HTTP/1.1 103 Early Hints\r\nlink: </a.css>\r\n\r\nHTTP/1.1 200 OK\r\ncontent-length: 5\r\n\r\nhello"
+)]
+#[case::an_answer_to_head("HEAD", "", "", "HTTP/1.1 200 OK\r\ncontent-length: 5\r\n\r\n")]
+fn each_message_ends_where_its_framing_says_and_the_next_request_follows(
+    #[case] method: &str,
+    #[case] fields: &str,
+    #[case] body: &str,
+    #[case] answer: &'static str,
+) {
+    let network = Scripted::new(None, Far::Answers(vec![answer, SITE_ANSWER]));
+    let told = Told::default();
+    let relaying = relaying(every_host(), Upstream::Direct);
+    let (request, as_sent) = plain_request(method, fields, body);
+
+    let (answered, _) = goodfetch_test_support::runtime().block_on(through(
+        &format!("{request}{FOLLOWED}"),
+        b"",
+        &relaying,
+        &network,
+        &told,
+    ));
+
+    assert_eq!(answered, format!("{answer}{SITE_ANSWER}"));
+    assert_eq!(network.heads(), vec![as_sent, FOLLOWED_AS_SENT.to_owned()]);
+    assert_eq!(network.connections().len(), 1);
+}
+
+/// An answer after which the site's connection closes, as it ends at that
+/// close, asks to close or leaves its end in doubt, or a request whose
+/// browser asks to close, closes the browser's connection after the
+/// answer reaches it, so the browser's next request opens a new one.
+///
+/// Covers: story:4-10
+#[rstest::rstest]
+#[case::an_answer_until_the_close("", "HTTP/1.1 200 OK\r\n\r\nuntil the close")]
+#[case::an_answer_that_asks_to_close(
+    "",
+    "HTTP/1.1 200 OK\r\nconnection: close\r\ncontent-length: 2\r\n\r\nok"
+)]
+#[case::an_http_1_0_answer("", "HTTP/1.0 200 OK\r\ncontent-length: 2\r\n\r\nok")]
+#[case::an_answer_with_a_length_and_chunks(
+    "",
+    "HTTP/1.1 200 OK\r\ncontent-length: 9\r\ntransfer-encoding: chunked\r\n\r\n2\r\nok\r\n0\r\n\r\n"
+)]
+#[case::a_request_that_asks_to_close("connection: close\r\n", SITE_ANSWER)]
+fn an_answer_that_ends_its_connection_closes_the_browser_s_too(
+    #[case] fields: &str,
+    #[case] answer: &'static str,
+) {
+    let network = Scripted::new(None, Far::Answers(vec![answer, SITE_ANSWER]));
+    let told = Told::default();
+    let relaying = relaying(every_host(), Upstream::Direct);
+    let (request, _) = plain_request("GET", fields, "");
+
+    let (answered, served) = goodfetch_test_support::runtime().block_on(through(
+        &format!("{request}{FOLLOWED}"),
+        b"",
+        &relaying,
+        &network,
+        &told,
+    ));
+
+    assert_eq!(answered, answer);
+    assert!(matches!(served, Served::Relayed { .. }), "{served:?}");
+    assert_eq!(network.heads().len(), 1);
+    assert_eq!(network.connections().len(), 1);
+}
+
+/// A site's switch of protocols (`101`) hands the connection over: the
+/// bytes the browser sent past its request reach the site, and the site's
+/// reach the browser, both ways from then on.
+///
+/// Covers: story:4-10
+#[test]
+fn a_switch_of_protocols_hands_the_connection_over_both_ways() {
+    let switched = "HTTP/1.1 101 Switching Protocols\r\nupgrade: websocket\r\n\r\n";
+    let network = Scripted::new(None, Far::Answers(vec![switched]));
+    let told = Told::default();
+    let relaying = relaying(every_host(), Upstream::Direct);
+    let (request, _) = plain_request("GET", "upgrade: websocket\r\n", "");
+
+    let (answered, served) = goodfetch_test_support::runtime().block_on(through(
+        &format!("{request}ping"),
+        b"",
+        &relaying,
+        &network,
+        &told,
+    ));
+
+    assert_eq!(answered, format!("{switched}ping"));
+    assert!(matches!(served, Served::Relayed { .. }), "{served:?}");
+}
+
+/// A later request with other credentials than the Session's gets the
+/// relay's `407` and goes nowhere, while a later one with none is the
+/// connection's own.
+///
+/// Covers: story:4-10
+#[test]
+fn a_later_request_with_other_credentials_gets_a_407_and_goes_nowhere() {
+    let network = Scripted::new(None, Far::Answers(vec![SITE_ANSWER; 3]));
+    let told = Told::default();
+    let relaying = relaying(every_host(), Upstream::Direct);
+    let (first, _) = plain_request("GET", "", "");
+    let other = "GET http://192.31.196.1/ HTTP/1.1\r\nHost: 192.31.196.1\r\nProxy-Authorization: Basic Z29vZGZldGNoOmd1ZXNz\r\n\r\n";
+
+    let (answered, served) = goodfetch_test_support::runtime().block_on(through(
+        &format!("{first}{FOLLOWED}{other}"),
+        b"",
+        &relaying,
+        &network,
+        &told,
+    ));
+
+    assert_eq!(
+        (answered, served),
+        (
+            format!(
+                "{SITE_ANSWER}{SITE_ANSWER}{}",
+                String::from_utf8_lossy(super::answers::AUTHENTICATE)
+            ),
+            Served::Unauthenticated
+        )
+    );
+    assert_eq!(*told.unauthenticated.lock().unwrap(), vec![true]);
+    assert_eq!(network.heads().len(), 2);
+    assert_eq!(network.connections().len(), 1);
+}
+
+/// A browser's connection the browser sends no request on after an answer
+/// closes at the idle deadline, while the site's stays open.
+///
+/// Covers: story:4-10
+#[test]
+fn a_browser_connection_with_no_next_request_closes_at_the_idle_deadline() {
+    let network = Scripted::new(None, Far::Answers(vec![SITE_ANSWER; 2]));
+    let told = Told::default();
+    let relaying = relaying(every_host(), Upstream::Direct);
+    let (request, _) = plain_request("GET", "", "");
+    let runtime = goodfetch_test_support::runtime();
+    let started = runtime.block_on(async { tokio::time::Instant::now() });
+
+    let (answered, served) = runtime.block_on(through(&request, b"", &relaying, &network, &told));
+
+    let waited = runtime.block_on(async { started.elapsed() });
+    assert_eq!(answered, SITE_ANSWER);
+    assert!(matches!(served, Served::Relayed { .. }), "{served:?}");
+    assert!(
+        waited >= super::deadlines::IDLE_DEADLINE,
+        "closed after {waited:?}"
     );
 }
 
@@ -1554,4 +1910,75 @@ async fn a_request_s_url_names_the_authority_its_connection_asked_for(
         .expect("the head reads");
 
     assert_eq!(super::authority_of(url), Some(head.target.authority()));
+}
+
+/// A plain request's body ends after its one length or its last chunk,
+/// and one whose end is in doubt is refused, so no byte of one request is
+/// read as the next (RFC 9112, section 6.3).
+///
+/// Covers: story:4-10
+#[rstest::rstest]
+#[case::no_body("", Some(Body::Length(0)))]
+#[case::a_length("content-length: 5\r\n", Some(Body::Length(5)))]
+#[case::a_length_repeated("content-length: 5, 5\r\n", Some(Body::Length(5)))]
+#[case::chunks_last("transfer-encoding: gzip, chunked\r\n", Some(Body::Chunked))]
+#[case::chunks_and_a_length("transfer-encoding: chunked\r\ncontent-length: 5\r\n", None)]
+#[case::another_coding_last("transfer-encoding: chunked, gzip\r\n", None)]
+#[case::chunks_twice("transfer-encoding: chunked\r\ntransfer-encoding: chunked\r\n", None)]
+#[case::lengths_that_differ("content-length: 5\r\ncontent-length: 6\r\n", None)]
+#[case::a_signed_length("content-length: +5\r\n", None)]
+fn a_request_whose_body_s_end_is_in_doubt_is_refused(
+    #[case] fields: &str,
+    #[case] body: Option<Body>,
+) {
+    let head = format!("POST http://site.test/ HTTP/1.1\r\nHost: site.test\r\n{fields}\r\n");
+
+    let parsed = super::head::parse(head.as_bytes());
+
+    assert_eq!(
+        parsed.map(|parsed| parsed.map(|(head, _)| head.body)),
+        body.map(Some).ok_or(Unread::Malformed)
+    );
+}
+
+/// An answer's body ends as its head says, `true` when the site's
+/// connection closes after it (RFC 9112, sections 6.1 and 6.3).
+///
+/// Covers: story:4-10
+#[rstest::rstest]
+#[case::a_length("HTTP/1.1 200 OK\r\ncontent-length: 5\r\n\r\n", false, Some((Body::Length(5), false)))]
+#[case::to_head("HTTP/1.1 200 OK\r\ncontent-length: 5\r\n\r\n", true, Some((Body::Length(0), false)))]
+#[case::no_content("HTTP/1.1 204 No Content\r\n\r\n", false, Some((Body::Length(0), false)))]
+#[case::not_modified("HTTP/1.1 304 Not Modified\r\ncontent-length: 5\r\n\r\n", false, Some((Body::Length(0), false)))]
+#[case::interim("HTTP/1.1 103 Early Hints\r\n\r\n", false, Some((Body::Length(0), false)))]
+#[case::until_the_close("HTTP/1.1 200 OK\r\n\r\n", false, Some((Body::UntilClose, true)))]
+#[case::another_coding("HTTP/1.1 200 OK\r\ntransfer-encoding: gzip\r\n\r\n", false, Some((Body::UntilClose, true)))]
+#[case::chunks_and_a_length(
+    "HTTP/1.1 200 OK\r\ntransfer-encoding: chunked\r\ncontent-length: 5\r\n\r\n",
+    false,
+    Some((Body::Chunked, true))
+)]
+#[case::asked_to_close("HTTP/1.1 200 OK\r\nconnection: close\r\ncontent-length: 5\r\n\r\n", false, Some((Body::Length(5), true)))]
+#[case::http_1_0("HTTP/1.0 200 OK\r\ncontent-length: 5\r\n\r\n", false, Some((Body::Length(5), true)))]
+#[case::http_1_0_kept_alive(
+    "HTTP/1.0 200 OK\r\nconnection: keep-alive\r\ncontent-length: 5\r\n\r\n",
+    false,
+    Some((Body::Length(5), false))
+)]
+#[case::lengths_that_differ(
+    "HTTP/1.1 200 OK\r\ncontent-length: 5\r\ncontent-length: 6\r\n\r\n",
+    false,
+    None
+)]
+fn an_answer_s_body_ends_as_its_head_says(
+    #[case] head: &str,
+    #[case] to_head: bool,
+    #[case] framed: Option<(Body, bool)>,
+) {
+    let answered = super::head::answered(head.as_bytes(), to_head);
+
+    assert_eq!(
+        answered.map(|answered| answered.map(|answered| (answered.body, answered.closes))),
+        framed.map(Some).ok_or(Unread::Malformed)
+    );
 }

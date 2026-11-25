@@ -59,3 +59,5 @@ catalog:
 # dependency for the host.
 allowBuilds:
   esbuild: false
+  # Docusaurus's core-js (website/) only prints a funding notice.
+  core-js: false

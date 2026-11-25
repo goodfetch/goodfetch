@@ -1,13 +1,16 @@
 //! The Quick-suite check that every workflow job is declared under or outside
 //! the deny, and that a job under it denies before its first test step, runs
 //! the Egress canary right after, and checks the deny's log at its end
-//! (ADR 0043). A test step is one `workflow::is_test_step` names.
+//! (ADR 0043). A test step is one `workflow::is_test_step` names. A job that
+//! reaches named endpoints runs on a schedule, by hand or from another
+//! workflow, never in a workflow a pull request or the merge queue starts,
+//! except a fixture's licence endpoint, which a fixture of any tier may need.
 
 use std::path::Path;
 
 use anyhow::Result;
 
-use super::endpoints::{ENDPOINTS, Endpoints, JobKey, Rule};
+use super::endpoints::{ENDPOINTS, Endpoints, Exception, JobKey, Rule};
 use crate::check::Finding;
 use crate::workflow::{self, Step};
 
@@ -27,6 +30,9 @@ const UNDER_DENY: [&str; 5] = [
     "ci/hosted/visual.sh ",
     "ci/egress/under-deny.sh ",
 ];
+
+/// The triggers that run a pull request's code.
+const PULL_REQUEST_EVENTS: [&str; 3] = ["pull_request", "pull_request_target", "merge_group"];
 
 fn runs(step: &Step, script: &str) -> bool {
     step.run.as_deref().map(str::trim) == Some(script)
@@ -84,6 +90,20 @@ pub(crate) fn check(root: &Path) -> Result<Vec<Finding>> {
                     ));
                 }
                 continue;
+            }
+            if let Rule::Named { exception, .. } = declaration.rule
+                && exception != Exception::FixtureLicence
+                && let Some(event) = PULL_REQUEST_EVENTS
+                    .iter()
+                    .find(|event| workflow.events.contains(**event))
+            {
+                findings.push(Finding::new(
+                    "named-job-on-pull-request",
+                    subject.clone(),
+                    format!(
+                        "a job that reaches named endpoints runs on a schedule or by hand, never on `{event}`"
+                    ),
+                ));
             }
             findings.extend(under_deny(&job.steps, deny, &subject));
         }

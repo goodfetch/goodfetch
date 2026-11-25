@@ -10,8 +10,9 @@ use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::path::{Path, PathBuf};
 
 use goodfetch_test_support::{
-    ENGINE_VARIABLE, JourneyRun, JourneyRunError, RESULT_DOCUMENTS_VARIABLE, SEED_VARIABLE,
-    TOOLS_VARIABLE, TestEnv, Tool, UnfinishedJourneyRun, Variables, VariantNotProved, tools,
+    BROWSERS_PATH_VARIABLE, ENGINE_VARIABLE, JourneyRun, JourneyRunError,
+    RESULT_DOCUMENTS_VARIABLE, SEED_VARIABLE, TOOLS_VARIABLE, TestEnv, Tool, UnfinishedJourneyRun,
+    Variables, VariantNotProved, tools,
 };
 use rstest::rstest;
 use serde_json::{Value, json};
@@ -227,6 +228,65 @@ fn a_journey_with_a_proving_ground_table_starts_one_on_its_own_seed() {
     assert_eq!(
         written(finished.path())["proving_ground"],
         json!({ "version": version, "seed": 902 })
+    );
+}
+
+/// A variant whose engines download their browser on first use (#665)
+/// starts them on an empty Browser cache, `GOODFETCH_BROWSERS_PATH`, and
+/// names the Proving ground's `browser-builds.test` as their mirror.
+#[test]
+fn a_run_downloading_its_browser_starts_on_an_empty_cache_with_the_proving_grounds_mirror() {
+    let run = JourneyRun::start_file_downloading_browser(
+        &journey("J-902"),
+        "cli",
+        &executable(Tool::Foxhound),
+        stub("failed"),
+    )
+    .unwrap();
+
+    let cache = run.browser_cache().map(Path::to_owned);
+    let named = run.env().env().get(BROWSERS_PATH_VARIABLE).cloned();
+    let port = run.proving_ground().unwrap().address().port();
+    let output = run
+        .command()
+        .args(["config", "explain", "browser.mirror", "--json"])
+        .output()
+        .unwrap();
+    let _finished = run.finish().unwrap();
+
+    let cache = cache.unwrap();
+    assert_eq!(named, Some(cache.to_string_lossy().into_owned()));
+    assert_eq!(std::fs::read_dir(&cache).unwrap().count(), 0);
+    let explained: Value = serde_json::from_slice(&output.stdout).unwrap();
+    let mirror = &explained["settings"][0];
+    assert_eq!(
+        (&mirror["value"], &mirror["layer"]),
+        (
+            &json!(format!("https://browser-builds.test:{port}")),
+            &json!("user_configuration")
+        ),
+        "{explained}"
+    );
+}
+
+/// A Journey with no `[proving_ground]` table has no host to download a
+/// browser from.
+#[test]
+fn a_run_downloading_its_browser_needs_a_proving_ground() {
+    let started = JourneyRun::start_file_downloading_browser(
+        &journey("J-901"),
+        "cli",
+        &executable(Tool::Collie),
+        stub("failed"),
+    );
+
+    assert!(
+        matches!(
+            started,
+            Err(JourneyRunError::NoProvingGround { ref journey }) if journey == "J-901"
+        ),
+        "{:?}",
+        started.err()
     );
 }
 

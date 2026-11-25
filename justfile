@@ -695,7 +695,7 @@ test suite *packages:
         fi
         # pytest exits 5 when it collects no test, as before any Python test exists.
         if $python; then
-          uv run pytest --timeout=10 "${pytest_order[@]}" --ignore-glob='*/tests/integration/*' ${pytest[@]+"${pytest[@]}"} ${skip_pytest[@]+"${skip_pytest[@]}"} || [[ $? -eq 5 ]]
+          uv run pytest --timeout=10 "${pytest_order[@]}" --ignore-glob='*/tests/integration/*' --ignore-glob='*/tests/journeys/*' ${pytest[@]+"${pytest[@]}"} ${skip_pytest[@]+"${skip_pytest[@]}"} || [[ $? -eq 5 ]]
         fi
         ;;
       pre-merge|release)

@@ -25,6 +25,7 @@ export {
   journey,
   startJourneyRun,
   type FinishedJourneyRun,
+  type JourneyOptions,
   type JourneyRun,
   type JourneyRunStart,
   type TaskSubmission,

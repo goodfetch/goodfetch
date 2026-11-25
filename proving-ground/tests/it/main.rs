@@ -80,6 +80,7 @@ mod search;
 mod sensor_solver;
 mod serve;
 mod service_worker_challenge;
+mod site_tools;
 mod sitemap_seed;
 mod sitemaps;
 mod sites;

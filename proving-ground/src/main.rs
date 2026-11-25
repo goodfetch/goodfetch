@@ -72,6 +72,7 @@ mod schedule;
 mod search;
 mod server;
 mod site;
+mod site_tools;
 mod solvers;
 mod sync;
 mod tap;

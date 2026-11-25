@@ -73,7 +73,10 @@ fn skill_install_writes_the_hosts_skills_folder(
     #[case] folder: &str,
 ) {
     let env = TestEnv::new();
-    let folder = env.folder().join(folder);
+    // One name at a time, as a path with the platform's separator.
+    let folder = folder
+        .split('/')
+        .fold(env.folder().to_path_buf(), |path, name| path.join(name));
 
     let checked = cli(&env, COLLIE)
         .args(["skill", "install", "--for", host, scope, "--json"])

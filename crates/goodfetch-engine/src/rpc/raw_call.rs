@@ -61,7 +61,7 @@ impl RawCall {
             let line = match self.run().await {
                 Some(run) => match runs::run_trace(&run).calls().await {
                     Ok(log) => Some(Arc::new(RawCallLine::new(
-                        run.id().clone(),
+                        runs::identity(&run).id().clone(),
                         log,
                         self.operation,
                         self.arrived_at,

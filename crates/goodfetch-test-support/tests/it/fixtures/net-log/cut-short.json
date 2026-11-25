@@ -1,0 +1,6 @@
+{"constants":{"addressFamily":{"ADDRESS_FAMILY_IPV4":1,"ADDRESS_FAMILY_IPV6":2,"ADDRESS_FAMILY_UNSPECIFIED":0},"logCaptureMode":"Default","logEventPhase":{"PHASE_BEGIN":1,"PHASE_END":2,"PHASE_NONE":0},"logEventTypes":{"HOST_RESOLVER_DNS_TASK":40,"TCP_CONNECT":51,"TCP_CONNECT_ATTEMPT":52,"UDP_CONNECT":96,"UDP_BYTES_SENT":98},"logFormatVersion":1,"logSourceType":{"HOST_RESOLVER_IMPL_JOB":4,"TRANSPORT_CONNECT_JOB":10,"UDP_SOCKET":24}},
+"events": [
+{"params":{"address":"[2001:4860:4860::8888]:443"},"phase":1,"source":{"id":18,"start_time":"2780934109","type":24},"time":"2780934109","type":96},
+{"params":{"net_error":-109},"phase":2,"source":{"id":18,"start_time":"2780934109","type":24},"time":"2780934109","type":96},
+{"params":{"address_list":["127.0.0.1:35997"],"aliases":[]},"phase":1,"source":{"id":20,"start_time":"2780934110","type":10},"time":"2780934110","type":51},
+{"params":{"address":"127.0.0.1:35997"},"phase":1,"source":{"id":20,"start_time":"2780934110","type":10},"time":"2780934110","type":52},

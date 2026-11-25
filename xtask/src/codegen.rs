@@ -97,6 +97,22 @@ const DIGESTS: &str = "crates/goodfetch-protocol/generated/digests.json";
 /// `files` (ADR 0063).
 const JOURNEY_SCHEMA: &str = "journeys/journey.schema.json";
 
+/// The plugin protocol's types on their own, from the bundle's `plugin`, for
+/// Plugin authors (ADR 0033).
+const PLUGIN_PROTOCOL_SCHEMA: &str =
+    "crates/goodfetch-protocol/generated/plugin-protocol.schema.json";
+
+/// The schema of a Plugin's manifest, `goodfetch-plugin.json`, on its own.
+const PLUGIN_MANIFEST_SCHEMA: &str =
+    "crates/goodfetch-protocol/generated/plugin-manifest.schema.json";
+
+/// Each schema written on its own, and where the bundle holds it.
+const STANDALONE_SCHEMAS: [(&str, &[&str]); 3] = [
+    (JOURNEY_SCHEMA, &["files", JOURNEY_FILES]),
+    (PLUGIN_PROTOCOL_SCHEMA, &["plugin"]),
+    (PLUGIN_MANIFEST_SCHEMA, &["plugin", "manifest"]),
+];
+
 /// The cargo-deny configuration that holds the `wrappers` list and the
 /// licenses.
 const DENY: &str = "deny.toml";
@@ -431,10 +447,9 @@ fn plan(cargo: &OsStr, root: &Path, executables: executables::Files) -> Result<P
     for (path, schema) in features::schemas() {
         files.insert(path.to_owned(), json_text(&schema)?);
     }
-    files.insert(
-        JOURNEY_SCHEMA.to_owned(),
-        json_text(&standalone(&bundle, JOURNEY_FILES)?)?,
-    );
+    for (path, at) in STANDALONE_SCHEMAS {
+        files.insert(path.to_owned(), json_text(&standalone(&bundle, at)?)?);
+    }
 
     files.extend(deny_files(root)?);
 
@@ -504,14 +519,15 @@ fn rust_files(
     Ok(files)
 }
 
-/// The schema the bundle's `files` gives `key`, on its own: the bundle's
-/// draft, with the types it reaches under its own `$defs`.
-fn standalone(bundle: &Value, key: &str) -> Result<Value> {
-    let root = bundle
-        .get("files")
-        .and_then(|files| files.get(key))
+/// The bundle's value at `path`, such as the schema its `files` gives a
+/// file, on its own: the bundle's draft, with the types it reaches under its
+/// own `$defs`.
+fn standalone(bundle: &Value, path: &[&str]) -> Result<Value> {
+    let root = path
+        .iter()
+        .try_fold(bundle, |value, key| value.get(key))
         .and_then(Value::as_object)
-        .with_context(|| format!("the bundle's `files` maps no `{key}`"))?;
+        .with_context(|| format!("the bundle holds no object at `{}`", path.join(".")))?;
     let definitions = bundle
         .get("$defs")
         .and_then(Value::as_object)

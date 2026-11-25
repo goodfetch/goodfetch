@@ -16,6 +16,7 @@ use super::run::call;
 use super::{attached, cancel, engine_with, hello};
 use crate::call_error::CallError;
 use crate::composition::{CallContext, Contribution, Handler};
+use crate::runs;
 
 /// Holds a Human pause on a Run until it is cancelled.
 const PAUSE: Operation = Operation {
@@ -43,13 +44,13 @@ fn pauses() -> Contribution {
             let run = context.runs().live(run_id).await.unwrap();
             let raised_by: PauseOrigin =
                 serde_json::from_value(params["raised_by"].clone()).unwrap();
-            let _held = run.human_pause(HumanPause {
+            let _held = runs::progress(&run).pause(HumanPause {
                 session: "paused.session-1".to_owned(),
                 page: "page-1".to_owned(),
                 reason: Some("Solve the puzzle".to_owned()),
                 until: Some("the URL matches **/account".to_owned()),
                 raised_by,
-                since: run.point_in_time(),
+                since: runs::identity(&run).point_in_time(),
                 deadline: None,
             });
             std::future::pending::<()>().await;

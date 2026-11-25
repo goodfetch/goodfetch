@@ -98,6 +98,60 @@ fn a_tunnel_through_the_open_proxy_carries_tls_to_a_tasks_host() {
     assert_eq!(observations["requests"][0]["tls"]["sni"], "1.catalog.test");
 }
 
+/// The `https://` proxy speaks TLS first, under the site's authority's leaf
+/// for its name, then relays as the open one does; a client that does not
+/// trust the authority is relayed nowhere, its connection still recorded.
+#[test]
+fn the_https_proxy_relays_inside_tls_under_the_sites_authority() {
+    let proving_ground = ProvingGround::start(SEED);
+    let url = format!("http://1.catalog.test:{}/catalog/1", proving_ground.port());
+    let trusting = clients::trusting(&proving_ground.certificate_authority(), &["http/1.1"]);
+    let other = ProvingGround::start(SEED + 1);
+    let distrusting = clients::trusting(&other.certificate_authority(), &["http/1.1"]);
+
+    let exchange = clients::raw_tls(
+        &proving_ground.proxy("open_tls"),
+        "tls-proxy.test",
+        trusting,
+        &absolute(&url, None),
+    )
+    .expect("a TLS connection to the proxy");
+    let refused = clients::raw_tls(
+        &proving_ground.proxy("open_tls"),
+        "tls-proxy.test",
+        distrusting,
+        &absolute(&url, None),
+    );
+
+    let observations = proving_ground.observations();
+    assert_eq!(exchange.status(), 200);
+    assert!(refused.is_err());
+    assert_eq!(
+        observations["relays"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|record| relay(record, &["proxy", "method", "target", "task", "outcome"]))
+            .collect::<Vec<_>>(),
+        [json!({
+            "proxy": "open_tls",
+            "method": "GET",
+            "target": url,
+            "task": "catalog/1",
+            "outcome": "relayed",
+        })]
+    );
+    assert_eq!(
+        observations["connections"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|connection| connection["listener"] == "open_tls")
+            .count(),
+        2
+    );
+}
+
 /// The `Proxy-Authorization` a case sends: none, the right username with a
 /// wrong password, or the reported credentials.
 #[derive(Clone, Copy)]

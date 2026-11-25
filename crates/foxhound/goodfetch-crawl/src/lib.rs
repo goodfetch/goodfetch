@@ -23,6 +23,7 @@
 mod attempt_outcome;
 mod code_free;
 mod completeness;
+mod crawl_run;
 mod dataset_list;
 mod delivery;
 mod enqueue;

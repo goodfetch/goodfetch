@@ -705,6 +705,10 @@ async def test_fails_connect_on_a_deployment_value_the_engine_cannot_parse(
             {"GOODFETCH_OPS_ADDRESS": "[fe80::1%2]:9464"},
             id="an IPv6 ops address with its scope",
         ),
+        pytest.param(
+            {"GOODFETCH_EKS_FARGATE_PROFILE": ""},
+            id="an empty Fargate profile, a pod off Fargate",
+        ),
     ],
 )
 @three_ways

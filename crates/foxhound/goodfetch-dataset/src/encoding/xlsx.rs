@@ -6,7 +6,9 @@
 //! hold is written `_xHHHH_`, as `SpreadsheetML` escapes it, and an `_`
 //! that would start such an escape as `_x005F_`. The ZIP is written as a
 //! stream, its entries deflated, each dated 1980-01-01 so the same Records
-//! give the same bytes, and its sheet's bytes handed on a row at a time.
+//! give the same bytes, and made by a Unix host whatever the platform so
+//! they are the same on Windows, and its sheet's bytes handed on a row at a
+//! time.
 //! A sheet that would pass what Excel opens, in rows, columns or one
 //! cell's length, is refused before any byte is written.
 
@@ -14,7 +16,7 @@ use std::io::Write;
 
 use goodfetch_protocol::foxhound::export::SheetCapacity;
 use zip::write::{SimpleFileOptions, StreamWriter};
-use zip::{CompressionMethod, DateTime, ZipWriter};
+use zip::{CompressionMethod, DateTime, System, ZipWriter};
 
 use super::columns::{Cell, Columns};
 use super::written::Written;
@@ -138,6 +140,7 @@ fn options() -> SimpleFileOptions {
         .compression_method(CompressionMethod::Deflated)
         .last_modified_time(DateTime::default())
         .unix_permissions(0o644)
+        .system(System::Unix)
 }
 
 impl Xlsx {

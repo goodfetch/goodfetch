@@ -12,7 +12,7 @@ use goodfetch_protocol::events::CREDIT;
 use goodfetch_protocol::foxhound::dataset::RECORD;
 use serde_json::{Value, json};
 
-use crate::rss::crawl::{Client, Site};
+use crate::rss::crawl::{Client, ReadFailure, Site};
 
 use super::matrix::{AtDefaults, Cell, Scenario};
 
@@ -28,10 +28,11 @@ pub(crate) struct Engine {
 }
 
 impl Engine {
-    /// Opens the connection with `hello`.
+    /// Opens the connection with `hello`; a failed read of the engine's
+    /// output reads as its end.
     pub(crate) fn open(stdin: ChildStdin, stdout: ChildStdout) -> Result<Self> {
         Ok(Self {
-            client: Client::open(stdin, stdout)?,
+            client: Client::open(stdin, stdout, ReadFailure::Ended)?,
         })
     }
 
@@ -138,7 +139,9 @@ impl Engine {
 
     /// Ends the input, so the engine exits.
     pub(crate) fn close(self) {
-        self.client.close();
+        self.client
+            .close()
+            .expect("invariant: a read the trials read as an end never fails the close");
     }
 }
 

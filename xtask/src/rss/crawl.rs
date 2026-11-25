@@ -117,17 +117,38 @@ pub(crate) fn serve(proving_ground: &Path, network_profile: &str) -> Result<Serv
 /// waits on a full pipe while its caller waits on something else.
 pub(crate) struct Client {
     stdin: ChildStdin,
-    lines: Receiver<String>,
+    lines: Receiver<std::io::Result<String>>,
+}
+
+/// What a failed read of the engine's output reports.
+#[derive(Clone, Copy, Debug)]
+pub(crate) enum ReadFailure {
+    /// Its error: "reading the engine" while a call waits, "reading the
+    /// engine's output" while the input ends. The memory measurement's
+    /// crawl reports it.
+    Reported,
+    /// The end of the engine's output, as if the engine had closed it. The
+    /// comparison's trials read it so.
+    Ended,
 }
 
 impl Client {
-    /// Opens the connection with `hello`, asking for Foxhound.
-    pub(crate) fn open(stdin: ChildStdin, stdout: ChildStdout) -> Result<Self> {
+    /// Opens the connection with `hello`, asking for Foxhound; a failed
+    /// read of the engine's output is then read as `failure` says.
+    pub(crate) fn open(
+        stdin: ChildStdin,
+        stdout: ChildStdout,
+        failure: ReadFailure,
+    ) -> Result<Self> {
         let (sender, lines) = channel();
         std::thread::spawn(move || {
             for line in BufReader::new(stdout).lines() {
-                let Ok(line) = line else { break };
-                if sender.send(line).is_err() {
+                let failed = line.is_err();
+                if failed && matches!(failure, ReadFailure::Ended) {
+                    break;
+                }
+                // A failed read is the last the thread sends.
+                if sender.send(line).is_err() || failed {
                     break;
                 }
             }
@@ -160,7 +181,8 @@ impl Client {
         let line = self
             .lines
             .recv()
-            .with_context(|| format!("the engine ended before it answered {waiting_for}"))?;
+            .with_context(|| format!("the engine ended before it answered {waiting_for}"))?
+            .context("reading the engine")?;
         serde_json::from_str(&line)
             .with_context(|| format!("the engine wrote no JSON: {}", line.trim_end()))
     }
@@ -183,19 +205,23 @@ impl Client {
         }
     }
 
-    /// Ends the input, so the engine exits.
-    pub(crate) fn close(self) {
+    /// Ends the input, so the engine exits, and reads its output to its
+    /// end.
+    pub(crate) fn close(self) -> Result<()> {
         drop(self.stdin);
         // Its output stays open until it exits, so ending never fails a
         // write.
-        while self.lines.recv().is_ok() {}
+        while let Ok(line) = self.lines.recv() {
+            line.context("reading the engine's output")?;
+        }
+        Ok(())
     }
 }
 
 /// Opens with `hello`, starts a code-free crawl of the site on the `http`
 /// tier, waits for its Run to finish complete, and ends the input.
 pub(crate) fn crawl(stdin: ChildStdin, stdout: ChildStdout, site: &Site<'_>) -> Result<()> {
-    let mut engine = Client::open(stdin, stdout)?;
+    let mut engine = Client::open(stdin, stdout, ReadFailure::Reported)?;
     let concurrency = site.concurrency;
     let run_settings = json!({
         "network": { "resolve": { HOST: [site.ip()] } },
@@ -235,6 +261,5 @@ pub(crate) fn crawl(stdin: ChildStdin, stdout: ChildStdout, site: &Site<'_>) -> 
             site.pages
         );
     }
-    engine.close();
-    Ok(())
+    engine.close()
 }

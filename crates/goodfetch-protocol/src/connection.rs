@@ -839,6 +839,8 @@ impl WaitedFor {
     pub const NETWORK_IDLE: Self = Self::named("networkidle");
     /// The browser's answer to a command.
     pub const BROWSER_ANSWER: Self = Self::named("browser_answer");
+    /// A Plugin's answer to a call into it (ADR 0033).
+    pub const PLUGIN_ANSWER: Self = Self::named("plugin_answer");
     /// A Run's end.
     pub const RUN_END: Self = Self::named("Run's end");
     /// A Run's next safe point.
@@ -1197,16 +1199,24 @@ pub const ENGINE_OUTPUT_INVALID: ErrorCodeDefinition = ErrorCodeDefinition {
 
 /// The refusal of an answer only a person gives (ADRs 0011 and 0041): an
 /// operation the catalog marks [`Reach::PersonOnly`](crate::catalog::Reach)
-/// asked by anything but the Kennel or an interactive CLI
-/// prompt (ADR 0141).
+/// asked by anything but the Kennel or an interactive CLI prompt (ADR
+/// 0141) on a local carriage (ADR 0149).
 pub const PERSON_REQUIRED: ErrorCodeDefinition = ErrorCodeDefinition {
     name: "person_required",
-    description: "Only a person gives this answer: no agent surface, SDK, script or command run under `--json` or without a terminal may. Run the Operation's command in a terminal, where the CLI has one, or answer it in the Kennel where the Kennel offers the Operation.",
+    description: "Only a person gives this answer: no agent surface, SDK, script or command run under `--json` or without a terminal may, and no Client that reaches the engine from another machine, through an Exposed Daemon's address or a gateway, whatever surface it claims. Run the Operation's command in a terminal on the engine's machine, where the CLI has one, or answer it in the Kennel there.",
     group: ErrorGroup::Refused,
     retryable: false,
     exit_code: None,
     arrived_in: ARRIVED_IN,
 };
+
+/// What `person_required` details.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
+pub struct PersonRequiredDetails {
+    /// Where a person gives the answer: the error's `fix` (ADR 0079).
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub fix: String,
+}
 
 /// Handler code that must outlive its request, asked for on an edge
 /// runtime (ADR 0049), which ends what it runs with the request: raised by

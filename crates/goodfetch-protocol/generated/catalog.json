@@ -201,7 +201,7 @@
     },
     {
       "arrived_in": "0.1",
-      "description": "A `cdp_url` Session source names an address ADR 0056's rules refuse, before any connection: a private address from a value that is not Operator-configured, loopback from a Client acting for a model (its project configuration included) or a Recipe, or a private address under `egress.no_private_endpoints`. The details name the address without its query or credentials, the settings layer that gave it, the rule, the address it resolved to and the fix: set the address in Operator policy or in user configuration, or give a public address.",
+      "description": "A `cdp_url` Session source names an address ADR 0056's rules refuse, before any connection: a private address from a value that is not Operator-configured, loopback from a Client acting for a model (its project configuration included) or a Recipe, or from any Client of an Exposed Daemon, or a private address under `egress.no_private_endpoints`. The details name the address without its query or credentials, the settings layer that gave it, the rule, the address it resolved to and the fix: set the address in Operator policy or in user configuration, or give a public address.",
       "details": {
         "$ref": "#/$defs/CdpUrlNotAllowedDetails"
       },
@@ -611,6 +611,32 @@
       "name": "executable_blocked_by_smart_app_control",
       "product": "collie",
       "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "The Extractor `content.extractor` names answered `extract.content` with what the engine cannot take: an answer it cannot read, a result whose shape is not `{ title, text, markdown, metadata }`, or an Error code the catalog does not know. Its text is logged, never returned. The details name the Extractor and the page's URL. Fix the Extractor, or set `content.extractor` to a built-in one.",
+      "details": {
+        "$ref": "#/$defs/ExtractHandlerFailedDetails"
+      },
+      "exit_code": null,
+      "group": "program",
+      "json_rpc_class": -32001,
+      "name": "extract_handler_failed",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "No one answers for the Extractor `content.extractor` names: no built-in has its name and no installed Plugin of the Extractor kind does, its Plugin cannot start, or it is a handler the program registered that left its call unanswered. The details name the Extractor. Install the Plugin or name another Extractor, or retry once the program reads its Extractor's calls again.",
+      "details": {
+        "$ref": "#/$defs/ExtractorUnavailableDetails"
+      },
+      "exit_code": null,
+      "group": "unavailable",
+      "json_rpc_class": -32006,
+      "name": "extractor_unavailable",
+      "product": "collie",
+      "retryable": true
     },
     {
       "arrived_in": "0.1",
@@ -1155,7 +1181,10 @@
     },
     {
       "arrived_in": "0.1",
-      "description": "Only a person gives this answer: no agent surface, SDK, script or command run under `--json` or without a terminal may. Run the Operation's command in a terminal, where the CLI has one, or answer it in the Kennel where the Kennel offers the Operation.",
+      "description": "Only a person gives this answer: no agent surface, SDK, script or command run under `--json` or without a terminal may, and no Client that reaches the engine from another machine, through an Exposed Daemon's address or a gateway, whatever surface it claims. Run the Operation's command in a terminal on the engine's machine, where the CLI has one, or answer it in the Kennel there.",
+      "details": {
+        "$ref": "#/$defs/PersonRequiredDetails"
+      },
       "exit_code": null,
       "group": "refused",
       "json_rpc_class": -32002,
@@ -1190,6 +1219,16 @@
       "group": "unavailable",
       "json_rpc_class": -32006,
       "name": "plugin_protocol_unsupported",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "The process Plugin crashed three times within 10 minutes of the run, so it stays quarantined for the rest of the run: its queued and later calls fail with this code, and one \"a Plugin quarantined\" Notification is sent. A later run starts it again; fix or replace the Plugin first.",
+      "exit_code": null,
+      "group": "unavailable",
+      "json_rpc_class": -32006,
+      "name": "plugin_quarantined",
       "product": "collie",
       "retryable": false
     },
@@ -1309,6 +1348,19 @@
     },
     {
       "arrived_in": "0.1",
+      "description": "A Recipe manifest, `goodfetch-recipe.toml`, or its package that is not valid: a manifest that does not parse, lacks a required field or holds an unknown one, names no entry or two, names a program without a runtime or a runtime it does not list, names a `CrawlDeclaration` for Collie, or an entry the package does not hold; or a package holding a symbolic link, or a path with no portable digest: absolute, escaping its root, holding `\\` or `:`, or the same as another in Unicode NFC or but for case. The details name the field or path and the fix.",
+      "details": {
+        "$ref": "#/$defs/RecipeInvalidDetails"
+      },
+      "exit_code": null,
+      "group": "program",
+      "json_rpc_class": -32001,
+      "name": "recipe_invalid",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
       "description": "A Record is no JSON object, fails its Dataset's JSON Schema, or lacks a field of its Dataset's key, so it was not staged. The details name the Dataset and each such Record by its position, from 0, among the Records pushed together, or the first such Record by its position among those of the handler's answer, with each of its issues by its path, a JSON Pointer into the Record. Caught in the handler, the attempt keeps its other outputs; escaping it, the request ends `failed` and is not retried, since the same Record fails the same way.",
       "details": {
         "$ref": "#/$defs/RecordInvalidDetails"
@@ -1318,6 +1370,16 @@
       "json_rpc_class": -32001,
       "name": "record_invalid",
       "product": "foxhound",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "A Schedule's target sets `cache.mode` to `replay`, whose replayed pages would hide a change from the Baseline. Set `revalidate` or `off` for a scheduled target.",
+      "exit_code": null,
+      "group": "program",
+      "json_rpc_class": -32001,
+      "name": "replay_not_allowed",
+      "product": "collie",
       "retryable": false
     },
     {
@@ -1521,7 +1583,7 @@
     },
     {
       "arrived_in": "0.1",
-      "description": "The engine still runs the Run, so it cannot be discarded: stop it first with `run.stop` or `run.abort`, or let it finish, then discard it. The details name the Run.",
+      "description": "The engine still runs the Run, so it cannot be discarded, nor a Dataset of it erased: stop it first with `run.stop` or `run.abort`, or let it finish, then try again. The details name the Run.",
       "details": {
         "$ref": "#/$defs/RunDetails"
       },
@@ -1619,6 +1681,45 @@
     },
     {
       "arrived_in": "0.1",
+      "description": "A Schedule has this Schedule ID already: create it under another ID, or omit the ID for a new one. The details name the ID.",
+      "details": {
+        "$ref": "#/$defs/ScheduleExistsDetails"
+      },
+      "exit_code": null,
+      "group": "program",
+      "json_rpc_class": -32001,
+      "name": "schedule_exists",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "No Schedule has this Schedule ID: the Schedule store does not hold it. The details name the ID.",
+      "details": {
+        "$ref": "#/$defs/ScheduleNotFoundDetails"
+      },
+      "exit_code": null,
+      "group": "program",
+      "json_rpc_class": -32001,
+      "name": "schedule_not_found",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "The Schedule's trigger does not parse, such as an `every` of 0. The details give the `expression`, the `position` where reading stopped and the `reason`.",
+      "details": {
+        "$ref": "#/$defs/ScheduleTriggerInvalidDetails"
+      },
+      "exit_code": null,
+      "group": "program",
+      "json_rpc_class": -32001,
+      "name": "schedule_trigger_invalid",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
       "description": "A schema's own validation, run by the SDK in the program's process, raised something other than a rejection, so the call stopped at once: only the library's own rejection (Standard Schema issues, Pydantic's `ValidationError`) is one, and a bug is never retried or reported as a value the schema refused. The message always names the exception, and the original is the error's cause. The details name the schema by its JSON Schema `title` (`null` without one), the field path where known (`null` otherwise), and the exception's type and message. Fix the validator so that it rejects with the library's own issue, or never raises.",
       "details": {
         "$ref": "#/$defs/SchemaValidatorFailedDetails"
@@ -1692,6 +1793,19 @@
       "group": "refused",
       "json_rpc_class": -32002,
       "name": "session_bound_to_machine",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "A session export bundle, encrypted with age to a public key or a passphrase, did not open under the Secret reference given as its `key`: the value opens none of its recipients, is no age identity where the bundle was sealed to a public key, or the file is no bundle, asks more scrypt work than an import does, or holds more than the engine reads. `failure` says which, and the details name the reference, never its value. Give the reference of the identity or passphrase the bundle was exported to, or export it again.",
+      "details": {
+        "$ref": "#/$defs/SessionExportOpenFailedDetails"
+      },
+      "exit_code": null,
+      "group": "program",
+      "json_rpc_class": -32001,
+      "name": "session_export_open_failed",
       "product": "collie",
       "retryable": false
     },
@@ -2585,6 +2699,9 @@
             "batches",
             "block_classifications",
             "builds",
+            "cache_body_writes",
+            "cache_file_opens",
+            "cache_lookups",
             "calls",
             "check_commands",
             "click_commands",
@@ -2669,6 +2786,7 @@
             "state_reads",
             "statements",
             "static_opens",
+            "store_reads",
             "syncs",
             "transactions",
             "tree_copies",
@@ -3382,6 +3500,25 @@
     {
       "arrived_in": "0.1",
       "cancellable": false,
+      "class": "idempotent_write",
+      "deprecated": null,
+      "description": "Erases every Record of one Dataset of a run that no engine runs, a person's answer that applies at once: its committed and rejected Records and their full-text index rows are deleted from the run file, their pages overwritten, and the run's kept Exports, written before, are deleted too, while the crawl still declares the Dataset, which reads empty from then on. It cannot be undone. It is offered to a person only, never to an agent or a program (ADR 0031): any other surface is refused with `person_required`. A run this engine runs fails with `run_live`, one another engine writes with `run_in_use`, a Dataset the crawl does not declare with `dataset_unknown`, and a run that does not exist with `run_not_found`.",
+      "events": [],
+      "kind": "round_trip",
+      "name": "dataset.erase",
+      "params": {
+        "$ref": "#/$defs/DatasetEraseParams"
+      },
+      "product": "foxhound",
+      "reach": "person_only",
+      "result": {
+        "$ref": "#/$defs/DatasetErased"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": false,
       "class": "read",
       "deprecated": null,
       "description": "Lists the Datasets a crawl's Run declares, in the order declared, each with its JSON Schema, its key and how many Records the crawl committed into it, a Hook dropped and were rejected into its rejection table, read from the Run's committed state. A Run no crawl wrote declares none.",
@@ -3433,6 +3570,25 @@
       "reach": "all_surfaces",
       "result": {
         "$ref": "#/$defs/DatasetQueryResult"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": true,
+      "class": "read",
+      "deprecated": null,
+      "description": "Answers one page of the committed Records of one Dataset of a run that hold every word of `text`, each anywhere in the Record's values, in any case and with or without diacritics, in number order, after `after` and at most `limit` (1 to 1000, 100 by default), with the next page's `after` while more follow. It reads the index a crawl writes as it commits each Record while `dataset.search.index` is on, so a crawl with it off finds none. An empty `text` fails with `invalid_params`, and a Dataset the crawl does not declare with `dataset_unknown`.",
+      "events": [],
+      "kind": "round_trip",
+      "name": "dataset.search",
+      "params": {
+        "$ref": "#/$defs/DatasetSearchParams"
+      },
+      "product": "foxhound",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/DatasetSearchPage"
       },
       "stability": "experimental"
     },
@@ -4214,7 +4370,7 @@
       "cancellable": true,
       "class": "effect",
       "deprecated": null,
-      "description": "Sends a request from inside the page's Session's browser, with its cookies, through the browser-fetch tier and the page's interception (its domain policy, never its routes), from a context no service worker controls, and answers the response whatever its status, a 429 included; `response.body` reads its kept body, and raises `response_truncated` for one that broke off. A count of redirects above 19 is refused with `setting_invalid`, a chain past its count raises `too_many_redirects`, and a body whose content coding fails to decode `navigation_failed`.",
+      "description": "Sends a request from inside the page's Session's browser, with its cookies, through the browser-fetch tier and the page's interception (its domain policy, never its routes), from a context no service worker controls, and answers the response whatever its status, a 429 included; `response.body` reads its kept body, and raises `response_truncated` for one that broke off. A count of redirects above 19 is refused with `setting_invalid`, a chain past its count raises `too_many_redirects`, and a body whose content coding fails to decode `navigation_failed`. A header value or a JSON body string may hold a Secret placeholder, whose value the engine adds at its interception after every page script and service worker: an unbound placeholder raises `secret_unbound`, a hop outside its bound domains `secret_domain_not_allowed`, and a header value holding a CR, an LF or a NUL `header_value_invalid`.",
       "events": [],
       "kind": "round_trip",
       "name": "page.request",
@@ -4377,6 +4533,25 @@
       "reach": "all_surfaces",
       "result": {
         "$ref": "#/$defs/RunStarted"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": true,
+      "class": "read",
+      "deprecated": null,
+      "description": "Searches the committed Records of the runs `runs` selects, at most 100, for those that hold every word of `text`, each anywhere in the Record's values, in any case and with or without diacritics, in every Dataset or those `datasets` names, and answers at most `limit` (1 to 1000, 100 by default), the best matches first, each with its run, Dataset and number, so the runs that returned one can be read or queried with `dataset.query`. It reads only the selected runs' indexes, which a crawl writes while `dataset.search.index` is on, and runs under `timeout.dataset_query` and `dataset.query.memory_limit`. An empty `text` fails with `invalid_params`, and a run that does not exist with `run_not_found`.",
+      "events": [],
+      "kind": "round_trip",
+      "name": "record.search",
+      "params": {
+        "$ref": "#/$defs/RecordSearchParams"
+      },
+      "product": "foxhound",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/RecordSearchResult"
       },
       "stability": "experimental"
     },
@@ -5049,6 +5224,101 @@
     {
       "arrived_in": "0.1",
       "cancellable": false,
+      "class": "effect",
+      "deprecated": null,
+      "description": "Records a Schedule in the Schedule store, which the Daemon keeps, and answers its ID, as given or made (`s` and a lowercase ULID), with warnings. Nothing fires yet. A taken ID fails with `schedule_exists`, a trigger that does not parse with `schedule_trigger_invalid`. Its time zone is the Daemon host's when the definition names none. One store transaction: a cancel stops it only before it commits.",
+      "events": [],
+      "kind": "round_trip",
+      "name": "schedule.create",
+      "params": {
+        "$ref": "#/$defs/ScheduleCreateParams"
+      },
+      "product": "collie",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/ScheduleCreated"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": false,
+      "class": "idempotent_write",
+      "deprecated": null,
+      "description": "Deletes the Schedule from its store, so it never fires again, and answers whether it did: false when the store held none of that ID, as after a resent delete. One store transaction: a cancel stops it only before it commits.",
+      "events": [],
+      "kind": "round_trip",
+      "name": "schedule.delete",
+      "params": {
+        "$ref": "#/$defs/ScheduleParams"
+      },
+      "product": "collie",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/ScheduleDeleted"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": true,
+      "class": "read",
+      "deprecated": null,
+      "description": "Reads the Schedule of an ID. An ID the store does not hold fails with `schedule_not_found`.",
+      "events": [],
+      "kind": "round_trip",
+      "name": "schedule.get",
+      "params": {
+        "$ref": "#/$defs/ScheduleGetParams"
+      },
+      "product": "collie",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/ScheduleInfo"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": true,
+      "class": "read",
+      "deprecated": null,
+      "description": "Reads the Schedule as its store holds it now. One the store no longer holds fails with `schedule_not_found`.",
+      "events": [],
+      "kind": "round_trip",
+      "name": "schedule.info",
+      "params": {
+        "$ref": "#/$defs/ScheduleParams"
+      },
+      "product": "collie",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/ScheduleInfo"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": true,
+      "class": "read",
+      "deprecated": null,
+      "description": "Lists every Schedule of the Schedule store, by ID.",
+      "events": [],
+      "kind": "round_trip",
+      "name": "schedule.list",
+      "params": {
+        "$ref": "#/$defs/ScheduleListParams"
+      },
+      "product": "collie",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/ScheduleList"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": false,
       "class": "idempotent_write",
       "deprecated": null,
       "description": "Closes the Session: its pages and its browser context close, and its pages' admissions go back to the Resource governor; a Borrowed browser is never closed. A later call on the Session or one of its pages raises `closed`, and closing it again changes nothing.",
@@ -5242,6 +5512,25 @@
   "plugin_kinds": [
     {
       "arrived_in": "0.1",
+      "description": "Reads a page's main content in place of the main-content step, on the page Collie is on.",
+      "methods": [
+        {
+          "description": "Reads the main content of a page's document.",
+          "name": "content",
+          "params": {
+            "$ref": "#/$defs/ExtractContentParams"
+          },
+          "result": {
+            "$ref": "#/$defs/ExtractContentResult"
+          }
+        }
+      ],
+      "name": "extract",
+      "product": "collie",
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
       "description": "Chooses the pages the sample crawl visits.",
       "methods": [
         {
@@ -5325,6 +5614,27 @@
   ],
   "protocol_version": "0.1",
   "settings": [
+    {
+      "arrived_in": "0.1",
+      "authority": "machine",
+      "clearable": true,
+      "default": null,
+      "deprecated": null,
+      "description": "Whether the Daemon knows its person by an Account, kept in its Accounts store beside the Operator policy. Unset, the default, it is on for `daemon run`, the Exposed Daemon, and off for a machine's Daemon. Off, the Daemon opens no Accounts store and its person is the OS user, on its own machine only. Read once, as the Daemon starts. Set in user configuration or an Operator policy only.",
+      "fixed_for_run": false,
+      "name": "accounts.enabled",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "scopes": [],
+      "value": {
+        "type": "boolean"
+      },
+      "weakening": null,
+      "weakens": false
+    },
     {
       "arrived_in": "0.1",
       "authority": "every",
@@ -5650,6 +5960,79 @@
     },
     {
       "arrived_in": "0.1",
+      "authority": "machine",
+      "clearable": false,
+      "default": 2592000000,
+      "deprecated": null,
+      "description": "How long the Response cache keeps an entry, whatever its freshness: 30 days, after which it is deleted in every mode. Set in user configuration or an Operator policy only.",
+      "fixed_for_run": false,
+      "name": "cache.max_age_ceiling",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "scopes": [],
+      "value": {
+        "description": "A duration in milliseconds.",
+        "minimum": 0,
+        "type": "integer"
+      },
+      "weakening": null,
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "machine",
+      "clearable": false,
+      "default": 10000000000,
+      "deprecated": null,
+      "description": "The most bytes the Response cache keeps for a user, its index and its bodies together: 10 GB, beyond which the least recently used entries are evicted. Set in user configuration or an Operator policy only.",
+      "fixed_for_run": false,
+      "name": "cache.max_size",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "scopes": [],
+      "value": {
+        "minimum": 0,
+        "type": "integer"
+      },
+      "weakening": null,
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": false,
+      "default": "off",
+      "deprecated": null,
+      "description": "What the per-user Response cache does: `off` (the default) stores and serves nothing, so a run never serves a stale page silently; `revalidate` stores GET and HEAD responses sent with no cookie or credential, whose response sets no cookie and is not `private`, serves a fresh one with no request and revalidates a stale one with `ETag` and `Last-Modified` under RFC 9111, serving the stored body on a 304; `replay`, for development, stores every response to a request sent with no cookie or credential, which sets no cookie and is not `private`, whatever its method, status or freshness, and serves it again with no request and no revalidation. The key is the method, the URL without its fragment, the request headers the response's `Vary` names and, under `replay`, the SHA-256 of the request's canonical body: a JSON body with its object keys sorted, a form with its fields sorted by name and each name's values in their order, a body sent with no `Content-Type` read as JSON or a form by its bytes; a `Vary: *` response is never stored. A Schedule's target never sets `replay`. An engine that finds a cache written by a newer format runs without it, reading and writing nothing. When a site's service worker answers a request the Response cache must serve, set `browser.service_workers` to `block` (ADR 0121).",
+      "fixed_for_run": false,
+      "name": "cache.mode",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run"
+      ],
+      "value": {
+        "enum": [
+          "off",
+          "revalidate",
+          "replay"
+        ]
+      },
+      "weakening": null,
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
       "authority": "every",
       "clearable": true,
       "default": null,
@@ -5966,7 +6349,7 @@
       "clearable": false,
       "default": "dom_smoothie",
       "deprecated": null,
-      "description": "The main-content step `page.formats` reads a page's main content with, before its Markdown, its main HTML and its text: `dom_smoothie` (the default), Readability's algorithm, or `trafilatura`, the rs-trafilatura port. A step that finds no text in a document holding text outside its navigation landmarks answers that text. Set at any scope down to a page: a Run, a Session's or a page's own `settings`.",
+      "description": "The main-content step `page.formats` reads a page's main content with, before its Markdown and its text: `dom_smoothie` (the default), Readability's algorithm, `trafilatura`, the rs-trafilatura port, or the name of an installed Extractor Plugin. A built-in step that finds no text in a document holding text outside its navigation landmarks answers that text. An Extractor Plugin reads the page as the Clean-up rules left it and answers its Markdown and its text; it has no main HTML. Set at any scope down to a page: a Run, a Session's or a page's own `settings`. A Session or a page naming no built-in and no installed Extractor is refused; a Run's name is checked as its page reads with it.",
       "fixed_for_run": false,
       "name": "content.extractor",
       "product": "collie",
@@ -5982,10 +6365,10 @@
         "page"
       ],
       "value": {
-        "enum": [
-          "dom_smoothie",
-          "trafilatura"
-        ]
+        "description": "A built-in main-content step, `dom_smoothie` or `trafilatura`, or an installed Extractor Plugin's name.",
+        "minLength": 1,
+        "pattern": "^([^/\\\\\\u0000-\\u001f\\u007f-\\u009f.][^/\\\\\\u0000-\\u001f\\u007f-\\u009f]*|\\.[^/\\\\\\u0000-\\u001f\\u007f-\\u009f.][^/\\\\\\u0000-\\u001f\\u007f-\\u009f]*|\\.\\.[^/\\\\\\u0000-\\u001f\\u007f-\\u009f]+)$",
+        "type": "string"
       },
       "weakening": null,
       "weakens": false
@@ -6585,7 +6968,7 @@
       "clearable": false,
       "default": "127.0.0.1:7600",
       "deprecated": null,
-      "description": "Where `daemon run`, the foreground Daemon, listens, as `host:port`: `127.0.0.1` on port 7900 plus the major (7600 plus the minor during `0.y` previews). Port 0 takes a free port, which its log names. Only a loopback address, until the Daemon terminates TLS. Set in user configuration or an Operator policy, or for `daemon run` through `GOODFETCH_DAEMON_ADDRESS`.",
+      "description": "Where `daemon run`, the foreground Daemon, listens, as `host:port`: `127.0.0.1` on port 7900 plus the major (7600 plus the minor during `0.y` previews). Port 0 takes a free port, which its log names. An address other than loopback needs `daemon.tls.cert_file` and `daemon.tls.key_file`, or `daemon.tls.upstream`, so no token crosses a network in clear. Set in user configuration or an Operator policy, or for `daemon run` through `GOODFETCH_DAEMON_ADDRESS`.",
       "fixed_for_run": false,
       "name": "daemon.address",
       "product": "collie",
@@ -6642,6 +7025,94 @@
         "description": "A duration in milliseconds.",
         "minimum": 0,
         "type": "integer"
+      },
+      "weakening": null,
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "machine",
+      "clearable": true,
+      "default": null,
+      "deprecated": null,
+      "description": "The certificate chain `daemon run`, the foreground Daemon, serves TLS with on `daemon.address`, a PEM or DER file, set together with `daemon.tls.key_file`. With both set, every Connection opens with a TLS handshake, its JSON-RPC lines and its WebSocket alike, and one that does not is closed and recorded in the Audit log; a replaced file is read again at the next Connection, with no restart. Unset by default, which limits `daemon.address` to loopback unless `daemon.tls.upstream` is set. Set in user configuration or an Operator policy.",
+      "fixed_for_run": false,
+      "name": "daemon.tls.cert_file",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "scopes": [],
+      "value": {
+        "type": "string"
+      },
+      "weakening": null,
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "machine",
+      "clearable": true,
+      "default": null,
+      "deprecated": null,
+      "description": "The private key of `daemon.tls.cert_file`'s certificate, a PEM file (PKCS #8, PKCS #1 or SEC 1) or a DER file, set together with it. A replaced file is read again at the next Connection, with no restart. Unset by default. Set in user configuration or an Operator policy.",
+      "fixed_for_run": false,
+      "name": "daemon.tls.key_file",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "scopes": [],
+      "value": {
+        "type": "string"
+      },
+      "weakening": null,
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "machine",
+      "clearable": false,
+      "default": false,
+      "deprecated": null,
+      "description": "Whether TLS is terminated in front of `daemon run`, the foreground Daemon, by an ingress or a reverse proxy, which lets `daemon.address` be other than loopback with no `daemon.tls.cert_file`. The Daemon then serves in plain, still requires its token, checks each WebSocket handshake's `Host` and `Origin`, and reads `X-Forwarded-Host` and `X-Forwarded-Proto` only from the addresses `daemon.trusted_proxies` lists. `false` by default, and refused together with the TLS files. A Daemon started with it records `tls_terminated_upstream` in the Audit log. Set in user configuration or an Operator policy.",
+      "fixed_for_run": false,
+      "name": "daemon.tls.upstream",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "scopes": [],
+      "value": {
+        "type": "boolean"
+      },
+      "weakening": null,
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "machine",
+      "clearable": false,
+      "default": [],
+      "deprecated": null,
+      "description": "The proxies in front of `daemon run`, the foreground Daemon, whose `X-Forwarded-Host` and `X-Forwarded-Proto` it reads under `daemon.tls.upstream`: IP addresses and CIDR ranges such as `10.0.0.0/8`, matched on a Connection's peer address. From a listed proxy, `X-Forwarded-Proto: https` makes a WebSocket handshake's `Origin` one over `https`, and with it the name `X-Forwarded-Host` gives is one the Daemon answers to; each header's first value counts. From any other address both are ignored, and `Forwarded` and `X-Forwarded-For` are never read. Empty by default, and refused without `daemon.tls.upstream`. Set in user configuration or an Operator policy.",
+      "fixed_for_run": false,
+      "name": "daemon.trusted_proxies",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "scopes": [],
+      "value": {
+        "items": {
+          "description": "A CIDR range such as `10.0.0.0/8`, or an IP address such as `192.0.2.7`.",
+          "type": "string"
+        },
+        "type": "array"
       },
       "weakening": null,
       "weakens": false
@@ -6720,6 +7191,29 @@
         ]
       },
       "weakens": true
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": false,
+      "default": true,
+      "deprecated": null,
+      "description": "Whether the crawl indexes each Record it commits for `dataset.search` and `record.search`, in the commit's transaction. On by default. Off, no Record is indexed, so neither search finds one of the crawl's Records, while each is still committed and read as before.",
+      "fixed_for_run": false,
+      "name": "dataset.search.index",
+      "product": "foxhound",
+      "products": [
+        "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run"
+      ],
+      "value": {
+        "type": "boolean"
+      },
+      "weakening": null,
+      "weakens": false
     },
     {
       "arrived_in": "0.1",
@@ -10200,7 +10694,7 @@
       "clearable": true,
       "default": null,
       "deprecated": null,
-      "description": "The AWS Region, such as `eu-west-3`, whose Secrets Manager answers `aws-sm:name#key` Secret references: the engine calls `GetSecretValue` for the secret `name`, signed with the access key in its environment's `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` and, for temporary credentials, `AWS_SESSION_TOKEN`, and answers the secret's text, or its JSON object's `key`. Unset, the default, the engine's environment's `AWS_REGION`, then `AWS_DEFAULT_REGION`, names it; with none, an `aws-sm:` reference fails with `secret_unavailable`, `failure: \"not_configured\"`. Taken only from an Operator policy and user and project configuration.",
+      "description": "The AWS Region, such as `eu-west-3`, whose Secrets Manager answers `aws-sm:name#key` Secret references: the engine calls `GetSecretValue` for the secret `name`, signed with the access key in its environment's `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` and, for temporary credentials, `AWS_SESSION_TOKEN`, or else with a role's temporary key, from a web identity token (`AWS_WEB_IDENTITY_TOKEN_FILE` and `AWS_ROLE_ARN`), the container credentials endpoint of ECS or EKS, or the EC2 instance metadata service, and answers the secret's text, or its JSON object's `key`. Unset, the default, the engine's environment's `AWS_REGION`, then `AWS_DEFAULT_REGION`, names it; with none, an `aws-sm:` reference fails with `secret_unavailable`, `failure: \"not_configured\"`. Taken only from an Operator policy and user and project configuration.",
       "fixed_for_run": false,
       "name": "secret_providers.aws_sm.region",
       "product": "collie",
@@ -10221,7 +10715,7 @@
       "clearable": false,
       "default": "https://login.microsoftonline.com",
       "deprecated": null,
-      "description": "The URL of the Microsoft Entra ID authority that issues the access token `azure-kv:` references are read with, `https://login.microsoftonline.com` by default, or a sovereign cloud's, such as `https://login.chinacloudapi.cn`: the engine asks `<authority>/<AZURE_TENANT_ID>/oauth2/v2.0/token` for a token of the client-credentials grant. It is an Operator-configured endpoint, judged and verified as `secret_providers.azure_kv.endpoint` is. Taken only from an Operator policy and user and project configuration.",
+      "description": "The URL of the Microsoft Entra ID authority that issues the access token `azure-kv:` references are read with, `https://login.microsoftonline.com` by default, or a sovereign cloud's, such as `https://login.chinacloudapi.cn`: the engine asks `<authority>/<AZURE_TENANT_ID>/oauth2/v2.0/token` for a token of the client-credentials grant, with the service principal's secret or the workload identity's federated token. It is an Operator-configured endpoint, judged and verified as `secret_providers.azure_kv.endpoint` is. Taken only from an Operator policy and user and project configuration.",
       "fixed_for_run": false,
       "name": "secret_providers.azure_kv.authority",
       "product": "collie",
@@ -10242,7 +10736,7 @@
       "clearable": false,
       "default": "https://{vault}.vault.azure.net",
       "deprecated": null,
-      "description": "The URL of the Azure Key Vault that answers `azure-kv:vault/secret` Secret references, `{vault}` standing for the reference's vault name: `https://{vault}.vault.azure.net` by default, or a sovereign cloud's, such as `https://{vault}.vault.azure.cn`. The engine reads the secret's current version with an access token for Key Vault that Microsoft Entra ID (`secret_providers.azure_kv.authority`) issues to the service principal in its environment's `AZURE_TENANT_ID`, `AZURE_CLIENT_ID` and `AZURE_CLIENT_SECRET`. With any of them unset, an `azure-kv:` reference fails with `secret_unavailable`, `failure: \"not_configured\"`. It is an Operator-configured endpoint: reached on a private address unless `egress.no_private_endpoints` refuses it, its certificate verified against Mozilla's roots and its own domain's `tls.trusted_cas`, never excepted by `tls.accept_invalid_certs`. Plain `http:` is taken only for a loopback address. Taken only from an Operator policy and user and project configuration.",
+      "description": "The URL of the Azure Key Vault that answers `azure-kv:vault/secret` Secret references, `{vault}` standing for the reference's vault name: `https://{vault}.vault.azure.net` by default, or a sovereign cloud's, such as `https://{vault}.vault.azure.cn`. The engine reads the secret's current version with an access token for Key Vault, from the first identity its environment gives, in the Azure Identity libraries' order: the service principal of `AZURE_TENANT_ID`, `AZURE_CLIENT_ID` and `AZURE_CLIENT_SECRET`, or the workload identity of `AZURE_FEDERATED_TOKEN_FILE`, whose token Microsoft Entra ID (`secret_providers.azure_kv.authority`) issues, or else the host's managed identity, through `IDENTITY_ENDPOINT` or the instance metadata service; `AZURE_TOKEN_CREDENTIALS` keeps only the sources it names. With no identity, an `azure-kv:` reference fails with `secret_unavailable`, `failure: \"not_configured\"`. It is an Operator-configured endpoint: reached on a private address unless `egress.no_private_endpoints` refuses it, its certificate verified against Mozilla's roots and its own domain's `tls.trusted_cas`, never excepted by `tls.accept_invalid_certs`. Plain `http:` is taken only for a loopback address. Taken only from an Operator policy and user and project configuration.",
       "fixed_for_run": false,
       "name": "secret_providers.azure_kv.endpoint",
       "product": "collie",
@@ -10284,7 +10778,7 @@
       "clearable": false,
       "default": "https://secretmanager.googleapis.com",
       "deprecated": null,
-      "description": "The URL of the Google Cloud Secret Manager API that answers `gcp-sm:project/secret/version` Secret references, `https://secretmanager.googleapis.com` by default, or a regional or Private Service Connect endpoint: the engine accesses the secret's version (`latest` for the newest) with the OAuth 2.0 access token in its environment's `GOOGLE_OAUTH_ACCESS_TOKEN`, such as `gcloud auth print-access-token` prints, and answers its payload as text. With no token, a `gcp-sm:` reference fails with `secret_unavailable`, `failure: \"not_configured\"`. It is an Operator-configured endpoint: reached on a private address unless `egress.no_private_endpoints` refuses it, its certificate verified against Mozilla's roots and its own domain's `tls.trusted_cas`, never excepted by `tls.accept_invalid_certs`. Plain `http:` is taken only for a loopback address. Taken only from an Operator policy and user and project configuration.",
+      "description": "The URL of the Google Cloud Secret Manager API that answers `gcp-sm:project/secret/version` Secret references, `https://secretmanager.googleapis.com` by default, or a regional or Private Service Connect endpoint: the engine accesses the secret's version (`latest` for the newest) with the OAuth 2.0 access token in its environment's `GOOGLE_OAUTH_ACCESS_TOKEN`, such as `gcloud auth print-access-token` prints, or else one it takes from a service account's key file that `GOOGLE_APPLICATION_CREDENTIALS` names or from the metadata server's service account, and answers its payload as text. With no token, a `gcp-sm:` reference fails with `secret_unavailable`, `failure: \"not_configured\"`. It is an Operator-configured endpoint: reached on a private address unless `egress.no_private_endpoints` refuses it, its certificate verified against Mozilla's roots and its own domain's `tls.trusted_cas`, never excepted by `tls.accept_invalid_certs`. Plain `http:` is taken only for a loopback address. Taken only from an Operator policy and user and project configuration.",
       "fixed_for_run": false,
       "name": "secret_providers.gcp_sm.endpoint",
       "product": "collie",
@@ -10471,11 +10965,11 @@
     },
     {
       "arrived_in": "0.1",
-      "authority": "every",
+      "authority": "not_weakened_by_recipe_or_model",
       "clearable": false,
       "default": true,
       "deprecated": null,
-      "description": "Whether the run's Audit log entries are hash-chained (ADR 0016). On by default; off, that run's entries are written unchained, each marked `chained: false`, which `audit verify` steps over while it verifies the chain around them; the switch itself is a chained entry, and the run says so in its report's `weakened` and in one warning.",
+      "description": "Whether the run's Audit log entries are hash-chained (ADR 0016). On by default; off, that run's entries are written unchained, each marked `chained: false`, which `audit verify` steps over while it verifies the chain around them; the switch itself is a chained entry, and the run says so in its report's `weakened` and in one warning. A Recipe or a Client acting for a model never switches it off: its `false` is `setting_locked`.",
       "fixed_for_run": false,
       "name": "security.audit_chain",
       "product": "collie",
@@ -10524,11 +11018,11 @@
     },
     {
       "arrived_in": "0.1",
-      "authority": "every",
+      "authority": "not_weakened_by_recipe_or_model",
       "clearable": false,
       "default": true,
       "deprecated": null,
-      "description": "Whether the run's state seals its secret fields with the run's data key (ADR 0015). On by default; off, they are written in the clear, and the run says so in its report's `weakened`, in the Audit log and in one warning.",
+      "description": "Whether the run's state seals its secret fields with the run's data key (ADR 0015). On by default; off, they are written in the clear and the run makes no data key, and the run says so in its report's `weakened`, in the Audit log and in one warning. A field written in the clear opens only in a run that lists this switch as weakened. A Recipe or a Client acting for a model never switches it off: its `false` is `setting_locked`.",
       "fixed_for_run": false,
       "name": "security.field_encryption",
       "product": "collie",
@@ -10552,11 +11046,11 @@
     },
     {
       "arrived_in": "0.1",
-      "authority": "every",
+      "authority": "not_weakened_by_recipe_or_model",
       "clearable": false,
       "default": true,
       "deprecated": null,
-      "description": "Whether every browser Session the engine launches reaches the network through the egress relay, which holds a raw CDP client or a Lent page at the network layer (ADR 0017). On by default; off, a Session with no certificate exception and no local address connects directly, held by interception alone, and the run says so in its report's `weakened`, in the Audit log and in one warning. It never removes the relay that carries certificate exceptions or local addresses.",
+      "description": "Whether every browser Session the engine launches reaches the network through the egress relay, which holds a raw CDP client or a Lent page at the network layer (ADR 0017). On by default; off, a Session with no certificate exception and no local address connects directly, held by interception alone, and the run says so in its report's `weakened`, in the Audit log and in one warning. It never removes the relay that carries certificate exceptions or local addresses. A Recipe or a Client acting for a model never switches it off: its `false` is `setting_locked`.",
       "fixed_for_run": false,
       "name": "security.raw_cdp_egress_proxy",
       "product": "collie",
@@ -10580,11 +11074,11 @@
     },
     {
       "arrived_in": "0.1",
-      "authority": "every",
+      "authority": "not_weakened_by_recipe_or_model",
       "clearable": false,
       "default": true,
       "deprecated": null,
-      "description": "Whether logs, traces and HAR files are redacted and screenshots and recordings kept as outputs are masked (ADR 0014). On by default; off lifts that guarantee for those outputs only: secrets still never reach the model, Plans, caches, the Effect journal or observations. The run says so in its report's `weakened`, in the Audit log and in one warning.",
+      "description": "Whether logs, traces and HAR files are redacted and screenshots and recordings kept as outputs are masked (ADR 0014). On by default; off lifts that guarantee for those outputs only: secrets still never reach the model, Plans, caches, the Effect journal or observations. The run says so in its report's `weakened`, in the Audit log and in one warning. A Recipe or a Client acting for a model never switches it off: its `false` is `setting_locked`.",
       "fixed_for_run": false,
       "name": "security.redaction",
       "product": "collie",
@@ -10608,11 +11102,11 @@
     },
     {
       "arrived_in": "0.1",
-      "authority": "every",
+      "authority": "not_weakened_by_recipe_or_model",
       "clearable": false,
       "default": true,
       "deprecated": null,
-      "description": "Whether every address a name resolves to is checked against the egress policy before a connection is made (ADR 0017). On by default; off, the domain policy alone applies, and the run says so in its report's `weakened`, in the Audit log and in one warning.",
+      "description": "Whether every address a name resolves to is checked against the egress policy before a connection is made (ADR 0017). On by default; off, the domain policy alone applies, and the run says so in its report's `weakened`, in the Audit log and in one warning. A Recipe or a Client acting for a model never switches it off: its `false` is `setting_locked`.",
       "fixed_for_run": false,
       "name": "security.resolved_ip_check",
       "product": "collie",
@@ -10636,11 +11130,11 @@
     },
     {
       "arrived_in": "0.1",
-      "authority": "every",
+      "authority": "not_weakened_by_recipe_or_model",
       "clearable": false,
       "default": true,
       "deprecated": null,
-      "description": "Whether the run's secret tables overwrite what they delete, SQLite's `secure_delete` (ADR 0015). On by default; off, deleted values may stay on disk until overwritten, and the run says so in its report's `weakened`, in the Audit log and in one warning.",
+      "description": "Whether the run's state overwrites what it deletes, its secret fields included, SQLite's `secure_delete` (ADR 0015). On by default; off, deleted values may stay in the run file's free pages until overwritten, and the run says so in its report's `weakened`, in the Audit log and in one warning. A discard overwrites the run's data key whatever its value. A Recipe or a Client acting for a model never switches it off: its `false` is `setting_locked`.",
       "fixed_for_run": false,
       "name": "security.secure_delete",
       "product": "collie",
@@ -11186,7 +11680,7 @@
               },
               "key": {
                 "arrived_in": "0.1",
-                "description": "The Secret reference that opens a session export bundle.",
+                "description": "The Secret reference that opens a session export bundle: its\nage identity or its passphrase, never the value itself.",
                 "type": [
                   "string",
                   "null"
@@ -13071,6 +13565,32 @@
     {
       "arrived_in": "0.1",
       "authority": "every",
+      "clearable": false,
+      "default": 30000,
+      "deprecated": null,
+      "description": "How long a call into a Plugin, of any form, may wait for its answer before it is abandoned and fails with `deadline_exceeded`: 30 s. A kind with a timeout of its own, such as a Hook's `timeout.hook`, waits under that one instead.",
+      "fixed_for_run": false,
+      "name": "timeout.plugin",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run"
+      ],
+      "value": {
+        "description": "A duration in milliseconds.",
+        "minimum": 0,
+        "type": "integer"
+      },
+      "weakening": null,
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
       "clearable": true,
       "default": null,
       "deprecated": null,
@@ -13688,7 +14208,7 @@
     },
     {
       "arrived_in": "0.1",
-      "description": "A listening endpoint refused a request for a missing, wrong, expired or revoked token, a foreign `Host` or a foreign `Origin`, or a Connection whose opening sent no `hello` first, in time or within its size limit. `audit.refusals_per_minute` bounds how many one listener records in a minute.",
+      "description": "A listening endpoint refused a request for a missing, wrong, expired or revoked token, a foreign `Host` or a foreign `Origin`, a Connection whose opening sent no `hello` first, in time or within its size limit, or one opened without TLS where the listener serves TLS. `audit.refusals_per_minute` bounds how many one listener records in a minute.",
       "name": "endpoint_authentication_failed",
       "product": "collie",
       "type": "audit_kind"
@@ -13926,6 +14446,13 @@
     },
     {
       "arrived_in": "0.1",
+      "description": "Calls a run made into Plugins, of every form, per implementation (ADR 0033).",
+      "name": "plugin_calls",
+      "product": "collie",
+      "type": "usage_kind"
+    },
+    {
+      "arrived_in": "0.1",
       "description": "Usage figures come from a Plugin.",
       "name": "plugin_figures",
       "product": "collie",
@@ -13937,6 +14464,13 @@
       "name": "plugin_quantity_above_maximum",
       "product": "collie",
       "type": "run_warning_code"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "The time a run's calls into Plugins took, in milliseconds, per implementation (ADR 0033).",
+      "name": "plugin_time",
+      "product": "collie",
+      "type": "usage_kind"
     },
     {
       "arrived_in": "0.1",

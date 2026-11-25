@@ -34,8 +34,8 @@ use super::writer::{retried, try_lock};
 use super::{
     Behind, Command, ConnectionId, Ended, FromCheckpoint, Keys, Limits, Live, Registry,
     ReopenCheck, Resume, Resumed, Run, RunError, Start, StartError, Started, StorageExhausted,
-    UncleanDiscard, applied, critical_among, discard, durability_of, ledger_read_interval,
-    periodic_checkpoints, progress, trace_changes, warn_over_charged,
+    UncleanDiscard, Unlocked, applied, critical_among, discard, durability_of,
+    ledger_read_interval, periodic_checkpoints, progress, trace_changes, warn_over_charged,
 };
 use crate::audit::{AuditLog, Origin};
 use crate::checkpoint;
@@ -662,11 +662,11 @@ impl Registry {
     /// answers `answer` once the Run went on or was refused.
     pub(super) fn resume(
         &mut self,
-        resume: Box<(Resume, Link, Keys, Option<StoredKey>)>,
+        resume: Box<(Resume, Link, Unlocked, Option<StoredKey>)>,
         connection: Option<ConnectionId>,
         answer: oneshot::Sender<Result<Resumed, RunError>>,
     ) {
-        let (resume, link, keys, stored) = *resume;
+        let (resume, link, unlocked, stored) = *resume;
         // Fixed keys the resume gives keep their values, in any state (ADR 0102).
         let fixed = FixedSettings::of(resume.settings.as_ref(), &self.setup.masks);
         if let Some(live) = self.resumed_live(&resume.run_id, &fixed) {
@@ -680,7 +680,7 @@ impl Registry {
         ];
         let opening = self.opening(&run_id, connection, essential, resume.settings.as_ref());
         self.beside(Some(run_id), async move {
-            let resumed = opening.resume(resume, fixed, keys, stored).await;
+            let resumed = opening.resume(resume, fixed, unlocked, stored).await;
             if let Ok(Resumed::New { run, .. }) = &resumed {
                 link.add_to(run.identity.span());
             }
@@ -885,8 +885,8 @@ impl Opening {
                 filesystem,
             })));
         }
-        self.begin(start, Keys { secrets, key: None }, row, syncing)
-            .await
+        let keys = Unlocked { secrets, key: None }.keys(&start.weakened);
+        self.begin(start, keys, row, syncing).await
     }
 
     /// Refuses the start of the interrupted Run that a Limit stopped while
@@ -1220,13 +1220,13 @@ impl Opening {
     }
 
     /// The resume `resume` of an interrupted Run, its `fixed` settings
-    /// compared, its Secret references resolved through `keys`, the data
-    /// key its file holds being `stored`.
+    /// compared, its Secret references and data key resolved as `unlocked`
+    /// holds them, the data key its file holds being `stored`.
     async fn resume(
         mut self,
         resume: Resume,
         fixed: FixedSettings,
-        keys: Keys,
+        unlocked: Unlocked,
         stored: Option<StoredKey>,
     ) -> Result<Resumed, RunError> {
         let Resume {
@@ -1267,6 +1267,7 @@ impl Opening {
         let (weakened, changed) = applied(&recorded, settings.as_ref(), &state)
             .await
             .map_err(|error| RunError::of_state(&run_id, &folder, error))?;
+        let keys = unlocked.keys(&weakened);
         let (id, kind, connection) = (run_id.clone(), recorded.kind, self.connection);
         let (run, let_finish) = self
             .decisions

@@ -6,8 +6,9 @@
 //! uncertain Effects), its warnings, and what a crawl adds, kept as the
 //! engine sent it so that a Collie reader keeps a crawl's parts.
 
+use crate::milliseconds::Milliseconds;
 use crate::point_in_time::PointInTime;
-use std::time::SystemTime;
+use std::time::{Duration, SystemTime};
 
 use std::collections::BTreeMap;
 
@@ -204,9 +205,10 @@ pub struct RunUsage {
     /// Its model calls.
     #[schemars(extend("arrived_in" = "0.1"))]
     pub model: ModelUsage,
-    /// How long it held a browser, in milliseconds.
-    #[schemars(extend("arrived_in" = "0.1"))]
-    pub browser_time: u64,
+    /// How long it held a browser.
+    #[serde(with = "crate::milliseconds")]
+    #[schemars(with = "Milliseconds", extend("arrived_in" = "0.1"))]
+    pub browser_time: Duration,
     /// The bytes it sent and received through a proxy.
     #[schemars(extend("arrived_in" = "0.1"))]
     pub proxy_bytes: u64,
@@ -231,6 +233,11 @@ pub struct RunUsage {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     #[schemars(extend("arrived_in" = "0.1"))]
     pub paid_fetches: Vec<UsageAmount>,
+    /// Its calls into Plugin kinds' implementations, of every form, and the
+    /// time they took, by implementation (ADR 0033), in name order.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub plugins: Vec<PluginUsage>,
     /// What it used of a Usage kind this engine does not name, kept as the
     /// ledger holds it.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -326,6 +333,21 @@ pub struct ProxyKindBytes {
     /// The bytes.
     #[schemars(extend("arrived_in" = "0.1"))]
     pub bytes: u64,
+}
+
+/// What a Run's calls into one implementation of a Plugin kind used: its
+/// `plugin_calls` and `plugin_time` (ADR 0033).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct PluginUsage {
+    /// The implementation's name, as the setting that chose it names it.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub plugin: String,
+    /// The calls made into it, failed ones included.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub calls: u64,
+    /// The time those calls took, in milliseconds.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub time: u64,
 }
 
 /// An amount of a Usage kind counted in a currency, or as a count.

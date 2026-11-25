@@ -1,0 +1,7 @@
+{
+  "format": "plugin-protocol",
+  "rule": "lower_minor",
+  "reader": "0.1",
+  "found": "1.0",
+  "compatibility": "newer_major"
+}

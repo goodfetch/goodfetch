@@ -4,7 +4,7 @@
 use std::net::IpAddr;
 
 use hyper::body::Bytes;
-use hyper::{Method, StatusCode};
+use hyper::{HeaderMap, Method, StatusCode};
 use serde::Serialize;
 
 use crate::client_hello::ClientHello;
@@ -19,6 +19,8 @@ pub(crate) struct Request<'a> {
     pub(crate) cookies: &'a str,
     /// The `Authorization` header, empty when the request has none.
     pub(crate) authorization: &'a str,
+    /// Every header of the request.
+    pub(crate) headers: &'a HeaderMap,
     pub(crate) body: &'a Bytes,
     /// The address the request came from, as the site sees it.
     pub(crate) peer: IpAddr,
@@ -142,8 +144,9 @@ pub(crate) fn form_value(form: &str, name: &str) -> Option<String> {
         .and_then(|(_, value)| decode(value))
 }
 
-/// A form-encoded component, decoded.
-fn decode(component: &str) -> Option<String> {
+/// A form-encoded component, percent-decoded, `+` read as a space; `None`
+/// when it does not decode to UTF-8.
+pub(crate) fn decode(component: &str) -> Option<String> {
     let mut bytes = Vec::with_capacity(component.len());
     let mut rest = component.bytes();
     while let Some(byte) = rest.next() {

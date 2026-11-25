@@ -33,15 +33,15 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
 use anyhow::{Context as _, Result};
+use goodfetch_protocol::catalog::Reach;
 use serde::Deserialize;
 
 use crate::check::Finding;
 use crate::codegen;
+use crate::tree::CATALOG;
 
 pub(crate) mod exports;
 
-/// The catalog `xtask codegen` emits from `goodfetch-protocol`'s types.
-const CATALOG: &str = "crates/goodfetch-protocol/generated/catalog.json";
 /// Each SDK's manifest and its language; an SDK that lists its hand-written
 /// members adds its own here.
 const MANIFESTS: [(&str, Language); 5] = [
@@ -59,8 +59,6 @@ const MANIFESTS: [(&str, Language); 5] = [
 ];
 /// The `entry` of a member that serves no catalog entry, with its reason.
 const NO_ENTRY: &str = "none";
-/// The reach of an operation only a person's surface offers.
-const PERSON_ONLY: &str = "person_only";
 /// The forms a manifest line declares, as `sdks/typescript/manifest.toml`'s
 /// header describes them.
 const FORMS: [&str; 7] = [
@@ -83,7 +81,7 @@ const ASYNC: &str = "Async";
 /// The prefix of a Python package's import name.
 const PYTHON_PREFIX: &str = "goodfetch_";
 /// The receiver of a member at a TypeScript module's top level; a Rust
-/// crate's root is `(crate)`.
+/// crate's root is `(crate)`, which the Rust exports reader writes.
 const MODULE: &str = "(module)";
 const CRATE: &str = "(crate)";
 
@@ -138,7 +136,7 @@ struct Operation {
 
 impl Operation {
     fn person_only(&self) -> bool {
-        self.reach.as_deref() == Some(PERSON_ONLY)
+        self.reach.as_deref() == Some(Reach::PersonOnly.as_str())
     }
 }
 
@@ -364,14 +362,16 @@ fn check_entries(
                 subject.clone(),
                 format!("`{}` is no operation of the catalog", member.entry),
             )),
-            Some(Some(PERSON_ONLY)) => findings.push(Finding::new(
-                "person-only",
-                subject.clone(),
-                format!(
-                    "`{}` is only a person's to call (ADR 0041); no SDK member serves it",
-                    member.entry
-                ),
-            )),
+            Some(Some(reach)) if *reach == Reach::PersonOnly.as_str() => {
+                findings.push(Finding::new(
+                    "person-only",
+                    subject.clone(),
+                    format!(
+                        "`{}` is only a person's to call (ADR 0041); no SDK member serves it",
+                        member.entry
+                    ),
+                ));
+            }
             Some(_) => {}
         }
         if !served.insert((&member.package, &member.receiver, &member.entry)) {

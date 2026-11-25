@@ -26,6 +26,10 @@ crate = "goodfetch-recording-gate"
 reason = "test-only adapter of the page's value and response observer (ADR 0125)"
 
 [[bans.deny]]
+crate = "goodfetch-memory-site"
+reason = "test-only adapter of the fetch tiers' Transport (ADR 0125)"
+
+[[bans.deny]]
 crate = "goodfetch-scripted-engine"
 reason = "test-only executable (ADR 0069)"
 

@@ -108,6 +108,27 @@ A value this package does not know, which a newer engine may send, is kept as re
 - `request_ended`: Once a crawl request ended, with its outcome; observe-only.
 """
 
+ScheduleState: TypeAlias = Literal["on"] | str
+"""Whether a Schedule fires.
+
+A value this package does not know, which a newer engine may send, is kept as received (ADR 0079).
+
+- `on`: It fires at its occurrences.
+"""
+
+TriggerInvalidReason: TypeAlias = Literal["unknown_field", "out_of_range", "bad_step", "bad_macro", "field_count", "other"] | str
+"""Why a trigger does not parse.
+
+A value this package does not know, which a newer engine may send, is kept as received (ADR 0079).
+
+- `unknown_field`: A field it does not know.
+- `out_of_range`: A value out of its field's range, such as an interval of 0.
+- `bad_step`: A step that does not divide its range.
+- `bad_macro`: A macro it does not know.
+- `field_count`: Too few or too many fields.
+- `other`: Another reason, which the message gives.
+"""
+
 Verdict: TypeAlias = Literal["verified", "rejected", "needs_review"] | str
 """Whether a Run's own checks prove what it committed (ADR 0029).
 

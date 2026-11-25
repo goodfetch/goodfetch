@@ -498,7 +498,7 @@ impl Page {
         )
     }
 
-    /// Sends a request from inside the page's Session's browser, with its cookies, through the browser-fetch tier and the page's interception (its domain policy, never its routes), from a context no service worker controls, and answers the response whatever its status, a 429 included; `response.body` reads its kept body, and raises `response_truncated` for one that broke off. A count of redirects above 19 is refused with `setting_invalid`, a chain past its count raises `too_many_redirects`, and a body whose content coding fails to decode `navigation_failed`.
+    /// Sends a request from inside the page's Session's browser, with its cookies, through the browser-fetch tier and the page's interception (its domain policy, never its routes), from a context no service worker controls, and answers the response whatever its status, a 429 included; `response.body` reads its kept body, and raises `response_truncated` for one that broke off. A count of redirects above 19 is refused with `setting_invalid`, a chain past its count raises `too_many_redirects`, and a body whose content coding fails to decode `navigation_failed`. A header value or a JSON body string may hold a Secret placeholder, whose value the engine adds at its interception after every page script and service worker: an unbound placeholder raises `secret_unbound`, a hop outside its bound domains `secret_domain_not_allowed`, and a header value holding a CR, an LF or a NUL `header_value_invalid`.
     ///
     /// Experimental: outside semver until it is promoted (ADR 0030).
     ///
@@ -853,6 +853,58 @@ impl Locator {
     }
 }
 
+/// A `schedule` a program holds: the members the catalog gives it (ADR 0099).
+#[derive(Clone, Debug)]
+pub struct Schedule {
+    pub(crate) inner: crate::generated::handles::Schedule,
+}
+
+impl Schedule {
+    /// Its ID, which names it to the engine.
+    #[must_use]
+    pub fn id(&self) -> &::goodfetch_protocol::schedule::ScheduleId {
+        self.inner.id()
+    }
+
+    /// The raw call of `operation`, an operation of `schedule` the SDK may not
+    /// generate (ADR 0099), its params and its result the wire's JSON in
+    /// snake case: its ID fills `schedule_id`. An operation of another namespace
+    /// fails with `invalid_params` before it is sent, as a call on a
+    /// closed value does with `closed`. It is never retried.
+    pub fn call(&self, operation: &str) -> crate::blocking::RawCall {
+        crate::blocking::RawCall::new(self.inner.call(operation), self.inner.host.connection())
+    }
+
+    /// Deletes the Schedule from its store, so it never fires again, and answers whether it did: false when the store held none of that ID, as after a resent delete. One store transaction: a cancel stops it only before it commits.
+    ///
+    /// Experimental: outside semver until it is promoted (ADR 0030).
+    ///
+    /// # Errors
+    ///
+    /// Once sent, `closed` when its handle or the Connection is closed, the engine's error, `deadline_exceeded` once its timeout runs out, and `internal` when its reply does not fit its type.
+    pub fn delete(
+        &self,
+    ) -> crate::blocking::Call<bool, ::goodfetch_protocol::schedule::ScheduleParams> {
+        crate::blocking::Call::new(self.inner.delete(), self.inner.host.connection())
+    }
+
+    /// Reads the Schedule as its store holds it now. One the store no longer holds fails with `schedule_not_found`.
+    ///
+    /// Experimental: outside semver until it is promoted (ADR 0030).
+    ///
+    /// # Errors
+    ///
+    /// Once sent, `closed` when its handle or the Connection is closed, the engine's error, `deadline_exceeded` once its timeout runs out, and `internal` when its reply does not fit its type.
+    pub fn info(
+        &self,
+    ) -> crate::blocking::Call<
+        crate::Answer<::goodfetch_protocol::schedule::ScheduleInfo>,
+        ::goodfetch_protocol::schedule::ScheduleParams,
+    > {
+        crate::blocking::Call::new(self.inner.info(), self.inner.host.connection())
+    }
+}
+
 impl<T> crate::blocking::Call<T, ::goodfetch_protocol::checkpoint::RunMigrateParams> {
     /// Where to write the Checkpoint the Run is resumed from, a path on the
     /// engine's machine; by default where the engine keeps the Run's
@@ -920,6 +972,16 @@ impl<T> crate::blocking::Call<T, ::goodfetch_protocol::page::request::PageReques
     pub fn headers(self, headers: ::std::collections::BTreeMap<String, String>) -> Self {
         self.edit(move |params| params.headers = Some(headers))
     }
+    /// Strings of its body, which is then JSON, that hold a Secret
+    /// placeholder's value, each set at its JSON Pointer by the engine at
+    /// its interception, checked as `secret_headers` are at every hop that
+    /// sends the body (ADR 0092).
+    pub fn json_secrets(
+        self,
+        json_secrets: Vec<::goodfetch_protocol::page::request::JsonSecret>,
+    ) -> Self {
+        self.edit(move |params| params.json_secrets = Some(json_secrets))
+    }
     /// How many redirects it follows, from 0, which answers the 3xx itself,
     /// to 19, the default; past its count it raises `too_many_redirects`,
     /// and a count above 19 is refused with `setting_invalid`.
@@ -933,6 +995,20 @@ impl<T> crate::blocking::Call<T, ::goodfetch_protocol::page::request::PageReques
     /// Its body, in Base64.
     pub fn post_data(self, post_data: impl Into<String>) -> Self {
         self.edit(move |params| params.post_data = Some(post_data.into()))
+    }
+    /// Headers whose value holds a Secret placeholder, set over the
+    /// browser's own and named in none of `headers`: the engine adds each
+    /// value at its interception, at every hop whose URL is on the
+    /// placeholder's bound domains, and fails the request with
+    /// `secret_domain_not_allowed` at a hop outside them (ADR 0092).
+    pub fn secret_headers(
+        self,
+        secret_headers: ::std::collections::BTreeMap<
+            String,
+            ::goodfetch_protocol::page::request::SecretHeader,
+        >,
+    ) -> Self {
+        self.edit(move |params| params.secret_headers = Some(secret_headers))
     }
 }
 

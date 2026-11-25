@@ -398,13 +398,3 @@ pub fn durability_preset(level: &str) -> &'static [PresetValue] {
         _ => &[],
     }
 }
-
-/// Every key some level's preset sets.
-pub const PRESET_KEYS: &[&Setting] = &[
-    &RUN_STATE_BATCH_PER_ATTEMPT,
-    &RUN_STATE_BATCH_PAGES,
-    &RUN_STATE_BATCH_INTERVAL,
-    &RUN_STATE_BATCH_BYTES,
-    &RUN_STATE_BATCH_SYNC,
-    &RUN_STATE_COMMIT_INTERVAL,
-];

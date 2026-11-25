@@ -41,7 +41,7 @@ fn address() -> SocketAddr {
 pub(super) fn exposed() -> DaemonOptions {
     DaemonOptions {
         endpoint: DaemonEndpoint::Tcp(address()),
-        websocket: Some(Authorities::loopback(address())),
+        websocket: Some(Authorities::loopback(address()).into()),
         ..daemon_options(true, &no_handover())
     }
 }
@@ -51,10 +51,10 @@ fn token_hello() -> Value {
 }
 
 /// A Client's end of a WebSocket.
-struct WebSocketClient(WebSocketStream<Join<ConnectionReader, ConnectionWriter>>);
+pub(super) struct WebSocketClient(WebSocketStream<Join<ConnectionReader, ConnectionWriter>>);
 
 impl WebSocketClient {
-    async fn send(&mut self, messages: &[Value]) {
+    pub(super) async fn send(&mut self, messages: &[Value]) {
         for message in messages {
             self.0
                 .send(Message::text(message.to_string()))
@@ -64,7 +64,7 @@ impl WebSocketClient {
     }
 
     /// The next message, or `None` once the engine closed the WebSocket.
-    async fn next(&mut self) -> Option<Value> {
+    pub(super) async fn next(&mut self) -> Option<Value> {
         loop {
             match self.0.next().await? {
                 Ok(Message::Text(text)) => return Some(serde_json::from_str(&text).unwrap()),
@@ -115,7 +115,7 @@ async fn websocket(dialer: &InMemoryDialer, request: Request<()>) -> Result<WebS
 }
 
 /// A WebSocket the Daemon's own origin opens.
-async fn same_origin(dialer: &InMemoryDialer) -> WebSocketClient {
+pub(super) async fn same_origin(dialer: &InMemoryDialer) -> WebSocketClient {
     websocket(
         dialer,
         handshake(ADDRESS, Some(&format!("http://{ADDRESS}"))),
@@ -362,7 +362,7 @@ fn a_message_longer_than_the_limit_is_answered_message_too_large_and_the_websock
             websocket.send(&[token_hello()]).await;
             let _ = websocket.next().await;
             let (mut sink, mut stream) = websocket.0.split();
-            let oversized = "x".repeat(crate::rpc::framing::MAX_MESSAGE_BYTES + 1);
+            let oversized = "x".repeat(crate::framing::MAX_MESSAGE_BYTES + 1);
             let read = async {
                 let mut messages = Vec::new();
                 while let Some(Ok(message)) = stream.next().await {

@@ -462,7 +462,8 @@ fn is_cut(line: &str) -> bool {
 
 /// A `rust` block as its page's Markdown file holds it: its markers, and
 /// `no_run` where it is checked statically; the origin's literals as the
-/// macro's calls, the macro's hidden line after the crate's attributes.
+/// macro's calls, the macro's hidden line after the crate's attributes and
+/// inner doc comments, which the compiler takes only before any item.
 fn rust_block(block: &Block, check: Check) -> String {
     let mut info = vec!["rust".to_owned()];
     info.extend(block.markers.iter().cloned());
@@ -484,7 +485,9 @@ fn rust_block(block: &Block, check: Check) -> String {
             .iter()
             .take_while(|line| {
                 let line = line.trim_start();
-                line.starts_with("#![") || line.starts_with("# #![")
+                ["#![", "# #![", "//!", "# //!"]
+                    .iter()
+                    .any(|start| line.starts_with(start))
             })
             .count();
         lines.insert(attributes, origin::RUST_MACRO.to_owned());

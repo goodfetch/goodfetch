@@ -87,6 +87,7 @@ pub(super) fn options(pick: bool, handovers: &Handovers) -> DaemonOptions {
         install: None,
         ops: Ops::default(),
         websocket: None,
+        accounts: None,
     }
 }
 
@@ -543,7 +544,7 @@ fn daemon_status_counts_its_clients_and_live_runs() {
         json!({
             "product": "collie", "product_version": "1.4.0", "pid": 4242,
             "endpoint": { "unix": "daemon.sock" }, "clients": 2, "live_runs": 2,
-            "kept_alive": false, "idle_timeout": 600_000,
+            "kept_alive": false, "idle_timeout": 600_000, "accounts": false,
         })
     );
 }

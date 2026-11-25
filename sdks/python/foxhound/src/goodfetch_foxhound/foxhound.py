@@ -46,6 +46,7 @@ from goodfetch_collie_client.product_connection import (
 from goodfetch_collie_client.raw_call import raw_params
 from goodfetch_collie_client.run import AsyncRun, Run
 from goodfetch_collie_client.run_view import RunView
+from goodfetch_collie_client.schedules import AsyncSchedules, Schedules
 
 from goodfetch_foxhound.crawl_run import CrawlRuns
 from goodfetch_foxhound.generated.connection import (
@@ -88,8 +89,14 @@ if TYPE_CHECKING:
 
     from goodfetch_foxhound.crawl import AsyncCrawl, Crawl
     from goodfetch_foxhound.crawl_run import AsyncCrawlRun, CrawlRun
-    from goodfetch_foxhound.generated.models import RequestSeed
+    from goodfetch_foxhound.generated.models import RequestSeed, SitemapSeed
     from goodfetch_foxhound.generated.settings import CrawlSettings, FoxhoundSettings
+    from goodfetch_foxhound.handlers import (
+        AsyncFetchBackendHandler,
+        AsyncSinkHandler,
+        FetchBackendHandler,
+        SinkHandler,
+    )
 
 __all__ = [
     "AsyncFoxhound",
@@ -124,10 +131,31 @@ class AsyncFoxhound(AsyncConnection):
     helper typed for `AsyncConnection` takes it as it takes an `AsyncCollie`.
     """
 
-    def __init__(self, connection: ClientConnection) -> None:
-        """Wraps an open Connection, and serves its crawls' handlers."""
+    def __init__(
+        self,
+        connection: ClientConnection,
+        *,
+        fetch_backends: Mapping[str, AsyncFetchBackendHandler] | None = None,
+        sinks: Mapping[str, AsyncSinkHandler] | None = None,
+    ) -> None:
+        """Wraps an open Connection, and serves its crawls' handlers.
+
+        `fetch_backends` and `sinks` are the program's own, each by name,
+        which `connect()` registered (ADR 0104).
+        """
         self._connection = connection
         self._crawls = CrawlRuns(connection)
+        self._fetch_backends = dict(fetch_backends or {})
+        self._sinks = dict(sinks or {})
+        self._schedules = AsyncSchedules(connection)
+
+    @property
+    def schedules(self) -> AsyncSchedules:
+        """The Schedules of the engine's major: create, list and get each one.
+
+        Spec 589. Reached without a round trip.
+        """
+        return self._schedules
 
     @staticmethod
     def connect(
@@ -139,6 +167,8 @@ class AsyncFoxhound(AsyncConnection):
         max_listener_queue: int = MAX_LISTENER_QUEUE,
         settings: FoxhoundSettings | None = None,
         project: str | os.PathLike[str] | NotGiven | None = not_given,
+        fetch_backends: Mapping[str, AsyncFetchBackendHandler] | None = None,
+        sinks: Mapping[str, AsyncSinkHandler] | None = None,
     ) -> Connecting:
         """Reaches Foxhound's engine and finishes `hello`, naming Foxhound.
 
@@ -153,8 +183,14 @@ class AsyncFoxhound(AsyncConnection):
         Client came from, which its `fix` names. `settings` are the
         Connection's own, Collie's and Foxhound's, sent in `hello`, which
         every Run it starts inherits (ADR 0083), and `project` the project
-        file read, as `AsyncCollie.connect()` reads it. Importing the
-        package or connecting installs no signal handler (ADR 0078).
+        file read, as `AsyncCollie.connect()` reads it. A key the engine
+        reads only from its configuration, such as `storage.low_free`, is no
+        key of `settings`, and the engine refuses it with
+        `setting_not_applicable`, whose `fix` names the files that set it.
+        `fetch_backends` and `sinks` register the program's own Fetch
+        backends and Sinks, coroutine functions, each under the name
+        settings choose it by (ADR 0104). Importing the package or
+        connecting installs no signal handler (ADR 0078).
         """
         return Connecting(
             functools.partial(
@@ -167,7 +203,9 @@ class AsyncFoxhound(AsyncConnection):
                 max_listener_queue=max_listener_queue,
                 settings=settings,
                 project=project,
-            )
+            ),
+            fetch_backends=fetch_backends,
+            sinks=sinks,
         )
 
     @property
@@ -288,7 +326,7 @@ class AsyncFoxhound(AsyncConnection):
         self,
         crawl: AsyncCrawl,
         *,
-        seeds: Iterable[RequestSeed],
+        seeds: Iterable[RequestSeed | SitemapSeed],
         run_id: str | None = None,
         tags: Iterable[str] | None = None,
         settings: CrawlSettings | None = None,
@@ -303,10 +341,12 @@ class AsyncFoxhound(AsyncConnection):
         `run.start`'s.
 
         Each work item goes to the handler of its Label, as a task beside
-        this Connection's (ADR 0093). Before anything is sent, a Label
-        without a handler fails with `label_unhandled`, and a seed whose
-        Label's name `crawl` does not declare with `label_unknown`, since a
-        seed carries its Label's name only. `settings` are the Run's own,
+        this Connection's (ADR 0093). A seed is a `seed` request, or a
+        `sitemap` seed of a sitemap's entries. Before anything is sent, a
+        Label without a handler fails with `label_unhandled`, and a seed, or
+        a sitemap seed's rule, whose Label's name `crawl` does not declare
+        with `label_unknown`, since a seed carries its Label's name only.
+        `settings` are the Run's own,
         Collie's and Foxhound's, such as
         `{"crawl": {"handler": {"concurrency": 4}}}` (ADRs 0083 and 0093).
 
@@ -363,9 +403,20 @@ class AsyncFoxhound(AsyncConnection):
 class Connecting:
     """An `AsyncFoxhound` being opened: await it, or open it with `async with`."""
 
-    def __init__(self, opening: Callable[[], Awaitable[ClientConnection]]) -> None:
-        """Takes what opens the Connection, run once it is awaited or entered."""
+    def __init__(
+        self,
+        opening: Callable[[], Awaitable[ClientConnection]],
+        *,
+        fetch_backends: Mapping[str, AsyncFetchBackendHandler] | None = None,
+        sinks: Mapping[str, AsyncSinkHandler] | None = None,
+    ) -> None:
+        """Takes what opens the Connection, run once it is awaited or entered.
+
+        `fetch_backends` and `sinks` are the handlers the Connection registers.
+        """
         self._opening = opening
+        self._fetch_backends = fetch_backends
+        self._sinks = sinks
         self._foxhound: AsyncFoxhound | None = None
 
     def __await__(self) -> Generator[object, None, AsyncFoxhound]:
@@ -383,7 +434,11 @@ class Connecting:
             await self._foxhound.close()
 
     async def _open(self) -> AsyncFoxhound:
-        return AsyncFoxhound(await self._opening())
+        return AsyncFoxhound(
+            await self._opening(),
+            fetch_backends=self._fetch_backends,
+            sinks=self._sinks,
+        )
 
 
 class Foxhound(Connection):
@@ -396,14 +451,36 @@ class Foxhound(Connection):
     takes it as it takes a `Collie`.
     """
 
-    def __init__(self, loop: PrivateLoop, connection: ClientConnection) -> None:
-        """Takes the private loop and the open Connection it drives there."""
+    def __init__(
+        self,
+        loop: PrivateLoop,
+        connection: ClientConnection,
+        *,
+        fetch_backends: Mapping[str, FetchBackendHandler] | None = None,
+        sinks: Mapping[str, SinkHandler] | None = None,
+    ) -> None:
+        """Takes the private loop and the open Connection it drives there.
+
+        `fetch_backends` and `sinks` are the program's own, each by name,
+        which `connect()` registered (ADR 0104).
+        """
         self._loop = loop
         self._connection = connection
         self._crawls = CrawlRuns(connection)
+        self._fetch_backends = dict(fetch_backends or {})
+        self._sinks = dict(sinks or {})
+        self._schedules = Schedules(loop, connection)
         self._close_lock = threading.Lock()
         self._closed = False
         self._close_failure: Exception | None = None
+
+    @property
+    def schedules(self) -> Schedules:
+        """The Schedules of the engine's major, as `AsyncFoxhound.schedules` are.
+
+        Reached without a round trip.
+        """
+        return self._schedules
 
     @staticmethod
     def connect(
@@ -415,12 +492,15 @@ class Foxhound(Connection):
         max_listener_queue: int = MAX_LISTENER_QUEUE,
         settings: FoxhoundSettings | None = None,
         project: str | os.PathLike[str] | NotGiven | None = not_given,
+        fetch_backends: Mapping[str, FetchBackendHandler] | None = None,
+        sinks: Mapping[str, SinkHandler] | None = None,
     ) -> Foxhound:
         """Reaches Foxhound's engine and finishes `hello`, naming Foxhound.
 
         Open it with `with`, which closes it. It takes and raises what
         `AsyncFoxhound.connect()` does, `not_in_product` from a Collie
-        engine included, leaving neither Attached engine nor thread behind.
+        engine included, leaving neither Attached engine nor thread behind;
+        its `fetch_backends` and `sinks` are plain functions.
         """
         return _open_sync(
             functools.partial(
@@ -433,7 +513,9 @@ class Foxhound(Connection):
                 max_listener_queue=max_listener_queue,
                 settings=settings,
                 project=project,
-            )
+            ),
+            fetch_backends=fetch_backends,
+            sinks=sinks,
         )
 
     @property
@@ -575,7 +657,7 @@ class Foxhound(Connection):
         self,
         crawl: Crawl,
         *,
-        seeds: Iterable[RequestSeed],
+        seeds: Iterable[RequestSeed | SitemapSeed],
         run_id: str | None = None,
         tags: Iterable[str] | None = None,
         settings: CrawlSettings | None = None,
@@ -689,10 +771,13 @@ def async_connect_over(
     *,
     max_listener_queue: int = MAX_LISTENER_QUEUE,
     settings: FoxhoundSettings | None = None,
+    fetch_backends: Mapping[str, AsyncFetchBackendHandler] | None = None,
+    sinks: Mapping[str, AsyncSinkHandler] | None = None,
 ) -> Connecting:
     """Opens an `AsyncFoxhound` over `transport`, with no process behind it.
 
-    `max_listener_queue` and `settings` are `connect()`'s.
+    `max_listener_queue`, `settings`, `fetch_backends` and `sinks` are
+    `connect()`'s.
     """
     return Connecting(
         functools.partial(
@@ -701,7 +786,9 @@ def async_connect_over(
             transport,
             max_listener_queue=max_listener_queue,
             settings=settings,
-        )
+        ),
+        fetch_backends=fetch_backends,
+        sinks=sinks,
     )
 
 
@@ -710,12 +797,14 @@ def connect_over(
     *,
     max_listener_queue: int = MAX_LISTENER_QUEUE,
     settings: FoxhoundSettings | None = None,
+    fetch_backends: Mapping[str, FetchBackendHandler] | None = None,
+    sinks: Mapping[str, SinkHandler] | None = None,
 ) -> Foxhound:
     """Opens a sync `Foxhound` over `transport`, with no process behind it.
 
     Its private loop drives `transport`, so a transport bound to another
-    event loop does not fit. `max_listener_queue` and `settings` are
-    `connect()`'s.
+    event loop does not fit. `max_listener_queue`, `settings`,
+    `fetch_backends` and `sinks` are `connect()`'s.
     """
     return _open_sync(
         functools.partial(
@@ -724,11 +813,18 @@ def connect_over(
             transport,
             max_listener_queue=max_listener_queue,
             settings=settings,
-        )
+        ),
+        fetch_backends=fetch_backends,
+        sinks=sinks,
     )
 
 
-def _open_sync(opening: Callable[[], Awaitable[ClientConnection]]) -> Foxhound:
+def _open_sync(
+    opening: Callable[[], Awaitable[ClientConnection]],
+    *,
+    fetch_backends: Mapping[str, FetchBackendHandler] | None = None,
+    sinks: Mapping[str, SinkHandler] | None = None,
+) -> Foxhound:
     """Opens a Connection on a private loop, stopped again when the opening fails."""
     loop = PrivateLoop()
     try:
@@ -736,4 +832,4 @@ def _open_sync(opening: Callable[[], Awaitable[ClientConnection]]) -> Foxhound:
     except BaseException:
         loop.stop()
         raise
-    return Foxhound(loop, connection)
+    return Foxhound(loop, connection, fetch_backends=fetch_backends, sinks=sinks)

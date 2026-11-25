@@ -1280,7 +1280,7 @@ impl Subject {
                 method: HttpMethod::get(),
                 body: None,
                 key: None,
-                document: None,
+                page_id: None,
             },
             payload: None,
             document: None,

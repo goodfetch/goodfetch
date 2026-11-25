@@ -25,7 +25,7 @@ use goodfetch_frontier::EndMerged;
 use rusqlite::Connection;
 use tokio::sync::{Notify, watch};
 
-use crate::work_items::{self, Changed, Leased};
+use crate::work_items::{self, Changed, EndWrite, Leased};
 
 /// What the Frontier's rules moved of the crawl's pending requests: each
 /// one a rule taught merged and each one a rule it stopped gave back, with
@@ -202,8 +202,14 @@ impl EndMerged for Merged {
         connection: &Connection,
         crawl_requests: &BTreeSet<String>,
     ) -> rusqlite::Result<Vec<goodfetch_frontier::Ended>> {
-        let ended =
-            work_items::end_merged(connection, crawl_requests, self.ended_at, &mut self.changed)?;
+        let ended = work_items::end_merged(
+            &mut EndWrite {
+                connection,
+                ended_at: self.ended_at,
+                changed: &mut self.changed,
+            },
+            crawl_requests,
+        )?;
         Ok(ended
             .into_iter()
             .map(|(id, url, key)| {

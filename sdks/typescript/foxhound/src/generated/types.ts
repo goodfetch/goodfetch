@@ -977,11 +977,6 @@ export interface CrawlRequestEnqueueParams {
    */
   crawlRequestId: string;
   /**
-   * The document the handler read, whose base URL a relative `url`
-   * resolves against; absent, the crawl request's own URL is the base.
-   */
-  document?: EnqueueDocument | null;
-  /**
    * Whether it goes ahead of every request its domain holds pending,
    * whatever their priority, as Crawlee's `forefront` (ADR 0005): of two
    * such requests, the later goes first. A priority or `forefront` never
@@ -1007,6 +1002,15 @@ export interface CrawlRequestEnqueueParams {
    */
   method?: HttpMethod;
   /**
+   * The page the attempt was given, whose document's base URL a relative
+   * `url` resolves against: its `<base href>`, resolved against the URL
+   * the document was reached at after its redirects, or that URL
+   * itself. Absent, for an attempt given no page, the crawl request's
+   * own URL is the base. A page no fetch tier serves fails a relative
+   * `url` with `closed`.
+   */
+  pageId?: PageId | null;
+  /**
    * The data the program attaches for its handler.
    */
   payload?: {
@@ -1023,22 +1027,6 @@ export interface CrawlRequestEnqueueParams {
   runId: RunId;
   /**
    * The URL to add, absolute or relative to the document's base URL.
-   */
-  url: string;
-}
-/**
- * The document a handler read, against which its relative URLs resolve.
- *
- * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
- * via the `definition` "EnqueueDocument".
- */
-export interface EnqueueDocument {
-  /**
-   * The `href` of its first `<base>` element, as written.
-   */
-  baseHref?: string | null;
-  /**
-   * The URL the document was reached at, after every redirect.
    */
   url: string;
 }
@@ -2564,6 +2552,52 @@ export interface QueryColumn {
   type: string;
 }
 /**
+ * One page of `dataset.search`.
+ *
+ * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
+ * via the `definition` "DatasetSearchPage".
+ */
+export interface DatasetSearchPage {
+  /**
+   * The next page's `after`; absent once no Record follows.
+   */
+  next?: number | null;
+  /**
+   * The Records that hold every word, in number order.
+   */
+  records: DatasetRecord[];
+}
+/**
+ * What `dataset.search` takes.
+ *
+ * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
+ * via the `definition` "DatasetSearchParams".
+ */
+export interface DatasetSearchParams {
+  /**
+   * The number of the last Record of the previous page, its `next`: the
+   * page starts after it. Absent, at the first.
+   */
+  after?: number | null;
+  /**
+   * The Dataset's name.
+   */
+  dataset: string;
+  /**
+   * The most Records the page carries, from 1 to 1000; absent, 100.
+   */
+  limit?: number | null;
+  /**
+   * The crawl's Run.
+   */
+  runId: RunId;
+  /**
+   * The words a Record holds, each anywhere in its values, in any case
+   * and with or without diacritics.
+   */
+  text: string;
+}
+/**
  * What `dataset_unknown` details.
  *
  * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
@@ -2722,6 +2756,32 @@ export interface FailedRequests {
    * The latest outcome of each such request, in commit order.
    */
   requests: CrawlRequestOutcome[];
+}
+/**
+ * One Record `record.search` found.
+ *
+ * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
+ * via the `definition` "FoundRecord".
+ */
+export interface FoundRecord {
+  /**
+   * Its Dataset.
+   */
+  dataset: string;
+  /**
+   * Its number in its Dataset.
+   */
+  number: number;
+  /**
+   * The run that returned it.
+   */
+  runId: RunId;
+  /**
+   * The Record, as JSON.
+   */
+  value: {
+    [k: string]: unknown;
+  };
 }
 /**
  * What `handler_failed` details: the exception the handler failed with
@@ -2964,6 +3024,47 @@ export interface RecordInvalidDetails {
    * Each Record that does not hold, in position order, at least one.
    */
   records: InvalidRecord[];
+}
+/**
+ * What `record.search` takes.
+ *
+ * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
+ * via the `definition` "RecordSearchParams".
+ */
+export interface RecordSearchParams {
+  /**
+   * The Datasets it searches in each run; absent, every one.
+   */
+  datasets?: string[] | null;
+  /**
+   * The most Records it answers, from 1 to 1000; absent, 100.
+   */
+  limit?: number | null;
+  /**
+   * The runs it searches, from 1 to 100.
+   *
+   * @minItems 1
+   * @maxItems 100
+   */
+  runs: [RunId, ...RunId[]];
+  /**
+   * The words a Record holds, each anywhere in its values, in any case
+   * and with or without diacritics.
+   */
+  text: string;
+}
+/**
+ * What `record.search` answers.
+ *
+ * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
+ * via the `definition` "RecordSearchResult".
+ */
+export interface RecordSearchResult {
+  /**
+   * The Records that hold every word, the best matches first, then by
+   * run, Dataset and number.
+   */
+  records: FoundRecord[];
 }
 /**
  * What `run.records` answers once it sent the last Record: how many it

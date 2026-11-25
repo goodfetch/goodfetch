@@ -474,6 +474,22 @@ status = "retired"
 reason = "The Console left both Products (ADR 0137), and this story was its alone."
 
 [[story]]
+id = 139
+title = "As a person at a terminal, I want `needs-you answer` to walk me through what waits, so that I need no other tool to act."
+milestone = "M3 Browser automation"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 140
+title = "As a person using a pipe or `--json`, I want the list to read normally and an answer refused with `person_required` naming the exact command, so that a script never answers for me."
+milestone = "M3 Browser automation"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
 id = 201
 title = "As a user with Foxhound installed, I want my major's Foxhound Daemon to serve Foxhound's Console build on the Console's port, listing both Products' runs in one Runs screen and one \"Needs you\", so that installing Foxhound adds screens without moving anything (ADR 0098)."
 milestone = "M1 Core"
@@ -532,6 +548,23 @@ reason = "The Console left both Products (ADR 0137), and this story was its alon
 product = "foxhound"
 
 [[story]]
+id = 208
+title = "As a user, I want full-text search inside a run's Records, so that I find a Record by any word in it (ADR 0031)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+product = "foxhound"
+
+[[story]]
+id = 209
+title = "As a user, I want to search across runs, every run the filter selects, so that I find which run returned a Record without opening each (ADR 0031)."
+milestone = "M1 Core"
+journey = true
+status = "active"
+product = "foxhound"
+
+[[story]]
 id = 210
 title = "As a developer, I want a read-only SQL tab over the runs I select, each run's tables registered as functions, so that I join and aggregate Records with SQL in place (ADR 0031)."
 milestone = "M1 Core"
@@ -554,6 +587,23 @@ title = "As an agent's user, I want the SQL tab and search across runs to be cat
 milestone = "M1 Core"
 journey = false
 not_journey = "part"
+status = "active"
+product = "foxhound"
+
+[[story]]
+id = 213
+title = "As a user, I want to start an Export in any format the engine writes, saved where the engine runs and fetched by handle, so that I hand data on without code (ADRs 0103, 0116)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+product = "foxhound"
+
+[[story]]
+id = 214
+title = "As a person, I want erasing a Dataset to apply at once with no user code, offered to no agent, so that erased data is gone (ADR 0031)."
+milestone = "M1 Core"
+journey = true
 status = "active"
 product = "foxhound"
 

@@ -28,12 +28,11 @@ use serde::Deserialize;
 
 use super::{Exported, flattened, listed_export};
 use crate::check::Finding;
-use crate::sdk_manifests::{CATALOG, Catalog, Language, Member};
+use crate::sdk_manifests::{Catalog, Language, Member};
+use crate::tree::{BUNDLE, CATALOG};
 
 /// Where the obligations are listed.
 const OBLIGATIONS: &str = "sdks/doc-obligations.toml";
-/// The JSON Schema bundle `xtask codegen` writes.
-const BUNDLE: &str = "crates/goodfetch-protocol/generated/bundle.json";
 /// The most characters an operation's description holds, so that an MCP
 /// tool's description, which copies it, stays whole in every client.
 const LONGEST: usize = 2_048;

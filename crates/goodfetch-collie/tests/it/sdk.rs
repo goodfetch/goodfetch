@@ -19,6 +19,7 @@ use goodfetch_test_support::{TestEnv, case_logs, real_time_runtime};
 use serde_json::json;
 
 mod closing;
+mod ending_a_run;
 mod engine_choice;
 mod engine_exited;
 mod errors_and_outcomes;
@@ -29,6 +30,7 @@ mod fork;
 mod handlerless_starts;
 #[cfg(unix)]
 mod interrupt;
+mod key_value_store;
 mod limits;
 mod logging;
 mod page;
@@ -37,6 +39,7 @@ mod project_file;
 mod public_items;
 mod raw_call;
 mod refused_by_the_daemon;
+mod schedules;
 #[cfg(unix)]
 mod scripted;
 mod settings;

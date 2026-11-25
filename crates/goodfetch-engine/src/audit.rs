@@ -772,9 +772,7 @@ impl Store {
         let mut rows = statement.query([]).map_err(|error| failed(&error))?;
         let mut next = None;
         while let Some(row) = rows.next().map_err(|error| failed(&error))? {
-            let sequence: i64 = row.get(0).map_err(|error| failed(&error))?;
-            let entry: String = row.get(1).map_err(|error| failed(&error))?;
-            let hash: String = row.get(2).map_err(|error| failed(&error))?;
+            let (sequence, entry, hash) = stored_row(row).map_err(|error| failed(&error))?;
             let next = *next.get_or_insert(u64::try_from(sequence).unwrap_or(0) + 1);
             if !is_unchained(&entry) {
                 let previous = decode(&hash)
@@ -839,9 +837,7 @@ impl Store {
         // last pruned sequence carries: an unchained entry leaves it.
         let mut chain = data_encoding::HEXLOWER.encode(&NO_PREVIOUS);
         while let Some(row) = rows.next().map_err(|error| failed(&error))? {
-            let sequence: i64 = row.get(0).map_err(|error| failed(&error))?;
-            let entry: String = row.get(1).map_err(|error| failed(&error))?;
-            let hash: String = row.get(2).map_err(|error| failed(&error))?;
+            let (sequence, entry, hash) = stored_row(row).map_err(|error| failed(&error))?;
             let value: Value = serde_json::from_str(&entry).unwrap_or(Value::Null);
             if value["chained"] != Value::Bool(false) {
                 chain = hash;
@@ -881,9 +877,7 @@ impl Store {
         let mut rows = statement.query([]).map_err(|error| failed(&error))?;
         let mut walk = Walk::new();
         while let Some(row) = rows.next().map_err(|error| failed(&error))? {
-            let sequence: i64 = row.get(0).map_err(|error| failed(&error))?;
-            let entry: String = row.get(1).map_err(|error| failed(&error))?;
-            let hash: String = row.get(2).map_err(|error| failed(&error))?;
+            let (sequence, entry, hash) = stored_row(row).map_err(|error| failed(&error))?;
             walk.step(sequence, &entry, &hash);
         }
         let first = walk.first();
@@ -924,9 +918,7 @@ impl Store {
         let mut rows = statement.query([]).map_err(|error| failed(&error))?;
         let mut exported = Vec::new();
         while let Some(row) = rows.next().map_err(|error| failed(&error))? {
-            let sequence: i64 = row.get(0).map_err(|error| failed(&error))?;
-            let entry: String = row.get(1).map_err(|error| failed(&error))?;
-            let hash: String = row.get(2).map_err(|error| failed(&error))?;
+            let (sequence, entry, hash) = stored_row(row).map_err(|error| failed(&error))?;
             let entry = serde_json::from_str(&entry).map_err(|error| {
                 failed(&format!(
                     "the entry at sequence {sequence} is unreadable: {error}"
@@ -1101,6 +1093,12 @@ pub fn fuzz_audit_jsonl(data: &[u8]) {
         verified.first_broken.is_none_or(|sequence| sequence >= 1),
         "a broken sequence counts from 1"
     );
+}
+
+/// A stored row's sequence, its entry's canonical text and its hash, as
+/// `SELECT sequence, entry, hash FROM entries` reads it.
+fn stored_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<(i64, String, String)> {
+    Ok((row.get(0)?, row.get(1)?, row.get(2)?))
 }
 
 /// An exported line's sequence, its entry's text without its hash, and its

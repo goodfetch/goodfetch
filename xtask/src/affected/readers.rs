@@ -73,7 +73,7 @@ pub(crate) fn literal_readers(
             continue;
         };
         let mut files = Vec::new();
-        for file in super::source_files(&root.join(&folder), &SOURCE_EXTENSIONS)? {
+        for file in super::imports::files(&root.join(&folder), &SOURCE_EXTENSIONS)? {
             if let Ok(text) = std::fs::read_to_string(&file) {
                 let code = code_lines(&text, &file);
                 files.push((file, code));

@@ -32,8 +32,8 @@ tracing.workspace = true
 goodfetch-workspace-hack.workspace = true
 
 [dev-dependencies]
-# The body of the in-memory site a test's fetch tiers serve (src/start/tests/sent_from.rs).
-bytes.workspace = true
+# The site a test's fetch tiers serve from memory (src/start/tests.rs).
+goodfetch-memory-site.workspace = true
 goodfetch-test-support.workspace = true
 # The work-item metrics' test reads what a crawl records through the SDK and
 # the Prometheus exporter the executables use (src/start/tests/metrics.rs).

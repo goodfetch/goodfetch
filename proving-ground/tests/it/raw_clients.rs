@@ -92,12 +92,34 @@ pub(crate) fn get_within(
     headers: &[(&str, &str)],
     wait: Option<std::time::Duration>,
 ) -> Arrived {
+    sent(proving_ground, "GET", host, path, headers, b"", wait)
+}
+
+/// A `POST` of `body` to `path` on `host`, as [`get`] sends a `GET`.
+pub(crate) fn post(proving_ground: &ProvingGround, host: &str, path: &str, body: &[u8]) -> Arrived {
+    sent(proving_ground, "POST", host, path, &[], body, None)
+}
+
+/// A `method` request of `path` on `host` over HTTP/1.1 with TLS, with
+/// `headers` and `body`, read until the connection ends or `wait` passed.
+fn sent(
+    proving_ground: &ProvingGround,
+    method: &str,
+    host: &str,
+    path: &str,
+    headers: &[(&str, &str)],
+    body: &[u8],
+    wait: Option<std::time::Duration>,
+) -> Arrived {
     let mut request = format!(
-        "GET {path} HTTP/1.1\r\nHost: {host}:{}\r\n",
+        "{method} {path} HTTP/1.1\r\nHost: {host}:{}\r\n",
         proving_ground.port()
     );
     for (name, value) in headers {
         let _ = write!(request, "{name}: {value}\r\n");
+    }
+    if !body.is_empty() {
+        let _ = write!(request, "Content-Length: {}\r\n", body.len());
     }
     request.push_str("Connection: close\r\n\r\n");
     let mut stream = connect(
@@ -108,6 +130,7 @@ pub(crate) fn get_within(
     stream
         .write_all(request.as_bytes())
         .expect("the request is written");
+    stream.write_all(body).expect("the body is written");
     stream
         .sock
         .set_read_timeout(wait)

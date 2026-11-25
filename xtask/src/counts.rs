@@ -217,7 +217,7 @@ const LARGE: &str = "large_params";
 
 /// Every row with a counter. Adding one here, with its counter and its
 /// plant in the family's benchmark, is what gives a row its command.
-const ROWS: [Row; 147] = [
+const ROWS: [Row; 148] = [
     Row {
         name: "F1.parses",
         family: "B1",
@@ -615,6 +615,15 @@ const ROWS: [Row; 147] = [
         family: "B3",
         unit: "requests",
         happens: true,
+        valgrind: None,
+    },
+    // 0 in every cell: dispatch reads a Connection's principal from memory
+    // (ADR 0149), so the row has no counting site but its plant's.
+    Row {
+        name: "E1.store_reads",
+        family: "B3",
+        unit: "incoming_messages",
+        happens: false,
         valgrind: None,
     },
     Row {
@@ -1157,7 +1166,7 @@ const fn working_copy_row(name: &'static str, builder: &'static str) -> NotRunYe
 const WORKING_COPY: &str = "#1689";
 const MERGE_HOST: &str = "#1998";
 
-const NOT_RUN_YET: [NotRunYet; 26] = [
+const NOT_RUN_YET: [NotRunYet; 27] = [
     NotRunYet {
         name: "F5.messages_no_hook",
         family: "B1",
@@ -1253,13 +1262,19 @@ const NOT_RUN_YET: [NotRunYet; 26] = [
     NotRunYet {
         name: "C5.cache_lookups",
         family: "B2",
-        builder: "#793",
+        builder: "#796",
         capped: true,
     },
     NotRunYet {
         name: "C5.cache_file_opens",
         family: "B2",
-        builder: "#793",
+        builder: "#796",
+        capped: true,
+    },
+    NotRunYet {
+        name: "C5.cache_body_writes",
+        family: "B2",
+        builder: "#796",
         capped: true,
     },
     NotRunYet {
@@ -1376,8 +1391,8 @@ pub(crate) struct Arguments {
     prove: bool,
     /// Runs this executable as the family `<family>=<path>` names, in place
     /// of building its target.
-    #[arg(long, value_name = "FAMILY=PATH")]
-    executable: Vec<String>,
+    #[arg(long, value_name = "FAMILY=PATH", value_parser = named_executable)]
+    executable: Vec<NamedExecutable>,
     /// Runs the rows read under Valgrind, in place of the counted ones.
     #[arg(long, conflicts_with = "executable")]
     valgrind: bool,
@@ -1395,6 +1410,24 @@ pub(crate) struct Arguments {
     /// it, `GOODFETCH_COUNTS_CALLGRIND_AT_ONCE` sets it.
     #[arg(long, value_name = "N")]
     callgrind_at_once: Option<NonZeroUsize>,
+}
+
+/// One `--executable` value: the family it runs as, and its path.
+#[derive(Clone, Debug)]
+struct NamedExecutable {
+    family: String,
+    path: PathBuf,
+}
+
+/// Reads `FAMILY=PATH`, refusing a value with no `=`.
+fn named_executable(value: &str) -> Result<NamedExecutable, String> {
+    let (family, path) = value
+        .split_once('=')
+        .ok_or_else(|| format!("`{value}` is no FAMILY=PATH"))?;
+    Ok(NamedExecutable {
+        family: family.to_owned(),
+        path: PathBuf::from(path),
+    })
 }
 
 /// The cell that runs with every default feature on.
@@ -1432,7 +1465,7 @@ pub(crate) fn run(arguments: &Arguments, environment: &Environment) -> Result<Ex
     let named: Vec<&str> = arguments
         .executable
         .iter()
-        .filter_map(|named| named.split_once('=').map(|(family, _)| family))
+        .map(|named| named.family.as_str())
         .collect();
     let uncounted = uncounted(&register.rows, &named, arguments);
     if !uncounted.is_empty() {
@@ -1784,10 +1817,10 @@ fn executables(
     environment: &Environment,
     rows: &[&Row],
 ) -> Result<BTreeMap<&'static str, PathBuf>> {
-    let named: BTreeMap<&str, &str> = arguments
+    let named: BTreeMap<&str, &Path> = arguments
         .executable
         .iter()
-        .filter_map(|named| named.split_once('='))
+        .map(|named| (named.family.as_str(), named.path.as_path()))
         .collect();
     let mut executables = BTreeMap::new();
     for family in FAMILIES {
@@ -1798,7 +1831,7 @@ fn executables(
             continue;
         }
         let executable = match named.get(family.name) {
-            Some(path) => environment.path(Path::new(path)),
+            Some(path) => environment.path(path),
             None => build(&family, arguments.valgrind, environment)?,
         };
         executables.insert(family.name, executable);

@@ -20,6 +20,7 @@ import type {
   RawParams,
   Run,
   RunView,
+  Schedules,
   SettingsExplanation,
   StartOptions,
 } from "@goodfetch/collie-client";
@@ -43,10 +44,11 @@ import {
   type CrawlRequestHandled,
   type CrawlStartParams,
   type FoxhoundOperationTypes,
-  type RequestSeed,
+  type Seed,
 } from "./generated/index.ts";
 import { settingsOnWire, type CrawlSettings, type FoxhoundSettings } from "./generated/settings.ts";
 import { foxhoundWire, type FoxhoundWireType } from "./generated/wire.ts";
+import type { FetchBackendHandler, SinkHandler } from "./handlers.ts";
 import { foxhound } from "./product.ts";
 
 /**
@@ -63,13 +65,25 @@ export interface FoxhoundLimits extends Limits {
     | undefined;
 }
 
-/** Options of `connectOver()`, with Foxhound's settings and Limits. */
-export interface FoxhoundConnectOverOptions extends ConnectOverOptions<FoxhoundSettings> {
+/**
+ * The program's own Plugins of Foxhound's kinds, each registered under the
+ * name settings choose it by (ADR 0104).
+ */
+interface FoxhoundHandlers {
+  /** Its Fetch backends, by name. */
+  readonly fetchBackends?: Readonly<Record<string, FetchBackendHandler>> | undefined;
+  /** Its Sinks, by the name of the `sinks.<name>` entry each serves. */
+  readonly sinks?: Readonly<Record<string, SinkHandler>> | undefined;
+}
+
+/** Options of `connectOver()`, with Foxhound's settings, Limits and handlers. */
+export interface FoxhoundConnectOverOptions
+  extends ConnectOverOptions<FoxhoundSettings>, FoxhoundHandlers {
   readonly limits?: FoxhoundLimits | undefined;
 }
 
-/** Options of `connect()`, with Foxhound's settings and Limits. */
-export interface FoxhoundConnectOptions extends ConnectOptions<FoxhoundSettings> {
+/** Options of `connect()`, with Foxhound's settings, Limits and handlers. */
+export interface FoxhoundConnectOptions extends ConnectOptions<FoxhoundSettings>, FoxhoundHandlers {
   readonly limits?: FoxhoundLimits | undefined;
 }
 
@@ -85,8 +99,8 @@ export interface FoxhoundHandlerlessStartOptions extends HandlerlessStartOptions
 
 /** What starting a crawl takes (ADR 0093). */
 export interface StartCrawlOptions {
-  /** The requests the crawl starts from: at least one. */
-  readonly seeds: readonly [RequestSeed, ...RequestSeed[]];
+  /** What the crawl starts from, at least one: `seed` requests and `sitemap` seeds. */
+  readonly seeds: readonly [Seed, ...Seed[]];
   /** The Run's ID; the engine generates one when it is left out. An interrupted Run's ID resumes it; a finished one's returns it as it ended. */
   readonly runId?: string | undefined;
   /** Its tags: at most 16, each at most 64 characters (ADR 0036). */
@@ -120,9 +134,15 @@ export class Foxhound implements Connection {
   readonly #crawlRuns = new Map<string, CrawlRun>();
   /** The crawl starts not yet answered, whose work items may come before their answer is read. */
   readonly #starting = new Set<Promise<CrawlRun>>();
+  /**
+   * The Schedules of the engine's major: create, list and get each one
+   * (spec 589). Reached without a round trip.
+   */
+  readonly schedules: Schedules;
 
   private constructor(connection: ClientConnection) {
     this.#connection = connection;
+    this.schedules = connection.schedules;
     const calls = connection.caller<FoxhoundOperationTypes>(foxhoundWire);
     this.#operations = new FoxhoundOperations(calls);
     this.#crawlHost = {
@@ -238,9 +258,9 @@ export class Foxhound implements Connection {
    *
    * Each work item goes to the handler of its Label, on this process's
    * event loop (ADR 0093). Before anything is sent, a Label without a
-   * handler fails with `label_unhandled`, and a seed whose Label's name
-   * `crawl` does not declare with `label_unknown` (a seed carries its
-   * Label's name only), and a seed whose Payload its Label's schema
+   * handler fails with `label_unhandled`, and a seed, or a sitemap seed's
+   * rule, whose Label's name `crawl` does not declare with `label_unknown`
+   * (a seed carries its Label's name only), and a seed whose Payload its Label's schema
    * refuses with `payload_invalid`, naming each issue's path; the engine
    * checks each Payload again, its size too (ADR 0082). On an edge
    * runtime, whose request ends before the handlers would run, it fails

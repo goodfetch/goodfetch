@@ -1,0 +1,7 @@
+{
+  "format": "session-export",
+  "rule": "default",
+  "reader": "0.1",
+  "found": "0.0",
+  "compatibility": "older_major"
+}

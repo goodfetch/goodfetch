@@ -16,6 +16,7 @@
 #   ci/audit.sh rust [<workspace Cargo.toml>]   cargo-deny's advisories and cargo-audit, over RustSec's pinned commit
 #   ci/audit.sh npm [<pnpm-lock.yaml>]           OSV-Scanner, over OSV's pinned npm database
 #   ci/audit.sh python [<uv.lock>]               OSV-Scanner, over OSV's pinned PyPI database
+#   ci/audit.sh each <ecosystem>[=<lockfile>]...  the above over several lockfiles at once (`just audit`)
 #   ci/audit.sh live rust [<workspace Cargo.toml>]      cargo-deny's advisories and cargo-audit, over RustSec's newest
 #   ci/audit.sh live npm [<pnpm workspace folder>]      pnpm audit (the npm registry's advisories)
 #   ci/audit.sh live python [<requirements file>]       pip-audit (the PyPI and OSV advisories)
@@ -25,20 +26,15 @@
 set -euo pipefail
 
 repository=$(cd "$(dirname "$0")/.." && pwd)
-mode=pinned
-if [[ ${1:-} == live ]]; then
-  mode=live
-  shift
-fi
-ecosystem=${1:?the ecosystem: rust, npm or python}
-target=${2:-}
 advisories="$repository/target/advisories"
 # Where cargo-deny 0.20 looks for RustSec's database under its db-path
 # (deny.toml reads GOODFETCH_ADVISORY_DBS), named after its default URL.
 rustsec_folder=advisory-db-3157b0e258782691
 
-# Keeps the pinned snapshot; a no-op, offline, while it is kept as pinned.
+# Keeps the pinned snapshot; a no-op, offline, while it is kept as pinned,
+# and skipped in the scans `each` starts, which it fetched for.
 fetch() {
+  [[ ${GOODFETCH_ADVISORIES_FETCHED:-} == 1 ]] && return 0
   (cd "$repository" &&
     GITHUB_TOKEN="${GITHUB_TOKEN:-$(gh auth token 2>/dev/null || true)}" \
       cargo run --quiet --bin xtask -- advisories fetch)
@@ -53,11 +49,74 @@ fetch() {
 osv() {
   local ecosystem=$1 lockfile=$2
   local cache="$advisories/osv-scanner"
-  mkdir -p "$cache/osv-scalibr/$ecosystem"
-  ln -sfn "$advisories/osv/$ecosystem.zip" "$cache/osv-scalibr/$ecosystem/all.zip"
+  osv_database "$ecosystem"
   OSV_SCANNER_LOCAL_DB_CACHE_DIRECTORY="$cache" \
     osv-scanner scan source --offline --lockfile "$lockfile"
 }
+
+# Lays out OSV's pinned database of `ecosystem` where OSV-Scanner reads it,
+# unless it is there already, so the scans `each` starts at once never
+# replace the link under one another.
+osv_database() {
+  local ecosystem=$1
+  local link="$advisories/osv-scanner/osv-scalibr/$ecosystem/all.zip"
+  [[ -L "$link" && $(readlink "$link") == "$advisories/osv/$ecosystem.zip" ]] && return 0
+  mkdir -p "$(dirname "$link")"
+  ln -sfn "$advisories/osv/$ecosystem.zip" "$link"
+}
+
+# `each`: every listed lockfile's pinned audit at once, each through
+# ci/tool.sh as a recipe line would run it, after one fetch of the snapshot.
+# Every scan runs to its end; their reports print in the listed order, and
+# the run fails when one did, naming each that did.
+each() {
+  local item ecosystem target tool i status failures=()
+  local pids=() items=()
+  [[ $# -gt 0 ]] || { echo "error: each needs at least one ecosystem" >&2; return 2; }
+  fetch
+  osv_database npm
+  osv_database PyPI
+  # Global, not local: the EXIT trap runs after the function returns.
+  each_scratch=$(mktemp -d)
+  trap 'rm -rf "$each_scratch"' EXIT
+  for item in "$@"; do
+    ecosystem=${item%%=*}
+    target=
+    [[ $item == *=* ]] && target=${item#*=}
+    tool=osv-scanner
+    [[ $ecosystem == rust ]] && tool=cargo-audit
+    GOODFETCH_ADVISORIES_FETCHED=1 "$repository/ci/tool.sh" "$tool" "$0" "$ecosystem" ${target:+"$target"} \
+      >"$each_scratch/${#items[@]}.log" 2>&1 &
+    pids+=("$!")
+    items+=("$ecosystem${target:+ $target}")
+  done
+  for i in "${!items[@]}"; do
+    status=0
+    wait "${pids[i]}" || status=$?
+    echo "== audit ${items[i]}"
+    cat "$each_scratch/$i.log"
+    [[ $status -eq 0 ]] || failures+=("${items[i]} (exit $status)")
+  done
+  if [[ ${#failures[@]} -gt 0 ]]; then
+    printf 'error: the audit of %s failed\n' "${failures[@]}" >&2
+    return 1
+  fi
+}
+
+mode=pinned
+case ${1:-} in
+  each)
+    shift
+    each "$@"
+    exit
+    ;;
+  live)
+    mode=live
+    shift
+    ;;
+esac
+ecosystem=${1:?the ecosystem: rust, npm or python}
+target=${2:-}
 
 case "$mode-$ecosystem" in
   pinned-rust | live-rust)

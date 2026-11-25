@@ -1,6 +1,6 @@
 use super::standing::Standing;
 use super::{CellStatus, Figure, Report, markdown, of};
-use crate::compare::matrix::{HANDLED_GETTERS_PENDING, HANDLED_RUST_PENDING, Scenario};
+use crate::compare::matrix::{HANDLED_GETTERS_PENDING, Scenario};
 use crate::compare::trials::{Comparison, Measured, Work, fixture};
 
 /// The pages of the site every trial crawls.
@@ -401,10 +401,10 @@ fn the_crawl_like_scenarios_cells_carry_no_bar() {
 }
 
 /// Each cell of the handled crawl says it carries no bar, for #2317; its
-/// Rust and getters rows say what they are pending, and Foxhound's mapping
-/// says it sets no tier, so the engine chooses one (#1602).
+/// getters row says what it is pending, and Foxhound's mapping says it sets
+/// no tier, so the engine chooses one (#1602).
 #[test]
-fn the_handled_cells_carry_no_bar_and_name_what_two_wait_on() {
+fn the_handled_cells_carry_no_bar_and_name_what_one_waits_on() {
     let trials = comparison(&[]);
 
     let markdown = markdown(&of(&trials), &trials);
@@ -416,8 +416,10 @@ fn the_handled_cells_carry_no_bar_and_name_what_two_wait_on() {
                 handled,
                 "  - no bar: none is set on this cell until the owner sets one (#2317)."
             ),
-            [HANDLED_RUST_PENDING, HANDLED_GETTERS_PENDING]
-                .map(|why| { cells_saying(handled, &format!("  - not measured: pending {why}.")) }),
+            cells_saying(
+                handled,
+                &format!("  - not measured: pending {HANDLED_GETTERS_PENDING}.")
+            ),
             handled.contains("`fetch.tier` not set, so the engine's own tier choice"),
         ),
         (
@@ -430,7 +432,7 @@ fn the_handled_cells_carry_no_bar_and_name_what_two_wait_on() {
                 "scrapy",
                 "crawlee-rs"
             ],
-            [vec!["foxhound rust"], vec!["foxhound getters"]],
+            vec!["foxhound getters"],
             true,
         )
     );
@@ -559,27 +561,43 @@ fn pagesifts_polite_cell_is_labelled_as_one_trial() {
     );
 }
 
-/// The trials' section says how many runs under strace started above
-/// their quiet load (#2521), as it says of the timed trials, and which
-/// cells a later run measured again, with that run's order seed.
+/// The trials' section says how many runs under strace started on a
+/// machine that failed the quiet check (#2521, #3352), naming the check
+/// each was read by, as it says of the timed trials, and which cells a
+/// later run measured again, with that run's order seed.
 #[test]
 fn the_trials_section_says_which_strace_runs_started_loaded_and_which_cells_were_redone() {
-    use crate::compare::trials::{CountedCell, CountedRun, Redone, Tool};
+    use crate::compare::trials::{CountedCell, CountedRun, QuietReading, Redone, Tool};
     let mut trials = comparison(&[]);
-    let run = |number, load| CountedRun {
+    let run = |number, quiet| CountedRun {
         scenario: Scenario::Browser,
         cell: "foxhound".to_owned(),
         tool: Tool::Foxhound,
         number,
-        load,
+        started: crate::compare::trials::Started { load: None, quiet },
         count: 9,
         syncs: 0,
         work: work(),
         extracted: None,
     };
+    let cores = |least_idle, leftovers| {
+        QuietReading::Cores(crate::compare::trials::Cores {
+            least_idle,
+            cpu_pressure: 0.0,
+            memory_pressure: 0.0,
+            leftovers,
+        })
+    };
     trials.syscalls = CountedCell::Measured {
         trials: 3,
-        runs: vec![run(1, Some(19.3)), run(2, Some(2.0)), run(3, None)],
+        runs: vec![
+            run(1, Some(cores(0.5, 0))),
+            run(2, Some(cores(0.99, 0))),
+            run(3, Some(cores(0.99, 1))),
+            run(4, Some(QuietReading::Load(19.3))),
+            run(5, Some(QuietReading::Load(2.0))),
+            run(6, None),
+        ],
         stopped: Vec::new(),
     };
     trials.redone = vec![Redone {
@@ -599,7 +617,8 @@ fn the_trials_section_says_which_strace_runs_started_loaded_and_which_cells_were
     assert_eq!(
         notes,
         vec![
-            "1 of the 3 runs under strace started above a 1-minute load of 8.",
+            "1 of the 6 runs under strace started on a machine that failed the quiet check of a 1-minute load under 8, the OS giving no pressure files.",
+            "2 of the 6 runs under strace started on a machine that failed the quiet check of each of the run's cores idle 97 % of 3 s, CPU pressure under 2 %, memory pressure under 0.5 % and no process left of the previous trial.",
             "Measured again by a later run at the same commit on the same machine, its trials in their own order (seed 11): browser/foxhound.",
         ]
     );
@@ -618,7 +637,7 @@ fn each_callgrind_ratio_reads_its_own_cells_runs() {
         cell: cell.to_owned(),
         tool,
         number,
-        load: None,
+        started: crate::compare::trials::Started::default(),
         count: per_page * PAGES,
         syncs: 0,
         work: work(),
@@ -717,7 +736,7 @@ fn default_cost_lines(cells: &[(&str, u64)]) -> Vec<String> {
                 cell: cell.to_owned(),
                 tool: Tool::Foxhound,
                 number: 1,
-                load: None,
+                started: crate::compare::trials::Started::default(),
                 count: per_page * PAGES,
                 syncs: 0,
                 work: work(),

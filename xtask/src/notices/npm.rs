@@ -57,6 +57,13 @@ struct Resolved {
     libc: Vec<String>,
 }
 
+impl Resolved {
+    /// Whether it is for some platforms only: on others, it is not installed.
+    fn for_some_platforms(&self) -> bool {
+        !(self.os.is_empty() && self.cpu.is_empty() && self.libc.is_empty())
+    }
+}
+
 #[derive(Deserialize)]
 struct Resolution {
     tarball: Option<String>,
@@ -126,14 +133,11 @@ pub(super) fn entries(root: &Path) -> Result<Vec<Entry>> {
     let installed = installed(root)?;
     let mut entries = Vec::new();
     for lockfile in &documents {
-        for key in shipped(lockfile) {
+        for key in shipped(lockfile, &installed) {
             let (name, version) = name_and_version(&key);
             let resolved = lockfile.packages.get(&format!("{name}@{version}"));
             let Some(license) = installed.get(&(name.to_owned(), version.to_owned())) else {
-                // A package for other platforms is not installed on this one.
-                if resolved.is_some_and(|resolved| {
-                    !(resolved.os.is_empty() && resolved.cpu.is_empty() && resolved.libc.is_empty())
-                }) {
+                if resolved.is_some_and(Resolved::for_some_platforms) {
                     continue;
                 }
                 bail!("{name}@{version} is not installed under {STORE}: run `pnpm install`");
@@ -156,8 +160,10 @@ pub(super) fn entries(root: &Path) -> Result<Vec<Entry>> {
 
 /// The snapshot keys (`<name>@<version>` and any peers) of every package
 /// that a workspace package's `dependencies` or `optionalDependencies`
-/// reach, sorted.
-fn shipped(lockfile: &Lockfile) -> BTreeSet<String> {
+/// reach, sorted. A package for other platforms that is not `installed`
+/// is reached, but not what it depends on: none of that is installed for
+/// it on this platform.
+fn shipped(lockfile: &Lockfile, installed: &Installed) -> BTreeSet<String> {
     let mut pending: Vec<String> = lockfile
         .importers
         .values()
@@ -172,6 +178,15 @@ fn shipped(lockfile: &Lockfile) -> BTreeSet<String> {
     let mut reached = BTreeSet::new();
     while let Some(key) = pending.pop() {
         if !reached.insert(key.clone()) {
+            continue;
+        }
+        let (name, version) = name_and_version(&key);
+        let elsewhere = !installed.contains_key(&(name.to_owned(), version.to_owned()))
+            && lockfile
+                .packages
+                .get(&format!("{name}@{version}"))
+                .is_some_and(Resolved::for_some_platforms);
+        if elsewhere {
             continue;
         }
         if let Some(snapshot) = lockfile.snapshots.get(&key) {
@@ -211,8 +226,11 @@ fn name_and_version(key: &str) -> (&str, &str) {
     }
 }
 
+/// Each installed package's license, by name and version.
+type Installed = BTreeMap<(String, String), Option<String>>;
+
 /// The license each installed package states, by name and version.
-fn installed(root: &Path) -> Result<BTreeMap<(String, String), Option<String>>> {
+fn installed(root: &Path) -> Result<Installed> {
     let mut installed = BTreeMap::new();
     let store = root.join(STORE);
     let Ok(folders) = std::fs::read_dir(&store) else {

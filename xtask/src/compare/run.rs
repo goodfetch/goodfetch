@@ -34,7 +34,7 @@ use super::trials::{
     GrowthCell, INSTRUCTION_RUNS, Measured, OPENSPIDER_COMMIT, PAGESIFT_VERSION,
     PLAYWRIGHT_VERSION, QUIET_LOAD, RULE_RUNS, Redone, RuledRun, SCRAPY_PLAYWRIGHT_VERSION,
     SCRAPY_VERSION, SITE_PAGES, SIZE_CONCURRENCIES, SIZES, SPIDER_VERSION, STATISTIC,
-    STRACE_QUIET_LOAD, SizesCell, StoppedPoint, StoppedRun, Trial, instruction_counted,
+    STRACE_QUIET_LOAD, SizesCell, Started, StoppedPoint, StoppedRun, Trial, instruction_counted,
     size_not_run, size_tools,
 };
 
@@ -97,6 +97,10 @@ pub(crate) struct Options {
     /// The cells the run measures, or a redo measures again ([`redo`]);
     /// every cell of `scenarios` when it names none.
     pub(crate) only: Vec<CellName>,
+    /// The time its waits for a quiet machine must end by (`--quiet-until`):
+    /// past it, a trial on a machine the quiet check fails does not start,
+    /// and the run fails, naming the reading.
+    pub(crate) quiet_until: Option<jiff::Timestamp>,
 }
 
 /// What a run's parts measure into: a fresh run's trials, every part run
@@ -116,6 +120,20 @@ pub(crate) type CellName = (Scenario, &'static str);
 /// report flags as short, never sleeps.
 pub(crate) fn waits_for_quiet(options: &Options) -> bool {
     options.trials >= super::trials::TRIALS
+}
+
+/// What the machine is as a trial starts: once the quiet check passes,
+/// given `waits`, the 1-minute load it must be under where the OS gives no
+/// pressure files (see [`machine::quiet`]); at once given none.
+fn started(options: &Options, waits: Option<f64>) -> Result<Started> {
+    let quiet = match waits {
+        Some(load) => quiet(load, options.quiet_until)?,
+        None => None,
+    };
+    Ok(Started {
+        load: load(),
+        quiet,
+    })
 }
 
 /// Whether a run of `options` runs `cell`: a cell of its scenarios, and of
@@ -221,6 +239,21 @@ pub(crate) fn side_executable(builds: &Path, folder: &str, profile_folder: &str)
     ))
 }
 
+/// The handled cell's Rust program among the Rust sides' builds:
+/// `goodfetch-foxhound`'s `compare-handled` example, built into
+/// [`matrix::FOXHOUND_RUST_FOLDER`] (`just compare`).
+pub(crate) fn foxhound_rust_program(builds: &Path, profile_folder: &str) -> PathBuf {
+    builds
+        .join(matrix::FOXHOUND_RUST_FOLDER)
+        .join(profile_folder)
+        .join("examples")
+        .join(format!(
+            "{}{}",
+            matrix::FOXHOUND_RUST_EXAMPLE,
+            std::env::consts::EXE_SUFFIX
+        ))
+}
+
 /// Where a trial crawls: the site's pages and the requests it has in
 /// flight at once, and whether its samples read the tool's executable's
 /// own pages.
@@ -263,6 +296,9 @@ fn executables_of(executables: &Executables<'_>, config: Config) -> Vec<PathBuf>
         Config::Crawlee => executables.crawlee.to_owned(),
         Config::Scrapy => executables.scrapy.to_owned(),
         Config::FoxhoundProgram => executables.foxhound_program.to_owned(),
+        Config::FoxhoundRustProgram => {
+            foxhound_rust_program(executables.spider_builds, executables.profile_folder)
+        }
         Config::CrawleeRs => side(matrix::CRAWLEE_RS_FOLDER),
         Config::Pagesift => side(matrix::PAGESIFT_FOLDER),
         Config::OpenSpider => side(matrix::OPENSPIDER_FOLDER),
@@ -274,6 +310,7 @@ fn executables_of(executables: &Executables<'_>, config: Config) -> Vec<PathBuf>
         Config::FastCrw => Some(trial::fastcrw_server(&executable)),
         Config::FoxhoundProgram => Some(executables.foxhound.to_owned()),
         Config::Foxhound { .. }
+        | Config::FoxhoundRustProgram
         | Config::Spider { .. }
         | Config::Crawlee
         | Config::Scrapy
@@ -341,7 +378,9 @@ fn trial<T: serde::de::DeserializeOwned>(
     for setting in executables.foxhound_settings {
         command.args(["--foxhound-setting", setting]);
     }
-    if let Config::FoxhoundProgram = config {
+    // Each program's Records are read afterwards with Foxhound's
+    // executable, as an Attached engine on the trial's home.
+    if config.is_program() {
         command.arg("--engine").arg(executables.foxhound);
     }
     // A file rather than a pipe: a watched trial is waited for by polling,
@@ -392,6 +431,7 @@ fn pages_of(scenario: Scenario, config: Config, pages: u64, spider_pages: Option
         Config::Spider { .. } => spider_pages.unwrap_or(pages),
         Config::Foxhound { .. }
         | Config::FoxhoundProgram
+        | Config::FoxhoundRustProgram
         | Config::Crawlee
         | Config::Scrapy
         | Config::CrawleeRs
@@ -469,6 +509,7 @@ fn at_concurrency(config: Config, concurrency: u32) -> Config {
         },
         Config::Foxhound { .. }
         | Config::FoxhoundProgram
+        | Config::FoxhoundRustProgram
         | Config::Spider { .. }
         | Config::Crawlee
         | Config::Scrapy
@@ -523,13 +564,9 @@ fn timed(
             crawl.pages,
             crawl.concurrency,
         );
-        let mut started_at = None;
+        let mut started_at = Started::default();
         let outcome = retried(|| {
-            started_at = if waits_for_quiet(options) {
-                quiet(QUIET_LOAD)
-            } else {
-                load()
-            };
+            started_at = started(options, waits_for_quiet(options).then_some(QUIET_LOAD))?;
             let outcome = trial(
                 executables,
                 cell,
@@ -574,7 +611,7 @@ fn timed(
             number,
             site_pages: crawl.pages,
             concurrency: crawl.concurrency,
-            load: started_at,
+            started: started_at,
             retried,
             measured,
         });
@@ -655,10 +692,10 @@ impl Counting {
 
 /// Runs a counted cell: `runs` runs of each of `cells` under `counting`,
 /// one of a cell that runs one ([`Cell::one_trial`]), each run's counting
-/// tool writing its output into `outputs`, and each recording the 1-minute
-/// load it started at. Under strace, a run of the full trials first waits
-/// for a load under [`STRACE_QUIET_LOAD`], as a timed trial waits for
-/// [`QUIET_LOAD`]; and a run whose crawl stalls is stopped (see
+/// tool writing its output into `outputs`, and each recording what the
+/// machine was when it started. Under strace, a run of the full trials
+/// first waits for the quiet check to pass, as a timed trial does, its load
+/// fallback [`STRACE_QUIET_LOAD`]; and a run whose crawl stalls is stopped (see
 /// [`watch::stopped`]): its cell is not measured, and its later runs do not
 /// run; nor do the later runs of a cell one of whose runs did not fetch the
 /// site, which the report sets aside as not measured (the same-work check's
@@ -691,11 +728,10 @@ fn counted(
         }
         let out = counted_output(outputs, cell, number);
         let pages = pages_of(cell.scenario, config, SITE_PAGES, options.spider_pages);
-        let started_at = if watched && waits_for_quiet(options) {
-            quiet(STRACE_QUIET_LOAD)
-        } else {
-            load()
-        };
+        let started_at = started(
+            options,
+            (watched && waits_for_quiet(options)).then_some(STRACE_QUIET_LOAD),
+        )?;
         let outcome = trial(
             executables,
             cell,
@@ -739,7 +775,7 @@ fn counted(
             cell: cell.name.to_owned(),
             tool: config.tool(),
             number,
-            load: started_at,
+            started: started_at,
             count: counted.count,
             syncs: counted.syncs,
             work: counted.work,

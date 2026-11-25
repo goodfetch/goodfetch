@@ -67,6 +67,19 @@
       "start_url": "http://2.login.test/login"
     },
     {
+      "account": {
+        "password": "8uKMD7sefdvn5ogA",
+        "username": "user-d105657d"
+      },
+      "description": "Log in as the task's account with its password, or bring in its login from the Firefox profile `firefox-profile` writes, and return one Record per order the account page lists, read from its order page, with the fields `id`, `item` and `total`, while the Proving ground's time step goes from 0 to the last of the task's time steps. The login expires when the time step changes: log in again whenever the site sends to its login page.",
+      "digest": "c99d129f76e3541959970a5a90173e67dbf4b56849878d36db87939fff1271c9",
+      "family": "login",
+      "id": "login/3",
+      "kind": "crawl",
+      "start_url": "http://3.login.test/login",
+      "time_steps": 2
+    },
+    {
       "description": "Watch this page while the Proving ground's time step goes from 0 to the last of the task's time steps, one step after another, and return one Record per revision the page shows, with the fields `id` (the revision), `headline` and `price`.",
       "digest": "9a88cbe6b6942cd8a50b275dea756827f4451e25e8df11398cf35040843dabb1",
       "family": "schedule",
@@ -776,6 +789,30 @@
       "id": "protection/2",
       "kind": "extract",
       "start_url": "http://2.protection.test/captcha"
+    },
+    {
+      "description": "Extract the article behind this page's Turnstile widget as one Record with the fields `id` and `title`. The page takes the token a solver-service stand-in answers for its site key and URL.",
+      "digest": "da16a24073f9eb2907ab96e34437050c8f65cf1bb17d8853887419dc73e357ac",
+      "family": "protection",
+      "id": "protection/3",
+      "kind": "extract",
+      "start_url": "http://3.protection.test/turnstile"
+    },
+    {
+      "description": "Extract the article behind this page's sensor check as one Record with the fields `id` and `title`. The page takes the sensor data a solver-service stand-in answers for its URL, cookies, script and client.",
+      "digest": "17e2ef0e90bd58820888e35cae48e2d6ac194aae78b895b38173b34ccbddd5ab",
+      "family": "protection",
+      "id": "protection/4",
+      "kind": "extract",
+      "start_url": "http://4.protection.test/sensor"
+    },
+    {
+      "description": "Extract the article behind this page's Challenge as one Record with the fields `id` and `title`. The Challenge passes only when a service worker it registers answers its check.",
+      "digest": "6825f9d9361bf2701c3fa39bd5a494a3b63be6abe72f377825a8162d339bde95",
+      "family": "protection",
+      "id": "protection/5",
+      "kind": "extract",
+      "start_url": "https://5.protection.test/service-worker"
     },
     {
       "description": "Fetch this page over HTTP and the page it links to in the browser, in one Session, and return each page's Record with the fields `id` and `code`. The server compares the fingerprints of the two requests.",
@@ -1777,6 +1814,64 @@
       "id": "canaries/4",
       "kind": "crawl",
       "start_url": "http://4.canaries.test/api/record"
+    },
+    {
+      "description": "Choose the author \"Cleo Marsh\": the page reloads and the tag list then offers that author's tags. Choose the tag \"inspirational\", type the tag to confirm it, press Search, and return one Record per quote shown, with the fields `id` (its `data-id`), `text`, `author` and `tag`. The page may reject the confirmation and say what to type: type that, and press Search again.",
+      "digest": "73d07de0fb24e12348881fade21886e3bdebe4d0cdd679861ef16dcb5e6afe45",
+      "family": "quotes",
+      "id": "quotes/1",
+      "kind": "crawl",
+      "start_url": "http://1.quotes.test/search"
+    },
+    {
+      "description": "Crawl the pages this index links and return one Record per page with the fields `id` (the article's `data-id`), `language` (the page's language: its root element's `lang`, else the one tag of its `content-language` meta tag, else the one tag of its `Content-Language` header, else `und`) and `amount` (the number the page shows, read in that language, as a plain decimal).",
+      "digest": "ecdc79f323103544fbfd03b4054030aa9a54728ba2d9238faa0252b346cf6312",
+      "family": "locales",
+      "id": "locales/1",
+      "kind": "crawl",
+      "start_url": "http://1.locales.test/documents"
+    },
+    {
+      "description": "Crawl the notices this index links, whose times are in the time zone `Europe/Paris` and relative to the moment each notice was served, its response's `Date` header. Return one Record per notice with the fields `id` (the article's `data-id`), `day` (its day, as a date such as `2024-01-31`), `posted` and `seen` (its times, as RFC 3339 with Paris's offset then, such as `2024-01-31T09:05:00+01:00`).",
+      "digest": "30ff435e53b81d123bf81c39d79de381cb94628cf16a5a7c29028664bfeffc8b",
+      "family": "locales",
+      "id": "locales/2",
+      "kind": "crawl",
+      "start_url": "http://2.locales.test/notices"
+    },
+    {
+      "description": "Open this search results page at each of the Proving ground's time steps, from 0 to the last of the task's, and return one Record per result it shows at any step, with the fields `id` (the result's `data-id`), `url`, `title` and `snippet`.",
+      "digest": "a5cf9c56db65e682cb07df4af20db8ab63907486c1f10ffb0a1c9a12e7619083",
+      "family": "search",
+      "id": "search/1",
+      "kind": "watch",
+      "start_url": "http://1.search.test/search?q=paper%20kite",
+      "time_steps": 4
+    },
+    {
+      "description": "Ask this SearXNG search for its results at each of the Proving ground's time steps, from 0 to the last of the task's, and return one Record per result it answers at any step, with the fields `id` (the last part of the result's URL), `url`, `title` and `snippet`.",
+      "digest": "a6d8325b47dca34eaa2733d24738d9214b65f16ddbdbcbcdbc6d3909f7c509ba",
+      "family": "search",
+      "id": "search/2",
+      "kind": "watch",
+      "start_url": "http://2.search.test/search?q=bell%20foundry&format=json",
+      "time_steps": 4
+    },
+    {
+      "description": "List the WebMCP tools this page offers once it shows `Ready`, one Record per tool with the fields `id` (the tool's name) and `read_only` (whether the site marks it read-only).",
+      "digest": "45a09ab541bb853ac4b66a85a21cd2d7488aa0a87d7019c681d0008597ecbc39",
+      "family": "site_tools",
+      "id": "site_tools/1",
+      "kind": "extract",
+      "start_url": "https://1.site-tools.test/tools"
+    },
+    {
+      "description": "Call this page's read-only WebMCP tool `look_up_order` with the order ID the page shows, and return its answer as one Record with the fields `id`, `item` and `total`.",
+      "digest": "3793a2b3864e6dc926ac55a791fae6fc12af8bb12cd2a97cae61c392879a58e7",
+      "family": "site_tools",
+      "id": "site_tools/2",
+      "kind": "extract",
+      "start_url": "https://2.site-tools.test/tools"
     }
   ]
 }

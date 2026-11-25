@@ -1,0 +1,218 @@
+# The Live checks that run on their own occasions rather than each night
+# (ADRs 0043, 0064, 0065 and 0073; TESTING.md, Flaky tests and Live checks).
+# Each job is one of ADR 0043's named jobs, or, for the screen reader, a
+# shell that runs its Live checks under the deny where the OS has one. Each
+# runs the Live checks ci/live-checks.toml gives it (`xtask results
+# live-run`); a job with none yet passes. It stays disabled in the
+# repository's settings until the hosted-CI spec (#3373) turns it on.
+#
+# - `vendors`: the online vendor conformance, on each release candidate, on
+#   a patch with a new Chrome major or stealth material, and by hand. It
+#   reports and never blocks.
+# - `provider`: ADR 0065's provider check, through the Vercel AI Gateway's
+#   free tier and its free-tier models only (ADR 0076).
+# - `screen-reader-windows` and `screen-reader-macos`: ADR 0073's
+#   `screen-reader` Live check, NVDA on Windows and VoiceOver on macOS, before
+#   each release candidate while the nightly tier is off.
+name: live
+
+on:
+  workflow_dispatch:
+    inputs:
+      checks:
+        description: "The Live checks to run"
+        type: choice
+        options:
+          - vendors
+          - provider
+          - screen-reader
+        default: vendors
+
+permissions: {}
+
+concurrency:
+  group: live-${{ inputs.checks }}
+  cancel-in-progress: false
+
+jobs:
+  vendors:
+    name: vendors
+    if: inputs.checks == 'vendors'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    permissions:
+      contents: read
+    steps:
+      - name: Check out the commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install the tools and dependencies
+        uses: ./.github/actions/host-tools
+        with:
+          target: x86_64-unknown-linux-gnu
+      - name: Build xtask before the deny
+        run: cargo build --quiet --locked --bin xtask
+      - name: Set up the OS services the tests use
+        run: ci/os-services.sh setup
+      - name: Deny outbound traffic
+        run: ci/egress/egress.sh deny
+      - name: Refuse the Egress canary
+        run: ci/egress/egress.sh canary
+      - name: "Test: the job's Live checks"
+        run: >-
+          ci/egress/under-deny.sh cargo run --quiet --locked --bin xtask --
+          results live-run --job live.yml#vendors --junit target/junit/live.xml
+      - name: Check that the deny refused nothing else
+        if: always()
+        run: ci/egress/egress.sh check
+      - name: Record the job's context beside its JUnit files
+        if: always()
+        run: ci/junit-context.sh
+      - name: Scan the job's outputs for secrets before they upload
+        id: leaks
+        if: always()
+        run: ci/leaks.sh target/junit/
+      - name: Upload the JUnit files
+        if: always() && steps.leaks.outcome == 'success'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: junit-vendors-live-linux-x64-1
+          path: target/junit/
+          if-no-files-found: ignore
+
+  provider:
+    name: provider
+    if: inputs.checks == 'provider'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - name: Check out the commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install the tools and dependencies
+        uses: ./.github/actions/host-tools
+        with:
+          target: x86_64-unknown-linux-gnu
+      - name: Build xtask before the deny
+        run: cargo build --quiet --locked --bin xtask
+      - name: Set up the OS services the tests use
+        run: ci/os-services.sh setup
+      - name: Deny outbound traffic
+        run: ci/egress/egress.sh deny
+      - name: Refuse the Egress canary
+        run: ci/egress/egress.sh canary
+      - name: "Test: the job's Live checks"
+        env:
+          AI_GATEWAY_API_KEY: ${{ secrets.AI_GATEWAY_API_KEY }}
+        run: >-
+          ci/egress/under-deny.sh cargo run --quiet --locked --bin xtask --
+          results live-run --job live.yml#provider --junit target/junit/live.xml
+      - name: Check that the deny refused nothing else
+        if: always()
+        run: ci/egress/egress.sh check
+      - name: Record the job's context beside its JUnit files
+        if: always()
+        run: ci/junit-context.sh
+      - name: Scan the job's outputs for secrets before they upload
+        id: leaks
+        if: always()
+        run: ci/leaks.sh target/junit/
+      - name: Upload the JUnit files
+        if: always() && steps.leaks.outcome == 'success'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: junit-provider-live-linux-x64-1
+          path: target/junit/
+          if-no-files-found: ignore
+
+  screen-reader-windows:
+    name: screen-reader-windows
+    if: inputs.checks == 'screen-reader'
+    runs-on: windows-2025
+    timeout-minutes: 60
+    permissions:
+      contents: read
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Keep LF line endings on checkout
+        run: git config --global core.autocrlf false
+      - name: Check out the commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install the toolchains, tools and runtimes
+        uses: ./.github/actions/host-tools
+        with:
+          target: x86_64-pc-windows-msvc
+      - name: Build xtask before the deny
+        run: cargo build --quiet --locked --bin xtask
+      - name: Set up the OS services the tests use
+        run: ci/os-services.sh setup
+      - name: Deny outbound traffic
+        run: ci/egress/egress.sh deny
+      - name: Refuse the Egress canary
+        run: ci/egress/egress.sh canary
+      - name: "Test: the job's Live checks"
+        run: >-
+          ci/egress/under-deny.sh cargo run --quiet --locked --bin xtask --
+          results live-run --job live.yml#screen-reader-windows --junit target/junit/live.xml
+      - name: Check that the deny refused nothing else
+        if: always()
+        run: ci/egress/egress.sh check
+      - name: Record the job's context beside its JUnit files
+        if: always()
+        run: ci/junit-context.sh
+      - name: Scan the job's outputs for secrets before they upload
+        id: leaks
+        if: always()
+        run: ci/leaks.sh target/junit/
+      - name: Upload the JUnit files
+        if: always() && steps.leaks.outcome == 'success'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: junit-screen-reader-live-windows-x64-1
+          path: target/junit/
+          if-no-files-found: ignore
+
+  screen-reader-macos:
+    name: screen-reader-macos
+    if: inputs.checks == 'screen-reader'
+    runs-on: macos-15
+    timeout-minutes: 60
+    permissions:
+      contents: read
+    steps:
+      - name: Check out the commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install the toolchains, tools and runtimes
+        uses: ./.github/actions/host-tools
+        with:
+          target: aarch64-apple-darwin
+      - name: Set up the OS services the tests use
+        run: ci/os-services.sh setup
+      - name: "Test: the job's Live checks"
+        run: >-
+          cargo run --quiet --locked --bin xtask --
+          results live-run --job live.yml#screen-reader-macos --junit target/junit/live.xml
+      - name: Record the job's context beside its JUnit files
+        if: always()
+        run: ci/junit-context.sh
+      - name: Scan the job's outputs for secrets before they upload
+        id: leaks
+        if: always()
+        run: ci/leaks.sh target/junit/
+      - name: Upload the JUnit files
+        if: always() && steps.leaks.outcome == 'success'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: junit-screen-reader-live-macos-arm64-1
+          path: target/junit/
+          if-no-files-found: ignore

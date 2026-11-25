@@ -133,8 +133,10 @@ pub(crate) struct RunArguments {
     /// `xtask/compare-openspider` into `openspider`,
     /// `xtask/compare-fastcrw` into `fastcrw` (with fastCRW's server
     /// installed into `fastcrw/<profile>/bin`), `xtask/compare-crawlberg`
-    /// into `crawlberg` and the Collie scenario's
-    /// `xtask/compare-chromiumoxide` into `chromiumoxide`.
+    /// into `crawlberg`, the Collie scenario's
+    /// `xtask/compare-chromiumoxide` into `chromiumoxide`, and the handled
+    /// cell's Rust program, `goodfetch-foxhound`'s `compare-handled`
+    /// example, from the workspace into `foxhound-rust`.
     #[arg(long)]
     spider_builds: PathBuf,
     /// The profile those builds were made with, which names the folder
@@ -217,6 +219,14 @@ pub(crate) struct RunArguments {
     /// waits for (#2200); with `--redo`, the cells it measures again.
     #[arg(long = "cell")]
     cells: Vec<String>,
+    /// The time the run's waits for a quiet machine must end by, such as
+    /// `2026-11-26T05:30Z`: the end of the gate host's quiet window, as
+    /// `run/quiet-hold` writes it. Past it, no trial starts on a machine the
+    /// quiet check fails: the run stops, naming the reading. Without it, a
+    /// wait ends after 30 minutes and the trial starts anyway. The rerun
+    /// command leaves it out, a time that has passed.
+    #[arg(long)]
+    quiet_until: Option<jiff::Timestamp>,
 }
 
 /// A scenario a run can be asked for: one of the crawl matrix's, by its
@@ -467,6 +477,7 @@ fn options(arguments: &RunArguments, environment: &Environment) -> Result<run::O
             .unwrap_or_else(|| Path::new("."))
             .join(CALLGRIND_OUTPUTS),
         only,
+        quiet_until: arguments.quiet_until,
     })
 }
 
@@ -534,6 +545,7 @@ fn redone_arguments(command: &str, redo: &RunArguments) -> Result<RunArguments> 
     )
     .with_context(|| format!("reading the trials file's rerun command `{command}`"))?;
     arguments.out.clone_from(&redo.out);
+    arguments.quiet_until = redo.quiet_until;
     Ok(arguments)
 }
 

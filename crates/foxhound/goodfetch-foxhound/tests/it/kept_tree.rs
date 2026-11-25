@@ -15,9 +15,6 @@
     reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
 )]
 
-use std::sync::Arc;
-
-use bytes::Bytes;
 use goodfetch_counted_work::Row;
 use goodfetch_engine::clock::Clock;
 use goodfetch_engine::entropy::Entropy;
@@ -27,7 +24,7 @@ use goodfetch_engine::run_state::RunStateOptions;
 use goodfetch_engine::tasks::BlockingPolicy;
 use goodfetch_engine::transport::{self, ConnectionWriter, Network};
 use goodfetch_engine::{Channel, Dependencies, Engine, Identity};
-use goodfetch_fetch_tier::{Body, FetchTiers, Hop, Reuse, Sending, Sent, Transport};
+use goodfetch_memory_site::{MemorySite, Page};
 use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::connection::ProductVersion;
 use goodfetch_protocol::connection::Surface;
@@ -49,39 +46,6 @@ const PAGE: &str = r#"<!doctype html><html><head><title>Delta kite</title></head
 
 /// The page's host, mapped to an address no connection reaches.
 const HOST: &str = "kites.test";
-
-/// The site, served from memory: [`PAGE`] at every path.
-struct Site;
-
-impl Transport for Site {
-    fn send<'a>(&'a self, _hop: &'a Hop, _reuse: Reuse) -> Sending<'a, Sent> {
-        Box::pin(async move {
-            Ok(Sent {
-                status: 200,
-                headers: vec![
-                    (
-                        "content-type".to_owned(),
-                        "text/html; charset=utf-8".to_owned(),
-                    ),
-                    ("content-length".to_owned(), PAGE.len().to_string()),
-                ],
-                body: Box::new(Whole(Some(Bytes::from_static(PAGE.as_bytes())))),
-                reused: false,
-                decoded: false,
-                certificate_exception: None,
-            })
-        })
-    }
-}
-
-/// A page's body, sent in one chunk.
-struct Whole(Option<Bytes>);
-
-impl Body for Whole {
-    fn chunk(&mut self) -> Sending<'_, Option<Bytes>> {
-        Box::pin(std::future::ready(Ok(self.0.take())))
-    }
-}
 
 /// A call of the handler on the page `page`, under the ID `id`.
 fn call(id: &str, method: &str, params: &Value) -> Value {
@@ -184,7 +148,8 @@ fn dependencies(env: &TestEnv, blocking: BlockingPolicy) -> Dependencies {
 /// engine whose counted work is `metrics`' and whose blocking work runs as
 /// `blocking` says.
 fn crawled(env: &TestEnv, metrics: Metrics, blocking: BlockingPolicy) -> Handled {
-    let tiers = FetchTiers::serving(Arc::new(Site));
+    // The site, served from memory: `PAGE` at every path but robots.txt.
+    let tiers = MemorySite::new(|_| Page::html(PAGE)).tiers();
     let identity = Identity {
         product: Product::Foxhound,
         product_version: ProductVersion::parse("1.4.0").unwrap(),

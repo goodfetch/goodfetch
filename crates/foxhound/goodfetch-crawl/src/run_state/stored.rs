@@ -47,7 +47,9 @@ use crate::completeness;
 use crate::intake::Intake;
 use crate::invariants::Invariants;
 use crate::staging::Staging;
-use crate::work_items::{self, Changed, Failure, Leased, Positions, Unsuccessful};
+use crate::work_items::{
+    self, AttemptKey, Changed, EndWrite, Failure, Leased, Positions, Unsuccessful,
+};
 
 mod lookup;
 
@@ -425,7 +427,7 @@ impl Stored {
         Ok(answered.map(|answered| {
             answered.map(|admitted| {
                 self.staging
-                    .suspected(work_item, lease_epoch, admitted.suspected);
+                    .suspected(AttemptKey::new(work_item, lease_epoch), admitted.suspected);
                 admitted.links
             })
         }))
@@ -729,13 +731,13 @@ impl Stored {
             .await?)
     }
 
-    /// The job of a claim: leases each work item of `claims` still pending
-    /// under the lease epoch below the one given, in that order, after
-    /// writing the rows the draws before it decided, what they changed in
-    /// the Session pool, `changes`, and each tier choice's count of
-    /// requests served, `counted`. It answers the IDs it did not lease.
+    /// The job of a claim: leases the work item of each attempt of `claims`
+    /// still pending under the lease epoch below the attempt's, in that
+    /// order, after writing the rows the draws before it decided, what they
+    /// changed in the Session pool, `changes`, and each tier choice's count
+    /// of requests served, `counted`. It answers the IDs it did not lease.
     pub(super) fn claim(
-        claims: Vec<(String, u64)>,
+        claims: Vec<AttemptKey<String>>,
         (changes, counted): (Changes, Counted),
     ) -> impl FnOnce(&Connection) -> rusqlite::Result<Vec<String>> + Send + 'static {
         move |connection| {
@@ -747,19 +749,17 @@ impl Stored {
         }
     }
 
-    /// How the sitemap's fetch `work_item` under `lease_epoch` ends once
-    /// its `document` is read: its entries admitted under the Run's domain
-    /// policy and within its invariants (ADR 0093), each keyed as it is
-    /// added, in its outcome's one job, so its read asks the writer for no
-    /// write of its own.
+    /// How the sitemap's fetch `attempt` ends once its `document` is read:
+    /// its entries admitted under the Run's domain policy and within its
+    /// invariants (ADR 0093), each keyed as it is added, in its outcome's
+    /// one job, so its read asks the writer for no write of its own.
     pub(crate) fn sitemap_read(
         &self,
-        (work_item, lease_epoch): (String, u64),
+        attempt: AttemptKey<String>,
         document: sitemap::Document,
     ) -> Ending {
         Ending::Sitemap {
-            work_item,
-            lease_epoch,
+            attempt,
             egress: Arc::clone(&self.egress),
             invariants: self.invariants.shared_frontier(),
             document,
@@ -786,17 +786,17 @@ impl Stored {
         }
     }
 
-    /// Ends the attempt of `work_item` under `lease_epoch` `unsuccessful`
-    /// at `ended_at`, in a job of its own: one whose outcome's job failed.
-    /// It rides as an outcome does. Answers how it ended, and what that
-    /// changed of the crawl's requests by state.
+    /// Ends `attempt` `unsuccessful` at `ended_at`, in a job of its own:
+    /// one whose outcome's job failed. It rides as an outcome does. Answers
+    /// how it ended, and what that changed of the crawl's requests by
+    /// state.
     ///
     /// # Errors
     ///
     /// The run file's.
     pub(crate) async fn end_lost(
         &self,
-        (work_item, lease_epoch): (String, u64),
+        attempt: AttemptKey<String>,
         unsuccessful: Unsuccessful,
         ended_at: SystemTime,
     ) -> Result<Ran<(Ended, Changed)>, StateError> {
@@ -807,11 +807,13 @@ impl Stored {
                 self.ran(move |connection| {
                     let mut changed = Changed::default();
                     let ended = attempt_outcome::end(
-                        connection,
-                        (&work_item, lease_epoch),
+                        &mut EndWrite {
+                            connection,
+                            ended_at,
+                            changed: &mut changed,
+                        },
+                        attempt.borrowed(),
                         unsuccessful,
-                        ended_at,
-                        &mut changed,
                     )?;
                     Ok((ended, changed.with_sitemaps(connection)?))
                 }),

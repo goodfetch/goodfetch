@@ -26,7 +26,7 @@
 
 [suite]
 name = "clients"
-version = "64"
+version = "67"
 
 [[capability]]
 name = "lifecycle"
@@ -572,18 +572,25 @@ surfaces = ["sdk-typescript", "sdk-python", "sdk-rust"]
 # 1282): `finish()` answers the whole Run report and `stop()` the Run
 # stopped as an abort by its program, with its Checkpoint; a Run that ended
 # `failed` makes both raise the error that failed it, and a call's timeout
-# ends only its wait. `progress()` answers the Run's progress at once, and
-# the next read, sent once the program asks for the next value with the
-# last value's position as `after`, answers the value carrying the message
-# `setProgressMessage` set. It plays on the Scripted engine, in Rust as
-# the Daemon (`daemon`), whose script checks every message the SDK sends.
-# That following the progress prints no status line is
-# `nothing-at-import-or-connect`'s, whose guest program follows it.
+# ends only its wait. `progress()` answers the Run's progress at once, with
+# the Human pause the Run waits on, and the next read, sent once the
+# program asks for the next value with the last value's position as
+# `after`, answers the latest value, the ones between coalesced, carrying
+# the message `setProgressMessage` set. It plays on the Scripted engine,
+# attached and as the Daemon, whose script checks every message the SDK
+# sends, and in Rust linked as far as that engine goes: the progress answers
+# at once and coalesces two messages set before the next read into the
+# latest, `finish()` answers the report with Rust's times, and `stop()` the
+# Run stopped by its program with its Checkpoint. A Human pause, a timeout
+# that ends a finish's wait and a failed Run need a page or a failure the
+# linked engine has no way to make on cue, so they play on the Scripted
+# engine, in Rust as the Daemon. That following the progress
+# prints no status line is `nothing-at-import-or-connect`'s, whose guest
+# program follows it.
 [[capability.case]]
 id = "finish-stop-and-progress"
 covers = ["story:11-128", "story:11-129"]
 surfaces = ["sdk-typescript", "sdk-python", "sdk-rust"]
-modes = { sdk-typescript = ["attached"], sdk-python = ["attached"], sdk-rust = ["daemon"] }
 
 # A scope's settings (ADR 0083; issue 2952): `connect()`'s own reach the
 # engine in `hello`, and a Run's own sit over them in three states, a key
@@ -734,9 +741,7 @@ modes = ["attached"]
 
 # A Run's Key-value store outside a handler, on Collie's executable (ADR
 # 0103; #791): in TypeScript `tsc` rejects `set(key, null)`, and in Python
-# and Rust it fails with `value_invalid`. The Python SDK's Run has only
-# `keys` yet, and the Rust SDK's Run no Key-value store, so `sdk-python` and
-# `sdk-rust` join these cases with issue 1284, which adds them.
+# and Rust it fails with `value_invalid`.
 [[capability]]
 name = "key-value-store"
 
@@ -754,28 +759,28 @@ modes = ["attached"]
 [[capability.case]]
 id = "key-value-store-get-absent-answers-null"
 covers = ["story:6-28", "story:6-31"]
-surfaces = ["sdk-typescript"]
-modes = ["attached"]
+surfaces = ["sdk-typescript", "sdk-python", "sdk-rust"]
+modes = ["attached", "linked"]
 
 [[capability.case]]
 id = "key-value-store-set-null-refused"
 covers = ["story:6-29"]
-surfaces = ["sdk-typescript"]
-modes = ["attached"]
+surfaces = ["sdk-typescript", "sdk-python", "sdk-rust"]
+modes = ["attached", "linked"]
 
 # Bytes with their content type (#792): `getBytes` answers what `setBytes`
 # stored, and neither reader answers the other's type (S2).
 [[capability.case]]
 id = "key-value-store-bytes-round-trip"
 covers = ["story:6-30"]
-surfaces = ["sdk-typescript"]
-modes = ["attached"]
+surfaces = ["sdk-typescript", "sdk-python", "sdk-rust"]
+modes = ["attached", "linked"]
 
 [[capability.case]]
 id = "key-value-store-read-of-the-other-type-refused"
 covers = ["story:6-30"]
-surfaces = ["sdk-typescript"]
-modes = ["attached"]
+surfaces = ["sdk-typescript", "sdk-python", "sdk-rust"]
+modes = ["attached", "linked"]
 
 # Limits in code (ADR 0080; issue 2830): `connect()` and a Run's start take
 # typed Limits, a price as an exact `Money`, which only lower. TypeScript
@@ -821,8 +826,8 @@ modes = ["attached"]
 # Typed data (ADR 0082): a value typed by a schema in the language's own
 # types, or a hand-written JSON Schema, round-trips through the Key-value
 # store; results keep unknown fields; a value that is not JSON is refused
-# before sending. Python and Rust join the Key-value cases with their
-# Key-value surface (#1284).
+# before sending. Python and Rust join the Key-value cases with issue 1284;
+# their own tests of their typed Key-value stores run already.
 [[capability]]
 name = "typed-data"
 
@@ -962,3 +967,20 @@ name = "testing-kit"
 id = "test-engine-runs-the-code-under-test"
 covers = ["story:11-156", "story:11-157", "story:11-168"]
 surfaces = ["sdk-typescript", "sdk-python", "sdk-rust"]
+
+# A Connection's Schedules (spec 589, ADR 0099; #854): `schedules.create`
+# answers a Schedule handle under the ID given, or one it made when none
+# was, `schedules.list` lists them, `schedules.get` answers the handle of a
+# held ID and fails an unknown one with `schedule_not_found`, and the
+# handle's `info()` and `delete()` act on it. Attached through Collie's
+# executable in TypeScript and Python (three ways), linked in Rust, each
+# surface taking the modes it has; the CLI and the Daemon join with #854's
+# last part.
+[[capability]]
+name = "schedules"
+
+[[capability.case]]
+id = "schedules-crud"
+covers = ["story:10-2"]
+surfaces = ["sdk-typescript", "sdk-python", "sdk-rust"]
+modes = ["attached", "linked"]

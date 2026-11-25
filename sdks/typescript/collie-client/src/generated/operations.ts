@@ -2,7 +2,7 @@
 
 import type { CallOptions, Caller } from "../caller.ts";
 import { type EntryMarkers, warnDeprecated, warnExperimental } from "../markers.ts";
-import type { Acted, AddInitScriptParams, AuditExportParams, AuditExported, AuditVerified, AuditVerifyParams, BodyHandle, CatalogRunStartParams, CertsListParams, CertsListed, Checkpoint, ClickParams, ConfigExplainParams, Counted, DaemonHealth, DaemonParams, DaemonState, DaemonStopping, DialogAcceptParams, DialogAnswered, DialogDismissParams, DialogsEnded, DownloadSaveAsParams, DownloadSaved, EffectCloseParams, EffectClosed, EffectOpenParams, EffectOpened, EngineInfo, EngineInfoParams, EvaluateParams, Evaluated, EventsSubscribeParams, FillParams, FormatsParams, GotoParams, InitScriptEnded, KeyValueStoreBytesValue, KeyValueStoreDeleted, KeyValueStoreKeyParams, KeyValueStoreKeysEnded, KeyValueStoreKeysParams, KeyValueStoreSet, KeyValueStoreSetBytesParams, KeyValueStoreSetParams, KeyValueStoreValue, LimitUsage, LocatorEvaluateAllParams, LocatorWaitForFunctionParams, LocatorWaitForParams, LogLevelSet, Navigated, NeedsYouDismissParams, NeedsYouDismissed, NeedsYouList, NeedsYouListParams, NewPageParams, NewSessionPageParams, NewSessionParams, PageBodyParams, PageBodyRead, PageCloseParams, PageClosed, PageExchange, PageFormats, PageOnDialogParams, PageOnEnded, PageOnParams, PageOpened, PageParams, PageRead, PageReadParams, PageRequest, PageRequestParams, PageResponse, PageRouteParams, PressParams, Reached, RecipeStartParams, ResponseBodyParams, RouteAbortParams, RouteAnswered, RouteEnded, RouteFetched, RouteFulfillParams, RouteOverridesParams, RunAbortParams, RunCheckpointParams, RunDiscarded, RunFinishParams, RunList, RunListParams, RunMigrateParams, RunParams, RunProgress, RunProgressParams, RunReport, RunResumeParams, RunSetProgressMessageParams, RunStartParams, RunStarted, RunStartedAs, RunStopParams, RunUsage, SampleEchoParams, SampleEchoResult, SessionClosed, SessionOnEnded, SessionOnParams, SessionOpened, SessionPages, SessionParams, SessionRouteParams, SetLogLevelParams, SettingsExplanation, SigningKeyCreateParams, SigningKeyCreated, SigningKeyDirectory, SigningKeyDirectoryParams, SubscriptionEnded, UsageListParams, UsageListResult, UsageSetParams, WaitForCountParams, WaitForExchangeParams, WaitForFunctionParams, WaitForLoadStateParams, WaitForRequestFinishedParams, WaitForUrlParams } from "./types.ts";
+import type { Acted, AddInitScriptParams, AuditExportParams, AuditExported, AuditVerified, AuditVerifyParams, BodyHandle, CatalogRunStartParams, CertsListParams, CertsListed, Checkpoint, ClickParams, ConfigExplainParams, Counted, DaemonHealth, DaemonParams, DaemonState, DaemonStopping, DialogAcceptParams, DialogAnswered, DialogDismissParams, DialogsEnded, DownloadSaveAsParams, DownloadSaved, EffectCloseParams, EffectClosed, EffectOpenParams, EffectOpened, EngineInfo, EngineInfoParams, EvaluateParams, Evaluated, EventsSubscribeParams, FillParams, FormatsParams, GotoParams, InitScriptEnded, KeyValueStoreBytesValue, KeyValueStoreDeleted, KeyValueStoreKeyParams, KeyValueStoreKeysEnded, KeyValueStoreKeysParams, KeyValueStoreSet, KeyValueStoreSetBytesParams, KeyValueStoreSetParams, KeyValueStoreValue, LimitUsage, LocatorEvaluateAllParams, LocatorWaitForFunctionParams, LocatorWaitForParams, LogLevelSet, Navigated, NeedsYouDismissParams, NeedsYouDismissed, NeedsYouList, NeedsYouListParams, NewPageParams, NewSessionPageParams, NewSessionParams, PageBodyParams, PageBodyRead, PageCloseParams, PageClosed, PageExchange, PageFormats, PageOnDialogParams, PageOnEnded, PageOnParams, PageOpened, PageParams, PageRead, PageReadParams, PageRequest, PageRequestParams, PageResponse, PageRouteParams, PressParams, Reached, RecipeStartParams, ResponseBodyParams, RouteAbortParams, RouteAnswered, RouteEnded, RouteFetched, RouteFulfillParams, RouteOverridesParams, RunAbortParams, RunCheckpointParams, RunDiscarded, RunFinishParams, RunList, RunListParams, RunMigrateParams, RunParams, RunProgress, RunProgressParams, RunReport, RunResumeParams, RunSetProgressMessageParams, RunStartParams, RunStarted, RunStartedAs, RunStopParams, RunUsage, SampleEchoParams, SampleEchoResult, ScheduleCreateParams, ScheduleCreated, ScheduleDeleted, ScheduleGetParams, ScheduleInfo, ScheduleList, ScheduleListParams, ScheduleParams, SessionClosed, SessionOnEnded, SessionOnParams, SessionOpened, SessionPages, SessionParams, SessionRouteParams, SetLogLevelParams, SettingsExplanation, SigningKeyCreateParams, SigningKeyCreated, SigningKeyDirectory, SigningKeyDirectoryParams, SubscriptionEnded, UsageListParams, UsageListResult, UsageSetParams, WaitForCountParams, WaitForExchangeParams, WaitForFunctionParams, WaitForLoadStateParams, WaitForRequestFinishedParams, WaitForUrlParams } from "./types.ts";
 import { warnDeprecatedSettings } from "./settings.ts";
 
 export type { CallOptions, Caller, OperationTypes } from "../caller.ts";
@@ -85,6 +85,11 @@ export interface CollieOperationTypes {
   "run.stop": { params: RunStopParams; result: RunReport };
   "run.usage": { params: RunParams; result: RunUsage };
   "sample.echo": { params: SampleEchoParams; result: SampleEchoResult };
+  "schedule.create": { params: ScheduleCreateParams; result: ScheduleCreated };
+  "schedule.delete": { params: ScheduleParams; result: ScheduleDeleted };
+  "schedule.get": { params: ScheduleGetParams; result: ScheduleInfo };
+  "schedule.info": { params: ScheduleParams; result: ScheduleInfo };
+  "schedule.list": { params: ScheduleListParams; result: ScheduleList };
   "session.close": { params: SessionParams; result: SessionClosed };
   "session.new_page": { params: NewSessionPageParams; result: PageOpened };
   "session.on": { params: SessionOnParams; result: SessionOnEnded };
@@ -174,6 +179,11 @@ export const collieOperations: Readonly<Record<keyof CollieOperationTypes, Entry
   "run.stop": { experimental: true, deprecated: undefined },
   "run.usage": { experimental: true, deprecated: undefined },
   "sample.echo": { experimental: true, deprecated: "Since 0.1, removed no earlier than 1.0: A sample entry, which the real catalog replaces." },
+  "schedule.create": { experimental: true, deprecated: undefined },
+  "schedule.delete": { experimental: true, deprecated: undefined },
+  "schedule.get": { experimental: true, deprecated: undefined },
+  "schedule.info": { experimental: true, deprecated: undefined },
+  "schedule.list": { experimental: true, deprecated: undefined },
   "session.close": { experimental: true, deprecated: undefined },
   "session.new_page": { experimental: true, deprecated: undefined },
   "session.on": { experimental: true, deprecated: undefined },
@@ -263,6 +273,11 @@ export const collieOperationNames: Readonly<Record<keyof CollieOperationTypes, s
   "run.stop": "run.stop",
   "run.usage": "run.usage",
   "sample.echo": "sample.echo",
+  "schedule.create": "schedule.create",
+  "schedule.delete": "schedule.delete",
+  "schedule.get": "schedule.get",
+  "schedule.info": "schedule.info",
+  "schedule.list": "schedule.list",
   "session.close": "session.close",
   "session.new_page": "session.newPage",
   "session.on": "session.on",
@@ -352,6 +367,11 @@ export const collieOperationClasses: Readonly<Record<keyof CollieOperationTypes,
   "run.stop": "idempotent_write",
   "run.usage": "read",
   "sample.echo": "read",
+  "schedule.create": "effect",
+  "schedule.delete": "idempotent_write",
+  "schedule.get": "read",
+  "schedule.info": "read",
+  "schedule.list": "read",
   "session.close": "idempotent_write",
   "session.new_page": "effect",
   "session.on": "read",
@@ -789,7 +809,7 @@ export class CollieOperations {
   }
 
   /**
-   * Sends a request from inside the page's Session's browser, with its cookies, through the browser-fetch tier and the page's interception (its domain policy, never its routes), from a context no service worker controls, and answers the response whatever its status, a 429 included; `response.body` reads its kept body, and raises `response_truncated` for one that broke off. A count of redirects above 19 is refused with `setting_invalid`, a chain past its count raises `too_many_redirects`, and a body whose content coding fails to decode `navigation_failed`.
+   * Sends a request from inside the page's Session's browser, with its cookies, through the browser-fetch tier and the page's interception (its domain policy, never its routes), from a context no service worker controls, and answers the response whatever its status, a 429 included; `response.body` reads its kept body, and raises `response_truncated` for one that broke off. A count of redirects above 19 is refused with `setting_invalid`, a chain past its count raises `too_many_redirects`, and a body whose content coding fails to decode `navigation_failed`. A header value or a JSON body string may hold a Secret placeholder, whose value the engine adds at its interception after every page script and service worker: an unbound placeholder raises `secret_unbound`, a hop outside its bound domains `secret_domain_not_allowed`, and a header value holding a CR, an LF or a NUL `header_value_invalid`.
    *
    * @experimental
    */
@@ -1113,6 +1133,56 @@ export class CollieOperations {
     warnExperimental("sample.echo");
     warnDeprecated("sample.echo", "Since 0.1, removed no earlier than 1.0: A sample entry, which the real catalog replaces.");
     return this.#caller.call("sample.echo", params, options);
+  }
+
+  /**
+   * Records a Schedule in the Schedule store, which the Daemon keeps, and answers its ID, as given or made (`s` and a lowercase ULID), with warnings. Nothing fires yet. A taken ID fails with `schedule_exists`, a trigger that does not parse with `schedule_trigger_invalid`. Its time zone is the Daemon host's when the definition names none. One store transaction: a cancel stops it only before it commits.
+   *
+   * @experimental
+   */
+  scheduleCreate(params: ScheduleCreateParams): Promise<ScheduleCreated> {
+    warnExperimental("schedule.create");
+    return this.#caller.call("schedule.create", params, {});
+  }
+
+  /**
+   * Deletes the Schedule from its store, so it never fires again, and answers whether it did: false when the store held none of that ID, as after a resent delete. One store transaction: a cancel stops it only before it commits.
+   *
+   * @experimental
+   */
+  scheduleDelete(params: ScheduleParams): Promise<ScheduleDeleted> {
+    warnExperimental("schedule.delete");
+    return this.#caller.call("schedule.delete", params, {});
+  }
+
+  /**
+   * Reads the Schedule of an ID. An ID the store does not hold fails with `schedule_not_found`.
+   *
+   * @experimental
+   */
+  scheduleGet(params: ScheduleGetParams, options: CallOptions = {}): Promise<ScheduleInfo> {
+    warnExperimental("schedule.get");
+    return this.#caller.call("schedule.get", params, options);
+  }
+
+  /**
+   * Reads the Schedule as its store holds it now. One the store no longer holds fails with `schedule_not_found`.
+   *
+   * @experimental
+   */
+  scheduleInfo(params: ScheduleParams, options: CallOptions = {}): Promise<ScheduleInfo> {
+    warnExperimental("schedule.info");
+    return this.#caller.call("schedule.info", params, options);
+  }
+
+  /**
+   * Lists every Schedule of the Schedule store, by ID.
+   *
+   * @experimental
+   */
+  scheduleList(params: ScheduleListParams, options: CallOptions = {}): Promise<ScheduleList> {
+    warnExperimental("schedule.list");
+    return this.#caller.call("schedule.list", params, options);
   }
 
   /**

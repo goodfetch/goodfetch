@@ -148,6 +148,13 @@ listeners.private_endpoint = { expect = "closed" }
     Rule::OriginMissingWithoutHeaderToken,
     ListenerKind::DaemonSocket
 )]
+#[case::a_plain_connection_rule_on_http(
+    "plain_where_tls_configured",
+    "ops_listener",
+    r#"{ expect = "status", status = 400 }"#,
+    Rule::PlainWhereTlsConfigured,
+    ListenerKind::OpsListener
+)]
 #[case::a_challenge_from_a_listener_that_is_no_proxy(
     "token_wrong",
     "ops_listener",

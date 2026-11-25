@@ -26,9 +26,9 @@
 # (ci/linux.sh), which on a Linux host run among the host's tests, after the
 # OS-service setup below; `just visual`, the visual projects in the pinned Playwright
 # image (ci/visual/container.sh). TLC, Miri
-# (issue 2090's F7) and loom (issue 2200) run beside them too, on the host:
-# each builds and writes in folders of its own (`target/tlc/`,
-# `target/miri/`, `target/loom/`), which
+# (issue 2090's F7), loom (issue 2200) and the Simulation (issue 359) run
+# beside them too, on the host: each builds and writes in folders of its own
+# (`target/tlc/`, `target/miri/`, `target/loom/`, `target/simulation/`), which
 # no other step reads, and its verdict
 # follows from the tree and its pinned tools; what it shares with the host's
 # steps it only reads or waits for (ADR 0135's note of 2026-11-13). The
@@ -66,11 +66,12 @@
 # `all` and `quick` are incremental (ADR 0135): on a head that descends from
 # a head whose gate already ran, they reuse the green results of the steps,
 # and of the members' tests, that the change since then does not reach, and
-# rerun the rest; see the plan below. They also reuse the hosted-owned
-# units a hosted run of the pull-request workflow holds, whose records
-# `just merge` downloaded (GOODFETCH_GATE_HOSTED_RECORDS), and end red on
-# one such run's red unit on the head's tree (ADR 0135's amendment of
-# 2026-11-22). `GOODFETCH_GATE_FULL=1` reuses nothing.
+# rerun the rest; see the plan below. Given the records of the
+# pull-request workflow's hosted runs (GOODFETCH_GATE_HOSTED_RECORDS), as a
+# hosted job is, they also reuse the hosted-owned units those runs hold, and
+# end red on one such run's red unit on the head's tree (ADR 0135's
+# amendment of 2026-11-22); `just merge` passes none (its note of
+# 2026-11-25). `GOODFETCH_GATE_FULL=1` reuses nothing.
 #
 # Each form's steps, their order and each step's `just` command come from
 # `xtask gate steps` (`just _gate-steps`, xtask/src/gate/steps.rs), and the
@@ -325,7 +326,7 @@ planned=""
 stress_base=""
 if [[ -n $planning ]]; then
   [[ $form != preflight ]] || echo "Preflight: the full gate's units only the gate host runs, the counted rows and the stress run, recorded by the layer preflight in $records, so the full gate on the same tree reuses them (ADR 0135)."
-  [[ $form != quick ]] || echo "The quick gate: no test reads this change, so perf, the Linux-only and visual tests, the Pre-merge suite, the stress run, TLC, the MSRV build, Miri, loom and the Windows build under Wine do not run (xtask affected's gate=quick, ADR 0135)."
+  [[ $form != quick ]] || echo "The quick gate: no test reads this change, so perf, the Linux-only and visual tests, the Pre-merge suite, the stress run, TLC, the MSRV build, Miri, loom, the Simulation and the Windows build under Wine do not run (xtask affected's gate=quick, ADR 0135)."
   plan=$(just _gate-plan "$form" "$layer")
   previous=$(output_value previous "$plan")
   planned=$(output_value head "$plan")

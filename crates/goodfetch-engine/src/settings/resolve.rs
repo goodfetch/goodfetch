@@ -17,6 +17,8 @@ use std::time::Duration;
 use goodfetch_protocol::catalog::{Authority, Product, Setting, ValueKind};
 use goodfetch_protocol::entries::YIELDING;
 use goodfetch_protocol::governor::{THREAD_COUNT_SHAPE, ThreadCount};
+use goodfetch_protocol::page::EXTRACTOR_NAME_SHAPE;
+use goodfetch_protocol::recipe::RecipeManifest;
 use goodfetch_protocol::run::durability::{
     BATCH_THRESHOLD_SHAPE, BatchThreshold, durability_preset,
 };
@@ -26,8 +28,8 @@ use goodfetch_protocol::run::{
 };
 use goodfetch_protocol::secret_reference::SecretReference;
 use goodfetch_protocol::settings::{
-    ExplainedSetting, Exposure, RecipeManifest, RunOrigin, SettingLimit, SettingPreset,
-    SettingsExplanation, SettingsFile, SettingsLayer, WeakenedSetting,
+    ExplainedSetting, Exposure, RunOrigin, SettingLimit, SettingPreset, SettingsExplanation,
+    SettingsFile, SettingsLayer, WeakenedSetting,
 };
 use serde_json::Value;
 
@@ -60,7 +62,7 @@ impl Policy {
     ///
     /// `setting_invalid` for a cap on any other kind.
     pub fn check_caps(&self) -> Result<(), SettingsError> {
-        for name in self.cap.applied.keys() {
+        for name in self.cap.keys() {
             let capped = keys::find(name).map(|key| key.setting.kind);
             if !matches!(
                 capped,
@@ -234,6 +236,9 @@ pub struct Resolved {
     policy_version: Option<String>,
     /// Whether a Recipe's layer took part.
     recipe_run: bool,
+    /// Whether the Client that opened the Run reached an Exposed Daemon's
+    /// address (ADR 0049).
+    exposed: bool,
 }
 
 impl Resolved {
@@ -322,7 +327,7 @@ impl Resolved {
     /// ([`Resolved::refuse_unbuilt`]).
     pub fn beneath(&self, own: &Values) -> Result<Self, SettingsError> {
         let mut beneath = self.clone();
-        for (name, value) in &own.applied {
+        for (name, value) in own.applied() {
             let (Some(key), Some(effective)) = (keys::find(name), self.settings.get(name)) else {
                 return Err(SettingsError::NotApplicable {
                     key: (*name).to_owned(),
@@ -389,6 +394,21 @@ impl Resolved {
     /// Whether the Run is a Recipe's.
     pub fn recipe_run(&self) -> bool {
         self.recipe_run
+    }
+
+    /// Whether the Client that opened the Run reached an Exposed Daemon's
+    /// address (ADR 0049), whose loopback is not the program's own machine
+    /// (ADR 0056).
+    pub fn on_an_exposed_daemon(&self) -> bool {
+        self.exposed
+    }
+
+    /// The same, opened by a Client that reached an Exposed Daemon's
+    /// address.
+    #[must_use]
+    pub(crate) fn opened_on_an_exposed_daemon(mut self) -> Self {
+        self.exposed = true;
+        self
     }
 
     /// The version of the Operator policy it resolved under.
@@ -561,9 +581,11 @@ impl SettingValue<'_> for Duration {
     }
 }
 
+/// Text, a choice's value, or an Extractor's name, which is text.
 impl<'a> SettingValue<'a> for &'a str {
     fn reads(kind: &ValueKind) -> bool {
         matches!(kind, ValueKind::Text | ValueKind::Choice(_))
+            || matches!(kind, ValueKind::Shape(shape) if **shape == EXTRACTOR_NAME_SHAPE)
     }
 
     fn read(value: &'a Value) -> Option<Self> {
@@ -706,7 +728,7 @@ fn honouring(product: Product) -> Vec<Product> {
 /// or on a Run of a Product that does not honour it.
 pub fn resolve(layers: &Layers, engine: Product, run: Product) -> Result<Resolved, SettingsError> {
     for (layer, values) in explicit_layers(layers) {
-        for name in values.applied.keys() {
+        for name in values.keys() {
             let product = keys::find(name).map_or(Product::Collie, |key| key.product);
             if !run.contains(product) {
                 return Err(SettingsError::NotApplicable {
@@ -747,6 +769,7 @@ pub fn resolve(layers: &Layers, engine: Product, run: Product) -> Result<Resolve
         unapplied: unapplied(layers),
         policy_version: layers.operator_policy.version.clone(),
         recipe_run: layers.recipe.is_some(),
+        exposed: false,
     })
 }
 
@@ -811,10 +834,10 @@ fn unapplied(layers: &Layers) -> BTreeMap<&'static str, Unapplied> {
             &layers.project_configuration,
         ),
     ] {
-        for (name, value) in &values.others {
+        for (name, value) in values.others() {
             let product = keys::find(name).map_or(Product::Foxhound, |key| key.product);
             unapplied.insert(
-                *name,
+                name,
                 Unapplied {
                     value: value.clone(),
                     layer,

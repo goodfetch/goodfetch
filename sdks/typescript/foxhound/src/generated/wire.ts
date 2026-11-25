@@ -26,13 +26,15 @@ export type FoxhoundWireType =
   | "DatasetPage"
   | "DatasetPageParams"
   | "DatasetRecord"
-  | "EnqueueDocument"
+  | "DatasetSearchPage"
+  | "DatasetSearchParams"
   | "Export"
   | "ExportSaveAsParams"
   | "ExportSaved"
   | "ExportStreamParams"
   | "ExportStreamed"
   | "FailedRequests"
+  | "FoundRecord"
   | "HandlerFailedDetails"
   | "HeldDomain"
   | "InFlightRequest"
@@ -41,6 +43,7 @@ export type FoxhoundWireType =
   | "PayloadSchemaChangedDetails"
   | "PaymentMark"
   | "RecordProvenance"
+  | "RecordSearchResult"
   | "RejectedRecord"
   | "RejectedRecords"
   | "RequestCounts"
@@ -75,7 +78,7 @@ export const foxhoundWire: Wire<keyof FoxhoundOperationTypes & string, keyof Fox
     "CrawlExtraction": { fields: { "fields": ["fields", { values: { type: "PageField" } }] } },
     "CrawlHookHandleParams": { fields: { "crawl_request": "crawlRequest", "lease_epoch": "leaseEpoch", "run_id": "runId" } },
     "CrawlRequestEnqueueLinksParams": { fields: { "crawl_request_id": "crawlRequestId", "lease_epoch": "leaseEpoch", "locator": ["locator", { type: "Locator" }], "run_id": "runId" } },
-    "CrawlRequestEnqueueParams": { fields: { "crawl_request_id": "crawlRequestId", "document": ["document", { type: "EnqueueDocument" }], "lease_epoch": "leaseEpoch", "run_id": "runId" } },
+    "CrawlRequestEnqueueParams": { fields: { "crawl_request_id": "crawlRequestId", "lease_epoch": "leaseEpoch", "page_id": "pageId", "run_id": "runId" } },
     "CrawlRequestHandleParams": { fields: { "crawl_request": "crawlRequest", "lease_epoch": "leaseEpoch", "page_id": "pageId", "response": ["response", { type: "PageResponse" }], "run_id": "runId", "session": ["session", { type: "ServingSession" }] } },
     "CrawlRequestLinksParams": { fields: { "crawl_request_id": "crawlRequestId", "lease_epoch": "leaseEpoch", "locator": ["locator", { type: "Locator" }], "run_id": "runId" } },
     "CrawlRequestOutcome": { union: { tag: "kind", known: ["succeeded", "failed", "skipped", "blocked"], path: { fields: { "ended_at": ["endedAt", "time"], "not_added": ["notAdded", { items: { type: "NotAddedAtCommit" } }], "nothing_committed": "nothingCommitted" } }, common: { fields: { "ended_at": ["endedAt", "time"] } } } },
@@ -89,13 +92,15 @@ export const foxhoundWire: Wire<keyof FoxhoundOperationTypes & string, keyof Fox
     "DatasetPage": { fields: { "records": ["records", { items: { type: "DatasetRecord" } }] } },
     "DatasetPageParams": { fields: { "run_id": "runId" } },
     "DatasetRecord": { fields: { "committed_at": ["committedAt", "time"], "provenance": ["provenance", { type: "RecordProvenance" }], "request_id": "requestId" } },
-    "EnqueueDocument": { fields: { "base_href": "baseHref" } },
+    "DatasetSearchPage": { fields: { "records": ["records", { items: { type: "DatasetRecord" } }] } },
+    "DatasetSearchParams": { fields: { "run_id": "runId" } },
     "Export": { fields: { "export_id": "exportId", "last_number": "lastNumber", "run_epoch": "runEpoch" } },
     "ExportSaveAsParams": { fields: { "export_id": "exportId" } },
     "ExportSaved": { fields: { "run_epoch": "runEpoch" } },
     "ExportStreamParams": { fields: { "export_id": "exportId" } },
     "ExportStreamed": { fields: { "run_epoch": "runEpoch" } },
     "FailedRequests": { fields: { "requests": ["requests", { items: { type: "CrawlRequestOutcome" } }] } },
+    "FoundRecord": { fields: { "run_id": "runId" } },
     "HandlerFailedDetails": { fields: { "exception_message": "exceptionMessage", "exception_stack": "exceptionStack", "exception_type": "exceptionType" } },
     "HeldDomain": { fields: { "next_admitted_at": ["nextAdmittedAt", "time"] } },
     "InFlightRequest": { fields: { "request_id": "requestId", "started_at": ["startedAt", "time"] } },
@@ -104,6 +109,7 @@ export const foxhoundWire: Wire<keyof FoxhoundOperationTypes & string, keyof Fox
     "PayloadSchemaChangedDetails": { fields: { "crawl_request_id": "crawlRequestId" } },
     "PaymentMark": { fields: { "payee_domain": "payeeDomain" } },
     "RecordProvenance": { fields: { "certificate_exception": ["certificateException", { type: "CertificateExceptionMark" }], "clean_up_rules": "cleanUpRules", "origin": ["origin", { type: "ResponseOrigin" }], "payment": ["payment", { type: "PaymentMark" }], "request_id": "requestId", "robots_txt": "robotsTxt", "tier": ["tier", { type: "TierProvenance" }], "unread_fields": "unreadFields", "value_transforms": ["valueTransforms", { items: { type: "TransformProvenance" } }] } },
+    "RecordSearchResult": { fields: { "records": ["records", { items: { type: "FoundRecord" } }] } },
     "RejectedRecord": { fields: { "request_id": "requestId" } },
     "RejectedRecords": { fields: { "records": ["records", { items: { type: "RejectedRecord" } }] } },
     "RequestCounts": { fields: { "by_block_cause": "byBlockCause", "by_error_code": "byErrorCode", "by_skip_reason": "bySkipReason" } },
@@ -138,6 +144,7 @@ export const foxhoundWire: Wire<keyof FoxhoundOperationTypes & string, keyof Fox
     "crawl_request.push": { type: "CrawlRequestPushParams" },
     "dataset.list": { type: "DatasetListParams" },
     "dataset.page": { type: "DatasetPageParams" },
+    "dataset.search": { type: "DatasetSearchParams" },
     "export.save_as": { type: "ExportSaveAsParams" },
     "export.stream": { type: "ExportStreamParams" },
     "run.add_seed": { type: "RunAddSeedParams" },
@@ -154,8 +161,10 @@ export const foxhoundWire: Wire<keyof FoxhoundOperationTypes & string, keyof Fox
     "crawl.serve": { type: "CrawlRunReport" },
     "crawl.start": { type: "RunStarted" },
     "dataset.page": { type: "DatasetPage" },
+    "dataset.search": { type: "DatasetSearchPage" },
     "export.save_as": { type: "ExportSaved" },
     "export.stream": { type: "ExportStreamed" },
+    "record.search": { type: "RecordSearchResult" },
     "run.add_seeds": { type: "RunSeedsAdded" },
     "run.export": { type: "Export" },
     "run.failed_requests": { type: "FailedRequests" },

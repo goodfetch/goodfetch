@@ -40,6 +40,7 @@ use crate::catalog::{
 use crate::foxhound::crawl::Seed;
 use crate::jsonrpc::RequestId;
 use crate::open_value::UnknownValue;
+use crate::page::PageId;
 use crate::run::RunId;
 
 mod links;
@@ -329,19 +330,6 @@ pub struct RunSeedsParams {
     pub run_id: RunId,
 }
 
-/// The document a handler read, against which its relative URLs resolve.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-#[serde(deny_unknown_fields)]
-pub struct EnqueueDocument {
-    /// The URL the document was reached at, after every redirect.
-    #[schemars(extend("arrived_in" = "0.1"))]
-    pub url: String,
-    /// The `href` of its first `<base>` element, as written.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[schemars(extend("arrived_in" = "0.1"))]
-    pub base_href: Option<String>,
-}
-
 /// What `crawl_request.enqueue` takes: one request to add, from one attempt
 /// of a crawl request.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -392,11 +380,15 @@ pub struct CrawlRequestEnqueueParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(extend("arrived_in" = "0.1"))]
     pub key: Option<String>,
-    /// The document the handler read, whose base URL a relative `url`
-    /// resolves against; absent, the crawl request's own URL is the base.
+    /// The page the attempt was given, whose document's base URL a relative
+    /// `url` resolves against: its `<base href>`, resolved against the URL
+    /// the document was reached at after its redirects, or that URL
+    /// itself. Absent, for an attempt given no page, the crawl request's
+    /// own URL is the base. A page no fetch tier serves fails a relative
+    /// `url` with `closed`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(extend("arrived_in" = "0.1"))]
-    pub document: Option<EnqueueDocument>,
+    pub page_id: Option<PageId>,
 }
 
 /// The notification that carries a batch of the seeds a Client streams to

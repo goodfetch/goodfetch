@@ -173,9 +173,11 @@ threads-required = "num-test-threads"
 # keeping every core busy. On the server at a load of 15 with six jobs, the
 # graph took 148 s up to BoringSSL's build script and 172 s more to the
 # end. It runs alone, as the soak does, under a cap of its own: a 2-vCPU
-# hosted runner takes several times that.
+# hosted runner takes several times that. The Rust starter's project
+# (story 11-275), also in the Release suite alone, builds the same graph
+# once, and runs alone under the same cap.
 [[profile.default.overrides]]
-filter = "binary_id(goodfetch-collie::it) & test(/^source_build::/)"
+filter = "binary_id(goodfetch-collie::it) & (test(/^source_build::/) | test(/^init::projects::the_rust_starter/))"
 threads-required = "num-test-threads"
 slow-timeout = { period = "60s", terminate-after = 60 }
 

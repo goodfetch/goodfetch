@@ -53,7 +53,7 @@ use serde_json::{Map, Value};
 use schemars::JsonSchema;
 
 use crate::catalog::Product;
-use crate::journey::{Check, FeatureId, Journey, JourneyId, TaskId};
+use crate::journey::{Check, FOXHOUND_CLI, FeatureId, Journey, JourneyId, TaskId};
 use crate::releases::Sha256;
 
 /// One result document, of either kind.
@@ -116,10 +116,6 @@ impl UncomparedJourneyDocument {
         &self.0.facts.journey_id
     }
 }
-
-/// The surface of a Collie Journey's `cli` variant run on Foxhound's
-/// executable (ADR 0094).
-const FOXHOUND_CLI: &str = "foxhound-cli";
 
 /// Compares a loaded `journey` document with its Journey (ADR 0063). The
 /// document must name the Journey and hold exactly its steps, its checks

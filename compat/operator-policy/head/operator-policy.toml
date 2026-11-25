@@ -16,6 +16,7 @@ launch = 30000
 wait = 30000
 first_byte = 30000
 hook = 30000
+plugin = 30000
 sink_write = 30000
 agent = 30000
 ai = 30000
@@ -54,6 +55,15 @@ metrics_endpoint = "example"
 idle_timeout = 30000
 address = "example"
 drain_grace = 30000
+trusted_proxies = ["10.0.0.0/8", "192.0.2.7"]
+
+[settings.daemon.tls]
+cert_file = "example"
+key_file = "example"
+upstream = true
+
+[settings.accounts]
+enabled = true
 
 [settings.ops]
 address = "example"
@@ -123,6 +133,11 @@ local_addresses = ["192.0.2.10", "2001:db8::10"]
 [settings.egress.rotation_block]
 ipv4 = 24
 ipv6 = 64
+
+[settings.cache]
+mode = "off"
+max_size = 4
+max_age_ceiling = 30000
 
 [settings.tls]
 trusted_cas = { "example.test" = ["example"] }
@@ -420,6 +435,9 @@ records = true
 memory_limit = 4
 max_rows = 4
 
+[settings.dataset.search]
+index = true
+
 [lock]
 sinks = { "example.test" = { batch = { max_bytes = 262144, max_records = 100 }, datasets = ["products"], deliver = "both", destination = "env:HOOK_URL", embedding = { chunk_chars = 2000, fields = ["body"], model = "openai/text-embedding-3-small" }, files = { compression = "zstd", format = "jsonl", part = { max_age = 300000, max_bytes = 268435456, max_records = 100000 } }, image = "airbyte/destination-postgres@sha256:0f1e2d3c4b5a69788796a5b4c3d2e1f00f1e2d3c4b5a69788796a5b4c3d2e1f0", key = ["sku"], mode = "upsert", rate = { burst = 2, per_second = 10 }, schema = { contract = "evolve", flatten = false }, target = "products", type = "webhook", webhook = { max_batch_bytes = 262144, payload = "batch", signing_secret = "env:HOOK_SECRET" } } }
 
@@ -435,6 +453,7 @@ launch = 30000
 wait = 30000
 first_byte = 30000
 hook = 30000
+plugin = 30000
 sink_write = 30000
 agent = 30000
 ai = 30000
@@ -473,6 +492,15 @@ metrics_endpoint = "example"
 idle_timeout = 30000
 address = "example"
 drain_grace = 30000
+trusted_proxies = ["10.0.0.0/8", "192.0.2.7"]
+
+[lock.daemon.tls]
+cert_file = "example"
+key_file = "example"
+upstream = true
+
+[lock.accounts]
+enabled = true
 
 [lock.ops]
 address = "example"
@@ -542,6 +570,11 @@ local_addresses = ["192.0.2.10", "2001:db8::10"]
 [lock.egress.rotation_block]
 ipv4 = 24
 ipv6 = 64
+
+[lock.cache]
+mode = "off"
+max_size = 4
+max_age_ceiling = 30000
 
 [lock.tls]
 trusted_cas = { "example.test" = ["example"] }
@@ -839,6 +872,9 @@ records = true
 memory_limit = 4
 max_rows = 4
 
+[lock.dataset.search]
+index = true
+
 [cap.timeout]
 hello = 30000
 secret = 30000
@@ -851,6 +887,7 @@ launch = 30000
 wait = 30000
 first_byte = 30000
 hook = 30000
+plugin = 30000
 sink_write = 30000
 agent = 30000
 ai = 30000
@@ -910,6 +947,10 @@ max_unused_age = 30000
 [cap.resolver]
 resolution_delay = 30000
 attempt_delay = 30000
+
+[cap.cache]
+max_size = 4
+max_age_ceiling = 30000
 
 [cap.proxy]
 sticky_lifetime = 30000

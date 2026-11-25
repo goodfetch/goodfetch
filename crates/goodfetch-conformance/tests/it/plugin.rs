@@ -322,32 +322,14 @@ fn a_plugin_that_declares_no_implementation_of_the_suites_kind_is_refused() {
     let env = TestEnv::new();
     let copy = LocalCopy::start(&env, env.seed()).unwrap();
     let proving_ground = ProvingGround::local(&copy.address().to_string());
-    let suite = PluginSuite::read(
-        r#"
-        product = "foxhound"
-        kind = "sample_page_filter"
-
-        [suite]
-        name = "sample-page-filter"
-        version = "1"
-
-        [[capability]]
-        name = "put"
-
-        [[capability.case]]
-        id = "a-value-under-a-new-key-replaces-nothing"
-        covers = ["story:2-51"]
-        "#,
-    )
-    .unwrap();
-
-    let refused = run_plugin_suite(&suite, &toy(&env, &[]), &proving_ground).unwrap_err();
+    let refused =
+        run_plugin_suite(&PluginSuite::extract(), &toy(&env, &[]), &proving_ground).unwrap_err();
 
     assert!(
         matches!(
             &refused,
             PluginSuiteError::KindUndeclared { kind, declared }
-                if kind == "sample_page_filter" && declared == &["sample_store".to_owned()]
+                if kind == "extract" && declared == &["sample_store".to_owned()]
         ),
         "{refused:?}"
     );

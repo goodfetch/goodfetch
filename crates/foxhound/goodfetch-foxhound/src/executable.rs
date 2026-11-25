@@ -4,15 +4,20 @@
 //! entry. `crawl start <url>…` builds the code-free crawl's `extraction` and
 //! seeds from its flags and follows its Run under `--follow`
 //! ([`crawl_start`]); `run export <run> <dataset> --out <path|->` writes the
-//! Export's file ([`run_export`]). They live in Foxhound's crate, so the
-//! crate both Products link names no Foxhound type for them (ADR 0087).
+//! Export's file ([`run_export`]); `dataset erase --run-id <run> --dataset
+//! <dataset>` asks a person before it erases a Dataset, the only command of
+//! an operation the catalog keeps off every generated surface
+//! ([`dataset_erase`]). They live
+//! in Foxhound's crate, so the crate both Products link names no Foxhound
+//! type for them (ADR 0087).
 
 use clap::Command;
 use goodfetch_collie::executable::catalog_commands::{self, OwnCommand, OwnCommands};
-use goodfetch_collie::executable::{SkillFile, Skills};
+use goodfetch_collie::executable::{SkillFile, Skills, Starters};
 use goodfetch_protocol::catalog::Product;
 
 mod crawl_start;
+mod dataset_erase;
 mod run_export;
 
 /// Foxhound's executable's own commands, which its `main` passes to
@@ -20,6 +25,7 @@ mod run_export;
 pub const COMMANDS: OwnCommands = OwnCommands {
     commands: OWN,
     members,
+    answers: &[],
 };
 
 /// The agent skills Foxhound's executable carries, its renderings of
@@ -27,8 +33,17 @@ pub const COMMANDS: OwnCommands = OwnCommands {
 /// `skill install`.
 pub const SKILLS: Skills = Skills::new(&include!("../generated/skills.rs"));
 
+/// The starters Foxhound's executable carries, which its `main` passes to
+/// Collie's executable entry for `init`: Collie's, which Foxhound offers
+/// unchanged; its own `crawl` and `extract` join with issue 1520.
+pub const STARTERS: Starters = Starters::COLLIE;
+
 /// The commands Foxhound's executable writes by hand.
-const OWN: &[OwnCommand] = &[crawl_start::COMMAND, run_export::COMMAND];
+const OWN: &[OwnCommand] = &[
+    crawl_start::COMMAND,
+    run_export::COMMAND,
+    dataset_erase::COMMAND,
+];
 
 /// The commands of the generated group `group` of Foxhound's executable.
 fn members(group: Command) -> Command {

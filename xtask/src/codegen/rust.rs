@@ -845,12 +845,18 @@ impl Module {
         text
     }
 
-    /// The struct of a handle or sub-object, whose ID is `id`, with its
-    /// own `fields`, such as its reads' answer's, and the head of its
-    /// `impl`.
-    fn open(&mut self, doc: &str, type_name: &str, id: &str, fields: &[String]) {
+    /// The struct of a handle or sub-object of `namespace`, whose ID is
+    /// `id`, with its own `fields`, such as its reads' answer's, and the
+    /// head of its `impl`. A value the Connection holds, rather than a
+    /// Run, reaches its engine through a `ConnectionHost`.
+    fn open(&mut self, doc: &str, namespace: &str, type_name: &str, id: &str, fields: &[String]) {
+        let host = if handles::CONNECTION_SCOPED.contains(&namespace) {
+            "ConnectionHost"
+        } else {
+            "Host"
+        };
         let held = match self.twin {
-            Twin::Async => format!("host: crate::host::Host<{id}>"),
+            Twin::Async => format!("host: crate::host::{host}<{id}>"),
             Twin::Blocking => format!("inner: crate::generated::handles::{type_name}"),
         };
         let opened = fields.iter().fold(String::new(), |mut opened, field| {
@@ -889,6 +895,7 @@ impl Module {
                     "The `{}` of a `{}` (ADR 0099).",
                     sub_object.ident, model.namespace
                 )),
+                model.namespace,
                 &sub_object.type_name,
                 &model.id,
                 &[],
@@ -903,6 +910,7 @@ impl Module {
                 "A `{}` a program holds: the members the catalog gives it (ADR 0099).",
                 model.namespace
             )),
+            model.namespace,
             &model.type_name,
             &model.id,
             &model

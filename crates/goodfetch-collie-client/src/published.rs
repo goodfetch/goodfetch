@@ -27,6 +27,7 @@ use tokio_util::task::TaskTracker;
 
 use crate::error::Error;
 use crate::listener_queue::ListenerQueue;
+use crate::logging;
 use crate::rpc::{CallId, Heard, Outgoing, Sender};
 use crate::sync::{Mutex, MutexGuard};
 
@@ -379,7 +380,7 @@ impl Subscription {
                 match serde_json::from_value::<EventBatch>(params) {
                     Ok(batch) => self.hand(batch),
                     Err(error) => tracing::debug!(
-                        target: "goodfetch::client",
+                        target: logging::CLIENT,
                         %error,
                         "a batch of events that is no batch"
                     ),
@@ -397,7 +398,7 @@ impl Subscription {
         for envelope in batch.events {
             if envelope.event == RESYNC.name {
                 tracing::warn!(
-                    target: "goodfetch::client",
+                    target: logging::CLIENT,
                     event = RESYNC.name,
                     "The Connection's Subscription fell behind: the events published since its last read are gone, so a Session's stream may have missed pages its `pages()` lists"
                 );

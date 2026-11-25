@@ -508,8 +508,15 @@ fn a_handled_trial_of_any_tool_whose_fields_differ_is_refused() {
 
     assert_eq!(
         named(&trials),
-        ["foxhound", "spider", "crawlee", "scrapy", "crawlee-rs"]
-            .map(|cell| ("output_differs", format!("handled {cell} trial 2")))
+        [
+            "foxhound",
+            "foxhound rust",
+            "spider",
+            "crawlee",
+            "scrapy",
+            "crawlee-rs"
+        ]
+        .map(|cell| ("output_differs", format!("handled {cell} trial 2")))
     );
 }
 
@@ -532,7 +539,7 @@ fn counted(
                 cell: cell.name.to_owned(),
                 tool: config.tool(),
                 number,
-                load: None,
+                started: crate::compare::trials::Started::default(),
                 count: 9,
                 syncs: 0,
                 work: on_site(cell.scenario, work(cell.scenario, cell.name, number)),
@@ -739,7 +746,7 @@ fn sizes() -> SizesCell {
                                 number,
                                 site_pages: pages,
                                 concurrency,
-                                load: None,
+                                started: crate::compare::trials::Started::default(),
                                 retried: None,
                                 measured: Measured {
                                     seconds: 1.0,

@@ -68,6 +68,22 @@ fn a_redo_measures_with_the_runs_own_arguments() {
     );
 }
 
+/// `--quiet-until` takes the quiet window's end as `run/quiet-hold` writes
+/// it; a redo keeps the one it is given, and the rerun command leaves it
+/// out, a time that will have passed (#3352).
+#[test]
+fn the_end_of_a_runs_waits_is_its_own_and_never_rerun() {
+    let given = recipe_arguments(&["--quiet-until", "2026-11-26T05:30Z"]);
+    let redo = recipe_arguments(&["--redo", "--quiet-until", "2026-11-26T05:30Z"]);
+
+    let redone = redone_arguments("just compare release", &redo).expect("the command parses");
+
+    let end: jiff::Timestamp = "2026-11-26T05:30:00Z".parse().expect("a timestamp");
+    assert_eq!(given.quiet_until, Some(end));
+    assert_eq!(redone.quiet_until, Some(end));
+    assert_eq!(rerun::of(&given), "just compare release");
+}
+
 /// A redo builds its tools with the profile it is given, so one given
 /// another profile than the run's is refused rather than measured on other
 /// builds.

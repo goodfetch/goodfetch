@@ -55,7 +55,7 @@ use goodfetch_engine::hostile_input::check_headers;
 use goodfetch_engine::ledger::{ChargeError, Refusal as LedgerRefusal};
 use goodfetch_engine::response_limits::Limits;
 use goodfetch_engine::run::{limit_not_understood, limit_reached};
-use goodfetch_engine::runs::Run;
+use goodfetch_engine::runs::{Run, identity, run_trace};
 use goodfetch_engine::settings::RunSettings;
 use goodfetch_engine::{CallContext, CallError, Contribution, Enclose, Guard, Handler, named};
 use goodfetch_extractor::{BuiltIn, Serialization};
@@ -101,19 +101,22 @@ use serde_json::Value;
 
 use crate::blocks::{Block, BlockClassifier, NoBlocks};
 use crate::browser_fetch;
+use crate::cdp::{CdpPage, SerializedDocument};
 use crate::dialogs::{self, Dialogs};
 use crate::document_request::{DocumentRequest, Unread};
-use crate::driver::{Destination, SerializedDocument};
 use crate::extractor;
 use crate::fields;
 use crate::guard::{self, Action, Request, SentMark, Window};
-use crate::hiding::Hidden;
+use crate::init_scripts::Pending;
 use crate::interception::{
     Answer, ConsentHandling, Fulfillment, Interception, Overrides, Reply, Scope,
 };
 use crate::launch::Launcher;
-use crate::page_events::{self, Requested};
-use crate::page_functions::{self, InitScripts, Injection, Matches, Pending, Registered};
+use crate::page_events::{PageEvents, Requested};
+use crate::page_functions::{self, Injection, Matches};
+use crate::page_navigation::{self, Destination};
+use crate::page_owner::PageOwners;
+use crate::page_reads;
 use crate::page_value::{
     BrowserPages, EngineFetch, EngineFetched, FetchedBody, HandlerPages, HeldPlace, Opening,
     OwnFetch, PageValue, PooledSession, ProgramPages, ServedFormatsAhead,
@@ -121,7 +124,7 @@ use crate::page_value::{
 use crate::placeholders::Placeholders;
 use crate::proxy;
 use crate::recovery;
-use crate::sessions::{self, EngineWork, OpenPage, PageEvent, Sessions};
+use crate::sessions::{self, EngineWork, OpenPage, PageEvent, Sessions, interception_run};
 use crate::trace;
 use crate::url_pattern::UrlPattern;
 
@@ -163,22 +166,18 @@ pub fn contribution_with(
 ) -> Contribution {
     let handler_pages: Arc<dyn HandlerPages> = Arc::new(handler_pages);
     let interception = Interception::default();
-    let events = page_events::Table::default();
     let dialogs = Dialogs::default();
     let pages = Pages {
         sessions: Sessions::new(
             (pins, launcher),
             interception.clone(),
-            events.clone(),
             dialogs.clone(),
             Arc::clone(&handler_pages),
         ),
         interception,
-        events,
         dialogs,
         product: handler_pages,
         blocks,
-        init_scripts: InitScripts::default(),
     };
     let contribution = with_page_handlers(
         Contribution::new("page")
@@ -192,8 +191,9 @@ pub fn contribution_with(
     let contribution = with_session_handlers(contribution, &pages.sessions);
     let contribution = with_locator_handlers(contribution, &pages);
     let contribution = with_event_handlers(contribution, &pages);
-    let contribution = with_route_handlers(contribution, &pages.interception);
-    let contribution = with_dialog_handlers(contribution, &pages.dialogs);
+    let contribution = with_route_handlers(contribution, (&pages.interception, &pages.sessions));
+    let contribution =
+        with_dialog_handlers(contribution, (&pages.dialogs, pages.sessions.page_owners()));
     let contribution = with_function_handlers(contribution, &pages);
     let contribution = waits::with_wait_handlers(contribution, &pages);
     let contribution = with_request_handler(contribution, &pages);
@@ -315,7 +315,11 @@ fn with_function_handlers(contribution: Contribution, pages: &Pages) -> Contribu
         .with_handler(Handler::new(
             &PAGE_ADD_INIT_SCRIPT,
             move |params: AddInitScriptParams, _context: CallContext| {
-                let pending = registering.init_scripts.begin(&params.page_id);
+                let pending = registering
+                    .sessions
+                    .page_owners()
+                    .get(&params.page_id)
+                    .map(|owner| owner.init_scripts().begin());
                 let pages = registering.clone();
                 async move { pages.add_init_script(params, pending).await }
             },
@@ -369,8 +373,8 @@ const MAX_REDIRECTS_PARAMETER: &str = "max_redirects";
 /// of `page.wait_for_request_finished`, armed when its call arrives, and
 /// of `response.body`.
 fn with_event_handlers(contribution: Contribution, pages: &Pages) -> Contribution {
-    let table = &pages.events;
-    let (listening, waiting, reading) = (table.clone(), table.clone(), table.clone());
+    let owners = pages.sessions.page_owners();
+    let (listening, waiting, reading) = (owners.clone(), owners.clone(), owners.clone());
     let (finishing, reading_pages) = (pages.clone(), pages.clone());
     contribution
         .with_handler(
@@ -378,7 +382,7 @@ fn with_event_handlers(contribution: Contribution, pages: &Pages) -> Contributio
                 &PAGE_ON,
                 move |params: PageOnParams, context: CallContext| {
                     let listened = listening
-                        .get(&params.page_id)
+                        .events(&params.page_id)
                         .map(|events| events.listen(params.event));
                     async move {
                         listened?.serve(context.stream()).await?;
@@ -391,7 +395,7 @@ fn with_event_handlers(contribution: Contribution, pages: &Pages) -> Contributio
         .with_handler(Handler::new(
             &PAGE_WAIT_FOR_REQUEST_FINISHED,
             move |params: WaitForRequestFinishedParams, context: CallContext| {
-                let armed = waiting.get(&params.page_id).and_then(|events| {
+                let armed = waiting.events(&params.page_id).and_then(|events| {
                     let pattern = params.url.as_ref().map(pattern_of).transpose()?;
                     let deadline = events.wait_deadline(params.timeout)?;
                     Ok(events.wait_for_request_finished(pattern, context.form(), deadline))
@@ -406,7 +410,7 @@ fn with_event_handlers(contribution: Contribution, pages: &Pages) -> Contributio
         .with_handler(Handler::new(
             &RESPONSE_BODY,
             move |params: ResponseBodyParams, context: CallContext| {
-                let read = reading.get(&params.page_id).and_then(|events| {
+                let read = reading.events(&params.page_id).and_then(|events| {
                     let deadline = events.wait_deadline(params.timeout)?;
                     Ok((events, deadline))
                 });
@@ -513,17 +517,25 @@ fn with_session_handlers(contribution: Contribution, sessions: &Sessions) -> Con
 /// Adds the handlers of `page.route` and `session.route`, each arming its
 /// route when its call arrives, and of the answers to their requests, each
 /// delivered when its call arrives.
-fn with_route_handlers(contribution: Contribution, interception: &Interception) -> Contribution {
-    let (paging, sessioning) = (interception.clone(), interception.clone());
+fn with_route_handlers(
+    contribution: Contribution,
+    (interception, sessions): (&Interception, &Sessions),
+) -> Contribution {
+    let (owners, sessions) = (sessions.page_owners().clone(), sessions.clone());
     let contribution = contribution
         .with_handler(Handler::new(
             &PAGE_ROUTE,
             move |params: PageRouteParams, context: CallContext| {
-                let armed = paging.arm(
-                    Scope::Page(&params.page_id),
-                    &params.url,
-                    context.client(),
-                    context.id(),
+                let armed = owners.get(&params.page_id).map_or_else(
+                    || Err(sessions::page_closed(&params.page_id)),
+                    |owner| {
+                        Interception::arm(
+                            Scope::Page(owner.interception()),
+                            &params.url,
+                            context.client(),
+                            context.id(),
+                        )
+                    },
                 );
                 async move { armed?.ended().await }
             },
@@ -531,12 +543,16 @@ fn with_route_handlers(contribution: Contribution, interception: &Interception) 
         .with_handler(Handler::new(
             &SESSION_ROUTE,
             move |params: SessionRouteParams, context: CallContext| {
-                let armed = sessioning.arm(
-                    Scope::Session(&params.session_id),
-                    &params.url,
-                    context.client(),
-                    context.id(),
-                );
+                let armed = sessions
+                    .interception_of(&params.session_id)
+                    .and_then(|session| {
+                        Interception::arm(
+                            Scope::Session(&session),
+                            &params.url,
+                            context.client(),
+                            context.id(),
+                        )
+                    });
                 async move { armed?.ended().await }
             },
         ));
@@ -607,16 +623,21 @@ fn with_route_handlers(contribution: Contribution, interception: &Interception) 
         ))
 }
 
-/// Adds the handlers of `page.on_dialog`, arming its handler when its call
-/// arrives, and of the answers to its dialogs, each delivered when its call
-/// arrives.
-fn with_dialog_handlers(contribution: Contribution, dialogs: &Dialogs) -> Contribution {
-    let (arming, accepting, dismissing) = (dialogs.clone(), dialogs.clone(), dialogs.clone());
+/// Adds the handlers of `page.on_dialog`, arming its handler on its page's
+/// owner when its call arrives, and of the answers to its dialogs, each
+/// delivered when its call arrives.
+fn with_dialog_handlers(
+    contribution: Contribution,
+    (dialogs, owners): (&Dialogs, &PageOwners),
+) -> Contribution {
+    let (arming, accepting, dismissing) = (owners.clone(), dialogs.clone(), dialogs.clone());
     contribution
         .with_handler(Handler::new(
             &PAGE_ON_DIALOG,
             move |params: PageOnDialogParams, context: CallContext| {
-                let armed = arming.arm(&params.page_id, context.client(), context.id());
+                let armed = arming
+                    .dialogs(&params.page_id)
+                    .and_then(|dialogs| dialogs.arm(context.client(), context.id()));
                 async move { armed?.ended().await }
             },
         ))
@@ -960,7 +981,7 @@ impl BrowserPages for Opener {
             // Its document is fetched with the crawl request's method and
             // body for as long as the navigation goes on, its request charged
             // at its admission already.
-            let sent = self.pages.interception.send_own(&page_id, own);
+            let sent = page.owner.interception().send_own(own);
             let navigated = self
                 .pages
                 .navigate(
@@ -1033,11 +1054,12 @@ impl BrowserPages for Opener {
                 .sessions
                 .pool_session(run_id, pooled, context)
                 .await?;
-            let (run, own) = self.pages.sessions.own_settings(&session).await?;
+            let (run, own) = self.pages.sessions.own_settings(&session)?;
+            let side = self.pages.sessions.interception_of(&session)?;
             let steps = self
                 .pages
                 .interception
-                .engine_requests_of(&session, &run, &own)
+                .engine_requests_of(&side, &interception_run(&run), &own)
                 .await?;
             let limits = Limits::of_run(run.settings());
             let headers: BTreeMap<String, String> = request.headers.iter().cloned().collect();
@@ -1098,18 +1120,18 @@ impl BrowserPages for Opener {
     ) -> Opening<'a, Result<Option<Value>, CallError>> {
         Box::pin(async move {
             let page = self.pages.sessions.page(page_id).await?;
-            let cosmetic = match &page.hiding {
-                Some(hiding) => hiding.applied().await,
-                None => Vec::new(),
-            };
+            let cosmetic = page.owner.hiding().applied().await;
             if let Some(fields) = argument.as_object_mut() {
                 fields.insert("cosmetic".to_owned(), cosmetic.into());
             }
             page.life
-                .call(
-                    PageEvent::Read,
-                    page.driver.read_in_page(function, argument, operation),
-                )
+                .call(PageEvent::Read, async {
+                    page.owner
+                        .reads(CdpPage::of(&page.driver))
+                        .await?
+                        .in_page(function, argument, operation)
+                        .await
+                })
                 .await
         })
     }
@@ -1132,14 +1154,18 @@ impl BrowserPages for Opener {
         label: Option<BuiltIn>,
     ) -> Opening<'a, Option<Arc<dyn ServedFormatsAhead>>> {
         Box::pin(async move {
-            let cosmetic = self.pages.interception.served_cosmetic(run).await;
+            let cosmetic = self
+                .pages
+                .interception
+                .served_cosmetic(&interception_run(run))
+                .await;
             let reader = served_formats::ServedFormatsReader::of(run, request, label, cosmetic);
             Some(Arc::new(reader) as Arc<dyn ServedFormatsAhead>)
         })
     }
 
     fn prepare_served_formats(&self, run: &Run) {
-        let (pages, preparing) = (self.pages.clone(), run.clone());
+        let (pages, preparing) = (self.pages.clone(), interception_run(run));
         run.spawn(async move {
             drop(pages.interception.served_cosmetic(&preparing).await);
         });
@@ -1177,21 +1203,22 @@ async fn charge_request(run: &Run, context: &CallContext) -> Result<(), CallErro
 struct Pages {
     sessions: Sessions,
     interception: Interception,
-    /// Each open page's events, which calls reach as they arrive.
-    events: page_events::Table,
-    /// Each open page's dialogs and their handlers.
+    /// The open dialogs' slots, which the answers to them reach.
     dialogs: Dialogs,
     /// The Product's seam that sets what its handlers' pages carry, which
     /// also serves the pages its fetch tiers opened from a document.
     product: Arc<dyn HandlerPages>,
     /// The Product's Block classification.
     blocks: Arc<dyn BlockClassifier>,
-    /// Each page's init scripts on their way in or out, which its
-    /// navigations wait for.
-    init_scripts: InitScripts,
 }
 
 impl Pages {
+    /// The events of the open page `page_id`, which its owner holds, or
+    /// `closed`.
+    fn events(&self, page_id: &PageId) -> Result<PageEvents, CallError> {
+        self.sessions.page_owners().events(page_id)
+    }
+
     /// Navigates the page `page_id` to `destination` for the call
     /// `context`, answering once its document reached the state
     /// `wait_until` names; a download it turns into is published on the
@@ -1241,9 +1268,8 @@ impl Pages {
         if let Destination::Url(url) = destination {
             match egress::navigation(url, navigator).map_err(|refused| refused.error())? {
                 egress::Destination::JavaScript => {
-                    let document = page.driver.document_url().await?;
-                    self.interception
-                        .judge_javascript(page_id, url, &document)?;
+                    let document = page_reads::document_url(&CdpPage::of(&page.driver)).await?;
+                    page.owner.interception().judge_javascript(url, &document)?;
                 }
                 egress::Destination::Network if charge == Charge::OneRequest => {
                     charge_request(&page.run, context).await?;
@@ -1255,10 +1281,10 @@ impl Pages {
         }
         let _files = navigator
             .reads_files()
-            .then(|| self.interception.allow_files(page_id, navigator));
+            .then(|| page.owner.interception().allow_files(navigator));
         let events = context.events();
         let deadline = page.driver.navigation_deadline(timeout)?;
-        let blocked_before = self.interception.lists_blocked(page_id);
+        let blocked_before = page.owner.interception().lists_blocked();
         if navigating == Navigating::Program {
             page.sending(destination.operation()).await?;
         }
@@ -1266,17 +1292,19 @@ impl Pages {
             .life
             .call(
                 PageEvent::Goto,
-                page.driver.having_spent(spent).navigate(
+                page_navigation::navigate(
+                    &page.owner,
+                    page.driver.having_spent(spent).into_owned(),
                     destination,
                     wait_until,
-                    deadline.as_ref(),
+                    deadline,
                 ),
             )
             .await;
         // A failure the interception left while the navigation ran, such
         // as a route's handler failing on its document, is the
         // navigation's.
-        if let Some(failure) = self.left_failure(page_id) {
+        if let Some(failure) = Self::left_failure(&page) {
             return Err(failure);
         }
         let Some(response) = arrival::arrived(page_id, navigated?, events).await else {
@@ -1287,7 +1315,7 @@ impl Pages {
         // it checks the browser and the Filter lists touched its
         // navigation, which loads it once more with blocking off (ADR 0047);
         // then its Page check (ADRs 0006 and 0092).
-        let page_events = self.events.get(page_id)?;
+        let page_events = self.events(page_id)?;
         page_events.judged(&response.request_id);
         let received = page_events
             .answered_at(&response.request_id)
@@ -1302,7 +1330,7 @@ impl Pages {
             operation,
         )
         .await?;
-        let touched = self.interception.lists_blocked(page_id) > blocked_before;
+        let touched = page.owner.interception().lists_blocked() > blocked_before;
         if let Some(block) = &block
             && !(touched && block.checks_the_browser())
         {
@@ -1356,13 +1384,11 @@ impl Pages {
                 spent,
             },
             form: context.form(),
-            hiding: Hidden {
-                live: page.hiding.as_deref(),
-                sheets: &page.sheets,
-                run: &page.run,
-                page_id: &locator.page_id,
-                session_id: &page.session,
-            },
+            hiding: page
+                .owner
+                .hiding()
+                .hidden(run_trace(&page.run), (&locator.page_id, &page.session)),
+            owner: &page.owner,
             sent: SentMark {
                 run: &page.run,
                 lease: page.lease(),
@@ -1377,7 +1403,7 @@ impl Pages {
             .await;
         // A dialog handler that failed on a dialog the action opened fails
         // the action, which the dialog blocked.
-        if let Some(failure) = self.dialogs.take_failure(&locator.page_id) {
+        if let Some(failure) = page.owner.dialogs().take_failure() {
             return Err(failure);
         }
         acted?;
@@ -1398,8 +1424,8 @@ impl Pages {
             })
             .await?;
         tracing::Span::current().record("run_id", page.run.id().as_str());
-        let steps = self.interception.engine_requests(&params.page_id)?;
-        let events = self.events.get(&params.page_id)?;
+        let steps = page.owner.interception().engine_requests()?;
+        let events = self.events(&params.page_id)?;
         let limits = Limits::of_run(page.run.settings());
         let placeholders = self.placeholders(&page, &params).await?;
         let request = browser_fetch::Request {
@@ -1432,7 +1458,7 @@ impl Pages {
             &params.page_id,
             &page.session,
             page.driver.value(),
-            &page.run,
+            (&page.run, page.owner.tasks()),
         ) {
             reader.read(steps, &fetched.response.url);
         }
@@ -1467,7 +1493,7 @@ impl Pages {
         if params.secret_headers.is_none() && params.json_secrets.is_none() {
             return Ok(None);
         }
-        let (_, own) = self.sessions.own_settings(&page.session).await?;
+        let (_, own) = self.sessions.own_settings(&page.session)?;
         let settings = page.run.settings().map(|settings| {
             settings
                 .resolved()
@@ -1507,64 +1533,30 @@ impl Pages {
             .life
             .call(
                 PageEvent::Read,
-                page.driver.evaluate(expression, world, operation),
+                page_reads::evaluate(&CdpPage::of(&page.driver), expression, world, operation),
             )
             .await?;
         page_functions::answered(returns, (form, operation))
     }
 
     /// Registers the init script `params` names on its page, `pending`
-    /// until it is, and marks the Session in Provenance; answers once the
-    /// page ended, and removes the script when the call is dropped before.
+    /// until it is (counted from now when its page was not open as the call
+    /// arrived), and marks the Session in Provenance; answers once the page
+    /// ended, and removes the script when the call is dropped before.
     #[tracing::instrument(name = "page", level = "debug", skip_all, fields(page_id = %params.page_id.0, operation = PAGE_ADD_INIT_SCRIPT.name, run_id = tracing::field::Empty))]
     async fn add_init_script(
         &self,
         params: AddInitScriptParams,
-        pending: Pending,
+        pending: Option<Pending>,
     ) -> Result<InitScriptEnded, CallError> {
         let source = page_functions::init_script(&params.function, params.arg.as_ref())?;
         let page = self.opened(&params.page_id).await?;
         tracing::Span::current().record("run_id", page.run.id().as_str());
         page.sending(PAGE_ADD_INIT_SCRIPT.name).await?;
-        // Registered on a task of the Run's, so a call dropped meanwhile
-        // never leaves the script registered: its registration, answered to
-        // no one, is removed there, counted before `pending` goes.
-        let (answer, answered) = tokio::sync::oneshot::channel::<Result<Registered, CallError>>();
-        let (driver, run, frames) = (
-            page.driver.clone(),
-            page.run.clone(),
-            page.frame_scripts.clone(),
-        );
-        let counted = (self.init_scripts.clone(), params.page_id.clone());
-        page.run.spawn(async move {
-            let registered = async {
-                let identifier = driver
-                    .add_init_script(source.clone(), PAGE_ADD_INIT_SCRIPT.name)
-                    .await?;
-                // The page's out-of-process iframes take it too.
-                let key = frames.add(source).await;
-                Ok::<_, CallError>(Registered::new(
-                    driver,
-                    identifier,
-                    run,
-                    counted,
-                    (frames, key),
-                ))
-            }
-            .await;
-            drop(answer.send(registered));
-            drop(pending);
-        });
-        let registered = page
-            .life
-            .call(PageEvent::Read, async {
-                match answered.await {
-                    Ok(registered) => registered,
-                    // The Run ended under it: its ending answers.
-                    Err(_) => std::future::pending().await,
-                }
-            })
-            .await?;
+        let scripts = page.owner.init_scripts();
+        let pending = pending.unwrap_or_else(|| scripts.begin());
+        let registering = scripts.register(source, pending);
+        let registered = page.life.call(PageEvent::Read, registering).await?;
         page.injections
             .mark(
                 &page.run,
@@ -1595,9 +1587,11 @@ impl Pages {
         page_id: &PageId,
         limit: impl FnOnce(&OpenPage) -> Result<Option<Deadline>, CallError>,
     ) -> Result<(OpenPage, Duration), CallError> {
-        self.init_scripts.settled(page_id).await;
+        if let Some(settling) = self.sessions.page_owners().settling(page_id) {
+            settling.await;
+        }
         let mut spent = Duration::ZERO;
-        if let Some(arming) = self.events.arming(page_id) {
+        if let Some(arming) = self.sessions.page_owners().arming(page_id) {
             let page = self.sessions.page(page_id).await?;
             let started = page.clock.now();
             match limit(&page)? {
@@ -1619,7 +1613,7 @@ impl Pages {
     /// for reached (ADR 0092).
     async fn opened(&self, page_id: &PageId) -> Result<OpenPage, CallError> {
         let page = self.sessions.page(page_id).await?;
-        if let Some(failure) = self.left_failure(page_id) {
+        if let Some(failure) = Self::left_failure(&page) {
             return Err(failure);
         }
         self.consent_verdict(page_id, &page, false).await?;
@@ -1639,18 +1633,18 @@ impl Pages {
         page: &OpenPage,
         navigated: bool,
     ) -> Result<(), CallError> {
-        let walls = self.sessions.consent_walls();
+        let walls = page.owner.consent_walls();
         // With `consent.handling: off` no runner looks, so there is nothing
         // to ask (#2434).
         if navigated
-            && ConsentHandling::of(&page.run) != ConsentHandling::Off
+            && ConsentHandling::of(identity(&page.run)) != ConsentHandling::Off
             && crate::consent::first_pass_found(&page.driver, page.run.metrics().counted_work())
                 .await
         {
-            walls.detected(page_id);
+            walls.detected();
         }
         let (_, limit) = &page.action_timeout;
-        if !walls.verdict(page_id, *limit, page.clock).await {
+        if !walls.verdict(*limit, page.clock).await {
             tracing::debug!(page_id = %page_id.0, "the Consent prompt runner gave no verdict on a prompt it found within the action deadline");
         }
         self.consent_wall(page_id)
@@ -1659,9 +1653,11 @@ impl Pages {
     /// Raises the consent wall the Consent prompt runner left in the
     /// document the page `page_id` holds, once (ADR 0048).
     fn consent_wall(&self, page_id: &PageId) -> Result<(), CallError> {
-        let walled = self.events.get(page_id).ok().and_then(|events| {
-            blocked::consent_wall(self.sessions.consent_walls(), page_id, &events)
-        });
+        let walled = self
+            .sessions
+            .page_owners()
+            .get(page_id)
+            .and_then(|owner| blocked::consent_wall(owner.consent_walls(), owner.events()));
         walled.map_or(Ok(()), Err)
     }
 
@@ -1679,8 +1675,7 @@ impl Pages {
         waiting: Option<&'static str>,
     ) -> Result<(), CallError> {
         let Some((response, received, requested)) = self
-            .events
-            .get(page_id)
+            .events(page_id)
             .ok()
             .and_then(|events| events.take_unjudged())
         else {
@@ -1716,12 +1711,13 @@ impl Pages {
         self.judge_unjudged(&page, page_id, Some(operation)).await
     }
 
-    /// The failure a route's handler, or else a dialog handler, left on the
-    /// page `page_id` for the call it blocked or its next call.
-    fn left_failure(&self, page_id: &PageId) -> Option<CallError> {
-        self.interception
-            .take_failure(page_id)
-            .or_else(|| self.dialogs.take_failure(page_id))
+    /// The failure a route's handler, or else a dialog handler, left on
+    /// `page` for the call it blocked or its next call.
+    fn left_failure(page: &OpenPage) -> Option<CallError> {
+        page.owner
+            .interception()
+            .take_failure()
+            .or_else(|| page.owner.dialogs().take_failure())
     }
 
     /// The formats the request names, read from one serialization of the
@@ -1761,7 +1757,9 @@ impl Pages {
             let cosmetic = if clean_up::reads_nothing(&request) {
                 None
             } else {
-                self.interception.served_cosmetic(&served.run).await
+                self.interception
+                    .served_cosmetic(&interception_run(&served.run))
+                    .await
             };
             let work = served.run.metrics().counted_work().clone();
             let read = move |kept: Option<&ParsedHtml>| {
@@ -1799,26 +1797,24 @@ impl Pages {
             }
             return Ok(formats);
         }
-        let (page, _) = self
-            .open(&params.page_id, |page| {
-                page.driver.navigation_deadline(None)
-            })
-            .await?;
+        let deadline = |page: &OpenPage| page.driver.navigation_deadline(None);
+        let (page, _) = self.open(&params.page_id, deadline).await?;
         tracing::Span::current().record("run_id", page.run.id().as_str());
+        let cdp = CdpPage::of(&page.driver);
         let document = page
             .life
-            .call(PageEvent::Read, page.driver.document())
+            .call(PageEvent::Read, page_reads::document(&cdp))
             .await?;
         let request = params.formats;
-        let (_, session) = self.sessions.own_settings(&page.session).await?;
+        let (_, session) = self.sessions.own_settings(&page.session)?;
         let extractor = extractor::chosen(
             page.run.settings().map(RunSettings::resolved),
             (&session, page.driver.value().extractor()),
             &page.settings,
         );
         let measure = clean_up::ShareMeasure::of(page.run.settings().map(RunSettings::resolved));
-        let cosmetic = self.interception.cosmetic(&params.page_id);
-        let hidden = page.sheets.runner_hidden();
+        let cosmetic = page.owner.interception().cosmetic();
+        let hidden = page.owner.hiding().runner_hidden();
         let work = page.run.metrics().counted_work().clone();
         let (formats, read) = page
             .run
@@ -1861,7 +1857,11 @@ impl Pages {
             })?;
         }
         let declared = goodfetch_extractor::fields::Fields::of(&params.fields, work);
-        let reading = page.driver.counting(Row::PageFieldReadCommands);
+        let reading = page
+            .life
+            .call(PageEvent::Read, page.owner.reads(CdpPage::of(&page.driver)))
+            .await?
+            .counting(Row::PageFieldReadCommands);
         // A document replaced under the read is read once more in the next
         // one, as `page.evaluate`'s is.
         let mut answer = None;
@@ -1870,7 +1870,7 @@ impl Pages {
                 .life
                 .call(
                     PageEvent::Read,
-                    reading.read_in_page(
+                    reading.in_page(
                         fields::READ,
                         fields::argument(&params.fields),
                         PAGE_READ.name,

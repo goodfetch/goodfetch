@@ -14,6 +14,7 @@ import type {
   RawParams,
   Run,
   RunView,
+  Schedules,
   SettingsExplanation,
   StartOptions,
 } from "@goodfetch/collie-client";
@@ -41,8 +42,15 @@ export class Collie implements Connection {
 
   readonly #connection: ClientConnection;
 
+  /**
+   * The Schedules of the engine's major: create, list and get each one
+   * (spec 589). Reached without a round trip.
+   */
+  readonly schedules: Schedules;
+
   private constructor(connection: ClientConnection) {
     this.#connection = connection;
+    this.schedules = connection.schedules;
     holdInRealm(this);
   }
 

@@ -1,8 +1,9 @@
-//! A page's JavaScript dialogs (spec #577's `dialogs`; ADRs 0081 and 0085):
-//! each open page has one reader of its dialogs, which asks the page's
-//! dialog handlers about each one, the latest armed first, through
-//! `dialog.handle`, and answers the browser with the first `dialog.accept`
-//! or `dialog.dismiss` it gets. A handler that ends without answering falls
+//! A page's JavaScript dialogs (spec #577's `dialogs`; ADRs 0081 and 0085),
+//! which its owner holds (ADR 0146): each open page has one reader of its
+//! dialogs, which asks the page's dialog handlers about each one, the latest
+//! armed first, through `dialog.handle`, and answers the browser with the
+//! first `dialog.accept` or `dialog.dismiss` it gets. A handler that ends
+//! without answering falls
 //! through to the one armed before; past the last one, or with none, the
 //! dialog gets Playwright's default: an `alert`, `confirm` or `prompt` is
 //! dismissed, and a `beforeunload` dialog accepted, so a page never stalls
@@ -10,7 +11,7 @@
 //! failure gives the dialog its default unless it answered already, is
 //! removed, ends its subscription with `page_handler_failed`, and leaves
 //! that failure for the call the dialog blocked, or else the page's next
-//! call ([`Dialogs::take_failure`]). Each dialog is named `dialog-<n>`,
+//! call ([`PageDialogs::take_failure`]). Each dialog is named `dialog-<n>`,
 //! numbered from 1 by the engine; once it is answered or closed, any later
 //! answer raises `dialog_already_handled`.
 //!
@@ -27,11 +28,9 @@ use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
-use goodfetch_cdp::Subscription;
-use goodfetch_cdp::generated::page;
 use goodfetch_engine::CallError;
 use goodfetch_engine::client::{Client, ClientRequestError, Sent};
-use goodfetch_engine::runs::Run;
+use goodfetch_engine::run_identity::RunIdentity;
 use goodfetch_protocol::connection::CLOSED;
 use goodfetch_protocol::jsonrpc::RequestId;
 use goodfetch_protocol::page::PageId;
@@ -42,7 +41,8 @@ use goodfetch_protocol::page::dialog::{
 use goodfetch_protocol::page::route::{PAGE_HANDLER_FAILED, PageHandler, PageHandlerFailedDetails};
 use tokio::sync::{mpsc, oneshot, watch};
 
-use crate::driver::PageDriver;
+use crate::cdp::{CdpPage, DialogEvent, DialogEvents, OpenedDialog};
+use crate::errors::page_closed;
 
 /// Locks `mutex`, whose holders never panic while they hold it.
 fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
@@ -61,8 +61,8 @@ pub(crate) enum Answer {
 /// An answer on its way to its dialog, with where its reply goes.
 type Delivered = (Answer, oneshot::Sender<Result<(), CallError>>);
 
-/// The open pages' dialogs and the open dialogs' slots, which every call
-/// reaches as it arrives. Clones share them.
+/// The open dialogs' slots, by the number the engine gives each, which
+/// every answer reaches as its call arrives. Clones share them.
 #[derive(Clone, Default)]
 pub(crate) struct Dialogs {
     shared: Arc<Shared>,
@@ -70,15 +70,22 @@ pub(crate) struct Dialogs {
 
 #[derive(Default)]
 struct Shared {
-    pages: Mutex<BTreeMap<PageId, Arc<PageDialogs>>>,
     /// The last dialog number given.
     given: AtomicU64,
     /// Each open dialog's slot, by its number.
     slots: Mutex<BTreeMap<u64, mpsc::Sender<Delivered>>>,
 }
 
-/// One page's dialog handlers, in the order they were armed.
-struct PageDialogs {
+/// One page's dialog handlers, which a call arms as it arrives and its
+/// reader asks. Clones share them.
+#[derive(Clone)]
+pub(crate) struct PageDialogs {
+    page: Arc<OfPage>,
+}
+
+struct OfPage {
+    page_id: PageId,
+    /// Its handlers, in the order they were armed.
     handlers: Mutex<Vec<Arc<Handler>>>,
     /// The first failure a handler left for the page's next call.
     failure: Mutex<Option<CallError>>,
@@ -103,12 +110,54 @@ impl Handler {
 }
 
 impl PageDialogs {
+    /// Arms a dialog handler on the page, answered by `client` for its call
+    /// `call`, as the latest; `closed` when the page is.
+    pub(crate) fn arm(&self, client: &Client, call: &RequestId) -> Result<Armed, CallError> {
+        let (failed, ended) = oneshot::channel();
+        let handler = Arc::new(Handler {
+            client: client.clone(),
+            call: call.clone(),
+            failed: Mutex::new(Some(failed)),
+        });
+        let closed = self.page.closed.subscribe();
+        {
+            // A close tells `closed` first, so one this arming does not see
+            // clears the handlers after it.
+            let mut handlers = lock(&self.page.handlers);
+            if *closed.borrow() {
+                return Err(page_closed(&self.page.page_id));
+            }
+            handlers.push(Arc::clone(&handler));
+        }
+        Ok(Armed {
+            dialogs: self.clone(),
+            handler,
+            ended,
+            closed,
+        })
+    }
+
+    /// The failure a dialog handler left on the page for its next call;
+    /// none once the page is closed.
+    pub(crate) fn take_failure(&self) -> Option<CallError> {
+        if *self.page.closed.borrow() {
+            return None;
+        }
+        lock(&self.page.failure).take()
+    }
+
+    /// The page goes: its handlers' subscriptions end.
+    pub(crate) fn close(&self) {
+        self.page.closed.send_replace(true);
+        lock(&self.page.handlers).clear();
+    }
+
     fn latest_first(&self) -> Vec<Arc<Handler>> {
-        lock(&self.handlers).iter().rev().cloned().collect()
+        lock(&self.page.handlers).iter().rev().cloned().collect()
     }
 
     fn remove(&self, handler: &Arc<Handler>) {
-        lock(&self.handlers).retain(|armed| !Arc::ptr_eq(armed, handler));
+        lock(&self.page.handlers).retain(|armed| !Arc::ptr_eq(armed, handler));
     }
 
     /// `handler` failed on a dialog of the document at `url`: it goes, its
@@ -116,14 +165,14 @@ impl PageDialogs {
     fn handler_failed(&self, handler: &Arc<Handler>, url: &str, message: &str) {
         handler.fail(handler_failed(url, message));
         self.remove(handler);
-        lock(&self.failure).get_or_insert(handler_failed(url, message));
+        lock(&self.page.failure).get_or_insert(handler_failed(url, message));
     }
 }
 
 /// An armed dialog handler, as its subscription holds it: dropped, it takes
 /// the handler out of its page's.
 pub(crate) struct Armed {
-    page: Arc<PageDialogs>,
+    dialogs: PageDialogs,
     handler: Arc<Handler>,
     ended: oneshot::Receiver<CallError>,
     closed: watch::Receiver<bool>,
@@ -153,7 +202,7 @@ impl Armed {
 
 impl Drop for Armed {
     fn drop(&mut self) {
-        self.page.remove(&self.handler);
+        self.dialogs.remove(&self.handler);
     }
 }
 
@@ -172,56 +221,26 @@ impl Drop for Slot {
 }
 
 impl Dialogs {
-    /// Starts answering the dialogs of the page `page_id`, which `driver`
-    /// drives for `run`, from `subscription`, its target's events.
-    pub(crate) fn start(
-        &self,
-        page_id: PageId,
-        driver: PageDriver,
-        run: &Run,
-        subscription: Subscription,
-    ) {
-        let page = Arc::new(PageDialogs {
-            handlers: Mutex::new(Vec::new()),
-            failure: Mutex::new(None),
-            closed: watch::Sender::new(false),
-        });
-        lock(&self.shared.pages).insert(page_id.clone(), Arc::clone(&page));
+    /// Starts answering, on a task of `run`, the dialogs of the page
+    /// `page_id`, which `cdp` reaches, from now.
+    pub(crate) fn start(&self, page_id: PageId, cdp: CdpPage, run: &RunIdentity) -> PageDialogs {
+        let dialogs = PageDialogs {
+            page: Arc::new(OfPage {
+                page_id,
+                handlers: Mutex::new(Vec::new()),
+                failure: Mutex::new(None),
+                closed: watch::Sender::new(false),
+            }),
+        };
+        let events = cdp.dialog_events();
         let reader = Reader {
             shared: Arc::clone(&self.shared),
-            page,
-            page_id,
-            driver,
+            dialogs: dialogs.clone(),
+            cdp,
             run: run.clone(),
         };
-        run.spawn(reader.read(subscription));
-    }
-
-    /// Arms a dialog handler on the page `page_id`, answered by `client`
-    /// for its call `call`, as the latest; `closed` when the page is.
-    pub(crate) fn arm(
-        &self,
-        page_id: &PageId,
-        client: &Client,
-        call: &RequestId,
-    ) -> Result<Armed, CallError> {
-        let page = lock(&self.shared.pages)
-            .get(page_id)
-            .cloned()
-            .ok_or_else(|| page_closed(page_id))?;
-        let (failed, ended) = oneshot::channel();
-        let handler = Arc::new(Handler {
-            client: client.clone(),
-            call: call.clone(),
-            failed: Mutex::new(Some(failed)),
-        });
-        lock(&page.handlers).push(Arc::clone(&handler));
-        Ok(Armed {
-            closed: page.closed.subscribe(),
-            page,
-            handler,
-            ended,
-        })
+        run.spawn(reader.read(events));
+        dialogs
     }
 
     /// Delivers `answer` to the dialog `dialog_id`, and answers once the
@@ -255,34 +274,15 @@ impl Dialogs {
                 .unwrap_or_else(|_| Err(already_handled(&dialog_id)))
         })
     }
-
-    /// The failure a dialog handler left on the page `page_id` for its
-    /// next call.
-    pub(crate) fn take_failure(&self, page_id: &PageId) -> Option<CallError> {
-        let page = lock(&self.shared.pages).get(page_id).cloned()?;
-        lock(&page.failure).take()
-    }
-
-    /// Takes the pages `pages` out, as they go: their handlers'
-    /// subscriptions end.
-    pub(crate) fn close(&self, pages: &[PageId]) {
-        let mut table = lock(&self.shared.pages);
-        for page in pages {
-            if let Some(dialogs) = table.remove(page) {
-                lock(&dialogs.handlers).clear();
-                dialogs.closed.send_replace(true);
-            }
-        }
-    }
 }
 
 /// One page's reader of its dialogs.
 struct Reader {
     shared: Arc<Shared>,
-    page: Arc<PageDialogs>,
-    page_id: PageId,
-    driver: PageDriver,
-    run: Run,
+    dialogs: PageDialogs,
+    /// The primitives the page's dialogs are read and answered by.
+    cdp: CdpPage,
+    run: RunIdentity,
 }
 
 /// How asking one handler about a dialog ended.
@@ -296,69 +296,50 @@ enum Asked {
 }
 
 impl Reader {
-    /// Reads the page's events until the page leaves the engine or its
-    /// target goes, answering each dialog it opens before the next.
-    async fn read(self, mut events: Subscription) {
-        let mut closed = self.page.closed.subscribe();
+    /// Reads the page's dialogs until the page leaves the engine or its
+    /// target goes, answering each one it opens before the next.
+    async fn read(self, mut events: DialogEvents) {
+        let mut closed = self.dialogs.page.closed.subscribe();
         loop {
             let event = tokio::select! {
                 biased;
                 _ = closed.wait_for(|closed| *closed) => return,
                 event = events.next() => event,
             };
-            let Some(event) = event else {
-                return;
-            };
-            if let Some(opening) = event.read::<page::JavascriptDialogOpeningEvent>() {
-                self.answer_dialog(&opening, &mut events).await;
+            match event {
+                Some(DialogEvent::Opened(opened)) => self.answer_dialog(&opened, &mut events).await,
+                Some(DialogEvent::Closed) => {}
+                None => return,
             }
         }
     }
 
-    /// Asks the page's handlers about the dialog `opening` names, the latest
+    /// Asks the page's handlers about the dialog `opened`, the latest
     /// first, and answers the browser with the first answer, or the
     /// dialog's default.
-    async fn answer_dialog(
-        &self,
-        opening: &page::JavascriptDialogOpeningEvent,
-        events: &mut Subscription,
-    ) {
-        let kind = match opening.r#type {
-            page::DialogType::Alert => DialogType::Alert,
-            page::DialogType::Prompt => DialogType::Prompt,
-            page::DialogType::Beforeunload => DialogType::BeforeUnload,
-            // A kind this protocol revision did not list is answered with
-            // the default of a dialog that asks the program something.
-            page::DialogType::Confirm | page::DialogType::Unlisted => DialogType::Confirm,
-        };
-        let dialog = Dialog {
-            kind,
-            message: opening.message.clone(),
-            default_value: opening.default_prompt.clone().unwrap_or_default(),
-        };
-        for handler in self.page.latest_first() {
-            match self.ask(&handler, &dialog, &opening.url, events).await {
+    async fn answer_dialog(&self, opened: &OpenedDialog, events: &mut DialogEvents) {
+        for handler in self.dialogs.latest_first() {
+            match self.ask(&handler, opened, events).await {
                 Asked::Through => {}
                 Asked::Settled => return,
                 Asked::Failed => break,
             }
         }
-        let default = if kind == DialogType::BeforeUnload {
+        let default = if opened.dialog.kind == DialogType::BeforeUnload {
             Answer::Accept(None)
         } else {
             Answer::Dismiss
         };
-        let _ = self.close_dialog(&dialog, default).await;
+        let _ = self.close_dialog(&opened.dialog, default).await;
     }
 
-    /// Asks `handler` about `dialog`, from the document at `url`, and acts
-    /// on its first answer.
+    /// Asks `handler` about the dialog `opened`, and acts on its first
+    /// answer.
     async fn ask(
         &self,
         handler: &Arc<Handler>,
-        dialog: &Dialog,
-        url: &str,
-        events: &mut Subscription,
+        opened: &OpenedDialog,
+        events: &mut DialogEvents,
     ) -> Asked {
         let number = self.shared.given.fetch_add(1, Ordering::Relaxed) + 1;
         let (sender, answers) = mpsc::channel(1);
@@ -371,8 +352,8 @@ impl Reader {
         let params = DialogHandleParams {
             id: handler.call.clone(),
             dialog_id: DialogId(format!("dialog-{number}")),
-            page_id: self.page_id.clone(),
-            dialog: dialog.clone(),
+            page_id: self.dialogs.page.page_id.clone(),
+            dialog: opened.dialog.clone(),
         };
         let Ok(mut sent) = handler
             .client
@@ -380,7 +361,7 @@ impl Reader {
             .await
         else {
             // Its Connection ended: no handler answers there any more.
-            self.page.remove(handler);
+            self.dialogs.remove(handler);
             return Asked::Through;
         };
         loop {
@@ -388,18 +369,18 @@ impl Reader {
                 biased;
                 Some((answer, reply)) = slot.answers.recv() => {
                     drop(slot);
-                    let _ = reply.send(self.close_dialog(dialog, answer).await);
-                    self.watch(handler, url, sent);
+                    let _ = reply.send(self.close_dialog(&opened.dialog, answer).await);
+                    self.watch(handler, &opened.url, sent);
                     return Asked::Settled;
                 }
                 ended = sent.answer() => {
                     return match ended {
                         Err(ClientRequestError::Failed { message, .. }) => {
-                            self.page.handler_failed(handler, url, &message);
+                            self.dialogs.handler_failed(handler, &opened.url, &message);
                             Asked::Failed
                         }
                         Err(ClientRequestError::Gone) => {
-                            self.page.remove(handler);
+                            self.dialogs.remove(handler);
                             Asked::Through
                         }
                         // Ended without an answer: it falls through.
@@ -412,12 +393,9 @@ impl Reader {
                 }
                 event = events.next() => match event {
                     // The page closed the dialog itself, as a navigation
-                    // does: no answer is due.
-                    Some(event) if event.read::<page::JavascriptDialogClosedEvent>().is_some() => {
-                        return Asked::Settled;
-                    }
-                    Some(_) => {}
-                    None => return Asked::Settled,
+                    // does, or its target went: no answer is due.
+                    Some(DialogEvent::Closed) | None => return Asked::Settled,
+                    Some(DialogEvent::Opened(_)) => {}
                 },
             }
         }
@@ -426,10 +404,10 @@ impl Reader {
     /// Watches the handler that answered until it ends: one that fails
     /// then still loses its handler and leaves its failure.
     fn watch(&self, handler: &Arc<Handler>, url: &str, mut sent: Sent<DialogHandled>) {
-        let (handler, page, url) = (Arc::clone(handler), Arc::clone(&self.page), url.to_owned());
+        let (handler, dialogs, url) = (Arc::clone(handler), self.dialogs.clone(), url.to_owned());
         self.run.spawn(async move {
             if let Err(ClientRequestError::Failed { message, .. }) = sent.answer().await {
-                page.handler_failed(&handler, &url, &message);
+                dialogs.handler_failed(&handler, &url, &message);
             }
         });
     }
@@ -444,16 +422,12 @@ impl Reader {
             ),
             Answer::Dismiss => (false, None),
         };
-        self.driver
-            .command(&page::HandleJavaScriptDialogParams {
-                accept,
-                prompt_text,
-            })
+        self.cdp
+            .answer_dialog(accept, prompt_text)
             .await
-            .map(drop)
             .map_err(|failure| {
                 tracing::debug!(%failure, "a dialog closed before its answer reached it");
-                dialog_gone(&self.page_id)
+                dialog_gone(&self.dialogs.page.page_id)
             })
     }
 }
@@ -494,15 +468,6 @@ fn dialog_gone(page_id: &PageId) -> CallError {
             "the dialog of the page `{}` closed before its answer reached it",
             page_id.0
         ),
-        &serde_json::json!({ "page_id": page_id }),
-    )
-}
-
-/// `closed` for the page `page_id`.
-fn page_closed(page_id: &PageId) -> CallError {
-    CallError::new(
-        &CLOSED,
-        format!("the page `{}` is closed, or its Run ended", page_id.0),
         &serde_json::json!({ "page_id": page_id }),
     )
 }

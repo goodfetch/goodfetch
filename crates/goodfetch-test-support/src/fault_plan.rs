@@ -3,9 +3,10 @@
 //! moments, its file format, and the glue that generates plans from a
 //! proptest-state-machine reference machine, shrinks a failing one and
 //! writes it to the test's folder with the command that replays it. A
-//! committed plan sits in `fixtures/fault_plans/` beside its scenario, with
-//! its `.source.toml`, and still replays after the code changes, where a
-//! bare seed replays only on its own commit.
+//! committed plan sits in `fixtures/fault_plans/<scenario>/` beside its
+//! scenario, with its `.source.toml`, and still replays after the code
+//! changes, where a bare seed replays only on its own commit: the
+//! scenario's generator runs every committed plan before generating.
 #![expect(
     clippy::disallowed_methods,
     reason = "test support reads and writes a plan outside any async worker (ADR 0062)"
@@ -166,6 +167,9 @@ pub struct FaultPlanGenerator {
     /// The plan file to run in place of generating, `just simulate
     /// <scenario> --plan <file>`'s.
     replay: Option<PathBuf>,
+    /// The folder of the scenario's committed plans, each run before the
+    /// generated ones.
+    committed: Option<PathBuf>,
 }
 
 impl FaultPlanGenerator {
@@ -187,7 +191,19 @@ impl FaultPlanGenerator {
             replay: Variables::from_process()
                 .get(FAULT_PLAN_VARIABLE)
                 .map(PathBuf::from),
+            committed: None,
         }
+    }
+
+    /// The same generator, which first runs each committed plan in `folder`
+    /// (its `*.json` files, in the order of their names), the scenario's
+    /// `fixtures/fault_plans/<scenario>/`, and generates plans only once
+    /// they all pass. A missing folder holds no plan yet. A plan to replay
+    /// ([`FaultPlanGenerator::replaying`]) runs alone, without them.
+    #[must_use]
+    pub fn with_committed_plans(mut self, folder: &Path) -> Self {
+        self.committed = Some(folder.to_owned());
+        self
     }
 
     /// The same generator, which runs the plan in `file` alone in place of
@@ -206,16 +222,18 @@ impl FaultPlanGenerator {
         self
     }
 
-    /// Runs `run` on each generated plan of `steps` steps. The reference
-    /// machine's initial state must be fixed, since a plan holds only its
-    /// steps. On a failure, proptest shrinks the plan to a smaller one that
-    /// still fails, which is written to [`FAULT_PLAN_FILE`] in the test's
-    /// folder with its [`FAULT_PLAN_SOURCE_FILE`].
+    /// Runs `run` on each committed plan, then on each generated plan of
+    /// `steps` steps. The reference machine's initial state must be fixed,
+    /// since a plan holds only its steps. On a failure, proptest shrinks the
+    /// plan to a smaller one that still fails, which is written to
+    /// [`FAULT_PLAN_FILE`] in the test's folder with its
+    /// [`FAULT_PLAN_SOURCE_FILE`].
     ///
     /// # Errors
     ///
-    /// The shrunk plan with its file and replay command, or why proptest
-    /// stopped generating.
+    /// The committed plan that fails again with its replay command, a
+    /// committed plan that cannot be read, the shrunk plan with its file and
+    /// replay command, or why proptest stopped generating.
     pub fn check<M, E>(
         &self,
         steps: impl Into<SizeRange>,
@@ -228,6 +246,18 @@ impl FaultPlanGenerator {
     {
         if let Some(file) = &self.replay {
             return self.replay(file, run);
+        }
+        for file in self.committed_files()? {
+            let plan = FaultPlan::read(&file).map_err(|error| FaultPlanFailure::Unreadable {
+                scenario: self.scenario.clone(),
+                error,
+            })?;
+            run(&plan).map_err(|reason| FaultPlanFailure::Regressed {
+                scenario: self.scenario.clone(),
+                command: replay_command(&self.scenario, &file),
+                file,
+                reason: reason.to_string(),
+            })?;
         }
         let mut runner = TestRunner::new(self.config.clone());
         let outcome = runner.run(&M::sequential_strategy(steps), |(_, steps, seen)| {
@@ -248,6 +278,37 @@ impl FaultPlanGenerator {
                 Err(self.shrunk(self.plan(steps), reason.to_string()))
             }
         }
+    }
+
+    /// The committed plans' files, in the order of their names.
+    fn committed_files(&self) -> Result<Vec<PathBuf>, FaultPlanFailure> {
+        let Some(folder) = &self.committed else {
+            return Ok(Vec::new());
+        };
+        let unreadable = |error| FaultPlanFailure::Unreadable {
+            scenario: self.scenario.clone(),
+            error: FaultPlanError::Unreadable {
+                path: folder.clone(),
+                error,
+            },
+        };
+        let entries = match std::fs::read_dir(folder) {
+            Ok(entries) => entries,
+            Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(Vec::new()),
+            Err(error) => return Err(unreadable(error)),
+        };
+        let mut files = Vec::new();
+        for entry in entries {
+            let path = entry.map_err(unreadable)?.path();
+            if path
+                .extension()
+                .is_some_and(|extension| extension == "json")
+            {
+                files.push(path);
+            }
+        }
+        files.sort();
+        Ok(files)
     }
 
     fn replay<E: fmt::Display>(
@@ -372,7 +433,23 @@ pub enum FaultPlanFailure {
         /// Why the scenario failed on it.
         reason: String,
     },
-    /// The plan to replay cannot be read.
+    /// A committed plan, a regression the scenario had passed, on which it
+    /// fails again.
+    #[error(
+        "the scenario {scenario} fails again on its committed Fault plan {}: {reason}\nreplay it with: {command}",
+        file.display()
+    )]
+    Regressed {
+        /// The scenario.
+        scenario: String,
+        /// The plan's file.
+        file: PathBuf,
+        /// Why the scenario failed on it.
+        reason: String,
+        /// The command that replays it.
+        command: String,
+    },
+    /// The plan to replay, or a committed one, cannot be read.
     #[error("the scenario {scenario} has no Fault plan to replay: {error}")]
     Unreadable {
         /// The scenario.

@@ -334,9 +334,13 @@ fn the_suite_runs_unchanged_against_collies_attached_engine_and_daemon(
 /// processed is sent once more, counted nowhere; its redirect chains
 /// and refresh stubs are followed as the browser follows them; and the
 /// requests a site's `Retry-After` past the bound held, ended `failed`, are
-/// re-admitted by `run.retry_failed` once the site is back.
+/// re-admitted by `run.retry_failed` once the site is back. Under
+/// `cache.mode: revalidate` a fresh response is served from the Response
+/// cache with no request, a stale one is revalidated and a `304` serves its
+/// stored body, and a response varying on `Cookie` is served only for its
+/// cookie; under the default, `off`, every request reaches the site.
 ///
-/// Covers: story:5-124, story:5-125, story:5-126, story:5-127, story:5-128, story:6-307
+/// Covers: story:5-124, story:5-125, story:5-126, story:5-127, story:5-128, story:6-307, story:6-37, story:6-38
 #[test]
 fn the_fetch_suite_is_proved_against_foxhounds_attached_engine() {
     let env = TestEnv::new();
@@ -352,7 +356,8 @@ fn the_fetch_suite_is_proved_against_foxhounds_attached_engine() {
         (
             vec![
                 ("fetch.tier.http", Outcome::Proved),
-                ("fetch.edge.http", Outcome::Proved)
+                ("fetch.edge.http", Outcome::Proved),
+                ("fetch.response_cache", Outcome::Proved)
             ],
             vec![
                 (
@@ -405,6 +410,22 @@ fn the_fetch_suite_is_proved_against_foxhounds_attached_engine() {
                 ),
                 (
                     "a-redirect-the-scope-the-domain-policy-or-the-address-check-refuses-ends-skipped-live",
+                    CaseOutcome::Passed
+                ),
+                (
+                    "with-cache-mode-off-every-request-reaches-the-site",
+                    CaseOutcome::Passed
+                ),
+                (
+                    "a-fresh-response-is-served-from-the-cache-with-no-request",
+                    CaseOutcome::Passed
+                ),
+                (
+                    "a-stale-response-is-revalidated-and-a-304-serves-its-stored-body",
+                    CaseOutcome::Passed
+                ),
+                (
+                    "a-response-varying-on-cookie-is-served-only-for-its-cookie",
                     CaseOutcome::Passed
                 ),
             ]
@@ -482,13 +503,14 @@ enum Layout {
 /// discarded Run's planted Secret canaries, a token, a password and the
 /// Session cookie a login set, are found nowhere in the Goodfetch home, and
 /// a later Run under its Run ID finds none of its state and is sent none of
-/// its cookies. The cookie case's browser runs from the pinned build laid
+/// its cookies, thirty Runs in a row on one engine included (ADR 0015's
+/// reused pool). The cookie cases' browser runs from the pinned build laid
 /// out in the home's own Browser cache, which the search takes in as a
 /// person's home holds it; `egress.offline` refuses a download of it, so a
 /// missing build fails at once rather than fetching some 150 MB within the
 /// harness's wait for `run.new_page` (fix-queue 124).
 ///
-/// Covers: story:3-39, operation:run.discard
+/// Covers: story:3-39, story:4-65, operation:run.discard
 #[rstest::rstest]
 #[case::attached_per_run(EngineMode::Attached, Layout::PerRun)]
 #[case::daemon_per_run(EngineMode::Daemon, Layout::PerRun)]
@@ -525,6 +547,10 @@ fn the_reset_gate_is_proved_against_collie_in_either_layout(
                 ),
                 (
                     "a-discarded-runs-session-cookie-reaches-no-later-run",
+                    CaseOutcome::Passed
+                ),
+                (
+                    "thirty-runs-in-a-row-on-one-engine-each-log-in-afresh",
                     CaseOutcome::Passed
                 ),
             ]

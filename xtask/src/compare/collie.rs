@@ -57,7 +57,7 @@ use super::relay::{Mark, Relay};
 use super::sampler::{self, Sampler};
 use super::trial::{self, Outcome};
 use super::trials::{
-    CollieScenario, CollieTrial, Contender, DriverApart, Ended, Exercise, PageDone,
+    CollieScenario, CollieTrial, Contender, DriverApart, Ended, Exercise, PageDone, Started,
 };
 
 pub(crate) mod page_load;
@@ -589,7 +589,7 @@ pub(crate) fn trial(
     exercise: Exercise,
     tool: Contender,
     number: u32,
-    load: Option<f64>,
+    started: Started,
 ) -> Result<Outcome<CollieTrial>> {
     let serving = crate::rss::crawl::serve(tools.proving_ground, "none")?;
     let urls = start_urls(&serving.address)?;
@@ -651,7 +651,7 @@ pub(crate) fn trial(
         exercise,
         tool,
         number,
-        load,
+        started,
         actions,
         sessions: done.sessions,
         commands: end.commands - start.commands,

@@ -1,0 +1,95 @@
+diff --git a/CHANGELOG.md b/CHANGELOG.md
+deleted file mode 100644
+index ffd26a28fb58ee0cf740eb92e0784753a15bfa68..0000000000000000000000000000000000000000
+diff --git a/dist/client/client/theme/SearchBar/EmptyTemplate.js b/dist/client/client/theme/SearchBar/EmptyTemplate.js
+index 0c67ba65f422a1e185fe4836f67125a2d1689067..b1e888170d2f46b83421af9452467eef0ab75fc7 100644
+--- a/dist/client/client/theme/SearchBar/EmptyTemplate.js
++++ b/dist/client/client/theme/SearchBar/EmptyTemplate.js
+@@ -3,7 +3,9 @@ import { iconNoResults } from "./icons";
+ import styles from "./SearchBar.module.css";
+ export function EmptyTemplate() {
+     if (process.env.NODE_ENV === "production") {
+-        return `<span class="${styles.noResults}"><span class="${styles.noResultsIcon}">${iconNoResults}</span><span>${translate({
++        // Goodfetch's patch: the message sits in the results' listbox, so
++        // it is a disabled option there, as a listbox holds only options.
++        return `<span role="option" aria-disabled="true" aria-selected="false" class="${styles.noResults}"><span class="${styles.noResultsIcon}">${iconNoResults}</span><span>${translate({
+             id: "theme.SearchBar.noResultsText",
+             message: "No results",
+         })}</span></span>`;
+diff --git a/dist/client/client/theme/SearchPage/SearchPage.jsx b/dist/client/client/theme/SearchPage/SearchPage.jsx
+index 2efb8b4817b76bfc13f70ad68d289ee4f2a6bfbf..eb2d5487108a912b3e957a3aa1af05fb6af07b9f 100644
+--- a/dist/client/client/theme/SearchPage/SearchPage.jsx
++++ b/dist/client/client/theme/SearchPage/SearchPage.jsx
+@@ -86,7 +86,8 @@ function SearchPageContent() {
+         <title>{pageTitle}</title>
+       </Head>
+ 
+-      <div className="container margin-vert--lg">
++      {/* Goodfetch's patch: the page's content is its main landmark. */}
++      <main className="container margin-vert--lg">
+         <h1>{pageTitle}</h1>
+ 
+         <div className="row">
+@@ -98,7 +99,11 @@ function SearchPageContent() {
+             <input type="search" name="q" className={styles.searchQueryInput} aria-label="Search" onChange={handleSearchInputChange} value={searchQuery} autoComplete="off" autoFocus/>
+           </div>
+           {Array.isArray(searchContextByPaths) ? (<div className={clsx("col", "col--3", "padding-left--none", styles.searchContextColumn)}>
+-              <select name="search-context" className={styles.searchContextInput} id="context-selector" value={searchContext} onChange={(e) => updateSearchContext(e.target.value)}>
++              {/* Goodfetch's patch: the context selector has a name. */}
++              <select name="search-context" aria-label={translate({
++                    id: "theme.SearchPage.searchContext.label",
++                    message: "Search in",
++                })} className={styles.searchContextInput} id="context-selector" value={searchContext} onChange={(e) => updateSearchContext(e.target.value)}>
+                 {useAllContextsWithNoSearchContext && (<option value="">
+                     {translate({
+                     id: "theme.SearchPage.searchContext.everywhere",
+@@ -141,7 +146,7 @@ function SearchPageContent() {
+           {searchResults &&
+             searchResults.map((item) => (<SearchResultItem key={item.document.i} searchResult={item}/>))}
+         </section>
+-      </div>
++      </main>
+     </React.Fragment>);
+ }
+ function SearchResultItem({ searchResult: { document, type, page, tokens, metadata }, }) {
+diff --git a/dist/server/server/utils/postBuildFactory.js b/dist/server/server/utils/postBuildFactory.js
+index ba421371a87bb99e7d3b0b3a783e031cc2025c1e..f47ccbb590b6c217a42aa4891e3f91a83dd828d3 100644
+--- a/dist/server/server/utils/postBuildFactory.js
++++ b/dist/server/server/utils/postBuildFactory.js
+@@ -23,7 +23,17 @@ function postBuildFactory(config, searchIndexFilename) {
+                 const docsByDirMap = new Map();
+                 const { searchContextByPaths, hideSearchBarWithNoSearchContext, useAllContextsWithNoSearchContext, } = config;
+                 if (searchContextByPaths) {
+-                    const { baseUrl } = buildData;
++                    // Goodfetch's patch: a context's path is read from the
++                    // version's URL, as the search bar reads it, not from
++                    // the site's base URL.
++                    const versionPath = path_1.default
++                        .relative(buildData.outDir, versionData.outDir)
++                        .split(path_1.default.sep)
++                        .filter(Boolean)
++                        .join("/");
++                    const baseUrl = versionPath === ""
++                        ? buildData.baseUrl
++                        : `${buildData.baseUrl}${versionPath}/`;
+                     const rootAllDocs = [];
+                     if (!hideSearchBarWithNoSearchContext) {
+                         docsByDirMap.set("", rootAllDocs);
+@@ -62,6 +72,17 @@ function postBuildFactory(config, searchIndexFilename) {
+                         }
+                         docIndex++;
+                     }
++                    // Goodfetch's patch: each context also holds the
++                    // documents no context matches, so a search from a
++                    // section also finds the root pages (ADR 0097).
++                    for (const [dir, dirAllDocs] of docsByDirMap) {
++                        if (dir === "") {
++                            continue;
++                        }
++                        for (let i = 0; i < allDocuments.length; i++) {
++                            dirAllDocs[i] = (dirAllDocs[i] || []).concat(rootAllDocs[i]);
++                        }
++                    }
+                 }
+                 else {
+                     docsByDirMap.set("", allDocuments);

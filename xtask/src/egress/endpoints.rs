@@ -113,9 +113,9 @@ impl fmt::Display for Endpoint {
 }
 
 /// The jobs ADR 0043 lets reach named endpoints, and only those.
-#[derive(Deserialize)]
+#[derive(Clone, Copy, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "kebab-case")]
-enum Exception {
+pub(crate) enum Exception {
     /// The nightly real software-as-a-service Sink accounts (ADR 0026).
     SaasSinks,
     /// The release-candidate benchmark's online Proving ground (ADRs 0025 and 0035).
@@ -157,8 +157,7 @@ struct OutsideEntry {
 #[serde(deny_unknown_fields)]
 struct NamedEntry {
     job: JobKey,
-    #[serde(rename = "exception")]
-    _exception: Exception,
+    exception: Exception,
     endpoints: Vec<Endpoint>,
 }
 
@@ -180,8 +179,12 @@ pub(crate) enum Rule {
     Deny,
     /// It runs none of the product, outside the deny.
     Outside,
-    /// It runs under the deny and may also reach its named endpoints.
-    Named(Vec<Endpoint>),
+    /// It runs under the deny and may also reach its named endpoints, as
+    /// the exception it is.
+    Named {
+        exception: Exception,
+        endpoints: Vec<Endpoint>,
+    },
 }
 
 pub(crate) struct Declaration {
@@ -221,7 +224,10 @@ impl Endpoints {
             }))
             .chain(file.named.into_iter().map(|entry| Declaration {
                 job: entry.job,
-                rule: Rule::Named(entry.endpoints),
+                rule: Rule::Named {
+                    exception: entry.exception,
+                    endpoints: entry.endpoints,
+                },
             }))
             .collect();
         Ok(Self {
@@ -244,7 +250,7 @@ impl Endpoints {
             None => bail!("{job} is not declared in {ENDPOINTS}"),
             Some(Rule::Outside) => bail!("{job} runs outside the deny, so it has no allowed list"),
             Some(Rule::Deny) => &[],
-            Some(Rule::Named(endpoints)) => endpoints,
+            Some(Rule::Named { endpoints, .. }) => endpoints,
         };
         let mut allowed = named.to_vec();
         allowed.sort();

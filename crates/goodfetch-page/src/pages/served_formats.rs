@@ -16,7 +16,7 @@ use goodfetch_protocol::page::{FormatsRequest, PageFormats, PageId};
 use serde_json::Value;
 
 use super::clean_up::{self, FormatsRead, ShareMeasure};
-use crate::driver::SerializedDocument;
+use crate::cdp::SerializedDocument;
 use crate::extractor;
 use crate::interception::Cosmetic;
 use crate::page_value::{FormatsReadAhead, ServedFormatsAhead};

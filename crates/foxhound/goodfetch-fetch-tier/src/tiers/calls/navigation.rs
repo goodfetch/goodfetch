@@ -265,13 +265,7 @@ impl HopGate for Navigating {
     }
 
     fn wait_until<'a>(&'a self, hop: &'a Hop, until: SystemTime) -> Gating<'a, ()> {
-        Box::pin(async move {
-            let _waiting = self.hand_over.lease.permit_wait(hop.url.as_str());
-            let clock = runs::identity(self.hand_over.run()).clock();
-            if let Ok(wait) = until.duration_since(clock.wall()) {
-                clock.sleep(wait).await;
-            }
-        })
+        Box::pin(self.hand_over.wait_until(hop.url.as_str(), until))
     }
 
     fn unparsable_retry_after<'a>(

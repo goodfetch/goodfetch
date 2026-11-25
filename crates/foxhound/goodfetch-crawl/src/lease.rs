@@ -337,6 +337,7 @@ impl Commit {
             not_added: &not_added,
             work: &counted_work,
             keeps_records: declared.keeps_records(),
+            indexes_records: declared.indexes_records(),
             clean_up_rules: &clean_up_rules,
         };
         if !work_items::commit(connection, &work_item, epoch, committed, changed)? {

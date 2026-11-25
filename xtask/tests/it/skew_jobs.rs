@@ -252,6 +252,57 @@ fn each_step_runs_its_tags_journeys_on_its_products_executable() {
     );
 }
 
+/// A check of the older executable runs the current tree's tests of its
+/// Product, so it has no tag's Journeys, and no exclusion reaches it.
+#[test]
+fn an_older_engine_check_is_a_step_of_its_own_per_product() {
+    let workspace = workspace(&["1.0.1"], "0.0.0");
+    workspace.write(
+        "compat/skew-checks.toml",
+        r#"
+setup_minutes = 15
+
+[[check]]
+id = "collie-cli"
+product = "collie"
+minutes = 8
+journeys = { surfaces = ["cli"] }
+
+[[check]]
+id = "collie-older-engine"
+product = "collie"
+minutes = 3
+older_engine = true
+
+[[check]]
+id = "foxhound-older-engine"
+product = "foxhound"
+minutes = 3
+older_engine = true
+"#
+        .as_bytes(),
+    );
+    exclude(&workspace, "1.0", "J-003@cli", "asserts a log line");
+
+    let generated = generated(&workspace);
+
+    let steps = &generated["jobs"][0]["steps"];
+    assert_eq!(steps[0]["checks"], json!(["collie-cli"]));
+    assert_eq!(
+        json!([steps[1], steps[2]]),
+        json!([
+            {
+                "checks": ["collie-older-engine"],
+                "older_engine": "collie",
+            },
+            {
+                "checks": ["foxhound-older-engine"],
+                "older_engine": "foxhound",
+            },
+        ])
+    );
+}
+
 #[test]
 fn an_exclusion_removes_its_variant_from_its_minor_alone() {
     let workspace = workspace(&THREE_MINORS, "0.0.0");
@@ -403,6 +454,11 @@ fn checks_that_all_await_their_tickets_are_refused() {
 #[case::duplicate_id("id = \"collie-sdks\"", "id = \"collie-cli\"")]
 #[case::neither_run_nor_awaited("awaiting = 436", "")]
 #[case::zero_minutes("minutes = 8", "minutes = 0")]
+#[case::journeys_and_an_older_engine(
+    "journeys = { surfaces = [\"cli\"] }",
+    "journeys = { surfaces = [\"cli\"] }\nolder_engine = true"
+)]
+#[case::an_older_engine_declined("awaiting = 436", "older_engine = false")]
 fn a_bad_check_is_refused(#[case] from: &str, #[case] to: &str) {
     let workspace = workspace(&THREE_MINORS, "0.0.0");
     let text = CHECKS.replacen(from, to, 1);

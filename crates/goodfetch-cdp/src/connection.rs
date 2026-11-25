@@ -14,33 +14,86 @@
 //! starts without the driver, and the driver never waits on a subscriber,
 //! so a browser that stops reading its pipe, or a subscription its holder
 //! never reads, holds up no other call.
-#![expect(
-    clippy::disallowed_types,
-    reason = "the subscribers' list is shared by every handle and the driver, each lock held for one list operation, never across another lock or an `.await`, so there is no lock order to test under loom (ADR 0060)"
-)]
+//!
+//! A caller that must not wait for an answer before it goes on, as a Page's
+//! owner in its loop, starts its command with [`Connection::start`]: the
+//! command is queued at once, in the order started, and its [`Answer`] is a
+//! future the caller polls when it will. Dropping the answer leaves the wait
+//! alone; the command, queued, is still written.
+//!
+//! Commands that must reach the browser together, as a click's press and
+//! release, go as one burst ([`Connection::burst`]): all of them are queued
+//! at once or none is, so no drop of their caller parts them.
+//!
+//! The driver owns its state: the commands in flight, and the table of
+//! readers by session, so an event visits the readers of its session alone
+//! (ADR 0140's `C1.event_visits`). A subscription starts without the driver
+//! by joining a short list beside it, under a lock held for one push; the
+//! driver takes that list into its table before it hands on each event, so
+//! a subscription that started before the browser sent an event gets it. A
+//! command whose caller left its wait, by its timeout or its drop, leaves
+//! the commands in flight: its caller tells the driver, one bounded word
+//! for any number of callers (`C1.pending_orphans` reads 0). The browser's
+//! answer to such a command, or to any command no caller waits for, is
+//! dropped with a `debug` log of its ID: no other command takes it and no
+//! subscription sees it.
+//!
+//! The driver reads a message's envelope alone, what routes it: its `id`,
+//! `method` and session, and the session a detach names. An answer's result
+//! is decoded for its command; an event keeps the browser's message whole,
+//! and its first reader decodes its params once, from the message's bytes,
+//! for all its readers (ADR 0140's `C1.event_decodes`), so an event no reader
+//! of its session wants is never decoded. Every buffer stays bounded: a subscriber holds at most
+//! [`EVENTS`](readers::EVENTS) events and its quota of bytes,
+//! [`EVENT_BYTES`], past which it
+//! ends as one that fell behind.
+//!
+//! A reader of several sessions, as a Page's reads those of its
+//! out-of-process frames and of its workers (spec #2256, "One reader per
+//! Page"), is listed in the table under each of them ([`MoreSessions`])
+//! with a clone of its one bounded events' sender, so its events share one
+//! buffer and one order; only its first session's listing holds where the
+//! driver says why it ended. The detach of one of the other sessions takes
+//! that listing out alone; the reader ends with its first session's detach,
+//! by falling behind, or with the connection. Such a reader hands each
+//! event on to the parts it reads for through a [`Handing`], as the driver
+//! hands its own, and the parts subscribe to it through its [`Handout`] as
+//! they would to the connection (#2265).
+//!
+//! A task that waits for the connection's end awaits
+//! [`Connection::closed`], reading no event.
 
 use std::collections::BTreeMap;
 use std::fmt::Debug;
 use std::pin::Pin;
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::sync::Arc;
 use std::time::Duration;
 
+use bytes::Bytes;
 use goodfetch_counted_work::{CountedWork, Row};
 use serde::de::DeserializeOwned;
+use serde_json::value::RawValue;
 use serde_json::{Value, json};
 use tokio::io::{AsyncRead, AsyncReadExt as _, AsyncWrite, AsyncWriteExt as _};
-use tokio::sync::{mpsc, oneshot};
+use tokio::sync::{mpsc, oneshot, watch};
+use tracing::Instrument as _;
 
+pub use self::answer::Answer;
+use self::answer::Waiting;
+use self::envelope::{Envelope, range_in, text};
+pub use self::event::Event;
+use self::readers::{EVENT_BYTES, Readers, Shared, join, lock};
+pub use self::readers::{Handing, Handout, MoreSessions, Subscription, SubscriptionEnd};
 use crate::failure::{Failure, PartyText, Refusal};
 use crate::framing::{Framer, FramingError, MAX_FRAME, frame};
 
+mod answer;
+mod envelope;
+mod event;
+mod readers;
+
 /// How many requests wait for the driver before their senders wait.
 const REQUESTS: usize = 64;
-
-/// How many events wait for a subscriber before the driver ends its
-/// subscription: one that falls this far behind is no longer read, and the
-/// driver never waits for it.
-const EVENTS: usize = 4_096;
 
 /// The bytes read from the pipe at once.
 const READ: usize = 64 * 1024;
@@ -75,126 +128,11 @@ fn count_interception(work: &CountedWork, method: &str) {
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct SessionId(pub String);
 
-/// An event as the browser sent it.
-#[derive(Clone, Debug, PartialEq)]
-pub struct Event {
-    /// `Domain.event`.
-    pub method: String,
-    /// Its params.
-    pub params: Value,
-}
-
-impl Event {
-    /// Its params as `E`'s, when it is `E`; params that do not read as
-    /// `E`'s, which only a browser the bindings do not match sends, are
-    /// logged at `warn` with the method, never with the params.
-    pub fn read<E: crate::Event>(&self) -> Option<E> {
-        if self.method != E::METHOD {
-            return None;
-        }
-        E::deserialize(&self.params)
-            .inspect_err(|_| {
-                tracing::warn!(
-                    cdp.method = E::METHOD,
-                    "the browser sent an event whose params do not read as the bindings say"
-                );
-            })
-            .ok()
-    }
-}
-
-/// The events of one session, from when it was subscribed.
-#[derive(Debug)]
-pub struct Subscription {
-    events: mpsc::Receiver<Arc<Event>>,
-    /// Why the driver ended it, which it says before it drops its sender.
-    why: oneshot::Receiver<SubscriptionEnd>,
-    /// Why it ended, once known.
-    ended: Option<SubscriptionEnd>,
-}
-
-/// Why a subscription ended.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-#[non_exhaustive]
-pub enum SubscriptionEnd {
-    /// The browser detached its session's target: the target sends nothing
-    /// more.
-    Detached,
-    /// Its holder fell [`EVENTS`] events behind, so the events after it
-    /// stopped are lost while its target may still send more.
-    FellBehind,
-    /// The connection ended.
-    Disconnected,
-}
-
-impl Subscription {
-    /// The next event; `None` once it ended: the connection ended, its
-    /// session's target detached, or its holder fell [`EVENTS`] behind,
-    /// which [`ended`](Self::ended) tells apart.
-    ///
-    /// # Cancel safety
-    ///
-    /// Dropping the future loses no event.
-    pub async fn next(&mut self) -> Option<Arc<Event>> {
-        self.events.recv().await
-    }
-
-    /// Why it ended, once [`next`](Self::next) answered `None`; `None`
-    /// while it goes on.
-    pub fn ended(&mut self) -> Option<SubscriptionEnd> {
-        if self.ended.is_none() && self.events.is_closed() && self.events.is_empty() {
-            // The driver says why before it drops the events' sender, so a
-            // sender dropped without a word is the connection's end.
-            self.ended = Some(match self.why.try_recv() {
-                Ok(why) => why,
-                Err(_) => SubscriptionEnd::Disconnected,
-            });
-        }
-        self.ended
-    }
-}
-
 struct Request {
     method: &'static str,
     session: Option<SessionId>,
     params: Value,
     answer: oneshot::Sender<Result<Value, Failure>>,
-}
-
-/// One subscription as the driver holds it.
-#[derive(Debug)]
-struct Subscriber {
-    /// The session whose events it takes.
-    session: Option<SessionId>,
-    events: mpsc::Sender<Arc<Event>>,
-    /// Where the driver says why it ended it.
-    why: oneshot::Sender<SubscriptionEnd>,
-}
-
-impl Subscriber {
-    /// Ends it, saying `why`.
-    fn end(self, why: SubscriptionEnd) {
-        let _ = self.why.send(why);
-    }
-}
-
-/// The subscriptions of the connection, which every handle adds to and the
-/// driver hands each event to.
-#[derive(Debug, Default)]
-struct Subscribers {
-    /// Each subscription's session and the sender of its events.
-    list: Vec<Subscriber>,
-    /// Whether the connection ended, so a new subscription ends at once.
-    ended: bool,
-}
-
-/// The connection's subscribers, shared.
-type Shared = Arc<Mutex<Subscribers>>;
-
-/// The subscribers, a panic in another holder notwithstanding: each change
-/// is one list operation, so none leaves the list half changed.
-fn lock(subscribers: &Shared) -> MutexGuard<'_, Subscribers> {
-    subscribers.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
 /// Where a connection records the method of each command it sends: the
@@ -225,7 +163,11 @@ pub trait CommandLogImpl: Debug + Send + Sync {
 #[derive(Clone, Debug)]
 pub struct Connection {
     requests: mpsc::Sender<Request>,
-    subscribers: Shared,
+    /// Where a caller that left its command's wait tells the driver.
+    left: mpsc::Sender<()>,
+    joining: Shared,
+    /// Whether the driver ended; its sender dropped says so too.
+    closed: watch::Receiver<bool>,
     /// The work a typed command's params serialization counts on: C1's
     /// encodes, beside the driver's frame (ADR 0140).
     work: CountedWork,
@@ -251,9 +193,15 @@ pub struct Driver<R, W> {
     reader: R,
     writer: W,
     requests: mpsc::Receiver<Request>,
-    subscribers: Shared,
+    /// The word that a caller left its command's wait.
+    left: mpsc::Receiver<()>,
+    joining: Shared,
+    /// Where it says it ended.
+    closed: watch::Sender<bool>,
     /// The longest message it reads: [`MAX_FRAME`].
     frame_limit: usize,
+    /// The bytes each subscriber may leave untaken: [`EVENT_BYTES`].
+    event_bytes: usize,
     /// Where each command's encode and send are counted (ADR 0140's C1): the
     /// one seam every command crosses.
     work: CountedWork,
@@ -275,11 +223,15 @@ impl Connection {
         W: AsyncWrite + Unpin + Send,
     {
         let (requests, receiver) = mpsc::channel(REQUESTS);
-        let subscribers = Shared::default();
+        let (left, told) = mpsc::channel(1);
+        let joining = Shared::default();
+        let (ended, closed) = watch::channel(false);
         (
             Self {
                 requests,
-                subscribers: Arc::clone(&subscribers),
+                left,
+                joining: Arc::clone(&joining),
+                closed,
                 work: work.clone(),
                 log,
             },
@@ -287,8 +239,11 @@ impl Connection {
                 reader,
                 writer,
                 requests: receiver,
-                subscribers,
+                left: told,
+                joining,
+                closed: ended,
                 frame_limit: MAX_FRAME,
+                event_bytes: EVENT_BYTES,
                 work,
             },
         )
@@ -339,10 +294,141 @@ impl Connection {
         params: Value,
         timeout: Duration,
     ) -> Result<Value, Failure> {
-        if let Some(log) = &self.log {
-            self.work.count(Row::CdpLogSendsOff);
-            log.0.record(method).await;
-        }
+        let (request, mut waiting) = self.request(method, session, params);
+        let sent = async {
+            self.queue(request).await?;
+            waiting.answer().await
+        };
+        tokio::time::timeout(timeout, sent)
+            .await
+            .unwrap_or(Err(Failure::TimedOut { method }))
+    }
+
+    /// Sends `commands` on `session` (the browser's own when `None`) as one
+    /// burst: all of them are queued at once, in order, and none of them
+    /// waits for an answer to another, so once the first is written the
+    /// rest are. Ends once each is answered.
+    ///
+    /// # Errors
+    ///
+    /// As [`Connection::send`]: the failure of the first command that fails,
+    /// `timeout` bounding the whole burst. The commands after that one are
+    /// sent all the same.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future leaves either the whole burst queued, which is
+    /// then written and carried out, or none of it.
+    ///
+    /// # Panics
+    ///
+    /// On a burst of more than [`REQUESTS`] commands, for which the queue
+    /// never has room.
+    #[tracing::instrument(name = "cdp_command", level = "trace", skip_all, fields(cdp.method = C::METHOD))]
+    pub async fn burst<C: crate::Command>(
+        &self,
+        session: Option<&SessionId>,
+        commands: &[C],
+        timeout: Duration,
+    ) -> Result<(), Failure> {
+        assert!(
+            commands.len() <= REQUESTS,
+            "invariant: a burst fits the driver's queue"
+        );
+        let method = C::METHOD;
+        let (requests, waits): (Vec<_>, Vec<_>) = commands
+            .iter()
+            .map(|params| {
+                // As `send`'s.
+                self.work.count(Row::CdpEncodes);
+                let params =
+                    serde_json::to_value(params).expect("invariant: a command's params serialize");
+                self.request(method, session, params)
+            })
+            .unzip();
+        let sent = async {
+            for request in &requests {
+                self.record(request).await;
+            }
+            let places = self
+                .requests
+                .reserve_many(requests.len())
+                .await
+                .map_err(|_| Failure::Disconnected)?;
+            // Nothing is awaited from here to the last of them.
+            for (place, request) in places.zip(requests) {
+                place.send(request);
+            }
+            for mut waiting in waits {
+                read::<C::Returns>(method, waiting.answer().await?)?;
+            }
+            Ok(())
+        };
+        tokio::time::timeout(timeout, sent)
+            .await
+            .unwrap_or(Err(Failure::TimedOut { method }))
+    }
+
+    /// Starts `C` on `session` (the browser's own when `None`) without
+    /// waiting for anything: the command is queued for the driver at once,
+    /// so commands started one after another are written in that order, and
+    /// what it returns comes back later, through the [`Answer`] given. While
+    /// the CDP command log is on, or when 64 commands already wait for the
+    /// driver, the command is recorded and queued as its answer is first
+    /// awaited instead, as [`Connection::send`] does.
+    ///
+    /// The answer's errors are [`Connection::send`]'s, its `timeout` counted
+    /// from this call.
+    pub fn start<C>(
+        &self,
+        session: Option<&SessionId>,
+        params: &C,
+        timeout: Duration,
+    ) -> Answer<C::Returns>
+    where
+        C: crate::Command,
+        C::Returns: Send + 'static,
+    {
+        let method = C::METHOD;
+        // A serialization of its own before the frame's, as `send`'s.
+        self.work.count(Row::CdpEncodes);
+        let params = serde_json::to_value(params).expect("invariant: a command's params serialize");
+        let (request, mut waiting) = self.request(method, session, params);
+        let unqueued = if self.log.is_some() {
+            Some(request)
+        } else {
+            match self.requests.try_send(request) {
+                Err(mpsc::error::TrySendError::Full(request)) => Some(request),
+                // A closed queue drops the command, whose answer then says
+                // the connection ended.
+                Ok(()) | Err(mpsc::error::TrySendError::Closed(_)) => None,
+            }
+        };
+        let connection = unqueued.is_some().then(|| self.clone());
+        // Its deadline starts now, though the answer is first polled later.
+        let answered = tokio::time::timeout(timeout, async move {
+            if let (Some(request), Some(connection)) = (unqueued, connection) {
+                connection.queue(request).await?;
+            }
+            waiting.answer().await
+        });
+        let answer = async move {
+            answered
+                .await
+                .unwrap_or(Err(Failure::TimedOut { method }))
+                .and_then(|answer| read(method, answer))
+        };
+        Answer::new(answer.instrument(tracing::trace_span!("cdp_command", cdp.method = method)))
+    }
+
+    /// The request of `method` on `session` with `params`, and its caller's
+    /// wait for its answer.
+    fn request(
+        &self,
+        method: &'static str,
+        session: Option<&SessionId>,
+        params: Value,
+    ) -> (Request, Waiting) {
         let (answer, answered) = oneshot::channel();
         let request = Request {
             method,
@@ -350,46 +436,61 @@ impl Connection {
             params,
             answer,
         };
-        let sent = async {
-            self.requests
-                .send(request)
-                .await
-                .map_err(|_| Failure::Disconnected)?;
-            answered.await.map_err(|_| Failure::Disconnected)?
-        };
-        tokio::time::timeout(timeout, sent)
+        (request, Waiting::new(answered, self.left.clone()))
+    }
+
+    /// Records `request`'s method in the CDP command log, if on, then
+    /// queues it for the driver, waiting for its place.
+    async fn queue(&self, request: Request) -> Result<(), Failure> {
+        self.record(&request).await;
+        self.requests
+            .send(request)
             .await
-            .unwrap_or(Err(Failure::TimedOut { method }))
+            .map_err(|_| Failure::Disconnected)
+    }
+
+    /// Records `request`'s method in the CDP command log, if on.
+    async fn record(&self, request: &Request) {
+        if let Some(log) = &self.log {
+            self.work.count(Row::CdpLogSendsOff);
+            log.0.record(request.method).await;
+        }
     }
 
     /// The events of `session` (the browser's own when `None`) the driver
     /// reads from now on, without waiting for the driver; it ends with the
     /// connection, once the browser detached its session's target, or once
-    /// its holder fell [`EVENTS`] events behind.
+    /// its holder fell 4,096 events behind or left more than its quota of
+    /// bytes untaken.
     pub fn subscribe(&self, session: Option<&SessionId>) -> Subscription {
-        let (events, receiver) = mpsc::channel(EVENTS);
-        let (why, said) = oneshot::channel();
-        let mut subscribers = lock(&self.subscribers);
         // A connection that ended gives a subscription that ends at once.
-        if !subscribers.ended {
-            subscribers.list.push(Subscriber {
-                session: session.cloned(),
-                events,
-                why,
-            });
-        }
-        Subscription {
-            events: receiver,
-            why: said,
-            ended: None,
-        }
+        join(&self.joining, &self.joining, session)
+    }
+
+    /// A handout of the events a reader of this connection reads, and the
+    /// handing its reader hands each on with: what lets one reader read for
+    /// several parts, each subscribed to it as to the connection.
+    pub fn handout(&self) -> (Handout, Handing) {
+        Handing::new(&self.joining)
     }
 
     /// Whether the connection ended: the browser closed it, or reading or
     /// writing it failed. A subscription that ended while this is false fell
-    /// behind.
+    /// behind, or its session's target detached.
     pub fn is_closed(&self) -> bool {
-        lock(&self.subscribers).ended
+        lock(&self.joining).ended.is_some()
+    }
+
+    /// Waits until the connection ended, as [`is_closed`](Self::is_closed)
+    /// says, or its driver was dropped without running to its end.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future loses nothing.
+    pub async fn closed(&self) {
+        let mut closed = self.closed.clone();
+        // A sender dropped is a driver that will say nothing more.
+        let _ = closed.wait_for(|closed| *closed).await;
     }
 }
 
@@ -429,6 +530,15 @@ where
         self
     }
 
+    /// The driver, letting each subscriber leave `quota` bytes untaken.
+    /// Kept for its tests: the real [`EVENT_BYTES`] (64 MiB) is too much to
+    /// send through the Quick suite.
+    #[cfg(test)]
+    fn with_event_bytes(mut self, quota: usize) -> Self {
+        self.event_bytes = quota;
+        self
+    }
+
     /// Runs the connection until the browser closes it or every handle is
     /// dropped, and says which. Every command still waiting when it ends,
     /// including one queued as it ends, fails with [`Failure::Disconnected`].
@@ -440,6 +550,7 @@ where
     pub async fn run(mut self) -> Ended {
         let mut framer = Framer::with_limit(self.frame_limit);
         let mut pending: BTreeMap<u64, Pending> = BTreeMap::new();
+        let mut readers = Readers::new(self.event_bytes);
         let mut next_id: u64 = 1;
         let mut buffer = vec![0; READ];
         let ended = loop {
@@ -463,8 +574,13 @@ where
                         let _ = answer.send(Err(Failure::Disconnected));
                         break Ended::Broken(error.kind());
                     }
-                    pending.insert(id, Pending { method, session, answer });
+                    // A caller that left before its command was written was
+                    // already looked for: its command does not wait.
+                    if !answer.is_closed() {
+                        pending.insert(id, Pending { method, session, answer });
+                    }
                 }
+                Some(()) = self.left.recv() => forget(&mut pending),
                 read = self.reader.read(&mut buffer) => {
                     match read {
                         Ok(0) => break Ended::Closed,
@@ -474,7 +590,7 @@ where
                     loop {
                         match framer.next_frame() {
                             Ok(Some(bytes)) => {
-                                dispatch(&bytes, &mut pending, &self.subscribers, &self.work);
+                                dispatch(bytes, &mut pending, &mut readers, &self.joining, &self.work);
                             }
                             Ok(None) => break,
                             Err(FramingError::TooLarge { answering }) => {
@@ -485,14 +601,19 @@ where
                 }
             }
         };
+        // A caller that left before the end told the driver before its
+        // handle went: its word is taken first, so its command is no orphan.
+        if self.left.try_recv().is_ok() {
+            forget(&mut pending);
+        }
         for (_, Pending { answer, .. }) in pending {
+            if answer.is_closed() {
+                self.work.count(Row::CdpPendingOrphans);
+            }
             let _ = answer.send(Err(Failure::Disconnected));
         }
-        {
-            let mut subscribers = lock(&self.subscribers);
-            subscribers.ended = true;
-            subscribers.list.clear();
-        }
+        readers.end(SubscriptionEnd::Disconnected, &self.joining);
+        self.closed.send_replace(true);
         // A send takes its place in the queue, then queues its request: a
         // request queued after the receiver dropped is never dropped while a
         // handle lives, so its command would wait for good, and every one
@@ -525,82 +646,87 @@ fn dropped(answering: Option<u64>, pending: &mut BTreeMap<u64, Pending>) {
     }
 }
 
-/// Hands one message to the command it answers or to the subscribers of
-/// its session, never waiting for one: a subscription its holder dropped
-/// leaves, and one that fell [`EVENTS`] behind ends. An event's work is
-/// counted on `work`.
+/// Takes out of `pending` each command whose caller left its wait, by its
+/// timeout or its drop. The browser may still answer one, and that answer is
+/// then one no command waits for.
+fn forget(pending: &mut BTreeMap<u64, Pending>) {
+    pending.retain(|_, command| !command.answer.is_closed());
+}
+
+/// Hands one message to the command it answers or to the readers of its
+/// session, those that joined since the last event among them, never
+/// waiting for one. Only its envelope is read: an event's params are left
+/// in the message for its reader to decode. An answer no command waits for,
+/// as its caller left, its session was detached or it was never sent, is
+/// dropped. An event's work is counted on `work`.
 fn dispatch(
-    bytes: &[u8],
+    bytes: Bytes,
     pending: &mut BTreeMap<u64, Pending>,
-    subscribers: &Shared,
+    readers: &mut Readers,
+    joining: &Shared,
     work: &CountedWork,
 ) {
-    let Ok(mut message) = serde_json::from_slice::<Value>(bytes) else {
-        tracing::warn!("the browser sent a message that is not JSON");
+    let Ok(envelope) = serde_json::from_slice::<Envelope<'_>>(&bytes) else {
+        tracing::warn!("the browser sent a message that is not a JSON object");
         return;
     };
-    if let Some(id) = message.get("id").and_then(Value::as_u64) {
+    if let Some(id) = envelope
+        .id
+        .and_then(|id| serde_json::from_str::<u64>(id.get()).ok())
+    {
         let Some(Pending { method, answer, .. }) = pending.remove(&id) else {
+            tracing::debug!(
+                id,
+                "the browser answered a command no caller waits for, and the answer is dropped"
+            );
             return;
         };
-        let answered = match message.get("error") {
-            Some(error) => Err(Failure::refused(method, error)),
-            None => Ok(message.get_mut("result").map_or(Value::Null, Value::take)),
-        };
-        let _ = answer.send(answered);
+        let _ = answer.send(answered(method, envelope));
         return;
     }
-    // The message's own strings and params are taken, never copied: every
-    // subscriber shares the one event.
-    let Some(Value::String(method)) = message.get_mut("method").map(Value::take) else {
+    let Some(method) = envelope.method.and_then(text) else {
         return;
     };
     count_interception(work, &method);
-    let session = match message.get_mut("sessionId").map(Value::take) {
-        Some(Value::String(session)) => Some(SessionId(session)),
-        _ => None,
-    };
-    let event = Arc::new(Event {
-        method,
-        params: message.get_mut("params").map_or(Value::Null, Value::take),
-    });
+    let session = envelope.session.and_then(text).map(SessionId);
     // A target's detach comes on its parent's session: the browser's own
-    // for a page, the page's for a frame it auto-attached.
-    let gone = (event.method == DETACHED)
-        .then(|| event.params.get("sessionId").and_then(Value::as_str))
-        .flatten()
-        .map(|gone| SessionId(gone.to_owned()));
+    // for a page, the page's for a frame it auto-attached. Its params are
+    // read for the session alone, which the driver routes by.
+    let gone = envelope
+        .params
+        .filter(|_| method == DETACHED)
+        .and_then(|params| serde_json::from_str::<Envelope<'_>>(params.get()).ok())
+        .and_then(|params| params.session)
+        .and_then(text)
+        .map(SessionId);
+    let params = envelope.params.map(|params| range_in(&bytes, params.get()));
+    let number = readers.take_in(joining);
+    let event = Arc::new(Event::sent(
+        (method, session, number),
+        bytes,
+        params,
+        work.clone(),
+    ));
     if let Some(gone) = &gone {
         detached(gone, pending);
+        readers.detached(gone, joining);
     }
-    let mut subscribers = lock(subscribers);
-    for subscriber in std::mem::take(&mut subscribers.list) {
-        if subscriber.events.is_closed() {
-            continue;
-        }
-        if gone
-            .as_ref()
-            .is_some_and(|gone| subscriber.session.as_ref() == Some(gone))
-        {
-            subscriber.end(SubscriptionEnd::Detached);
-            continue;
-        }
-        if subscriber.session != session {
-            subscribers.list.push(subscriber);
-            continue;
-        }
-        match subscriber.events.try_send(Arc::clone(&event)) {
-            Ok(()) => subscribers.list.push(subscriber),
-            Err(mpsc::error::TrySendError::Closed(_)) => {}
-            Err(mpsc::error::TrySendError::Full(_)) => {
-                tracing::warn!(
-                    method = event.method,
-                    "a subscription of the browser's connection fell too far behind and ends"
-                );
-                subscriber.end(SubscriptionEnd::FellBehind);
-            }
-        }
+    readers.hand(&event, Some(work), joining);
+}
+
+/// What a command's answer says: the browser's refusal, or what it returned,
+/// decoded from the browser's message.
+fn answered(method: &'static str, envelope: Envelope<'_>) -> Result<Value, Failure> {
+    if let Some(error) = envelope.error {
+        let error = serde_json::from_str::<Value>(error.get()).unwrap_or(Value::Null);
+        return Err(Failure::refused(method, &error));
     }
+    envelope.result.map_or(Ok(Value::Null), |result| {
+        serde_json::from_str(result.get()).map_err(|error| Failure::Unreadable {
+            method,
+            message: PartyText::new(error.to_string()),
+        })
+    })
 }
 
 /// Fails at once each command in flight on the session `gone` the browser
@@ -652,6 +778,7 @@ pub fn fuzz_pipe(data: &[u8]) {
     );
     let mut subscriptions = [None, Some(&session)].map(|on| (on, connection.subscribe(on)));
     let mut pending = BTreeMap::new();
+    let mut readers = Readers::new(EVENT_BYTES);
     let mut answers = Vec::new();
     for id in 0..8 {
         let (answer, answered) = oneshot::channel();
@@ -667,12 +794,23 @@ pub fn fuzz_pipe(data: &[u8]) {
         answers.push(answered);
     }
     for bytes in messages {
-        let message = serde_json::from_slice::<Value>(&bytes).ok();
-        let answering = message
+        // The members as an object's map reads them, the last of each name.
+        let message = serde_json::from_slice::<BTreeMap<String, Box<RawValue>>>(&bytes).ok();
+        let member = |name: &str| message.as_ref()?.get(name);
+        let id = member("id").and_then(|id| serde_json::from_str::<u64>(id.get()).ok());
+        let answering = id.filter(|id| pending.contains_key(id));
+        let event = message
             .as_ref()
-            .and_then(|message| message.get("id")?.as_u64())
-            .filter(|id| pending.contains_key(id));
-        dispatch(&bytes, &mut pending, &driver.subscribers, &driver.work);
+            .filter(|_| id.is_none())
+            .and_then(|_| member("method").and_then(|method| text(method)))
+            .map(|method| (method, member("sessionId").and_then(|on| text(on))));
+        dispatch(
+            bytes,
+            &mut pending,
+            &mut readers,
+            &driver.joining,
+            &driver.work,
+        );
         if let Some(id) = answering {
             let answered = usize::try_from(id)
                 .ok()
@@ -682,21 +820,13 @@ pub fn fuzz_pipe(data: &[u8]) {
             assert!(answered.is_ok(), "an answer reaches its command in flight");
             continue;
         }
-        let event = message.as_ref().and_then(|message| {
-            if message.get("id").and_then(Value::as_u64).is_some() {
-                return None;
-            }
-            let method = message.get("method")?.as_str()?;
-            let on = message.get("sessionId").and_then(Value::as_str);
-            Some((method, on))
-        });
         for (on, subscription) in &mut subscriptions {
-            let received = subscription.events.try_recv();
-            let Some((method, event_on)) = event else {
+            let received = subscription.taken();
+            let Some((method, event_on)) = &event else {
                 assert!(received.is_err(), "only an event reaches a subscription");
                 continue;
             };
-            if subscription.ended().is_some() || on.map(|on| on.0.as_str()) != event_on {
+            if subscription.ended().is_some() || on.map(|on| on.0.as_str()) != event_on.as_deref() {
                 assert!(
                     received.is_err(),
                     "an event reaches only the subscription of its session"
@@ -706,7 +836,7 @@ pub fn fuzz_pipe(data: &[u8]) {
             let Ok(received) = received else {
                 panic!("an event reaches the subscription of its session");
             };
-            assert_eq!(received.method, method, "an event keeps its method");
+            assert_eq!(&received.method, method, "an event keeps its method");
         }
     }
 }

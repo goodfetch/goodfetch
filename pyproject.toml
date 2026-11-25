@@ -29,9 +29,6 @@ dev = [
   "griffelib==2.4.1",
   "hypothesis>=6.170.15",
   "inline-snapshot>=0.36.1",
-  # LangChain's own agent loop, which drives Python LangChain tools in tests
-  # (ADR 0070); its scripted model is test support's `BindToolsChatModel`.
-  "langchain>=1.5.2",
   "mutmut>=3.8.1",
   "mypy>=2.4.0",
   # The spreadsheet library that opens D07's XLSX Export (issue 1679): a Rust
@@ -51,10 +48,20 @@ dev = [
   "types-jsonschema>=4.26.0.20261006",
   "types-openpyxl>=3.1.5.20261122",
 ]
+# LangChain's own agent loop, which drives Python LangChain tools in tests
+# (ADR 0070); its scripted model is test support's `BindToolsChatModel`. A
+# group of its own: `orjson`, which `langsmith` and `langgraph-sdk` need, has
+# no free-threaded build, so the free-threaded lines leave it out with
+# `--no-group langchain` (issue 3738).
+langchain = [
+  "goodfetch-test-support[langchain]",
+  "langchain>=1.5.2",
+]
 
 [tool.uv]
 package = false
 required-version = ">=0.9.28"
+default-groups = ["dev", "langchain"]
 
 [tool.uv.workspace]
 members = [
@@ -110,7 +117,7 @@ norecursedirs = [".*", "rnd", "ci", "fixtures", "node_modules", "target"]
 extend-exclude = ["rnd", "ci/proofs", "**/generated", "**/fixtures"]
 
 [tool.ruff.lint]
-select = ["E", "F", "I", "UP", "B", "C4", "ARG", "T20", "TID251", "PERF", "RUF", "ANN", "PYI", "TC", "ASYNC", "D"]
+select = ["E", "F", "I", "UP", "B", "C4", "ARG", "T20", "TID251", "PERF", "RUF", "ANN", "PYI", "TC", "ASYNC", "D", "S110", "S112", "ERA001"]
 ignore = ["D206", "D300"]
 
 # ASYNC109 asks async functions for no `timeout` parameter, which ADR 0080
@@ -122,9 +129,13 @@ ignore = ["D206", "D300"]
 "sdks/python/collie-client/src/goodfetch_collie_client/connection.py" = ["ASYNC109"]
 "sdks/python/collie-client/src/goodfetch_collie_client/connection_type.py" = ["ASYNC109"]
 "sdks/python/collie-client/src/goodfetch_collie_client/raw_call.py" = ["ASYNC109"]
+"sdks/python/collie-client/src/goodfetch_collie_client/schedules.py" = ["ASYNC109"]
 "sdks/python/collie/src/goodfetch_collie/collie.py" = ["ASYNC109"]
 "sdks/python/foxhound/src/goodfetch_foxhound/foxhound.py" = ["ASYNC109"]
 "sdks/python/foxhound/tests/types/crawl_types.py" = ["F821"]
+# A starter's `pyproject.toml` is a template: `init` fills its `{{version}}`,
+# which RUF200 cannot parse as a version until then.
+"crates/goodfetch-collie/starters/*/python/pyproject.toml" = ["RUF200"]
 
 [tool.ruff.lint.pydocstyle]
 convention = "google"

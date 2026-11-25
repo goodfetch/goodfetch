@@ -9,7 +9,6 @@
 
 use std::collections::BTreeMap;
 
-use goodfetch_cdp::generated::{fetch, network};
 use goodfetch_engine::hostile_input::check_header_value;
 use goodfetch_engine::run::secret_error;
 use goodfetch_engine::runs::Run;
@@ -23,6 +22,8 @@ use goodfetch_protocol::secrets::placeholders::{PlaceholderSource, SECRETS_PLACE
 use goodfetch_protocol::settings::SettingsLayer;
 use secrecy::{ExposeSecret as _, SecretString};
 use serde_json::Value;
+
+use crate::cdp::{self, ContinueRequest, RequestHeaders};
 
 /// The Secret placeholders of one `page.request`, bound.
 pub(crate) struct Placeholders {
@@ -168,19 +169,17 @@ impl Placeholders {
         &self,
         url: &str,
         carries_body: bool,
-        sent: &network::Headers,
-        command: &mut fetch::ContinueRequestParams,
+        sent: RequestHeaders<'_>,
+        command: &mut ContinueRequest,
     ) -> Result<(), CallError> {
         let host = host_of(url);
         let body = self.json.as_ref().filter(|_| carries_body);
         if !self.headers.is_empty() {
             let mut entries = command.headers.take().unwrap_or_else(|| {
                 sent.iter()
-                    .filter_map(|(name, value)| {
-                        Some(fetch::HeaderEntry {
-                            name: name.clone(),
-                            value: value.as_str()?.to_owned(),
-                        })
+                    .map(|(name, value)| cdp::Header {
+                        name: name.to_owned(),
+                        value: value.to_owned(),
                     })
                     .collect()
             });
@@ -195,7 +194,7 @@ impl Placeholders {
                 let built = header.form.build(&value);
                 check_header_value(&header.name, built.expose_secret())
                     .map_err(|refused| refused.error())?;
-                entries.push(fetch::HeaderEntry {
+                entries.push(cdp::Header {
                     name: header.name.clone(),
                     value: built.expose_secret().to_owned(),
                 });

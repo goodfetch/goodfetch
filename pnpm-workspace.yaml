@@ -45,6 +45,7 @@ catalog:
   "@vitest/browser-playwright": 5.0.5
   "@vitest/coverage-v8": 5.0.5
   allure: 3.20.1
+  jscpd: 5.4.3
   oxfmt: 0.73.0
   oxlint: 1.88.0
   oxlint-tsgolint: 7.0.2004
@@ -58,3 +59,13 @@ catalog:
 # dependency for the host.
 allowBuilds:
   esbuild: false
+  # Docusaurus's core-js (website/) only prints a funding notice.
+  core-js: false
+
+# Fixes to dependencies, each upstreamable; remove one once a release has it.
+# The local search (website/src/search.ts) builds a section's index with the
+# root pages, and matches a section in its version (ADR 0097); its search bar
+# and search page pass axe (ADR 0073).
+patchedDependencies:
+  "@easyops-cn/autocomplete.js@0.38.1": patches/@easyops-cn__autocomplete.js@0.38.1.patch
+  "@easyops-cn/docusaurus-search-local@0.55.3": patches/@easyops-cn__docusaurus-search-local@0.55.3.patch

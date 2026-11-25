@@ -384,6 +384,20 @@ impl HandOver {
         }
     }
 
+    /// Waits until `until` on the Run's clock before a hop to `url` is
+    /// sent, holding the attempt's lease through the wait.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future ends the wait; it holds nothing else.
+    pub(crate) async fn wait_until(&self, url: &str, until: SystemTime) {
+        let _waiting = self.lease.permit_wait(url);
+        let clock = runs::identity(self.run()).clock();
+        if let Ok(wait) = until.duration_since(clock.wall()) {
+            clock.sleep(wait).await;
+        }
+    }
+
     /// Notes in the Run trace's request log a `Retry-After` of `value`
     /// that does not parse, which `url` answered its crawl request's
     /// fetch with, with `status` (ADR 0118); a note that cannot be written
@@ -958,13 +972,7 @@ impl HopGate for ChainGate {
     }
 
     fn wait_until<'a>(&'a self, hop: &'a Hop, until: SystemTime) -> Gating<'a, ()> {
-        Box::pin(async move {
-            let _waiting = self.hand_over.lease.permit_wait(hop.url.as_str());
-            let clock = runs::identity(self.hand_over.run()).clock();
-            if let Ok(wait) = until.duration_since(clock.wall()) {
-                clock.sleep(wait).await;
-            }
-        })
+        Box::pin(self.hand_over.wait_until(hop.url.as_str(), until))
     }
 
     fn unparsable_retry_after<'a>(

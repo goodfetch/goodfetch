@@ -1,0 +1,119 @@
+{
+  "rule": "A Recipe's digest is SHA-256 over, for each file of its package in the byte order of its path, the path, a NUL, `f`, a NUL, the SHA-256 of the file's bytes as 32 bytes, then a newline, written `sha256:` and 64 lowercase hexadecimal digits. A path is relative to the package's root, its parts joined by `/` and written in Unicode NFC; the file's bytes enter as they are, line endings included. A package with no portable digest is refused with `recipe_invalid` naming the path: one that is absolute, has an empty, `.` or `..` part, or holds `\\` or `:`, and one whose NFC form, or that of a folder it lies in, differs only in case from another's, or equals another's.",
+  "vectors": [
+    {
+      "name": "a step list",
+      "files": [
+        {
+          "path": "goodfetch-recipe.toml",
+          "text": "version = \"0.1\"\nname = \"price-watch\"\nproduct = \"collie\"\nentry.steps = \"steps.json\"\n"
+        },
+        { "path": "steps.json", "text": "[]\n" }
+      ],
+      "digest": "sha256:728c7ca02bce5e7cb3c0fab7dc2da64f59c129d1a69829fa2e83f43d5b0b0ed4"
+    },
+    {
+      "name": "line endings enter as they are",
+      "files": [
+        {
+          "path": "goodfetch-recipe.toml",
+          "text": "version = \"0.1\"\nname = \"price-watch\"\nproduct = \"collie\"\nentry.steps = \"steps.json\"\n"
+        },
+        { "path": "steps.json", "text": "[\r\n]\r\n" }
+      ],
+      "digest": "sha256:729f37029e965b78c6ba6b6faebc4f1f8369fd6042fd233d1401e3efb4f968aa"
+    },
+    {
+      "name": "a program, its paths in byte order: `README.md` before `goodfetch-recipe.toml`, `src-notes.md` before `src/main.ts`",
+      "files": [
+        { "path": "src/main.ts", "text": "console.log(1);\n" },
+        {
+          "path": "goodfetch-recipe.toml",
+          "text": "version = \"0.1\"\nname = \"price-watch\"\nproduct = \"collie\"\nentry.program = \"src/main.ts\"\nruntime = { language = \"node\", version = \"24\" }\n"
+        },
+        { "path": "src-notes.md", "text": "# Notes\n" },
+        { "path": "README.md", "text": "" },
+        { "path": "package.json", "text": "{}\n" },
+        { "path": "src/lib/parse.ts", "text": "export {};\n" },
+        { "path": "input.schema.json", "text": "{}\n" }
+      ],
+      "digest": "sha256:5b24d0f3b537116694abef3e29a127c9698908f617c04a93feecd16e3f023ea4"
+    },
+    {
+      "name": "a path in NFC",
+      "files": [
+        {
+          "path": "goodfetch-recipe.toml",
+          "text": "version = \"0.1\"\nname = \"price-watch\"\nproduct = \"collie\"\nentry.steps = \"steps.json\"\n"
+        },
+        { "path": "steps.json", "text": "[]\n" },
+        { "path": "café.md", "text": "" }
+      ],
+      "digest": "sha256:ab9972bc5a03430617430fac856941976403738fb41f95018c93f1871df207fd"
+    },
+    {
+      "name": "the same path in NFD, which enters in NFC",
+      "files": [
+        {
+          "path": "goodfetch-recipe.toml",
+          "text": "version = \"0.1\"\nname = \"price-watch\"\nproduct = \"collie\"\nentry.steps = \"steps.json\"\n"
+        },
+        { "path": "steps.json", "text": "[]\n" },
+        { "path": "café.md", "text": "" }
+      ],
+      "digest": "sha256:ab9972bc5a03430617430fac856941976403738fb41f95018c93f1871df207fd"
+    },
+    {
+      "name": "a backslash in a name",
+      "files": [{ "path": "src\\main.ts", "text": "" }],
+      "refused": "src\\main.ts"
+    },
+    {
+      "name": "a path escaping the root",
+      "files": [{ "path": "../main.ts", "text": "" }],
+      "refused": "../main.ts"
+    },
+    {
+      "name": "an absolute path",
+      "files": [{ "path": "/main.ts", "text": "" }],
+      "refused": "/main.ts"
+    },
+    {
+      "name": "a drive or stream colon",
+      "files": [{ "path": "c:main.ts", "text": "" }],
+      "refused": "c:main.ts"
+    },
+    {
+      "name": "two files differing only in case, the later in byte order named",
+      "files": [
+        { "path": "readme.md", "text": "" },
+        { "path": "README.md", "text": "" }
+      ],
+      "refused": "readme.md"
+    },
+    {
+      "name": "two folders differing only in case",
+      "files": [
+        { "path": "Src/a.ts", "text": "" },
+        { "path": "src/b.ts", "text": "" }
+      ],
+      "refused": "src"
+    },
+    {
+      "name": "a file and a folder of one name",
+      "files": [
+        { "path": "notes", "text": "" },
+        { "path": "Notes/a.md", "text": "" }
+      ],
+      "refused": "notes"
+    },
+    {
+      "name": "two paths equal in NFC",
+      "files": [
+        { "path": "café.md", "text": "" },
+        { "path": "café.md", "text": "" }
+      ],
+      "refused": "café.md"
+    }
+  ]
+}

@@ -104,6 +104,7 @@ use goodfetch_protocol::settings::{
 use goodfetch_protocol::tls::{TLS_ACCEPT_INVALID_CERTS, TLS_CLIENT_CERTIFICATES};
 use url::Url;
 
+use crate::cached::Caching;
 use crate::canonical::canonical;
 use crate::chain::{
     Followed, Following, HopRead, Reading, Redirected, Skip, Stop, Unfollowed, follow_reading,
@@ -1080,7 +1081,8 @@ impl FetchTiers {
     /// through a proxy of its own when the Run sets one (#1640), its
     /// certificate exceptions pinning in `engine`'s known-certificates
     /// store. Each pool Session's own local addresses and proxy take
-    /// [`HttpTier::of_session`].
+    /// [`HttpTier::of_session`]. Its hops are answered from the Run's
+    /// Response source, `engine`'s, before they are sent (ADR 0046).
     ///
     /// # Errors
     ///
@@ -1152,9 +1154,15 @@ impl FetchTiers {
             }
             None => (Arc::new(reqwest), None),
         };
+        let caching = Caching::of(engine.response_source(settings), run);
+        let transport = match &caching {
+            Some(caching) => caching.over(transport),
+            None => transport,
+        };
         Ok(HttpTier {
             addresses,
             transport,
+            caching,
             proxies,
             egress,
             bounds: FetchBounds::of(settings),
@@ -2484,6 +2492,9 @@ pub struct HttpTier {
     /// The proxies of the Run's Sessions, when it sets one, which every
     /// clone shares (#1640).
     proxies: Option<Arc<SessionProxies>>,
+    /// What its transports answer from before they send, unless the Run
+    /// only sends (ADR 0046).
+    caching: Option<Arc<Caching>>,
 }
 
 /// The reqwest transport of each local source a Session of the Run sends
@@ -2596,7 +2607,18 @@ impl HttpTier {
                 proxies.of(session, own.cloned(), direct) as Arc<dyn Transport>
             }
             (None, Some(direct)) => direct,
-            (None, None) => Arc::clone(&self.transport),
+            // The Run's own transport, already answering from its source.
+            (None, None) => {
+                return Ok(HttpTier {
+                    transport: Arc::clone(&self.transport),
+                    addresses,
+                    ..self.clone()
+                });
+            }
+        };
+        let transport = match &self.caching {
+            Some(caching) => caching.over(transport),
+            None => transport,
         };
         Ok(HttpTier {
             transport,

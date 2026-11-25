@@ -9,6 +9,7 @@ use serde_json::{Value, json};
 use tokio::sync::Notify;
 
 use super::{Origins, commit};
+use crate::driver::page_reader::PageReader;
 use crate::driver::replay::{self, FRAME, SESSION};
 use crate::driver::{Browser, Connect, SessionDriver, SessionEgress};
 
@@ -64,9 +65,8 @@ fn a_capture_waits_for_a_watcher_behind_the_browsers_answer() {
         let browser = Browser::played(connection);
         let session = TargetSession(SESSION.to_owned());
         let origins = Origins::default();
-        let watcher = origins
-            .clone()
-            .watch(browser.connection.subscribe(Some(&session)));
+        let watcher =
+            PageReader::new(&browser.connection, &session).reading(Some(origins.clone().watcher()));
         let session_driver = SessionDriver::new(Played(browser.clone()), SessionEgress::default());
         session_driver
             .context

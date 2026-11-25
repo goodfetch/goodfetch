@@ -118,7 +118,7 @@ fn load(page: LoadPage, row: Row, number: u32, wall: f64) -> LoadTrial {
         page,
         row,
         number,
-        load: None,
+        started: crate::compare::trials::Started::default(),
         status: Some(200),
         read: Some("digest of the content".to_owned()),
         own: page.own(),

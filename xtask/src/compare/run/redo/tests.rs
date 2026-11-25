@@ -50,7 +50,7 @@ fn counted(scenario: Scenario, cell: &str, tool: Tool, number: u32, work: Work) 
         cell: cell.to_owned(),
         tool,
         number,
-        load: None,
+        started: crate::compare::trials::Started::default(),
         count: 9,
         syncs: 0,
         work,

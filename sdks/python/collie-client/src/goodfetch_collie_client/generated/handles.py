@@ -623,6 +623,41 @@ class AsyncLocator(AsyncHandle):
         return result_of(models.Evaluated, await self._host.call("locator.wait_for_function", params, timeout_setting="timeout.wait")).value
 
 
+class AsyncSchedule(AsyncHandle):
+    """A `schedule` a program holds: the members the catalog gives it (ADR 0099)."""
+
+    def __init__(self, host: AsyncHandleHost[models.ScheduleId]) -> None:
+        """Takes what it reaches its engine through; a program never constructs one."""
+        self._host = host
+        super().__init__(host, "schedule", "schedule_id")
+
+    async def delete(self, *, timeout: timedelta | None | NotGiven = not_given) -> bool:
+        """Deletes the Schedule from its store, so it never fires again, and answers whether it did: false when the store held none of that ID, as after a resent delete. One store transaction: a cancel stops it only before it commits.
+
+        Left out, `timeout` takes the Run's `timeout.wait`, by default `timedelta(seconds=30)`.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        warn_experimental("schedule.delete")
+        params = models.ScheduleParams(schedule_id=self._host.id)
+        if not isinstance(timeout, NotGiven):
+            params.timeout = timeout_of(timeout, "timeout.wait")
+        return result_of(models.ScheduleDeleted, await self._host.call("schedule.delete", params, timeout_setting="timeout.wait")).deleted
+
+    async def info(self, *, timeout: timedelta | None | NotGiven = not_given) -> models.ScheduleInfo:
+        """Reads the Schedule as its store holds it now. One the store no longer holds fails with `schedule_not_found`.
+
+        Left out, `timeout` takes the Run's `timeout.wait`, by default `timedelta(seconds=30)`.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        warn_experimental("schedule.info")
+        params = models.ScheduleParams(schedule_id=self._host.id)
+        if not isinstance(timeout, NotGiven):
+            params.timeout = timeout_of(timeout, "timeout.wait")
+        return result_of(models.ScheduleInfo, await self._host.call("schedule.info", params, timeout_setting="timeout.wait"))
+
+
 class Run(Handle):
     """A `run` a program holds: the members the catalog gives it (ADR 0099)."""
 
@@ -1205,3 +1240,38 @@ class Locator(Handle):
         if not isinstance(world, NotGiven):
             params.world = None if world is None else models.World(world)
         return result_of(models.Evaluated, self._host.call("locator.wait_for_function", params, timeout_setting="timeout.wait")).value
+
+
+class Schedule(Handle):
+    """A `schedule` a program holds: the members the catalog gives it (ADR 0099)."""
+
+    def __init__(self, host: HandleHost[models.ScheduleId]) -> None:
+        """Takes what it reaches its engine through; a program never constructs one."""
+        self._host = host
+        super().__init__(host, "schedule", "schedule_id")
+
+    def delete(self, *, timeout: timedelta | None | NotGiven = not_given) -> bool:
+        """Deletes the Schedule from its store, so it never fires again, and answers whether it did: false when the store held none of that ID, as after a resent delete. One store transaction: a cancel stops it only before it commits.
+
+        Left out, `timeout` takes the Run's `timeout.wait`, by default `timedelta(seconds=30)`.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        warn_experimental("schedule.delete")
+        params = models.ScheduleParams(schedule_id=self._host.id)
+        if not isinstance(timeout, NotGiven):
+            params.timeout = timeout_of(timeout, "timeout.wait")
+        return result_of(models.ScheduleDeleted, self._host.call("schedule.delete", params, timeout_setting="timeout.wait")).deleted
+
+    def info(self, *, timeout: timedelta | None | NotGiven = not_given) -> models.ScheduleInfo:
+        """Reads the Schedule as its store holds it now. One the store no longer holds fails with `schedule_not_found`.
+
+        Left out, `timeout` takes the Run's `timeout.wait`, by default `timedelta(seconds=30)`.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        warn_experimental("schedule.info")
+        params = models.ScheduleParams(schedule_id=self._host.id)
+        if not isinstance(timeout, NotGiven):
+            params.timeout = timeout_of(timeout, "timeout.wait")
+        return result_of(models.ScheduleInfo, self._host.call("schedule.info", params, timeout_setting="timeout.wait"))

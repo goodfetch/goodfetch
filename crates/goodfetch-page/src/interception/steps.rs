@@ -3,12 +3,14 @@
 //! never-block list, the Filter lists and `browser.block_resources`, the
 //! places of the steps later tickets fill, and the command that sends the
 //! request on or answers it with a stand-in. Pure, so the per-request
-//! benchmark runs it as the pipeline does (ADR 0071).
+//! benchmark runs it as the pipeline does (ADR 0071): the values it builds
+//! are the CDP module's `requests`, which its parent imports, the
+//! interception in the crate and the scenarios in the benchmark.
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
-use goodfetch_cdp::generated::{fetch, network};
+use super::{ContinueRequest, Fulfill, Header, PausedId, RequestHeaders};
 use goodfetch_clean_up_rules::matching::{self, Choices, ResourceKind, Verdict};
 use goodfetch_clean_up_rules::never_block::NeverBlock;
 use goodfetch_clean_up_rules::rules::FilterLists;
@@ -73,12 +75,12 @@ impl Blocking {
 
 /// The request paused at `id`, as the last route sends it on.
 pub(crate) struct Paused<'a> {
-    pub(crate) id: &'a fetch::RequestId,
+    pub(crate) id: &'a PausedId,
     pub(crate) url: &'a str,
     pub(crate) method: &'a str,
     pub(crate) overrides: &'a Overrides,
     /// The headers it carries, which `overrides` may replace.
-    pub(crate) headers: &'a network::Headers,
+    pub(crate) headers: RequestHeaders<'a>,
     /// What it loads.
     pub(crate) kind: ResourceKind,
     /// The URL of the document that sent it.
@@ -92,9 +94,9 @@ pub(crate) struct Paused<'a> {
 #[derive(Debug)]
 pub(crate) enum Sent {
     /// Step 8's command: on to the network.
-    Continue(fetch::ContinueRequestParams),
+    Continue(ContinueRequest),
     /// A redirect rule's stand-in answers it, as the browser takes it.
-    StandIn(fetch::FulfillRequestParams),
+    StandIn(Fulfill),
 }
 
 /// Why a request goes no further.
@@ -148,16 +150,14 @@ pub(crate) fn send_on(
     );
     match verdict {
         Verdict::StandIn { mime, body, .. } if !fetch => {
-            return Ok(Sent::StandIn(fetch::FulfillRequestParams {
-                request_id: paused.id.clone(),
-                response_code: 200,
-                response_headers: Some(vec![fetch::HeaderEntry {
+            return Ok(Sent::StandIn(Fulfill {
+                id: paused.id.clone(),
+                status: 200,
+                headers: vec![Header {
                     name: "Content-Type".to_owned(),
                     value: mime,
-                }]),
-                binary_response_headers: None,
-                body: Some(body),
-                response_phrase: None,
+                }],
+                body,
             }));
         }
         verdict if !verdict.sends_on() => {
@@ -188,29 +188,25 @@ pub(crate) fn send_on(
         None => paused.overrides.headers.as_ref().map(entries),
     };
     // Step 8: the network.
-    Ok(Sent::Continue(fetch::ContinueRequestParams {
-        request_id: paused.id.clone(),
+    Ok(Sent::Continue(ContinueRequest {
+        id: paused.id.clone(),
         url: paused.overrides.url.clone(),
         method: paused.overrides.method.clone(),
         post_data: paused.overrides.post_data.clone(),
         headers,
-        intercept_response: fetch.then_some(true),
+        intercept_response: fetch,
     }))
 }
 
 /// The headers `paused` is sent on with, its overrides' or its own, and
 /// `signed`, which replace any of the same names it carried.
-fn signed_entries(paused: &Paused<'_>, signed: SignedHeaders) -> Vec<fetch::HeaderEntry> {
+fn signed_entries(paused: &Paused<'_>, signed: SignedHeaders) -> Vec<Header> {
     let carried: Vec<(&str, &str)> = match paused.overrides.headers.as_ref() {
         Some(headers) => headers
             .iter()
             .map(|(name, value)| (name.as_str(), value.as_str()))
             .collect(),
-        None => paused
-            .headers
-            .iter()
-            .filter_map(|(name, value)| Some((name.as_str(), value.as_str()?)))
-            .collect(),
+        None => paused.headers.iter().collect(),
     };
     carried
         .into_iter()
@@ -219,7 +215,7 @@ fn signed_entries(paused: &Paused<'_>, signed: SignedHeaders) -> Vec<fetch::Head
                 .iter()
                 .any(|signed| signed.eq_ignore_ascii_case(name))
         })
-        .map(|(name, value)| fetch::HeaderEntry {
+        .map(|(name, value)| Header {
             name: name.to_owned(),
             value: value.to_owned(),
         })
@@ -227,7 +223,7 @@ fn signed_entries(paused: &Paused<'_>, signed: SignedHeaders) -> Vec<fetch::Head
             signed
                 .into_entries()
                 .into_iter()
-                .map(|(name, value)| fetch::HeaderEntry {
+                .map(|(name, value)| Header {
                     name: name.to_owned(),
                     value,
                 }),
@@ -235,31 +231,11 @@ fn signed_entries(paused: &Paused<'_>, signed: SignedHeaders) -> Vec<fetch::Head
         .collect()
 }
 
-/// What a request of `resource_type` loads, as the Filter lists match it;
-/// a document is a frame's unless `main_frame`.
-pub(crate) fn kind(resource_type: network::ResourceType, main_frame: bool) -> ResourceKind {
-    use network::ResourceType as Browser;
-    match resource_type {
-        Browser::Document if main_frame => ResourceKind::Document,
-        Browser::Document => ResourceKind::Subdocument,
-        Browser::Stylesheet => ResourceKind::Stylesheet,
-        Browser::Image => ResourceKind::Image,
-        Browser::Media => ResourceKind::Media,
-        Browser::Font => ResourceKind::Font,
-        Browser::Script => ResourceKind::Script,
-        Browser::Xhr | Browser::Fetch | Browser::EventSource => ResourceKind::Xhr,
-        Browser::WebSocket => ResourceKind::WebSocket,
-        Browser::Ping => ResourceKind::Ping,
-        Browser::CspViolationReport => ResourceKind::CspReport,
-        _ => ResourceKind::Other,
-    }
-}
-
 /// Headers as the browser takes them.
-pub(crate) fn entries(headers: &BTreeMap<String, String>) -> Vec<fetch::HeaderEntry> {
+pub(crate) fn entries(headers: &BTreeMap<String, String>) -> Vec<Header> {
     headers
         .iter()
-        .map(|(name, value)| fetch::HeaderEntry {
+        .map(|(name, value)| Header {
             name: name.clone(),
             value: value.clone(),
         })

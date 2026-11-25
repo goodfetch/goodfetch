@@ -9,7 +9,7 @@
 //! `4xx` has no rules, and one answered `429` or `5xx`, or not at all,
 //! disallows everything, as RFC 9309 §2.3.1 reads them. The reading gates,
 //! delays and counts nothing: it starts once the document's response
-//! arrived, as a task of the Run, and the Run's own copy fetches each
+//! arrived, as a task of the page's owner, and the Run's own copy fetches each
 //! origin's file once, through the page's Session as `page.request` sends
 //! (the browser-fetch tier), never through the copy Foxhound shares. Its
 //! body is read from the browser's stream, judged as it arrives and stopped
@@ -26,6 +26,7 @@ use std::sync::Arc;
 
 use goodfetch_engine::response_limits::Limits;
 use goodfetch_engine::robots_txt::{self, Answer, Fetched, Judgment, NotRead, RobotsTxt};
+use goodfetch_engine::run_identity::RunIdentity;
 use goodfetch_engine::runs::Run;
 use goodfetch_protocol::page::{PageId, SessionId};
 use serde_json::{Value, json};
@@ -43,7 +44,8 @@ use crate::trace;
 const REDIRECTS: u32 = 5;
 
 /// Where the documents of one page a program opened are read for
-/// robots.txt: its Session, its value and its Run.
+/// robots.txt: its Session, its value, its Run and the Run's identity that
+/// starts its readings on the page's owner.
 #[derive(Clone)]
 pub(crate) struct Reader {
     sessions: Sessions,
@@ -51,6 +53,7 @@ pub(crate) struct Reader {
     session: SessionId,
     value: PageValue,
     run: Run,
+    tasks: RunIdentity,
 }
 
 impl OnDocument for Reader {
@@ -61,14 +64,16 @@ impl OnDocument for Reader {
 
 impl Reader {
     /// The reader of the page `page_id` of the Session `session`, which
-    /// `value` carries in `run`, when a program opened it: a handler's page,
-    /// whose value has a navigation gate, is Foxhound's to judge (ADR 0087).
+    /// `value` carries in `run`, its readings started on `tasks`, the Run's
+    /// identity that starts them on the page's owner, when a program opened
+    /// it: a handler's page, whose value has a navigation gate, is
+    /// Foxhound's to judge (ADR 0087).
     pub(crate) fn of(
         sessions: &Sessions,
         page_id: &PageId,
         session: &SessionId,
         value: &PageValue,
-        run: &Run,
+        (run, tasks): (&Run, &RunIdentity),
     ) -> Option<Self> {
         value.gate().is_none().then(|| Self {
             sessions: sessions.clone(),
@@ -76,12 +81,13 @@ impl Reader {
             session: session.clone(),
             value: value.clone(),
             run: run.clone(),
+            tasks: tasks.clone(),
         })
     }
 
     /// Starts reading the robots.txt of `url`'s origin for the page's
-    /// document or response at `url`, as a task of its Run that records the
-    /// reading in Provenance, the engine's own requests sent through
+    /// document or response at `url`, as a task of the page's owner that
+    /// records the reading in Provenance, the engine's own requests sent through
     /// `steps`; a URL that is not HTTP's starts none. Nothing the page does
     /// waits for it.
     pub(crate) fn read(&self, steps: EngineRequests, url: &str) {
@@ -93,7 +99,7 @@ impl Reader {
         };
         let reader = self.clone();
         let limits = Limits::of_run(self.run.settings());
-        self.run.spawn(async move {
+        self.tasks.spawn(async move {
             // Boxed: the fetch holds a browser load's state (clippy's
             // `large_futures`).
             let fetched = Box::pin(
@@ -157,7 +163,7 @@ impl Reader {
         // A fetch the Session's end, its lease's or its browser's cut short
         // failed in the engine, not at the site: the browser aborts its
         // page's load as its context goes.
-        if self.sessions.serves(&self.session, &self.value).await {
+        if self.sessions.serves(&self.session, &self.value) {
             Ok(Answer::Unreachable(failed))
         } else {
             Err(NotRead(failed))

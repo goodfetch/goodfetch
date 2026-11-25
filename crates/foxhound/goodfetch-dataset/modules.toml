@@ -2,6 +2,7 @@
 [modules]
 declaration = ["records", "rejections", "run_tables"]
 encoding = []
+erase = ["open"]
 export = ["encoding", "open", "pipeline", "records"]
 open = ["declaration"]
 page = ["open", "records"]

@@ -776,6 +776,23 @@ number = 6
 kind = "setting"
 prefix = "session.pool."
 
+# The Response cache (spec #580, #793, ADR 0046): its settings, the
+# refusal of a `replay` the Operator policy does not allow, and its format.
+[[area]]
+number = 6
+kind = "setting"
+prefix = "cache."
+
+[[area]]
+number = 6
+kind = "error"
+prefix = "replay_not_allowed"
+
+[[area]]
+number = 6
+kind = "format"
+prefix = "response-cache"
+
 # The tier that fetches a crawl request's document (spec #579, #759).
 [[area]]
 number = 5
@@ -1425,6 +1442,23 @@ number = 5
 kind = "error"
 prefix = "browser_host_unreachable"
 
+# Area 10, Scheduling (specs #588 and #589): the Schedule operations, the
+# CLI's `schedule` commands and their Error codes (#854).
+[[area]]
+number = 10
+kind = "operation"
+prefix = "schedule."
+
+[[area]]
+number = 10
+kind = "command"
+prefix = "schedule."
+
+[[area]]
+number = 10
+kind = "error"
+prefix = "schedule_"
+
 # Area 12 (spec #592).
 # Foxhound's Datasets screen (#1211, spec #593): `dataset.list` and
 # `dataset.page`, which the Records grid reads.
@@ -1549,11 +1583,29 @@ number = 11
 kind = "command"
 prefix = "catalog-run.start"
 
+# The Recipe format: its manifest and the refusal of a Recipe that is not
+# valid (issue 1663).
+[[area]]
+number = 11
+kind = "format"
+prefix = "recipe-manifest"
+
+[[area]]
+number = 11
+kind = "error"
+prefix = "recipe_invalid"
+
 # The check of the installation (#1206).
 [[area]]
 number = 11
 kind = "command"
 prefix = "doctor"
+
+# A project started from a starter (#1422).
+[[area]]
+number = 11
+kind = "command"
+prefix = "init"
 
 # Area 8, Stealth and Challenge solving (specs #599 and #600): every Block
 # cause, the closed list both Products share (#849).
@@ -1751,6 +1803,23 @@ prefix = "dataset.query."
 number = 12
 kind = "error"
 prefix = "query_"
+
+# Full-text search (#1217, spec #593): `dataset.search` is under `dataset.`
+# above; search across runs, its command, and the indexing setting.
+[[area]]
+number = 12
+kind = "operation"
+prefix = "record."
+
+[[area]]
+number = 11
+kind = "command"
+prefix = "record."
+
+[[area]]
+number = 12
+kind = "setting"
+prefix = "dataset.search."
 
 # Area 11, the Client surfaces (spec #608): the MCP profiles and the agent
 # skills, each a Feature once it exists.

@@ -1179,6 +1179,77 @@ impl Locator {
     }
 }
 
+/// A `schedule` a program holds: the members the catalog gives it (ADR 0099).
+#[derive(Clone, Debug)]
+pub struct Schedule {
+    pub(crate) host: crate::host::ConnectionHost<::goodfetch_protocol::schedule::ScheduleId>,
+}
+
+impl Schedule {
+    /// Its ID, which names it to the engine.
+    #[must_use]
+    pub fn id(&self) -> &::goodfetch_protocol::schedule::ScheduleId {
+        self.host.id()
+    }
+
+    /// The raw call of `operation`, an operation of `schedule` the SDK may not
+    /// generate (ADR 0099), its params and its result the wire's JSON in
+    /// snake case: its ID fills `schedule_id`. An operation of another namespace
+    /// fails with `invalid_params` before it is sent, as a call on a
+    /// closed value does with `closed`. It is never retried.
+    pub fn call(&self, operation: &str) -> crate::RawCall {
+        self.host.raw(operation, "schedule", "schedule_id")
+    }
+
+    /// Deletes the Schedule from its store, so it never fires again, and answers whether it did: false when the store held none of that ID, as after a resent delete. One store transaction: a cancel stops it only before it commits.
+    ///
+    /// Experimental: outside semver until it is promoted (ADR 0030).
+    ///
+    /// # Errors
+    ///
+    /// Once sent, `closed` when its handle or the Connection is closed, the engine's error, `deadline_exceeded` once its timeout runs out, and `internal` when its reply does not fit its type.
+    pub fn delete(&self) -> crate::Call<bool, ::goodfetch_protocol::schedule::ScheduleParams> {
+        crate::markers::warn("schedule.delete", true, None);
+        let call: crate::Call<
+            ::goodfetch_protocol::schedule::ScheduleDeleted,
+            ::goodfetch_protocol::schedule::ScheduleParams,
+        > = self.host.call(
+            "schedule.delete",
+            ::goodfetch_protocol::schedule::ScheduleParams {
+                schedule_id: self.host.id().clone(),
+                timeout: None,
+            },
+        );
+        call.wire_timeout("timeout.wait")
+            .map(|result| result.deleted)
+    }
+
+    /// Reads the Schedule as its store holds it now. One the store no longer holds fails with `schedule_not_found`.
+    ///
+    /// Experimental: outside semver until it is promoted (ADR 0030).
+    ///
+    /// # Errors
+    ///
+    /// Once sent, `closed` when its handle or the Connection is closed, the engine's error, `deadline_exceeded` once its timeout runs out, and `internal` when its reply does not fit its type.
+    pub fn info(
+        &self,
+    ) -> crate::Call<
+        crate::Answer<::goodfetch_protocol::schedule::ScheduleInfo>,
+        ::goodfetch_protocol::schedule::ScheduleParams,
+    > {
+        crate::markers::warn("schedule.info", true, None);
+        self.host
+            .call(
+                "schedule.info",
+                ::goodfetch_protocol::schedule::ScheduleParams {
+                    schedule_id: self.host.id().clone(),
+                    timeout: None,
+                },
+            )
+            .wire_timeout("timeout.wait")
+    }
+}
+
 impl<T> crate::Call<T, ::goodfetch_protocol::checkpoint::RunMigrateParams> {
     /// Where to write the Checkpoint the Run is resumed from, a path on the
     /// engine's machine; by default where the engine keeps the Run's

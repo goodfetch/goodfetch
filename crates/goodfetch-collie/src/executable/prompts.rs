@@ -23,21 +23,26 @@ use goodfetch_protocol::connection::PERSON_REQUIRED;
 use serde_json::{Map, Value};
 
 /// A person-only prompt: the operation its answer calls, and where else a
-/// person gives that answer.
-pub(super) struct Prompt {
+/// person gives that answer. Public for an executable's own person-only
+/// commands, such as Foxhound's `dataset erase`.
+pub struct Prompt {
     /// The operation the person's yes calls.
-    pub(super) operation: &'static Operation,
+    pub operation: &'static Operation,
     /// Where else a person gives the answer, as a `fix` adds it after the
     /// command, such as "raise the Limit in the Kennel"; none where only
     /// the command asks it.
-    pub(super) elsewhere: Option<&'static str>,
+    pub elsewhere: Option<&'static str>,
 }
 
 impl Prompt {
     /// Refuses the prompt with `person_required` when no person answers:
     /// under `--json`, or when stdin is no terminal. A command calls it
     /// before any engine call.
-    pub(super) fn person_present(&self, json: bool, human: &Human) -> Result<(), ExitCode> {
+    ///
+    /// # Errors
+    ///
+    /// The `person_required` exit code, once its refusal is printed.
+    pub fn person_present(&self, json: bool, human: &Human) -> Result<(), ExitCode> {
         if json || !human.can_ask() {
             return Err(self.refused(json, human));
         }
@@ -47,7 +52,11 @@ impl Prompt {
     /// Asks the person `question` once, after `warning` when the answer
     /// widens what they take on; whether they answered yes. Refused as
     /// [`Self::person_present`] refuses it when no person answers.
-    pub(super) fn ask(
+    ///
+    /// # Errors
+    ///
+    /// The `person_required` exit code, once its refusal is printed.
+    pub fn ask(
         &self,
         question: &str,
         warning: Option<&str>,

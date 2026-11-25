@@ -64,7 +64,9 @@ pub mod otlp;
 pub mod pinned_download;
 pub mod politeness;
 mod product;
+pub mod recipe;
 pub mod request_signing;
+pub mod response_cache;
 pub mod response_limits;
 pub mod retry_after;
 pub mod robots_txt;
@@ -100,6 +102,7 @@ pub mod transition;
 pub mod transport;
 pub mod upgrade;
 mod usage;
+pub mod user_store;
 pub mod webhook_signing;
 mod wire;
 

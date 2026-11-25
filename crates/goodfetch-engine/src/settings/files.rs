@@ -506,7 +506,8 @@ fn file_tables(
     Ok(found_tables)
 }
 
-fn json_of_table(table: &toml_edit::Table) -> Value {
+/// A TOML table as the JSON value its readers check, its tables nested.
+pub(crate) fn json_of_table(table: &toml_edit::Table) -> Value {
     Value::Object(
         table
             .iter()

@@ -329,6 +329,16 @@
       ]
     },
     {
+      "id": "command:dataset.erase",
+      "kind": "command",
+      "area": 11,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "foxhound"
+      ]
+    },
+    {
       "id": "command:dataset.list",
       "kind": "command",
       "area": 11,
@@ -350,6 +360,16 @@
     },
     {
       "id": "command:dataset.query",
+      "kind": "command",
+      "area": 11,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "foxhound"
+      ]
+    },
+    {
+      "id": "command:dataset.search",
       "kind": "command",
       "area": 11,
       "milestone": null,
@@ -382,6 +402,17 @@
     },
     {
       "id": "command:events.subscribe",
+      "kind": "command",
+      "area": 11,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "command:init",
       "kind": "command",
       "area": 11,
       "milestone": null,
@@ -612,6 +643,17 @@
       ]
     },
     {
+      "id": "command:recipe.digest",
+      "kind": "command",
+      "area": null,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "command:recipe.start",
       "kind": "command",
       "area": 11,
@@ -619,6 +661,16 @@
       "status": "active",
       "products": [
         "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "command:record.search",
+      "kind": "command",
+      "area": 11,
+      "milestone": null,
+      "status": "active",
+      "products": [
         "foxhound"
       ]
     },
@@ -902,6 +954,61 @@
       "id": "command:sample.echo",
       "kind": "command",
       "area": 11,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "command:schedule.create",
+      "kind": "command",
+      "area": 10,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "command:schedule.delete",
+      "kind": "command",
+      "area": 10,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "command:schedule.get",
+      "kind": "command",
+      "area": 10,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "command:schedule.info",
+      "kind": "command",
+      "area": 10,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "command:schedule.list",
+      "kind": "command",
+      "area": 10,
       "milestone": null,
       "status": "active",
       "products": [
@@ -2175,12 +2282,34 @@
       ]
     },
     {
+      "id": "error:recipe_invalid",
+      "kind": "error",
+      "area": 11,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "error:record_invalid",
       "kind": "error",
       "area": 6,
       "milestone": null,
       "status": "active",
       "products": [
+        "foxhound"
+      ]
+    },
+    {
+      "id": "error:replay_not_allowed",
+      "kind": "error",
+      "area": 6,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
         "foxhound"
       ]
     },
@@ -2436,6 +2565,39 @@
       "id": "error:sample_refused",
       "kind": "error",
       "area": 1,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "error:schedule_exists",
+      "kind": "error",
+      "area": 10,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "error:schedule_not_found",
+      "kind": "error",
+      "area": 10,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "error:schedule_trigger_invalid",
+      "kind": "error",
+      "area": 10,
       "milestone": null,
       "status": "active",
       "products": [
@@ -3310,6 +3472,28 @@
       ]
     },
     {
+      "id": "format:recipe-manifest",
+      "kind": "format",
+      "area": 11,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "format:response-cache",
+      "kind": "format",
+      "area": 6,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "format:run-index",
       "kind": "format",
       "area": 3,
@@ -3579,6 +3763,16 @@
       ]
     },
     {
+      "id": "operation:dataset.erase",
+      "kind": "operation",
+      "area": 12,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "foxhound"
+      ]
+    },
+    {
       "id": "operation:dataset.list",
       "kind": "operation",
       "area": 12,
@@ -3600,6 +3794,16 @@
     },
     {
       "id": "operation:dataset.query",
+      "kind": "operation",
+      "area": 12,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "foxhound"
+      ]
+    },
+    {
+      "id": "operation:dataset.search",
       "kind": "operation",
       "area": 12,
       "milestone": null,
@@ -4135,6 +4339,16 @@
       ]
     },
     {
+      "id": "operation:record.search",
+      "kind": "operation",
+      "area": 12,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "foxhound"
+      ]
+    },
+    {
       "id": "operation:response.body",
       "kind": "operation",
       "area": 5,
@@ -4491,6 +4705,61 @@
       "id": "operation:sample.echo",
       "kind": "operation",
       "area": 1,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "operation:schedule.create",
+      "kind": "operation",
+      "area": 10,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "operation:schedule.delete",
+      "kind": "operation",
+      "area": 10,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "operation:schedule.get",
+      "kind": "operation",
+      "area": 10,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "operation:schedule.info",
+      "kind": "operation",
+      "area": 10,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "operation:schedule.list",
+      "kind": "operation",
+      "area": 10,
       "milestone": null,
       "status": "active",
       "products": [
@@ -8569,6 +8838,39 @@
       ]
     },
     {
+      "id": "setting:cache.max_age_ceiling",
+      "kind": "setting",
+      "area": 6,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "setting:cache.max_size",
+      "kind": "setting",
+      "area": 6,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "setting:cache.mode",
+      "kind": "setting",
+      "area": 6,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "setting:checkpoint.interval",
       "kind": "setting",
       "area": 3,
@@ -9042,6 +9344,16 @@
       "id": "setting:dataset.records",
       "kind": "setting",
       "area": 6,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "foxhound"
+      ]
+    },
+    {
+      "id": "setting:dataset.search.index",
+      "kind": "setting",
+      "area": 12,
       "milestone": null,
       "status": "active",
       "products": [
@@ -12556,6 +12868,952 @@
       ]
     },
     {
+      "id": "story:10-1",
+      "kind": "story",
+      "area": 10,
+      "milestone": "M4 Everything else",
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "story:10-10",
+      "kind": "story",
+      "area": 10,
+      "milestone": "M4 Everything else",
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "story:10-11",
+      "kind": "story",
+      "area": 10,
+      "milestone": "M4 Everything else",
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "story:10-12",
+      "kind": "story",
+      "area": 10,
+      "milestone": "M4 Everything else",
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "story:10-13",
+      "kind": "story",
+      "area": 10,
+      "milestone": "M4 Everything else",
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "story:10-14",
+      "kind": "story",
+      "area": 10,
+      "milestone": "M4 Everything else",
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "story:10-15",
+      "kind": "story",
+      "area": 10,
+      "milestone": "M4 Everything else",
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "story:10-16",
+      "kind": "story",
+      "area": 10,
+      "milestone": "M4 Everything else",
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "story:10-17",
+      "kind": "story",
+      "area": 10,
+      "milestone": "M4 Everything else",
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "story:10-18",
+      "kind": "story",
+      "area": 10,
+      "milestone": "M4 Everything else",
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "story:10-19",
+      "kind": "story",
+      "area": 10,
+      "milestone": "M4 Everything else",
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "story:10-2",
+      "kind": "story",
+      "area": 10,
+      "milestone": "M4 Everything else",
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "story:10-20",
+      "kind": "story",
+      "area": 10,
+      "milestone": "M4 Everything else",
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "story:10-21",
+      "kind": "story",
+      "area": 10,
+      "milestone": "M4 Everything else",
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "story:10-22",
+      "kind": "story",
+      "area": 10,
+      "milestone": "M4 Everything else",
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "story:10-23",
+      "kind": "story",
+      "area": 10,
+      "milestone": "M4 Everything else",
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "story:10-24",
+      "kind": "story",
+      "area": 10,
+      "milestone": "M4 Everything else",
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "story:10-25",
+      "kind": "story",
+      "area": 10,
+      "milestone": "M4 Everything else",
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "story:10-26",
+      "kind": "story",
+      "area": 10,
+      "milestone": "M4 Everything else",
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "story:10-27",
+      "kind": "story",
+      "area": 10,
+      "milestone": "M4 Everything else",
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "story:10-28",
+      "kind": "story",
+      "area": 10,
+      "milestone": "M4 Everything else",
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "story:10-29",
+      "kind": "story",
+      "area": 10,
+      "milestone": "M4 Everything else",
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "story:10-3",
+      "kind": "story",
+      "area": 10,
+      "milestone": "M4 Everything else",
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "story:10-30",
+      "kind": "story",
+      "area": 10,
+      "milestone": "M4 Everything else",
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "story:10-31",
+      "kind": "story",
+      "area": 10,
+      "milestone": "M4 Everything else",
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "story:10-32",
+      "kind": "story",
+      "area": 10,
+      "milestone": "M4 Everything else",
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "story:10-33",
+      "kind": "story",
+      "area": 10,
+      "milestone": "M4 Everything else",
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "story:10-34",
+      "kind": "story",
+      "area": 10,
+      "milestone": "M4 Everything else",
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "story:10-35",
+      "kind": "story",
+      "area": 10,
+      "milestone": "M4 Everything else",
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "story:10-36",
+      "kind": "story",
+      "area": 10,
+      "milestone": "M4 Everything else",
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "story:10-37",
+      "kind": "story",
+      "area": 10,
+      "milestone": "M4 Everything else",
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "story:10-38",
+      "kind": "story",
+      "area": 10,
+      "milestone": "M4 Everything else",
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "story:10-39",
+      "kind": "story",
+      "area": 10,
+      "milestone": "M4 Everything else",
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "story:10-4",
+      "kind": "story",
+      "area": 10,
+      "milestone": "M4 Everything else",
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "story:10-40",
+      "kind": "story",
+      "area": 10,
+      "milestone": "M4 Everything else",
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "story:10-41",
+      "kind": "story",
+      "area": 10,
+      "milestone": "M4 Everything else",
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "story:10-42",
+      "kind": "story",
+      "area": 10,
+      "milestone": "M4 Everything else",
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "story:10-43",
+      "kind": "story",
+      "area": 10,
+      "milestone": "M4 Everything else",
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "story:10-44",
+      "kind": "story",
+      "area": 10,
+      "milestone": "M4 Everything else",
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "story:10-45",
+      "kind": "story",
+      "area": 10,
+      "milestone": "M4 Everything else",
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "story:10-46",
+      "kind": "story",
+      "area": 10,
+      "milestone": "M4 Everything else",
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "story:10-47",
+      "kind": "story",
+      "area": 10,
+      "milestone": "M4 Everything else",
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "story:10-48",
+      "kind": "story",
+      "area": 10,
+      "milestone": "M4 Everything else",
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "story:10-49",
+      "kind": "story",
+      "area": 10,
+      "milestone": "M4 Everything else",
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "story:10-5",
+      "kind": "story",
+      "area": 10,
+      "milestone": "M4 Everything else",
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "story:10-50",
+      "kind": "story",
+      "area": 10,
+      "milestone": "M4 Everything else",
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "story:10-51",
+      "kind": "story",
+      "area": 10,
+      "milestone": "M4 Everything else",
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "story:10-52",
+      "kind": "story",
+      "area": 10,
+      "milestone": "M4 Everything else",
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "story:10-53",
+      "kind": "story",
+      "area": 10,
+      "milestone": "M4 Everything else",
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "story:10-54",
+      "kind": "story",
+      "area": 10,
+      "milestone": "M4 Everything else",
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "story:10-55",
+      "kind": "story",
+      "area": 10,
+      "milestone": "M4 Everything else",
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "story:10-56",
+      "kind": "story",
+      "area": 10,
+      "milestone": "M4 Everything else",
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "story:10-57",
+      "kind": "story",
+      "area": 10,
+      "milestone": "M4 Everything else",
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "story:10-58",
+      "kind": "story",
+      "area": 10,
+      "milestone": "M4 Everything else",
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "story:10-59",
+      "kind": "story",
+      "area": 10,
+      "milestone": "M4 Everything else",
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "story:10-6",
+      "kind": "story",
+      "area": 10,
+      "milestone": "M4 Everything else",
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "story:10-60",
+      "kind": "story",
+      "area": 10,
+      "milestone": "M4 Everything else",
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "story:10-61",
+      "kind": "story",
+      "area": 10,
+      "milestone": "M4 Everything else",
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "story:10-62",
+      "kind": "story",
+      "area": 10,
+      "milestone": "M4 Everything else",
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "story:10-63",
+      "kind": "story",
+      "area": 10,
+      "milestone": "M4 Everything else",
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "story:10-64",
+      "kind": "story",
+      "area": 10,
+      "milestone": "M4 Everything else",
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "story:10-65",
+      "kind": "story",
+      "area": 10,
+      "milestone": "M4 Everything else",
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "story:10-66",
+      "kind": "story",
+      "area": 10,
+      "milestone": "M4 Everything else",
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "story:10-67",
+      "kind": "story",
+      "area": 10,
+      "milestone": "M4 Everything else",
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "story:10-68",
+      "kind": "story",
+      "area": 10,
+      "milestone": "M4 Everything else",
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "story:10-69",
+      "kind": "story",
+      "area": 10,
+      "milestone": "M4 Everything else",
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "story:10-7",
+      "kind": "story",
+      "area": 10,
+      "milestone": "M4 Everything else",
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "story:10-70",
+      "kind": "story",
+      "area": 10,
+      "milestone": "M4 Everything else",
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "story:10-71",
+      "kind": "story",
+      "area": 10,
+      "milestone": "M4 Everything else",
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "story:10-72",
+      "kind": "story",
+      "area": 10,
+      "milestone": "M4 Everything else",
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "story:10-73",
+      "kind": "story",
+      "area": 10,
+      "milestone": "M4 Everything else",
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "story:10-74",
+      "kind": "story",
+      "area": 10,
+      "milestone": "M4 Everything else",
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "story:10-75",
+      "kind": "story",
+      "area": 10,
+      "milestone": "M4 Everything else",
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "story:10-76",
+      "kind": "story",
+      "area": 10,
+      "milestone": "M4 Everything else",
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "story:10-77",
+      "kind": "story",
+      "area": 10,
+      "milestone": "M4 Everything else",
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "story:10-78",
+      "kind": "story",
+      "area": 10,
+      "milestone": "M4 Everything else",
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "story:10-79",
+      "kind": "story",
+      "area": 10,
+      "milestone": "M4 Everything else",
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "story:10-8",
+      "kind": "story",
+      "area": 10,
+      "milestone": "M4 Everything else",
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "story:10-80",
+      "kind": "story",
+      "area": 10,
+      "milestone": "M4 Everything else",
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "story:10-81",
+      "kind": "story",
+      "area": 10,
+      "milestone": "M4 Everything else",
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "story:10-82",
+      "kind": "story",
+      "area": 10,
+      "milestone": "M4 Everything else",
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "story:10-83",
+      "kind": "story",
+      "area": 10,
+      "milestone": "M4 Everything else",
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "story:10-84",
+      "kind": "story",
+      "area": 10,
+      "milestone": "M4 Everything else",
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "story:10-85",
+      "kind": "story",
+      "area": 10,
+      "milestone": "M4 Everything else",
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "story:10-86",
+      "kind": "story",
+      "area": 10,
+      "milestone": "M4 Everything else",
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "story:10-9",
+      "kind": "story",
+      "area": 10,
+      "milestone": "M4 Everything else",
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "story:11-1",
       "kind": "story",
       "area": 11,
@@ -12585,6 +13843,16 @@
       "status": "active",
       "products": [
         "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "story:11-1001",
+      "kind": "story",
+      "area": 11,
+      "milestone": "M2 Client surfaces",
+      "status": "active",
+      "products": [
         "foxhound"
       ]
     },
@@ -12629,7 +13897,37 @@
       ]
     },
     {
+      "id": "story:11-1006",
+      "kind": "story",
+      "area": 11,
+      "milestone": "M2 Client surfaces",
+      "status": "active",
+      "products": [
+        "foxhound"
+      ]
+    },
+    {
       "id": "story:11-1007",
+      "kind": "story",
+      "area": 11,
+      "milestone": "M2 Client surfaces",
+      "status": "active",
+      "products": [
+        "foxhound"
+      ]
+    },
+    {
+      "id": "story:11-1008",
+      "kind": "story",
+      "area": 11,
+      "milestone": "M2 Client surfaces",
+      "status": "active",
+      "products": [
+        "foxhound"
+      ]
+    },
+    {
+      "id": "story:11-1009",
       "kind": "story",
       "area": 11,
       "milestone": "M2 Client surfaces",
@@ -12646,6 +13944,16 @@
       "status": "active",
       "products": [
         "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "story:11-1010",
+      "kind": "story",
+      "area": 11,
+      "milestone": "M2 Client surfaces",
+      "status": "active",
+      "products": [
         "foxhound"
       ]
     },
@@ -16646,6 +17954,26 @@
       ]
     },
     {
+      "id": "story:12-208",
+      "kind": "story",
+      "area": 12,
+      "milestone": "M1 Core",
+      "status": "active",
+      "products": [
+        "foxhound"
+      ]
+    },
+    {
+      "id": "story:12-209",
+      "kind": "story",
+      "area": 12,
+      "milestone": "M1 Core",
+      "status": "active",
+      "products": [
+        "foxhound"
+      ]
+    },
+    {
       "id": "story:12-210",
       "kind": "story",
       "area": 12,
@@ -16667,6 +17995,26 @@
     },
     {
       "id": "story:12-212",
+      "kind": "story",
+      "area": 12,
+      "milestone": "M1 Core",
+      "status": "active",
+      "products": [
+        "foxhound"
+      ]
+    },
+    {
+      "id": "story:12-213",
+      "kind": "story",
+      "area": 12,
+      "milestone": "M1 Core",
+      "status": "active",
+      "products": [
+        "foxhound"
+      ]
+    },
+    {
+      "id": "story:12-214",
       "kind": "story",
       "area": 12,
       "milestone": "M1 Core",

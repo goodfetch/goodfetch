@@ -157,27 +157,26 @@ fn every_setting_is_read_by_product_code_or_listed_as_unbuilt() {
 /// from its default is refused as the Run is, naming the key, the run
 /// layer and the feature; one that sets it to its default opens.
 ///
-/// Covers: story:3-88, setting:security.secure_delete
+/// Covers: story:3-88, setting:sample.echo_repeats
 #[test]
 fn a_scope_beneath_a_run_that_sets_an_unbuilt_setting_is_refused() {
     let run = resolve(&Layers::default(), Product::Collie, Product::Collie).unwrap();
-    let own = |secure_delete: bool| {
-        let serde_json::Value::Object(set) =
-            json!({ "security": { "secure_delete": secure_delete } })
+    let own = |repeats: u64| {
+        let serde_json::Value::Object(set) = json!({ "sample": { "echo_repeats": repeats } })
         else {
             unreachable!("a table")
         };
         Values::read(SettingsLayer::Run, &set, Product::Collie).unwrap()
     };
 
-    let refused = run.beneath(&own(false)).map(|_| ());
-    let at_its_default = run.beneath(&own(true)).map(|_| ());
+    let refused = run.beneath(&own(2)).map(|_| ());
+    let at_its_default = run.beneath(&own(1)).map(|_| ());
 
     assert!(
         matches!(
             &refused,
             Err(SettingsError::Unavailable { key, layer: SettingsLayer::Run, feature, .. })
-                if key == "security.secure_delete" && feature == "plain_delete"
+                if key == "sample.echo_repeats" && feature == "sample_echo_repeats"
         ),
         "{refused:?}"
     );

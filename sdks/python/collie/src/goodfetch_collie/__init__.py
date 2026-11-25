@@ -9,8 +9,11 @@ start's code-free targets (`ExtractTarget`, `AgentTarget`,
 errors (every group's class and every class of Collie's Error codes), a
 listener's `Subscription`, a sequence's iterators (`AsyncSequence`
 and `Sequence`), a Run's Key-value store (`AsyncKeyValueStore` and
-`KeyValueStore`), the response a page's request got (`AsyncResponse`
-and `Response`), each scope's settings types
+`KeyValueStore`), a Connection's Schedules (`AsyncSchedules` and
+`Schedules`), the Schedule handles they answer (`AsyncSchedule` and
+`Schedule`, in a `CreatedSchedule` once created) and what a Schedule is
+(`ScheduleDefinition`, `ScheduleInfo`, `ScheduleWarning`), the response a
+page's request got (`AsyncResponse` and `Response`), each scope's settings types
 (`Settings`, `RunSettings`, `SessionSettings`, `PageSettings`) and what
 explaining them answers (`SettingsExplanation`), the
 JSON values and the schema written by hand of ADR 0082 (`JSONValue`,
@@ -149,6 +152,9 @@ from goodfetch_collie_client.generated.errors import (
     RunStateUnavailableError,
     RunTargetUnbuiltError,
     SampleRefusedError,
+    ScheduleExistsError,
+    ScheduleNotFoundError,
+    ScheduleTriggerInvalidError,
     SchemaValidatorFailedError,
     SecretDomainNotAllowedError,
     SecretInputRefusedError,
@@ -178,6 +184,9 @@ from goodfetch_collie_client.generated.models import (
     RunProgress,
     RunReport,
     RunStarted,
+    ScheduleDefinition,
+    ScheduleInfo,
+    ScheduleWarning,
     SettingsExplanation,
     SettingsFile,
     SettingsLayer,
@@ -208,6 +217,13 @@ from goodfetch_collie_client.markers import ExperimentalWarning
 from goodfetch_collie_client.response import AsyncResponse, Response
 from goodfetch_collie_client.run import AsyncRun, Run
 from goodfetch_collie_client.run_view import AsyncRunView, RunView
+from goodfetch_collie_client.schedules import (
+    AsyncSchedule,
+    AsyncSchedules,
+    CreatedSchedule,
+    Schedule,
+    Schedules,
+)
 from goodfetch_collie_client.schema import JSONSchema
 from goodfetch_collie_client.sequence import AsyncSequence, Sequence
 
@@ -225,6 +241,8 @@ __all__ = [
     "AsyncResponse",
     "AsyncRun",
     "AsyncRunView",
+    "AsyncSchedule",
+    "AsyncSchedules",
     "AsyncSequence",
     "BlockedError",
     "BodyNotFoundError",
@@ -255,6 +273,7 @@ __all__ = [
     "ConnectionForkedError",
     "ConnectionLostError",
     "ConnectionOverloadedError",
+    "CreatedSchedule",
     "DaemonDrainingError",
     "DaemonUnreachableError",
     "DeadlineExceededError",
@@ -367,6 +386,14 @@ __all__ = [
     "RunTargetUnbuiltError",
     "RunView",
     "SampleRefusedError",
+    "Schedule",
+    "ScheduleDefinition",
+    "ScheduleExistsError",
+    "ScheduleInfo",
+    "ScheduleNotFoundError",
+    "ScheduleTriggerInvalidError",
+    "ScheduleWarning",
+    "Schedules",
     "SchemaValidatorFailedError",
     "SecretDomainNotAllowedError",
     "SecretInputRefusedError",

@@ -26,6 +26,13 @@ target/
 # of the files it mutates (`just mutants-sdks`, `just mutants-typescript`)
 /stryker-setup-*.js
 /.stryker-tmp/
+# Docusaurus's generated client code for the docs site (its source tree and
+# build go under target/docs-site/)
+/website/.docusaurus/
+# The site laid out under `docs/` for Vercel (website/vercel.json), and the
+# Vercel CLI's project link and build output
+/website/site/
+.vercel/
 __pycache__/
 .venv/
 .pytest_cache/

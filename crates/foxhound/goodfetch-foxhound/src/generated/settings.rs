@@ -376,6 +376,21 @@ pub mod dataset {
             ],
         );
     }
+
+    /// The `dataset.search.*` settings.
+    pub mod search {
+
+        /// Whether the crawl indexes each Record it commits for `dataset.search` and `record.search`, in the commit's transaction. On by default. Off, no Record is indexed, so neither search finds one of the crawl's Records, while each is still committed and read as before.
+        ///
+        /// `dataset.search.index`.
+        pub const INDEX: crate::settings::Setting<bool> = crate::settings::Setting::new(
+            "dataset.search.index",
+            &[
+                ::goodfetch_protocol::catalog::SettingScope::Connection,
+                ::goodfetch_protocol::catalog::SettingScope::Run,
+            ],
+        );
+    }
 }
 
 /// The `export.*` settings.

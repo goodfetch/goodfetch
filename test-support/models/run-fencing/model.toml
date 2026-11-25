@@ -16,3 +16,8 @@ traces = [
   "crates/goodfetch-engine/src/runs/opening.rs",
   "crates/goodfetch-engine/src/runs/takeover.rs",
 ]
+# The trace spec, checked with trace.cfg, and the traces of real runs it
+# validates: the lease model test's trace test writes each one and compares
+# it with the committed file.
+trace_spec = "TraceRunFencing.tla"
+trace_files = ["crates/foxhound/goodfetch-crawl/src/lease/tests/trace/one-run.ndjson"]

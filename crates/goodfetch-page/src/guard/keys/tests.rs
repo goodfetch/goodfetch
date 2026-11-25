@@ -104,6 +104,12 @@ fn up(key: &str, code: &str, modifiers: Option<i64>) -> Sent {
     up("Alt", "AltLeft", Some(2)),
     up("Control", "ControlLeft", None),
 ])]
+#[case::a_modifier_named_twice_is_held_once("Shift+Shift+Tab", vec![
+    down("Shift", "ShiftLeft", Some(8), None),
+    down("Tab", "Tab", Some(8), None),
+    up("Tab", "Tab", Some(8)),
+    up("Shift", "ShiftLeft", None),
+])]
 fn each_key_name_presses_as_a_keyboard_does(
     #[case] combination: &str,
     #[case] expected: Vec<Sent>,

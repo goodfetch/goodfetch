@@ -94,14 +94,24 @@ pub struct Committing<'a> {
     pub masks: &'a Masks,
     /// Where each Record's work is counted (F4, ADR 0140).
     pub work: &'a CountedWork,
+    /// Whether each Record enters the full-text index, its crawl's
+    /// `dataset.search.index`: off, no index row is written (ADR 0138).
+    pub index: bool,
 }
+
+/// Indexes one committed Record, its Dataset `?1` and number `?2`: the
+/// words of every string and number anywhere in its JSON text `?3`.
+const INDEX_RECORD: &str = "INSERT INTO record_search (dataset, number, text)
+     VALUES (?1, ?2, (SELECT group_concat(value, ' ') FROM json_tree(?3) WHERE type IN ('text', 'integer', 'real')))";
 
 /// Commits `records`, which the attempt `committing` names staged, in
 /// `connection`'s transaction: each Record takes its Dataset's next number
 /// and the hash of the schema it was checked against, the one the run file
 /// declares its Dataset with, and each of its rejections its Dataset's next
 /// number in its rejection table; every value the Run resolved is kept as
-/// its `%name%` (ADR 0092). A Record's data is written from where it is,
+/// its `%name%` (ADR 0092). While `committing.index` is on, each Record's
+/// values also enter the full-text index, `record_search`, from the same
+/// masked text its row holds. A Record's data is written from where it is,
 /// never copied, and nothing constant for the Run is read for it (ADR
 /// 0140's F4).
 /// Answers, per Dataset in the order first pushed (those only rejected
@@ -116,7 +126,13 @@ pub fn commit(
     records: &Checked,
 ) -> rusqlite::Result<Vec<DatasetRecords>> {
     let mut insert = connection.prepare_cached("INSERT INTO records (dataset, number, work_item, url, committed_at, data, schema_hash, provenance)
-         VALUES (?1, (SELECT coalesce(max(number), 0) + 1 FROM records WHERE dataset = ?1), ?2, ?3, ?4, ?5, ?6, ?7)")?;
+         VALUES (?1, (SELECT coalesce(max(number), 0) + 1 FROM records WHERE dataset = ?1), ?2, ?3, ?4, ?5, ?6, ?7)
+         RETURNING number")?;
+    let mut index = if committing.index {
+        Some(connection.prepare_cached(INDEX_RECORD)?)
+    } else {
+        None
+    };
     let masks = committing.masks;
     let provenance = masks.json(
         &serde_json::to_value(committing.provenance).expect("invariant: a Provenance encodes"),
@@ -131,15 +147,22 @@ pub fn commit(
         // What the row below does per Record: its JSON text, masked as it
         // is written, its fields in the order pushed.
         work.count(Row::RecordSerializations);
-        insert.execute((
-            &record.dataset,
-            committing.request_id,
-            committing.url,
-            &committed_at,
-            masks.json_text(record.data.raw(), Scope::Kept),
-            schema_hash.as_deref(),
-            &provenance,
-        ))?;
+        let data = masks.json_text(record.data.raw(), Scope::Kept);
+        let number: i64 = insert.query_row(
+            (
+                &record.dataset,
+                committing.request_id,
+                committing.url,
+                &committed_at,
+                &data,
+                schema_hash.as_deref(),
+                &provenance,
+            ),
+            |row| row.get(0),
+        )?;
+        if let Some(index) = &mut index {
+            index.execute((&record.dataset, number, &data))?;
+        }
         match counted
             .iter_mut()
             .find(|counted| counted.dataset == record.dataset)
@@ -456,10 +479,14 @@ pub(crate) fn read_through(
 }
 
 /// The columns of `records` [`dataset_record`] reads, in its order.
-pub(crate) const RECORD_COLUMNS: &str = "number, data, work_item, url, committed_at, provenance";
+pub const RECORD_COLUMNS: &str = "number, data, work_item, url, committed_at, provenance";
 
 /// The Record a row of [`RECORD_COLUMNS`] holds.
-pub(crate) fn dataset_record(row: &rusqlite::Row<'_>) -> rusqlite::Result<DatasetRecord> {
+///
+/// # Errors
+///
+/// When a column is missing or its JSON does not read.
+pub fn dataset_record(row: &rusqlite::Row<'_>) -> rusqlite::Result<DatasetRecord> {
     let data: String = row.get(1)?;
     let value = json_column(1, &data)?;
     let provenance: String = row.get(5)?;

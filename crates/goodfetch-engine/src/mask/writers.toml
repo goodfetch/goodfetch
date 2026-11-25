@@ -273,6 +273,11 @@ count = 1
 how = "masked: the Attached engine's stdout carries only the lines `rpc` masked"
 
 [[writer]]
+path = "crates/goodfetch-notification/src/ledger.rs"
+count = 1
+how = "holds no value: each delivery's event ID, channel name, state, attempt, run epoch, next time and failure name (a code, never the party's text)"
+
+[[writer]]
 path = "crates/goodfetch-page/src/clean_up_versions.rs"
 count = 1
 how = "holds no value: downloaded Clean-up rules"

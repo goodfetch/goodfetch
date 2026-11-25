@@ -901,7 +901,7 @@
     {
       "id": "command:schedule.create",
       "kind": "command",
-      "area": null,
+      "area": 10,
       "milestone": null,
       "status": "active",
       "products": [
@@ -912,7 +912,7 @@
     {
       "id": "command:schedule.delete",
       "kind": "command",
-      "area": null,
+      "area": 10,
       "milestone": null,
       "status": "active",
       "products": [
@@ -923,7 +923,7 @@
     {
       "id": "command:schedule.get",
       "kind": "command",
-      "area": null,
+      "area": 10,
       "milestone": null,
       "status": "active",
       "products": [
@@ -934,7 +934,7 @@
     {
       "id": "command:schedule.info",
       "kind": "command",
-      "area": null,
+      "area": 10,
       "milestone": null,
       "status": "active",
       "products": [
@@ -945,7 +945,7 @@
     {
       "id": "command:schedule.list",
       "kind": "command",
-      "area": null,
+      "area": 10,
       "milestone": null,
       "status": "active",
       "products": [

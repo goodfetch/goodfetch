@@ -13,7 +13,7 @@
 import type { CallOptions } from "./caller.ts";
 import { ProgramError } from "./generated/errors.ts";
 import type { JSONValue } from "./json.ts";
-import { META } from "./trace-context.ts";
+import { META } from "./framing.ts";
 import { collieWire } from "./generated/wire.ts";
 import { toWire, type WirePath } from "./wire.ts";
 

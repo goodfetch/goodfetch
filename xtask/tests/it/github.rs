@@ -47,6 +47,21 @@ impl GitHub {
         routes: &[(&str, &str)],
         redirects: &[(&str, &str)],
     ) -> Self {
+        Self::start(routes, redirects, &[])
+    }
+
+    /// As [`GitHub::serving`], and adds to the answer of each `(path,
+    /// header)` of `headers` that header line, `name: value`, as an OCI
+    /// registry answers a manifest's digest.
+    pub(crate) fn serving_with_headers(routes: &[(&str, &str)], headers: &[(&str, &str)]) -> Self {
+        Self::start(routes, &[], headers)
+    }
+
+    fn start(
+        routes: &[(&str, &str)],
+        redirects: &[(&str, &str)],
+        headers: &[(&str, &str)],
+    ) -> Self {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let address = format!("http://{}", listener.local_addr().unwrap());
         let routes: BTreeMap<String, String> = routes
@@ -57,6 +72,12 @@ impl GitHub {
             .iter()
             .map(|(path, target)| ((*path).to_owned(), format!("{address}{target}")))
             .collect();
+        let mut extra: BTreeMap<String, String> = BTreeMap::new();
+        for (path, header) in headers {
+            let lines = extra.entry((*path).to_owned()).or_default();
+            lines.push_str(header);
+            lines.push_str("\r\n");
+        }
         let requests = Arc::new(Mutex::new(Vec::new()));
         let recorded = Arc::clone(&requests);
         // The stand-in answers on its own thread for the test's life, and
@@ -67,7 +88,7 @@ impl GitHub {
         )]
         std::thread::spawn(move || {
             for stream in listener.incoming() {
-                answer(stream.unwrap(), &routes, &redirects, &recorded);
+                answer(stream.unwrap(), &routes, &redirects, &extra, &recorded);
             }
         });
         Self { address, requests }
@@ -100,6 +121,7 @@ fn answer(
     mut stream: TcpStream,
     routes: &BTreeMap<String, String>,
     redirects: &BTreeMap<String, String>,
+    headers: &BTreeMap<String, String>,
     recorded: &Mutex<Vec<Request>>,
 ) {
     let mut reader = BufReader::new(stream.try_clone().unwrap());
@@ -143,7 +165,11 @@ fn answer(
         .or_else(|| routes.get(&path));
     let (status, location, answer) = match (redirects.get(&path), matching) {
         (Some(target), _) => ("302 Found", format!("location: {target}\r\n"), ""),
-        (None, Some(body)) => ("200 OK", String::new(), body.as_str()),
+        (None, Some(body)) => (
+            "200 OK",
+            headers.get(&path).cloned().unwrap_or_default(),
+            body.as_str(),
+        ),
         (None, None) => ("404 Not Found", String::new(), r#"{"message":"Not Found"}"#),
     };
     recorded.lock().unwrap().push(Request {

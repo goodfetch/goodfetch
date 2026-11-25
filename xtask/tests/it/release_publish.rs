@@ -43,6 +43,28 @@ const PYPI_PROJECTS: [&str; 3] = [
 /// One GiB, PyPI's unit for a project's storage limit.
 const GIB: u64 = 1 << 30;
 
+/// Each Product's image repository on GHCR (ADR 0090).
+const IMAGES: [&str; 2] = ["goodfetch/collie", "goodfetch/foxhound"];
+
+/// ADR 0049's tags of each image, after its version.
+const VARIANTS: [&str; 5] = ["", "-slim", "-full", "-node", "-python"];
+
+/// The fixture's first-party Plugin's repository (ADR 0033).
+const PLUGIN: &str = "goodfetch/goodfetch-plugin-archive";
+
+/// Every OCI repository of a stable release: each Product's image and
+/// chart, and the Plugin.
+fn oci_repositories() -> Vec<String> {
+    let mut repositories: Vec<String> = IMAGES.iter().map(|image| (*image).to_owned()).collect();
+    repositories.extend(
+        IMAGES
+            .iter()
+            .map(|image| image.replace("goodfetch/", "goodfetch/charts/")),
+    );
+    repositories.push(PLUGIN.to_owned());
+    repositories
+}
+
 /// Every npm package of both Products.
 fn npm_packages() -> Vec<String> {
     let mut names = vec!["@goodfetch/collie-client".to_owned()];
@@ -64,6 +86,9 @@ struct Published {
     npm: BTreeMap<String, Vec<String>>,
     /// Each project's published versions, each with its files' sizes.
     pypi: BTreeMap<String, Vec<(String, Vec<u64>)>>,
+    /// Each OCI repository's tags, each with the digest of the manifest it
+    /// points at.
+    oci: BTreeMap<String, BTreeMap<String, String>>,
     /// `Some(true)` for a draft GitHub Release of the version, `Some(false)`
     /// for a published one.
     release: Option<bool>,
@@ -93,13 +118,73 @@ impl Published {
             .iter()
             .map(|name| ((*name).to_owned(), vec![("1.3.0".to_owned(), vec![GIB])]))
             .collect();
-        Self {
+        let mut published = Self {
             crates,
             npm,
             pypi,
+            oci: BTreeMap::new(),
             release: None,
             tag: false,
+        };
+        published.oci_release("1.3.0");
+        published
+    }
+
+    /// Every step of both Products out at `1.4.0`: a draft GitHub Release
+    /// holding their files, and the tag.
+    fn every_step_out() -> Self {
+        let mut published = Self::previous_release();
+        published.release = Some(true);
+        for name in [
+            "goodfetch-collie",
+            "goodfetch-collie-client",
+            "goodfetch-foxhound",
+        ] {
+            published.crate_out(name, "1.4.0");
         }
+        for name in npm_packages() {
+            published.npm_out(&name, "1.4.0");
+        }
+        for project in PYPI_PROJECTS {
+            published.pypi_out(project, "1.4.0", vec![GIB]);
+        }
+        published.oci_release("1.4.0");
+        published.tag = true;
+        published
+    }
+
+    /// Each OCI repository's tags of the stable `version`, `latest` moved to
+    /// each image's `version`.
+    fn oci_release(&mut self, version: &str) {
+        for repository in oci_repositories() {
+            let variants = if IMAGES.contains(&repository.as_str()) {
+                &VARIANTS[..]
+            } else {
+                &VARIANTS[..1]
+            };
+            for variant in variants {
+                self.oci_out(&repository, &format!("{version}{variant}"));
+            }
+        }
+        for image in IMAGES {
+            self.oci_moved(image, "latest", version);
+        }
+    }
+
+    /// Adds `tag` to the repository, at a manifest of its own.
+    fn oci_out(&mut self, repository: &str, tag: &str) {
+        self.oci
+            .entry(repository.to_owned())
+            .or_default()
+            .insert(tag.to_owned(), manifest_digest(repository, tag));
+    }
+
+    /// Points the moving tag at the manifest `tag` points at.
+    fn oci_moved(&mut self, repository: &str, moving: &str, tag: &str) {
+        self.oci
+            .entry(repository.to_owned())
+            .or_default()
+            .insert(moving.to_owned(), manifest_digest(repository, tag));
     }
 
     /// Adds `version` to the crate's published versions.
@@ -125,14 +210,20 @@ impl Published {
     }
 }
 
+/// A digest of its own for each tag's manifest, as a registry would answer.
+fn manifest_digest(repository: &str, tag: &str) -> String {
+    format!("sha256:{}-{tag}", repository.replace('/', "-"))
+}
+
 /// The registries' stand-ins, serving what [`Published`] holds: a static
 /// sparse Cargo index served from a temporary folder, npm's and PyPI's JSON
-/// documents, and GitHub.
+/// documents, an OCI registry's tag lists and manifest digests, and GitHub.
 struct Registries {
     _index: tempfile::TempDir,
     cargo: GitHub,
     npm: GitHub,
     pypi: GitHub,
+    oci: GitHub,
     github: GitHub,
 }
 
@@ -212,11 +303,35 @@ impl Registries {
             ));
         }
 
+        let mut oci = Vec::new();
+        let mut digests = Vec::new();
+        for (repository, tags) in &published.oci {
+            let names: Vec<String> = tags.keys().map(|tag| format!(r#""{tag}""#)).collect();
+            oci.push((
+                format!("/v2/{repository}/tags/list"),
+                format!(r#"{{"name":"{repository}","tags":[{}]}}"#, names.join(",")),
+            ));
+            for (tag, digest) in tags {
+                let path = format!("/v2/{repository}/manifests/{tag}");
+                oci.push((path.clone(), "{}".to_owned()));
+                digests.push((path, format!("docker-content-digest: {digest}")));
+            }
+        }
+        let oci_routes: Vec<(&str, &str)> = oci
+            .iter()
+            .map(|(path, body)| (path.as_str(), body.as_str()))
+            .collect();
+        let digest_headers: Vec<(&str, &str)> = digests
+            .iter()
+            .map(|(path, header)| (path.as_str(), header.as_str()))
+            .collect();
+
         Self {
             _index: index,
             cargo,
             npm: serve(&npm),
             pypi: serve(&pypi),
+            oci: GitHub::serving_with_headers(&oci_routes, &digest_headers),
             github: serve(&github),
         }
     }
@@ -263,7 +378,13 @@ fn prepared(version: &str) -> Workspace {
 }
 
 fn plan(workspace: &Workspace, version: &str, registries: &Registries) -> Outcome {
-    plan_with_npm(workspace, version, registries, registries.npm.url())
+    plan_with(
+        workspace,
+        version,
+        registries,
+        registries.npm.url(),
+        registries.oci.url(),
+    )
 }
 
 fn plan_with_npm(
@@ -271,6 +392,18 @@ fn plan_with_npm(
     version: &str,
     registries: &Registries,
     npm: &str,
+) -> Outcome {
+    plan_with(workspace, version, registries, npm, registries.oci.url())
+}
+
+/// The plan, reading npm at `npm` and OCI at `oci` instead of their
+/// stand-ins in `registries`.
+fn plan_with(
+    workspace: &Workspace,
+    version: &str,
+    registries: &Registries,
+    npm: &str,
+    oci: &str,
 ) -> Outcome {
     workspace.xtask_with_env(
         &[
@@ -284,6 +417,8 @@ fn plan_with_npm(
             npm,
             "--pypi",
             registries.pypi.url(),
+            "--oci-registry",
+            oci,
             "--api-url",
             registries.github.url(),
         ],
@@ -314,6 +449,7 @@ fn plan_orders_every_step_of_both_products_for_publishing() {
         &registries.npm,
         &registries.pypi,
         &registries.cargo,
+        &registries.oci,
     ] {
         assert_eq!(registry.writes(), Vec::<Request>::new());
     }
@@ -355,22 +491,7 @@ fn plan_skips_each_step_a_partial_publish_finished() {
 /// Every step of both Products out but `left`, whose registry still lacks
 /// it.
 fn published_but(left: &str) -> Published {
-    let mut published = Published::previous_release();
-    published.release = Some(true);
-    for name in [
-        "goodfetch-collie",
-        "goodfetch-collie-client",
-        "goodfetch-foxhound",
-    ] {
-        published.crate_out(name, "1.4.0");
-    }
-    for name in npm_packages() {
-        published.npm_out(&name, "1.4.0");
-    }
-    for project in PYPI_PROJECTS {
-        published.pypi_out(project, "1.4.0", vec![GIB]);
-    }
-    published.tag = true;
+    let mut published = Published::every_step_out();
     match left.split_once(' ') {
         Some(("npm", name)) => {
             published
@@ -394,6 +515,15 @@ fn published_but(left: &str) -> Published {
                 .unwrap()
                 .retain(|v| v != "1.4.0");
         }
+        Some(("oci", step)) => {
+            let (repository, tag) = step.split_once(' ').unwrap();
+            published
+                .oci
+                .get_mut(repository)
+                .unwrap()
+                .remove(tag)
+                .unwrap();
+        }
         Some(("github", "tag")) => published.tag = false,
         _ => unreachable!("{left}"),
     }
@@ -408,6 +538,10 @@ fn published_but(left: &str) -> Published {
 #[case::collie_platform_package("npm @goodfetch/collie-linux-arm64", "held", "held")]
 #[case::collie_wheel("pypi goodfetch-collie", "pushed", "held")]
 #[case::foxhound_crate("crates.io goodfetch-foxhound", "pushed", "held")]
+#[case::collie_image_tag("oci goodfetch/collie 1.4.0-python", "pushed", "held")]
+#[case::foxhound_chart("oci goodfetch/charts/foxhound 1.4.0", "pushed", "held")]
+#[case::plugin("oci goodfetch/goodfetch-plugin-archive 1.4.0", "pushed", "held")]
+#[case::foxhound_latest("oci goodfetch/foxhound latest", "pushed", "held")]
 #[case::tag_alone("github tag", "push", "held")]
 fn plan_holds_what_waits_on_a_step_either_product_left(
     #[case] left: &str,
@@ -456,22 +590,8 @@ fn plan_publishes_the_release_once_every_other_step_is_out() {
 #[test]
 fn plan_leaves_nothing_to_do_once_the_release_is_published() {
     let workspace = prepared("1.4.0");
-    let mut published = Published::previous_release();
+    let mut published = Published::every_step_out();
     published.release = Some(false);
-    published.tag = true;
-    for name in [
-        "goodfetch-collie",
-        "goodfetch-collie-client",
-        "goodfetch-foxhound",
-    ] {
-        published.crate_out(name, "1.4.0");
-    }
-    for name in npm_packages() {
-        published.npm_out(&name, "1.4.0");
-    }
-    for project in PYPI_PROJECTS {
-        published.pypi_out(project, "1.4.0", vec![GIB]);
-    }
     let registries = Registries::serving(&published);
 
     let outcome = plan(&workspace, "1.4.0", &registries);
@@ -483,7 +603,9 @@ fn plan_leaves_nothing_to_do_once_the_release_is_published() {
         .filter(|(_, state)| !matches!(**state, "published" | "pushed"))
         .collect();
     assert!(left.is_empty(), "{left:?}");
-    assert_eq!(states.len(), 1 + CRATES.len() + 15 + 1 + 3 + 1);
+    // Each image's six tags and its chart, and the Plugin.
+    let oci = 2 * (6 + 1) + 1;
+    assert_eq!(states.len(), 1 + CRATES.len() + 15 + 1 + 3 + oci + 1);
 }
 
 #[test]
@@ -540,6 +662,9 @@ fn plan_warns_when_a_pypi_project_passes_70_percent_of_its_quota(
     assert_eq!(outcome.notes(), expected);
 }
 
+/// A nightly publishes npm packages and each image's version and `nightly`
+/// tags: no crates, wheels, image variants, charts or Plugins (ADRs 0030,
+/// 0057, 0094).
 #[test]
 fn plan_publishes_neither_crates_nor_wheels_for_a_nightly() {
     let workspace = prepared("1.5.0-dev.7");
@@ -550,9 +675,9 @@ fn plan_publishes_neither_crates_nor_wheels_for_a_nightly() {
     assert_eq!(outcome.code, 0, "{}", outcome.stderr);
     let states = states(&outcome.stdout);
     assert!(
-        states
-            .keys()
-            .all(|step| step.starts_with("npm ") || step.starts_with("github ")),
+        states.keys().all(|step| step.starts_with("npm ")
+            || step.starts_with("github ")
+            || step.starts_with("oci ")),
         "{}",
         outcome.stdout
     );
@@ -560,8 +685,78 @@ fn plan_publishes_neither_crates_nor_wheels_for_a_nightly() {
         states.get("npm @goodfetch/foxhound 1.5.0-dev.7"),
         Some(&"publish")
     );
+    let oci: Vec<&str> = states
+        .keys()
+        .copied()
+        .filter(|step| step.starts_with("oci "))
+        .collect();
+    assert_eq!(
+        oci,
+        [
+            "oci goodfetch/collie 1.5.0-dev.7",
+            "oci goodfetch/collie nightly",
+            "oci goodfetch/foxhound 1.5.0-dev.7",
+            "oci goodfetch/foxhound nightly",
+        ]
+    );
     assert_eq!(registries.pypi.requests(), Vec::<Request>::new());
     assert_eq!(registries.cargo.requests(), Vec::<Request>::new());
+}
+
+/// `latest` moves to a stable version no stable tag of the image passes; a
+/// release candidate never moves it (ADR 0049).
+#[rstest]
+#[case::above_every_stable("1.4.0", "1.3.1", Some("publish"))]
+#[case::below_a_newer_stable("1.4.0", "1.5.0", None)]
+#[case::below_a_newer_candidate("1.4.0", "1.5.0-rc.1", Some("publish"))]
+#[case::a_candidate("1.5.0-rc.1", "1.4.1", None)]
+fn plan_moves_latest_to_a_stable_version_no_stable_tag_passes(
+    #[case] version: &str,
+    #[case] other: &str,
+    #[case] latest: Option<&str>,
+) {
+    let workspace = prepared(version);
+    let mut published = Published::previous_release();
+    for image in IMAGES {
+        published.oci_out(image, other);
+    }
+    let registries = Registries::serving(&published);
+
+    let outcome = plan(&workspace, version, &registries);
+
+    assert_eq!(outcome.code, 0, "{}", outcome.stderr);
+    let states = states(&outcome.stdout);
+    for image in IMAGES {
+        assert_eq!(
+            states.get(format!("oci {image} latest").as_str()).copied(),
+            latest,
+            "{}",
+            outcome.stdout
+        );
+    }
+}
+
+/// A moving tag is out only once it points at the version's manifest.
+#[test]
+fn plan_moves_latest_still_at_the_previous_version() {
+    let workspace = prepared("1.4.0");
+    let mut published = Published::every_step_out();
+    published.oci_moved("goodfetch/foxhound", "latest", "1.3.0");
+    let registries = Registries::serving(&published);
+
+    let outcome = plan(&workspace, "1.4.0", &registries);
+
+    assert_eq!(outcome.code, 0, "{}", outcome.stderr);
+    let states = states(&outcome.stdout);
+    assert_eq!(
+        states.get("oci goodfetch/foxhound latest"),
+        Some(&"publish")
+    );
+    assert_eq!(
+        states.get("oci goodfetch/collie latest"),
+        Some(&"published")
+    );
+    assert_eq!(states.get("github release v1.4.0"), Some(&"held"));
 }
 
 #[test]
@@ -752,4 +947,114 @@ fn plan_flags_an_npm_package_verdaccio_has_never_seen() {
         outcome.findings(),
         [finding("new-name", "npm @goodfetch/foxhound")]
     );
+}
+
+/// Distribution's `registry:2` (`ci/registry/image.toml`), the reference
+/// implementation of the OCI Distribution interface GHCR serves, run where
+/// the tests run images.
+#[cfg(target_os = "linux")]
+mod distribution {
+    use sha2::{Digest as _, Sha256};
+
+    use super::{Published, Registries, VARIANTS, plan_with, prepared, states};
+    use crate::container::Container;
+
+    const PIN: &str = include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../ci/registry/image.toml"
+    ));
+
+    /// Pushes one image manifest, with no layers and a config blob of
+    /// `content`, and tags it with each of `tags`, as `docker push` does.
+    fn push(url: &str, repository: &str, content: &str, tags: &[&str]) {
+        let config = format!(r#"{{"goodfetch":"{content}"}}"#);
+        let digest = format!(
+            "sha256:{}",
+            data_encoding::HEXLOWER.encode(&Sha256::digest(config.as_bytes()))
+        );
+        let started = ureq::post(&format!("{url}/v2/{repository}/blobs/uploads/"))
+            .send_empty()
+            .unwrap();
+        let location = started
+            .headers()
+            .get("location")
+            .unwrap()
+            .to_str()
+            .unwrap()
+            .to_owned();
+        let location = if location.starts_with("http") {
+            location
+        } else {
+            format!("{url}{location}")
+        };
+        let separator = if location.contains('?') { '&' } else { '?' };
+        ureq::put(&format!("{location}{separator}digest={digest}"))
+            .header("Content-Type", "application/octet-stream")
+            .send(config.as_bytes())
+            .unwrap();
+        let manifest = format!(
+            r#"{{"schemaVersion":2,"mediaType":"application/vnd.oci.image.manifest.v1+json","config":{{"mediaType":"application/vnd.oci.image.config.v1+json","digest":"{digest}","size":{}}},"layers":[]}}"#,
+            config.len()
+        );
+        for tag in tags {
+            ureq::put(&format!("{url}/v2/{repository}/manifests/{tag}"))
+                .header("Content-Type", "application/vnd.oci.image.manifest.v1+json")
+                .send(manifest.as_bytes())
+                .unwrap();
+        }
+    }
+
+    /// The plan reads each repository's tags and compares `latest`'s
+    /// manifest with the version's; a repository the registry lacks is to
+    /// publish. One registry serves every case, as starting one is the
+    /// test's cost.
+    #[test]
+    fn plan_reads_oci_tags_through_distribution() {
+        let workspace = prepared("1.4.0");
+        let registries = Registries::serving(&Published::previous_release());
+        let registry = Container::start(PIN, 5000, "/v2/", &[]);
+        let url = registry.url();
+        for variant in VARIANTS {
+            let tag = format!("1.4.0{variant}");
+            push(url, "goodfetch/collie", &tag, &[&tag]);
+        }
+        push(url, "goodfetch/collie", "1.3.0", &["1.3.0", "latest"]);
+        push(url, "goodfetch/foxhound", "1.4.0", &["1.4.0", "latest"]);
+        push(url, "goodfetch/charts/collie", "1.4.0", &["1.4.0"]);
+
+        let outcome = plan_with(&workspace, "1.4.0", &registries, registries.npm.url(), url);
+
+        assert_eq!(outcome.code, 0, "{}", outcome.stderr);
+        let states = states(&outcome.stdout);
+        let read: Vec<(&str, &str)> = [
+            "oci goodfetch/collie 1.4.0-python",
+            "oci goodfetch/collie latest",
+            "oci goodfetch/foxhound 1.4.0",
+            "oci goodfetch/foxhound 1.4.0-slim",
+            "oci goodfetch/foxhound latest",
+            "oci goodfetch/charts/collie 1.4.0",
+            "oci goodfetch/charts/foxhound 1.4.0",
+            "oci goodfetch/goodfetch-plugin-archive 1.4.0",
+        ]
+        .into_iter()
+        .map(|step| (step, states.get(step).copied().unwrap_or("absent")))
+        .collect();
+        assert_eq!(
+            read,
+            [
+                ("oci goodfetch/collie 1.4.0-python", "published"),
+                // At 1.3.0's manifest.
+                ("oci goodfetch/collie latest", "publish"),
+                ("oci goodfetch/foxhound 1.4.0", "published"),
+                ("oci goodfetch/foxhound 1.4.0-slim", "publish"),
+                ("oci goodfetch/foxhound latest", "published"),
+                ("oci goodfetch/charts/collie 1.4.0", "published"),
+                // Repositories the registry never saw.
+                ("oci goodfetch/charts/foxhound 1.4.0", "publish"),
+                ("oci goodfetch/goodfetch-plugin-archive 1.4.0", "publish"),
+            ],
+            "{}",
+            outcome.stdout
+        );
+    }
 }

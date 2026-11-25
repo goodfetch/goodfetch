@@ -136,7 +136,9 @@ pub use canaries::{
     Canaries, Canary, CanaryError, Encoding, Hit, Output, Placement, PlantAccount, SHORT_VALUE,
     SecretKind, Sighting, gitleaks_rule,
 };
-pub use cargo_consumer::{CargoRun, Consumer, ConsumerError, cargo_consumer, cargo_install};
+pub use cargo_consumer::{
+    CargoRun, Consumer, ConsumerError, cargo_command, cargo_consumer, cargo_install,
+};
 pub use claude_code::{
     CLAUDE_CODE_DOWNLOADS_VARIABLE, ClaudeCodeError, PluginValidation, claude_code_copy,
     validate_plugin,

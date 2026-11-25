@@ -5,11 +5,14 @@
 //! is and listed in `skipped`; a starter or language left out, with no
 //! person to ask, and Foxhound's `crawl` are usage errors, exit `2`, that
 //! write nothing. Asking on a terminal is tested in process, in the `init`
-//! module's own tests.
+//! module's own tests; building and running each written project, in
+//! [`projects`].
 #![expect(
     clippy::disallowed_methods,
     reason = "the tests read and write the project folders themselves"
 )]
+
+mod projects;
 
 use std::collections::BTreeMap;
 use std::path::Path;

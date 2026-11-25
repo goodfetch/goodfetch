@@ -28,7 +28,7 @@ use std::time::{Duration, SystemTime};
 use goodfetch_engine::clock::Clock;
 use goodfetch_engine::politeness::{
     Ending, Hold, Holder, KeyState, MemoryTables, Permit, PermitRule, Politeness, PolitenessTables,
-    SharedRule, Step, Taken, Verdict, milliseconds, moment,
+    RECLAIM_CHECK, RECOVERY, SharedRule, Step, Taken, Verdict, milliseconds, moment,
 };
 use goodfetch_engine::runs::Run;
 use goodfetch_engine::settings::Resolved;
@@ -37,13 +37,6 @@ use goodfetch_protocol::politeness::{POLITENESS_PROXY_CONCURRENCY, POLITENESS_PR
 use rusqlite::{Connection, OptionalExtension as _};
 use tokio::sync::broadcast::error::RecvError;
 use tokio_util::sync::CancellationToken;
-
-/// How long a lowered ceiling stays quiet before it grows back by one.
-pub(crate) const RECOVERY: Duration = Duration::from_secs(10);
-
-/// How long a wait for room lasts before the key is tried again, only to
-/// find a holder that died.
-const RECLAIM_CHECK: Duration = Duration::from_secs(30);
 
 /// The table the rule keeps each proxy key's shared state in.
 pub(crate) const TABLES: PolitenessTables = PolitenessTables {

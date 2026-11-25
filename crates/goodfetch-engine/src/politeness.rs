@@ -67,6 +67,19 @@ pub use live::{
 };
 pub use memory::MemoryTables;
 
+/// How long a lowered ceiling stays quiet before it grows back by one, a
+/// domain's in the Frontier as a proxy's in the Page crate: each success
+/// after a quiet 10 s raises it (ADR 0053's notes of 2026-10-21 and
+/// 2026-10-24).
+pub const RECOVERY: std::time::Duration = std::time::Duration::from_secs(10);
+
+/// How long a wait for room lasts before its key is tried again, only to
+/// find a holder that died without giving its Permits back, whose Permits
+/// are then reclaimed: a wait for room is tried again after 30 s (ADR
+/// 0053's note of 2026-10-21). Every other wait is woken or ends at its
+/// own deadline.
+pub const RECLAIM_CHECK: std::time::Duration = std::time::Duration::from_secs(30);
+
 /// How many jobs wait for the task that holds a Politeness before their
 /// callers wait.
 const MAILBOX: usize = 256;

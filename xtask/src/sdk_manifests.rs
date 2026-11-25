@@ -38,11 +38,10 @@ use serde::Deserialize;
 
 use crate::check::Finding;
 use crate::codegen;
+use crate::tree::CATALOG;
 
 pub(crate) mod exports;
 
-/// The catalog `xtask codegen` emits from `goodfetch-protocol`'s types.
-const CATALOG: &str = "crates/goodfetch-protocol/generated/catalog.json";
 /// Each SDK's manifest and its language; an SDK that lists its hand-written
 /// members adds its own here.
 const MANIFESTS: [(&str, Language); 5] = [
@@ -82,7 +81,7 @@ const ASYNC: &str = "Async";
 /// The prefix of a Python package's import name.
 const PYTHON_PREFIX: &str = "goodfetch_";
 /// The receiver of a member at a TypeScript module's top level; a Rust
-/// crate's root is `(crate)`.
+/// crate's root is `(crate)`, which the Rust exports reader writes.
 const MODULE: &str = "(module)";
 const CRATE: &str = "(crate)";
 

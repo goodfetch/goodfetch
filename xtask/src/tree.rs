@@ -36,6 +36,26 @@ pub(crate) const FIXTURES: &str = "fixtures";
 /// it is a fixture.
 pub(crate) const PROOFS: &str = "ci/proofs";
 
+/// The protocol crate's folder of the files `xtask codegen` writes, from
+/// the root, as a literal `concat!` extends into a file's path.
+macro_rules! protocol_generated {
+    () => {
+        "crates/goodfetch-protocol/generated"
+    };
+}
+
+/// The protocol crate's folder of the files `xtask codegen` writes, from
+/// the root.
+pub(crate) const PROTOCOL_GENERATED: &str = protocol_generated!();
+
+/// The committed JSON Schema bundle, from the root, which `xtask codegen`
+/// writes and the checks read (ADR 0038).
+pub(crate) const BUNDLE: &str = concat!(protocol_generated!(), "/bundle.json");
+
+/// The committed catalog file, from the root, which `xtask codegen` writes
+/// and the checks read (ADR 0038).
+pub(crate) const CATALOG: &str = concat!(protocol_generated!(), "/catalog.json");
+
 /// Whether no walk enters a folder named `name`, wherever it lies: for a
 /// walk of a folder whose path from the root it does not follow.
 pub(crate) fn generated(name: &str) -> bool {

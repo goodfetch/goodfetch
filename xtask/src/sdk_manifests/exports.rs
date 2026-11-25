@@ -69,7 +69,8 @@ struct Exported {
 }
 
 /// The marker of a member serving a deprecated entry, in every language,
-/// and TypeScript's of one serving an Experimental entry.
+/// which the Rust exports reader also reads as the attribute's name, and
+/// TypeScript's of one serving an Experimental entry.
 const DEPRECATED: &str = "deprecated";
 const EXPERIMENTAL_TAG: &str = "experimental";
 /// The languages, in the order their findings come.

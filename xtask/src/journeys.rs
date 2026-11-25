@@ -75,6 +75,7 @@ mod report;
 mod select;
 mod variants;
 
+pub(crate) use listings::file as listing_file;
 pub(crate) use report::{ManualException, VariantOutcome, VariantTests};
 
 /// Each variant's outcome on `main`'s latest Release run in the store at

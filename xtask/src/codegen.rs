@@ -74,6 +74,7 @@ use crate::check::Finding;
 use crate::compat;
 use crate::environment::Environment;
 use crate::features;
+use crate::tree::{self, PROTOCOL_GENERATED};
 use emit::JOURNEY_FILES;
 use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::connection::ProductVersion;
@@ -86,9 +87,6 @@ pub(crate) use naming::{camel, pascal, rust_snake, rust_type, snake};
 /// Experimental entry (ADR 0030); TypeScript's carries `@experimental`.
 pub(crate) const EXPERIMENTAL: &str =
     "Experimental: outside semver until it is promoted (ADR 0030).";
-
-/// Where `goodfetch-protocol`'s committed outputs live.
-const PROTOCOL_GENERATED: &str = "crates/goodfetch-protocol/generated";
 
 /// The digests of each outside generator's input and output, written with them.
 const DIGESTS: &str = "crates/goodfetch-protocol/generated/digests.json";
@@ -389,11 +387,8 @@ fn plan(cargo: &OsStr, root: &Path, executables: executables::Files) -> Result<P
     settle_daemon_address(&mut catalog, &version)?;
 
     let mut files = compat::refusals::files(&emitted.bundle)?;
-    files.insert(format!("{PROTOCOL_GENERATED}/bundle.json"), emitted.bundle);
-    files.insert(
-        format!("{PROTOCOL_GENERATED}/catalog.json"),
-        json_text(&catalog)?,
-    );
+    files.insert(tree::BUNDLE.to_owned(), emitted.bundle);
+    files.insert(tree::CATALOG.to_owned(), json_text(&catalog)?);
 
     let collie = projection::project(&catalog, &bundle, Product::Collie)?;
     let foxhound = projection::project(&catalog, &bundle, Product::Foxhound)?;

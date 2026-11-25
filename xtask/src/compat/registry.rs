@@ -10,9 +10,6 @@ use goodfetch_protocol::releases::{FormatName, FormatVersion};
 use serde::Deserialize;
 use serde_json::{Map, Value, json};
 
-/// Where `xtask codegen` writes the bundle.
-pub(super) const BUNDLE: &str = "crates/goodfetch-protocol/generated/bundle.json";
-
 const DEFINITIONS: &str = "#/$defs/";
 
 /// How a format's files are stored in its corpus sets (ADR 0066).

@@ -35,16 +35,13 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context as _, Result, bail};
 use syn::punctuated::Punctuated;
 
-use super::Exported;
+use super::{DEPRECATED, Exported};
+use crate::sdk_manifests::CRATE;
 
-/// The receiver of an item at the crate's root.
-const CRATE: &str = "(crate)";
 /// The module the generator writes into, at any depth.
 const GENERATED: &str = "generated";
 /// How many `use`s and globs a name may go through to what it names.
 const HOPS: usize = 16;
-/// The attribute, and the marker, of a deprecated item.
-const DEPRECATED: &str = "deprecated";
 
 /// What a name names in a module.
 #[derive(Clone, PartialEq, Eq)]

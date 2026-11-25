@@ -17,6 +17,7 @@ from urllib.parse import urlsplit
 import anyio.to_thread
 import pytest
 from goodfetch_test_support import (
+    BrowserDownload,
     JourneyRun,
     ProvingGround,
     SurfaceUnlisted,
@@ -49,7 +50,11 @@ class StartRun(Protocol):
     """Starts a run of a fixture Journey; the test's end tears it down."""
 
     def __call__(
-        self, name: str, surface: str, environ: Mapping[str, str] | None = None
+        self,
+        name: str,
+        surface: str,
+        environ: Mapping[str, str] | None = None,
+        browser_download: BrowserDownload | None = None,
     ) -> JourneyRun:
         """Starts the variant on `surface` of the fixture `name`."""
         ...
@@ -63,13 +68,17 @@ def start_run(request: pytest.FixtureRequest) -> Iterator[StartRun]:
     item = cast("pytest.Item", request.node)  # pyright: ignore[reportUnknownMemberType]
 
     def start(
-        name: str, surface: str, environ: Mapping[str, str] | None = None
+        name: str,
+        surface: str,
+        environ: Mapping[str, str] | None = None,
+        browser_download: BrowserDownload | None = None,
     ) -> JourneyRun:
         run = start_journey_run(
             FIXTURES / name,
             surface,
             test_name=item.nodeid,
             environ=os.environ if environ is None else environ,
+            browser_download=browser_download,
         )
         runs.append(run)
         return run
@@ -265,6 +274,20 @@ async def test_the_proving_ground_starts_on_the_journeys_seed_whatever_the_test_
     assert run.proving_ground is not None
     assert run.proving_ground.seed == 961
     assert written(finished.path)["proving_ground"]["seed"] == 961
+
+
+def test_a_variant_downloading_its_browser_starts_on_an_empty_browser_cache(
+    start_run: StartRun,
+) -> None:
+    """Its engine downloads the build from the Journey's Proving ground (#665)."""
+    run = start_run("J-961.toml", "sdk-python", browser_download=BrowserDownload.SERVED)
+
+    run.finish()
+
+    cache = Path(run.env["GOODFETCH_BROWSERS_PATH"])
+    assert list(cache.iterdir()) == []
+    assert run.proving_ground is not None
+    assert run.proving_ground.seed == 961
 
 
 async def test_the_steps_after_a_failed_step_are_not_reached_and_a_manual_step_manual(

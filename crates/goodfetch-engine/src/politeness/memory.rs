@@ -9,7 +9,7 @@ use std::collections::HashMap;
 use std::time::SystemTime;
 
 use super::{
-    Ending, Holder, IN_MEMORY_ENDPOINT, InTurn, KeyState, Permit, PermitRule, Step, Taken, Turn,
+    Ending, IN_MEMORY_ENDPOINT, InTurn, KeyState, Permit, PermitRule, Step, Take, Taken, Turn,
     Verdict, WAKE_GRACE, Wake, milliseconds,
 };
 
@@ -107,15 +107,13 @@ impl Store {
     /// once, for the admission, the start and the send a take in turn
     /// reserves ([`PermitRule::reserved`]), and only what they wrote is
     /// saved. No Run of another engine holds a Permit here, so
-    /// nothing is reclaimed.
+    /// nothing is reclaimed. `rule` is `take`'s, its type known.
     pub(super) fn taken<R: PermitRule>(
         &mut self,
-        key: &str,
-        holder: &Holder,
+        take: &Take<'_>,
         rule: &R,
-        now: SystemTime,
-        in_turn: InTurn,
     ) -> (Taken, Option<Turn>) {
+        let (key, holder, now, in_turn) = (&*take.key, &*take.holder, take.now, take.in_turn);
         let in_flight = self.taken_room(key, &holder.run_id, now);
         let mut state = R::State::load_from(&self.tables, key, rule.reads(Step::Take));
         let mut turn = None;

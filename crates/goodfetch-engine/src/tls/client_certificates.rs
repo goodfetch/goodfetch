@@ -10,6 +10,10 @@
 //! the certificate file is read at the same moment. A host the Run reached
 //! through an invalid-certificate exception gets no client certificate, as
 //! it gets no Secret.
+//!
+//! An Operator-configured endpoint whose host is listed presents its
+//! certificate too (issue 1648), its key read only through a provider every
+//! engine carries ([`ClientCertificates::for_endpoints`]).
 
 use std::sync::Arc;
 
@@ -28,7 +32,8 @@ use tokio::sync::OnceCell;
 use super::{read_certificates, read_private_key};
 use crate::call_error::CallError;
 use crate::host_name::ListedDomains;
-use crate::secrets::{Purpose, RunSecrets, SecretError};
+use crate::secrets::{CARRIED, Purpose, RunSecrets, SecretError};
+use crate::settings::Resolved;
 
 /// The client certificates `tls.client_certificates` lists for a Run's
 /// connections, and those its handshakes loaded. None by default. Clones
@@ -45,6 +50,9 @@ pub struct ClientCertificates {
     layer: Option<SettingsLayer>,
     /// The Run whose connections present them.
     run_id: Option<RunId>,
+    /// Whether a key may be read only through a provider every engine
+    /// carries, as an Operator-configured endpoint's is.
+    carried_keys_only: bool,
 }
 
 /// One listed domain's certificate, and its certificate and key once a
@@ -168,7 +176,36 @@ impl ClientCertificates {
             secrets: Some(secrets),
             layer,
             run_id,
+            carried_keys_only: false,
         })
+    }
+
+    /// The client certificates `settings`' `tls.client_certificates` lists
+    /// for the Operator-configured endpoints, whose keys `secrets` resolves
+    /// with no Run named. A key is read only through a provider every
+    /// engine carries ([`CARRIED`]): one of another scheme cannot be used,
+    /// so an endpoint's key never waits on a provider that itself reaches
+    /// an endpoint. A listing that cannot be read presents none, logged;
+    /// its every value passed the setting's check when `settings` resolved.
+    pub fn for_endpoints(settings: &Resolved, secrets: RunSecrets) -> Self {
+        let layer = settings
+            .effective(&TLS_CLIENT_CERTIFICATES)
+            .map(|effective| effective.layer);
+        match Self::listed(
+            settings.value(&TLS_CLIENT_CERTIFICATES),
+            secrets,
+            layer,
+            None,
+        ) {
+            Ok(listed) => Self {
+                carried_keys_only: true,
+                ..listed
+            },
+            Err(failure) => {
+                tracing::warn!(%failure, "the endpoints present no client certificate");
+                Self::default()
+            }
+        }
     }
 
     /// The most specific listed domain of `host`, with its certificate.
@@ -272,6 +309,12 @@ impl ClientCertificates {
             layer: self.layer,
             reason,
         };
+        if self.carried_keys_only && !CARRIED.contains(&entry.key.provider()) {
+            return Err(unusable(format!(
+                "an Operator-configured endpoint's key is read through `env:`, `keychain:` or `secretfile:` only, and `{}` is none of them",
+                entry.key.as_str()
+            )));
+        }
         let certificate = entry.certificate.clone();
         let file = secrets
             .owner()

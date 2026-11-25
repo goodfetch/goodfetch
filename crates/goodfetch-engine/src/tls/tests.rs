@@ -318,7 +318,7 @@ fn a_connection_judges_the_servers_certificate_at_the_clocks_time(
     .unwrap();
 
     let shaken = goodfetch_test_support::runtime().block_on(async {
-        let client = trust.client_config(paused_in_june_of(year));
+        let client = trust.client_config(paused_in_june_of(year), None);
         hand_shake(client, server)
     });
 

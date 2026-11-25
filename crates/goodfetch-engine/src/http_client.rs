@@ -30,8 +30,9 @@
 //! Operator-configured endpoint goes through `ConfiguredEndpoint`, the
 //! second egress class (ADR 0017): its URL and every address it resolves
 //! to are judged under the Operator policy's `egress.no_private_endpoints`,
-//! and it takes no certificate exception or client certificate of a site,
-//! only the authorities trusted for its own domain (ADR 0042).
+//! and it takes no certificate exception, only the authorities trusted for
+//! its own domain and the client certificate listed for its own host
+//! (ADR 0042, issue 1648).
 //!
 //! Size: one client, whose lookup, egress judgement, connection race, TLS
 //! and request all serve the same request on the same connection.
@@ -58,7 +59,9 @@ use crate::local_addresses::SessionAddresses;
 use crate::response_limits::Limits;
 use crate::settings::Resolved;
 use crate::tasks::{self, BlockingThreads};
-use crate::tls::{self, CertificateInvalid, Trust, TrustedCas};
+use crate::tls::{
+    self, CertificateInvalid, ClientCertificateFailure, ClientCertificates, Trust, TrustedCas,
+};
 
 #[cfg(test)]
 mod tests;
@@ -69,6 +72,8 @@ pub(crate) struct Network<'a> {
     pub(crate) resolve: &'a HostMapping,
     /// What each host's certificate may chain to beside Mozilla's roots.
     pub(crate) trust: &'a Trust,
+    /// The client certificates a host may be presented, or none.
+    pub(crate) presenting: Option<&'a ClientCertificates>,
     /// What the race waits on.
     pub(crate) clock: Clock,
     /// The race's delays.
@@ -301,8 +306,8 @@ pub(crate) struct Server<'a> {
 
 /// An Operator-configured endpoint the engine connects to on its own
 /// behalf, the second egress class (ADR 0017): no run's domain policy,
-/// private ranges, certificate exception or client certificate applies to
-/// it. Its kind is a row of `egress`'s `CONFIGURED_KINDS`.
+/// private ranges or certificate exception applies to it. Its kind is a row
+/// of `egress`'s `CONFIGURED_KINDS`.
 pub(crate) struct ConfiguredEndpoint<'a> {
     /// Its kind.
     pub(crate) kind: ConfiguredKind,
@@ -313,6 +318,10 @@ pub(crate) struct ConfiguredEndpoint<'a> {
     /// What its certificate may chain to beside Mozilla's roots: the
     /// authorities `tls.trusted_cas` lists for its own domain.
     pub(crate) trust: &'a Trust,
+    /// The client certificates `tls.client_certificates` lists for the
+    /// endpoints, of which its host's is presented when it asks for one;
+    /// none for a connection nobody configured.
+    pub(crate) presenting: Option<&'a ClientCertificates>,
     /// What the race waits on.
     pub(crate) clock: Clock,
     /// The race's delays.
@@ -397,6 +406,7 @@ impl ConfiguredEndpoint<'_> {
         let network = Network {
             resolve: self.resolve,
             trust: self.trust,
+            presenting: self.presenting,
             clock: self.clock,
             delays: self.delays,
         };
@@ -410,13 +420,15 @@ impl ConfiguredEndpoint<'_> {
 /// reach and trust: `egress.no_private_endpoints`, `network.resolve`,
 /// `tls.trusted_cas`, the race's delays and `network.max_body_size`, which
 /// caps every reply as each endpoint's own limit does, with the blocking
-/// threads its `tls.trusted_cas` files are read on. Each endpoint's
-/// module holds one and sends through it with its own kind.
+/// threads its `tls.trusted_cas` files are read on, and the client
+/// certificates `tls.client_certificates` lists for the endpoints. Each
+/// endpoint's module holds one and sends through it with its own kind.
 #[derive(Clone, Debug)]
 pub(crate) struct EndpointSettings {
     policy: EndpointPolicy,
     resolve: HostMapping,
     trusted_cas: TrustedCas,
+    client_certificates: ClientCertificates,
     blocking: BlockingThreads,
     clock: Clock,
     delays: Delays,
@@ -430,6 +442,9 @@ pub(crate) enum WholeFailure {
     Refused(Refused),
     /// Its certificate failed verification, so nothing was sent.
     CertificateInvalid(CertificateInvalid),
+    /// The client certificate listed for its host cannot be presented, so
+    /// nothing was sent.
+    ClientCertificate(ClientCertificateFailure),
     /// No answer, or a connection that broke.
     Network,
     /// The answer was longer than the caller's limit.
@@ -438,16 +453,27 @@ pub(crate) enum WholeFailure {
 
 impl EndpointSettings {
     /// The settings `settings`, the machine's resolved ones, give, whose
-    /// `tls.trusted_cas` files are read on `blocking` (issue 2106).
+    /// `tls.trusted_cas` files are read on `blocking` (issue 2106), with no
+    /// client certificate.
     pub(crate) fn of(settings: &Resolved, clock: Clock, blocking: BlockingThreads) -> Self {
         Self {
             policy: EndpointPolicy::of(settings),
             resolve: HostMapping::of(settings),
             trusted_cas: TrustedCas::of(settings),
+            client_certificates: ClientCertificates::default(),
             blocking,
             clock,
             delays: Delays::of(settings),
             max_body_size: Limits::of(settings).max_body_size,
+        }
+    }
+
+    /// The same settings, presenting to each endpoint the client
+    /// certificate `certificates` lists for its host.
+    pub(crate) fn presenting(self, certificates: ClientCertificates) -> Self {
+        Self {
+            client_certificates: certificates,
+            ..self
         }
     }
 
@@ -458,7 +484,8 @@ impl EndpointSettings {
     /// # Errors
     ///
     /// [`WholeFailure`] when the policy refused the endpoint, its
-    /// certificate failed, or it gave no whole answer within both limits.
+    /// certificate failed, the client certificate listed for its host
+    /// cannot be presented, or it gave no whole answer within both limits.
     ///
     /// # Cancel safety
     ///
@@ -475,6 +502,7 @@ impl EndpointSettings {
             policy: self.policy,
             resolve: &self.resolve,
             trust: &trust,
+            presenting: Some(&self.client_certificates),
             clock: self.clock,
             delays: self.delays,
         };
@@ -485,6 +513,9 @@ impl EndpointSettings {
                 EndpointFailure::Refused(refused) => WholeFailure::Refused(refused),
                 EndpointFailure::Failed(Failure::CertificateInvalid(invalid)) => {
                     WholeFailure::CertificateInvalid(invalid)
+                }
+                EndpointFailure::Failed(Failure::ClientCertificate(failure)) => {
+                    WholeFailure::ClientCertificate(failure)
                 }
                 EndpointFailure::Failed(_) => WholeFailure::Network,
             })?;
@@ -532,6 +563,9 @@ pub enum Failure {
     /// The host's certificate failed verification, so nothing was sent:
     /// `certificate_invalid`.
     CertificateInvalid(CertificateInvalid),
+    /// The client certificate listed for the host cannot be presented, so
+    /// no handshake started.
+    ClientCertificate(ClientCertificateFailure),
 }
 
 /// A request's body: none for a GET, its bytes for an endpoint's POST.
@@ -694,7 +728,9 @@ async fn send_to<B: RequestBody>(
 }
 
 /// A TLS connection to `server` at one of `found`, its certificate
-/// verified under the network's trust before anything is sent.
+/// verified under the network's trust before anything is sent, presenting
+/// the client certificate listed for its host, whose key is resolved once
+/// the connection is open, right before the handshake.
 ///
 /// # Cancel safety
 ///
@@ -707,7 +743,14 @@ async fn open_tls(
     let server_name =
         ServerName::try_from(server.host.to_owned()).map_err(|_| Failure::ServerName)?;
     let tcp = open(server, found, network).await?;
-    let config = network.trust.client_config(network.clock);
+    let client = match network.presenting {
+        Some(listed) => listed
+            .for_host(server.host)
+            .await
+            .map_err(Failure::ClientCertificate)?,
+        None => None,
+    };
+    let config = network.trust.client_config(network.clock, client);
     tokio_rustls::TlsConnector::from(Arc::new(config))
         .connect(server_name, tcp)
         .await

@@ -51,6 +51,9 @@ pub(crate) fn unreached(
         EndpointFailure::CertificateInvalid(invalid) => refused(format!(
             "{service} at `{server}` presented a certificate that failed verification ({invalid}); list the authority that signed it under `tls.trusted_cas` for its host. `tls.accept_invalid_certs` makes no exception for a Secret provider."
         )),
+        EndpointFailure::ClientCertificate(failure) => refused(format!(
+            "{service} at `{server}` was not reached because its client certificate cannot be presented ({failure}); fix its entry under `tls.client_certificates`."
+        )),
         EndpointFailure::Network => refused(format!(
             "{service} at `{server}` did not answer; check `{setting}` and the network, then try again."
         )),

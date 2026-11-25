@@ -38,6 +38,10 @@ pub enum ExportFailure {
     /// sent.
     #[error("{0}")]
     CertificateInvalid(crate::tls::CertificateInvalid),
+    /// The client certificate `tls.client_certificates` lists for the
+    /// collector's host cannot be presented, so nothing was sent.
+    #[error("{0}")]
+    ClientCertificate(crate::tls::ClientCertificateFailure),
     /// No answer, or a connection that broke.
     #[error("the collector did not answer")]
     Network,
@@ -76,6 +80,9 @@ impl Collector {
                 WholeFailure::Refused(refused) => ExportFailure::Refused(refused),
                 WholeFailure::CertificateInvalid(invalid) => {
                     ExportFailure::CertificateInvalid(invalid)
+                }
+                WholeFailure::ClientCertificate(failure) => {
+                    ExportFailure::ClientCertificate(failure)
                 }
                 WholeFailure::Network => ExportFailure::Network,
                 WholeFailure::TooLong => ExportFailure::TooLong,

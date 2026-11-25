@@ -38,47 +38,19 @@ pub fn contribution() -> Contribution {
         ),
         (
             Provider::Vault,
-            factory(|inputs| {
-                Arc::new(Vault::configured(
-                    inputs.settings,
-                    inputs.environment,
-                    inputs.clock,
-                    inputs.blocking.clone(),
-                ))
-            }),
+            factory(|inputs| Arc::new(Vault::configured(inputs))),
         ),
         (
             Provider::AwsSecretsManager,
-            factory(|inputs| {
-                Arc::new(AwsSecretsManager::configured(
-                    inputs.settings,
-                    inputs.environment,
-                    inputs.clock,
-                    inputs.blocking.clone(),
-                ))
-            }),
+            factory(|inputs| Arc::new(AwsSecretsManager::configured(inputs))),
         ),
         (
             Provider::GcpSecretManager,
-            factory(|inputs| {
-                Arc::new(GcpSecretManager::configured(
-                    inputs.settings,
-                    inputs.environment,
-                    inputs.clock,
-                    inputs.blocking.clone(),
-                ))
-            }),
+            factory(|inputs| Arc::new(GcpSecretManager::configured(inputs))),
         ),
         (
             Provider::AzureKeyVault,
-            factory(|inputs| {
-                Arc::new(AzureKeyVault::configured(
-                    inputs.settings,
-                    inputs.environment,
-                    inputs.clock,
-                    inputs.blocking.clone(),
-                ))
-            }),
+            factory(|inputs| Arc::new(AzureKeyVault::configured(inputs))),
         ),
     ];
     factories.into_iter().fold(

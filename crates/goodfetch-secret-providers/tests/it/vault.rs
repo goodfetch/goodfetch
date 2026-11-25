@@ -289,6 +289,18 @@ fn machine_settings(policy: Value, configuration: Value) -> Resolved {
     resolve(&layers, Product::Collie, Product::Collie).unwrap()
 }
 
+/// The provider `settings` configure, with the token in `environment`,
+/// presenting no client certificate.
+fn configured(settings: &Resolved, environment: &BTreeMap<OsString, OsString>) -> Vault {
+    Vault::configured(&ProviderInputs {
+        settings,
+        environment,
+        clock: Clock::system(),
+        blocking: &TaskOwner::root(BlockingPolicy::Inline).blocking_threads(),
+        endpoint_keys: None,
+    })
+}
+
 impl Fixture {
     /// The stand-in's address over HTTPS, at [`HOST`].
     fn https(&self) -> String {
@@ -368,12 +380,7 @@ impl Fixture {
     /// The driver over a provider `settings` configure, signed in as
     /// `server` with `token`.
     fn over(&self, settings: &Resolved, server: Server, token: Option<&str>) -> RunSecrets {
-        self.driver(Vault::configured(
-            settings,
-            &Self::environment(server, token),
-            Clock::system(),
-            TaskOwner::root(BlockingPolicy::Inline).blocking_threads(),
-        ))
+        self.driver(configured(settings, &Self::environment(server, token)))
     }
 
     /// The driver over the stand-in at its HTTPS address, its authority
@@ -607,11 +614,9 @@ fn a_missing_or_malformed_configuration_is_not_configured_with_a_fix(
         Some(address) => Fixture::configuration(address, &fixture.trusted()),
         None => json!({}),
     };
-    let vault = Vault::configured(
+    let vault = configured(
         &machine_settings(json!({}), configuration),
         &Fixture::environment(Server::Vault, token),
-        Clock::system(),
-        TaskOwner::root(BlockingPolicy::Inline).blocking_threads(),
     );
     let checked = vault.check_config().err().map(|problem| problem.fix);
     let secrets = fixture.driver(vault);

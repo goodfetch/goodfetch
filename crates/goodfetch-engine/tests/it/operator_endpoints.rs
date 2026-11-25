@@ -80,7 +80,7 @@ fn table(value: Value) -> Map<String, Value> {
 
 /// The machine's settings: the Operator policy's `policy`, and user
 /// configuration's `configuration`.
-fn machine_settings(policy: Value, configuration: Value) -> Resolved {
+pub(crate) fn machine_settings(policy: Value, configuration: Value) -> Resolved {
     let layers = Layers {
         operator_policy: Policy {
             settings: Values::read(
@@ -362,9 +362,10 @@ fn requested_hosts(observations: &Value) -> Vec<String> {
         .collect()
 }
 
-/// The user configuration of a collector at `catalog.test`, a host whose
-/// certificate the Proving ground's own authority signed, with `tls`.
-fn at_catalog(proving_ground: &ProvingGround, tls: &Value) -> Value {
+/// The user configuration of an endpoint at one of the Proving ground's
+/// hosts, such as `catalog.test`, whose certificate its own authority
+/// signed, with `tls`.
+pub(crate) fn at_catalog(proving_ground: &ProvingGround, tls: &Value) -> Value {
     let description = proving_ground.description();
     let resolve: Map<String, Value> = description
         .resolve
@@ -376,7 +377,7 @@ fn at_catalog(proving_ground: &ProvingGround, tls: &Value) -> Value {
 
 /// The Proving ground's certificate authority, as `tls.trusted_cas` names
 /// a file.
-fn authority(proving_ground: &ProvingGround) -> String {
+pub(crate) fn authority(proving_ground: &ProvingGround) -> String {
     Path::new(&proving_ground.description().ca)
         .display()
         .to_string()

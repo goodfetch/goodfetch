@@ -41,6 +41,7 @@ use rustls::crypto::CryptoProvider;
 use rustls::pki_types::pem::{self, PemObject as _};
 use rustls::pki_types::{CertificateDer, PrivateKeyDer, ServerName, UnixTime};
 use rustls::server::ParsedCertificate;
+use rustls::sign::CertifiedKey;
 use rustls::time_provider::TimeProvider;
 use rustls::{CertificateError, DigitallySignedStruct, OtherError, RootCertStore, SignatureScheme};
 
@@ -165,17 +166,26 @@ impl Trust {
     /// The rustls configuration of a connection under this trust, offering
     /// HTTP/1.1 alone in ALPN; a transport that speaks HTTP/2 offers it
     /// itself (Foxhound's HTTP fetch tier). The handshake judges the
-    /// certificate's dates at `clock`'s wall time.
-    pub fn client_config(&self, clock: Clock) -> rustls::ClientConfig {
+    /// certificate's dates at `clock`'s wall time, and presents `client`
+    /// when the server asks for a client certificate, which rustls sends
+    /// only once the server's own certificate verified.
+    pub fn client_config(
+        &self,
+        clock: Clock,
+        client: Option<Arc<CertifiedKey>>,
+    ) -> rustls::ClientConfig {
         let provider = Arc::new(rustls::crypto::ring::default_provider());
         let verifier = Verifier::new(self, &provider);
-        let mut config =
-            rustls::ClientConfig::builder_with_details(provider, OnClock::shared(clock))
-                .with_safe_default_protocol_versions()
-                .expect("invariant: ring supports rustls's default protocol versions")
-                .dangerous()
-                .with_custom_certificate_verifier(Arc::new(verifier))
-                .with_no_client_auth();
+        let builder = rustls::ClientConfig::builder_with_details(provider, OnClock::shared(clock))
+            .with_safe_default_protocol_versions()
+            .expect("invariant: ring supports rustls's default protocol versions")
+            .dangerous()
+            .with_custom_certificate_verifier(Arc::new(verifier));
+        let mut config = match client {
+            Some(certified) => builder
+                .with_client_cert_resolver(Arc::new(client_certificates::Presenting(certified))),
+            None => builder.with_no_client_auth(),
+        };
         config.alpn_protocols = vec![b"http/1.1".to_vec()];
         config
     }

@@ -47,6 +47,7 @@ use goodfetch_protocol::secrets::{
     SECRETS_RESOLVE_EACH_USE, SecretFailure, SecretInputRefusedReason,
 };
 use goodfetch_protocol::settings::SettingsLayer;
+use goodfetch_protocol::tls::TLS_CLIENT_CERTIFICATES;
 use secrecy::{ExposeSecret as _, SecretString};
 use serde_json::json;
 use subtle::ConstantTimeEq as _;
@@ -153,7 +154,8 @@ impl std::fmt::Debug for PartyText {
 /// What a Product's provider is built from for one Run: the Run's resolved
 /// settings, with its `secret_providers.<scheme>.*`, the engine's
 /// environment map (ADR 0083), where a provider's own sign-in is, the
-/// engine's clock, and the blocking threads its reads of files run on.
+/// engine's clock, the blocking threads its reads of files run on, and the
+/// driver its endpoint's client-certificate key is read through.
 #[derive(Clone, Copy, Debug)]
 pub struct ProviderInputs<'a> {
     /// The Run's resolved settings.
@@ -165,6 +167,11 @@ pub struct ProviderInputs<'a> {
     /// The blocking threads of the Secrets' owner, on which a provider
     /// reads files, such as its endpoint's `tls.trusted_cas` (issue 2106).
     pub blocking: &'a BlockingThreads,
+    /// The driver that reads the keys of the client certificates the
+    /// settings' `tls.client_certificates` lists for the
+    /// Operator-configured endpoints: this one before the Run's configured
+    /// providers join it (issue 1648). None when nothing is listed.
+    pub endpoint_keys: Option<&'a RunSecrets>,
 }
 
 /// Builds a Product's provider for each Run from [`ProviderInputs`], since
@@ -610,7 +617,9 @@ impl Secrets {
 
     /// What one Run resolves through, as [`Secrets::for_run_with`], each
     /// provider a Product builds for each Run built from `settings`, the
-    /// Run's resolved settings.
+    /// Run's resolved settings. The keys of the client certificates those
+    /// providers' endpoints present are read through this driver as it is
+    /// before they join it, so through the carried providers alone.
     pub fn for_run_under(
         &self,
         settings: &Resolved,
@@ -619,6 +628,11 @@ impl Secrets {
     ) -> RunSecrets {
         let mut secrets = self.clone();
         if !self.0.configured.is_empty() {
+            let listed = settings.value(&TLS_CLIENT_CERTIFICATES);
+            let endpoint_keys = listed
+                .as_object()
+                .is_some_and(|listed| !listed.is_empty())
+                .then(|| self.for_run_with(timeout, redaction));
             let shared = Arc::make_mut(&mut secrets.0);
             let blocking = self.0.owner.blocking_threads();
             let inputs = ProviderInputs {
@@ -626,6 +640,7 @@ impl Secrets {
                 environment: &self.0.environment,
                 clock: self.0.clock,
                 blocking: &blocking,
+                endpoint_keys: endpoint_keys.as_ref(),
             };
             for (provider, factory) in &self.0.configured {
                 shared

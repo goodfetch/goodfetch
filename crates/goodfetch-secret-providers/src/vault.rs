@@ -16,13 +16,10 @@
 use std::collections::BTreeMap;
 use std::ffi::OsString;
 
-use goodfetch_engine::clock::Clock;
 use goodfetch_engine::secret_endpoint::{EndpointFailure, SecretProviderEndpoint};
 use goodfetch_engine::secrets::{
-    ConfigProblem, PartyText, ProviderFailure, Resolving, SecretProvider,
+    ConfigProblem, PartyText, ProviderFailure, ProviderInputs, Resolving, SecretProvider,
 };
-use goodfetch_engine::settings::Resolved;
-use goodfetch_engine::tasks::BlockingThreads;
 use goodfetch_protocol::secret_reference::SecretReference;
 use goodfetch_protocol::secrets::SECRET_PROVIDERS_VAULT_ADDRESS;
 use hyper::Request;
@@ -52,22 +49,17 @@ pub struct Vault {
 }
 
 impl Vault {
-    /// The provider `secret_providers.vault.address` configures in
-    /// `resolved`, which also gives how the server is reached, signed in by
-    /// the token in the engine's `environment`.
-    /// Its endpoint reads the `tls.trusted_cas` files on `blocking`.
-    pub fn configured(
-        resolved: &Resolved,
-        environment: &BTreeMap<OsString, OsString>,
-        clock: Clock,
-        blocking: BlockingThreads,
-    ) -> Self {
+    /// The provider `secret_providers.vault.address` configures in a Run's
+    /// `inputs`, which also give how the server is reached, signed in by
+    /// the token in the engine's environment.
+    pub fn configured(inputs: &ProviderInputs<'_>) -> Self {
         Self::new(
-            resolved
+            inputs
+                .settings
                 .get::<Option<&str>>(&SECRET_PROVIDERS_VAULT_ADDRESS)
                 .map(str::to_owned),
-            environment,
-            SecretProviderEndpoint::of(resolved, clock, blocking),
+            inputs.environment,
+            SecretProviderEndpoint::of(inputs),
         )
     }
 
@@ -197,6 +189,9 @@ fn unreached(failure: EndpointFailure, server: &Url) -> ProviderFailure {
         )),
         EndpointFailure::CertificateInvalid(invalid) => refused(format!(
             "The Vault server at `{server}` presented a certificate that failed verification ({invalid}); list the authority that signed it under `tls.trusted_cas` for its host. `tls.accept_invalid_certs` makes no exception for a Secret provider."
+        )),
+        EndpointFailure::ClientCertificate(failure) => refused(format!(
+            "The Vault server at `{server}` was not reached because its client certificate cannot be presented ({failure}); fix its entry under `tls.client_certificates`."
         )),
         EndpointFailure::Network => refused(format!(
             "The Vault server at `{server}` did not answer; check `{}` and the network, then try again.",

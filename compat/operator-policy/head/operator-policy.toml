@@ -55,6 +55,9 @@ idle_timeout = 30000
 address = "example"
 drain_grace = 30000
 
+[settings.accounts]
+enabled = true
+
 [settings.ops]
 address = "example"
 attached_address = "example"
@@ -473,6 +476,9 @@ metrics_endpoint = "example"
 idle_timeout = 30000
 address = "example"
 drain_grace = 30000
+
+[lock.accounts]
+enabled = true
 
 [lock.ops]
 address = "example"

@@ -3167,6 +3167,17 @@
       ]
     },
     {
+      "id": "format:accounts-store",
+      "kind": "format",
+      "area": null,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "format:audit-log",
       "kind": "format",
       "area": 4,
@@ -8363,6 +8374,17 @@
       "id": "row:silent-false-success",
       "kind": "row",
       "area": 6,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "setting:accounts.enabled",
+      "kind": "setting",
+      "area": null,
       "milestone": null,
       "status": "active",
       "products": [

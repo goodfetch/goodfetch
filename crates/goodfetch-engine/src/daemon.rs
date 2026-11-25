@@ -58,6 +58,7 @@ use tokio::sync::{mpsc, oneshot, watch};
 use tokio::time::Instant;
 use tokio_util::sync::CancellationToken;
 
+use crate::accounts::AccountsStore;
 use crate::call_error::CallError;
 use crate::clock::Clock;
 use crate::composition::{Answering, CallContext, Closing, DaemonSide, Handler, Holding};
@@ -126,6 +127,10 @@ pub struct DaemonOptions {
     /// `Host` may carry, and its `Origin` over `http`; none for a Daemon
     /// on the machine.
     pub websocket: Option<Authorities>,
+    /// Its Accounts store, opened once as it starts, when it has accounts
+    /// (`accounts.enabled`, ADR 0149); none for a Daemon whose person is
+    /// the OS user.
+    pub accounts: Option<AccountsStore>,
 }
 
 /// How a Daemon drains (ADR 0049): once `asked` is cancelled, or its
@@ -305,6 +310,7 @@ struct Shared {
     runs_held: Holds,
     succession: Arc<dyn Succession>,
     websocket: Option<Arc<Authorities>>,
+    accounts: Option<Arc<AccountsStore>>,
     presence: watch::Sender<Presence>,
     runs: Runs,
     health: Health,
@@ -341,6 +347,7 @@ impl Shared {
             runs_held: Holds::new(),
             succession: options.succession,
             websocket: options.websocket.map(Arc::new),
+            accounts: options.accounts.map(Arc::new),
             presence: watch::Sender::new(Presence::default()),
             runs: serving.runs.clone(),
             health,
@@ -535,6 +542,7 @@ impl DaemonSide for ConnectionSide {
                 live_runs: count(shared.runs.live_count().await),
                 kept_alive: shared.kept_alive(),
                 idle_timeout: u64::try_from(shared.idle_timeout.as_millis()).unwrap_or(u64::MAX),
+                accounts: shared.accounts.is_some(),
                 heap: crate::heap::live(),
             }
         })

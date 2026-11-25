@@ -5735,6 +5735,12 @@ class DaemonState(BaseModel):
     model_config = ConfigDict(
         extra="allow",
     )
+    accounts: bool | None = False
+    """
+    Whether it has accounts (`accounts.enabled`, ADR 0149): its Accounts
+    store is open. Without, its person is the OS user, on its own
+    machine only, as with a Daemon that does not say.
+    """
     clients: Annotated[int, Field(ge=0)]
     """How many Clients are connected, the caller included."""
     endpoint: DaemonEndpoint

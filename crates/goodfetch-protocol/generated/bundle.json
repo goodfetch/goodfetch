@@ -4567,6 +4567,12 @@
     "DaemonState": {
       "description": "What `daemon.status` answers: the running Daemon's state.",
       "properties": {
+        "accounts": {
+          "arrived_in": "0.1",
+          "default": false,
+          "description": "Whether it has accounts (`accounts.enabled`, ADR 0149): its Accounts\nstore is open. Without, its person is the OS user, on its own\nmachine only, as with a Daemon that does not say.",
+          "type": "boolean"
+        },
         "clients": {
           "arrived_in": "0.1",
           "description": "How many Clients are connected, the caller included.",
@@ -21967,6 +21973,147 @@
         }
       ]
     },
+    "StoredAccount": {
+      "description": "The Account, as its `account` row holds it.",
+      "properties": {
+        "created": {
+          "arrived_in": "0.1",
+          "description": "When it was made, as RFC 3339.",
+          "type": "string"
+        },
+        "name": {
+          "arrived_in": "0.1",
+          "description": "The name its person gave it, which a passkey shows.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "created"
+      ],
+      "type": "object"
+    },
+    "StoredAccounts": {
+      "description": "What an Accounts store holds, table by table: the schema of the\n`accounts-store` format.",
+      "properties": {
+        "account": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/StoredAccount"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "Its Account, the only one; none until its person makes it."
+        },
+        "named_tokens": {
+          "arrived_in": "0.1",
+          "description": "The Account's Named tokens, each by its hash.",
+          "items": {
+            "$ref": "#/$defs/StoredNamedToken"
+          },
+          "type": "array"
+        },
+        "passkeys": {
+          "arrived_in": "0.1",
+          "description": "The Account's passkeys.",
+          "items": {
+            "$ref": "#/$defs/StoredPasskey"
+          },
+          "type": "array"
+        },
+        "recovery_codes": {
+          "arrived_in": "0.1",
+          "description": "The Account's recovery codes, each by its hash.",
+          "items": {
+            "$ref": "#/$defs/StoredRecoveryCode"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "passkeys",
+        "recovery_codes",
+        "named_tokens"
+      ],
+      "type": "object"
+    },
+    "StoredNamedToken": {
+      "description": "One Named token, as its `named_tokens` row holds it.",
+      "properties": {
+        "created": {
+          "arrived_in": "0.1",
+          "description": "When it was made, as RFC 3339.",
+          "type": "string"
+        },
+        "name": {
+          "arrived_in": "0.1",
+          "description": "Its name, unique in the Account.",
+          "type": "string"
+        },
+        "sha256": {
+          "arrived_in": "0.1",
+          "description": "The SHA-256 of its value, in lowercase hex.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "sha256",
+        "created"
+      ],
+      "type": "object"
+    },
+    "StoredPasskey": {
+      "description": "One passkey, as its `passkeys` row holds it: what checks its\nassertions, never its private key, which stays with its authenticator.",
+      "properties": {
+        "added": {
+          "arrived_in": "0.1",
+          "description": "When it was added, as RFC 3339.",
+          "type": "string"
+        },
+        "credential_id": {
+          "arrived_in": "0.1",
+          "description": "Its credential ID, in unpadded base64url.",
+          "type": "string"
+        },
+        "public_key": {
+          "arrived_in": "0.1",
+          "description": "Its public key, as the COSE key its registration gave, in unpadded\nbase64url.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "credential_id",
+        "public_key",
+        "added"
+      ],
+      "type": "object"
+    },
+    "StoredRecoveryCode": {
+      "description": "One recovery code, as its `recovery_codes` row holds it.",
+      "properties": {
+        "sha256": {
+          "arrived_in": "0.1",
+          "description": "The SHA-256 of the code, in lowercase hex.",
+          "type": "string"
+        },
+        "used": {
+          "arrived_in": "0.1",
+          "description": "When it was used, as RFC 3339; none while it is unused. A code is\nused once.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "sha256"
+      ],
+      "type": "object"
+    },
     "SubscriptionEnded": {
       "description": "What `events.subscribe` answers when its subscription ends without the\nClient cancelling it: the engine stopped.",
       "type": "object"
@@ -23922,6 +24069,16 @@
     },
     {
       "hello_from": [],
+      "name": "accounts-store",
+      "rule": "default",
+      "schema": {
+        "$ref": "#/$defs/StoredAccounts"
+      },
+      "storage": "sqlite",
+      "version": "0.1"
+    },
+    {
+      "hello_from": [],
       "name": "run-state",
       "rule": "default",
       "schema": {
@@ -24911,6 +25068,23 @@
             "arrived_in": "0.1",
             "description": "The values it sets and locks: no higher layer changes them.",
             "properties": {
+              "accounts": {
+                "additionalProperties": false,
+                "properties": {
+                  "enabled": {
+                    "anyOf": [
+                      {
+                        "type": "boolean"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "Whether the Daemon knows its person by an Account, kept in its Accounts store beside the Operator policy. Unset, the default, it is on for `daemon run`, the Exposed Daemon, and off for a machine's Daemon. Off, the Daemon opens no Accounts store and its person is the OS user, on its own machine only. Read once, as the Daemon starts. Set in user configuration or an Operator policy only."
+                  }
+                },
+                "type": "object"
+              },
               "admission": {
                 "additionalProperties": false,
                 "properties": {
@@ -28922,6 +29096,23 @@
             "arrived_in": "0.1",
             "description": "The values it sets, which higher layers may change.",
             "properties": {
+              "accounts": {
+                "additionalProperties": false,
+                "properties": {
+                  "enabled": {
+                    "anyOf": [
+                      {
+                        "type": "boolean"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "Whether the Daemon knows its person by an Account, kept in its Accounts store beside the Operator policy. Unset, the default, it is on for `daemon run`, the Exposed Daemon, and off for a machine's Daemon. Off, the Daemon opens no Accounts store and its person is the OS user, on its own machine only. Read once, as the Daemon starts. Set in user configuration or an Operator policy only."
+                  }
+                },
+                "type": "object"
+              },
               "admission": {
                 "additionalProperties": false,
                 "properties": {
@@ -32949,6 +33140,23 @@
             "arrived_in": "0.1",
             "description": "The settings it sets, nested by key.",
             "properties": {
+              "accounts": {
+                "additionalProperties": false,
+                "properties": {
+                  "enabled": {
+                    "anyOf": [
+                      {
+                        "type": "boolean"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "Whether the Daemon knows its person by an Account, kept in its Accounts store beside the Operator policy. Unset, the default, it is on for `daemon run`, the Exposed Daemon, and off for a machine's Daemon. Off, the Daemon opens no Accounts store and its person is the OS user, on its own machine only. Read once, as the Daemon starts. Set in user configuration or an Operator policy only."
+                  }
+                },
+                "type": "object"
+              },
               "admission": {
                 "additionalProperties": false,
                 "properties": {

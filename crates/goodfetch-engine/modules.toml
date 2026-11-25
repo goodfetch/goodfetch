@@ -1,6 +1,6 @@
 # Which of goodfetch-engine's top-level modules may import which (ADR 0126).
 [modules]
-accounts = []
+accounts = ["home", "settings", "sqlite_store"]
 admission =["clock", "entropy", "politeness", "run_state", "settings"]
 age_notice = ["home", "product", "settings"]
 attached = ["endpoint", "rpc", "transport"]
@@ -18,7 +18,7 @@ composition = ["accounts", "admission","call_error", "client", "controls", "engi
 crash_report = ["call_error", "clock", "mask", "metrics"]
 config = ["audit", "call_error", "composition", "run", "settings", "settings_editor"]
 controls = ["audit", "settings"]
-daemon = ["call_error", "clock", "composition", "durable", "endpoint", "engine_context", "events", "heap", "home", "metrics", "ops", "product", "rpc", "run_state", "runs", "tasks", "transition", "transport"]
+daemon = ["accounts", "call_error", "clock", "composition", "durable", "endpoint", "engine_context", "events", "heap", "home", "metrics", "ops", "product", "rpc", "run_state", "runs", "tasks", "transition", "transport"]
 deadline = ["call_error", "clock", "settings"]
 dns = ["call_error", "clock", "host_name", "settings", "tasks"]
 durable = []

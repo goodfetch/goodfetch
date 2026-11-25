@@ -4,8 +4,26 @@
 //! 0140's `E1.store_reads`). For now a principal is the OS user, on a local
 //! carriage, or a token's holder, on any other; an Account, a Named token's
 //! scope and a Live view grant join it with the tickets that build them.
+//!
+//! A Daemon with accounts (`accounts.enabled`) holds its Accounts store,
+//! opened once as it starts ([`AccountsStore`]); one without opens none and
+//! knows only the OS user.
 
+mod store;
+
+use goodfetch_protocol::accounts::ACCOUNTS_ENABLED;
 use goodfetch_protocol::connection::Surface;
+
+pub use store::{AccountsStore, AccountsStoreError};
+
+use crate::settings::{Resolved, get_or_default};
+
+/// Whether a Daemon resolving `settings` has accounts: `accounts.enabled`
+/// when it is set, and otherwise whether the Daemon is `exposed`, as
+/// `daemon run` is and a machine's Daemon is not.
+pub fn enabled(settings: Option<&Resolved>, exposed: bool) -> bool {
+    get_or_default::<Option<bool>>(settings, &ACCOUNTS_ENABLED).unwrap_or(exposed)
+}
 
 /// How a Connection reached the engine, as who it may be reads it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

@@ -10,7 +10,8 @@
 //!     runs/<run id>/run.sqlite    a run folder and its run file
 //!     runs/<run id>/trace/…       the run's trace files
 //!     run-index.sqlite            the Run index
-//!     operator-policy.toml,       the major's settings files (ADR 0098)
+//!     accounts-store.sqlite       the Accounts store (ADR 0149)
+//!     operator-policy.toml,      the major's settings files (ADR 0098)
 //!     configuration.toml
 //!     daemon.json, daemon.lock, … the Daemon's files (`DaemonFile`)
 //!   usage-ledger.sqlite, politeness.sqlite, audit-log.sqlite, …
@@ -33,6 +34,10 @@ pub const RUNS: &str = "runs";
 
 /// The Run index's file in the per-major folder.
 pub const RUN_INDEX: &str = "run-index.sqlite";
+
+/// The Accounts store's file in the per-major folder, beside the Operator
+/// policy (ADR 0149).
+pub const ACCOUNTS_STORE: &str = "accounts-store.sqlite";
 
 /// The Operator policy's file in the per-major folder, which both
 /// Products read (ADRs 0028 and 0098).

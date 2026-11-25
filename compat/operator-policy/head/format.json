@@ -1032,6 +1032,23 @@
         "arrived_in": "0.1",
         "description": "The values it sets and locks: no higher layer changes them.",
         "properties": {
+          "accounts": {
+            "additionalProperties": false,
+            "properties": {
+              "enabled": {
+                "anyOf": [
+                  {
+                    "type": "boolean"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "Whether the Daemon knows its person by an Account, kept in its Accounts store beside the Operator policy. Unset, the default, it is on for `daemon run`, the Exposed Daemon, and off for a machine's Daemon. Off, the Daemon opens no Accounts store and its person is the OS user, on its own machine only. Read once, as the Daemon starts. Set in user configuration or an Operator policy only."
+              }
+            },
+            "type": "object"
+          },
           "admission": {
             "additionalProperties": false,
             "properties": {
@@ -5043,6 +5060,23 @@
         "arrived_in": "0.1",
         "description": "The values it sets, which higher layers may change.",
         "properties": {
+          "accounts": {
+            "additionalProperties": false,
+            "properties": {
+              "enabled": {
+                "anyOf": [
+                  {
+                    "type": "boolean"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "Whether the Daemon knows its person by an Account, kept in its Accounts store beside the Operator policy. Unset, the default, it is on for `daemon run`, the Exposed Daemon, and off for a machine's Daemon. Off, the Daemon opens no Accounts store and its person is the OS user, on its own machine only. Read once, as the Daemon starts. Set in user configuration or an Operator policy only."
+              }
+            },
+            "type": "object"
+          },
           "admission": {
             "additionalProperties": false,
             "properties": {

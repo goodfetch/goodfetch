@@ -240,6 +240,7 @@ fn the_registry_lists_every_format_under_its_rule() {
             ("browser-cache", Rule::Default),
             ("clean-up-rules", Rule::NewestReadable),
             ("run-index", Rule::SharedStore),
+            ("accounts-store", Rule::Default),
             ("run-state", Rule::Default),
             ("installed-executables", Rule::FrozenMajor),
             ("usage-ledger", Rule::FrozenMajor),

@@ -11,6 +11,7 @@ use schemars::{JsonSchema, Schema, SchemaGenerator};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
 
+use crate::accounts::StoredAccounts;
 use crate::audit::AuditEntry;
 use crate::browser_cache::BrowserCacheEntry;
 use crate::catalog::{PROTOCOL_VERSION, ProtocolVersion, SchemaOf, Setting, ValueKind, schema_of};
@@ -280,6 +281,20 @@ pub const RUN_INDEX: Format = Format {
     schema: schema_of::<RunIndexRow>,
 };
 
+/// The per-major Accounts store (ADR 0149), beside the Operator policy:
+/// the Account of the person of a Daemon with accounts, its passkeys'
+/// public keys and the hashes of its recovery codes and Named tokens.
+/// Only the Daemon of its major opens it, so it keeps the default version
+/// rule; its schema is the store's tables.
+pub const ACCOUNTS_STORE: Format = Format {
+    name: "accounts-store",
+    version: ProtocolVersion { major: 0, minor: 1 },
+    storage: Storage::Sqlite,
+    rule: Rule::Default,
+    hello_from: &[],
+    schema: schema_of::<StoredAccounts>,
+};
+
 /// The per-major Operator policy of Goodfetch home (ADRs 0028 and 0098):
 /// what it sets, locks and caps, nested by key, read by both Products.
 pub const OPERATOR_POLICY: Format = Format {
@@ -395,6 +410,7 @@ pub const FORMATS: &[&Format] = &[
     &BROWSER_CACHE,
     &CLEAN_UP_RULES,
     &RUN_INDEX,
+    &ACCOUNTS_STORE,
     &RUN_STATE,
     &INSTALLED_EXECUTABLES,
     &USAGE_LEDGER,

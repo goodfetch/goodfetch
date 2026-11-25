@@ -56,6 +56,7 @@ use goodfetch_protocol::settings::{
 };
 use tokio_util::sync::CancellationToken;
 
+use super::launched::Stores;
 use super::{Failure, Machine, Reach};
 use crate::executable::metrics::Export;
 use crate::executable::otlp::ToCollector;
@@ -137,10 +138,9 @@ pub(in crate::executable) fn run(
             return ExitCode::FAILURE;
         }
     };
-    let install =
-        match super::launched::install_database(machine, &dependencies, Some(&configured.settings))
-        {
-            Ok(install) => install,
+    let Stores { install, accounts } =
+        match Stores::open(machine, &dependencies, Some(&configured.settings), true) {
+            Ok(stores) => stores,
             Err(failure) => return failure.report(),
         };
     let files = machine.files();
@@ -196,6 +196,7 @@ pub(in crate::executable) fn run(
                 DaemonEndpoint::Tcp(bound) => Some(Authorities::loopback(*bound)),
                 DaemonEndpoint::Unix(_) => None,
             },
+            accounts,
         };
         announce(json, machine, identity, pid, &endpoint);
         tracing::info!(

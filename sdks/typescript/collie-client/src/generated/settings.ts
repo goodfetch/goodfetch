@@ -1691,6 +1691,9 @@ export interface PageSettings {
  * those only a file sets included, which the engine refuses naming it.
  */
 const SPELLING: Spelling = {
+  accounts: ["accounts", {
+    enabled: "enabled",
+  }],
   admission: ["admission", {
     maxRequestsPerMinute: "max_requests_per_minute",
   }],

@@ -246,6 +246,12 @@ pub struct DaemonState {
     /// Its `daemon.idle_timeout`, in milliseconds.
     #[schemars(extend("arrived_in" = "0.1"))]
     pub idle_timeout: u64,
+    /// Whether it has accounts (`accounts.enabled`, ADR 0149): its Accounts
+    /// store is open. Without, its person is the OS user, on its own
+    /// machine only, as with a Daemon that does not say.
+    #[serde(default)]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub accounts: bool,
     /// Its live heap: the bytes its own allocations hold now, as its
     /// executable's allocator counts them, without the pages that
     /// allocator keeps once they are freed; none where nothing counts

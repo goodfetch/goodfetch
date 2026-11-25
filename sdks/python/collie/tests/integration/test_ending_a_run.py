@@ -2,40 +2,51 @@
 
 `finish()` and `stop()` answer the Run report, a failed Run raises its
 error and a call's timeout ends only its wait, while `progress()` follows
-the Run, on an Attached engine that plays a Scripted engine's script
-(ADR 0069), three ways: async on asyncio, async on Trio and through the
-sync `Collie`. The script fails on a message it does not expect and on a
-step left unused, and the engine writes that failure to its stderr, which
-reaches the `goodfetch.client` logger at warning. The guest program of
+the Run: its first value at once, with the Human pause it waits on, then
+the latest value after it, the ones between coalesced, which carries the
+program's message. Played three ways, async on asyncio, async on Trio and
+through the sync `Collie`, on an Attached engine that plays a Scripted
+engine's script (ADR 0069), which fails on a message it does not expect and
+on a step left unused and writes that failure to its stderr, which reaches
+the `goodfetch.client` logger at warning, and on a Scripted Daemon, whose
+script exits 0 only once every step played. The guest program of
 `nothing-at-import-or-connect` follows the progress in a process of its own
 and finds nothing on stdout or stderr: no status line. TypeScript's
 `ending-a-run.test.ts` is its twin.
 """
 
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import cast
 
 import anyio
 import anyio.from_thread
 import pytest
-from collie_calls import engine_warnings, failure, open_collie
+from collie_calls import engine_warnings, exit_code, failure, open_collie
 from goodfetch_collie import (
+    AsyncCollie,
     AsyncRun,
     BrowserLaunchFailedError,
     DeadlineExceededError,
+    GoodfetchError,
     Run,
     RunProgress,
+    RunReport,
 )
 from goodfetch_test_support import (
     ClientCaseRecord,
     TestEnv,
     Way,
     scripted_engine_env,
+    start_scripted_daemon,
     three_ways,
 )
 from goodfetch_test_support import Product as ToolProduct
 
 MESSAGE = "three pages left"
+
+COVERS = pytest.mark.covers("story:11-128", "story:11-129", "error:deadline_exceeded")
+"""What both modes' tests cover."""
 
 
 def shown(value: RunProgress) -> tuple[int, str | None]:
@@ -67,21 +78,20 @@ async def follow_while_setting(
         return [first, await anext(progress)], set_
 
 
-@pytest.mark.client_case(id="finish-stop-and-progress", mode="attached")
-@pytest.mark.covers("story:11-128", "story:11-129", "error:deadline_exceeded")
-@three_ways
-async def test_ends_with_the_report_raises_a_failed_runs_error_and_follows_progress(
-    way: Way,
-    test_env: TestEnv,
-    product: ToolProduct,
-    client_case: ClientCaseRecord,
-    caplog: pytest.LogCaptureFixture,
-) -> None:
-    """Finish and stop answer the report; a timeout ends only the wait."""
-    env = scripted_engine_env(
-        test_env, product, "sdk-python/run/finish-stop-and-progress.json"
-    )
-    collie = await open_collie(way, env)
+@dataclass(frozen=True, slots=True)
+class Played:
+    """What the case's program saw, in the order it called."""
+
+    progress: list[RunProgress]
+    set_: RunProgress
+    waited: GoodfetchError
+    finished: RunReport
+    stopped: RunReport
+    failed: list[GoodfetchError]
+
+
+async def played(way: Way, collie: AsyncCollie) -> Played:
+    """Plays the case's program on `collie`, then closes it."""
     nightly = await collie.start(run_id="nightly")
     progress, set_ = await follow_while_setting(way, nightly)
     waited = await failure(nightly.finish(timeout=timedelta(seconds=60)))
@@ -91,18 +101,58 @@ async def test_ends_with_the_report_raises_a_failed_runs_error_and_follows_progr
     broken = await collie.start(run_id="broken")
     failed = [await failure(broken.finish()), await failure(broken.stop())]
     await collie.close()
+    return Played(
+        progress=progress,
+        set_=set_,
+        waited=waited,
+        finished=finished,
+        stopped=stopped,
+        failed=failed,
+    )
 
+
+def check_played(client_case: ClientCaseRecord, answered: Played) -> None:
+    """What the program saw is what the script answered."""
+    progress = answered.progress
+    finished = answered.finished
+    stopped = answered.stopped
     with client_case.check(
-        "the progress answers at once, then the value after it carries the"
-        " program's message"
+        "the progress answers at once with the Human pause it waits on, then the"
+        " latest value after it, carrying the program's message"
     ):
-        assert [shown(value) for value in progress] == [(1, None), (2, MESSAGE)]
+        assert [shown(value) for value in progress] == [(1, None), (4, MESSAGE)]
+        assert [
+            (
+                pause.session,
+                pause.page,
+                pause.reason,
+                pause.until,
+                pause.raised_by.root.by,
+                # Only the engine's variant of the origin names its step.
+                getattr(pause.raised_by.root, "step", None),
+                pause.since,
+                pause.deadline,
+            )
+            for pause in progress[0].pauses
+        ] == [
+            (
+                "shop",
+                "login",
+                "Enter the code the shop sent by SMS.",
+                "the account page loads",
+                "engine",
+                "login_recovery",
+                datetime(2026, 1, 1, tzinfo=UTC),
+                datetime(2026, 1, 1, 0, 15, tzinfo=UTC),
+            )
+        ]
+        assert progress[1].pauses == []
     with client_case.check("set_progress_message answers the progress it set"):
-        assert shown(set_) == (2, MESSAGE)
+        assert shown(answered.set_) == (2, MESSAGE)
     with client_case.check(
         "a finish's timeout fails it with deadline_exceeded, ending only the wait"
     ):
-        assert isinstance(waited, DeadlineExceededError)
+        assert isinstance(answered.waited, DeadlineExceededError)
         assert finished.lifecycle == "finished"
     with client_case.check("finish answers the whole Run report"):
         assert (
@@ -168,6 +218,52 @@ async def test_ends_with_the_report_raises_a_failed_runs_error_and_follows_progr
     with client_case.check(
         "a failed Run's finish and stop raise the error that failed it"
     ):
-        assert [type(error) for error in failed] == [BrowserLaunchFailedError] * 2
+        assert [type(error) for error in answered.failed] == [
+            BrowserLaunchFailedError
+        ] * 2
+
+
+@COVERS
+@pytest.mark.client_case(id="finish-stop-and-progress", mode="attached")
+@three_ways
+async def test_ends_with_the_report_raises_a_failed_runs_error_and_follows_progress(
+    way: Way,
+    test_env: TestEnv,
+    product: ToolProduct,
+    client_case: ClientCaseRecord,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Finish and stop answer the report; a timeout ends only the wait."""
+    env = scripted_engine_env(
+        test_env, product, "sdk-python/run/finish-stop-and-progress.json"
+    )
+    answered = await played(way, await open_collie(way, env))
+
+    check_played(client_case, answered)
     with client_case.check("the SDK sent exactly what the script holds"):
         assert engine_warnings(caplog) == []
+
+
+@COVERS
+@pytest.mark.client_case(id="finish-stop-and-progress", mode="daemon")
+@three_ways
+async def test_ends_a_run_and_follows_its_progress_on_a_daemon(
+    way: Way,
+    test_env: TestEnv,
+    client_case: ClientCaseRecord,
+) -> None:
+    """The same program on a Daemon, which hears exactly what its script holds."""
+    daemon = start_scripted_daemon(
+        test_env,
+        "sdk-python/run/finish-stop-and-progress-from-a-daemon.json",
+        "socket",
+    )
+    collie = await open_collie(way, test_env.env, engine="daemon")
+    answered = await played(way, collie)
+    code = await exit_code(daemon.wait)
+
+    check_played(client_case, answered)
+    with client_case.check(
+        "the Daemon played its script through, so the Client sent exactly what it holds"
+    ):
+        assert code == 0

@@ -19,6 +19,7 @@
     reason = "the files are read on the tasks module's blocking policy, never on an async worker"
 )]
 
+use std::collections::BTreeMap;
 use std::fmt::Write as _;
 use std::io;
 use std::path::{Path, PathBuf};
@@ -711,8 +712,9 @@ pub fn fuzz_settings_file(data: &[u8]) {
                 .expect("invariant: a file that read rewrites");
             let again = configuration(SettingsLayer::UserConfiguration, &rewritten, product)
                 .expect("invariant: a rewritten file reads");
-            assert!(
-                again.applied().eq(read.applied()),
+            assert_eq!(
+                again.applied().collect::<BTreeMap<_, _>>(),
+                read.applied().collect::<BTreeMap<_, _>>(),
                 "a rewrite changed what the file sets"
             );
         }

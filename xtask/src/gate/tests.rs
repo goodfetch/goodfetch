@@ -1170,9 +1170,7 @@ const WHOLE_CHANGE_STEPS: [&str; 6] = [
 
 /// The steps that run beside the host's: each builds and writes in folders
 /// no host step reads, and its verdict is the one it gives after them.
-const BESIDE_STEPS: [&str; 8] = [
-    "perf", "counts", "linux", "visual", "tlc", "miri", "loom", "windows",
-];
+const BESIDE_STEPS: [&str; 7] = ["perf", "counts", "linux", "visual", "tlc", "miri", "loom"];
 
 /// Each entry's owning layer, as the spec's table of owning layers sets it
 /// (spec #3373): `just merge` judges the change in seconds, the gate host
@@ -1289,6 +1287,25 @@ fn the_steps_beside_are_these_and_start_before_lint(#[case] form: Form) {
         last_beside < Some(position(form, "lint")),
         "{last_beside:?}"
     );
+}
+
+/// The Windows tests under Wine start each Proving ground within a 30 s
+/// deadline, which they miss while the other steps load the host (#3780):
+/// the Windows step is the full gate's last entry and the only one that
+/// starts once every other step has ended.
+#[rstest]
+#[case::all(Form::All)]
+#[case::changed(Form::Changed)]
+fn the_windows_step_runs_last_once_every_other_step_has_ended(#[case] form: Form) {
+    let list = entries(form);
+    let after: Vec<&str> = list
+        .iter()
+        .filter(|entry| entry.kind == Kind::After)
+        .map(|entry| entry.name)
+        .collect();
+
+    assert_eq!(after, ["windows"]);
+    assert_eq!(list.last().map(|entry| entry.name), Some("windows"));
 }
 
 #[test]

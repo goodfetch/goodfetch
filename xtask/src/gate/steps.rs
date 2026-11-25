@@ -93,7 +93,6 @@ impl Step {
         Self::Tlc,
         Self::Miri,
         Self::Loom,
-        Self::Windows,
         Self::Lint,
         Self::FeatureCombinations,
         Self::SemverChecks,
@@ -107,6 +106,7 @@ impl Step {
         Self::FeaturesTests,
         Self::Kennel,
         Self::CodegenTests,
+        Self::Windows,
     ];
 
     /// The step's name in the plan, the record and `ci/pre-merge.sh`.
@@ -197,17 +197,25 @@ impl Step {
 
     /// Whether the step runs beside the host's: those that need Linux, in
     /// a container of their own where the host is not Linux, TLC, Miri
-    /// (#2090's F7) and loom (#2200), and the Windows build under Wine
-    /// (#2767), in a container of its own. Each builds and writes in
-    /// folders of its own (`target/tlc/`, `target/miri/`, `target/loom/`,
-    /// `target/windows/`), and its verdict follows from the
-    /// tree and its pinned tools, whatever runs beside it; what it shares
-    /// with the host's steps, it only reads or waits for (ADR 0135's note
-    /// of 2026-11-13). The Kennel's
+    /// (#2090's F7) and loom (#2200). Each builds and writes in folders of
+    /// its own (`target/tlc/`, `target/miri/`, `target/loom/`), and its
+    /// verdict follows from the tree and its pinned tools, whatever runs
+    /// beside it; what it shares with the host's steps, it only reads or
+    /// waits for (ADR 0135's note of 2026-11-13). The Kennel's
     /// check stays on the host, after the suites: it builds the test tools
     /// into the build folder the suites' own are in, with the features of
     /// its own build (`kennel/scripts/check.sh`), so beside them each could
     /// replace an executable under the other's tests.
+    ///
+    /// The Windows build under Wine (#2767) is not among them, though it
+    /// builds in a container and a folder of its own: its verdict depends on
+    /// what runs beside it. Its tests start Proving grounds within a 30 s
+    /// deadline, which 34, 47 and 4 of them missed, failing after 33 to
+    /// 47 s, in three full gates of pull request 3326 under the other steps'
+    /// load (45 to 77 on 16 CPUs), while all 11542 passed in a gate where the
+    /// step ran nearly alone. No test is retried (ADR 0064) and the deadline
+    /// stays, so the step runs once every other step has ended
+    /// ([`Self::after`], #3780).
     pub(crate) const fn beside(self) -> bool {
         matches!(
             self,
@@ -218,8 +226,16 @@ impl Step {
                 | Self::Tlc
                 | Self::Miri
                 | Self::Loom
-                | Self::Windows
         )
+    }
+
+    /// Whether the step runs on the host once every other step of its form
+    /// has ended, those beside the host's with them, so nothing else loads
+    /// the host while it runs: the Windows build, whose tests under Wine
+    /// miss their start deadline beside the other steps ([`Self::beside`],
+    /// #3780). It is the form's last entry.
+    pub(crate) const fn after(self) -> bool {
+        matches!(self, Self::Windows)
     }
 
     /// The step whose units hold this one's, member by member: the Pre-merge
@@ -292,6 +308,10 @@ pub(crate) enum Kind {
     /// A step beside the host's, in a container or in folders of its own,
     /// whose result the gate records once it has ended.
     Beside,
+    /// A step the gate starts once every other step has ended and been
+    /// recorded, the steps beside the host's with them, so it runs alone
+    /// ([`Step::after`]).
+    After,
     /// A command on the host that is no step of the record.
     Command,
 }
@@ -301,6 +321,7 @@ impl Kind {
         match self {
             Self::Step => "step",
             Self::Beside => "beside",
+            Self::After => "after",
             Self::Command => "command",
         }
     }
@@ -395,6 +416,8 @@ pub(crate) fn entries(form: Form) -> Vec<Entry> {
             name: step.name(),
             kind: if step.beside() {
                 Kind::Beside
+            } else if step.after() {
+                Kind::After
             } else {
                 Kind::Step
             },

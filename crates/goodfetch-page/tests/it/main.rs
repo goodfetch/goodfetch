@@ -7,9 +7,11 @@
 //! interception listener beside the page's own events (ADR 0019), and an
 //! installed browser's document request, read from the version its
 //! executable prints (issue 2532), the decodes of a call the Product
-//! answers on a page it serves (issue 2617), and the burst a Gesture's input
-//! goes out in (issue 3259).
+//! answers on a page it serves (issue 2617), the burst a Gesture's input
+//! goes out in (issue 3259), and the tasks a recycled browser leaves
+//! (issue 3264).
 
+mod browser_recycle;
 mod effect_window;
 mod gesture_input;
 mod gesture_navigation;

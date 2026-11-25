@@ -1,6 +1,6 @@
 //! The ownership tree (ADR 0038): every task the engine starts belongs to an
 //! owner (the engine process, a Connection, a call, a run, later a Session
-//! and a page), which holds a cancellation token, a child of its parent's,
+//! and a page, and beside the Sessions a browser), which holds a cancellation token, a child of its parent's,
 //! and a tracker of its tasks. Stopping an owner cancels first, then waits
 //! for its tasks, then ends its actors once they handled what their
 //! mailboxes hold, whoever still holds a sender. This is the only module

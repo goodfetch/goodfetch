@@ -1294,18 +1294,19 @@ impl Sessions {
     }
 
     /// Takes the Run's Sessions and pages out once it stops, warning the
-    /// Run of each Session that outlived its proxy's sticky lifetime.
+    /// Run of each Session that outlived its proxy's sticky lifetime, then
+    /// stops its browsers' owners.
     fn leave_with(&self, run: &Run) {
         let sessions = self.clone();
         let stopping = run.cancellation().clone();
         let run_id = run.id().clone();
         run.spawn(async move {
             stopping.cancelled().await;
-            let ended = {
+            let (runs, ended) = {
                 let mut state = sessions.state.lock().await;
-                state.runs.remove(&run_id);
+                let runs = state.runs.remove(&run_id);
                 state.crashed.retain(|_, (run, _)| run != &run_id);
-                sessions.index.run_ended(&run_id)
+                (runs, sessions.index.run_ended(&run_id))
             };
             // Each Session ends with its Run: one that outlived its proxy's
             // sticky lifetime is named in the Run report, which is written
@@ -1329,6 +1330,12 @@ impl Sessions {
                 open.owner.stop().await;
             }
             drop(ended);
+            // The browsers' owners, beside the Sessions' (ADR 0146), stop
+            // last: each launched browser is gone, each Borrowed one's
+            // connection ended, before the Run report is written.
+            if let Some(runs) = runs {
+                runs.pool.stop().await;
+            }
         });
     }
 

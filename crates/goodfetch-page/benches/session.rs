@@ -1731,6 +1731,77 @@ pub(crate) fn counted(
     }
 }
 
+/// The tasks alive on the engine's runtime around a browser's recycle, in
+/// the browser pool, whose browsers each open one page: once a page of the
+/// pool's Session opened (which launches the first browser) and the browser
+/// went quiet, and once that page closed, a second page of the Session
+/// opened (which recycles the first browser and launches the second) and
+/// both browsers went quiet. A recycled browser stops and waits for every
+/// task it started, so the two are equal.
+#[cfg(test)]
+pub(crate) fn alive_around_a_recycle(home: &Path, metrics: Metrics) -> (u64, u64) {
+    let settings = Map::from_iter([
+        (
+            "egress".to_owned(),
+            json!({ "private_ranges": [PAGES_RANGE] }),
+        ),
+        (
+            "governor".to_owned(),
+            json!({ "browser": { "recycle_pages": 1 } }),
+        ),
+    ]);
+    let work = metrics.counted_work().clone();
+    let (launcher, started) = Launcher::scripted(Some(std::process::id()));
+    let engine = engine(metrics, launcher);
+    let heard = Heard::default();
+    let runtime = goodfetch_runtime::current_thread()
+        .enable_all()
+        .build()
+        .expect("invariant: the runtime starts");
+    runtime.block_on(async {
+        let (network, dialer) = transport::in_memory();
+        let served = launched_ends(started, heard.clone(), None);
+        let client = async {
+            let mut client = Client::connected(&dialer).await;
+            client.start_run(settings).await;
+            let open = |url: &str| json!({ "run_id": RUN, "url": url });
+            let alive = |answer: Value| {
+                answer["alive"]
+                    .as_u64()
+                    .expect("invariant: the program's operations answer a count")
+            };
+            let first = client.call(OPEN_POOL_PAGE.name, &open(PAGES[0])).await;
+            quiet(&heard.units, &work).await;
+            let before = alive(client.call(ALIVE_TASKS.name, &json!({})).await);
+            client
+                .call(
+                    CLOSE_POOL_PAGE.name,
+                    &json!({ "page_id": first["page_id"] }),
+                )
+                .await;
+            client.call(OPEN_POOL_PAGE.name, &open(PAGES[1])).await;
+            quiet(&heard.units, &work).await;
+            let after = alive(client.call(ALIVE_TASKS.name, &json!({})).await);
+            client.close().await;
+            (before, after)
+        };
+        let dependencies = dependencies(home);
+        let ran = async {
+            tokio::join!(
+                engine.run_attached(Network::InMemory(network), dependencies),
+                client,
+            )
+        };
+        tokio::pin!(ran);
+        let (engine_ended, alive) = tokio::select! {
+            ran = &mut ran => ran,
+            () = served => ran.await,
+        };
+        engine_ended.expect("invariant: the engine got its Connection");
+        alive
+    })
+}
+
 /// The tasks alive on the engine's runtime around a Session's end, in the
 /// browser pool: once a page of the pool's Session `kept` opened (which
 /// launches the browser) and the browser went quiet, and right after a page

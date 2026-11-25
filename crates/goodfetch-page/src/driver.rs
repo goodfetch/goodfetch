@@ -62,9 +62,9 @@ use goodfetch_engine::clock::Clock;
 use goodfetch_engine::deadline::Deadline;
 use goodfetch_engine::home::Home;
 use goodfetch_engine::lease::{LeaseCheck, LeaseEnded};
-use goodfetch_engine::runs::Run;
+use goodfetch_engine::runs::{Run, identity};
 use goodfetch_engine::settings::RunSettings;
-use goodfetch_engine::tasks;
+use goodfetch_engine::tasks::{self, TaskOwner, TaskStarter};
 use goodfetch_protocol::connection::WaitedFor;
 use goodfetch_protocol::page::BrowserExit;
 use goodfetch_protocol::settings::{
@@ -524,6 +524,10 @@ impl Connect for Behind {
 pub(crate) struct BorrowedBrowser {
     run: Run,
     cdp_url: CdpUrl,
+    /// The browser's owner, beside its Run's Sessions (ADR 0146): it holds
+    /// the engine's connection, the readers of the browser's own events and
+    /// every task started for the browser, so its stop ends them all.
+    owner: TaskOwner,
     /// Closed and empty: the engine sees no exit of a browser it did not
     /// launch, so a call that lost its connection waits for none to name
     /// the loss (fix queue 104: each such call waited `timeout.close`).
@@ -533,12 +537,29 @@ pub(crate) struct BorrowedBrowser {
 
 impl BorrowedBrowser {
     pub(crate) fn new(run: Run, cdp_url: CdpUrl) -> Self {
+        let owner = run.owner().child();
         Self {
             run,
             cdp_url,
+            owner,
             exit: watch::channel(None).1,
             connected: OnceCell::new(),
         }
+    }
+
+    /// The starting side of the browser's owner, whose tasks end with it.
+    pub(crate) fn tasks(&self) -> &TaskStarter {
+        &self.owner
+    }
+
+    /// Ends the engine's connection to the browser, which stays open, and
+    /// answers once every task its owner started ended.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future stops waiting: the connection still ends.
+    pub(crate) async fn stop(&self) {
+        self.owner.stop().await;
     }
 }
 
@@ -561,7 +582,9 @@ impl Connect for BorrowedBrowser {
     async fn connect(&self) -> Result<Browser, CallError> {
         self.connected
             .get_or_try_init(|| async {
-                let connection = crate::borrowed::connect(&self.run, &self.cdp_url).await?;
+                let tasks = identity(&self.run).starting_on(&self.owner);
+                let connection =
+                    crate::borrowed::connect((&self.run, &tasks), &self.cdp_url).await?;
                 let address = self.cdp_url.address();
                 let browser = Browser {
                     connection,
@@ -569,7 +592,7 @@ impl Connect for BorrowedBrowser {
                     executable: address,
                     identity: None,
                     process: None,
-                    closing: self.run.cancellation().child_token(),
+                    closing: self.owner.child_token(),
                     launched: false,
                     service_workers: Arc::default(),
                     root_fell_behind: CancellationToken::new(),
@@ -584,7 +607,7 @@ impl Connect for BorrowedBrowser {
                 browser
                     .send(None, &browser::GetVersionParams {}, &browser.launching())
                     .await?;
-                service_workers::start(&browser, &self.run).await?;
+                service_workers::start(&browser, &tasks).await?;
                 Ok(browser)
             })
             .await
@@ -605,7 +628,11 @@ pub(crate) struct LocalBrowser {
     home: Home,
     pins: Pins,
     number: u64,
-    stopping: CancellationToken,
+    /// The browser's owner, beside its Run's Sessions (ADR 0146): it
+    /// supervises the browser's process, reads its own events and holds
+    /// every task started for it, so its stop closes the browser and ends
+    /// them all.
+    owner: TaskOwner,
     launched: OnceCell<Browser>,
     /// Cancelled once the browser the last launch started is gone, its
     /// Browser data folder with it: a launch whose browser did not come up
@@ -623,14 +650,14 @@ impl LocalBrowser {
         number: u64,
         authority: Option<Arc<Authority>>,
     ) -> Self {
-        let stopping = run.cancellation().child_token();
+        let owner = run.owner().child();
         Self {
             run,
             launcher,
             home,
             pins,
             number,
-            stopping,
+            owner,
             launched: OnceCell::new(),
             released: Mutex::new(None),
             authority,
@@ -638,9 +665,19 @@ impl LocalBrowser {
     }
 
     /// Closes the browser, if it was launched: asked to close, then killed
-    /// if it does not.
-    pub(crate) fn close(&self) {
-        self.stopping.cancel();
+    /// if it does not; answers once it is gone and every task its owner
+    /// started ended.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future stops waiting: the browser still closes.
+    pub(crate) async fn close(&self) {
+        self.owner.stop().await;
+    }
+
+    /// The starting side of the browser's owner, whose tasks end with it.
+    pub(crate) fn tasks(&self) -> &TaskStarter {
+        &self.owner
     }
 
     /// Its process's ID, once launched.
@@ -706,9 +743,10 @@ impl Connect for LocalBrowser {
                 if let Some(released) = earlier {
                     released.cancelled().await;
                 }
-                let attempt = self.stopping.child_token();
+                let tasks = identity(&self.run).starting_on(&self.owner);
+                let attempt = self.owner.child_token();
                 let launched = launch(
-                    &self.run,
+                    (&self.run, &tasks),
                     (&self.launcher, &self.home, &self.pins),
                     (
                         self.number,
@@ -744,7 +782,7 @@ impl Connect for LocalBrowser {
                     browser.identity = Some(identity::read(&browser, &version.user_agent).await?);
                 }
                 crate::version_check::check(&self.run, &version.product).await;
-                service_workers::start(&browser, &self.run).await?;
+                service_workers::start(&browser, &tasks).await?;
                 coming_up.up();
                 Ok(browser)
             })

@@ -195,8 +195,9 @@ impl RunPowers {
     }
 
     /// The same powers, with `page`, the Run's identity that starts its
-    /// tasks on a page's owner: what the page's own requests are answered
-    /// with, so that the page's end waits for their tasks (ADR 0146).
+    /// tasks on a page's owner, or a browser's for a worker it attached:
+    /// what the page's own requests are answered with, so that the page's
+    /// end, or the browser's, waits for their tasks (ADR 0146).
     fn of_page(&self, page: &RunIdentity) -> Self {
         let mut powers = self.clone();
         powers.lists.identity = page.clone();
@@ -717,7 +718,7 @@ impl Interception {
         let routed = Arc::new(watch::Sender::new(0));
         let answers = self.shared.answers.counting(Arc::clone(&routed));
         // The page's and its frames' requests are answered on the page's
-        // owner, its workers' on the Run's.
+        // owner, its workers' on their browser's.
         let run = &run.of_page(page_tasks);
         let children = Self::children_of(
             page_id,
@@ -862,7 +863,8 @@ impl Interception {
     /// Session's routes alone and the same domain policy and Filter lists,
     /// until the worker goes; a service worker's are each recorded in the
     /// Run trace, a shared worker's when refused. Once the Session ended, a
-    /// worker does not run.
+    /// worker does not run. Its requests are answered on the owner of the
+    /// browser that attached it (ADR 0146).
     fn workers_of(
         &self,
         (session, worker): (&Arc<SessionInterception>, Worker),
@@ -879,81 +881,84 @@ impl Interception {
         // A worker's requests take its Session's pages' value: their gate
         // admits the navigations the worker carries.
         let value = page.value().clone();
-        Arc::new(move |driver: PageDriver, gone: CancellationToken| {
-            let (shared, session, egress, run, value) = (
-                Arc::clone(&shared),
-                Weak::clone(&session),
-                egress.clone(),
-                run.clone(),
-                value.clone(),
-            );
-            let (policy, blocking, lookups) = (policy.clone(), blocking.clone(), lookups.clone());
-            Box::pin(async move {
-                let Some(session) = session.upgrade().filter(|s| !s.routes.is_closed()) else {
-                    return false;
-                };
-                let log = Arc::new(RequestLog::new(&run.lists.trace));
-                let driver = driver
-                    .with_egress(egress)
-                    .with_value(value, run.identity().clock());
-                let cdp = CdpPage::of(&driver);
-                let events = cdp.paused_events(false);
-                if let Err(error) = cdp.pause_requests_opening().await {
-                    tracing::warn!(%error, ?worker, "a worker's requests could not be paused, so it does not run");
-                    return false;
-                }
-                let state = Arc::new(PageState {
-                    routes: Arc::default(),
-                    session: Arc::clone(&session.routes),
-                    pending: Arc::clone(&session.pending),
-                    navigation: PendingNavigation::default(),
-                    navigating: None,
-                    // A worker belongs to no page: its handlers' failures
-                    // wait on its Session.
-                    failure: Arc::clone(&session.failure),
-                    session_failure: Arc::clone(&session.failure),
-                    files: Mutex::new(None),
-                    own: Mutex::new(None),
-                    lists_on: blocking.lists.is_some(),
-                    retrying: AtomicBool::new(false),
-                    lists_blocked: AtomicU64::new(0),
-                    learned: shared.learned(run.identity().id()),
-                    cosmetic: None,
-                    engine_requests: EngineRequests {
-                        policy: policy.clone(),
-                        blocking: blocking.clone(),
-                        signing: session.signing.clone(),
-                    },
-                    on_document: None,
-                });
-                let context = Arc::new(
-                    PageContext::new(
-                        driver,
-                        match worker {
-                            Worker::Service => Sender::ServiceWorker {
-                                session: session.id.clone(),
-                                log,
-                            },
-                            Worker::Shared => Sender::SharedWorker,
-                        },
-                        state,
-                        shared.answers.clone(),
-                        policy,
-                        blocking,
-                        Refusals::default(),
-                        run.clone(),
-                    )
-                    .with_lookups(lookups),
+        Arc::new(
+            move |driver: PageDriver, gone: CancellationToken, browser: RunIdentity| {
+                let (shared, session, egress, run, value) = (
+                    Arc::clone(&shared),
+                    Weak::clone(&session),
+                    egress.clone(),
+                    run.of_page(&browser),
+                    value.clone(),
                 );
-                run.identity().spawn(async move {
-                    tokio::select! {
-                        () = gone.cancelled() => {}
-                        () = pipeline::dispatch(events, context) => {}
+                let (policy, blocking, lookups) =
+                    (policy.clone(), blocking.clone(), lookups.clone());
+                Box::pin(async move {
+                    let Some(session) = session.upgrade().filter(|s| !s.routes.is_closed()) else {
+                        return false;
+                    };
+                    let log = Arc::new(RequestLog::new(&run.lists.trace));
+                    let driver = driver
+                        .with_egress(egress)
+                        .with_value(value, run.identity().clock());
+                    let cdp = CdpPage::of(&driver);
+                    let events = cdp.paused_events(false);
+                    if let Err(error) = cdp.pause_requests_opening().await {
+                        tracing::warn!(%error, ?worker, "a worker's requests could not be paused, so it does not run");
+                        return false;
                     }
-                });
-                true
-            })
-        })
+                    let state = Arc::new(PageState {
+                        routes: Arc::default(),
+                        session: Arc::clone(&session.routes),
+                        pending: Arc::clone(&session.pending),
+                        navigation: PendingNavigation::default(),
+                        navigating: None,
+                        // A worker belongs to no page: its handlers' failures
+                        // wait on its Session.
+                        failure: Arc::clone(&session.failure),
+                        session_failure: Arc::clone(&session.failure),
+                        files: Mutex::new(None),
+                        own: Mutex::new(None),
+                        lists_on: blocking.lists.is_some(),
+                        retrying: AtomicBool::new(false),
+                        lists_blocked: AtomicU64::new(0),
+                        learned: shared.learned(run.identity().id()),
+                        cosmetic: None,
+                        engine_requests: EngineRequests {
+                            policy: policy.clone(),
+                            blocking: blocking.clone(),
+                            signing: session.signing.clone(),
+                        },
+                        on_document: None,
+                    });
+                    let context = Arc::new(
+                        PageContext::new(
+                            driver,
+                            match worker {
+                                Worker::Service => Sender::ServiceWorker {
+                                    session: session.id.clone(),
+                                    log,
+                                },
+                                Worker::Shared => Sender::SharedWorker,
+                            },
+                            state,
+                            shared.answers.clone(),
+                            policy,
+                            blocking,
+                            Refusals::default(),
+                            run.clone(),
+                        )
+                        .with_lookups(lookups),
+                    );
+                    run.identity().spawn(async move {
+                        tokio::select! {
+                            () = gone.cancelled() => {}
+                            () = pipeline::dispatch(events, context) => {}
+                        }
+                    });
+                    true
+                })
+            },
+        )
     }
 
     /// The cosmetic rules a document a fetch tier served `run` is read with,

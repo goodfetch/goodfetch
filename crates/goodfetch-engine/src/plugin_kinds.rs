@@ -32,7 +32,6 @@ use std::time::Duration;
 use futures_util::future::BoxFuture;
 use goodfetch_protocol::catalog::{OperationClass, PluginKind};
 use goodfetch_protocol::entries;
-use goodfetch_protocol::foxhound::crawl::HANDLER_FAILED;
 use goodfetch_protocol::plugin::extractor::{EXTRACT_CONTENT, EXTRACTOR};
 use goodfetch_protocol::plugin::{PLUGIN_CRASHED, PLUGIN_QUARANTINED};
 use serde::Serialize;
@@ -42,6 +41,11 @@ use crate::plugin_host::instance::CallFailure;
 
 pub mod extractor;
 pub mod run_plugins;
+
+/// The wire name of a crawl handler's failure, `handler_failed` (ADR 0093),
+/// which the decoder gives a failure that names no code. The protocol's
+/// `foxhound` module, which defines it, is Foxhound's alone (ADR 0099).
+const CRAWL_HANDLER_FAILED: &str = "handler_failed";
 
 /// What a kind's driver accounts each call to: the Run the call is for,
 /// whose Usage the call is charged to and whose Run trace records it.
@@ -203,7 +207,7 @@ impl Failure {
         match failure {
             CallFailure::Answered(answer) => {
                 if let Some(definition) = entries::error_code(&answer.data.code)
-                    .filter(|definition| definition.name != HANDLER_FAILED.name)
+                    .filter(|definition| definition.name != CRAWL_HANDLER_FAILED)
                 {
                     Self::Answered(CallError::new(
                         definition,

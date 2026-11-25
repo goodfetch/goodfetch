@@ -85,6 +85,26 @@ const releaseProjects: ServedProject[] =
       ]
     : [];
 
+// The docs site's Live checks (`website/tests/live/*.live.ts`; ADR 0068),
+// which reach other sites, run only when `GOODFETCH_TEST_SUITE` is `live`:
+// `docs-external-links` over the built site, `docs-deploy-smoke` over the
+// deployed one, which needs no build. Their workflow uploads Playwright's
+// JUnit file under the `live` tier.
+const liveProjects: ServedProject[] =
+  process.env["GOODFETCH_TEST_SUITE"] === "live"
+    ? [
+        {
+          name: "docs-external-links",
+          testMatch: new RegExp(`^${root}/website/tests/live/external-links\\.live\\.ts$`),
+          dependencies: ["docs-site-build"],
+        },
+        {
+          name: "docs-deploy-smoke",
+          testMatch: new RegExp(`^${root}/website/tests/live/deploy-smoke\\.live\\.ts$`),
+        },
+      ]
+    : [];
+
 const visual = visualConfig.playwright(process.env, { ignore: ignored });
 
 const config: PlaywrightTestConfig<ServedOptions> = defineConfig<ServedOptions>({
@@ -107,6 +127,7 @@ const config: PlaywrightTestConfig<ServedOptions> = defineConfig<ServedOptions>(
     { name: "docs-site-build", testMatch: docsSiteBuild },
     ...docsSiteProjects(["chromium"]),
     ...releaseProjects,
+    ...liveProjects,
     ...visual.projects,
   ],
 });

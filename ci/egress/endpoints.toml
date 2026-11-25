@@ -183,3 +183,13 @@ reason = "It reads the vendor names of the two public watchlists, webappanalyzer
 [[outside]]
 job = "codeql.yml#analyze"
 reason = "CodeQL reads the sources without building them (`build-mode: none`) and runs none of the product (ADR 0067); it is skipped while the repository is private."
+
+# The docs site (ADRs 0030 and 0068): its build runs xtask's render and
+# Docusaurus, none of the product.
+[[outside]]
+job = "docs.yml#deploy"
+reason = "It builds the docs site, deploys it to Vercel and runs the Live check docs-deploy-smoke through goodfetch.dev/docs; it runs none of the product."
+
+[[outside]]
+job = "docs.yml#external-links"
+reason = "It builds the docs site and runs the Live check docs-external-links, which reaches every site the docs link to; it runs none of the product."

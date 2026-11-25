@@ -4610,6 +4610,12 @@
     "DaemonState": {
       "description": "What `daemon.status` answers: the running Daemon's state.",
       "properties": {
+        "accounts": {
+          "arrived_in": "0.1",
+          "default": false,
+          "description": "Whether it has accounts (`accounts.enabled`, ADR 0149): its Accounts\nstore is open. Without, its person is the OS user, on its own\nmachine only, as with a Daemon that does not say.",
+          "type": "boolean"
+        },
         "clients": {
           "arrived_in": "0.1",
           "description": "How many Clients are connected, the caller included.",
@@ -7689,6 +7695,82 @@
           "type": "array"
         }
       },
+      "type": "object"
+    },
+    "ExtractContentParams": {
+      "description": "What `extract.content` reads a page's main content from: the document\nthe page holds, after the Clean-up rules, and the URL it came from.",
+      "properties": {
+        "_meta": {
+          "$ref": "#/$defs/RequestMeta",
+          "arrived_in": "0.1"
+        },
+        "html": {
+          "description": "The page's document, serialized as HTML.",
+          "type": "string"
+        },
+        "url": {
+          "description": "The page's URL, which its relative links resolve against.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "url",
+        "html"
+      ],
+      "type": "object"
+    },
+    "ExtractContentResult": {
+      "additionalProperties": false,
+      "description": "A page's main content, as an Extractor read it. Everything in it is\npage content (ADR 0014): it reaches a model only marked as such.",
+      "properties": {
+        "markdown": {
+          "description": "The main content as Markdown.",
+          "type": "string"
+        },
+        "metadata": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "What the Extractor read about the page, such as its author or its\ndate, each a text under its `snake_case` name.",
+          "type": "object"
+        },
+        "text": {
+          "description": "The main content as plain text.",
+          "type": "string"
+        },
+        "title": {
+          "description": "The main content's title, when the Extractor found one.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "text",
+        "markdown",
+        "metadata"
+      ],
+      "type": "object"
+    },
+    "ExtractHandlerFailedDetails": {
+      "description": "What `extract_handler_failed` details.",
+      "properties": {
+        "extractor": {
+          "arrived_in": "0.1",
+          "description": "The Extractor, as `content.extractor` names it.",
+          "type": "string"
+        },
+        "url": {
+          "arrived_in": "0.1",
+          "description": "The URL of the page it was extracting.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "extractor",
+        "url"
+      ],
       "type": "object"
     },
     "ExtractionFollow": {
@@ -24147,6 +24229,147 @@
         }
       ]
     },
+    "StoredAccount": {
+      "description": "The Account, as its `account` row holds it.",
+      "properties": {
+        "created": {
+          "arrived_in": "0.1",
+          "description": "When it was made, as RFC 3339.",
+          "type": "string"
+        },
+        "name": {
+          "arrived_in": "0.1",
+          "description": "The name its person gave it, which a passkey shows.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "created"
+      ],
+      "type": "object"
+    },
+    "StoredAccounts": {
+      "description": "What an Accounts store holds, table by table: the schema of the\n`accounts-store` format.",
+      "properties": {
+        "account": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/StoredAccount"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "Its Account, the only one; none until its person makes it."
+        },
+        "named_tokens": {
+          "arrived_in": "0.1",
+          "description": "The Account's Named tokens, each by its hash.",
+          "items": {
+            "$ref": "#/$defs/StoredNamedToken"
+          },
+          "type": "array"
+        },
+        "passkeys": {
+          "arrived_in": "0.1",
+          "description": "The Account's passkeys.",
+          "items": {
+            "$ref": "#/$defs/StoredPasskey"
+          },
+          "type": "array"
+        },
+        "recovery_codes": {
+          "arrived_in": "0.1",
+          "description": "The Account's recovery codes, each by its hash.",
+          "items": {
+            "$ref": "#/$defs/StoredRecoveryCode"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "passkeys",
+        "recovery_codes",
+        "named_tokens"
+      ],
+      "type": "object"
+    },
+    "StoredNamedToken": {
+      "description": "One Named token, as its `named_tokens` row holds it.",
+      "properties": {
+        "created": {
+          "arrived_in": "0.1",
+          "description": "When it was made, as RFC 3339.",
+          "type": "string"
+        },
+        "name": {
+          "arrived_in": "0.1",
+          "description": "Its name, unique in the Account.",
+          "type": "string"
+        },
+        "sha256": {
+          "arrived_in": "0.1",
+          "description": "The SHA-256 of its value, in lowercase hex.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "sha256",
+        "created"
+      ],
+      "type": "object"
+    },
+    "StoredPasskey": {
+      "description": "One passkey, as its `passkeys` row holds it: what checks its\nassertions, never its private key, which stays with its authenticator.",
+      "properties": {
+        "added": {
+          "arrived_in": "0.1",
+          "description": "When it was added, as RFC 3339.",
+          "type": "string"
+        },
+        "credential_id": {
+          "arrived_in": "0.1",
+          "description": "Its credential ID, in unpadded base64url.",
+          "type": "string"
+        },
+        "public_key": {
+          "arrived_in": "0.1",
+          "description": "Its public key, as the COSE key its registration gave, in unpadded\nbase64url.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "credential_id",
+        "public_key",
+        "added"
+      ],
+      "type": "object"
+    },
+    "StoredRecoveryCode": {
+      "description": "One recovery code, as its `recovery_codes` row holds it.",
+      "properties": {
+        "sha256": {
+          "arrived_in": "0.1",
+          "description": "The SHA-256 of the code, in lowercase hex.",
+          "type": "string"
+        },
+        "used": {
+          "arrived_in": "0.1",
+          "description": "When it was used, as RFC 3339; none while it is unused. A code is\nused once.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "sha256"
+      ],
+      "type": "object"
+    },
     "StructuredOutputStrategy": {
       "description": "A way a model gives structured output (ADR 0101).",
       "oneOf": [
@@ -26158,6 +26381,16 @@
     },
     {
       "hello_from": [],
+      "name": "accounts-store",
+      "rule": "default",
+      "schema": {
+        "$ref": "#/$defs/StoredAccounts"
+      },
+      "storage": "sqlite",
+      "version": "0.1"
+    },
+    {
+      "hello_from": [],
       "name": "run-state",
       "rule": "default",
       "schema": {
@@ -27123,6 +27356,11 @@
                     "minimum": 0,
                     "type": "integer"
                   },
+                  "plugin": {
+                    "description": "How long a call into a Plugin, of any form, may wait for its answer before it is abandoned and fails with `deadline_exceeded`: 30 s. A kind with a timeout of its own, such as a Hook's `timeout.hook`, waits under that one instead.",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
                   "run": {
                     "anyOf": [
                       {
@@ -27173,6 +27411,23 @@
             "arrived_in": "0.1",
             "description": "The values it sets and locks: no higher layer changes them.",
             "properties": {
+              "accounts": {
+                "additionalProperties": false,
+                "properties": {
+                  "enabled": {
+                    "anyOf": [
+                      {
+                        "type": "boolean"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "Whether the Daemon knows its person by an Account, kept in its Accounts store beside the Operator policy. Unset, the default, it is on for `daemon run`, the Exposed Daemon, and off for a machine's Daemon. Off, the Daemon opens no Accounts store and its person is the OS user, on its own machine only. Read once, as the Daemon starts. Set in user configuration or an Operator policy only."
+                  }
+                },
+                "type": "object"
+              },
               "admission": {
                 "additionalProperties": false,
                 "properties": {
@@ -31088,6 +31343,11 @@
                   },
                   "navigation": {
                     "description": "How long a navigation may take before its attempt fails with `deadline_exceeded`: 30 s, Playwright's default.",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "plugin": {
+                    "description": "How long a call into a Plugin, of any form, may wait for its answer before it is abandoned and fails with `deadline_exceeded`: 30 s. A kind with a timeout of its own, such as a Hook's `timeout.hook`, waits under that one instead.",
                     "minimum": 0,
                     "type": "integer"
                   },
@@ -31257,6 +31517,23 @@
             "arrived_in": "0.1",
             "description": "The values it sets, which higher layers may change.",
             "properties": {
+              "accounts": {
+                "additionalProperties": false,
+                "properties": {
+                  "enabled": {
+                    "anyOf": [
+                      {
+                        "type": "boolean"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "Whether the Daemon knows its person by an Account, kept in its Accounts store beside the Operator policy. Unset, the default, it is on for `daemon run`, the Exposed Daemon, and off for a machine's Daemon. Off, the Daemon opens no Accounts store and its person is the OS user, on its own machine only. Read once, as the Daemon starts. Set in user configuration or an Operator policy only."
+                  }
+                },
+                "type": "object"
+              },
               "admission": {
                 "additionalProperties": false,
                 "properties": {
@@ -35172,6 +35449,11 @@
                   },
                   "navigation": {
                     "description": "How long a navigation may take before its attempt fails with `deadline_exceeded`: 30 s, Playwright's default.",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "plugin": {
+                    "description": "How long a call into a Plugin, of any form, may wait for its answer before it is abandoned and fails with `deadline_exceeded`: 30 s. A kind with a timeout of its own, such as a Hook's `timeout.hook`, waits under that one instead.",
                     "minimum": 0,
                     "type": "integer"
                   },
@@ -35357,6 +35639,23 @@
             "arrived_in": "0.1",
             "description": "The settings it sets, nested by key.",
             "properties": {
+              "accounts": {
+                "additionalProperties": false,
+                "properties": {
+                  "enabled": {
+                    "anyOf": [
+                      {
+                        "type": "boolean"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "Whether the Daemon knows its person by an Account, kept in its Accounts store beside the Operator policy. Unset, the default, it is on for `daemon run`, the Exposed Daemon, and off for a machine's Daemon. Off, the Daemon opens no Accounts store and its person is the OS user, on its own machine only. Read once, as the Daemon starts. Set in user configuration or an Operator policy only."
+                  }
+                },
+                "type": "object"
+              },
               "admission": {
                 "additionalProperties": false,
                 "properties": {
@@ -39272,6 +39571,11 @@
                   },
                   "navigation": {
                     "description": "How long a navigation may take before its attempt fails with `deadline_exceeded`: 30 s, Playwright's default.",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "plugin": {
+                    "description": "How long a call into a Plugin, of any form, may wait for its answer before it is abandoned and fails with `deadline_exceeded`: 30 s. A kind with a timeout of its own, such as a Hook's `timeout.hook`, waits under that one instead.",
                     "minimum": 0,
                     "type": "integer"
                   },
@@ -39467,6 +39771,26 @@
         "$ref": "#/$defs/RecipeManifest"
       },
       "storage": "toml",
+      "version": "0.1"
+    },
+    {
+      "hello_from": [],
+      "name": "plugin-protocol",
+      "rule": "lower_minor",
+      "schema": {
+        "$ref": "#/$defs/Message"
+      },
+      "storage": "transcript",
+      "version": "0.1"
+    },
+    {
+      "hello_from": [],
+      "name": "plugin-manifest",
+      "rule": "default",
+      "schema": {
+        "$ref": "#/$defs/PluginManifest"
+      },
+      "storage": "json",
       "version": "0.1"
     }
   ],

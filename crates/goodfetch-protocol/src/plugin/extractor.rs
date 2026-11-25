@@ -50,6 +50,19 @@ pub struct ExtractContentResult {
     pub metadata: BTreeMap<String, String>,
 }
 
+/// Whether `key` may name an entry of [`ExtractContentResult::metadata`]:
+/// a `snake_case` name, a lowercase ASCII letter, then lowercase ASCII
+/// letters, digits and underscores.
+pub fn is_metadata_key(key: &str) -> bool {
+    let mut characters = key.chars();
+    characters
+        .next()
+        .is_some_and(|first| first.is_ascii_lowercase())
+        && characters.all(|character| {
+            character.is_ascii_lowercase() || character.is_ascii_digit() || character == '_'
+        })
+}
+
 /// What `extract_handler_failed` details.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct ExtractHandlerFailedDetails {
@@ -117,3 +130,24 @@ pub const ENTRIES: Entries = Entries {
     hook_stages: &[],
     shared_type_values: &[],
 };
+
+#[cfg(test)]
+mod tests {
+    use rstest::rstest;
+
+    use super::is_metadata_key;
+
+    #[rstest]
+    #[case::one_word("author", true)]
+    #[case::words("published_at", true)]
+    #[case::digit("h1_title", true)]
+    #[case::empty("", false)]
+    #[case::upper("Author", false)]
+    #[case::camel("publishedAt", false)]
+    #[case::leading_digit("1st", false)]
+    #[case::leading_underscore("_author", false)]
+    #[case::dash("published-at", false)]
+    fn a_metadata_key_is_snake_case(#[case] key: &str, #[case] expected: bool) {
+        assert_eq!(is_metadata_key(key), expected);
+    }
+}

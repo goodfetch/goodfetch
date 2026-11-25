@@ -64,6 +64,7 @@ mod events;
 mod exit_codes;
 mod exposed_cdp_url;
 mod extra_loopback;
+mod extractor_suite;
 #[cfg(target_os = "linux")]
 mod governor;
 mod help;

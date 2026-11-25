@@ -26,7 +26,7 @@
 
 [suite]
 name = "clients"
-version = "65"
+version = "66"
 
 [[capability]]
 name = "lifecycle"
@@ -567,6 +567,23 @@ modes = ["attached", "linked"]
 id = "handlerless-starts"
 covers = ["story:11-131"]
 surfaces = ["sdk-typescript", "sdk-python", "sdk-rust"]
+
+# A start's options (ADRs 0033, 0080, 0091, 0102 and 0105; issue 2888):
+# `start()` sends its settings, its `timeout` (`timeout.run`, `null` for
+# none), its Plan file, its Response recording and each Plugin change it
+# accepts, and a resume honours them; a zero `timeout` is refused with
+# `setting_invalid` from the argument, naming the null form, before
+# anything is sent; and a start given up once sent (TypeScript's `signal`,
+# Python's cancelled task, Rust's dropped future) is cancelled with one
+# `$/cancel` naming it. On the Scripted engine the script checks every
+# message; linked, a start's own `timeout` stops the Run with a
+# Checkpoint, a start of its Run ID resumes it, and another Plan file or
+# recording is `run_conflict` naming each. The TypeScript and Python SDKs
+# join with the rest of issue 2888.
+[[capability.case]]
+id = "start-takes-every-option"
+covers = ["story:11-50", "story:11-132"]
+surfaces = ["sdk-rust"]
 
 # How a Run ends and what it does meanwhile (ADRs 0029 and 0102; issue
 # 1282): `finish()` answers the whole Run report and `stop()` the Run

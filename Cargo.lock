@@ -2499,6 +2499,7 @@ dependencies = [
  "goodfetch-engine",
  "goodfetch-protocol",
  "goodfetch-runtime",
+ "goodfetch-saved-file",
  "goodfetch-test-support",
  "goodfetch-workspace-hack",
  "libc",
@@ -2518,7 +2519,6 @@ dependencies = [
  "tracing-log",
  "tracing-subscriber",
  "trybuild",
- "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -2656,6 +2656,7 @@ dependencies = [
  "goodfetch-counted-work",
  "goodfetch-protocol",
  "goodfetch-runtime",
+ "goodfetch-saved-file",
  "goodfetch-test-support",
  "goodfetch-workspace-hack",
  "gungraun",
@@ -3067,6 +3068,14 @@ version = "0.0.0"
 dependencies = [
  "goodfetch-workspace-hack",
  "tokio",
+]
+
+[[package]]
+name = "goodfetch-saved-file"
+version = "0.0.0"
+dependencies = [
+ "goodfetch-workspace-hack",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]

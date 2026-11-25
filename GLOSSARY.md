@@ -606,6 +606,10 @@ _Avoid_: KVS, blob store, cache
 A file the engine writes from a run's results in a chosen format.
 _Avoid_: dump, download
 
+**Saved file**:
+A file written at a path the program gives, such as an Export, a Download, a Checkpoint or a screenshot: the path ends up holding the whole file or what it held before.
+_Avoid_: atomic file, atomic save
+
 **Sink**:
 A system outside the engine that receives a run's committed Records, as rows or messages or as Export files, while the run is in progress or afterwards.
 _Avoid_: output, pipeline, connector

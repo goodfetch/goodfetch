@@ -181,6 +181,9 @@ goodfetch-counted-work = { path = "crates/goodfetch-counted-work" }
 # The Encoding a document's own bytes declare, read as Chrome reads it (ADR
 # 0119), which the fetch tiers and Collie's client crate both read.
 goodfetch-encoding = { path = "crates/goodfetch-encoding" }
+# The operating-system part of a Saved file (ADR 0116), which the engine and
+# Collie's client crate both use.
+goodfetch-saved-file = { path = "crates/goodfetch-saved-file" }
 # The conformance harness; the Stub gateway's tests run its gateway cases.
 goodfetch-conformance = { path = "crates/goodfetch-conformance" }
 # Foxhound's crawl; only crates under `crates/foxhound/` and `xtask` take it (ADR 0087).

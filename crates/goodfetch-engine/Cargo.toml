@@ -36,6 +36,9 @@ futures-util.workspace = true
 getrandom.workspace = true
 goodfetch-counted-work.workspace = true
 goodfetch-protocol.workspace = true
+# The hidden temporary file of a Saved file and the reason of a failed
+# write, as Collie's client crate has them (ADR 0116).
+goodfetch-saved-file.workspace = true
 hickory-resolver = { workspace = true, features = ["tokio", "system-config"] }
 # Derives the wrap of each Run's data key from its key-encryption key.
 hkdf.workspace = true

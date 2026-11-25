@@ -1530,6 +1530,7 @@ dependencies = [
  "getrandom 0.3.4",
  "goodfetch-counted-work",
  "goodfetch-protocol",
+ "goodfetch-saved-file",
  "goodfetch-workspace-hack",
  "hickory-resolver",
  "hkdf",
@@ -1670,6 +1671,14 @@ dependencies = [
  "serde",
  "serde_json",
  "thiserror 2.0.21",
+]
+
+[[package]]
+name = "goodfetch-saved-file"
+version = "0.0.0"
+dependencies = [
+ "goodfetch-workspace-hack",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]

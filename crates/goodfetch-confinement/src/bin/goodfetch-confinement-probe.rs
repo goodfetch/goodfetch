@@ -48,9 +48,9 @@ mod linux {
         let parent = i64::from(std::os::unix::process::parent_id());
         let mechanism = match &request.policy {
             None => None,
-            Some(policy) => match request.scope.map_or_else(
+            Some(policy) => match request.mechanism.map_or_else(
                 || confine_self(policy),
-                |scope| confine_self_with(policy, scope),
+                |kind| confine_self_with(policy, kind),
             ) {
                 Ok(mechanism) => Some(mechanism),
                 Err(error) => return Report::Fault(Fault::from(&error)),

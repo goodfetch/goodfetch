@@ -1,6 +1,7 @@
 //! The Extractor (ADRs 0007, 0033 and 0129): its one primitive,
 //! `extract.content`, which reads a page's main content, and the driver
-//! that calls it under `timeout.plugin` and checks its answer's shape.
+//! that calls it under `timeout.plugin`, checks its answer's shape and
+//! accounts for it to the Run.
 //!
 //! Everything an Extractor answers is page content (ADR 0014): the driver
 //! hands it on as such and never reads an instruction in it.
@@ -14,7 +15,7 @@ use goodfetch_protocol::plugin::extractor::{
 };
 use url::Url;
 
-use super::Failure;
+use super::{Accounts, Failure, PluginCall, Primitive};
 use crate::call_error::{CallError, named};
 use crate::clock::Clock;
 use crate::deadline::Deadline;
@@ -62,45 +63,69 @@ impl ExtractPrimitives for ProcessExtractor {
     }
 }
 
-/// The Extractor's driver: it calls one implementation under a deadline
-/// and checks what it answers.
+/// The Extractor's driver: it calls one implementation under a deadline,
+/// checks what it answers and accounts for the call.
 pub struct ExtractorDriver<'a> {
     implementation: &'a dyn ExtractPrimitives,
+    accounts: &'a dyn Accounts,
     clock: &'a Clock,
     deadline: &'a Deadline,
 }
 
 impl<'a> ExtractorDriver<'a> {
-    /// The driver of `implementation`, whose calls wait on `clock` until
-    /// `deadline`, which `timeout.plugin` sets.
+    /// The driver of `implementation`, whose calls go to `accounts`, the
+    /// Run's, and wait on `clock` until `deadline`, which `timeout.plugin`
+    /// sets.
     #[must_use]
     pub fn new(
         implementation: &'a dyn ExtractPrimitives,
+        accounts: &'a dyn Accounts,
         clock: &'a Clock,
         deadline: &'a Deadline,
     ) -> Self {
         Self {
             implementation,
+            accounts,
             clock,
             deadline,
         }
     }
 
     /// The main content of the page at `url`, read from its document
-    /// `html`.
+    /// `html`. The call is charged before it goes and recorded once it
+    /// ended, however it ended ([`Accounts`]).
     ///
     /// # Errors
     ///
-    /// The call's [`Failure`]: `deadline_exceeded` once `timeout.plugin`
-    /// passed first, the Error code the implementation answered when the
-    /// catalog knows it, and `extract_handler_failed` for any answer the
-    /// driver cannot take.
+    /// The call's [`Failure`]: `limit_reached` when the Run's Usage refused
+    /// it, `deadline_exceeded` once `timeout.plugin` passed first, the Error
+    /// code the implementation answered when the catalog knows it, and
+    /// `extract_handler_failed` for any answer the driver cannot take.
     ///
     /// # Cancel safety
     ///
     /// Dropping the future abandons the call, whose answer, when it comes,
-    /// goes to nobody.
+    /// goes to nobody; a call dropped once it went stays charged, with no
+    /// time and no line in the Run trace.
     pub async fn content(&self, url: &Url, html: String) -> Result<ExtractContentResult, Failure> {
+        let call = PluginCall::of(self.implementation.name(), Primitive::ExtractContent);
+        self.accounts
+            .call_starts(&call)
+            .await
+            .map_err(Failure::Refused)?;
+        let started = self.clock.now();
+        let read = self.read(url, html).await;
+        let failed = read.as_ref().err().map(|failure| failure.error().code());
+        let ended = call.ended(self.clock.now().duration_since(started), failed);
+        match (read, self.accounts.call_ended(&ended).await) {
+            (Ok(_), Err(refused)) => Err(Failure::Refused(refused)),
+            (read, _) => read,
+        }
+    }
+
+    /// What the implementation answers for the page at `url`, as the
+    /// driver reads and checks it.
+    async fn read(&self, url: &Url, html: String) -> Result<ExtractContentResult, Failure> {
         let params = ExtractContentParams {
             url: url.as_str().to_owned(),
             html,

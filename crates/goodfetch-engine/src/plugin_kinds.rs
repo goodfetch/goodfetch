@@ -17,20 +17,118 @@
 //! shape the driver refuses, becomes the kind's `<kind>_handler_failed`.
 //! Its text is logged at `warn` and kept out of the error.
 //!
+//! The driver accounts for every call it makes, whatever its form and
+//! however it ends (ADR 0033), through the [`Accounts`] of the Run it is
+//! for: one `plugin_calls` charged before the call goes, its `plugin_time`
+//! once it ended, both counted under the implementation's name, and one
+//! line of the Run trace by implementation and method with the class the
+//! engine gave the call ([`PluginCall`]).
+//!
 //! [`extractor`] holds the Extractor's primitives and driver, and
 //! [`run_plugins`] the process Plugins one Run starts.
 
+use std::time::Duration;
+
+use futures_util::future::BoxFuture;
 use goodfetch_protocol::catalog::{OperationClass, PluginKind};
 use goodfetch_protocol::entries;
 use goodfetch_protocol::foxhound::crawl::HANDLER_FAILED;
 use goodfetch_protocol::plugin::extractor::{EXTRACT_CONTENT, EXTRACTOR};
 use goodfetch_protocol::plugin::{PLUGIN_CRASHED, PLUGIN_QUARANTINED};
+use serde::Serialize;
 
 use crate::call_error::CallError;
 use crate::plugin_host::instance::CallFailure;
 
 pub mod extractor;
 pub mod run_plugins;
+
+/// What a kind's driver accounts each call to: the Run the call is for,
+/// whose Usage the call is charged to and whose Run trace records it.
+pub trait Accounts: Send + Sync {
+    /// Charges one `plugin_calls` for `call` before it goes.
+    ///
+    /// # Errors
+    ///
+    /// The error the call fails with unmade: `limit_reached` when a Limit
+    /// holding the Run has nothing left.
+    fn call_starts<'call>(
+        &'call self,
+        call: &'call PluginCall<'call>,
+    ) -> BoxFuture<'call, Result<(), CallError>>;
+
+    /// Charges the `plugin_time` of `call`, which ended, and records it in
+    /// the Run trace.
+    ///
+    /// # Errors
+    ///
+    /// The error the call fails with although it was made: `limit_reached`
+    /// when a Limit holding the Run has nothing left of the time.
+    fn call_ended<'call>(
+        &'call self,
+        call: &'call PluginCall<'call>,
+    ) -> BoxFuture<'call, Result<(), CallError>>;
+}
+
+/// One call into an implementation, as its driver accounts it and the Run
+/// trace's `trace/plugin-calls.jsonl` holds it: by implementation and
+/// method, with the class the engine gave it.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+pub struct PluginCall<'call> {
+    /// The implementation's name, as the setting that chose it names it,
+    /// under which Usage counts it.
+    pub plugin: &'call str,
+    /// The kind's name.
+    pub kind: &'static str,
+    /// The primitive's method.
+    pub method: &'static str,
+    /// The class the engine gave the call, from its method ([`Primitive`]).
+    #[serde(serialize_with = "class_name")]
+    pub class: OperationClass,
+    /// How long it took, in whole milliseconds, rounded up: zero before it
+    /// went.
+    pub time: u64,
+    /// The Error code it failed with, when it failed.
+    pub failed: Option<&'static str>,
+}
+
+impl<'call> PluginCall<'call> {
+    /// The call of `primitive` into the implementation `plugin`, before it
+    /// goes.
+    pub fn of(plugin: &'call str, primitive: Primitive) -> Self {
+        Self {
+            plugin,
+            kind: primitive.kind().name,
+            method: primitive.method(),
+            class: primitive.class(),
+            time: 0,
+            failed: None,
+        }
+    }
+
+    /// The call, once it ended after `took`, with `failed` the Error code
+    /// it failed with, if it failed.
+    #[must_use]
+    pub fn ended(self, took: Duration, failed: Option<&'static str>) -> Self {
+        Self {
+            time: u64::try_from(took.as_micros().div_ceil(1_000)).unwrap_or(u64::MAX),
+            failed,
+            ..self
+        }
+    }
+}
+
+/// `class`, as its name.
+#[expect(
+    clippy::trivially_copy_pass_by_ref,
+    reason = "serde's `serialize_with` passes the field by reference"
+)]
+fn class_name<S: serde::Serializer>(
+    class: &OperationClass,
+    serializer: S,
+) -> Result<S::Ok, S::Error> {
+    serializer.serialize_str(class.as_str())
+}
 
 /// A primitive of a Plugin kind, one method the engine calls an
 /// implementation with.
@@ -88,6 +186,9 @@ pub enum Failure {
     /// The instance carried no call out: it was refused at `hello`, its
     /// host cannot confine it, or it was stopped with its Run or its task.
     Ended(CallError),
+    /// The Run's Usage refused the call ([`Accounts`]): `limit_reached`,
+    /// before it went or for the time it took.
+    Refused(CallError),
 }
 
 impl Failure {
@@ -142,7 +243,8 @@ impl Failure {
             | Self::DeadlineExceeded(error)
             | Self::Answered(error)
             | Self::Malformed(error)
-            | Self::Ended(error) => error,
+            | Self::Ended(error)
+            | Self::Refused(error) => error,
         }
     }
 
@@ -154,7 +256,8 @@ impl Failure {
             | Self::DeadlineExceeded(error)
             | Self::Answered(error)
             | Self::Malformed(error)
-            | Self::Ended(error) => error,
+            | Self::Ended(error)
+            | Self::Refused(error) => error,
         }
     }
 }

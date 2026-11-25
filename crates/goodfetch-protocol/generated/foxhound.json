@@ -11937,6 +11937,36 @@
       ],
       "type": "object"
     },
+    "PluginUsage": {
+      "description": "What a Run's calls into one implementation of a Plugin kind used: its\n`plugin_calls` and `plugin_time` (ADR 0033).",
+      "properties": {
+        "calls": {
+          "arrived_in": "0.1",
+          "description": "The calls made into it, failed ones included.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "plugin": {
+          "arrived_in": "0.1",
+          "description": "The implementation's name, as the setting that chose it names it.",
+          "type": "string"
+        },
+        "time": {
+          "arrived_in": "0.1",
+          "description": "The time those calls took, in milliseconds.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "plugin",
+        "calls",
+        "time"
+      ],
+      "type": "object"
+    },
     "PointInTime": {
       "description": "A point in time in UTC, as RFC 3339.",
       "format": "date-time",
@@ -16317,6 +16347,14 @@
           "description": "Its paid solves, by currency (ADR 0035).",
           "items": {
             "$ref": "#/$defs/UsageAmount"
+          },
+          "type": "array"
+        },
+        "plugins": {
+          "arrived_in": "0.1",
+          "description": "Its calls into Plugin kinds' implementations, of every form, and the\ntime they took, by implementation (ADR 0033), in name order.",
+          "items": {
+            "$ref": "#/$defs/PluginUsage"
           },
           "type": "array"
         },

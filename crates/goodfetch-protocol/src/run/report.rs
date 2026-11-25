@@ -231,6 +231,11 @@ pub struct RunUsage {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     #[schemars(extend("arrived_in" = "0.1"))]
     pub paid_fetches: Vec<UsageAmount>,
+    /// Its calls into Plugin kinds' implementations, of every form, and the
+    /// time they took, by implementation (ADR 0033), in name order.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub plugins: Vec<PluginUsage>,
     /// What it used of a Usage kind this engine does not name, kept as the
     /// ledger holds it.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -326,6 +331,21 @@ pub struct ProxyKindBytes {
     /// The bytes.
     #[schemars(extend("arrived_in" = "0.1"))]
     pub bytes: u64,
+}
+
+/// What a Run's calls into one implementation of a Plugin kind used: its
+/// `plugin_calls` and `plugin_time` (ADR 0033).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct PluginUsage {
+    /// The implementation's name, as the setting that chose it names it.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub plugin: String,
+    /// The calls made into it, failed ones included.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub calls: u64,
+    /// The time those calls took, in milliseconds.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub time: u64,
 }
 
 /// An amount of a Usage kind counted in a currency, or as a count.

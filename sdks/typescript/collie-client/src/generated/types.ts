@@ -6965,6 +6965,27 @@ export interface PluginRun {
   networkLevel: string;
 }
 /**
+ * What a Run's calls into one implementation of a Plugin kind used: its
+ * `plugin_calls` and `plugin_time` (ADR 0033).
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "PluginUsage".
+ */
+export interface PluginUsage {
+  /**
+   * The calls made into it, failed ones included.
+   */
+  calls: number;
+  /**
+   * The implementation's name, as the setting that chose it names it.
+   */
+  plugin: string;
+  /**
+   * The time those calls took, in milliseconds.
+   */
+  time: number;
+}
+/**
  * One change `config.policy_write` makes.
  *
  * This interface was referenced by `CollieTypes`'s JSON-Schema
@@ -8398,6 +8419,11 @@ export interface RunUsage {
    * Its paid solves, by currency (ADR 0035).
    */
   paidSolves?: UsageAmount[];
+  /**
+   * Its calls into Plugin kinds' implementations, of every form, and the
+   * time they took, by implementation (ADR 0033), in name order.
+   */
+  plugins?: PluginUsage[];
   /**
    * The bytes it sent and received through a proxy.
    */

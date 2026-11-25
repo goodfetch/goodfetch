@@ -30,10 +30,14 @@
 //!   per setting a resume changed, with its key, the layer that sets it
 //!   from the resume on and the run epoch the resume began, never its
 //!   value.
+//! - **The Plugin call log** (ADR 0033), `trace/plugin-calls.jsonl`: one
+//!   JSON line per call a Plugin kind's driver made into an implementation,
+//!   with the implementation, the kind, the method, the class the engine
+//!   gave the call, its time and the Error code it failed with, if it did.
 //!
-//! Every Provenance, request-log and settings-log line passes through the
-//! Run's `Mask` as a kept output (spec #564): no value a Run resolved is
-//! written, unless the Run's `security.redaction` is off.
+//! Every Provenance, request-log, settings-log and Plugin-call line passes
+//! through the Run's `Mask` as a kept output (spec #564): no value a Run
+//! resolved is written, unless the Run's `security.redaction` is off.
 //!
 //! The writer is an actor of the Run's owner, started at the Run's first
 //! entry, the Run's work, once, counted on `E5.run_spawns`. It holds one
@@ -62,8 +66,8 @@ use std::sync::{Arc, OnceLock};
 use goodfetch_counted_work::{CountedWork, Row};
 use goodfetch_protocol::catalog::Event;
 use goodfetch_protocol::home::{
-    RUN_TRACE_CALLS, RUN_TRACE_CDP_COMMANDS, RUN_TRACE_PROVENANCE, RUN_TRACE_REQUESTS,
-    RUN_TRACE_SETTINGS,
+    RUN_TRACE_CALLS, RUN_TRACE_CDP_COMMANDS, RUN_TRACE_PLUGIN_CALLS, RUN_TRACE_PROVENANCE,
+    RUN_TRACE_REQUESTS, RUN_TRACE_SETTINGS,
 };
 use goodfetch_protocol::page::events::PAGE_REQUEST_FAILED;
 use goodfetch_protocol::page::{RequestFailed, SERVICE_WORKER_REQUEST, ServiceWorkerRequest};
@@ -124,15 +128,17 @@ enum Log {
     CdpCommands,
     Calls,
     Settings,
+    PluginCalls,
 }
 
 impl Log {
-    const ALL: [Self; 5] = [
+    const ALL: [Self; 6] = [
         Self::Provenance,
         Self::Requests,
         Self::CdpCommands,
         Self::Calls,
         Self::Settings,
+        Self::PluginCalls,
     ];
 
     /// How many files the writer holds.
@@ -146,6 +152,7 @@ impl Log {
             Self::CdpCommands => 2,
             Self::Calls => 3,
             Self::Settings => 4,
+            Self::PluginCalls => 5,
         }
     }
 
@@ -157,6 +164,7 @@ impl Log {
             Self::CdpCommands => RUN_TRACE_CDP_COMMANDS,
             Self::Calls => RUN_TRACE_CALLS,
             Self::Settings => RUN_TRACE_SETTINGS,
+            Self::PluginCalls => RUN_TRACE_PLUGIN_CALLS,
         }
     }
 }
@@ -261,6 +269,24 @@ impl RunTrace {
     pub async fn setting_changed(&self, change: &impl Serialize) -> io::Result<()> {
         let mut entry = serde_json::to_value(change)?;
         self.written_masked(Log::Settings, &mut entry).await
+    }
+
+    /// Appends `call`, one call a Plugin kind's driver made into an
+    /// implementation (ADR 0033), as a line of the Plugin call log, masked
+    /// by the Run's `Mask` as a kept output, and returns once it is written.
+    ///
+    /// # Errors
+    ///
+    /// When the line cannot be encoded, the writer cannot start, or the
+    /// file cannot be opened or written; the next entry opens it again.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future never stops a line being written once it was
+    /// sent to the writer.
+    pub async fn plugin_call(&self, call: &impl Serialize) -> io::Result<()> {
+        let mut entry = serde_json::to_value(call)?;
+        self.written_masked(Log::PluginCalls, &mut entry).await
     }
 
     /// Writes `entry`, masked by the Run's `Mask` as a kept output, as one

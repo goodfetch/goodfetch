@@ -2729,6 +2729,23 @@ class PluginRun(BaseModel):
     """The network level it ran at."""
 
 
+class PluginUsage(BaseModel):
+    """
+    What a Run's calls into one implementation of a Plugin kind used: its
+    `plugin_calls` and `plugin_time` (ADR 0033).
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    calls: Annotated[int, Field(ge=0)]
+    """The calls made into it, failed ones included."""
+    plugin: str
+    """The implementation's name, as the setting that chose it names it."""
+    time: Annotated[int, Field(ge=0)]
+    """The time those calls took, in milliseconds."""
+
+
 class PolicyConflictDetails(BaseModel):
     """What `policy_conflict` details."""
 
@@ -9098,6 +9115,11 @@ class RunUsage(BaseModel):
     """Its Paid fetches, by currency (ADR 0045)."""
     paid_solves: list[UsageAmount] | None = None
     """Its paid solves, by currency (ADR 0035)."""
+    plugins: list[PluginUsage] | None = None
+    """
+    Its calls into Plugin kinds' implementations, of every form, and the
+    time they took, by implementation (ADR 0033), in name order.
+    """
     proxy_bytes: Annotated[int, Field(ge=0)]
     """The bytes it sent and received through a proxy."""
     proxy_bytes_by_kind: list[ProxyKindBytes] | None = None

@@ -94,13 +94,14 @@ pub(super) fn cleaned_request(
 /// the Plugin `plugin` of `run`, `read` answered [`cleaned_request`], its
 /// `html` the cleaned page, and the Plugin reads the main content from it;
 /// `raw` is the page's raw HTML when `asked` names it. The Plugin starts on
-/// the Run's first call that names it.
+/// the Run's first call that names it, and each call is charged to the
+/// Run's Usage and written in its Run trace.
 ///
 /// # Errors
 ///
 /// `extractor_unavailable` when no installed Extractor Plugin has the name
 /// or it cannot start, and the call's failure, as the Extractor's driver
-/// reads it, when the Plugin fails it.
+/// reads it, when the Plugin fails it or the Run's Usage refuses it.
 pub(super) async fn answered(
     run: &Run,
     plugin: Option<&str>,
@@ -128,7 +129,7 @@ pub(super) async fn answered(
     let deadline =
         Deadline::of_resolved(run.settings().map(RunSettings::resolved), &TIMEOUT_PLUGIN);
     let ExtractContentResult { text, markdown, .. } =
-        ExtractorDriver::new(&extractor, &clock, &deadline)
+        ExtractorDriver::new(&extractor, run, &clock, &deadline)
             .content(&url, cleaned)
             .await
             .map_err(Failure::into_error)?;

@@ -1,0 +1,7 @@
+# Which of goodfetch-notification's top-level modules may import which
+# (ADR 0126).
+[modules]
+failure = []
+ledger = ["message"]
+message = []
+rate_limit = []

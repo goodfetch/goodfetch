@@ -692,7 +692,7 @@ impl Page {
         })
     }
 
-    /// Sends a request from inside the page's Session's browser, with its cookies, through the browser-fetch tier and the page's interception (its domain policy, never its routes), from a context no service worker controls, and answers the response whatever its status, a 429 included; `response.body` reads its kept body, and raises `response_truncated` for one that broke off. A count of redirects above 19 is refused with `setting_invalid`, a chain past its count raises `too_many_redirects`, and a body whose content coding fails to decode `navigation_failed`.
+    /// Sends a request from inside the page's Session's browser, with its cookies, through the browser-fetch tier and the page's interception (its domain policy, never its routes), from a context no service worker controls, and answers the response whatever its status, a 429 included; `response.body` reads its kept body, and raises `response_truncated` for one that broke off. A count of redirects above 19 is refused with `setting_invalid`, a chain past its count raises `too_many_redirects`, and a body whose content coding fails to decode `navigation_failed`. A header value or a JSON body string may hold a Secret placeholder, whose value the engine adds at its interception after every page script and service worker: an unbound placeholder raises `secret_unbound`, a hop outside its bound domains `secret_domain_not_allowed`, and a header value holding a CR, an LF or a NUL `header_value_invalid`.
     ///
     /// Experimental: outside semver until it is promoted (ADR 0030).
     ///
@@ -717,6 +717,8 @@ impl Page {
                 headers: None,
                 post_data: None,
                 max_redirects: None,
+                secret_headers: None,
+                json_secrets: None,
             },
         );
         call.map(move |result| crate::Response::new(host, result))
@@ -1244,6 +1246,16 @@ impl<T> crate::Call<T, ::goodfetch_protocol::page::request::PageRequestParams> {
     pub fn headers(self, headers: ::std::collections::BTreeMap<String, String>) -> Self {
         self.edit(move |params| params.headers = Some(headers))
     }
+    /// Strings of its body, which is then JSON, that hold a Secret
+    /// placeholder's value, each set at its JSON Pointer by the engine at
+    /// its interception, checked as `secret_headers` are at every hop that
+    /// sends the body (ADR 0092).
+    pub fn json_secrets(
+        self,
+        json_secrets: Vec<::goodfetch_protocol::page::request::JsonSecret>,
+    ) -> Self {
+        self.edit(move |params| params.json_secrets = Some(json_secrets))
+    }
     /// How many redirects it follows, from 0, which answers the 3xx itself,
     /// to 19, the default; past its count it raises `too_many_redirects`,
     /// and a count above 19 is refused with `setting_invalid`.
@@ -1257,6 +1269,20 @@ impl<T> crate::Call<T, ::goodfetch_protocol::page::request::PageRequestParams> {
     /// Its body, in Base64.
     pub fn post_data(self, post_data: impl Into<String>) -> Self {
         self.edit(move |params| params.post_data = Some(post_data.into()))
+    }
+    /// Headers whose value holds a Secret placeholder, set over the
+    /// browser's own and named in none of `headers`: the engine adds each
+    /// value at its interception, at every hop whose URL is on the
+    /// placeholder's bound domains, and fails the request with
+    /// `secret_domain_not_allowed` at a hop outside them (ADR 0092).
+    pub fn secret_headers(
+        self,
+        secret_headers: ::std::collections::BTreeMap<
+            String,
+            ::goodfetch_protocol::page::request::SecretHeader,
+        >,
+    ) -> Self {
+        self.edit(move |params| params.secret_headers = Some(secret_headers))
     }
 }
 

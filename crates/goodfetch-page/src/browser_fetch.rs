@@ -10,7 +10,9 @@
 //! text document it loads, a request its own that would leave once the
 //! page's interception stopped (ticket #1608). The load passes steps 3 to 8 of the
 //! page's interception at each hop (its [`EngineRequests`]), the caller's method,
-//! headers and body set over the browser's own on its first.
+//! headers and body set over the browser's own on its first, and the values of
+//! its Secret placeholders at each hop on their bound domains, a hop outside
+//! them failed unsent (ADR 0092).
 //!
 //! Its response is paused once it arrives: a 3xx is counted against the
 //! request's count of redirects; any other is read whole, its raw bytes
@@ -59,6 +61,7 @@ use crate::errors::{gate_refused, network_error};
 use crate::interception::{EngineRequests, Overrides, authentication};
 use crate::page_value::{Navigation, NavigationKind, Permit};
 use crate::paused_body::{declared_within_limits, streamed};
+use crate::placeholders::Placeholders;
 
 /// The headers the page's copy of the response loses, so that nothing
 /// renders it or turns it into a download.
@@ -105,6 +108,9 @@ pub(crate) struct Request<'a> {
     pub(crate) limits: Limits,
     /// How its body is read.
     pub(crate) read: BodyRead,
+    /// The Secret placeholders its header values and JSON body hold, whose
+    /// values step 7 adds at each hop (ADR 0092).
+    pub(crate) placeholders: Option<&'a Placeholders>,
 }
 
 /// How a request's body is read, once its response arrived.
@@ -341,8 +347,22 @@ impl<'a> Load<'a> {
             .clone()
             .unwrap_or_else(|| paused.request.url.clone());
         self.chain.push(url.clone());
+        let carries_body = if first {
+            self.request.post_data.is_some()
+        } else {
+            paused.request.has_post_data == Some(true)
+        };
+        // A hop outside the Secret placeholders' bound domains goes
+        // nowhere, whatever the other steps would say of it.
+        if let Some(placeholders) = self.request.placeholders
+            && let Err(refused) = placeholders.admit(&url, carries_body)
+        {
+            self.fail(&paused.request_id, network::ErrorReason::BlockedByClient)
+                .await;
+            return Some(Err(refused));
+        }
         match self.sender.send_on(&paused, &overrides) {
-            Ok(command) => {
+            Ok(mut command) => {
                 // Step 6: the page's navigation gate, for each hop.
                 let navigation = Navigation {
                     method: command
@@ -363,6 +383,23 @@ impl<'a> Load<'a> {
                             .await;
                         return Some(Err(gate_refused(&navigation.url, &refusal)));
                     }
+                }
+                // Step 7: the Secret placeholders' values, at a hop
+                // admitted above.
+                if let Some(placeholders) = self.request.placeholders
+                    && let Err(refused) = placeholders
+                        .fill(
+                            &navigation.url,
+                            carries_body,
+                            &paused.request.headers,
+                            &mut command,
+                        )
+                        .await
+                {
+                    self.permit = None;
+                    self.fail(&paused.request_id, network::ErrorReason::BlockedByClient)
+                        .await;
+                    return Some(Err(refused));
                 }
                 self.send(&command).await;
                 // The gate that admitted it hears it leave (ADR 0086).

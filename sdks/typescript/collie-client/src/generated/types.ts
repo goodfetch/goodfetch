@@ -1411,6 +1411,37 @@ export type PageField = ValueField | ListField | RowsField;
  */
 export type PageHandler = "route" | "dialog";
 /**
+ * A header value that holds a Secret placeholder (ADR 0092). The value
+ * the engine builds from the placeholder's is masked wherever the engine
+ * returns, sends or keeps it, its Base64 in `Basic` included.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "SecretHeader".
+ */
+export type SecretHeader =
+  | {
+      form: "value";
+      /**
+       * The Secret placeholder.
+       */
+      placeholder: string;
+      /**
+       * The text before the value; none when absent.
+       */
+      prefix?: string | null;
+    }
+  | {
+      form: "basic";
+      /**
+       * The Secret placeholder whose value is the password.
+       */
+      placeholder: string;
+      /**
+       * The user ID, which holds no colon.
+       */
+      username: string;
+    };
+/**
  * A URL pattern the engine matches (ADR 0081): a glob as Playwright reads
  * one, or a regular expression in the `regex` crate's syntax. A predicate
  * runs in the program, which routes every URL and falls back for the
@@ -4724,6 +4755,24 @@ export interface InternalDetails {
   state: string;
 }
 /**
+ * A string of a JSON body that holds a Secret placeholder's value
+ * (ADR 0092).
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "JsonSecret".
+ */
+export interface JsonSecret {
+  /**
+   * The Secret placeholder.
+   */
+  placeholder: string;
+  /**
+   * Where the string goes, as a JSON Pointer (RFC 6901): a member of an
+   * object, added or replaced, or an element an array holds.
+   */
+  pointer: string;
+}
+/**
  * The crawl attempt a Key-value store call is made through: a handler's
  * `ctx.run`, which is bound to its attempt (ADR 0093). Only a crawl's Run
  * has attempts.
@@ -6721,6 +6770,13 @@ export interface PageRequestParams {
     [k: string]: string;
   } | null;
   /**
+   * Strings of its body, which is then JSON, that hold a Secret
+   * placeholder's value, each set at its JSON Pointer by the engine at
+   * its interception, checked as `secret_headers` are at every hop that
+   * sends the body (ADR 0092).
+   */
+  jsonSecrets?: JsonSecret[] | null;
+  /**
    * How many redirects it follows, from 0, which answers the 3xx itself,
    * to 19, the default; past its count it raises `too_many_redirects`,
    * and a count above 19 is refused with `setting_invalid`.
@@ -6738,6 +6794,16 @@ export interface PageRequestParams {
    * Its body, in Base64.
    */
   postData?: string | null;
+  /**
+   * Headers whose value holds a Secret placeholder, set over the
+   * browser's own and named in none of `headers`: the engine adds each
+   * value at its interception, at every hop whose URL is on the
+   * placeholder's bound domains, and fails the request with
+   * `secret_domain_not_allowed` at a hop outside them (ADR 0092).
+   */
+  secretHeaders?: {
+    [k: string]: SecretHeader;
+  } | null;
   /**
    * The URL.
    */

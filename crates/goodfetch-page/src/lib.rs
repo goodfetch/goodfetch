@@ -37,6 +37,7 @@ mod page_functions;
 pub mod page_value;
 mod pages;
 mod paused_body;
+mod placeholders;
 mod pool;
 mod proxy;
 mod proxy_provider;

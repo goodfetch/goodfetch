@@ -1119,12 +1119,13 @@ pub fn can_hold_a_signing_key(reference: &SecretReference) -> bool {
 const ENGINE_KEYS: [&str; 2] = [KEY_REFERENCE_IN_KEYCHAIN, KEY_REFERENCE_IN_FILE];
 
 /// Whether `domain` is one of `domains` or a subdomain of one, ignoring
-/// ASCII case.
-fn allowed(domain: &str, domains: &[String]) -> bool {
+/// ASCII case; any is when `domains` holds `*` (ADR 0092).
+pub fn allowed(domain: &str, domains: &[String]) -> bool {
     let domain = domain.to_ascii_lowercase();
     domains.iter().any(|allowed| {
         let allowed = allowed.to_ascii_lowercase();
-        domain == allowed
+        allowed == "*"
+            || domain == allowed
             || domain
                 .strip_suffix(allowed.as_str())
                 .is_some_and(|start| start.ends_with('.'))

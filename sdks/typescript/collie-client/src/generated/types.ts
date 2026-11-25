@@ -4310,6 +4310,63 @@ export interface SettingLimit {
   };
 }
 /**
+ * What `extract.content` reads a page's main content from: the document
+ * the page holds, after the Clean-up rules, and the URL it came from.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "ExtractContentParams".
+ */
+export interface ExtractContentParams {
+  /**
+   * The page's document, serialized as HTML.
+   */
+  html: string;
+  /**
+   * The page's URL, which its relative links resolve against.
+   */
+  url: string;
+}
+/**
+ * A page's main content, as an Extractor read it. Everything in it is
+ * page content (ADR 0014): it reaches a model only marked as such.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "ExtractContentResult".
+ */
+export interface ExtractContentResult {
+  /**
+   * The main content as Markdown.
+   */
+  markdown: string;
+  /**
+   * What the Extractor read about the page, such as its author or its
+   * date, each a text under its `snake_case` name.
+   */
+  metadata: {
+    [k: string]: string;
+  };
+  /**
+   * The main content as plain text.
+   */
+  text: string;
+  /**
+   * The main content's title, when the Extractor found one.
+   */
+  title?: string | null;
+}
+/**
+ * What `extract_handler_failed` details.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "ExtractHandlerFailedDetails".
+ */
+export interface ExtractHandlerFailedDetails {
+  /**
+   * The Extractor, as `content.extractor` names it.
+   */
+  extractor: string;
+}
+/**
  * The `match` before a field's transform (ADR 0123): a capture group of a
  * regular expression, in the `regex` crate's syntax (ADR 0081), over the
  * text read; that group's text is what the transform reads.

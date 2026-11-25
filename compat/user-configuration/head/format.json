@@ -3957,6 +3957,11 @@
                 "minimum": 0,
                 "type": "integer"
               },
+              "plugin": {
+                "description": "How long a call into a Plugin, of any form, may wait for its answer before it is abandoned and fails with `deadline_exceeded`: 30 s. A kind with a timeout of its own, such as a Hook's `timeout.hook`, waits under that one instead.",
+                "minimum": 0,
+                "type": "integer"
+              },
               "run": {
                 "anyOf": [
                   {

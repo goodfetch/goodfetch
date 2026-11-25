@@ -1729,6 +1729,18 @@ pub mod timeout {
             ],
         );
 
+    /// How long a call into a Plugin, of any form, may wait for its answer before it is abandoned and fails with `deadline_exceeded`: 30 s. A kind with a timeout of its own, such as a Hook's `timeout.hook`, waits under that one instead.
+    ///
+    /// `timeout.plugin`.
+    pub const PLUGIN: crate::settings::Setting<::std::time::Duration> =
+        crate::settings::Setting::new(
+            "timeout.plugin",
+            &[
+                ::goodfetch_protocol::catalog::SettingScope::Connection,
+                ::goodfetch_protocol::catalog::SettingScope::Run,
+            ],
+        );
+
     /// How long a Run may go on before it checkpoints and stops at its next safe point, resumable; none by default.
     ///
     /// `timeout.run`. `None` clears it.

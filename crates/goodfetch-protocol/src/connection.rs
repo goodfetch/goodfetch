@@ -839,6 +839,8 @@ impl WaitedFor {
     pub const NETWORK_IDLE: Self = Self::named("networkidle");
     /// The browser's answer to a command.
     pub const BROWSER_ANSWER: Self = Self::named("browser_answer");
+    /// A Plugin's answer to a call into it (ADR 0033).
+    pub const PLUGIN_ANSWER: Self = Self::named("plugin_answer");
     /// A Run's end.
     pub const RUN_END: Self = Self::named("Run's end");
     /// A Run's next safe point.

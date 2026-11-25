@@ -20,8 +20,9 @@
 //! - `after_hello` are messages it sends once that answer is sent, such as
 //!   a second answer to `hello` or an answer to no call;
 //! - `answers` answer each other call by its method with the `result` or
-//!   the `error` given; a method it has no answer for is answered
-//!   JSON-RPC's method-not-found error.
+//!   the `error` given, or leave it unanswered on `{ "silent": true }`; a
+//!   method it has no answer for is answered JSON-RPC's method-not-found
+//!   error.
 //!
 //! It records every message it reads and answers three methods of its own
 //! whatever the script says:
@@ -94,7 +95,9 @@ fn play() -> Result<(), String> {
         let mut sent = Vec::new();
         if let (Some(id), Some(method)) = (message.get("id"), message["method"].as_str()) {
             let answer = answer(&script, method, &message["params"], &calls);
-            sent.push(with_id(answer, id));
+            if answer["silent"] != json!(true) {
+                sent.push(with_id(answer, id));
+            }
             if method == "hello" {
                 sent.extend(
                     script["after_hello"]

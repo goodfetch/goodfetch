@@ -1242,6 +1242,12 @@ export interface FoxhoundSettings {
      */
     readonly navigation?: number;
     /**
+     * How long a call into a Plugin, of any form, may wait for its answer before it is abandoned and fails with `deadline_exceeded`: 30 s. A kind with a timeout of its own, such as a Hook's `timeout.hook`, waits under that one instead.
+     *
+     * `timeout.plugin`.
+     */
+    readonly plugin?: number;
+    /**
      * How long a Run may go on before it checkpoints and stops at its next safe point, resumable; none by default.
      *
      * `timeout.run`.
@@ -2510,6 +2516,12 @@ export interface CrawlSettings {
      */
     readonly navigation?: number;
     /**
+     * How long a call into a Plugin, of any form, may wait for its answer before it is abandoned and fails with `deadline_exceeded`: 30 s. A kind with a timeout of its own, such as a Hook's `timeout.hook`, waits under that one instead.
+     *
+     * `timeout.plugin`.
+     */
+    readonly plugin?: number;
+    /**
      * How long a Secret provider may take to answer one reference before the resolution fails with `secret_unavailable`, `failure: "timed_out"`: 30 s. A provider that answers it is briefly busy, such as a rate limit's, is asked again within it, with exponential backoff and full jitter, after its `Retry-After` when it gave one.
      *
      * `timeout.secret`.
@@ -3069,6 +3081,7 @@ const SPELLING: Spelling = {
     launch: "launch",
     model: "model",
     navigation: "navigation",
+    plugin: "plugin",
     run: "run",
     secret: "secret",
     sinkWrite: "sink_write",

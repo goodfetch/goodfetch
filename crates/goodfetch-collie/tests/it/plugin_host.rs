@@ -36,7 +36,7 @@ use crate::COLLIE;
 
 /// A scripted Plugin's bundle and private temporary folder under a fresh
 /// root, its approved manifest and the launch that starts it.
-struct Plugin {
+pub(crate) struct Plugin {
     _root: TempDir,
     layout: Layout,
     manifest: PluginManifest,
@@ -60,6 +60,12 @@ impl Plugin {
 
     /// The Plugin as [`new`](Self::new) lays it out, which plays `script`.
     fn scripted(script: &Value) -> Self {
+        Self::of_kind("proxy", script)
+    }
+
+    /// The Plugin of `kind` as [`new`](Self::new) lays it out, which plays
+    /// `script`.
+    pub(crate) fn of_kind(kind: &str, script: &Value) -> Self {
         let root = tempfile::tempdir().unwrap();
         let layout = Layout::under(&fs::canonicalize(root.path()).unwrap());
         for folder in [&layout.bundle, &layout.instance] {
@@ -77,7 +83,7 @@ impl Plugin {
             "manifest_version": "0.1",
             "name": "scripted",
             "version": "1.0.0",
-            "kinds": ["proxy"],
+            "kinds": [kind],
             "protocol": { "min": "0.1", "max": "0.1" },
             "entrypoint": "plugin",
             "network_level": "none",
@@ -109,7 +115,7 @@ impl Plugin {
     }
 
     /// What starts its instance in Collie.
-    fn instance(&self) -> instance::Plugin {
+    pub(crate) fn instance(&self) -> instance::Plugin {
         instance::Plugin {
             launcher: COLLIE.into(),
             launch: self.launch.clone(),
@@ -121,7 +127,7 @@ impl Plugin {
 
 /// The scripted Plugin's answer to `hello` with `kinds`, its approved
 /// manifest's otherwise.
-fn hello(kinds: &Value) -> Value {
+pub(crate) fn hello(kinds: &Value) -> Value {
     json!({
         "protocol_version": "0.1",
         "name": "scripted",

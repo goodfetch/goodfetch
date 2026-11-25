@@ -35,6 +35,7 @@ mod extraction_references;
 mod extraction_structured;
 mod facets;
 mod fake_model;
+mod fake_model_vision;
 mod fetch_edge;
 mod fields;
 mod files;

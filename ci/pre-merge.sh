@@ -66,11 +66,12 @@
 # `all` and `quick` are incremental (ADR 0135): on a head that descends from
 # a head whose gate already ran, they reuse the green results of the steps,
 # and of the members' tests, that the change since then does not reach, and
-# rerun the rest; see the plan below. They also reuse the hosted-owned
-# units a hosted run of the pull-request workflow holds, whose records
-# `just merge` downloaded (GOODFETCH_GATE_HOSTED_RECORDS), and end red on
-# one such run's red unit on the head's tree (ADR 0135's amendment of
-# 2026-11-22). `GOODFETCH_GATE_FULL=1` reuses nothing.
+# rerun the rest; see the plan below. Given the records of the
+# pull-request workflow's hosted runs (GOODFETCH_GATE_HOSTED_RECORDS), as a
+# hosted job is, they also reuse the hosted-owned units those runs hold, and
+# end red on one such run's red unit on the head's tree (ADR 0135's
+# amendment of 2026-11-22); `just merge` passes none (its note of
+# 2026-11-25). `GOODFETCH_GATE_FULL=1` reuses nothing.
 #
 # Each form's steps, their order and each step's `just` command come from
 # `xtask gate steps` (`just _gate-steps`, xtask/src/gate/steps.rs), and the

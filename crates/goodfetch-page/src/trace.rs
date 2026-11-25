@@ -34,7 +34,17 @@ use goodfetch_protocol::page::BROWSER_CDP_COMMAND_LOG;
 ///
 /// Dropping the future never stops a line being written once it began.
 pub async fn provenance(run: &Run, entry: serde_json::Value) {
-    if let Err(error) = run.provenance(entry).await {
+    provenance_in(run_trace(run), entry).await;
+}
+
+/// Records `entry` as [`provenance`] does, in the Run trace `trace`, for a
+/// holder of the Run's trace alone (ADR 0145).
+///
+/// # Cancel safety
+///
+/// As [`provenance`]'s.
+pub(crate) async fn provenance_in(trace: &RunTrace, entry: serde_json::Value) {
+    if let Err(error) = trace.provenance(entry).await {
         tracing::warn!(%error, "a Provenance entry of the Run trace cannot be written");
     }
 }

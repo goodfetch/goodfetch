@@ -65,16 +65,29 @@ pub(crate) fn take_written() -> Option<String> {
 /// on `metrics`, it names the crash report the panic left, when one was
 /// written, and never the panic's own text (ADR 0148).
 pub fn engine_panicked(metrics: &Metrics, ended: PanicEnded, message: &str) -> CallError {
-    metrics.panicked(ended);
-    CallError::new(
-        &ENGINE_PANICKED,
-        message,
+    engine_panicked_told(
+        metrics,
         &EnginePanickedDetails {
             ended,
             id: None,
             crash_report: take_written(),
         },
+        message,
     )
+}
+
+/// `engine_panicked` for a panic told to an owner on another thread
+/// ([`TaskOwner::panicked_crash_report`](crate::tasks::TaskOwner::panicked_crash_report)),
+/// as `message` tells it, with `details`: what it ended, that one's ID,
+/// and the name of the crash report the panic left. It is counted on
+/// `metrics` as [`engine_panicked`] counts its own.
+pub fn engine_panicked_told(
+    metrics: &Metrics,
+    details: &EnginePanickedDetails,
+    message: &str,
+) -> CallError {
+    metrics.panicked(details.ended);
+    CallError::new(&ENGINE_PANICKED, message, details)
 }
 
 /// Resumes `panic`, caught on another thread, on this one, with `written`,

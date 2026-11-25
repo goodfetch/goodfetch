@@ -38,8 +38,10 @@ use goodfetch_protocol::settings::{
 use serde::Deserialize;
 use serde_json::{Value, json};
 
+use crate::cdp::CdpPage;
 use crate::driver::PageDriver;
 use crate::noindex;
+use crate::page_reads::Reads;
 use crate::trace;
 use crate::url_pattern::UrlPattern;
 
@@ -265,9 +267,9 @@ async fn read(judging: &Judging<'_>, matches: &[&PageMatch]) -> Result<Read, Cal
         .counted_work()
         .count(Row::NavigationDetectionReads);
     let argument = json!({ "matches": matches });
-    let read = judging
-        .driver
-        .read_in_page(READ, argument, judging.operation.unwrap_or(NEXT_CALL))
+    // A navigation's judgement, the Page's own work: no call's read.
+    let read = Reads::of(CdpPage::of(judging.driver))
+        .in_page(READ, argument, judging.operation.unwrap_or(NEXT_CALL))
         .await;
     let read = match (read, judging.operation) {
         (Ok(read), _) => read,

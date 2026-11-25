@@ -13,9 +13,8 @@
 //! refusal only as a network error of its own, so a request that failed is
 //! the proxy's when its error is one of those, and the site's otherwise.
 
-use goodfetch_cdp::NetError;
-
 use crate::egress_relay::answers::{RELAY, failed};
+use crate::errors::NetError;
 pub(crate) use crate::proxy_status::PROXY_STATUS;
 use crate::proxy_status::{name, nearest, parameter};
 

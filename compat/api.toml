@@ -287,3 +287,7 @@ reason = "Foxhound's connect options register the program's Fetch backends and S
 [[announced]]
 entry = "typescript @goodfetch/foxhound/generated FoxhoundOperationTypes"
 reason = "Foxhound's operation map gains full-text search in a run, `dataset.search`, and search across runs, `record.search` (ADR 0031, issue 1217): a type written to the map needs both entries."
+
+[[announced]]
+entry = "typescript @goodfetch/collie-client/generated DEPLOYMENT_VARIABLES"
+reason = "A deployment variable joins the list, `GOODFETCH_EKS_FARGATE_PROFILE`, which names EKS on Fargate to Chromium's sandbox probe (issue 1619): the tuple type gains an element."

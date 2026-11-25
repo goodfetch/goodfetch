@@ -75,12 +75,6 @@ pub(crate) fn redirects(status: u16) -> bool {
     (300..400).contains(&status)
 }
 
-/// The status of the response paused at `paused`; 0 when it paused before
-/// a response arrived.
-pub(crate) fn paused_status(paused: &fetch::RequestPausedEvent) -> u16 {
-    paused.response_status_code.map_or(0, status)
-}
-
 /// The response the Network domain reports for the request's hop
 /// `request_id` as the protocol's; a document's encoding is read from it
 /// once decoded.
@@ -214,13 +208,10 @@ pub(crate) struct PastAMessage;
 /// # Cancel safety
 ///
 /// Dropping the future loses the read; the response stays paused.
-pub(crate) async fn whole_body(
-    driver: &PageDriver,
-    id: &fetch::RequestId,
-) -> Result<Vec<u8>, PastAMessage> {
+pub(crate) async fn whole_body(driver: &PageDriver, id: &str) -> Result<Vec<u8>, PastAMessage> {
     let read = match driver
         .command(&fetch::GetResponseBodyParams {
-            request_id: id.clone(),
+            request_id: id.to_owned(),
         })
         .await
     {

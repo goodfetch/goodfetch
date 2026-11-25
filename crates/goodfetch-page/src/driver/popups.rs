@@ -97,7 +97,7 @@ impl Browser {
         target_id: &target::TargetID,
         call: &Call,
     ) -> Result<TargetSession, goodfetch_engine::CallError> {
-        *lock(&self.popups.own)
+        *lock(&self.state.popups.own)
             .attaching
             .entry(target_id.clone())
             .or_default() += 1;
@@ -111,7 +111,7 @@ impl Browser {
                 call,
             )
             .await;
-        let mut own = lock(&self.popups.own);
+        let mut own = lock(&self.state.popups.own);
         if let Ok(attached) = &attached {
             own.sessions.insert(attached.session_id.clone());
         }
@@ -129,7 +129,7 @@ impl PageDriver {
     /// Hands the popups of the page's browser context to `handler`, once for
     /// the context: a later handler for the same context changes nothing.
     pub(crate) fn follow_popups(&self, handler: OnPopup) {
-        lock(&self.browser.popups.contexts)
+        lock(&self.browser.state.popups.contexts)
             .entry(self.context.clone())
             .or_insert(handler);
     }
@@ -146,6 +146,7 @@ impl PageDriver {
     ) -> Result<Self, goodfetch_engine::CallError> {
         prepare(&browser, &session).await?;
         Ok(Self {
+            page_reader: super::PageReader::new(&browser.connection, &session),
             browser,
             session,
             egress: super::SessionEgress::default(),
@@ -154,8 +155,6 @@ impl PageDriver {
             started: Arc::new(watch::Sender::new(0)),
             navigating: Arc::new(watch::Sender::new(0)),
             spent: Duration::ZERO,
-            turn: Arc::new(tokio::sync::Mutex::new(None)),
-            gesture: Arc::new(tokio::sync::Mutex::new(())),
             value: PageValue::empty(),
             waits: None,
             reader: None,
@@ -179,13 +178,13 @@ pub(super) async fn attach(browser: Browser, attached: target::AttachedToTargetE
     let session = TargetSession(attached.session_id);
     let waiting = attached.waiting_for_debugger;
     let info = attached.target_info;
-    if !waiting && browser.popups.owns(&info.target_id, &session) {
+    if !waiting && browser.state.popups.owns(&info.target_id, &session) {
         return;
     }
     let handler = info
         .browser_context_id
         .as_ref()
-        .and_then(|context| lock(&browser.popups.contexts).get(context).cloned());
+        .and_then(|context| lock(&browser.state.popups.contexts).get(context).cloned());
     let popup = match (info.opener_id, handler, info.browser_context_id) {
         (Some(opener), Some(handler), Some(context)) => Some((opener, handler, context)),
         _ => None,

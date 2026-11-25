@@ -24,7 +24,7 @@ use goodfetch_protocol::page::{
 };
 use serde_json::{Value, json};
 
-use crate::driver::SerializedDocument;
+use crate::cdp::SerializedDocument;
 use crate::interception::Cosmetic;
 
 /// What one `page.formats` call's rules did, as Provenance records it.

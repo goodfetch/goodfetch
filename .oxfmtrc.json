@@ -13,6 +13,7 @@
     "crates/goodfetch-collie/src/block_detection/fixtures/**",
     "crates/goodfetch-extractor/src/formats/fixtures/**",
     "crates/foxhound/goodfetch-foxhound/benches/fixtures/**",
+    "crates/goodfetch-test-support/tests/it/fixtures/net-log/**",
     "crates/goodfetch-clean-up-rules/stand-ins/**",
     "crates/goodfetch-clean-up-rules/src/removal/tests/fixtures/**",
     "crates/goodfetch-clean-up-rules/consent/autoconsent/**",

@@ -1,4 +1,4 @@
-use goodfetch_cdp::SessionId as TargetSession;
+use crate::cdp::TargetSession;
 
 use super::{Documents, Key, Part, Write};
 

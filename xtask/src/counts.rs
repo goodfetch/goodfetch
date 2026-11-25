@@ -217,7 +217,7 @@ const LARGE: &str = "large_params";
 
 /// Every row with a counter. Adding one here, with its counter and its
 /// plant in the family's benchmark, is what gives a row its command.
-const ROWS: [Row; 142] = [
+const ROWS: [Row; 148] = [
     Row {
         name: "F1.parses",
         family: "B1",
@@ -510,6 +510,29 @@ const ROWS: [Row; 142] = [
         happens: false,
         valgrind: None,
     },
+    // Per event the browser sent, on any session: the readers the driver
+    // visits to hand it on.
+    Row {
+        name: "C1.event_visits",
+        family: "B2",
+        unit: "events",
+        happens: true,
+        valgrind: None,
+    },
+    Row {
+        name: "C1.pending_orphans",
+        family: "B2",
+        unit: "commands",
+        happens: false,
+        valgrind: None,
+    },
+    Row {
+        name: "C1.event_decodes",
+        family: "B2",
+        unit: "events",
+        happens: true,
+        valgrind: None,
+    },
     // C7, page opening in the browser pool: B2's pool cell opens its pages
     // in a pool its scripted launcher starts (ADR 0143); the Borrowed
     // browser of its other cells skips the pool's walk.
@@ -534,6 +557,15 @@ const ROWS: [Row; 142] = [
         family: "B2",
         unit: "sessions_opened",
         happens: false,
+        valgrind: None,
+    },
+    // The tasks and actors a page's opening starts itself, its Page's owner
+    // among them (ADR 0146); those they start in turn are theirs.
+    Row {
+        name: "C7.page_tasks",
+        family: "B2",
+        unit: "pages_opened",
+        happens: true,
         valgrind: None,
     },
     Row {
@@ -973,6 +1005,15 @@ const ROWS: [Row; 142] = [
         happens: true,
         valgrind: None,
     },
+    // An engine read's ask to its Page's owner (ADR 0146): one per read, a
+    // wait asking once for all its checks.
+    Row {
+        name: "C2.owner_round_trips",
+        family: "B2",
+        unit: "reads",
+        happens: true,
+        valgrind: None,
+    },
     Row {
         name: "C5.fetch_messages_no_rule",
         family: "B2",
@@ -983,7 +1024,7 @@ const ROWS: [Row; 142] = [
     Row {
         name: "C5.spawns",
         family: "B2",
-        unit: "refusals",
+        unit: "pauses",
         happens: false,
         valgrind: None,
     },
@@ -1054,6 +1095,15 @@ const ROWS: [Row; 142] = [
         name: "C3.commands.press",
         family: "B2",
         unit: "press_attempts",
+        happens: true,
+        valgrind: None,
+    },
+    // An action attempt's ask to its Page's owner (ADR 0146), over every
+    // kind's attempts.
+    Row {
+        name: "C3.owner_round_trips",
+        family: "B2",
+        unit: "attempts",
         happens: true,
         valgrind: None,
     },

@@ -22,8 +22,8 @@ use super::Pages;
 use super::arrival::{arrived, judging};
 use super::blocked::{block_of, blocked};
 use crate::blocks::Block;
-use crate::driver::Destination;
 use crate::interception::{self, Lists};
+use crate::page_navigation::{self, Destination};
 use crate::recovery;
 use crate::sessions::{OpenPage, PageEvent};
 use crate::trace;
@@ -77,7 +77,7 @@ impl Pages {
             url: &response.url,
             domain,
         };
-        match self.interception.lists_for(page_id, &response.url) {
+        match page.owner.interception().lists_for(&response.url) {
             Lists::On => {
                 if let Some(reason) = reason(block.as_ref(), judged, *touched) {
                     return self
@@ -122,16 +122,21 @@ impl Pages {
             Destination::Reload | Destination::Back | Destination::Forward => Destination::Reload,
         };
         let deadline = page.driver.navigation_deadline(first.timeout)?;
-        let lists_off = self.interception.lists_off(page_id);
+        let lists_off = page.owner.interception().lists_off();
         let navigated = page
             .life
             .call(
                 PageEvent::Goto,
-                page.driver
-                    .navigate(again, first.wait_until, deadline.as_ref()),
+                page_navigation::navigate(
+                    &page.owner,
+                    page.driver.clone(),
+                    again,
+                    first.wait_until,
+                    deadline,
+                ),
             )
             .await;
-        let navigated = match self.left_failure(page_id) {
+        let navigated = match Self::left_failure(page) {
             Some(failure) => Err(failure),
             None => navigated,
         };
@@ -155,8 +160,7 @@ impl Pages {
         judged?;
         if let Some(block) = block {
             let received = self
-                .events
-                .get(page_id)?
+                .events(page_id)?
                 .answered_at(&response.request_id)
                 .unwrap_or_else(|| page.clock.wall());
             return Err(blocked(block, &response, received));
@@ -180,7 +184,7 @@ impl Pages {
         let Some(response) = arrived(page_id, navigated, events).await else {
             return Ok(None);
         };
-        self.events.get(page_id)?.judged(&response.request_id);
+        self.events(page_id)?.judged(&response.request_id);
         let block = block_of(
             &page.driver,
             page.run.metrics().counted_work(),
@@ -205,7 +209,7 @@ impl Pages {
         passed: bool,
     ) {
         let domain = if passed {
-            self.interception.learn_off(page_id, url)
+            page.owner.interception().learn_off(url)
         } else {
             interception::domain_key(url)
         };

@@ -23,8 +23,9 @@ use std::time::Duration;
 use goodfetch_engine::CallError;
 use goodfetch_engine::lease::LeaseCheck;
 use goodfetch_engine::transition::{InvalidTransition, Refusal};
-use goodfetch_protocol::connection::{CLOSED, CancelledBy, ClosedValue};
+use goodfetch_protocol::connection::{CLOSED, CancelledBy, ClosedValue, ENGINE_PANICKED};
 use goodfetch_protocol::governor::PAGE_MEMORY_EXCEEDED;
+use goodfetch_protocol::page::events::PAGE_EVENTS_LOST;
 use goodfetch_protocol::page::{BrowserExit, PAGE_CRASHED, PageId, SessionId};
 use goodfetch_protocol::settings::SettingLimit;
 use serde_json::json;
@@ -36,7 +37,8 @@ use super::lifecycle::{
 };
 use crate::driver::ENDING_KNOWN_WITHIN;
 use crate::errors::{
-    browser_crashed, cancelled, invalid_transition, page_memory_exceeded, renderer_crashed,
+    browser_crashed, cancelled, events_lost, invalid_transition, page_closed, page_memory_exceeded,
+    renderer_crashed,
 };
 
 /// How long a call that failed as its page went waits for the page's end
@@ -74,12 +76,20 @@ pub(crate) enum Ending {
     /// stop raises for its calls in flight, the Limit it reached or the
     /// program's close of its Session.
     RunStopped(CallError),
+    /// A panic of one of its owner's tasks closed it (a `Close` the engine
+    /// makes, ADR 0148): the `engine_panicked` its calls in flight and its
+    /// later calls raise.
+    Panicked(CallError),
+    /// Its reader fell 4,096 events behind (`EventsLost`, ADR 0146): its
+    /// calls in flight and its later calls raise `page_events_lost`.
+    EventsLost,
 }
 
 impl Ending {
     fn event(&self) -> PageEvent {
         match self {
-            Self::Closed(_) | Self::RunStopped(_) => PageEvent::Close,
+            Self::Closed(_) | Self::RunStopped(_) | Self::Panicked(_) => PageEvent::Close,
+            Self::EventsLost => PageEvent::EventsLost,
             Self::Destroyed => PageEvent::TargetDestroyed,
             Self::RendererCrash => PageEvent::RendererCrash,
             Self::BrowserQuit => PageEvent::BrowserQuit,
@@ -209,14 +219,13 @@ impl PageLife {
         self.shared.past_cap.set(()).is_ok()
     }
 
-    /// Whether the Resource governor ended the page past its memory cap:
-    /// its later calls raise `page_memory_exceeded` again once it left.
-    pub(crate) fn ended_past_cap(&self) -> bool {
-        self.shared
-            .ended
-            .borrow()
-            .as_ref()
-            .is_some_and(|ended| ended.code() == PAGE_MEMORY_EXCEEDED.name)
+    /// Whether the page's later calls raise what ended it again once it
+    /// left: the Resource governor ended it past its memory cap
+    /// (`page_memory_exceeded`), a panic of one of its owner's tasks closed
+    /// it (`engine_panicked`), or the engine did once its reader fell behind
+    /// (`page_events_lost`).
+    pub(crate) fn keeps_its_end(&self) -> bool {
+        self.shared.ended.borrow().as_ref().is_some_and(kept_end)
     }
 
     /// Waits until no call on the page is in flight: its safe point, where
@@ -414,7 +423,7 @@ impl PageLife {
                 .ended
                 .borrow()
                 .clone()
-                .filter(|ended| ended.code() == PAGE_MEMORY_EXCEEDED.name)
+                .filter(kept_end)
                 .unwrap_or_else(|| page_closed(&self.shared.page_id)),
             Refusal::Program(code) if code == PAGE_CRASHED.name => self
                 .shared
@@ -476,12 +485,14 @@ impl PageLife {
             (PageEffect::Close, Ending::Closed(closed)) => {
                 Some(cancelled(CancelledBy::Program, closed.clone()))
             }
-            (PageEffect::Close, Ending::LeaseEnded(withheld) | Ending::RunStopped(withheld)) => {
-                Some(withheld.clone())
-            }
+            (
+                PageEffect::Close,
+                Ending::LeaseEnded(raised) | Ending::RunStopped(raised) | Ending::Panicked(raised),
+            ) => Some(raised.clone()),
             (PageEffect::Close, Ending::MemoryExceeded { memory, limit }) => Some(
                 page_memory_exceeded(&self.shared.page_id, *memory, limit.clone()),
             ),
+            (PageEffect::Close, Ending::EventsLost) => Some(events_lost(&self.shared.page_id)),
             (PageEffect::Close, _) => Some(cancelled(CancelledBy::Program, ClosedValue::Page)),
             (PageEffect::ClosedInBrowser, _) => {
                 Some(cancelled(CancelledBy::Browser, ClosedValue::Page))
@@ -557,13 +568,16 @@ async fn ending(ended: &mut watch::Receiver<Option<CallError>>) -> Option<CallEr
         .and_then(|raised| raised.clone())
 }
 
-/// `closed` for the page `page`.
-pub(crate) fn page_closed(page: &PageId) -> CallError {
-    CallError::new(
-        &CLOSED,
-        format!("the page `{}` is closed, or its Run ended", page.0),
-        &json!({ "page_id": page }),
-    )
+/// Whether `ended`, what ended a page that closed, is what its later calls
+/// raise in place of `closed`: `page_memory_exceeded`, `engine_panicked` or
+/// `page_events_lost`.
+fn kept_end(ended: &CallError) -> bool {
+    [
+        PAGE_MEMORY_EXCEEDED.name,
+        ENGINE_PANICKED.name,
+        PAGE_EVENTS_LOST.name,
+    ]
+    .contains(&ended.code())
 }
 
 /// `closed` for the Session `session`.
@@ -589,6 +603,9 @@ struct SessionShared {
     crashed: OnceLock<CallError>,
     /// What the calls that waited on its open raise once the open failed.
     failed: OnceLock<CallError>,
+    /// What its later calls raise once a panic of one of its owner's tasks
+    /// closed it (ADR 0148).
+    panicked: OnceLock<CallError>,
 }
 
 impl SessionLife {
@@ -601,8 +618,16 @@ impl SessionLife {
                 state: watch::Sender::new(state),
                 crashed: OnceLock::new(),
                 failed: OnceLock::new(),
+                panicked: OnceLock::new(),
             }),
         }
+    }
+
+    /// A panic of one of its owner's tasks closes the Session: its later
+    /// calls raise `error`, the panic's `engine_panicked`, in place of
+    /// `closed`.
+    pub(crate) fn panicked(&self, error: CallError) {
+        let _ = self.shared.panicked.set(error);
     }
 
     /// Where the Session is.
@@ -716,9 +741,12 @@ impl SessionLife {
         waited: bool,
     ) -> CallError {
         match invalid.refusal {
-            Refusal::Program(code) if code == CLOSED.name => waited
-                .then(|| self.shared.failed.get().cloned())
-                .flatten()
+            Refusal::Program(code) if code == CLOSED.name => self
+                .shared
+                .panicked
+                .get()
+                .cloned()
+                .or_else(|| waited.then(|| self.shared.failed.get().cloned()).flatten())
                 .unwrap_or_else(|| session_closed(&self.shared.session)),
             Refusal::Program(code) if code == PAGE_CRASHED.name => self
                 .shared

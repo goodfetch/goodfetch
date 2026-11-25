@@ -762,11 +762,11 @@ class PageCrashedError(UnavailableError):
 
 
 class PageEventsLostError(UnavailableError):
-    """Some of a page's events are lost. Either the engine fell too far behind the browser's events of a page that is still open and stopped reading them: the page's `page.on` listeners, waits and `response.body` reads raise this rather than answer from missing events, and the Run trace records it, while the page's other calls still work; open another page to follow its events. Or one `page.on` call's Client took too few of its events, granting too few credits, so 1,024 waited unsent: that call raises this once it sent them; listen again and grant credits as events are read."""
+    """Some of a page's events are lost. Either the engine fell 4,096 events behind the browser's events of the page `page_id` names and closed that page, ending every request it had paused: its calls in flight and its later calls raise this, and the Run trace records it once; open another page and try again. Or one `page.on` call's Client took too few of its events, granting too few credits, so 1,024 waited unsent: that call alone raises this once it sent them, while the page and its other calls go on; listen again and grant credits as events are read."""
 
     def __init__(self, message: str, **fields: Unpack[ErrorFields]) -> None:
         """Takes the message the engine rendered, and what it carries."""
-        super().__init__(message, code="page_events_lost", group="unavailable", retryable=False, **fields)
+        super().__init__(message, code="page_events_lost", group="unavailable", retryable=True, **fields)
 
 
 class PageFunctionFailedError(ProgramError):
@@ -883,6 +883,22 @@ class PluginCrashedError(UnavailableError):
     def __init__(self, message: str, **fields: Unpack[ErrorFields]) -> None:
         """Takes the message the engine rendered, and what it carries."""
         super().__init__(message, code="plugin_crashed", group="unavailable", retryable=True, **fields)
+
+
+class PluginManifestMismatchError(UnavailableError):
+    """The Plugin's answer to `hello` differs from its approved manifest in its kinds, its Hook stages, its plugin protocol range or its network level, so the engine stops the instance before any call. Approve the Plugin's current manifest again, or install the version that was approved."""
+
+    def __init__(self, message: str, **fields: Unpack[ErrorFields]) -> None:
+        """Takes the message the engine rendered, and what it carries."""
+        super().__init__(message, code="plugin_manifest_mismatch", group="unavailable", retryable=False, **fields)
+
+
+class PluginProtocolUnsupportedError(UnavailableError):
+    """The Plugin and the engine share no plugin protocol version, which the reply to `hello` says before any other message. Upgrade the older side: the Plugin, or the engine."""
+
+    def __init__(self, message: str, **fields: Unpack[ErrorFields]) -> None:
+        """Takes the message the engine rendered, and what it carries."""
+        super().__init__(message, code="plugin_protocol_unsupported", group="unavailable", retryable=False, **fields)
 
 
 class PolicyConflictError(RefusedError):
@@ -1549,6 +1565,8 @@ ERROR_CLASSES: Final[Mapping[str, ErrorClass]] = {
     "pattern_unsupported": PatternUnsupportedError,
     "person_required": PersonRequiredError,
     "plugin_crashed": PluginCrashedError,
+    "plugin_manifest_mismatch": PluginManifestMismatchError,
+    "plugin_protocol_unsupported": PluginProtocolUnsupportedError,
     "policy_conflict": PolicyConflictError,
     "protocol_version_unsupported": ProtocolVersionUnsupportedError,
     "proxy_auth_failed": ProxyAuthFailedError,

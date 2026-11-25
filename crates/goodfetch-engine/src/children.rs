@@ -268,9 +268,11 @@ mod windows {
         child
     }
 
-    /// A kill-on-close Job Object whose only handle this value holds: the
-    /// engine's children's, and the one an Attached engine joins and hands
-    /// its parent (`attached::parent`).
+    /// A kill-on-close Job Object, whose handle this value holds and closes
+    /// on drop: the engine's children's, of which it is the only handle,
+    /// and the one an Attached engine joins, whose handle the parent watch
+    /// duplicates into its parent before dropping this one, so the
+    /// parent's is the last (`attached::parent`).
     #[derive(Debug)]
     pub(crate) struct Job(HANDLE);
 

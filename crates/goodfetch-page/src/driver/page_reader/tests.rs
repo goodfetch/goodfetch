@@ -52,8 +52,10 @@
 //!   browser got that answer, or else the dialog's default; a handler that
 //!   failed, before its answer or after, left, its subscription ending with
 //!   `page_handler_failed`, and left that failure for the page's next call
-//!   to take, once; each other handler's subscription ended once the page
-//!   closed, and one armed after raised `closed`;
+//!   to take, once, unless the page's request part was replaced first;
+//!   each other handler's subscription ended once the page closed or its
+//!   request part was replaced, and one armed after the close raised
+//!   `closed`; each ask names the Page ID of the request the page serves;
 //! - each init script is registered once the browser took its addition, and
 //!   the page's navigations wait, while the page is open, exactly while an
 //!   addition or a removal is on its way; a script dropped is removed, at
@@ -723,15 +725,22 @@ impl Reference {
         }
     }
 
-    /// The page's request part is replaced: what listened for its earlier
-    /// request ends, and what belongs to its browser's page, its parts'
-    /// subscriptions and its frames, stays.
+    /// The page's request part is replaced: what listened or was armed for
+    /// its earlier request ends, the failure a dialog handler left goes,
+    /// and what belongs to its browser's page, its parts' subscriptions and
+    /// its frames, stays.
     fn release(&mut self) {
         for heard in &mut self.listeners {
             if heard.listened == Listened::Going {
                 heard.listened = Listened::Ended;
             }
         }
+        for (_, handled) in &mut self.handlers {
+            if *handled == Handled::Armed {
+                *handled = Handled::Ended;
+            }
+        }
+        self.failure = false;
     }
 }
 
@@ -1398,6 +1407,7 @@ impl Subject {
             handlers,
             dialogs,
             answers,
+            page_id,
             ..
         } = self;
         let asked_of = |asked: &Value| {
@@ -1417,6 +1427,7 @@ impl Subject {
                     asked = live.asked.recv() => {
                         let asked = asked.expect("invariant: the Client hears the engine until the test ends");
                         assert_eq!(asked["params"]["dialog"]["message"], "Leave the page?");
+                        assert_eq!(asked["params"]["page_id"], page_id.0, "{asked}");
                         let handler = asked_of(&asked);
                         match handlers[handler].reply {
                             reply @ (Reply::Through | Reply::Fail) => {

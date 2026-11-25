@@ -84,7 +84,9 @@ pub(crate) struct PageDialogs {
 }
 
 struct OfPage {
-    page_id: PageId,
+    /// The Page ID of the request the page serves now, which its dialogs
+    /// and errors name (ADR 0146).
+    page_id: watch::Sender<PageId>,
     /// Its handlers, in the order they were armed.
     handlers: Mutex<Vec<Arc<Handler>>>,
     /// The first failure a handler left for the page's next call.
@@ -99,6 +101,13 @@ struct Handler {
     call: RequestId,
     /// Where its failure goes, once: its subscription's end.
     failed: Mutex<Option<oneshot::Sender<CallError>>>,
+}
+
+impl OfPage {
+    /// The Page ID of the request the page serves now.
+    fn page_id(&self) -> PageId {
+        self.page_id.borrow().clone()
+    }
 }
 
 impl Handler {
@@ -125,7 +134,7 @@ impl PageDialogs {
             // clears the handlers after it.
             let mut handlers = lock(&self.page.handlers);
             if *closed.borrow() {
-                return Err(page_closed(&self.page.page_id));
+                return Err(page_closed(&self.page.page_id()));
             }
             handlers.push(Arc::clone(&handler));
         }
@@ -150,6 +159,20 @@ impl PageDialogs {
     pub(crate) fn close(&self) {
         self.page.closed.send_replace(true);
         lock(&self.page.handlers).clear();
+    }
+
+    /// The page's request part was replaced: it serves the request `next`
+    /// now (ADR 0146). The earlier request's handlers go, their
+    /// subscriptions ending as at the page's close, the failure one left
+    /// goes with them, and its dialogs name `next` from now.
+    pub(crate) fn replace_request(&self, next: PageId) {
+        let earlier = std::mem::take(&mut *lock(&self.page.handlers));
+        for handler in &earlier {
+            // Its subscription ends without a failure once this goes.
+            drop(lock(&handler.failed).take());
+        }
+        lock(&self.page.failure).take();
+        self.page.page_id.send_replace(next);
     }
 
     fn latest_first(&self) -> Vec<Arc<Handler>> {
@@ -226,7 +249,7 @@ impl Dialogs {
     pub(crate) fn start(&self, page_id: PageId, cdp: CdpPage, run: &RunIdentity) -> PageDialogs {
         let dialogs = PageDialogs {
             page: Arc::new(OfPage {
-                page_id,
+                page_id: watch::Sender::new(page_id),
                 handlers: Mutex::new(Vec::new()),
                 failure: Mutex::new(None),
                 closed: watch::Sender::new(false),
@@ -352,7 +375,7 @@ impl Reader {
         let params = DialogHandleParams {
             id: handler.call.clone(),
             dialog_id: DialogId(format!("dialog-{number}")),
-            page_id: self.dialogs.page.page_id.clone(),
+            page_id: self.dialogs.page.page_id(),
             dialog: opened.dialog.clone(),
         };
         let Ok(mut sent) = handler
@@ -427,7 +450,7 @@ impl Reader {
             .await
             .map_err(|failure| {
                 tracing::debug!(%failure, "a dialog closed before its answer reached it");
-                dialog_gone(&self.dialogs.page.page_id)
+                dialog_gone(&self.dialogs.page.page_id())
             })
     }
 }

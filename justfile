@@ -527,6 +527,9 @@ fetch:
     cargo fetch --locked --manifest-path xtask/compare-fastcrw/Cargo.toml
     cargo fetch --locked --manifest-path xtask/compare-crawlberg/Cargo.toml
     cargo fetch --locked --manifest-path xtask/compare-chromiumoxide/Cargo.toml
+    # The Rust advisories' proof (ci/proofs/run.sh) runs cargo-deny offline
+    # over this fixture, which locks a crate no workspace takes.
+    cargo fetch --locked --manifest-path ci/proofs/advisories/Cargo.toml
     pnpm install --frozen-lockfile --dir xtask/compare-crawlee
     pnpm install --frozen-lockfile --dir xtask/compare-collie-arms
     uv sync --frozen --directory xtask/compare-scrapy

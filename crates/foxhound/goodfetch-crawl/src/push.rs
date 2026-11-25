@@ -70,9 +70,10 @@ async fn push(
     // until the attempt's commit takes it or its end discards it, so a push
     // either rides that commit or is refused, with no write of its own. Its
     // check is a validation, so it runs off the async workers.
-    let work = run.metrics().counted_work().clone();
+    let work = run.identity.metrics().counted_work().clone();
     let work_item = crawl_request_id.clone();
     let staged = run
+        .identity
         .owner()
         .blocking(move || {
             if !staging.holds(&work_item, lease_epoch) {

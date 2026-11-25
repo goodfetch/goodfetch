@@ -12,6 +12,10 @@
 //! otherwise build each crate in a workspace of its own, which resolves the
 //! newest dependencies instead, and finds the package by name anywhere under
 //! the repository, where test fixtures and proofs hold copies of the crates.
+//! Each side builds in a target folder of its own: cargo names a path
+//! package's build and its dep-info by paths from the workspace's root, so
+//! in one folder each side would take the other's build of a path
+//! dependency, such as `goodfetch-protocol`, as fresh.
 //!
 //! cargo-semver-checks compares the two as for a minor release: a lint that
 //! requires a major version is a break, one a minor allows, such as a
@@ -126,9 +130,9 @@ fn previous_tree(root: &Path, commit: &str, target: &Path) -> Result<PathBuf> {
 
 /// The rustdoc JSON of the library of `name` in the workspace at
 /// `workspace`, with every feature and the dependencies its `Cargo.lock`
-/// pins, as `<target>/<crate>-<side>.json`. Stable rustdoc writes JSON
-/// behind `-Z unstable-options`, which `RUSTC_BOOTSTRAP` opens, as
-/// cargo-semver-checks itself does.
+/// pins, built in `<target>/<side>`, as `<target>/<crate>-<side>.json`.
+/// Stable rustdoc writes JSON behind `-Z unstable-options`, which
+/// `RUSTC_BOOTSTRAP` opens, as cargo-semver-checks itself does.
 fn rustdoc(
     cargo: &OsStr,
     workspace: &Path,
@@ -150,7 +154,7 @@ fn rustdoc(
         .arg("--manifest-path")
         .arg(workspace.join("Cargo.toml"))
         .arg("--target-dir")
-        .arg(target)
+        .arg(target.join(side))
         .args(["--", "-Z", "unstable-options", "--output-format", "json"])
         .output()
         .with_context(|| format!("running cargo rustdoc on {name} ({side})"))?;
@@ -161,7 +165,10 @@ fn rustdoc(
         );
     }
     let crate_name = name.replace('-', "_");
-    let written = target.join("doc").join(format!("{crate_name}.json"));
+    let written = target
+        .join(side)
+        .join("doc")
+        .join(format!("{crate_name}.json"));
     let kept = target.join(format!("{crate_name}-{side}.json"));
     std::fs::rename(&written, &kept)
         .with_context(|| format!("moving {} to {}", written.display(), kept.display()))?;

@@ -7,7 +7,7 @@ import { existsSync, realpathSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import type * as Preset from "@docusaurus/preset-classic";
 import type { Config } from "@docusaurus/types";
-import { themes } from "prism-react-renderer";
+import { codeThemes } from "./src/code-themes.ts";
 import llmsPlugin from "./src/llms-plugin.ts";
 import { searchOptions } from "./src/search.ts";
 import { directivesUsed, fenceLanguage } from "./src/strict-markdown.ts";
@@ -81,7 +81,7 @@ const config: Config = {
         },
       ],
     },
-    prism: { theme: themes.github, darkTheme: themes.dracula },
+    prism: { ...codeThemes },
   } satisfies Preset.ThemeConfig,
 };
 

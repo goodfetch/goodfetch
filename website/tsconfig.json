@@ -10,5 +10,5 @@
     "noEmit": true,
     "types": ["node", "@docusaurus/module-type-aliases", "@docusaurus/theme-classic"]
   },
-  "include": ["docusaurus.config.ts", "src"]
+  "include": ["docusaurus.config.ts", "src", "tests"]
 }

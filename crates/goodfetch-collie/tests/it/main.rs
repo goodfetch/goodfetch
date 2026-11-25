@@ -119,6 +119,7 @@ mod relay_fingerprint;
 #[cfg(any(target_os = "macos", windows))]
 mod renderer_sandbox;
 mod request_kinds;
+mod request_secrets;
 mod run;
 mod rust_client;
 mod sdk;

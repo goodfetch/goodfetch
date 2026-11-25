@@ -66,7 +66,7 @@ async fn enqueue(
     // An absolute URL needs no base, so a browser page is not read for it.
     let document = match &params.page_id {
         Some(page_id) if Url::parse(&params.url).is_err() => {
-            Some(base_of(&tiers, page_id, run.metrics().counted_work()).await?)
+            Some(base_of(&tiers, page_id, run.identity.metrics().counted_work()).await?)
         }
         _ => None,
     };

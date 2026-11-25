@@ -37726,6 +37726,26 @@
       },
       "storage": "json",
       "version": "0.1"
+    },
+    {
+      "hello_from": [],
+      "name": "plugin-protocol",
+      "rule": "lower_minor",
+      "schema": {
+        "$ref": "#/$defs/Message"
+      },
+      "storage": "transcript",
+      "version": "0.1"
+    },
+    {
+      "hello_from": [],
+      "name": "plugin-manifest",
+      "rule": "default",
+      "schema": {
+        "$ref": "#/$defs/PluginManifest"
+      },
+      "storage": "json",
+      "version": "0.1"
     }
   ],
   "model_provider": {

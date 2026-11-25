@@ -1,0 +1,52 @@
+{
+  "manifest_version": "0.1",
+  "name": "consent-hook",
+  "version": "1.0.0",
+  "kinds": [
+    "hook"
+  ],
+  "hook_stages": [
+    "before_navigation",
+    "page_ready"
+  ],
+  "protocol": {
+    "min": "0.1",
+    "max": "0.1"
+  },
+  "settings_schema": {
+    "properties": {
+      "banner_selector": {
+        "type": "string"
+      }
+    },
+    "type": "object"
+  },
+  "runtime": {
+    "kind": "node",
+    "version": "22.11.0"
+  },
+  "entrypoint": "dist/index.js",
+  "network_level": "none",
+  "permissions": {
+    "grants": [
+      "effects",
+      "page_script"
+    ]
+  },
+  "env": {
+    "BANNER_SELECTOR": "banner_selector"
+  },
+  "files": [
+    "~/.config/consent-hook/rules.json"
+  ],
+  "processes": [
+    "/usr/bin/convert"
+  ],
+  "limits": {
+    "memory": 536870912,
+    "cpu_time": 600,
+    "processes": 2,
+    "open_files": 64,
+    "concurrency": 8
+  }
+}

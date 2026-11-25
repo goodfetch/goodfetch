@@ -1,0 +1,40 @@
+{
+  "manifest_version": "0.1",
+  "name": "remote-browser",
+  "version": "1.0.0",
+  "kinds": [
+    "browser"
+  ],
+  "protocol": {
+    "min": "0.1",
+    "max": "0.1"
+  },
+  "runtime": {
+    "kind": "none"
+  },
+  "entrypoint": "bin/remote-browser",
+  "network_level": "proxy_tcp",
+  "permissions": {
+    "grants": [
+      "session_credentials"
+    ]
+  },
+  "limits": {
+    "memory": 268435456,
+    "cpu_time": 3600,
+    "processes": 1,
+    "open_files": 128,
+    "concurrency": 4
+  },
+  "browsers": [
+    {
+      "name": "remote-chromium",
+      "platforms": {
+        "linux-x64": {
+          "url": "https://downloads.example.com/remote-chromium-141-linux-x64.zip",
+          "digest": "sha256:9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08"
+        }
+      }
+    }
+  ]
+}

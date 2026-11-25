@@ -1,0 +1,195 @@
+{
+  "name": "plugin-protocol",
+  "schema": {
+    "$defs": {
+      "ErrorData": {
+        "additionalProperties": true,
+        "description": "What a failure's `data` holds: its Error code, whether the same call may\nsucceed when made again, and the code's own details.",
+        "properties": {
+          "code": {
+            "description": "The Error code, or the name of the protocol failure.",
+            "type": "string"
+          },
+          "retryable": {
+            "description": "Whether the same call may succeed when made again.",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "code",
+          "retryable"
+        ],
+        "type": "object"
+      },
+      "ErrorObject": {
+        "additionalProperties": false,
+        "description": "A failure on the wire (ADR 0038).",
+        "properties": {
+          "code": {
+            "description": "One of JSON-RPC's predefined codes for a protocol failure; otherwise\nthe numeric class of the Error code's group, from −32000 to −32099.",
+            "format": "int32",
+            "type": "integer"
+          },
+          "data": {
+            "$ref": "#/$defs/ErrorData",
+            "description": "The Error code and its details."
+          },
+          "message": {
+            "description": "What went wrong, for people; never matched on.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "message",
+          "data"
+        ],
+        "type": "object"
+      },
+      "ErrorResponse": {
+        "additionalProperties": false,
+        "description": "The reply to a call that failed.",
+        "properties": {
+          "error": {
+            "$ref": "#/$defs/ErrorObject",
+            "description": "The failure."
+          },
+          "id": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/RequestId"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The call's id, or `null` when the engine could not read one."
+          },
+          "jsonrpc": {
+            "$ref": "#/$defs/JsonRpcVersion",
+            "description": "Always `\"2.0\"`."
+          }
+        },
+        "required": [
+          "jsonrpc",
+          "error"
+        ],
+        "type": "object"
+      },
+      "JsonRpcVersion": {
+        "const": "2.0",
+        "description": "JSON-RPC's version, always \"2.0\"."
+      },
+      "Message": {
+        "anyOf": [
+          {
+            "$ref": "#/$defs/Request",
+            "description": "A call."
+          },
+          {
+            "$ref": "#/$defs/Notification",
+            "description": "A message that expects no reply."
+          },
+          {
+            "$ref": "#/$defs/Response",
+            "description": "A success."
+          },
+          {
+            "$ref": "#/$defs/ErrorResponse",
+            "description": "A failure."
+          }
+        ],
+        "description": "Any message of the protocol, as one line of a transcript holds it."
+      },
+      "Notification": {
+        "additionalProperties": false,
+        "description": "A message that expects no reply, such as `$/cancel`.",
+        "properties": {
+          "jsonrpc": {
+            "$ref": "#/$defs/JsonRpcVersion",
+            "description": "Always `\"2.0\"`."
+          },
+          "method": {
+            "description": "What it says.",
+            "type": "string"
+          },
+          "params": {
+            "description": "Its params, a JSON object."
+          }
+        },
+        "required": [
+          "jsonrpc",
+          "method"
+        ],
+        "type": "object"
+      },
+      "Request": {
+        "additionalProperties": false,
+        "description": "A call that expects a reply.",
+        "properties": {
+          "id": {
+            "$ref": "#/$defs/RequestId",
+            "description": "What the reply carries back."
+          },
+          "jsonrpc": {
+            "$ref": "#/$defs/JsonRpcVersion",
+            "description": "Always `\"2.0\"`."
+          },
+          "method": {
+            "description": "The operation, or `hello`.",
+            "type": "string"
+          },
+          "params": {
+            "description": "Its params, a JSON object."
+          }
+        },
+        "required": [
+          "jsonrpc",
+          "id",
+          "method"
+        ],
+        "type": "object"
+      },
+      "RequestId": {
+        "anyOf": [
+          {
+            "description": "A number the Client chose.",
+            "format": "int64",
+            "type": "integer"
+          },
+          {
+            "description": "A string the Client chose.",
+            "type": "string"
+          }
+        ],
+        "description": "A request's id, which its reply carries back."
+      },
+      "Response": {
+        "additionalProperties": false,
+        "description": "The reply to a call that succeeded.",
+        "properties": {
+          "id": {
+            "$ref": "#/$defs/RequestId",
+            "description": "The call's id."
+          },
+          "jsonrpc": {
+            "$ref": "#/$defs/JsonRpcVersion",
+            "description": "Always `\"2.0\"`."
+          },
+          "result": {
+            "description": "What the call answered."
+          }
+        },
+        "required": [
+          "jsonrpc",
+          "id",
+          "result"
+        ],
+        "type": "object"
+      }
+    },
+    "$ref": "#/$defs/Message"
+  },
+  "storage": "transcript",
+  "version": "0.1"
+}

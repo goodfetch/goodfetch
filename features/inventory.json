@@ -3266,6 +3266,28 @@
       ]
     },
     {
+      "id": "format:plugin-manifest",
+      "kind": "format",
+      "area": 7,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "format:plugin-protocol",
+      "kind": "format",
+      "area": 7,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "format:politeness-file",
       "kind": "format",
       "area": 3,

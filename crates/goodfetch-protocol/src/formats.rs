@@ -18,6 +18,7 @@ use crate::clean_up_rules::CleanUpRulesManifest;
 use crate::entries::MODULES;
 use crate::executables::InstalledExecutables;
 use crate::jsonrpc::Message;
+use crate::plugin::{MANIFEST_VERSION, PLUGIN_PROTOCOL_VERSION, PluginManifest};
 use crate::politeness::PermitRow;
 use crate::run::{RunIndexRow, RunStateRow};
 use crate::tls::CertificatePin;
@@ -67,8 +68,8 @@ pub enum Rule {
     /// major that can use them, which an engine's own minor must meet.
     SharedStore,
     /// A handshake whose two sides settle on the lower of their minors, a
-    /// Browser host's with its engine (ADR 0096): only another major is
-    /// refused.
+    /// Browser host's with its engine (ADR 0096), or a Plugin's newest
+    /// version in the engine's range: only another major is refused.
     LowerMinor,
     /// The Clean-up rules' manifest (ADRs 0030 and 0047): a reader reads a
     /// version of its own major up to its own minor, as the default rule
@@ -389,6 +390,32 @@ pub const EXPORT: Format = Format {
     schema: schema_of::<Vec<Value>>,
 };
 
+/// The plugin protocol between the engine and a process Plugin (ADRs 0033
+/// and 0066): the engine opens it with `hello` and its range, and the
+/// Plugin answers in the newest version both speak, so only another major
+/// is refused. Its corpus holds what each side sends, `engine.jsonl` and
+/// `plugin.jsonl`.
+pub const PLUGIN_PROTOCOL: Format = Format {
+    name: "plugin-protocol",
+    version: PLUGIN_PROTOCOL_VERSION,
+    storage: Storage::Transcript,
+    rule: Rule::LowerMinor,
+    hello_from: &[],
+    schema: schema_of::<Message>,
+};
+
+/// A Plugin's manifest (ADRs 0030 and 0033), `goodfetch-plugin.json`: its
+/// reader takes the version first, reads its own major up to its own
+/// minor, and refuses any other before the rest.
+pub const PLUGIN_MANIFEST: Format = Format {
+    name: "plugin-manifest",
+    version: MANIFEST_VERSION,
+    storage: Storage::Json,
+    rule: Rule::Default,
+    hello_from: &[],
+    schema: schema_of::<PluginManifest>,
+};
+
 /// Every registered format.
 pub const FORMATS: &[&Format] = &[
     &PROTOCOL,
@@ -404,6 +431,8 @@ pub const FORMATS: &[&Format] = &[
     &OPERATOR_POLICY,
     &USER_CONFIGURATION,
     &EXPORT,
+    &PLUGIN_PROTOCOL,
+    &PLUGIN_MANIFEST,
 ];
 
 /// A settings file's schema: its `version` and each of `tables`, a table

@@ -417,7 +417,7 @@ export class ClientConnection implements AsyncDisposable {
       gaveUp: (cause) =>
         new ClosedError(
           runtimeMessage(
-            "the Connection's link to the engine dropped, and reaching the engine again failed within timeout.connect",
+            `the Connection's link to the engine dropped, and reaching the engine again failed within ${TIMEOUT_CONNECT}`,
             { fix: CONNECT_AGAIN },
           ),
           { fix: CONNECT_AGAIN, cause },

@@ -354,7 +354,8 @@ fn a_planted_unit_adds_one_a_command_to_an_actions_row(#[case] row: Row) {
 /// Every request the page sends passes the interception (C5): each pause and
 /// each answer to it is a `Fetch` message, as is the page's `Fetch.enable`;
 /// each request leaving is matched once against the Filter lists, which are
-/// on by default; each refusal spawns one task, which sends one entry to the
+/// on by default; no pause waits for anything, so the page's reader answers
+/// each one with no task started, and each refusal sends one entry to the
 /// Run trace's writer, which opens no file for it; nothing is compiled.
 #[test]
 fn a_session_counts_each_intercepted_requests_work() {
@@ -381,7 +382,7 @@ fn a_session_counts_each_intercepted_requests_work() {
             Row::InterceptedCompilations,
         ]
         .map(|row| work.read(row)),
-        [2 * paused + 1, paused, requests, refused, refused, 0, 0]
+        [2 * paused + 1, paused, requests, 0, refused, 0, 0]
     );
 }
 

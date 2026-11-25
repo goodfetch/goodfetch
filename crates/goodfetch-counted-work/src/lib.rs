@@ -459,7 +459,8 @@ rows! {
     /// `C5.fetch_messages_no_rule`: a message of CDP's `Fetch` domain, a
     /// command sent or an event read, for a page's requests.
     InterceptedFetchMessages => "C5.fetch_messages_no_rule", "intercepted_request", "fetch_messages_no_rule";
-    /// `C5.spawns`: a task spawned for a refused request.
+    /// `C5.spawns`: a task started for a paused request or response whose
+    /// verdict needs no wait, which the Page's reader answers itself.
     InterceptedSpawns => "C5.spawns", "intercepted_request", "spawns";
     /// `C5.file_opens`: a file opened or a folder created for a refused
     /// request. The Run trace's one writer opens the request log once a

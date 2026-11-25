@@ -1,5 +1,6 @@
 //! One page's pipeline: each request its target pauses goes through the
-//! steps the interception lists, in order, as a task of the page's Run.
+//! steps the interception lists, in order, answered by the page's reader,
+//! or as a task of the page's Run when its verdict waits.
 //! Steps 3 to 8 for what the last route sends on are [`steps`]'s; step 6,
 //! the page's navigation gate, waits, so it is asked here. A document's
 //! response pauses too, for the gate to judge.
@@ -14,9 +15,12 @@
 )]
 
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
+use std::pin::Pin;
 use std::sync::{Arc, Mutex, Weak};
 
 use data_encoding::BASE64;
+use futures_util::StreamExt as _;
+use futures_util::stream::FuturesUnordered;
 use goodfetch_counted_work::Row;
 use goodfetch_engine::CallError;
 use goodfetch_engine::client::{ClientRequestError, Sent};
@@ -24,8 +28,10 @@ use goodfetch_engine::egress::{self, Gate, Policy, Refused, RequestKind};
 use goodfetch_engine::http_client;
 use goodfetch_engine::mask::Masks;
 use goodfetch_engine::response_limits::Limits;
+use goodfetch_engine::run_identity::RunIdentity;
 use goodfetch_engine::run_trace::RequestLog;
 use goodfetch_engine::runs::outcome::record_outcome;
+use goodfetch_engine::tasks;
 use goodfetch_protocol::connection::CLOSED;
 use goodfetch_protocol::jsonrpc::ErrorData;
 use goodfetch_protocol::page::events::RequestFailure;
@@ -235,9 +241,19 @@ impl PageContext {
 }
 
 /// Reads the page's paused requests until its target goes, each through the
-/// pipeline as a task of its own.
+/// pipeline: one whose verdict waits, for a route's handler, the page's
+/// navigation gate or its proxy's Permit, as a task of its own, any other
+/// answered by the reader itself (#2269).
 pub(super) async fn dispatch(mut events: InterceptionEvents, context: Arc<PageContext>) {
-    while let Some(event) = events.next().await {
+    let mut answering = Answering::new(&context);
+    loop {
+        let event = tokio::select! {
+            event = events.next() => event,
+            Some(()) = answering.answers.next(), if !answering.answers.is_empty() => continue,
+        };
+        let Some(event) = event else {
+            break;
+        };
         match event {
             InterceptionEvent::Loaded => {
                 if matches!(context.sender, Sender::Page(_)) {
@@ -267,29 +283,67 @@ pub(super) async fn dispatch(mut events: InterceptionEvents, context: Arc<PageCo
             InterceptionEvent::LoadingFailed(failed) => context.loading_failed(&failed),
             InterceptionEvent::WebSocketCreated { url } => context.web_socket(&url),
             InterceptionEvent::AuthRequired(required) => {
-                let context = Arc::clone(&context);
-                let run = context.run.identity().clone();
-                run.spawn(async move { context.authenticate(required).await });
+                let waits = context.authentication_waits(&required);
+                let answered = Arc::clone(&context);
+                answering.take(waits, async move { answered.authenticate(required).await });
             }
-            InterceptionEvent::Paused(paused) => dispatch_paused(&context, paused),
+            InterceptionEvent::Paused(paused) => dispatch_paused(&context, paused, &mut answering),
         }
     }
-    // The target went: no `fetch` it sent on gets a response now.
+    // The target went: no `fetch` it sent on gets a response now, and what
+    // the reader answers itself ends as the browser fails its answers.
     lock(&context.responses).clear();
+    while answering.answers.next().await.is_some() {}
+}
+
+/// The answers the Page's reader runs itself, for the paused requests whose
+/// verdict needs no wait: each runs on the reader's task, none on one of its
+/// own, and a task one starts counts on `C5.spawns` (ADR 0140).
+struct Answering {
+    answers: FuturesUnordered<Pin<Box<dyn Future<Output = ()> + Send>>>,
+    run: RunIdentity,
+}
+
+impl Answering {
+    fn new(context: &PageContext) -> Self {
+        Self {
+            answers: FuturesUnordered::new(),
+            run: context.run.identity().clone(),
+        }
+    }
+
+    /// Runs `answer` as a task of the Run when it `waits`, or else on the
+    /// reader's task.
+    fn take(&mut self, waits: bool, answer: impl Future<Output = ()> + Send + 'static) {
+        if waits {
+            self.run.spawn(answer);
+        } else {
+            let counted = self.run.metrics().counted_work().clone();
+            self.answers.push(Box::pin(tasks::counting_starts(
+                counted,
+                Row::InterceptedSpawns,
+                answer,
+            )));
+        }
+    }
 }
 
 /// Hands `paused` to the `fetch` that waits for its response, or runs it
-/// through the pipeline as a task of its own.
-fn dispatch_paused(context: &Arc<PageContext>, paused: PausedRequest) {
+/// through the pipeline.
+fn dispatch_paused(context: &Arc<PageContext>, paused: PausedRequest, answering: &mut Answering) {
     let at_response = paused.at_response();
     context.received(&paused);
     if at_response && let Some(waiting) = lock(&context.responses).remove(paused.id()) {
         let _ = waiting.response.send(paused);
         return;
     }
+    let waits = if at_response {
+        context.response_waits(&paused)
+    } else {
+        context.request_waits(&paused)
+    };
     let context = Arc::clone(context);
-    let run = context.run.identity().clone();
-    run.spawn(async move {
+    answering.take(waits, async move {
         if at_response {
             // A response no `fetch` waits for goes on as it came, once
             // the navigation gate judged a document's.
@@ -443,6 +497,46 @@ impl PageContext {
         {
             on_document.received(paused.url(), &state.engine_requests);
         }
+    }
+
+    /// Whether the verdict on the request paused at `paused` waits: for a
+    /// route's handler, when a route answers its URL, or for the page's
+    /// navigation gate or its proxy's Permit, on a hop of the main frame's
+    /// navigation or a service worker's request that may carry one.
+    fn request_waits(&self, paused: &PausedRequest) -> bool {
+        let url = paused.url();
+        if self.state.routes.matches_any(url) || self.state.session.matches_any(url) {
+            return true;
+        }
+        let gated = self.driver.value().gate().is_some();
+        if self.main_document(paused) {
+            gated || self.driver.proxy().is_some()
+        } else {
+            gated && matches!(self.sender, Sender::ServiceWorker { .. })
+        }
+    }
+
+    /// Whether the verdict on the response paused at `paused`, which no
+    /// `fetch` waits for, waits: for the page's navigation gate's judgement
+    /// of a document, or for the proxy's Permit a main-frame document's
+    /// hop gives back.
+    fn response_waits(&self, paused: &PausedRequest) -> bool {
+        let document = self.main_document(paused);
+        if document && self.driver.proxy().is_some() {
+            return true;
+        }
+        let judged = paused.responded()
+            && !cdp_response::redirects(paused.status())
+            && self.driver.value().gate().is_some();
+        judged && (document || lock(&self.carried).contains_key(paused.id()))
+    }
+
+    /// Whether the answer to `required` waits: the credentials for the main
+    /// frame's navigation are told to its navigation gate.
+    fn authentication_waits(&self, required: &AuthChallenge) -> bool {
+        required.loads_document()
+            && required.frame() == self.driver.main_frame().as_str()
+            && self.driver.value().gate().is_some()
     }
 
     /// Whether `paused` is a request, or a response, of the document of
@@ -1615,23 +1709,10 @@ impl PageContext {
     /// waited for failed, and its Error code in the Run's outcome record.
     fn record_refusal(&self, url: &str, method: &str, refusal: ErrorData) {
         record_outcome(self.run.identity(), &refusal.code);
-        let (log, failed) = (
-            Arc::clone(&self.log),
-            RequestFailed {
-                url: url.to_owned(),
-                method: method.to_owned(),
-                failure: refusal,
-            },
-        );
-        self.run
-            .identity()
-            .metrics()
-            .counted_work()
-            .count(Row::InterceptedSpawns);
-        self.run.identity().spawn(async move {
-            if let Err(error) = log.request_failed(&failed).await {
-                tracing::warn!(%error, "the Run trace did not take a refused request");
-            }
+        self.log.request_failed(&RequestFailed {
+            url: url.to_owned(),
+            method: method.to_owned(),
+            failure: refusal,
         });
     }
 
@@ -1642,25 +1723,12 @@ impl PageContext {
         let Sender::ServiceWorker { session, log } = &self.sender else {
             return;
         };
-        if failure.is_some() {
-            self.run
-                .identity()
-                .metrics()
-                .counted_work()
-                .count(Row::InterceptedSpawns);
-        }
-        let request = ServiceWorkerRequest {
+        log.service_worker_request(&ServiceWorkerRequest {
             session_id: session.clone(),
             url: held.url().to_owned(),
             method: held.method().to_owned(),
             resource_type: held.paused.resource_type(),
             failure,
-        };
-        let log = Arc::clone(log);
-        self.run.identity().spawn(async move {
-            if let Err(error) = log.service_worker_request(&request).await {
-                tracing::warn!(%error, "the Run trace did not take a service worker's request");
-            }
         });
     }
 

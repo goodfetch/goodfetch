@@ -92,6 +92,12 @@ pub async fn counting_starts<F: Future>(counted: CountedWork, row: Row, work: F)
     STARTS.scope((counted, row), work).await
 }
 
+/// As [`counting_starts`], for `work` that waits for nothing, such as a
+/// paused request the Page's reader answers at once (`C5.spawns`).
+pub fn counting_starts_now<R>(counted: CountedWork, row: Row, work: impl FnOnce() -> R) -> R {
+    STARTS.sync_scope((counted, row), work)
+}
+
 /// Counts one start on the row [`counting_starts`] set, when it is set.
 fn counted_start() {
     let _ = STARTS.try_with(|(counted, row)| counted.count(*row));

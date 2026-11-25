@@ -1015,7 +1015,7 @@ const ROWS: [Row; 147] = [
     Row {
         name: "C5.spawns",
         family: "B2",
-        unit: "refusals",
+        unit: "pauses",
         happens: false,
         valgrind: None,
     },

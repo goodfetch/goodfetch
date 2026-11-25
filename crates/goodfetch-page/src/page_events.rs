@@ -91,6 +91,7 @@ use goodfetch_engine::run_identity::RunIdentity;
 use goodfetch_engine::run_trace::{RequestLog, RunTrace};
 use goodfetch_engine::runs::outcome::record_outcome;
 use goodfetch_engine::secrets::RunSecrets;
+use goodfetch_engine::tasks;
 use goodfetch_engine::{CallError, CallStream, named};
 use goodfetch_protocol::catalog::Event;
 use goodfetch_protocol::connection::{Form, WaitedFor};
@@ -1440,17 +1441,11 @@ fn failed_request(shared: &Shared, state: &mut State, failed: &LoadingFailed, ho
     if let Some((refused, true)) = &refusal {
         // The Run trace holds the Error code no reply carries (ADR 0072).
         shared.record_outcome(&refused.code);
-        let (log, request) = (Arc::clone(&shared.log), request.clone());
-        shared
-            .run
-            .identity
-            .metrics()
-            .counted_work()
-            .count(Row::InterceptedSpawns);
-        shared.spawn(async move {
-            if let Err(error) = log.record(&PAGE_REQUEST_FAILED, &request).await {
-                tracing::warn!(%error, "the Run trace did not take a refused request");
-            }
+        // Its entry goes to the Run trace's writer with no task started,
+        // unless it is the Run's first (`C5.spawns`).
+        let counted = shared.run.identity.metrics().counted_work().clone();
+        tasks::counting_starts_now(counted, Row::InterceptedSpawns, || {
+            shared.log.record_now(&PAGE_REQUEST_FAILED, &request);
         });
     }
     emit(

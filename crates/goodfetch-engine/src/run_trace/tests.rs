@@ -211,6 +211,40 @@ fn every_kind_of_entry_goes_through_one_writer_that_opens_each_file_once() {
     );
 }
 
+/// A request log line recorded without waiting goes to the Run's started
+/// writer with no task started (`C5.spawns`); the Run's first line, before
+/// any entry started the writer, goes through one task of the Run, which
+/// starts it. Each is on file once the Run ends.
+#[test]
+fn a_line_recorded_without_waiting_starts_a_task_only_before_the_writer_started() {
+    let env = TestEnv::new();
+    let owner = Arc::new(TaskOwner::root(BlockingPolicy::Threads));
+    let work = CountedWork::default();
+    let trace = trace(&owner, &env, Redaction::On, &work);
+    let requests = RequestLog::new(&trace);
+    let recorded = |step: u32| {
+        crate::tasks::counting_starts_now(work.clone(), Row::InterceptedSpawns, || {
+            requests.record_now(&PAGE_REQUEST_FAILED, &json!({ "step": step }));
+        });
+    };
+
+    let spawned = goodfetch_test_support::runtime().block_on(async {
+        recorded(1);
+        let before_start = work.read(Row::InterceptedSpawns);
+        trace.start().await.unwrap();
+        recorded(2);
+        recorded(3);
+        owner.stop().await;
+        (before_start, work.read(Row::InterceptedSpawns))
+    });
+
+    let lines = std::fs::read_to_string(env.folder().join(RUN_TRACE_REQUESTS))
+        .unwrap()
+        .lines()
+        .count();
+    assert_eq!((spawned, lines), ((1, 1), 3));
+}
+
 /// A Run whose `provenance.log` is off writes no Provenance entry and starts
 /// no writer for it: nothing is opened, spawned or written (ADR 0138).
 #[test]

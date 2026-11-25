@@ -79,6 +79,7 @@ use goodfetch_engine::local_addresses::SessionAddresses;
 use goodfetch_engine::run_trace::RequestLog;
 use goodfetch_engine::runs::{Run, run_trace};
 use goodfetch_engine::settings::{Resolved as ResolvedSettings, RunSettings};
+use goodfetch_engine::tasks;
 use goodfetch_engine::tls::{
     CertificateExceptions, CertificateInvalid, Examiner, ExceptionUsed, Trust,
 };
@@ -757,20 +758,16 @@ impl Record {
             }
         }
         self.run.record_outcome(&failure.code);
-        let log = Arc::clone(&self.log);
         let failed = RequestFailed {
             url: url.to_owned(),
             method: method.to_owned(),
             failure,
         };
-        self.run
-            .metrics()
-            .counted_work()
-            .count(Row::InterceptedSpawns);
-        self.run.spawn(async move {
-            if let Err(error) = log.request_failed(&failed).await {
-                tracing::warn!(%error, "the Run trace did not take a connection the egress relay refused");
-            }
+        // Its entry goes to the Run trace's writer with no task started,
+        // unless it is the Run's first (`C5.spawns`).
+        let counted = self.run.metrics().counted_work().clone();
+        tasks::counting_starts_now(counted, Row::InterceptedSpawns, || {
+            self.log.request_failed(&failed);
         });
     }
 }

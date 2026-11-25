@@ -91,6 +91,11 @@ impl RouteTable {
         lock(&self.routes).iter().rev().cloned().collect()
     }
 
+    /// Whether any of its routes answers a request to `url`.
+    pub(super) fn matches_any(&self, url: &str) -> bool {
+        lock(&self.routes).iter().any(|route| route.matches(url))
+    }
+
     /// Takes `route` out, so no later request reaches it.
     pub(super) fn remove(&self, route: &Arc<Route>) {
         lock(&self.routes).retain(|armed| !Arc::ptr_eq(armed, route));

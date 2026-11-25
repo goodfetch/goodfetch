@@ -3,8 +3,7 @@
 //! process and reaches over area 3's in-memory network. It serves its one
 //! Connection as an Attached engine does, and stops at the end of its
 //! input, which closing the Connection gives it. A connection reaches a
-//! Daemon in its place when [`EngineChoice`] says so
-//! ([`crate::engine_choice`]).
+//! Daemon in its place when [`EngineChoice`] says so.
 //!
 //! [`ProductConnection`] is the one way both Products' SDKs open a
 //! connection: [`Collie`](crate::Collie) with [`Composed::COLLIE`], and

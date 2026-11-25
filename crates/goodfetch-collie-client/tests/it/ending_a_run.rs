@@ -1,23 +1,31 @@
 //! How a Run ends and what it does meanwhile (ADRs 0029 and 0102), through
 //! the client crate: `finish` and `stop` answer the Run report, a failed
 //! Run's error fails them and a call's timeout ends only its wait, while
-//! `progress` follows the Run. The `finish-stop-and-progress` client
-//! conformance case, which the TypeScript and Python SDKs play too, with
-//! the Scripted engine as the Daemon: it fails on a message it does not
-//! expect and on a step left unused, so its clean exit says the crate sent
-//! exactly what the script holds, the read after a value included.
+//! `progress` follows the Run: its first value at once, with the Human
+//! pause it waits on, then the latest value after it, the ones between
+//! coalesced. The `finish-stop-and-progress` client conformance case,
+//! which the TypeScript and Python SDKs play too, with the Scripted engine
+//! as the Daemon: it fails on a message it does not expect and on a step
+//! left unused, so its clean exit says the crate sent exactly what the
+//! script holds, the read after a value included.
 
-use std::time::Duration;
+use std::time::{Duration, SystemTime};
 
 use goodfetch_collie_client::{Error, ErrorCode};
 use goodfetch_conformance::{ClientCaseRun, RustMode};
 use goodfetch_protocol::connection::DaemonEndpoint;
-use goodfetch_protocol::run::{ProgressMessage, RunId, RunProgress};
+use goodfetch_protocol::run::{
+    EngineStep, HumanPause, PauseOrigin, ProgressMessage, RunId, RunProgress,
+};
 use goodfetch_test_support::{TestEnv, case_logs};
 use serde_json::{Value, json};
 
 use crate::closing::{assert_played_whole, connect};
 use crate::scripted_daemon::scripted_daemon;
+
+/// 2026-01-01T00:00:00Z after the Unix epoch: when the script's Human
+/// pause began.
+const NEW_YEAR: Duration = Duration::from_hours(490_896);
 
 /// Whether each of `pointers` in `value` holds what it pairs with.
 fn assert_holds(value: &Value, pointers: &[(&str, Value)]) {
@@ -36,6 +44,8 @@ struct Played {
     set: RunProgress,
     waited: Result<(), Error>,
     finished: Value,
+    /// The finished report's start, end and browser time, as Rust's types.
+    finished_times: (SystemTime, SystemTime, Duration),
     stopped: Value,
     failed: [Result<(), Error>; 2],
 }
@@ -70,9 +80,47 @@ async fn play(endpoint: DaemonEndpoint, message: &ProgressMessage) -> Played {
         set: set.into_inner(),
         waited: waited.map(|_| ()),
         finished: serde_json::to_value(&*finished).unwrap(),
+        finished_times: (
+            finished.started_at,
+            finished.ended_at,
+            finished.usage.browser_time,
+        ),
         stopped: serde_json::to_value(&*stopped).unwrap(),
         failed,
     }
+}
+
+/// Checks that `progress` answered at once with the Human pause the Run
+/// waits on, then the latest value after it, the ones between coalesced,
+/// carrying `message`.
+fn assert_followed(progress: [RunProgress; 2], message: &ProgressMessage) {
+    assert_eq!(
+        progress
+            .iter()
+            .map(|value| (value.position, value.message.clone()))
+            .collect::<Vec<_>>(),
+        [(1, None), (4, Some(message.clone()))],
+        "the progress answers at once, then the latest value after it, the ones between coalesced, carries the program's message"
+    );
+    let new_year = SystemTime::UNIX_EPOCH + NEW_YEAR;
+    assert_eq!(
+        progress.map(|value| value.pauses),
+        [
+            vec![HumanPause {
+                session: "shop".to_owned(),
+                page: "login".to_owned(),
+                reason: Some("Enter the code the shop sent by SMS.".to_owned()),
+                until: Some("the account page loads".to_owned()),
+                raised_by: PauseOrigin::Engine {
+                    step: EngineStep::LoginRecovery,
+                },
+                since: new_year,
+                deadline: Some(new_year + Duration::from_mins(15)),
+            }],
+            vec![],
+        ],
+        "the first value says which Human pause the Run waits on, as Rust's types"
+    );
 }
 
 /// The `finish-stop-and-progress` client conformance case, played by the
@@ -94,18 +142,12 @@ fn finish_and_stop_answer_the_report_a_failed_run_fails_them_and_progress_follow
         set,
         waited,
         finished,
+        finished_times,
         stopped,
         failed,
     } = goodfetch_test_support::real_time_runtime().block_on(play(endpoint, &message));
 
-    assert_eq!(
-        progress
-            .iter()
-            .map(|value| (value.position, value.message.clone()))
-            .collect::<Vec<_>>(),
-        [(1, None), (2, Some(message.clone()))],
-        "the progress answers at once, then the value after it carries the program's message"
-    );
+    assert_followed(progress, &message);
     assert_eq!((set.position, set.message.clone()), (2, Some(message)));
     assert!(
         matches!(&waited, Err(error) if error.code() == ErrorCode::DEADLINE_EXCEEDED),
@@ -136,7 +178,14 @@ fn finish_and_stop_answer_the_report_a_failed_run_fails_them_and_progress_follow
             ("/uncertain_effects/0/entry", json!("submit-order")),
             ("/uncertain_effects/0/since", json!("2026-01-01T00:00:30Z")),
             ("/ended_at", json!("2026-01-01T00:01:00Z")),
+            ("/usage/browser_time", json!(1_500)),
         ],
+    );
+    let (started_at, ended_at, browser_time) = finished_times;
+    assert_eq!(
+        (ended_at.duration_since(started_at).ok(), browser_time),
+        (Some(Duration::from_mins(1)), Duration::from_millis(1_500)),
+        "the report's points in time and durations are Rust's types"
     );
     assert_holds(
         &stopped,

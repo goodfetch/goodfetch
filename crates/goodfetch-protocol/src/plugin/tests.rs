@@ -15,6 +15,7 @@ use super::{
 };
 use crate::catalog::{Product, ProtocolVersion};
 use crate::error_code::ErrorCode;
+use crate::run::RunId;
 
 const fn version(major: u16, minor: u16) -> ProtocolVersion {
     ProtocolVersion { major, minor }
@@ -181,13 +182,13 @@ fn hello_params_from_a_newer_engine_are_read_without_their_unknown_field() {
         (
             params.protocol,
             params.product,
-            params.run_id.as_str(),
+            params.run_id.as_ref().map(RunId::as_str),
             params.network_level
         ),
         (
             range(version(0, 1), version(0, 2)),
             Product::Collie,
-            "checkout",
+            Some("checkout"),
             NetworkLevel::ProxyTcp
         )
     );

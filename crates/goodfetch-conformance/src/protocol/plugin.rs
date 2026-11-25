@@ -278,7 +278,7 @@ fn hello(
     let params = serde_json::to_value(PluginHelloParams {
         protocol: PLUGIN_PROTOCOL,
         product: suite.product,
-        run_id: RunId::parse(RUN_ID).expect("invariant: the harness's run ID is a Run ID"),
+        run_id: Some(RunId::parse(RUN_ID).expect("invariant: the harness's run ID is a Run ID")),
         network_level: approved.network_level,
     })
     .expect("invariant: `hello` serializes");

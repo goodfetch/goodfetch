@@ -1,0 +1,6 @@
+# Which of goodfetch-schedule's top-level modules may import which (ADR 0126).
+[modules]
+definition = []
+operations = ["definition", "store", "trigger"]
+store = []
+trigger = []

@@ -1,12 +1,13 @@
 //! What test support reads from the process that runs a test (ADRs 0059 to
 //! 0062): the running test's name, the seed and its `GOODFETCH_TEST_SEED`
 //! override, the suite `just test` names in `GOODFETCH_TEST_SUITE`, the tool
-//! manifest's path, the folder Journey variants write their result documents
-//! into, the exercise records' folder with the test's ID as nextest gives
-//! it, the way a runner declares `DnsNamespace` comes up on it, the cap on
-//! the Callgrind children a counts benchmark runs at once, what a
-//! Cargo a test starts needs to find its toolchain, and on Windows the
-//! variables a child needs to start.
+//! manifest's path, the executables a skew job names, the folder Simulation
+//! scenarios write their model traces into, the folder Journey variants
+//! write their result documents into, the exercise records' folder with the
+//! test's ID as nextest gives it, the way a runner declares `DnsNamespace`
+//! comes up on it, the cap on the Callgrind children a counts benchmark runs
+//! at once, what a Cargo a test starts needs to find its toolchain, and on
+//! Windows the variables a child needs to start.
 #![expect(
     clippy::disallowed_methods,
     reason = "test support reads the test's own variables, never a product's environment (ADR 0062)"
@@ -29,6 +30,11 @@ pub const TOOLS_VARIABLE: &str = "GOODFETCH_TEST_TOOLS";
 /// (ADR 0060).
 pub const FAULT_PLAN_VARIABLE: &str = "GOODFETCH_FAULT_PLAN";
 
+/// The folder a Simulation scenario writes its TLA+ model traces into, one
+/// folder per model, which `just simulation` sets and validates with TLC
+/// (ADR 0060); unset, a scenario keeps none.
+pub const MODEL_TRACES_VARIABLE: &str = "GOODFETCH_MODEL_TRACES";
+
 /// The path of the pinned LazyFS build, which `just lazyfs-test` sets
 /// (ADR 0060).
 pub const LAZYFS_VARIABLE: &str = "GOODFETCH_LAZYFS";
@@ -42,6 +48,12 @@ pub const LAZYFS_FOLDER_VARIABLE: &str = "GOODFETCH_LAZYFS_FOLDER";
 /// (ADR 0066): when it is set, every Journey variant runs it in place of the
 /// executable its test passes.
 pub const ENGINE_VARIABLE: &str = "GOODFETCH_TEST_ENGINE";
+
+/// The executable of a released minor that [`older_engine`] names, which a
+/// skew job sets (ADR 0066).
+///
+/// [`older_engine`]: crate::older_engine
+pub const OLDER_ENGINE_VARIABLE: &str = "GOODFETCH_TEST_OLDER_ENGINE";
 
 /// The folder each Journey variant run also writes its result document
 /// into, beside the test's own folder, which `just test` sets.
@@ -145,11 +157,13 @@ impl Variables {
             SUITE_VARIABLE,
             TOOLS_VARIABLE,
             FAULT_PLAN_VARIABLE,
+            MODEL_TRACES_VARIABLE,
             LAZYFS_VARIABLE,
             LAZYFS_FOLDER_VARIABLE,
             RESULT_DOCUMENTS_VARIABLE,
             CASE_LOGS_VARIABLE,
             ENGINE_VARIABLE,
+            OLDER_ENGINE_VARIABLE,
             RECORDS_VARIABLE,
             BINARY_ID_VARIABLE,
             TEST_NAME_VARIABLE,
@@ -256,6 +270,16 @@ pub fn current_test() -> String {
 pub fn case_logs() -> Option<std::path::PathBuf> {
     Variables::from_process()
         .get(CASE_LOGS_VARIABLE)
+        .map(std::path::PathBuf::from)
+}
+
+/// The folder of the model traces, which `just simulation` names in
+/// `GOODFETCH_MODEL_TRACES`: a Simulation scenario writes the trace of its
+/// run into its model's folder there, and keeps none when it is absent
+/// (ADR 0060).
+pub fn model_traces() -> Option<std::path::PathBuf> {
+    Variables::from_process()
+        .get(MODEL_TRACES_VARIABLE)
         .map(std::path::PathBuf::from)
 }
 

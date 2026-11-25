@@ -181,6 +181,9 @@ goodfetch-counted-work = { path = "crates/goodfetch-counted-work" }
 # The Encoding a document's own bytes declare, read as Chrome reads it (ADR
 # 0119), which the fetch tiers and Collie's client crate both read.
 goodfetch-encoding = { path = "crates/goodfetch-encoding" }
+# The operating-system part of a Saved file (ADR 0116), which the engine and
+# Collie's client crate both use.
+goodfetch-saved-file = { path = "crates/goodfetch-saved-file" }
 # The conformance harness; the Stub gateway's tests run its gateway cases.
 goodfetch-conformance = { path = "crates/goodfetch-conformance" }
 # Foxhound's crawl; only crates under `crates/foxhound/` and `xtask` take it (ADR 0087).
@@ -212,8 +215,14 @@ goodfetch-recording-gate = { path = "crates/goodfetch-recording-gate" }
 goodfetch-runtime = { path = "crates/goodfetch-runtime" }
 # The built-in external Secret providers, which each Product's composition registers (spec #564).
 goodfetch-secret-providers = { path = "crates/goodfetch-secret-providers" }
+# Schedules and their store, which each Product's composition registers (spec #589).
+goodfetch-schedule = { path = "crates/goodfetch-schedule" }
 # Foxhound's Session pool; only crates under `crates/foxhound/` and `xtask` take it (ADR 0087).
 goodfetch-session-pool = { path = "crates/foxhound/goodfetch-session-pool" }
+# turmoil's adapter of `transport` and the Simulation harness, built only
+# under `--cfg tokio_unstable`; a test adapter: only ever a dev-dependency
+# (ADRs 0060 and 0125).
+goodfetch-simulation = { path = "crates/goodfetch-simulation" }
 # Foxhound's SQL tab, DuckDB's read path; only crates under `crates/foxhound/` and `xtask` take it (ADR 0087).
 goodfetch-sql-tab = { path = "crates/foxhound/goodfetch-sql-tab" }
 # The protocol-aware test helpers; only ever a dev-dependency (ADR 0062's note
@@ -297,6 +306,9 @@ httparse = { version = "1.10.1", default-features = false, features = ["std"] }
 # A `Retry-After`'s HTTP-date in RFC 9110's three formats (ADR 0118), which
 # hyper already brings.
 httpdate = { version = "1.0.3", default-features = false }
+# The Response cache's freshness and revalidation, RFC 9111's rules as one
+# private cache applies them (ADR 0046).
+http-cache-semantics = { version = "3.0.0", default-features = false }
 # Model recordings replay at an adapter's base URL (ADR 0065): each exchange
 # is one mock of its local server, matched on method, path and JSON body.
 httpmock = { version = "0.9.0", default-features = false }
@@ -399,6 +411,9 @@ socket2 = { version = "0.6.5", default-features = false }
 syn = { version = "3.0.9", default-features = false, features = ["full", "parsing", "printing"] }
 tar = { version = "0.4.46", default-features = false }
 tempfile = { version = "3.27.0", default-features = false }
+# A Recipe's package: the files of its folder, less the ones its
+# `.goodfetchignore` files leave out in gitignore's syntax (issue 1663).
+ignore = { version = "0.4.35", default-features = false }
 thiserror = { version = "2.0.21", default-features = false, features = ["std"] }
 # rcgen's dates; the Proving ground's leaf certificates are dated from its
 # clock.
@@ -529,6 +544,7 @@ clone_on_ref_ptr = "deny"
 exit = "deny"
 iter_over_hash_type = "deny"
 undocumented_unsafe_blocks = "deny"
+unused_result_ok = "deny"
 
 # Goodfetch's fork of `wreq` 0.16.1 (spec #565, ADR 0042), carried in
 # `vendor/wreq` as version `0.16.1+goodfetch.1`: upstream's commit

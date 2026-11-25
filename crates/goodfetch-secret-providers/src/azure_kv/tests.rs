@@ -1,13 +1,22 @@
-//! Azure Key Vault's two translation tables (ADR 0127): one named case per
-//! failure Key Vault documents for Get Secret and per OAuth 2.0 error
-//! Microsoft Entra ID documents for the client-credentials grant, and one
-//! for a failure each does not know; and the value a successful read holds.
+//! Azure Key Vault's three translation tables (ADR 0127): one named case
+//! per failure Key Vault documents for Get Secret, per OAuth 2.0 error
+//! Microsoft Entra ID documents for the client-credentials grant and per
+//! status a managed identity endpoint documents, and one for a failure each
+//! does not know; which source the environment names; and the value a
+//! successful read holds.
+
+use std::collections::BTreeMap;
+use std::ffi::OsString;
 
 use goodfetch_engine::secrets::ProviderFailure;
 use rstest::rstest;
 use secrecy::ExposeSecret;
 
-use super::{is_vault_name, translate, translate_token, value_of};
+use super::access_token::{Source, translate_identity, translate_token};
+use super::{is_vault_name, translate, value_of};
+
+/// The identity a failure names.
+const FROM: &str = "the workload identity of `AZURE_FEDERATED_TOKEN_FILE`";
 
 /// Which [`ProviderFailure`] a failure is, without its text.
 #[derive(Debug, PartialEq, Eq)]
@@ -15,6 +24,7 @@ enum Meaning {
     Missing,
     Refused,
     Busy,
+    NotConfigured,
     Unrecognized,
 }
 
@@ -22,6 +32,7 @@ fn meaning(failure: &ProviderFailure) -> Meaning {
     match failure {
         ProviderFailure::Missing => Meaning::Missing,
         ProviderFailure::Refused { .. } => Meaning::Refused,
+        ProviderFailure::NotConfigured(_) => Meaning::NotConfigured,
         ProviderFailure::Busy { .. } => Meaning::Busy,
         ProviderFailure::Unrecognized(_) => Meaning::Unrecognized,
         other => panic!("not a translation's answer: {other:?}"),
@@ -49,7 +60,7 @@ fn each_known_vault_failure_has_its_meaning(
     #[case] body: &str,
     #[case] expected: Meaning,
 ) {
-    assert_eq!(meaning(&translate(status, body.as_bytes())), expected);
+    assert_eq!(meaning(&translate(status, body.as_bytes(), FROM)), expected);
 }
 
 #[rstest]
@@ -69,7 +80,101 @@ fn each_known_token_failure_has_its_meaning(
     #[case] body: &str,
     #[case] expected: Meaning,
 ) {
-    assert_eq!(meaning(&translate_token(status, body.as_bytes())), expected);
+    assert_eq!(
+        meaning(&translate_token(status, body.as_bytes(), FROM)),
+        expected
+    );
+}
+
+/// A managed identity endpoint's failures, by status, in Azure's shape;
+/// an answer in no shape of Azure's is none of them.
+#[rstest]
+#[case::no_identity(
+    400,
+    r#"{"error":"invalid_request","error_description":"Identity not found"}"#,
+    Some(Meaning::NotConfigured)
+)]
+#[case::updating(
+    404,
+    r#"{"error":"not_found","error_description":"IMDS is updating"}"#,
+    Some(Meaning::Busy)
+)]
+#[case::going_through_updates(
+    410,
+    r#"{"error":"gone","error_description":"retry"}"#,
+    Some(Meaning::Busy)
+)]
+#[case::throttled(
+    429,
+    r#"{"error":"too_many_requests","error_description":"slow down"}"#,
+    Some(Meaning::Busy)
+)]
+#[case::a_transient_failure(500, r#"{"error":"unknown","error_description":"Failed to retrieve token from the Active directory."}"#, Some(Meaning::Busy))]
+#[case::unavailable(
+    503,
+    r#"{"error":"unavailable","error_description":"retry"}"#,
+    Some(Meaning::Busy)
+)]
+#[case::an_unknown_failure(
+    401,
+    r#"{"error":"unknown_source","error_description":"Unknown Source"}"#,
+    Some(Meaning::Unrecognized)
+)]
+#[case::no_json(404, "Not Found", None)]
+#[case::json_without_an_error(404, r#"{"message":"not here"}"#, None)]
+fn each_known_identity_failure_has_its_meaning(
+    #[case] status: u16,
+    #[case] body: &str,
+    #[case] expected: Option<Meaning>,
+) {
+    assert_eq!(
+        translate_identity(status, body.as_bytes(), "IMDS")
+            .as_ref()
+            .map(meaning),
+        expected
+    );
+}
+
+/// The first source the environment names is taken, in
+/// `DefaultAzureCredential`'s order, and `AZURE_TOKEN_CREDENTIALS` keeps
+/// only the sources it names.
+#[rstest]
+#[case::a_service_principal(&[("AZURE_CLIENT_SECRET", "s"), ("AZURE_FEDERATED_TOKEN_FILE", "/t")], "service principal")]
+#[case::a_workload_identity(&[("AZURE_FEDERATED_TOKEN_FILE", "/t")], "workload identity")]
+#[case::the_hosts_managed_identity(&[("IDENTITY_ENDPOINT", "http://127.0.0.1:1/msi/token"), ("IDENTITY_HEADER", "h")], "`IDENTITY_ENDPOINT`")]
+#[case::the_virtual_machines_managed_identity(&[], "virtual machine")]
+#[case::kept_to_managed_identity(&[("AZURE_CLIENT_SECRET", "s"), ("AZURE_TOKEN_CREDENTIALS", "ManagedIdentityCredential")], "virtual machine")]
+#[case::kept_to_the_environment(
+    &[("AZURE_TOKEN_CREDENTIALS", "environmentcredential")],
+    "no identity"
+)]
+#[case::kept_to_developer_tools(&[("AZURE_CLIENT_SECRET", "s"), ("AZURE_TOKEN_CREDENTIALS", "dev")], "no identity")]
+#[case::kept_to_deployed_services(&[("AZURE_CLIENT_SECRET", "s"), ("AZURE_TOKEN_CREDENTIALS", "prod")], "service principal")]
+fn the_first_source_named_is_taken(#[case] variables: &[(&str, &str)], #[case] named: &str) {
+    let environment: BTreeMap<OsString, OsString> =
+        [("AZURE_TENANT_ID", "t"), ("AZURE_CLIENT_ID", "c")]
+            .iter()
+            .chain(variables)
+            .map(|(name, value)| (OsString::from(name), OsString::from(value)))
+            .collect();
+
+    let source = Source::of(&environment);
+
+    assert!(source.describe().contains(named), "{source:?}");
+}
+
+/// A value of `AZURE_TOKEN_CREDENTIALS` the Azure Identity libraries do
+/// not take is a configuration problem naming it.
+#[test]
+fn an_unknown_choice_is_not_configured() {
+    let environment = BTreeMap::from([(
+        OsString::from("AZURE_TOKEN_CREDENTIALS"),
+        OsString::from("everything"),
+    )]);
+
+    let problem = Source::of(&environment).check().unwrap_err();
+
+    assert!(problem.fix.contains("`everything`"), "{}", problem.fix);
 }
 
 #[rstest]

@@ -33,6 +33,7 @@ mod counts;
 mod dco;
 mod dependency_direction;
 mod docs_samples;
+mod docs_site;
 mod egress;
 mod environment;
 mod evict_caches;
@@ -54,6 +55,7 @@ mod junit_summary;
 mod kennel;
 mod lazyfs;
 mod license_allowlist;
+mod live_checks;
 mod load_proofs;
 mod markdown;
 mod mask_writers;
@@ -86,6 +88,7 @@ mod rss;
 mod runners;
 mod runtimes;
 mod scan;
+mod scorecard;
 mod screenshots;
 mod sdk_api;
 mod sdk_manifests;
@@ -244,6 +247,13 @@ enum Command {
     DocsSamples {
         #[command(subcommand)]
         command: docs_samples::Command,
+    },
+    /// The docs site (ADR 0097): `render` writes the source tree Docusaurus
+    /// builds in `website/` under `target/docs-site/source/`, each Product's
+    /// section rendered with its names and the root's pages beside them.
+    DocsSite {
+        #[command(subcommand)]
+        command: docs_site::Command,
     },
     /// ADR 0043's outbound-traffic deny in CI and its Egress canary.
     Egress {
@@ -584,6 +594,26 @@ enum ResultsCommand {
         #[arg(long)]
         junit: PathBuf,
     },
+    /// Runs each Live check `ci/live-checks.toml` gives the job and writes
+    /// one JUnit test case per check, named by its ID: passed on exit 0,
+    /// skipped (inconclusive) on exit 75, failed otherwise; exits 1 when any
+    /// failed (ADR 0064).
+    LiveRun {
+        /// The job, `<workflow file>#<job>`.
+        #[arg(long)]
+        job: String,
+        /// The JUnit file to write, in the job's `live` tier artifact.
+        #[arg(long)]
+        junit: PathBuf,
+    },
+    /// Holds Scorecard's JSON results to the floors in
+    /// `ci/scorecard.toml`: exits 1 when a check is under its floor, 75
+    /// when one could not run or the results are missing, 0 otherwise.
+    Scorecard {
+        /// The results the Scorecard action wrote.
+        #[arg(long)]
+        results: PathBuf,
+    },
     /// Prints `<run> <attempt>` for every attempt of the finished runs the
     /// store lacks, for the daily ingest (ADR 0135).
     Pending {
@@ -683,6 +713,7 @@ fn run(command: Command, environment: &Environment) -> anyhow::Result<ExitCode> 
             Ok(check::report(&dependency_direction::check(cargo, root)?))
         }
         Command::DocsSamples { command } => docs_samples::run(&command, environment),
+        Command::DocsSite { command } => docs_site::run(&command, environment),
         Command::Egress { command } => egress::run(command, environment),
         Command::EvictCaches(arguments) => evict_caches::run(&arguments, environment),
         Command::ExistingCode { command } => existing_code::run(command, environment),
@@ -793,6 +824,18 @@ fn run_results(command: ResultsCommand, environment: &Environment) -> anyhow::Re
             results::write_live_checks(&documents, &path(&junit))?;
             Ok(ExitCode::SUCCESS)
         }
+        ResultsCommand::LiveRun { job, junit } => {
+            let checks = live_checks::LiveChecks::read(&environment.root)?;
+            let failed = checks.run(&environment.root, &job, &path(&junit))?;
+            Ok(ExitCode::from(u8::from(failed)))
+        }
+        ResultsCommand::Scorecard { results } => Ok(
+            match scorecard::judge(&environment.root, &path(&results))? {
+                scorecard::Verdict::Passed => ExitCode::SUCCESS,
+                scorecard::Verdict::Inconclusive => ExitCode::from(live_checks::INCONCLUSIVE),
+                scorecard::Verdict::Failed => ExitCode::from(1),
+            },
+        ),
         ResultsCommand::Pending {
             store,
             since,

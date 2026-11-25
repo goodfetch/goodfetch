@@ -679,6 +679,66 @@ fn an_owner_whose_tasks_ended_is_not_told_of_a_panic() {
     assert!(!told);
 }
 
+/// The tasks and actors that work counting its starts starts, awaited in
+/// turn, count on its row, whichever owner starts them; one a task of
+/// theirs starts, or one started outside the work, counts nothing there
+/// (ADR 0140's `C7.page_tasks`).
+#[test]
+fn work_counting_its_starts_counts_the_tasks_it_starts_itself() {
+    let work = CountedWork::default();
+
+    goodfetch_test_support::runtime().block_on(async {
+        let owner = TaskOwner::root(BlockingPolicy::Inline);
+        let child = owner.child();
+        let (started_later, later) = oneshot::channel();
+        super::counting_starts(work.clone(), Row::PageTasks, async {
+            owner.spawn(async {});
+            let starter = child.child();
+            child.spawn(async move {
+                starter.spawn(async {});
+                starter.stop().await;
+                let _ = started_later.send(());
+            });
+            let (_sender, mailbox) = mpsc::channel::<()>(1);
+            child
+                .actor("counted", mailbox, |_| {})
+                .expect("an inline actor starts no thread");
+        })
+        .await;
+        let _ = later.await;
+        owner.spawn(async {});
+        child.stop().await;
+        owner.stop().await;
+    });
+
+    assert_eq!(work.read(Row::PageTasks), 3);
+}
+
+/// A panic told to an owner keeps the name of the crash report it left,
+/// which the owner's holder names in its `engine_panicked`: the first
+/// panic's, as a later one's never replaces it (ADR 0148).
+#[test]
+fn an_owner_keeps_the_crash_report_of_the_first_panic_told_to_it() {
+    let (before, after) = goodfetch_test_support::runtime().block_on(async {
+        let parent = TaskOwner::root(BlockingPolicy::Inline);
+        let child = parent.child();
+        let before = child.panicked_crash_report().map(str::to_owned);
+        child.spawn(async {
+            crate::crash_report::resume_unwind(Box::new("first"), Some("crash-first.txt".into()))
+        });
+        within(BlockingPolicy::Inline, child.panicked()).await;
+        child.spawn(async {
+            crate::crash_report::resume_unwind(Box::new("second"), Some("crash-second.txt".into()))
+        });
+        child.stop().await;
+        let after = child.panicked_crash_report().map(str::to_owned);
+        parent.stop().await;
+        (before, after)
+    });
+
+    assert_eq!((before, after), (None, Some("crash-first.txt".to_owned())));
+}
+
 /// A system lookup runs on a thread of the lookup pool's own, named apart
 /// from Tokio's workers and blocking threads and from the CPU pool's, so
 /// `/proc/<pid>/task` counts each kind apart (#2870).

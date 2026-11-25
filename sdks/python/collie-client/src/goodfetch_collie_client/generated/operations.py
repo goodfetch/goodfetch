@@ -13,7 +13,7 @@ from typing_extensions import deprecated
 from goodfetch_collie_client.caller import AsyncCaller, Caller, result_of
 from goodfetch_collie_client.markers import warn_deprecated, warn_deprecated_settings, warn_experimental
 
-from .models import Acted, AddInitScriptParams, AuditExportParams, AuditExported, AuditVerified, AuditVerifyParams, BodyHandle, CatalogRunStartParams, CertsListParams, CertsListed, Checkpoint, ClickParams, ConfigExplainParams, Counted, DaemonHealth, DaemonParams, DaemonState, DaemonStopping, DialogAcceptParams, DialogAnswered, DialogDismissParams, DialogsEnded, DownloadSaveAsParams, DownloadSaved, EffectCloseParams, EffectClosed, EffectOpenParams, EffectOpened, EngineInfo, EngineInfoParams, EvaluateParams, Evaluated, EventsSubscribeParams, FillParams, FormatsParams, GotoParams, InitScriptEnded, KeyValueStoreBytesValue, KeyValueStoreDeleted, KeyValueStoreKeyParams, KeyValueStoreKeysEnded, KeyValueStoreKeysParams, KeyValueStoreSet, KeyValueStoreSetBytesParams, KeyValueStoreSetParams, KeyValueStoreValue, LimitUsage, LocatorEvaluateAllParams, LocatorWaitForFunctionParams, LocatorWaitForParams, LogLevelSet, Navigated, NeedsYouDismissParams, NeedsYouDismissed, NeedsYouList, NeedsYouListParams, NewPageParams, NewSessionPageParams, NewSessionParams, PageBodyParams, PageBodyRead, PageCloseParams, PageClosed, PageExchange, PageFormats, PageOnDialogParams, PageOnEnded, PageOnParams, PageOpened, PageParams, PageRead, PageReadParams, PageRequest, PageRequestParams, PageResponse, PageRouteParams, PressParams, Reached, RecipeStartParams, ResponseBodyParams, RouteAbortParams, RouteAnswered, RouteEnded, RouteFetched, RouteFulfillParams, RouteOverridesParams, RunAbortParams, RunCheckpointParams, RunDiscarded, RunFinishParams, RunList, RunListParams, RunMigrateParams, RunParams, RunProgress, RunProgressParams, RunReport, RunResumeParams, RunSetProgressMessageParams, RunStartParams, RunStarted, RunStopParams, RunUsage, SampleEchoParams, SampleEchoResult, SessionClosed, SessionOnEnded, SessionOnParams, SessionOpened, SessionPages, SessionParams, SessionRouteParams, SetLogLevelParams, SettingsExplanation, SigningKeyCreateParams, SigningKeyCreated, SigningKeyDirectory, SigningKeyDirectoryParams, SubscriptionEnded, UsageListParams, UsageListResult, UsageSetParams, WaitForCountParams, WaitForExchangeParams, WaitForFunctionParams, WaitForLoadStateParams, WaitForRequestFinishedParams, WaitForUrlParams
+from .models import Acted, AddInitScriptParams, AuditExportParams, AuditExported, AuditVerified, AuditVerifyParams, BodyHandle, CatalogRunStartParams, CertsListParams, CertsListed, Checkpoint, ClickParams, ConfigExplainParams, Counted, DaemonHealth, DaemonParams, DaemonState, DaemonStopping, DialogAcceptParams, DialogAnswered, DialogDismissParams, DialogsEnded, DownloadSaveAsParams, DownloadSaved, EffectCloseParams, EffectClosed, EffectOpenParams, EffectOpened, EngineInfo, EngineInfoParams, EvaluateParams, Evaluated, EventsSubscribeParams, FillParams, FormatsParams, GotoParams, InitScriptEnded, KeyValueStoreBytesValue, KeyValueStoreDeleted, KeyValueStoreKeyParams, KeyValueStoreKeysEnded, KeyValueStoreKeysParams, KeyValueStoreSet, KeyValueStoreSetBytesParams, KeyValueStoreSetParams, KeyValueStoreValue, LimitUsage, LocatorEvaluateAllParams, LocatorWaitForFunctionParams, LocatorWaitForParams, LogLevelSet, Navigated, NeedsYouDismissParams, NeedsYouDismissed, NeedsYouList, NeedsYouListParams, NewPageParams, NewSessionPageParams, NewSessionParams, PageBodyParams, PageBodyRead, PageCloseParams, PageClosed, PageExchange, PageFormats, PageOnDialogParams, PageOnEnded, PageOnParams, PageOpened, PageParams, PageRead, PageReadParams, PageRequest, PageRequestParams, PageResponse, PageRouteParams, PressParams, Reached, RecipeStartParams, ResponseBodyParams, RouteAbortParams, RouteAnswered, RouteEnded, RouteFetched, RouteFulfillParams, RouteOverridesParams, RunAbortParams, RunCheckpointParams, RunDiscarded, RunFinishParams, RunList, RunListParams, RunMigrateParams, RunParams, RunProgress, RunProgressParams, RunReport, RunResumeParams, RunSetProgressMessageParams, RunStartParams, RunStarted, RunStopParams, RunUsage, SampleEchoParams, SampleEchoResult, ScheduleCreateParams, ScheduleCreated, ScheduleDeleted, ScheduleGetParams, ScheduleInfo, ScheduleList, ScheduleListParams, ScheduleParams, SessionClosed, SessionOnEnded, SessionOnParams, SessionOpened, SessionPages, SessionParams, SessionRouteParams, SetLogLevelParams, SettingsExplanation, SigningKeyCreateParams, SigningKeyCreated, SigningKeyDirectory, SigningKeyDirectoryParams, SubscriptionEnded, UsageListParams, UsageListResult, UsageSetParams, WaitForCountParams, WaitForExchangeParams, WaitForFunctionParams, WaitForLoadStateParams, WaitForRequestFinishedParams, WaitForUrlParams
 from .settings import DEPRECATED_SETTINGS
 
 
@@ -614,6 +614,46 @@ class AsyncCollieOperations:
         warn_experimental("sample.echo")
         warn_deprecated("sample.echo", "Since 0.1, removed no earlier than 1.0: A sample entry, which the real catalog replaces.")
         return result_of(SampleEchoResult, await self._caller.call("sample.echo", params))
+
+    async def schedule_create(self, params: ScheduleCreateParams) -> ScheduleCreated:
+        """Records a Schedule in the Schedule store, which the Daemon keeps, and answers its ID, as given or made (`s` and a lowercase ULID), with warnings. Nothing fires yet. A taken ID fails with `schedule_exists`, a trigger that does not parse with `schedule_trigger_invalid`. Its time zone is the Daemon host's when the definition names none. One store transaction: a cancel stops it only before it commits.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        warn_experimental("schedule.create")
+        return result_of(ScheduleCreated, await self._caller.call("schedule.create", params))
+
+    async def schedule_delete(self, params: ScheduleParams) -> ScheduleDeleted:
+        """Deletes the Schedule from its store, so it never fires again, and answers whether it did: false when the store held none of that ID, as after a resent delete. One store transaction: a cancel stops it only before it commits.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        warn_experimental("schedule.delete")
+        return result_of(ScheduleDeleted, await self._caller.call("schedule.delete", params))
+
+    async def schedule_get(self, params: ScheduleGetParams) -> ScheduleInfo:
+        """Reads the Schedule of an ID. An ID the store does not hold fails with `schedule_not_found`.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        warn_experimental("schedule.get")
+        return result_of(ScheduleInfo, await self._caller.call("schedule.get", params))
+
+    async def schedule_info(self, params: ScheduleParams) -> ScheduleInfo:
+        """Reads the Schedule as its store holds it now. One the store no longer holds fails with `schedule_not_found`.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        warn_experimental("schedule.info")
+        return result_of(ScheduleInfo, await self._caller.call("schedule.info", params))
+
+    async def schedule_list(self, params: ScheduleListParams) -> ScheduleList:
+        """Lists every Schedule of the Schedule store, by ID.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        warn_experimental("schedule.list")
+        return result_of(ScheduleList, await self._caller.call("schedule.list", params))
 
     async def session_close(self, params: SessionParams) -> SessionClosed:
         """Closes the Session: its pages and its browser context close, and its pages' admissions go back to the Resource governor; a Borrowed browser is never closed. A later call on the Session or one of its pages raises `closed`, and closing it again changes nothing.
@@ -1287,6 +1327,46 @@ class CollieOperations:
         warn_deprecated("sample.echo", "Since 0.1, removed no earlier than 1.0: A sample entry, which the real catalog replaces.")
         return result_of(SampleEchoResult, self._caller.call("sample.echo", params))
 
+    def schedule_create(self, params: ScheduleCreateParams) -> ScheduleCreated:
+        """Records a Schedule in the Schedule store, which the Daemon keeps, and answers its ID, as given or made (`s` and a lowercase ULID), with warnings. Nothing fires yet. A taken ID fails with `schedule_exists`, a trigger that does not parse with `schedule_trigger_invalid`. Its time zone is the Daemon host's when the definition names none. One store transaction: a cancel stops it only before it commits.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        warn_experimental("schedule.create")
+        return result_of(ScheduleCreated, self._caller.call("schedule.create", params))
+
+    def schedule_delete(self, params: ScheduleParams) -> ScheduleDeleted:
+        """Deletes the Schedule from its store, so it never fires again, and answers whether it did: false when the store held none of that ID, as after a resent delete. One store transaction: a cancel stops it only before it commits.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        warn_experimental("schedule.delete")
+        return result_of(ScheduleDeleted, self._caller.call("schedule.delete", params))
+
+    def schedule_get(self, params: ScheduleGetParams) -> ScheduleInfo:
+        """Reads the Schedule of an ID. An ID the store does not hold fails with `schedule_not_found`.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        warn_experimental("schedule.get")
+        return result_of(ScheduleInfo, self._caller.call("schedule.get", params))
+
+    def schedule_info(self, params: ScheduleParams) -> ScheduleInfo:
+        """Reads the Schedule as its store holds it now. One the store no longer holds fails with `schedule_not_found`.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        warn_experimental("schedule.info")
+        return result_of(ScheduleInfo, self._caller.call("schedule.info", params))
+
+    def schedule_list(self, params: ScheduleListParams) -> ScheduleList:
+        """Lists every Schedule of the Schedule store, by ID.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        warn_experimental("schedule.list")
+        return result_of(ScheduleList, self._caller.call("schedule.list", params))
+
     def session_close(self, params: SessionParams) -> SessionClosed:
         """Closes the Session: its pages and its browser context close, and its pages' admissions go back to the Resource governor; a Borrowed browser is never closed. A later call on the Session or one of its pages raises `closed`, and closing it again changes nothing.
 
@@ -1432,6 +1512,11 @@ EXPERIMENTAL_OPERATIONS: Final[frozenset[str]] = frozenset({
     "run.stop",
     "run.usage",
     "sample.echo",
+    "schedule.create",
+    "schedule.delete",
+    "schedule.get",
+    "schedule.info",
+    "schedule.list",
     "session.close",
     "session.new_page",
     "session.on",
@@ -1526,6 +1611,11 @@ OPERATION_CLASSES: Final[Mapping[str, Literal["read", "idempotent_write", "effec
     "run.stop": "idempotent_write",
     "run.usage": "read",
     "sample.echo": "read",
+    "schedule.create": "effect",
+    "schedule.delete": "idempotent_write",
+    "schedule.get": "read",
+    "schedule.info": "read",
+    "schedule.list": "read",
     "session.close": "idempotent_write",
     "session.new_page": "effect",
     "session.on": "read",

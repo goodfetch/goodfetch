@@ -1,6 +1,6 @@
 //! The ownership tree (ADR 0038): every task the engine starts belongs to an
 //! owner (the engine process, a Connection, a call, a run, later a Session
-//! and a page), which holds a cancellation token, a child of its parent's,
+//! and a page, and beside the Sessions a browser), which holds a cancellation token, a child of its parent's,
 //! and a tracker of its tasks. Stopping an owner cancels first, then waits
 //! for its tasks, then ends its actors once they handled what their
 //! mailboxes hold, whoever still holds a sender. This is the only module
@@ -77,6 +77,32 @@ pub enum BlockingPolicy {
 /// of an owner under it that names no part of its own.
 const ENGINES_OWN: &str = "engine";
 
+tokio::task_local! {
+    /// Set while work counts the tasks it starts: each task or actor an
+    /// owner starts from it, awaited in turn, counts on its row. A task it
+    /// starts runs outside the scope, so what that task starts counts
+    /// nothing there.
+    static STARTS: (CountedWork, Row);
+}
+
+/// Runs `work`, counting on `counted`'s `row` each task and each actor any
+/// owner starts from it, such as those a Page's opening starts (ADR 0140's
+/// `C7.page_tasks`).
+pub async fn counting_starts<F: Future>(counted: CountedWork, row: Row, work: F) -> F::Output {
+    STARTS.scope((counted, row), work).await
+}
+
+/// As [`counting_starts`], for `work` that waits for nothing, such as a
+/// paused request the Page's reader answers at once (`C5.spawns`).
+pub fn counting_starts_now<R>(counted: CountedWork, row: Row, work: impl FnOnce() -> R) -> R {
+    STARTS.sync_scope((counted, row), work)
+}
+
+/// Counts one start on the row [`counting_starts`] set, when it is set.
+fn counted_start() {
+    let _ = STARTS.try_with(|(counted, row)| counted.count(*row));
+}
+
 /// What an owner is, which the log of a panic in one of its tasks names.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum OwnerKind {
@@ -117,8 +143,10 @@ pub struct TaskOwner {
 /// Run hands out its own owner as this alone, so whoever starts work on a
 /// Run never ends it: the Runs' registry does (ADR 0145's note of
 /// 2026-11-10). A child made from it is a full owner, which its holder
-/// stops.
-#[derive(Debug)]
+/// stops. A clone starts its tasks on the same owner, so the parts of one
+/// value, such as a Session's seat and its egress relay, each start theirs
+/// on it.
+#[derive(Clone, Debug)]
 pub struct TaskStarter {
     token: CancellationToken,
     tracker: TaskTracker,
@@ -202,6 +230,14 @@ impl TaskOwner {
     /// when that panic stops it; none while none has panicked.
     pub fn panicked_part(&self) -> Option<&'static str> {
         self.panics.0.first.get().copied()
+    }
+
+    /// The name of the crash report of the first panic told to it, which
+    /// its holder names in the `engine_panicked` it raises for that panic
+    /// (ADR 0148); none while none has panicked, or when no report was
+    /// written.
+    pub fn panicked_crash_report(&self) -> Option<&str> {
+        self.panics.0.crash_report.get().and_then(Option::as_deref)
     }
 
     /// Asks its tasks to stop at their next cancellation point.
@@ -334,6 +370,7 @@ impl TaskStarter {
     where
         F: Future<Output = ()> + Send + 'static,
     {
+        counted_start();
         let panics = self.panics.clone();
         self.tracker.spawn(watched(future, panics));
     }
@@ -505,6 +542,7 @@ impl TaskStarter {
         M: Send + 'static,
         H: FnMut(Vec<M>) -> ControlFlow<()> + Send + 'static,
     {
+        counted_start();
         let (closing, panics) = (self.closing.clone(), self.panics.clone());
         match self.policy {
             BlockingPolicy::Inline => {
@@ -673,6 +711,9 @@ struct Telling {
     /// The part whose task panicked first among its own and those of the
     /// owners that tell it.
     first: OnceLock<&'static str>,
+    /// The name of the crash report of that first panic, when one was
+    /// written.
+    crash_report: OnceLock<Option<String>>,
     /// Its parent's, told too when both owners are the engine's own: a
     /// task under the engine's owner that belongs to no Run and no
     /// Connection is a part every Run shares (ADR 0148).
@@ -686,6 +727,7 @@ impl Panics {
             part: ENGINES_OWN,
             panicked: CancellationToken::new(),
             first: OnceLock::new(),
+            crash_report: OnceLock::new(),
             parent: None,
         }))
     }
@@ -699,6 +741,7 @@ impl Panics {
             part,
             panicked: CancellationToken::new(),
             first: OnceLock::new(),
+            crash_report: OnceLock::new(),
             parent: engines_own.then(|| self.clone()),
         }))
     }
@@ -722,7 +765,7 @@ impl Panics {
         self.log(crash_report);
         let mut told = Some(self);
         while let Some(panics) = told {
-            panics.told(self.part());
+            panics.told(self.part(), crash_report);
             told = panics.0.parent.as_ref();
         }
     }
@@ -733,7 +776,7 @@ impl Panics {
     /// every Run shares (ADR 0148).
     fn tell_alone(&self, crash_report: Option<&str>) {
         self.log(crash_report);
-        self.told(self.part());
+        self.told(self.part(), crash_report);
     }
 
     fn log(&self, crash_report: Option<&str>) {
@@ -748,8 +791,12 @@ impl Panics {
         );
     }
 
-    fn told(&self, part: &'static str) {
-        let _ = self.0.first.set(part);
+    fn told(&self, part: &'static str, crash_report: Option<&str>) {
+        // The report is kept before the token is cancelled, so whoever the
+        // cancellation wakes reads it.
+        if self.0.first.set(part).is_ok() {
+            let _ = self.0.crash_report.set(crash_report.map(str::to_owned));
+        }
         self.panicked().cancel();
     }
 }

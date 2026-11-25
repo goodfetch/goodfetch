@@ -16,6 +16,7 @@
 
 use goodfetch_test_client::HomeLayout;
 use goodfetch_test_support::{Mode, TestEnv, cli};
+use rstest::rstest;
 use serde_json::{Value, json};
 
 const COLLIE: &str = env!("CARGO_BIN_EXE_goodfetch-collie");
@@ -105,22 +106,24 @@ fn config_explain_security_lists_every_switchable_control_with_the_layer_that_se
     );
 }
 
-/// Writes an Operator policy that locks `security.audit_chain` on.
-fn locking_the_audit_chain(env: &TestEnv) {
+/// Writes an Operator policy that locks the control `security.<control>`
+/// on.
+fn locking(env: &TestEnv, control: &str) {
     let layout = HomeLayout::of(env.home());
     std::fs::create_dir_all(layout.per_major()).unwrap();
     std::fs::write(
         layout.operator_policy(),
-        "version = \"0.1\"\n\n[lock.security]\naudit_chain = true\n",
+        format!("version = \"0.1\"\n\n[lock.security]\n{control} = true\n"),
     )
     .unwrap();
 }
 
-/// What `run start` with the Audit log's chain switched off answered.
-fn started_unchained(env: &TestEnv) -> Value {
+/// What `run start` with the control `security.<control>` switched off
+/// answered.
+fn started_without(env: &TestEnv, control: &str) -> Value {
     let checked = cli(env, COLLIE)
-        .args(["run", "start", "--run-id", "unchained", "--json"])
-        .args(["--set", "security.audit_chain=false"])
+        .args(["run", "start", "--run-id", "unprotected", "--json"])
+        .args(["--set", &format!("security.{control}=false")])
         .mode(Mode::Attached)
         .run()
         .unwrap();
@@ -130,13 +133,24 @@ fn started_unchained(env: &TestEnv) -> Value {
 /// An Operator policy that locks the switch on refuses the run that
 /// switches it off with `setting_locked`, naming the lock; on a home
 /// whose policy does not lock it, the same run starts (positive control).
-/// Covers: story:4-75, error:setting_locked, setting:security.audit_chain, command:run.start
-#[test]
-fn an_operator_policy_that_locks_a_switch_refuses_a_run_that_switches_it_off() {
+/// Covers: story:4-75, error:setting_locked, command:run.start
+#[rstest]
+/// Covers: setting:security.audit_chain
+#[case::audit_chain("audit_chain")]
+/// Covers: story:4-67, setting:security.field_encryption
+#[case::field_encryption("field_encryption")]
+/// Covers: story:4-67, setting:security.secure_delete
+#[case::secure_delete("secure_delete")]
+fn an_operator_policy_that_locks_a_switch_refuses_a_run_that_switches_it_off(
+    #[case] control: &str,
+) {
     let (locked, unlocked) = (TestEnv::new(), TestEnv::new());
-    locking_the_audit_chain(&locked);
+    locking(&locked, control);
 
-    let (refused, started) = (started_unchained(&locked), started_unchained(&unlocked));
+    let (refused, started) = (
+        started_without(&locked, control),
+        started_without(&unlocked, control),
+    );
 
     assert_eq!(
         (
@@ -146,7 +160,7 @@ fn an_operator_policy_that_locks_a_switch_refuses_a_run_that_switches_it_off() {
         ),
         (
             &json!("setting_locked"),
-            &json!({ "key": "security.audit_chain", "value": true, "layer": "operator_policy" }),
+            &json!({ "key": format!("security.{control}"), "value": true, "layer": "operator_policy" }),
             &json!("running"),
         ),
         "{refused} {started}"

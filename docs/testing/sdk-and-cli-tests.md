@@ -157,7 +157,7 @@ Decided in [ADR 0069](../adr/0069-sdks-and-the-cli-are-tested-against-a-scripted
 - **Python:**
   - the test-support plugin's `anyio_backend` lists `asyncio` and `trio` explicitly, and a missing trio fails the session;
   - every Client conformance case runs on asyncio, on trio and through the sync API, through `@three_ways`;
-  - free-threaded builds run the whole suite with `PYTHON_GIL=0`, and fail if the GIL is on; the sync API's unit tests carry `sync_api`, so they also run under pytest-run-parallel, on every build. Every Linux platform in the Release suite; macOS and Windows in a nightly-only job.
+  - free-threaded builds run the whole suite with `PYTHON_GIL=0`, and fail if the GIL is on, but for LangChain's: `orjson`, which it needs, has no free-threaded build, so those lines install the uv workspace without its `langchain` group (`--no-group langchain`) and skip the tests that import it, saying why (issue 3738); the sync API's unit tests carry `sync_api`, so they also run under pytest-run-parallel, on every build. Every Linux platform in the Release suite; macOS and Windows in a nightly-only job.
 - **TypeScript runtimes:** Vitest runs on Node with the `forks` pool. The `smoke/*.mjs` scripts (only `node:assert`) each run spawned by a Vitest test:
   - on Bun and Deno 2, with an Attached engine and with a Daemon, covering the runtime-dependent Client conformance cases, whose IDs the script declares;
   - on `workerd` (Miniflare) and Vercel's edge runtime, against a Daemon only, since they cannot start a process. Deno 2's `daemon` run stands for Deno Deploy (ADR 0049).

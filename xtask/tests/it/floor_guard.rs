@@ -331,6 +331,12 @@ fn a_deleted_test_is_flagged_and_a_trailer_accepts_it(
     Some("#[rstest]\n#[case::one(2)]\nfn a(#[case] b: u8) {}\n"),
     None
 )]
+#[case::typescript_name_wrapped_to_its_own_line(
+    "a.test.ts",
+    "test(\"a\", async () => {});\n",
+    Some("test(\n  \"a\",\n  { tags: [\"story:1-31\"] },\n  async () => {},\n);\n"),
+    None
+)]
 fn a_kept_test_is_not_deleted(
     #[case] path: &str,
     #[case] before: &str,

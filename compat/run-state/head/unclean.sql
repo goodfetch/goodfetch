@@ -137,6 +137,23 @@ CREATE TABLE record_counts (
             dropped INTEGER NOT NULL,
             rejected INTEGER NOT NULL
         ) STRICT;
+CREATE VIRTUAL TABLE record_search USING fts5(
+            dataset UNINDEXED,
+            number UNINDEXED,
+            text,
+            content = '',
+            contentless_delete = 1,
+            contentless_unindexed = 1,
+            tokenize = 'unicode61 remove_diacritics 2 separators ''⁦⁧⁨⁩'''
+        );
+CREATE TABLE 'record_search_config'(k PRIMARY KEY, v) WITHOUT ROWID;
+INSERT INTO "record_search_config" VALUES('version',4);
+CREATE TABLE 'record_search_content'(id INTEGER PRIMARY KEY, c0, c1);
+CREATE TABLE 'record_search_data'(id INTEGER PRIMARY KEY, block BLOB);
+INSERT INTO "record_search_data" VALUES(1,X'');
+INSERT INTO "record_search_data" VALUES(10,X'00000000FF000001000000');
+CREATE TABLE 'record_search_docsize'(id INTEGER PRIMARY KEY, sz BLOB, origin INTEGER);
+CREATE TABLE 'record_search_idx'(segid, term, pgno, PRIMARY KEY(segid, term)) WITHOUT ROWID;
 CREATE TABLE records (
             dataset TEXT NOT NULL,
             number INTEGER NOT NULL,

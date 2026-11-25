@@ -164,7 +164,7 @@ pub(in crate::executable) fn run(
         Ok(tokens) => tokens,
         Err(exit) => return exit,
     };
-    let export = match export(&configured, identity, dependencies.clock) {
+    let export = match export(&configured, engine, dependencies.clock) {
         Ok(export) => export,
         Err(exit) => return exit,
     };
@@ -319,15 +319,19 @@ fn tokens(configured: &Configured, files: &DaemonFiles) -> Result<Tokens, ExitCo
     Ok(Tokens { token, ops_token })
 }
 
-/// The metrics' export `configured` asks for.
-fn export(configured: &Configured, identity: &Identity, clock: Clock) -> Result<Export, ExitCode> {
+/// The metrics' export `configured` asks for, of `engine`'s Product, its
+/// collector reading its client certificate's key through `engine`'s
+/// driver.
+fn export(configured: &Configured, engine: &Engine, clock: Clock) -> Result<Export, ExitCode> {
     Export::start(
         configured.ops.is_some(),
-        configured
-            .otlp_metrics
-            .as_deref()
-            .map(|endpoint| (endpoint, ToCollector::new(&configured.settings, clock))),
-        identity.product,
+        configured.otlp_metrics.as_deref().map(|endpoint| {
+            (
+                endpoint,
+                ToCollector::new(&configured.settings, clock, engine.driver_slot()),
+            )
+        }),
+        engine.identity().product,
     )
     .map_err(|error| {
         tracing::error!(code = SETTING_INVALID.name, %error, "the metrics' export cannot start");

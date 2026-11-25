@@ -74,6 +74,7 @@ mod huge_pages;
 mod human_output;
 #[cfg(unix)]
 mod identified;
+mod init;
 mod install_docs;
 mod invalid_calls;
 mod journeys;
@@ -105,7 +106,10 @@ mod private_ranges;
 mod proxy;
 #[cfg(unix)]
 mod proxy_limits;
+mod recipe;
 mod relay_fingerprint;
+#[cfg(any(target_os = "macos", windows))]
+mod renderer_sandbox;
 mod request_kinds;
 mod request_secrets;
 mod run;

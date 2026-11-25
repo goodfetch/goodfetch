@@ -6,10 +6,10 @@
 //! action; and editable too for `fill`. A click or a key press that starts
 //! a navigation of the page answers once that navigation's document
 //! committed, or once it ended without one (ADR 0085), within
-//! `timeout.navigation`, the page's turn and pointer let go of meanwhile. Each check and the arming of the
-//! interception listener are one round trip into the guard's isolated
-//! world, and stability is waited for only while an animation or a
-//! transition runs. The locator is resolved again at every check, so a
+//! `timeout.navigation`, the page's turn, and the pointer with it, let go
+//! of meanwhile. Each check and the arming of the interception listener are
+//! one round trip into the guard's isolated world, and stability is waited
+//! for only while an animation or a transition runs. The locator is resolved again at every check, so a
 //! re-render that replaces its element changes nothing. A target live
 //! hiding hid has its rule lifted for the Session, and is looked at again
 //! at once (ADR 0047). At the deadline the last observation decides: still
@@ -45,8 +45,12 @@ use goodfetch_protocol::settings::SettingLimit;
 use serde::Deserialize;
 
 use self::check::{CHECK, Seen, Step, Target};
-use crate::driver::{PageDriver, Turn, Unanswered};
+use crate::cdp::CdpPage;
+use crate::driver::PageDriver;
+use crate::errors::Unanswered;
 use crate::hiding::Hidden;
+use crate::page_owner::PageOwner;
+use crate::page_reads::Turn;
 
 /// The disarm, which says where the gesture landed.
 const DISARM: &str = include_str!("guard/disarm.js");
@@ -139,6 +143,8 @@ pub(crate) struct Request<'a> {
     /// What hides elements on the page, which the guard lifts from the
     /// target: its live hiding and the Consent prompt runner's rules.
     pub(crate) hiding: Hidden<'a>,
+    /// The page's owner, which grants the action its turn (ADR 0146).
+    pub(crate) owner: &'a PageOwner,
     /// The page's send window, which the action's first input marks before
     /// it goes out (ADR 0106).
     pub(crate) sent: SentMark<'a>,
@@ -188,7 +194,9 @@ enum Landed {
 ///
 /// # Cancel safety
 ///
-/// Dropping the future sends no further input; an interception listener
+/// Dropping the future sends no further input, and leaves no key and no
+/// button down: a gesture's input is one burst, sent whole or not at all. An
+/// interception listener
 /// armed for a gesture never sent removes itself at the next check, or
 /// after 10 s.
 pub(crate) async fn act(
@@ -229,9 +237,18 @@ async fn attempt(page: &PageDriver, request: Request<'_>, clock: &Clock) -> Resu
     let page = &page.counting(request.action.commands());
     let started = clock.now();
     let end = started + request.window.left();
-    let mut turn = page.turn(request.operation).await;
+    let mut turn = Turn::granted(
+        CdpPage::of(page),
+        request.owner.worlds().clone(),
+        request.operation,
+        request.owner.turn().await?,
+    );
     let mut last = Seen::waiting(Step::Attached, "the action waited its turn on the page");
     loop {
+        // The pointer is the turn's from the check that arms the listener
+        // to the disarm, and lent between two checks to the Consent prompt
+        // runner's clicks.
+        turn.lend_pointer().await;
         let remaining = end.saturating_duration_since(clock.now());
         if remaining.is_zero() {
             let elapsed = clock.now() - started + request.window.spent;
@@ -247,10 +264,6 @@ async fn attempt(page: &PageDriver, request: Request<'_>, clock: &Clock) -> Resu
             request.action.kind(),
             remaining.min(SLICE),
         );
-        // Held from the check that arms the listener to the disarm, and let
-        // go of when the target is not ready, so the Consent prompt
-        // runner's clicks come between two checks.
-        let gesture = page.gesture().await;
         let seen = match turn.check(CHECK, argument).await {
             Ok(value) => Seen::read(&value).map_err(|error| unreadable(&value, &error))?,
             Err(Unanswered::WorldGone) => continue,
@@ -264,14 +277,11 @@ async fn attempt(page: &PageDriver, request: Request<'_>, clock: &Clock) -> Resu
                     // The disarm is the round trip into the renderer after
                     // the input that a key press makes with `settled`.
                     // Boxed, as the wait below: the action's future stays small.
-                    let landed = Box::pin(watch.during(async {
-                        turn.click(x, y).await?;
-                        landed(&mut turn).await
-                    }))
-                    .await?;
+                    let clicked = click(page, &mut turn, (x, y));
+                    let landed = Box::pin(watch.during(clicked)).await?;
                     match landed {
                         Landed::Landed => {
-                            drop((gesture, turn));
+                            drop(turn);
                             Box::pin(page.settle_gesture(watch)).await;
                             return Ok(());
                         }
@@ -291,19 +301,19 @@ async fn attempt(page: &PageDriver, request: Request<'_>, clock: &Clock) -> Resu
                 }
                 Action::Fill(value) => {
                     request.sent.mark(request.operation).await?;
-                    return fill(&mut turn, value).await;
+                    return fill(page, &mut turn, value).await;
                 }
                 Action::Press(events) => {
                     request.sent.mark(request.operation).await?;
                     let mut watch = page.watch_gesture();
                     Box::pin(watch.during(async {
-                        for event in events {
-                            turn.key(event).await?;
-                        }
+                        CdpPage::of(page)
+                            .press_keys(events, turn.gesture_call())
+                            .await?;
                         settled(&mut turn).await
                     }))
                     .await?;
-                    drop((gesture, turn));
+                    drop(turn);
                     Box::pin(page.settle_gesture(watch)).await;
                     return Ok(());
                 }
@@ -326,7 +336,6 @@ async fn attempt(page: &PageDriver, request: Request<'_>, clock: &Clock) -> Resu
             }
             waiting @ Seen::Waiting { .. } => last = waiting,
         }
-        drop(gesture);
     }
 }
 
@@ -360,7 +369,7 @@ pub(crate) enum Readiness {
 
 /// Checks `element` for a click, waiting in the page for at most `slice`;
 /// a ready element has the guard's listener armed. The caller holds the
-/// page's [`PageDriver::gesture`] from this check to [`landed_on`].
+/// page's lent pointer from this check to [`landed_on`].
 pub(crate) async fn check_element(
     page: &PageDriver,
     element: &Element<'_>,
@@ -406,16 +415,28 @@ pub(crate) async fn landed_on(page: &PageDriver, element: &Element<'_>) -> bool 
 /// input before the events its handling sent, such as the main frame's
 /// request to navigate, so those arrive before this answer (Playwright's
 /// input epilogue). A document gone with the input sent them already.
-async fn settled(turn: &mut Turn<'_>) -> Result<(), CallError> {
+async fn settled(turn: &mut Turn) -> Result<(), CallError> {
     match turn.call(SETTLED, serde_json::Value::Null).await {
         Ok(_) | Err(Unanswered::WorldGone) => Ok(()),
         Err(Unanswered::Failed(error)) => Err(error),
     }
 }
 
+/// Clicks at the point `(x, y)`, then reads where the click landed.
+async fn click(
+    page: &PageDriver,
+    turn: &mut Turn,
+    (x, y): (f64, f64),
+) -> Result<Landed, CallError> {
+    CdpPage::of(page)
+        .pointer_click(x, y, turn.gesture_call())
+        .await?;
+    landed(turn).await
+}
+
 /// Where the gesture just sent landed; a document gone with it means it
 /// landed, since nothing was left to cancel it.
-async fn landed(turn: &mut Turn<'_>) -> Result<Landed, CallError> {
+async fn landed(turn: &mut Turn) -> Result<Landed, CallError> {
     match turn.call(DISARM, serde_json::Value::Null).await {
         Ok(value) => Landed::deserialize(&value).map_err(|error| unreadable(&value, &error)),
         Err(Unanswered::WorldGone) => Ok(Landed::Landed),
@@ -425,17 +446,16 @@ async fn landed(turn: &mut Turn<'_>) -> Result<Landed, CallError> {
 
 /// Replaces the selected text of the focused field with `value`, as typed
 /// text arrives; an empty value deletes it.
-async fn fill(turn: &mut Turn<'_>, value: &str) -> Result<(), CallError> {
+async fn fill(page: &PageDriver, turn: &mut Turn, value: &str) -> Result<(), CallError> {
     if !value.is_empty() {
         return turn.insert_text(value).await;
     }
     let delete = keys::events("Delete").map_err(|unknown| {
         CallError::protocol(ProtocolFailure::InternalError, unknown.to_string())
     })?;
-    for event in &delete {
-        turn.key(event).await?;
-    }
-    Ok(())
+    CdpPage::of(page)
+        .press_keys(&delete, turn.gesture_call())
+        .await
 }
 
 /// `invalid_params` for `selector`, which the page does not parse as CSS,
@@ -463,7 +483,7 @@ struct ValueSet {
 ///
 /// `invalid_params` for a value the input does not take, which keeps its
 /// own.
-async fn set_picked(turn: &mut Turn<'_>, value: &str) -> Result<bool, CallError> {
+async fn set_picked(turn: &mut Turn, value: &str) -> Result<bool, CallError> {
     let answer = match turn.call(SET_VALUE, serde_json::json!(value)).await {
         Ok(answer) => answer,
         Err(Unanswered::WorldGone) => return Ok(false),
@@ -529,6 +549,8 @@ pub(crate) struct Wait<'a> {
     pub(crate) window: Option<Window>,
     /// The Client's form, in which its errors show targets.
     pub(crate) form: Form,
+    /// The owner of its Page, which grants its reads.
+    pub(crate) owner: &'a PageOwner,
 }
 
 /// Waits on `page` until the matches of `wait`'s locator are as it waits
@@ -561,6 +583,12 @@ pub(crate) async fn wait(
         observed: "the page was not checked yet".to_owned(),
         matches: Vec::new(),
     };
+    // One ask of the Page's owner grants every check of the wait.
+    let checking = wait
+        .owner
+        .reads(CdpPage::of(page))
+        .await?
+        .counting(Row::ActionCheckCommands);
     loop {
         let remaining = end.map_or(SLICE, |end| end.saturating_duration_since(clock.now()));
         if remaining.is_zero()
@@ -579,11 +607,7 @@ pub(crate) async fn wait(
         // Each of a wait's checks makes the guard's world again, a command of
         // its own (X11).
         page.work().count(Row::ActionScriptSends);
-        let checking = page.counting(Row::ActionCheckCommands);
-        let Some(value) = checking
-            .read_in_page(CHECK, argument, wait.operation)
-            .await?
-        else {
+        let Some(value) = checking.in_page(CHECK, argument, wait.operation).await? else {
             // The document went, or is not yet: checked again in the next.
             clock.sleep(remaining.min(RECHECK)).await;
             continue;

@@ -10,7 +10,7 @@ use std::sync::{Arc, Mutex};
 
 use goodfetch_clean_up_rules::removal::HostCache;
 use goodfetch_counted_work::Row;
-use goodfetch_engine::runs::Run;
+use goodfetch_engine::run_identity::RunIdentity;
 use goodfetch_engine::settings::{RunSettings, Values, value_as};
 use goodfetch_protocol::governor::GovernorLevel;
 use goodfetch_protocol::run::RunId;
@@ -18,7 +18,7 @@ use goodfetch_protocol::settings::FILTER_LISTS_HOST_CACHE;
 use tokio_util::sync::CancellationToken;
 
 use super::clean_up::effective;
-use super::lock;
+use super::{RunPowers, lock};
 
 /// The host cache of each live Run, held until the Run ends.
 #[derive(Default)]
@@ -34,22 +34,24 @@ struct Held {
 impl HostCaches {
     /// `run`'s host cache, made on its first page, bounded by its
     /// `filter_lists.host_cache`.
-    pub(super) fn of(&self, run: &Run) -> Arc<HostCache> {
+    pub(super) fn of(&self, run: &RunPowers) -> Arc<HostCache> {
+        let identity = run.identity();
         let mut held = lock(&self.0);
         held.retain(|_, held| !held.live.is_cancelled());
-        if let Some(held) = held.get(run.id()) {
+        if let Some(held) = held.get(identity.id()) {
             return Arc::clone(&held.cache);
         }
-        let cache = Arc::new(HostCache::new(bound(run)));
+        let cache = Arc::new(HostCache::new(bound(identity)));
+        let live = identity.owner().child_token();
         // A Run already ended keeps nothing for a later page of its own.
-        if run.cancellation().is_cancelled() {
+        if live.is_cancelled() {
             return cache;
         }
         watch(run, &cache);
         held.insert(
-            run.id().clone(),
+            identity.id().clone(),
             Held {
-                live: run.cancellation().clone(),
+                live,
                 cache: Arc::clone(&cache),
             },
         );
@@ -58,7 +60,7 @@ impl HostCaches {
 }
 
 /// `run`'s `filter_lists.host_cache`; its catalog default without settings.
-fn bound(run: &Run) -> u64 {
+fn bound(run: &RunIdentity) -> u64 {
     let resolved = run.settings().map(RunSettings::resolved);
     value_as(
         &FILTER_LISTS_HOST_CACHE,
@@ -69,12 +71,13 @@ fn bound(run: &Run) -> u64 {
 /// Empties `cache` at each governor sample of `run` that finds memory
 /// critical, and counts what it holds into `run`'s counted work as the Run
 /// ends: its end waits for its tasks, so the count lands before its report.
-fn watch(run: &Run, cache: &Arc<HostCache>) {
-    let mut samples = run.governor().samples();
-    let ending = run.cancellation().clone();
-    let work = run.metrics().counted_work().clone();
+fn watch(run: &RunPowers, cache: &Arc<HostCache>) {
+    let identity = run.identity();
+    let mut samples = run.governor.share().samples();
+    let ending = identity.owner().child_token();
+    let work = identity.metrics().counted_work().clone();
     let cache = Arc::clone(cache);
-    run.spawn(async move {
+    identity.spawn(async move {
         loop {
             tokio::select! {
                 () = ending.cancelled() => break,

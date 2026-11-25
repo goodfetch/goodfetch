@@ -1341,6 +1341,9 @@ pub(crate) struct Committed<'a> {
     /// Whether the crawl keeps Records, its `dataset.records`: off, the
     /// commit writes none and reads nothing for one (ADR 0138).
     pub(crate) keeps_records: bool,
+    /// Whether the Records it keeps enter the full-text index, its
+    /// `dataset.search.index` (ADR 0138).
+    pub(crate) indexes_records: bool,
     /// The Clean-up rules its Run holds to, which its Records' Provenance
     /// names.
     pub(crate) clean_up_rules: &'a CleanUpRules,
@@ -1387,6 +1390,7 @@ pub(crate) fn commit(
         not_added,
         work,
         keeps_records,
+        indexes_records,
         clean_up_rules,
     } = committed;
     if !still_leased(connection, id, lease_epoch)? {
@@ -1397,10 +1401,9 @@ pub(crate) fn commit(
             connection,
             id,
             (records, fetched, fields),
-            masks,
+            (masks, work, indexes_records),
             clean_up_rules,
             ended_at,
-            work,
         )?
     } else {
         Vec::new()
@@ -1433,15 +1436,16 @@ pub(crate) fn commit(
 
 /// Commits the attempt `id`'s Records, each numbered in its Dataset and
 /// naming its Provenance: its request, how its document was fetched and
-/// the Clean-up rules the Run holds to; answers what each Dataset counted.
+/// the Clean-up rules the Run holds to, under the Run's masks, counted in
+/// `work` and indexed for search when `index`; answers what each Dataset
+/// counted.
 fn commit_records(
     connection: &Connection,
     id: &str,
     (records, fetched, fields): (&Checked, &Fetched, &FieldsRead),
-    masks: &Masks,
+    (masks, work, index): (&Masks, &CountedWork, bool),
     clean_up_rules: &CleanUpRules,
     ended_at: SystemTime,
-    work: &CountedWork,
 ) -> rusqlite::Result<Vec<DatasetRecords>> {
     let url = url_of(connection, id)?.ok_or(rusqlite::Error::QueryReturnedNoRows)?;
     let clean_up_rules = clean_up_rules.digest(connection)?;
@@ -1465,6 +1469,7 @@ fn commit_records(
         provenance: &provenance,
         masks,
         work,
+        index,
     };
     goodfetch_dataset::commit(connection, committing, records)
 }

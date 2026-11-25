@@ -42,6 +42,7 @@ from goodfetch_collie_client.product_connection import (
 from goodfetch_collie_client.raw_call import raw_params
 from goodfetch_collie_client.run import AsyncRun, Run
 from goodfetch_collie_client.run_view import RunView
+from goodfetch_collie_client.schedules import AsyncSchedules, Schedules
 
 if TYPE_CHECKING:
     import os
@@ -90,6 +91,15 @@ class AsyncCollie(AsyncConnection):
     def __init__(self, connection: ClientConnection) -> None:
         """Wraps an open Connection."""
         self._connection = connection
+        self._schedules = AsyncSchedules(connection)
+
+    @property
+    def schedules(self) -> AsyncSchedules:
+        """The Schedules of the engine's major: create, list and get each one.
+
+        Spec 589. Reached without a round trip.
+        """
+        return self._schedules
 
     @staticmethod
     def connect(
@@ -440,9 +450,18 @@ class Collie(Connection):
         """Takes the private loop and the open Connection it drives there."""
         self._loop = loop
         self._connection = connection
+        self._schedules = Schedules(loop, connection)
         self._close_lock = threading.Lock()
         self._closed = False
         self._close_failure: Exception | None = None
+
+    @property
+    def schedules(self) -> Schedules:
+        """The Schedules of the engine's major, as `AsyncCollie.schedules` are.
+
+        Reached without a round trip.
+        """
+        return self._schedules
 
     @staticmethod
     def connect(

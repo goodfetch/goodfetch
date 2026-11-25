@@ -177,8 +177,8 @@ fn no_extracted_file_holds_the_online_origin() {
     assert_eq!(holding, Vec::<std::path::PathBuf>::new());
 }
 
-/// The macro's hidden line follows the crate's attributes, which a doctest
-/// takes only first.
+/// The macro's hidden line follows the crate's attributes, its inner doc
+/// comments among them, which a doctest takes only first.
 #[test]
 fn rust_origin_macro_follows_the_crate_attributes() {
     let (workspace, outcome) = extracted_with("rust-attributes.md", "docs/rust-attributes.md");
@@ -186,7 +186,7 @@ fn rust_origin_macro_follows_the_crate_attributes() {
     assert_eq!(outcome.code, 0, "{}", outcome.stdout);
     assert_eq!(
         workspace.read_text(&sample("rust/collie/docs/rust-attributes.md")),
-        "```rust\n#![deny(warnings)]\n# macro_rules! goodfetch_docs_origin { ($path:literal) => { concat!(env!(\"GOODFETCH_DOCS_ORIGIN\"), $path) }; }\nlet catalog = goodfetch_docs_origin!(\"/catalog\");\n```\n"
+        "```rust\n#![deny(warnings)]\n//! The sample's crate documentation, an attribute of the crate too.\n# macro_rules! goodfetch_docs_origin { ($path:literal) => { concat!(env!(\"GOODFETCH_DOCS_ORIGIN\"), $path) }; }\nlet catalog = goodfetch_docs_origin!(\"/catalog\");\n```\n"
     );
 }
 

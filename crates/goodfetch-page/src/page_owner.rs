@@ -66,12 +66,45 @@ pub(crate) struct PageOwner {
     work: CountedWork,
 }
 
-/// The Page's state its owner holds, one part at a time as spec #2256
-/// moves it from the engine-wide tables.
+/// The Page's state its owner holds, in two parts (ADR 0146): what belongs
+/// to the browser's page, which lives as long as it does, and what belongs
+/// to the request it serves, which a release replaces.
 pub(crate) struct PageParts {
+    /// What belongs to the browser's page.
+    pub(crate) browser: BrowserPagePart,
+    /// What belongs to the request it serves now.
+    pub(crate) request: RequestPart,
+    /// Its Run's identity that starts tasks on its owner, as its other
+    /// parts start theirs, such as a call's reading of robots.txt.
+    pub(crate) tasks: RunIdentity,
+}
+
+/// What belongs to the browser's page (ADR 0146), which a replaced request
+/// part leaves as it is: the engine's own work in it, the consent walls it
+/// found, its hiding and its worlds. Its subscription, what the engine
+/// enabled on it and its out-of-process frames are the page's driver's and
+/// its owner's tasks', which a replacement leaves too.
+pub(crate) struct BrowserPagePart {
+    /// The consent walls the Consent prompt runner leaves in it, and
+    /// whether its first pass on its document goes on.
+    pub(crate) walls: Walls,
+    /// Its hiding sheets and live hiding's rules in them.
+    pub(crate) hiding: Hiding,
+    /// The worlds the engine keeps in its documents.
+    pub(crate) worlds: PageWorlds,
+}
+
+/// What belongs to the request the Page serves (ADR 0146), each part of
+/// which [`RequestPart::replace_request`] replaces in place, so that every
+/// handle of the Page reaches the next request's. Its page value and lease
+/// check are its driver's and its life's, which the Sessions table
+/// replaces with it.
+#[derive(Clone)]
+pub(crate) struct RequestPart {
     /// Its events: the requests and responses it follows, its waiters, its
     /// `page.on` listeners, what a body read needs and the arming of
-    /// `Runtime`.
+    /// `Runtime`. Its following of the browser's page stays across a
+    /// replacement.
     pub(crate) events: PageEvents,
     /// Its dialog handlers, and the failure one left.
     pub(crate) dialogs: PageDialogs,
@@ -80,16 +113,19 @@ pub(crate) struct PageParts {
     /// Its side of the interception: its Routes, its Filter lists' state,
     /// its handlers' failures and its pending navigation.
     pub(crate) interception: PageInterception,
-    /// The consent walls the Consent prompt runner leaves in it, and
-    /// whether its first pass on its document goes on.
-    pub(crate) walls: Walls,
-    /// Its hiding sheets and live hiding's rules in them.
-    pub(crate) hiding: Hiding,
-    /// The worlds the engine keeps in its documents.
-    pub(crate) worlds: PageWorlds,
-    /// Its Run's identity that starts tasks on its owner, as its other
-    /// parts start theirs, such as a call's reading of robots.txt.
-    pub(crate) tasks: RunIdentity,
+}
+
+impl RequestPart {
+    /// Replaces it with the next request's, `next`: its events and dialogs
+    /// naming `next`, its earlier request's listeners, dialog handlers and
+    /// Routes ending, its init scripts removed, the failure a route
+    /// handler left and its pending navigation gone.
+    fn replace_request(&self, next: &PageId) {
+        self.events.replace_request(next.clone());
+        self.dialogs.replace_request(next.clone());
+        self.init_scripts.replace_request(next.clone());
+        self.interception.replace_request(next.clone());
+    }
 }
 
 /// The open Pages' owners, by their ID: the index from ID to handle (ADR
@@ -169,39 +205,44 @@ impl PageOwner {
         }
     }
 
+    /// What belongs to the request its Page serves now.
+    pub(crate) fn request_part(&self) -> &RequestPart {
+        &self.parts.request
+    }
+
     /// Its Page's events.
     pub(crate) fn events(&self) -> &PageEvents {
-        &self.parts.events
+        &self.parts.request.events
     }
 
     /// Its Page's dialog handlers.
     pub(crate) fn dialogs(&self) -> &PageDialogs {
-        &self.parts.dialogs
+        &self.parts.request.dialogs
     }
 
     /// Its Page's init scripts.
     pub(crate) fn init_scripts(&self) -> &InitScripts {
-        &self.parts.init_scripts
+        &self.parts.request.init_scripts
     }
 
     /// Its Page's side of the interception.
     pub(crate) fn interception(&self) -> &PageInterception {
-        &self.parts.interception
+        &self.parts.request.interception
     }
 
     /// Its Page's consent walls.
     pub(crate) fn consent_walls(&self) -> &Walls {
-        &self.parts.walls
+        &self.parts.browser.walls
     }
 
     /// Its Page's hiding.
     pub(crate) fn hiding(&self) -> &Hiding {
-        &self.parts.hiding
+        &self.parts.browser.hiding
     }
 
     /// The worlds the engine keeps in its Page's documents.
     pub(crate) fn worlds(&self) -> &PageWorlds {
-        &self.parts.worlds
+        &self.parts.browser.worlds
     }
 
     /// Its Run's identity that starts tasks on it, which its end waits for.
@@ -337,19 +378,12 @@ impl PageOwners {
 
     /// The open Page `page_id` serves its next request as `next`, its
     /// owner's handle for it `owner`: the index names it by `next` alone,
-    /// its request part is replaced, its events and dialogs naming `next`,
-    /// its earlier request's listeners, dialog handlers and routes ending,
-    /// its init scripts removed, the failure a route handler left and its
-    /// pending navigation gone, and a panic of one of its tasks names
-    /// `next`.
+    /// its request part is replaced ([`RequestPart::replace_request`]),
+    /// its browser-page part left as it is, and a panic of one of its
+    /// tasks names `next`.
     pub(crate) fn renamed(&self, page_id: &PageId, next: PageId, owner: PageOwner) {
         let request = Arc::clone(&owner.request);
-        let (events, dialogs, scripts, interception) = (
-            owner.events().clone(),
-            owner.dialogs().clone(),
-            owner.init_scripts().clone(),
-            owner.interception().clone(),
-        );
+        let part = owner.request_part().clone();
         let earlier = {
             let mut held = self.held();
             let earlier = held.remove(page_id);
@@ -357,10 +391,7 @@ impl PageOwners {
             earlier
         };
         drop(earlier);
-        events.replace_request(next.clone());
-        dialogs.replace_request(next.clone());
-        scripts.replace_request(next.clone());
-        interception.replace_request(next.clone());
+        part.replace_request(&next);
         request.send_replace(next);
     }
 

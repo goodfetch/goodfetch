@@ -53,7 +53,7 @@ use crate::init_scripts::InitScripts;
 use crate::interception::{OnDocument, PageInterception};
 use crate::page_children::{self, OnChild};
 use crate::page_events::{self, PageEvents, Refusals};
-use crate::page_owner::{PageOwner, PageParts};
+use crate::page_owner::{BrowserPagePart, PageOwner, PageParts, RequestPart};
 use crate::page_value::{Observer, PageValue, Reader};
 use crate::page_worlds::PageWorlds;
 use crate::pool::InBrowser;
@@ -138,13 +138,17 @@ impl TakenIn {
         (
             in_browser,
             PageParts {
-                events,
-                dialogs,
-                init_scripts,
-                interception,
-                walls: self.walls.clone(),
-                hiding,
-                worlds: PageWorlds::default(),
+                browser: BrowserPagePart {
+                    walls: self.walls.clone(),
+                    hiding,
+                    worlds: PageWorlds::default(),
+                },
+                request: RequestPart {
+                    events,
+                    dialogs,
+                    init_scripts,
+                    interception,
+                },
                 tasks: self.tasks.clone(),
             },
         )

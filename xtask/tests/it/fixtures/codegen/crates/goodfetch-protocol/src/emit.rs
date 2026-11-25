@@ -64,6 +64,7 @@ pub fn emit() -> Emitted {
                 "schema": { "type": "object" },
             }],
             "connection": { "hello": { "params": hello } },
+            "plugin": { "manifest": { "type": "object" } },
             "documents": {
                 "result_document": result_document,
                 "case_log_entry": case_log_entry,

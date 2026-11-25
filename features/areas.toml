@@ -219,12 +219,12 @@ number = 7
 kind = "error"
 prefix = "hook_"
 
-# A process Plugin that crashed, and one the host cannot confine (ADR 0033,
-# spec #596).
+# A process Plugin refused at its `hello`, one that crashed, and one the
+# host cannot confine (ADR 0033, spec #596).
 [[area]]
 number = 7
 kind = "error"
-prefix = "plugin_crashed"
+prefix = "plugin_"
 
 [[area]]
 number = 7

@@ -15502,6 +15502,26 @@
     },
     {
       "arrived_in": "0.1",
+      "description": "The Plugin's answer to `hello` differs from its approved manifest in its kinds, its Hook stages, its plugin protocol range or its network level, so the engine stops the instance before any call. Approve the Plugin's current manifest again, or install the version that was approved.",
+      "exit_code": null,
+      "group": "unavailable",
+      "json_rpc_class": -32006,
+      "name": "plugin_manifest_mismatch",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "The Plugin and the engine share no plugin protocol version, which the reply to `hello` says before any other message. Upgrade the older side: the Plugin, or the engine.",
+      "exit_code": null,
+      "group": "unavailable",
+      "json_rpc_class": -32006,
+      "name": "plugin_protocol_unsupported",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
       "description": "The Operator policy's digest changed since it was read, as by a hand edit, so nothing was written; `fix` says to read it again.",
       "details": {
         "$ref": "#/$defs/PolicyConflictDetails"

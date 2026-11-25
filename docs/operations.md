@@ -1,6 +1,6 @@
 ---
 title: Operations
-description: Find the Daemon's logs, bound them on each deployment target, see when a new Limit holds a Run already going, and turn off the age notice.
+description: Find the Daemon's logs, bound them on each deployment target, name EKS on Fargate to Chromium's sandbox probe, see when a new Limit holds a Run already going, and turn off the age notice.
 products: [collie]
 ---
 
@@ -45,6 +45,22 @@ What `daemon run` writes to stdout, and what a Lambda function's or a Cloud Run 
 | Kubernetes | The node's container log files | The kubelet rotates each container's log at 10 MiB and keeps 5 files by default (`containerLogMaxSize`, `containerLogMaxFiles`). This release ships no Helm chart: run `daemon run` in a pod of your own, whose stdout the kubelet rotates; the chart, which will rely on that rotation, comes in a later release. Read the logs with `kubectl logs`. |
 | Cloud Run | Cloud Logging | Cloud Logging keeps a log bucket's entries for its retention period, 30 days for the `_Default` bucket. Change the bucket's retention to keep less or more. |
 | Lambda | Amazon CloudWatch Logs | A function's log group keeps its entries forever unless you set its retention. Set a retention period on the log group. |
+
+## Chromium's sandbox on EKS on Fargate
+
+Some platforms allow no browser sandbox and offer no fix: AWS Lambda, Fargate under ECS or EKS, and Azure Container Apps. On those, the engine switches `security.browser_sandbox` off by default, and every Run reports it as a switched-off control in its results and the Audit log. Lambda, ECS on Fargate and Azure Container Apps set a variable the engine reads.
+
+EKS on Fargate sets no such variable. Instead, EKS labels each pod it runs on Fargate with its Fargate profile (`eks.amazonaws.com/fargate-profile`). Pass that label to the Daemon's container through the downward API:
+
+```yaml
+env:
+  - name: GOODFETCH_EKS_FARGATE_PROFILE
+    valueFrom:
+      fieldRef:
+        fieldPath: metadata.labels['eks.amazonaws.com/fargate-profile']
+```
+
+On a node of any other kind the label is absent and the value is empty. `GOODFETCH_EKS_FARGATE_PROFILE` is the one deployment variable that may be empty, so the same pod spec works on every node. Without it, a pod on Fargate looks like any pod under Kubernetes' `RuntimeDefault` seccomp profile, and every browser launch is refused with `browser_sandbox_unavailable`. Don't let a browser without a sandbox open sites you don't trust.
 
 ## When a Limit holds a Run already going
 

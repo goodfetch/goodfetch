@@ -17,8 +17,8 @@ use goodfetch_protocol::settings::{ConfigExplainParams, SettingsExplanation};
 
 pub use crawl::{Crawl, CrawlContext, CrawlRun, StartCrawl};
 pub use goodfetch_collie_client::blocking::{
-    Call, Connection, EventIter, Exchange, HandlerlessStart, Locator, Page, Query, RawCall,
-    Response, Run, Session, Start,
+    Call, Connection, CreatedSchedule, EventIter, Exchange, HandlerlessStart, Locator, Page, Query,
+    RawCall, Response, Run, Schedule, Schedules, Session, Start,
 };
 
 use crate::crawl_requests::CrawlRequests;
@@ -152,6 +152,13 @@ impl Foxhound {
         self.connection.open_run(run_id)
     }
 
+    /// The connection's Schedules, as [`crate::Foxhound::schedules`]'s,
+    /// reached without I/O.
+    #[must_use]
+    pub fn schedules(&self) -> Schedules {
+        self.connection.schedules()
+    }
+
     /// Shows each setting's effective value, the layer that set it and the
     /// layer that locked it, from the built-in defaults, the Operator
     /// policy, user configuration, the project configuration given and the
@@ -195,6 +202,10 @@ impl Connection for Foxhound {
 
     fn open_run(&self, run_id: &RunId) -> Result<RunView, Error> {
         Foxhound::open_run(self, run_id)
+    }
+
+    fn schedules(&self) -> Schedules {
+        Foxhound::schedules(self)
     }
 
     fn call(&self, operation: &str) -> RawCall {

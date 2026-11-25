@@ -2903,6 +2903,144 @@ only = "Rust's `CrawlRun` has no constructor at all."
 words = ["crawl", "run"]
 form = "read"
 
+[[member]]
+package = "@goodfetch/collie-client"
+receiver = "Connection"
+member = "schedules"
+entry = "none"
+reason = "The Schedules of the engine's major, whose methods serve the `schedule` operations on no Schedule, reached without a round trip (spec 589)."
+words = ["schedules"]
+form = "read"
+
+[[member]]
+package = "@goodfetch/collie"
+receiver = "Collie"
+member = "schedules"
+entry = "none"
+reason = "The Schedules of the engine's major, reached without a round trip (spec 589); `Connection.schedules`'s member under the same name."
+words = ["schedules"]
+form = "read"
+
+[[member]]
+package = "@goodfetch/foxhound"
+receiver = "Foxhound"
+member = "schedules"
+entry = "none"
+reason = "The Schedules of the engine's major, reached without a round trip (spec 589); `Connection.schedules`'s member under the same name."
+words = ["schedules"]
+form = "read"
+
+[[member]]
+package = "@goodfetch/collie-client/runtime"
+receiver = "ClientConnection"
+member = "schedules"
+entry = "none"
+reason = "What a Product's Connection hands its program as `schedules` (spec 589)."
+words = ["schedules"]
+form = "runtime"
+
+[[member]]
+package = "@goodfetch/collie-client"
+receiver = "(module)"
+member = "Schedules"
+entry = "none"
+reason = "A Connection's Schedules: `connection.schedules`, whose methods serve the `schedule` operations on no Schedule (spec 589)."
+words = ["schedules"]
+form = "type"
+
+[[member]]
+package = "@goodfetch/collie-client"
+receiver = "Schedules"
+member = "constructor"
+entry = "none"
+reason = "A Connection opens its Schedules; a program never constructs one."
+only = "Python's and Rust's `Schedules` have no constructor a program calls."
+words = ["schedules"]
+form = "read"
+
+[[member]]
+package = "@goodfetch/collie-client"
+receiver = "Schedules"
+member = "create"
+entry = "schedule.create"
+words = ["create"]
+form = "round_trip"
+
+[[member]]
+package = "@goodfetch/collie-client"
+receiver = "Schedules"
+member = "list"
+entry = "schedule.list"
+words = ["list"]
+form = "round_trip"
+
+[[member]]
+package = "@goodfetch/collie-client"
+receiver = "Schedules"
+member = "get"
+entry = "schedule.get"
+words = ["get"]
+form = "round_trip"
+
+[[member]]
+package = "@goodfetch/collie-client"
+receiver = "(module)"
+member = "Schedule"
+entry = "none"
+reason = "A Schedule a program holds, by its ID, whose generated members serve the `schedule` operations on one Schedule; `schedules.create` and `schedules.get` answer it (spec 589)."
+only = "Rust's `Schedule` is a handle generated from the catalog, which its manifest does not list (ADR 0099)."
+words = ["schedule"]
+form = "type"
+
+[[member]]
+package = "@goodfetch/collie-client"
+receiver = "Schedule"
+member = "constructor"
+entry = "none"
+reason = "`schedules.create` and `schedules.get` answer a Schedule; a program never constructs one."
+only = "Rust's `Schedule` has no constructor at all."
+words = ["schedule"]
+form = "read"
+
+[[member]]
+package = "@goodfetch/collie-client"
+receiver = "Schedule"
+member = "id"
+entry = "none"
+reason = "The Schedule's ID, read without a round trip (spec 589)."
+only = "Rust's `Schedule::id` is generated (ADR 0099)."
+words = ["id"]
+form = "read"
+
+[[member]]
+package = "@goodfetch/collie-client"
+receiver = "(module)"
+member = "CreatedSchedule"
+entry = "none"
+reason = "What `schedules.create` answers: the `Schedule` and its warnings, `schedule.create`'s result with the handle in place of the ID."
+words = ["created", "schedule"]
+form = "type"
+
+[[member]]
+package = "@goodfetch/collie-client"
+receiver = "(module)"
+member = "ScheduleCallOptions"
+entry = "none"
+reason = "The options of a `Schedules` read: its own `timeout` and the `signal` that cancels it (ADR 0080)."
+only = "Python and Rust take `timeout` as a keyword argument and through `Call`, with no options type."
+words = ["schedule", "call", "options"]
+form = "type"
+
+[[member]]
+package = "@goodfetch/collie-client"
+receiver = "(module)"
+member = "ScheduleWriteOptions"
+entry = "none"
+reason = "The options of `schedules.create`, one store transaction: its own `timeout`, and no `signal` (ADRs 0038 and 0080)."
+only = "Python and Rust take `timeout` as a keyword argument and through `Call`, with no options type."
+words = ["schedule", "write", "options"]
+form = "type"
+
 [[unreached]]
 entries = [
   "audit.export",
@@ -2927,10 +3065,6 @@ reason = "Operations of the engine as a whole, on no handle the generators write
 [[unreached]]
 entries = ["sample.echo", "sample.crawl"]
 reason = "The engine's sample operations, which tests and benchmarks call; no Product member serves them."
-
-[[unreached]]
-entries = ["schedule.create", "schedule.list", "schedule.get", "schedule.info", "schedule.delete"]
-reason = "The Schedule operations, whose `connection.schedules` sub-object and `Schedule` handle come with the SDK part of issue 854."
 
 [[unreached]]
 entries = ["connection.set_log_level"]

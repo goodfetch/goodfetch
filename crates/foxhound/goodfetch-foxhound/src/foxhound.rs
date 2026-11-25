@@ -10,8 +10,8 @@ use std::sync::Arc;
 use goodfetch_collie::linked::{Composed, ProductConnection};
 use goodfetch_collie::{ConnectOptions, EngineInfo};
 use goodfetch_collie_client::{
-    ClientConnection, Connection, Error, HandlerlessStart, Query, RawCall, RunView, Start,
-    UsageKind,
+    ClientConnection, Connection, Error, HandlerlessStart, Query, RawCall, RunView, Schedules,
+    Start, UsageKind,
 };
 use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::run::{CatalogTarget, RunId};
@@ -257,6 +257,13 @@ impl Foxhound {
         self.linked.connection().open_run(run_id)
     }
 
+    /// The connection's Schedules, reached without I/O (spec 589): each
+    /// call acts on the Schedule store of the engine's major.
+    #[must_use]
+    pub fn schedules(&self) -> Schedules {
+        self.linked.connection().schedules()
+    }
+
     /// Shows each setting's effective value, the layer that set it and the
     /// layer that locked it, from the built-in defaults, the Operator
     /// policy, user configuration, the project configuration given and the
@@ -315,6 +322,10 @@ impl Connection for Foxhound {
 
     fn open_run(&self, run_id: &RunId) -> Result<RunView, Error> {
         Foxhound::open_run(self, run_id)
+    }
+
+    fn schedules(&self) -> Schedules {
+        Foxhound::schedules(self)
     }
 
     fn call(&self, operation: &str) -> RawCall {

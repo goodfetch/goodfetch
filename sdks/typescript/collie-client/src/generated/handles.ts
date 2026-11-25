@@ -704,3 +704,45 @@ export class Locator extends Handle {
     return (await this.#host.call("locator.wait_for_function", defined({ locator: this.#host.id, function: function_, arg: options.arg, pollingInterval: options.pollingInterval, timeout: timeoutOf(options.timeout, "timeout.wait"), world: options.world }), { signal: options.signal, deadline: { key: "timeout.wait", value: options.timeout } })).value ?? null;
   }
 }
+
+let idInSchedule: (handle: Schedule) => types.ScheduleId;
+
+/** @internal The ID `handle`'s calls carry, for a Product's package whose own calls name it (ADR 0093); never for programs. */
+export function idOfSchedule(handle: Schedule): types.ScheduleId {
+  return idInSchedule(handle);
+}
+
+/** A `schedule` a program holds: the members the catalog gives it (ADR 0099). */
+export class Schedule extends Handle {
+  static {
+    idInSchedule = (handle) => handle.#host.id;
+  }
+
+  readonly #host: HandleHost<types.ScheduleId, CollieOperationTypes>;
+
+  /** @internal The engine's answer, or the handle that builds it, makes one; a program never constructs one. */
+  constructor(host: HandleHost<types.ScheduleId, CollieOperationTypes>) {
+    super(host, "schedule", "schedule_id", { type: "ScheduleId" });
+    this.#host = host;
+  }
+
+  /**
+   * Deletes the Schedule from its store, so it never fires again, and answers whether it did: false when the store held none of that ID, as after a resent delete. One store transaction: a cancel stops it only before it commits.
+   *
+   * @experimental
+   */
+  async delete(options: { readonly timeout?: types.ScheduleParams["timeout"] | undefined } = {}): Promise<types.ScheduleDeleted["deleted"]> {
+    warnExperimental("schedule.delete");
+    return (await this.#host.call("schedule.delete", defined({ scheduleId: this.#host.id, timeout: timeoutOf(options.timeout, "timeout.wait") }), { deadline: { key: "timeout.wait", value: options.timeout } })).deleted;
+  }
+
+  /**
+   * Reads the Schedule as its store holds it now. One the store no longer holds fails with `schedule_not_found`.
+   *
+   * @experimental
+   */
+  async info(options: { readonly timeout?: types.ScheduleParams["timeout"] | undefined; readonly signal?: AbortSignal | undefined } = {}): Promise<types.ScheduleInfo> {
+    warnExperimental("schedule.info");
+    return this.#host.call("schedule.info", defined({ scheduleId: this.#host.id, timeout: timeoutOf(options.timeout, "timeout.wait") }), { signal: options.signal, deadline: { key: "timeout.wait", value: options.timeout } });
+  }
+}

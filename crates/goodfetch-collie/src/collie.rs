@@ -5,7 +5,8 @@
 //! reaches a Daemon ([`crate::EngineChoice`]).
 
 use goodfetch_collie_client::{
-    ClientConnection, Connection, Error, HandlerlessStart, Query, RawCall, RunView, Start,
+    ClientConnection, Connection, Error, HandlerlessStart, Query, RawCall, RunView, Schedules,
+    Start,
 };
 use goodfetch_protocol::run::{CatalogTarget, RunId};
 use goodfetch_protocol::settings::{ConfigExplainParams, SettingsExplanation};
@@ -265,6 +266,13 @@ impl Collie {
         self.linked.connection().open_run(run_id)
     }
 
+    /// The connection's Schedules, reached without I/O (spec 589): each
+    /// call acts on the Schedule store of the engine's major.
+    #[must_use]
+    pub fn schedules(&self) -> Schedules {
+        self.linked.connection().schedules()
+    }
+
     /// Shows each setting's effective value, the layer that set it and the
     /// layer that locked it, from the built-in defaults, the Operator
     /// policy, user configuration, the project configuration given and the
@@ -343,6 +351,10 @@ impl Connection for Collie {
 
     fn open_run(&self, run_id: &RunId) -> Result<RunView, Error> {
         Collie::open_run(self, run_id)
+    }
+
+    fn schedules(&self) -> Schedules {
+        Collie::schedules(self)
     }
 
     fn call(&self, operation: &str) -> RawCall {

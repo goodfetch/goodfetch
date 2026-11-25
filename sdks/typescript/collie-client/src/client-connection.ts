@@ -54,6 +54,7 @@ import { holdInRealm } from "./realm.ts";
 import { timeoutOf } from "./handle.ts";
 import { Run, type RunHost } from "./run.ts";
 import { RunView } from "./run-view.ts";
+import { Schedules } from "./schedules.ts";
 import { settingsOnWire, type RunSettings } from "./generated/settings.ts";
 import { MAX_LISTENER_QUEUE } from "./listeners.ts";
 import type { SettingsOnWire } from "./settings.ts";
@@ -286,6 +287,8 @@ export class ClientConnection implements AsyncDisposable {
   #closing: Promise<void> | undefined;
   /** Reads the Trace context each call the program makes carries (ADR 0132), set before `hello`. */
   #traceContext: TraceContextSource = () => undefined;
+  /** The Schedules of the engine's major (spec 589), reached without a round trip. */
+  readonly schedules: Schedules;
 
   private constructor(options: ClientConnectionOptions) {
     this.#engine = options.engine;
@@ -359,6 +362,13 @@ export class ClientConnection implements AsyncDisposable {
           (await this.#operations.keyValueStoreDelete({ runId, key })).existed,
       },
     };
+    this.schedules = new Schedules({
+      calls,
+      raw: (operation, params, callOptions) => this.#raw(operation, params, callOptions),
+      ensureOpen: (operation) => {
+        this.#openOrThrow(operation);
+      },
+    });
     holdInRealm(this);
   }
 

@@ -20,6 +20,7 @@ import type {
   RawParams,
   Run,
   RunView,
+  Schedules,
   SettingsExplanation,
   StartOptions,
 } from "@goodfetch/collie-client";
@@ -120,9 +121,15 @@ export class Foxhound implements Connection {
   readonly #crawlRuns = new Map<string, CrawlRun>();
   /** The crawl starts not yet answered, whose work items may come before their answer is read. */
   readonly #starting = new Set<Promise<CrawlRun>>();
+  /**
+   * The Schedules of the engine's major: create, list and get each one
+   * (spec 589). Reached without a round trip.
+   */
+  readonly schedules: Schedules;
 
   private constructor(connection: ClientConnection) {
     this.#connection = connection;
+    this.schedules = connection.schedules;
     const calls = connection.caller<FoxhoundOperationTypes>(foxhoundWire);
     this.#operations = new FoxhoundOperations(calls);
     this.#crawlHost = {

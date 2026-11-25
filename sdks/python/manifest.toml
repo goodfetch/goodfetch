@@ -537,6 +537,178 @@ form = "closer"
 
 [[member]]
 package = "goodfetch_collie"
+receiver = "AsyncConnection"
+member = "schedules"
+entry = "none"
+reason = "The Schedules of the engine's major, whose methods serve the `schedule` operations on no Schedule, reached without a round trip (spec 589)."
+words = ["schedules"]
+form = "read"
+
+[[member]]
+package = "goodfetch_collie"
+receiver = "Connection"
+member = "schedules"
+entry = "none"
+reason = "The Schedules of the engine's major, reached without a round trip (spec 589); `AsyncConnection.schedules`'s member under the same name."
+words = ["schedules"]
+form = "read"
+
+[[member]]
+package = "goodfetch_collie"
+receiver = "AsyncCollie"
+member = "schedules"
+entry = "none"
+reason = "The Schedules of the engine's major, reached without a round trip (spec 589); `AsyncConnection.schedules`'s member under the same name."
+words = ["schedules"]
+form = "read"
+
+[[member]]
+package = "goodfetch_collie"
+receiver = "Collie"
+member = "schedules"
+entry = "none"
+reason = "The Schedules of the engine's major, reached without a round trip (spec 589); `Connection.schedules`'s member under the same name."
+words = ["schedules"]
+form = "read"
+
+[[member]]
+package = "goodfetch_foxhound"
+receiver = "AsyncFoxhound"
+member = "schedules"
+entry = "none"
+reason = "The Schedules of the engine's major, reached without a round trip (spec 589); `AsyncConnection.schedules`'s member under the same name."
+words = ["schedules"]
+form = "read"
+
+[[member]]
+package = "goodfetch_foxhound"
+receiver = "Foxhound"
+member = "schedules"
+entry = "none"
+reason = "The Schedules of the engine's major, reached without a round trip (spec 589); `Connection.schedules`'s member under the same name."
+words = ["schedules"]
+form = "read"
+
+[[member]]
+package = "goodfetch_collie"
+receiver = "(module)"
+member = "AsyncSchedules"
+entry = "none"
+reason = "A Connection's Schedules in the async API: `connection.schedules`, whose methods serve the `schedule` operations on no Schedule (spec 589)."
+only = "A re-export, which Python lists where its package's `__all__` names it, and TypeScript and Rust in the package that declares it."
+words = ["async", "schedules"]
+form = "type"
+
+[[member]]
+package = "goodfetch_collie_client.schedules"
+receiver = "AsyncSchedules"
+member = "create"
+entry = "schedule.create"
+words = ["create"]
+form = "round_trip"
+
+[[member]]
+package = "goodfetch_collie_client.schedules"
+receiver = "AsyncSchedules"
+member = "list"
+entry = "schedule.list"
+words = ["list"]
+form = "round_trip"
+
+[[member]]
+package = "goodfetch_collie_client.schedules"
+receiver = "AsyncSchedules"
+member = "get"
+entry = "schedule.get"
+words = ["get"]
+form = "round_trip"
+
+[[member]]
+package = "goodfetch_collie"
+receiver = "(module)"
+member = "Schedules"
+entry = "none"
+reason = "A Connection's Schedules in the sync API, as `AsyncSchedules` are (spec 589)."
+only = "A re-export, which Python lists where its package's `__all__` names it, and TypeScript and Rust in the package that declares it."
+words = ["schedules"]
+form = "type"
+
+[[member]]
+package = "goodfetch_collie_client.schedules"
+receiver = "Schedules"
+member = "create"
+entry = "schedule.create"
+words = ["create"]
+form = "round_trip"
+
+[[member]]
+package = "goodfetch_collie_client.schedules"
+receiver = "Schedules"
+member = "list"
+entry = "schedule.list"
+words = ["list"]
+form = "round_trip"
+
+[[member]]
+package = "goodfetch_collie_client.schedules"
+receiver = "Schedules"
+member = "get"
+entry = "schedule.get"
+words = ["get"]
+form = "round_trip"
+
+[[member]]
+package = "goodfetch_collie"
+receiver = "(module)"
+member = "AsyncSchedule"
+entry = "none"
+reason = "A Schedule a program holds in the async API, by its ID, whose generated members serve the `schedule` operations on one Schedule; `schedules.create` and `schedules.get` answer it (spec 589)."
+only = "A re-export, which Python lists where its package's `__all__` names it, and TypeScript and Rust in the package that declares it."
+words = ["async", "schedule"]
+form = "type"
+
+[[member]]
+package = "goodfetch_collie_client.schedules"
+receiver = "AsyncSchedule"
+member = "id"
+entry = "none"
+reason = "The Schedule's ID, read without a round trip (spec 589)."
+only = "Rust's `Schedule::id` is generated (ADR 0099)."
+words = ["id"]
+form = "read"
+
+[[member]]
+package = "goodfetch_collie"
+receiver = "(module)"
+member = "Schedule"
+entry = "none"
+reason = "A Schedule a program holds in the sync API, as `AsyncSchedule` is (spec 589)."
+only = "A re-export, which Python lists where its package's `__all__` names it, and TypeScript and Rust in the package that declares it."
+words = ["schedule"]
+form = "type"
+
+[[member]]
+package = "goodfetch_collie_client.schedules"
+receiver = "Schedule"
+member = "id"
+entry = "none"
+reason = "The Schedule's ID, read without a round trip (spec 589)."
+only = "Rust's `Schedule::id` is generated (ADR 0099)."
+words = ["id"]
+form = "read"
+
+[[member]]
+package = "goodfetch_collie"
+receiver = "(module)"
+member = "CreatedSchedule"
+entry = "none"
+reason = "What `schedules.create` answers: the Schedule and its warnings, `schedule.create`'s result with the handle in place of the ID; one generic type for both APIs."
+only = "A re-export, which Python lists where its package's `__all__` names it, and TypeScript and Rust in the package that declares it."
+words = ["created", "schedule"]
+form = "type"
+
+[[member]]
+package = "goodfetch_collie"
 receiver = "AsyncRun"
 member = "id"
 entry = "none"
@@ -2746,10 +2918,6 @@ reason = "Operations of the engine as a whole, on no handle the generators write
 [[unreached]]
 entries = ["sample.echo", "sample.crawl"]
 reason = "The engine's sample operations, which tests and benchmarks call; no Product member serves them."
-
-[[unreached]]
-entries = ["schedule.create", "schedule.list", "schedule.get", "schedule.info", "schedule.delete"]
-reason = "The Schedule operations, whose `connection.schedules` sub-object and `Schedule` handle come with the SDK part of issue 854."
 
 [[unreached]]
 entries = ["connection.set_log_level"]

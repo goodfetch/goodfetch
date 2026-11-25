@@ -37,6 +37,7 @@ mod project_file;
 mod public_items;
 mod raw_call;
 mod refused_by_the_daemon;
+mod schedules;
 #[cfg(unix)]
 mod scripted;
 mod settings;

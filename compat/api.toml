@@ -29,6 +29,18 @@ entry = "typescript @goodfetch/collie-client/generated CollieOperationTypes"
 reason = "The Schedule operations join Collie's catalog, `schedule.create`, `schedule.list`, `schedule.get`, `schedule.info` and `schedule.delete` (issue 854): a type that implements every operation's params and result needs their members."
 
 [[announced]]
+entry = "typescript @goodfetch/collie-client Connection"
+reason = "A Connection reaches its Schedules, `connection.schedules` (issue 854): a type that implements `Connection` needs the member."
+
+[[announced]]
+entry = "typescript @goodfetch/collie Connection"
+reason = "A Connection reaches its Schedules, `connection.schedules` (issue 854): a type that implements `Connection` needs the member."
+
+[[announced]]
+entry = "typescript @goodfetch/foxhound Connection"
+reason = "A Connection reaches its Schedules, `connection.schedules` (issue 854): a type that implements `Connection` needs the member."
+
+[[announced]]
 entry = "python goodfetch_collie_client.generated.handles AsyncPage"
 reason = "A page carries the Session that opened it, so `page.session` answers without a call (issue 3585): the SDK opens a page with its Session's ID, and a program never constructs one."
 

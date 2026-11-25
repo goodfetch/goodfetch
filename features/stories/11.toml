@@ -2434,6 +2434,15 @@ product = "foxhound"
 status = "active"
 
 [[story]]
+id = 1010
+title = "As a Python developer, I want `import goodfetch_foxhound` to load no adapter, no AI provider and no Playwright until used, held by the import-cost snapshot, so that importing Foxhound's SDK stays cheap (ADR 0071; K09)."
+milestone = "M2 Client surfaces"
+journey = false
+not_journey = "part"
+product = "foxhound"
+status = "active"
+
+[[story]]
 id = 1011
 title = "As a developer using both SDKs in one program, I want each Product's package to pin the client package at exactly its own version and a library serving both to take the client package as a peer dependency, so that two Product versions never meet in one environment and their values stay one type (ADR 0095)."
 milestone = "M2 Client surfaces"

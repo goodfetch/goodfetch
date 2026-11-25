@@ -8,10 +8,11 @@
 //! use std::time::Duration;
 //!
 //! use goodfetch_collie_client::settings::{Settings, content, timeout};
+//! use goodfetch_protocol::page::ExtractorName;
 //!
 //! let settings = Settings::new()
 //!     .set(timeout::NAVIGATION, Duration::from_secs(60))
-//!     .set(content::EXTRACTOR, "trafilatura");
+//!     .set(content::EXTRACTOR, ExtractorName::TRAFILATURA);
 //! ```
 //!
 //! A key left out inherits, `None` clears a setting that can be cleared,

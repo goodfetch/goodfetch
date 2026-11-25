@@ -354,16 +354,17 @@ pub mod content {
     /// The main-content step `page.formats` reads a page's main content with, before its Markdown and its text: `dom_smoothie` (the default), Readability's algorithm, `trafilatura`, the rs-trafilatura port, or the name of an installed Extractor Plugin. A built-in step that finds no text in a document holding text outside its navigation landmarks answers that text. An Extractor Plugin reads the page as the Clean-up rules left it and answers its Markdown and its text; it has no main HTML. Set at any scope down to a page: a Run, a Session's or a page's own `settings`. A Session or a page naming no built-in and no installed Extractor is refused; a Run's name is checked as its page reads with it.
     ///
     /// `content.extractor`.
-    pub const EXTRACTOR: crate::settings::Setting<String> = crate::settings::Setting::new(
-        "content.extractor",
-        &[
-            ::goodfetch_protocol::catalog::SettingScope::Connection,
-            ::goodfetch_protocol::catalog::SettingScope::Run,
-            ::goodfetch_protocol::catalog::SettingScope::Label,
-            ::goodfetch_protocol::catalog::SettingScope::Session,
-            ::goodfetch_protocol::catalog::SettingScope::Page,
-        ],
-    );
+    pub const EXTRACTOR: crate::settings::Setting<::goodfetch_protocol::page::ExtractorName> =
+        crate::settings::Setting::new(
+            "content.extractor",
+            &[
+                ::goodfetch_protocol::catalog::SettingScope::Connection,
+                ::goodfetch_protocol::catalog::SettingScope::Run,
+                ::goodfetch_protocol::catalog::SettingScope::Label,
+                ::goodfetch_protocol::catalog::SettingScope::Session,
+                ::goodfetch_protocol::catalog::SettingScope::Page,
+            ],
+        );
 }
 
 /// The `effect.*` settings.

@@ -582,7 +582,7 @@ jobs:
           persist-credentials: false
       - name: Build the confinement tests and xtask
         run: |
-          cargo test --locked -p goodfetch-confinement --test it --no-run
+          cargo build --locked -p goodfetch-confinement --test it
           cargo build --locked --bin xtask
       - name: Set up the OS services the tests use
         run: ci/os-services.sh setup

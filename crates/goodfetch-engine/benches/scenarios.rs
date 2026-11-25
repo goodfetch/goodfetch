@@ -406,10 +406,14 @@ pub(crate) fn response_cache_input(entries: usize) -> ResponseCacheInput {
         CountedWork::default(),
     );
     let requests: Vec<CacheRequest> = (0..entries)
-        .map(|entry| CacheRequest {
-            method: "GET".to_owned(),
-            url: format!("https://cache.test/catalog/item-{entry}"),
-            headers: vec![("accept".to_owned(), "text/html".to_owned())],
+        .map(|entry| {
+            CacheRequest::new(
+                "GET",
+                &url::Url::parse(&format!("https://cache.test/catalog/item-{entry}"))
+                    .expect("invariant: the catalog's URLs parse"),
+                &[("accept".to_owned(), "text/html".to_owned())],
+                bytes::Bytes::new(),
+            )
         })
         .collect();
     let head = ResponseHead {

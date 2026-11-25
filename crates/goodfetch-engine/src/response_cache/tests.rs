@@ -65,11 +65,16 @@ fn ada() -> Partition {
 }
 
 fn get(path: &str, headers: &[(&str, &str)]) -> CacheRequest {
-    CacheRequest {
-        method: "GET".to_owned(),
-        url: format!("https://cache.test{path}"),
-        headers: pairs(headers),
-    }
+    request("GET", path, headers, "")
+}
+
+fn request(method: &str, path: &str, headers: &[(&str, &str)], body: &str) -> CacheRequest {
+    CacheRequest::new(
+        method,
+        &format!("https://cache.test{path}").parse().unwrap(),
+        &pairs(headers),
+        Bytes::from(body.to_owned()),
+    )
 }
 
 /// A response fresh for a minute, with an `ETag` to revalidate.
@@ -168,6 +173,72 @@ async fn a_fresh_entry_is_served_from_one_lookup_and_one_body_file() {
     assert_eq!(
         (work.read(Row::CacheLookups), work.read(Row::CacheFileOpens)),
         (1, 1)
+    );
+}
+
+/// Under `replay`, a form POST's answer is served as stored, no `Age`
+/// added, from one lookup and one body file, to the form with its fields
+/// in another order and each name's values in theirs; a form whose
+/// repeated values come in another order, or another variant of what the
+/// answer's `Vary` names, misses with no body file opened.
+/// Covers: story:6-36, setting:cache.mode
+#[tokio::test]
+async fn a_replayed_form_post_is_served_as_stored_for_its_fields_and_variant() {
+    let env = TestEnv::new();
+    let work = CountedWork::default();
+    let cache = cache_with(&env, None, &work);
+    let form = |body: &str, language: &str| {
+        request(
+            "POST",
+            "/api/filter",
+            &[
+                ("content-type", "application/x-www-form-urlencoded"),
+                ("accept-language", language),
+            ],
+            body,
+        )
+    };
+    let answer = ResponseHead {
+        status: 201,
+        headers: pairs(&[("content-type", "text/html"), ("vary", "Accept-Language")]),
+    };
+    assert!(
+        cache
+            .store_replayed(
+                &ada(),
+                &form("tag=a&q=shoes&tag=b", "en"),
+                &answer,
+                body(),
+                None,
+                start()
+            )
+            .await
+    );
+
+    let reordered = cache
+        .replayed(&ada(), &form("q=shoes&tag=a&tag=b", "en"))
+        .await;
+    let counted = (work.read(Row::CacheLookups), work.read(Row::CacheFileOpens));
+    let values_swapped = cache
+        .replayed(&ada(), &form("q=shoes&tag=b&tag=a", "en"))
+        .await;
+    let french = cache
+        .replayed(&ada(), &form("q=shoes&tag=a&tag=b", "fr"))
+        .await;
+
+    assert_eq!(
+        reordered,
+        Some(Hit {
+            head: answer,
+            body: body(),
+            run_id: None,
+        })
+    );
+    assert_eq!(counted, (1, 1));
+    assert_eq!((values_swapped, french), (None, None));
+    assert_eq!(
+        (work.read(Row::CacheLookups), work.read(Row::CacheFileOpens)),
+        (3, 1)
     );
 }
 
@@ -445,26 +516,44 @@ async fn the_head_sets_index_opens_and_takes_another_entry() {
         .unwrap()
         .execute_batch(&std::fs::read_to_string(head.join("response-cache.sql")).unwrap())
         .unwrap();
+    // The set holds the index alone: the replayed entry's body is put back
+    // under its SHA-256.
+    let body = br#"{"results":[]}"#;
+    let bodies = folder(&env).join(super::BODIES);
+    std::fs::create_dir_all(&bodies).unwrap();
+    std::fs::write(
+        bodies.join(data_encoding::HEXLOWER.encode(&<sha2::Sha256 as sha2::Digest>::digest(body))),
+        body,
+    )
+    .unwrap();
     let cache = cache(&env);
     let much_later = at(365 * 24 * 60 * 60);
+    let os_user = Partition {
+        person: "os_user".to_owned(),
+        ..Partition::default()
+    };
 
     let Lookup::Stale(stale) = cache
         .lookup(
-            &Partition {
-                person: "os_user".to_owned(),
-                ..Partition::default()
-            },
-            &CacheRequest {
-                method: "GET".to_owned(),
-                url: "https://cache.test/revalidate".to_owned(),
-                headers: pairs(&[("accept-language", "en")]),
-            },
+            &os_user,
+            &get("/revalidate", &[("accept-language", "en")]),
             much_later,
         )
         .await
     else {
         panic!("the head set's entry is not found stale");
     };
+    let replayed = cache
+        .replayed(
+            &os_user,
+            &request(
+                "POST",
+                "/api/search",
+                &[("content-type", "application/json")],
+                r#"{"page":1,"q":"shoes"}"#,
+            ),
+        )
+        .await;
     stored(&cache, &get("/added", &[])).await;
 
     assert_eq!(
@@ -474,7 +563,8 @@ async fn the_head_sets_index_opens_and_takes_another_entry() {
             ("if-modified-since", "Sun, 04 Jan 2026 09:00:00 GMT"),
         ])
     );
-    assert_eq!(rows(&env).len(), 3);
+    assert_eq!(replayed.map(|hit| hit.body), Some(Bytes::from_static(body)));
+    assert_eq!(rows(&env).len(), 4);
 }
 
 /// An engine's cache opens its index once for its writes and once for its

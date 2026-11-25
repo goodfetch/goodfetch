@@ -2522,6 +2522,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "goodfetch-confinement"
+version = "0.0.0"
+dependencies = [
+ "goodfetch-protocol",
+ "goodfetch-workspace-hack",
+ "rstest",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror 2.0.21",
+]
+
+[[package]]
 name = "goodfetch-conformance"
 version = "0.0.0"
 dependencies = [

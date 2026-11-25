@@ -38,6 +38,7 @@ mod counted_governor;
 mod counted_messages;
 mod dns;
 mod downloads;
+mod endpoint_client_certificates;
 mod extra_loopback;
 mod governor;
 // B3's governor scenario, which `counted_governor` checks.

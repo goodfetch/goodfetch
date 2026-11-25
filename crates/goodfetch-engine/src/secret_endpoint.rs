@@ -7,8 +7,10 @@
 //! request's addresses judged again before it connects. Its certificate
 //! chains to Mozilla's roots or to the authorities `tls.trusted_cas` lists
 //! for its own domain, and no exception of `tls.accept_invalid_certs` lets
-//! an invalid one through. A busy answer's `Retry-After` is read as every
-//! `Retry-After` the engine meets is ([`retry_after`], ADR 0118).
+//! an invalid one through. It presents the client certificate
+//! `tls.client_certificates` lists for its host (issue 1648). A busy
+//! answer's `Retry-After` is read as every `Retry-After` the engine meets
+//! is ([`retry_after`], ADR 0118).
 
 use std::time::Duration;
 
@@ -19,9 +21,8 @@ use crate::clock::Clock;
 use crate::egress::{ConfiguredKind, Refused};
 use crate::http_client::{EndpointSettings, WholeFailure};
 use crate::retry_after::{self, RetryAfter};
-use crate::settings::Resolved;
-use crate::tasks::BlockingThreads;
-use crate::tls::CertificateInvalid;
+use crate::secrets::ProviderInputs;
+use crate::tls::{CertificateInvalid, ClientCertificateFailure, ClientCertificates};
 
 #[cfg(test)]
 mod tests;
@@ -49,6 +50,10 @@ pub enum EndpointFailure {
     /// sent.
     #[error("{0}")]
     CertificateInvalid(CertificateInvalid),
+    /// The client certificate `tls.client_certificates` lists for the
+    /// endpoint's host cannot be presented, so nothing was sent.
+    #[error("{0}")]
+    ClientCertificate(ClientCertificateFailure),
     /// No answer, or a connection that broke.
     #[error("the Secret provider's endpoint did not answer")]
     Network,
@@ -58,13 +63,23 @@ pub enum EndpointFailure {
 }
 
 impl SecretProviderEndpoint {
-    /// The endpoint the machine's `settings` let a provider reach: their
+    /// The endpoint a Run's `inputs` let a provider reach: their settings'
     /// `egress.no_private_endpoints`, `network.resolve` and
-    /// `tls.trusted_cas`, whose files each request reads on `blocking`.
-    pub fn of(settings: &Resolved, clock: Clock, blocking: BlockingThreads) -> Self {
+    /// `tls.trusted_cas`, whose files each request reads on their blocking
+    /// threads, presenting the client certificate their
+    /// `tls.client_certificates` lists for its host, its key read through
+    /// their endpoint keys' driver.
+    pub fn of(inputs: &ProviderInputs<'_>) -> Self {
+        let endpoint = EndpointSettings::of(inputs.settings, inputs.clock, inputs.blocking.clone());
         Self {
-            endpoint: EndpointSettings::of(settings, clock, blocking),
-            clock,
+            endpoint: match inputs.endpoint_keys {
+                Some(keys) => endpoint.presenting(ClientCertificates::for_endpoints(
+                    inputs.settings,
+                    keys.clone(),
+                )),
+                None => endpoint,
+            },
+            clock: inputs.clock,
         }
     }
 
@@ -74,7 +89,8 @@ impl SecretProviderEndpoint {
     /// # Errors
     ///
     /// [`EndpointFailure`] when the policy refused the endpoint, its
-    /// certificate failed, or it gave no whole answer; the Secret-provider
+    /// certificate failed, the client certificate listed for its host
+    /// cannot be presented, or it gave no whole answer; the Secret-provider
     /// driver bounds how long it waits.
     ///
     /// # Cancel safety
@@ -88,6 +104,9 @@ impl SecretProviderEndpoint {
                 WholeFailure::Refused(refused) => EndpointFailure::Refused(refused),
                 WholeFailure::CertificateInvalid(invalid) => {
                     EndpointFailure::CertificateInvalid(invalid)
+                }
+                WholeFailure::ClientCertificate(failure) => {
+                    EndpointFailure::ClientCertificate(failure)
                 }
                 WholeFailure::Network => EndpointFailure::Network,
                 WholeFailure::TooLong => EndpointFailure::TooLong,

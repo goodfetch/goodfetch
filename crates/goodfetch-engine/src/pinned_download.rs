@@ -292,6 +292,7 @@ impl Fetching {
             policy: self.endpoints,
             resolve: &self.resolve,
             trust: &self.trust,
+            presenting: None,
             clock: self.clock,
             delays: self.delays,
         }
@@ -464,6 +465,7 @@ async fn send_pinned(
     let network = http_client::Network {
         resolve: &fetching.resolve,
         trust: &fetching.trust,
+        presenting: None,
         clock: fetching.clock,
         delays: fetching.delays,
     };

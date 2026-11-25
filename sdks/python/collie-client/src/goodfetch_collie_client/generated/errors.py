@@ -881,6 +881,22 @@ class PluginCrashedError(UnavailableError):
         super().__init__(message, code="plugin_crashed", group="unavailable", retryable=True, **fields)
 
 
+class PluginManifestMismatchError(UnavailableError):
+    """The Plugin's answer to `hello` differs from its approved manifest in its kinds, its Hook stages, its plugin protocol range or its network level, so the engine stops the instance before any call. Approve the Plugin's current manifest again, or install the version that was approved."""
+
+    def __init__(self, message: str, **fields: Unpack[ErrorFields]) -> None:
+        """Takes the message the engine rendered, and what it carries."""
+        super().__init__(message, code="plugin_manifest_mismatch", group="unavailable", retryable=False, **fields)
+
+
+class PluginProtocolUnsupportedError(UnavailableError):
+    """The Plugin and the engine share no plugin protocol version, which the reply to `hello` says before any other message. Upgrade the older side: the Plugin, or the engine."""
+
+    def __init__(self, message: str, **fields: Unpack[ErrorFields]) -> None:
+        """Takes the message the engine rendered, and what it carries."""
+        super().__init__(message, code="plugin_protocol_unsupported", group="unavailable", retryable=False, **fields)
+
+
 class PolicyConflictError(RefusedError):
     """The Operator policy's digest changed since it was read, as by a hand edit, so nothing was written; `fix` says to read it again."""
 
@@ -1477,6 +1493,8 @@ ERROR_CLASSES: Final[Mapping[str, ErrorClass]] = {
     "pattern_unsupported": PatternUnsupportedError,
     "person_required": PersonRequiredError,
     "plugin_crashed": PluginCrashedError,
+    "plugin_manifest_mismatch": PluginManifestMismatchError,
+    "plugin_protocol_unsupported": PluginProtocolUnsupportedError,
     "policy_conflict": PolicyConflictError,
     "protocol_version_unsupported": ProtocolVersionUnsupportedError,
     "proxy_auth_failed": ProxyAuthFailedError,

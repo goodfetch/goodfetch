@@ -33,7 +33,7 @@ use goodfetch_protocol::egress::EgressRule;
 use goodfetch_test_support::{
     Outcome, Refusal, ResolverHandle, Route, Runner, ScriptedResolver, SsrfCase, SsrfTable,
 };
-use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _, DuplexStream, duplex};
+use tokio::io::{AsyncRead, AsyncReadExt as _, AsyncWriteExt as _, DuplexStream, duplex};
 
 use super::authority::Authority;
 use super::client_hello::{self, ClientHello};
@@ -141,7 +141,7 @@ impl Scripted {
     }
 }
 
-async fn read_head(stream: &mut DuplexStream) -> String {
+async fn read_head(stream: &mut (impl AsyncRead + Unpin)) -> String {
     let mut head = Vec::new();
     while !head.ends_with(b"\r\n\r\n") {
         match stream.read_u8().await {
@@ -260,7 +260,7 @@ async fn through(
     request: &str,
     then: &[u8],
     relaying: &Relaying,
-    network: &Scripted,
+    network: &impl Network,
     told: &Told,
 ) -> (String, Served) {
     let (mut browser, relayed) = duplex(1 << 16);
@@ -491,6 +491,151 @@ fn through_an_upstream_proxy_a_private_answer_is_refused_before_the_proxy_sees_i
     assert_eq!(heads[1], String::from_utf8_lossy(GET));
     assert_eq!(network.connections(), vec![None]);
     assert_eq!(*told.met.lock().unwrap(), vec![Met::Reached]);
+}
+
+/// The name of the `https://` stand-in proxy, which its leaf names.
+const TLS_PROXY: &str = "proxy.test";
+
+/// The relay's own TCP network chained through the `https://` proxy at
+/// `port` of loopback, under `trust`; the targets' names map to a private
+/// and a public address.
+fn tls_proxy_network(port: u16, trust: &Trust) -> super::Tcp {
+    super::Tcp {
+        mapping: goodfetch_engine::dns::HostMapping::new([
+            (TLS_PROXY.to_owned(), vec![IpAddr::V4(Ipv4Addr::LOCALHOST)]),
+            (
+                "intranet.ssrf.test".to_owned(),
+                vec![IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1))],
+            ),
+            ("public.ssrf.test".to_owned(), vec![PUBLIC]),
+        ]),
+        upstream: Some((TLS_PROXY.to_owned(), port)),
+        upstream_tls: Some(std::sync::Arc::new(
+            trust.client_config(goodfetch_engine::clock::Clock::system()),
+        )),
+        judged: None,
+        local: None,
+    }
+}
+
+/// An `https://` forward proxy on `listener` for one connection: its TLS
+/// handshake under `config`, then a tunnel it opens to any CONNECT, whose
+/// site answers `ok`. The CONNECT head it read, none when the handshake
+/// failed.
+async fn tls_proxy(
+    listener: &tokio::net::TcpListener,
+    config: std::sync::Arc<rustls::ServerConfig>,
+) -> Option<String> {
+    let (tcp, _) = listener.accept().await.unwrap();
+    let mut tls = tokio_rustls::TlsAcceptor::from(config)
+        .accept(tcp)
+        .await
+        .ok()?;
+    let head = read_head(&mut tls).await;
+    tls.write_all(b"HTTP/1.1 200 Connection established\r\n\r\n")
+        .await
+        .unwrap();
+    let _ = read_head(&mut tls).await;
+    tls.write_all(b"HTTP/1.1 200 OK\r\ncontent-length: 2\r\n\r\nok")
+        .await
+        .unwrap();
+    let _ = tls.shutdown().await;
+    Some(head)
+}
+
+/// Through an `https://` upstream proxy (issue 1609), the relay judges the
+/// target's answer before it opens anything to the proxy, then tunnels
+/// inside TLS to the proxy, which it verifies under the Run's trust: the
+/// proxy's own CA trusted for its name, as an Operator-configured
+/// endpoint's (ADR 0042). A proxy whose certificate the Run does not trust
+/// is unreachable and hears no CONNECT.
+///
+/// Covers: story:4-10, story:4-12, error:egress_refused
+#[test]
+fn through_an_https_upstream_proxy_a_private_answer_is_refused_before_the_proxy_sees_it() {
+    let authority = super::terminate_tests::authority("Proxy CA");
+    let (leaf, key) = super::terminate_tests::site_certificate(
+        TLS_PROXY,
+        super::terminate_tests::Made::Valid,
+        &authority,
+    );
+    let server = std::sync::Arc::new(
+        rustls::ServerConfig::builder_with_provider(std::sync::Arc::new(
+            rustls::crypto::ring::default_provider(),
+        ))
+        .with_safe_default_protocol_versions()
+        .unwrap()
+        .with_no_client_auth()
+        .with_single_cert(
+            vec![leaf.into()],
+            rustls::pki_types::PrivateKeyDer::Pkcs8(key.into()),
+        )
+        .unwrap(),
+    );
+    let trusted = Trust::default_roots()
+        .with_trusted_cas(TLS_PROXY, vec![authority.der.clone().into()])
+        .unwrap();
+    let listener = std::net::TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).unwrap();
+    listener.set_nonblocking(true).unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let relaying = relaying(
+        every_host(),
+        Upstream::Http {
+            authorization: None,
+        },
+    );
+    let told = Told::default();
+    let runtime = goodfetch_test_support::runtime();
+
+    let refused = runtime.block_on(through(
+        &connect("intranet.ssrf.test:443"),
+        GET,
+        &relaying,
+        &tls_proxy_network(port, &trusted),
+        &told,
+    ));
+    let mut accepted = 0;
+    while listener.accept().is_ok() {
+        accepted += 1;
+    }
+    let public = connect("public.ssrf.test:443");
+    let (trusting, distrusting) = (
+        tls_proxy_network(port, &trusted),
+        tls_proxy_network(port, &Trust::default_roots()),
+    );
+    let (chained, untrusted) = runtime.block_on(async {
+        let listener = tokio::net::TcpListener::from_std(listener).unwrap();
+        let chained = tokio::join!(
+            tls_proxy(&listener, std::sync::Arc::clone(&server)),
+            through(&public, GET, &relaying, &trusting, &told)
+        );
+        let untrusted = tokio::join!(
+            tls_proxy(&listener, std::sync::Arc::clone(&server)),
+            through(&public, GET, &relaying, &distrusting, &told)
+        );
+        (chained, untrusted)
+    });
+
+    assert_eq!(
+        (refused.0.lines().next(), refused.1, accepted),
+        (Some("HTTP/1.1 403 Forbidden"), Served::Refused, 0)
+    );
+    let (head, (answer, _)) = chained;
+    assert!(
+        head.as_deref()
+            .is_some_and(|head| head.starts_with("CONNECT public.ssrf.test:443 HTTP/1.1\r\n")),
+        "{head:?}"
+    );
+    assert!(answer.ends_with("ok"), "{answer}");
+    let (head, (answer, outcome)) = untrusted;
+    assert_eq!(
+        (head, answer.lines().next(), outcome),
+        (None, Some("HTTP/1.1 502 Bad Gateway"), Served::Failed)
+    );
+    assert_eq!(
+        *told.met.lock().unwrap(),
+        vec![Met::Reached, Met::Unreachable]
+    );
 }
 
 /// A proxy's 407 reaches the browser as the proxy's, its body left out, and
@@ -1265,6 +1410,7 @@ fn bound_network(case: &SsrfCase, dns: &goodfetch_engine::dns::Dns) -> super::Tc
             (lookup.name.clone(), addresses)
         })),
         upstream: None,
+        upstream_tls: None,
         judged: None,
         local: Some(goodfetch_engine::http_client::LocalBinding::new(
             goodfetch_engine::local_addresses::SessionAddresses {

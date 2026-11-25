@@ -18,8 +18,7 @@ pub(crate) enum HeldBrowser {
     /// is.
     Borrowed(CdpUrl),
     /// A browser the engine launched with no relay: with
-    /// `security.raw_cdp_egress_proxy` off and nothing else asking for one,
-    /// or behind an `https://` proxy, which the relay does not chain.
+    /// `security.raw_cdp_egress_proxy` off and nothing else asking for one.
     Launched {
         /// Whether the Session's proxy takes its requests, resolving their
         /// names on its own network.

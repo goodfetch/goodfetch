@@ -2353,6 +2353,15 @@ not_journey = "part"
 status = "active"
 
 [[story]]
+id = 1001
+title = "As a developer, I want one Foxhound package per language, `@goodfetch/foxhound` on npm and `goodfetch-foxhound` on PyPI and crates.io (imported as `goodfetch_foxhound`), that finds Foxhound's executable through the platform packages it depends on, so that the first crawl needs no download beyond the browser fetched on first use (ADRs 0024, 0090, 0095; SDK-01; P24, K09)."
+milestone = "M2 Client surfaces"
+journey = false
+not_journey = "part"
+product = "foxhound"
+status = "active"
+
+[[story]]
 id = 1002
 title = "As a developer, I want `Foxhound.connect()`, Python's `AsyncFoxhound` and `Foxhound`, and Rust's `Foxhound::connect()` with its `blocking` module to finish `hello` before they return, to allow many per process and to install no signal handler or import side effect, so that a crawl can live inside any program (ADRs 0078, 0081; SDK-06; P05, K04)."
 milestone = "M2 Client surfaces"

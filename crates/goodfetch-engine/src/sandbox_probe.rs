@@ -15,7 +15,8 @@
 //!   it for that executable alone, so each launch reads the label its
 //!   browser runs under and refuses one the restriction holds;
 //! - a platform that allows no sandbox and offers no fix (AWS Lambda,
-//!   Fargate, Azure Container Apps): `security.browser_sandbox` is off by
+//!   Fargate under ECS or EKS, Azure Container Apps), even in a pod under
+//!   Kubernetes' `RuntimeDefault`: `security.browser_sandbox` is off by
 //!   default on this host, which every Run then reports as a switched-off
 //!   control (one Audit log entry, `weakened`, one warning);
 //! - any other refusal: browser runs are refused with
@@ -34,6 +35,8 @@ use goodfetch_protocol::security::{
     SandboxEnvironment,
 };
 use serde_json::Value;
+
+use goodfetch_protocol::settings::EKS_FARGATE_PROFILE_VARIABLE;
 
 use crate::call_error::CallError;
 use crate::settings::HostDefaults;
@@ -58,6 +61,9 @@ pub enum NoSandboxPlatform {
     AwsLambda,
     /// AWS Fargate under ECS.
     Fargate,
+    /// AWS Fargate under EKS, which a pod reads from its own Fargate
+    /// profile label.
+    EksFargate,
     /// Azure Container Apps.
     AzureContainerApps,
 }
@@ -68,6 +74,7 @@ impl NoSandboxPlatform {
         match self {
             Self::AwsLambda => "AWS Lambda",
             Self::Fargate => "AWS Fargate",
+            Self::EksFargate => "EKS on Fargate",
             Self::AzureContainerApps => "Azure Container Apps",
         }
     }
@@ -243,6 +250,11 @@ fn platform(variable: impl Fn(&str) -> Option<String>) -> Option<NoSandboxPlatfo
     }
     if variable("AWS_EXECUTION_ENV").is_some_and(|value| value == "AWS_ECS_FARGATE") {
         return Some(NoSandboxPlatform::Fargate);
+    }
+    // EKS sets no variable: the pod passes its Fargate profile label, empty
+    // on any other node.
+    if variable(EKS_FARGATE_PROFILE_VARIABLE).is_some_and(|profile| !profile.is_empty()) {
+        return Some(NoSandboxPlatform::EksFargate);
     }
     if variable("CONTAINER_APP_NAME").is_some() {
         return Some(NoSandboxPlatform::AzureContainerApps);

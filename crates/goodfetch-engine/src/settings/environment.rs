@@ -1,8 +1,8 @@
 //! The environment map's strict reading (ADRs 0059 and 0083): `main` reads
 //! the process environment once and passes the map; the `GOODFETCH_`
 //! prefix is reserved, so an unknown variable is `setting_unknown`, naming
-//! the closest deployment variable, and an empty one, or one the engine
-//! cannot parse, `setting_invalid`. The environment carries no setting.
+//! the closest deployment variable, and an empty one (but the EKS Fargate
+//! profile's), or one the engine cannot parse, `setting_invalid`. The environment carries no setting.
 
 use std::collections::BTreeMap;
 use std::ffi::{OsStr, OsString};
@@ -10,7 +10,7 @@ use std::net::SocketAddr;
 
 use goodfetch_protocol::settings::{
     CHANNEL_VARIABLE, CHANNELS, DAEMON_ADDRESS_VARIABLE, DAEMON_DRAIN_GRACE_VARIABLE,
-    DEPLOYMENT_PREFIX, DEPLOYMENT_VARIABLES, OPS_ADDRESS_VARIABLE,
+    DEPLOYMENT_PREFIX, DEPLOYMENT_VARIABLES, EKS_FARGATE_PROFILE_VARIABLE, OPS_ADDRESS_VARIABLE,
 };
 
 use super::error::SettingsError;
@@ -22,7 +22,8 @@ use super::keys;
 /// # Errors
 ///
 /// `setting_unknown` for a variable not on the list, `setting_invalid` for
-/// an empty value, one that is not Unicode, a `GOODFETCH_CHANNEL` that
+/// an empty value but `GOODFETCH_EKS_FARGATE_PROFILE`'s, which the downward
+/// API leaves empty off Fargate, one that is not Unicode, a `GOODFETCH_CHANNEL` that
 /// names no channel, a `GOODFETCH_DAEMON_DRAIN_GRACE` that is no whole
 /// number of milliseconds or a `GOODFETCH_DAEMON_ADDRESS` or
 /// `GOODFETCH_OPS_ADDRESS` that is no IP address and port, the first by
@@ -44,6 +45,7 @@ pub fn check_environment(environment: &BTreeMap<OsString, OsString>) -> Result<(
             });
         }
         let reason = match value.to_str() {
+            _ if value.is_empty() && name == EKS_FARGATE_PROFILE_VARIABLE => None,
             _ if value.is_empty() => Some("it is empty; unset it instead".to_owned()),
             None => Some("it is not Unicode".to_owned()),
             Some(value) => unparsable(name, value),

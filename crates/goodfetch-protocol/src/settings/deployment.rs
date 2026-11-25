@@ -17,6 +17,7 @@ pub const DEPLOYMENT_VARIABLES: &[&str] = &[
     COLLIE_ENGINE_PATH_VARIABLE,
     DAEMON_ADDRESS_VARIABLE,
     DAEMON_DRAIN_GRACE_VARIABLE,
+    EKS_FARGATE_PROFILE_VARIABLE,
     FOXHOUND_ENGINE_PATH_VARIABLE,
     HOME_VARIABLE,
     OPS_ADDRESS_VARIABLE,
@@ -47,6 +48,13 @@ pub const DAEMON_ADDRESS_VARIABLE: &str = "GOODFETCH_DAEMON_ADDRESS";
 /// How long the foreground Daemon drains, over `daemon.drain_grace` (ADR
 /// 0049).
 pub const DAEMON_DRAIN_GRACE_VARIABLE: &str = "GOODFETCH_DAEMON_DRAIN_GRACE";
+
+/// The Fargate profile EKS labels a pod it runs on Fargate with
+/// (`eks.amazonaws.com/fargate-profile`), which the pod passes through the
+/// downward API: Chromium's sandbox probe reads EKS on Fargate from it
+/// (ADR 0049). On a node of any other kind the label is absent and the
+/// value empty, so this variable alone may be empty.
+pub const EKS_FARGATE_PROFILE_VARIABLE: &str = "GOODFETCH_EKS_FARGATE_PROFILE";
 
 /// The path of Foxhound's executable an SDK starts as its Attached engine.
 pub const FOXHOUND_ENGINE_PATH_VARIABLE: &str = "GOODFETCH_FOXHOUND_ENGINE_PATH";

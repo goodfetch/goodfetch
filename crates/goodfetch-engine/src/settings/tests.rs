@@ -1696,6 +1696,18 @@ fn an_empty_deployment_variable_is_invalid() {
     );
 }
 
+/// `GOODFETCH_EKS_FARGATE_PROFILE` is the pod's Fargate profile label, which
+/// the downward API gives as an empty value on a node of any other kind, so
+/// it alone may be empty.
+/// Covers: story:4-86
+#[test]
+fn an_empty_eks_fargate_profile_is_a_pod_off_fargate() {
+    let environment =
+        std::collections::BTreeMap::from([("GOODFETCH_EKS_FARGATE_PROFILE".into(), "".into())]);
+
+    assert_eq!(check_environment(&environment), Ok(()));
+}
+
 /// The engine's channels are the ones the protocol crate lists, which the
 /// SDKs' checks take from it.
 #[test]

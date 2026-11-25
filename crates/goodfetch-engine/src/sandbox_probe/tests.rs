@@ -106,6 +106,11 @@ fn environment(probed: &Probed) -> Option<SandboxEnvironment> {
     "no_sandbox",
     None
 )]
+#[case::a_pod_on_eks_on_fargate(
+    Facts { platform: Some(NoSandboxPlatform::EksFargate), seccomp_filtered: true, kubernetes: true, ..facts(UserNamespace::Refused(EPERM)) },
+    "no_sandbox",
+    None
+)]
 #[case::an_unknown_refusal(facts(UserNamespace::Refused(EPERM)), "unknown", None)]
 fn the_probe_names_what_refuses_the_sandbox_and_whether_a_fix_exists(
     #[case] facts: Facts,
@@ -194,6 +199,7 @@ fn an_unknown_refusal_refuses_the_launch_with_the_probes_error() {
 /// Covers: story:4-86, setting:security.browser_sandbox
 #[rstest]
 #[case::lambda(Probed::NoSandbox(NoSandboxPlatform::AwsLambda), json!(false))]
+#[case::eks_on_fargate(Probed::NoSandbox(NoSandboxPlatform::EksFargate), json!(false))]
 #[case::a_host_whose_sandbox_starts(Probed::Starts, json!(true))]
 #[case::apparmors_restriction(Probed::Restricted, json!(true))]
 fn a_platform_with_no_sandbox_switches_it_off_by_default(
@@ -225,7 +231,9 @@ fn a_browser_unconfined_or_stacked_with_the_restriction_is_held(
     assert_eq!(label_holds_user_namespaces(label), held);
 }
 
-/// Each platform with no fix is known by the variable it sets.
+/// Each platform with no fix is known by the variable it sets, EKS on
+/// Fargate by the profile its pod's label names, which the downward API
+/// leaves empty on any other node.
 /// Covers: story:4-86
 #[cfg(target_os = "linux")]
 #[rstest]
@@ -236,6 +244,12 @@ fn a_browser_unconfined_or_stacked_with_the_restriction_is_held(
     Some(NoSandboxPlatform::Fargate)
 )]
 #[case::ecs_on_ec2("AWS_EXECUTION_ENV", "AWS_ECS_EC2", None)]
+#[case::eks_on_fargate(
+    "GOODFETCH_EKS_FARGATE_PROFILE",
+    "shop-profile",
+    Some(NoSandboxPlatform::EksFargate)
+)]
+#[case::eks_on_ec2_where_the_label_is_absent("GOODFETCH_EKS_FARGATE_PROFILE", "", None)]
 #[case::azure_container_apps(
     "CONTAINER_APP_NAME",
     "shop",

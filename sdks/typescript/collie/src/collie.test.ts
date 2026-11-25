@@ -824,6 +824,11 @@ describe("Collie.connect()", () => {
       key: "GOODFETCH_OPS_ADDRESS",
       value: "[fe80::1%2]:9464",
     },
+    {
+      name: "an empty Fargate profile, a pod off Fargate",
+      key: "GOODFETCH_EKS_FARGATE_PROFILE",
+      value: "",
+    },
   ])("goes on with $name, as Rust reads it", { tags: ["story:11-73"] }, async ({ key, value }) => {
     const error = await failure(
       // oxlint-disable-next-line no-restricted-properties -- `Collie.connect` is the SDK's own factory (ADR 0078), not a browser's.

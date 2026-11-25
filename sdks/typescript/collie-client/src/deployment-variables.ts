@@ -14,6 +14,8 @@ const CHANNEL = "GOODFETCH_CHANNEL";
 const DRAIN_GRACE = "GOODFETCH_DAEMON_DRAIN_GRACE";
 const DAEMON_ADDRESS = "GOODFETCH_DAEMON_ADDRESS";
 const OPS_ADDRESS = "GOODFETCH_OPS_ADDRESS";
+/** The pod's Fargate profile label, which the downward API leaves empty off Fargate. */
+const EKS_FARGATE_PROFILE = "GOODFETCH_EKS_FARGATE_PROFILE";
 /** A whole number of milliseconds as Rust's `u64::from_str` reads it. */
 const MILLISECONDS = /^\+?[0-9]+$/u;
 /** The largest drain grace the engine reads, its `u64`'s. */
@@ -33,7 +35,7 @@ const LARGEST_SCOPE = 2n ** 32n - 1n;
  * deployment variables, the first by name failing.
  *
  * @throws {SettingUnknownError} for a variable not on the list.
- * @throws {SettingInvalidError} for an empty value, one that is no well-formed Unicode, a
+ * @throws {SettingInvalidError} for an empty value but `GOODFETCH_EKS_FARGATE_PROFILE`'s, one that is no well-formed Unicode, a
  *   `GOODFETCH_CHANNEL` that names no channel, a `GOODFETCH_DAEMON_DRAIN_GRACE` that is no
  *   whole number of milliseconds or a `GOODFETCH_DAEMON_ADDRESS` or `GOODFETCH_OPS_ADDRESS`
  *   that is no IP address and port.
@@ -59,7 +61,7 @@ export function checkDeploymentVariables(env: Readonly<Record<string, string>>):
 /** Why `value` cannot be the deployment variable `name`'s, if it cannot. */
 function invalidReason(name: string, value: string): string | undefined {
   if (value === "") {
-    return "it is empty; unset it instead";
+    return name === EKS_FARGATE_PROFILE ? undefined : "it is empty; unset it instead";
   }
   if (!value.isWellFormed()) {
     return "it is not Unicode";

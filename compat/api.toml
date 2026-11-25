@@ -171,3 +171,7 @@ reason = "The reason an enqueue gives for a URL it did not add is an open enumer
 [[announced]]
 entry = "typescript @goodfetch/foxhound/generated NotAddedReason"
 reason = "The reason an enqueue gives for a URL it did not add is an open enumeration (ADR 0079): a reason a newer engine adds reads as received instead of failing the answer (issue 1471)."
+
+[[announced]]
+entry = "typescript @goodfetch/collie-client/generated DEPLOYMENT_VARIABLES"
+reason = "A deployment variable joins the list, `GOODFETCH_EKS_FARGATE_PROFILE`, which names EKS on Fargate to Chromium's sandbox probe (issue 1619): the tuple type gains an element."

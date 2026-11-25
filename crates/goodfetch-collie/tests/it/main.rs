@@ -107,6 +107,7 @@ mod proxy;
 mod proxy_limits;
 mod relay_fingerprint;
 mod request_kinds;
+mod request_secrets;
 mod run;
 mod rust_client;
 mod sdk;

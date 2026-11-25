@@ -87,7 +87,10 @@ fn planting(kind: SecretKind) -> Planting {
         SecretKind::TotpSeed => Planting::Pending { ticket: 658 },
         SecretKind::OneTimeCode => Planting::Pending { ticket: 734 },
         SecretKind::HttpAuthenticationPassword => Planting::Pending { ticket: 657 },
-        SecretKind::HeaderValue => Planting::Pending { ticket: 656 },
+        SecretKind::HeaderValue => Planting::By {
+            file: "request_secrets.rs",
+            test: "a_placeholder_in_a_header_or_a_json_string_reaches_its_bound_domain_alone",
+        },
         SecretKind::CallerAnswer => Planting::Pending { ticket: 652 },
         SecretKind::ModelApiKey => Planting::Pending { ticket: 934 },
         SecretKind::WebhookSigningSecret => Planting::Pending { ticket: 666 },
@@ -96,9 +99,10 @@ fn planting(kind: SecretKind) -> Planting {
 }
 
 /// The source of each file the registry names.
-const SOURCES: [(&str, &str); 2] = [
+const SOURCES: [(&str, &str); 3] = [
     ("canaries.rs", include_str!("canaries.rs")),
     ("proxy.rs", include_str!("proxy.rs")),
+    ("request_secrets.rs", include_str!("request_secrets.rs")),
 ];
 
 /// What `doctor` and `doctor --json` print, stdout then stderr, in `env`

@@ -35,8 +35,9 @@ use secrecy::{ExposeSecret as _, SecretString};
 use sha2::{Digest as _, Sha256};
 use url::Url;
 
-use self::access_key::{Reach, Source};
+use self::access_key::Source;
 use crate::endpoint::{json_of, server_url, text_of, unreached, variable};
+use crate::identity::Reach;
 
 /// The service's name in failures.
 const SERVICE: &str = "AWS Secrets Manager";

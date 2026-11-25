@@ -21,19 +21,16 @@
 //! `http:` is taken for loopback and for the link-local addresses AWS
 //! serves an instance's or a task's identity at. The instance metadata
 //! service, which a host off EC2 lacks, is `not_configured` when it gives
-//! no token within [`INSTANCE_METADATA_WAIT`] or no role. Temporary
+//! no token within [`METADATA_WAIT`] or no role. Temporary
 //! credentials are fetched for each value read, as Azure Key Vault's token
 //! is.
 
 use std::collections::BTreeMap;
 use std::ffi::OsString;
-use std::path::{Path, PathBuf};
-use std::time::Duration;
+use std::path::PathBuf;
 
-use goodfetch_engine::clock::Clock;
-use goodfetch_engine::secret_endpoint::{EndpointFailure, SecretProviderEndpoint};
+use goodfetch_engine::secret_endpoint::EndpointFailure;
 use goodfetch_engine::secrets::{ConfigProblem, PartyText, ProviderFailure};
-use goodfetch_engine::tasks::BlockingThreads;
 use hyper::Request;
 use hyper::body::Bytes;
 use hyper::header::HeaderValue;
@@ -42,6 +39,7 @@ use secrecy::{ExposeSecret as _, SecretString};
 
 use super::Credentials;
 use crate::endpoint::{metadata_url, server_url, unreached, variable};
+use crate::identity::{METADATA_WAIT, Reach, not_configured, unrecognized};
 
 /// The container credentials endpoint's host, which
 /// `AWS_CONTAINER_CREDENTIALS_RELATIVE_URI`'s path is read at.
@@ -49,10 +47,6 @@ const CONTAINER_HOST: &str = "http://169.254.170.2";
 
 /// The instance metadata service's default address.
 const INSTANCE_METADATA: &str = "http://169.254.169.254";
-
-/// How long the instance metadata service may take to give a token before
-/// the host is taken to have none, as AWS's SDKs wait.
-pub(crate) const INSTANCE_METADATA_WAIT: Duration = Duration::from_secs(1);
 
 /// How long an instance metadata token lasts, in seconds: the longest the
 /// service gives.
@@ -109,13 +103,6 @@ enum Authorization {
     File(PathBuf),
     /// Given in the environment.
     Token(SecretString),
-}
-
-/// What the sources reach their endpoints through.
-pub(crate) struct Reach<'a> {
-    pub(crate) endpoint: &'a SecretProviderEndpoint,
-    pub(crate) blocking: &'a BlockingThreads,
-    pub(crate) clock: Clock,
 }
 
 impl Source {
@@ -256,7 +243,8 @@ impl WebIdentity {
         let server = server_url(&address).map_err(|why| {
             not_configured(format!("`AWS_ENDPOINT_URL_STS` is `{address}`, {why}."))
         })?;
-        let token = read_token(reach.blocking, &self.token_file)
+        let token = reach
+            .read_file(&self.token_file)
             .await
             .map_err(|_| {
                 not_configured(format!(
@@ -307,7 +295,7 @@ impl Container {
         let mut request = Request::get(server.as_str());
         let token = match &self.authorization {
             Some(Authorization::File(file)) => {
-                Some(read_token(reach.blocking, file).await.map_err(|_| {
+                Some(reach.read_file(file).await.map_err(|_| {
                     not_configured(format!(
                         "`AWS_CONTAINER_AUTHORIZATION_TOKEN_FILE` names `{}`, which cannot be read; point it at the token the platform writes.",
                         file.display()
@@ -376,15 +364,19 @@ async fn instance_role(address: &str, reach: &Reach<'_>) -> Result<Credentials, 
         .header("x-aws-ec2-metadata-token-ttl-seconds", TOKEN_LIFETIME)
         .body(Bytes::new())
         .expect("invariant: a joined URL and constant headers make a request");
-    let answer = tokio::select! {
-        answer = reach.endpoint.send(asking) => answer.map_err(unreachable)?,
-        () = reach.clock.sleep(INSTANCE_METADATA_WAIT) => {
-            return Err(absent(&format!("gave no token within {} s", INSTANCE_METADATA_WAIT.as_secs())));
-        }
-    };
+    let answer = reach
+        .promptly(reach.endpoint.send(asking))
+        .await
+        .ok_or_else(|| {
+            absent(&format!(
+                "gave no token within {} s",
+                METADATA_WAIT.as_secs()
+            ))
+        })?
+        .map_err(unreachable)?;
     if answer.status().as_u16() != 200 {
         return Err(absent(&format!(
-            "answered HTTP {} to IMDSv2's token request",
+            "answered HTTP {} to its token request",
             answer.status().as_u16()
         )));
     }
@@ -577,30 +569,4 @@ fn xml_fields(body: &[u8]) -> Option<BTreeMap<String, String>> {
             _ => {}
         }
     }
-}
-
-/// The token in the file at `path`, without the line ending a platform may
-/// leave, read on `blocking`.
-#[expect(
-    clippy::disallowed_methods,
-    reason = "the token file is read on the Secrets' owner's blocking threads, never on an async worker"
-)]
-async fn read_token(blocking: &BlockingThreads, path: &Path) -> std::io::Result<SecretString> {
-    let path = path.to_owned();
-    blocking
-        .run(move || std::fs::read_to_string(path))
-        .await
-        .map(|text| SecretString::from(text.trim().to_owned()))
-}
-
-fn not_configured(fix: String) -> ProviderFailure {
-    ProviderFailure::NotConfigured(ConfigProblem { fix })
-}
-
-/// An answer of `service`'s that is none of the shapes it documents, kept
-/// as `what` it lacked: the answer itself is never kept, since it may hold
-/// credentials.
-fn unrecognized(service: &str, what: &str) -> ProviderFailure {
-    tracing::warn!(service, "an identity endpoint answered an unknown shape");
-    ProviderFailure::Unrecognized(PartyText::new(format!("{service} answered {what}")))
 }

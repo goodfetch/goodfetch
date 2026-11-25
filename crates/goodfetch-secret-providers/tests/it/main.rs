@@ -15,5 +15,6 @@ mod providers;
 
 mod aws_access_keys;
 mod clouds;
+mod gcp_access_tokens;
 mod support;
 mod vault;

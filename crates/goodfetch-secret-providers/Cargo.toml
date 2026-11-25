@@ -16,6 +16,7 @@ hmac.workspace = true
 hyper.workspace = true
 jiff.workspace = true
 quick-xml.workspace = true
+rustls = { workspace = true, features = ["ring", "std"] }
 secrecy.workspace = true
 serde_json.workspace = true
 sha2.workspace = true

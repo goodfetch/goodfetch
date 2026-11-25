@@ -425,7 +425,8 @@ pub(crate) struct EndpointSettings {
 
 /// Why an Operator-configured endpoint gave no whole answer.
 #[derive(Debug)]
-pub(crate) enum WholeFailure {
+#[non_exhaustive]
+pub enum WholeFailure {
     /// The egress policy refused it before any connection.
     Refused(Refused),
     /// Its certificate failed verification, so nothing was sent.

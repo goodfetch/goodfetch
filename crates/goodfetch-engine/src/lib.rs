@@ -59,6 +59,7 @@ pub mod mask;
 pub mod metrics;
 pub mod needs_you;
 mod needs_you_operations;
+pub mod notification_endpoint;
 pub mod ops;
 pub mod otlp;
 pub mod pinned_download;

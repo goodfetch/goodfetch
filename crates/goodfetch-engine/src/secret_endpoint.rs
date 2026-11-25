@@ -18,7 +18,7 @@ use hyper::{Request, Response};
 use crate::clock::Clock;
 use crate::egress::{ConfiguredKind, Refused};
 use crate::http_client::{EndpointSettings, WholeFailure};
-use crate::retry_after::{self, RetryAfter};
+use crate::retry_after;
 use crate::settings::Resolved;
 use crate::tasks::BlockingThreads;
 use crate::tls::CertificateInvalid;
@@ -100,17 +100,6 @@ impl SecretProviderEndpoint {
     /// against the engine's clock; none when it has none or it is neither
     /// form, and the driver's backoff waits instead.
     pub fn retry_after(&self, answer: &Response<Bytes>) -> Option<Duration> {
-        let header = |name: &str| {
-            answer
-                .headers()
-                .get(name)
-                .and_then(|value| value.to_str().ok())
-        };
-        let received = self.clock.wall();
-        match retry_after::read(header("retry-after")?, header("date"), received) {
-            RetryAfter::Until(until) => Some(until.duration_since(received).unwrap_or_default()),
-            RetryAfter::NoWait => Some(Duration::ZERO),
-            RetryAfter::Unparsable => None,
-        }
+        retry_after::wait_of(answer.headers(), self.clock.wall())
     }
 }

@@ -6,10 +6,12 @@
 //! event ID so a resumed Run never sends an event again, retries on the
 //! delivery schedule, the rate limit of each destination ([`rate_limit`])
 //! and the failure enum ([`failure`]) each channel's translation point
-//! maps its party's answers to.
+//! maps its party's answers to. The channels fill it: [`webhook`] posts a
+//! signed Standard Webhooks delivery.
 
 pub mod driver;
 pub mod failure;
 pub mod ledger;
 pub mod message;
 pub mod rate_limit;
+pub mod webhook;

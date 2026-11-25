@@ -11,19 +11,25 @@ publish.workspace = true
 [dependencies]
 goodfetch-engine.workspace = true
 goodfetch-protocol.workspace = true
+hyper.workspace = true
 rusqlite.workspace = true
+serde.workspace = true
+serde_json.workspace = true
 thiserror.workspace = true
-tokio = { workspace = true, features = ["sync", "time"] }
+tokio = { workspace = true, features = ["macros", "sync", "time"] }
 tracing.workspace = true
 url.workspace = true
 goodfetch-workspace-hack.workspace = true
 
 [dev-dependencies]
 futures-util.workspace = true
+goodfetch-runtime.workspace = true
 goodfetch-test-support.workspace = true
+httpmock.workspace = true
 proptest.workspace = true
 proptest-state-machine.workspace = true
 rstest.workspace = true
+secrecy.workspace = true
 tokio = { workspace = true, features = ["rt"] }
 
 [lints]

@@ -653,6 +653,15 @@ pub(crate) const FASTCRW_FOLDER: &str = "fastcrw";
 /// The folder of crawlberg's side's build among the Rust sides' builds.
 pub(crate) const CRAWLBERG_FOLDER: &str = "crawlberg";
 
+/// The folder of the handled cell's Rust program's build among the Rust
+/// sides' builds: `goodfetch-foxhound`'s [`FOXHOUND_RUST_EXAMPLE`] example,
+/// built from the workspace into a target folder of its own.
+pub(crate) const FOXHOUND_RUST_FOLDER: &str = "foxhound-rust";
+
+/// The handled cell's Rust program: `goodfetch-foxhound`'s example of this
+/// name (#2858).
+pub(crate) const FOXHOUND_RUST_EXAMPLE: &str = "compare-handled";
+
 /// The folder of chromiumoxide's side's build among the Rust sides' builds,
 /// for the Collie scenario's chromiumoxide arm (issue 2444).
 pub(crate) const CHROMIUMOXIDE_FOLDER: &str = "chromiumoxide";
@@ -715,13 +724,20 @@ pub(crate) enum Config {
     /// links (#2317), `fetch.tier` not set, so the engine's own tier
     /// choice samples pages on `http` and in a browser (#1602).
     FoxhoundProgram,
+    /// The same program in Rust on Foxhound's Rust SDK, `goodfetch-foxhound`'s
+    /// `compare-handled` example (#2858): its engine linked into the
+    /// program's own process, as the Rust SDK runs one, at the
+    /// TypeScript program's settings.
+    FoxhoundRustProgram,
 }
 
 impl Config {
     /// The tool this configuration runs.
     pub(crate) fn tool(self) -> Tool {
         match self {
-            Self::Foxhound { .. } | Self::FoxhoundProgram => Tool::Foxhound,
+            Self::Foxhound { .. } | Self::FoxhoundProgram | Self::FoxhoundRustProgram => {
+                Tool::Foxhound
+            }
             Self::Spider { .. } => Tool::Spider,
             Self::Crawlee => Tool::Crawlee,
             Self::Scrapy => Tool::Scrapy,
@@ -735,12 +751,19 @@ impl Config {
 
     /// Whether the row leaves Foxhound's `fetch.tier` at `auto`, so its
     /// samples fetch their pages twice, on `http` and then in a browser:
-    /// the program sets no tier.
+    /// the programs set no tier.
     pub(crate) fn samples(self) -> bool {
         matches!(
             self,
-            Self::Foxhound { auto: true, .. } | Self::FoxhoundProgram
+            Self::Foxhound { auto: true, .. } | Self::FoxhoundProgram | Self::FoxhoundRustProgram
         )
+    }
+
+    /// Whether the row is a program on one of Foxhound's SDKs, which
+    /// crawls from its arguments and pushes its Records to the Dataset
+    /// [`PROGRAM_DATASET`](super::foxhound::PROGRAM_DATASET).
+    pub(crate) fn is_program(self) -> bool {
+        matches!(self, Self::FoxhoundProgram | Self::FoxhoundRustProgram)
     }
 }
 
@@ -2367,10 +2390,15 @@ pub(crate) const CELLS: [Cell; 132] = [
         scenario: Scenario::Handled,
         tool: Tool::Foxhound,
         name: "foxhound rust",
-        mapping: "the foxhound row's handler written in Rust on the Rust SDK",
+        mapping: "the foxhound row's program written in Rust on `goodfetch-foxhound`, Foxhound's \
+                  Rust SDK (its example `compare-handled`, built with the cell's profile), its \
+                  engine linked into the program's own process, as the Rust SDK runs one, with \
+                  the same handler of four exchanges a page (one `page.read` of the twenty \
+                  fields, one `push` to the Dataset `pages`, one `enqueue_links`) and the foxhound \
+                  row's settings, given as the connection's",
         pending: &[],
         row: Row::Main,
-        status: Status::Pending(HANDLED_RUST_PENDING),
+        status: Status::Measured(Config::FoxhoundRustProgram),
     },
     Cell {
         scenario: Scenario::Handled,
@@ -2489,10 +2517,6 @@ const fn defaults(scenario: Scenario) -> Cell {
         status: Status::Measured(AT_DEFAULTS_CONFIG),
     }
 }
-
-/// Why the handled crawl's Rust row gives no figure yet.
-pub(crate) const HANDLED_RUST_PENDING: &str =
-    "#2804, which brings the Rust SDK's crawl handler that the row's program is written on";
 
 /// Why the handled crawl's getters row gives no figure yet.
 pub(crate) const HANDLED_GETTERS_PENDING: &str = "#724 and #1296's TypeScript part, which bring \

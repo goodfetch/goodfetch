@@ -30,3 +30,11 @@ area = 1
 [[live-check]]
 id = "website/tests/live/deploy-smoke.live.ts › docs-deploy-smoke"
 area = 1
+
+# OpenSSF Scorecard against ci/scorecard.toml's floors (#146). It blocks
+# nothing: a check under its floor opens this check's issue.
+[[live-check]]
+id = "scorecard"
+area = 1
+job = "nightly.yml#scorecard"
+run = "target/debug/xtask results scorecard --results target/scorecard/results.json"

@@ -1,7 +1,7 @@
 //! Running a process Plugin (ADR 0033): the plugin protocol's handshake,
-//! and the Error codes of one that crashed and of one the host cannot
-//! confine, as a container runtime that runs as root cannot confine a
-//! Bridge Sink.
+//! the Plugin manifest a Plugin is held to, and the Error codes of one that
+//! crashed and of one the host cannot confine, as a container runtime that
+//! runs as root cannot confine a Bridge Sink.
 //!
 //! The plugin protocol is newline-delimited JSON-RPC 2.0 over the Plugin's
 //! stdio. Whoever starts a Plugin, the engine or the conformance harness,
@@ -9,14 +9,26 @@
 //! does, so that a Plugin started by hand refuses to run (not a security
 //! boundary), then sends [`HELLO`] as the first message; the Plugin answers
 //! with the kinds it implements and each kind's capabilities, which its
-//! kind's conformance suite proves one at a time. The approved manifest the
-//! answer must match, the protocol ranges and the schema bundle come with
-//! the handshake's own ticket (#810).
+//! kind's conformance suite proves one at a time. Holding the answer to the
+//! approved manifest, the protocol range in `hello` and the schema bundle
+//! come with the rest of the handshake's own ticket (#810).
+
+use std::fmt;
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use crate::catalog::{Entries, ErrorCodeDefinition, ErrorGroup, Product, ProtocolVersion};
+
+mod manifest;
+mod names;
+
+pub use manifest::{
+    Download, FILE_NAME, Grant, LOADER_VARIABLES, Limits, MANIFEST_VERSION, MEDIA_TYPE,
+    ManifestBrowser, ManifestError, ManifestModel, NetworkLevel, Permissions, PluginManifest,
+    Runtime, Spend, StructuredOutputStrategy,
+};
+pub use names::{HookStageName, PluginKindName};
 
 const ARRIVED_IN: ProtocolVersion = ProtocolVersion { major: 0, minor: 1 };
 
@@ -33,6 +45,40 @@ pub const PLUGIN_PROTOCOL_VERSION: ProtocolVersion = ProtocolVersion { major: 0,
 
 /// The method of the plugin protocol's first message.
 pub const HELLO: &str = "hello";
+
+/// A range of plugin protocol versions, both ends included.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct PluginProtocolRange {
+    /// The oldest version.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub min: ProtocolVersion,
+    /// The newest version.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub max: ProtocolVersion,
+}
+
+impl PluginProtocolRange {
+    /// Whether it holds `version`.
+    #[must_use]
+    pub fn contains(self, version: ProtocolVersion) -> bool {
+        self.min <= version && version <= self.max
+    }
+
+    /// The newest version both it and `other` hold, which a Plugin speaks;
+    /// none when they share none.
+    #[must_use]
+    pub fn newest_shared(self, other: Self) -> Option<ProtocolVersion> {
+        let newest = self.max.min(other.max);
+        (newest >= self.min.max(other.min)).then_some(newest)
+    }
+}
+
+impl fmt::Display for PluginProtocolRange {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(formatter, "{} to {}", self.min, self.max)
+    }
+}
 
 /// What the starter of a Plugin says in its `hello`.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -102,3 +148,6 @@ pub const ENTRIES: Entries = Entries {
     hook_stages: &[],
     shared_type_values: &[],
 };
+
+#[cfg(test)]
+mod tests;

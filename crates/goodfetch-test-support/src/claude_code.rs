@@ -27,11 +27,7 @@ use serde::Deserialize;
 
 use crate::browsers::downloads;
 use crate::env::TestEnv;
-
-/// The variable naming the folder `ci/claude-code-fetch.sh` downloads the
-/// tests' copy of Claude Code into, `~/.cache/goodfetch/claude-code` by
-/// default.
-pub const CLAUDE_CODE_DOWNLOADS_VARIABLE: &str = "GOODFETCH_CLAUDE_CODE_DOWNLOADS";
+use crate::variables::CLAUDE_CODE_DOWNLOADS_VARIABLE;
 
 /// The pins file, read for its release's version.
 const PINS: &str = include_str!("../../../test-support/claude-code/pins.toml");
@@ -133,6 +129,9 @@ pub fn claude_code_copy() -> Result<PathBuf, ClaudeCodeError> {
 
 /// Runs the tests' copy's `plugin validate --strict --json` on the plugin
 /// at `plugin`, with no network and its configuration in `env`'s folder.
+/// The path is made absolute first: on Windows a path rooted with no drive,
+/// as a cross-compiled test's `CARGO_MANIFEST_DIR`, would otherwise be read
+/// on the drive of the validator's working folder, the test's.
 ///
 /// # Errors
 ///
@@ -151,7 +150,7 @@ pub fn validate_plugin(env: &TestEnv, plugin: &Path) -> Result<PluginValidation,
     let mut command = env.process_command(&copy);
     command
         .args(["plugin", "validate", "--strict", "--json"])
-        .arg(plugin)
+        .arg(std::path::absolute(plugin)?)
         .env("HOME", &folder)
         .env("USERPROFILE", &folder)
         .env("CLAUDE_CONFIG_DIR", folder.join("config"))

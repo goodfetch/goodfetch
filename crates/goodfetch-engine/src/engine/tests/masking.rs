@@ -62,14 +62,15 @@ async fn reflect(params: Value, context: CallContext) -> Result<Value, CallError
     let text = params["text"].as_str().unwrap().to_owned();
     let run = context.runs().live(run_id).await.unwrap();
     tracing::info!(text = %text, "the page said {text}");
-    run.warn(RunWarning {
-        code: "page_said".to_owned(),
-        message: text.clone(),
-        sessions: Vec::new(),
-        folder: None,
-    })
-    .await
-    .unwrap();
+    crate::runs::warnings(&run)
+        .warn(RunWarning {
+            code: "page_said".to_owned(),
+            message: text.clone(),
+            sessions: Vec::new(),
+            folder: None,
+        })
+        .await
+        .unwrap();
     RequestLog::new(run_trace(&run))
         .record(&PAGE_REQUEST_FAILED, &json!({ "url": text }))
         .await

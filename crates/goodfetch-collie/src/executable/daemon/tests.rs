@@ -49,7 +49,7 @@ fn raise_the_run_index(home: &Home, version: &ProductVersion, lowest_minor: u16)
 /// install, which exits its Error code's row, not the plain failure of a
 /// Daemon that cannot be reached.
 ///
-/// Covers: story:3-144, command:daemon.start, error:format_version_unsupported
+/// Covers: story:3-144, error:format_version_unsupported
 #[test]
 fn a_start_with_no_executable_able_to_be_the_pick_fails_with_the_version_refusal() {
     let folder = tempfile::tempdir().unwrap();

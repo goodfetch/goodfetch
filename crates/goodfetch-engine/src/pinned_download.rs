@@ -32,7 +32,7 @@ use crate::egress::{ConfiguredKind, EndpointPolicy, Refused};
 use crate::happy_eyeballs::Delays;
 use crate::http_client::{self, ConfiguredEndpoint, EndpointFailure, Server};
 use crate::settings::Resolved;
-use crate::tasks::{BlockingThreads, TaskOwner};
+use crate::tasks::{BlockingThreads, TaskStarter};
 use crate::tls::Trust;
 
 /// The user agent of every pinned download: the same for every install and
@@ -249,7 +249,7 @@ impl Fetching {
     /// # Cancel safety
     ///
     /// Dropping the future loses only the answer.
-    pub async fn of(settings: &Resolved, clock: Clock, owner: &TaskOwner) -> Self {
+    pub async fn of(settings: &Resolved, clock: Clock, owner: &TaskStarter) -> Self {
         // Its shape was checked when the layer was read.
         let mirror = settings
             .value(&BROWSER_MIRROR)

@@ -37,7 +37,7 @@ use std::sync::Arc;
 
 use goodfetch_counted_work::{CountedWork, Row};
 use goodfetch_engine::egress::Policy;
-use goodfetch_engine::runs::Run;
+use goodfetch_engine::run_trace::RunTrace;
 use goodfetch_engine::staging::AttemptWrites as _;
 use goodfetch_engine::{CallContext, CallError, Handler};
 use goodfetch_fetch_tier::{FetchTiers, LinksUnread, ServedLinks};
@@ -167,7 +167,12 @@ async fn links(
     if !staging.holds(&params.crawl_request_id, params.lease_epoch) {
         return Err(attempt.ended());
     }
-    let (served, base) = served(&tiers, &params.locator, run.metrics().counted_work()).await?;
+    let (served, base) = served(
+        &tiers,
+        &params.locator,
+        run.identity.metrics().counted_work(),
+    )
+    .await?;
     Ok(CrawlRequestLinks {
         links: served
             .elements
@@ -270,7 +275,7 @@ async fn prepared(
     // A Label the crawl does not declare adds no link, even from a page
     // with none (ADR 0093).
     invariants.payloads().declares(&params.label)?;
-    let work = run.metrics().counted_work().clone();
+    let work = run.identity.metrics().counted_work().clone();
     // Each glob compiles once for the engine, from its cache (#1896).
     let include = Patterns::cached(&work, Row::BatchCompilations, &params.include)
         .map_err(CallError::from)?;
@@ -450,7 +455,7 @@ impl Judged {
 /// or that a menu, a tab or a disclosure a person opens hides
 /// (`revealable`, followed on every tier) (ADR 0035), once that attempt
 /// committed: a discarded attempt marks nothing.
-pub(crate) async fn mark_suspected(run: &Run, from: &str, suspected: &[Marked]) {
+pub(crate) async fn mark_suspected(trace: &RunTrace, from: &str, suspected: &[Marked]) {
     for Marked { id, url, mark } in suspected {
         let entry = serde_json::json!({
             "action": trap_links::SUSPECTED_ACTION,
@@ -459,7 +464,7 @@ pub(crate) async fn mark_suspected(run: &Run, from: &str, suspected: &[Marked]) 
             "from": from,
             "revealable": *mark == Mark::Revealable,
         });
-        if let Err(error) = run.provenance(entry).await {
+        if let Err(error) = trace.provenance(entry).await {
             tracing::warn!(%error, "a suspected trap link's Provenance entry cannot be written");
         }
     }

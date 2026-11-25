@@ -483,3 +483,48 @@ fn lays_out_a_browser_cache() {
         println!("{}", lines.join("\n"));
     }
 }
+
+#[test]
+#[ignore = "run as a child by downloads::each_downloads_variable_names_the_folder_its_copy_is_read_from"]
+#[expect(
+    clippy::print_stdout,
+    reason = "the probe prints each copy's path for its parent to read"
+)]
+fn prints_where_each_copy_is_read_from() {
+    use goodfetch_test_support::{
+        BrowserCacheError, ClaudeCodeError, ToxiproxyError, browser_builds, claude_code_copy,
+        lightpanda_copy, toxiproxy_copy,
+    };
+
+    use crate::downloads::NO_BUILD;
+
+    let env = TestEnv::new();
+    let toxiproxy = match toxiproxy_copy() {
+        Ok(path) | Err(ToxiproxyError::NotFetched(path)) => path.display().to_string(),
+        Err(ToxiproxyError::NoBuild) => NO_BUILD.to_owned(),
+        Err(error) => panic!("{error}"),
+    };
+    let claude_code = match claude_code_copy() {
+        Ok(path) | Err(ClaudeCodeError::NotFetched { path, .. }) => path.display().to_string(),
+        Err(error) => panic!("{error}"),
+    };
+    let lightpanda = match lightpanda_copy() {
+        Ok(path) | Err(BrowserCacheError::LightpandaNotFetched(path)) => path.display().to_string(),
+        Err(BrowserCacheError::NoBuild) => NO_BUILD.to_owned(),
+        Err(error) => panic!("{error}"),
+    };
+    let chrome_for_testing = match browser_builds(&env) {
+        Ok(_) => panic!("the probe's folder holds no Chrome for Testing archive"),
+        Err(BrowserCacheError::ChromeForTestingNotFetched(path)) => path.display().to_string(),
+        Err(BrowserCacheError::NoBuild) => NO_BUILD.to_owned(),
+        Err(error) => panic!("{error}"),
+    };
+    for (variable, copy) in crate::downloads::VARIABLES.into_iter().zip([
+        toxiproxy,
+        claude_code,
+        lightpanda,
+        chrome_for_testing,
+    ]) {
+        println!("{variable}={copy}");
+    }
+}

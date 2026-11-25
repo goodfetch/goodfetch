@@ -1152,7 +1152,7 @@ batch-check base="origin/main":
 # `perf`, `linux` (the tests only Linux decides) and `visual` (the visual
 # projects in the pinned Playwright image, ADR 0073) and `windows` (the
 # workspace built for Windows and tested under Wine, in its own image); TLC,
-# Miri and loom run beside them too, on the host, in folders of their own. The suite waits for
+# Miri, loom and the Simulation run beside them too, on the host, in folders of their own. The suite waits for
 # them and fails when one fails (ci/pre-merge.sh). A red step ends no form:
 # every other step still runs, and the end names each red step. `quick` runs only the
 # checks every change needs, for a change no test reads (ADR 0135), and
@@ -1932,6 +1932,43 @@ loom:
         LOOM_MAX_PREEMPTIONS="$preemptions" \
         cargo test --locked --package "${module%%$'\t'*}" --lib -- "${module#*$'\t'}"
     done
+
+# The gate's Simulation step (ADR 0060, issue 359): every scenario of every
+# crate's `tests/it/simulation/`, built with `--cfg tokio_unstable` in
+# `target/simulation/`, which no other step reads, run at the Pre-merge
+# suite's case count from each of 16 fixed seeds (GOODFETCH_TEST_SEED 1 to
+# 16). Each scenario's generator runs its committed Fault plans
+# (`fixtures/fault_plans/<scenario>/`) before its generated ones, and its
+# determinism check reruns 4 seeds drawn from the test's. A red seed names
+# itself and the command that runs it again. The scenarios run no test tool,
+# so the step builds none beside the host's suites.
+simulation:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    metadata=$(cargo metadata --no-deps --format-version 1)
+    packages=()
+    while IFS= read -r folder; do
+      packages+=(-p "$(jq -r --arg manifest "$PWD/${folder%/tests/it/simulation}/Cargo.toml" \
+        '.packages[] | select(.manifest_path == $manifest) | .name' <<<"$metadata")")
+    done < <(find crates -type d -path '*/tests/it/simulation' -not -path '*/target/*' | LC_ALL=C sort)
+    if [[ ${#packages[@]} -eq 0 ]]; then
+      echo "No crate has a Simulation scenario."
+      exit 0
+    fi
+    # Each seed runs once; a `for` loop with no `break` retries nothing
+    # (xtask no-retry).
+    red=()
+    for seed in $(seq 1 16); do
+      echo "The Simulation from seed $seed of 16:"
+      GOODFETCH_TEST_SEED="$seed" GOODFETCH_TEST_SUITE=pre-merge \
+        RUSTFLAGS="${RUSTFLAGS:-} --cfg tokio_unstable" CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-$PWD/target}/simulation" \
+        cargo nextest run --locked "${packages[@]}" --test it --cargo-profile {{ test_profile }} \
+        -E 'test(/^simulation::/)' || red+=("$seed")
+    done
+    if [[ ${#red[@]} -gt 0 ]]; then
+      echo "error: the Simulation fails from the seeds ${red[*]}; run one again with: GOODFETCH_TEST_SEED=<seed> GOODFETCH_TEST_SUITE=pre-merge just simulate <scenario>" >&2
+      exit 1
+    fi
 
 # The Simulation's scenario `scenario` (ADR 0060): the tests of each
 # crate's `tests/it/simulation/<scenario>.rs`, built with `--cfg

@@ -27,9 +27,10 @@
 # OS-service setup below; `just visual`, the visual projects in the pinned Playwright
 # image (ci/visual/container.sh); `just windows`, the workspace built for
 # Windows and its tests under Wine (ci/windows.sh, issue 2767). TLC, Miri
-# (issue 2090's F7) and loom (issue 2200) run beside them too, on the host:
-# each builds and writes in folders of its own (`target/tlc/`,
-# `target/miri/`, `target/loom/`; `target/windows/` for Windows), which
+# (issue 2090's F7), loom (issue 2200) and the Simulation (issue 359) run
+# beside them too, on the host: each builds and writes in folders of its own
+# (`target/tlc/`, `target/miri/`, `target/loom/`, `target/simulation/`;
+# `target/windows/` for Windows), which
 # no other step reads, and its verdict
 # follows from the tree and its pinned tools; what it shares with the host's
 # steps it only reads or waits for (ADR 0135's note of 2026-11-13). The
@@ -322,7 +323,7 @@ planned=""
 stress_base=""
 if [[ -n $planning ]]; then
   [[ $form != preflight ]] || echo "Preflight: the full gate's units only the gate host runs, the counted rows and the stress run, recorded by the layer preflight in $records, so the full gate on the same tree reuses them (ADR 0135)."
-  [[ $form != quick ]] || echo "The quick gate: no test reads this change, so perf, the Linux-only and visual tests, the Pre-merge suite, the stress run, TLC, the MSRV build, Miri, loom and the Windows build under Wine do not run (xtask affected's gate=quick, ADR 0135)."
+  [[ $form != quick ]] || echo "The quick gate: no test reads this change, so perf, the Linux-only and visual tests, the Pre-merge suite, the stress run, TLC, the MSRV build, Miri, loom, the Simulation and the Windows build under Wine do not run (xtask affected's gate=quick, ADR 0135)."
   plan=$(just _gate-plan "$form" "$layer")
   previous=$(output_value previous "$plan")
   planned=$(output_value head "$plan")

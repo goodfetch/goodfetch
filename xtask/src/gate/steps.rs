@@ -31,6 +31,11 @@ pub(crate) enum Step {
     Tlc,
     Miri,
     Loom,
+    /// Every Simulation scenario at the Pre-merge suite's 16 seeds, its
+    /// committed Fault plans first (ADR 0060): the scenarios build only
+    /// under `--cfg tokio_unstable`, so no suite's tests hold them (issue
+    /// 359).
+    Simulation,
     Windows,
     Lint,
     FeatureCombinations,
@@ -79,7 +84,7 @@ pub(crate) enum Reach {
 
 impl Step {
     /// Every step, in the order `ci/pre-merge.sh` starts them.
-    pub(crate) const ALL: [Self; 27] = [
+    pub(crate) const ALL: [Self; 28] = [
         Self::Dco,
         Self::CommitMessages,
         Self::FloorGuard,
@@ -93,6 +98,7 @@ impl Step {
         Self::Tlc,
         Self::Miri,
         Self::Loom,
+        Self::Simulation,
         Self::Windows,
         Self::Lint,
         Self::FeatureCombinations,
@@ -136,6 +142,7 @@ impl Step {
             Self::Msrv => "msrv",
             Self::Miri => "miri",
             Self::Loom => "loom",
+            Self::Simulation => "simulation",
             Self::Windows => "windows",
             Self::Kennel => "kennel",
             Self::CodegenTests => "codegen-tests",
@@ -174,7 +181,9 @@ impl Step {
             Self::Visual => Reach::Job(Job::Visual),
             Self::Tlc => Reach::Job(Job::Tlc),
             Self::Kennel => Reach::Job(Job::Kennel),
-            Self::Msrv | Self::Miri | Self::Loom | Self::Windows => Reach::Crates,
+            Self::Msrv | Self::Miri | Self::Loom | Self::Simulation | Self::Windows => {
+                Reach::Crates
+            }
             Self::Quick | Self::PreMerge | Self::Stress => Reach::Members,
         }
     }
@@ -197,9 +206,10 @@ impl Step {
 
     /// Whether the step runs beside the host's: those that need Linux, in
     /// a container of their own where the host is not Linux, TLC, Miri
-    /// (#2090's F7) and loom (#2200), and the Windows build under Wine
-    /// (#2767), in a container of its own. Each builds and writes in
-    /// folders of its own (`target/tlc/`, `target/miri/`, `target/loom/`,
+    /// (#2090's F7), loom (#2200) and the Simulation (issue 359), and the
+    /// Windows build under Wine (#2767), in a container of its own. Each
+    /// builds and writes in folders of its own (`target/tlc/`,
+    /// `target/miri/`, `target/loom/`, `target/simulation/`,
     /// `target/windows/`), and its verdict follows from the
     /// tree and its pinned tools, whatever runs beside it; what it shares
     /// with the host's steps, it only reads or waits for (ADR 0135's note
@@ -218,6 +228,7 @@ impl Step {
                 | Self::Tlc
                 | Self::Miri
                 | Self::Loom
+                | Self::Simulation
                 | Self::Windows
         )
     }
@@ -322,7 +333,9 @@ pub(crate) enum Owner {
     /// ADR 0135's note of 2026-11-23 on the full gate's hosted steps), and
     /// the semver checks, which build both the tree's and the previous
     /// release's rustdoc of each Product and install cargo-semver-checks
-    /// (issue 148).
+    /// (issue 148). The Simulation stays here too, as loom does: it builds
+    /// its crates again under a cfg of its own, in a folder of its own, and
+    /// no hosted job runs it (issue 359).
     Local,
     /// The pull-request tier on hosted runners, on a batch, spec or fork
     /// pull request: `just merge` reuses its units, and runs here those no
@@ -354,6 +367,7 @@ impl Owner {
                     | Step::FeatureCombinations
                     | Step::SemverChecks
                     | Step::Loom
+                    | Step::Simulation
                     | Step::Miri
             )
         {

@@ -53,7 +53,9 @@ use crate::variables::{ENGINE_VARIABLE, RESULT_DOCUMENTS_VARIABLE, Variables};
 const RUNTIME: &str = "rust";
 
 /// The surface of a Collie Journey's `cli` variant run on Foxhound's
-/// executable (ADR 0094).
+/// executable (ADR 0094): the protocol's `journey::FOXHOUND_CLI`, spelled
+/// again because this crate depends on no Goodfetch crate but the runtime
+/// (ADR 0062).
 const FOXHOUND_CLI: &str = "foxhound-cli";
 
 /// The executable a Journey variant drives: the one `GOODFETCH_TEST_ENGINE`

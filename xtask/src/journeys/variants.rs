@@ -11,13 +11,9 @@
 use std::collections::BTreeMap;
 
 use goodfetch_protocol::catalog::Product;
-use goodfetch_protocol::journey::{Journey, Milestone, Status, Surface};
+use goodfetch_protocol::journey::{FOXHOUND_CLI, Journey, Milestone, Status, Surface};
 
 use crate::check::Finding;
-
-/// The variant that runs a Collie Journey's `cli` steps on Foxhound's
-/// executable (ADR 0094).
-pub(super) const FOXHOUND_CLI: &str = "foxhound-cli";
 
 /// A test that names a Journey.
 pub(super) struct JourneyTest {

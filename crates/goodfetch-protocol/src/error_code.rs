@@ -35,7 +35,7 @@ impl ErrorCode {
     /// constant fails the build.
     #[must_use]
     pub const fn from_static(code: &'static str) -> Self {
-        match Self::of(code) {
+        match Self::new(code) {
             Some(code) => code,
             None => panic!("an Error code is at most 63 bytes"),
         }
@@ -44,11 +44,7 @@ impl ErrorCode {
     /// The code `code`, or none when it is longer than
     /// [`ErrorCode::MAX_LEN`] bytes, which no catalog code is.
     #[must_use]
-    pub fn new(code: &str) -> Option<Self> {
-        Self::of(code)
-    }
-
-    const fn of(code: &str) -> Option<Self> {
+    pub const fn new(code: &str) -> Option<Self> {
         let source = code.as_bytes();
         if source.len() > Self::MAX_LEN {
             return None;

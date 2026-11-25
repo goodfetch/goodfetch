@@ -14,11 +14,11 @@
 //! their own tickets' choice, so their variants are named on stderr and left
 //! out until then.
 
-use goodfetch_protocol::journey::{JourneyId, Milestone};
+use goodfetch_protocol::journey::{FOXHOUND_CLI, JourneyId, Milestone};
 
 use crate::runners::Runner;
 
-use super::variants::{FOXHOUND_CLI, Variant};
+use super::variants::Variant;
 
 /// What chooses the variants: an empty list chooses every value.
 pub(super) struct Choice {

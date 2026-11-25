@@ -24,9 +24,9 @@ mod linux {
     use std::os::unix::ffi::OsStrExt;
     use std::path::Path;
 
-    use goodfetch_confinement::linux::confine_self;
     use goodfetch_confinement::linux::number;
     use goodfetch_confinement::linux::probe::{Fault, Probe, Report, Request};
+    use goodfetch_confinement::linux::{confine_self, confine_self_with};
     use goodfetch_confinement::probes::{Access, Arg, Outcome, ProcessArg};
     use goodfetch_confinement::seccomp::Call;
 
@@ -44,24 +44,33 @@ mod linux {
         let Ok(request) = serde_json::from_str::<Request>(&text) else {
             return Report::Fault(Fault::Request);
         };
+        // The runner's id, read before a PID namespace hides it.
+        let parent = i64::from(std::os::unix::process::parent_id());
         let mechanism = match &request.policy {
             None => None,
-            Some(policy) => match confine_self(policy) {
+            Some(policy) => match request.scope.map_or_else(
+                || confine_self(policy),
+                |scope| confine_self_with(policy, scope),
+            ) {
                 Ok(mechanism) => Some(mechanism),
                 Err(error) => return Report::Fault(Fault::from(&error)),
             },
         };
         match (request.probe, mechanism) {
-            (Probe::Call { call, args }, _) => made(call, &args),
+            (Probe::Call { call, args }, _) => made(call, &args, parent),
             (Probe::Path { access, path }, _) => opened(access, &path),
             (Probe::Mechanism, Some(mechanism)) => Report::Mechanism(mechanism),
             (Probe::KernelAbi, None) => kernel_abi(),
-            (Probe::Mechanism, None) | (Probe::KernelAbi, Some(_)) => Report::Fault(Fault::Request),
+            (Probe::UserNamespace, None) => user_namespace(),
+            (Probe::Mechanism, None) | (Probe::KernelAbi | Probe::UserNamespace, Some(_)) => {
+                Report::Fault(Fault::Request)
+            }
         }
     }
 
-    /// The report of `call` made with `args`.
-    fn made(call: Call, args: &[Arg]) -> Report {
+    /// The report of `call` made with `args`, `parent` standing for the
+    /// runner.
+    fn made(call: Call, args: &[Arg], parent: i64) -> Report {
         if call == Call::RtSigreturn {
             return signal_returned();
         }
@@ -77,7 +86,7 @@ mod linux {
             *value = match arg {
                 Arg::Number(number) => *number,
                 Arg::Process(ProcessArg::Own) => i64::from(std::process::id()),
-                Arg::Process(ProcessArg::Parent) => i64::from(std::os::unix::process::parent_id()),
+                Arg::Process(ProcessArg::Parent) => parent,
             };
         }
         // SAFETY: a probe's arguments are numbers, null pointers, lengths of
@@ -158,8 +167,18 @@ mod linux {
         if previous == libc::SIG_ERR {
             return last_errno();
         }
-        // SAFETY: raises the signal whose handler was just installed.
-        if unsafe { libc::raise(libc::SIGUSR1) } != 0 {
+        // SAFETY: sends this thread the signal whose handler was just
+        // installed, with `tgkill` as glibc's `raise` does: musl's makes
+        // `tkill`, which the list refuses.
+        let raised = unsafe {
+            libc::syscall(
+                libc::SYS_tgkill,
+                libc::getpid(),
+                libc::gettid(),
+                libc::SIGUSR1,
+            )
+        };
+        if raised == -1 {
             return last_errno();
         }
         Report::Outcome(Outcome::Ok)
@@ -199,6 +218,27 @@ mod linux {
             )
         };
         Report::KernelAbi(u8::try_from(abi).unwrap_or(0))
+    }
+
+    /// The outcome of entering a user and PID namespace and mapping the
+    /// user there, asked without the applier's code.
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "a probe is one thread, never an async worker"
+    )]
+    fn user_namespace() -> Report {
+        // SAFETY: `getuid` reads no memory.
+        let user = unsafe { libc::getuid() };
+        // SAFETY: `unshare` takes flags only.
+        if unsafe { libc::unshare(libc::CLONE_NEWUSER | libc::CLONE_NEWPID) } == -1 {
+            return last_errno();
+        }
+        match std::fs::write("/proc/self/uid_map", format!("{user} {user} 1")) {
+            Ok(()) => Report::Outcome(Outcome::Ok),
+            Err(error) => error
+                .raw_os_error()
+                .map_or(Report::Fault(Fault::ErrnoOutOfRange), Report::errno),
+        }
     }
 
     fn last_errno() -> Report {

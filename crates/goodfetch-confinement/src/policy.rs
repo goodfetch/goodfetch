@@ -17,6 +17,10 @@ use serde::{Deserialize, Serialize};
 
 use crate::deny_list::{self, Base, Denied, Host, Places};
 
+/// The rule every policy gives on every OS, with its probe: an instance
+/// signals no process outside its confinement.
+pub const SIGNAL_RULE: &str = "signals.outside";
+
 /// The rules a policy's paths give on every OS, each with its probes: an
 /// instance reads its bundle and runtime, writes its own folders, and reads
 /// or writes nothing else, its bundle included.

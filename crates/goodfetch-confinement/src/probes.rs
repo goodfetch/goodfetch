@@ -17,7 +17,7 @@ use goodfetch_protocol::plugin::NetworkLevel;
 use serde::{Deserialize, Serialize};
 
 use crate::deny_list::{Denied, Host, Places};
-use crate::policy::FILE_RULES;
+use crate::policy::{FILE_RULES, SIGNAL_RULE};
 use crate::seccomp::{Call, Rule, Verdict};
 
 /// The probe table of `level` on `host`, as committed; none where that
@@ -56,6 +56,18 @@ pub struct CallCase {
     pub args: Vec<Arg>,
     pub unconfined: Outcome,
     pub confined: Outcome,
+    /// The outcome under Linux's PID-namespace mechanism, where it differs
+    /// from `confined`: a process outside the namespace does not exist
+    /// there.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pid_namespace: Option<Outcome>,
+}
+
+impl CallCase {
+    /// The outcome under Linux's PID-namespace mechanism.
+    pub fn in_pid_namespace(&self) -> Outcome {
+        self.pid_namespace.unwrap_or(self.confined)
+    }
 }
 
 /// One argument of a call: a number, or a process the runner knows only
@@ -376,6 +388,32 @@ pub fn check(table: &ProbeTable, rules: &[Rule], denied: &[&Denied]) -> Vec<Mism
     let mut mismatches = Vec::new();
     let layout = Layout::under(Path::new("/probe"));
     for case in &table.call {
+        let wrong = |expected: Outcome, found: Outcome| {
+            (expected != found).then(|| Mismatch::WrongOutcome {
+                rule: case.rule.clone(),
+                expected,
+                found,
+            })
+        };
+        if case.rule == SIGNAL_RULE {
+            // A signal to the runner, which Landlock refuses and a PID
+            // namespace has no process for.
+            if !matches!(case.call, Call::Kill | Call::Tgkill) {
+                mismatches.push(Mismatch::OtherCall {
+                    rule: case.rule.clone(),
+                    call: case.call,
+                });
+            }
+            let refused = Outcome::Errno(Errno::Eperm);
+            mismatches.extend(wrong(refused, case.confined));
+            mismatches.extend(wrong(Outcome::Errno(Errno::Esrch), case.in_pid_namespace()));
+            if case.unconfined == refused {
+                mismatches.push(Mismatch::NoPositiveControl {
+                    rule: case.rule.clone(),
+                });
+            }
+            continue;
+        }
         let Some(rule) = rules.iter().find(|rule| rule.name == case.rule) else {
             mismatches.push(Mismatch::ProbeWithoutRule(case.rule.clone()));
             continue;
@@ -391,13 +429,9 @@ pub fn check(table: &ProbeTable, rules: &[Rule], denied: &[&Denied]) -> Vec<Mism
             Verdict::Refuse => Outcome::Errno(Errno::Eperm),
             Verdict::NotImplemented => Outcome::Errno(Errno::Enosys),
         };
-        if case.confined != expected {
-            mismatches.push(Mismatch::WrongOutcome {
-                rule: case.rule.clone(),
-                expected,
-                found: case.confined,
-            });
-        }
+        // seccomp's outcome is the same in a PID namespace.
+        mismatches.extend(wrong(expected, case.confined));
+        mismatches.extend(case.pid_namespace.and_then(|found| wrong(expected, found)));
         if rule.verdict != Verdict::Allow && case.unconfined == expected {
             mismatches.push(Mismatch::NoPositiveControl {
                 rule: case.rule.clone(),
@@ -441,7 +475,8 @@ pub fn check(table: &ProbeTable, rules: &[Rule], denied: &[&Denied]) -> Vec<Mism
         .iter()
         .map(|rule| rule.name)
         .chain(denied.iter().map(|entry| entry.rule))
-        .chain(FILE_RULES.iter().copied());
+        .chain(FILE_RULES.iter().copied())
+        .chain([SIGNAL_RULE]);
     for name in named {
         if !probed.contains(name) {
             mismatches.push(Mismatch::RuleWithoutProbe(name.to_owned()));

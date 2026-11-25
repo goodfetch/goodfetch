@@ -1,4 +1,4 @@
-//! The Linux applier (ADR 0033): confines the calling thread, and whatever
+//! The Linux applier (ADR 0033): confines the calling process, and whatever
 //! it starts, to a [`Policy`] with Landlock, then the seccomp list of the
 //! policy's network level.
 //!
@@ -6,20 +6,24 @@
 //!   executables, and every file access under its writes, and nothing
 //!   else; from ABI 6 (kernel 6.12) it also scopes signals and abstract
 //!   Unix sockets to the confined processes.
+//! - Before ABI 6, a user and PID namespace of its own scope signals
+//!   instead (`namespaces`), and Landlock keeps the files at the kernel's
+//!   ABI. Abstract Unix sockets need a socket, which `none` refuses.
 //! - seccomp stacks three filters, since a filter has one action for the
 //!   calls it matches: the allows (any other call `EPERM`), the refusals
 //!   (`EPERM`), and the calls answered `ENOSYS`. Where filters disagree,
 //!   the kernel keeps the error over the allow, and the newest filter's
 //!   error over an older one's.
 //!
-//! Only Landlock with ABI 6 is built so far: before ABI 6 a PID namespace
-//! must scope signals, and without Landlock a mount namespace must hide the
-//! files, both still to come, so such a host is refused rather than
-//! confined less ([`ConfineError::Unavailable`]).
+//! Without Landlock, a mount namespace must hide the files, still to come,
+//! so such a host is refused rather than confined less
+//! ([`ConfineError::Unavailable`]).
 
+mod namespaces;
 pub mod probe;
 
 use std::collections::BTreeMap;
+use std::io;
 use std::path::PathBuf;
 
 use goodfetch_protocol::plugin::NetworkLevel;
@@ -31,6 +35,7 @@ use seccompiler::{
     BpfProgram, SeccompAction, SeccompCmpArgLen, SeccompCmpOp, SeccompCondition, SeccompFilter,
     SeccompRule, TargetArch,
 };
+use serde::{Deserialize, Serialize};
 
 use crate::policy::Policy;
 use crate::seccomp::{self, Call, Condition, Rule, Verdict};
@@ -39,12 +44,41 @@ use crate::seccomp::{self, Call, Condition, Rule, Verdict};
 /// kernel adds is left alone until a probe tests it.
 const HANDLED_ABI: ABI = ABI::V6;
 
+/// The Landlock ABI that scopes signals (kernel 6.12).
+pub const SIGNAL_SCOPE_ABI: u8 = 6;
+
 /// What confines a process, which a runner asserts so that a silent fallback
 /// fails (ADR 0067).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Mechanism {
     /// Landlock at this ABI, 6 or more, with the seccomp list.
     Landlock { abi: u8 },
+    /// Landlock for files at this ABI, 1 to 5 (5 on a newer kernel, whose
+    /// signal scope is left unused), a user and PID namespace of its own
+    /// for signals, and the seccomp list.
+    PidNamespace { abi: u8 },
+}
+
+/// What keeps a confined process's signals among the confined processes.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SignalScope {
+    /// Landlock's own scope, from ABI 6.
+    Landlock,
+    /// A user and PID namespace of its own.
+    PidNamespace,
+}
+
+impl SignalScope {
+    /// The scope this kernel gives: Landlock's from ABI 6, else a PID
+    /// namespace.
+    pub fn of_kernel() -> Self {
+        if kernel_abi() >= SIGNAL_SCOPE_ABI {
+            Self::Landlock
+        } else {
+            Self::PidNamespace
+        }
+    }
 }
 
 /// Why a process was not confined.
@@ -53,9 +87,17 @@ pub enum ConfineError {
     /// The policy's network level has no seccomp list yet (#833, #855).
     #[error("network level {0:?} has no seccomp list yet")]
     LevelNotBuilt(NetworkLevel),
-    /// This host lacks what the built mechanisms need: Landlock with ABI 6.
+    /// This host lacks what the built mechanisms need: Landlock, and, before
+    /// its ABI 6, an unprivileged user namespace.
     #[error("this host cannot confine a Plugin: {0}")]
     Unavailable(&'static str),
+    /// A call that sets up the namespaces failed for another reason.
+    #[error("`{call}` failed while entering the namespaces: {error}")]
+    Namespace {
+        call: &'static str,
+        #[source]
+        error: io::Error,
+    },
     /// A granted path cannot be opened for its Landlock rule.
     #[error("cannot grant `{path}`: {reason}")]
     Grant { path: PathBuf, reason: String },
@@ -67,17 +109,31 @@ pub enum ConfineError {
     Install(#[from] seccompiler::Error),
 }
 
-/// Confines the calling thread to `policy`, then everything it starts. Only
-/// the calling thread: call it from a launcher's one thread, before it starts
-/// the Plugin. On an error, the thread may be confined in part and must
-/// start nothing.
+/// Confines the calling process to `policy`, then everything it starts,
+/// with the signal scope this kernel gives ([`SignalScope::of_kernel`]).
 pub fn confine_self(policy: &Policy) -> Result<Mechanism, ConfineError> {
+    confine_self_with(policy, SignalScope::of_kernel())
+}
+
+/// Confines the calling process to `policy`, then everything it starts,
+/// scoping its signals with `scope`. Call it from a launcher's one thread,
+/// before it starts the Plugin: with [`SignalScope::PidNamespace`], the
+/// call returns in a child, the PID namespace's first process, and the
+/// caller's former self waits for it and ends as it ends. On an error, the
+/// process may be confined in part and must start nothing.
+pub fn confine_self_with(policy: &Policy, scope: SignalScope) -> Result<Mechanism, ConfineError> {
     let rules = seccomp::rules(policy.network_level);
     if rules.is_empty() {
         return Err(ConfineError::LevelNotBuilt(policy.network_level));
     }
     let programs = programs(&rules)?;
-    let mechanism = restrict_files(policy)?;
+    if scope == SignalScope::PidNamespace {
+        if kernel_abi() == 0 {
+            return Err(not_enabled());
+        }
+        namespaces::enter()?;
+    }
+    let mechanism = restrict_files(policy, scope)?;
     // The allows refuse `seccomp` itself, so they go last.
     for program in &programs {
         seccompiler::apply_filter(program)?;
@@ -85,30 +141,70 @@ pub fn confine_self(policy: &Policy) -> Result<Mechanism, ConfineError> {
     Ok(mechanism)
 }
 
-fn restrict_files(policy: &Policy) -> Result<Mechanism, ConfineError> {
+fn restrict_files(policy: &Policy, scope: SignalScope) -> Result<Mechanism, ConfineError> {
     let read = AccessFs::ReadFile | AccessFs::ReadDir;
     let start = AccessFs::ReadFile | AccessFs::Execute;
-    let status = Ruleset::default()
+    let ruleset = Ruleset::default()
         .set_compatibility(CompatLevel::BestEffort)
-        .handle_access(AccessFs::from_all(HANDLED_ABI))?
-        .scope(Scope::from_all(HANDLED_ABI))?
+        .handle_access(AccessFs::from_all(HANDLED_ABI))?;
+    let ruleset = match scope {
+        SignalScope::Landlock => ruleset.scope(Scope::from_all(HANDLED_ABI))?,
+        SignalScope::PidNamespace => ruleset,
+    };
+    let status = ruleset
         .create()?
         .add_rules(granted(&policy.reads, read))?
         .add_rules(granted(&policy.executables, start))?
         .add_rules(granted(&policy.writes, AccessFs::from_all(HANDLED_ABI)))?
         .restrict_self()?;
     let LandlockStatus::Available { effective_abi, .. } = status.landlock else {
-        return Err(ConfineError::Unavailable(
-            "Landlock is not enabled in this kernel",
-        ));
+        return Err(not_enabled());
     };
     let abi = abi_number(effective_abi);
-    if abi < 6 || status.ruleset != RulesetStatus::FullyEnforced {
-        return Err(ConfineError::Unavailable(
-            "Landlock lacks ABI 6, which scopes signals, and no PID namespace is built yet",
-        ));
+    match scope {
+        SignalScope::Landlock
+            if abi < SIGNAL_SCOPE_ABI || status.ruleset != RulesetStatus::FullyEnforced =>
+        {
+            Err(ConfineError::Unavailable(
+                "Landlock lacks ABI 6, which scopes signals",
+            ))
+        }
+        SignalScope::Landlock => Ok(Mechanism::Landlock { abi }),
+        // Rights an older ABI lacks are kept another way: seccomp refuses
+        // `truncate` and allows `ioctl` only for its few requests, and ABI
+        // 1 refuses any rename across folders.
+        SignalScope::PidNamespace if status.ruleset == RulesetStatus::NotEnforced => {
+            Err(not_enabled())
+        }
+        SignalScope::PidNamespace => Ok(Mechanism::PidNamespace {
+            abi: abi.min(SIGNAL_SCOPE_ABI - 1),
+        }),
     }
-    Ok(Mechanism::Landlock { abi })
+}
+
+fn not_enabled() -> ConfineError {
+    ConfineError::Unavailable(
+        "Landlock is not enabled in this kernel, and no mount namespace is built yet",
+    )
+}
+
+/// The Landlock ABI the kernel gives, 0 without Landlock: the crate asks it
+/// only while it builds a ruleset, too late to choose the signal scope.
+#[expect(unsafe_code, reason = "the kernel's Landlock ABI is a raw system call")]
+fn kernel_abi() -> u8 {
+    /// `landlock_create_ruleset`'s flag that asks for the ABI.
+    const VERSION: libc::c_uint = 1;
+    // SAFETY: with no attribute, a size of 0 and the version flag, the
+    // kernel reads no memory and answers the ABI, or an error.
+    let abi = unsafe {
+        libc::syscall(
+            libc::SYS_landlock_create_ruleset,
+            std::ptr::null::<libc::c_void>(),
+            0_usize,
+            VERSION,
+        )
+    };
+    u8::try_from(abi).unwrap_or(0)
 }
 
 /// The Landlock rules granting `access` beneath each of `paths`, narrowed to

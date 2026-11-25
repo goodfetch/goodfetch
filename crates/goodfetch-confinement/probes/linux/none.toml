@@ -1,12 +1,14 @@
 # Linux probes at the `none` network level (ADR 0067), one case per seccomp
-# rule, deny-list entry and file rule; `xtask probes generate` (#429) writes
+# rule, deny-list entry, file rule and the signal rule; `xtask probes generate` (#429) writes
 # this form from the rules, and the rule-to-probe check reads it in Quick.
 #
 # A call case's arguments make the call fail or succeed harmlessly
 # unconfined (x86-64 outcomes, measured on kernel 7.0), with an outcome
 # other than its refusal: the positive control. Socket cases ask for type 15,
 # past every socket type, so the kernel refuses them with EINVAL unconfined
-# whatever the family. A path case's outcomes are per mechanism: Landlock
+# whatever the family. The signal rule's case signals the runner, which
+# Landlock refuses with EPERM and the PID-namespace mechanism has no process
+# for (`pid_namespace`). A path case's outcomes are per mechanism: Landlock
 # refuses with EACCES, and the mount-namespace fallback has no such path.
 
 call = [
@@ -31,6 +33,7 @@ call = [
     { rule = "sigaltstack", call = "sigaltstack", args = [0, 0], unconfined = "ok", confined = "ok" },
     { rule = "kill", call = "kill", args = ["self", 0], unconfined = "ok", confined = "ok" },
     { rule = "tgkill", call = "tgkill", args = ["self", "self", 0], unconfined = "ok", confined = "ok" },
+    { rule = "signals.outside", call = "kill", args = ["parent", 0], unconfined = "ok", confined = "EPERM", pid_namespace = "ESRCH" },
     { rule = "read", call = "read", args = [-1, 0, 0], unconfined = "EBADF", confined = "EBADF" },
     { rule = "write", call = "write", args = [-1, 0, 0], unconfined = "EBADF", confined = "EBADF" },
     { rule = "readv", call = "readv", args = [-1, 0, 0], unconfined = "EBADF", confined = "EBADF" },

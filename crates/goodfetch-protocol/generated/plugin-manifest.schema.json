@@ -1,0 +1,639 @@
+{
+  "$defs": {
+    "Download": {
+      "additionalProperties": false,
+      "description": "A download the engine checks against its digest.",
+      "properties": {
+        "digest": {
+          "arrived_in": "0.1",
+          "description": "Its digest, `sha256:<hex>`.",
+          "type": "string"
+        },
+        "url": {
+          "arrived_in": "0.1",
+          "description": "Its HTTPS URL.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "url",
+        "digest"
+      ],
+      "type": "object"
+    },
+    "Grant": {
+      "description": "A power a Plugin asks for in its manifest's `permissions`, beyond\ndomains and Secret references.",
+      "oneOf": [
+        {
+          "const": "secret_value",
+          "description": "A Secret's value itself, rather than the engine inserting it on the\nway out.",
+          "type": "string"
+        },
+        {
+          "const": "effects",
+          "description": "Causing Effects.",
+          "type": "string"
+        },
+        {
+          "const": "page_script",
+          "description": "Running script in a page.",
+          "type": "string"
+        },
+        {
+          "const": "session_credentials",
+          "description": "A logged-in Session's credentials.",
+          "type": "string"
+        }
+      ]
+    },
+    "HookStageName": {
+      "description": "A Hook stage's `snake_case` name: one of Collie's, or another Product's or a newer engine's, which a reader keeps as received.",
+      "oneOf": [
+        {
+          "const": "before_navigation",
+          "description": "Before a main-frame navigation is sent.",
+          "type": "string"
+        },
+        {
+          "const": "after_navigation",
+          "description": "Once a navigation's response arrived, before the engine's own page work.",
+          "type": "string"
+        },
+        {
+          "const": "page_ready",
+          "description": "At a navigation's `load`.",
+          "type": "string"
+        },
+        {
+          "const": "run_started",
+          "description": "Once a Run started; observe-only.",
+          "type": "string"
+        },
+        {
+          "const": "checkpoint_taken",
+          "description": "Once a Checkpoint was taken; observe-only.",
+          "type": "string"
+        },
+        {
+          "const": "run_migrated",
+          "description": "Once a Run moved to another Group member; observe-only.",
+          "type": "string"
+        },
+        {
+          "const": "limit_reached",
+          "description": "Once a Limit was reached; observe-only.",
+          "type": "string"
+        },
+        {
+          "const": "run_ended",
+          "description": "Once a Run ended; observe-only.",
+          "type": "string"
+        }
+      ],
+      "open": true
+    },
+    "Limits": {
+      "additionalProperties": false,
+      "description": "A process Plugin's resource limits per instance, ADR 0033's defaults\nwhere the manifest is silent; Operator policy caps each.",
+      "properties": {
+        "concurrency": {
+          "arrived_in": "0.1",
+          "default": 4,
+          "description": "The calls it may hold at once: 4 by default.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "cpu_time": {
+          "arrived_in": "0.1",
+          "default": 3600,
+          "description": "The CPU time it may take, in seconds: an hour by default.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "memory": {
+          "arrived_in": "0.1",
+          "default": 268435456,
+          "description": "The memory it may hold, in bytes: 256 MiB by default.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "open_files": {
+          "arrived_in": "0.1",
+          "default": 128,
+          "description": "The files it may hold open at once: 128 by default.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "processes": {
+          "arrived_in": "0.1",
+          "default": 1,
+          "description": "The processes it may run at once, itself included: 1 by default.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "type": "object"
+    },
+    "ManifestBrowser": {
+      "additionalProperties": false,
+      "description": "A browser a Plugin adds (ADR 0033), which the engine downloads, checks\nand launches itself.",
+      "properties": {
+        "name": {
+          "arrived_in": "0.1",
+          "description": "Its name.",
+          "type": "string"
+        },
+        "platforms": {
+          "additionalProperties": {
+            "$ref": "#/$defs/Download"
+          },
+          "arrived_in": "0.1",
+          "description": "Its download for each platform, such as `linux-x64`.",
+          "type": "object"
+        }
+      },
+      "required": [
+        "name",
+        "platforms"
+      ],
+      "type": "object"
+    },
+    "ManifestModel": {
+      "additionalProperties": false,
+      "description": "A Model provider's model (ADR 0101), with its declared capabilities and\nprice.",
+      "properties": {
+        "context_window": {
+          "arrived_in": "0.1",
+          "description": "The tokens its context holds.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "id": {
+          "arrived_in": "0.1",
+          "description": "The model's ID, the part of a Model reference after the provider\nname.",
+          "type": "string"
+        },
+        "image_input": {
+          "arrived_in": "0.1",
+          "description": "Whether it reads images.",
+          "type": "boolean"
+        },
+        "input_price": {
+          "arrived_in": "0.1",
+          "description": "The price of a million input tokens, such as `3 USD`.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "max_output_tokens": {
+          "arrived_in": "0.1",
+          "description": "The most tokens one answer holds.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "output_price": {
+          "arrived_in": "0.1",
+          "description": "The price of a million output tokens, such as `15 USD`.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "strategies": {
+          "arrived_in": "0.1",
+          "description": "The structured output strategies it accepts, best first.",
+          "items": {
+            "$ref": "#/$defs/StructuredOutputStrategy"
+          },
+          "type": "array"
+        },
+        "tool_calls": {
+          "arrived_in": "0.1",
+          "description": "Whether it calls tools.",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "type": "object"
+    },
+    "NetworkLevel": {
+      "description": "What a process Plugin may reach on the network (ADR 0033), derived from\nits kinds rather than chosen: see [`NetworkLevel::allowed_for`].",
+      "oneOf": [
+        {
+          "const": "none",
+          "description": "Nothing: it creates no socket, and reaches the outside only through\nthe engine's calls back.",
+          "type": "string"
+        },
+        {
+          "const": "proxy_tcp",
+          "description": "TCP streams through the engine's proxy, to the hosts it may reach.",
+          "type": "string"
+        },
+        {
+          "const": "direct",
+          "description": "The network directly.",
+          "type": "string"
+        }
+      ]
+    },
+    "Permissions": {
+      "additionalProperties": false,
+      "description": "What a Plugin may do beyond its kinds' calls (ADR 0033), each held to\nwhat Operator policy approved for it.",
+      "properties": {
+        "domains": {
+          "arrived_in": "0.1",
+          "description": "The domains it may reach through the engine.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "grants": {
+          "arrived_in": "0.1",
+          "description": "What else it asks for, each granted or refused on its own.",
+          "items": {
+            "$ref": "#/$defs/Grant"
+          },
+          "type": "array",
+          "uniqueItems": true
+        },
+        "secrets": {
+          "arrived_in": "0.1",
+          "description": "The Secret references it uses.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "type": "object"
+    },
+    "PluginKindName": {
+      "description": "A Plugin kind's `snake_case` name: one of Collie's, or another Product's or a newer engine's, which a reader keeps as received.",
+      "oneOf": [
+        {
+          "const": "hook",
+          "description": "A Hook, run at a fixed stage of a navigation, a page or a Run.",
+          "type": "string"
+        },
+        {
+          "const": "browser",
+          "description": "A Browser backend, which supplies a Session's browser.",
+          "type": "string"
+        },
+        {
+          "const": "extract",
+          "description": "An Extractor, which turns a page into its main content.",
+          "type": "string"
+        },
+        {
+          "const": "model",
+          "description": "A Model provider, which answers model calls.",
+          "type": "string"
+        },
+        {
+          "const": "decision",
+          "description": "A Decision provider, which picks one of several options.",
+          "type": "string"
+        },
+        {
+          "const": "secret",
+          "description": "A Secret provider, which resolves the references of its scheme.",
+          "type": "string"
+        },
+        {
+          "const": "challenge",
+          "description": "A Challenge solver.",
+          "type": "string"
+        },
+        {
+          "const": "proxy",
+          "description": "A Proxy provider.",
+          "type": "string"
+        },
+        {
+          "const": "search",
+          "description": "A Search provider.",
+          "type": "string"
+        },
+        {
+          "const": "code",
+          "description": "A Code source, which reads a one-time code for a login.",
+          "type": "string"
+        },
+        {
+          "const": "notification",
+          "description": "A Notification channel.",
+          "type": "string"
+        }
+      ],
+      "open": true
+    },
+    "PluginManifest": {
+      "additionalProperties": false,
+      "description": "A Plugin's manifest.",
+      "properties": {
+        "browsers": {
+          "arrived_in": "0.1",
+          "description": "The browsers it adds, each by download and digest per platform.",
+          "items": {
+            "$ref": "#/$defs/ManifestBrowser"
+          },
+          "type": "array"
+        },
+        "entrypoint": {
+          "arrived_in": "0.1",
+          "description": "What the engine starts: a script the runtime runs, or an executable\nwithout one, by its path in the bundle.",
+          "type": "string"
+        },
+        "env": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "arrived_in": "0.1",
+          "description": "The variables of its environment, each by the setting of the Plugin\nthat values it; nothing is inherited, and no loader variable is\nallowed.",
+          "type": "object"
+        },
+        "files": {
+          "arrived_in": "0.1",
+          "description": "The paths outside its bundle it may read.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "hook_stages": {
+          "arrived_in": "0.1",
+          "description": "The Hook stages it implements, for a Hook.",
+          "items": {
+            "$ref": "#/$defs/HookStageName"
+          },
+          "type": "array",
+          "uniqueItems": true
+        },
+        "kinds": {
+          "arrived_in": "0.1",
+          "description": "The Plugin kinds it implements.",
+          "items": {
+            "$ref": "#/$defs/PluginKindName"
+          },
+          "type": "array",
+          "uniqueItems": true
+        },
+        "limits": {
+          "$ref": "#/$defs/Limits",
+          "arrived_in": "0.1",
+          "default": {
+            "concurrency": 4,
+            "cpu_time": 3600,
+            "memory": 268435456,
+            "open_files": 128,
+            "processes": 1
+          },
+          "description": "Its resource limits, which Operator policy caps."
+        },
+        "manifest_version": {
+          "$ref": "#/$defs/ProtocolVersion",
+          "arrived_in": "0.1",
+          "description": "The version of the manifest format it is written in."
+        },
+        "models": {
+          "arrived_in": "0.1",
+          "description": "For a Model provider, its models, each with its capabilities and\nprice (ADR 0101).",
+          "items": {
+            "$ref": "#/$defs/ManifestModel"
+          },
+          "type": "array"
+        },
+        "name": {
+          "arrived_in": "0.1",
+          "description": "The Plugin's name.",
+          "type": "string"
+        },
+        "network_level": {
+          "$ref": "#/$defs/NetworkLevel",
+          "arrived_in": "0.1",
+          "default": "none",
+          "description": "What it may reach on the network, which its kinds bound."
+        },
+        "permissions": {
+          "$ref": "#/$defs/Permissions",
+          "arrived_in": "0.1",
+          "default": {},
+          "description": "What it may do beyond its kinds' calls."
+        },
+        "processes": {
+          "arrived_in": "0.1",
+          "description": "The executables it may start.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "protocol": {
+          "$ref": "#/$defs/PluginProtocolRange",
+          "arrived_in": "0.1",
+          "description": "The plugin protocol versions it speaks."
+        },
+        "provider_name": {
+          "arrived_in": "0.1",
+          "description": "For a Model provider, the provider name a Model reference names it\nby (ADR 0101).",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "runtime": {
+          "$ref": "#/$defs/Runtime",
+          "arrived_in": "0.1",
+          "default": {
+            "kind": "none"
+          },
+          "description": "The language runtime it runs on, which the engine provides from its\nruntime cache."
+        },
+        "scheme": {
+          "arrived_in": "0.1",
+          "description": "For a Secret provider, the reference scheme it resolves (ADR 0092).",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "settings_schema": {
+          "arrived_in": "0.1",
+          "description": "The JSON Schema of its settings, which the engine validates them\nagainst and the CLI and MCP take the fields of."
+        },
+        "spend": {
+          "additionalProperties": {
+            "$ref": "#/$defs/Spend"
+          },
+          "arrived_in": "0.1",
+          "description": "Its spend outside the engine, by unit.",
+          "type": "object"
+        },
+        "version": {
+          "arrived_in": "0.1",
+          "description": "The Plugin's version.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "manifest_version",
+        "name",
+        "version",
+        "kinds",
+        "protocol",
+        "entrypoint"
+      ],
+      "type": "object"
+    },
+    "PluginProtocolRange": {
+      "additionalProperties": false,
+      "description": "A range of plugin protocol versions, both ends included.",
+      "properties": {
+        "max": {
+          "$ref": "#/$defs/ProtocolVersion",
+          "arrived_in": "0.1",
+          "description": "The newest version."
+        },
+        "min": {
+          "$ref": "#/$defs/ProtocolVersion",
+          "arrived_in": "0.1",
+          "description": "The oldest version."
+        }
+      },
+      "required": [
+        "min",
+        "max"
+      ],
+      "type": "object"
+    },
+    "ProtocolVersion": {
+      "description": "A version `major.minor` (ADR 0030).",
+      "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$",
+      "type": "string"
+    },
+    "Runtime": {
+      "description": "The language runtime a Plugin runs on.",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "description": "None: its entrypoint is an executable.",
+          "properties": {
+            "kind": {
+              "const": "none",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Node.js.",
+          "properties": {
+            "kind": {
+              "const": "node",
+              "type": "string"
+            },
+            "version": {
+              "arrived_in": "0.1",
+              "description": "The version, such as `22.11.0`.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "version"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Python.",
+          "properties": {
+            "kind": {
+              "const": "python",
+              "type": "string"
+            },
+            "version": {
+              "arrived_in": "0.1",
+              "description": "The version, such as `3.13.1`.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "version"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "Spend": {
+      "additionalProperties": false,
+      "description": "A unit of a Plugin's spend outside the engine (ADR 0033).",
+      "properties": {
+        "max_per_call": {
+          "arrived_in": "0.1",
+          "description": "The most of the unit one call spends, which the engine reserves\nbefore the call.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "price": {
+          "arrived_in": "0.1",
+          "description": "Its price, such as `0.002 USD`; without one, a currency Limit treats\nthe unit as unbounded and refuses the call.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "max_per_call"
+      ],
+      "type": "object"
+    },
+    "StructuredOutputStrategy": {
+      "description": "A way a model gives structured output (ADR 0101).",
+      "oneOf": [
+        {
+          "const": "native",
+          "description": "The provider's own schema support.",
+          "type": "string"
+        },
+        {
+          "const": "tool",
+          "description": "A forced tool call.",
+          "type": "string"
+        },
+        {
+          "const": "prompt",
+          "description": "The schema in the prompt, with JSON repair.",
+          "type": "string"
+        }
+      ]
+    }
+  },
+  "$ref": "#/$defs/PluginManifest",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

@@ -2046,6 +2046,28 @@
       ]
     },
     {
+      "id": "error:plugin_manifest_mismatch",
+      "kind": "error",
+      "area": 7,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "error:plugin_protocol_unsupported",
+      "kind": "error",
+      "area": 7,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "error:policy_conflict",
       "kind": "error",
       "area": 12,

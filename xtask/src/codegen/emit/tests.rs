@@ -486,8 +486,44 @@ fn request_params(emitted: &super::Emitted) -> Vec<String> {
         .iter()
         .flat_map(|kind| kind["methods"].as_array().unwrap())
         .map(|method| name(&method["params"]));
-    let hello = name(&emitted.bundle["connection"]["hello"]["params"]);
-    entries.chain(methods).chain([hello]).collect()
+    let plugin = &emitted.bundle["plugin"];
+    let hellos = [
+        name(&emitted.bundle["connection"]["hello"]["params"]),
+        name(&plugin["hello"]["params"]),
+        name(&plugin["ping"]["params"]),
+    ];
+    entries.chain(methods).chain(hellos).collect()
+}
+
+/// The plugin protocol's own types, outside the catalog, and the manifest a
+/// Plugin ships, each refer to its type in the bundle.
+///
+/// Covers: story:7-77, story:7-100
+#[test]
+fn the_bundle_holds_the_plugin_protocols_types_and_the_plugin_manifest() {
+    let emitted = emit();
+    let plugin = &emitted.bundle["plugin"];
+    let reference = |name: &str| json!({ "$ref": format!("#/$defs/{name}") });
+
+    assert_eq!(
+        plugin,
+        &json!({
+            "hello": {
+                "params": reference("PluginHelloParams"),
+                "result": reference("PluginHelloResult"),
+            },
+            "cancel": { "params": reference("PluginCancelParams") },
+            "ping": {
+                "params": reference("PluginPingParams"),
+                "result": reference("PluginPingResult"),
+            },
+            "manifest": reference("PluginManifest"),
+        })
+    );
+    assert_eq!(
+        emitted.bundle["$defs"]["PluginCancelParams"]["properties"].get("_meta"),
+        None
+    );
 }
 
 /// Covers: story:3-146

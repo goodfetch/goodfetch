@@ -1,0 +1,5 @@
+{"jsonrpc":"2.0","id":0,"result":{"kinds":[{"capabilities":["put"],"kind":"sample_store"}],"name":"sample-store","network_level":"none","protocol_version":"0.1","version":"1.0.0"}}
+{"jsonrpc":"2.0","id":1,"result":{}}
+{"jsonrpc":"2.0","id":2,"result":{"replaced":false}}
+{"jsonrpc":"2.0","id":3,"error":{"code":-32601,"message":"the Plugin has no such method","data":{"code":"method_not_found","retryable":false}}}
+{"jsonrpc":"2.0","id":"put-late","result":{"replaced":false}}

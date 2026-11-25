@@ -1,0 +1,5 @@
+{"jsonrpc":"2.0","id":1,"method":"$/ping","params":{"_meta":{"traceparent":7,"raw":true}}}
+
+{"jsonrpc":"2.0","method":"$/cancel","params":{"call_id":null,"deadline":"yes"}}
+{"jsonrpc":"2.0","id":-1.5e308,"method":"hello"}
+{"jsonrpc":"2.0","id":4,"result":{"protocol_version":"65535.65535","kinds":[],"name":"","version":""}}

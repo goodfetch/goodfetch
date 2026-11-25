@@ -57,7 +57,7 @@ const PERSON: &str = "os_user";
 
 /// A site certificate's defect.
 #[derive(Clone, Copy, Debug)]
-enum Made {
+pub(super) enum Made {
     Valid,
     Expired,
     NotYetValid,
@@ -68,13 +68,13 @@ enum Made {
 
 /// The test authority every site certificate but the unknown issuer's and
 /// the self-signed one chains to.
-struct SiteAuthority {
+pub(super) struct SiteAuthority {
     params: CertificateParams,
     key: KeyPair,
-    der: Vec<u8>,
+    pub(super) der: Vec<u8>,
 }
 
-fn authority(name: &str) -> SiteAuthority {
+pub(super) fn authority(name: &str) -> SiteAuthority {
     let key = KeyPair::generate().unwrap();
     let mut params = CertificateParams::new(Vec::<String>::new()).unwrap();
     let mut distinguished = DistinguishedName::new();
@@ -87,7 +87,11 @@ fn authority(name: &str) -> SiteAuthority {
 }
 
 /// A leaf for `host` with `made`'s defect, and its key in PKCS #8.
-fn site_certificate(host: &str, made: Made, trusted: &SiteAuthority) -> (Vec<u8>, Vec<u8>) {
+pub(super) fn site_certificate(
+    host: &str,
+    made: Made,
+    trusted: &SiteAuthority,
+) -> (Vec<u8>, Vec<u8>) {
     let key = KeyPair::generate().unwrap();
     let name = match made {
         Made::NameMismatch => "elsewhere.test".to_owned(),

@@ -178,7 +178,13 @@ async fn serve(
 ) -> Result<()> {
     let upstream = server.address();
     let reached = network.proxy_address().unwrap_or(upstream);
-    let fixtures = NetworkFixtures::bind(reached.ip(), seed, server.observations()).await?;
+    let fixtures = NetworkFixtures::bind(
+        reached.ip(),
+        seed,
+        server.observations(),
+        server.proxy_tls(),
+    )
+    .await?;
     let addresses = fixtures.report()?;
     server.observations().set_network_fixtures(
         serde_json::to_value(&addresses).context("reporting the network fixtures")?,

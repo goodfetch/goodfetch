@@ -66,6 +66,7 @@ fn serve_first_prints_the_address_of_each_network_fixture() {
             "limited",
             "mobile",
             "open",
+            "open_tls",
             "refusing_tunnels",
             "residential",
             "socks5"

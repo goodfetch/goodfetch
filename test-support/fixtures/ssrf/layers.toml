@@ -125,7 +125,7 @@ not_run.rebinding = "A Session with local addresses resolves through the engine'
 not_run.upstream_proxy = "A Session with local addresses and an upstream proxy binds only its connection to the proxy, which the relay reaches with no lookup of the case's name: `egress_relay`'s runner holds the proxy path."
 
 [layers.chromium_navigation]
-summary = "A browser Session on Chromium through Collie's executable, against the Proving ground, whose request record is the oracle: each case's URL as the program's own navigation (`page.goto`), every redirect status and kind on the Proving ground's redirect pages, a case's lookups as the Run's `network.resolve` mapping, which the relay judges as any answer, and an upstream proxy case through the Proving ground's open proxy."
+summary = "A browser Session on Chromium through Collie's executable, against the Proving ground, whose request record is the oracle: each case's URL as the program's own navigation (`page.goto`), every redirect status and kind on the Proving ground's redirect pages, a case's lookups as the Run's `network.resolve` mapping, which the relay judges as any answer, and an upstream proxy case through the Proving ground's open proxy. The name and proxy cases run again behind the Proving ground's `https://` proxy, which the relay chains through inside TLS under the proxy's own authority, trusted by the user configuration (issue 1609): every case goes through it, and a connection it accepted counts as one the navigation reached, a refused case's none."
 runners = [
     { test = "crates/goodfetch-collie/tests/it/navigation_egress.rs::every_encoding_and_ipv6_form_of_the_ssrf_table_is_refused_as_a_navigation_on_chromium", families = [
         "encoding",
@@ -135,6 +135,11 @@ runners = [
         "special_purpose_block",
     ] },
     { test = "crates/goodfetch-collie/tests/it/navigation_egress.rs::every_name_and_proxy_case_of_the_ssrf_table_is_refused_as_a_navigation_on_chromium", families = [
+        "mixed_answers",
+        "upstream_proxy",
+        "domain_policy",
+    ] },
+    { test = "crates/goodfetch-collie/tests/it/navigation_egress.rs::every_name_and_proxy_case_of_the_ssrf_table_is_refused_as_a_navigation_behind_an_https_proxy_on_chromium", families = [
         "mixed_answers",
         "upstream_proxy",
         "domain_policy",
@@ -178,7 +183,7 @@ not_run.rebinding = "The browser resolves names itself, so a rebinding answer re
 not_run.upstream_proxy = "A Borrowed browser is someone's running browser, whose proxy the engine does not set."
 
 [layers.launched_without_relay]
-summary = "A browser Session the engine launches with no egress relay under it (ADR 0017; #2435), through Collie's executable against the Proving ground: one with `security.raw_cdp_egress_proxy` off, and one behind an `https://` proxy, which the relay does not chain, at the Proving ground's open proxy, which speaks no TLS. Interception alone holds it, resolving each host in the engine and judging every answer; each case as the program's navigation, at the Proving ground's port, a case's lookups as the Run's `network.resolve` mapping, which the browser resolves too, and an upstream proxy case, with the switch off, through the Proving ground's open proxy. The oracle is the Proving ground's request record and its open proxy's connections; behind the `https://` proxy, a connection counts only for a navigation the interception let through, since the browser may preconnect to its proxy as a navigation starts. The redirect cases run with the switch off, on the Proving ground's redirect pages, each hop a paused request judged as the first."
+summary = "A browser Session the engine launches with no egress relay under it (ADR 0017; #2435), through Collie's executable against the Proving ground, with `security.raw_cdp_egress_proxy` off (an `https://` proxy is chained by the relay since issue 1609, the `chromium_navigation` layer's). Interception alone holds it, resolving each host in the engine and judging every answer; each case as the program's navigation, at the Proving ground's port, a case's lookups as the Run's `network.resolve` mapping, which the browser resolves too, and an upstream proxy case through the Proving ground's open proxy. The oracle is the Proving ground's request record and the requests its open proxy received, since the browser may preconnect to its proxy as a navigation starts. The redirect cases run with the switch off, on the Proving ground's redirect pages, each hop a paused request judged as the first."
 runners = [
     { test = "crates/goodfetch-collie/tests/it/navigation_egress.rs::every_address_case_of_the_ssrf_table_is_refused_at_interception_on_a_launched_session_with_no_relay", families = [
         "encoding",

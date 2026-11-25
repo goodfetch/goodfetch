@@ -22,7 +22,9 @@
 //! runs at `full`, where each attempt's writes are a batch of their own, so
 //! the file shows each commit as it is answered; the crawl's Run state
 //! model covers the open batch of `batch` (ADR 0142). 16 cases in the
-//! Quick suite and 256 in the Pre-merge suite (`proptest_config`).
+//! Quick suite and 256 in the Pre-merge suite (`proptest_config`). One
+//! fixed run of the same steps writes the `goodfetch::lease` trace that the
+//! run fencing model's trace spec validates (`trace/one-run.ndjson`).
 
 use goodfetch_protocol::point_in_time;
 use std::time::{Duration, SystemTime};
@@ -36,18 +38,19 @@ use goodfetch_engine::tasks::{BlockingPolicy, TaskOwner};
 use goodfetch_protocol::foxhound::crawl::{PushedRecord, RequestSeed, Seed};
 use goodfetch_protocol::foxhound::dataset::{DatasetDeclaration, RecordData};
 use goodfetch_protocol::foxhound::frontier::HttpMethod;
-use goodfetch_test_support::{CrashKind, CrashVfs, TestEnv, after_crash};
+use goodfetch_test_support::{CapturedLog, CrashKind, CrashVfs, TestEnv, after_crash, model_trace};
 use proptest::prelude::*;
 use proptest::sample::Index;
 use proptest_state_machine::{ReferenceStateMachine, StateMachineTest, prop_state_machine};
 use rusqlite::Connection;
 use serde_json::{Value, json};
 use tokio::runtime::Runtime;
+use tracing_subscriber::layer::SubscriberExt as _;
 
 use super::DEFAULT_LEASE;
 use crate::attempt_outcome::{Ended, Ending, Outcome};
 use crate::invariants::fixture;
-use crate::lease::{CommitError, Leases, WorkItemLease};
+use crate::lease::{CommitError, Leases, TARGET, WorkItemLease};
 use crate::staging::Staging;
 use crate::work_items::{self, Changed, Failure, Unsuccessful};
 
@@ -58,17 +61,35 @@ enum Transition {
     /// The monotonic clock moves on this many seconds.
     Advance(u64),
     /// An attempt's lease is renewed for this many seconds from now.
-    Renew(Index, u64),
+    Renew(Pick, u64),
     /// An attempt ends and gives its lease back.
-    Release(Index),
+    Release(Pick),
     /// The driver settles an attempt whose lease ended: its work item
     /// returns to pending, when the run file still holds that lease.
-    Settle(Index),
+    Settle(Pick),
     /// An attempt commits this many Records.
-    Commit(Index, u8),
+    Commit(Pick, u8),
     /// The process crashes or the power goes; the case ends with the file
     /// the next process opens.
     Crash(CrashKind),
+}
+
+/// The attempt a transition names: one proptest drew, or, in the trace
+/// test's fixed steps, the one at a position in grant order.
+#[derive(Clone, Copy, Debug)]
+enum Pick {
+    Drawn(Index),
+    At(usize),
+}
+
+impl Pick {
+    /// Its position among `count` attempts.
+    fn index(self, count: usize) -> usize {
+        match self {
+            Self::Drawn(index) => index.index(count),
+            Self::At(position) => position,
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -152,10 +173,10 @@ impl ReferenceStateMachine for Model {
         prop_oneof![
             3 => Just(Transition::Lease),
             3 => (0_u64..80).prop_map(Transition::Advance),
-            2 => (any::<Index>(), 1_u64..80).prop_map(|(attempt, seconds)| Transition::Renew(attempt, seconds)),
-            1 => any::<Index>().prop_map(Transition::Release),
-            2 => any::<Index>().prop_map(Transition::Settle),
-            3 => (any::<Index>(), 0_u8..3).prop_map(|(attempt, count)| Transition::Commit(attempt, count)),
+            2 => (any::<Index>(), 1_u64..80).prop_map(|(attempt, seconds)| Transition::Renew(Pick::Drawn(attempt), seconds)),
+            1 => any::<Index>().prop_map(|attempt| Transition::Release(Pick::Drawn(attempt))),
+            2 => any::<Index>().prop_map(|attempt| Transition::Settle(Pick::Drawn(attempt))),
+            3 => (any::<Index>(), 0_u8..3).prop_map(|(attempt, count)| Transition::Commit(Pick::Drawn(attempt), count)),
             1 => prop_oneof![Just(CrashKind::Process), Just(CrashKind::PowerCut)].prop_map(Transition::Crash),
         ]
         .boxed()
@@ -167,7 +188,7 @@ impl ReferenceStateMachine for Model {
             return model;
         }
         let now = model.now;
-        let chosen = |index: &Index, attempts: &[Attempt]| {
+        let chosen = |index: &Pick, attempts: &[Attempt]| {
             (!attempts.is_empty()).then(|| index.index(attempts.len()))
         };
         match transition {
@@ -266,7 +287,7 @@ impl Subject {
             .expect("invariant: the writer is open until the case ends")
     }
 
-    fn attempt(&self, index: Index) -> Option<(work_items::Leased, WorkItemLease)> {
+    fn attempt(&self, index: Pick) -> Option<(work_items::Leased, WorkItemLease)> {
         (!self.attempts.is_empty()).then(|| self.attempts[index.index(self.attempts.len())].clone())
     }
 
@@ -543,6 +564,61 @@ prop_state_machine! {
     );
 }
 
+/// The trace of one run's leases, as the model trace layer writes it: a
+/// renewed lease commits, a lease that ran out refuses its late commit and
+/// its work item is leased again, a released lease refuses its commit, and
+/// the link the first commit added commits. `just tlc-validate run-fencing`
+/// validates it against the run fencing model's trace spec.
+const ONE_RUN: &str = include_str!("trace/one-run.ndjson");
+
+/// Covers: story:3-40, story:3-41
+#[test]
+fn the_leases_trace_each_transition_the_run_fencing_model_names() {
+    let captured = CapturedLog::default();
+    let writer = captured.clone();
+    let subscriber =
+        tracing_subscriber::registry().with(model_trace(&[TARGET], move || writer.clone()));
+    let _traced = tracing::subscriber::set_default(subscriber);
+    let steps = [
+        Transition::Lease,
+        Transition::Renew(Pick::At(0), 75),
+        Transition::Commit(Pick::At(0), 1),
+        Transition::Lease,
+        Transition::Advance(71),
+        Transition::Commit(Pick::At(1), 1),
+        Transition::Settle(Pick::At(1)),
+        Transition::Lease,
+        Transition::Release(Pick::At(2)),
+        Transition::Commit(Pick::At(2), 0),
+        Transition::Lease,
+        Transition::Commit(Pick::At(3), 2),
+    ];
+    let mut model = Model {
+        now: 0,
+        items: vec![
+            Item {
+                status: Status::Pending,
+                epoch: 0,
+            };
+            2
+        ],
+        attempts: Vec::new(),
+        committed: Vec::new(),
+        last_commit: None,
+        crashed: false,
+    };
+    let mut subject = Subject::init_test(&model);
+
+    for step in steps {
+        model = Model::apply(model, &step);
+        subject = Subject::apply(subject, &model, step);
+        Subject::check_invariants(&subject, &model);
+    }
+    Subject::teardown(subject, model);
+
+    assert_eq!(String::from_utf8(captured.written()).unwrap(), ONE_RUN);
+}
+
 /// When the model's attempts end: their outcomes are not its subject.
 fn ended_at() -> SystemTime {
     point_in_time::from_rfc3339("2026-01-05T09:00:00Z").unwrap()
@@ -570,7 +646,7 @@ fn commit(
     subject: &Subject,
     model: &Model,
     (leased, lease): (work_items::Leased, WorkItemLease),
-    (index, count): (Index, u8),
+    (index, count): (Pick, u8),
 ) -> bool {
     let attempt = &model.attempts[index.index(model.attempts.len())];
     let records = (0..count)

@@ -1631,13 +1631,14 @@ tlc-validate *arguments:
 
 # A job that passes the models is so shown able to fail, run fencing's
 # model to reach the zombie copy its destinations fence (`zombie.cfg`), and
-# the trace validation to refuse a trace altered by hand.
-# The TLC job's self-test: the sample's broken variant and run fencing's zombie variant must fail their invariants, and a slices trace with a Slice past the Limit must fail its validation.
+# each trace validation to refuse a trace altered by hand.
+# The TLC job's self-test: the sample's broken variant and run fencing's zombie variant must fail their invariants, and a slices trace with a Slice past the Limit and a lease trace with a late commit counted must fail their validation.
 tlc-self-test:
     {{ just_executable() }} tlc-fetch
     cargo run --quiet --bin xtask -- tlc run sample --config broken --expect invariant-violated
     cargo run --quiet --bin xtask -- tlc run run-fencing --config zombie --expect invariant-violated
     cargo run --quiet --bin xtask -- tlc validate slices --trace test-support/models/slices/slice-past-the-limit.ndjson --expect unmatched
+    cargo run --quiet --bin xtask -- tlc validate run-fencing --trace test-support/models/run-fencing/commit-after-expiry.ndjson --expect unmatched
 
 # Keeps each archive of test-support/lazyfs/sources.toml in
 # target/lazyfs/sources/, downloading only a file that lacks its pinned

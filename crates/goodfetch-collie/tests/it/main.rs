@@ -122,6 +122,7 @@ mod request_kinds;
 mod request_secrets;
 mod run;
 mod rust_client;
+mod schedules;
 mod sdk;
 mod secrets;
 mod security_controls;

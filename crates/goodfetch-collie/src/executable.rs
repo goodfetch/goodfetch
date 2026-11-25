@@ -56,6 +56,7 @@
 use std::collections::BTreeMap;
 use std::ffi::{OsStr, OsString};
 use std::process::ExitCode;
+use std::sync::Arc;
 
 use catalog_commands::{Call, Generated, Joined, Joining};
 pub use catalog_commands::{OwnCall, OwnCommand, OwnCommands};
@@ -532,6 +533,17 @@ pub fn main(start: &Start) -> ExitCode {
         tracing::error!("no Goodfetch home: set GOODFETCH_HOME, or a home folder the OS knows");
         return ExitCode::FAILURE;
     };
+    // An Attached engine sends the calls its major's Daemon keeps to it,
+    // starting it as a relay does; a Daemon serves them itself.
+    let reach = daemon::DaemonOfTheMajor {
+        identity: engine.identity().clone(),
+        home: home.clone(),
+        environment: environment.clone(),
+        executable: std::env::current_exe().ok(),
+        clock,
+        settings: settings.clone(),
+    };
+    let engine = engine.with_daemon_reach(Arc::new(reach));
     if !launched {
         age_notice(start.release_date, &home, engine.identity(), clock);
     }

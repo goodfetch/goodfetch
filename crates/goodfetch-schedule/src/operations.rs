@@ -2,12 +2,15 @@
 //! definition and records it in the Schedule store, `schedule.list` and
 //! `schedule.get` read the store, and a Schedule's own `schedule.info` and
 //! `schedule.delete` act on it. Each waits for the store under its call's
-//! `timeout`, `timeout.wait` when absent (ADR 0080).
+//! `timeout`, `timeout.wait` when absent (ADR 0080). The store is the
+//! Daemon's: an Attached engine that can start its major's Daemon forwards
+//! each call to it, and only a Daemon, or an engine that cannot start one,
+//! such as a Linked engine, runs these handlers.
 
 use goodfetch_engine::clock::Clock;
 use goodfetch_engine::deadline::Deadline;
 use goodfetch_engine::user_store::{UserStore, UserStoreError};
-use goodfetch_engine::{CallContext, CallError, Contribution, Handler};
+use goodfetch_engine::{CallContext, CallError, Contribution, Handler, kept_by_the_daemon};
 use goodfetch_protocol::jsonrpc::ProtocolFailure;
 use goodfetch_protocol::schedule::{
     SCHEDULE_CREATE, SCHEDULE_DELETE, SCHEDULE_EXISTS, SCHEDULE_GET, SCHEDULE_INFO, SCHEDULE_LIST,
@@ -21,7 +24,8 @@ use goodfetch_protocol::settings::TIMEOUT_WAIT;
 use crate::{definition, store, trigger};
 
 /// What the schedule crate adds to an engine: the Schedule store and the
-/// `schedule.*` handlers.
+/// `schedule.*` handlers, each call sent to the major's Daemon when the
+/// engine is an Attached engine that reaches it.
 pub fn contribution() -> Contribution {
     Contribution::new("schedule")
         .with_user_store(&store::STORE)
@@ -30,6 +34,7 @@ pub fn contribution() -> Contribution {
         .with_handler(Handler::new(&SCHEDULE_GET, get))
         .with_handler(Handler::new(&SCHEDULE_INFO, info))
         .with_handler(Handler::new(&SCHEDULE_DELETE, delete))
+        .guarded(&kept_by_the_daemon())
 }
 
 async fn create(

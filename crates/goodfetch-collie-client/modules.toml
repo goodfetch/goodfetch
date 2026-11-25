@@ -67,11 +67,11 @@
 # a Run another program started, by its Run ID, with no round trip (ADR 0102).
 # `key_value_store` is a Run's Key-value store, reached with no round trip,
 # whose values cross the wire through `schema` (ADRs 0081 and 0103).
+# `schedules` is a Connection's Schedules, reached with no round trip, and
+# the Schedule handles they answer (spec 589).
 # `testing` is the testing kit's shared part (ADR 0105): the options a
 # Product's test engine starts with, the settings it isolates it with, and
 # what every Product's test engine is.
-# `schedules` is a Connection's Schedules and the answer `create` gives,
-# the blocking face's with its own handle (spec 589).
 [modules]
 ai_work = ["error"]
 answer = []

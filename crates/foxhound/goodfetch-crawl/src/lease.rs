@@ -41,7 +41,7 @@ use tokio::time::Instant;
 
 pub(crate) use crate::staging::SoFar;
 use crate::staging::{SetAside, Staging};
-use crate::work_items::{self, Changed, CleanUpRules, Fetched, FieldsRead};
+use crate::work_items::{self, AttemptKey, Changed, CleanUpRules, Fetched, FieldsRead};
 
 /// The `tracing` target of the run fencing model's transitions.
 pub(crate) const TARGET: &str = "goodfetch::lease";
@@ -275,9 +275,9 @@ pub(crate) struct Commit {
 }
 
 impl Commit {
-    /// Its attempt's work item and lease epoch.
-    pub(crate) fn attempt(&self) -> (&str, u64) {
-        (&self.work_item, self.epoch)
+    /// Its attempt.
+    pub(crate) fn attempt(&self) -> AttemptKey<&str> {
+        AttemptKey::new(&self.work_item, self.epoch)
     }
 
     /// When its work item's outcome ends.
@@ -312,7 +312,7 @@ impl Commit {
             ended_at,
         } = self;
         let mut staged = staging.take(&work_item, epoch);
-        if work_items::attempt(connection, &work_item, epoch)?.is_none() {
+        if work_items::attempt(connection, AttemptKey::new(&work_item, epoch))?.is_none() {
             return Ok(None);
         }
         let answered = match records {

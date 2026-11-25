@@ -68,7 +68,7 @@ use goodfetch_protocol::foxhound::provenance::RobotsTxtMark;
 use rusqlite::Connection;
 use serde_json::{Map, Value, json};
 
-use crate::work_items::{Changed, Decided, Fetched, FieldsRead, Positions};
+use crate::work_items::{AttemptKey, Changed, Decided, Fetched, FieldsRead, Positions};
 
 /// An admission through the Frontier that an attempt left to its commit
 /// ([`Staging::defer`]), which runs it the first time: it answers the
@@ -119,30 +119,13 @@ struct Entry {
 /// The `fix` of `effect_staging_refused`.
 const STAGE_AFTER: &str = "Stage it after the `effect` declaration returns, from the output its body returned: a re-run that finds the Effect in the Effect journal does not run the body again.";
 
-/// An attempt of a crawl, by what holds its lease: its work item and the
-/// lease epoch it holds it under.
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
-struct AttemptKey {
-    work_item: String,
-    lease_epoch: u64,
-}
-
-impl AttemptKey {
-    fn of(work_item: &str, lease_epoch: u64) -> Self {
-        Self {
-            work_item: work_item.to_owned(),
-            lease_epoch,
-        }
-    }
-}
-
 /// The staging of every attempt of one crawl that holds its lease, by its
 /// work item and lease epoch, each staging at most `max` admissions
 /// (`crawl.max_staged_enqueues`), and the work items that declared an
 /// Effect in this engine, which outlive their attempts.
 #[derive(Clone)]
 pub(crate) struct Staging {
-    entries: Arc<Mutex<HashMap<AttemptKey, Entry>>>,
+    entries: Arc<Mutex<HashMap<AttemptKey<String>, Entry>>>,
     declaring: Arc<Mutex<HashSet<String>>>,
     max: u64,
 }
@@ -314,7 +297,7 @@ impl Staging {
         }
     }
 
-    fn entries(&self) -> MutexGuard<'_, HashMap<AttemptKey, Entry>> {
+    fn entries(&self) -> MutexGuard<'_, HashMap<AttemptKey<String>, Entry>> {
         self.entries.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
@@ -470,7 +453,10 @@ impl Staging {
         let mut entries = self.entries();
         let entry = entries.get_mut(&AttemptKey::of(work_item, lease_epoch))?;
         if entry.effects > 0 {
-            return Some(Err(refused_in_effect(work_item, lease_epoch)));
+            return Some(Err(refused_in_effect(AttemptKey::new(
+                work_item,
+                lease_epoch,
+            ))));
         }
         entry.records.append(records);
         Some(Ok(()))
@@ -496,10 +482,10 @@ impl Staging {
         let earlier = match self.entries().get(&key) {
             None => return Ok(None),
             Some(entry) if entry.effects > 0 => {
-                return Ok(Some(Err(refused_in_effect(work_item, lease_epoch))));
+                return Ok(Some(Err(refused_in_effect(key.borrowed()))));
             }
             Some(entry) if u64::try_from(entry.admitted.len()).unwrap_or(u64::MAX) >= self.max => {
-                return Ok(Some(Err(full(work_item, lease_epoch, self.max))));
+                return Ok(Some(Err(full(key.borrowed(), self.max))));
             }
             Some(entry) => Arc::clone(&entry.staged),
         };
@@ -554,11 +540,12 @@ impl Staging {
     ) -> Option<Result<(), CallError>> {
         let mut entries = self.entries();
         let entry = entries.get_mut(&AttemptKey::of(work_item, lease_epoch))?;
+        let attempt = AttemptKey::new(work_item, lease_epoch);
         if entry.effects > 0 {
-            return Some(Err(refused_in_effect(work_item, lease_epoch)));
+            return Some(Err(refused_in_effect(attempt)));
         }
         if u64::try_from(entry.admitted.len()).unwrap_or(u64::MAX) >= self.max {
-            return Some(Err(full(work_item, lease_epoch, self.max)));
+            return Some(Err(full(attempt, self.max)));
         }
         entry.admitted.push(Admitted {
             at_commit: AtCommit::Run(Box::new(admission)),
@@ -573,9 +560,12 @@ fn enqueues_of(staged: &goodfetch_frontier::Staged) -> BTreeSet<String> {
     staged.identities().map(str::to_owned).collect()
 }
 
-/// `staging_full` for a call of the attempt of `work_item` under
-/// `lease_epoch`, which staged `max` admissions.
-fn full(work_item: &str, lease_epoch: u64, max: u64) -> CallError {
+/// `staging_full` for a call of `attempt`, which staged `max` admissions.
+fn full(attempt: AttemptKey<&str>, max: u64) -> CallError {
+    let AttemptKey {
+        work_item,
+        lease_epoch,
+    } = attempt;
     CallError::new(
         &STAGING_FULL,
         format!(
@@ -589,14 +579,17 @@ fn full(work_item: &str, lease_epoch: u64, max: u64) -> CallError {
     )
 }
 
-/// `effect_staging_refused` for a call of the attempt of `work_item` under
-/// `lease_epoch`.
-fn refused_in_effect(work_item: &str, lease_epoch: u64) -> CallError {
-    let (message, details) = in_effect(work_item, lease_epoch);
+/// `effect_staging_refused` for a call of `attempt`.
+fn refused_in_effect(attempt: AttemptKey<&str>) -> CallError {
+    let (message, details) = in_effect(attempt);
     CallError::new(&EFFECT_STAGING_REFUSED, message, &details)
 }
 
-fn in_effect(work_item: &str, lease_epoch: u64) -> (String, Map<String, Value>) {
+fn in_effect(attempt: AttemptKey<&str>) -> (String, Map<String, Value>) {
+    let AttemptKey {
+        work_item,
+        lease_epoch,
+    } = attempt;
     let message = format!(
         "Attempt {lease_epoch} of crawl request `{work_item}` runs a declared Effect's body, so nothing was staged with it."
     );
@@ -618,8 +611,12 @@ fn unstaged(
     }
 }
 
-/// `attempt_ended` for a write through an attempt that is not staging.
-fn ended(work_item: &str, lease_epoch: u64) -> Unstaged {
+/// `attempt_ended` for a write through `attempt`, which is not staging.
+fn ended(attempt: AttemptKey<&str>) -> Unstaged {
+    let AttemptKey {
+        work_item,
+        lease_epoch,
+    } = attempt;
     unstaged(
         &ATTEMPT_ENDED,
         format!(
@@ -645,12 +642,13 @@ impl AttemptWrites for Staging {
         lease_epoch: u64,
         write: StagedWrite,
     ) -> Result<StagedKey, Unstaged> {
+        let attempt = AttemptKey::new(crawl_request_id, lease_epoch);
         let mut entries = self.entries();
-        let Some(entry) = entries.get_mut(&AttemptKey::of(crawl_request_id, lease_epoch)) else {
-            return Err(ended(crawl_request_id, lease_epoch));
+        let Some(entry) = entries.get_mut(&attempt.owned()) else {
+            return Err(ended(attempt));
         };
         if entry.effects > 0 {
-            let (message, details) = in_effect(crawl_request_id, lease_epoch);
+            let (message, details) = in_effect(attempt);
             return Err(unstaged(&EFFECT_STAGING_REFUSED, message, details));
         }
         let before = last_of(&entry.writes, write.key());
@@ -667,14 +665,14 @@ impl AttemptWrites for Staging {
         self.entries()
             .get(&AttemptKey::of(crawl_request_id, lease_epoch))
             .map(|entry| last_of(&entry.writes, key))
-            .ok_or_else(|| ended(crawl_request_id, lease_epoch))
+            .ok_or_else(|| ended(AttemptKey::new(crawl_request_id, lease_epoch)))
     }
 
     fn begin_effect(&self, crawl_request_id: &str, lease_epoch: u64) -> Result<(), Unstaged> {
         self.entries()
             .get_mut(&AttemptKey::of(crawl_request_id, lease_epoch))
             .map(|entry| entry.effects += 1)
-            .ok_or_else(|| ended(crawl_request_id, lease_epoch))?;
+            .ok_or_else(|| ended(AttemptKey::new(crawl_request_id, lease_epoch)))?;
         self.declaring().insert(crawl_request_id.to_owned());
         Ok(())
     }

@@ -199,6 +199,58 @@ impl Leased {
             Again::Released => Some(self.released()),
         }
     }
+
+    /// This attempt, by its work item and lease epoch.
+    pub(crate) fn attempt_key(&self) -> AttemptKey<&str> {
+        AttemptKey::new(&self.crawl_request.id, self.lease_epoch)
+    }
+}
+
+/// An attempt of a crawl, by what holds its lease: its work item `W`,
+/// borrowed where an attempt is passed and owned where it is kept, and the
+/// lease epoch it holds it under.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub(crate) struct AttemptKey<W> {
+    pub(crate) work_item: W,
+    pub(crate) lease_epoch: u64,
+}
+
+impl<W> AttemptKey<W> {
+    pub(crate) const fn new(work_item: W, lease_epoch: u64) -> Self {
+        Self {
+            work_item,
+            lease_epoch,
+        }
+    }
+}
+
+impl AttemptKey<&str> {
+    /// The same key, owning its work item.
+    pub(crate) fn owned(self) -> AttemptKey<String> {
+        AttemptKey::new(self.work_item.to_owned(), self.lease_epoch)
+    }
+}
+
+impl AttemptKey<String> {
+    /// The key of the attempt of `work_item` under `lease_epoch`, owning
+    /// its work item.
+    pub(crate) fn of(work_item: &str, lease_epoch: u64) -> Self {
+        AttemptKey::new(work_item, lease_epoch).owned()
+    }
+
+    /// The same key, borrowing its work item.
+    pub(crate) fn borrowed(&self) -> AttemptKey<&str> {
+        AttemptKey::new(&self.work_item, self.lease_epoch)
+    }
+}
+
+/// Where and when an ending is written: in the run file's `connection`,
+/// inside one of its writer's transactions, ended at `ended_at`, counted in
+/// `changed` among the crawl's requests by state.
+pub(crate) struct EndWrite<'a> {
+    pub(crate) connection: &'a Connection,
+    pub(crate) ended_at: SystemTime,
+    pub(crate) changed: &'a mut Changed,
 }
 
 /// Whether an attempt that committed nothing left its work item pending
@@ -414,7 +466,7 @@ pub(crate) fn read_sitemap(
     document: &sitemap::Document,
     (keys, work, changed): (&Keys, &CountedWork, &mut Changed),
 ) -> rusqlite::Result<Option<Vec<Waiting>>> {
-    if !still_leased(connection, id, lease_epoch)? {
+    if !still_leased(connection, AttemptKey::new(id, lease_epoch))? {
         return Ok(None);
     }
     let mut positions = Positions::keying(connection, keys.clone())?;
@@ -1080,13 +1132,16 @@ pub fn url_of(connection: &Connection, id: &str) -> rusqlite::Result<Option<Stri
         .optional()
 }
 
-/// The URL and depth of the work item `id` while its attempt under
-/// `lease_epoch` holds its lease; `None` once that attempt ended.
+/// The URL and depth of `attempt`'s work item while that attempt holds its
+/// lease; `None` once it ended.
 pub(crate) fn attempt(
     connection: &Connection,
-    id: &str,
-    lease_epoch: u64,
+    attempt: AttemptKey<&str>,
 ) -> rusqlite::Result<Option<(String, u32)>> {
+    let AttemptKey {
+        work_item: id,
+        lease_epoch,
+    } = attempt;
     connection
         .prepare_cached("SELECT url, depth FROM work_items WHERE id = ?1 AND status = 'leased' AND lease_epoch = ?2").and_then(|mut cached| cached.query_row((id, integer(lease_epoch)), |row| Ok((row.get(0)?, row.get(1)?))))
         .optional()
@@ -1213,20 +1268,24 @@ pub(crate) fn leasable_added(
     Ok(rows)
 }
 
-/// Leases each work item of `claims` that is still pending as it was when
-/// its row was read ([`leasable`]): its lease epoch one below the one
-/// given. Answers the IDs it did not lease, whose attempts then end with
-/// their lease lost.
+/// Leases the work item of each attempt of `claims` that is still pending
+/// as it was when its row was read ([`leasable`]): its lease epoch one
+/// below the attempt's. Answers the IDs it did not lease, whose attempts
+/// then end with their lease lost.
 pub(crate) fn claim(
     connection: &Connection,
-    claims: &[(String, u64)],
+    claims: &[AttemptKey<String>],
 ) -> rusqlite::Result<Vec<String>> {
     let mut statement = connection.prepare_cached(
         "UPDATE work_items SET status = 'leased', attempts = attempts + 1, lease_epoch = lease_epoch + 1
          WHERE id = ?1 AND status = 'pending' AND lease_epoch + 1 = ?2",
     )?;
     let mut unclaimed = Vec::new();
-    for (id, lease_epoch) in claims {
+    for AttemptKey {
+        work_item: id,
+        lease_epoch,
+    } in claims
+    {
         if statement.execute((id, integer(*lease_epoch)))? == 0 {
             unclaimed.push(id.clone());
         }
@@ -1288,8 +1347,12 @@ fn leased_rows(
     Ok(leased)
 }
 
-/// Whether the work item `id` is still leased under `lease_epoch`.
-fn still_leased(connection: &Connection, id: &str, lease_epoch: u64) -> rusqlite::Result<bool> {
+/// Whether `attempt` still holds its work item's lease.
+fn still_leased(connection: &Connection, attempt: AttemptKey<&str>) -> rusqlite::Result<bool> {
+    let AttemptKey {
+        work_item: id,
+        lease_epoch,
+    } = attempt;
     Ok(connection
         .prepare_cached(STILL_LEASED)
         .and_then(|mut cached| cached.query_row((id, integer(lease_epoch)), |_| Ok(())))
@@ -1389,7 +1452,7 @@ pub(crate) fn commit(
         keeps_records,
         clean_up_rules,
     } = committed;
-    if !still_leased(connection, id, lease_epoch)? {
+    if !still_leased(connection, AttemptKey::new(id, lease_epoch))? {
         return Ok(false);
     }
     let counted = if keeps_records {
@@ -1418,15 +1481,17 @@ pub(crate) fn commit(
         None
     };
     write_outcome(
-        connection,
+        &mut EndWrite {
+            connection,
+            ended_at,
+            changed,
+        },
         id,
-        ended_at,
         Ending::Succeeded {
             records: counted,
             nothing_committed,
             not_added: not_added.to_vec(),
         },
-        changed,
     )?;
     Ok(true)
 }
@@ -1482,7 +1547,7 @@ pub(crate) fn end(
     ended_at: SystemTime,
     changed: &mut Changed,
 ) -> rusqlite::Result<bool> {
-    if !still_leased(connection, id, lease_epoch)? {
+    if !still_leased(connection, AttemptKey::new(id, lease_epoch))? {
         return Ok(false);
     }
     let set = |status: &str, error_code: Option<&str>| {
@@ -1519,24 +1584,30 @@ pub(crate) fn end(
             return Ok(true);
         }
     };
-    write_outcome(connection, id, ended_at, ending, changed)?;
+    write_outcome(
+        &mut EndWrite {
+            connection,
+            ended_at,
+            changed,
+        },
+        id,
+        ending,
+    )?;
     Ok(true)
 }
 
 /// Ends the pending work items a rule the Frontier learned later merged
-/// (ADR 0093): given the crawl requests it showed to be one page, each
-/// still pending ends `skipped` with `duplicate` at `ended_at`, its
+/// (ADR 0093), as `write` says: given the crawl requests it showed to be
+/// one page, each still pending ends `skipped` with `duplicate`, its
 /// handler never run, unless none of them was leased or ended otherwise
 /// than so, when the first pending one stays; one ended so and given back
 /// since ([`give_back`]) counts by its latest outcome. Answers each one it
-/// ended, with its URL and the domain key it waits under, if keyed; each
-/// counts in `changed`.
+/// ended, with its URL and the domain key it waits under, if keyed.
 pub(crate) fn end_merged(
-    connection: &Connection,
+    write: &mut EndWrite<'_>,
     ids: &BTreeSet<String>,
-    ended_at: SystemTime,
-    changed: &mut Changed,
 ) -> rusqlite::Result<Vec<(String, String, Option<String>)>> {
+    let connection = write.connection;
     let mut members = Vec::with_capacity(ids.len());
     for id in ids {
         let member = connection
@@ -1576,14 +1647,12 @@ pub(crate) fn end_merged(
             .prepare_cached(ENDED)
             .and_then(|mut cached| cached.execute((SKIPPED, &id)))?;
         write_outcome(
-            connection,
+            write,
             &id,
-            ended_at,
             Ending::Skipped {
                 reason: SkipReason::Duplicate,
                 message: None,
             },
-            changed,
         )?;
         ended.push((id, url, key));
     }
@@ -1623,17 +1692,12 @@ fn keep_error(
     })
 }
 
-/// Writes the outcome of the work item `id`, next in commit order, with
-/// the errors of its attempts since its previous outcome. Attempts count on
-/// across a re-admission, so the attempts of each outcome are the work
-/// item's attempts so far.
-fn write_outcome(
-    connection: &Connection,
-    id: &str,
-    ended_at: SystemTime,
-    ending: Ending,
-    changed: &mut Changed,
-) -> rusqlite::Result<()> {
+/// Writes the outcome of the work item `id`, next in commit order, as
+/// `write` says, with the errors of its attempts since its previous
+/// outcome. Attempts count on across a re-admission, so the attempts of
+/// each outcome are the work item's attempts so far.
+fn write_outcome(write: &mut EndWrite<'_>, id: &str, ending: Ending) -> rusqlite::Result<()> {
+    let (connection, ended_at, changed) = (write.connection, write.ended_at, &mut *write.changed);
     // A sitemap's fetch is no crawl request: its sitemap's counts, or why
     // it could not be read, are its ending (ADR 0102).
     if sitemap::is_fetch(connection, id)? {

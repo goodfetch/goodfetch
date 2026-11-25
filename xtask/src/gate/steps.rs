@@ -210,10 +210,10 @@ impl Step {
     /// The Windows build under Wine (#2767) is not among them, though it
     /// builds in a container and a folder of its own: its verdict depends on
     /// what runs beside it. Its tests start Proving grounds within a 30 s
-    /// deadline, which 34, 47 and 4 of them missed, failing after 33 to
-    /// 47 s, in three full gates of pull request 3326 under the other steps'
-    /// load (45 to 77 on 16 CPUs), while all 11542 passed in a gate where the
-    /// step ran nearly alone. No test is retried (ADR 0064) and the deadline
+    /// deadline, which 34, 57 and 3 of them missed, failing after 35 to
+    /// 51 s, in three full gates of pull request 3326 under the other steps'
+    /// load (averaging 45 to 77 on 16 CPUs), while all 11542 passed in a gate
+    /// where the step ran nearly alone (ADR 0135's note of 2026-11-25). No test is retried (ADR 0064) and the deadline
     /// stays, so the step runs once every other step has ended
     /// ([`Self::after`], #3780).
     pub(crate) const fn beside(self) -> bool {
@@ -229,8 +229,8 @@ impl Step {
         )
     }
 
-    /// Whether the step runs on the host once every other step of its form
-    /// has ended, those beside the host's with them, so nothing else loads
+    /// Whether the step runs once every other step of its form has ended,
+    /// those beside the host's with them, so no other step of the gate loads
     /// the host while it runs: the Windows build, whose tests under Wine
     /// miss their start deadline beside the other steps ([`Self::beside`],
     /// #3780). It is the form's last entry.

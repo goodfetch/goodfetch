@@ -41,11 +41,44 @@ fn ada() -> Partition {
     }
 }
 
+fn request(method: &str, path: &str, headers: &[(&str, &str)], body: &str) -> CacheRequest {
+    let headers: Vec<(String, String)> = headers
+        .iter()
+        .map(|(name, value)| ((*name).to_owned(), (*value).to_owned()))
+        .collect();
+    CacheRequest::new(
+        method,
+        &format!("https://cache.test{path}").parse().unwrap(),
+        &headers,
+        Bytes::from(body.to_owned()),
+    )
+}
+
 fn page() -> CacheRequest {
-    CacheRequest {
-        method: "GET".to_owned(),
-        url: "https://cache.test/page".to_owned(),
-        headers: Vec::new(),
+    request("GET", "/page", &[], "")
+}
+
+/// A POST of `body` as JSON to the search API.
+fn search(body: &str) -> CacheRequest {
+    request(
+        "POST",
+        "/api/search",
+        &[("content-type", "application/json")],
+        body,
+    )
+}
+
+/// What the search API answered: no freshness at all.
+fn answered(from: &str) -> Served {
+    Served {
+        head: ResponseHead {
+            status: 200,
+            headers: vec![
+                ("content-type".to_owned(), "application/json".to_owned()),
+                ("cache-control".to_owned(), "no-store".to_owned()),
+            ],
+        },
+        body: Bytes::from(format!("{{\"from\":\"{from}\"}}")),
     }
 }
 
@@ -116,10 +149,7 @@ async fn a_route_then_the_recording_then_the_cache_then_the_network_answers() {
     let replayed = recorded.source(None, &ada(), &page(), now).await;
     let lookups_after_recording = work.read(Row::CacheLookups);
     let from_cache = unrecorded.source(None, &ada(), &page(), now).await;
-    let other = CacheRequest {
-        url: "https://cache.test/other".to_owned(),
-        ..page()
-    };
+    let other = request("GET", "/other", &[], "");
     let sent = unrecorded.source(None, &ada(), &other, now).await;
 
     assert_eq!(body(&routed), Some(&b"<p>route</p>"[..]));
@@ -167,4 +197,106 @@ async fn with_the_cache_off_nothing_is_looked_up_or_stored() {
         (0, 0)
     );
     assert!(!env.home().join("0.1").join("response-cache").exists());
+}
+
+/// Under `replay`, a POST's answer, which no freshness lets be kept, is
+/// stored and served again a day later with no request, to the same JSON
+/// with its keys in another order; a POST of another body is not served,
+/// and each answer takes one lookup.
+/// Covers: story:6-36, setting:cache.mode
+#[tokio::test]
+async fn replay_serves_a_post_by_its_canonical_body_whatever_its_age() {
+    let env = TestEnv::new();
+    let work = CountedWork::default();
+    let source = ResponseSource::of(&cache(&env, &work), CacheMode::Replay);
+    let first = search(r#"{"q":"shoes","page":1}"#);
+    let response = answered("site");
+
+    let judged = source.stores(&first, &response.head);
+    let kept = source
+        .store(&ada(), &first, &response.head, response.body, None, start())
+        .await;
+    let a_day_later = start() + Duration::from_hours(24);
+    let reordered = source
+        .source(
+            None,
+            &ada(),
+            &search(r#"{ "page": 1, "q": "shoes" }"#),
+            a_day_later,
+        )
+        .await;
+    let other = source
+        .source(
+            None,
+            &ada(),
+            &search(r#"{"q":"boots","page":1}"#),
+            a_day_later,
+        )
+        .await;
+
+    assert_eq!((judged, kept), (true, true));
+    assert!(matches!(reordered, Source::Fresh(_)));
+    assert_eq!(body(&reordered), Some(&b"{\"from\":\"site\"}"[..]));
+    assert_eq!(other, Source::Network);
+    assert_eq!(work.read(Row::CacheLookups), 2);
+}
+
+/// Under `revalidate` the same POST is neither stored nor served, and
+/// what `replay` stored never answers `revalidate`, nor the reverse.
+/// Covers: story:6-36, setting:cache.mode
+#[tokio::test]
+async fn revalidate_and_replay_never_answer_each_other() {
+    let env = TestEnv::new();
+    let work = CountedWork::default();
+    let cache = cache(&env, &work);
+    let revalidate = ResponseSource::of(&cache, CacheMode::Revalidate);
+    let replay = ResponseSource::of(&cache, CacheMode::Replay);
+    let post = search(r#"{"q":"shoes"}"#);
+    let response = answered("site");
+    let kept = served("cache");
+
+    let post_judged = revalidate.stores(&post, &response.head);
+    let post_kept = revalidate
+        .store(
+            &ada(),
+            &post,
+            &response.head,
+            response.body.clone(),
+            None,
+            start(),
+        )
+        .await;
+    assert!(
+        revalidate
+            .store(
+                &ada(),
+                &page(),
+                &kept.head,
+                kept.body.clone(),
+                None,
+                start()
+            )
+            .await
+    );
+    let page_replayed = replay.source(None, &ada(), &page(), start()).await;
+    let replayed_page = request("GET", "/replayed", &[], "");
+    assert!(
+        replay
+            .store(&ada(), &replayed_page, &kept.head, kept.body, None, start())
+            .await
+    );
+    assert!(
+        replay
+            .store(&ada(), &post, &response.head, response.body, None, start())
+            .await
+    );
+    let page_revalidated = revalidate
+        .source(None, &ada(), &replayed_page, start())
+        .await;
+    let post_revalidated = revalidate.source(None, &ada(), &post, start()).await;
+
+    assert_eq!((post_judged, post_kept), (false, false));
+    assert_eq!(page_replayed, Source::Network);
+    assert_eq!(page_revalidated, Source::Network);
+    assert_eq!(post_revalidated, Source::Network);
 }

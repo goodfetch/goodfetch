@@ -4,4 +4,6 @@
 //! where Linux's runs; another architecture needs tables of its own.
 
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+mod launch;
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 mod probes;

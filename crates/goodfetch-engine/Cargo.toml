@@ -34,6 +34,8 @@ foldhash.workspace = true
 # Drives the WebSocket's stream of messages and its sink (ADR 0049).
 futures-util.workspace = true
 getrandom.workspace = true
+# A process Plugin's launch, which its launcher confines (ADR 0033).
+goodfetch-confinement.workspace = true
 goodfetch-counted-work.workspace = true
 goodfetch-protocol.workspace = true
 hickory-resolver = { workspace = true, features = ["tokio", "system-config"] }

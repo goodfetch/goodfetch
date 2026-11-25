@@ -32,6 +32,8 @@ clap = { workspace = true, optional = true, features = ["string"] }
 dirs.workspace = true
 # The Rust SDK's connection to its linked engine (ADRs 0078 and 0081).
 goodfetch-collie-client.workspace = true
+# The executable's hidden `plugin-shim` mode, a Plugin's launcher (ADR 0033).
+goodfetch-confinement.workspace = true
 goodfetch-engine.workspace = true
 goodfetch-page.workspace = true
 # The runtimes the executables and a linked engine build (ADR 0081).

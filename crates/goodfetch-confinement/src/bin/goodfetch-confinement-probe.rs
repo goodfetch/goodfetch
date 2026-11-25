@@ -3,10 +3,28 @@
 //! answers through its exit status alone (`linux::probe`). A test-only
 //! executable: the confinement runner starts it, and no Product ships it.
 //! Outside Linux it has no probe yet and fails.
+//!
+//! Run as `goodfetch-confinement-probe plugin-shim`, it is a Plugin's
+//! launcher instead, as the Product executable's hidden mode is
+//! (`goodfetch_confinement::launch`), so that a runner starts a probe
+//! confined the way the engine starts a Plugin.
 
 use std::process::ExitCode;
 
+use goodfetch_confinement::launch::{LAUNCH_VARIABLE, SHIM_COMMAND, shim};
+
 fn main() -> ExitCode {
+    if std::env::args_os()
+        .nth(1)
+        .is_some_and(|first| first == SHIM_COMMAND)
+    {
+        #[expect(
+            clippy::disallowed_methods,
+            reason = "a launcher reads its launch from its own environment (ADR 0033)"
+        )]
+        let launch = std::env::var_os(LAUNCH_VARIABLE);
+        return ExitCode::from(shim(launch.as_deref()).status());
+    }
     #[cfg(target_os = "linux")]
     let status = linux::run();
     #[cfg(not(target_os = "linux"))]

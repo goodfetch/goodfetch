@@ -1,8 +1,9 @@
 //! The mount-namespace mechanism (ADR 0033): where the kernel has no
 //! Landlock, the first process of the namespaces sees a root of its own
-//! that holds only the policy's paths, as bubblewrap builds one. Its reads
-//! and executables are bound read-only, its reads without the right to
-//! start them, and its writes read-write; every other path is absent
+//! that holds only the policy's paths and the system's shared libraries,
+//! as bubblewrap builds one. Its reads, executables and libraries are
+//! bound read-only, its reads without the right to start them, and its
+//! writes read-write; every other path is absent
 //! (`ENOENT`), and the root itself is read-only.
 #![expect(
     unsafe_code,
@@ -58,8 +59,12 @@ enum Exposed {
 /// PID and mount namespace, a root that holds only `policy`'s paths.
 pub(super) fn expose_only(policy: &Policy) -> Result<(), ConfineError> {
     let mut exposed = BTreeMap::new();
+    // A loader maps the libraries it reads executable, which a mount
+    // without the right to start a file refuses.
+    let libraries = super::libraries();
     for (paths, access) in [
         (&policy.reads, Exposed::Read),
+        (&libraries, Exposed::Start),
         (&policy.executables, Exposed::Start),
         (&policy.writes, Exposed::Write),
     ] {
@@ -68,6 +73,9 @@ pub(super) fn expose_only(policy: &Policy) -> Result<(), ConfineError> {
             *widest = (*widest).max(access);
         }
     }
+    // The working folder, entered again in the new root when exposed there:
+    // the seccomp lists allow no `chdir` once the process is confined.
+    let working = std::env::current_dir().ok();
     // Nothing mounted here reaches the host's namespace.
     mounted(None, Path::new("/"), None, libc::MS_REC | libc::MS_PRIVATE)?;
     mounted(
@@ -95,7 +103,12 @@ pub(super) fn expose_only(policy: &Policy) -> Result<(), ConfineError> {
     changed_directory(NEW_ROOT)?;
     pivoted(".", ".")?;
     unmounted(".")?;
-    changed_directory("/")
+    changed_directory("/")?;
+    // A working folder the policy does not expose is absent: `/` stays.
+    if let Some(working) = working {
+        let _ = std::env::set_current_dir(working);
+    }
+    Ok(())
 }
 
 /// Binds `path` of the old root at the same place in the new one.

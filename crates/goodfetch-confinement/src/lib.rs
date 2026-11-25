@@ -9,6 +9,7 @@
 //! depends on nothing of the engine (spec #596).
 
 pub mod deny_list;
+pub mod launch;
 #[cfg(target_os = "linux")]
 pub mod linux;
 pub mod policy;

@@ -12,3 +12,8 @@ goodfetch-engine = { path = "../../goodfetch-engine" }
 
 [target.'cfg(unix)'.dev-dependencies]
 goodfetch-engine = { workspace = true, features = ["test-util"] }
+
+[package.metadata.binstall]
+pkg-url = "{ repo }/releases/download/v{ version }/{ name }-{ target }.tar.xz"
+pkg-fmt = "txz"
+bin-dir = "{ bin }{ binary-ext }"

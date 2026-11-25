@@ -129,6 +129,13 @@ goodfetch-page.workspace = true
 axum.workspace = true
 tower-service.workspace = true
 
+# `cargo binstall goodfetch-foxhound` installs the executable from its
+# archive on the GitHub Release of the same version (ADRs 0090 and 0094).
+[package.metadata.binstall]
+pkg-url = "{ repo }/releases/download/v{ version }/{ name }-{ target }.tar.xz"
+pkg-fmt = "txz"
+bin-dir = "{ bin }{ binary-ext }"
+
 [package.metadata.cargo-shear]
 # The dev-dependency on itself only turns its executable on for its tests.
 ignored = ["goodfetch-foxhound"]

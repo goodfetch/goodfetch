@@ -109,6 +109,7 @@ mod register;
 mod register_coverage;
 mod release;
 mod release_assets;
+mod release_digests;
 mod release_line;
 mod release_publish;
 mod release_suite;

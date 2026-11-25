@@ -20,7 +20,8 @@
 //! patch that changes a format (ADR 0066).
 //!
 //! The publish: `assets` makes the GitHub Release's files ready to upload,
-//! and `plan` lists both Products' publish steps.
+//! `digests` writes each Product crate's table of its archives before
+//! `cargo package`, and `plan` lists both Products' publish steps.
 #![expect(
     clippy::disallowed_methods,
     reason = "xtask is synchronous; the blocking-fs ban targets async crates (STYLE.md)"
@@ -28,6 +29,7 @@
 
 mod assets;
 mod changelog;
+mod digests;
 mod gates;
 mod line;
 mod pull_request;
@@ -192,12 +194,18 @@ pub(crate) enum Command {
         #[arg(long, default_value_t = assets::PART_SIZE, value_parser = clap::value_parser!(u64).range(1..))]
         part_size: u64,
     },
+    /// Writes into each Product's crate its executable's archive per
+    /// target, at its URL on the GitHub Release of `version` and with its
+    /// SHA-256 from the digest table `assets` wrote in `assets` (ADRs 0051
+    /// and 0094); writes nothing when the table lacks an archive.
+    Digests(digests::Arguments),
 }
 
 pub(crate) fn run(command: Command, environment: &Environment) -> Result<ExitCode> {
     let root = &environment.root;
     match command {
         Command::Assets { folder, part_size } => assets::run(&folder, part_size),
+        Command::Digests(arguments) => digests::run(root, &arguments),
         Command::Plan(arguments) => publish::run(
             &environment.root,
             &arguments,

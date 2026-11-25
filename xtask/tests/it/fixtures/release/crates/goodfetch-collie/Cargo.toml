@@ -12,3 +12,8 @@ goodfetch-workspace-hack.workspace = true
 # Stripped by `cargo publish`, so never published.
 [dev-dependencies]
 goodfetch-test-support = { path = "../goodfetch-test-support" }
+
+[package.metadata.binstall]
+pkg-url = "{ repo }/releases/download/v{ version }/{ name }-{ target }.tar.xz"
+pkg-fmt = "txz"
+bin-dir = "{ bin }{ binary-ext }"

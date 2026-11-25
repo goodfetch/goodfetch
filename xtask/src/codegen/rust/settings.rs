@@ -10,7 +10,7 @@
 //!
 //! `T` comes from the key's value schema: `Duration` for a duration, `u64`
 //! for a whole number, `bool`, `String`, an enum of its own for a choice of
-//! words (`content::Extractor`, an array's items `…Item`, a map's values
+//! words (`fetch::Tier`, an array's items `…Item`, a map's values
 //! `…Entry`, and a name Rust's prelude takes `…Choice`, as
 //! `run_state::batch::SyncChoice`), the protocol's own type for a shape it
 //! defines once (`session.page_check`'s `PageCheck`), `Vec` and `BTreeMap`

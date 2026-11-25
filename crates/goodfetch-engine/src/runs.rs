@@ -4835,13 +4835,7 @@ impl Registry {
                 trace,
                 entropy: RunEntropy::new(self.setup.entropy.fork()),
                 send_window,
-                plugins: RunPlugins::new(
-                    self.setup.engine.home(),
-                    self.setup.engine.places().cloned(),
-                    self.setup.product,
-                    run_id.clone(),
-                    Arc::clone(&owner),
-                ),
+                plugins: self.plugins(run_id, &owner),
             }),
             identity,
             state,
@@ -4849,6 +4843,18 @@ impl Registry {
             runs,
         };
         (run, let_finish)
+    }
+
+    /// The process Plugins of the Run `run_id`, started as tasks of its
+    /// `owner` (ADR 0145).
+    fn plugins(&self, run_id: &RunId, owner: &Arc<TaskOwner>) -> RunPlugins {
+        RunPlugins::new(
+            self.setup.engine.home(),
+            self.setup.engine.places().cloned(),
+            self.setup.product,
+            run_id.clone(),
+            Arc::clone(owner),
+        )
     }
 
     /// The progress of the live Run `run_id`, as `start` is, whose every

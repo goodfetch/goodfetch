@@ -89,10 +89,10 @@ use goodfetch_protocol::page::session_pages::{
     self, PageCloseParams, PageClosed, SESSION_ON, SESSION_PAGES, SessionEventName, SessionOnParams,
 };
 use goodfetch_protocol::page::{
-    Acted, ClickParams, FillParams, FormatsParams, FormatsRequest, GotoParams, HtmlFormat,
-    HtmlKind, LOCATOR_CLICK, LOCATOR_FILL, LOCATOR_PRESS, Locator, Navigated, NewPageParams,
-    PAGE_FORMATS, PAGE_GO_BACK, PAGE_GO_FORWARD, PAGE_GOTO, PAGE_RELOAD, PageFormats, PageId,
-    PageParams, PageResponse, PressParams, RUN_NEW_PAGE, SessionId, WaitUntil,
+    Acted, ClickParams, FillParams, FormatsParams, FormatsRequest, GotoParams, LOCATOR_CLICK,
+    LOCATOR_FILL, LOCATOR_PRESS, Locator, Navigated, NewPageParams, PAGE_FORMATS, PAGE_GO_BACK,
+    PAGE_GO_FORWARD, PAGE_GOTO, PAGE_RELOAD, PageFormats, PageId, PageParams, PageResponse,
+    PressParams, RUN_NEW_PAGE, SessionId, WaitUntil,
 };
 use goodfetch_protocol::run::RunId;
 use goodfetch_protocol::settings::{SETTING_INVALID, SettingInvalidDetails, SettingsLayer};
@@ -1791,15 +1791,8 @@ impl Pages {
         let label = page.driver.value().extractor();
         // An Extractor Plugin reads the main content of the page the same
         // one read cleaned (spec #596).
-        let plugin = request
-            .reads_main_content()
-            .then(|| extractor::plugin(resolved, (&session, label), &page.settings))
-            .flatten();
-        let read_request = match &plugin {
-            Some(name) => plugin_extractor::cleaned_request(request, name)?,
-            None => request,
-        };
-        let raw = plugin.is_some() && request.html.map(HtmlFormat::kind) == Some(HtmlKind::Raw);
+        let (plugin, read_request, raw) =
+            plugin_extractor::chosen(request, resolved, (&session, label), &page.settings)?;
         let extractor = extractor::chosen(resolved, (&session, label), &page.settings);
         let measure = clean_up::ShareMeasure::of(resolved);
         let cosmetic = self.interception.cosmetic(&params.page_id);
@@ -1824,10 +1817,7 @@ impl Pages {
         if let Some(read) = read {
             trace::provenance(&page.run, read.entry(&params.page_id, Some(&page.session))).await;
         }
-        match plugin {
-            Some(name) => plugin_extractor::answered(&page.run, &name, request, formats, raw).await,
-            None => Ok(formats),
-        }
+        plugin_extractor::answered(&page.run, plugin.as_deref(), request, formats, raw).await
     }
 
     /// The fields `params` declares, read from the browser page's document

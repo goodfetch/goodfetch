@@ -23,6 +23,10 @@ const SEED: u64 = 823;
 /// Installs `goodfetch-scripted-plugin` in the Plugin store of `home` as
 /// the Extractor `scripted`, which answers `extract.content` with
 /// `answer`.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "the test lays out the Plugin store by hand, before the engine starts"
+)]
 fn install(home: &Path, answer: &Value) {
     let bundle = home.join("plugins").join("scripted").join("1.0.0");
     fs::create_dir_all(&bundle).unwrap();
@@ -115,7 +119,7 @@ fn a_page_reads_its_main_content_with_the_extractor_plugin_it_names() {
                 .as_str()
                 .is_some_and(|markdown| markdown.starts_with("## Desk Lamp")),
             &absent["error"]["data"]["code"],
-            &absent["error"]["data"]["details"]["key"],
+            &absent["error"]["data"]["key"],
             (rest, exited),
         ),
         (

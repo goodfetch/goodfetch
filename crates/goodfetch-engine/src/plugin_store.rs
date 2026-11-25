@@ -158,7 +158,7 @@ impl PluginStore {
         if !manifest.kinds.contains(kind) {
             return Err(StoreError::Kind {
                 name: name.to_owned(),
-                kind: kind.clone(),
+                kind: *kind,
             });
         }
         Ok(Installed { bundle, manifest })

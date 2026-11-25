@@ -23,7 +23,7 @@ fn settings_nest_by_segment_with_durations_in_whole_milliseconds_rounded_up_and_
             browser::BLOCK_RESOURCES,
             vec![browser::BlockResourcesItem::Image],
         )
-        .set(content::EXTRACTOR, content::Extractor::DomSmoothie);
+        .set(content::EXTRACTOR, "dom_smoothie");
 
     let sent = settings.within(SettingScope::Run).unwrap();
 
@@ -94,8 +94,8 @@ fn a_shape_of_the_protocol_goes_as_its_json() {
 #[test]
 fn a_key_set_again_takes_its_last_value() {
     let settings = Settings::new()
-        .set(content::EXTRACTOR, content::Extractor::DomSmoothie)
-        .set(content::EXTRACTOR, content::Extractor::Trafilatura);
+        .set(content::EXTRACTOR, "dom_smoothie")
+        .set(content::EXTRACTOR, "trafilatura");
 
     let sent = settings.within(SettingScope::Page).unwrap();
 

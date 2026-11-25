@@ -9,10 +9,12 @@
 //! no "fit": `markdown` of content `fit` holds its Markdown as it answered.
 
 use goodfetch_engine::deadline::Deadline;
+use goodfetch_engine::plugin_kinds::Failure;
 use goodfetch_engine::plugin_kinds::extractor::ExtractorDriver;
 use goodfetch_engine::runs::{Run, plugins};
-use goodfetch_engine::settings::RunSettings;
+use goodfetch_engine::settings::{Resolved, RunSettings, Values};
 use goodfetch_engine::{CallError, named};
+use goodfetch_extractor::BuiltIn;
 use goodfetch_protocol::jsonrpc::ProtocolFailure;
 use goodfetch_protocol::page::{
     Asked, CONTENT_EXTRACTOR, FormatsRequest, HtmlFormat, HtmlKind, HtmlOptions, MainContent,
@@ -21,6 +23,37 @@ use goodfetch_protocol::page::{
 use goodfetch_protocol::plugin::extractor::ExtractContentResult;
 use goodfetch_protocol::settings::TIMEOUT_PLUGIN;
 use url::Url;
+
+use crate::extractor;
+
+/// How a page whose formats are `asked` is read: the Extractor Plugin that
+/// reads its main content, when `asked` names it and the nearest of the
+/// Run's settings `run`, the Session's or the crawl request's Label
+/// `scopes` and the page's settings `page` names one
+/// ([`extractor::plugin`]); the request the page's one read takes; and
+/// whether that read also keeps the page's raw HTML, which only a Plugin's
+/// answer to a request for it needs.
+///
+/// # Errors
+///
+/// [`cleaned_request`]'s.
+pub(super) fn chosen(
+    asked: FormatsRequest,
+    run: Option<&Resolved>,
+    scopes: (&Values, Option<BuiltIn>),
+    page: &Values,
+) -> Result<(Option<String>, FormatsRequest, bool), CallError> {
+    let plugin = asked
+        .reads_main_content()
+        .then(|| extractor::plugin(run, scopes, page))
+        .flatten();
+    let Some(name) = plugin else {
+        return Ok((None, asked, false));
+    };
+    let raw = asked.html.map(HtmlFormat::kind) == Some(HtmlKind::Raw);
+    let read = cleaned_request(asked, &name)?;
+    Ok((Some(name), read, raw))
+}
 
 /// The request the page's one read takes when the Plugin `name` reads its
 /// main content: `asked` without the formats the Plugin answers, the
@@ -56,11 +89,12 @@ pub(super) fn cleaned_request(
     })
 }
 
-/// The formats `asked` names: `read`, what the page's one read answered to
-/// [`cleaned_request`], its `html` the cleaned page, with the main content
-/// the Plugin `name` of `run` reads from it, and `raw`, the page's raw HTML
-/// when `asked` names it. The Plugin starts on the Run's first call that
-/// names it.
+/// The formats `asked` names: `read`, what the page's one read answered,
+/// as it is when no `plugin` reads the main content ([`chosen`]). With
+/// the Plugin `plugin` of `run`, `read` answered [`cleaned_request`], its
+/// `html` the cleaned page, and the Plugin reads the main content from it;
+/// `raw` is the page's raw HTML when `asked` names it. The Plugin starts on
+/// the Run's first call that names it.
 ///
 /// # Errors
 ///
@@ -69,11 +103,14 @@ pub(super) fn cleaned_request(
 /// reads it, when the Plugin fails it.
 pub(super) async fn answered(
     run: &Run,
-    name: &str,
+    plugin: Option<&str>,
     asked: FormatsRequest,
     mut read: PageFormats,
     raw: Option<String>,
 ) -> Result<PageFormats, CallError> {
+    let Some(name) = plugin else {
+        return Ok(read);
+    };
     let cleaned = read.html.take().unwrap_or_default();
     let html = match asked.html.map(HtmlFormat::kind) {
         Some(HtmlKind::Cleaned) => Some(cleaned.clone()),
@@ -94,7 +131,7 @@ pub(super) async fn answered(
         ExtractorDriver::new(&extractor, &clock, &deadline)
             .content(&url, cleaned)
             .await
-            .map_err(|failure| failure.into_error())?;
+            .map_err(Failure::into_error)?;
     let found = !text.trim().is_empty() || !markdown.trim().is_empty();
     Ok(PageFormats {
         main_content: Some(if found {

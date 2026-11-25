@@ -11,7 +11,7 @@
 //! issue 900.
 
 use std::collections::BTreeMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use goodfetch_confinement::deny_list::Places;
@@ -92,7 +92,7 @@ impl RunPlugins {
         let named = name.to_owned();
         let plugin = self
             .owner
-            .blocking(move || set_up(&store, &named, folder, places.as_deref()))
+            .blocking(move || set_up(&store, &named, &folder, places.as_deref()))
             .await
             .map_err(|reason| {
                 tracing::warn!(extractor = name, %reason, "an Extractor's Plugin cannot start");
@@ -145,7 +145,7 @@ struct SetUp {
 fn set_up(
     store: &PluginStore,
     name: &str,
-    folder: PathBuf,
+    folder: &Path,
     places: Option<&Places>,
 ) -> Result<SetUp, String> {
     let installed = store
@@ -156,10 +156,10 @@ fn set_up(
     if installed.manifest.runtime != Runtime::None {
         return Err("its runtime is not yet installed by the runtime cache (issue 895)".to_owned());
     }
-    std::fs::create_dir_all(&folder).map_err(|error| error.to_string())?;
-    let canonical = |path: &PathBuf| std::fs::canonicalize(path).map_err(|error| error.to_string());
+    std::fs::create_dir_all(folder).map_err(|error| error.to_string())?;
+    let canonical = |path: &Path| std::fs::canonicalize(path).map_err(|error| error.to_string());
     let bundle = canonical(&installed.bundle)?;
-    let folder = canonical(&folder)?;
+    let folder = canonical(folder)?;
     let instance = Instance {
         bundle: bundle.clone(),
         runtime: None,

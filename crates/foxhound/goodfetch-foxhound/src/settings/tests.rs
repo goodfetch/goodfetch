@@ -15,7 +15,7 @@ fn a_label_sets_foxhounds_and_collies_label_keys_nested_by_segment() {
         .set(fetch::ENCODING, None)
         .set(crawl::KEEP_URL_FRAGMENT, true)
         .set(timeout::HOOK, Duration::from_secs(2))
-        .set(content::EXTRACTOR, content::Extractor::Trafilatura)
+        .set(content::EXTRACTOR, "trafilatura")
         .set(session::SOURCE, None);
 
     let sent = label.within(SettingScope::Label).unwrap();

@@ -24,6 +24,11 @@
 //! (`under_default_seccomp`, `under_apparmor_restriction`),
 //! `DnsNamespace`, which starts a child on Linux whose resolver is the
 //! Proving ground's DNS fixture,
+//! the Goodfetch Chromium's test helpers over the Proving ground's pages
+//! (ADR 0074): `identity_report`, which compares one Identity profile
+//! surface across every script context and the headers, the codec and font
+//! samples an Identity profile's tests expect, and `NetLog::read`, which
+//! lists every socket a browser launch connected,
 //! and the Secret canaries, planted and searched for in every encoding
 //! with their `gitleaks` rule (ADR 0067); `refused_matches`, which finds
 //! what would let a new state or event through a transition table's
@@ -67,13 +72,16 @@ mod fault_plan;
 mod fuzz;
 mod host_test;
 mod hostile;
+mod identity_consistency;
 mod invariants;
 mod journey_run;
 mod kill;
 #[cfg(target_os = "linux")]
 mod lazyfs;
 mod locales;
+mod media_samples;
 mod model_trace;
+mod net_log;
 #[cfg(all(
     target_os = "linux",
     any(target_arch = "x86_64", target_arch = "aarch64")
@@ -181,6 +189,10 @@ pub use hostile::{
     PathName, PathTarget, RefKeyword, ResourceLimit, Schedule, SchemaRef, SchemaUse,
     SecretPlacement, SecretRedirect, ServedBy, TableGap, TableGaps,
 };
+pub use identity_consistency::{
+    CONSISTENCY_FRAME_HOST, CONSISTENCY_HOST, ConsistencyError, IdentityReport, PageValues,
+    ProbeContext, ValueSource, identity_report,
+};
 /// insta, for [`assert_cli_snapshot!`], whose expansion names it.
 #[doc(hidden)]
 pub use insta as __insta;
@@ -196,7 +208,12 @@ pub use kill::{KILL_DEADLINE, KillAtError, Killed, Moment, kill_at, kill_at_with
 #[cfg(target_os = "linux")]
 pub use lazyfs::{LAZYFS_DEADLINE, LazyFs, LazyFsError};
 pub use locales::{LocaleTableError, TimeZoneCase, locales, time_zones};
+pub use media_samples::{
+    CODECS_HOST, CodecSample, FONTS_HOST, FontAvailability, FontSample, FontSamples, MediaKind,
+    SamplesError,
+};
 pub use model_trace::model_trace;
+pub use net_log::{NetLog, NetLogError, NetLogSocket, SocketTransport};
 #[cfg(all(
     target_os = "linux",
     any(target_arch = "x86_64", target_arch = "aarch64")

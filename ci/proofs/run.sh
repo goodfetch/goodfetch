@@ -204,6 +204,16 @@ else
   fail oxlint-contexts "findings: ${codes:-none}"
 fi
 
+# The TypeScript escapes: an explicit `any`, a non-null assertion, and a
+# suppression that does not say why.
+codes=$(pnpm exec oxlint -c ci/proofs/oxlint/proof.oxlintrc.json --format json ci/proofs/oxlint/escapes.ts 2>/dev/null |
+  jq -r '.diagnostics[].code | select(test("no-explicit-any|no-non-null-assertion|ban-ts-comment"))' | tally | tr '\n' ' ')
+if [[ "$codes" == "2 typescript(ban-ts-comment) 1 typescript(no-explicit-any) 1 typescript(no-non-null-assertion) " ]]; then
+  pass "oxlint refuses an explicit any, a non-null assertion, @ts-ignore and an unexplained @ts-expect-error, and allows an explained one"
+else
+  fail oxlint-escapes "findings: ${codes:-none}"
+fi
+
 codes=$(uv run ruff check --no-cache --output-format json ci/proofs/ruff/mocking.py 2>/dev/null | jq -r '.[].code' | tally)
 if [[ "$codes" == "3 TID251" ]]; then
   pass "ruff refuses unittest.mock, pytest.MonkeyPatch and _pytest.monkeypatch"

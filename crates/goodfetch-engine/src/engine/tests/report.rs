@@ -162,7 +162,8 @@ async fn hand_over(params: Value, context: CallContext) -> Result<Value, CallErr
     // A driver lets its Run go once it ends.
     drop(run);
     if ends {
-        context.runs().ended(run_id).await.ok();
+        // Waits for the Run to end; its report is not this driver's to check.
+        let _ = context.runs().ended(run_id).await;
     }
     Ok(json!({}))
 }

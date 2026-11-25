@@ -60,3 +60,9 @@ allowBuilds:
   esbuild: false
   # Docusaurus's core-js (website/) only prints a funding notice.
   core-js: false
+
+# Fixes to dependencies, each upstreamable; remove one once a release has it.
+# The local search (website/src/search.ts) builds a section's index with the
+# root pages, and matches a section in its version (ADR 0097).
+patchedDependencies:
+  "@easyops-cn/docusaurus-search-local@0.55.3": patches/@easyops-cn__docusaurus-search-local@0.55.3.patch

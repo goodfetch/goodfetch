@@ -10,7 +10,7 @@
 // and on any host that serves the site under `/docs/`.
 import { existsSync, readFileSync } from "node:fs";
 import { join, posix } from "node:path";
-import { products } from "./product-switch.ts";
+import { productName, products } from "./product-switch.ts";
 
 export interface Page {
   /** The page's URL path, base URL and version path included: `/docs/next/collie/install`. */
@@ -53,10 +53,6 @@ function sectionOf(versionPath: string, url: string): string | undefined {
 /** The folder of the llms files that list a page of `section`, or of the root. */
 function llmsFolder(versionPath: string, section: string | undefined): string {
   return section === undefined ? bare(versionPath) : `${bare(versionPath)}/${section}`;
-}
-
-function productName(product: string): string {
-  return `Goodfetch ${product.charAt(0).toUpperCase()}${product.slice(1)}`;
 }
 
 const scheme = /^[a-z][a-z\d+.-]*:/i;

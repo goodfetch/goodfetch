@@ -8,6 +8,7 @@ Goodfetch's docs site at `goodfetch.dev/docs` (ADRs 0030 and 0097): Docusaurus o
 - The header's switcher leads to the same page in the other Product's section, or to its home when that section lacks it.
 - The build fails on a broken link, anchor or image, a duplicate route, a fenced block with no language and a directive no plugin renders.
 - After the build, `src/llms-plugin.ts` writes each page's `.md` twin at its URL with `.md` (`/docs/collie/install.md`; the root's home at `/docs/index.md`), and in each kept version each section's `llms.txt` and `llms-full.txt` and the root's pair. A twin's links to other pages point at their twins from the site's root, so they read the same in `llms-full.txt`. The build then fails when a page lacks its twin, its entry in its own section's `llms.txt` (the root's for a root page, the accessibility statement included) or its text in the matching `llms-full.txt`.
+- Search (`src/search.ts`) runs in the reader's browser on Lunr indexes the build writes: in each kept version, one per section, holding its pages and the root pages, which a section's page searches, and one of the root pages, which a root page searches. A pnpm patch (`patches/`) makes the plugin put the root pages in each section's index and find a section in its version, so `next` and the previous majors search their own pages.
 
 ## Links across sections
 

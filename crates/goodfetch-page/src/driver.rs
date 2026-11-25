@@ -22,11 +22,14 @@
 //! Session uses it (`version_check`; ADR 0035). A page carries what Foxhound sets on it
 //! (`page_value`): its lease check is asked before each command it sends,
 //! and its waits for its navigation gate's permits count against none of
-//! its deadlines (`permit_waits`).
+//! its deadlines (`permit_waits`). What is a browser's own, its service
+//! workers, its popups and its hidden pages (`hidden_pages`), its owner's
+//! value holds (ADR 0146); a panic of one of that owner's tasks is the
+//! browser's crash (ADR 0148).
 //!
 //! Size: one page's driver, whose commands, navigations and turns all read
 //! the page's one connection and state; its navigation tracking, worlds,
-//! targets, service workers, endings, permit waits and how
+//! targets, service workers, hidden pages, endings, permit waits and how
 //! a response the browser reports is read (`cdp_response`) are in their own
 //! modules.
 
@@ -34,6 +37,7 @@ mod carry;
 pub(crate) mod cdp_response;
 mod ending;
 mod gestures;
+mod hidden_pages;
 mod identity;
 
 pub(crate) mod navigation;
@@ -47,7 +51,6 @@ mod targets;
 pub(crate) mod world;
 
 use std::borrow::Cow;
-use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -75,6 +78,7 @@ use tokio_util::sync::CancellationToken;
 
 pub(crate) use self::carry::{Carried, Origins, Watcher};
 pub(crate) use self::ending::{ENDING_KNOWN_WITHIN, Lost};
+use self::hidden_pages::HiddenPages;
 pub(crate) use self::navigation::{Arrived, browser_id, hop_id};
 use self::page_reader::PageReader;
 use self::permit_waits::PermitWaits;
@@ -188,17 +192,14 @@ pub(crate) struct Browser {
     /// from a crash; a Borrowed browser's ended connection is its quit
     /// (spec #594's decision 11).
     launched: bool,
-    /// Its service workers, which it attaches the engine to (ADR 0121).
-    service_workers: Arc<service_workers::ServiceWorkerChoices>,
+    /// Its own state, its owner's: its service workers, its popups, its
+    /// hidden pages.
+    state: Arc<BrowserState>,
     /// Cancelled once the reader of its own events, its workers' and new
     /// pages' attachments, fell 4,096 events behind: what it attached
     /// meanwhile may wait for the engine forever, so its pool takes it out
     /// of service (spec #2256, #3261).
     root_fell_behind: CancellationToken,
-    /// What each browser context does with the popups its pages open.
-    popups: Arc<popups::Popups>,
-    /// Its hidden pages still open, by their browser context.
-    hidden: Arc<HiddenPages>,
     /// The lease check of the page this connection drives, asked before
     /// each command it sends; none on the browser's own connection and on
     /// a page whose value has none (ADR 0087).
@@ -231,41 +232,21 @@ pub(crate) async fn counted_as_opening<F: Future>(work: &CountedWork, opening: F
     tasks::counting_starts(work.clone(), Row::PageTasks, opening).await
 }
 
-/// A browser's hidden pages (`Target.createTarget`'s `hidden`, as an
-/// engine page is) still open, by their browser context: Chromium keeps a
-/// hidden page open past its context's disposal, its commands in flight
-/// left unanswered, so a Session's close closes its own first. Each page
-/// leaves the list as it closes.
+/// What is a browser's own, which its owner's value holds and every handle
+/// of the browser shares (ADR 0146): its service workers, its popups and
+/// its hidden pages, and whether the engine treats it as crashed.
 #[derive(Default)]
-struct HiddenPages(Mutex<BTreeMap<browser::BrowserContextID, BTreeSet<target::TargetID>>>);
-
-impl HiddenPages {
-    /// The page `page` opened hidden in the context `context`.
-    async fn opened(&self, context: &browser::BrowserContextID, page: &target::TargetID) {
-        self.0
-            .lock()
-            .await
-            .entry(context.clone())
-            .or_default()
-            .insert(page.clone());
-    }
-
-    /// The page `page` of the context `context` closed, if it was hidden.
-    async fn closed(&self, context: &browser::BrowserContextID, page: &target::TargetID) {
-        let mut contexts = self.0.lock().await;
-        if let Some(pages) = contexts.get_mut(context) {
-            pages.remove(page);
-            if pages.is_empty() {
-                contexts.remove(context);
-            }
-        }
-    }
-
-    /// The hidden pages of the context `context` still open, which leave
-    /// the list.
-    async fn take(&self, context: &browser::BrowserContextID) -> BTreeSet<target::TargetID> {
-        self.0.lock().await.remove(context).unwrap_or_default()
-    }
+struct BrowserState {
+    /// Its service workers, which it attaches the engine to (ADR 0121).
+    service_workers: service_workers::ServiceWorkerChoices,
+    /// What each browser context does with the popups its pages open.
+    popups: popups::Popups,
+    /// Its hidden pages still open, by their browser context.
+    hidden: HiddenPages,
+    /// Cancelled once a task of its owner panicked: the engine treats the
+    /// browser as crashed, so its connection's end reads as a crash
+    /// whatever its exit (ADR 0148).
+    panicked: CancellationToken,
 }
 
 #[cfg(test)]
@@ -281,10 +262,8 @@ impl Browser {
             process: None,
             closing: CancellationToken::new(),
             launched: false,
-            service_workers: Arc::default(),
+            state: Arc::default(),
             root_fell_behind: CancellationToken::new(),
-            popups: Arc::default(),
-            hidden: Arc::default(),
             lease: None,
             counting: None,
             deadlines: Arc::new(Deadlines {
@@ -498,11 +477,65 @@ impl<B: Connect> Connect for Arc<B> {
 
 /// The browser behind a Session: one the engine launched, or a Borrowed
 /// one.
+#[derive(Clone)]
 pub(crate) enum Behind {
     /// A browser of the Run's browser pool.
     Launched(Arc<LocalBrowser>),
     /// A Borrowed browser, outside the pool.
     Borrowed(Arc<BorrowedBrowser>),
+}
+
+impl Behind {
+    /// The browser's owner and its own state.
+    fn owned(&self) -> (&TaskOwner, &BrowserState) {
+        match self {
+            Self::Launched(browser) => (&browser.owner, &browser.state),
+            Self::Borrowed(browser) => (&browser.owner, &browser.state),
+        }
+    }
+
+    /// The starting side of the browser's owner, whose tasks end with it.
+    pub(crate) fn tasks(&self) -> &TaskStarter {
+        self.owned().0
+    }
+
+    /// Waits until a task of the browser's owner panics; at once if one
+    /// did.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future loses nothing: it only reads.
+    pub(crate) fn panicked(&self) -> impl Future<Output = ()> + Send + 'static {
+        self.owned().0.panicked()
+    }
+
+    /// Whether a task of the browser's owner panicked.
+    pub(crate) fn has_panicked(&self) -> bool {
+        self.owned().0.has_panicked()
+    }
+
+    /// The name of the crash report the panic of a task of the browser's
+    /// owner left, when one was written.
+    pub(crate) fn panicked_crash_report(&self) -> Option<&str> {
+        self.owned().0.panicked_crash_report()
+    }
+
+    /// Treats the browser as crashed, so its connection's end, the
+    /// engine's close included, reads as a crash (ADR 0148).
+    pub(crate) fn treat_as_crashed(&self) {
+        self.owned().1.panicked.cancel();
+    }
+
+    /// Closes a launched browser, or ends the engine's connection to a
+    /// Borrowed one, which stays open; answers once every task its owner
+    /// started ended.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future stops waiting: the browser still closes.
+    pub(crate) async fn stop(&self) {
+        self.owned().0.stop().await;
+    }
 }
 
 impl Connect for Behind {
@@ -528,6 +561,8 @@ pub(crate) struct BorrowedBrowser {
     /// the engine's connection, the readers of the browser's own events and
     /// every task started for the browser, so its stop ends them all.
     owner: TaskOwner,
+    /// The browser's own state, which its owner holds.
+    state: Arc<BrowserState>,
     /// Closed and empty: the engine sees no exit of a browser it did not
     /// launch, so a call that lost its connection waits for none to name
     /// the loss (fix queue 104: each such call waited `timeout.close`).
@@ -542,6 +577,7 @@ impl BorrowedBrowser {
             run,
             cdp_url,
             owner,
+            state: Arc::default(),
             exit: watch::channel(None).1,
             connected: OnceCell::new(),
         }
@@ -594,10 +630,8 @@ impl Connect for BorrowedBrowser {
                     process: None,
                     closing: self.owner.child_token(),
                     launched: false,
-                    service_workers: Arc::default(),
+                    state: Arc::clone(&self.state),
                     root_fell_behind: CancellationToken::new(),
-                    popups: Arc::default(),
-                    hidden: Arc::default(),
                     lease: None,
                     counting: None,
                     deadlines: Deadlines::of(&self.run),
@@ -633,6 +667,8 @@ pub(crate) struct LocalBrowser {
     /// every task started for it, so its stop closes the browser and ends
     /// them all.
     owner: TaskOwner,
+    /// The browser's own state, which its owner holds.
+    state: Arc<BrowserState>,
     launched: OnceCell<Browser>,
     /// Cancelled once the browser the last launch started is gone, its
     /// Browser data folder with it: a launch whose browser did not come up
@@ -658,6 +694,7 @@ impl LocalBrowser {
             pins,
             number,
             owner,
+            state: Arc::default(),
             launched: OnceCell::new(),
             released: Mutex::new(None),
             authority,
@@ -765,10 +802,8 @@ impl Connect for LocalBrowser {
                     process: launched.process,
                     closing: attempt,
                     launched: true,
-                    service_workers: Arc::default(),
+                    state: Arc::clone(&self.state),
                     root_fell_behind: CancellationToken::new(),
-                    popups: Arc::default(),
-                    hidden: Arc::default(),
                     lease: None,
                     counting: None,
                     deadlines: Deadlines::of(&self.run),
@@ -915,7 +950,7 @@ impl<B: Connect> SessionDriver<B> {
             return;
         };
         // Its service workers' choice goes with it, and what that holds.
-        browser.service_workers.forget(context);
+        browser.state.service_workers.forget(context);
         if self.browser.borrowed() {
             for target_id in std::mem::take(&mut *self.opened.lock().await) {
                 if let Err(failure) = browser
@@ -929,7 +964,7 @@ impl<B: Connect> SessionDriver<B> {
         }
         // Closed, each one's target detaches, and its commands in flight
         // fail at once.
-        for target_id in browser.hidden.take(context).await {
+        for target_id in browser.state.hidden.take(context) {
             if let Err(failure) = browser
                 .try_send(None, &target::CloseTargetParams { target_id })
                 .await
@@ -995,7 +1030,7 @@ impl<B: Connect> SessionDriver<B> {
         if self.browser.borrowed() {
             self.opened.lock().await.push(created.target_id.clone());
         } else if visibility == Visibility::Hidden {
-            browser.hidden.opened(&context, &created.target_id).await;
+            browser.state.hidden.opened(&context, &created.target_id);
         }
         let prepared = async {
             let session = browser.attach_own(&created.target_id, &opening).await?;
@@ -1006,7 +1041,7 @@ impl<B: Connect> SessionDriver<B> {
         let session = match prepared.await {
             Ok(session) => session,
             Err(error) => {
-                browser.hidden.closed(&context, &created.target_id).await;
+                browser.state.hidden.closed(&context, &created.target_id);
                 if let Err(failure) = browser
                     .send_unleased(
                         None,
@@ -1362,7 +1397,7 @@ impl PageDriver {
         {
             tracing::debug!(%failure, "the engine's page was gone already");
         }
-        self.browser.hidden.closed(&self.context, &self.frame).await;
+        self.browser.state.hidden.closed(&self.context, &self.frame);
     }
 
     /// Asks the page to close as a person closing its tab does: its

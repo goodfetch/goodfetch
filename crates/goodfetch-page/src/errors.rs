@@ -292,6 +292,23 @@ pub(crate) fn session_panicked(
     )
 }
 
+/// `engine_panicked` for a panic of one of a browser's owner's tasks, which
+/// the engine treats as that browser's crash: its pages raise
+/// `page_crashed`, and its Run goes on (ADR 0148). It names the crash
+/// report the panic left, `crash_report`, when one was written, and is
+/// counted on `metrics`, its Run's.
+pub(crate) fn browser_panicked(metrics: &Metrics, crash_report: Option<&str>) -> CallError {
+    crash_report::engine_panicked_told(
+        metrics,
+        &EnginePanickedDetails {
+            ended: PanicEnded::Browser,
+            id: None,
+            crash_report: crash_report.map(str::to_owned),
+        },
+        "The engine hit a bug in Goodfetch while it served a browser of the Run, which it treats as crashed; its Run goes on",
+    )
+}
+
 /// `page_crashed` for a page whose renderer crashed, its browser still up.
 pub(crate) fn renderer_crashed() -> CallError {
     CallError::new(

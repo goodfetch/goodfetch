@@ -10,7 +10,8 @@
 //! the open pages nor the ended ones would answer `closed`. A last one
 //! reads which Sessions interception alone holds (#2435), and one which
 //! Session's end the run file waits for (#2168). Another panics in a task
-//! of a Session's owner, which closes that Session alone (#3263).
+//! of a Session's owner, which closes that Session alone (#3263), and one
+//! in a task of a browser's owner, which is that browser's crash (#3265).
 #![expect(
     clippy::disallowed_methods,
     reason = "tests run on the test Clock and Entropy (ADR 0059)"
@@ -19,6 +20,7 @@
 use std::collections::BTreeMap;
 use std::sync::Arc;
 use std::task::Poll;
+use std::time::Duration;
 
 use goodfetch_engine::clock::Clock;
 use goodfetch_engine::egress::CdpUrlOrigin;
@@ -26,6 +28,7 @@ use goodfetch_engine::entropy::Entropy;
 use goodfetch_engine::home::{Home, RunStateLocation};
 use goodfetch_engine::run_state::RunStateOptions;
 use goodfetch_engine::runs::{EndedBy, Run, Start, Started};
+use goodfetch_engine::settings::{Opening, RunSettings};
 use goodfetch_engine::tasks::BlockingPolicy;
 use goodfetch_engine::transport::{self, Network};
 use goodfetch_engine::{
@@ -40,10 +43,10 @@ use goodfetch_protocol::governor::BROWSER_PAGE_MEMORY_CAP;
 use goodfetch_protocol::page::PageId;
 use goodfetch_protocol::run::{RunId, RunKind, Tags};
 use goodfetch_protocol::settings::{SettingLimit, SettingsLayer};
-use goodfetch_test_support::TestEnv;
+use goodfetch_test_support::{OUTCOME_TARGET, TestEnv, capturing};
 use rstest::rstest;
 use serde_json::{Value, json};
-use tokio::io::{AsyncBufReadExt as _, AsyncWriteExt as _, BufReader};
+use tokio::io::{AsyncBufReadExt as _, AsyncWriteExt as _, BufReader, DuplexStream};
 use tokio::sync::watch;
 
 use super::life::{Ending, PageLife};
@@ -95,8 +98,25 @@ const SESSION_PANICKED: Operation = Operation {
     ..STOPPED_OPEN
 };
 
+/// Panics in a task of the owner of a Session's browser.
+const BROWSER_PANICKED: Operation = Operation {
+    name: "test.browser_panicked",
+    description: "Panics in a task of a browser's owner and reads what its Session and its pages meet.",
+    ..STOPPED_OPEN
+};
+
 /// The Run `run_id`, started for the test's own operation.
 async fn started(run_id: &RunId, context: &CallContext) -> Result<Run, CallError> {
+    started_under(run_id, context, None).await
+}
+
+/// The Run `run_id`, started for the test's own operation under
+/// `settings`, its resolved settings, when given.
+async fn started_under(
+    run_id: &RunId,
+    context: &CallContext,
+    settings: Option<RunSettings>,
+) -> Result<Run, CallError> {
     let started = context
         .runs()
         .start(Start {
@@ -113,7 +133,7 @@ async fn started(run_id: &RunId, context: &CallContext) -> Result<Run, CallError
             clean_up_digest: None,
             checkpoint_interval: None,
             timeout: None,
-            settings: None,
+            settings,
             detached: false,
         })
         .await
@@ -280,6 +300,122 @@ async fn session_panicked(params: Value, context: CallContext) -> Result<Value, 
     }))
 }
 
+/// Longer than a browser treated as crashed takes to say so, on the
+/// paused clock, which moves on only once every task waits.
+const CRASH_KNOWN_WITHIN: Duration = Duration::from_secs(60);
+
+/// Plays a browser with a window on `pipe`, whose commands and answers
+/// are JSON texts each ended by a NUL: it answers its version, a browser
+/// context's creation and every other command with an empty result, until
+/// the engine asks it to close or lets go of the pipe.
+async fn played_browser(pipe: DuplexStream) {
+    let (reader, mut writer) = tokio::io::split(pipe);
+    let mut reader = BufReader::new(reader);
+    let mut text = Vec::new();
+    while reader.read_until(0, &mut text).await.unwrap() > 0 {
+        if text.last() == Some(&0) {
+            text.pop();
+        }
+        let command: Value = serde_json::from_slice(&text).unwrap();
+        text.clear();
+        let method = command["method"].as_str().unwrap();
+        let result = match method {
+            "Browser.getVersion" => json!({
+                "protocolVersion": "1.3",
+                "product": "Scripted/1.0",
+                "revision": "0",
+                "userAgent": "Scripted",
+                "jsVersion": "0",
+            }),
+            "Target.createBrowserContext" => json!({ "browserContextId": "context" }),
+            _ => json!({}),
+        };
+        let mut answer = json!({ "id": command["id"], "result": result });
+        if let Some(session) = command.get("sessionId") {
+            answer["sessionId"] = session.clone();
+        }
+        let mut written = serde_json::to_vec(&answer).unwrap();
+        written.push(0);
+        if writer.write_all(&written).await.is_err() || method == "Browser.close" {
+            return;
+        }
+    }
+}
+
+/// `test.browser_panicked`: starts the Run `run_id` with its browsers
+/// shown in a window, reaches it in a Sessions table of its own whose
+/// browsers are scripted, and seats its default Session in the Run's first
+/// browser; then panics in a task of that browser's owner. Answers how the
+/// browser ended, as its pages read it, whether the Session took its crash,
+/// and whether the Run is still live.
+async fn browser_panicked(params: Value, context: CallContext) -> Result<Value, CallError> {
+    let run_id = RunId::parse(params["run_id"].as_str().unwrap()).unwrap();
+    let (settings, _) = context
+        .engine()
+        .settings()
+        .open(Opening {
+            run: Some(Product::Collie),
+            settings: serde_json::from_value(json!({ "browser": { "headless": false } })).unwrap(),
+            ..Opening::default()
+        })
+        .await
+        .unwrap();
+    let run = started_under(&run_id, &context, Some(settings)).await?;
+    let (launcher, mut browsers) = Launcher::scripted(None);
+    let sessions = Sessions::new(
+        (Vec::new(), launcher),
+        Interception::default(),
+        Dialogs::default(),
+        Arc::new(ProgramPages),
+    );
+    sessions.reach(&run, &context).await?;
+    let position = sessions
+        .open_held(&run, None, None, Opener::Default, &context)
+        .await?;
+    let open = sessions
+        .index
+        .session(&super::session_id(run.id(), position))
+        .unwrap();
+    let panicked = async {
+        open.seat.open().await?;
+        let browser = open.seat.browser(1).unwrap();
+        browser
+            .tasks()
+            .spawn(async { panic!("a bug in a task of the browser's owner") });
+        let ended = tokio::time::timeout(CRASH_KNOWN_WITHIN, browser.ended())
+            .await
+            .ok();
+        // Bounded, so a crash the Session never takes fails the test, never
+        // hangs it.
+        for _ in 0..10_000 {
+            if open.seat.crash_count_of(1).initialized() {
+                break;
+            }
+            tokio::task::yield_now().await;
+        }
+        Ok::<_, CallError>(json!({
+            "ended": ended.map(|lost| format!("{lost:?}")),
+            "crash_taken": open.seat.crash_count_of(1).initialized(),
+            "run_live": context.runs().live(run.id().clone()).await.is_ok(),
+        }))
+    };
+    let played = async {
+        if let Some(pipe) = browsers.next().await {
+            played_browser(pipe).await;
+        }
+    };
+    let (panicked, ()) = tokio::join!(
+        async {
+            let panicked = panicked.await;
+            // The Run's end closes a browser the panic left open.
+            run.cancellation().cancel();
+            panicked
+        },
+        played
+    );
+    panicked
+}
+
 /// The engine's operations, the page crate's and the test's.
 fn engine() -> Engine {
     let identity = Identity {
@@ -295,7 +431,8 @@ fn engine() -> Engine {
                 .with_handler(Handler::new(&STOPPED_OPEN, stopped_open))
                 .with_handler(Handler::new(&ENDED_PAST_CAP, ended_past_cap))
                 .with_handler(Handler::new(&SESSION_ENDED, session_ended))
-                .with_handler(Handler::new(&SESSION_PANICKED, session_panicked)),
+                .with_handler(Handler::new(&SESSION_PANICKED, session_panicked))
+                .with_handler(Handler::new(&BROWSER_PANICKED, browser_panicked)),
         );
     Engine::new(identity, &composition).unwrap()
 }
@@ -480,6 +617,41 @@ fn a_panic_in_a_sessions_task_closes_the_session_alone_and_its_calls_raise_engin
     assert_eq!(result["details"]["ended"], json!("session"), "{reply}");
     assert_eq!(result["details"]["id"], result["session"], "{reply}");
     assert_eq!(result["run_live"], json!(true), "{reply}");
+}
+
+/// A panic in a task of a browser's owner is that browser's crash: the
+/// browser's connection ends as a crash's, which its pages read as one and
+/// raise `page_crashed` for, the Session seated in it takes the crash, the
+/// Run trace records `engine_panicked` with `ended=browser`, and the Run
+/// goes on (ADR 0148, #3265).
+#[test]
+fn a_panic_in_a_browsers_task_is_its_crash_and_its_run_goes_on() {
+    let env = TestEnv::new();
+    let (subscriber, captured) = capturing(&[(OUTCOME_TARGET, tracing::Level::TRACE)]);
+
+    let reply = tracing::subscriber::with_default(subscriber, || {
+        call(
+            &env,
+            "test.browser_panicked",
+            json!({ "run_id": "browser-panicked" }),
+        )
+    });
+
+    let result = &reply["result"];
+    assert_eq!(result["ended"], json!("BrowserCrashed(None)"), "{reply}");
+    assert_eq!(result["crash_taken"], json!(true), "{reply}");
+    assert_eq!(result["run_live"], json!(true), "{reply}");
+    let written = String::from_utf8(captured.written()).unwrap();
+    let recorded: Vec<_> = written
+        .lines()
+        .filter(|line| line.contains("engine_panicked"))
+        .collect();
+    assert_eq!(recorded.len(), 1, "{written}");
+    let ended = recorded[0].split("ended=").nth(1).unwrap_or_default();
+    assert!(
+        ended.trim_start_matches('"').starts_with("browser"),
+        "{written}"
+    );
 }
 
 /// A setting a program's own code sets at no scope is refused at a

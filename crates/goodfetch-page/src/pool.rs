@@ -55,10 +55,12 @@ use goodfetch_engine::governor::{BrowserUse, GovernedBrowser, PageHold, footprin
 use goodfetch_engine::home::Home;
 use goodfetch_engine::host_name;
 use goodfetch_engine::local_addresses::{self, Rotation, Unavailable};
+use goodfetch_engine::runs::outcome::record_panicked;
 use goodfetch_engine::runs::{Run, identity};
 use goodfetch_engine::settings::RunSettings;
 use goodfetch_engine::tasks::TaskStarter;
 use goodfetch_engine::tls::{CertificateExceptions, PinBook, Trust};
+use goodfetch_protocol::connection::PanicEnded;
 use goodfetch_protocol::tls::{TLS_ACCEPT_INVALID_CERTS, TLS_TRUSTED_CAS};
 use tokio::sync::{OnceCell, mpsc, oneshot};
 use tokio_util::sync::CancellationToken;
@@ -72,6 +74,7 @@ use crate::driver::{
 use crate::egress_relay::application_settings::ApplicationSettings;
 use crate::egress_relay::authority::Authority;
 use crate::egress_relay::{Local, RelayTls};
+use crate::errors::browser_panicked;
 use crate::launch::Launcher;
 pub(crate) use rules::Placement;
 use rules::{Limits, Opens, Seats, Stage, Use};
@@ -289,7 +292,9 @@ impl Pool {
     /// its loss goes to its Sessions (spec #594's S8 and S9; ADR 0040). One
     /// whose own events' reader fell behind is taken out of service too,
     /// once, with no loss for its Sessions (#3261). The follower is a task
-    /// of the browser's owner, so it ends with the browser (ADR 0146).
+    /// of the browser's owner, so it ends with the browser (ADR 0146). A
+    /// panic of one of that owner's tasks is the browser's crash, which
+    /// [`Self::watch_panics`] tells.
     fn follow(&self, number: u64) {
         let browser = {
             let mut browsers = lock(&self.shared.browsers);
@@ -302,6 +307,8 @@ impl Pool {
             pooled.followed = true;
             Arc::clone(&pooled.browser)
         };
+        let behind = Behind::Launched(Arc::clone(&browser));
+        self.watch_panics(LostAt::Browser(number), behind.clone());
         let pool = self.clone();
         let tasks = identity(&self.shared.run).starting_on(browser.tasks());
         let stopping = browser.tasks().child_token();
@@ -322,15 +329,22 @@ impl Pool {
                 }
             };
             drop(browser);
-            pool.lost(LostAt::Browser(number), lost).await;
+            // A panicked browser's loss is its panic watch's to tell.
+            if !behind.has_panicked() {
+                pool.lost(LostAt::Browser(number), lost).await;
+            }
         });
     }
 
     /// Follows the Borrowed browser of the seat `seat`, `browser`, until its
     /// connection ends: a quit, since the engine sees no exit of a browser it
     /// did not launch (decision 11), which goes to the seat's Session. The
-    /// follower is a task of the browser's owner (ADR 0146).
+    /// follower is a task of the browser's owner (ADR 0146); a panic of one
+    /// of that owner's tasks is the browser's crash, which
+    /// [`Self::watch_panics`] tells.
     fn follow_borrowed(&self, seat: u64, browser: Arc<BorrowedBrowser>) {
+        let behind = Behind::Borrowed(Arc::clone(&browser));
+        self.watch_panics(LostAt::Borrowed { seat }, behind.clone());
         let pool = self.clone();
         let tasks = identity(&self.shared.run).starting_on(browser.tasks());
         let stopping = browser.tasks().child_token();
@@ -340,8 +354,47 @@ impl Pool {
                 lost = browser.ended() => lost,
             };
             drop(browser);
-            pool.lost(LostAt::Borrowed { seat }, lost).await;
+            // A panicked browser's loss is its panic watch's to tell.
+            if !behind.has_panicked() {
+                pool.lost(LostAt::Borrowed { seat }, lost).await;
+            }
         });
+    }
+
+    /// Follows the owner of the browser at `at`, `browser`, as a task of
+    /// the Run, until the owner or the Run stops: a panic of one of the
+    /// owner's tasks is the browser's crash (ADR 0148). The Run trace
+    /// records `engine_panicked` with `ended: browser`; the engine closes
+    /// the browser, or its connection to a Borrowed one, as crashed, so
+    /// its pages raise `page_crashed`; then its loss, a crash with no exit,
+    /// goes to its Sessions, as a real crash's does. The Run goes on. The
+    /// watch is the Run's, since it waits for the browser's owner to stop.
+    fn watch_panics(&self, at: LostAt, browser: Behind) {
+        let pool = self.clone();
+        let run = self.shared.run.clone();
+        let span = identity(&run).span().clone();
+        let stopping = run.cancellation().clone();
+        let closed = browser.tasks().child_token();
+        let task = async move {
+            tokio::select! {
+                biased;
+                () = stopping.cancelled() => return,
+                () = browser.panicked() => {}
+                () = closed.cancelled() => return,
+            }
+            let error = browser_panicked(run.metrics(), browser.panicked_crash_report());
+            tracing::error!(
+                ?at,
+                %error,
+                "a task of the browser's owner panicked: the engine treats the browser as crashed"
+            );
+            // The Run trace holds the Error code no reply carries (ADR 0072).
+            record_panicked(identity(&run), PanicEnded::Browser);
+            browser.treat_as_crashed();
+            browser.stop().await;
+            pool.lost(at, Lost::BrowserCrashed(None)).await;
+        };
+        self.shared.run.spawn(task.instrument(span));
     }
 
     /// A browser of the Run ended at `at`, as `lost` says: one that quit or
@@ -1154,6 +1207,17 @@ impl Seat {
         for (_, driver) in left {
             driver.close().await;
         }
+    }
+}
+
+#[cfg(test)]
+impl Seat {
+    /// The pool's browser `number`, while the pool holds it.
+    pub(crate) fn browser(&self, number: u64) -> Option<Arc<LocalBrowser>> {
+        lock(&self.shared.pool.shared.browsers)
+            .list
+            .get(&number)
+            .map(|pooled| Arc::clone(&pooled.browser))
     }
 }
 

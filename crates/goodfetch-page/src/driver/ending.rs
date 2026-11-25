@@ -4,7 +4,8 @@
 //! browser's connection ending, told apart by the process's exit status for
 //! a browser the engine launched and read as a quit for a Borrowed one
 //! (decision 11). A browser's own connection is followed the same way, so
-//! its pool learns of its loss whether or not it holds a page.
+//! its pool learns of its loss whether or not it holds a page. A browser
+//! whose owner's task panicked ends as a crash (ADR 0148).
 
 use std::time::Duration;
 
@@ -102,11 +103,16 @@ impl Browser {
         self.loss().await
     }
 
-    /// How the browser ended once its connection did: closed by the engine;
-    /// a Borrowed browser quit, since no exit of its separates a quit from a
+    /// How the browser ended once its connection did: crashed, with no exit,
+    /// when a task of its owner panicked, which the engine treats as its
+    /// crash whoever closed it (ADR 0148); else closed by the engine; a
+    /// Borrowed browser quit, since no exit of its separates a quit from a
     /// crash (decision 11); a launched one quit when its process exited
     /// with status 0, and crashed otherwise or with no exit seen in time.
     async fn loss(&self) -> Lost {
+        if self.state.panicked.is_cancelled() {
+            return Lost::BrowserCrashed(None);
+        }
         if !self.launched {
             if self.closing.is_cancelled() {
                 return Lost::EngineClosed;

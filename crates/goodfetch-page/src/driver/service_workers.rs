@@ -164,6 +164,7 @@ impl PageDriver {
         let browser = &self.browser;
         if matches!(choice, ServiceWorkers::Block) {
             browser
+                .state
                 .service_workers
                 .scripts
                 .get_or_try_init(|| async {
@@ -188,7 +189,7 @@ impl PageDriver {
                 })
                 .await?;
         }
-        lock(&browser.service_workers.contexts)
+        lock(&browser.state.service_workers.contexts)
             .entry(self.context.clone())
             .or_insert(choice);
         Ok(())
@@ -198,7 +199,7 @@ impl PageDriver {
     /// its sites to `handler` before they run; a later handler for the same
     /// context changes nothing.
     pub(crate) fn shared_workers(&self, handler: OnWorker) {
-        lock(&self.browser.service_workers.shared)
+        lock(&self.browser.state.service_workers.shared)
             .entry(self.context.clone())
             .or_insert(handler);
     }
@@ -282,6 +283,7 @@ fn take_in(event: &RawEvent, browser: &Browser, tasks: &RunIdentity) {
             tasks.spawn(attach(browser.clone(), attached, tasks.clone()));
         } else if attached.target_info.r#type == SHARED_WORKER {
             let choice = browser
+                .state
                 .service_workers
                 .shared_of(attached.target_info.browser_context_id.as_ref())
                 .map(ServiceWorkers::Allow);
@@ -296,8 +298,8 @@ fn take_in(event: &RawEvent, browser: &Browser, tasks: &RunIdentity) {
         }
     } else if let Some(detached) = event.read::<target::DetachedFromTargetEvent>() {
         let detached = TargetSession(detached.session_id);
-        browser.popups.forget(&detached);
-        if let Some(gone) = lock(&browser.service_workers.attached).remove(&detached) {
+        browser.state.popups.forget(&detached);
+        if let Some(gone) = lock(&browser.state.service_workers.attached).remove(&detached) {
             gone.cancel();
         }
     } else if let Some(paused) = event.read::<fetch::RequestPausedEvent>() {
@@ -310,6 +312,7 @@ fn take_in(event: &RawEvent, browser: &Browser, tasks: &RunIdentity) {
 /// it runs.
 async fn attach(browser: Browser, attached: target::AttachedToTargetEvent, tasks: RunIdentity) {
     let choice = browser
+        .state
         .service_workers
         .of(attached.target_info.browser_context_id.as_ref());
     hold_then_run(browser, attached, tasks, choice).await;
@@ -335,7 +338,7 @@ async fn hold_then_run(
     let held = match (choice, info.browser_context_id.clone()) {
         (Some(ServiceWorkers::Allow(handle)), Some(context)) => {
             let gone = tasks.owner().child_token();
-            lock(&browser.service_workers.attached).insert(session.clone(), gone.clone());
+            lock(&browser.state.service_workers.attached).insert(session.clone(), gone.clone());
             let driver = PageDriver::service_worker(
                 browser.clone(),
                 session.clone(),
@@ -438,6 +441,7 @@ async fn blocks(browser: &Browser, worker: &str) -> bool {
     };
     matches!(
         browser
+            .state
             .service_workers
             .of(found.target_info.browser_context_id.as_ref()),
         Some(ServiceWorkers::Block)

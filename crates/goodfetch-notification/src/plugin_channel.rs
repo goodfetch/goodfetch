@@ -10,11 +10,11 @@
 use std::future::Future;
 use std::time::Duration;
 
-use goodfetch_engine::secrets::PartyText;
+use goodfetch_protocol::notifications::NotificationEvent;
 use url::Url;
 
 use crate::driver::Channel;
-use crate::failure::Failure;
+use crate::failure::{ChannelText, Failure};
 use crate::message::Message;
 
 /// What `notification.send` carries: the Notification without what only
@@ -24,7 +24,7 @@ pub struct Params<'a> {
     /// The event ID, the program's idempotency key.
     pub event_id: &'a str,
     /// The event's name, such as `run_failed`.
-    pub event: &'a str,
+    pub event: NotificationEvent,
     /// The Notification's text, in English.
     pub text: &'a str,
     /// Where the Run or Schedule is shown, if anywhere.
@@ -45,8 +45,8 @@ pub enum CallFailure {
         retry_after: Option<Duration>,
     },
     /// The program failed in any other way: another exception, or no
-    /// answer the caller could read. Kept as party text.
-    Other(String),
+    /// answer the caller could read.
+    Other(ChannelText),
 }
 
 /// The call that sends a Notification to a channel Plugin or an SDK
@@ -91,7 +91,7 @@ impl<C: NotificationCall> Channel for PluginChannel<C> {
         self.call
             .send(Params {
                 event_id: message.event_id.as_str(),
-                event: &message.event,
+                event: message.event,
                 text: &message.text,
                 link: message.link.as_ref(),
             })
@@ -107,7 +107,7 @@ impl<C: NotificationCall> Channel for PluginChannel<C> {
 /// `GoodfetchError` that asks for a wait is [`Failure::RateLimited`], one
 /// that does not is [`Failure::ServerError`], one that is not retryable is
 /// [`Failure::Rejected`], and any other failure is
-/// [`Failure::Unrecognized`], logged at `warn` without its text.
+/// [`Failure::Unrecognized`], logged at `warn` with its text.
 fn translate(failure: CallFailure) -> Failure {
     match failure {
         CallFailure::Goodfetch {
@@ -123,12 +123,9 @@ fn translate(failure: CallFailure) -> Failure {
         CallFailure::Goodfetch {
             retryable: false, ..
         } => Failure::Rejected,
-        CallFailure::Other(text) => {
-            tracing::warn!(
-                "a channel Plugin or SDK handler failed with an error that is no GoodfetchError"
-            );
-            Failure::Unrecognized(PartyText::new(text))
-        }
+        CallFailure::Other(text) => text.unrecognized(
+            "a channel Plugin or SDK handler failed with an error that is no GoodfetchError",
+        ),
     }
 }
 

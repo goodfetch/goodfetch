@@ -15,6 +15,7 @@ use goodfetch_engine::run_state::{RunState, RunStateOptions};
 use goodfetch_engine::secrets::PartyText;
 use goodfetch_engine::tasks::{BlockingPolicy, TaskOwner};
 use goodfetch_protocol::catalog::Product;
+use goodfetch_protocol::notifications::NotificationEvent;
 use goodfetch_test_support::TestEnv;
 use rstest::rstest;
 use tokio::sync::Mutex;
@@ -22,7 +23,7 @@ use url::Url;
 
 use super::{CallFailure, NotificationCall, Params, PluginChannel};
 use crate::driver::{Channel, Driver};
-use crate::failure::Failure;
+use crate::failure::{ChannelText, Failure};
 use crate::ledger::{Entry, Ledger, TABLES};
 use crate::message::{EventId, Message};
 use crate::rate_limit::RateLimit;
@@ -61,7 +62,7 @@ impl NotificationCall for Scripted {
         self.calls.lock().await.push(Call {
             second: second.as_secs(),
             event_id: params.event_id.to_owned(),
-            event: params.event.to_owned(),
+            event: params.event.to_string(),
             text: params.text.to_owned(),
             link: params.link.map(Url::to_string),
         });
@@ -96,7 +97,7 @@ async fn driver(env: &TestEnv, owner: &TaskOwner, clock: Clock) -> Driver {
 fn message() -> Message {
     Message {
         event_id: EventId::new("evt-1").unwrap(),
-        event: "run_failed".to_owned(),
+        event: NotificationEvent::RUN_FAILED,
         run_id: None,
         schedule_id: None,
         product: Product::Collie,
@@ -116,7 +117,10 @@ fn a_programs_other_error_is_sent_again_on_the_schedule_with_the_same_event() {
         let env = TestEnv::in_memory();
         let owner = TaskOwner::root(BlockingPolicy::Inline);
         let driver = driver(&env, &owner, clock).await;
-        let call = Scripted::new(clock, [CallFailure::Other("TypeError: boom".to_owned())]);
+        let call = Scripted::new(
+            clock,
+            [CallFailure::Other(ChannelText::new("TypeError: boom"))],
+        );
         let channel = PluginChannel::new("pager", "plugin:pager", call);
 
         let held = driver.deliver(&channel, &message()).await.unwrap();
@@ -148,8 +152,8 @@ fn a_programs_other_error_is_sent_again_on_the_schedule_with_the_same_event() {
     Failure::Rejected,
 )]
 #[case::other(
-    CallFailure::Other("TypeError: boom".to_owned()),
-    Failure::Unrecognized(PartyText::new("TypeError: boom")),
+    CallFailure::Other(ChannelText::new("TypeError: boom")),
+    Failure::Unrecognized(PartyText::new("TypeError: boom"))
 )]
 fn each_answer_maps_to_its_failure(#[case] answer: CallFailure, #[case] failure: Failure) {
     let channel = PluginChannel::new("pager", "plugin:pager", NeverCalled);

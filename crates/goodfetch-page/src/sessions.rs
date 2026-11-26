@@ -69,7 +69,9 @@ use goodfetch_engine::run_key::Sealed;
 use goodfetch_engine::run_state::{RunStateError, RunStateTables, SecretColumn, run_row};
 use goodfetch_engine::runs::{self, RunError, RunKeyError};
 use goodfetch_engine::secrets::Purpose;
-use goodfetch_engine::settings::{RunSettings, SettingsError, Values, setting};
+use goodfetch_engine::settings::{
+    RunSettings, SettingsError, Values, check_session_source, setting,
+};
 use goodfetch_engine::tasks::{TaskOwner, TaskStarter};
 use goodfetch_engine::{CallContext, CallError, RunIndex, RunOfCall};
 use goodfetch_extractor::BuiltIn;
@@ -571,8 +573,16 @@ impl Sessions {
     ) -> Result<SessionOpened, CallError> {
         let run = live(&params.run_id, context).await?;
         let settings = own_settings(&params.settings, &run, context)?;
-        let settings = extractor_installed(settings, &run, context).await?;
+        let own_source = params.source.is_some();
         let named = named_source(&run, params.source, context);
+        // A Session's own source meets the rule `session.source` meets in
+        // every layer (ADR 0056), in the layer `named_source` gives it; the
+        // Run's met it when the Run started.
+        if own_source && let Some(named) = &named {
+            check_session_source(&named.source, Some(named.layer))
+                .map_err(|error| settings_error(&error, context))?;
+        }
+        let settings = extractor_installed(settings, &run, context).await?;
         let identity = access_mode_opens(&settings, &run.identity, named.as_ref(), context)?;
         let borrowed = opening_source(named)?;
         no_local_address_on(&run, source_of(borrowed.as_ref()))?;

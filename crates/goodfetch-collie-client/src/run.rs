@@ -11,11 +11,13 @@ mod progress;
 use std::future::{Future, IntoFuture};
 use std::pin::Pin;
 use std::sync::Arc;
+use std::time::Duration;
 
 use goodfetch_protocol::catalog::SettingScope;
 use goodfetch_protocol::page::{PageId, SessionId};
 use goodfetch_protocol::run::{
-    RUN_PROGRESS_READ, RUN_START, RunId, RunProgress, RunStartParams, RunStarted, StartedAs, Tags,
+    RUN_PROGRESS_READ, RUN_START, Recording, RunId, RunProgress, RunStartParams, RunStarted,
+    StartedAs, Tags,
 };
 use goodfetch_protocol::settings::{CONFIG_EXPLAIN, ConfigExplainParams, SettingsExplanation};
 use serde::Serialize;
@@ -29,7 +31,7 @@ use crate::generated::handles::{Page, Run, Session};
 use crate::host::{HeldRun, Host, Kept};
 use crate::limits::Limits;
 use crate::logging::{self, engine_log_level};
-use crate::settings::Settings;
+use crate::settings::{RunTimeout, Settings, wire_timeout};
 
 /// The start of a Run (`run.start`), which awaiting sends. Nothing is sent
 /// until it is awaited.
@@ -40,6 +42,8 @@ pub struct Start {
     params: RunStartParams,
     /// The Run's own settings, which its params carry once checked.
     settings: Settings,
+    /// The Run's own `timeout`, which its params carry once checked.
+    timeout: RunTimeout,
 }
 
 impl Start {
@@ -50,7 +54,87 @@ impl Start {
             connection,
             params: RunStartParams::default(),
             settings: Settings::new(),
+            timeout: RunTimeout::Setting,
         }
+    }
+
+    /// Bounds how long the Run may last, as `timeout.run` for this Run,
+    /// sent in whole milliseconds, rounded up; its setting's value bounds
+    /// it when neither this nor [`Start::no_timeout`] is given. Past it,
+    /// the Run stops with a Checkpoint, resumable, and a start that resumes
+    /// it counts its own on a fresh clock (ADRs 0080 and 0102). A zero
+    /// `timeout` fails the start with `setting_invalid` before anything is
+    /// sent.
+    ///
+    /// ```no_run
+    /// # async fn start(connection: goodfetch_collie_client::ClientConnection) -> Result<(), goodfetch_collie_client::Error> {
+    /// let run = connection.start().timeout(std::time::Duration::from_secs(600)).await?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn timeout(mut self, timeout: Duration) -> Self {
+        self.timeout = RunTimeout::After(timeout);
+        self
+    }
+
+    /// Lets the Run last as long as it takes, whatever `timeout.run` says.
+    ///
+    /// ```no_run
+    /// # async fn start(connection: goodfetch_collie_client::ClientConnection) -> Result<(), goodfetch_collie_client::Error> {
+    /// let run = connection.start().no_timeout().await?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn no_timeout(mut self) -> Self {
+        self.timeout = RunTimeout::Unbounded;
+        self
+    }
+
+    /// Names the Plan file the Run follows, by its path relative to the
+    /// working directory (ADR 0091): an input of the Run, so a start that
+    /// names the Run again with another fails with `run_conflict`.
+    ///
+    /// ```no_run
+    /// # async fn start(connection: goodfetch_collie_client::ClientConnection) -> Result<(), goodfetch_collie_client::Error> {
+    /// let run = connection.start().plan("site.plan.json").await?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn plan(mut self, path: impl Into<String>) -> Self {
+        self.params.plan = Some(path.into());
+        self
+    }
+
+    /// Sets the Response recording the Run replays or records (ADR 0105):
+    /// an input of the Run, so a start that names the Run again with
+    /// another fails with `run_conflict`.
+    ///
+    /// ```no_run
+    /// # async fn start(connection: goodfetch_collie_client::ClientConnection) -> Result<(), goodfetch_collie_client::Error> {
+    /// use goodfetch_protocol::run::{Recording, RecordingMode};
+    ///
+    /// let recording = Recording { mode: RecordingMode::Replay, path: "site.warc".to_owned() };
+    /// let run = connection.start().recording(recording).await?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn recording(mut self, recording: Recording) -> Self {
+        self.params.recording = Some(recording);
+        self
+    }
+
+    /// Accepts a change of the Plugin `name` since the Run last ran, which
+    /// a resume honours (ADR 0033). Each call adds one.
+    ///
+    /// ```no_run
+    /// # async fn start(connection: goodfetch_collie_client::ClientConnection) -> Result<(), goodfetch_collie_client::Error> {
+    /// let run = connection.start().accept_plugin_change("shop-login").await?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn accept_plugin_change(mut self, name: impl Into<String>) -> Self {
+        self.params.accept_plugin_change.push(name.into());
+        self
     }
 
     /// Names the Run for good: a start with an existing Run ID resumes the
@@ -81,7 +165,8 @@ impl Start {
     /// they leave out the connection's settings give, and the Run's
     /// Sessions and pages inherit them (ADR 0083). A key a Run's start does
     /// not set, as `timeout.run`, fails the start with
-    /// `setting_not_applicable` before anything is sent.
+    /// `setting_not_applicable` before anything is sent: a Run's own
+    /// `timeout.run` is [`Start::timeout`].
     pub fn settings(mut self, settings: Settings) -> Self {
         self.settings = settings;
         self
@@ -97,9 +182,13 @@ impl IntoFuture for Start {
     /// it changed (ADR 0078). The start carries the project file the
     /// Connection carries (ADR 0083).
     fn into_future(mut self) -> Self::IntoFuture {
-        let settings = self.settings.within(SettingScope::Run);
-        let started = settings.map(|settings| {
+        let checked = self
+            .settings
+            .within(SettingScope::Run)
+            .and_then(|settings| Ok((settings, wire_timeout(self.timeout)?)));
+        let started = checked.map(|(settings, timeout)| {
             self.params.settings = settings;
+            self.params.timeout = timeout;
             self.params.project = self.connection.project().cloned();
             self.connection.start_with(RUN_START.name, self.params)
         });

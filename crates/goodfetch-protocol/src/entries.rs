@@ -376,7 +376,7 @@ mod tests {
     }
 
     /// Collie's operations, in the catalog's order.
-    const COLLIE: [&str; 102] = [
+    const COLLIE: [&str; 103] = [
         "connection.set_log_level",
         "daemon.status",
         "daemon.stop",
@@ -427,6 +427,7 @@ mod tests {
         "page.close",
         "page.evaluate",
         "locator.evaluate_all",
+        "locator.scroll_collect",
         "page.add_init_script",
         "page.wait_for_url",
         "page.wait_for_request",

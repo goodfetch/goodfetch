@@ -2801,6 +2801,7 @@
             "run_transactions",
             "script_compilations",
             "script_sends",
+            "scroll_collect_commands",
             "seals",
             "second_copy_round_trips",
             "selector_compilations",
@@ -4038,6 +4039,25 @@
       "reach": "all_surfaces",
       "result": {
         "$ref": "#/$defs/Acted"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": true,
+      "class": "effect",
+      "deprecated": null,
+      "description": "Reads a virtualized or infinite list whole: at each step a page function, called with each element the locator matches and its one JSON argument, in the isolated world unless `world` says otherwise, answers the element's `{ key, value }` or `null` to skip it, and each new key's value is kept in first-seen order, a duplicate key keeping its first. Then the last match is scrolled into view, a gesture through the guard, and the step waits up to `step_wait` for an element with a new key. It ends `end_of_list` after `idle_steps` steps in a row without one, or `max_rows` once it kept that many rows, and answers the rows, how it ended and the rows the list declares through `aria-rowcount` or its items' `aria-setsize` (`unknown` for `-1`, `null` for none). Past its `timeout`, `timeout.wait` when the call gives none, it fails with `deadline_exceeded` whose `observed` gives the rows kept and the last key; a guard refusal stops it with the guard's code, and an exception thrown in the page raises `page_function_failed`. No other read scrolls.",
+      "events": [],
+      "kind": "round_trip",
+      "name": "locator.scroll_collect",
+      "params": {
+        "$ref": "#/$defs/LocatorScrollCollectParams"
+      },
+      "product": "collie",
+      "reach": "sdk_only",
+      "result": {
+        "$ref": "#/$defs/ScrollCollected"
       },
       "stability": "experimental"
     },

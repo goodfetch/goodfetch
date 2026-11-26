@@ -2670,6 +2670,20 @@
       ],
       "type": "object"
     },
+    "Declared": {
+      "description": "The rows a list declares: a count, or `unknown` for `-1`.",
+      "oneOf": [
+        {
+          "description": "This many.",
+          "minimum": 0,
+          "type": "integer"
+        },
+        {
+          "const": "unknown",
+          "description": "The list says it does not know."
+        }
+      ]
+    },
     "DetachUnsupportedDetails": {
       "description": "What `detach_unsupported`'s details hold.",
       "properties": {
@@ -5477,6 +5491,22 @@
       ],
       "type": "object"
     },
+    "ListEnded": {
+      "description": "How a scroll collection ended, open (ADR 0079).",
+      "oneOf": [
+        {
+          "const": "end_of_list",
+          "description": "`idle_steps` steps in a row brought no new key.",
+          "type": "string"
+        },
+        {
+          "const": "max_rows",
+          "description": "It kept `max_rows` rows.",
+          "type": "string"
+        }
+      ],
+      "open": true
+    },
     "ListField": {
       "additionalProperties": false,
       "description": "A list: the value field read from every element its locator finds, in\ndocument order.",
@@ -5649,6 +5679,88 @@
           ],
           "arrived_in": "0.1",
           "description": "Where it runs; the main world when absent."
+        }
+      },
+      "required": [
+        "locator",
+        "function"
+      ],
+      "type": "object"
+    },
+    "LocatorScrollCollectParams": {
+      "additionalProperties": false,
+      "description": "What `locator.scroll_collect` takes (#807): the locator, the page\nfunction reading each match, its argument and world, and when the\ncollection ends.",
+      "properties": {
+        "_meta": {
+          "$ref": "#/$defs/RequestMeta",
+          "arrived_in": "0.1"
+        },
+        "arg": {
+          "arrived_in": "0.1",
+          "description": "Its one argument, JSON; absent for none."
+        },
+        "function": {
+          "arrived_in": "0.1",
+          "description": "The page function's JavaScript source, called with each matched\nelement and `arg`: it answers the row's `{ key, value }`, `key` a\nstring, or `null` to skip the element.",
+          "type": "string"
+        },
+        "idle_steps": {
+          "arrived_in": "0.1",
+          "description": "The steps in a row without a new key at which it ends\n`end_of_list`, at least 1; 3 when absent.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "locator": {
+          "$ref": "#/$defs/Locator",
+          "arrived_in": "0.1",
+          "description": "The locator, whose every match the function reads, resolved again\nat each step."
+        },
+        "max_rows": {
+          "arrived_in": "0.1",
+          "description": "The rows at which the collection ends `max_rows`, at least 1;\n10,000 when absent.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "step_wait": {
+          "arrived_in": "0.1",
+          "description": "How long a step waits for an element with a new key after its\nscroll, in milliseconds, at least 1; 2,000 when absent.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "timeout": {
+          "arrived_in": "0.1",
+          "description": "How long the whole collection may take, in milliseconds, at least\n1: absent for `timeout.wait`, `null` for none, though an enclosing\ntimeout still applies (ADR 0080).",
+          "format": "uint64",
+          "minimum": 0,
+          "setting": "timeout.wait",
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "world": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/World"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "Where it runs; the isolated world when absent."
         }
       },
       "required": [
@@ -12807,6 +12919,39 @@
       ],
       "type": "object"
     },
+    "ScrollCollected": {
+      "description": "What `locator.scroll_collect` answers (#807): the rows, how the\ncollection ended and what the list declares, so a short read is never\nsilent.",
+      "properties": {
+        "declared": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Declared"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "The rows the list declares through `aria-rowcount` or its items'\n`aria-setsize`; `null` when it declares none."
+        },
+        "ended": {
+          "$ref": "#/$defs/ListEnded",
+          "arrived_in": "0.1",
+          "description": "How it ended."
+        },
+        "rows": {
+          "arrived_in": "0.1",
+          "description": "Each new key's value, in the order its key was first seen.",
+          "items": true,
+          "type": "array"
+        }
+      },
+      "required": [
+        "rows",
+        "ended"
+      ],
+      "type": "object"
+    },
     "SecretDomainNotAllowedDetails": {
       "description": "What `secret_domain_not_allowed` details.",
       "properties": {
@@ -18212,6 +18357,7 @@
             "run_transactions",
             "script_compilations",
             "script_sends",
+            "scroll_collect_commands",
             "seals",
             "second_copy_round_trips",
             "selector_compilations",
@@ -19162,6 +19308,25 @@
       "reach": "all_surfaces",
       "result": {
         "$ref": "#/$defs/Acted"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": true,
+      "class": "effect",
+      "deprecated": null,
+      "description": "Reads a virtualized or infinite list whole: at each step a page function, called with each element the locator matches and its one JSON argument, in the isolated world unless `world` says otherwise, answers the element's `{ key, value }` or `null` to skip it, and each new key's value is kept in first-seen order, a duplicate key keeping its first. Then the last match is scrolled into view, a gesture through the guard, and the step waits up to `step_wait` for an element with a new key. It ends `end_of_list` after `idle_steps` steps in a row without one, or `max_rows` once it kept that many rows, and answers the rows, how it ended and the rows the list declares through `aria-rowcount` or its items' `aria-setsize` (`unknown` for `-1`, `null` for none). Past its `timeout`, `timeout.wait` when the call gives none, it fails with `deadline_exceeded` whose `observed` gives the rows kept and the last key; a guard refusal stops it with the guard's code, and an exception thrown in the page raises `page_function_failed`. No other read scrolls.",
+      "events": [],
+      "kind": "round_trip",
+      "name": "locator.scroll_collect",
+      "params": {
+        "$ref": "#/$defs/LocatorScrollCollectParams"
+      },
+      "product": "collie",
+      "reach": "sdk_only",
+      "result": {
+        "$ref": "#/$defs/ScrollCollected"
       },
       "stability": "experimental"
     },

@@ -4174,6 +4174,17 @@
       ]
     },
     {
+      "id": "operation:locator.scroll_collect",
+      "kind": "operation",
+      "area": 5,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "operation:locator.wait_for",
       "kind": "operation",
       "area": 5,

@@ -134,6 +134,7 @@ mod blocked;
 mod blocking_off;
 mod clean_up;
 mod plugin_extractor;
+mod scroll_collect;
 pub(crate) mod served_formats;
 mod waits;
 
@@ -198,6 +199,7 @@ pub fn contribution_with(
         with_dialog_handlers(contribution, (&pages.dialogs, pages.sessions.page_owners()));
     let contribution = with_function_handlers(contribution, &pages);
     let contribution = waits::with_wait_handlers(contribution, &pages);
+    let contribution = scroll_collect::with_scroll_collect_handler(contribution, &pages);
     let contribution = with_request_handler(contribution, &pages);
     pages.product.opened(Arc::new(Opener {
         pages: pages.clone(),

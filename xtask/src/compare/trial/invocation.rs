@@ -62,6 +62,7 @@ pub(crate) fn fastcrw_server(executable: &Path) -> PathBuf {
 pub(crate) fn invocation(config: Config, executable: &Path) -> Invocation {
     match config {
         Config::Foxhound { .. }
+        | Config::FoxhoundRustProgram
         | Config::CrawleeRs
         | Config::Pagesift
         | Config::OpenSpider
@@ -107,7 +108,9 @@ pub(super) fn install_bytes(
     };
     let browser_bytes = browser.map_or(0, footprint);
     let packages = match config {
+        // The Rust program's engine is linked into its executable.
         Config::Foxhound { .. }
+        | Config::FoxhoundRustProgram
         | Config::Spider { .. }
         | Config::CrawleeRs
         | Config::Pagesift

@@ -1,5 +1,5 @@
 {
-  "description": "A Collie Client's hello accepted, then the `finish-stop-and-progress` client conformance case (ADRs 0029 and 0102): the Run `nightly` answers its progress at once, its program sets its progress message, and the next read, sent with the last value's position as `after`, answers the value carrying it; its finish with a timeout of 60 s fails with `deadline_exceeded`, which ends only the wait, and its next finish answers the whole Run report. The Run `weekly`'s stop answers it stopped as an abort by its program, with its Checkpoint. The Run `broken` ended `failed`, so its finish and its stop fail with the error that failed it, and the Connection's close aborts it, answered its report; the Client then closes.",
+  "description": "A Collie Client's hello accepted, then the `finish-stop-and-progress` client conformance case (ADRs 0029 and 0102): the Run `nightly` answers its progress at once, waiting on a Human pause the engine raised at a login recovery, its program sets its progress message, and the next read, sent with the last value's position as `after`, answers the latest value, at position 4, which carries it, the values between them coalesced; its finish with a timeout of 60 s fails with `deadline_exceeded`, which ends only the wait, and its next finish answers the whole Run report. The Run `weekly`'s stop answers it stopped as an abort by its program, with its Checkpoint. The Run `broken` ended `failed`, so its finish and its stop fail with the error that failed it, and the Connection's close aborts it, answered its report; the Client then closes.",
   "steps": [
     {
       "expect": {
@@ -59,7 +59,20 @@
           "lifecycle": "running",
           "writer": "live",
           "epoch": 1,
-          "pauses": [],
+          "pauses": [
+            {
+              "session": "shop",
+              "page": "login",
+              "reason": "Enter the code the shop sent by SMS.",
+              "until": "the account page loads",
+              "raised_by": {
+                "by": "engine",
+                "step": "login_recovery"
+              },
+              "since": "2026-01-01T00:00:00Z",
+              "deadline": "2026-01-01T00:15:00Z"
+            }
+          ],
           "last": false
         }
       }
@@ -101,8 +114,8 @@
       "reply": {
         "result": {
           "run_id": "nightly",
-          "position": 2,
-          "at": "2026-01-01T00:00:01Z",
+          "position": 4,
+          "at": "2026-01-01T00:00:03Z",
           "lifecycle": "running",
           "writer": "live",
           "epoch": 1,
@@ -168,7 +181,7 @@
               "reasoning_tokens": 0,
               "price": null
             },
-            "browser_time": 0,
+            "browser_time": 1500,
             "proxy_bytes": 0,
             "requests": 3
           },

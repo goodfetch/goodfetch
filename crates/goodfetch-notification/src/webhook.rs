@@ -13,17 +13,17 @@ use goodfetch_engine::clock::{Clock, rfc3339};
 use goodfetch_engine::http_client::WholeFailure;
 use goodfetch_engine::notification_endpoint::NotificationEndpoint;
 use goodfetch_engine::retry_after;
-use goodfetch_engine::secrets::PartyText;
 use goodfetch_engine::webhook_signing::{self, Signer};
 use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::run::RunId;
+use goodfetch_protocol::schedule::ScheduleId;
 use hyper::body::Bytes;
 use hyper::{Method, Request, StatusCode, Uri};
 use serde::Serialize;
 use url::Url;
 
 use crate::driver::Channel;
-use crate::failure::Failure;
+use crate::failure::{ChannelText, Failure};
 use crate::message::Message;
 
 /// The `major.minor` version of the delivery's body, a contract of its own
@@ -38,16 +38,8 @@ pub const SEND_TIMEOUT: Duration = Duration::from_secs(30);
 /// party text.
 const PARTY_TEXT_LIMIT: usize = 1024;
 
-/// What a delivery's `data` holds.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Payload {
-    /// The whole Notification: its IDs, event, Product, title, text and
-    /// link.
-    Full,
-    /// Its IDs and link only, which Integrations' triggers fetch the rest
-    /// from (ADR 0027).
-    Thin,
-}
+/// What a delivery's `data` holds: the channel's `webhook.payload`.
+pub use goodfetch_protocol::notifications::WebhookPayload as Payload;
 
 /// A `webhook` channel.
 #[derive(Debug)]
@@ -64,6 +56,7 @@ pub struct Webhook {
 /// Why a URL cannot be a webhook's.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
 #[error("a webhook's URL names a host, such as `https://hooks.example.com/goodfetch`")]
+#[non_exhaustive]
 pub struct UrlUnusable;
 
 /// Why a delivery got no success from the receiver.
@@ -81,8 +74,8 @@ pub enum WebhookFailure {
         status: StatusCode,
         /// The wait its `Retry-After` asks for, if it gave one.
         retry_after: Option<Duration>,
-        /// The start of its body, kept as party text.
-        text: String,
+        /// The start of its body.
+        text: ChannelText,
     },
 }
 
@@ -163,8 +156,22 @@ impl Channel for Webhook {
 
     async fn send(&self, message: &Message) -> Result<(), WebhookFailure> {
         let answer = tokio::select! {
-            answer = self.endpoint.send(self.request(message)) => answer.map_err(WebhookFailure::Endpoint)?,
+            answer = self.endpoint.send(self.request(message)) => answer,
             () = self.clock.sleep(SEND_TIMEOUT) => return Err(WebhookFailure::TimedOut),
+        };
+        let answer = match answer {
+            Ok(answer) => answer,
+            // An answer over the endpoint's limit still has its status: a
+            // success delivered the Notification, whatever followed it.
+            Err(WholeFailure::TooLong { status }) if status.is_success() => return Ok(()),
+            Err(WholeFailure::TooLong { status }) => {
+                return Err(WebhookFailure::Status {
+                    status,
+                    retry_after: None,
+                    text: ChannelText::new(String::new()),
+                });
+            }
+            Err(failure) => return Err(WebhookFailure::Endpoint(failure)),
         };
         let status = answer.status();
         if status.is_success() {
@@ -175,7 +182,7 @@ impl Channel for Webhook {
         Err(WebhookFailure::Status {
             status,
             retry_after: retry_after::wait_of(answer.headers(), self.clock.wall()),
-            text: String::from_utf8_lossy(start).into_owned(),
+            text: ChannelText::new(String::from_utf8_lossy(start)),
         })
     }
 
@@ -186,12 +193,14 @@ impl Channel for Webhook {
 
 /// The webhook's translation point (ADR 0127): the driver's failure for
 /// each answer it knows, and [`Failure::Unrecognized`], logged at `warn`
-/// with its status alone, for any other.
+/// with its text, for any other.
 fn translate(failure: WebhookFailure) -> Failure {
     match failure {
-        WebhookFailure::Endpoint(WholeFailure::CertificateInvalid(_) | WholeFailure::Network) => {
-            Failure::Unreachable
-        }
+        WebhookFailure::Endpoint(
+            WholeFailure::CertificateInvalid(_)
+            | WholeFailure::ClientCertificate(_)
+            | WholeFailure::Network,
+        ) => Failure::Unreachable,
         WebhookFailure::TimedOut
         | WebhookFailure::Status {
             status: StatusCode::REQUEST_TIMEOUT,
@@ -225,15 +234,11 @@ fn translate(failure: WebhookFailure) -> Failure {
                 status = status.as_u16(),
                 "a webhook answered with a status its translation table does not know"
             );
-            Failure::Unrecognized(PartyText::new(format!("{status}: {text}")))
+            text.unrecognized("the start of the webhook's answer")
         }
-        WebhookFailure::Endpoint(other) => {
-            tracing::warn!(
-                failure = ?other,
-                "a webhook's endpoint failed in a way its translation table does not know"
-            );
-            Failure::Unrecognized(PartyText::new(format!("{other:?}")))
-        }
+        WebhookFailure::Endpoint(other) => ChannelText::new(format!("{other:?}")).unrecognized(
+            "a webhook's endpoint failed in a way its translation table does not know",
+        ),
     }
 }
 
@@ -241,7 +246,7 @@ fn translate(failure: WebhookFailure) -> Failure {
 /// `payload`.
 fn body(message: &Message, payload: Payload) -> Vec<u8> {
     let run_id = message.run_id.as_ref().map(RunId::as_str);
-    let schedule_id = message.schedule_id.as_deref();
+    let schedule_id = message.schedule_id.as_ref().map(ScheduleId::as_str);
     let link = message.link.as_ref().map(Url::as_str);
     let event_id = message.event_id.as_str();
     let envelope = |data| Delivery {
@@ -253,7 +258,7 @@ fn body(message: &Message, payload: Payload) -> Vec<u8> {
     match payload {
         Payload::Full => serde_json::to_vec(&envelope(Data::Full(Full {
             event_id,
-            event: &message.event,
+            event: message.event.as_str(),
             run_id,
             schedule_id,
             product: message.product,

@@ -1,17 +1,22 @@
+use goodfetch_engine::CallError;
 use goodfetch_engine::deadline::Deadline;
 use goodfetch_engine::events::EventData;
 use goodfetch_engine::settings::RunSettings;
 use goodfetch_protocol::connection::Form;
 use goodfetch_protocol::page::PageId;
 use goodfetch_protocol::page::events::PageEventName;
+use goodfetch_protocol::page::waits::LoadState;
 use goodfetch_protocol::settings::TIMEOUT_WAIT;
+use goodfetch_test_support::{TestEnv, runtime};
 use rstest::rstest;
 use serde_json::{Value, json};
 use tokio::sync::mpsc::error::TryRecvError;
 
-use super::{Listening, PageEvents, Refusals, listener_fell_behind};
-use crate::driver::PageDriver;
-use crate::live_run::LiveRun;
+use super::{Listening, PageEvents, Refusals, Requested, listener_fell_behind};
+use crate::cdp::driver::PageDriver;
+use crate::cdp::driver::replay::{answer, event};
+use crate::live_run::{LiveRun, played_page};
+use crate::url_pattern::UrlPattern;
 
 /// The events of the page `page_id`, which `driver` drives for the test's
 /// Run, read as its Session reads them.
@@ -124,4 +129,132 @@ fn each_listened_event_is_the_catalogs(
         listened.name.strip_prefix("page."),
         Some(goodfetch_protocol::wire_name::of(&event))
     );
+}
+
+/// The mark that `Runtime` was asked for belongs to the request (ADR
+/// 0146): once the page's request part was replaced, the earlier request's
+/// listener has ended, and the next request's first `page.on("console")`
+/// asks for `Runtime` again; its listener hears the console calls made
+/// since, each naming the next request's Page ID.
+#[test]
+fn a_replaced_request_asks_for_runtime_again_and_its_events_name_its_page_id() {
+    let (first, next) = (PageId("page-1".to_owned()), PageId("page-2".to_owned()));
+
+    let (earlier_ended, asked_again, heard) = runtime().block_on(async {
+        let env = TestEnv::new();
+        let (live, mut engine) = LiveRun::start(&env).await;
+        let (driver, mut played, mut connection) = played_page();
+        let events = started(&first, &driver, &live);
+        let replaced = async {
+            let mut earlier = events.listen(PageEventName::Console);
+            let enable = played.command().await;
+            assert_eq!(enable["method"], "Runtime.enable", "{enable}");
+            assert!(played.send(&[answer(&enable, json!({}))]).await);
+            events.replace_request(next.clone());
+            let (_, earlier_ended) = earlier.taken();
+            let mut listening = events.listen(PageEventName::Console);
+            let again = played.command().await;
+            assert!(played.send(&[answer(&again, json!({}))]).await);
+            let called = event(
+                "Runtime.consoleAPICalled",
+                json!({
+                    "type": "log",
+                    "args": [{ "type": "string", "value": "the next request's" }],
+                    "executionContextId": 1,
+                    // Past any clock the Run reads, so after the ask.
+                    "timestamp": 1.0e15,
+                }),
+            );
+            assert!(played.send(&[called]).await);
+            let heard = listening
+                .heard()
+                .await
+                .expect("the next request's listener ended");
+            (earlier_ended, again["method"].clone(), heard)
+        };
+        let ran = tokio::select! {
+            biased;
+            ran = replaced => ran,
+            () = &mut engine => panic!("the engine ended before the test"),
+            () = &mut connection => panic!("the page's connection ended before the test"),
+        };
+        drop((events, live));
+        // The Run ends once the page's reads did, at the connection's end.
+        drop((driver, played));
+        tokio::join!(engine, connection);
+        ran
+    });
+
+    assert!(
+        earlier_ended,
+        "the earlier request's listener still listens"
+    );
+    assert_eq!(asked_again, "Runtime.enable");
+    assert_eq!(heard["page_id"], "page-2", "{heard}");
+}
+
+/// What a request armed or kept belongs to it (ADR 0146): once the page's
+/// request part was replaced, each wait the earlier request armed raises
+/// `closed` at once, never answered by the next request's traffic, and the
+/// bodies it kept are gone.
+#[test]
+fn a_replaced_request_answers_its_waits_closed_and_keeps_none_of_its_bodies() {
+    let first = PageId("page-1".to_owned());
+
+    let (codes, kept) = runtime().block_on(async {
+        let env = TestEnv::new();
+        let (live, mut engine) = LiveRun::start(&env).await;
+        let (driver, played, mut connection) = played_page();
+        let events = started(&first, &driver, &live);
+        let deadline = || {
+            events
+                .wait_deadline(Some(Some(30_000)))
+                .expect("invariant: thirty seconds is a valid wait")
+        };
+        events.keep_requested(
+            "request-1".to_owned(),
+            Requested::Cut {
+                url: "https://first.test/".to_owned(),
+                received: 1,
+                expected: Some(2),
+            },
+        );
+        let pattern = || UrlPattern::glob("https://next.test/**").expect("invariant: a valid glob");
+        let request = events.wait_for_request(Some(pattern()), deadline());
+        let response = events.wait_for_response(Some(pattern()), deadline());
+        let finished =
+            events.wait_for_request_finished(Some(pattern()), Form::Typescript, deadline());
+        let url = events.wait_for_url(pattern(), LoadState::Load, deadline());
+        events.replace_request(PageId("page-2".to_owned()));
+        let replaced = async {
+            let (request, response, finished, url) = tokio::join!(request, response, finished, url);
+            let code = |error: Option<CallError>| error.map(|error| error.code().to_owned());
+            (
+                [
+                    code(request.err()),
+                    code(response.err()),
+                    code(finished.err()),
+                    code(url.err()),
+                ],
+                events.kept("request-1").is_some(),
+            )
+        };
+        let ran = tokio::select! {
+            biased;
+            ran = replaced => ran,
+            () = &mut engine => panic!("the engine ended before the test"),
+            () = &mut connection => panic!("the page's connection ended before the test"),
+        };
+        drop((events, live));
+        drop((driver, played));
+        tokio::join!(engine, connection);
+        ran
+    });
+
+    let closed = Some(goodfetch_protocol::connection::CLOSED.name.to_owned());
+    assert_eq!(
+        codes,
+        [closed.clone(), closed.clone(), closed.clone(), closed]
+    );
+    assert!(!kept, "the earlier request's body is still kept");
 }

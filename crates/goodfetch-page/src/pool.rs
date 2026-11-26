@@ -66,16 +66,16 @@ use tokio::sync::{OnceCell, mpsc, oneshot};
 use tokio_util::sync::CancellationToken;
 use tracing::Instrument as _;
 
-use crate::borrowed::CdpUrl;
-use crate::driver::{
+use crate::cdp::borrowed::CdpUrl;
+use crate::cdp::driver::{
     Behind, BorrowedBrowser, Carried, LocalBrowser, Lost, Origins, PageDriver, SessionDriver,
     SessionEgress, Visibility,
 };
+use crate::cdp::launch::Launcher;
 use crate::egress_relay::application_settings::ApplicationSettings;
 use crate::egress_relay::authority::Authority;
 use crate::egress_relay::{Local, RelayTls};
 use crate::errors::browser_panicked;
-use crate::launch::Launcher;
 pub(crate) use rules::Placement;
 use rules::{Limits, Opens, Seats, Stage, Use};
 

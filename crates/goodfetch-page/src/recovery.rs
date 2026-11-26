@@ -39,7 +39,7 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 
 use crate::cdp::CdpPage;
-use crate::driver::PageDriver;
+use crate::cdp::driver::PageDriver;
 use crate::noindex;
 use crate::page_reads::Reads;
 use crate::trace;

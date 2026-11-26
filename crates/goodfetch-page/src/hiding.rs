@@ -47,8 +47,8 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 use tokio::sync::Mutex;
 
+use crate::cdp::driver::PageDriver;
 use crate::cdp::{CdpPage, HidingEvent, HidingEvents, NotTaken};
-use crate::driver::PageDriver;
 use crate::errors::Unanswered;
 use crate::interception::{Cosmetic, PageCleanUp};
 use crate::page_reads::{Reads, Turn};

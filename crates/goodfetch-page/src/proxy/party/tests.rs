@@ -9,11 +9,11 @@
     reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
 )]
 
+use goodfetch_engine::net_error::NetError;
 use proptest::prelude::*;
 use rstest::rstest;
 
 use super::{Answer, Party, RELAY, party, refusal, relay_unreachable};
-use crate::errors::NetError;
 
 /// An RFC 9209 proxy name or a parameter's token.
 fn token() -> impl Strategy<Value = String> {

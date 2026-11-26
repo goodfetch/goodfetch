@@ -16,7 +16,7 @@ use super::bounded::body_files;
 use super::cached::{HOST, crawl, crawl_seed, is_answer, requests_for, settings};
 use super::{Checks, Connection, Gone, Site};
 use crate::protocol::cases::consent::walls::major_of;
-use crate::protocol::cases::reset::discard as discarded_as;
+use crate::protocol::cases::reset::discard as discard_run;
 use crate::protocol::cases::routes::received;
 
 /// Another domain than the cache host, and its page the site sends fresh
@@ -26,12 +26,12 @@ const OTHER_PAGE: &str = "/cached?upkeep=domain-clear";
 
 /// Crawls `path` under `revalidate` as the Run `run_id`, and answers
 /// whether it was handed the site's answer `answer`, the site having seen
-/// `requests` requests for it.
+/// as many requests for it: the `answer`th reached the site.
 fn crawled(
     connection: &mut Connection,
     site: &Site,
     (run_id, path): (&str, &str),
-    (answer, requests): (u64, usize),
+    answer: u64,
     checks: &mut Checks,
 ) -> Result<bool, Gone> {
     let markdown = crawl(
@@ -42,7 +42,21 @@ fn crawled(
         &settings(Some("revalidate")),
         checks,
     )?;
-    Ok(is_answer(&markdown, answer, path) && requests_for(site, path).len() == requests)
+    let requests = requests_for(site, path).len();
+    Ok(is_answer(&markdown, answer, path) && u64::try_from(requests) == Ok(answer))
+}
+
+/// Crawls `path`, not yet in the cache, as the Run `run_id`, checking
+/// that its first crawl reached the site and stored it.
+fn stored(
+    connection: &mut Connection,
+    site: &Site,
+    (run_id, path): (&str, &str),
+    checks: &mut Checks,
+) -> Result<(), Gone> {
+    let first = crawled(connection, site, (run_id, path), 1, checks)?;
+    checks.check(format!("`{path}` is stored by its first crawl"), first);
+    Ok(())
 }
 
 /// Crawls [`OTHER_PAGE`] under `revalidate` as the Run `run_id`, and
@@ -59,10 +73,18 @@ fn crawled_elsewhere(
     Ok(received(site, OTHER_HOST, OTHER_PAGE))
 }
 
-/// Asks `operation` with `params`, answering its result.
-fn asked(connection: &mut Connection, operation: &str, params: &Value) -> Result<Value, Gone> {
+/// Asks `operation` with `params`, answering its result: a failed check
+/// naming the operation when it answers an error.
+fn asked(
+    connection: &mut Connection,
+    operation: &str,
+    params: &Value,
+    checks: &mut Checks,
+) -> Result<Value, Gone> {
     let id = connection.request(operation, params)?;
-    Ok(connection.answer(id)?.message["result"].clone())
+    let message = connection.answer(id)?.message;
+    checks.answered(operation, &message);
+    Ok(message["result"].clone())
 }
 
 /// Whether `damaged`, a list `cache.verify` answers, names `url` as stored
@@ -111,20 +133,19 @@ pub(super) fn discard(
 ) -> Result<(), Gone> {
     let (gone, kept) = ("/fresh/discarded", "/fresh/kept-past-a-discard");
     let discarded = "conformance-cache-discarded";
-    crawled(connection, site, (discarded, gone), (1, 1), checks)?;
-    crawled(
+    stored(connection, site, (discarded, gone), checks)?;
+    stored(
         connection,
         site,
         ("conformance-cache-not-discarded", kept),
-        (1, 1),
         checks,
     )?;
-    discarded_as(connection, discarded, checks)?;
+    discard_run(connection, discarded, checks)?;
     let again = crawled(
         connection,
         site,
         ("conformance-cache-discarded-after", gone),
-        (2, 2),
+        2,
         checks,
     )?;
     checks.check(
@@ -135,7 +156,7 @@ pub(super) fn discard(
         connection,
         site,
         ("conformance-cache-not-discarded-after", kept),
-        (1, 1),
+        1,
         checks,
     )?;
     checks.check("the other Run's page is still served", still);
@@ -153,8 +174,8 @@ pub(super) fn verify(
     checks: &mut Checks,
 ) -> Result<(), Gone> {
     let (run_id, path) = ("conformance-cache-tampered", "/fresh/tampered");
-    crawled(connection, site, (run_id, path), (1, 1), checks)?;
-    let before = asked(connection, CACHE_VERIFY.name, &json!({}))?;
+    stored(connection, site, (run_id, path), checks)?;
+    let before = asked(connection, CACHE_VERIFY.name, &json!({}), checks)?;
     checks.check(
         "before any change, `cache.verify` lists no damaged entry",
         before["damaged"] == json!([]),
@@ -171,7 +192,7 @@ pub(super) fn verify(
         "the cache holds a body file with the page's text",
         changed == Some(true),
     );
-    let after = asked(connection, CACHE_VERIFY.name, &json!({}))?;
+    let after = asked(connection, CACHE_VERIFY.name, &json!({}), checks)?;
     checks.check(
         "`cache.verify` lists the page's entry, its Run and partition named, its body `changed`",
         names_changed(&after["damaged"], &site.named_url(HOST, path), run_id),
@@ -180,12 +201,17 @@ pub(super) fn verify(
         "`cache.verify` lists no other entry",
         after["damaged"].as_array().map(Vec::len) == Some(1),
     );
-    let cleared = asked(connection, CACHE_CLEAR.name, &json!({ "run_id": run_id }))?;
+    let cleared = asked(
+        connection,
+        CACHE_CLEAR.name,
+        &json!({ "run_id": run_id }),
+        checks,
+    )?;
     checks.check(
         "`cache.clear` of the page's Run deletes its one entry and body file",
         cleared["entries"] == json!(1) && cleared["bodies"] == json!(1),
     );
-    let last = asked(connection, CACHE_VERIFY.name, &json!({}))?;
+    let last = asked(connection, CACHE_VERIFY.name, &json!({}), checks)?;
     checks.check(
         "once it is cleared, `cache.verify` lists no damaged entry",
         last["damaged"] == json!([]),
@@ -194,20 +220,22 @@ pub(super) fn verify(
 }
 
 /// A page stored under `revalidate` is in the public partition, which
-/// `cache.stats` lists. `cache.clear` of a Saved identity's partition, or
-/// of the public partition through a proxy exit country, deletes none of
-/// it and the page is still served; `cache.clear` of the public partition,
+/// `cache.stats` lists; a partition's `cache.clear` deletes nothing outside
+/// its filters. `cache.clear` of a Saved identity's partition, or of the
+/// public partition through a proxy exit country, deletes none of it and
+/// the page is still served; `cache.clear` of the public partition,
 /// narrowed to the page's Run, deletes it, and its next crawl reaches the
-/// site.
+/// site. A crawl stores in the public partition only, so the other
+/// partitions' survival is the engine's unit tests'.
 pub(super) fn partition_clear(
     connection: &mut Connection,
     site: &Site,
     checks: &mut Checks,
 ) -> Result<(), Gone> {
     let path = "/fresh/partitioned";
-    let stored = "conformance-cache-partition-1";
-    crawled(connection, site, (stored, path), (1, 1), checks)?;
-    let stats = asked(connection, CACHE_STATS.name, &json!({}))?;
+    let first = "conformance-cache-partition-1";
+    stored(connection, site, (first, path), checks)?;
+    let stats = asked(connection, CACHE_STATS.name, &json!({}), checks)?;
     checks.check(
         "`cache.stats` lists the public partition, with no country, language or device, holding entries",
         stats["partitions"].as_array().is_some_and(|partitions| {
@@ -230,7 +258,7 @@ pub(super) fn partition_clear(
             "the public partition through the exit country `FR`",
         ),
     ] {
-        let cleared = asked(connection, CACHE_CLEAR.name, &filters)?;
+        let cleared = asked(connection, CACHE_CLEAR.name, &filters, checks)?;
         checks.check(
             format!("`cache.clear` of {what} deletes no entry"),
             cleared["entries"] == json!(0),
@@ -240,14 +268,15 @@ pub(super) fn partition_clear(
         connection,
         site,
         ("conformance-cache-partition-2", path),
-        (1, 1),
+        1,
         checks,
     )?;
     checks.check("the public partition's page is still served", still);
     let cleared = asked(
         connection,
         CACHE_CLEAR.name,
-        &json!({ "partition": "public", "run_id": stored }),
+        &json!({ "partition": "public", "run_id": first }),
+        checks,
     )?;
     checks.check(
         "`cache.clear` of the public partition, narrowed to the page's Run, deletes its one entry",
@@ -257,7 +286,7 @@ pub(super) fn partition_clear(
         connection,
         site,
         ("conformance-cache-partition-3", path),
-        (2, 2),
+        2,
         checks,
     )?;
     checks.check(
@@ -279,11 +308,10 @@ pub(super) fn domain_clear(
     checks: &mut Checks,
 ) -> Result<(), Gone> {
     let path = "/fresh/by-domain";
-    crawled(
+    stored(
         connection,
         site,
         ("conformance-cache-domain-1", path),
-        (1, 1),
         checks,
     )?;
     let stored = crawled_elsewhere(connection, site, "conformance-cache-domain-other-1", checks)?;
@@ -293,7 +321,12 @@ pub(super) fn domain_clear(
     );
     let subdomain = format!("sub.{HOST}");
     for domain in ["elsewhere.test", subdomain.as_str()] {
-        let cleared = asked(connection, CACHE_CLEAR.name, &json!({ "domain": domain }))?;
+        let cleared = asked(
+            connection,
+            CACHE_CLEAR.name,
+            &json!({ "domain": domain }),
+            checks,
+        )?;
         checks.check(
             format!("`cache.clear` of `{domain}` deletes no entry"),
             cleared["entries"] == json!(0),
@@ -303,22 +336,33 @@ pub(super) fn domain_clear(
         connection,
         site,
         ("conformance-cache-domain-2", path),
-        (1, 1),
+        1,
         checks,
     )?;
     checks.check("the page of `cache.test` is still served", still);
-    let cleared = asked(connection, CACHE_CLEAR.name, &json!({ "domain": HOST }))?;
+    let before = asked(connection, CACHE_STATS.name, &json!({}), checks)?;
+    let cleared = asked(
+        connection,
+        CACHE_CLEAR.name,
+        &json!({ "domain": HOST }),
+        checks,
+    )?;
+    let after = asked(connection, CACHE_STATS.name, &json!({}), checks)?;
+    let deleted = before["entries"]
+        .as_u64()
+        .zip(after["entries"].as_u64())
+        .and_then(|(before, after)| before.checked_sub(after));
     checks.check(
-        format!("`cache.clear` of `{HOST}` deletes its entries"),
-        cleared["entries"]
-            .as_u64()
-            .is_some_and(|entries| entries > 0),
+        format!(
+            "`cache.clear` of `{HOST}` deletes its entries, as many as `cache.stats` no longer counts"
+        ),
+        deleted.is_some_and(|deleted| deleted > 0) && cleared["entries"].as_u64() == deleted,
     );
     let again = crawled(
         connection,
         site,
         ("conformance-cache-domain-3", path),
-        (2, 2),
+        2,
         checks,
     )?;
     checks.check(

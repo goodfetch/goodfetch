@@ -993,6 +993,60 @@ export type MarkdownFormat = Asked | MarkdownOptions;
  */
 export type MarkdownContent = "main" | "full" | "fit";
 /**
+ * A Notification event's `snake_case` name: one of Collie's, or another Product's or a newer engine's, which a reader keeps as received.
+ *
+ * A value this package does not know, which a newer engine may send, is kept as received (ADR 0079).
+ *
+ * - `run_started`: A Run started.
+ * - `run_finished`: A Run finished.
+ * - `run_failed`: A Run ended on an error.
+ * - `run_stopped`: A Run was stopped, by a Limit, a person or a program.
+ * - `verdict_rejected`: A Run's success check rejected its result.
+ * - `verdict_needs_review`: A Run's result waits for a person's review.
+ * - `run_incomplete`: A Run ended with its Completeness `incomplete`.
+ * - `effect_uncertain`: A Run reported an Effect whose outcome is uncertain.
+ * - `reconciliation_requested`: A person is asked to reconcile an uncertain Effect.
+ * - `effect_reconciled`: An uncertain Effect was reconciled.
+ * - `approval_requested`: A Run waits for a person's approval.
+ * - `human_pause_waiting`: A Human pause waits for a person, with a link to the Live view.
+ * - `limit_threshold`: A Limit reached its warning threshold.
+ * - `schedule_auto_paused`: A Schedule paused itself.
+ * - `schedule_occurrences_skipped`: A Limit skipped a Schedule's occurrences, notified once per period.
+ * - `schedule_occurrences_missed`: A Schedule's occurrences were missed, notified once per wake.
+ * - `identity_cookie_expiry`: A Saved identity's earliest cookie expiry entered its warning window.
+ * - `quarantined`: Code mode or a Plugin was quarantined.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "NotificationEvent".
+ */
+export type NotificationEvent =
+  | "run_started"
+  | "run_finished"
+  | "run_failed"
+  | "run_stopped"
+  | "verdict_rejected"
+  | "verdict_needs_review"
+  | "run_incomplete"
+  | "effect_uncertain"
+  | "reconciliation_requested"
+  | "effect_reconciled"
+  | "approval_requested"
+  | "human_pause_waiting"
+  | "limit_threshold"
+  | "schedule_auto_paused"
+  | "schedule_occurrences_skipped"
+  | "schedule_occurrences_missed"
+  | "identity_cookie_expiry"
+  | "quarantined"
+  | (string & {});
+/**
+ * A Schedule ID (ADR 0036): lowercase letters, digits and `-`, at most 63, starting and ending with a letter or a digit.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "ScheduleId".
+ */
+export type ScheduleId = string;
+/**
  * When a navigation answers, by the state its document reached
  * (Playwright's `waitUntil`).
  *
@@ -1382,6 +1436,13 @@ export type NothingDone =
   | {
       reason: "nothing_pending";
     };
+/**
+ * What a delivery's `data` holds.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "NotificationData".
+ */
+export type NotificationData = FullNotification | ThinNotification;
 /**
  * A table of the Operator policy: what it sets, what it sets and locks, and
  * its caps.
@@ -1794,13 +1855,6 @@ export type StartedAs = "new" | "resumed" | "ended";
  */
 export type RunStateFilesystem = "nfs" | "smb" | "fuse_object_storage";
 /**
- * A Schedule ID (ADR 0036): lowercase letters, digits and `-`, at most 63, starting and ending with a letter or a digit.
- *
- * This interface was referenced by `CollieTypes`'s JSON-Schema
- * via the `definition` "ScheduleId".
- */
-export type ScheduleId = string;
-/**
  * What a Schedule starts: a Recipe with its inputs, or a code-free
  * catalog run by its own start parameters, each with the run's settings
  * and timeout (ADRs 0036 and 0080). The scheduler sets the run's ID,
@@ -1906,6 +1960,13 @@ export type ValueInvalidReason =
   | "value_json"
   | "value_not_json"
   | "value_schema";
+/**
+ * Why a call is no verified delivery.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "WebhookInvalidReason".
+ */
+export type WebhookInvalidReason = "signature" | "timestamp" | "malformed" | "missing_header";
 
 /**
  * The root of the layer's types, which holds no value of its own.
@@ -4781,6 +4842,47 @@ export interface MarkdownOptions {
   content: MarkdownContent;
 }
 /**
+ * The whole Notification.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "FullNotification".
+ */
+export interface FullNotification {
+  /**
+   * What happened.
+   */
+  event: NotificationEvent;
+  /**
+   * The event's ID, the same on every delivery of it and the
+   * `webhook-id` header's value.
+   */
+  eventId: string;
+  /**
+   * Where a person acts on it, such as the Run's page, if anywhere.
+   */
+  link?: string | null;
+  /**
+   * The Product whose engine sent it.
+   */
+  product: Product;
+  /**
+   * The Run it concerns, if any.
+   */
+  runId?: RunId | null;
+  /**
+   * The Schedule it concerns, if any.
+   */
+  scheduleId?: ScheduleId | null;
+  /**
+   * Its text.
+   */
+  text: string;
+  /**
+   * Its one-line title.
+   */
+  title: string;
+}
+/**
  * What `page.goto` takes: the page, the URL it goes to, and when it
  * answers.
  *
@@ -6543,6 +6645,60 @@ export interface SeedsKept {
    * code or a Block cause.
    */
   reason: string;
+}
+/**
+ * A thin Notification: its IDs and link only, which an Integration reads
+ * the rest from.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "ThinNotification".
+ */
+export interface ThinNotification {
+  /**
+   * The event's ID, the same on every delivery of it and the
+   * `webhook-id` header's value.
+   */
+  eventId: string;
+  /**
+   * Where a person acts on it, such as the Run's page, if anywhere.
+   */
+  link?: string | null;
+  /**
+   * The Run it concerns, if any.
+   */
+  runId?: RunId | null;
+  /**
+   * The Schedule it concerns, if any.
+   */
+  scheduleId?: ScheduleId | null;
+}
+/**
+ * A `webhook` channel's delivery: the Standard Webhooks envelope around
+ * one Notification.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "NotificationPayload".
+ */
+export interface NotificationPayload {
+  /**
+   * The Notification, whole or thin as the channel's `webhook.payload`
+   * says.
+   */
+  data: NotificationData;
+  /**
+   * The body's `major.minor` version: a receiver reads every minor of
+   * its major.
+   */
+  format: ProtocolVersion;
+  /**
+   * When the Notification's event happened, in RFC 3339, UTC.
+   */
+  timestamp: PointInTime;
+  /**
+   * `notification.` and the Notification's event, such as
+   * `notification.run_failed`.
+   */
+  type: string;
 }
 /**
  * The Operator policy as `config.policy_read` reads it.
@@ -10532,4 +10688,16 @@ export interface WebSocketFrame {
    * The socket.
    */
   webSocketId: string;
+}
+/**
+ * What `webhook_invalid` details.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "WebhookInvalidDetails".
+ */
+export interface WebhookInvalidDetails {
+  /**
+   * Why the call was refused.
+   */
+  reason: WebhookInvalidReason;
 }

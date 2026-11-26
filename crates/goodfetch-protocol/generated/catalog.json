@@ -2010,6 +2010,19 @@
       "name": "value_invalid",
       "product": "collie",
       "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "The call is no verified delivery of a `webhook` channel: a Standard Webhooks header is missing, its timestamp is more than 5 minutes from now, no signature matches a secret given, or its body is no Notification payload of a major this SDK reads. Answer the call with an error and keep nothing of it; when every delivery fails, check that the secret given is the channel's `webhook.secret`.",
+      "details": {
+        "$ref": "#/$defs/WebhookInvalidDetails"
+      },
+      "exit_code": null,
+      "group": "program",
+      "json_rpc_class": -32001,
+      "name": "webhook_invalid",
+      "product": "collie",
+      "retryable": false
     }
   ],
   "error_groups": [
@@ -9482,12 +9495,28 @@
                       ]
                     },
                     "region": {
+                      "anyOf": [
+                        {
+                          "description": "The Mailgun region a sending domain lives in.",
+                          "oneOf": [
+                            {
+                              "const": "us",
+                              "description": "The United States, at `api.mailgun.net`.",
+                              "type": "string"
+                            },
+                            {
+                              "const": "eu",
+                              "description": "The European Union, at `api.eu.mailgun.net`.",
+                              "type": "string"
+                            }
+                          ]
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
                       "arrived_in": "0.1",
-                      "description": "The region, `us` or `eu`.",
-                      "type": [
-                        "string",
-                        "null"
-                      ]
+                      "description": "The region its domain lives in: `us` when left out."
                     }
                   },
                   "type": [

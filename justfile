@@ -1858,8 +1858,9 @@ commit-leaks base="" head="HEAD":
 fuzz-check:
     ci/tool.sh cargo-fuzz ci/fuzz-check.sh check
 
-# The nightly fuzzing the gate host's cron starts (TESTING.md, Fuzzing;
-# ci/fuzz-nightly.crontab): every fuzz target with `cargo fuzz run` on `main`'s
+# The fuzzing run, started by hand on the gate host since no cron or timer
+# runs tests (TESTING.md, Fuzzing; ADR 0135's note of 2026-11-26): every
+# fuzz target with `cargo fuzz run` on `main`'s
 # head, for one hour in all on 4 cores, at the lowest priority, in a worktree
 # of its own (ci/fuzz-nightly.sh). It skips while a gate, the backstop or a
 # test-health run runs, and a gate started during one stops it. Logs, corpora
@@ -2232,16 +2233,13 @@ hooks:
 # the base's tip when it lacks it (ADR 0135's amendment of 2026-11-17), in a
 # clean checkout in the gate's own worktree (AGENTS.md, "Merging"): `just
 # pre-merge docs` when it is documents alone (`xtask affected`'s
-# `gate=docs`), `just pre-merge quick` when no test reads the change
-# (`gate=quick`), and for a change a test reads `just pre-merge all`, which
-# starts with `just quick all`'s lint and runs the Quick suite's tests in its
-# Pre-merge suite, on the pull request
-# that finishes a spec (head branch `spec/<n>`, the spec's sub-issues none
-# left open once it merges, ADR 0135's note of 2026-11-13) and nowhere else,
-# and `just pre-merge quick` on any other (ADR 0135's amendments of
-# 2026-11-10 and its note of 2026-11-14). It refuses once 10 merges have landed on `main` since
-# the backstop's last green run (ci/merge-cap.sh) unless the owner passes
-# `--past-cap`: `just merge <number> --past-cap`. It refuses to start a gate
+# `gate=docs`), and `just pre-merge quick` for every other change, a spec's
+# last pull request included. Only the owner asks for the full gate, `just
+# pre-merge all`, which starts with `just quick all`'s lint and runs the
+# Quick suite's tests in its Pre-merge suite: `just merge <number> --full`
+# (ADR 0135's note of 2026-11-26). It refuses once 10 merges have landed on
+# `main` since the backstop's last green run (ci/merge-cap.sh) unless the
+# owner passes `--past-cap`: `just merge <number> --past-cap`. It refuses to start a gate
 # under GOODFETCH_GATE_MIN_FREE_GB (30) free on the file system of the gate's
 # `target/` or, on Linux, a full gate unless GOODFETCH_LAZYFS names the LazyFS
 # build `just stress` needs, keeps a failing gate's log and test results in the common Git
@@ -2417,8 +2415,9 @@ _quick-record by head base form status:
       --head "{{ head }}" --base "{{ base }}" --form {{ form }} --status {{ status }} --now "$(date +%s)" \
       --environment "$variables" ${zizmor_token:+--zizmor-online}
 
-# The incremental gate's backstop (ADR 0135), daily from the gate host's
-# cron on `main`'s head, each run with that commit's own scripts: in a gate
+# The incremental gate's backstop (ADR 0135), started by hand on `main`'s
+# head, since no cron or timer runs tests (ADR 0135's note of 2026-11-26),
+# each run with that commit's own scripts: in a gate
 # worktree of its own, `just pre-merge all` in full (`GOODFETCH_GATE_FULL=1`), then
 # each result an incremental run of `just merge` on the same tree reused and the
 # full run found red, a selection miss to fix, and a whole-count stress run of
@@ -2472,12 +2471,12 @@ existing-code-sweep *arguments:
     GITHUB_TOKEN="${GITHUB_TOKEN:-$(gh auth token 2>/dev/null || true)}" \
       cargo run --quiet --bin xtask -- existing-code sweep {{ arguments }}
 
-# The test-health runs the gate host starts while Actions is off
-# (TESTING.md, After merge), on `main`'s head: from its cron
-# (ci/test-health.crontab), in the backstop's gate worktree, `mutants`, the
-# advisory mutation run over the last day's Rust changes, and by hand
-# `constrained`, the constrained test-health run, which left the cron on
-# 2026-11-19 (ADR 0135) (ci/test-health/scheduled.sh). Each skips
+# The test-health runs, started by hand on the gate host while Actions is
+# off (TESTING.md, After merge), since no cron or timer runs tests (ADR
+# 0135's note of 2026-11-26), on `main`'s head, in the backstop's gate
+# worktree: `mutants`, the advisory mutation run over the last day's Rust
+# changes, and `constrained`, the constrained test-health run
+# (ci/test-health/scheduled.sh). Each skips
 # while `just merge`'s gate runs, and a gate started during one waits for it.
 # Logs and results go to ~/test-health/ (GOODFETCH_TEST_HEALTH_LOG). Run from
 # the main checkout.

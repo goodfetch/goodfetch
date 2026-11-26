@@ -557,12 +557,13 @@ fn a_child_actor_that_panics_is_told_to_its_parent_which_stops_the_child(
 
 /// A panic under the engine's own owner reaches it through every owner of
 /// the engine's kind between them, as one of a part every Run shares does
-/// (ADR 0148); one under a Run's or a Connection's owner is told to its
-/// own owner only, whose holder reacts.
+/// (ADR 0148); one under a Run's, a Connection's or the Live view's owner
+/// is told to its own owner only, whose holder reacts.
 #[rstest]
 #[case::engine(OwnerKind::Engine, (true, true, true))]
 #[case::run(OwnerKind::Run, (true, false, false))]
 #[case::connection(OwnerKind::Connection, (true, false, false))]
+#[case::live_view(OwnerKind::LiveView, (true, false, false))]
 fn a_panic_reaches_the_engines_own_owner_only_through_owners_of_the_engines_kind(
     #[case] kind: OwnerKind,
     #[case] expected: (bool, bool, bool),

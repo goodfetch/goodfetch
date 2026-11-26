@@ -118,10 +118,11 @@ fn address_of_this_version() -> serde_json::Value {
     serde_json::Value::String(address.to_string())
 }
 
-/// `daemon.address` (ADR 0049): where the foreground Daemon listens.
+/// `daemon.address` (ADR 0049): where the foreground Daemon listens, and
+/// any other Daemon's Live view channels.
 pub const ADDRESS: Setting = Setting {
     name: "daemon.address",
-    description: "Where `daemon run`, the foreground Daemon, listens, as `host:port`: `127.0.0.1` on port 7900 plus the major (7600 plus the minor during `0.y` previews). Port 0 takes a free port, which its log names. An address other than loopback needs `daemon.tls.cert_file` and `daemon.tls.key_file`, or `daemon.tls.upstream`, so no token crosses a network in clear. Set in user configuration or an Operator policy, or for `daemon run` through `GOODFETCH_DAEMON_ADDRESS`.",
+    description: "Where `daemon run`, the foreground Daemon, listens, as `host:port`: `127.0.0.1` on port 7900 plus the major (7600 plus the minor during `0.y` previews). Any other Daemon listens there for Live view channels alone, while `live_view.enabled` is on. Port 0 takes a free port, which its log and `daemon.status` name. An address other than loopback needs `daemon.tls.cert_file` and `daemon.tls.key_file`, or `daemon.tls.upstream`, so no token crosses a network in clear. Set in user configuration or an Operator policy, or for `daemon run` through `GOODFETCH_DAEMON_ADDRESS`.",
     kind: ValueKind::Text,
     default: address_of_this_version,
     clearable: false,
@@ -425,6 +426,11 @@ pub struct DaemonState {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(extend("arrived_in" = "0.1"))]
     pub heap: Option<u64>,
+    /// Where a Live view channel opens, the WebSocket's `host:port`; none
+    /// where it accepts none, as with `live_view.enabled` off.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub live_view: Option<SocketAddr>,
 }
 
 /// What `daemon.stop` answers, before the Daemon stops.

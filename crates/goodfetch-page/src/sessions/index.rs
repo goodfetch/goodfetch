@@ -19,17 +19,21 @@ use goodfetch_protocol::page::{PageId, SessionId};
 use goodfetch_protocol::run::RunId;
 
 use super::{OpenPage, Session};
+use crate::cdp::live_view::WatchedTabs;
 
 /// The engine's Sessions and their pages, each by its ID, to the Session's
 /// handle. Clones share them.
 #[derive(Clone, Default)]
-pub(super) struct Index(
+pub(super) struct Index {
     #[expect(
         clippy::disallowed_types,
         reason = "two maps read and changed for one operation, never across another lock or an `.await`; the Sessions table's lock may be held around it, and is never taken under it, so there is no lock order to test under loom (ADR 0060)"
     )]
-    Arc<std::sync::Mutex<Entries>>,
-);
+    entries: Arc<std::sync::Mutex<Entries>>,
+    /// Each open Session's tabs, as the Live view watches them, changed
+    /// with the entries, once their lock is released.
+    watched: WatchedTabs,
+}
 
 /// What the index holds.
 #[derive(Default)]
@@ -46,7 +50,7 @@ impl Index {
     /// The entries, for one operation.
     fn entries(&self) -> std::sync::MutexGuard<'_, Entries> {
         // A panic under the lock leaves two maps that each stay whole.
-        self.0
+        self.entries
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
     }
@@ -56,9 +60,15 @@ impl Index {
         self.entries().sessions.get(session).cloned()
     }
 
+    /// Its open Sessions' tabs, as the Live view watches them.
+    pub(super) fn watched(&self) -> WatchedTabs {
+        self.watched.clone()
+    }
+
     /// Names the Session `open` `session`.
-    pub(super) fn opened(&self, session: SessionId, open: Arc<Session>) {
-        self.entries().sessions.insert(session, open);
+    pub(super) fn opened(&self, session: &SessionId, open: Arc<Session>) {
+        self.entries().sessions.insert(session.clone(), open);
+        self.watched.session_opened(session);
     }
 
     /// A panic of one of the Session `session`'s owner's tasks closes it:
@@ -106,6 +116,9 @@ impl Index {
                 None
             }
         };
+        if removed.is_some() {
+            self.watched.session_closed(session);
+        }
         // Dropped outside the lock, should it be the Session's last handle.
         drop(removed);
     }
@@ -113,36 +126,47 @@ impl Index {
     /// Every Session of the Run `run` ends with it: the index no longer
     /// names them nor their pages. Answers them.
     pub(super) fn run_ended(&self, run: &RunId) -> Vec<(SessionId, Arc<Session>)> {
-        let mut entries = self.entries();
-        entries
-            .pages
-            .retain(|_, held| held.run.identity.id() != run);
-        entries.panicked.retain(|_, (of, _)| of != run);
-        let ended: Vec<SessionId> = entries
-            .sessions
-            .iter()
-            .filter(|(_, open)| open.run.identity.id() == run)
-            .map(|(session, _)| session.clone())
-            .collect();
+        let ended: Vec<(SessionId, Arc<Session>)> = {
+            let mut entries = self.entries();
+            entries
+                .pages
+                .retain(|_, held| held.run.identity.id() != run);
+            entries.panicked.retain(|_, (of, _)| of != run);
+            let ended: Vec<SessionId> = entries
+                .sessions
+                .iter()
+                .filter(|(_, open)| open.run.identity.id() == run)
+                .map(|(session, _)| session.clone())
+                .collect();
+            ended
+                .into_iter()
+                .filter_map(|session| {
+                    let open = entries.sessions.remove(&session)?;
+                    Some((session, open))
+                })
+                .collect()
+        };
+        for (session, _) in &ended {
+            self.watched.session_closed(session);
+        }
         ended
-            .into_iter()
-            .filter_map(|session| {
-                let open = entries.sessions.remove(&session)?;
-                Some((session, open))
-            })
-            .collect()
     }
 
     /// Names the page `page`, which `open`, named `session`, holds, while
     /// the index names `open`: whether it did.
-    pub(super) fn kept(&self, page: PageId, (session, open): (&SessionId, &Arc<Session>)) -> bool {
+    pub(super) fn kept(&self, page: &PageId, (session, open): (&SessionId, &Arc<Session>)) -> bool {
         let mut entries = self.entries();
         let named = entries
             .sessions
             .get(session)
             .is_some_and(|named| Arc::ptr_eq(named, open));
         if named {
-            entries.pages.insert(page, Arc::clone(open));
+            entries.pages.insert(page.clone(), Arc::clone(open));
+        }
+        drop(entries);
+        if named && let Some(held) = open.pages.get(page) {
+            self.watched
+                .page_opened(session, page, Arc::new(held.driver.clone()));
         }
         named
     }
@@ -187,6 +211,9 @@ impl Index {
         let holder = self.holder(page)?;
         let removed = holder.pages.remove(page);
         self.entries().pages.remove(page);
+        if let Some(held) = &removed {
+            self.watched.page_closed(&held.session, page);
+        }
         removed
     }
 }

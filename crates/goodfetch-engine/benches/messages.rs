@@ -859,6 +859,7 @@ async fn serve(
                 ops: Ops::default(),
                 websocket: Some(Authorities::loopback(address).into()),
                 accounts: None,
+                live_view: None,
             };
             let end = engine.run_daemon(listener, dependencies, options).await;
             assert!(

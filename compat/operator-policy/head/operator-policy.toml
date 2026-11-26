@@ -149,6 +149,9 @@ channels = { "example.test" = { email = { api_key = "env:EMAIL_API_KEY", from = 
 
 [settings.live_view]
 hiding = "auto"
+enabled = true
+tier = "auto"
+max_viewers = 4
 
 [settings.content]
 extractor = "dom_smoothie"
@@ -589,6 +592,9 @@ channels = { "example.test" = { email = { api_key = "env:EMAIL_API_KEY", from = 
 
 [lock.live_view]
 hiding = "auto"
+enabled = true
+tier = "auto"
+max_viewers = 4
 
 [lock.content]
 extractor = "dom_smoothie"

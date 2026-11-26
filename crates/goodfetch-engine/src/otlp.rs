@@ -144,7 +144,7 @@ impl Collector {
                     ExportFailure::ClientCertificate(failure)
                 }
                 WholeFailure::Network => ExportFailure::Network,
-                WholeFailure::TooLong => ExportFailure::TooLong,
+                WholeFailure::TooLong { .. } => ExportFailure::TooLong,
             })
     }
 }

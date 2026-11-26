@@ -19,6 +19,10 @@ executable = ["dep:clap", "dep:data-encoding", "dep:mimalloc", "dep:schemars", "
 # The program's OpenTelemetry context in each request it sends (ADR 0132),
 # read as Collie's SDK reads it, whose connection Foxhound's opens.
 opentelemetry = ["goodfetch-collie/opentelemetry"]
+# The values a program's own tests build (ADR 0105),
+# `goodfetch_foxhound::testing`, whose `Error::fake` is the client crate's:
+# test values alone, never a capability (ADR 0087).
+test-util = []
 
 [dependencies]
 # Its own commands' flags (`crawl start`, `run export`).
@@ -59,7 +63,7 @@ goodfetch-workspace-hack.workspace = true
 [dev-dependencies]
 # Its own executable, for the integration tests and the startup benchmarks
 # (CARGO_BIN_EXE_goodfetch-foxhound, ADRs 0059 and 0062).
-goodfetch-foxhound = { path = ".", features = ["executable"] }
+goodfetch-foxhound = { path = ".", features = ["executable", "test-util"] }
 # A library that takes the Collie client crate by a semver range, as a
 # library serving both Products does (tests/it/sdk.rs, story 11-180).
 connection-library = { path = "tests/libraries/connection-library" }

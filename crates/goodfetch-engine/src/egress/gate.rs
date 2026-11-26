@@ -15,7 +15,7 @@ use url::{Host, Url};
 
 use super::{
     EndpointPolicy, Judgment, Policy, Refused, Request, RequestKind, judge, judge_endpoint,
-    judge_endpoint_addresses, judge_reachable,
+    judge_endpoint_addresses, judge_reachable, reaches_a_link,
 };
 use crate::host_name;
 
@@ -33,6 +33,11 @@ pub enum Gate<'policy> {
     /// An Operator-configured endpoint, the second class: its scheme, then
     /// `egress.no_private_endpoints`.
     Endpoint(EndpointPolicy),
+    /// An Operator-configured endpoint a Plugin reaches through `net.fetch`
+    /// (ADR 0033): an [`Gate::Endpoint`] that never reaches a link-local
+    /// or metadata address, nor one with a zone ID, whatever any setting
+    /// says.
+    PluginEndpoint(EndpointPolicy),
 }
 
 /// A URL or host the gate allowed, whose addresses it judges next.
@@ -85,7 +90,7 @@ impl<'policy> Gate<'policy> {
     pub fn judge<'named>(self, url: &'named str) -> Result<Judged<'named, 'policy>, Refused> {
         let judgment = match self {
             Self::Session { policy, kind } => judge(&Request { url, kind }, policy),
-            Self::Endpoint(_) => judge_endpoint(url),
+            Self::Endpoint(_) | Self::PluginEndpoint(_) => judge_endpoint(url),
         };
         let allowed = match judgment {
             Judgment::Allowed(allowed) => allowed,
@@ -234,6 +239,17 @@ impl Judged<'_, '_> {
                 judge_reachable(self.named, host, addresses, policy)
             }
             Gate::Endpoint(endpoints) => judge_endpoint_addresses(self.named, addresses, endpoints),
+            Gate::PluginEndpoint(endpoints) => {
+                if let Some(address) = addresses.iter().find(|address| reaches_a_link(**address)) {
+                    return Err(Refused {
+                        url: self.named.to_owned(),
+                        rule: EgressRule::PrivateAddress,
+                        address: Some(address.ip()),
+                        setting: None,
+                    });
+                }
+                judge_endpoint_addresses(self.named, addresses, endpoints)
+            }
         }
     }
 }

@@ -58,6 +58,7 @@ mod gate;
 mod proxy_script;
 pub mod special_purpose;
 
+use address::reaches_a_link;
 pub use address::{AddressClass, classify, classify_socket};
 pub use cdp_url::{
     BrowserLocation, CdpUrlOrigin, CdpUrlRefused, cdp_url_address, judge_cdp_url, judge_unresolved,
@@ -170,6 +171,19 @@ impl Policy {
         policy.resolved_ip_check = settings.get(&SECURITY_RESOLVED_IP_CHECK);
         policy.on_an_exposed_daemon = settings.on_an_exposed_daemon();
         Ok(policy)
+    }
+
+    /// The policy a Plugin's request checked as a page's meets (ADR 0033):
+    /// the run's domain policy, with neither its private ranges nor a
+    /// switched-off `security.resolved_ip_check`, which are the run's
+    /// pages' and never reach a Plugin.
+    pub fn for_plugin(&self) -> Self {
+        Self {
+            private_ranges: Vec::new(),
+            private_hosts: HashSet::default(),
+            resolved_ip_check: true,
+            ..self.clone()
+        }
     }
 }
 

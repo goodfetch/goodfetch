@@ -45,6 +45,9 @@ pub enum ConfiguredKind {
     /// A `browser.mirror` the pinned Chrome for Testing builds are
     /// downloaded below in place of Chrome for Testing's storage (ADR 0047).
     BrowserMirror,
+    /// A URL a Plugin's settings hold, which it reaches through `net.fetch`
+    /// (ADR 0033): its vendor's API, a vault, a Sink's destination.
+    PluginEndpoint,
 }
 
 /// The layers whose value makes a destination Operator-configured: the
@@ -88,8 +91,10 @@ impl ConfiguredKindClass {
 /// Client acting for a model sends (ADR 0056, read where `cdp_url` is
 /// judged). Every caller of the engine's own HTTP client but a pinned
 /// download from its pinned URL and a run's own requests connects to one
-/// of these kinds.
-pub const CONFIGURED_KINDS: [ConfiguredKindClass; 9] = [
+/// of these kinds. A Plugin's endpoint from a Recipe or a run is
+/// Operator-configured only when its host is allowed or the Plugin is
+/// first-party (ADR 0033), which `plugin_gate` decides.
+pub const CONFIGURED_KINDS: [ConfiguredKindClass; 10] = [
     ConfiguredKindClass {
         kind: ConfiguredKind::ModelProvider,
         name: "Model provider",
@@ -133,6 +138,11 @@ pub const CONFIGURED_KINDS: [ConfiguredKindClass; 9] = [
     ConfiguredKindClass {
         kind: ConfiguredKind::BrowserMirror,
         name: "browser mirror",
+        operator_layers: CONFIGURATION,
+    },
+    ConfiguredKindClass {
+        kind: ConfiguredKind::PluginEndpoint,
+        name: "Plugin endpoint",
         operator_layers: CONFIGURATION,
     },
 ];

@@ -18,7 +18,7 @@ use crate::run_file;
 use crate::site::Site;
 
 /// The attempt `handle` gave, as a handler's `ctx.run` names it.
-fn attempt_of(handle: &Value) -> Value {
+pub(crate) fn attempt_of(handle: &Value) -> Value {
     json!({
         "crawl_request_id": handle["crawl_request"]["id"],
         "lease_epoch": handle["lease_epoch"],
@@ -97,7 +97,7 @@ pub(crate) fn keys(env: &TestEnv, run_id: &str) -> Vec<(String, String)> {
 }
 
 /// The handler's answer that commits one Record naming its page.
-fn record_the_page(handle: &Value) -> Value {
+pub(crate) fn record_the_page(handle: &Value) -> Value {
     json!({ "result": { "records": [{ "dataset": "pages", "data": { "page": handle["crawl_request"]["url"] } }] } })
 }
 

@@ -25,6 +25,7 @@ use rusqlite::Connection;
 use serde_json::{Value, json};
 
 use crate::COLLIE;
+use crate::clean_up_rules::result;
 
 /// Collie's Attached engine in `env`'s home, past its `hello`.
 fn opened(env: &TestEnv) -> Attached {
@@ -34,21 +35,13 @@ fn opened(env: &TestEnv) -> Attached {
     engine
 }
 
-/// The result of `reply`, which must have one.
-fn result(reply: &Value) -> Value {
-    reply
-        .get("result")
-        .cloned()
-        .unwrap_or_else(|| panic!("{reply}"))
-}
-
 /// Starts the Run `run_id` in `env`'s home, sets each of `values` in its
 /// store, and kills the engine right after the last answer.
 fn killed_after_setting(env: &TestEnv, run_id: &str, values: &[(&str, Value)]) {
     let mut engine = opened(env);
-    result(&engine.ask(1, "run.start", &json!({ "run_id": run_id })));
+    result(engine.ask(1, "run.start", &json!({ "run_id": run_id })));
     for (id, (key, value)) in (2..).zip(values) {
-        result(&engine.ask(
+        result(engine.ask(
             id,
             "key_value_store.set",
             &json!({ "run_id": run_id, "key": key, "value": value }),
@@ -73,7 +66,8 @@ fn run_row(folder: &Path) -> Value {
 /// A value set before a `SIGKILL` is found by the Run resumed by its ID,
 /// and, once that Run is paused, by the Run resumed from its Checkpoint in
 /// another home; there, a key out of shape is refused with `value_invalid`
-/// naming the key and what is wrong with it.
+/// naming the key and what is wrong with it. Each way a key is out of shape
+/// is a case of the engine's own tests; one stands for them here.
 ///
 /// Covers: story:6-32, story:6-34, operation:run.resume, operation:key_value_store.set, operation:key_value_store.get, error:value_invalid
 #[test]
@@ -83,48 +77,47 @@ fn a_value_set_before_a_kill_is_found_by_the_run_resumed_by_its_id_and_from_its_
     killed_after_setting(&first, "kept", &[("cursor", json!({ "page": 4 }))]);
 
     let mut resuming = opened(&first);
-    let resumed = result(&resuming.ask(1, "run.resume", &json!({ "run_id": "kept" })));
-    let here = result(&resuming.ask(
+    let resumed = result(resuming.ask(1, "run.resume", &json!({ "run_id": "kept" })));
+    let here = result(resuming.ask(
         2,
         "key_value_store.get",
         &json!({ "run_id": "kept", "key": "cursor" }),
     ));
-    result(&resuming.ask(3, "run.pause", &json!({ "run_id": "kept" })));
+    result(resuming.ask(3, "run.pause", &json!({ "run_id": "kept" })));
     assert!(resuming.finished());
     let checkpoint = HomeLayout::of(first.home())
         .run_folder("kept")
         .join("checkpoint.sqlite");
 
     let mut elsewhere = opened(&second);
-    let moved = result(&elsewhere.ask(
+    let moved = result(elsewhere.ask(
         1,
         "run.resume",
         &json!({ "run_id": "kept", "checkpoint": checkpoint }),
     ));
-    let there = result(&elsewhere.ask(
+    let there = result(elsewhere.ask(
         2,
         "key_value_store.get",
         &json!({ "run_id": "kept", "key": "cursor" }),
     ));
-    let refused: Vec<Value> = (3..)
-        .zip([String::new(), "é".repeat(513), "a\u{7}b".to_owned()])
-        .map(|(id, key)| {
-            let reply = elsewhere.ask(
-                id,
-                "key_value_store.set",
-                &json!({ "run_id": "kept", "key": key, "value": 1 }),
-            );
-            let data = &reply["error"]["data"];
-            json!([data["code"], data["key"], data["refused"], data["reason"]])
-        })
-        .collect();
-    let finished = result(&elsewhere.ask(6, "run.finish", &json!({ "run_id": "kept" })));
+    let refused = elsewhere.ask(
+        3,
+        "key_value_store.set",
+        &json!({ "run_id": "kept", "key": "a\u{7}b", "value": 1 }),
+    );
+    let finished = result(elsewhere.ask(4, "run.finish", &json!({ "run_id": "kept" })));
     assert!(elsewhere.finished());
 
+    let data = &refused["error"]["data"];
     assert_eq!(
         (
             (&resumed["started_as"], &here, &moved["started_as"], &there),
-            refused,
+            (
+                &data["code"],
+                &data["key"],
+                &data["refused"],
+                &data["reason"]
+            ),
             &finished["lifecycle"],
         ),
         (
@@ -134,11 +127,12 @@ fn a_value_set_before_a_kill_is_found_by_the_run_resumed_by_its_id_and_from_its_
                 &json!("resumed"),
                 &json!({ "value": { "page": 4 } }),
             ),
-            vec![
-                json!(["value_invalid", "", "key", "key_empty"]),
-                json!(["value_invalid", "é".repeat(513), "key", "key_too_long"]),
-                json!(["value_invalid", "a\u{7}b", "key", "key_control_character"]),
-            ],
+            (
+                &json!("value_invalid"),
+                &json!("a\u{7}b"),
+                &json!("key"),
+                &json!("key_control_character"),
+            ),
             &json!("finished"),
         )
     );

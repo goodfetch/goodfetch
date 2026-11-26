@@ -18,7 +18,7 @@ use serde_json::{Value, json};
 
 use crate::frontier::crawl_with;
 use crate::site::Site;
-use crate::staging::keys;
+use crate::staging::{attempt_of, keys, record_the_page};
 
 /// The Run ID of every crawl here.
 const RUN_ID: &str = "batched";
@@ -43,28 +43,20 @@ fn seeds(site: &Site) -> Vec<Value> {
 
 /// The params of `key_value_store.<verb>` for the key `key`, through the
 /// attempt `handle` gave when there is one, else as the program.
-fn store(key: &str, handle: Option<&Value>) -> Value {
+fn key_params(key: &str, handle: Option<&Value>) -> Value {
     let mut params = json!({ "run_id": RUN_ID, "key": key });
     if let Some(handle) = handle {
-        params["attempt"] = json!({
-            "crawl_request_id": handle["crawl_request"]["id"],
-            "lease_epoch": handle["lease_epoch"],
-        });
+        params["attempt"] = attempt_of(handle);
     }
     params
 }
 
 /// The params of `key_value_store.set` setting `key` to `value`, as
-/// [`store`] names its caller.
+/// [`key_params`] names its caller.
 fn setting(key: &str, value: &Value, handle: Option<&Value>) -> Value {
-    let mut params = store(key, handle);
+    let mut params = key_params(key, handle);
     params["value"] = value.clone();
     params
-}
-
-/// The handler's answer that commits one Record naming its page.
-fn record_the_page(handle: &Value) -> Value {
-    json!({ "result": { "records": [{ "dataset": "pages", "data": { "page": handle["crawl_request"]["url"] } }] } })
 }
 
 /// The result of the call of `method` with `params` that `engine` answers
@@ -117,7 +109,7 @@ fn killed_during_b(env: &TestEnv, site: &Site, settings: &Value, barrier: bool) 
                 &mut engine,
                 "own",
                 "key_value_store.get",
-                &store("progress", Some(handle)),
+                &key_params("progress", Some(handle)),
             );
             let mut reply = record_the_page(handle);
             reply["jsonrpc"] = json!("2.0");
@@ -137,13 +129,13 @@ fn killed_during_b(env: &TestEnv, site: &Site, settings: &Value, barrier: bool) 
             &mut engine,
             "other",
             "key_value_store.get",
-            &store("progress", Some(handle)),
+            &key_params("progress", Some(handle)),
         );
         let program = called(
             &mut engine,
             "program",
             "key_value_store.get",
-            &store("progress", None),
+            &key_params("progress", None),
         );
         let written = json!(keys(env, RUN_ID));
         engine.kill();
@@ -157,17 +149,27 @@ fn killed_during_b(env: &TestEnv, site: &Site, settings: &Value, barrier: bool) 
 /// holds it, and the resumed crawl redoes `/a`; once a barrier wrote the
 /// batch carrying `/a`'s outcome, and at `full` with none, they read the
 /// new value, which the resumed Run keeps without redoing `/a`. `/a`'s
-/// attempt reads back what it set either way.
+/// attempt reads back what it set either way. Each case names what `/b`'s
+/// attempt and the program read, the keys the run file holds, and the
+/// pages the resumed Run handles.
 ///
 /// Covers: story:6-236, setting:run_state.durability, operation:key_value_store.set, operation:key_value_store.get
 #[rstest]
-#[case::batch_with_no_batch_written("batch", false, false)]
-#[case::batch_once_a_barrier_wrote_the_batch("batch", true, true)]
-#[case::full("full", false, true)]
+#[case::batch_with_no_batch_written("batch", false, 0, &[("progress", "0")], &["/a", "/b"])]
+#[case::batch_once_a_barrier_wrote_the_batch(
+    "batch",
+    true,
+    1,
+    &[("marker", "true"), ("progress", "1")],
+    &["/b"]
+)]
+#[case::full("full", false, 1, &[("progress", "1")], &["/b"])]
 fn an_attempts_staged_values_commit_with_the_batch_that_carries_its_outcome(
     #[case] level: &str,
     #[case] barrier: bool,
-    #[case] committed: bool,
+    #[case] read: i32,
+    #[case] held: &[(&str, &str)],
+    #[case] redone: &[&str],
 ) {
     let env = TestEnv::new();
     let site = Site::start(&env);
@@ -187,16 +189,6 @@ fn an_attempts_staged_values_commit_with_the_batch_that_carries_its_outcome(
     );
     assert!(resuming.finished());
 
-    let progress = if committed { "1" } else { "0" };
-    let mut held = vec![json!(["progress", progress])];
-    if barrier {
-        held.insert(0, json!(["marker", "true"]));
-    }
-    let value = json!({ "value": i32::from(committed) });
-    let mut redone = vec![json!(site.page("/b"))];
-    if !committed {
-        redone.insert(0, json!(site.page("/a")));
-    }
     assert_eq!(
         (
             seen,
@@ -207,13 +199,16 @@ fn an_attempts_staged_values_commit_with_the_batch_that_carries_its_outcome(
         (
             vec![
                 json!({ "value": 1 }),
-                value.clone(),
-                value,
-                Value::Array(held.clone()),
+                json!({ "value": read }),
+                json!({ "value": read }),
+                json!(held),
             ],
-            redone,
+            redone
+                .iter()
+                .map(|path| json!(site.page(path)))
+                .collect::<Vec<_>>(),
             &json!("finished"),
-            Value::Array(held),
+            json!(held),
         )
     );
 }

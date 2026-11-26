@@ -1,8 +1,10 @@
-use goodfetch_protocol::page::functions::Declared;
+use std::time::Duration;
+
+use goodfetch_protocol::page::functions::{Declared, LocatorScrollCollectParams};
 use rstest::rstest;
 use serde_json::json;
 
-use super::{Kept, at_least_one, declared};
+use super::{Bounds, Kept, declared};
 use crate::page_functions::Collected;
 
 /// A step's read, as `collect.js` answers it, of the rows `keys` in order.
@@ -66,15 +68,52 @@ fn what_a_list_declares(#[case] read: Option<i64>, #[case] expected: Option<Decl
     assert_eq!(declared(read), expected);
 }
 
-/// A bound of 0 is refused as `invalid_params`.
+/// The call's params, with `bounds` beside its locator and function.
+fn params(bounds: serde_json::Value) -> LocatorScrollCollectParams {
+    let mut params = json!({
+        "locator": { "page_id": "page-1", "selector": "[role=row]" },
+        "function": "(element) => element.textContent",
+    });
+    if let (Some(params), serde_json::Value::Object(bounds)) = (params.as_object_mut(), bounds) {
+        params.extend(bounds);
+    }
+    serde_json::from_value(params).expect("invariant: the test's params are the wire's shape")
+}
+
+/// Bounds the call leaves out take their defaults; those it names are kept.
 #[test]
-fn a_bound_of_zero_is_refused() {
-    let refused =
-        at_least_one("idle_steps", "steps", Some(0)).map_err(|error| error.code().to_owned());
+fn bounds_default_where_the_call_names_none() {
+    let defaults = Bounds::of(&params(json!({}))).ok();
+    let named = Bounds::of(&params(
+        json!({ "max_rows": 50, "idle_steps": 1, "step_wait": 250 }),
+    ))
+    .ok();
+
+    assert_eq!(
+        defaults,
+        Some(Bounds {
+            max_rows: 10_000,
+            idle_steps: 3,
+            step_wait: Duration::from_millis(2_000),
+        })
+    );
+    assert_eq!(
+        named,
+        Some(Bounds {
+            max_rows: 50,
+            idle_steps: 1,
+            step_wait: Duration::from_millis(250),
+        })
+    );
+}
+
+/// A bound of 0 is refused as `invalid_params`.
+#[rstest]
+#[case::max_rows(json!({ "max_rows": 0 }))]
+#[case::idle_steps(json!({ "idle_steps": 0 }))]
+#[case::step_wait(json!({ "step_wait": 0 }))]
+fn a_bound_of_zero_is_refused(#[case] bounds: serde_json::Value) {
+    let refused = Bounds::of(&params(bounds)).map_err(|error| error.code().to_owned());
 
     assert_eq!(refused, Err("invalid_params".to_owned()));
-    assert_eq!(
-        at_least_one("idle_steps", "steps", Some(2)).ok(),
-        Some(Some(2))
-    );
 }

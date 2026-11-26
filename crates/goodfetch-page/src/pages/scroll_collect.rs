@@ -12,18 +12,15 @@
     reason = "a collection's kept rows' one lock guards one read or write, never held across another lock or an `.await`, so there is no lock order to test under loom (ADR 0060)"
 )]
 
-use std::collections::HashSet;
 use std::sync::{Mutex, PoisonError};
 use std::time::Duration;
 
 use goodfetch_engine::{CallContext, CallError, Contribution, Handler};
 use goodfetch_protocol::connection::{Form, WaitedFor};
-use goodfetch_protocol::jsonrpc::ProtocolFailure;
 use goodfetch_protocol::page::Locator;
 use goodfetch_protocol::page::functions::{
     Declared, LOCATOR_SCROLL_COLLECT, ListEnded, LocatorScrollCollectParams, ScrollCollected, World,
 };
-use serde_json::Value;
 
 use super::{Pages, in_call};
 use crate::cdp::CdpPage;
@@ -32,15 +29,9 @@ use crate::page_functions::{self, Collected, Injection};
 use crate::page_reads;
 use crate::sessions::{OpenPage, PageEvent};
 
-/// The rows at which a collection ends when its call names none.
-const MAX_ROWS: u64 = 10_000;
+mod kept;
 
-/// The steps in a row without a new key at which a collection ends when
-/// its call names none.
-const IDLE_STEPS: u64 = 3;
-
-/// How long a step waits for a new key when its call names no wait.
-const STEP_WAIT: Duration = Duration::from_millis(2_000);
+use kept::{Bounds, Kept, declared};
 
 /// How long a step leaves between two reads while it waits for a new key.
 const POLL: Duration = Duration::from_millis(100);
@@ -61,90 +52,6 @@ pub(super) fn with_scroll_collect_handler(
             })
         },
     ))
-}
-
-/// When a collection ends, as its call gave it or by default.
-#[derive(Clone, Copy, Debug)]
-struct Bounds {
-    max_rows: u64,
-    idle_steps: u64,
-    step_wait: Duration,
-}
-
-impl Bounds {
-    /// The bounds `params` give, each 0 refused.
-    fn of(params: &LocatorScrollCollectParams) -> Result<Self, CallError> {
-        Ok(Self {
-            max_rows: at_least_one("max_rows", "rows", params.max_rows)?.unwrap_or(MAX_ROWS),
-            idle_steps: at_least_one("idle_steps", "steps", params.idle_steps)?
-                .unwrap_or(IDLE_STEPS),
-            step_wait: at_least_one("step_wait", "ms", params.step_wait)?
-                .map_or(STEP_WAIT, Duration::from_millis),
-        })
-    }
-}
-
-/// `value`, or `invalid_params` when it is 0.
-fn at_least_one(name: &str, unit: &str, value: Option<u64>) -> Result<Option<u64>, CallError> {
-    match value {
-        Some(0) => Err(CallError::protocol(
-            ProtocolFailure::InvalidParams,
-            format!("the `{name}` is 0 {unit}: it is at least 1"),
-        )),
-        other => Ok(other),
-    }
-}
-
-/// What a collection kept so far: each new key's value in first-seen
-/// order, the keys seen, and the last one kept, which its
-/// `deadline_exceeded` names.
-#[derive(Default)]
-struct Kept {
-    rows: Vec<Value>,
-    keys: HashSet<String>,
-    last: Option<String>,
-}
-
-impl Kept {
-    /// Keeps the rows of `collected` whose key is new, up to `max_rows`
-    /// rows in all; answers how many it kept.
-    fn keep(&mut self, collected: Collected, max_rows: u64) -> usize {
-        let mut added = 0;
-        for row in collected.rows {
-            if self.full(max_rows) {
-                break;
-            }
-            if self.keys.insert(row.key.clone()) {
-                self.rows.push(row.value);
-                self.last = Some(row.key);
-                added += 1;
-            }
-        }
-        added
-    }
-
-    /// Whether it holds `max_rows` rows.
-    fn full(&self, max_rows: u64) -> bool {
-        u64::try_from(self.rows.len()).unwrap_or(u64::MAX) >= max_rows
-    }
-
-    /// What a `deadline_exceeded` says the collection kept.
-    fn observed(&self) -> String {
-        match &self.last {
-            Some(key) => format!("{} rows kept, the last key `{key}`", self.rows.len()),
-            None => "no rows kept".to_owned(),
-        }
-    }
-}
-
-/// The rows a list declares, from what `collect.js` read: `-1` says it
-/// does not know; another negative is no declaration.
-fn declared(read: Option<i64>) -> Option<Declared> {
-    match read {
-        Some(-1) => Some(Declared::Unknown),
-        Some(rows) => u64::try_from(rows).ok().map(Declared::Rows),
-        None => None,
-    }
 }
 
 /// One collection's page and how it reads and scrolls it.
@@ -328,6 +235,3 @@ impl Pages {
             .await?
     }
 }
-
-#[cfg(test)]
-mod tests;

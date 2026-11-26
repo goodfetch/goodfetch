@@ -701,6 +701,10 @@ id = "a-list-that-stops-loading-short-of-what-it-declares-ends-end-of-list-with-
 covers = ["story:6-24", "operation:locator.scroll_collect"]
 
 [[capability.case]]
+id = "a-main-world-function-skips-the-rows-it-answers-null-for-on-a-list-of-unknown-size"
+covers = ["story:6-24", "operation:locator.scroll_collect"]
+
+[[capability.case]]
 id = "a-scroll-collection-past-its-timeout-names-what-it-kept-and-a-throw-fails-as-evaluate-fails"
 covers = ["story:6-26", "operation:locator.scroll_collect", "error:deadline_exceeded", "error:page_function_failed"]
 

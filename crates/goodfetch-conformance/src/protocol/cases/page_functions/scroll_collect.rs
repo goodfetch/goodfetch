@@ -4,7 +4,9 @@
 //! virtualized list of 1,000 rows whole, each row once, ends `end_of_list`
 //! and says the 1,000 rows it declares, or ends `max_rows` at its cap; it
 //! reads the feed to every item the feed serves; a list that stops loading
-//! short of what it declares ends `end_of_list` with what it read. A call
+//! short of what it declares ends `end_of_list` with what it read; a page
+//! function run in the main world skips the rows it answers `null` for,
+//! and an `aria-setsize` of `-1` says the list's size is unknown. A call
 //! past its timeout raises `deadline_exceeded` naming the rows it kept and
 //! the last key, and a throw fails as `page.evaluate` fails. Each scroll is
 //! a gesture through the guard, whose refusal stops the call with the
@@ -25,6 +27,14 @@ use crate::protocol::connection::{Connection, Gone};
 
 /// The `rendered` task whose start page is the infinite feed.
 const FEED_TASK: &str = "rendered/1";
+
+/// The items the feed serves, in its order, four pages of six (the
+/// Proving ground's README).
+const FEED_ITEMS: [&str; 24] = [
+    "I-0001", "I-0002", "I-0003", "I-0004", "I-0005", "I-0006", "I-0007", "I-0008", "I-0009",
+    "I-0010", "I-0011", "I-0012", "I-0013", "I-0014", "I-0015", "I-0016", "I-0017", "I-0018",
+    "I-0019", "I-0020", "I-0021", "I-0022", "I-0023", "I-0024",
+];
 
 /// How long a case's step waits for a new key: 1 s, short of the 2 s
 /// default so a list's end costs less.
@@ -91,6 +101,7 @@ pub(crate) enum Case {
     Virtualized,
     Feed,
     StoppedShort,
+    UnknownSize,
     TimeoutAndThrow,
     Guard,
 }
@@ -105,6 +116,9 @@ impl Case {
             "scroll-collect-reads-an-infinite-feed-to-every-item-it-serves" => Self::Feed,
             "a-list-that-stops-loading-short-of-what-it-declares-ends-end-of-list-with-what-it-read" => {
                 Self::StoppedShort
+            }
+            "a-main-world-function-skips-the-rows-it-answers-null-for-on-a-list-of-unknown-size" => {
+                Self::UnknownSize
             }
             "a-scroll-collection-past-its-timeout-names-what-it-kept-and-a-throw-fails-as-evaluate-fails" => {
                 Self::TimeoutAndThrow
@@ -125,6 +139,7 @@ impl Case {
             Self::Virtualized => virtualized(connection, site, checks),
             Self::Feed => feed(connection, site, checks),
             Self::StoppedShort => stopped_short(connection, site, checks),
+            Self::UnknownSize => unknown_size(connection, site, checks),
             Self::TimeoutAndThrow => timeout_and_throw(connection, site, checks),
             Self::Guard => guard(connection, site, checks),
         }
@@ -245,21 +260,9 @@ fn feed(connection: &mut Connection, site: &Site, checks: &mut Checks) -> Result
         "(item) => ({ key: item.dataset.id, value: item.dataset.id })",
         &json!({}),
     )?;
-    let served = evaluate(
-        connection,
-        &page,
-        "async () => { const ids = []; let next = '/api/feed/1'; while (next !== null) { const page = await (await fetch(next)).json(); ids.push(...page.items.map((item) => item.id)); next = page.next; } return ids; }",
-        None,
-        "isolated",
-    )?["result"]["value"]
-        .clone();
     checks.check(
-        "the feed serves items",
-        served.as_array().is_some_and(|ids| !ids.is_empty()),
-    );
-    checks.check(
-        "every item the feed serves comes back once, in its order, ending `end_of_list` with nothing declared",
-        answer["result"] == json!({ "rows": served, "ended": "end_of_list", "declared": null }),
+        format!("the feed's 24 items come back once, in its order, ending `end_of_list` with nothing declared ({answer})"),
+        answer["result"] == json!({ "rows": FEED_ITEMS, "ended": "end_of_list", "declared": null }),
     );
     finish_run(connection, run_id)
 }
@@ -282,6 +285,60 @@ fn stopped_short(
         "the 400 rows loaded come back, ending `end_of_list` with the 1,000 the list declares and no error",
         answer["result"]
             == json!({ "rows": indexes(400), "ended": "end_of_list", "declared": 1000 }),
+    );
+    finish_run(connection, run_id)
+}
+
+/// Builds, in the main world, six items whose `aria-setsize` of `-1` says
+/// the list does not know its size, each with its `aria-posinset`, and
+/// sets `window.listMark`, which only the main world sees.
+const UNKNOWN_SIZE: &str = "() => {
+  window.listMark = 'main';
+  const list = document.createElement('ul');
+  list.className = 'unknown-size';
+  for (let position = 1; position <= 6; position += 1) {
+    const item = document.createElement('li');
+    item.setAttribute('aria-setsize', '-1');
+    item.setAttribute('aria-posinset', String(position));
+    item.textContent = `Item ${position}`;
+    list.append(item);
+  }
+  document.body.append(list);
+}";
+
+/// A page function, run in the main world, answering `null` for the even
+/// items of [`UNKNOWN_SIZE`] and, for the odd ones, their position and the
+/// main world's mark.
+const ODD_ITEMS: &str = "(item) => { const position = Number(item.getAttribute('aria-posinset')); return position % 2 === 0 ? null : { key: String(position), value: [position, window.listMark ?? null] }; }";
+
+/// On a list whose `aria-setsize` is `-1`, a page function run in the main
+/// world keeps the rows it answers and skips those it answers `null` for,
+/// and the call says the list's size is unknown.
+fn unknown_size(connection: &mut Connection, site: &Site, checks: &mut Checks) -> Result<(), Gone> {
+    let run_id = "conformance-scroll-collect-unknown-size";
+    let Some((page, _)) =
+        on_the_page_under(connection, site, (run_id, &json!({})), checks, |_, _| {
+            Ok(None)
+        })?
+    else {
+        return Ok(());
+    };
+    let built = evaluate(connection, &page, UNKNOWN_SIZE, None, "main")?;
+    checks.check("the page builds its list", built.get("result").is_some());
+    let answer = scroll_collected(
+        connection,
+        (&page, ".unknown-size li"),
+        ODD_ITEMS,
+        &json!({ "world": "main", "idle_steps": 1 }),
+    )?;
+    checks.check(
+        format!("the odd items come back, read in the main world, the even ones skipped, with the list's size unknown ({answer})"),
+        answer["result"]
+            == json!({
+                "rows": [[1, "main"], [3, "main"], [5, "main"]],
+                "ended": "end_of_list",
+                "declared": "unknown",
+            }),
     );
     finish_run(connection, run_id)
 }

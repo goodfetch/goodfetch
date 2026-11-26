@@ -74,7 +74,7 @@ pub(super) fn post(
 }
 
 /// Crawls `seed` as [`crawl`] crawls a path.
-fn crawl_seed(
+pub(super) fn crawl_seed(
     connection: &mut Connection,
     site: &Site,
     run_id: &str,

@@ -3185,6 +3185,18 @@ class RecipeTarget(BaseModel):
     """
 
 
+class RecordingInvalidDetails(BaseModel):
+    """What `recording_invalid`'s details hold."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    reason: str
+    """What is wrong with it."""
+    recording: str
+    """The Response recording's path, as the start named it."""
+
+
 class RecordingMode(StrEnum):
     """What a Run does with the Response recording its start names (ADR 0105)."""
 
@@ -3428,6 +3440,23 @@ class ResponseLimitExceededDetails(BaseModel):
     """The setting's value the body passed."""
     setting: LimitSetting
     """The setting whose limit it passed."""
+
+
+class ResponseNotRecordedDetails(BaseModel):
+    """What `response_not_recorded`'s details hold."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    method: str
+    """The request's method."""
+    nearest: list[str]
+    """
+    The recorded URLs of the request's host and path, in the order
+    recorded, at most five.
+    """
+    recording: str
+    """The Response recording's path, as the start named it."""
 
 
 class ResponseOrigin1(BaseModel):

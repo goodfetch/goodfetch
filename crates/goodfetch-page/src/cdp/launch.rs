@@ -19,6 +19,7 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 
+use crate::browser_run::BrowserRun;
 use goodfetch_cdp::{CommandLog, Connection};
 use goodfetch_counted_work::CountedWork;
 use goodfetch_engine::CallError;
@@ -36,7 +37,6 @@ use goodfetch_engine::home::Home;
 use goodfetch_engine::metrics::Counted;
 use goodfetch_engine::pinned_download::Fetching;
 use goodfetch_engine::run_identity::RunIdentity;
-use goodfetch_engine::runs::Run;
 use goodfetch_engine::sandbox_probe::{self, Probed};
 use goodfetch_engine::settings::{Resolved, RunSettings, get_or_default};
 use goodfetch_engine::transport;
@@ -55,8 +55,6 @@ use tokio::io::DuplexStream;
 use tokio::process::{Child, Command};
 use tokio::sync::{mpsc, watch};
 use tokio_util::sync::CancellationToken;
-
-use crate::trace;
 
 /// The folder of the Run's Browser data folders, in its folder: one per
 /// browser, by its number in the Run's browser pool.
@@ -274,14 +272,15 @@ fn notice_of(notice: Option<PlatformNotice>) {
     }
 }
 
-/// The CDP command log of `run`'s browsers, as [`trace::command_log`]
-/// gives it, for the browser at `executable`.
+/// The CDP command log of `run`'s browsers, as
+/// [`command_log::command_log`](super::command_log::command_log) gives it,
+/// for the browser at `executable`.
 ///
 /// # Errors
 ///
 /// `browser_launch_failed` when the Run trace's writer cannot start.
-async fn command_log(run: &Run, executable: &Path) -> Result<Option<CommandLog>, CallError> {
-    trace::command_log(run).await.map_err(|error| {
+async fn command_log(run: &BrowserRun, executable: &Path) -> Result<Option<CommandLog>, CallError> {
+    super::command_log::command_log(run).await.map_err(|error| {
         launch_failed(
             executable,
             None,
@@ -341,7 +340,7 @@ fn exit_of(status: std::process::ExitStatus) -> BrowserExit {
 /// Dropping the future before the browser started leaves no process; after,
 /// the stop of the browser's owner closes it.
 pub(crate) async fn launch(
-    (run, on): (&Run, &RunIdentity),
+    (run, on): (&BrowserRun, &RunIdentity),
     (launcher, home, pins): (&Launcher, &Home, &Pins),
     (number, relay_authority): (u64, Option<&str>),
     stopping: CancellationToken,
@@ -349,7 +348,7 @@ pub(crate) async fn launch(
     if let Launcher::Scripted(scripted) = launcher {
         return launch_scripted((run, on), scripted, stopping).await;
     }
-    let settings = run.settings().map(RunSettings::resolved);
+    let settings = run.identity.settings().map(RunSettings::resolved);
     let headless = get_or_default(settings, &BROWSER_HEADLESS);
     let shell = get_or_default::<bool>(settings, &BROWSER_HEADLESS_SHELL).then(|| {
         settings
@@ -365,7 +364,7 @@ pub(crate) async fn launch(
     // probe refused it, no browser starts (ADR 0049).
     let sandbox = get_or_default(settings, &SECURITY_BROWSER_SANDBOX);
     let probed = if sandbox {
-        let probe = run.sandbox_probe().clone();
+        let probe = run.engine.sandbox_probe().clone();
         Some(on.owner().blocking(move || probe.probed().clone()).await)
     } else {
         None
@@ -374,7 +373,11 @@ pub(crate) async fn launch(
         return Err(refusal);
     }
     let (executable, held, kind) = executable(on, (home, pins), shell).await?;
-    let data_folder = run.folder().join(DATA_FOLDERS).join(number.to_string());
+    let data_folder = run
+        .identity
+        .folder()
+        .join(DATA_FOLDERS)
+        .join(number.to_string());
     write_preferences(on, &data_folder)
         .await
         .map_err(|error| launch_failed(&executable, None, &error.to_string()))?;
@@ -402,12 +405,13 @@ pub(crate) async fn launch(
         command.env("TMPDIR", browsers);
     }
     let log = command_log(run, &executable).await?;
-    let (connection, driver, mut child) = start(command, run.metrics().counted_work().clone(), log)
-        .await
-        .map_err(|error| {
-            executables::blocked_by_smart_app_control(&executable, &error)
-                .unwrap_or_else(|| launch_failed(&executable, None, &error.to_string()))
-        })?;
+    let (connection, driver, mut child) =
+        start(command, run.identity.metrics().counted_work().clone(), log)
+            .await
+            .map_err(|error| {
+                executables::blocked_by_smart_app_control(&executable, &error)
+                    .unwrap_or_else(|| launch_failed(&executable, None, &error.to_string()))
+            })?;
     let process = child.child.id();
     // Under AppArmor's restriction, the label the browser started under
     // says whether its sandbox can start: one the restriction holds is
@@ -432,7 +436,7 @@ pub(crate) async fn launch(
         exits,
         held,
         data_folder,
-        running: run.metrics().browser_running(kind),
+        running: run.identity.metrics().browser_running(kind),
         released: released.clone(),
     }));
     Ok(Launched {
@@ -456,7 +460,7 @@ pub(crate) async fn launch(
 ///
 /// `browser_launch_failed` once the [`ScriptedBrowsers`] are gone.
 async fn launch_scripted(
-    (run, on): (&Run, &RunIdentity),
+    (run, on): (&BrowserRun, &RunIdentity),
     scripted: &Scripted,
     stopping: CancellationToken,
 ) -> Result<Launched, CallError> {
@@ -469,8 +473,12 @@ async fn launch_scripted(
         .map_err(|_| launch_failed(executable, None, "no one plays the scripted browser"))?;
     let (reader, writer) = tokio::io::split(engine);
     let log = command_log(run, executable).await?;
-    let (connection, driver) =
-        Connection::new(reader, writer, run.metrics().counted_work().clone(), log);
+    let (connection, driver) = Connection::new(
+        reader,
+        writer,
+        run.identity.metrics().counted_work().clone(),
+        log,
+    );
     let (exits, exit) = watch::channel(None);
     let released = CancellationToken::new();
     on.spawn(supervise_scripted(
@@ -483,7 +491,10 @@ async fn launch_scripted(
         connection,
         exit,
         executable: executable.to_path_buf(),
-        headless: get_or_default(run.settings().map(RunSettings::resolved), &BROWSER_HEADLESS),
+        headless: get_or_default(
+            run.identity.settings().map(RunSettings::resolved),
+            &BROWSER_HEADLESS,
+        ),
         process: scripted.process,
         released,
     })

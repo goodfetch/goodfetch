@@ -81,7 +81,7 @@ fn grow() -> Contribution {
             let Started::New(run) = started else {
                 panic!("the Run began before");
             };
-            let run_id = crate::runs::identity(&run).id();
+            let run_id = run.identity.id();
             context.runs().uses(run_id.clone(), Product::Foxhound).await;
             Ok::<Value, CallError>(json!({ "run_id": run_id }))
         },

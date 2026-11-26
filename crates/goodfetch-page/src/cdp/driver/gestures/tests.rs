@@ -9,9 +9,9 @@ use goodfetch_test_support::runtime;
 use serde_json::json;
 
 use super::GestureWatch;
-use crate::driver::navigation::Navigation;
-use crate::driver::page_reader::PageReader;
-use crate::driver::replay::{self, FRAME, Played, SESSION};
+use crate::cdp::driver::navigation::Navigation;
+use crate::cdp::driver::page_reader::PageReader;
+use crate::cdp::driver::replay::{self, FRAME, Played, SESSION};
 
 /// Where the form the click submitted goes.
 const ACTION: &str = "https://site.test/account";

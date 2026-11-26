@@ -28,8 +28,8 @@ use std::time::Duration;
 use goodfetch_engine::clock::Clock;
 use goodfetch_engine::entropy::Entropy;
 use goodfetch_engine::home::{Home, RunStateLocation};
+use goodfetch_engine::run_identity::RunIdentity;
 use goodfetch_engine::run_state::RunStateOptions;
-use goodfetch_engine::runs::Run;
 use goodfetch_engine::tasks::BlockingPolicy;
 use goodfetch_engine::tls::ExceptionUsed;
 use goodfetch_engine::transport::{self, ConnectionReader, ConnectionWriter, Network};
@@ -38,6 +38,7 @@ use goodfetch_fetch_tier::{
     BuiltIn, FetchTiers, Hop, PooledSession, Reuse, Sending, Sent, Transport,
 };
 use goodfetch_memory_site::Whole;
+use goodfetch_page::BrowserRun;
 use goodfetch_page::blocks::Block;
 use goodfetch_page::document_request::{DocumentRequest, Unread};
 use goodfetch_page::page_value::{
@@ -180,7 +181,7 @@ impl BrowserPages for Scripted {
 
     fn document_request<'a>(
         &'a self,
-        _run: &'a Run,
+        _run: &'a RunIdentity,
     ) -> Opening<'a, Result<Option<DocumentRequest>, Unread>> {
         self.ask(|asked| asked.document_requests += 1);
         let read = self.unread.clone().map_or(Ok(None), Err);
@@ -269,14 +270,14 @@ impl BrowserPages for Scripted {
 
     fn served_formats<'a>(
         &'a self,
-        _run: &'a Run,
+        _run: &'a BrowserRun,
         _request: FormatsRequest,
         _label: Option<BuiltIn>,
     ) -> Opening<'a, Option<Arc<dyn ServedFormatsAhead>>> {
         Box::pin(std::future::ready(None))
     }
 
-    fn prepare_served_formats(&self, _run: &Run) {
+    fn prepare_served_formats(&self, _run: &BrowserRun) {
         self.ask(|asked| asked.prepared += 1);
     }
 

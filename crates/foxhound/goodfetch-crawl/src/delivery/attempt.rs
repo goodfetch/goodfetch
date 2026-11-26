@@ -420,7 +420,7 @@ pub(super) async fn run_hand_over(
         None
     };
     Arc::new(RunHandOver {
-        run: run.handed_on().clone(),
+        run: Arc::clone(&run.browser),
         keys: DomainKeys::of(settings),
         politeness: shared.clone().filter(|_| paces),
         crawl_delays: shared.map(goodfetch_frontier::CrawlDelays::new),
@@ -1611,7 +1611,7 @@ impl On<'_> {
                     tiers
                         .light(
                             http,
-                            run.handed_on(),
+                            &run.browser,
                             &leased.crawl_request,
                             choice,
                             hand_over,
@@ -1621,7 +1621,7 @@ impl On<'_> {
                         .map_err(Unfollowed::from)
                 } else {
                     tiers
-                        .serve(http, run.handed_on(), &leased.crawl_request, &requester, choice, hand_over)
+                        .serve(http, &run.browser, &leased.crawl_request, &requester, choice, hand_over)
                         .await
                 };
                 served.map_err(|Unfollowed { stop, redirects }| match stop {

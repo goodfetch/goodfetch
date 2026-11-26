@@ -32,10 +32,10 @@ use super::folder::{
 use super::lifecycle::{self, Next, RunEvent};
 use super::writer::{retried, try_lock};
 use super::{
-    Behind, Command, ConnectionId, Ended, FromCheckpoint, Keys, Limits, Live, Registry,
-    ReopenCheck, Resume, Resumed, Run, RunError, Start, StartError, Started, StorageExhausted,
+    Behind, Command, ConnectionId, Ended, FromCheckpoint, Keys, Limits, Live, LiveRun, Registry,
+    ReopenCheck, Resume, Resumed, RunError, Start, StartError, Started, StorageExhausted,
     UncleanDiscard, Unlocked, applied, critical_among, discard, durability_of,
-    ledger_read_interval, periodic_checkpoints, progress, trace_changes, warn_over_charged,
+    ledger_read_interval, parts, periodic_checkpoints, trace_changes, warn_over_charged,
 };
 use crate::audit::{AuditLog, Origin};
 use crate::checkpoint;
@@ -805,7 +805,7 @@ impl Registry {
         live: Live,
         timeout: Option<std::time::Duration>,
         interval: Option<std::time::Duration>,
-    ) -> Run {
+    ) -> LiveRun {
         let run = live
             .run
             .clone()
@@ -814,7 +814,8 @@ impl Registry {
         self.setup.metrics.run_live(live.kind);
         self.live.insert(live.id.clone(), live);
         if let Some(interval) = interval {
-            run.spawn(periodic_checkpoints(run.clone(), interval));
+            run.identity
+                .spawn(periodic_checkpoints(run.clone(), interval));
         }
         run
     }
@@ -1024,7 +1025,7 @@ impl Opening {
                 }
             })
             .await?;
-        Ok(Started::New(run))
+        Ok(Started::New(parts(&run)))
     }
 
     /// The Run that `live` makes live at `lifecycle`, with its timeout and
@@ -1035,7 +1036,7 @@ impl Opening {
         lifecycle: Lifecycle,
         (timeout, interval): (Option<std::time::Duration>, Option<std::time::Duration>),
         live: impl FnOnce(&mut Registry) -> Live + Send + 'static,
-    ) -> Result<Run, Gone> {
+    ) -> Result<LiveRun, Gone> {
         let (live, row) = self
             .decisions
             .decide(move |registry| {
@@ -1278,7 +1279,9 @@ impl Opening {
         if held.lifecycle == Lifecycle::Running {
             warn_over_charged(&run).await;
         }
-        progress(&run).resumed(lifecycle, progress_message.clone());
+        run.shared
+            .progress
+            .resumed(lifecycle, progress_message.clone());
         let (writer, needs) = (Arc::clone(&self.writer), recorded.needs);
         let run = self
             .go_live(lifecycle, (timeout, checkpoint_interval), move |registry| {
@@ -1312,7 +1315,7 @@ impl Opening {
             })
             .await?;
         Ok(Resumed::New {
-            run: Box::new(run),
+            run: Box::new(parts(&run)),
             kind,
             needs,
             listed,

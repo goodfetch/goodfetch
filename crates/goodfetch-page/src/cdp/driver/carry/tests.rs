@@ -9,9 +9,9 @@ use serde_json::{Value, json};
 use tokio::sync::Notify;
 
 use super::{Origins, commit};
-use crate::driver::page_reader::PageReader;
-use crate::driver::replay::{self, FRAME, SESSION};
-use crate::driver::{Browser, Connect, SessionDriver, SessionEgress};
+use crate::cdp::driver::page_reader::PageReader;
+use crate::cdp::driver::replay::{self, FRAME, SESSION};
+use crate::cdp::driver::{Browser, Connect, SessionDriver, SessionEgress};
 
 /// The origin whose storage the page carries.
 const ORIGIN: &str = "https://site.test";

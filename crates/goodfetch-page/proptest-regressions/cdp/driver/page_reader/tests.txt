@@ -1,0 +1,7 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 091812bfb45824289d12528c9e567256edef0a084950cd10fb73fc7ce31c2512 # shrinks to (initial_state, transitions, seen_counter) = (Reference { parts: [], listeners: [], waits: [], handlers: [], answers: [], failure: false, took: [], scripts: [], commands: [], pending: 0, added: 0, frames: [Frame { listed: false, detached: false }, Frame { listed: false, detached: false }], order: Order { turns: [], pointers: [], reads: [], navigations: [], lending: false, ended: false, asks: 0, read_asks: 0 }, page_detached: false, reader_ended: None, closed: false, sent: 0, visits: 0 }, [Wait, Release], None)

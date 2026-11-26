@@ -59,9 +59,9 @@ impl RawCall {
     pub(super) fn recorded(self, answer: GuardAnswer) -> GuardAnswer {
         Box::pin(async move {
             let line = match self.run().await {
-                Some(run) => match runs::run_trace(&run).calls().await {
+                Some(run) => match run.trace.calls().await {
                     Ok(log) => Some(Arc::new(RawCallLine::new(
-                        runs::identity(&run).id().clone(),
+                        run.identity.id().clone(),
                         log,
                         self.operation,
                         self.arrived_at,
@@ -93,9 +93,9 @@ impl RawCall {
         })
     }
 
-    /// The live Run it names: by its Run ID, else its Session's, else its
-    /// page's.
-    async fn run(&self) -> Option<runs::Run> {
+    /// The parts of the live Run it names: by its Run ID, else its
+    /// Session's, else its page's.
+    async fn run(&self) -> Option<runs::RunParts> {
         let run_id = match &self.named.run {
             Some(run) => RunId::parse(run).ok()?,
             None => self.run_of_call().await?,

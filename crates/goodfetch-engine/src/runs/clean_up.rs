@@ -11,7 +11,7 @@ use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::connection::ProductVersion;
 use goodfetch_protocol::run::RunKind;
 
-use super::Run;
+use super::RunParts;
 use crate::CallError;
 use crate::clock::Clock;
 use crate::home::Home;
@@ -93,7 +93,7 @@ pub trait CleanUpVersions: Send + Sync {
     /// came to hold it.
     fn held<'a>(
         &'a self,
-        run: &'a Run,
+        run: &'a RunParts,
         holding: Holding,
         context: RulesContext<'a>,
     ) -> Answering<'a, ()>;

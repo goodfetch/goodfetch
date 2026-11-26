@@ -27,6 +27,7 @@ use goodfetch_cdp::generated::{browser, runtime, target};
 use tokio::sync::watch;
 
 use super::{Browser, PageDriver, prepare};
+use crate::cdp::TargetId;
 use crate::errors::Call;
 use crate::page_value::PageValue;
 
@@ -38,14 +39,14 @@ pub(super) const PAGE: &str = "page";
 pub(crate) trait PopupHandler: Send + Sync {
     /// Whether the page whose target is `opener` is, or was, one of the
     /// Session's: only such a page's popups are the Session's.
-    fn holds(&self, opener: target::TargetID) -> Pin<Box<dyn Future<Output = bool> + Send>>;
+    fn holds(&self, opener: TargetId) -> Pin<Box<dyn Future<Output = bool> + Send>>;
 
     /// Takes the popup `driver` drives, which the page whose target is
     /// `opener` opened, in as a page of the Session: whether it did.
     fn take_in(
         &self,
         driver: PageDriver,
-        opener: target::TargetID,
+        opener: TargetId,
     ) -> Pin<Box<dyn Future<Output = bool> + Send>>;
 }
 
@@ -155,7 +156,7 @@ impl PageDriver {
             started: Arc::new(watch::Sender::new(0)),
             navigating: Arc::new(watch::Sender::new(0)),
             spent: Duration::ZERO,
-            value: PageValue::empty(),
+            value: super::RequestValue::new(PageValue::empty()),
             waits: None,
             reader: None,
         })
@@ -186,7 +187,7 @@ pub(super) async fn attach(browser: Browser, attached: target::AttachedToTargetE
         .as_ref()
         .and_then(|context| lock(&browser.state.popups.contexts).get(context).cloned());
     let popup = match (info.opener_id, handler, info.browser_context_id) {
-        (Some(opener), Some(handler), Some(context)) => Some((opener, handler, context)),
+        (Some(opener), Some(handler), Some(context)) => Some((TargetId(opener), handler, context)),
         _ => None,
     };
     let Some((opener, handler, context)) = popup else {

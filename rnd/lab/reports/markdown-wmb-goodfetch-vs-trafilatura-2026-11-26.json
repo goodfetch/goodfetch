@@ -1,6 +1,6 @@
 {
  "schemaVersion": 2,
- "runId": "markdown-wmb-goodfetch-2026-11-26T09-31-57-694Z-25379f",
+ "runId": "markdown-wmb-goodfetch-2026-11-26T09-47-54-801Z-d49564",
  "unit": "page",
  "metric": "Markdown structure F1 (src/extraction-markdown.ts)",
  "baseline": "goodfetch-trafilatura",
@@ -24,9 +24,9 @@
    },
    "timing": {
     "pages": 545,
-    "p50Ms": 4.561786,
-    "p95Ms": 22.558806,
-    "totalMs": 4272.042414000004
+    "p50Ms": 4.546676000000001,
+    "p95Ms": 20.760415000000002,
+    "totalMs": 4189.415567999999
    }
   },
   "goodfetch-htmd": {
@@ -48,9 +48,9 @@
    },
    "timing": {
     "pages": 545,
-    "p50Ms": 5.057531,
-    "p95Ms": 23.511885,
-    "totalMs": 4490.586327999999
+    "p50Ms": 5.254989,
+    "p95Ms": 27.781636,
+    "totalMs": 5008.939256000002
    }
   },
   "goodfetch-mdka": {
@@ -72,9 +72,9 @@
    },
    "timing": {
     "pages": 545,
-    "p50Ms": 4.998191,
-    "p95Ms": 23.354079,
-    "totalMs": 4747.093630999999
+    "p50Ms": 4.847317,
+    "p95Ms": 25.417708,
+    "totalMs": 4821.952999000006
    }
   },
   "goodfetch-trafilatura": {
@@ -96,9 +96,9 @@
    },
    "timing": {
     "pages": 545,
-    "p50Ms": 13.832079,
-    "p95Ms": 61.015479,
-    "totalMs": 14117.428797000004
+    "p50Ms": 14.803484000000001,
+    "p95Ms": 58.302386,
+    "totalMs": 13881.435335000006
    }
   },
   "goodfetch-trafilatura-mdka": {
@@ -120,9 +120,9 @@
    },
    "timing": {
     "pages": 545,
-    "p50Ms": 14.522305,
-    "p95Ms": 62.874660999999996,
-    "totalMs": 13943.03334000001
+    "p50Ms": 14.776143000000001,
+    "p95Ms": 65.00496799999999,
+    "totalMs": 14562.953547
    }
   },
   "rs-trafilatura-htmd": {
@@ -144,9 +144,9 @@
    },
    "timing": {
     "pages": 545,
-    "p50Ms": 12.241863,
-    "p95Ms": 48.143782,
-    "totalMs": 11413.001930999999
+    "p50Ms": 12.583561,
+    "p95Ms": 61.12898,
+    "totalMs": 12531.76538099999
    }
   },
   "rs-trafilatura-mdka": {
@@ -168,9 +168,9 @@
    },
    "timing": {
     "pages": 545,
-    "p50Ms": 12.076654,
-    "p95Ms": 48.261649,
-    "totalMs": 12272.864940000003
+    "p50Ms": 12.271863,
+    "p95Ms": 53.689291,
+    "totalMs": 12917.788986000007
    }
   }
  },

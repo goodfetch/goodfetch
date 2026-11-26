@@ -949,6 +949,14 @@ class PluginFetchFailedError(UnavailableError):
         super().__init__(message, code="plugin_fetch_failed", group="unavailable", retryable=True, **fields)
 
 
+class PluginInstalledError(RefusedError):
+    """The Plugin store holds a version of the Plugin already, and the Plugin lockfile does not pin its name to the reference's digest, so nothing is pulled and the lockfile is left as it was. `plugin update` replaces an installed Plugin."""
+
+    def __init__(self, message: str, **fields: Unpack[ErrorFields]) -> None:
+        """Takes the message the engine rendered, and what it carries."""
+        super().__init__(message, code="plugin_installed", group="refused", retryable=False, **fields)
+
+
 class PluginLockfileInvalidError(RefusedError):
     """The Plugin lockfile, `goodfetch-plugins.lock`, is not TOML, holds a field a lockfile has not, or pins one Plugin name twice, so the engine leaves it as it is and installs nothing. The message names the fault; correct the file, or restore it from version control. A lockfile of a version this engine does not read fails with `format_version_unsupported` instead."""
 
@@ -1651,6 +1659,7 @@ ERROR_CLASSES: Final[Mapping[str, ErrorClass]] = {
     "plugin_crashed": PluginCrashedError,
     "plugin_digest_mismatch": PluginDigestMismatchError,
     "plugin_fetch_failed": PluginFetchFailedError,
+    "plugin_installed": PluginInstalledError,
     "plugin_lockfile_invalid": PluginLockfileInvalidError,
     "plugin_manifest_mismatch": PluginManifestMismatchError,
     "plugin_protocol_unsupported": PluginProtocolUnsupportedError,

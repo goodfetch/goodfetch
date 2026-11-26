@@ -15560,6 +15560,69 @@
       ],
       "type": "object"
     },
+    "PluginAddParams": {
+      "additionalProperties": false,
+      "description": "What `plugin.add` takes.",
+      "properties": {
+        "_meta": {
+          "$ref": "#/$defs/RequestMeta",
+          "arrived_in": "0.1"
+        },
+        "project": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ProjectSettings"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "The project configuration the Client found, layer 3 (ADR 0083): the\nlockfile goes beside it, else in the Goodfetch home's configuration\nfolder."
+        },
+        "reference": {
+          "arrived_in": "0.1",
+          "description": "The Plugin's OCI reference,\n`<registry>/<repository>@sha256:<hex>`: the repository's last\nsegment is `goodfetch-plugin-<name>`, and the digest is its image\nindex's. No tag names one, since a tag moves.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "reference"
+      ],
+      "type": "object"
+    },
+    "PluginAdded": {
+      "description": "What `plugin.add` answers once the Plugin is installed and pinned.",
+      "properties": {
+        "digest": {
+          "arrived_in": "0.1",
+          "description": "The digest of its multi-platform image index, `sha256:<hex>`, which\nthe lockfile pins.",
+          "type": "string"
+        },
+        "lockfile": {
+          "arrived_in": "0.1",
+          "description": "The lockfile that pins it.",
+          "type": "string"
+        },
+        "name": {
+          "arrived_in": "0.1",
+          "description": "The Plugin's name.",
+          "type": "string"
+        },
+        "version": {
+          "arrived_in": "0.1",
+          "description": "Its version, as its manifest names it.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "version",
+        "digest",
+        "lockfile"
+      ],
+      "type": "object"
+    },
     "PluginCancelParams": {
       "description": "What `$/cancel` names: the call the engine no longer awaits, whose late\nresult it refuses.",
       "properties": {

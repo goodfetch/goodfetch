@@ -137,6 +137,12 @@ impl PluginStore {
         Self { folder }
     }
 
+    /// Its folder.
+    #[must_use]
+    pub fn folder(&self) -> &Path {
+        &self.folder
+    }
+
     /// The installed Plugin `name` of the kind `kind`.
     ///
     /// # Errors
@@ -258,7 +264,7 @@ impl PluginStore {
     }
 
     /// The installed Plugin `name`, of any kind.
-    fn installed(&self, name: &str) -> Result<Installed, StoreError> {
+    pub(crate) fn installed(&self, name: &str) -> Result<Installed, StoreError> {
         let unreadable = |source| StoreError::Unreadable {
             name: name.to_owned(),
             source,

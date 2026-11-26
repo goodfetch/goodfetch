@@ -21,7 +21,7 @@ use serde_json::json;
 use crate::downloads::{Received, StandIn};
 
 /// The repository the stand-in registry serves the Plugin `kettle` from.
-const REPOSITORY: &str = "goodfetch-plugin-kettle";
+pub(crate) const REPOSITORY: &str = "goodfetch-plugin-kettle";
 
 /// A tar archive of `entries`: each a path, its bytes, its mode and its
 /// kind.
@@ -40,7 +40,7 @@ fn tar(entries: &[(&str, &[u8], u32, tar::EntryType)]) -> Vec<u8> {
 /// The bundle of the Extractor `kettle`: its manifest, its executable and
 /// an install script, each a script that would write `marker` if anything
 /// ran it.
-fn bundle(marker: &Path) -> Vec<u8> {
+pub(crate) fn bundle(marker: &Path) -> Vec<u8> {
     let manifest = json!({
         "manifest_version": "0.1",
         "name": "kettle",
@@ -70,7 +70,7 @@ fn bundle(marker: &Path) -> Vec<u8> {
 }
 
 /// `bytes` compressed with gzip.
-fn gzip(bytes: &[u8]) -> Vec<u8> {
+pub(crate) fn gzip(bytes: &[u8]) -> Vec<u8> {
     let mut encoder = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
     encoder.write_all(bytes).unwrap();
     encoder.finish().unwrap()
@@ -79,15 +79,15 @@ fn gzip(bytes: &[u8]) -> Vec<u8> {
 /// A Plugin's OCI artifact: its image index, the host platform's manifest
 /// and that manifest's one layer.
 #[derive(Clone)]
-struct Artifact {
-    index: Vec<u8>,
-    manifest: Vec<u8>,
-    layer: Vec<u8>,
+pub(crate) struct Artifact {
+    pub(crate) index: Vec<u8>,
+    pub(crate) manifest: Vec<u8>,
+    pub(crate) layer: Vec<u8>,
 }
 
 impl Artifact {
     /// The artifact whose one layer is `layer`, of `media_type`.
-    fn of(layer: Vec<u8>, media_type: &str) -> Self {
+    pub(crate) fn of(layer: Vec<u8>, media_type: &str) -> Self {
         let manifest = serde_json::to_vec(&json!({
             "schemaVersion": 2,
             "mediaType": MANIFEST_MEDIA_TYPE,
@@ -127,10 +127,25 @@ impl Artifact {
         format!("/v2/{REPOSITORY}/{kind}/{}", Digest::of(bytes))
     }
 
+    /// Its reference in the repository of the stand-in registry `stand_in`,
+    /// pinned by its index's digest.
+    pub(crate) fn reference(&self, stand_in: &StandIn) -> Reference {
+        format!(
+            "{}/{REPOSITORY}@{}",
+            stand_in.authority(),
+            Digest::of(&self.index)
+        )
+        .parse()
+        .unwrap()
+    }
+
     /// Answers as a registry that holds it does, each document only to a
     /// request that accepts its media type, with `served` in place of what
     /// each path pins.
-    fn answer(&self, served: Self) -> impl Fn(&str, &HeaderMap) -> (StatusCode, Vec<u8>) + use<> {
+    pub(crate) fn answer(
+        &self,
+        served: Self,
+    ) -> impl Fn(&str, &HeaderMap) -> (StatusCode, Vec<u8>) + use<> {
         let documents = [
             (
                 Self::path("manifests", &self.index),
@@ -177,13 +192,7 @@ impl Artifact {
         let blocking = TaskOwner::root(BlockingPolicy::Inline).blocking_threads();
         goodfetch_test_support::runtime().block_on(async {
             let mut stand_in = StandIn::serve_with(answer).await;
-            let reference: Reference = format!(
-                "{}/{REPOSITORY}@{}",
-                stand_in.authority(),
-                Digest::of(&self.index)
-            )
-            .parse()
-            .unwrap();
+            let reference = self.reference(&stand_in);
             let fetching = fetching(stand_in.fetching());
             let installed = plugin_install::install(&reference, &fetching, &blocking, &store).await;
             (installed, stand_in.requests())
@@ -214,7 +223,7 @@ fn left_behind(env: &TestEnv) -> Vec<String> {
 }
 
 /// The Plugin store's folder in the home of `env`, alone in its parent.
-fn store(env: &TestEnv) -> PathBuf {
+pub(crate) fn store(env: &TestEnv) -> PathBuf {
     env.home().join("data").join("plugins")
 }
 

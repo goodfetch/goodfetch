@@ -171,8 +171,9 @@ fn a_refused_audit_command_shows_the_refusals_fix(#[case] command: &str) {
 }
 
 /// The person-only commands, at a terminal, print the same refusal: `usage
-/// raise` once the person answered yes, `certs accept` and `certs forget`
-/// on the call that reads the pin, each with its `fix` line and exit `11`.
+/// raise` and `plugin add` once the person answered yes, `certs accept`
+/// and `certs forget` on the call that reads the pin, each with its `fix`
+/// line and exit `11`.
 ///
 /// Covers: story:11-199, error:protocol_version_unsupported, exit:protocol_version_unsupported
 #[rstest]
@@ -182,6 +183,8 @@ fn a_refused_audit_command_shows_the_refusals_fix(#[case] command: &str) {
 #[case::certs_accept(&["certs", "accept", "example.com", "--daemon"], None)]
 /// Covers: command:certs.forget
 #[case::certs_forget(&["certs", "forget", "example.com", "--daemon"], None)]
+/// Covers: command:plugin.add
+#[case::plugin_add(&["plugin", "add", "registry.example.com/goodfetch-plugin-kettle@sha256:1111111111111111111111111111111111111111111111111111111111111111", "--daemon"], Some("y"))]
 fn a_refused_person_command_shows_the_refusals_fix(
     #[case] arguments: &[&str],
     #[case] answer: Option<&str>,

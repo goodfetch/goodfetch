@@ -2780,6 +2780,25 @@ class PlanStatus(StrEnum):
     """The Plan file is frozen."""
 
 
+class PluginAdded(BaseModel):
+    """What `plugin.add` answers once the Plugin is installed and pinned."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    digest: str
+    """
+    The digest of its multi-platform image index, `sha256:<hex>`, which
+    the lockfile pins.
+    """
+    lockfile: str
+    """The lockfile that pins it."""
+    name: str
+    """The Plugin's name."""
+    version: str
+    """Its version, as its manifest names it."""
+
+
 class PluginDigestMismatchDetails(BaseModel):
     """What `plugin_digest_mismatch` details."""
 
@@ -7551,6 +7570,27 @@ class PlanReport(BaseModel):
     """The steps that changed, each Agent task one entry (ADR 0100)."""
     version: Annotated[int | None, Field(ge=0)] = None
     """The version it used."""
+
+
+class PluginAddParams(BaseModel):
+    """What `plugin.add` takes."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    project: ProjectSettings | None = None
+    """
+    The project configuration the Client found, layer 3 (ADR 0083): the
+    lockfile goes beside it, else in the Goodfetch home's configuration
+    folder.
+    """
+    reference: str
+    """
+    The Plugin's OCI reference,
+    `<registry>/<repository>@sha256:<hex>`: the repository's last
+    segment is `goodfetch-plugin-<name>`, and the digest is its image
+    index's. No tag names one, since a tag moves.
+    """
 
 
 class PolicyChange(BaseModel):

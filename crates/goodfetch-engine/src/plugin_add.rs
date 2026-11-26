@@ -1,0 +1,347 @@
+//! `plugin.add` (ADR 0033, issue 889): a person's answer (ADR 0099) that
+//! installs a Plugin from the OCI reference it is given and pins the digest
+//! of its image index in the Plugin lockfile, `goodfetch-plugins.lock`,
+//! beside the project's configuration or in the Goodfetch home's
+//! configuration folder.
+//!
+//! The lockfile is read before anything is pulled: a name it pins to
+//! another digest is refused with `plugin_digest_mismatch`, a Plugin the
+//! store holds that it does not pin with `plugin_installed`, and a Plugin
+//! it pins to the same digest that the store holds is answered again
+//! without a pull. The lockfile is written only once the Plugin is in the
+//! store.
+#![expect(
+    clippy::disallowed_methods,
+    reason = "the lockfile is read and written on the engine's blocking policy, never on an async worker"
+)]
+
+use std::io;
+use std::path::Path;
+
+use goodfetch_protocol::browser_cache::{
+    ARTIFACT_DOWNLOAD_FAILED, ARTIFACT_UNAVAILABLE_OFFLINE, ArtifactDownloadFailedDetails,
+    ArtifactId, ArtifactKind, ArtifactUnavailableOfflineDetails,
+};
+use goodfetch_protocol::checkpoint::{FILE_WRITE_FAILED, FileWriteFailedDetails, WriteSide};
+use goodfetch_protocol::egress::EGRESS_OFFLINE;
+use goodfetch_protocol::jsonrpc::ProtocolFailure;
+use goodfetch_protocol::plugin::add::{
+    PLUGIN_ADD, PLUGIN_ARTIFACT_REFUSED, PLUGIN_DIGEST_MISMATCH, PLUGIN_INSTALLED, PluginAddParams,
+    PluginAdded, PluginDigestMismatchDetails,
+};
+use goodfetch_protocol::plugin::lockfile::{LOCKFILE_NAME, LockedPlugin, PluginLockfile};
+use goodfetch_protocol::settings::{SettingLimit, SettingsLayer};
+
+use crate::call_error::CallError;
+use crate::composition::{CallContext, Handler};
+use crate::durable;
+use crate::pinned_download::Fetching;
+use crate::plugin_install::{self, InstallError, PullFailure};
+use crate::plugin_lockfile;
+use crate::plugin_oci::Reference;
+use crate::plugin_store::{Installed, PluginStore, StoreError};
+use crate::run::settings_error;
+use crate::run_files::{os_code, reason_of};
+use crate::settings::Opening;
+use crate::tasks::BlockingThreads;
+
+/// The `plugin.*` handlers.
+pub(crate) fn handlers() -> [Handler; 1] {
+    [Handler::new(&PLUGIN_ADD, add_operation)]
+}
+
+async fn add_operation(
+    params: PluginAddParams,
+    context: CallContext,
+) -> Result<PluginAdded, CallError> {
+    let reference: Reference = params
+        .reference
+        .parse()
+        .map_err(|error| CallError::protocol(ProtocolFailure::InvalidParams, format!("{error}")))?;
+    let engine = context.engine();
+    let beside = match &params.project {
+        Some(project) => Path::new(&project.path),
+        None => engine.settings().files().user_configuration(),
+    };
+    let lockfile = beside
+        .parent()
+        .unwrap_or_else(|| Path::new("."))
+        .join(LOCKFILE_NAME);
+    let (settings, _) = engine
+        .settings()
+        .open(Opening {
+            project: params.project,
+            registered: context.registered_settings().clone(),
+            acting_for_model: context.surface().acts_for_model(),
+            exposed: context.exposed(),
+            ..Opening::default()
+        })
+        .await
+        .map_err(|error| settings_error(&error, &context))?;
+    let fetching = Fetching::of(settings.resolved(), engine.clock(), engine.owner()).await;
+    let blocking = engine.owner().blocking_threads();
+    let store = PluginStore::new(engine.home().plugins());
+    add(&reference, &fetching, &blocking, &store, &lockfile).await
+}
+
+/// Installs the Plugin `reference` pins into `store` and pins it in the
+/// lockfile at `lockfile`, through `fetching`, its files read and written
+/// on `blocking`; answers what it pinned.
+///
+/// # Errors
+///
+/// `plugin_lockfile_invalid` or `format_version_unsupported` for a
+/// lockfile the engine does not read, `plugin_digest_mismatch` when it
+/// pins the Plugin's name to another digest, `plugin_installed` when the
+/// store holds the Plugin and the lockfile does not pin it,
+/// `artifact_unavailable_offline` and `artifact_download_failed` for a
+/// pull that did not happen or failed, `plugin_artifact_refused` for an
+/// artifact the engine refuses, and `file_write_failed` when the store or
+/// the lockfile cannot be written; the lockfile is then left as it was.
+///
+/// # Cancel safety
+///
+/// Dropping the future before the bundle's unpack leaves the store and
+/// the lockfile as they were; past it, the Plugin may be in the store and
+/// not pinned, which a later `plugin.add` refuses with `plugin_installed`.
+pub async fn add(
+    reference: &Reference,
+    fetching: &Fetching,
+    blocking: &BlockingThreads,
+    store: &PluginStore,
+    lockfile: &Path,
+) -> Result<PluginAdded, CallError> {
+    let name = reference.plugin().to_owned();
+    let digest = reference.index().to_string();
+    let mut pins = {
+        let path = lockfile.to_owned();
+        blocking.run(move || read_lockfile(&path)).await?
+    };
+    let pinned = match pins.locked(&name) {
+        Some(locked) if locked.digest != digest => {
+            return Err(mismatch(&name, &locked.digest, &digest, lockfile));
+        }
+        locked => locked.is_some(),
+    };
+    let held = {
+        let (store, name) = (store.clone(), name.clone());
+        blocking.run(move || store.installed(&name)).await
+    };
+    match held {
+        Ok(held) if pinned => return Ok(added(held, digest, lockfile)),
+        Ok(held) => return Err(installed(&name, &held.manifest.version)),
+        Err(StoreError::NotInstalled(_) | StoreError::Versions { versions: 0, .. }) => {}
+        Err(error) => {
+            return Err(CallError::protocol(
+                ProtocolFailure::InternalError,
+                format!("the Plugin store cannot be read: {error}"),
+            ));
+        }
+    }
+    let held = plugin_install::install(reference, fetching, blocking, store)
+        .await
+        .map_err(|error| refusal(error, reference, store))?;
+    if !pinned {
+        pins.lock(LockedPlugin {
+            name: name.clone(),
+            version: held.manifest.version.clone(),
+            digest: digest.clone(),
+            signer: None,
+            approvals: None,
+        })
+        .map_err(|found| mismatch(&name, &found.locked, &digest, lockfile))?;
+        let (path, text) = (lockfile.to_owned(), plugin_lockfile::text(&pins));
+        blocking
+            .run(move || write_lockfile(&path, &text))
+            .await
+            .map_err(|error| unwritten(&error, lockfile, &name))?;
+    }
+    Ok(added(held, digest, lockfile))
+}
+
+/// The lockfile at `path`, an empty one when there is none.
+fn read_lockfile(path: &Path) -> Result<PluginLockfile, CallError> {
+    match std::fs::read_to_string(path) {
+        Ok(text) => plugin_lockfile::read(&text),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(PluginLockfile::empty()),
+        Err(error) => Err(CallError::protocol(
+            ProtocolFailure::InternalError,
+            format!(
+                "the Plugin lockfile {} cannot be read: {error}",
+                path.display()
+            ),
+        )),
+    }
+}
+
+/// Writes `text` as the lockfile at `path`, its folder made when missing.
+fn write_lockfile(path: &Path, text: &str) -> io::Result<()> {
+    if let Some(folder) = path.parent() {
+        durable::create_folder(folder)?;
+    }
+    durable::replace(path, text.as_bytes())
+}
+
+/// What `plugin.add` answers for the Plugin `held`, pinned to `digest` in
+/// `lockfile`.
+fn added(held: Installed, digest: String, lockfile: &Path) -> PluginAdded {
+    PluginAdded {
+        name: held.manifest.name,
+        version: held.manifest.version,
+        digest,
+        lockfile: lockfile.display().to_string(),
+    }
+}
+
+/// `plugin_digest_mismatch` for `name`, pinned to `locked` in `lockfile`
+/// and given as `found`.
+fn mismatch(name: &str, locked: &str, found: &str, lockfile: &Path) -> CallError {
+    let lockfile = lockfile.display().to_string();
+    CallError::new(
+        &PLUGIN_DIGEST_MISMATCH,
+        format!(
+            "The Plugin lockfile {lockfile} pins the Plugin `{name}` to {locked}, not to {found}: nothing was installed."
+        ),
+        &PluginDigestMismatchDetails {
+            name: name.to_owned(),
+            locked: locked.to_owned(),
+            found: found.to_owned(),
+            fix: format!(
+                "Give the reference with {locked}, or remove the Plugin `{name}` from {lockfile} to accept {found}"
+            ),
+            lockfile,
+        },
+    )
+}
+
+/// `plugin_installed` for `name`, whose `version` the store holds.
+fn installed(name: &str, version: &str) -> CallError {
+    CallError::new(
+        &PLUGIN_INSTALLED,
+        format!(
+            "The Plugin `{name}` is installed already, at version {version}, and the Plugin lockfile does not pin it to this digest: `plugin update` replaces it."
+        ),
+        &(),
+    )
+}
+
+/// The failure `plugin.add` answers for the install of `reference` into
+/// `store` that failed with `error`.
+fn refusal(error: InstallError, reference: &Reference, store: &PluginStore) -> CallError {
+    let artifact = ArtifactId {
+        kind: ArtifactKind::Plugin,
+        name: reference.plugin().to_owned(),
+        build: reference.index().to_string(),
+    };
+    match error {
+        InstallError::Offline(layer) => offline(artifact, layer, store),
+        InstallError::Pull(failure) => pull_failed(artifact, reference, &failure),
+        InstallError::Document(error) => artifact_refused(reference, &error),
+        InstallError::Bundle(error) => artifact_refused(reference, &error),
+        InstallError::Store(StoreError::Installed { name, version }) => installed(&name, &version),
+        InstallError::Store(StoreError::Unreadable { source, .. })
+        | InstallError::Staging(source) => store_unwritten(&source, store, reference.plugin()),
+        InstallError::Store(error) => artifact_refused(reference, &error),
+    }
+}
+
+/// `artifact_unavailable_offline` for `artifact`, whose pull `egress.offline`,
+/// set at `layer`, refused.
+fn offline(artifact: ArtifactId, layer: SettingsLayer, store: &PluginStore) -> CallError {
+    let name = artifact.name.clone();
+    CallError::new(
+        &ARTIFACT_UNAVAILABLE_OFFLINE,
+        format!(
+            "The Plugin `{name}` is not in the Plugin store, and `{}` refuses its pull",
+            EGRESS_OFFLINE.name
+        ),
+        &ArtifactUnavailableOfflineDetails {
+            artifact,
+            pinned_by: Vec::new(),
+            cache: store.folder().display().to_string(),
+            limit: SettingLimit {
+                key: EGRESS_OFFLINE.name.to_owned(),
+                value: serde_json::Value::Bool(true),
+                layer,
+                origin: None,
+            },
+            fix: format!(
+                "Run `plugin add` where `{}` is not set, or lift it where it was set",
+                EGRESS_OFFLINE.name
+            ),
+        },
+    )
+}
+
+/// `artifact_download_failed` for `artifact`, which `reference`'s registry
+/// did not serve.
+fn pull_failed(artifact: ArtifactId, reference: &Reference, failure: &PullFailure) -> CallError {
+    let host = reference.registry().to_owned();
+    CallError::new(
+        &ARTIFACT_DOWNLOAD_FAILED,
+        format!(
+            "Pulling the Plugin `{}` from {host} failed: {failure}",
+            artifact.name
+        ),
+        &ArtifactDownloadFailedDetails {
+            artifact,
+            pinned_by: Vec::new(),
+            failure: failure.download_failure(),
+            fix: format!("Retry, or check that {host} serves {reference}"),
+            host,
+        },
+    )
+}
+
+/// `plugin_artifact_refused` for `reference`'s artifact, refused for
+/// `why`.
+fn artifact_refused(reference: &Reference, why: &dyn std::fmt::Display) -> CallError {
+    CallError::new(
+        &PLUGIN_ARTIFACT_REFUSED,
+        format!(
+            "The artifact of the Plugin `{}` is refused: {why}. Nothing was installed.",
+            reference.plugin()
+        ),
+        &(),
+    )
+}
+
+/// `file_write_failed`, side `engine`, for the Plugin `name`, which
+/// `store` could not take.
+fn store_unwritten(error: &io::Error, store: &PluginStore, name: &str) -> CallError {
+    let folder = store.folder();
+    CallError::new(
+        &FILE_WRITE_FAILED,
+        format!(
+            "The Plugin store {} could not take the Plugin `{name}` ({error}): free space there, or make it writable.",
+            folder.display()
+        ),
+        &FileWriteFailedDetails {
+            reason: reason_of(error.kind()).to_owned(),
+            os_code: error.raw_os_error().and_then(os_code).map(str::to_owned),
+            path: Some(folder.display().to_string()),
+            side: WriteSide::Engine,
+        },
+    )
+}
+
+/// `file_write_failed`, side `program`, for the lockfile `lockfile`, which
+/// could not pin the installed Plugin `name`.
+fn unwritten(error: &io::Error, lockfile: &Path, name: &str) -> CallError {
+    CallError::new(
+        &FILE_WRITE_FAILED,
+        format!(
+            "The Plugin `{name}` is installed, but the Plugin lockfile {} could not pin it ({error}).",
+            lockfile.display()
+        ),
+        &FileWriteFailedDetails {
+            reason: reason_of(error.kind()).to_owned(),
+            os_code: error.raw_os_error().and_then(os_code).map(str::to_owned),
+            path: Some(lockfile.display().to_string()),
+            side: WriteSide::Program,
+        },
+    )
+}
+
+#[cfg(test)]
+mod tests;

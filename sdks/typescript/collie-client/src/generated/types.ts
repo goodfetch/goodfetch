@@ -7124,6 +7124,52 @@ export interface PlanReport {
   version?: number | null;
 }
 /**
+ * What `plugin.add` takes.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "PluginAddParams".
+ */
+export interface PluginAddParams {
+  /**
+   * The project configuration the Client found, layer 3 (ADR 0083): the
+   * lockfile goes beside it, else in the Goodfetch home's configuration
+   * folder.
+   */
+  project?: ProjectSettings | null;
+  /**
+   * The Plugin's OCI reference,
+   * `<registry>/<repository>@sha256:<hex>`: the repository's last
+   * segment is `goodfetch-plugin-<name>`, and the digest is its image
+   * index's. No tag names one, since a tag moves.
+   */
+  reference: string;
+}
+/**
+ * What `plugin.add` answers once the Plugin is installed and pinned.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "PluginAdded".
+ */
+export interface PluginAdded {
+  /**
+   * The digest of its multi-platform image index, `sha256:<hex>`, which
+   * the lockfile pins.
+   */
+  digest: string;
+  /**
+   * The lockfile that pins it.
+   */
+  lockfile: string;
+  /**
+   * The Plugin's name.
+   */
+  name: string;
+  /**
+   * Its version, as its manifest names it.
+   */
+  version: string;
+}
+/**
  * What `plugin_digest_mismatch` details.
  *
  * This interface was referenced by `CollieTypes`'s JSON-Schema

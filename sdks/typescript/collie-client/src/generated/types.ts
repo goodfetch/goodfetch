@@ -7749,6 +7749,22 @@ export interface RecordRead {
   record: DatasetRecord;
 }
 /**
+ * What `recording_invalid`'s details hold.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "RecordingInvalidDetails".
+ */
+export interface RecordingInvalidDetails {
+  /**
+   * What is wrong with it.
+   */
+  reason: string;
+  /**
+   * The Response recording's path, as the start named it.
+   */
+  recording: string;
+}
+/**
  * What a Run did with the Response recording its start named (ADR 0105).
  *
  * This interface was referenced by `CollieTypes`'s JSON-Schema
@@ -7920,6 +7936,27 @@ export interface ResponseLimitExceededDetails {
    * The setting whose limit it passed.
    */
   setting: LimitSetting;
+}
+/**
+ * What `response_not_recorded`'s details hold.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "ResponseNotRecordedDetails".
+ */
+export interface ResponseNotRecordedDetails {
+  /**
+   * The request's method.
+   */
+  method: string;
+  /**
+   * The recorded URLs of the request's host and path, in the order
+   * recorded, at most five.
+   */
+  nearest: string[];
+  /**
+   * The Response recording's path, as the start named it.
+   */
+  recording: string;
 }
 /**
  * What `response_truncated` details.

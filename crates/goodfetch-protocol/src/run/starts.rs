@@ -287,6 +287,60 @@ pub struct DetachUnsupportedDetails {
     pub fix: String,
 }
 
+/// A request a replaying Run's Response recording has no response for
+/// (ADR 0105).
+pub const RESPONSE_NOT_RECORDED: ErrorCodeDefinition = ErrorCodeDefinition {
+    name: "response_not_recorded",
+    description: "The Run replays a Response recording that holds no response for a request it would send, so the request was refused and nothing reached the site. The details name the request's method and URL, the recording, and the recorded URLs of the same host and path, which show what differs, such as a cache-buster in the query. Record the file again, or answer the request with a route.",
+    group: ErrorGroup::Refused,
+    retryable: false,
+    exit_code: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// What `response_not_recorded`'s details hold.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct ResponseNotRecordedDetails {
+    /// The request's method.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub method: String,
+    /// The request's URL, without its fragment.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub url: String,
+    /// The Response recording's path, as the start named it.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub recording: String,
+    /// The recorded URLs of the request's host and path, in the order
+    /// recorded, at most five.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub nearest: Vec<String>,
+    /// What to do: record the file again, or answer the request with a
+    /// route.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub fix: String,
+}
+
+/// A Response recording the engine cannot replay (ADRs 0030 and 0105).
+pub const RECORDING_INVALID: ErrorCodeDefinition = ErrorCodeDefinition {
+    name: "recording_invalid",
+    description: "The Response recording a start names cannot be read, is not WARC, is a WARC version the engine does not read, or holds a record that is not what it says, so no Run started. The details name the recording and what is wrong with it. Record the file again, or name another.",
+    group: ErrorGroup::Program,
+    retryable: false,
+    exit_code: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// What `recording_invalid`'s details hold.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct RecordingInvalidDetails {
+    /// The Response recording's path, as the start named it.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub recording: String,
+    /// What is wrong with it.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub reason: String,
+}
+
 #[cfg(test)]
 mod tests {
     use rstest::rstest;

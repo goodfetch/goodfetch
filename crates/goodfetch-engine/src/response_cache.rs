@@ -73,6 +73,7 @@ use tokio::sync::watch;
 
 pub use self::bounds::Bounds;
 use self::bounds::{Weighed, evictions, index_time};
+pub(crate) use self::canonical::body_sha256;
 pub use self::freshness::{CacheRequest, ResponseHead};
 use self::freshness::{Freshness, Stored};
 pub use self::source::{Recording, Replaying, ResponseSource, Served, Source};

@@ -11,7 +11,7 @@
 // `aria-setsize`, `null` for none or a value that is no integer. Its
 // answers have no prototype, so a page's `Object.prototype` cannot answer
 // for them.
-// eslint-disable-next-line no-unused-vars -- the engine's expression calls it
+// oxlint-disable-next-line no-unused-vars -- the engine's expression calls it
 function collect(read) {
   return async (elements, argument) => {
     if (typeof read !== "function") {

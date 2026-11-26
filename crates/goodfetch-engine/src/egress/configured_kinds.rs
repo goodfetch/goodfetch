@@ -31,8 +31,9 @@ pub enum ConfiguredKind {
     SecretProvider,
     /// A Session's upstream proxy: the proxy's own address.
     Proxy,
-    /// A Notification webhook.
-    NotificationWebhook,
+    /// A Notification channel's server: a webhook's receiver, an email
+    /// provider's API or SMTP server.
+    NotificationChannel,
     /// An OTLP collector: `otlp.traces_endpoint`, `otlp.metrics_endpoint`.
     Otlp,
     /// The Plugin index.
@@ -114,8 +115,8 @@ pub const CONFIGURED_KINDS: [ConfiguredKindClass; 10] = [
         operator_layers: CONFIGURATION,
     },
     ConfiguredKindClass {
-        kind: ConfiguredKind::NotificationWebhook,
-        name: "Notification webhook",
+        kind: ConfiguredKind::NotificationChannel,
+        name: "Notification channel",
         operator_layers: CONFIGURATION,
     },
     ConfiguredKindClass {

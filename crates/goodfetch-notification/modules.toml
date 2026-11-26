@@ -2,6 +2,7 @@
 # (ADR 0126).
 [modules]
 driver = ["failure", "ledger", "message", "rate_limit"]
+email = ["driver", "failure", "message"]
 failure = []
 ledger = ["message"]
 message = []

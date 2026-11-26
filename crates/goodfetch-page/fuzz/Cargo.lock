@@ -1755,6 +1755,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "goodfetch-identity-profile"
+version = "0.0.0"
+dependencies = [
+ "chacha20 0.10.2",
+ "flate2",
+ "goodfetch-workspace-hack",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.21",
+]
+
+[[package]]
 name = "goodfetch-page"
 version = "0.0.0"
 dependencies = [
@@ -1773,6 +1785,7 @@ dependencies = [
  "goodfetch-counted-work",
  "goodfetch-engine",
  "goodfetch-extractor",
+ "goodfetch-identity-profile",
  "goodfetch-protocol",
  "goodfetch-workspace-hack",
  "httparse",

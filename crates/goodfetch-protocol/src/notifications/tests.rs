@@ -89,6 +89,70 @@ fn an_entry_outside_the_shape_is_refused(#[case] entry: Value) {
     assert!((CHANNEL_SHAPE.check)(&entry).is_err(), "{entry}");
 }
 
+/// The `email` channel entry whose `email` table is `keys`.
+fn email(keys: Value) -> Value {
+    let mut entry = json!({ "type": "email" });
+    entry["email"] = keys;
+    entry
+}
+
+/// An `email` channel names its provider, its addresses and what its
+/// provider needs to send: `smtp.host` for SMTP, `ses.region` for SES.
+///
+/// Covers: setting:notifications.channels
+#[rstest]
+#[case::smtp(email(json!({
+    "provider": "smtp",
+    "to": ["ops@example.com"],
+    "from": "goodfetch@example.com",
+    "smtp": { "host": "smtp.example.com" },
+})))]
+#[case::ses(email(json!({
+    "provider": "ses",
+    "to": ["ops@example.com"],
+    "from": "goodfetch@example.com",
+    "ses": { "region": "eu-west-1" },
+})))]
+fn an_email_channel_with_what_its_provider_needs_is_read(#[case] entry: Value) {
+    (CHANNEL_SHAPE.check)(&entry).unwrap();
+}
+
+/// Covers: setting:notifications.channels
+#[rstest]
+#[case::no_email_keys(json!({ "type": "email" }), "email.provider")]
+#[case::no_provider(
+    email(json!({ "to": ["ops@example.com"], "from": "goodfetch@example.com" })),
+    "email.provider"
+)]
+#[case::no_recipient(
+    email(json!({ "provider": "ses", "from": "goodfetch@example.com", "ses": { "region": "eu-west-1" } })),
+    "email.to"
+)]
+#[case::empty_recipients(
+    email(json!({ "provider": "ses", "to": [], "from": "goodfetch@example.com", "ses": { "region": "eu-west-1" } })),
+    "email.to"
+)]
+#[case::no_sender(
+    email(json!({ "provider": "ses", "to": ["ops@example.com"], "ses": { "region": "eu-west-1" } })),
+    "email.from"
+)]
+#[case::smtp_without_host(
+    email(json!({ "provider": "smtp", "to": ["ops@example.com"], "from": "goodfetch@example.com", "smtp": { "port": 587 } })),
+    "email.smtp.host"
+)]
+#[case::ses_without_region(
+    email(json!({ "provider": "ses", "to": ["ops@example.com"], "from": "goodfetch@example.com" })),
+    "email.ses.region"
+)]
+fn an_email_channel_missing_what_its_provider_needs_is_refused(
+    #[case] entry: Value,
+    #[case] key: &str,
+) {
+    let refused = (CHANNEL_SHAPE.check)(&entry).unwrap_err();
+
+    assert!(refused.contains(&format!("`{key}`")), "{refused}");
+}
+
 /// Covers: setting:notifications.channels
 #[test]
 fn each_example_is_a_channel_entry() {

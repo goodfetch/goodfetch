@@ -17,9 +17,11 @@ use std::process::{Command, Stdio};
 
 use goodfetch_confinement::launch::{LAUNCH_VARIABLE, Launch, SHIM_COMMAND};
 use goodfetch_confinement::linux::MechanismKind;
+use goodfetch_confinement::linux::limits::Resource;
 use goodfetch_confinement::linux::probe::{Probe, Report, Request};
 use goodfetch_confinement::policy::{Instance, Policy};
 use goodfetch_confinement::probes::{Access, Errno, Layout, Outcome};
+use goodfetch_confinement::seccomp::Call;
 use goodfetch_protocol::plugin::PluginManifest;
 use rstest::rstest;
 use serde_json::json;
@@ -37,6 +39,11 @@ struct Plugin {
 
 impl Plugin {
     fn new() -> Self {
+        Self::limited(&json!({}))
+    }
+
+    /// A Plugin whose manifest sets `limits`.
+    fn limited(limits: &serde_json::Value) -> Self {
         let root = tempfile::tempdir().unwrap();
         let layout = Layout::under(&fs::canonicalize(root.path()).unwrap());
         for folder in [&layout.bundle, &layout.runtime, &layout.instance] {
@@ -53,6 +60,7 @@ impl Plugin {
             "protocol": { "min": "0.1", "max": "0.1" },
             "entrypoint": "probe",
             "network_level": "none",
+            "limits": limits,
         });
         let manifest = PluginManifest::read(manifest.to_string().as_bytes()).unwrap();
         let instance = Instance {
@@ -95,6 +103,22 @@ impl Plugin {
             .unwrap_or_else(|| panic!("the launcher started no probe: status {code}"))
     }
 
+    /// What the probe reports when it makes `probe` unconfined, with no
+    /// launcher: the positive control.
+    fn unconfined(probe: Probe) -> Report {
+        let request = Request {
+            probe,
+            policy: None,
+            mechanism: None,
+        };
+        let status = Command::new(PROBE)
+            .arg(serde_json::to_string(&request).unwrap())
+            .stdin(Stdio::null())
+            .status()
+            .unwrap();
+        Report::of_status(u8::try_from(status.code().unwrap()).unwrap()).unwrap()
+    }
+
     /// A file beside the Plugin's folders, which its policy grants nothing
     /// of.
     fn elsewhere(&self) -> PathBuf {
@@ -113,11 +137,13 @@ fn read(path: impl AsRef<Path>) -> Probe {
     }
 }
 
-/// Covers: story:7-30
+/// Covers: story:7-30, story:7-21
 #[rstest]
 #[case::its_bundle(|plugin: &Plugin| read(plugin.layout.bundle.join("index.js")), Outcome::Ok)]
 #[case::its_temporary_folder_as_its_working_folder(|_: &Plugin| Probe::Path { access: Access::Write, path: PathBuf::from("written") }, Outcome::Ok)]
 #[case::a_file_outside_its_policy(|plugin: &Plugin| read(plugin.elsewhere()), Outcome::Errno(Errno::Eacces))]
+// Its `processes` limit, 1 by default: at `none`, no process but itself.
+#[case::a_second_process(|_: &Plugin| Probe::Call { call: Call::Fork, args: Vec::new() }, Outcome::Errno(Errno::Eperm))]
 fn a_launched_plugin_runs_confined_from_its_temporary_folder(
     #[case] probe: fn(&Plugin) -> Probe,
     #[case] expected: Outcome,
@@ -134,4 +160,33 @@ fn a_launched_plugin_runs_confined_from_its_temporary_folder(
     let report = plugin.launched(probe(&plugin));
 
     assert_eq!(report, Report::Outcome(expected));
+}
+
+/// Each limit its manifest sets holds a launched Plugin: it may set the
+/// limit to its value, and not one past it, which the probe unconfined
+/// may.
+///
+/// Covers: story:7-21
+#[rstest]
+#[case::memory(Resource::Memory)]
+#[case::cpu_time(Resource::CpuTime)]
+#[case::open_files(Resource::OpenFiles)]
+fn a_launched_plugin_runs_under_each_limit_its_manifest_sets(#[case] resource: Resource) {
+    let plugin = Plugin::limited(&json!({
+        "memory": 64 * 1024 * 1024,
+        "cpu_time": 60,
+        "open_files": 32,
+    }));
+    let at = resource.of(&plugin.policy.limits);
+    let raise = |to| Probe::Raise { resource, to };
+
+    let unconfined = Plugin::unconfined(raise(at + 1));
+    let up_to = plugin.launched(raise(at));
+    let past = plugin.launched(raise(at + 1));
+
+    let ok = Report::Outcome(Outcome::Ok);
+    assert_eq!(
+        (unconfined, up_to, past),
+        (ok, ok, Report::Outcome(Outcome::Errno(Errno::Eperm)))
+    );
 }

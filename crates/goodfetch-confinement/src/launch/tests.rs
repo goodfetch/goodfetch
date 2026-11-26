@@ -67,6 +67,7 @@ fn no_launcher_status_is_one_the_probe_reports() {
         LaunchError::Folder(std::io::Error::other("")),
         LaunchError::Handles(std::io::Error::other("")),
         LaunchError::Start(std::io::Error::other("")),
+        LaunchError::Limits(std::io::Error::other("")),
     ];
 
     let reported: Vec<_> = errors

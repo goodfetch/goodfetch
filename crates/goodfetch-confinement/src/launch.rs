@@ -5,7 +5,8 @@
 //! to the launch's policy, then replaces itself with the Plugin, which
 //! keeps the confinement: an empty environment holding only the policy's
 //! variables and [`COOKIE_VARIABLE`], its private temporary folder as its
-//! working folder, and no handle beyond stdio.
+//! working folder, no handle beyond stdio, and its manifest's resource
+//! limits (`linux::limits`).
 //!
 //! The launcher writes nothing: its stdio are the Plugin's. Before the
 //! Plugin starts, it answers through its exit status alone
@@ -75,6 +76,9 @@ pub enum LaunchError {
     /// The OS refused to start the program.
     #[error("cannot start the Plugin: {0}")]
     Start(io::Error),
+    /// The OS refused one of the Plugin's resource limits.
+    #[error("cannot set the Plugin's resource limits: {0}")]
+    Limits(io::Error),
 }
 
 /// The launcher's exit statuses that tell the host cannot confine a Plugin,
@@ -82,7 +86,7 @@ pub enum LaunchError {
 pub const UNAVAILABLE_STATUSES: [u8; 2] = [247, 248];
 
 impl LaunchError {
-    /// The launcher's exit status for it, from 246 to 252: past every
+    /// The launcher's exit status for it, from 246 to 253: past every
     /// status the confinement probe reports (`linux::probe`), so a runner
     /// that starts the probe through its launcher tells one from the other.
     pub fn status(&self) -> u8 {
@@ -94,6 +98,7 @@ impl LaunchError {
             Self::Folder(_) => 250,
             Self::Handles(_) => 251,
             Self::Start(_) => 252,
+            Self::Limits(_) => 253,
         }
     }
 }
@@ -146,6 +151,11 @@ fn start(launch: &Launch) -> LaunchError {
             )));
         }
         Err(error) => return LaunchError::Folder(error),
+    }
+    // Set once confined, so that a namespace mechanism's former self, which
+    // waits outside, holds none of them.
+    if let Err(error) = crate::linux::limits::limit_self(&launch.policy.limits) {
+        return LaunchError::Limits(error);
     }
     #[expect(
         clippy::disallowed_methods,

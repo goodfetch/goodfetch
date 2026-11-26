@@ -80,6 +80,7 @@ mod linux {
             (Probe::Mechanism, Some(mechanism)) => Report::Mechanism(mechanism),
             (Probe::KernelAbi, None) => kernel_abi(),
             (Probe::UserNamespace, None) => user_namespace(),
+            (Probe::Raise { resource, to }, _) => raised(resource.number(), to),
             (Probe::Mechanism, None) | (Probe::KernelAbi | Probe::UserNamespace, Some(_)) => {
                 Report::Fault(Fault::Request)
             }
@@ -257,6 +258,27 @@ mod linux {
                 .raw_os_error()
                 .map_or(Report::Fault(Fault::ErrnoOutOfRange), Report::errno),
         }
+    }
+
+    /// The report of setting rlimit `number`'s soft and hard limit to `to`.
+    fn raised(number: i64, to: u64) -> Report {
+        let limit = [to, to];
+        // SAFETY: the kernel reads the limit pair from `limit`, which
+        // outlives the call, and writes nothing, as the old pair's pointer
+        // is null.
+        let result = unsafe {
+            libc::syscall(
+                libc::SYS_prlimit64,
+                0_i64,
+                number,
+                limit.as_ptr(),
+                std::ptr::null_mut::<u64>(),
+            )
+        };
+        if result == -1 {
+            return last_errno();
+        }
+        Report::Outcome(Outcome::Ok)
     }
 
     fn last_errno() -> Report {

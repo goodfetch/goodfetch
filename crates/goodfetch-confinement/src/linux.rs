@@ -23,6 +23,7 @@
 //! ([`ConfineError::Unavailable`]).
 
 pub mod host;
+pub mod limits;
 mod mounts;
 mod namespaces;
 pub mod probe;

@@ -15,6 +15,7 @@
 
 use std::sync::Arc;
 
+use goodfetch_engine::run_identity::RunIdentity;
 use goodfetch_engine::runs::outcome::record_outcome;
 use goodfetch_engine::tasks::TaskStarter;
 use goodfetch_protocol::connection::ENGINE_PANICKED;
@@ -63,7 +64,7 @@ impl Sessions {
                 if effect == PageEffect::BrowserCrash {
                     // Its browser is gone: nothing is left to release, and
                     // the page no longer holds the dead browser in its pool.
-                    self.release(run, life).await;
+                    self.release(&run.identity, life).await;
                 }
             }
             PageEffect::ClosedInBrowser
@@ -98,7 +99,7 @@ impl Sessions {
             // A crashed page releases what is left, its admission and its
             // place in its browser, and stays `Crashed`: its later calls
             // raise `page_crashed` again (P33).
-            PageEffect::Release => self.release(run, life).await,
+            PageEffect::Release => self.release(&run.identity, life).await,
             PageEffect::Nothing
             | PageEffect::Serve
             | PageEffect::Wait
@@ -113,17 +114,17 @@ impl Sessions {
         }
     }
 
-    /// The crashed page of `run` whose state `life` is gives back its
-    /// admission and its place in its browser, its events, dialogs and
-    /// routes, and stays `Crashed` for its later calls.
-    async fn release(&self, run: &BrowserRun, life: &PageLife) {
+    /// The crashed page of the Run `identity` names, whose state `life` is,
+    /// gives back its admission and its place in its browser, its events,
+    /// dialogs and routes, and stays `Crashed` for its later calls.
+    async fn release(&self, identity: &RunIdentity, life: &PageLife) {
         let mut state = self.state.lock().await;
         let page_id = life.page_id();
         // It goes into the ended pages before it leaves its Session.
         if let Some(page) = self.index.page(&page_id) {
             state
                 .crashed
-                .insert(page_id.clone(), (run.identity.id().clone(), page.life));
+                .insert(page_id.clone(), (identity.id().clone(), page.life));
             self.index.remove_page(&page_id);
         }
         drop(state);
@@ -207,15 +208,19 @@ impl Sessions {
         run.identity.spawn(task.instrument(span));
     }
 
-    /// Follows the losses of the browsers of `run`'s pool, `losses`, until
-    /// the Run stops: every Session of the Run seated in a lost browser
-    /// takes its loss, one that holds no page included (spec #594's S8 and
-    /// S9).
-    pub(super) fn follow_losses(&self, run: &BrowserRun, mut losses: mpsc::Receiver<BrowserLoss>) {
+    /// Follows the losses of the browsers of the pool of the Run `identity`
+    /// names, `losses`, until the Run stops: every Session of the Run
+    /// seated in a lost browser takes its loss, one that holds no page
+    /// included (spec #594's S8 and S9).
+    pub(super) fn follow_losses(
+        &self,
+        identity: &RunIdentity,
+        mut losses: mpsc::Receiver<BrowserLoss>,
+    ) {
         let sessions = self.clone();
-        let stopping = run.identity.owner().child_token();
-        let run_id = run.identity.id().clone();
-        run.identity.spawn(async move {
+        let stopping = identity.owner().child_token();
+        let run_id = identity.id().clone();
+        identity.spawn(async move {
             loop {
                 let loss = tokio::select! {
                     () = stopping.cancelled() => return,

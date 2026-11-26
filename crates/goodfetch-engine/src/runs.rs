@@ -34,14 +34,16 @@
 //! identity, with its clock and its tasks, and one value per power, such
 //! as its run state's writer, its page bodies and its end, which says
 //! whether `run.finish` let it finish, which a keep-alive crawl waits for
-//! (RT-12). The registry keeps the rest of a live Run (ADR 0145). The program's own status line about its Run (RT-15)
-//! is kept in its run state, which a resume reads back, written into its
-//! Run index row and published as `run.progress`. A Run's progress (ADR
-//! 0102) changes as its registry and its driver change it, a Human pause
-//! beginning or ending included; a read follows it while this engine works
-//! the Run and reads run state otherwise, and a read of a Run another
-//! engine works goes to that engine, the owner the Run index names. On a Daemon, each Run belongs to the Connection that started it,
-//! whose end stops it (ADR 0078).
+//! (RT-12). The registry keeps the rest of a live Run (ADR 0145). The
+//! program's own status line about its Run (RT-15) is kept in its run
+//! state, which a resume reads back, written into its Run index row and
+//! published as `run.progress`. A Run's progress (ADR 0102) changes as
+//! its registry and its driver change it, a Human pause beginning or
+//! ending included; a read follows it while this engine works the Run and
+//! reads run state otherwise, and a read of a Run another engine works
+//! goes to that engine, the owner the Run index names. On a Daemon, each
+//! Run belongs to the Connection that started it, whose end stops it
+//! (ADR 0078).
 //!
 //! Size: one registry actor, its handles and the commands it answers, kept
 //! whole so every change to a Run's state passes through one loop, and

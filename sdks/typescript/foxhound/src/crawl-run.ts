@@ -458,16 +458,14 @@ export function handleRequest(
 
 /**
  * The Run operations whose answers a crawl's Run reads as Foxhound's own
- * types (ADR 0120), each with the Collie type the Connection reads it as
- * first.
+ * types (ADR 0120), each with the fields only Foxhound's type has beside
+ * the Collie type the Connection reads it as first.
  */
-const CRAWL_ANSWERS: Readonly<
-  Partial<Record<string, readonly [FoxhoundWireType, CollieWireType]>>
-> = {
-  "run.finish": ["CrawlRunReport", "RunReport"],
-  "run.stop": ["CrawlRunReport", "RunReport"],
-  "run.report": ["CrawlRunReport", "RunReport"],
-  "run.progress": ["CrawlRunProgress", "RunProgress"],
+const CRAWL_ANSWERS: Readonly<Partial<Record<keyof CollieOperationTypes, WirePath>>> = {
+  "run.finish": crawlOwnFields("CrawlRunReport", "RunReport"),
+  "run.stop": crawlOwnFields("CrawlRunReport", "RunReport"),
+  "run.report": crawlOwnFields("CrawlRunReport", "RunReport"),
+  "run.progress": crawlOwnFields("CrawlRunProgress", "RunProgress"),
 };
 
 /** Both Products' wire types, which a crawl's fields reach. */
@@ -484,21 +482,21 @@ function crawlRunHost(host: RunHost): RunHost {
   const crawlCalls: Caller<CollieOperationTypes> = {
     call: async (operation, params, options) => {
       const answer = await calls.call(operation, params, options);
-      const types = CRAWL_ANSWERS[operation];
-      // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- engine answers are not validated beyond `hello`'s protocol version (STYLE.md): a crawl's report and progress are Collie's with Foxhound's fields beside them.
-      return (types === undefined ? answer : crawlAnswer(answer, ...types)) as typeof answer;
+      const own = CRAWL_ANSWERS[operation];
+      // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- the answer keeps the operation's Collie type, which TypeScript cannot see `fromWire` keep: engine answers are not validated beyond `hello`'s protocol version (STYLE.md), and a crawl's report and progress are Collie's with Foxhound's fields read beside them.
+      return (own === undefined ? answer : fromWire(answer, own, CRAWL_TYPES)) as typeof answer;
     },
   };
   return { ...host, calls: crawlCalls };
 }
 
-/** `answer`, read as Collie's `base`, with the fields only Foxhound's `type` has read too. */
-function crawlAnswer(answer: unknown, type: FoxhoundWireType, base: CollieWireType): unknown {
+/** The fields only Foxhound's `type` has beside Collie's `base`. */
+function crawlOwnFields(type: FoxhoundWireType, base: CollieWireType): WirePath {
   const known = fieldsOf(collieWire.types[base]);
   const own = Object.entries(fieldsOf(foxhoundWire.types[type])).filter(
     ([key]) => !Object.hasOwn(known, key),
   );
-  return fromWire(answer, { fields: Object.fromEntries(own) }, CRAWL_TYPES);
+  return { fields: Object.fromEntries(own) };
 }
 
 /** The fields `path` names, none when it names no object. */

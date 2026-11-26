@@ -1,5 +1,5 @@
 {
-  "description": "A Python Client starts a crawl with its own Run ID, tags and Limits (ADRs 0080 and 0093); its progress answers a crawl's, waiting idle with its requests by state, a request in flight and its concurrency; its stop answers a crawl's report, stopped with a Checkpoint, `incomplete` with a reason naming `crawl.max_requests` and the count it refused, its request totals and its Records per Dataset (ADR 0120); its report answers the same; the Client then closes. TypeScript's `run/foxhound-crawl-report-and-progress.json` is its twin.",
+  "description": "A Python Client starts a crawl with its own Run ID, tags and Limits (ADRs 0080 and 0093); its progress answers a crawl's, waiting idle with its requests by state, a request in flight and its concurrency; its stop answers a crawl's report, stopped with a Checkpoint, `incomplete` with a reason naming `crawl.max_requests` and the count it refused, its request totals and its Records per Dataset (ADR 0120); its report and its finish answer the same; the Client then closes. TypeScript's `run/foxhound-crawl-report-and-progress.json` is its twin.",
   "steps": [
     {
       "expect": {
@@ -152,6 +152,66 @@
     {
       "expect": {
         "method": "run.report",
+        "params": { "run_id": "kept" }
+      }
+    },
+    {
+      "reply": {
+        "result": {
+          "run_id": "kept",
+          "lifecycle": "stopped",
+          "stop_reason": { "kind": "abort", "by": "program" },
+          "verdict": "verified",
+          "completeness": "incomplete",
+          "completeness_reasons": [
+            {
+              "code": "crawl.max_requests",
+              "message": "`crawl.max_requests` refused 1 URL the crawl found.",
+              "count": 1
+            }
+          ],
+          "started_at": "2026-01-01T00:00:00Z",
+          "ended_at": "2026-01-01T00:00:05Z",
+          "usage": {
+            "model": {
+              "calls": 0,
+              "tokens": 0,
+              "input_tokens": 0,
+              "cache_read_tokens": 0,
+              "cache_write_tokens": 0,
+              "output_tokens": 0,
+              "reasoning_tokens": 0,
+              "price": null
+            },
+            "browser_time": 0,
+            "proxy_bytes": 0,
+            "requests": 1
+          },
+          "checkpoint": {
+            "run_id": "kept",
+            "location": "file:///checkpoints/kept",
+            "size": 2048,
+            "digest": "sha256:0f1e2d3c4b5a69788796a5b4c3d2e1f00f1e2d3c4b5a69788796a5b4c3d2e1f0",
+            "run_epoch": 1,
+            "journal_position": 7,
+            "time": "2026-01-01T00:00:05Z"
+          },
+          "requests": {
+            "succeeded": 1,
+            "failed": 0,
+            "skipped": 1,
+            "blocked": 0,
+            "pending": 0,
+            "by_skip_reason": [{ "name": "max_requests", "count": 1 }]
+          },
+          "records": [{ "dataset": "products", "committed": 1, "dropped": 0, "rejected": 0 }],
+          "learned_rules": []
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "run.finish",
         "params": { "run_id": "kept" }
       }
     },

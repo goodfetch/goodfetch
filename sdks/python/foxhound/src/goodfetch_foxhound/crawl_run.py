@@ -515,6 +515,12 @@ class CrawlRun(Run):
         call, or its `timeout` passing, which fails it with `deadline_exceeded`, ends
         only the wait.
 
+        Left out, `timeout` takes the Run's `timeout.run`, by default none. The
+        report is a crawl's: a Run's, with its request totals, its Records per
+        Dataset, its Sinks, its sitemaps and the rules it learned; its
+        Completeness is `incomplete` or `unverified` when a setting cut the crawl
+        short, its reason naming the setting and the count it refused.
+
         Experimental: outside semver until it is promoted (ADR 0030).
         """
         warn_experimental("run.finish")
@@ -533,6 +539,8 @@ class CrawlRun(Run):
         `timeout.close`, or the call's `timeout`: past it, the call fails with
         `deadline_exceeded` and the Run still stops at its next safe point. A Run that
         ended `failed` fails the call as `run.finish` does.
+
+        No attempt in flight commits, and its work items return to pending.
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """

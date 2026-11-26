@@ -24,7 +24,7 @@ use goodfetch_foxhound::{
     Seed, blocking,
 };
 use goodfetch_protocol::result_document::OracleOutcome;
-use goodfetch_test_support::{ProvingGround, TestEnv, real_time_runtime};
+use goodfetch_test_support::{ProvingGround, TestEnv, ToolStatus, real_time_runtime};
 
 use super::catalog::{Product, TASK, crawl_listing, judged};
 use super::crawl::site_settings;
@@ -123,7 +123,7 @@ fn a_retried_handlers_outputs_commit_once_and_its_failed_attempts_are_discarded(
         (records, stored)
     });
 
-    let answer = judged(&site, &records);
+    let answer = judged(&site, ToolStatus::Success, &records);
     assert_eq!(answer.outcome, OracleOutcome::Verified, "{answer:?}");
     let attempts = attempts.lock().unwrap();
     assert!(attempts.len() > 1, "{attempts:?}");

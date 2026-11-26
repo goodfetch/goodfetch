@@ -1,7 +1,7 @@
 """A crawl's own report and progress (ADR 0120) on the Scripted engine (ADR 0069).
 
 `start_crawl` sends the crawl's Run ID, tags and Limits, and its Run's
-`progress()`, `stop()` and `report()` answer Foxhound's `CrawlRunProgress`
+`progress()`, `stop()`, `report()` and `finish()` answer Foxhound's `CrawlRunProgress`
 and `CrawlRunReport`, the crawl's own parts beside every Run's, its
 instants as UTC datetimes. TypeScript's `crawl-run.test.ts` of
 `@goodfetch/foxhound` is its twin.
@@ -98,7 +98,7 @@ def _expect_stopped(report: CrawlRunReport) -> None:
 @pytest.mark.covers("story:11-1080", "story:11-1081", "story:11-1082")
 @pytest.mark.anyio
 async def test_reads_its_progress_until_idle_then_stops_and_reports_a_crawls() -> None:
-    """Its progress, its stop and its report read as a crawl's own."""
+    """Its progress, its stop, its report and its finish read as a crawl's own."""
     crawl = AsyncCrawl()
     listing = crawl.label("listing")
     product = crawl.label("product")
@@ -131,11 +131,13 @@ async def test_reads_its_progress_until_idle_then_stops_and_reports_a_crawls() -
                 break
     stopped = await run.stop()
     report = await run.report()
+    finished = await run.finish()
     await foxhound.close()
 
     _expect_idle(idle)
     _expect_stopped(stopped)
     assert report == stopped
+    assert finished == stopped
     assert played.done() == Finished()
 
 
@@ -173,8 +175,10 @@ def test_a_sync_crawls_run_reads_the_same_progress_stop_and_report() -> None:
                     break
         stopped = run.stop()
         report = run.report()
+        finished = run.finish()
 
     _expect_idle(idle)
     _expect_stopped(stopped)
     assert report == stopped
+    assert finished == stopped
     assert played.done() == Finished()

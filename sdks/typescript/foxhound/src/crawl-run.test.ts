@@ -1,6 +1,6 @@
 // A crawl's own report and progress (ADR 0120) on the Scripted engine (ADR
 // 0069): `startCrawl` sends the crawl's Run ID, tags and Limits, and its
-// Run's `progress()`, `stop()` and `report()` answer Foxhound's
+// Run's `progress()`, `stop()`, `report()` and `finish()` answer Foxhound's
 // `CrawlRunProgress` and `CrawlRunReport`, the crawl's own parts in
 // camelCase and its instants as dates, beside every Run's parts.
 import { playScript, test } from "@goodfetch/test-support";
@@ -32,6 +32,7 @@ describe("a crawl's Run", () => {
       }
       const stopped = await run.stop();
       const report = await run.report();
+      const finished = await run.finish();
 
       expect(idle).toMatchObject({
         idle: true,
@@ -57,6 +58,7 @@ describe("a crawl's Run", () => {
         learnedRules: [],
       });
       expect(report).toEqual(stopped);
+      expect(finished).toEqual(stopped);
       await foxhound.close();
       expect(played.done()).toEqual({ kind: "finished" });
     },

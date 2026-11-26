@@ -212,6 +212,68 @@ pub struct RunKeyMismatchDetails {
     pub fix: String,
 }
 
+/// Why a session export bundle did not open, which
+/// `session_export_open_failed` carries.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum SessionExportFailure {
+    /// The key's value opens none of the bundle's recipients: another age
+    /// identity, or a wrong passphrase.
+    WrongKey,
+    /// The bundle was sealed to a public key, and the key's value is no age
+    /// identity (`AGE-SECRET-KEY-1…`).
+    NotAnIdentity,
+    /// The file is no age file, or what it holds is no session export:
+    /// truncated, changed, or another format.
+    NotABundle,
+    /// The bundle's passphrase asks more scrypt work than the engine does
+    /// for an import.
+    ExcessiveWork,
+    /// What the bundle holds is larger than the engine reads.
+    TooLarge,
+}
+
+impl SessionExportFailure {
+    /// Every value, in declaration order.
+    pub const ALL: [Self; 5] = [
+        Self::WrongKey,
+        Self::NotAnIdentity,
+        Self::NotABundle,
+        Self::ExcessiveWork,
+        Self::TooLarge,
+    ];
+
+    /// Its name as the wire writes it.
+    pub fn as_str(self) -> &'static str {
+        crate::wire_name::of(&self)
+    }
+}
+
+/// A session export bundle did not open under its key (ADRs 0015 and
+/// 0056).
+pub const SESSION_EXPORT_OPEN_FAILED: ErrorCodeDefinition = ErrorCodeDefinition {
+    name: "session_export_open_failed",
+    description: "A session export bundle, encrypted with age to a public key or a passphrase, did not open under the Secret reference given as its `key`: the value opens none of its recipients, is no age identity where the bundle was sealed to a public key, or the file is no bundle, asks more scrypt work than an import does, or holds more than the engine reads. `failure` says which, and the details name the reference, never its value. Give the reference of the identity or passphrase the bundle was exported to, or export it again.",
+    group: ErrorGroup::Program,
+    retryable: false,
+    exit_code: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// What `session_export_open_failed` details.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct SessionExportOpenFailedDetails {
+    /// The Secret reference given as the bundle's key.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub reference: String,
+    /// What failed.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub failure: SessionExportFailure,
+    /// What makes the bundle open.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub fix: String,
+}
+
 fn thirty_seconds() -> Value {
     json!(30_000)
 }
@@ -332,7 +394,7 @@ fn microsoft_entra_id() -> Value {
 /// Secrets Manager answers `aws-sm:` references.
 pub const SECRET_PROVIDERS_AWS_SM_REGION: Setting = Setting {
     name: "secret_providers.aws_sm.region",
-    description: "The AWS Region, such as `eu-west-3`, whose Secrets Manager answers `aws-sm:name#key` Secret references: the engine calls `GetSecretValue` for the secret `name`, signed with the access key in its environment's `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` and, for temporary credentials, `AWS_SESSION_TOKEN`, and answers the secret's text, or its JSON object's `key`. Unset, the default, the engine's environment's `AWS_REGION`, then `AWS_DEFAULT_REGION`, names it; with none, an `aws-sm:` reference fails with `secret_unavailable`, `failure: \"not_configured\"`. Taken only from an Operator policy and user and project configuration.",
+    description: "The AWS Region, such as `eu-west-3`, whose Secrets Manager answers `aws-sm:name#key` Secret references: the engine calls `GetSecretValue` for the secret `name`, signed with the access key in its environment's `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` and, for temporary credentials, `AWS_SESSION_TOKEN`, or else with a role's temporary key, from a web identity token (`AWS_WEB_IDENTITY_TOKEN_FILE` and `AWS_ROLE_ARN`), the container credentials endpoint of ECS or EKS, or the EC2 instance metadata service, and answers the secret's text, or its JSON object's `key`. Unset, the default, the engine's environment's `AWS_REGION`, then `AWS_DEFAULT_REGION`, names it; with none, an `aws-sm:` reference fails with `secret_unavailable`, `failure: \"not_configured\"`. Taken only from an Operator policy and user and project configuration.",
     kind: ValueKind::Text,
     default: no_command,
     clearable: true,
@@ -365,7 +427,7 @@ pub const SECRET_PROVIDERS_AWS_SM_ENDPOINT: Setting = Setting {
 /// `gcp-sm:` references are read from, an Operator-configured endpoint.
 pub const SECRET_PROVIDERS_GCP_SM_ENDPOINT: Setting = Setting {
     name: "secret_providers.gcp_sm.endpoint",
-    description: "The URL of the Google Cloud Secret Manager API that answers `gcp-sm:project/secret/version` Secret references, `https://secretmanager.googleapis.com` by default, or a regional or Private Service Connect endpoint: the engine accesses the secret's version (`latest` for the newest) with the OAuth 2.0 access token in its environment's `GOOGLE_OAUTH_ACCESS_TOKEN`, such as `gcloud auth print-access-token` prints, and answers its payload as text. With no token, a `gcp-sm:` reference fails with `secret_unavailable`, `failure: \"not_configured\"`. It is an Operator-configured endpoint: reached on a private address unless `egress.no_private_endpoints` refuses it, its certificate verified against Mozilla's roots and its own domain's `tls.trusted_cas`, never excepted by `tls.accept_invalid_certs`. Plain `http:` is taken only for a loopback address. Taken only from an Operator policy and user and project configuration.",
+    description: "The URL of the Google Cloud Secret Manager API that answers `gcp-sm:project/secret/version` Secret references, `https://secretmanager.googleapis.com` by default, or a regional or Private Service Connect endpoint: the engine accesses the secret's version (`latest` for the newest) with the OAuth 2.0 access token in its environment's `GOOGLE_OAUTH_ACCESS_TOKEN`, such as `gcloud auth print-access-token` prints, or else one it takes from a service account's key file that `GOOGLE_APPLICATION_CREDENTIALS` names or from the metadata server's service account, and answers its payload as text. With no token, a `gcp-sm:` reference fails with `secret_unavailable`, `failure: \"not_configured\"`. It is an Operator-configured endpoint: reached on a private address unless `egress.no_private_endpoints` refuses it, its certificate verified against Mozilla's roots and its own domain's `tls.trusted_cas`, never excepted by `tls.accept_invalid_certs`. Plain `http:` is taken only for a loopback address. Taken only from an Operator policy and user and project configuration.",
     kind: ValueKind::Text,
     default: gcp_secret_manager,
     clearable: false,
@@ -382,7 +444,7 @@ pub const SECRET_PROVIDERS_GCP_SM_ENDPOINT: Setting = Setting {
 /// endpoint.
 pub const SECRET_PROVIDERS_AZURE_KV_ENDPOINT: Setting = Setting {
     name: "secret_providers.azure_kv.endpoint",
-    description: "The URL of the Azure Key Vault that answers `azure-kv:vault/secret` Secret references, `{vault}` standing for the reference's vault name: `https://{vault}.vault.azure.net` by default, or a sovereign cloud's, such as `https://{vault}.vault.azure.cn`. The engine reads the secret's current version with an access token for Key Vault that Microsoft Entra ID (`secret_providers.azure_kv.authority`) issues to the service principal in its environment's `AZURE_TENANT_ID`, `AZURE_CLIENT_ID` and `AZURE_CLIENT_SECRET`. With any of them unset, an `azure-kv:` reference fails with `secret_unavailable`, `failure: \"not_configured\"`. It is an Operator-configured endpoint: reached on a private address unless `egress.no_private_endpoints` refuses it, its certificate verified against Mozilla's roots and its own domain's `tls.trusted_cas`, never excepted by `tls.accept_invalid_certs`. Plain `http:` is taken only for a loopback address. Taken only from an Operator policy and user and project configuration.",
+    description: "The URL of the Azure Key Vault that answers `azure-kv:vault/secret` Secret references, `{vault}` standing for the reference's vault name: `https://{vault}.vault.azure.net` by default, or a sovereign cloud's, such as `https://{vault}.vault.azure.cn`. The engine reads the secret's current version with an access token for Key Vault, from the first identity its environment gives, in the Azure Identity libraries' order: the service principal of `AZURE_TENANT_ID`, `AZURE_CLIENT_ID` and `AZURE_CLIENT_SECRET`, or the workload identity of `AZURE_FEDERATED_TOKEN_FILE`, whose token Microsoft Entra ID (`secret_providers.azure_kv.authority`) issues, or else the host's managed identity, through `IDENTITY_ENDPOINT` or the instance metadata service; `AZURE_TOKEN_CREDENTIALS` keeps only the sources it names. With no identity, an `azure-kv:` reference fails with `secret_unavailable`, `failure: \"not_configured\"`. It is an Operator-configured endpoint: reached on a private address unless `egress.no_private_endpoints` refuses it, its certificate verified against Mozilla's roots and its own domain's `tls.trusted_cas`, never excepted by `tls.accept_invalid_certs`. Plain `http:` is taken only for a loopback address. Taken only from an Operator policy and user and project configuration.",
     kind: ValueKind::Text,
     default: azure_key_vault,
     clearable: false,
@@ -399,7 +461,7 @@ pub const SECRET_PROVIDERS_AZURE_KV_ENDPOINT: Setting = Setting {
 /// Operator-configured endpoint.
 pub const SECRET_PROVIDERS_AZURE_KV_AUTHORITY: Setting = Setting {
     name: "secret_providers.azure_kv.authority",
-    description: "The URL of the Microsoft Entra ID authority that issues the access token `azure-kv:` references are read with, `https://login.microsoftonline.com` by default, or a sovereign cloud's, such as `https://login.chinacloudapi.cn`: the engine asks `<authority>/<AZURE_TENANT_ID>/oauth2/v2.0/token` for a token of the client-credentials grant. It is an Operator-configured endpoint, judged and verified as `secret_providers.azure_kv.endpoint` is. Taken only from an Operator policy and user and project configuration.",
+    description: "The URL of the Microsoft Entra ID authority that issues the access token `azure-kv:` references are read with, `https://login.microsoftonline.com` by default, or a sovereign cloud's, such as `https://login.chinacloudapi.cn`: the engine asks `<authority>/<AZURE_TENANT_ID>/oauth2/v2.0/token` for a token of the client-credentials grant, with the service principal's secret or the workload identity's federated token. It is an Operator-configured endpoint, judged and verified as `secret_providers.azure_kv.endpoint` is. Taken only from an Operator policy and user and project configuration.",
     kind: ValueKind::Text,
     default: microsoft_entra_id,
     clearable: false,
@@ -442,6 +504,7 @@ pub const ENTRIES: Entries = Entries {
         SECRET_DOMAIN_NOT_ALLOWED,
         SECRET_INPUT_REFUSED,
         RUN_KEY_MISMATCH,
+        SESSION_EXPORT_OPEN_FAILED,
     ],
     plugin_kinds: &[],
     metrics: &[],

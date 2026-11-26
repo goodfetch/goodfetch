@@ -406,6 +406,31 @@ class DatasetRecords(BaseModel):
     """How many the Dataset's schema rejected."""
 
 
+class DatasetSearchParams(BaseModel):
+    """What `dataset.search` takes."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+        arbitrary_types_allowed=True,
+    )
+    after: Annotated[int | None, Field(ge=0)] = None
+    """
+    The number of the last Record of the previous page, its `next`: the
+    page starts after it. Absent, at the first.
+    """
+    dataset: str
+    """The Dataset's name."""
+    limit: Annotated[int | None, Field(ge=1, le=1000)] = None
+    """The most Records the page carries, from 1 to 1000; absent, 100."""
+    run_id: RunId
+    """The crawl's Run."""
+    text: Annotated[str, Field(min_length=1)]
+    """
+    The words a Record holds, each anywhere in its values, in any case
+    and with or without diacritics.
+    """
+
+
 class DatasetSummary(BaseModel):
     """One Dataset a crawl declares, with what its crawl kept of it."""
 
@@ -459,18 +484,6 @@ class EncodingSource(StrEnum):
     """Nothing declared, and the body is valid UTF-8."""
     detected = "detected"
     """The browser's guess, after the request escalated to it."""
-
-
-class EnqueueDocument(BaseModel):
-    """The document a handler read, against which its relative URLs resolve."""
-
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    base_href: str | None = None
-    """The `href` of its first `<base>` element, as written."""
-    url: str
-    """The URL the document was reached at, after every redirect."""
 
 
 class Enqueued1(BaseModel):
@@ -835,6 +848,23 @@ class ForcedBy(StrEnum):
     """The Run's setting."""
     label = "label"
     """The setting of the request's Label."""
+
+
+class FoundRecord(BaseModel):
+    """One Record `record.search` found."""
+
+    model_config = ConfigDict(
+        extra="allow",
+        arbitrary_types_allowed=True,
+    )
+    dataset: str
+    """Its Dataset."""
+    number: Annotated[int, Field(ge=0)]
+    """Its number in its Dataset."""
+    run_id: RunId
+    """The run that returned it."""
+    value: Any
+    """The Record, as JSON."""
 
 
 class GuaranteeClass(StrEnum):
@@ -1289,6 +1319,39 @@ class RecordIssue(BaseModel):
     """What is wrong there."""
     path: str
     """Where in the Record, a JSON Pointer: empty for the Record itself."""
+
+
+class RecordSearchParams(BaseModel):
+    """What `record.search` takes."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+        arbitrary_types_allowed=True,
+    )
+    datasets: list[str] | None = None
+    """The Datasets it searches in each run; absent, every one."""
+    limit: Annotated[int | None, Field(ge=1, le=1000)] = None
+    """The most Records it answers, from 1 to 1000; absent, 100."""
+    runs: Annotated[list[RunId], Field(max_length=100, min_length=1)]
+    """The runs it searches, from 1 to 100."""
+    text: Annotated[str, Field(min_length=1)]
+    """
+    The words a Record holds, each anywhere in its values, in any case
+    and with or without diacritics.
+    """
+
+
+class RecordSearchResult(BaseModel):
+    """What `record.search` answers."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    records: list[FoundRecord]
+    """
+    The Records that hold every word, the best matches first, then by
+    run, Dataset and number.
+    """
 
 
 class RecordsRead(BaseModel):
@@ -2209,11 +2272,6 @@ class CrawlRequestEnqueueParams(BaseModel):
     """The body it is sent with, if any."""
     crawl_request_id: str
     """The ID of the crawl request whose attempt enqueues."""
-    document: EnqueueDocument | None = None
-    """
-    The document the handler read, whose base URL a relative `url`
-    resolves against; absent, the crawl request's own URL is the base.
-    """
     forefront: bool | None = False
     """
     Whether it goes ahead of every request its domain holds pending,
@@ -2233,6 +2291,15 @@ class CrawlRequestEnqueueParams(BaseModel):
     """The attempt's lease epoch, as `crawl_request.handle` gave it."""
     method: HttpMethod | None = None
     """The method it is sent with: `GET` by default."""
+    page_id: PageId | None = None
+    """
+    The page the attempt was given, whose document's base URL a relative
+    `url` resolves against: its `<base href>`, resolved against the URL
+    the document was reached at after its redirects, or that URL
+    itself. Absent, for an attempt given no page, the crawl request's
+    own URL is the base. A page no fetch tier serves fails a relative
+    `url` with `closed`.
+    """
     payload: Any | None = None
     """The data the program attaches for its handler."""
     priority: int | None = 0
@@ -3151,6 +3218,18 @@ class DatasetRecord(BaseModel):
     """That crawl request's URL."""
     value: Any
     """The Record, as JSON; the program's schema parses it."""
+
+
+class DatasetSearchPage(BaseModel):
+    """One page of `dataset.search`."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    next: Annotated[int | None, Field(ge=0)] = None
+    """The next page's `after`; absent once no Record follows."""
+    records: list[DatasetRecord]
+    """The Records that hold every word, in number order."""
 
 
 class DatasetPage(BaseModel):

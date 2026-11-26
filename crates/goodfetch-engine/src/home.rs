@@ -12,7 +12,8 @@ use std::path::{Path, PathBuf};
 use goodfetch_protocol::connection::ProductVersion;
 use goodfetch_protocol::home::{
     AUDIT_LOG, AUDIT_LOG_HEAD, ENGINE_KEY_LOCK, KNOWN_CERTIFICATES, LOGS, PLUGIN_INSTANCES,
-    PLUGINS, POLITENESS_FILE, RUN_INDEX, RUNS, SECRET_FILES, USAGE_LEDGER, per_major,
+    PLUGINS, POLITENESS_FILE, RESPONSE_CACHE, RUN_INDEX, RUNS, SECRET_FILES, USAGE_LEDGER,
+    per_major,
 };
 
 /// One user's Goodfetch data folder, and the copy of the Browser cache
@@ -67,6 +68,12 @@ impl Home {
     /// The per-major Run index's file.
     pub fn run_index(&self, version: &ProductVersion) -> PathBuf {
         self.per_major(version).join(RUN_INDEX)
+    }
+
+    /// The per-major Response cache's folder, which an upgrade never copies
+    /// (ADR 0046).
+    pub fn response_cache(&self, version: &ProductVersion) -> PathBuf {
+        self.per_major(version).join(RESPONSE_CACHE)
     }
 
     /// The per-user Usage ledger's file, outside the per-major folders, which

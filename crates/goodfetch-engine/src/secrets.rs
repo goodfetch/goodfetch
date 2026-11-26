@@ -38,17 +38,20 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use goodfetch_protocol::audit::{Actor, SECRET_REFERENCE_USED};
+use goodfetch_protocol::catalog::SharedTypeValue;
 use goodfetch_protocol::page::access_mode::IDENTIFIED_SIGNING_KEY;
 use goodfetch_protocol::run::RunId;
 use goodfetch_protocol::secret_reference::{Provider, SecretReference};
 use goodfetch_protocol::secrets::placeholders::{BoundPlaceholder, SECRETS_PLACEHOLDERS};
 use goodfetch_protocol::secrets::{
     KEY_REFERENCE_IN_FILE, KEY_REFERENCE_IN_KEYCHAIN, RUN_STATE_KEY_REFERENCE,
-    SECRETS_RESOLVE_EACH_USE, SecretFailure, SecretInputRefusedReason,
+    SECRETS_RESOLVE_EACH_USE, SecretFailure, SecretInputRefusedReason, TIMEOUT_SECRET,
 };
+use goodfetch_protocol::security::SECURITY_REDACTION;
 use goodfetch_protocol::settings::SettingsLayer;
+use goodfetch_protocol::tls::TLS_CLIENT_CERTIFICATES;
 use secrecy::{ExposeSecret as _, SecretString};
-use serde_json::json;
+use serde_json::{Value, json};
 use subtle::ConstantTimeEq as _;
 
 pub use keychain::Keychain;
@@ -153,7 +156,8 @@ impl std::fmt::Debug for PartyText {
 /// What a Product's provider is built from for one Run: the Run's resolved
 /// settings, with its `secret_providers.<scheme>.*`, the engine's
 /// environment map (ADR 0083), where a provider's own sign-in is, the
-/// engine's clock, and the blocking threads its reads of files run on.
+/// engine's clock, the blocking threads its reads of files run on, and the
+/// driver its endpoint's client-certificate key is read through.
 #[derive(Clone, Copy, Debug)]
 pub struct ProviderInputs<'a> {
     /// The Run's resolved settings.
@@ -165,6 +169,11 @@ pub struct ProviderInputs<'a> {
     /// The blocking threads of the Secrets' owner, on which a provider
     /// reads files, such as its endpoint's `tls.trusted_cas` (issue 2106).
     pub blocking: &'a BlockingThreads,
+    /// The driver that reads the keys of the client certificates the
+    /// settings' `tls.client_certificates` lists for the
+    /// Operator-configured endpoints: this one before the Run's configured
+    /// providers join it (issue 1648). None when nothing is listed.
+    pub endpoint_keys: Option<&'a RunSecrets>,
 }
 
 /// Builds a Product's provider for each Run from [`ProviderInputs`], since
@@ -377,6 +386,45 @@ impl std::fmt::Debug for Secrets {
             .field("providers", &self.0.providers.keys().collect::<Vec<_>>())
             .finish_non_exhaustive()
     }
+}
+
+/// The engine's driver, once the engine has built it, for a part made
+/// before the engine, such as the OTLP exports' client, whose endpoint's
+/// client-certificate key the driver reads (issue 1648). Empty until the
+/// engine fills it. Clones share it.
+#[derive(Clone, Debug, Default)]
+pub struct DriverSlot(Arc<std::sync::OnceLock<Secrets>>);
+
+impl DriverSlot {
+    /// Fills the slot with `secrets`; a slot already filled keeps its
+    /// driver.
+    pub fn fill(&self, secrets: &Secrets) {
+        let _ = self.0.set(secrets.clone());
+    }
+
+    /// What the keys of the client certificates `settings`, the machine's,
+    /// list for the Operator-configured endpoints resolve through: the
+    /// driver with the providers every engine carries alone, bounded by
+    /// their `timeout.secret` and masked unless their
+    /// `security.redaction` is off; none until the slot is filled.
+    pub fn endpoint_keys(&self, settings: &Resolved) -> Option<RunSecrets> {
+        let redaction = if settings.get::<bool>(&SECURITY_REDACTION) {
+            Redaction::On
+        } else {
+            Redaction::Off
+        };
+        let secrets = self.0.get()?;
+        Some(secrets.for_run_with(settings.get::<Duration>(&TIMEOUT_SECRET), redaction))
+    }
+}
+
+/// Whether `settings`' `tls.client_certificates` lists any certificate,
+/// whose key an endpoint would read.
+pub(crate) fn lists_client_certificates(settings: &Resolved) -> bool {
+    settings
+        .value(&TLS_CLIENT_CERTIFICATES)
+        .as_object()
+        .is_some_and(|listed| !listed.is_empty())
 }
 
 impl Secrets {
@@ -610,7 +658,9 @@ impl Secrets {
 
     /// What one Run resolves through, as [`Secrets::for_run_with`], each
     /// provider a Product builds for each Run built from `settings`, the
-    /// Run's resolved settings.
+    /// Run's resolved settings. The keys of the client certificates those
+    /// providers' endpoints present are read through this driver as it is
+    /// before they join it, so through the carried providers alone.
     pub fn for_run_under(
         &self,
         settings: &Resolved,
@@ -619,6 +669,8 @@ impl Secrets {
     ) -> RunSecrets {
         let mut secrets = self.clone();
         if !self.0.configured.is_empty() {
+            let endpoint_keys =
+                lists_client_certificates(settings).then(|| self.for_run_with(timeout, redaction));
             let shared = Arc::make_mut(&mut secrets.0);
             let blocking = self.0.owner.blocking_threads();
             let inputs = ProviderInputs {
@@ -626,6 +678,7 @@ impl Secrets {
                 environment: &self.0.environment,
                 clock: self.0.clock,
                 blocking: &blocking,
+                endpoint_keys: endpoint_keys.as_ref(),
             };
             for (provider, factory) in &self.0.configured {
                 shared
@@ -981,19 +1034,31 @@ impl RunSecrets {
             "reference": reference.as_str(),
             "domain": purpose.domain,
         });
-        let now = self.0.secrets.0.clock.timestamp();
-        self.0
-            .secrets
-            .0
-            .audit
-            .record(&origin, &SECRET_REFERENCE_USED, details, now)
+        self.audit(&origin, &SECRET_REFERENCE_USED, details)
             .await
-            .map(|_| ())
             .map_err(|source| SecretError::Unrecorded {
                 placeholder: purpose.placeholder.to_owned(),
                 reference: reference.clone(),
                 source,
             })
+    }
+
+    /// Records `kind` by `origin` with `details` in the Audit log every
+    /// resolution is recorded in.
+    pub(crate) async fn audit(
+        &self,
+        origin: &Origin,
+        kind: &'static SharedTypeValue,
+        details: Value,
+    ) -> Result<(), AuditError> {
+        let now = self.0.secrets.0.clock.timestamp();
+        self.0
+            .secrets
+            .0
+            .audit
+            .record(origin, kind, details, now)
+            .await
+            .map(|_| ())
     }
 }
 

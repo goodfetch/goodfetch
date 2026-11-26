@@ -3,13 +3,15 @@
 // --journey` holds to that Journey's file. These tests start runs from
 // fixture files, which carry IDs no catalog tag names, so they carry no tag
 // and declare no Feature.
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect } from "vitest";
 import {
+  journey,
   startJourneyRun,
   test as base,
   toolPath,
+  type BrowserDownload,
   type JourneyRun,
   type ProcessRecord,
   type TestEnvDescription,
@@ -26,11 +28,11 @@ async function read(
   processes: ProcessRecord,
   testEnv: TestEnvDescription,
   document: string,
-  journey: string,
+  journeyFile: string,
 ): Promise<number | null> {
   const reader = processes.spawn(
     toolPath(testEnv.tools, "conformance"),
-    ["read", document, "--journey", fixture(journey)],
+    ["read", document, "--journey", fixture(journeyFile)],
     { env: testEnv.env },
   );
   reader.child.stdin.end();
@@ -71,17 +73,19 @@ interface JourneyRunFixtures {
     file: string,
     surface: string,
     env?: Readonly<Record<string, string | undefined>>,
+    browserDownload?: BrowserDownload,
   ) => Promise<JourneyRun>;
 }
 
 const test = base.extend<JourneyRunFixtures>({
   startRun: async ({ processes, toolManifest, task }, use) => {
     const runs: JourneyRun[] = [];
-    await use(async (file, surface, env) => {
+    await use(async (file, surface, env, browserDownload) => {
       const run = await startJourneyRun({
         file: fixture(file),
         surface,
         env,
+        browserDownload,
         processes,
         testName: task.fullName,
         toolManifest,
@@ -204,6 +208,19 @@ describe("startJourneyRun", () => {
     expect(written(finished.path).proving_ground?.seed).toBe(961);
   });
 
+  test("starts a variant downloading its browser on an empty Browser cache beside its Proving ground", async ({
+    startRun,
+  }) => {
+    const run = await startRun("J-961.toml", "sdk-typescript", undefined, "served");
+
+    run.finish();
+
+    const cache = run.env["GOODFETCH_BROWSERS_PATH"];
+    expect(cache).toBeDefined();
+    expect(readdirSync(cache ?? "")).toEqual([]);
+    expect(run.provingGround?.seed).toBe(961);
+  });
+
   test("records the steps after a failed step not reached and the manual step manual", async ({
     startRun,
     processes,
@@ -284,5 +301,23 @@ describe("startJourneyRun", () => {
     await expect(startRun("J-961.toml", "cli")).rejects.toMatchObject({
       code: "surface_unlisted",
     });
+  });
+});
+
+describe("journey", () => {
+  test("refuses a test not named <id>@<surface> and tagged with both", async ({
+    processes,
+    toolManifest,
+    task,
+  }) => {
+    let ran = false;
+    const body = journey(() => {
+      ran = true;
+    });
+
+    await expect(body({ processes, toolManifest, task })).rejects.toMatchObject({
+      code: "journey_misdeclared",
+    });
+    expect(ran).toBe(false);
   });
 });

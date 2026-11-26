@@ -8,13 +8,13 @@ use crate::catalog::{
 use crate::{
     audit, block, browser_cache, checkpoint, connection, daemon, dns, download, effect, egress,
     engine, events, executables, foxhound, governor, hook, hostile_input, key_value_store, log,
-    model, needs_you, ops, page, plugin, politeness, response_limits, run, sample,
-    schema_validator, secrets, security, settings, site_preferences, skills, storage, tls, usage,
-    versions,
+    model, needs_you, ops, page, plugin, politeness, recipe, response_cache, response_limits, run,
+    sample, schedule, schema_validator, secrets, security, settings, site_preferences, skills,
+    storage, tls, usage, versions,
 };
 
 /// Every module that defines entries.
-pub const MODULES: [&Entries; 61] = [
+pub const MODULES: [&Entries; 66] = [
     &connection::ENTRIES,
     &log::ENTRIES,
     &daemon::ENTRIES,
@@ -25,6 +25,7 @@ pub const MODULES: [&Entries; 61] = [
     &dns::ENTRIES,
     &egress::ENTRIES,
     &response_limits::ENTRIES,
+    &response_cache::ENTRIES,
     &hostile_input::ENTRIES,
     &tls::ENTRIES,
     &engine::ENTRIES,
@@ -47,6 +48,7 @@ pub const MODULES: [&Entries; 61] = [
     &secrets::ENTRIES,
     &security::ENTRIES,
     &sample::ENTRIES,
+    &schedule::ENTRIES,
     &settings::ENTRIES,
     &settings::edit::ENTRIES,
     &usage::ENTRIES,
@@ -59,6 +61,7 @@ pub const MODULES: [&Entries; 61] = [
     &hook::ENTRIES,
     &plugin::ENTRIES,
     &plugin::extractor::ENTRIES,
+    &recipe::ENTRIES,
     &foxhound::ENTRIES,
     &foxhound::crawl::ENTRIES,
     &foxhound::fetch::ENTRIES,
@@ -74,6 +77,8 @@ pub const MODULES: [&Entries; 61] = [
     &foxhound::settings::ENTRIES,
     &foxhound::sink::ENTRIES,
     &foxhound::sql_tab::ENTRIES,
+    &foxhound::search::ENTRIES,
+    &foxhound::erase::ENTRIES,
     &foxhound::block::ENTRIES,
     &foxhound::usage::ENTRIES,
 ];
@@ -247,7 +252,7 @@ mod tests {
     }
 
     /// Collie's operations, in the catalog's order.
-    const COLLIE: [&str; 94] = [
+    const COLLIE: [&str; 99] = [
         "connection.set_log_level",
         "daemon.status",
         "daemon.stop",
@@ -335,6 +340,11 @@ mod tests {
         "audit.export",
         "audit.verify",
         "sample.echo",
+        "schedule.create",
+        "schedule.list",
+        "schedule.get",
+        "schedule.info",
+        "schedule.delete",
         "config.explain",
         "config.policy_read",
         "config.policy_write",
@@ -376,6 +386,9 @@ mod tests {
                     "run.retry_failed",
                     "run.rejected_records",
                     "dataset.query",
+                    "dataset.search",
+                    "record.search",
+                    "dataset.erase",
                 ],
             ]
             .concat()

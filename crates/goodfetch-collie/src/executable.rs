@@ -7,7 +7,7 @@
 //! clean`, `config explain`,
 //! `daemon start|stop|restart|status|health|install|uninstall|rotate-token|http-listener-token|run`,
 //! with the hidden `daemon launched` a start or the installed service
-//! runs, `runs reindex`, `skill install` and `upgrade-files`, beside the
+//! runs, `init`, `needs-you answer`, `runs reindex`, `skill install` and `upgrade-files`, beside the
 //! commands the `catalog_commands` module generates from the catalog for
 //! every other namespace, such as `run start` and `engine info`, and `--color
 //! auto|always|never` on every command; the CLI's other commands join with
@@ -19,6 +19,10 @@
 //! Plugin's launcher, which the engine's Plugin host starts (ADR 0033,
 //! `goodfetch_confinement::launch`): before any other set-up, it reads its
 //! launch from its one variable, confines itself and becomes the Plugin.
+//!
+//! Size: one concern, the executables' entry: the command line both
+//! Products share, the set-up every command runs first and each command's
+//! dispatch to the module that serves it.
 //!
 //! An executable more than three months past its release date prints the
 //! age notice on stderr before its command, once a day, unless
@@ -70,6 +74,7 @@ use goodfetch_engine::home::{Home, RunStateLocation};
 use goodfetch_engine::log::LogEvents;
 use goodfetch_engine::mask::Masks;
 use goodfetch_engine::run_state::RunStateOptions;
+use goodfetch_engine::secrets::DriverSlot;
 use goodfetch_engine::settings::{Resolved, SettingsError, SettingsFiles, get_or_default};
 use goodfetch_engine::tasks::BlockingPolicy;
 use goodfetch_engine::transport::{self, Network};
@@ -84,6 +89,8 @@ use output::{ColourChoice, ColourFlag, Human};
 use settings_flags::SettingsFlags;
 
 pub use command_line::printed_command_line;
+pub use init::{StarterFile, Starters};
+pub use needs_you::{Confirmation, ItemAnswer, ItemPrompt};
 pub use skills::{SkillFile, Skills};
 
 use crate::linked::home;
@@ -104,15 +111,18 @@ mod doctor;
 pub mod engine_choice;
 pub mod exit_codes;
 mod identity;
+mod init;
 mod limit_flags;
 mod log_file;
 mod logs;
 mod metrics;
+mod needs_you;
 pub mod operation;
 mod other_product;
 mod otlp;
 pub mod output;
-mod prompts;
+pub mod prompts;
+mod recipe;
 mod runs;
 mod service;
 mod settings_flags;
@@ -193,20 +203,42 @@ enum Command {
     },
     /// Checks the installation: Goodfetch home, the installed executables,
     /// the Daemon, the version it runs and the browser build a Run
-    /// launches, with a fix for each finding not in order. Exits 0
-    /// whatever it finds.
+    /// launches, with a fix for each finding not in order, and writes a
+    /// bug-report file to attach to an issue, which it sends nowhere. Exits
+    /// 0 whatever it finds.
     Doctor {
         /// Prints the findings as JSON.
         #[arg(long)]
         json: bool,
+        /// Keeps each URL in the bug-report file whole, but its
+        /// credentials; without it, each is reduced to its scheme and host.
+        #[arg(long)]
+        include_urls: bool,
         #[command(flatten)]
         _colour: ColourFlag,
     },
+    /// `init`, whose help is its arguments' doc comment, which clap reads
+    /// in place of this one.
+    Init(init::Arguments),
     /// Starts, stops and shows the Daemon of this executable's major, which
     /// both Products share.
     Daemon {
         #[command(subcommand)]
         command: DaemonCommand,
+        #[command(flatten)]
+        _colour: ColourFlag,
+    },
+    /// Lists what waits for a person, and takes them through it.
+    NeedsYou {
+        #[command(subcommand)]
+        command: needs_you::NeedsYouCommand,
+        #[command(flatten)]
+        _colour: ColourFlag,
+    },
+    /// Starts a Recipe and prints the digest that names a version of one.
+    Recipe {
+        #[command(subcommand)]
+        command: recipe::RecipeCommand,
         #[command(flatten)]
         _colour: ColourFlag,
     },
@@ -389,6 +421,9 @@ pub struct Start {
     /// [`Skills::COLLIE`] for Collie's, Foxhound's own from Foxhound's
     /// crate.
     pub skills: Skills,
+    /// The starters it carries, which `init` writes: [`Starters::COLLIE`]
+    /// for Collie's.
+    pub starters: Starters,
     /// Its command line, as the OS gave it.
     pub arguments: Vec<OsString>,
     /// Its environment, which `main` reads once (ADR 0059).
@@ -400,7 +435,7 @@ pub struct Start {
 /// # Examples
 ///
 /// ```no_run
-/// use goodfetch_collie::executable::{OwnCommands, Skills, Start, main};
+/// use goodfetch_collie::executable::{OwnCommands, Skills, Start, Starters, main};
 /// use goodfetch_protocol::catalog::Product;
 ///
 /// let exit_code = main(&Start {
@@ -410,6 +445,7 @@ pub struct Start {
 ///     composition: goodfetch_collie::composition,
 ///     commands: OwnCommands::COLLIE,
 ///     skills: Skills::COLLIE,
+///     starters: Starters::COLLIE,
 ///     arguments: vec!["goodfetch-collie".into(), "--version".into()],
 ///     environment: Default::default(),
 /// });
@@ -452,6 +488,7 @@ pub fn main(start: &Start) -> ExitCode {
     let clock = Clock::system();
     let log_events = LogEvents::new();
     let masks = Masks::new();
+    let keys = DriverSlot::default();
     let launched = logs::Process::of(&parsed) == logs::Process::DaemonLaunched;
     let (logs, entropy) = match observe(
         start,
@@ -463,7 +500,7 @@ pub fn main(start: &Start) -> ExitCode {
         &parsed,
         clock,
         &log_events,
-        &masks,
+        (&masks, &keys),
     ) {
         Ok(installed) => installed,
         Err(exit) => return exit,
@@ -483,6 +520,7 @@ pub fn main(start: &Start) -> ExitCode {
         // Settings that cannot be read keep the drain grace's default.
         Ok(engine) => instrumented(engine, log_events, logs.audit_events())
             .with_masks(masks)
+            .with_driver_slot(keys)
             .with_drain_grace(get_or_default(read, &DRAIN_GRACE)),
         Err(error) => {
             tracing::error!(%error, "the composition cannot start an engine");
@@ -517,7 +555,7 @@ pub fn main(start: &Start) -> ExitCode {
         parsed,
         (&engine, dependencies),
         &settings,
-        (start.commands, start.skills),
+        (start.commands, start.skills, start.starters),
         &environment,
         &human,
     )
@@ -614,8 +652,10 @@ fn instrumented(
 /// settings of the machine's `settings`, their defaults when they cannot be
 /// read, so that the command can log why, and its crash reports, and answers
 /// it with the process's `Entropy` from the OS, a fork of which draws its
-/// export's trace and span IDs; fails once it has logged why the logs cannot
-/// go where the `log.*` settings say, with the Error code (ADR 0122).
+/// export's trace and span IDs; its exports' collector reads its client
+/// certificate's key through the driver the engine fills `keys` with. Fails
+/// once it has logged why the logs cannot go where the `log.*` settings say,
+/// with the Error code (ADR 0122).
 fn observe(
     start: &Start,
     binary: &str,
@@ -623,7 +663,7 @@ fn observe(
     parsed: &Parsed,
     clock: Clock,
     log_events: &LogEvents,
-    masks: &Masks,
+    (masks, keys): (&Masks, &DriverSlot),
 ) -> Result<(logs::Installed, Result<Entropy, NoSeed>), ExitCode> {
     let mut entropy = Entropy::from_os();
     let handles = logs::Handles {
@@ -644,6 +684,7 @@ fn observe(
         settings,
         events: log_events,
         masks,
+        keys,
         product: start.product,
         handles,
     });
@@ -709,12 +750,13 @@ fn records_the_executable(parsed: &Parsed) -> bool {
 }
 
 /// Runs the command `parsed` asks for on `engine`, once the executable is
-/// set up, among `own` commands, with the `skills` it carries.
+/// set up, among `own` commands, with the `skills` and `starters` it
+/// carries.
 fn run(
     parsed: Parsed,
     (engine, dependencies): (&Engine, Dependencies),
     settings: &Result<Resolved, SettingsError>,
-    (own, skills): (OwnCommands, Skills),
+    (own, skills, starters): (OwnCommands, Skills, Starters),
     environment: &BTreeMap<OsString, OsString>,
     human: &Human,
 ) -> ExitCode {
@@ -773,7 +815,10 @@ fn run(
             },
             human,
         ),
-        Command::Doctor { json, .. } => doctor::doctor(&machine, json),
+        Command::Doctor {
+            json, include_urls, ..
+        } => doctor::doctor(&machine, json, include_urls),
+        Command::Init(arguments) => init::init(starters, arguments, engine.identity(), human),
         Command::Daemon { command, .. } => {
             daemon_command(command, engine, dependencies, &machine, human)
         }
@@ -796,6 +841,16 @@ fn run(
         }
         Command::Certs { command, .. } => {
             certs::run(command, engine, dependencies, &machine, human)
+        }
+        Command::NeedsYou { command, .. } => needs_you::run(
+            command,
+            (engine, dependencies),
+            &machine,
+            own.answers,
+            human,
+        ),
+        Command::Recipe { command, .. } => {
+            recipe::run(command, engine, dependencies, &machine, human)
         }
         Command::Skill { command, .. } => command.run(skills, environment, human),
         Command::UpgradeFiles { from, json, .. } => {

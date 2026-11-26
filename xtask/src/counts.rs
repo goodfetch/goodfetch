@@ -217,7 +217,7 @@ const LARGE: &str = "large_params";
 
 /// Every row with a counter. Adding one here, with its counter and its
 /// plant in the family's benchmark, is what gives a row its command.
-const ROWS: [Row; 141] = [
+const ROWS: [Row; 148] = [
     Row {
         name: "F1.parses",
         family: "B1",
@@ -510,6 +510,29 @@ const ROWS: [Row; 141] = [
         happens: false,
         valgrind: None,
     },
+    // Per event the browser sent, on any session: the readers the driver
+    // visits to hand it on.
+    Row {
+        name: "C1.event_visits",
+        family: "B2",
+        unit: "events",
+        happens: true,
+        valgrind: None,
+    },
+    Row {
+        name: "C1.pending_orphans",
+        family: "B2",
+        unit: "commands",
+        happens: false,
+        valgrind: None,
+    },
+    Row {
+        name: "C1.event_decodes",
+        family: "B2",
+        unit: "events",
+        happens: true,
+        valgrind: None,
+    },
     // C7, page opening in the browser pool: B2's pool cell opens its pages
     // in a pool its scripted launcher starts (ADR 0143); the Borrowed
     // browser of its other cells skips the pool's walk.
@@ -534,6 +557,15 @@ const ROWS: [Row; 141] = [
         family: "B2",
         unit: "sessions_opened",
         happens: false,
+        valgrind: None,
+    },
+    // The tasks and actors a page's opening starts itself, its Page's owner
+    // among them (ADR 0146); those they start in turn are theirs.
+    Row {
+        name: "C7.page_tasks",
+        family: "B2",
+        unit: "pages_opened",
+        happens: true,
         valgrind: None,
     },
     Row {
@@ -583,6 +615,15 @@ const ROWS: [Row; 141] = [
         family: "B3",
         unit: "requests",
         happens: true,
+        valgrind: None,
+    },
+    // 0 in every cell: dispatch reads a Connection's principal from memory
+    // (ADR 0149), so the row has no counting site but its plant's.
+    Row {
+        name: "E1.store_reads",
+        family: "B3",
+        unit: "incoming_messages",
+        happens: false,
         valgrind: None,
     },
     Row {
@@ -964,6 +1005,15 @@ const ROWS: [Row; 141] = [
         happens: true,
         valgrind: None,
     },
+    // An engine read's ask to its Page's owner (ADR 0146): one per read, a
+    // wait asking once for all its checks.
+    Row {
+        name: "C2.owner_round_trips",
+        family: "B2",
+        unit: "reads",
+        happens: true,
+        valgrind: None,
+    },
     Row {
         name: "C5.fetch_messages_no_rule",
         family: "B2",
@@ -974,7 +1024,7 @@ const ROWS: [Row; 141] = [
     Row {
         name: "C5.spawns",
         family: "B2",
-        unit: "refusals",
+        unit: "pauses",
         happens: false,
         valgrind: None,
     },
@@ -1048,6 +1098,15 @@ const ROWS: [Row; 141] = [
         happens: true,
         valgrind: None,
     },
+    // An action attempt's ask to its Page's owner (ADR 0146), over every
+    // kind's attempts.
+    Row {
+        name: "C3.owner_round_trips",
+        family: "B2",
+        unit: "attempts",
+        happens: true,
+        valgrind: None,
+    },
     Row {
         name: "C4.detection_reads",
         family: "B2",
@@ -1107,7 +1166,7 @@ const fn working_copy_row(name: &'static str, builder: &'static str) -> NotRunYe
 const WORKING_COPY: &str = "#1689";
 const MERGE_HOST: &str = "#1998";
 
-const NOT_RUN_YET: [NotRunYet; 26] = [
+const NOT_RUN_YET: [NotRunYet; 27] = [
     NotRunYet {
         name: "F5.messages_no_hook",
         family: "B1",
@@ -1203,13 +1262,19 @@ const NOT_RUN_YET: [NotRunYet; 26] = [
     NotRunYet {
         name: "C5.cache_lookups",
         family: "B2",
-        builder: "#793",
+        builder: "#796",
         capped: true,
     },
     NotRunYet {
         name: "C5.cache_file_opens",
         family: "B2",
-        builder: "#793",
+        builder: "#796",
+        capped: true,
+    },
+    NotRunYet {
+        name: "C5.cache_body_writes",
+        family: "B2",
+        builder: "#796",
         capped: true,
     },
     NotRunYet {

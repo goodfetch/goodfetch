@@ -59,7 +59,7 @@ pub(super) fn runs_a_script(url: &str) -> bool {
 /// waits for: the navigation it named, or none when no document loads;
 /// else how it ended. `superseded` says the engine started another
 /// navigation of the page after it.
-pub(super) fn navigated(
+pub(crate) fn navigated(
     url: &str,
     navigated: page::NavigateReturns,
     superseded: bool,
@@ -83,7 +83,7 @@ pub(super) fn navigated(
 
 /// Which navigation is the call's.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(super) enum Expected {
+pub(crate) enum Expected {
     /// The one loading this document, which `Page.navigate` named.
     Loader(LoaderId),
     /// The one `Page.navigate` named, which the browser turned into a
@@ -113,7 +113,7 @@ pub(crate) enum Arrived {
 
 /// How a navigation ended without a document.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(super) enum Ended {
+pub(crate) enum Ended {
     /// The browser failed it with this network error.
     Failed(NetError),
     /// Another navigation superseded it before it committed.
@@ -134,7 +134,7 @@ pub(super) enum Ended {
 
 /// How a navigation's command and the main frame's events left it.
 #[derive(Debug, PartialEq, Eq)]
-pub(super) enum Followed {
+pub(crate) enum Followed {
     /// It reached this end; `expected` is the navigation the command's
     /// answer named, when it named one.
     Ended {
@@ -147,7 +147,7 @@ pub(super) enum Followed {
 
 /// What the main frame's events said so far.
 #[derive(Debug)]
-pub(super) struct Navigation {
+pub(crate) struct Navigation {
     frame: FrameId,
     /// Each navigation the main frame started, in order, and whether it
     /// stays within its document.
@@ -203,7 +203,7 @@ enum Unload {
 impl Navigation {
     /// A navigation of `frame`, the page's main frame, whose events start
     /// now.
-    pub(super) fn of(frame: FrameId) -> Self {
+    pub(crate) fn of(frame: FrameId) -> Self {
         Self {
             frame,
             started: Vec::new(),
@@ -240,7 +240,7 @@ impl Navigation {
     /// of the load before this navigation's, which its start then makes an
     /// earlier load's, would end a failed navigation before the browser's
     /// error page for it replaced the document.
-    pub(super) async fn follow(
+    pub(crate) async fn follow(
         &mut self,
         command: impl Future<Output = Result<Result<Option<Expected>, Ended>, CallError>>,
         events: &mut Subscription,
@@ -278,7 +278,7 @@ impl Navigation {
     }
 
     /// Takes in one event of the page's target.
-    pub(super) fn feed(&mut self, event: &RawEvent) {
+    pub(crate) fn feed(&mut self, event: &RawEvent) {
         if event.method == CRASHED {
             self.crashed = true;
         } else if let Some(started) = event.read::<page::FrameStartedNavigatingEvent>() {
@@ -432,7 +432,7 @@ impl Navigation {
     }
 
     /// Whether the page's renderer crashed.
-    pub(super) fn crashed(&self) -> bool {
+    pub(crate) fn crashed(&self) -> bool {
         self.crashed
     }
 
@@ -471,7 +471,7 @@ impl Navigation {
     /// once its document reached the state `wait_until` names, or why it
     /// reached no document; `superseded` says the engine started another
     /// navigation of the page after it.
-    pub(super) fn outcome(
+    pub(crate) fn outcome(
         &self,
         expected: &Expected,
         wait_until: WaitUntil,
@@ -602,7 +602,7 @@ impl Navigation {
 
 /// Whether `error` is the browser abandoning a navigation, as it does for
 /// an answer with no document and for one whose renderer crashed.
-pub(super) fn abandoned(error: &NetError) -> bool {
+pub(crate) fn abandoned(error: &NetError) -> bool {
     *error == NetError::Aborted
 }
 

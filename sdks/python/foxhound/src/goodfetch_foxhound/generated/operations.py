@@ -12,7 +12,7 @@ from goodfetch_collie_client.caller import AsyncCaller, Caller, result_of
 from goodfetch_collie_client.markers import warn_deprecated_settings, warn_experimental
 
 from goodfetch_collie_client.generated.models import RunParams, RunStarted
-from .models import CrawlRequestEnqueueLinksParams, CrawlRequestEnqueueParams, CrawlRequestLinks, CrawlRequestLinksParams, CrawlRequestOutcomes, CrawlRequestPushParams, CrawlRequestPushed, CrawlRunReport, CrawlStartParams, DatasetList, DatasetListParams, DatasetPage, DatasetPageParams, DatasetQueryParams, DatasetQueryResult, Enqueued, EnqueuedLinks, Export, ExportSaveAsParams, ExportSaved, ExportStreamParams, ExportStreamed, FailedRequests, RecordsRead, RejectedRecords, RetriedFailed, RunAddSeedParams, RunAddSeedsParams, RunExportParams, RunFailedRequestsParams, RunOutcomesParams, RunRecordsParams, RunRejectedRecordsParams, RunRetryFailedParams, RunSeeds, RunSeedsAdded, RunSeedsParams, SampleCrawlParams, SampleCrawlResult
+from .models import CrawlRequestEnqueueLinksParams, CrawlRequestEnqueueParams, CrawlRequestLinks, CrawlRequestLinksParams, CrawlRequestOutcomes, CrawlRequestPushParams, CrawlRequestPushed, CrawlRunReport, CrawlStartParams, DatasetList, DatasetListParams, DatasetPage, DatasetPageParams, DatasetQueryParams, DatasetQueryResult, DatasetSearchPage, DatasetSearchParams, Enqueued, EnqueuedLinks, Export, ExportSaveAsParams, ExportSaved, ExportStreamParams, ExportStreamed, FailedRequests, RecordSearchParams, RecordSearchResult, RecordsRead, RejectedRecords, RetriedFailed, RunAddSeedParams, RunAddSeedsParams, RunExportParams, RunFailedRequestsParams, RunOutcomesParams, RunRecordsParams, RunRejectedRecordsParams, RunRetryFailedParams, RunSeeds, RunSeedsAdded, RunSeedsParams, SampleCrawlParams, SampleCrawlResult
 from .settings import DEPRECATED_SETTINGS
 
 
@@ -96,6 +96,14 @@ class AsyncFoxhoundOperations:
         warn_experimental("dataset.query")
         return result_of(DatasetQueryResult, await self._caller.call("dataset.query", params))
 
+    async def dataset_search(self, params: DatasetSearchParams) -> DatasetSearchPage:
+        """Answers one page of the committed Records of one Dataset of a run that hold every word of `text`, each anywhere in the Record's values, in any case and with or without diacritics, in number order, after `after` and at most `limit` (1 to 1000, 100 by default), with the next page's `after` while more follow. It reads the index a crawl writes as it commits each Record while `dataset.search.index` is on, so a crawl with it off finds none. An empty `text` fails with `invalid_params`, and a Dataset the crawl does not declare with `dataset_unknown`.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        warn_experimental("dataset.search")
+        return result_of(DatasetSearchPage, await self._caller.call("dataset.search", params))
+
     async def export_save_as(self, params: ExportSaveAsParams) -> ExportSaved:
         """Saves an Export's file, which the engine keeps in its Run's folder, whole or not at all. An Attached engine given the program's path writes it through a hidden temporary file beside it, synced and renamed over it, creating missing folders and replacing a file there; any other engine writes nothing on its own machine and sends the file in `$/chunk` notifications of at most 64 KiB, one per credit granted with `$/credit`, for the SDK to write. Answers the file's size, its SHA-256 and the run epoch the Export was written under. A path that cannot be written raises `path_not_writable`, and full or failing storage `file_write_failed`, leaving the path as it was.
 
@@ -111,6 +119,14 @@ class AsyncFoxhoundOperations:
         """
         warn_experimental("export.stream")
         return result_of(ExportStreamed, await self._caller.call("export.stream", params))
+
+    async def record_search(self, params: RecordSearchParams) -> RecordSearchResult:
+        """Searches the committed Records of the runs `runs` selects, at most 100, for those that hold every word of `text`, each anywhere in the Record's values, in any case and with or without diacritics, in every Dataset or those `datasets` names, and answers at most `limit` (1 to 1000, 100 by default), the best matches first, each with its run, Dataset and number, so the runs that returned one can be read or queried with `dataset.query`. It reads only the selected runs' indexes, which a crawl writes while `dataset.search.index` is on, and runs under `timeout.dataset_query` and `dataset.query.memory_limit`. An empty `text` fails with `invalid_params`, and a run that does not exist with `run_not_found`.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        warn_experimental("record.search")
+        return result_of(RecordSearchResult, await self._caller.call("record.search", params))
 
     async def run_add_seed(self, params: RunAddSeedParams) -> Enqueued:
         """Adds one seed to a running crawl, `run.addSeed`, committed at once, and answers as an enqueue does: added, with its crawl request's ID and its URL as parsed, or not added, with its reason (`duplicate`, `unsupported_scheme`, `invalid_url` or a cap's name). A relative seed is `invalid_url`. An idle `crawl.keep_alive` crawl takes it and goes on. Through a handler's context, naming its `attempt`, it is bound to that attempt: once the attempt ended it fails with `attempt_ended`. A Run this engine does not run as a live crawl, or a crawl already ending its Run, fails with `run_not_found`.
@@ -271,6 +287,14 @@ class FoxhoundOperations:
         warn_experimental("dataset.query")
         return result_of(DatasetQueryResult, self._caller.call("dataset.query", params))
 
+    def dataset_search(self, params: DatasetSearchParams) -> DatasetSearchPage:
+        """Answers one page of the committed Records of one Dataset of a run that hold every word of `text`, each anywhere in the Record's values, in any case and with or without diacritics, in number order, after `after` and at most `limit` (1 to 1000, 100 by default), with the next page's `after` while more follow. It reads the index a crawl writes as it commits each Record while `dataset.search.index` is on, so a crawl with it off finds none. An empty `text` fails with `invalid_params`, and a Dataset the crawl does not declare with `dataset_unknown`.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        warn_experimental("dataset.search")
+        return result_of(DatasetSearchPage, self._caller.call("dataset.search", params))
+
     def export_save_as(self, params: ExportSaveAsParams) -> ExportSaved:
         """Saves an Export's file, which the engine keeps in its Run's folder, whole or not at all. An Attached engine given the program's path writes it through a hidden temporary file beside it, synced and renamed over it, creating missing folders and replacing a file there; any other engine writes nothing on its own machine and sends the file in `$/chunk` notifications of at most 64 KiB, one per credit granted with `$/credit`, for the SDK to write. Answers the file's size, its SHA-256 and the run epoch the Export was written under. A path that cannot be written raises `path_not_writable`, and full or failing storage `file_write_failed`, leaving the path as it was.
 
@@ -286,6 +310,14 @@ class FoxhoundOperations:
         """
         warn_experimental("export.stream")
         return result_of(ExportStreamed, self._caller.call("export.stream", params))
+
+    def record_search(self, params: RecordSearchParams) -> RecordSearchResult:
+        """Searches the committed Records of the runs `runs` selects, at most 100, for those that hold every word of `text`, each anywhere in the Record's values, in any case and with or without diacritics, in every Dataset or those `datasets` names, and answers at most `limit` (1 to 1000, 100 by default), the best matches first, each with its run, Dataset and number, so the runs that returned one can be read or queried with `dataset.query`. It reads only the selected runs' indexes, which a crawl writes while `dataset.search.index` is on, and runs under `timeout.dataset_query` and `dataset.query.memory_limit`. An empty `text` fails with `invalid_params`, and a run that does not exist with `run_not_found`.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        warn_experimental("record.search")
+        return result_of(RecordSearchResult, self._caller.call("record.search", params))
 
     def run_add_seed(self, params: RunAddSeedParams) -> Enqueued:
         """Adds one seed to a running crawl, `run.addSeed`, committed at once, and answers as an enqueue does: added, with its crawl request's ID and its URL as parsed, or not added, with its reason (`duplicate`, `unsupported_scheme`, `invalid_url` or a cap's name). A relative seed is `invalid_url`. An idle `crawl.keep_alive` crawl takes it and goes on. Through a handler's context, naming its `attempt`, it is bound to that attempt: once the attempt ended it fails with `attempt_ended`. A Run this engine does not run as a live crawl, or a crawl already ending its Run, fails with `run_not_found`.
@@ -375,8 +407,10 @@ EXPERIMENTAL_OPERATIONS: Final[frozenset[str]] = frozenset({
     "dataset.list",
     "dataset.page",
     "dataset.query",
+    "dataset.search",
     "export.save_as",
     "export.stream",
+    "record.search",
     "run.add_seed",
     "run.add_seeds",
     "run.export",
@@ -403,8 +437,10 @@ OPERATION_CLASSES: Final[Mapping[str, Literal["read", "idempotent_write", "effec
     "dataset.list": "read",
     "dataset.page": "read",
     "dataset.query": "read",
+    "dataset.search": "read",
     "export.save_as": "idempotent_write",
     "export.stream": "read",
+    "record.search": "read",
     "run.add_seed": "idempotent_write",
     "run.add_seeds": "idempotent_write",
     "run.export": "idempotent_write",

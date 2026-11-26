@@ -10,6 +10,7 @@
 //!     runs/<run id>/run.sqlite    a run folder and its run file
 //!     runs/<run id>/trace/…       the run's trace files
 //!     run-index.sqlite            the Run index
+//!     schedule-store.sqlite       the Schedule store
 //!     operator-policy.toml,       the major's settings files (ADR 0098)
 //!     configuration.toml
 //!     daemon.json, daemon.lock, … the Daemon's files (`DaemonFile`)
@@ -36,6 +37,15 @@ pub const RUNS: &str = "runs";
 
 /// The Run index's file in the per-major folder.
 pub const RUN_INDEX: &str = "run-index.sqlite";
+
+/// The Response cache's folder in the per-major folder, its index and its
+/// body files, which `upgrade-files` never copies, so an upgrade starts
+/// with an empty cache (ADR 0046).
+pub const RESPONSE_CACHE: &str = "response-cache";
+
+/// The Schedule store's file in the per-major folder, beside the Run index
+/// (ADRs 0036 and 0098).
+pub const SCHEDULE_STORE: &str = "schedule-store.sqlite";
 
 /// The Operator policy's file in the per-major folder, which both
 /// Products read (ADRs 0028 and 0098).
@@ -76,6 +86,9 @@ pub const ENGINE_KEY_LOCK: &str = "engine-key.lock";
 /// outside the per-major folders (ADR 0098).
 pub const INSTALLED_EXECUTABLES: &str = "installed-executables.json";
 
+/// The bug-report file `doctor` writes for the user to attach to an issue,
+/// outside the per-major folders, replaced by each `doctor` (spec #564).
+pub const BUG_REPORT: &str = "bug-report.json";
 /// The Plugin store, outside the per-major folders, which both Products
 /// share (ADR 0033, spec #596): one folder per installed Plugin, which
 /// holds its unpacked bundle in a folder named by its version.

@@ -26,8 +26,9 @@
 #                    shards ran the listing's tests, each once (`xtask gate
 #                    shards`), runs the exercise audit over every shard's
 #                    tests, and records the step's result for each member as
-#                    the gate does (`xtask gate record`), so `just merge`
-#                    reuses its green units (ci/hosted-records.sh).
+#                    the gate does (`xtask gate record`), so a plan given
+#                    the hosted records reuses its green units
+#                    (ci/hosted-records.sh).
 #
 # The archive's executables keep the build's absolute paths: a shard
 # extracts the archive into the container's /var/tmp, whose target/ is

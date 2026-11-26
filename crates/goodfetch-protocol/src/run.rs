@@ -1140,10 +1140,11 @@ pub const RUN_STATE_UNAVAILABLE: ErrorCodeDefinition = ErrorCodeDefinition {
     arrived_in: ARRIVED_IN,
 };
 
-/// A discard of a Run its engine still runs (ADRs 0001 and 0036).
+/// A discard of a Run its engine still runs (ADRs 0001 and 0036), or the
+/// erasing of one of its Datasets (ADR 0031).
 pub const RUN_LIVE: ErrorCodeDefinition = ErrorCodeDefinition {
     name: "run_live",
-    description: "The engine still runs the Run, so it cannot be discarded: stop it first with `run.stop` or `run.abort`, or let it finish, then discard it. The details name the Run.",
+    description: "The engine still runs the Run, so it cannot be discarded, nor a Dataset of it erased: stop it first with `run.stop` or `run.abort`, or let it finish, then try again. The details name the Run.",
     group: ErrorGroup::Program,
     retryable: false,
     exit_code: None,

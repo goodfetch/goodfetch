@@ -19,7 +19,10 @@ use crate::entries::MODULES;
 use crate::executables::InstalledExecutables;
 use crate::jsonrpc::Message;
 use crate::politeness::PermitRow;
+use crate::recipe::{RECIPE_MANIFEST_VERSION, RecipeManifest};
+use crate::response_cache::ResponseCacheEntry;
 use crate::run::{RunIndexRow, RunStateRow};
+use crate::session_export::SessionExport;
 use crate::tls::CertificatePin;
 use crate::usage::Limit;
 
@@ -49,8 +52,7 @@ impl Storage {
 }
 
 /// A rule of ADR 0030 by which a reader treats another version of its
-/// format. Each later rule (the Response cache's) joins with the first
-/// format that follows it.
+/// format. Each later rule joins with the first format that follows it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum Rule {
@@ -75,16 +77,22 @@ pub enum Rule {
     /// does, but a version it cannot read is skipped, never refused, for the
     /// newest one it can read.
     NewestReadable,
+    /// The Response cache's (ADRs 0030 and 0046): a reader reads a version
+    /// of its own major up to its own minor, as the default rule does, and
+    /// runs without a file it cannot read, neither reading nor writing it,
+    /// so two minors never wipe each other's entries.
+    RunWithout,
 }
 
 impl Rule {
     /// Every value, in declaration order.
-    pub const ALL: [Self; 5] = [
+    pub const ALL: [Self; 6] = [
         Self::Default,
         Self::FrozenMajor,
         Self::SharedStore,
         Self::LowerMinor,
         Self::NewestReadable,
+        Self::RunWithout,
     ];
 
     /// Its name in the bundle.
@@ -106,14 +114,17 @@ impl Rule {
             Ordering::Less => Compatibility::OlderMajor,
             Ordering::Greater => Compatibility::NewerMajor,
             Ordering::Equal => match self {
-                Self::Default | Self::NewestReadable if found_minor > reader_minor => {
+                Self::Default | Self::NewestReadable | Self::RunWithout
+                    if found_minor > reader_minor =>
+                {
                     Compatibility::NewerMinor
                 }
                 Self::Default
                 | Self::FrozenMajor
                 | Self::SharedStore
                 | Self::LowerMinor
-                | Self::NewestReadable => Compatibility::Compatible,
+                | Self::NewestReadable
+                | Self::RunWithout => Compatibility::Compatible,
             },
         }
     }
@@ -143,9 +154,11 @@ impl Rule {
     fn line(self, version: ProtocolVersion) -> ((u16, u16), u16) {
         match self {
             Self::FrozenMajor => ((version.major, 0), version.minor),
-            Self::Default | Self::SharedStore | Self::LowerMinor | Self::NewestReadable => {
-                preview_line(version)
-            }
+            Self::Default
+            | Self::SharedStore
+            | Self::LowerMinor
+            | Self::NewestReadable
+            | Self::RunWithout => preview_line(version),
         }
     }
 }
@@ -374,6 +387,19 @@ pub const KNOWN_CERTIFICATES: Format = Format {
     schema: schema_of::<CertificatePin>,
 };
 
+/// The per-user Response cache in the per-major folder (ADR 0046): a
+/// SQLite index over content-addressed body files, one partition per
+/// person. An engine that finds a version it cannot read runs without the
+/// cache; its schema is one index entry's.
+pub const RESPONSE_CACHE: Format = Format {
+    name: "response-cache",
+    version: ProtocolVersion { major: 0, minor: 1 },
+    storage: Storage::Sqlite,
+    rule: Rule::RunWithout,
+    hello_from: &[],
+    schema: schema_of::<ResponseCacheEntry>,
+};
+
 /// A Dataset's Export file (ADRs 0066, 0103 and 0119), the profile every
 /// format of it keeps: UTF-8 with no BOM, each Record's value as
 /// committed, in number order; `json` one array of the values, `jsonl` one
@@ -389,6 +415,32 @@ pub const EXPORT: Format = Format {
     schema: schema_of::<Vec<Value>>,
 };
 
+/// A session export bundle's document (ADRs 0015 and 0056), which the
+/// bundle encrypts with `age`: a Session's cookies and storage. An import
+/// reads its own major up to its own minor. Its corpus holds the document
+/// alone, since each encryption of it differs.
+pub const SESSION_EXPORT: Format = Format {
+    name: "session-export",
+    version: ProtocolVersion { major: 0, minor: 1 },
+    storage: Storage::Json,
+    rule: Rule::Default,
+    hello_from: &[],
+    schema: schema_of::<SessionExport>,
+};
+
+/// A Recipe's manifest, `goodfetch-recipe.toml` at its package's root
+/// (issue 1663): its name, Product, entry, runtime and exposed settings.
+/// An engine reads it when it installs or starts the Recipe, so it keeps
+/// the default version rule.
+pub const RECIPE_MANIFEST: Format = Format {
+    name: "recipe-manifest",
+    version: RECIPE_MANIFEST_VERSION,
+    storage: Storage::Toml,
+    rule: Rule::Default,
+    hello_from: &[],
+    schema: schema_of::<RecipeManifest>,
+};
+
 /// Every registered format.
 pub const FORMATS: &[&Format] = &[
     &PROTOCOL,
@@ -401,9 +453,12 @@ pub const FORMATS: &[&Format] = &[
     &POLITENESS_FILE,
     &AUDIT_LOG,
     &KNOWN_CERTIFICATES,
+    &RESPONSE_CACHE,
     &OPERATOR_POLICY,
     &USER_CONFIGURATION,
     &EXPORT,
+    &SESSION_EXPORT,
+    &RECIPE_MANIFEST,
 ];
 
 /// A settings file's schema: its `version` and each of `tables`, a table

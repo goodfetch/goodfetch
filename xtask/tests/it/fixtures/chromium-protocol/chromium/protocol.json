@@ -1,0 +1,32 @@
+{
+  "domains": [
+    { "domain": "Browser", "commands": [{ "name": "close" }] },
+    {
+      "domain": "Page",
+      "commands": [
+        { "name": "enable" },
+        {
+          "name": "navigate",
+          "parameters": [
+            { "name": "url", "type": "string" },
+            { "name": "frameId", "optional": true, "$ref": "FrameId" },
+            { "name": "referrerPolicy", "optional": true, "type": "string" }
+          ],
+          "returns": [
+            { "name": "loaderId", "type": "string" },
+            { "name": "errorText", "optional": true, "type": "string" }
+          ]
+        }
+      ],
+      "events": [
+        {
+          "name": "frameNavigated",
+          "parameters": [
+            { "name": "frame", "type": "object" },
+            { "name": "type", "type": "string" }
+          ]
+        }
+      ]
+    }
+  ]
+}

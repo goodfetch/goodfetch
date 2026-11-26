@@ -83,6 +83,8 @@ struct Patterns {
     script_open_catch: Regex,
     script_skip: Regex,
     script_test: Regex,
+    script_test_open: Regex,
+    script_test_name: Regex,
     python_banned: Regex,
     python_type_ignore: Regex,
     python_type_ignore_form: Regex,
@@ -126,6 +128,10 @@ static PATTERNS: LazyLock<Patterns> = LazyLock::new(|| Patterns {
         r"\b(test|it|describe|bench)(\.\w+)*\.(skip|todo|fixme)\b|\bx(it|test|describe)\(",
     ),
     script_test: pattern(r#"^\s*(test|it)(\.\w+)*\(\s*["'`]([^"'`]+)"#),
+    // A call the formatter wrapped, its name on the next line (a test given
+    // options, such as its tags).
+    script_test_open: pattern(r"^\s*(test|it)(\.\w+)*\(\s*$"),
+    script_test_name: pattern(r#"^\s*["'`]([^"'`]+)"#),
     python_banned: pattern(
         r"#\s*noqa\b|#\s*ruff:\s*noqa|pragma:\s*no cover|nosemgrep|gitleaks:allow",
     ),
@@ -295,7 +301,8 @@ fn added_move(language: Language, path: &str, lines: &[Line], index: usize) -> O
 }
 
 /// The names of the tests a file holds. A Rust test is its function's name under
-/// a test attribute, and each rstest case its own name.
+/// a test attribute, and each rstest case its own name. A script test is the
+/// name its `test(` or `it(` call opens with, on the call's line or the next.
 fn tests_in(language: Language, contents: &str) -> BTreeSet<String> {
     let patterns = &*PATTERNS;
     let mut names = BTreeSet::new();
@@ -315,6 +322,13 @@ fn tests_in(language: Language, contents: &str) -> BTreeSet<String> {
             Language::Script => {
                 if let Some(test) = patterns.script_test.captures(text) {
                     names.insert(test[3].to_owned());
+                } else if patterns.script_test_open.is_match(text) {
+                    awaiting = true;
+                } else if awaiting {
+                    if let Some(name) = patterns.script_test_name.captures(text) {
+                        names.insert(name[1].to_owned());
+                    }
+                    awaiting = false;
                 }
             }
             Language::Python => {

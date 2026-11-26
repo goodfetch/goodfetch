@@ -11,7 +11,7 @@ use std::sync::Arc;
 
 use goodfetch_clean_up_rules::matching::{Choices, ResourceKind};
 use goodfetch_clean_up_rules::never_block::NeverBlock;
-use goodfetch_engine::runs::Run;
+use goodfetch_engine::run_identity::RunIdentity;
 use goodfetch_engine::settings::{
     Resolved, RunSettings, Values, catalog_value, get_or_default, value_as,
 };
@@ -25,7 +25,7 @@ use serde_json::Value;
 use tokio::sync::OnceCell;
 
 use super::steps::Blocking;
-use crate::clean_up_versions::Versions;
+use crate::clean_up_versions::{ListsRun, Versions};
 
 /// What a Run's `consent.handling` lets the Consent prompt runner and the
 /// cosmetic rules do (ADR 0048, #2434).
@@ -42,7 +42,7 @@ pub(crate) enum ConsentHandling {
 
 impl ConsentHandling {
     /// `run`'s `consent.handling`.
-    pub(crate) fn of(run: &Run) -> Self {
+    pub(crate) fn of(run: &RunIdentity) -> Self {
         let resolved = run.settings().map(RunSettings::resolved);
         match get_or_default::<&str>(resolved, &CONSENT_HANDLING) {
             "detect" => Self::Detect,
@@ -77,14 +77,18 @@ impl CleanUp {
     /// Step 4 as `choices` make it for a page of `run`, its parts loaded
     /// through the Run's blocking tasks if no page loaded them yet, and the
     /// digest of the Filter lists' version, when any list is on.
-    pub(super) async fn blocking(&self, choices: Choices, run: &Run) -> (Blocking, Option<String>) {
-        let owner = run.owner();
+    pub(super) async fn blocking(
+        &self,
+        choices: Choices,
+        run: &ListsRun,
+    ) -> (Blocking, Option<String>) {
+        let owner = run.identity.owner();
         let never_block = self
             .never_block
             .get_or_init(|| async { Arc::new(owner.blocking(NeverBlock::new).await) })
             .await;
         let (lists, version) = if choices.needs_lists() {
-            let held = self.versions.lists(run, owner).await;
+            let held = self.versions.lists(run).await;
             (Some(held.lists), Some(held.digest))
         } else {
             (None, None)
@@ -94,7 +98,7 @@ impl CleanUp {
                 never_block: Arc::clone(never_block),
                 lists,
                 choices,
-                work: run.metrics().counted_work().clone(),
+                work: run.identity.metrics().counted_work().clone(),
             },
             version,
         )
@@ -103,7 +107,7 @@ impl CleanUp {
 
 /// Whether `run`'s own settings turn a Filter list on, so that its pages
 /// match the lists unless their Session turns every one off.
-pub(crate) fn run_needs_lists(run: &Run) -> bool {
+pub(crate) fn run_needs_lists(run: &RunIdentity) -> bool {
     choices(
         run.settings().map(RunSettings::resolved),
         &Values::default(),

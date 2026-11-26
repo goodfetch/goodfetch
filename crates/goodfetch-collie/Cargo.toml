@@ -13,7 +13,7 @@ readme = "README.md"
 # The executable's own dependencies (ADR 0094): `cargo install
 # goodfetch-collie --locked --features executable` builds Collie's
 # executable; a program embedding the crate never compiles them.
-executable = ["dep:clap", "dep:jiff", "dep:mimalloc", "dep:regex", "dep:schemars", "dep:secrecy", "dep:serde", "dep:tempfile", "dep:thiserror", "dep:libc", "dep:windows-sys", "dep:tracing-subscriber", "dep:opentelemetry", "dep:opentelemetry_sdk", "dep:opentelemetry-otlp", "dep:opentelemetry-http", "dep:opentelemetry-prometheus", "dep:prometheus", "dep:tracing-opentelemetry", "dep:async-trait", "dep:bytes", "dep:http", "tokio/io-util", "tokio/macros", "tokio/rt-multi-thread", "tokio/signal"]
+executable = ["dep:clap", "dep:jiff", "dep:mimalloc", "dep:regex", "dep:schemars", "dep:secrecy", "dep:serde", "dep:tempfile", "dep:thiserror", "dep:url", "dep:libc", "dep:windows-sys", "dep:tracing-subscriber", "dep:opentelemetry", "dep:opentelemetry_sdk", "dep:opentelemetry-otlp", "dep:opentelemetry-http", "dep:opentelemetry-prometheus", "dep:prometheus", "dep:tracing-opentelemetry", "dep:async-trait", "dep:bytes", "dep:http", "tokio/io-util", "tokio/macros", "tokio/rt-multi-thread", "tokio/signal"]
 # The program's OpenTelemetry context, read from its current `tracing` span
 # through `tracing-opentelemetry`, in each request it sends (ADR 0132);
 # without it, a request carries none. The engine, which the SDK links,
@@ -39,6 +39,8 @@ goodfetch-page.workspace = true
 # The runtimes the executables and a linked engine build (ADR 0081).
 goodfetch-runtime.workspace = true
 goodfetch-protocol.workspace = true
+# Schedules and their store (spec #589).
+goodfetch-schedule.workspace = true
 # The built-in external Secret providers (spec #564).
 goodfetch-secret-providers.workspace = true
 # Human output's times in the local zone `TZ` names (ADR 0073): the system's
@@ -59,6 +61,9 @@ serde_json.workspace = true
 # The Browser cache's write check before a Daemon's copy goes in it.
 tempfile = { workspace = true, optional = true }
 thiserror = { workspace = true, optional = true }
+# `doctor`'s bug-report file reduces each URL in it to its scheme and host
+# (spec #564).
+url = { workspace = true, optional = true }
 tokio = { workspace = true, features = ["rt", "time"] }
 # A linked engine's task, and the foreground Daemon's drain (ADR 0049).
 tokio-util = { workspace = true, features = ["rt"] }
@@ -182,6 +187,11 @@ goodfetch-collie = { path = ".", features = ["executable", "test-util"] }
 # The `connection-used-after-fork` case forks the test and waits for its
 # child (tests/it/sdk/fork.rs).
 libc.workspace = true
+
+[target.'cfg(windows)'.dev-dependencies]
+# The renderer sandbox test reads each process's token integrity level
+# (tests/it/renderer_sandbox.rs).
+windows-sys = { workspace = true, features = ["Win32_Foundation", "Win32_Security", "Win32_System_SystemServices", "Win32_System_Threading"] }
 
 # `cargo binstall goodfetch-collie` installs the executable from its
 # archive on the GitHub Release of the same version (ADRs 0090 and 0094).

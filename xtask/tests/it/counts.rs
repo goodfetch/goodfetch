@@ -355,6 +355,7 @@ const B3_REGISTER: &str = "# Testing\n\n## Quality register\n\n### Measured, not
      | `E1.deep_copies` | deep copies per incoming message | 0 | 1.1 | B3 | must not grow | `xtask counts` | implementer done |\n\
      | `E1.encodes` | encodes per answer or event | 1 | 2 | B3 | must not grow | `xtask counts` | implementer done |\n\
      | `E1.decodes` | decodes of its params per request | 1 | 2 | B3 | must not grow | `xtask counts` | implementer done |\n\
+     | `E1.store_reads` | store reads per incoming message | 0 | 0 | B3 | must not grow | `xtask counts` | implementer done |\n\
      | `E1.instructions` | instructions per message, small params | 1.10 × the figure after #1577 (ADR 0134) | 1000 | B3 | must not grow (0.5 %) | `xtask counts --valgrind` | merge gate |\n\
      | `E1.instructions_large` | instructions per message, large params | 1.10 × the figure after #1577 (ADR 0134) | 5000 | B3 | must not grow (0.5 %) | `xtask counts --valgrind` | merge gate |\n\
      | `E1.allocations` | allocations per message, small params | 1.10 × the figure after #1577 (ADR 0134) | 1000 | B3 | must not grow (0.5 %) | `xtask counts --valgrind` | merge gate |\n\
@@ -412,7 +413,7 @@ fn each_b3_row_divides_by_the_outcome_that_did_its_work(
         &workspace,
         "benchmark.sh",
         &format!(
-            "#!/bin/sh\necho '{{\"cell\":\"default\",\"units\":{{\"incoming_messages\":10,\"answers_and_events\":10,\"requests\":5,\"audit_entries\":20,\"audit_logs\":1,\"later_audit_entries\":19}},\"counts\":{{\"E1.deep_copies\":{copies},\"E1.encodes\":{encodes},\"E1.decodes\":{decodes},\"E2.configuration_reads\":20,\"E2.log_opens\":{log_opens},\"E2.log_transactions\":2,\"E2.log_prepares\":30,\"E2.opens\":20,\"E2.prepares\":266,\"E2.prunes\":0,\"E2.transactions\":{transactions},\"E2.syncs\":104}}}}'\n"
+            "#!/bin/sh\necho '{{\"cell\":\"default\",\"units\":{{\"incoming_messages\":10,\"answers_and_events\":10,\"requests\":5,\"audit_entries\":20,\"audit_logs\":1,\"later_audit_entries\":19}},\"counts\":{{\"E1.deep_copies\":{copies},\"E1.encodes\":{encodes},\"E1.decodes\":{decodes},\"E1.store_reads\":0,\"E2.configuration_reads\":20,\"E2.log_opens\":{log_opens},\"E2.log_transactions\":2,\"E2.log_prepares\":30,\"E2.opens\":20,\"E2.prepares\":266,\"E2.prunes\":0,\"E2.transactions\":{transactions},\"E2.syncs\":104}}}}'\n"
         ),
     );
 
@@ -472,7 +473,7 @@ fn a_b3_benchmark_that_does_a_working_copy_updates_work_fails_its_row() {
     let path = executable_script(
         &workspace,
         "benchmark.sh",
-        "#!/bin/sh\necho '{\"cell\":\"default\",\"units\":{\"incoming_messages\":10,\"answers_and_events\":10,\"requests\":5,\"covered_charges\":4,\"slices\":4,\"charges\":8,\"audit_entries\":20,\"audit_logs\":1,\"later_audit_entries\":19,\"samples\":4,\"process_samples\":8},\"counts\":{\"E1.deep_copies\":11,\"E1.encodes\":20,\"E1.decodes\":10,\"E2.configuration_reads\":20,\"E2.log_opens\":1,\"E2.log_transactions\":2,\"E2.log_prepares\":30,\"E2.opens\":20,\"E2.prepares\":266,\"E2.prunes\":0,\"E2.transactions\":41,\"E2.syncs\":104,\"E3.statements\":4,\"E3.slice_transactions\":9,\"E3.opens\":1,\"E3.prepares\":79,\"E4.configuration_reads\":8,\"E4.meminfo_opens\":12,\"E4.static_opens\":8,\"E4.process_reads\":12,\"E7.encodes\":3}}'\n",
+        "#!/bin/sh\necho '{\"cell\":\"default\",\"units\":{\"incoming_messages\":10,\"answers_and_events\":10,\"requests\":5,\"covered_charges\":4,\"slices\":4,\"charges\":8,\"audit_entries\":20,\"audit_logs\":1,\"later_audit_entries\":19,\"samples\":4,\"process_samples\":8},\"counts\":{\"E1.deep_copies\":11,\"E1.encodes\":20,\"E1.decodes\":10,\"E1.store_reads\":0,\"E2.configuration_reads\":20,\"E2.log_opens\":1,\"E2.log_transactions\":2,\"E2.log_prepares\":30,\"E2.opens\":20,\"E2.prepares\":266,\"E2.prunes\":0,\"E2.transactions\":41,\"E2.syncs\":104,\"E3.statements\":4,\"E3.slice_transactions\":9,\"E3.opens\":1,\"E3.prepares\":79,\"E4.configuration_reads\":8,\"E4.meminfo_opens\":12,\"E4.static_opens\":8,\"E4.process_reads\":12,\"E7.encodes\":3}}'\n",
     );
 
     let outcome = workspace.xtask(&[
@@ -953,38 +954,44 @@ fn proving_leaves_a_row_not_run_yet_out() {
     );
 }
 
-/// B2's rows, as the register holds them: C1's per command, C2's per read or
-/// per document read, C2's two rows whose reads are not built yet, C7's
-/// walks and opening commands per page opened, C4's per navigation, and C5's
+/// B2's rows, as the register holds them: C1's per command or per event, C2's
+/// per read or per document read, C2's two rows whose reads are not built yet,
+/// C7's walks, opening commands and tasks per page opened, C4's per navigation, and C5's
 /// per request, pause or refusal.
 const B2_ROWS: &str = "\
 | `C1.encodes` | encodes per CDP command | 1 | after #1583 | B2 | must not grow | `just counts` | implementer done |
 | `C1.sends` | sends per CDP command | 1 | after #1583 | B2 | must not grow | `just counts` | implementer done |
 | `C1.file_opens` | opens per CDP command | 0 | 2 | B2 | must not grow | `just counts` | implementer done |
 | `C1.log_sends_off` | sends per CDP command | 0 | 1 | B2 | must not grow | `just counts` | implementer done |
+| `C1.event_visits` | readers visited per event | 1 | 1 | B2 | must not grow | `just counts` | implementer done |
+| `C1.pending_orphans` | orphaned commands per command | 0 | 0 | B2 | must not grow | `just counts` | implementer done |
+| `C1.event_decodes` | decodes per event | 1 | 1 | B2 | must not grow | `just counts` | implementer done |
 | `C2.commands` | CDP commands per page read | 1 | 2 | B2 | must not grow | `just counts` | implementer done |
 | `C2.world_creations` | worlds per page read, past a document's first | 0 | 1 | B2 | must not grow | `just counts` | implementer done |
 | `C2.document_worlds` | worlds per document and frame read | ≤ 1 | 2 | B2 | must not grow | `just counts` | implementer done |
 | `C2.serialization_commands` | CDP commands per serialization | 2 | 2 | B2 | must not grow | `just counts` | implementer done |
 | `C2.read_commands` | CDP commands per `page.read` | 1 | 2 | B2 | must not grow | `just counts` | implementer done |
+| `C2.owner_round_trips` | asks to the Page's owner per read | 1 | 1 | B2 | must not grow | `just counts` | implementer done |
 | `C2.closed_root_commands` | CDP commands per read in a closed root's document | ≤ 3 | not run yet (#726) | B2 | must not grow | `just counts --path C2` | implementer done |
 | `C2.live_view_commands` | CDP commands per Live view read | no cap (ratchet) | not run yet (#1683) | B2 | must not grow | `just counts --path C2` | implementer done |
 | `C7.pool_walks` | walks per page opened | 0 | after #1583 | B2 | must not grow | `just counts` | implementer done |
 | `C7.opening_commands` | CDP commands awaited per page opened | no cap (ratchet) | 12 | B2 | must not grow | `just counts` | implementer done |
 | `C7.contexts_created` | browser contexts created per Session opened | ≤ 1 | 1 | B2 | must not grow | `just counts` | implementer done |
+| `C7.page_tasks` | tasks a page's opening starts per page opened | no cap (ratchet) | 11 | B2 | must not grow | `just counts` | implementer done |
 | `C4.detection_reads` | detection reads per navigation | ≤ 1 | 4 | B2 | must not grow | `just counts` | implementer done |
 | `C4.compilations` | glob and regex compilations per navigation | 0 | 1 | B2 | must not grow | `just counts` | implementer done |
 | `C4.script_compilations` | script compilations per navigation | 0 | after #1583 | B2 | must not grow | `just counts` | implementer done |
 | `C4.provenance_entries` | Provenance entries per navigation | 1 | 1.334 | B2 | must not grow | `just counts` | implementer done |
 | `C5.fetch_messages_no_rule` | `Fetch` messages per request with no rule | 0 | 3.25 | B2 | must not grow | `xtask counts` | implementer done |
-| `C5.spawns` | tasks spawned per refused request | 0 | 1 | B2 | must not grow | `xtask counts` | implementer done |
+| `C5.spawns` | tasks spawned per paused request or response whose verdict needs no wait | 0 | 0 | B2 | must not grow | `xtask counts` | implementer done |
 | `C5.file_opens` | files opened per refused request | 0 | 2 | B2 | must not grow | `xtask counts` | implementer done |
 | `C5.matches` | Filter-list matches per paused request | 1 | after #1583 | B2 | must not grow | `xtask counts` | implementer done |
 | `C5.answers` | CDP answers per paused request | 1 | after #1583 | B2 | must not grow | `xtask counts` | implementer done |
 | `C5.compilations` | compilations per paused request | 0 | after #1583 | B2 | must not grow | `xtask counts` | implementer done |
 | `C5.entries` | entries per refused request | 1 | after #1583 | B2 | must not grow | `xtask counts` | implementer done |
-| `C5.cache_lookups` | Response cache lookups per request | 1 | not run yet (#793) | B2 | must not grow | `xtask counts --path C5` | implementer done |
-| `C5.cache_file_opens` | body files opened per cache hit | 1 | not run yet (#793) | B2 | must not grow | `xtask counts --path C5` | implementer done |
+| `C5.cache_lookups` | Response cache lookups per request | 1 | not run yet (#796) | B2 | must not grow | `xtask counts --path C5` | implementer done |
+| `C5.cache_file_opens` | body files opened per cache hit | 1 | not run yet (#796) | B2 | must not grow | `xtask counts --path C5` | implementer done |
+| `C5.cache_body_writes` | body files written per stored response | 1 | not run yet (#796) | B2 | must not grow | `xtask counts --path C5` | implementer done |
 | `C5.body_reads` | body reads per recorded response | 1 | not run yet (#1291) | B2 | must not grow | `xtask counts --path C5` | implementer done |
 | `C5.charset_refetches` | second GETs per document on the charset path | ≤ 1 | not run yet (#1783) | B2 | must not grow | `xtask counts --path C5` | implementer done |
 ";
@@ -992,7 +999,7 @@ const B2_ROWS: &str = "\
 /// A stand-in of B2 over 20 commands, 4 reads, 2 documents, 2 serializations,
 /// 4 fields' reads, 1 page opened in 1 Session,
 /// 4 requests paused 6 times, 2 of them refused, one check and attempt of each
-/// action kind and 3 navigations, each row at its limit, which counts `extra`
+/// action kind, 3 navigations and 10 events, each row at its limit, which counts `extra`
 /// more of `planted` when told to plant it.
 fn b2_benchmark(planted: &str, extra: u64) -> String {
     let counts = [
@@ -1000,16 +1007,21 @@ fn b2_benchmark(planted: &str, extra: u64) -> String {
         ("C1.sends", 20),
         ("C1.file_opens", 30),
         ("C1.log_sends_off", 20),
+        ("C1.event_visits", 10),
+        ("C1.pending_orphans", 0),
+        ("C1.event_decodes", 10),
         ("C2.commands", 8),
         ("C2.world_creations", 4),
         ("C2.document_worlds", 4),
         ("C2.serialization_commands", 4),
         ("C2.read_commands", 8),
+        ("C2.owner_round_trips", 4),
         ("C7.pool_walks", 0),
         ("C7.opening_commands", 12),
         ("C7.contexts_created", 0),
+        ("C7.page_tasks", 11),
         ("C5.fetch_messages_no_rule", 13),
-        ("C5.spawns", 2),
+        ("C5.spawns", 0),
         ("C5.file_opens", 4),
         ("C5.matches", 4),
         ("C5.answers", 6),
@@ -1020,6 +1032,7 @@ fn b2_benchmark(planted: &str, extra: u64) -> String {
         ("C3.commands.click", 6),
         ("C3.commands.fill", 2),
         ("C3.commands.press", 4),
+        ("C3.owner_round_trips", 3),
         ("C4.detection_reads", 12),
         ("C4.compilations", 0),
         ("C4.script_compilations", 0),
@@ -1032,7 +1045,7 @@ fn b2_benchmark(planted: &str, extra: u64) -> String {
     format!(
         "#!/bin/sh\nplant=$2\n\
          planted() {{ if [ \"$1\" = \"$plant\" ] && [ \"$1\" = {planted} ]; then echo {extra}; else echo 0; fi; }}\n\
-         echo '{{\"cell\":\"default\",\"units\":{{\"commands\":20,\"reads\":4,\"documents\":2,\"serializations\":2,\"field_reads\":4,\"pages_opened\":1,\"sessions_opened\":1,\"requests\":4,\"pauses\":6,\"refusals\":2,\"checks\":1,\"click_attempts\":1,\"fill_attempts\":1,\"press_attempts\":1,\"navigations\":3}},\"counts\":{{{counts}}}}}'\n"
+         echo '{{\"cell\":\"default\",\"units\":{{\"commands\":20,\"reads\":4,\"documents\":2,\"serializations\":2,\"field_reads\":4,\"pages_opened\":1,\"sessions_opened\":1,\"requests\":4,\"pauses\":6,\"refusals\":2,\"checks\":1,\"click_attempts\":1,\"fill_attempts\":1,\"press_attempts\":1,\"attempts\":3,\"navigations\":3,\"events\":10}},\"counts\":{{{counts}}}}}'\n"
     )
 }
 
@@ -1184,7 +1197,7 @@ fn a_plant_goes_to_the_family_of_its_row_alone() {
     assert!(
         outcome
             .stdout
-            .contains("C5.cache_lookups: not run yet, limit 1, until #793 builds its path"),
+            .contains("C5.cache_lookups: not run yet, limit 1, until #796 builds its path"),
         "{}",
         outcome.stdout
     );
@@ -1202,8 +1215,8 @@ fn b2_doing_a_live_view_frames_work_fails_while_its_rows_say_not_run() {
     let b2 = executable_script(
         &workspace,
         "B2.sh",
-        "#!/bin/sh\necho '{\"cell\":\"default\",\"units\":{\"commands\":4,\"reads\":4,\"documents\":2,\"serializations\":2,\"field_reads\":4,\"pages_opened\":1,\"sessions_opened\":1,\"requests\":4,\"pauses\":6,\"refusals\":2,\"checks\":1,\"click_attempts\":1,\"fill_attempts\":1,\"press_attempts\":1,\"navigations\":3},\"counts\":{\"C1.encodes\":4,\"C1.sends\":4,\"C1.file_opens\":6,\"C1.log_sends_off\":4,\"C2.commands\":8,\"C2.world_creations\":4,\"C2.document_worlds\":4,\"C2.serialization_commands\":4,\"C2.read_commands\":8,\"C7.pool_walks\":0,\"C7.opening_commands\":12,\"C7.contexts_created\":0,\"C5.fetch_messages_no_rule\":13,\"C5.spawns\":2,\"C5.file_opens\":4,\"C5.matches\":4,\"C5.answers\":6,\"C5.compilations\":0,\"C5.entries\":2,\"C3.script_sends\":1,\"C3.check_commands\":1,\"C3.commands.click\":6,\"C3.commands.fill\":2,\"C3.commands.press\":4,\"C4.detection_reads\":12,\"C4.compilations\":0,\"C4.script_compilations\":0,\"C4.provenance_entries\":4,\"C6.acknowledgements\":0}}'\n\
-         echo '{\"cell\":\"no_viewer\",\"units\":{\"commands\":4,\"reads\":4,\"documents\":2,\"serializations\":2,\"field_reads\":4,\"pages_opened\":1,\"sessions_opened\":1,\"requests\":4,\"pauses\":6,\"refusals\":2,\"checks\":1,\"click_attempts\":1,\"fill_attempts\":1,\"press_attempts\":1,\"navigations\":3},\"counts\":{\"C1.encodes\":4,\"C1.sends\":4,\"C1.file_opens\":6,\"C1.log_sends_off\":4,\"C2.commands\":8,\"C2.world_creations\":4,\"C2.document_worlds\":4,\"C2.serialization_commands\":4,\"C2.read_commands\":8,\"C7.pool_walks\":0,\"C7.opening_commands\":12,\"C7.contexts_created\":0,\"C5.fetch_messages_no_rule\":13,\"C5.spawns\":2,\"C5.file_opens\":4,\"C5.matches\":4,\"C5.answers\":6,\"C5.compilations\":0,\"C5.entries\":2,\"C3.script_sends\":1,\"C3.check_commands\":1,\"C3.commands.click\":6,\"C3.commands.fill\":2,\"C3.commands.press\":4,\"C4.detection_reads\":12,\"C4.compilations\":0,\"C4.script_compilations\":0,\"C4.provenance_entries\":4,\"C6.acknowledgements\":1}}'\n",
+        "#!/bin/sh\necho '{\"cell\":\"default\",\"units\":{\"commands\":4,\"reads\":4,\"documents\":2,\"serializations\":2,\"field_reads\":4,\"pages_opened\":1,\"sessions_opened\":1,\"requests\":4,\"pauses\":6,\"refusals\":2,\"checks\":1,\"click_attempts\":1,\"fill_attempts\":1,\"press_attempts\":1,\"attempts\":3,\"navigations\":3,\"events\":4},\"counts\":{\"C1.encodes\":4,\"C1.sends\":4,\"C1.file_opens\":6,\"C1.log_sends_off\":4,\"C1.event_visits\":4,\"C1.pending_orphans\":0,\"C1.event_decodes\":4,\"C2.commands\":8,\"C2.world_creations\":4,\"C2.document_worlds\":4,\"C2.serialization_commands\":4,\"C2.read_commands\":8,\"C2.owner_round_trips\":4,\"C7.pool_walks\":0,\"C7.opening_commands\":12,\"C7.contexts_created\":0,\"C7.page_tasks\":11,\"C5.fetch_messages_no_rule\":13,\"C5.spawns\":0,\"C5.file_opens\":4,\"C5.matches\":4,\"C5.answers\":6,\"C5.compilations\":0,\"C5.entries\":2,\"C3.script_sends\":1,\"C3.check_commands\":1,\"C3.commands.click\":6,\"C3.commands.fill\":2,\"C3.commands.press\":4,\"C3.owner_round_trips\":3,\"C4.detection_reads\":12,\"C4.compilations\":0,\"C4.script_compilations\":0,\"C4.provenance_entries\":4,\"C6.acknowledgements\":0}}'\n\
+         echo '{\"cell\":\"no_viewer\",\"units\":{\"commands\":4,\"reads\":4,\"documents\":2,\"serializations\":2,\"field_reads\":4,\"pages_opened\":1,\"sessions_opened\":1,\"requests\":4,\"pauses\":6,\"refusals\":2,\"checks\":1,\"click_attempts\":1,\"fill_attempts\":1,\"press_attempts\":1,\"attempts\":3,\"navigations\":3,\"events\":4},\"counts\":{\"C1.encodes\":4,\"C1.sends\":4,\"C1.file_opens\":6,\"C1.log_sends_off\":4,\"C1.event_visits\":4,\"C1.pending_orphans\":0,\"C1.event_decodes\":4,\"C2.commands\":8,\"C2.world_creations\":4,\"C2.document_worlds\":4,\"C2.serialization_commands\":4,\"C2.read_commands\":8,\"C2.owner_round_trips\":4,\"C7.pool_walks\":0,\"C7.opening_commands\":12,\"C7.contexts_created\":0,\"C7.page_tasks\":11,\"C5.fetch_messages_no_rule\":13,\"C5.spawns\":0,\"C5.file_opens\":4,\"C5.matches\":4,\"C5.answers\":6,\"C5.compilations\":0,\"C5.entries\":2,\"C3.script_sends\":1,\"C3.check_commands\":1,\"C3.commands.click\":6,\"C3.commands.fill\":2,\"C3.commands.press\":4,\"C3.owner_round_trips\":3,\"C4.detection_reads\":12,\"C4.compilations\":0,\"C4.script_compilations\":0,\"C4.provenance_entries\":4,\"C6.acknowledgements\":1}}'\n",
     );
 
     let outcome = workspace.xtask(&[
@@ -1388,6 +1401,7 @@ const C3_ROWS: &str = "\
 | `C3.script_sends` | sends of `check.js`'s source per check | 0 | 1 | B2 | must not grow | `just counts` | implementer done |
 | `C3.check_commands` | CDP commands per check | 1 | after #1583 | B2 | must not grow | `just counts` | implementer done |
 | `C3.commands` | CDP commands per attempt, per action kind | no cap yet (ADR 0140, open question 2) | click 6, fill 2, press 4; human-like input and typing not run yet (#1018, #1022) | B2 | must not grow | `just counts` | implementer done |
+| `C3.owner_round_trips` | asks to the Page's owner per action attempt | 1 | 1 | B2 | must not grow | `just counts` | implementer done |
 ";
 
 /// A B2 benchmark over 3 checks and one attempt of each kind, its click's

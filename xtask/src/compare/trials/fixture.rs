@@ -3,7 +3,7 @@
 
 use super::{
     CollieScenario, Comparison, CountedCell, Declared, GrowthCell, Machine, Measured, SizesCell,
-    Trial,
+    Started, Trial,
 };
 use crate::compare::extracted::{ANSWERED_PAGES, Extracted};
 use crate::compare::matrix::{self, Cell, Scenario};
@@ -25,7 +25,7 @@ pub(crate) fn comparison(site_pages: u64, measured: impl Fn(&Cell, u32) -> Measu
                 number,
                 site_pages: cell.scenario.site_pages(site_pages),
                 concurrency: cell.scenario.concurrency(),
-                load: None,
+                started: Started::default(),
                 retried: None,
                 measured: {
                     let mut measured = measured(cell, number);

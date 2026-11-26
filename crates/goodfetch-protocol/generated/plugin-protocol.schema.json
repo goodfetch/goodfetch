@@ -597,7 +597,7 @@
           ]
         },
         "runtime": {
-          "$ref": "#/$defs/Runtime",
+          "$ref": "#/$defs/Runtime2",
           "arrived_in": "0.1",
           "default": {
             "kind": "none"
@@ -742,7 +742,7 @@
       "pattern": "^[a-z0-9]([a-z0-9._-]{0,126}[a-z0-9])?$",
       "type": "string"
     },
-    "Runtime": {
+    "Runtime2": {
       "description": "The language runtime a Plugin runs on.",
       "oneOf": [
         {

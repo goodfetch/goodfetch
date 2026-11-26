@@ -5,7 +5,8 @@
 use goodfetch_engine::events::Events;
 use goodfetch_protocol::page::{PAGE_DOWNLOAD, PageDownload, PageId, PageResponse};
 
-use crate::driver::{Arrived, Destination};
+use crate::driver::Arrived;
+use crate::page_navigation::Destination;
 use crate::recovery::Judging;
 use crate::sessions::OpenPage;
 

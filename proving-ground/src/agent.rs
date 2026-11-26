@@ -375,10 +375,10 @@ pub(crate) fn fault(seed: u64, id: &str) -> Option<Fault> {
                 ("price", prices(seed).changed_pro.to_string()),
             ]);
             let starter = elements(seed, Drift::Baseline).starter_price;
-            Fault::WrongAnswer(Answers {
+            Fault::WrongAnswer(Box::new(Answers {
                 records: vec![fields(&wrong)],
                 verbs: price_verbs(starter, &wrong),
-            })
+            }))
         }
         _ => return None,
     })
@@ -511,6 +511,7 @@ fn booking_verbs(page: &Elements) -> Verbs {
                 },
             ),
         ],
+        point: None,
     }
 }
 
@@ -535,6 +536,7 @@ fn price_verbs(cell: Element, record: &Record) -> Verbs {
                 arguments: vec![json!({ "records": [fields(record)] })],
             }],
         }],
+        point: None,
     }
 }
 

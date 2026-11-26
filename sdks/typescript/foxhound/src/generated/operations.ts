@@ -3,7 +3,7 @@
 import type { CallOptions, Caller } from "@goodfetch/collie-client/generated";
 import { type EntryMarkers, warnExperimental } from "@goodfetch/collie-client/runtime";
 import type { RunParams, RunStarted } from "@goodfetch/collie-client/generated/types";
-import type { CrawlRequestEnqueueLinksParams, CrawlRequestEnqueueParams, CrawlRequestLinks, CrawlRequestLinksParams, CrawlRequestOutcomes, CrawlRequestPushParams, CrawlRequestPushed, CrawlRunReport, CrawlStartParams, DatasetList, DatasetListParams, DatasetPage, DatasetPageParams, DatasetQueryParams, DatasetQueryResult, Enqueued, EnqueuedLinks, Export, ExportSaveAsParams, ExportSaved, ExportStreamParams, ExportStreamed, FailedRequests, RecordsRead, RejectedRecords, RetriedFailed, RunAddSeedParams, RunAddSeedsParams, RunExportParams, RunFailedRequestsParams, RunOutcomesParams, RunRecordsParams, RunRejectedRecordsParams, RunRetryFailedParams, RunSeeds, RunSeedsAdded, RunSeedsParams, SampleCrawlParams, SampleCrawlResult } from "./types.ts";
+import type { CrawlRequestEnqueueLinksParams, CrawlRequestEnqueueParams, CrawlRequestLinks, CrawlRequestLinksParams, CrawlRequestOutcomes, CrawlRequestPushParams, CrawlRequestPushed, CrawlRunReport, CrawlStartParams, DatasetList, DatasetListParams, DatasetPage, DatasetPageParams, DatasetQueryParams, DatasetQueryResult, DatasetSearchPage, DatasetSearchParams, Enqueued, EnqueuedLinks, Export, ExportSaveAsParams, ExportSaved, ExportStreamParams, ExportStreamed, FailedRequests, RecordSearchParams, RecordSearchResult, RecordsRead, RejectedRecords, RetriedFailed, RunAddSeedParams, RunAddSeedsParams, RunExportParams, RunFailedRequestsParams, RunOutcomesParams, RunRecordsParams, RunRejectedRecordsParams, RunRetryFailedParams, RunSeeds, RunSeedsAdded, RunSeedsParams, SampleCrawlParams, SampleCrawlResult } from "./types.ts";
 import { warnDeprecatedSettings } from "./settings.ts";
 
 /** The params and result of each of Foxhound's operations. */
@@ -17,8 +17,10 @@ export interface FoxhoundOperationTypes {
   "dataset.list": { params: DatasetListParams; result: DatasetList };
   "dataset.page": { params: DatasetPageParams; result: DatasetPage };
   "dataset.query": { params: DatasetQueryParams; result: DatasetQueryResult };
+  "dataset.search": { params: DatasetSearchParams; result: DatasetSearchPage };
   "export.save_as": { params: ExportSaveAsParams; result: ExportSaved };
   "export.stream": { params: ExportStreamParams; result: ExportStreamed };
+  "record.search": { params: RecordSearchParams; result: RecordSearchResult };
   "run.add_seed": { params: RunAddSeedParams; result: Enqueued };
   "run.add_seeds": { params: RunAddSeedsParams; result: RunSeedsAdded };
   "run.export": { params: RunExportParams; result: Export };
@@ -42,8 +44,10 @@ export const foxhoundOperations: Readonly<Record<keyof FoxhoundOperationTypes, E
   "dataset.list": { experimental: true, deprecated: undefined },
   "dataset.page": { experimental: true, deprecated: undefined },
   "dataset.query": { experimental: true, deprecated: undefined },
+  "dataset.search": { experimental: true, deprecated: undefined },
   "export.save_as": { experimental: true, deprecated: undefined },
   "export.stream": { experimental: true, deprecated: undefined },
+  "record.search": { experimental: true, deprecated: undefined },
   "run.add_seed": { experimental: true, deprecated: undefined },
   "run.add_seeds": { experimental: true, deprecated: undefined },
   "run.export": { experimental: true, deprecated: undefined },
@@ -67,8 +71,10 @@ export const foxhoundOperationNames: Readonly<Record<keyof FoxhoundOperationType
   "dataset.list": "dataset.list",
   "dataset.page": "dataset.page",
   "dataset.query": "dataset.query",
+  "dataset.search": "dataset.search",
   "export.save_as": "export.saveAs",
   "export.stream": "export.stream",
+  "record.search": "record.search",
   "run.add_seed": "run.addSeed",
   "run.add_seeds": "run.addSeeds",
   "run.export": "run.export",
@@ -92,8 +98,10 @@ export const foxhoundOperationClasses: Readonly<Record<keyof FoxhoundOperationTy
   "dataset.list": "read",
   "dataset.page": "read",
   "dataset.query": "read",
+  "dataset.search": "read",
   "export.save_as": "idempotent_write",
   "export.stream": "read",
+  "record.search": "read",
   "run.add_seed": "idempotent_write",
   "run.add_seeds": "idempotent_write",
   "run.export": "idempotent_write",
@@ -206,6 +214,16 @@ export class FoxhoundOperations {
   }
 
   /**
+   * Answers one page of the committed Records of one Dataset of a run that hold every word of `text`, each anywhere in the Record's values, in any case and with or without diacritics, in number order, after `after` and at most `limit` (1 to 1000, 100 by default), with the next page's `after` while more follow. It reads the index a crawl writes as it commits each Record while `dataset.search.index` is on, so a crawl with it off finds none. An empty `text` fails with `invalid_params`, and a Dataset the crawl does not declare with `dataset_unknown`.
+   *
+   * @experimental
+   */
+  datasetSearch(params: DatasetSearchParams, options: CallOptions = {}): Promise<DatasetSearchPage> {
+    warnExperimental("dataset.search");
+    return this.#caller.call("dataset.search", params, options);
+  }
+
+  /**
    * Saves an Export's file, which the engine keeps in its Run's folder, whole or not at all. An Attached engine given the program's path writes it through a hidden temporary file beside it, synced and renamed over it, creating missing folders and replacing a file there; any other engine writes nothing on its own machine and sends the file in `$/chunk` notifications of at most 64 KiB, one per credit granted with `$/credit`, for the SDK to write. Answers the file's size, its SHA-256 and the run epoch the Export was written under. A path that cannot be written raises `path_not_writable`, and full or failing storage `file_write_failed`, leaving the path as it was.
    *
    * @experimental
@@ -223,6 +241,16 @@ export class FoxhoundOperations {
   exportStream(params: ExportStreamParams, options: CallOptions = {}): Promise<ExportStreamed> {
     warnExperimental("export.stream");
     return this.#caller.call("export.stream", params, options);
+  }
+
+  /**
+   * Searches the committed Records of the runs `runs` selects, at most 100, for those that hold every word of `text`, each anywhere in the Record's values, in any case and with or without diacritics, in every Dataset or those `datasets` names, and answers at most `limit` (1 to 1000, 100 by default), the best matches first, each with its run, Dataset and number, so the runs that returned one can be read or queried with `dataset.query`. It reads only the selected runs' indexes, which a crawl writes while `dataset.search.index` is on, and runs under `timeout.dataset_query` and `dataset.query.memory_limit`. An empty `text` fails with `invalid_params`, and a run that does not exist with `run_not_found`.
+   *
+   * @experimental
+   */
+  recordSearch(params: RecordSearchParams, options: CallOptions = {}): Promise<RecordSearchResult> {
+    warnExperimental("record.search");
+    return this.#caller.call("record.search", params, options);
   }
 
   /**

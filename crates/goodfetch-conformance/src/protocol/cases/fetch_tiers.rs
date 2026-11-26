@@ -7,8 +7,9 @@
 //! The harness names the crawl's operations by their wire names, since
 //! only `goodfetch-protocol` names its Foxhound module (ADR 0099).
 //! The page is the `content-coding` family's gzip page, over plain HTTP.
-//! The fetch edge cases of the `http` tier (ADR 0118) are `edge`'s, and
-//! those of its redirect chains `chain`'s.
+//! The fetch edge cases of the `http` tier (ADR 0118) are `edge`'s, those
+//! of its redirect chains `chain`'s, and its Response cache cases (ADR
+//! 0046) `cached`'s.
 
 use goodfetch_protocol::connection::CLOSED;
 use goodfetch_protocol::page::PAGE_FORMATS;
@@ -20,6 +21,7 @@ use crate::protocol::connection::{Connection, Gone};
 use crate::protocol::foxhound::{CRAWL_REQUEST_HANDLE, CRAWL_START};
 use crate::protocol::target::DEADLINE;
 
+pub(super) mod cached;
 mod chain;
 mod edge;
 
@@ -45,6 +47,10 @@ pub(crate) enum Case {
     RedirectRetryAfter,
     HeldPastTheBoundAreRetried,
     RefreshStubs,
+    CacheOffReachesTheSite,
+    FreshResponseIsServed,
+    StaleResponseIsRevalidated,
+    VaryCookieIsKeyed,
 }
 
 impl Case {
@@ -90,6 +96,18 @@ impl Case {
             "a-refresh-stub-within-fetch-refresh-max-delay-hands-the-handler-its-target" => {
                 Some(Self::RefreshStubs)
             }
+            "with-cache-mode-off-every-request-reaches-the-site" => {
+                Some(Self::CacheOffReachesTheSite)
+            }
+            "a-fresh-response-is-served-from-the-cache-with-no-request" => {
+                Some(Self::FreshResponseIsServed)
+            }
+            "a-stale-response-is-revalidated-and-a-304-serves-its-stored-body" => {
+                Some(Self::StaleResponseIsRevalidated)
+            }
+            "a-response-varying-on-cookie-is-served-only-for-its-cookie" => {
+                Some(Self::VaryCookieIsKeyed)
+            }
             _ => None,
         }
     }
@@ -115,6 +133,10 @@ impl Case {
             Self::RedirectRetryAfter => chain::redirect_retry_after(connection, site, checks),
             Self::HeldPastTheBoundAreRetried => edge::held_past_the_bound(connection, site, checks),
             Self::RefreshStubs => chain::refresh_stubs(connection, site, checks),
+            Self::CacheOffReachesTheSite => cached::off(connection, site, checks),
+            Self::FreshResponseIsServed => cached::fresh(connection, site, checks),
+            Self::StaleResponseIsRevalidated => cached::stale(connection, site, checks),
+            Self::VaryCookieIsKeyed => cached::vary_cookie(connection, site, checks),
         }
     }
 }

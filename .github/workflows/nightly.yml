@@ -1,0 +1,418 @@
+# The nightly tier (ADRs 0061 and 0064; TESTING.md, Flaky tests and Live
+# checks), on `main`'s head. It stays disabled in the repository's settings
+# until the hosted-CI spec (#3373) turns it on; until then the owner runs it
+# by hand. The provider check, the online vendor conformance and the screen
+# reader run by hand from live.yml.
+#
+# - `release-suite` runs the Release suite again on `main`'s head, as its own
+#   release-suite.yml run, and waits for it (ci/nightly/release-suite.sh);
+#   every other job runs after it, whatever it found.
+# - `free-threaded-windows` and `free-threaded-macos` run the Python tests on
+#   the free-threaded CPython build (ci/runtimes.toml's `nightly` set, ADR
+#   0069); Linux runs it in the Release suite's cells.
+# - `scorecard` runs OpenSSF Scorecard as a Live check that blocks nothing
+#   (ADR 0032): each check held to its floor in ci/scorecard.toml.
+# - `sinks`, `testnets`, `releases` and `models` are ADR 0043's named jobs:
+#   each runs under the deny, reaches only the endpoints ci/egress/endpoints.toml
+#   lists for it, and runs the Live checks ci/live-checks.toml gives it
+#   (`xtask results live-run`). An area adds its checks, endpoints and
+#   secrets in the pull request that adds the Live check.
+#
+# Every Live check reports pass, fail or inconclusive to the results store
+# under the `live` tier (results.yml ingests each finished run), and the
+# scan opens its `live-check` issue. The Chromium jobs are area 8's (#962).
+name: nightly
+
+on:
+  schedule:
+    - cron: "23 1 * * *"
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: nightly
+  cancel-in-progress: false
+
+jobs:
+  release-suite:
+    name: release-suite
+    runs-on: ubuntu-24.04
+    # The Release run's own cells end within 150 minutes once they start.
+    timeout-minutes: 300
+    permissions:
+      actions: write
+      contents: read
+    steps:
+      - name: Check out main's head
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Run the Release suite on main's head and wait for it
+        env:
+          GH_TOKEN: ${{ github.token }}
+          COMMIT: ${{ github.sha }}
+        run: ci/nightly/release-suite.sh
+
+  free-threaded-windows:
+    name: free-threaded-windows
+    needs: release-suite
+    if: ${{ !cancelled() }}
+    runs-on: windows-2025
+    timeout-minutes: 90
+    permissions:
+      contents: read
+    defaults:
+      run:
+        shell: bash
+    env:
+      CELL: windows-x64
+      TARGET: x86_64-pc-windows-msvc
+      CARGO_PROFILE_DEV_DEBUG: line-tables-only
+    steps:
+      - name: Keep LF line endings on checkout
+        run: git config --global core.autocrlf false
+      - name: Check out main's head
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Install the toolchains, tools and runtimes
+        uses: ./.github/actions/host-tools
+        with:
+          target: x86_64-pc-windows-msvc
+          runtimes: nightly
+      - name: Build the executables the tests run
+        run: ci/release/cell.sh tools
+      - name: Set up the OS services the tests use
+        run: ci/os-services.sh setup
+      - name: Deny outbound traffic
+        run: ci/egress/egress.sh deny
+      - name: Refuse the Egress canary
+        run: ci/egress/egress.sh canary
+      - name: "Test: Python on the free-threaded CPython"
+        run: ci/egress/under-deny.sh ci/release/cell.sh python
+      - name: Check that the deny refused nothing else
+        if: always()
+        run: ci/egress/egress.sh check
+      - name: Record the job's context beside its JUnit files
+        if: always()
+        run: ci/junit-context.sh
+      - name: Summarize the failed tests
+        if: always()
+        run: ci/junit-summary.sh
+      - name: Scan the job's outputs for secrets before they upload
+        id: leaks
+        if: always()
+        run: ci/leaks.sh target/junit/
+      - name: Upload the JUnit files
+        if: always() && steps.leaks.outcome == 'success'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: junit-python-nightly-windows-x64-cpython-3.14t-1
+          path: target/junit/
+          if-no-files-found: ignore
+
+  free-threaded-macos:
+    name: free-threaded-macos
+    needs: release-suite
+    if: ${{ !cancelled() }}
+    runs-on: macos-15
+    timeout-minutes: 60
+    permissions:
+      contents: read
+    env:
+      CELL: macos-arm64
+      TARGET: aarch64-apple-darwin
+      GOODFETCH_TEST_NO_GUI_SESSION: "1"
+    steps:
+      - name: Check out main's head
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Install the toolchains, tools and runtimes
+        uses: ./.github/actions/host-tools
+        with:
+          target: aarch64-apple-darwin
+          runtimes: nightly
+      - name: Build the executables the tests run
+        run: ci/release/cell.sh tools
+      - name: Set up the OS services the tests use
+        run: ci/os-services.sh setup
+      - name: "Test: Python on the free-threaded CPython"
+        run: ci/release/cell.sh python
+      - name: Record the job's context beside its JUnit files
+        if: always()
+        run: ci/junit-context.sh
+      - name: Summarize the failed tests
+        if: always()
+        run: ci/junit-summary.sh
+      - name: Scan the job's outputs for secrets before they upload
+        id: leaks
+        if: always()
+        run: ci/leaks.sh target/junit/
+      - name: Upload the JUnit files
+        if: always() && steps.leaks.outcome == 'success'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: junit-python-nightly-macos-arm64-cpython-3.14t-1
+          path: target/junit/
+          if-no-files-found: ignore
+
+  # Scorecard reads the repository through GitHub's interface and publishes
+  # nothing. A Scorecard step that fails leaves no results, which makes the
+  # Live check inconclusive rather than failed.
+  scorecard:
+    name: scorecard
+    needs: release-suite
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      actions: read
+      contents: read
+    steps:
+      - name: Check out main's head
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Run Scorecard
+        continue-on-error: true
+        uses: ossf/scorecard-action@fa7117db83c52d787ae5a89f350999701505d78e # v2.5.0
+        with:
+          results_file: target/scorecard/results.json
+          results_format: json
+          repo_token: ${{ github.token }}
+          publish_results: false
+      - name: Install the tools and dependencies
+        uses: ./.github/actions/host-tools
+        with:
+          target: x86_64-unknown-linux-gnu
+      - name: Set up the OS services the tests use
+        run: ci/os-services.sh setup
+      - name: "Test: the job's Live checks"
+        run: >-
+          cargo run --quiet --locked --bin xtask -- results live-run
+          --job nightly.yml#scorecard --junit target/junit/live.xml
+      - name: Record the job's context beside its JUnit files
+        if: always()
+        run: ci/junit-context.sh
+      - name: Scan the job's outputs for secrets before they upload
+        id: leaks
+        if: always()
+        run: ci/leaks.sh target/junit/
+      - name: Upload the JUnit files
+        if: always() && steps.leaks.outcome == 'success'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: junit-scorecard-live-linux-x64-1
+          path: target/junit/
+          if-no-files-found: ignore
+
+  # ADR 0043's named jobs: one Linux shell each, its Live checks under the
+  # deny, which lets it reach its own endpoints alone. Each is a job of its
+  # own, as the deny and the secrets are per job.
+  #
+  # The real SaaS Sinks' free tiers (ADR 0076), on Foxhound's executable.
+  sinks:
+    name: sinks
+    needs: release-suite
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - name: Check out main's head
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Install the tools and dependencies
+        uses: ./.github/actions/host-tools
+        with:
+          target: x86_64-unknown-linux-gnu
+      - name: Build xtask before the deny
+        run: cargo build --quiet --locked --bin xtask
+      - name: Set up the OS services the tests use
+        run: ci/os-services.sh setup
+      - name: Deny outbound traffic
+        run: ci/egress/egress.sh deny
+      - name: Refuse the Egress canary
+        run: ci/egress/egress.sh canary
+      - name: "Test: the job's Live checks"
+        run: >-
+          ci/egress/under-deny.sh cargo run --quiet --locked --bin xtask --
+          results live-run --job nightly.yml#sinks --junit target/junit/live.xml
+      - name: Check that the deny refused nothing else
+        if: always()
+        run: ci/egress/egress.sh check
+      - name: Record the job's context beside its JUnit files
+        if: always()
+        run: ci/junit-context.sh
+      - name: Scan the job's outputs for secrets before they upload
+        id: leaks
+        if: always()
+        run: ci/leaks.sh target/junit/
+      - name: Upload the JUnit files
+        if: always() && steps.leaks.outcome == 'success'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: junit-sinks-live-linux-x64-1
+          path: target/junit/
+          if-no-files-found: ignore
+
+  # The Paid fetch testnets.
+  testnets:
+    name: testnets
+    needs: release-suite
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - name: Check out main's head
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Install the tools and dependencies
+        uses: ./.github/actions/host-tools
+        with:
+          target: x86_64-unknown-linux-gnu
+      - name: Build xtask before the deny
+        run: cargo build --quiet --locked --bin xtask
+      - name: Set up the OS services the tests use
+        run: ci/os-services.sh setup
+      - name: Deny outbound traffic
+        run: ci/egress/egress.sh deny
+      - name: Refuse the Egress canary
+        run: ci/egress/egress.sh canary
+      - name: "Test: the job's Live checks"
+        run: >-
+          ci/egress/under-deny.sh cargo run --quiet --locked --bin xtask --
+          results live-run --job nightly.yml#testnets --junit target/junit/live.xml
+      - name: Check that the deny refused nothing else
+        if: always()
+        run: ci/egress/egress.sh check
+      - name: Record the job's context beside its JUnit files
+        if: always()
+        run: ci/junit-context.sh
+      - name: Scan the job's outputs for secrets before they upload
+        id: leaks
+        if: always()
+        run: ci/leaks.sh target/junit/
+      - name: Upload the JUnit files
+        if: always() && steps.leaks.outcome == 'success'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: junit-testnets-live-linux-x64-1
+          path: target/junit/
+          if-no-files-found: ignore
+
+  # ADR 0070's unpinned releases: the newest MCP conformance suite, Inspector
+  # and SDK clients, and each framework's newest release.
+  releases:
+    name: releases
+    needs: release-suite
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - name: Check out main's head
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Install the tools and dependencies
+        uses: ./.github/actions/host-tools
+        with:
+          target: x86_64-unknown-linux-gnu
+      - name: Build xtask before the deny
+        run: cargo build --quiet --locked --bin xtask
+      - name: Set up the OS services the tests use
+        run: ci/os-services.sh setup
+      - name: Deny outbound traffic
+        run: ci/egress/egress.sh deny
+      - name: Refuse the Egress canary
+        run: ci/egress/egress.sh canary
+      - name: "Test: the job's Live checks"
+        run: >-
+          ci/egress/under-deny.sh cargo run --quiet --locked --bin xtask --
+          results live-run --job nightly.yml#releases --junit target/junit/live.xml
+      - name: Check that the deny refused nothing else
+        if: always()
+        run: ci/egress/egress.sh check
+      - name: Record the job's context beside its JUnit files
+        if: always()
+        run: ci/junit-context.sh
+      - name: Scan the job's outputs for secrets before they upload
+        id: leaks
+        if: always()
+        run: ci/leaks.sh target/junit/
+      - name: Upload the JUnit files
+        if: always() && steps.leaks.outcome == 'success'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: junit-releases-live-linux-x64-1
+          path: target/junit/
+          if-no-files-found: ignore
+
+  # ADR 0065's nightly Evaluations, through the Vercel AI Gateway's free tier
+  # and its free-tier models only (ADR 0076). While the tier is off they run
+  # on manual dispatch, as live.yml's provider check does.
+  models:
+    name: models
+    needs: release-suite
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - name: Check out main's head
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Install the tools and dependencies
+        uses: ./.github/actions/host-tools
+        with:
+          target: x86_64-unknown-linux-gnu
+      - name: Build xtask before the deny
+        run: cargo build --quiet --locked --bin xtask
+      - name: Set up the OS services the tests use
+        run: ci/os-services.sh setup
+      - name: Deny outbound traffic
+        run: ci/egress/egress.sh deny
+      - name: Refuse the Egress canary
+        run: ci/egress/egress.sh canary
+      - name: "Test: the job's Live checks"
+        env:
+          AI_GATEWAY_API_KEY: ${{ secrets.AI_GATEWAY_API_KEY }}
+        run: >-
+          ci/egress/under-deny.sh cargo run --quiet --locked --bin xtask --
+          results live-run --job nightly.yml#models --junit target/junit/live.xml
+      - name: Check that the deny refused nothing else
+        if: always()
+        run: ci/egress/egress.sh check
+      - name: Record the job's context beside its JUnit files
+        if: always()
+        run: ci/junit-context.sh
+      - name: Scan the job's outputs for secrets before they upload
+        id: leaks
+        if: always()
+        run: ci/leaks.sh target/junit/
+      - name: Upload the JUnit files
+        if: always() && steps.leaks.outcome == 'success'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: junit-models-live-linux-x64-1
+          path: target/junit/
+          if-no-files-found: ignore

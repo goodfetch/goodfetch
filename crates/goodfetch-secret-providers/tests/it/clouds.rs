@@ -100,11 +100,18 @@ impl Cloud {
     }
 
     /// The engine's environment signing the provider in, with its secret
-    /// credential replaced by `secret` when one is given, or without any.
+    /// credential replaced by `secret` when one is given, or without any;
+    /// without any, AWS's instance metadata service and GCP's metadata
+    /// server are turned off and Azure is kept to the environment's
+    /// service principal, so the test reaches no host's own (ADR 0076).
     fn environment(self, credentials: Credentials) -> BTreeMap<OsString, OsString> {
         let wrong = "a-wrong-credential";
         let variables: Vec<(&str, &str)> = match (self, credentials) {
-            (_, Credentials::None) => Vec::new(),
+            (Self::Aws, Credentials::None) => vec![("AWS_EC2_METADATA_DISABLED", "true")],
+            (Self::Gcp, Credentials::None) => vec![("NO_GCE_CHECK", "true")],
+            (Self::Azure, Credentials::None) => {
+                vec![("AZURE_TOKEN_CREDENTIALS", "EnvironmentCredential")]
+            }
             (Self::Aws, credentials) => vec![
                 (
                     "AWS_ACCESS_KEY_ID",

@@ -1,0 +1,211 @@
+{
+  "name": "recipe-manifest",
+  "schema": {
+    "$defs": {
+      "Exposure": {
+        "additionalProperties": false,
+        "description": "A Recipe's exposed setting (ADR 0028): its users may set it, within its\nbounds.",
+        "properties": {
+          "maximum": {
+            "arrived_in": "0.1",
+            "description": "The largest value its users may give, for a count or a duration.",
+            "format": "uint64",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "minimum": {
+            "arrived_in": "0.1",
+            "description": "The smallest value its users may give, for a count or a duration.",
+            "format": "uint64",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "one_of": {
+            "arrived_in": "0.1",
+            "description": "The values its users may give, when only these.",
+            "items": true,
+            "type": "array"
+          }
+        },
+        "type": "object"
+      },
+      "Product": {
+        "description": "One of Goodfetch's two Products (ADR 0084), by its mark as the catalog\nwrites it.",
+        "oneOf": [
+          {
+            "const": "collie",
+            "description": "Browser automation; Foxhound contains it.",
+            "type": "string"
+          },
+          {
+            "const": "foxhound",
+            "description": "Crawling, which contains Collie.",
+            "type": "string"
+          }
+        ]
+      },
+      "ProtocolVersion": {
+        "description": "A version `major.minor` (ADR 0030).",
+        "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$",
+        "type": "string"
+      },
+      "RecipeEntry": {
+        "description": "What a Recipe runs: exactly one of a program, a step list or a\n`CrawlDeclaration`, each a file of the package named by its path from\nthe package's root, with `/` between its parts.",
+        "oneOf": [
+          {
+            "additionalProperties": false,
+            "arrived_in": "0.1",
+            "description": "A program: its main source file, run on the manifest's runtime.",
+            "properties": {
+              "program": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "program"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "arrived_in": "0.1",
+            "description": "A step list (issue 1685), replayed with no program.",
+            "properties": {
+              "steps": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "steps"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "arrived_in": "0.1",
+            "description": "A `CrawlDeclaration` (issue 1514), a crawl as data, which only\nFoxhound runs.",
+            "properties": {
+              "crawl": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "crawl"
+            ],
+            "type": "object"
+          }
+        ]
+      },
+      "RecipeManifest": {
+        "additionalProperties": false,
+        "description": "A Recipe's manifest (issue 1663; ADRs 0028, 0030 and 0096).",
+        "properties": {
+          "entry": {
+            "$ref": "#/$defs/RecipeEntry",
+            "arrived_in": "0.1",
+            "description": "What the Recipe runs."
+          },
+          "expose": {
+            "additionalProperties": {
+              "$ref": "#/$defs/Exposure"
+            },
+            "arrived_in": "0.1",
+            "description": "The settings its users may set, by key, each with its bounds.",
+            "type": "object"
+          },
+          "name": {
+            "arrived_in": "0.1",
+            "description": "The Recipe's name.",
+            "pattern": "^[a-z][a-z0-9_-]{0,63}$",
+            "type": "string"
+          },
+          "product": {
+            "$ref": "#/$defs/Product",
+            "arrived_in": "0.1",
+            "description": "The Product the Recipe needs, which `init` writes (ADR 0096)."
+          },
+          "runtime": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/Runtime"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "arrived_in": "0.1",
+            "description": "The runtime a program entry runs on, which a step list or a\n`CrawlDeclaration` names none of."
+          },
+          "settings": {
+            "additionalProperties": true,
+            "arrived_in": "0.1",
+            "description": "The settings it declares, each locked for its users unless exposed.",
+            "type": "object"
+          },
+          "version": {
+            "$ref": "#/$defs/ProtocolVersion",
+            "arrived_in": "0.1",
+            "description": "The version of this format the manifest was written in."
+          }
+        },
+        "required": [
+          "version",
+          "name",
+          "product",
+          "entry"
+        ],
+        "type": "object"
+      },
+      "Runtime": {
+        "additionalProperties": false,
+        "description": "The runtime a program entry runs on.",
+        "properties": {
+          "language": {
+            "$ref": "#/$defs/RuntimeLanguage",
+            "arrived_in": "0.1",
+            "description": "Its language."
+          },
+          "version": {
+            "arrived_in": "0.1",
+            "description": "Its version, one of those this Product version lists for the\nlanguage ([`RuntimeLanguage::versions`]).",
+            "type": "string"
+          }
+        },
+        "required": [
+          "language",
+          "version"
+        ],
+        "type": "object"
+      },
+      "RuntimeLanguage": {
+        "description": "A language a Recipe's program may be written in.",
+        "oneOf": [
+          {
+            "const": "node",
+            "description": "Node.js, for a TypeScript or JavaScript program.",
+            "type": "string"
+          },
+          {
+            "const": "python",
+            "description": "CPython.",
+            "type": "string"
+          },
+          {
+            "const": "rust",
+            "description": "Rust's toolchain.",
+            "type": "string"
+          }
+        ]
+      }
+    },
+    "$ref": "#/$defs/RecipeManifest"
+  },
+  "storage": "toml",
+  "version": "0.1"
+}

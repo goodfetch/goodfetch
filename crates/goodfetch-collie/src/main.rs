@@ -3,7 +3,7 @@
 
 use std::process::ExitCode;
 
-use goodfetch_collie::executable::{OwnCommands, Skills, Start, main as start};
+use goodfetch_collie::executable::{OwnCommands, Skills, Start, Starters, main as start};
 use goodfetch_engine::heap::Counting;
 use goodfetch_protocol::catalog::Product;
 
@@ -25,6 +25,7 @@ fn main() -> ExitCode {
         composition: goodfetch_collie::composition,
         commands: OwnCommands::COLLIE,
         skills: Skills::COLLIE,
+        starters: Starters::COLLIE,
         arguments: std::env::args_os().collect(),
         environment: std::env::vars_os().collect(),
     })

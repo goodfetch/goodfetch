@@ -55,6 +55,12 @@ metrics_endpoint = "example"
 idle_timeout = 30000
 address = "example"
 drain_grace = 30000
+trusted_proxies = ["10.0.0.0/8", "192.0.2.7"]
+
+[settings.daemon.tls]
+cert_file = "example"
+key_file = "example"
+upstream = true
 
 [settings.ops]
 address = "example"
@@ -124,6 +130,11 @@ local_addresses = ["192.0.2.10", "2001:db8::10"]
 [settings.egress.rotation_block]
 ipv4 = 24
 ipv6 = 64
+
+[settings.cache]
+mode = "off"
+max_size = 4
+max_age_ceiling = 30000
 
 [settings.tls]
 trusted_cas = { "example.test" = ["example"] }
@@ -420,3 +431,6 @@ records = true
 [settings.dataset.query]
 memory_limit = 4
 max_rows = 4
+
+[settings.dataset.search]
+index = true

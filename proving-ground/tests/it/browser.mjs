@@ -13,6 +13,8 @@
 // surface, so it opens its own browser and contexts rather than taking
 // test support's Playwright fixtures (ADR 0068), as a competitor's adapter
 // would.
+import http from "node:http";
+
 import { chromium } from "playwright";
 
 /** How long a program waits for the page before it reports a failure. */
@@ -112,6 +114,38 @@ const clickCanvas = async (page, point) => {
   return { status: "success" };
 };
 
+/**
+ * Posts `body` to the Fake model, on `model.test` at the port of `url`
+ * reached on the loopback address, and parses the JSON text it answers.
+ */
+const askModel = (url, body) =>
+  new Promise((resolve, reject) => {
+    const sent = JSON.stringify(body);
+    const call = http.request(
+      {
+        host: "127.0.0.1",
+        port: new URL(url).port,
+        path: "/v1/chat/completions",
+        method: "POST",
+        headers: {
+          host: "model.test",
+          "content-type": "application/json",
+          "content-length": Buffer.byteLength(sent),
+        },
+      },
+      (response) => {
+        const chunks = [];
+        response.on("data", (chunk) => chunks.push(chunk));
+        response.on("end", () => {
+          const answer = JSON.parse(Buffer.concat(chunks).toString("utf8"));
+          resolve(JSON.parse(answer.choices[0].message.content));
+        });
+      },
+    );
+    call.on("error", reject);
+    call.end(sent);
+  });
+
 /** The two points the surface page names. */
 const strokePoints = (page) =>
   page.evaluate(() => {
@@ -201,6 +235,41 @@ const programs = {
   "canvas-corner": async (page, { url }) => {
     await page.goto(url);
     return clickCanvas(page, { x: 4, y: 4 });
+  },
+  /**
+   * The vision rung: sends a screenshot of the viewport and `prompt` to the
+   * Fake model, then clicks the page where its answer points.
+   */
+  "canvas-vision": async (page, { url, prompt }) => {
+    await page.goto(url);
+    const image = (await page.screenshot({ type: "png" })).toString("base64");
+    const point = await askModel(url, {
+      model: "fake-model",
+      messages: [
+        {
+          role: "user",
+          content: [
+            { type: "text", text: prompt },
+            { type: "image_url", image_url: { url: `data:image/png;base64,${image}` } },
+          ],
+        },
+      ],
+      response_format: {
+        type: "json_schema",
+        json_schema: {
+          name: "point",
+          schema: {
+            type: "object",
+            properties: { coordinate: { type: "array", items: { type: "integer" } } },
+            required: ["coordinate"],
+          },
+        },
+      },
+    });
+    const [x, y] = point.coordinate;
+    await page.mouse.click(x, y);
+    await reportsSent(page);
+    return { status: "success" };
   },
   /** Draws the stroke the page names, then reads the surface back. */
   "surface-stroke": async (page, { url }) => {

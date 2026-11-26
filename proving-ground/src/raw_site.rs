@@ -1,7 +1,8 @@
 //! The host names the raw server answers (#162, ADRs 0118 and 0119): the
 //! lab's HTTP incidents, access-policy and identity sites, ported, the
-//! fetch edge pages, the content-coding pages, the body-limits pages and the
-//! plain hosts, where every path is a page. Each is served over TLS,
+//! fetch edge pages, the content-coding pages, the body-limits pages, the
+//! Response cache's host and the plain hosts, where every path is a page.
+//! Each is served over TLS,
 //! where the raw server reads a connection's server name to know its host
 //! before its first request, and over plain HTTP/1.1, where the first
 //! request's `Host` names it, for a client such as a browser that does not
@@ -13,6 +14,7 @@
 //! check is recorded with the request.
 
 mod body_limits;
+mod cache;
 mod coding;
 mod directory;
 mod edge;
@@ -42,7 +44,7 @@ const FAMILY_HOSTS: [&str; 6] = [
 
 /// Whether the raw server answers `host` (a host name without its port).
 pub(crate) fn serves(host: &str) -> bool {
-    family_of(host).is_some() || plain::serves(host)
+    family_of(host).is_some() || host == cache::HOST || plain::serves(host)
 }
 
 /// Whether `host` offers HTTP/1.1 alone in its TLS handshake's ALPN.
@@ -67,6 +69,7 @@ pub(crate) fn hosts() -> Vec<String> {
         .chain(edge::NAMED_HOSTS)
         .chain(policy::NAMED_HOSTS)
         .chain(body_limits::NAMED_HOSTS)
+        .chain([cache::HOST])
         .chain(plain::NAMED_HOSTS)
         .map(str::to_owned)
         .collect()
@@ -170,6 +173,7 @@ impl raw::Pages for RawSite {
             Some(coding::HOST) => coding::answer(&host, request),
             Some(body_limits::HOST) => body_limits::answer(&host, request),
             Some(_) => edge::answer(&host, request, earlier),
+            None if host == cache::HOST => cache::answer(request, earlier),
             None if plain::serves(&host) => plain::answer(&self.released, request).await,
             None => Answer::Page(raw::Page::text(404, "not found")),
         }

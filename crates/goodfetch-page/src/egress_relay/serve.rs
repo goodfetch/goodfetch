@@ -9,7 +9,6 @@
 //! opens has its connect deadline, so a proxy that never answers is the
 //! proxy's failure.
 
-use goodfetch_cdp::NetError;
 use std::future::Future;
 use std::io;
 use std::net::SocketAddr;
@@ -26,6 +25,9 @@ use super::answers::{AUTHENTICATE, ESTABLISHED, failed};
 use super::client_hello::{ClientHello, Noting};
 use super::deadlines::{HEAD_DEADLINE, within, within_or_none};
 use super::head::{self, Head, Target, Unread};
+// The relay's own `NetError`, which the benchmark scenarios that compile
+// this file in give it too.
+use super::NetError;
 use super::terminate::{self, Stop, Terminated, Terminating};
 
 /// What a name resolved to.

@@ -374,7 +374,7 @@ fn limit_adds_at_most_that_many_links_and_answers_each_link_past_it() {
 /// in `Shift_JIS`, 한 as its percent-encoded character reference: the bytes a
 /// browser sends (ADR 0120).
 ///
-/// Covers: story:6-233, operation:crawl_request.enqueue_links
+/// Covers: story:6-233, story:11-1022, operation:crawl_request.enqueue_links
 #[test]
 fn a_shift_jis_pages_link_is_fetched_with_its_query_in_shift_jis() {
     let env = TestEnv::new();

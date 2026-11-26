@@ -1,6 +1,7 @@
 //! What the engine reads of its environment map: the OS user's name, the
 //! person a single-user install acts for (ADR 0102), whom the Audit log
-//! names, and the person's folders a Plugin's confinement denies (ADR 0033).
+//! names; the host's time zone, which a Schedule stores when it names
+//! none; and the person's folders a Plugin's confinement denies (ADR 0033).
 
 use std::collections::BTreeMap;
 use std::ffi::OsString;
@@ -8,7 +9,7 @@ use std::path::PathBuf;
 
 use rstest::rstest;
 
-use super::{os_user, places};
+use super::{host_zone, os_user, places};
 use crate::home::Home;
 
 /// The environment map of `variables`.
@@ -68,4 +69,17 @@ fn the_persons_folders_come_from_the_environment(
             )
         })
     );
+}
+
+/// Covers: story:10-8
+#[rstest]
+#[case::an_iana_name("Asia/Kathmandu", "Asia/Kathmandu")]
+#[case::with_the_c_library_colon(":Europe/Paris", "Europe/Paris")]
+#[case::empty_as_utc("", "UTC")]
+#[case::a_posix_rule_as_utc("CET-1CEST", "UTC")]
+#[case::an_unknown_name_as_utc("Europe/Atlantis", "UTC")]
+fn the_hosts_zone_comes_from_tz_as_an_iana_name(#[case] tz: &str, #[case] expected: &str) {
+    let environment = [(OsString::from("TZ"), OsString::from(tz))].into();
+
+    assert_eq!(host_zone(&environment), expected);
 }

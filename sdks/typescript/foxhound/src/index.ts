@@ -28,17 +28,32 @@ export {
   Dataset,
   Label,
   seed,
+  sitemap,
+  type AttemptRun,
   type CrawlContext,
   type DatasetOptions,
+  type DatasetSchemaOptions,
   type EnqueueLinksOptions,
   type Handler,
   type LabelOptions,
+  type LinkPayload,
+  type LinksPayload,
   type PayloadInput,
   type PayloadSchema,
   type PayloadThen,
+  type RecordInput,
+  type RecordOutput,
+  type RecordSchema,
   type RequestOptions,
 } from "./crawl.ts";
 export { CrawlRun, type RecordsOptions } from "./crawl-run.ts";
+export type {
+  BackendRequest,
+  BackendResponse,
+  FetchBackendHandler,
+  SinkDelivery,
+  SinkHandler,
+} from "./handlers.ts";
 export type {
   CrawlSettings,
   DatasetRecord,
@@ -47,5 +62,9 @@ export type {
   EnqueuedLinks,
   FoxhoundSettings,
   LabelSettings,
+  MatchedLink,
   RequestSeed,
+  Seed,
+  SitemapRule,
+  SitemapSeed,
 } from "./generated/index.ts";

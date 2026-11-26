@@ -120,6 +120,7 @@
           "run_id": "run-b",
           "crawl_request_id": "1",
           "lease_epoch": 1,
+          "page_id": "page-b",
           "url": "/next",
           "label": "page"
         }
@@ -192,6 +193,7 @@
           "run_id": "run-a",
           "crawl_request_id": "1",
           "lease_epoch": 1,
+          "page_id": "page-a",
           "url": "/next",
           "label": "page"
         }

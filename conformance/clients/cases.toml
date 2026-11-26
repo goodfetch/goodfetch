@@ -26,7 +26,7 @@
 
 [suite]
 name = "clients"
-version = "64"
+version = "65"
 
 [[capability]]
 name = "lifecycle"
@@ -734,9 +734,7 @@ modes = ["attached"]
 
 # A Run's Key-value store outside a handler, on Collie's executable (ADR
 # 0103; #791): in TypeScript `tsc` rejects `set(key, null)`, and in Python
-# and Rust it fails with `value_invalid`. The Python SDK's Run has only
-# `keys` yet, and the Rust SDK's Run no Key-value store, so `sdk-python` and
-# `sdk-rust` join these cases with issue 1284, which adds them.
+# and Rust it fails with `value_invalid`.
 [[capability]]
 name = "key-value-store"
 
@@ -754,28 +752,28 @@ modes = ["attached"]
 [[capability.case]]
 id = "key-value-store-get-absent-answers-null"
 covers = ["story:6-28", "story:6-31"]
-surfaces = ["sdk-typescript"]
-modes = ["attached"]
+surfaces = ["sdk-typescript", "sdk-python", "sdk-rust"]
+modes = ["attached", "linked"]
 
 [[capability.case]]
 id = "key-value-store-set-null-refused"
 covers = ["story:6-29"]
-surfaces = ["sdk-typescript"]
-modes = ["attached"]
+surfaces = ["sdk-typescript", "sdk-python", "sdk-rust"]
+modes = ["attached", "linked"]
 
 # Bytes with their content type (#792): `getBytes` answers what `setBytes`
 # stored, and neither reader answers the other's type (S2).
 [[capability.case]]
 id = "key-value-store-bytes-round-trip"
 covers = ["story:6-30"]
-surfaces = ["sdk-typescript"]
-modes = ["attached"]
+surfaces = ["sdk-typescript", "sdk-python", "sdk-rust"]
+modes = ["attached", "linked"]
 
 [[capability.case]]
 id = "key-value-store-read-of-the-other-type-refused"
 covers = ["story:6-30"]
-surfaces = ["sdk-typescript"]
-modes = ["attached"]
+surfaces = ["sdk-typescript", "sdk-python", "sdk-rust"]
+modes = ["attached", "linked"]
 
 # Limits in code (ADR 0080; issue 2830): `connect()` and a Run's start take
 # typed Limits, a price as an exact `Money`, which only lower. TypeScript
@@ -821,8 +819,8 @@ modes = ["attached"]
 # Typed data (ADR 0082): a value typed by a schema in the language's own
 # types, or a hand-written JSON Schema, round-trips through the Key-value
 # store; results keep unknown fields; a value that is not JSON is refused
-# before sending. Python and Rust join the Key-value cases with their
-# Key-value surface (#1284).
+# before sending. Python and Rust join the Key-value cases with issue 1284;
+# their own tests of their typed Key-value stores run already.
 [[capability]]
 name = "typed-data"
 
@@ -962,3 +960,20 @@ name = "testing-kit"
 id = "test-engine-runs-the-code-under-test"
 covers = ["story:11-156", "story:11-157", "story:11-168"]
 surfaces = ["sdk-typescript", "sdk-python", "sdk-rust"]
+
+# A Connection's Schedules (spec 589, ADR 0099; #854): `schedules.create`
+# answers a Schedule handle under the ID given, or one it made when none
+# was, `schedules.list` lists them, `schedules.get` answers the handle of a
+# held ID and fails an unknown one with `schedule_not_found`, and the
+# handle's `info()` and `delete()` act on it. Attached through Collie's
+# executable in TypeScript and Python (three ways), linked in Rust, each
+# surface taking the modes it has; the CLI and the Daemon join with #854's
+# last part.
+[[capability]]
+name = "schedules"
+
+[[capability.case]]
+id = "schedules-crud"
+covers = ["story:10-2"]
+surfaces = ["sdk-typescript", "sdk-python", "sdk-rust"]
+modes = ["attached", "linked"]

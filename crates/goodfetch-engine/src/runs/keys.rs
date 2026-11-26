@@ -11,6 +11,7 @@ use goodfetch_protocol::secret_reference::SecretReference;
 use goodfetch_protocol::secrets::{
     KEY_REFERENCE_IN_KEYCHAIN, RUN_STATE_KEY_REFERENCE, SecretFailure,
 };
+use goodfetch_protocol::security::SECURITY_FIELD_ENCRYPTION;
 use goodfetch_protocol::settings::SettingsLayer;
 use secrecy::SecretString;
 use secrecy::zeroize::Zeroizing;
@@ -20,7 +21,7 @@ use crate::run_identity::RunIdentity;
 use crate::run_key::{self, KeyError, RunKey, Sealed, StoredKey};
 use crate::run_state::{RunState, SecretColumn};
 use crate::secrets::{Purpose, RunSecrets, SecretError, Secrets, is_engine_key};
-use crate::settings::{RunSettings, Settings};
+use crate::settings::{RunSettings, Settings, get_or_default};
 
 /// A live Run's Secrets and its data key, which a function takes in place
 /// of the Run's handle (ADR 0145). Clones share them.
@@ -32,6 +33,9 @@ struct Inner {
     secrets: RunSecrets,
     /// Its data key, once made or unwrapped.
     key: tokio::sync::OnceCell<RunKey>,
+    /// Whether a field stored unsealed opens in it: only when the Run lists
+    /// `security.field_encryption` as weakened.
+    unsealed_open: bool,
     /// Its Run ID and settings, which name its key-encryption key.
     identity: RunIdentity,
     /// Its run state's writer, which keeps the wrapped key.
@@ -49,6 +53,7 @@ pub(super) struct KeysParts {
     pub(super) secrets: RunSecrets,
     /// Its data key when its start or resume unwrapped one.
     pub(super) key: Option<RunKey>,
+    pub(super) unsealed_open: bool,
     pub(super) identity: RunIdentity,
     pub(super) state: RunState,
     pub(super) settings: Settings,
@@ -70,6 +75,7 @@ impl RunKeys {
         Self(Arc::new(Inner {
             secrets: parts.secrets,
             key: tokio::sync::OnceCell::new_with(parts.key),
+            unsealed_open: parts.unsealed_open,
             identity: parts.identity,
             state: parts.state,
             settings: parts.settings,
@@ -90,7 +96,8 @@ impl RunKeys {
 
     /// `plaintext` sealed under its data key for the row `row` of the secret
     /// column `column`: the only value its owner writes there. Its first
-    /// call makes the data key.
+    /// call makes the data key. With its `security.field_encryption` off,
+    /// `plaintext` is stored unsealed and no key is made (ADR 0016).
     ///
     /// # Errors
     ///
@@ -108,6 +115,12 @@ impl RunKeys {
         row: &str,
         plaintext: &[u8],
     ) -> Result<Sealed, RunKeyError> {
+        if !get_or_default::<bool>(
+            self.0.identity.settings().map(RunSettings::resolved),
+            &SECURITY_FIELD_ENCRYPTION,
+        ) {
+            return Ok(Sealed::unsealed(plaintext));
+        }
         let key = self.key().await?;
         Ok(Sealed::new(key.seal(
             column.table,
@@ -121,12 +134,14 @@ impl RunKeys {
     /// column `column`, in this Run or after its resume. It never makes a
     /// data key: a Run with none held, unwrapped at its resume or stored
     /// by a making whose caller was dropped, sealed nothing, so nothing it
-    /// holds opens.
+    /// holds opens. A value stored unsealed opens as it is, only in a Run
+    /// that lists its field encryption as weakened.
     ///
     /// # Errors
     ///
     /// `Key` when the value was sealed for another place or another Run,
-    /// or changed since, or when the Run has no data key.
+    /// or changed since, or when the Run has no data key; or when it was
+    /// stored unsealed and the Run's field encryption was never off.
     ///
     /// # Cancel safety
     ///
@@ -138,6 +153,13 @@ impl RunKeys {
         row: &str,
         sealed: &Sealed,
     ) -> Result<Zeroizing<Vec<u8>>, RunKeyError> {
+        if let Some(plaintext) = sealed.unsealed_plaintext() {
+            return if self.0.unsealed_open {
+                Ok(Zeroizing::new(plaintext.to_vec()))
+            } else {
+                Err(KeyError::DoesNotOpen.into())
+            };
+        }
         let key = self.0.key.get_or_try_init(|| self.stored_key()).await?;
         Ok(key.open(column.table, column.column, row, sealed.as_bytes())?)
     }

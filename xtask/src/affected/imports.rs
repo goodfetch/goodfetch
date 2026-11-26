@@ -15,7 +15,8 @@ use anyhow::{Context as _, Result};
 
 use crate::{package_dependencies, tree};
 
-/// The files under `folder` whose extension is one of `extensions`.
+/// The files under `folder` whose extension is one of `extensions`,
+/// outside installed packages, build outputs and caches.
 pub(super) fn files(folder: &Path, extensions: &[&str]) -> Result<Vec<std::path::PathBuf>> {
     let mut found = Vec::new();
     walk(folder, extensions, &mut found)?;

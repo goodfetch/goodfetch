@@ -10,7 +10,8 @@ use std::collections::BTreeMap;
 use anyhow::{Context as _, Result};
 use serde_json::{Map, Value};
 
-use super::{External, Generator, projection};
+use super::{External, Generator};
+use crate::compat;
 
 /// `@goodfetch/test-support`'s generated folder.
 pub(super) const TYPESCRIPT_FOLDER: &str = "test-support/typescript/src/generated";
@@ -82,14 +83,14 @@ fn input(bundle: &Value, python: bool) -> Result<Value> {
         .get("$defs")
         .and_then(Value::as_object)
         .context("the bundle has no `$defs`")?;
-    let reached = projection::reached(&Value::Array(roots), definitions)?;
+    let reached = compat::reached(&Value::Array(roots), definitions)?;
     let mut input = serde_json::json!({
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "title": "ResultDocumentTypes",
         "description": "The root of the result document's and the case log entry's types, which holds no value of its own.",
         "$defs": definitions
             .iter()
-            .filter(|(name, _)| reached.contains(name.as_str()))
+            .filter(|(name, _)| reached.contains_key(name.as_str()))
             .map(|(name, definition)| (name.clone(), definition.clone()))
             .collect::<Map<String, Value>>(),
     });

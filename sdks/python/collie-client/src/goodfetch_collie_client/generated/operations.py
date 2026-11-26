@@ -375,7 +375,7 @@ class AsyncCollieOperations:
         return result_of(Navigated, await self._caller.call("page.reload", params))
 
     async def page_request(self, params: PageRequestParams) -> PageResponse:
-        """Sends a request from inside the page's Session's browser, with its cookies, through the browser-fetch tier and the page's interception (its domain policy, never its routes), from a context no service worker controls, and answers the response whatever its status, a 429 included; `response.body` reads its kept body, and raises `response_truncated` for one that broke off. A count of redirects above 19 is refused with `setting_invalid`, a chain past its count raises `too_many_redirects`, and a body whose content coding fails to decode `navigation_failed`.
+        """Sends a request from inside the page's Session's browser, with its cookies, through the browser-fetch tier and the page's interception (its domain policy, never its routes), from a context no service worker controls, and answers the response whatever its status, a 429 included; `response.body` reads its kept body, and raises `response_truncated` for one that broke off. A count of redirects above 19 is refused with `setting_invalid`, a chain past its count raises `too_many_redirects`, and a body whose content coding fails to decode `navigation_failed`. A header value or a JSON body string may hold a Secret placeholder, whose value the engine adds at its interception after every page script and service worker: an unbound placeholder raises `secret_unbound`, a hop outside its bound domains `secret_domain_not_allowed`, and a header value holding a CR, an LF or a NUL `header_value_invalid`.
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
@@ -1111,7 +1111,7 @@ class CollieOperations:
         return result_of(Navigated, self._caller.call("page.reload", params))
 
     def page_request(self, params: PageRequestParams) -> PageResponse:
-        """Sends a request from inside the page's Session's browser, with its cookies, through the browser-fetch tier and the page's interception (its domain policy, never its routes), from a context no service worker controls, and answers the response whatever its status, a 429 included; `response.body` reads its kept body, and raises `response_truncated` for one that broke off. A count of redirects above 19 is refused with `setting_invalid`, a chain past its count raises `too_many_redirects`, and a body whose content coding fails to decode `navigation_failed`.
+        """Sends a request from inside the page's Session's browser, with its cookies, through the browser-fetch tier and the page's interception (its domain policy, never its routes), from a context no service worker controls, and answers the response whatever its status, a 429 included; `response.body` reads its kept body, and raises `response_truncated` for one that broke off. A count of redirects above 19 is refused with `setting_invalid`, a chain past its count raises `too_many_redirects`, and a body whose content coding fails to decode `navigation_failed`. A header value or a JSON body string may hold a Secret placeholder, whose value the engine adds at its interception after every page script and service worker: an unbound placeholder raises `secret_unbound`, a hop outside its bound domains `secret_domain_not_allowed`, and a header value holding a CR, an LF or a NUL `header_value_invalid`.
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """

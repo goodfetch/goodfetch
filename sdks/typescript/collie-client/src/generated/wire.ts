@@ -354,7 +354,7 @@ export const collieWire: Wire<keyof CollieOperationTypes & string, keyof CollieE
     "PagePopup": { fields: { "page_id": "pageId", "popup": ["popup", { type: "PageOpened" }] } },
     "PageReadParams": { fields: { "fields": ["fields", { values: { type: "PageField" } }], "page_id": "pageId" } },
     "PageRequest": { fields: { "failure": ["failure", { type: "RequestFailure" }], "is_navigation_request": "isNavigationRequest", "page_id": "pageId", "post_data": "postData", "redirect_chain": "redirectChain", "redirected_from": "redirectedFrom", "request_id": "requestId", "resource_type": "resourceType" } },
-    "PageRequestParams": { fields: { "max_redirects": "maxRedirects", "page_id": "pageId", "post_data": "postData" } },
+    "PageRequestParams": { fields: { "json_secrets": "jsonSecrets", "max_redirects": "maxRedirects", "page_id": "pageId", "post_data": "postData", "secret_headers": "secretHeaders" } },
     "PageResponse": { fields: { "from_service_worker": "fromServiceWorker", "request_id": "requestId", "status_text": "statusText" } },
     "PageRouteParams": { fields: { "page_id": "pageId" } },
     "PageWebSocket": { fields: { "page_id": "pageId", "web_socket_id": "webSocketId" } },

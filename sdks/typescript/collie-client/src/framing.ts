@@ -8,6 +8,9 @@
 /** A JSON-RPC request or reply id. */
 export type MessageId = number | string;
 
+/** The member of a request's params that holds its envelope (ADR 0132). */
+export const META = "_meta";
+
 /** One message the engine sent. */
 export type Message =
   | {

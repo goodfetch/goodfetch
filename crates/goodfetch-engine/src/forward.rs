@@ -38,6 +38,10 @@ use crate::{trace, transport};
 
 #[cfg(test)]
 mod tests;
+mod to_the_daemon;
+
+pub use to_the_daemon::DaemonReach;
+pub(crate) use to_the_daemon::ThroughTheReach;
 
 /// How long the owner has to answer `hello`: a live owner answers at once.
 const HELLO_DEADLINE: Duration = Duration::from_secs(5);
@@ -170,7 +174,10 @@ impl Forwarder for ToOwner {
                 StoppedBy::Client | StoppedBy::Program | StoppedBy::Browser => Surface::Rust,
             };
             let hello = self.hello_from(surface, token, Product::Collie);
-            let answered = self.call(&endpoint, &hello, RUN_ABORT.name, &params).await;
+            let deadline = Some(self.answer_deadline().await);
+            let answered = self
+                .call(&endpoint, &hello, RUN_ABORT.name, &params, deadline)
+                .await;
             let report = match answered {
                 Ok(Ok(report)) => serde_json::from_value(report).map_err(NoAnswer::NoReport),
                 Ok(Err(failure)) => Err(NoAnswer::Failed(failure.data.code)),
@@ -197,7 +204,11 @@ impl Forwarder for ToOwner {
         Box::pin(async move {
             let (endpoint, token) = self.reach(owner, tasks).await?;
             let hello = self.hello(token, needs);
-            match self.call(&endpoint, &hello, method, &params).await {
+            let deadline = Some(self.answer_deadline().await);
+            match self
+                .call(&endpoint, &hello, method, &params, deadline)
+                .await
+            {
                 Ok(answer) => Some(answer),
                 Err(reason) => {
                     tracing::debug!(%owner, method, %reason, "the Run's owner did not answer a read");
@@ -211,16 +222,18 @@ impl Forwarder for ToOwner {
 impl ToOwner {
     /// Opens a Connection to `owner`, says `hello`, sends `method` with
     /// `params` and reads its answer: its result, or the failure it
-    /// answered; [`NoAnswer`] when it gave neither, or not within its
-    /// deadline. The call is a request the engine sends, so it opens a
-    /// `CLIENT` span, whose Trace context its `_meta` carries (ADR 0132);
-    /// `hello` opens the Connection and carries none.
+    /// answered; [`NoAnswer`] when it gave neither, or not within
+    /// `deadline` once it accepted `hello`, when there is one. The call is
+    /// a request the engine sends, so it opens a `CLIENT` span, whose
+    /// Trace context its `_meta` carries (ADR 0132); `hello` opens the
+    /// Connection and carries none.
     async fn call(
         &self,
         owner: &DaemonEndpoint,
         hello: &HelloParams,
         method: &'static str,
         params: &impl serde::Serialize,
+        deadline: Option<Duration>,
     ) -> Result<Result<Value, ErrorObject>, NoAnswer> {
         let span = trace::client_span(method);
         let mut params = serde_json::to_value(params).expect("invariant: params encode");
@@ -249,7 +262,8 @@ impl ToOwner {
             let connection = transport::connect_daemon(owner)
                 .await
                 .map_err(NoAnswer::Unconnected)?;
-            self.exchange(connection, hello, method, &params).await
+            self.exchange(connection, hello, (method, &params), deadline)
+                .await
         }
         .instrument(span.clone())
         .await;
@@ -267,8 +281,8 @@ impl ToOwner {
         &self,
         connection: Connection,
         hello: &HelloParams,
-        method: &str,
-        params: &Value,
+        (method, params): (&str, &Value),
+        deadline: Option<Duration>,
     ) -> Result<Result<Value, ErrorObject>, NoAnswer> {
         let (reader, mut writer) = connection.split();
         let mut lines = BufReader::new(reader).lines();
@@ -279,13 +293,15 @@ impl ToOwner {
             }
             () = self.clock.sleep(HELLO_DEADLINE) => return Err(NoAnswer::HelloUnanswered),
         }
-        let deadline = self.answer_deadline().await;
         send(&mut writer, CALL, method, params).await?;
-        let answer = tokio::select! {
-            answer = reply(&mut lines, CALL) => answer?,
-            () = self.clock.sleep(deadline) => {
-                return Err(NoAnswer::CallUnanswered(method.to_owned()));
-            }
+        let answer = match deadline {
+            Some(deadline) => tokio::select! {
+                answer = reply(&mut lines, CALL) => answer?,
+                () = self.clock.sleep(deadline) => {
+                    return Err(NoAnswer::CallUnanswered(method.to_owned()));
+                }
+            },
+            None => reply(&mut lines, CALL).await?,
         };
         let _ = writer.shutdown().await;
         Ok(answer)

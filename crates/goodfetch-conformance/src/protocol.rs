@@ -77,6 +77,9 @@ const RUN_START_CRAWL_CASES: &str = include_str!("../../../conformance/run-start
 /// The two-copies suite's case list, embedded the same way.
 const TWO_COPIES_CASES: &str = include_str!("../../../conformance/two-copies/cases.toml");
 
+/// The Schedule store's case list, embedded the same way.
+const SCHEDULE_CASES: &str = include_str!("../../../conformance/schedule/cases.toml");
+
 /// A protocol suite: its declared case list, and the Product whose
 /// executable it runs on.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -143,6 +146,13 @@ impl ProtocolSuite {
     /// sets, on Foxhound's executable.
     pub fn two_copies() -> Self {
         Self::read(TWO_COPIES_CASES).expect("invariant: the embedded case list is valid")
+    }
+
+    /// `conformance/schedule/cases.toml`: the Schedule store (spec 589),
+    /// created, read, listed and deleted through the `schedule.*`
+    /// operations only, on Collie's executable.
+    pub fn schedule() -> Self {
+        Self::read(SCHEDULE_CASES).expect("invariant: the embedded case list is valid")
     }
 
     /// Reads a protocol suite's case list.

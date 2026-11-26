@@ -37,7 +37,7 @@
 //! the same rules, kept whole so the rules that guard the count in flight
 //! under a key change together.
 
-use std::borrow::Borrow;
+use std::borrow::{Borrow, Cow};
 use std::fmt;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -66,6 +66,19 @@ pub use live::{
     OnStorageFailures, RunPoliteness, RunPolitenessParts, SharedPoliteness, SharedPolitenessParts,
 };
 pub use memory::MemoryTables;
+
+/// How long a lowered ceiling stays quiet before it grows back by one, a
+/// domain's in the Frontier as a proxy's in the Page crate: each success
+/// after a quiet 10 s raises it (ADR 0053's notes of 2026-10-21 and
+/// 2026-10-24).
+pub const RECOVERY: std::time::Duration = std::time::Duration::from_secs(10);
+
+/// How long a wait for room lasts before its key is tried again, only to
+/// find a holder that died without giving its Permits back, whose Permits
+/// are then reclaimed: a wait for room is tried again after 30 s (ADR
+/// 0053's note of 2026-10-21). Every other wait is woken or ends at its
+/// own deadline.
+pub const RECLAIM_CHECK: std::time::Duration = std::time::Duration::from_secs(30);
 
 /// How many jobs wait for the task that holds a Politeness before their
 /// callers wait.
@@ -538,14 +551,12 @@ trait Erased: Send + Sync {
 
     fn concurrency(&self) -> Option<u64>;
 
+    /// `take`, whose rule this is, in the file.
     fn taken(
         &self,
         transaction: &Connection,
         context: &Context,
-        key: &str,
-        holder: &Holder,
-        now: SystemTime,
-        in_turn: InTurn,
+        take: &Take<'_>,
     ) -> rusqlite::Result<(Taken, Option<Turn>)>;
 
     fn given_back(
@@ -556,14 +567,8 @@ trait Erased: Send + Sync {
         now: SystemTime,
     ) -> rusqlite::Result<(Option<SystemTime>, Option<Turn>)>;
 
-    fn taken_in_memory(
-        &self,
-        store: &mut memory::Store,
-        key: &str,
-        holder: &Holder,
-        now: SystemTime,
-        in_turn: InTurn,
-    ) -> (Taken, Option<Turn>);
+    /// `take`, whose rule this is, in memory.
+    fn taken_in_memory(&self, store: &mut memory::Store, take: &Take<'_>) -> (Taken, Option<Turn>);
 
     fn given_back_in_memory(
         &self,
@@ -619,12 +624,9 @@ impl<R: PermitRule> Erased for R {
         &self,
         transaction: &Connection,
         context: &Context,
-        key: &str,
-        holder: &Holder,
-        now: SystemTime,
-        in_turn: InTurn,
+        take: &Take<'_>,
     ) -> rusqlite::Result<(Taken, Option<Turn>)> {
-        taken_in(transaction, context, key, holder, self, now, in_turn)
+        taken_in(transaction, context, take, self)
     }
 
     fn given_back(
@@ -637,15 +639,8 @@ impl<R: PermitRule> Erased for R {
         given_back_in(transaction, permit, self, ending, now)
     }
 
-    fn taken_in_memory(
-        &self,
-        store: &mut memory::Store,
-        key: &str,
-        holder: &Holder,
-        now: SystemTime,
-        in_turn: InTurn,
-    ) -> (Taken, Option<Turn>) {
-        store.taken(key, holder, self, now, in_turn)
+    fn taken_in_memory(&self, store: &mut memory::Store, take: &Take<'_>) -> (Taken, Option<Turn>) {
+        store.taken(take, self)
     }
 
     fn given_back_in_memory(
@@ -863,6 +858,64 @@ impl InTurn {
     /// Whether the take is its holder's own request, in turn.
     fn waits(self) -> bool {
         self != Self::Beside
+    }
+}
+
+/// One take of a Permit as it travels from the take family to where it
+/// runs, in the file, under a Delegation or in memory: its key, its
+/// holder, its rule, its moment and how it waits in turn. A take answered
+/// where it is asked borrows them; one a job carries to the task that
+/// holds the Politeness owns them, as a take waiting for its group's
+/// Delegations does.
+struct Take<'a> {
+    key: Cow<'a, str>,
+    holder: Cow<'a, Holder>,
+    rule: Cow<'a, SharedRule>,
+    now: SystemTime,
+    in_turn: InTurn,
+}
+
+impl<'a> Take<'a> {
+    /// A take the take family was asked for, `rule` given to it.
+    fn asked(
+        key: &'a str,
+        holder: &'a Holder,
+        rule: SharedRule,
+        now: SystemTime,
+        in_turn: InTurn,
+    ) -> Self {
+        Self {
+            key: Cow::Borrowed(key),
+            holder: Cow::Borrowed(holder),
+            rule: Cow::Owned(rule),
+            now,
+            in_turn,
+        }
+    }
+
+    /// The same take, owning its key, holder and rule.
+    fn into_owned(self) -> Take<'static> {
+        Take {
+            key: Cow::Owned(self.key.into_owned()),
+            holder: Cow::Owned(self.holder.into_owned()),
+            rule: Cow::Owned(self.rule.into_owned()),
+            now: self.now,
+            in_turn: self.in_turn,
+        }
+    }
+
+    /// The take in one transaction of the file, `transaction`.
+    fn in_file(
+        &self,
+        transaction: &Connection,
+        context: &Context,
+    ) -> rusqlite::Result<(Taken, Option<Turn>)> {
+        self.rule.0.taken(transaction, context, self)
+    }
+
+    /// The take in memory, in `store`.
+    fn in_memory(&self, store: &mut memory::Store) -> (Taken, Option<Turn>) {
+        self.rule.0.taken_in_memory(store, self)
     }
 }
 
@@ -1138,7 +1191,7 @@ impl Politeness {
         rule: SharedRule,
         now: SystemTime,
     ) -> Result<Taken, PolitenessError> {
-        self.take_in_turn(key, holder, rule, now, InTurn::Leaves)
+        self.take_in_turn(Take::asked(key, holder, rule, now, InTurn::Leaves))
             .await
     }
 
@@ -1166,7 +1219,9 @@ impl Politeness {
     ) -> Result<Taken, PolitenessError> {
         // Its round trip counts on `F3.second_copy_round_trips`, where the
         // second copy takes it.
-        let (taken, _) = self.taking(key, holder, rule, now, InTurn::Beside).await?;
+        let (taken, _) = self
+            .taking(Take::asked(key, holder, rule, now, InTurn::Beside))
+            .await?;
         Ok(taken)
     }
 
@@ -1192,24 +1247,17 @@ impl Politeness {
         rule: SharedRule,
         now: SystemTime,
     ) -> Result<Taken, PolitenessError> {
-        self.take_in_turn(key, holder, rule, now, InTurn::Keeps)
+        self.take_in_turn(Take::asked(key, holder, rule, now, InTurn::Keeps))
             .await
     }
 
-    /// A take of its holder's own request, which `in_turn` says how it
+    /// A take of its holder's own request, which its `in_turn` says how it
     /// waits in turn for, waking the waiter whose turn it passes on.
-    async fn take_in_turn(
-        &self,
-        key: &str,
-        holder: &Holder,
-        rule: SharedRule,
-        now: SystemTime,
-        in_turn: InTurn,
-    ) -> Result<Taken, PolitenessError> {
+    async fn take_in_turn(&self, take: Take<'_>) -> Result<Taken, PolitenessError> {
         if self.0.in_memory {
             self.0.work.count(Row::PolitenessReadRoundTrips);
         }
-        let (taken, turn) = self.taking(key, holder, rule, now, in_turn).await?;
+        let (taken, turn) = self.taking(take).await?;
         if let Some(turn) = turn {
             self.wake_turn(turn).await;
         }
@@ -1443,27 +1491,17 @@ impl Politeness {
         self.checked(answered).await
     }
 
-    /// Takes a Permit under `key` for `holder` at `now`, in turn or beside
-    /// a request already sent, on the task that holds the Politeness: the
-    /// file's answers it once the group of jobs it came in has taken its
-    /// Delegations, its round trip counted by its caller.
-    async fn taking(
-        &self,
-        key: &str,
-        holder: &Holder,
-        rule: SharedRule,
-        now: SystemTime,
-        in_turn: InTurn,
-    ) -> Result<(Taken, Option<Turn>), PolitenessError> {
-        let key = key.to_owned();
-        let holder = holder.clone();
+    /// Takes a Permit as `take` says, in turn or beside a request already
+    /// sent, on the task that holds the Politeness: the file's answers it
+    /// once the group of jobs it came in has taken its Delegations, its
+    /// round trip counted by its caller.
+    async fn taking(&self, take: Take<'_>) -> Result<(Taken, Option<Turn>), PolitenessError> {
+        let take = take.into_owned();
         let (answer, answered) = oneshot::channel();
         let job: Job = Box::new(move |backend, context| match backend {
-            Backend::File(file) => file.take(context, key, holder, rule, now, in_turn, answer),
+            Backend::File(file) => file.take(context, take, answer),
             Backend::Memory(store) => {
-                let _ = answer.send(Ok(rule
-                    .0
-                    .taken_in_memory(store, &key, &holder, now, in_turn)));
+                let _ = answer.send(Ok(take.in_memory(store)));
             }
         });
         self.send(job).await?;
@@ -1844,13 +1882,14 @@ impl OwnPoliteness {
         now: SystemTime,
     ) -> Taken {
         self.drain();
-        let (taken, turn) = rule.0.taken_in_memory(
-            memory_of(&mut self.backend),
-            key,
-            holder,
+        let take = Take {
+            key: Cow::Borrowed(key),
+            holder: Cow::Borrowed(holder),
+            rule: Cow::Borrowed(rule),
             now,
-            InTurn::Leaves,
-        );
+            in_turn: InTurn::Leaves,
+        };
+        let (taken, turn) = take.in_memory(memory_of(&mut self.backend));
         self.context.wake(turn);
         taken
     }
@@ -1950,16 +1989,14 @@ fn memory_of(backend: &mut Backend) -> &mut memory::Store {
 /// loaded once, for both admissions and the start, and only what the start
 /// wrote is saved. Another engine's live Run holding the key's Delegation
 /// makes it wait in turn and recall the Delegation from that engine; one
-/// that is gone has it reclaimed first.
+/// that is gone has it reclaimed first. `rule` is `take`'s, its type known.
 fn taken_in<R: PermitRule>(
     transaction: &Connection,
     context: &Context,
-    key: &str,
-    holder: &Holder,
+    take: &Take<'_>,
     rule: &R,
-    now: SystemTime,
-    in_turn: InTurn,
 ) -> rusqlite::Result<(Taken, Option<Turn>)> {
+    let (key, holder, now, in_turn) = (&*take.key, &*take.holder, take.now, take.in_turn);
     if let Some(holding) = delegation::held_elsewhere(transaction, context, key, rule, now)? {
         let mut recall = None;
         if in_turn.waits()

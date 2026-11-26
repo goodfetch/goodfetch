@@ -32,6 +32,15 @@ fn the_task_list_names_the_tasks_of_every_family() {
         .filter(|task| task["id"].as_str().unwrap().split('/').next() != task["family"].as_str())
         .collect();
     assert!(outside_their_family.is_empty(), "{outside_their_family:?}");
+    // The shape `goodfetch-protocol`'s `TaskId` accepts, which this crate
+    // may not depend on (ADR 0032): a family of hyphen-separated lowercase
+    // words, then an ordinal.
+    let task_id = Regex::new("^[a-z0-9]+(-[a-z0-9]+)*/[1-9][0-9]*$").unwrap();
+    let malformed: Vec<Value> = each(&tasks, "id")
+        .into_iter()
+        .filter(|id| !task_id.is_match(id.as_str().unwrap()))
+        .collect();
+    assert!(malformed.is_empty(), "{malformed:?}");
     assert_eq!(
         tasks["tasks"][0]["start_url"],
         format!("http://1.catalog.test:{}/catalog/1", proving_ground.port())

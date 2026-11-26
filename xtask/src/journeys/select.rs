@@ -16,11 +16,11 @@
 //! out until then.
 
 use goodfetch_protocol::catalog::Product;
-use goodfetch_protocol::journey::{JourneyId, Milestone};
+use goodfetch_protocol::journey::{FOXHOUND_CLI, JourneyId, Milestone};
 
 use crate::runners::Runner;
 
-use super::variants::{FOXHOUND_CLI, Variant, VariantId};
+use super::variants::{Variant, VariantId};
 
 /// What chooses the variants: an empty list chooses every value.
 pub(super) struct Choice {

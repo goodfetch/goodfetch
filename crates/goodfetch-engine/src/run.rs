@@ -75,6 +75,8 @@ use crate::call_error::{CallError, named};
 use crate::composition::{CallContext, Handler};
 use crate::deadline::Deadline;
 use crate::product::{Identity, Requested};
+use crate::run_identity::RunIdentity;
+use crate::run_state::RunStateError;
 use crate::runs::{
     self, Aborter, Behind, EndedBy, FixedSettingChanged, Forwarded, FromCheckpoint, ListError,
     Resume, Resumed, RollbackBy, RunError, Start, StartError, Started, StorageExhausted,
@@ -876,6 +878,23 @@ pub fn state_unavailable(run_id: RunId, folder: &std::path::Path, error: &str) -
             run_id,
             path: Some(folder.display().to_string()),
         },
+    )
+}
+
+/// The Error code `context`'s call answers with once writing `run`'s
+/// state failed with `error`: the Run is unavailable.
+pub(crate) fn unwritten(
+    run: &RunIdentity,
+    error: &RunStateError,
+    context: &CallContext,
+) -> CallError {
+    run_error(
+        RunError::Unavailable {
+            run_id: run.id().clone(),
+            folder: run.folder().to_owned(),
+            error: error.to_string(),
+        },
+        context,
     )
 }
 

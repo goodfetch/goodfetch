@@ -60,6 +60,7 @@ use crate::run_state::admission::{Link, LinksBatch, LinksRequest, Suspected};
 use crate::run_state::{Asking, StateError};
 use crate::serving::{Crawls, LiveCrawl};
 use crate::staging::{Marked, Staging};
+use crate::work_items::AttemptKey;
 
 /// The handlers of `crawl_request.links` and `crawl_request.enqueue_links`
 /// on the live crawls of `crawls`, whose pages `tiers` serve.
@@ -76,20 +77,23 @@ pub(crate) fn handlers(crawls: &Crawls, tiers: &FetchTiers) -> [Handler; 2] {
     ]
 }
 
-/// The attempt a call names.
+/// The attempt a call names, in its Run.
 struct Attempt<'a> {
     run_id: &'a RunId,
-    crawl_request_id: &'a str,
-    lease_epoch: u64,
+    key: AttemptKey<&'a str>,
 }
 
 impl Attempt<'_> {
     fn ended(&self) -> CallError {
+        let AttemptKey {
+            work_item,
+            lease_epoch,
+        } = self.key;
         CallError::new(
             &ATTEMPT_ENDED,
             format!(
-                "Attempt {} of crawl request `{}` of the crawl `{}` already ended, so no link was read or enqueued.",
-                self.lease_epoch, self.crawl_request_id, self.run_id
+                "Attempt {lease_epoch} of crawl request `{work_item}` of the crawl `{}` already ended, so no link was read or enqueued.",
+                self.run_id
             ),
             &(),
         )
@@ -156,8 +160,7 @@ async fn links(
 ) -> Result<CrawlRequestLinks, CallError> {
     let attempt = Attempt {
         run_id: &params.run_id,
-        crawl_request_id: &params.crawl_request_id,
-        lease_epoch: params.lease_epoch,
+        key: AttemptKey::new(params.crawl_request_id.as_str(), params.lease_epoch),
     };
     let Some(LiveCrawl { run, staging, .. }) = crawls.live(&params.run_id).await else {
         return Err(attempt.ended());
@@ -199,8 +202,7 @@ pub(crate) async fn enqueue_links(
 ) -> Result<EnqueuedLinks, CallError> {
     let attempt = Attempt {
         run_id: &params.run_id,
-        crawl_request_id: &params.crawl_request_id,
-        lease_epoch: params.lease_epoch,
+        key: AttemptKey::new(params.crawl_request_id.as_str(), params.lease_epoch),
     };
     let (asking, _, batch) = prepared(&params, &crawls, &tiers).await?;
     match asking.links(batch).await {
@@ -229,8 +231,7 @@ pub(crate) async fn defer_links(
 ) -> Result<(), CallError> {
     let attempt = Attempt {
         run_id: &params.run_id,
-        crawl_request_id: &params.crawl_request_id,
-        lease_epoch: params.lease_epoch,
+        key: AttemptKey::new(params.crawl_request_id.as_str(), params.lease_epoch),
     };
     let (_, staging, batch) = prepared(params, crawls, tiers).await?;
     match batch.defer(&staging) {
@@ -252,8 +253,7 @@ async fn prepared(
 ) -> Result<(Asking, Staging, LinksBatch), CallError> {
     let attempt = Attempt {
         run_id: &params.run_id,
-        crawl_request_id: &params.crawl_request_id,
-        lease_epoch: params.lease_epoch,
+        key: AttemptKey::new(params.crawl_request_id.as_str(), params.lease_epoch),
     };
     if params.payload.is_some() && params.payloads.is_some() {
         return Err(CallError::protocol(

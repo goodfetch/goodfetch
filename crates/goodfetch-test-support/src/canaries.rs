@@ -10,7 +10,8 @@
 //!   provider's real interface, and records where that keeps it with
 //!   `record_planted`.
 //! - `Canaries::plant_through(&proving_ground, kind)` plants a typed
-//!   password, a TOTP seed, a Session cookie or an endpoint token through
+//!   password, a TOTP seed, a Session cookie, an endpoint token or a header
+//!   value through
 //!   the Proving ground's `canaries` login flows, and `sightings` reads every
 //!   request that carried one, each marked planted where its flow sends it.
 //! - `gitleaks_rule()` is the `gitleaks` configuration with one rule per
@@ -36,8 +37,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::proving_ground::ProvingGround;
 use crate::proving_ground_format::{
-    BASE32_ALPHABET, CANARY_MARK, ENDPOINT_TOKEN_CANARY, SESSION_COOKIE_CANARY, TOTP_CANARY_DRAWN,
-    TOTP_CANARY_MARK, TYPED_PASSWORD_CANARY,
+    BASE32_ALPHABET, CANARY_MARK, ENDPOINT_TOKEN_CANARY, HEADER_VALUE_CANARY,
+    SESSION_COOKIE_CANARY, TOTP_CANARY_DRAWN, TOTP_CANARY_MARK, TYPED_PASSWORD_CANARY,
 };
 use crate::seeded;
 
@@ -167,7 +168,11 @@ impl SecretKind {
     pub fn has_login_flow(self) -> bool {
         matches!(
             self,
-            Self::TypedPassword | Self::TotpSeed | Self::SessionCookie | Self::EndpointToken
+            Self::TypedPassword
+                | Self::TotpSeed
+                | Self::SessionCookie
+                | Self::EndpointToken
+                | Self::HeaderValue
         )
     }
 
@@ -179,7 +184,7 @@ impl SecretKind {
             Self::OneTimeCode => ("code", 16),
             Self::ProxyPassword => ("proxy-password", 16),
             Self::HttpAuthenticationPassword => ("http-password", 16),
-            Self::HeaderValue => ("header-value", 16),
+            Self::HeaderValue => (HEADER_VALUE_CANARY.tag, HEADER_VALUE_CANARY.hex_digits),
             Self::CallerAnswer => ("caller-answer", 16),
             Self::WebhookSigningSecret => ("webhook-secret", 16),
             Self::SinkCredential => ("sink-credential", 16),

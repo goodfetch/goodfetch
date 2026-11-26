@@ -3,6 +3,7 @@
 // code when the SDK does not know it; nothing in the reply is validated
 // beyond what picking the class needs (STYLE.md, SDK idioms). And the
 // other way, the JSON-RPC error a request the engine sent is answered with.
+import { isRecord } from "./framing.ts";
 import {
   errorGroupClasses,
   errorGroupOfProtocolFailure,
@@ -24,10 +25,6 @@ export type ErrorClasses = Readonly<Record<string, ErrorClass>>;
  * in its group's class.
  */
 const NO_CODE = "internal";
-
-function isRecord(value: unknown): value is Readonly<Record<string, unknown>> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
 
 function text(value: unknown): string | undefined {
   return typeof value === "string" ? value : undefined;

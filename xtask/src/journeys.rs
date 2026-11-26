@@ -63,7 +63,7 @@ use serde_json::Value;
 
 use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::journey::{
-    Journey, JourneyCatalog, JourneyId, Milestone, Status, Surface, TaskId,
+    FOXHOUND_CLI, Journey, JourneyCatalog, JourneyId, Milestone, Status, Surface, TaskId,
 };
 
 use crate::check::Finding;
@@ -75,6 +75,7 @@ mod report;
 mod select;
 mod variants;
 
+pub(crate) use listings::file as listing_file;
 pub(crate) use report::{ManualException, VariantOutcome, VariantTests};
 pub(crate) use variants::{VariantId, is_surface};
 
@@ -600,7 +601,7 @@ fn check_findings(journey: &Journey, subject: &str) -> Vec<Finding> {
         // to no variant; `foxhound-cli` is a Collie Journey's `cli` variant.
         for surface in &check.surfaces {
             let variant = journey.surfaces.contains_key(surface)
-                || (surface == variants::FOXHOUND_CLI
+                || (surface == FOXHOUND_CLI
                     && journey.product == Product::Collie
                     && journey.surfaces.contains_key("cli"));
             if !variant {

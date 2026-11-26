@@ -62,8 +62,8 @@ use tokio::time::Instant;
 use crate::clock::Clock;
 use crate::entropy::Entropy;
 use crate::politeness::{
-    Ending, Hold, Holder, OwnPoliteness, Permit, Politeness, PolitenessError, SharedRule, Taken,
-    Wake,
+    Ending, Hold, Holder, OwnPoliteness, Permit, Politeness, PolitenessError, RECLAIM_CHECK,
+    SharedRule, Taken, Wake,
 };
 use crate::run_state::SealedBatch;
 use crate::settings::Resolved;
@@ -71,12 +71,6 @@ use crate::settings::Resolved;
 mod live;
 
 pub use live::{AdmissionError, of_run};
-
-/// How long a key the Politeness holds for want of room waits for a wake
-/// before its Run tries it again: only to find a holder that died without
-/// giving its Permits back, whose Permits are then reclaimed. Every other
-/// wait is woken or ends at its own deadline.
-const RECLAIM_CHECK: Duration = Duration::from_secs(30);
 
 /// A request waiting for admission, as a gate receives it.
 #[derive(Clone, Debug, PartialEq, Eq)]

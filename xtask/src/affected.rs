@@ -121,12 +121,6 @@ fn select_with_readers(
     Ok(selection::select(&members.workspace, &widened, parts))
 }
 
-/// The files under `folder` with one of `extensions`, outside installed
-/// packages, build outputs and caches.
-pub(crate) fn source_files(folder: &Path, extensions: &[&str]) -> Result<Vec<std::path::PathBuf>> {
-    imports::files(folder, extensions)
-}
-
 /// The paths `range` changes in the repository at `root`.
 pub(crate) fn changed_paths(root: &Path, range: &Range) -> Result<Vec<RepoPath>> {
     git::changed_paths(root, range)

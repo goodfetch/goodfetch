@@ -12,9 +12,11 @@
 //! Session's end the run file waits for (#2168). Another panics in a task
 //! of a Session's owner, which closes that Session alone (#3263), and one
 //! in a task of a browser's owner, which is that browser's crash (#3265).
-//! The last replaces a page's request part (#2277): the page answers its
-//! new Page ID alone, its earlier one raises `closed`, and the browser
-//! reads no command for it.
+//! One more starts a Run and opens a Session of it through `run.new_session`
+//! from its own source, whose domain lies below its registrable domain,
+//! which the open refuses with `setting_invalid` (#1310). The last replaces
+//! a page's request part (#2277): the page answers its new Page ID alone,
+//! its earlier one raises `closed`, and the browser reads no command for it.
 #![expect(
     clippy::disallowed_methods,
     reason = "tests run on the test Clock and Entropy (ADR 0059)"
@@ -30,7 +32,7 @@ use goodfetch_engine::egress::CdpUrlOrigin;
 use goodfetch_engine::entropy::Entropy;
 use goodfetch_engine::home::{Home, RunStateLocation};
 use goodfetch_engine::run_state::RunStateOptions;
-use goodfetch_engine::runs::{EndedBy, Run, Start, Started};
+use goodfetch_engine::runs::{self, EndedBy, RunParts, Start, Started};
 use goodfetch_engine::settings::{Opening, RunSettings};
 use goodfetch_engine::tasks::BlockingPolicy;
 use goodfetch_engine::transport::{self, Network};
@@ -55,6 +57,7 @@ use tokio::sync::watch;
 use super::life::{Ending, PageLife};
 use super::{Opener, Sessions, held_browser, set_outside_code};
 use crate::access_mode::{AccessMode, SessionIdentityPlan};
+use crate::browser_run::BrowserRun;
 use crate::cdp::borrowed::CdpUrl;
 use crate::cdp::launch::Launcher;
 use crate::dialogs::Dialogs;
@@ -128,7 +131,7 @@ const REQUEST_REPLACED: Operation = Operation {
 };
 
 /// The Run `run_id`, started for the test's own operation.
-async fn started(run_id: &RunId, context: &CallContext) -> Result<Run, CallError> {
+async fn started(run_id: &RunId, context: &CallContext) -> Result<RunParts, CallError> {
     started_under(run_id, context, None).await
 }
 
@@ -138,7 +141,7 @@ async fn started_under(
     run_id: &RunId,
     context: &CallContext,
     settings: Option<RunSettings>,
-) -> Result<Run, CallError> {
+) -> Result<RunParts, CallError> {
     let started = context
         .runs()
         .start(Start {
@@ -166,6 +169,17 @@ async fn started_under(
     Ok(run)
 }
 
+/// The page crate's record of `run`, as a Session holds it.
+fn browser_run(run: &RunParts, context: &CallContext) -> Arc<BrowserRun> {
+    BrowserRun::of(run, context.engine())
+}
+
+/// Ends `run` as its driver, the test, does once it let it go: its end
+/// closes what its owner holds, its Sessions with it (ADR 0145).
+async fn let_go(run: &RunParts) {
+    run.end.end(runs::Ending::Finished(Vec::new())).await;
+}
+
 /// A Sessions table of its own for the test's operation.
 fn table() -> Sessions {
     Sessions::new(
@@ -185,7 +199,8 @@ async fn ended_past_cap(params: Value, context: CallContext) -> Result<Value, Ca
     let run_id = RunId::parse(params["run_id"].as_str().unwrap()).unwrap();
     let run = started(&run_id, &context).await?;
     let sessions = table();
-    sessions.reach(&run, &context).await?;
+    let browser = browser_run(&run, &context);
+    sessions.reach(&browser, &context).await?;
     let page_id = PageId("page-1".to_owned());
     let life = PageLife::new(page_id.clone(), None, watch::channel(0).1);
     let limit = SettingLimit {
@@ -200,14 +215,14 @@ async fn ended_past_cap(params: Value, context: CallContext) -> Result<Value, Ca
     })?;
     let confirmed = life.end(&Ending::Destroyed)?;
 
-    sessions.page_ended(&run, &life, confirmed).await;
+    sessions.page_ended(&browser, &life, confirmed).await;
 
     let raised = sessions
         .page(&page_id)
         .await
         .err()
         .map(|error| error.code());
-    run.cancellation().cancel();
+    let_go(&run).await;
     Ok(json!({ "raised": raised }))
 }
 
@@ -220,19 +235,25 @@ async fn stopped_open(params: Value, context: CallContext) -> Result<Value, Call
     let run_id = RunId::parse(params["run_id"].as_str().unwrap()).unwrap();
     let run = started(&run_id, &context).await?;
     let sessions = table();
-    sessions.reach(&run, &context).await?;
+    let browser = browser_run(&run, &context);
+    sessions.reach(&browser, &context).await?;
     let positioned = async || {
         sessions
             .state
             .lock()
             .await
             .runs
-            .get(run.id())
+            .get(run.identity.id())
             .is_some_and(|runs| runs.last > 0)
     };
     let opened = {
-        let mut open =
-            std::pin::pin!(sessions.open_held(&run, None, &STANDARD, Opener::Default, &context));
+        let mut open = std::pin::pin!(sessions.open_held(
+            &browser,
+            None,
+            &STANDARD,
+            Opener::Default,
+            &context
+        ));
         loop {
             let polled = std::future::poll_fn(|waker| Poll::Ready(open.as_mut().poll(waker))).await;
             assert!(polled.is_pending(), "the open ended before the Run stopped");
@@ -241,13 +262,19 @@ async fn stopped_open(params: Value, context: CallContext) -> Result<Value, Call
             }
             tokio::task::yield_now().await;
         }
-        run.cancellation().cancel();
-        while sessions.state.lock().await.runs.contains_key(run.id()) {
+        let_go(&run).await;
+        while sessions
+            .state
+            .lock()
+            .await
+            .runs
+            .contains_key(run.identity.id())
+        {
             tokio::task::yield_now().await;
         }
         open.await
     };
-    let left = sessions.index.sessions_of(run.id()).len();
+    let left = sessions.index.sessions_of(run.identity.id()).len();
     Ok(json!({ "opened": opened.is_ok(), "left": left }))
 }
 
@@ -260,7 +287,8 @@ async fn session_ended(params: Value, context: CallContext) -> Result<Value, Cal
     let run_id = RunId::parse(params["run_id"].as_str().unwrap()).unwrap();
     let run = started(&run_id, &context).await?;
     let sessions = table();
-    sessions.reach(&run, &context).await?;
+    let browser = browser_run(&run, &context);
+    sessions.reach(&browser, &context).await?;
     let opener = match params["opener"].as_str().unwrap() {
         "default" => Opener::Default,
         _ => Opener::Pool {
@@ -268,17 +296,17 @@ async fn session_ended(params: Value, context: CallContext) -> Result<Value, Cal
         },
     };
     let position = sessions
-        .open_held(&run, None, &STANDARD, opener, &context)
+        .open_held(&browser, None, &STANDARD, opener, &context)
         .await?;
-    let session = super::session_id(run.id(), position);
+    let session = super::session_id(run.identity.id(), position);
     let open = sessions.index.session(&session).unwrap();
-    let commits = run.state().commits();
+    let commits = run.state.commits();
     let before = *commits.borrow();
 
     sessions.session_ended(&open, &session).await.unwrap();
 
     let made = *commits.borrow() - before;
-    run.cancellation().cancel();
+    let_go(&run).await;
     Ok(json!({ "commits": made }))
 }
 
@@ -291,11 +319,12 @@ async fn session_panicked(params: Value, context: CallContext) -> Result<Value, 
     let run_id = RunId::parse(params["run_id"].as_str().unwrap()).unwrap();
     let run = started(&run_id, &context).await?;
     let sessions = table();
-    sessions.reach(&run, &context).await?;
+    let browser = browser_run(&run, &context);
+    sessions.reach(&browser, &context).await?;
     let position = sessions
-        .open_held(&run, None, &STANDARD, Opener::Default, &context)
+        .open_held(&browser, None, &STANDARD, Opener::Default, &context)
         .await?;
-    let session = super::session_id(run.id(), position);
+    let session = super::session_id(run.identity.id(), position);
     let open = sessions.index.session(&session).unwrap();
 
     open.owner
@@ -311,8 +340,8 @@ async fn session_panicked(params: Value, context: CallContext) -> Result<Value, 
     }
     let named = sessions.index.session(&session).is_some();
     let raised = sessions.pages(&session, &context).await.err();
-    let run_live = context.runs().live(run.id().clone()).await.is_ok();
-    run.cancellation().cancel();
+    let run_live = context.runs().live(run.identity.id().clone()).await.is_ok();
+    let_go(&run).await;
     Ok(json!({
         "session": session.0,
         "named": named,
@@ -417,13 +446,14 @@ async fn browser_panicked(params: Value, context: CallContext) -> Result<Value, 
         Dialogs::default(),
         Arc::new(ProgramPages),
     );
-    sessions.reach(&run, &context).await?;
+    let browser = browser_run(&run, &context);
+    sessions.reach(&browser, &context).await?;
     let position = sessions
-        .open_held(&run, None, &STANDARD, Opener::Default, &context)
+        .open_held(&browser, None, &STANDARD, Opener::Default, &context)
         .await?;
     let open = sessions
         .index
-        .session(&super::session_id(run.id(), position))
+        .session(&super::session_id(run.identity.id(), position))
         .unwrap();
     let panicked = async {
         open.seat.open().await?;
@@ -445,7 +475,7 @@ async fn browser_panicked(params: Value, context: CallContext) -> Result<Value, 
         Ok::<_, CallError>(json!({
             "ended": ended.map(|lost| format!("{lost:?}")),
             "crash_taken": open.seat.crash_count_of(1).initialized(),
-            "run_live": context.runs().live(run.id().clone()).await.is_ok(),
+            "run_live": context.runs().live(run.identity.id().clone()).await.is_ok(),
         }))
     };
     let played = async {
@@ -457,7 +487,7 @@ async fn browser_panicked(params: Value, context: CallContext) -> Result<Value, 
         async {
             let panicked = panicked.await;
             // The Run's end closes a browser the panic left open.
-            run.cancellation().cancel();
+            let_go(&run).await;
             panicked
         },
         played
@@ -493,11 +523,12 @@ async fn request_replaced(params: Value, context: CallContext) -> Result<Value, 
         Dialogs::default(),
         Arc::new(ProgramPages),
     );
-    sessions.reach(&run, &context).await?;
+    let browser = browser_run(&run, &context);
+    sessions.reach(&browser, &context).await?;
     let position = sessions
-        .open_held(&run, None, &STANDARD, Opener::Default, &context)
+        .open_held(&browser, None, &STANDARD, Opener::Default, &context)
         .await?;
-    let session = super::session_id(run.id(), position);
+    let session = super::session_id(run.identity.id(), position);
     let commands = watch::channel(0).0;
     let replaced = async {
         let opened = sessions
@@ -505,9 +536,11 @@ async fn request_replaced(params: Value, context: CallContext) -> Result<Value, 
             .await?;
         let first = sessions.page(&opened.page_id).await?;
         let first_lease = first.lease().is_some();
-        // A world the engine keeps in the browser's page, which belongs to
-        // its browser-page part.
+        // A world the engine keeps in the browser's page and a consent
+        // prompt the runner found on its document, still to be judged,
+        // which belong to its browser-page part.
         first.owner.worlds().keep_guard(7);
+        first.owner.consent_walls().detected();
         let before = *commands.borrow();
         let next = sessions
             .replace_request(&opened.page_id, PageValue::new(Admits, LeaseGone))
@@ -519,6 +552,12 @@ async fn request_replaced(params: Value, context: CallContext) -> Result<Value, 
             .as_ref()
             .is_ok_and(|now| now.driver.main_frame() == first.driver.main_frame());
         let kept_world = now.as_ref().ok().and_then(|now| now.owner.worlds().guard());
+        let kept_wall_pending = now
+            .as_ref()
+            .is_ok_and(|now| now.owner.consent_walls().pending());
+        let same_hiding = now
+            .as_ref()
+            .is_ok_and(|now| std::ptr::eq(now.owner.hiding(), first.owner.hiding()));
         let ended = |lease: Option<Arc<dyn LeaseCheck>>| lease.map(|lease| lease.check().is_err());
         Ok::<_, CallError>(json!({
             "first": opened.page_id,
@@ -529,6 +568,8 @@ async fn request_replaced(params: Value, context: CallContext) -> Result<Value, 
             "same_page": same_page,
             "commands": read,
             "kept_world": kept_world,
+            "kept_wall_pending": kept_wall_pending,
+            "same_hiding": same_hiding,
             "first_lease": first_lease,
             "first_handle_lease_ended": ended(first.lease()),
             "next_lease_ended": now.ok().and_then(|now| ended(now.lease())),
@@ -542,7 +583,7 @@ async fn request_replaced(params: Value, context: CallContext) -> Result<Value, 
     let (replaced, ()) = tokio::join!(
         async {
             let replaced = replaced.await;
-            run.cancellation().cancel();
+            let_go(&run).await;
             replaced
         },
         played
@@ -628,6 +669,13 @@ fn dependencies(env: &TestEnv) -> Dependencies {
 /// Runs the engine while a Client says `hello`, then calls `method` with
 /// `params`, and answers the call's reply.
 fn call(env: &TestEnv, method: &str, params: Value) -> Value {
+    let [answer] = calls(env, [(method, params)]);
+    answer
+}
+
+/// Runs the engine while a Client says `hello`, then makes each call of
+/// `sent` in turn, and answers their replies in the same order.
+fn calls<const N: usize>(env: &TestEnv, sent: [(&str, Value); N]) -> [Value; N] {
     let engine = engine();
     goodfetch_test_support::runtime().block_on(async {
         let (network, dialer) = transport::in_memory();
@@ -661,17 +709,20 @@ fn call(env: &TestEnv, method: &str, params: Value) -> Value {
             )
             .await;
             assert_eq!(hello["result"]["product"], "collie");
-            let answer = reply(1, method, params).await;
+            let mut answers = Vec::with_capacity(N);
+            for (id, (method, params)) in (1_i64..).zip(sent) {
+                answers.push(reply(id, method, params).await);
+            }
             drop(reply);
             writer.shutdown().await.unwrap();
-            answer
+            answers
         };
-        let (served, answer) = tokio::join!(
+        let (served, answers) = tokio::join!(
             engine.run_attached(Network::InMemory(network), dependencies(env)),
             client
         );
         served.unwrap();
-        answer
+        <[Value; N]>::try_from(answers).unwrap()
     })
 }
 
@@ -709,6 +760,48 @@ fn a_page_ended_past_its_memory_cap_answers_page_memory_exceeded_once_its_close_
     );
 
     assert_eq!(reply["result"], json!({ "raised": "page_memory_exceeded" }));
+}
+
+/// A Session's own source meets the rule `session.source` meets in every
+/// layer (ADR 0056): a domain below its registrable domain is refused
+/// where the Session opens, before anything is reached, with
+/// `setting_invalid` naming the registrable domain to give instead.
+/// Covers: story:5-62
+#[test]
+fn a_sessions_own_source_with_a_domain_below_its_registrable_domain_is_setting_invalid() {
+    let env = TestEnv::new();
+
+    let [started, opened] = calls(
+        &env,
+        [
+            ("run.start", json!({ "run_id": "not-registrable" })),
+            (
+                "run.new_session",
+                json!({
+                    "run_id": "not-registrable",
+                    "source": {
+                        "kind": "cdp_url",
+                        "url": "http://127.0.0.1:9222",
+                        "domains": ["www.example.com"],
+                    },
+                }),
+            ),
+        ],
+    );
+
+    assert_eq!(started["error"], Value::Null, "{started}");
+    assert_eq!(
+        opened["error"]["data"],
+        json!({
+            "code": "setting_invalid",
+            "retryable": false,
+            "key": "session.source",
+            "layer": "run",
+            "reason": "`www.example.com` in `domains` is no registrable domain, whose is `example.com`",
+            "fix": "Give `example.com` in `domains`",
+        }),
+        "{opened}"
+    );
 }
 
 /// Interception alone holds a Session no egress relay is under, Borrowed
@@ -830,9 +923,10 @@ fn a_panic_in_a_browsers_task_is_its_crash_and_its_run_goes_on() {
 
 /// A Page whose request part is replaced gets a Page ID of its own for its
 /// next request, which names the same browser's page, and a call on its
-/// earlier ID raises `closed` naming that ID; the replacement sends the
-/// browser nothing and leaves the browser-page part as it was (ADR 0146's
-/// "A released Page", #2277).
+/// earlier ID raises `closed` naming that ID; the replacement of a request
+/// that armed no init script and heard no console sends the browser
+/// nothing, and it leaves the browser-page part as it was, its world, its
+/// consent wall and its hiding (ADR 0146's "A released Page", #2277).
 #[test]
 fn a_page_whose_request_part_is_replaced_answers_its_new_id_alone() {
     let env = TestEnv::new();
@@ -854,8 +948,11 @@ fn a_page_whose_request_part_is_replaced_answers_its_new_id_alone() {
     assert_eq!(result["same_page"], json!(true), "{reply}");
     assert_eq!(result["commands"], json!(0), "{reply}");
     // Its browser-page part is left as it was: the world the engine kept
-    // in it is still there.
+    // in it, the consent prompt still to be judged and its hiding are
+    // still there.
     assert_eq!(result["kept_world"], json!(7), "{reply}");
+    assert_eq!(result["kept_wall_pending"], json!(true), "{reply}");
+    assert_eq!(result["same_hiding"], json!(true), "{reply}");
     // The next request's lease check is the page's, every handle of it
     // included (#2277).
     assert_eq!(result["first_lease"], json!(false), "{reply}");

@@ -11,7 +11,8 @@ use std::collections::BTreeMap;
 
 use goodfetch_engine::hostile_input::check_header_value;
 use goodfetch_engine::run::secret_error;
-use goodfetch_engine::runs::Run;
+use goodfetch_engine::run_identity::RunIdentity;
+use goodfetch_engine::runs::RunKeys;
 use goodfetch_engine::secrets::{self, Purpose, SecretError};
 use goodfetch_engine::settings::Resolved;
 use goodfetch_engine::{CallError, named};
@@ -28,7 +29,9 @@ use crate::cdp::{self, ContinueRequest, RequestHeaders};
 /// The Secret placeholders of one `page.request`, bound.
 pub(crate) struct Placeholders {
     /// The Run whose Secrets resolve their values.
-    run: Run,
+    run: RunIdentity,
+    /// Its Secrets.
+    keys: RunKeys,
     /// The headers whose value holds one.
     headers: Vec<Header>,
     /// The JSON body whose strings hold them, when any does.
@@ -66,8 +69,9 @@ struct Bound {
 
 impl Placeholders {
     /// The placeholders `params` carries, bound through `settings`, the
-    /// page's Session's beneath its Run's: none when it carries none, so
-    /// nothing more is done for it.
+    /// page's Session's beneath its Run's, their values resolved later
+    /// through the Secrets of `keys` for the Run `run`: none when it
+    /// carries none, so nothing more is done for it.
     ///
     /// # Errors
     ///
@@ -78,7 +82,7 @@ impl Placeholders {
     /// in `headers` or named twice, a username holding a colon, and a JSON
     /// placeholder without a JSON body holding its pointer's parent.
     pub(crate) fn bind(
-        run: &Run,
+        (run, keys): (&RunIdentity, &RunKeys),
         settings: Option<&Resolved>,
         params: &PageRequestParams,
     ) -> Result<Option<Self>, CallError> {
@@ -115,6 +119,7 @@ impl Placeholders {
             .transpose()?;
         Ok(Some(Self {
             run: run.clone(),
+            keys: keys.clone(),
             headers,
             json,
         }))
@@ -227,7 +232,7 @@ impl Placeholders {
             layer: bound.layer,
             run_id: Some(self.run.id()),
         };
-        self.run
+        self.keys
             .secrets()
             .resolve(&bound.reference, &purpose)
             .await

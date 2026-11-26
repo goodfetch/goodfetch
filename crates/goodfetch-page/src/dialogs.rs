@@ -85,8 +85,8 @@ pub(crate) struct PageDialogs {
 
 struct OfPage {
     /// The Page ID of the request the page serves now, which its dialogs
-    /// and errors name (ADR 0146).
-    page_id: watch::Sender<PageId>,
+    /// and errors name (ADR 0146): its request part's one cell.
+    page_id: watch::Receiver<PageId>,
     /// Its handlers, in the order they were armed.
     handlers: Mutex<Vec<Arc<Handler>>>,
     /// The first failure a handler left for the page's next call.
@@ -161,18 +161,16 @@ impl PageDialogs {
         lock(&self.page.handlers).clear();
     }
 
-    /// The page's request part was replaced: it serves the request `next`
-    /// now (ADR 0146). The earlier request's handlers go, their
-    /// subscriptions ending as at the page's close, the failure one left
-    /// goes with them, and its dialogs name `next` from now.
-    pub(crate) fn replace_request(&self, next: PageId) {
+    /// The page's request part was replaced (ADR 0146): the earlier
+    /// request's handlers go, their subscriptions ending as at the page's
+    /// close, and the failure one left goes with them.
+    pub(crate) fn replace_request(&self) {
         let earlier = std::mem::take(&mut *lock(&self.page.handlers));
         for handler in &earlier {
             // Its subscription ends without a failure once this goes.
             drop(lock(&handler.failed).take());
         }
         lock(&self.page.failure).take();
-        self.page.page_id.send_replace(next);
     }
 
     fn latest_first(&self) -> Vec<Arc<Handler>> {
@@ -245,11 +243,17 @@ impl Drop for Slot {
 
 impl Dialogs {
     /// Starts answering, on a task of `run`, the dialogs of the page
-    /// `page_id`, which `cdp` reaches, from now.
-    pub(crate) fn start(&self, page_id: PageId, cdp: CdpPage, run: &RunIdentity) -> PageDialogs {
+    /// whose request's Page ID `page_id` holds, which `cdp` reaches, from
+    /// now.
+    pub(crate) fn start(
+        &self,
+        page_id: watch::Receiver<PageId>,
+        cdp: CdpPage,
+        run: &RunIdentity,
+    ) -> PageDialogs {
         let dialogs = PageDialogs {
             page: Arc::new(OfPage {
-                page_id: watch::Sender::new(page_id),
+                page_id,
                 handlers: Mutex::new(Vec::new()),
                 failure: Mutex::new(None),
                 closed: watch::Sender::new(false),

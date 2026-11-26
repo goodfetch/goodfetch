@@ -50,7 +50,7 @@ use goodfetch_engine::deadline::Enclosing;
 use goodfetch_engine::governor;
 pub use goodfetch_engine::lease::{LeaseCheck, LeaseEnded, PermitWait};
 use goodfetch_engine::response_limits::LimitExceeded;
-use goodfetch_engine::runs::Run;
+use goodfetch_engine::run_identity::RunIdentity;
 use goodfetch_engine::{CallContext, CallError, GuardAnswer, ReadParams};
 use goodfetch_extractor::BuiltIn;
 use goodfetch_protocol::page::{
@@ -62,6 +62,7 @@ use goodfetch_protocol::settings::session_source::SessionSource;
 use serde_json::Value;
 
 use crate::blocks::Block;
+use crate::browser_run::BrowserRun;
 use crate::document_request::{DocumentRequest, Unread};
 pub use crate::kept_tree::{KeptFrom, KeptTree};
 use crate::url_pattern::UrlPattern;
@@ -141,7 +142,7 @@ pub trait BrowserPages: Send + Sync {
     /// Dropping the future kills the version read's processes.
     fn document_request<'a>(
         &'a self,
-        run: &'a Run,
+        run: &'a RunIdentity,
     ) -> Opening<'a, Result<Option<DocumentRequest>, Unread>>;
 
     /// The invalid-certificate exception the browser page `page_id`
@@ -249,7 +250,7 @@ pub trait BrowserPages: Send + Sync {
     /// served documents' formats only when asked.
     fn served_formats<'a>(
         &'a self,
-        run: &'a Run,
+        run: &'a BrowserRun,
         request: FormatsRequest,
         label: Option<BuiltIn>,
     ) -> Opening<'a, Option<Arc<dyn ServedFormatsAhead>>>;
@@ -260,7 +261,7 @@ pub trait BrowserPages: Send + Sync {
     /// document finds them read or being read (#2688). A crawl calls it as
     /// it starts when its pages read a format; the lists of a crawl whose
     /// pages read none are never loaded for them (#2573).
-    fn prepare_served_formats(&self, run: &Run);
+    fn prepare_served_formats(&self, run: &BrowserRun);
 
     /// The Block cause of a document a fetch tier served, which `response`
     /// answered with the markup `markup`, as the Product's Block
@@ -815,7 +816,7 @@ impl Reader {
 #[derive(Clone)]
 pub struct ServedDocument {
     /// The Run it was fetched for, on whose blocking owner it is read.
-    pub run: Run,
+    pub run: Arc<BrowserRun>,
     /// Its URL, after redirects.
     pub url: String,
     /// Its base URL.
@@ -871,7 +872,7 @@ impl Debug for ServedDocument {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         formatter
             .debug_struct("ServedDocument")
-            .field("run", self.run.id())
+            .field("run", self.run.identity.id())
             .field("url", &self.url)
             .field("base_url", &self.base_url)
             .finish_non_exhaustive()

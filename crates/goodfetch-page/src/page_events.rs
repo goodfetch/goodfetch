@@ -229,8 +229,9 @@ pub(crate) struct PageEvents {
 
 struct Shared {
     /// The Page ID of the request the page serves now, which its events
-    /// and errors name (ADR 0146); written under `state`.
-    page_id: watch::Sender<PageId>,
+    /// and errors name (ADR 0146): its request part's one cell, which
+    /// [`PageEvents::replace_request`] writes under `state`.
+    page_id: watch::Receiver<PageId>,
     driver: PageDriver,
     /// The primitives its events turn on and read bodies by.
     cdp: CdpPage,
@@ -534,11 +535,12 @@ async fn enable_runtime_on_frames(shared: &Shared) {
 }
 
 impl PageEvents {
-    /// Starts reading the events of the page `page_id`, which `driver`
-    /// drives for `run`, from now, publishing on `events`; its waiters wait
-    /// at most `wait`, and each response `observer` keeps is passed to it.
+    /// Starts reading the events of the page whose request's Page ID
+    /// `page_id` holds, which `driver` drives for `run`, from now,
+    /// publishing on `events`; its waiters wait at most `wait`, and each
+    /// response `observer` keeps is passed to it.
     pub(crate) fn start(
-        page_id: PageId,
+        page_id: watch::Receiver<PageId>,
         driver: PageDriver,
         run: RunPowers,
         events: Events,
@@ -549,7 +551,7 @@ impl PageEvents {
         let cdp = CdpPage::of(&driver);
         let followed = cdp.followed_events();
         let shared = Arc::new(Shared {
-            page_id: watch::Sender::new(page_id),
+            page_id,
             cdp,
             driver,
             events,
@@ -762,14 +764,16 @@ impl PageEvents {
     }
 
     /// The page's request part was replaced: it serves the request `next`
-    /// now (ADR 0146). Its events name `next` from now; each listener of
-    /// the earlier request's calls answers once it sent the events it
-    /// holds; each of its waits raises `closed`, as at a close, and the
-    /// bodies it kept go; and the mark that `Runtime` was asked for goes
-    /// with them, so a console call or exception from before the next
+    /// now (ADR 0146), which `page_id`, the part's one cell, takes under
+    /// the page's state, so no listener of the earlier request's calls
+    /// hears an event naming `next`. Its events name `next` from now; each
+    /// listener of the earlier request's calls answers once it sent the
+    /// events it holds; each of its waits raises `closed`, as at a close,
+    /// and the bodies it kept go; and the mark that `Runtime` was asked for
+    /// goes with them, so a console call or exception from before the next
     /// `page.on` that asks for it again is not passed on. `Runtime` stays
     /// on in the browser until #2182's release turns it off.
-    pub(crate) fn replace_request(&self, next: PageId) {
+    pub(crate) fn replace_request(&self, page_id: &watch::Sender<PageId>, next: PageId) {
         let mut state = lock(&self.shared.state);
         state.listeners.clear();
         state.waiters.clear();
@@ -779,7 +783,7 @@ impl PageEvents {
         state.kept = Latest::default();
         state.requested = Latest::default();
         state.runtime_since = None;
-        self.shared.page_id.send_replace(next);
+        page_id.send_replace(next);
     }
 
     /// The wait until no `page.on` of the page sent before now is still

@@ -6,7 +6,7 @@
 //! removed once its call was cancelled ([`InitScripts::settling`]).
 #![expect(
     clippy::disallowed_types,
-    reason = "the lock guards one page's live scripts and is never held across an `.await`, so a replacement of the page's request part takes its scripts out at once; the Page ID it reads under it is the only other lock it is held with, always in that order, so there is no lock order to test under loom (ADR 0060)"
+    reason = "the lock guards one page's live scripts and is never held across an `.await`, so a replacement of the page's request part takes its scripts out at once; the Page ID it reads under it is the only other lock it is held with, and that Page ID's writer never holds it, so there is no lock order to test under loom (ADR 0060)"
 )]
 
 use std::collections::BTreeMap;
@@ -46,8 +46,9 @@ struct Shared {
     /// script, and one sent after its call was cancelled runs without it.
     pending: watch::Sender<usize>,
     /// The Page ID of the request the page serves now, whose calls' scripts
-    /// are live (ADR 0146); written under `frames`.
-    page_id: watch::Sender<PageId>,
+    /// are live (ADR 0146): its request part's one cell, written before
+    /// [`InitScripts::replace_request`] takes the live scripts.
+    page_id: watch::Receiver<PageId>,
     /// The browser runs a script added on the page's own session in the
     /// frames of the page's process only, so each live script is also added
     /// on each out-of-process frame's session, before the frame runs or,
@@ -76,14 +77,15 @@ struct Live {
 
 impl InitScripts {
     /// The init scripts of the page `cdp` reaches, serving the request
-    /// `page_id`, none yet, added and removed by tasks of `run`.
-    pub(crate) fn new(cdp: CdpPage, run: RunIdentity, page_id: PageId) -> Self {
+    /// whose Page ID `page_id` holds, none yet, added and removed by tasks
+    /// of `run`.
+    pub(crate) fn new(cdp: CdpPage, run: RunIdentity, page_id: watch::Receiver<PageId>) -> Self {
         Self {
             shared: Arc::new(Shared {
                 cdp,
                 run,
                 pending: watch::Sender::new(0),
-                page_id: watch::Sender::new(page_id),
+                page_id,
                 frames: Mutex::default(),
             }),
         }
@@ -183,15 +185,14 @@ impl InitScripts {
         }
     }
 
-    /// Replaces the request the page serves with `next` (ADR 0146): the
-    /// earlier request's scripts are removed, counted on their way out, so
-    /// that a navigation of the next request runs without them.
-    pub(crate) fn replace_request(&self, next: PageId) {
-        let earlier = {
-            let mut frames = lock(&self.shared.frames);
-            self.shared.page_id.send_replace(next);
-            std::mem::take(&mut frames.live)
-        };
+    /// The page's request part was replaced (ADR 0146), its Page ID
+    /// written first: the earlier request's scripts are removed, counted on
+    /// their way out, so that a navigation of the next request runs without
+    /// them. A script whose call [`Self::add`] makes live under `frames`
+    /// either is taken out here, or sees the next request's ID there and is
+    /// removed instead.
+    pub(crate) fn replace_request(&self) {
+        let earlier = std::mem::take(&mut lock(&self.shared.frames).live);
         if earlier.is_empty() {
             return;
         }
@@ -328,10 +329,13 @@ impl Registered {
     ///
     /// Dropping the future gives up the wait.
     pub(crate) fn request_ended(&self) -> impl Future<Output = ()> + Send + use<> {
-        let mut page_id = self.scripts.shared.page_id.subscribe();
+        let mut page_id = self.scripts.shared.page_id.clone();
         let own = self.page_id.clone();
         async move {
-            let _ = page_id.wait_for(|now| *now != own).await;
+            if page_id.wait_for(|now| *now != own).await.is_err() {
+                // The request part went with its page, whose end answers.
+                std::future::pending::<()>().await;
+            }
         }
     }
 }
@@ -352,3 +356,6 @@ impl Drop for Registered {
         });
     }
 }
+
+#[cfg(test)]
+mod tests;

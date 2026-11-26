@@ -11,25 +11,36 @@ use goodfetch_test_support::{TestEnv, runtime};
 use rstest::rstest;
 use serde_json::{Value, json};
 use tokio::sync::mpsc::error::TryRecvError;
+use tokio::sync::watch;
+use tokio_util::sync::CancellationToken;
 
 use super::{Listening, PageEvents, Refusals, Requested, listener_fell_behind};
 use crate::access_mode::runtime_under_stealth;
+use crate::cdp::TargetSession;
 use crate::cdp::driver::PageDriver;
-use crate::cdp::driver::replay::{answer, event};
+use crate::cdp::driver::replay::{self, answer, event};
 use crate::live_run::{LiveRun, played_page};
+use crate::page_children::{Child, ChildKind};
 use crate::url_pattern::UrlPattern;
 
-/// The events of the page `page_id`, which `driver` drives for the test's
-/// Run, read as its Session reads them.
-pub(crate) fn started(page_id: &PageId, driver: &PageDriver, live: &LiveRun) -> PageEvents {
+/// The session of the page's out-of-process iframe.
+const IFRAME: &str = "iframe";
+
+/// The events of the page whose request's Page ID `page_id` holds, which
+/// `driver` drives for the test's Run, read as its Session reads them.
+pub(crate) fn started(
+    page_id: watch::Receiver<PageId>,
+    driver: &PageDriver,
+    live: &LiveRun,
+) -> PageEvents {
     PageEvents::start(
-        page_id.clone(),
+        page_id,
         driver.clone(),
         crate::sessions::events_run(&live.run),
         live.events.clone(),
         Refusals::default(),
         Deadline::of_resolved(
-            live.run.settings().map(RunSettings::resolved),
+            live.run.identity.settings().map(RunSettings::resolved),
             &TIMEOUT_WAIT,
         ),
         None,
@@ -145,13 +156,14 @@ fn a_replaced_request_asks_for_runtime_again_and_its_events_name_its_page_id() {
         let env = TestEnv::new();
         let (live, mut engine) = LiveRun::start(&env).await;
         let (driver, mut played, mut connection) = played_page();
-        let events = started(&first, &driver, &live);
+        let cell = watch::Sender::new(first.clone());
+        let events = started(cell.subscribe(), &driver, &live);
         let replaced = async {
             let mut earlier = events.listen(PageEventName::Console);
             let enable = played.command().await;
             assert_eq!(enable["method"], "Runtime.enable", "{enable}");
             assert!(played.send(&[answer(&enable, json!({}))]).await);
-            events.replace_request(next.clone());
+            events.replace_request(&cell, next.clone());
             let (_, earlier_ended) = earlier.taken();
             let mut listening = events.listen(PageEventName::Console);
             let again = played.command().await;
@@ -209,7 +221,8 @@ fn a_page_that_refuses_runtime_refuses_what_needs_it(
         let env = TestEnv::new();
         let (live, engine) = LiveRun::start(&env).await;
         let (driver, played, connection) = played_page();
-        let events = started(&PageId("page-1".to_owned()), &driver, &live);
+        let cell = watch::Sender::new(PageId("page-1".to_owned()));
+        let events = started(cell.subscribe(), &driver, &live);
         events.refuse_runtime(runtime_under_stealth(SettingsLayer::Run));
         let mut listening = events.listen(event);
         let refused = match listening.armed.take() {
@@ -230,6 +243,82 @@ fn a_page_that_refuses_runtime_refuses_what_needs_it(
     assert_eq!((refused, asked), (expected, false));
 }
 
+/// The browser's answer to `command`, on the session it was sent on.
+fn answered_on_its_session(command: &Value) -> Value {
+    json!({ "id": command["id"], "sessionId": command["sessionId"], "result": {} })
+}
+
+/// The page's out-of-process frames belong to its browser page, not to its
+/// request (ADR 0146): once its request part was replaced, the next
+/// request's first `page.on("console")` asks for `Runtime` again on the
+/// page and on the frame it followed before.
+#[test]
+fn a_replaced_request_asks_for_runtime_again_on_the_frames_it_followed() {
+    let (first, next) = (PageId("page-1".to_owned()), PageId("page-2".to_owned()));
+
+    let asked_again = runtime().block_on(async {
+        let env = TestEnv::new();
+        let (live, mut engine) = LiveRun::start(&env).await;
+        let (driver, mut played, mut connection) = played_page();
+        let cell = watch::Sender::new(first.clone());
+        let events = started(cell.subscribe(), &driver, &live);
+        let replaced = async {
+            let mut asked = async |count: usize| {
+                let mut asked = Vec::new();
+                for _ in 0..count {
+                    let command = played.command().await;
+                    assert!(played.send(&[answered_on_its_session(&command)]).await);
+                    asked.push((command["sessionId"].clone(), command["method"].clone()));
+                }
+                asked
+            };
+            let child = Child {
+                kind: ChildKind::Frame,
+                parent: TargetSession(replay::SESSION.to_owned()),
+                session: TargetSession(IFRAME.to_owned()),
+                target: "iframe-target".to_owned(),
+                url: "https://frame.test/".to_owned(),
+                gone: CancellationToken::new(),
+            };
+            let (held, followed) = tokio::join!((events.frames())(&child), asked(1));
+            assert!(held);
+            assert_eq!(
+                followed,
+                [(json!(IFRAME), json!("Network.enable"))],
+                "the frame's network is read"
+            );
+            let _earlier = events.listen(PageEventName::Console);
+            asked(2).await;
+            if let Some(arming) = events.arming() {
+                arming.await;
+            }
+            events.replace_request(&cell, next.clone());
+            let _listening = events.listen(PageEventName::Console);
+            asked(2).await
+        };
+        let ran = tokio::select! {
+            biased;
+            ran = replaced => ran,
+            () = &mut engine => panic!("the engine ended before the test"),
+            () = &mut connection => panic!("the page's connection ended before the test"),
+        };
+        drop((events, live));
+        // The Run ends once the page's reads did, at the connection's end.
+        drop((driver, played));
+        tokio::join!(engine, connection);
+        ran
+    });
+
+    let enable = json!("Runtime.enable");
+    assert_eq!(
+        asked_again,
+        [
+            (json!(replay::SESSION), enable.clone()),
+            (json!(IFRAME), enable),
+        ]
+    );
+}
+
 /// What a request armed or kept belongs to it (ADR 0146): once the page's
 /// request part was replaced, each wait the earlier request armed raises
 /// `closed` at once, never answered by the next request's traffic, and the
@@ -242,7 +331,8 @@ fn a_replaced_request_answers_its_waits_closed_and_keeps_none_of_its_bodies() {
         let env = TestEnv::new();
         let (live, mut engine) = LiveRun::start(&env).await;
         let (driver, played, mut connection) = played_page();
-        let events = started(&first, &driver, &live);
+        let cell = watch::Sender::new(first.clone());
+        let events = started(cell.subscribe(), &driver, &live);
         let deadline = || {
             events
                 .wait_deadline(Some(Some(30_000)))
@@ -262,7 +352,7 @@ fn a_replaced_request_answers_its_waits_closed_and_keeps_none_of_its_bodies() {
         let finished =
             events.wait_for_request_finished(Some(pattern()), Form::Typescript, deadline());
         let url = events.wait_for_url(pattern(), LoadState::Load, deadline());
-        events.replace_request(PageId("page-2".to_owned()));
+        events.replace_request(&cell, PageId("page-2".to_owned()));
         let replaced = async {
             let (request, response, finished, url) = tokio::join!(request, response, finished, url);
             let code = |error: Option<CallError>| error.map(|error| error.code().to_owned());

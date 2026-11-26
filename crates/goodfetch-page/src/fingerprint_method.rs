@@ -20,7 +20,6 @@
 mod tests;
 
 use goodfetch_engine::audit::Origin;
-use goodfetch_engine::runs::{Run, warnings};
 use goodfetch_protocol::audit::{Actor, FINGERPRINT_METHOD_CHOSEN};
 use goodfetch_protocol::page::{PageId, SessionId};
 use goodfetch_protocol::run::RunWarning;
@@ -31,6 +30,7 @@ use goodfetch_protocol::settings::SettingsLayer;
 use serde_json::json;
 
 use crate::access_mode::{FingerprintMethod, MethodSource, SessionIdentityPlan};
+use crate::browser_run::BrowserRun;
 use crate::cdp::{CdpPage, Emulated};
 use crate::page_functions::{Injection, Injections};
 use crate::pool::Placement;
@@ -198,16 +198,16 @@ impl FingerprintPlan {
     /// # Cancel safety
     ///
     /// Dropping the future may lose the entries not yet written.
-    pub(crate) async fn chosen(&self, run: &Run, session: &SessionId) {
+    pub(crate) async fn chosen(&self, run: &BrowserRun, session: &SessionId) {
         let details = self.details(session);
         let mut mark = details.clone();
         mark["action"] = json!(FINGERPRINT_METHOD);
-        trace::provenance(run, mark).await;
+        trace::provenance(&run.trace, mark).await;
         let (warning, once) = self.warning(session);
         let kept = if once {
-            warnings(run).warn_once(warning).await
+            run.warnings.warn_once(warning).await
         } else {
-            warnings(run).warn(warning).await
+            run.warnings.warn(warning).await
         };
         if let Err(error) = kept {
             tracing::warn!(%error, "the warning of a Session's Fingerprint method was not kept");
@@ -216,15 +216,16 @@ impl FingerprintPlan {
             actor: Actor::Engine,
             surface: None,
             layer: Some(self.layer()),
-            run_id: Some(run.id().clone()),
+            run_id: Some(run.identity.id().clone()),
         };
         if let Err(error) = run
-            .audit_log()
+            .engine
+            .audit()
             .record(
                 &origin,
                 &FINGERPRINT_METHOD_CHOSEN,
                 details,
-                run.clock().timestamp(),
+                run.identity.clock().timestamp(),
             )
             .await
         {
@@ -247,7 +248,7 @@ impl FingerprintPlan {
     pub(crate) async fn mask(
         &self,
         page: &CdpPage,
-        (run, session, page_id): (&Run, &SessionId, &PageId),
+        (run, session, page_id): (&BrowserRun, &SessionId, &PageId),
         injections: &Injections,
     ) -> Result<(), goodfetch_engine::CallError> {
         if let Some(values) = self.emulated() {
@@ -256,7 +257,7 @@ impl FingerprintPlan {
         if let Some(script) = self.init_script() {
             page.add_init_script_opening(script).await?;
             injections
-                .mark(run, session, page_id, Injection::FingerprintMethod)
+                .mark(&run.trace, session, page_id, Injection::FingerprintMethod)
                 .await;
         }
         Ok(())

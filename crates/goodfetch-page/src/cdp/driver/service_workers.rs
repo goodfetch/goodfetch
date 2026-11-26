@@ -115,8 +115,8 @@ impl PageDriver {
     /// The driver of a service worker of the browser context `context`,
     /// which the browser attached on `session` and whose target is
     /// `worker`: only its Session's interception sends commands on it, and
-    /// no navigation, gesture or document is its. Its Session's proxy is
-    /// the one [`Self::with_proxy`] gives it.
+    /// no navigation, gesture or document is its. Its Session's proxy and
+    /// relay are the ones [`Self::with_egress`] gives it.
     fn service_worker(
         browser: Browser,
         session: TargetSession,

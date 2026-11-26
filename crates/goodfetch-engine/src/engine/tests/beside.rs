@@ -23,7 +23,7 @@ use crate::call_error::CallError;
 use crate::composition::{CallContext, Contribution, Handler};
 use crate::engine::Dependencies;
 use crate::run_state::RunStateOptions;
-use crate::runs::{self, Run};
+use crate::runs::RunParts;
 use crate::tasks::BlockingPolicy;
 
 /// The parameters of `method` on `run_id`.
@@ -151,7 +151,7 @@ const END_DECIDED: Operation = on_a_run(
 );
 
 /// The tests' contribution that holds a Run's handle in `held`.
-fn holding_a_run(held: &Arc<Mutex<Option<Run>>>) -> Contribution {
+fn holding_a_run(held: &Arc<Mutex<Option<RunParts>>>) -> Contribution {
     let (holding, reading) = (Arc::clone(held), Arc::clone(held));
     Contribution::new("test-holding-a-run")
         .with_handler(Handler::new(
@@ -173,12 +173,8 @@ fn holding_a_run(held: &Arc<Mutex<Option<Run>>>) -> Contribution {
                 async move {
                     let mut held = held.lock().await;
                     let run = held.as_ref().unwrap();
-                    let found = context
-                        .runs()
-                        .live(runs::identity(run).id().clone())
-                        .await
-                        .is_ok();
-                    let decided = runs::end(run).is_decided();
+                    let found = context.runs().live(run.identity.id().clone()).await.is_ok();
+                    let decided = run.end.is_decided();
                     if params["let_go"] == true {
                         // The engine's end waits for the Run's writer, which
                         // its last handle keeps.

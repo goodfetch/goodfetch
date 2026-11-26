@@ -21,7 +21,7 @@ use std::time::Duration;
 
 use goodfetch_engine::CallError;
 use goodfetch_engine::clock::Clock;
-use goodfetch_engine::runs::Run;
+use goodfetch_engine::run_trace::RunTrace;
 use goodfetch_protocol::jsonrpc::ProtocolFailure;
 use goodfetch_protocol::page::functions::{
     Evaluated, PAGE_FUNCTION_FAILED, PAGE_VALUE_INVALID, PageFunctionFailedDetails,
@@ -580,7 +580,7 @@ impl Default for Injections {
 }
 
 impl Injections {
-    /// Records in `run`'s Provenance that the page `page_id` of the
+    /// Records in `trace`, its Run's, that the page `page_id` of the
     /// Session `session`, whose marks these are, made a main-world
     /// injection by `injection`, the first time its Session does.
     ///
@@ -589,7 +589,7 @@ impl Injections {
     /// Dropping the future may lose the entry.
     pub(crate) async fn mark(
         &self,
-        run: &Run,
+        trace: &RunTrace,
         session: &SessionId,
         page_id: &PageId,
         injection: Injection,
@@ -599,7 +599,7 @@ impl Injections {
             .send_if_modified(|marked| marked.insert(injection));
         if first {
             trace::provenance(
-                run,
+                trace,
                 json!({
                     "action": MAIN_WORLD_INJECTION,
                     "page_id": page_id,

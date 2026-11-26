@@ -2369,6 +2369,17 @@
       ]
     },
     {
+      "id": "error:recording_invalid",
+      "kind": "error",
+      "area": 6,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "error:replay_not_allowed",
       "kind": "error",
       "area": 6,
@@ -2429,6 +2440,17 @@
       "milestone": null,
       "status": "active",
       "products": [
+        "foxhound"
+      ]
+    },
+    {
+      "id": "error:response_not_recorded",
+      "kind": "error",
+      "area": 6,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
         "foxhound"
       ]
     },
@@ -14349,6 +14371,16 @@
     },
     {
       "id": "story:11-1064",
+      "kind": "story",
+      "area": 11,
+      "milestone": "M2 Client surfaces",
+      "status": "active",
+      "products": [
+        "foxhound"
+      ]
+    },
+    {
+      "id": "story:11-1069",
       "kind": "story",
       "area": 11,
       "milestone": "M2 Client surfaces",

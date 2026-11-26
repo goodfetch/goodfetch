@@ -9,6 +9,7 @@ export type FoxhoundWireType =
   | CollieWireType
   | "CertificateExceptionMark"
   | "CrawlConcurrency"
+  | "CrawlDeclaration"
   | "CrawlExtraction"
   | "CrawlHookHandleParams"
   | "CrawlRequestEnqueueLinksParams"
@@ -28,6 +29,8 @@ export type FoxhoundWireType =
   | "DatasetRecord"
   | "DatasetSearchPage"
   | "DatasetSearchParams"
+  | "DeclaredExtract"
+  | "DeclaredLabel"
   | "Export"
   | "ExportSaveAsParams"
   | "ExportSaved"
@@ -75,6 +78,7 @@ export const foxhoundWire: Wire<keyof FoxhoundOperationTypes & string, keyof Fox
     ...collieWire.types,
     "CertificateExceptionMark": { fields: { "spki_sha256": "spkiSha256" } },
     "CrawlConcurrency": { fields: { "allowance_set_by": "allowanceSetBy", "handler_concurrency": "handlerConcurrency", "open_pages": "openPages", "page_allowance": "pageAllowance" } },
+    "CrawlDeclaration": { fields: { "labels": ["labels", { items: { type: "DeclaredLabel" } }] } },
     "CrawlExtraction": { fields: { "fields": ["fields", { values: { type: "PageField" } }] } },
     "CrawlHookHandleParams": { fields: { "crawl_request": "crawlRequest", "lease_epoch": "leaseEpoch", "run_id": "runId" } },
     "CrawlRequestEnqueueLinksParams": { fields: { "crawl_request_id": "crawlRequestId", "lease_epoch": "leaseEpoch", "locator": ["locator", { type: "Locator" }], "run_id": "runId" } },
@@ -86,7 +90,7 @@ export const foxhoundWire: Wire<keyof FoxhoundOperationTypes & string, keyof Fox
     "CrawlRequestPushParams": { fields: { "crawl_request_id": "crawlRequestId", "lease_epoch": "leaseEpoch", "run_id": "runId" } },
     "CrawlRunProgress": { fields: { "at": ["at", "time"], "checkpoint_at": ["checkpointAt", "time"], "concurrency": ["concurrency", { type: "CrawlConcurrency" }], "in_flight": ["inFlight", { items: { type: "InFlightRequest" } }], "pauses": ["pauses", { items: { type: "HumanPause" } }], "requests": ["requests", { type: "RequestProgress" }], "run_id": "runId", "sitemaps": ["sitemaps", { items: { type: "SitemapReport" } }], "stop_reason": ["stopReason", { type: "StopReason" }], "storage": ["storage", { type: "RunStorage" }], "waiting": ["waiting", { items: { type: "WaitGroup" } }] } },
     "CrawlRunReport": { fields: { "checkpoint": ["checkpoint", { type: "Checkpoint" }], "completeness_reasons": ["completenessReasons", { items: { type: "AxisReason" } }], "ended_at": ["endedAt", "time"], "learned_rules": "learnedRules", "nothing_done": ["nothingDone", { type: "NothingDone" }], "plan": ["plan", { type: "PlanReport" }], "plugins": ["plugins", { items: { type: "PluginRun" } }], "policy_version": "policyVersion", "recording": ["recording", { type: "RecordingReport" }], "requests": ["requests", { type: "RequestCounts" }], "run_id": "runId", "settings": ["settings", { items: { type: "ExplainedSetting" } }], "sinks": ["sinks", { items: { type: "SinkReport" } }], "sitemaps": ["sitemaps", { items: { type: "SitemapReport" } }], "started_at": ["startedAt", "time"], "stop_reason": ["stopReason", { type: "StopReason" }], "uncertain_effects": ["uncertainEffects", { items: { type: "UncertainEffect" } }], "usage": ["usage", { type: "RunUsage" }], "verdict_reasons": ["verdictReasons", { items: { type: "AxisReason" } }] } },
-    "CrawlStartParams": { fields: { "extraction": ["extraction", { type: "CrawlExtraction" }], "limits": ["limits", { items: { type: "RunLimit" } }], "run_id": "runId" } },
+    "CrawlStartParams": { fields: { "declaration": ["declaration", { type: "CrawlDeclaration" }], "extraction": ["extraction", { type: "CrawlExtraction" }], "limits": ["limits", { items: { type: "RunLimit" } }], "run_id": "runId" } },
     "DatasetKeyInvalidDetails": { fields: { "began_with": "beganWith" } },
     "DatasetListParams": { fields: { "run_id": "runId" } },
     "DatasetPage": { fields: { "records": ["records", { items: { type: "DatasetRecord" } }] } },
@@ -94,6 +98,8 @@ export const foxhoundWire: Wire<keyof FoxhoundOperationTypes & string, keyof Fox
     "DatasetRecord": { fields: { "committed_at": ["committedAt", "time"], "provenance": ["provenance", { type: "RecordProvenance" }], "request_id": "requestId" } },
     "DatasetSearchPage": { fields: { "records": ["records", { items: { type: "DatasetRecord" } }] } },
     "DatasetSearchParams": { fields: { "run_id": "runId" } },
+    "DeclaredExtract": { fields: { "fields": ["fields", { values: { type: "PageField" } }] } },
+    "DeclaredLabel": { fields: { "extract": ["extract", { items: { type: "DeclaredExtract" } }], "payload_schema": "payloadSchema" } },
     "Export": { fields: { "export_id": "exportId", "last_number": "lastNumber", "run_epoch": "runEpoch" } },
     "ExportSaveAsParams": { fields: { "export_id": "exportId" } },
     "ExportSaved": { fields: { "run_epoch": "runEpoch" } },

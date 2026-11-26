@@ -22,6 +22,7 @@ use crate::catalog::{
     ValueKind, schema_of,
 };
 use crate::foxhound::dataset::{DatasetDeclaration, RecordData};
+use crate::foxhound::declaration::CrawlDeclaration;
 use crate::foxhound::fetch::FetchTier;
 use crate::foxhound::frontier::{HttpBody, HttpMethod};
 use crate::foxhound::hook::CrawlHookDeclaration;
@@ -411,6 +412,15 @@ pub struct CrawlStartParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(extend("arrived_in" = "0.1"))]
     pub extraction: Option<CrawlExtraction>,
+    /// The crawl as data (ADR 0103): its Labels, what each of their pages
+    /// follows and extracts, its Datasets, settings and more seeds, which
+    /// the engine handles itself as it does `extraction`, its one-Label
+    /// shorthand. Such a start declares no Label and no Dataset of its own,
+    /// else it fails with `invalid_params`, and names no `extraction`, else
+    /// it fails with `setting_invalid`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub declaration: Option<CrawlDeclaration>,
     /// The crawl's Hooks in code, in the order declared (ADR 0104). Never
     /// kept in the Run's state: a start that resumes the Run declares them
     /// again.

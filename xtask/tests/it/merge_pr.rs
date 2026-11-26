@@ -3,8 +3,10 @@
 //! of the gate's `target/` is short of space (#1822), keeps a failing gate's
 //! log and test results in the repository's common folder (#2087), and
 //! sweeps the gate's `target/` after each gate, still holding its lock; it
-//! gates a head without its base's tip merged with that tip, and refuses one
-//! that conflicts with it, and one whose merge would close other issues
+//! gates a head without its base's tip merged with that tip, with what
+//! `just codegen` writes on that merge and a conflict only in codegen's
+//! folders settled (ADR 0135's note of 2026-11-26), and refuses one that
+//! conflicts with it elsewhere, and one whose merge would close other issues
 //! than its `Closes` lines name (#2249); a
 //! gate waits for the run in the backstop's worktree, a test-health run or
 //! the backstop's own, unless that one waits for it; it files the merge's stress
@@ -35,6 +37,13 @@ const STARTED: &str = "1800000000";
 
 /// A process ID above every system's limit, so no process has it.
 pub(crate) const NO_PROCESS: &str = "2147483646";
+
+/// The one folder the `cargo` stand-in's `xtask codegen --folders` names.
+const GENERATED: &str = "crates/protocol/generated";
+
+/// The file in [`GENERATED`] the `just` stand-in's `just codegen` writes,
+/// with `written again`, when the stand-in folder holds `codegen-writes`.
+const WRITTEN: &str = "output.json";
 
 /// The `gh` stand-in of [`stand_ins`]: it reads the pull request from the
 /// folder's files and answers the query of a spec's sub-issues and the paged
@@ -120,6 +129,7 @@ fn stand_ins(workspace: &Workspace, head: &str) -> PathBuf {
             format!(
                 "#!/bin/sh\necho \"cargo $* in $PWD\" >>\"{calls}\"\n\
                  case \" $* \" in\n\
+                   *\" codegen --folders \"*) echo {GENERATED} ;;\n\
                    *\" affected \"*) if [ -f \"{selection}\" ]; then cat \"{selection}\"; elif [ -f \"{gate}\" ]; then echo gate=$(cat \"{gate}\"); else echo gate=quick; fi ;;\n\
                    *\" sweep-target \"*)\n\
                      : >\"{sweeping}\"\n\
@@ -146,6 +156,11 @@ fn stand_ins(workspace: &Workspace, head: &str) -> PathBuf {
             format!(
                 "#!/bin/sh\n\
                  echo \"just $*\" >>\"{calls}\"\n\
+                 if [ \"$1\" = codegen ]; then\n\
+                   if [ -f \"{codegen_fails}\" ]; then exit 1; fi\n\
+                   if [ -f \"{codegen_locks}\" ]; then echo 'rewritten' >Cargo.lock; fi\n\
+                   if [ -f \"{codegen_writes}\" ]; then mkdir -p {GENERATED} && echo 'written again' >{GENERATED}/{WRITTEN}; fi\n\
+                 fi\n\
                  if [ -n \"$GOODFETCH_PERF_PULL_REQUEST\" ]; then\n\
                    echo \"acceptance $GOODFETCH_PERF_PULL_REQUEST\" >>\"{calls}\"\n\
                  fi\n\
@@ -176,6 +191,9 @@ fn stand_ins(workspace: &Workspace, head: &str) -> PathBuf {
                    fi\n\
                  fi\n",
                 calls = calls.display(),
+                codegen_fails = folder.join("codegen-fails").display(),
+                codegen_locks = folder.join("codegen-locks").display(),
+                codegen_writes = folder.join("codegen-writes").display(),
                 running = folder.join("running").display(),
                 together = folder.join("together").display(),
                 lengthy = folder.join("lengthy").display(),
@@ -1830,11 +1848,173 @@ fn a_head_without_its_bases_tip_is_gated_and_merged_with_it() {
     );
 }
 
-/// A head that conflicts with its base's tip merges nothing and runs no
-/// step: the gate cannot resolve a conflict, and says what to do.
+/// The gate writes again, with `just codegen`, what `xtask codegen` writes
+/// on the merge it makes, and the merge it pushes and gates holds what that
+/// wrote (ADR 0135's note of 2026-11-26).
 #[test]
-fn a_head_that_conflicts_with_its_bases_tip_is_refused_before_any_step() {
-    let (workspace, head, _) = pull_request_behind_main("change.txt", b"another change\n");
+fn a_merge_with_the_bases_tip_holds_what_codegen_writes_on_it() {
+    let (workspace, head, tip) = pull_request_behind_main("main.txt", b"on main\n");
+    let stand_in = stand_ins(&workspace, &head);
+    std::fs::write(stand_in.join("codegen-writes"), "").unwrap();
+
+    let run = merge(
+        &workspace,
+        &stand_in,
+        &[("GOODFETCH_GATE_MIN_FREE_GB", "0")],
+    );
+
+    assert_eq!(run.code, Some(0), "{}{}", run.stdout, run.stderr);
+    let merged = workspace
+        .git(&["rev-parse", "refs/heads/change"])
+        .trim()
+        .to_owned();
+    let parents = workspace.git(&["rev-list", "--parents", "-n", "1", &merged]);
+    assert_eq!(parents.trim(), format!("{merged} {head} {tip}"));
+    assert_eq!(
+        workspace.git(&["show", &format!("{merged}:{GENERATED}/{WRITTEN}")]),
+        "written again\n"
+    );
+    assert!(call(&run, "just codegen") < call(&run, "just pre-merge"));
+}
+
+/// [`pull_request_behind_main`] where the head wrote its own contents to
+/// each of `changed` and `removed`, files it shares with `main`, and `main`
+/// then wrote its own to each of `changed` and removed each of `removed`.
+fn pull_request_conflicting_with_main(
+    changed: &[&str],
+    removed: &[&str],
+) -> (Workspace, String, String) {
+    let workspace = repository();
+    let path = workspace.path().display().to_string();
+    workspace.git(&["remote", "add", "origin", &path]);
+    workspace.git(&["config", "user.name", "Gate host"]);
+    workspace.git(&["config", "user.email", "gate@example.invalid"]);
+    workspace.git(&["switch", "--quiet", "main"]);
+    for file in changed.iter().chain(removed) {
+        workspace.write(file, b"shared\n");
+    }
+    commit_all(&workspace, "Shared files");
+    workspace.git(&["switch", "--quiet", "change"]);
+    workspace.git(&["merge", "--quiet", "--ff-only", "main"]);
+    for file in changed.iter().chain(removed) {
+        workspace.write(file, b"the head's\n");
+    }
+    commit_all(&workspace, "A change");
+    let head = workspace.git(&["rev-parse", "HEAD"]).trim().to_owned();
+    workspace.git(&["update-ref", &format!("refs/pull/{NUMBER}/head"), &head]);
+    workspace.git(&["switch", "--quiet", "main"]);
+    for file in changed {
+        workspace.write(file, b"main's\n");
+    }
+    for file in removed {
+        workspace.remove(file);
+    }
+    commit_all(&workspace, "Another change");
+    let tip = workspace.git(&["rev-parse", "main"]).trim().to_owned();
+    workspace.git(&["switch", "--quiet", "--detach"]);
+    (workspace, head, tip)
+}
+
+/// A head that conflicts with its base's tip only in the folders
+/// `xtask codegen` owns is merged with the tip's side there, which
+/// `just codegen` then writes again: no one has to merge `main` into it and
+/// run codegen first (ADR 0135's note of 2026-11-26).
+#[test]
+fn a_conflict_only_in_what_codegen_writes_is_settled_and_written_again() {
+    let written = format!("{GENERATED}/{WRITTEN}");
+    let taken = format!("{GENERATED}/taken.json");
+    let gone = format!("{GENERATED}/gone.json");
+    let (workspace, head, tip) = pull_request_conflicting_with_main(&[&written, &taken], &[&gone]);
+    let stand_in = stand_ins(&workspace, &head);
+    std::fs::write(stand_in.join("codegen-writes"), "").unwrap();
+
+    let run = merge(
+        &workspace,
+        &stand_in,
+        &[("GOODFETCH_GATE_MIN_FREE_GB", "0")],
+    );
+
+    assert_eq!(run.code, Some(0), "{}{}", run.stdout, run.stderr);
+    assert!(
+        run.stdout.contains(&format!(
+            "conflicts with the tip of main only in what `xtask codegen` writes; the gate takes the tip's side there and writes it again:\n  {gone}\n  {written}\n  {taken}\n"
+        )),
+        "{}",
+        run.stdout
+    );
+    let merged = workspace
+        .git(&["rev-parse", "refs/heads/change"])
+        .trim()
+        .to_owned();
+    let parents = workspace.git(&["rev-list", "--parents", "-n", "1", &merged]);
+    assert_eq!(parents.trim(), format!("{merged} {head} {tip}"));
+    assert_eq!(
+        workspace.git(&["show", &format!("{merged}:{written}")]),
+        "written again\n"
+    );
+    assert_eq!(
+        workspace.git(&["show", &format!("{merged}:{taken}")]),
+        "main's\n"
+    );
+    let files = workspace.git(&["ls-tree", "-r", "--name-only", &merged]);
+    assert!(!files.lines().any(|file| file == gone), "{files}");
+    let gh_merge = &run.calls[call(&run, "gh pr merge ")];
+    assert!(
+        gh_merge.contains(&format!("--match-head-commit {merged}")),
+        "{gh_merge}"
+    );
+}
+
+/// A merge on which `just codegen` fails, or rewrites `Cargo.lock`, which is
+/// the author's, is pushed nowhere and gated never.
+#[rstest]
+#[case::codegen_fails("codegen-fails", "failed on")]
+#[case::codegen_rewrites_the_lock("codegen-locks", "changed Cargo.lock on")]
+fn a_merge_on_which_codegen_fails_or_rewrites_the_lock_is_refused_before_any_step(
+    #[case] marker: &str,
+    #[case] what: &str,
+) {
+    let (workspace, head, _) = pull_request_behind_main("main.txt", b"on main\n");
+    let stand_in = stand_ins(&workspace, &head);
+    std::fs::write(stand_in.join(marker), "").unwrap();
+
+    let run = merge(
+        &workspace,
+        &stand_in,
+        &[("GOODFETCH_GATE_MIN_FREE_GB", "0")],
+    );
+
+    assert_eq!(run.code, Some(1), "{}{}", run.stdout, run.stderr);
+    assert!(
+        run.stdout.contains(&format!(
+            "error: `just codegen` {what} the merge of pull request #{NUMBER} and the tip of main"
+        )),
+        "{}",
+        run.stdout
+    );
+    assert!(
+        !run.calls
+            .iter()
+            .any(|call| call.starts_with("just pre-merge") || call.starts_with("gh pr merge")),
+        "{:?}",
+        run.calls
+    );
+    assert_eq!(
+        workspace.git(&["rev-parse", "refs/heads/change"]).trim(),
+        head
+    );
+    assert!(!gate_lock(&workspace).exists());
+}
+
+/// A head that conflicts with its base's tip outside the folders
+/// `xtask codegen` owns merges nothing and runs no step, even when it also
+/// conflicts inside them: the gate leaves that conflict to its author, says
+/// what to do and names the paths.
+#[rstest]
+#[case::outside_alone(&["change.txt"])]
+#[case::inside_and_outside(&["change.txt", "crates/protocol/generated/output.json"])]
+fn a_head_that_conflicts_with_its_bases_tip_is_refused_before_any_step(#[case] files: &[&str]) {
+    let (workspace, head, _) = pull_request_conflicting_with_main(files, &[]);
     let stand_in = stand_ins(&workspace, &head);
 
     let run = merge(
@@ -1846,7 +2026,7 @@ fn a_head_that_conflicts_with_its_bases_tip_is_refused_before_any_step() {
     assert_eq!(run.code, Some(1), "{}{}", run.stdout, run.stderr);
     assert!(
         run.stdout.contains(&format!(
-            "error: pull request #{NUMBER} conflicts with the tip of main; merge main into it and resolve the conflict"
+            "error: pull request #{NUMBER} conflicts with the tip of main; merge main into it and resolve the conflict\n  change.txt\n"
         )),
         "{}",
         run.stdout

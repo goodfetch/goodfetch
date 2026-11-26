@@ -694,6 +694,12 @@ fn run(command: Command, environment: &Environment) -> anyhow::Result<ExitCode> 
         Command::Budgets(arguments) => budgets::run(&arguments, environment),
         Command::Chromium { command } => chromium::run(&command, environment),
         Command::Clients { command } => clients::run(&command, environment),
+        Command::Codegen(arguments) if arguments.folders => {
+            for folder in codegen::owned_folders() {
+                output::line(folder);
+            }
+            Ok(ExitCode::SUCCESS)
+        }
         Command::Codegen(arguments) => codegen::run(arguments, environment),
         Command::CommitMessages {
             base,

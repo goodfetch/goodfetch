@@ -9,8 +9,8 @@
 
 [[writer]]
 path = "crates/foxhound/goodfetch-crawl/src/code_free.rs"
-count = 1
-how = "holds no value: a code-free crawl's extraction, the formats it asks for and which links it follows, as the program gave them"
+count = 2
+how = "holds no value: a code-free crawl's extraction, the formats it asks for and which links it follows, or its declaration (its seeds, Labels, Datasets and the settings a Recipe may set), as the program gave them"
 
 [[writer]]
 path = "crates/foxhound/goodfetch-crawl/src/hooks.rs"

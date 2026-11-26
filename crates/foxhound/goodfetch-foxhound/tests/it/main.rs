@@ -155,6 +155,7 @@ mod crawl_plants;
 mod daemon;
 mod dataset_pages;
 mod datasets;
+mod declaration;
 mod decoding;
 mod discovered_api;
 mod effect_window;

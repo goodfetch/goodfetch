@@ -390,6 +390,10 @@ _Avoid_: userData, user_data, meta, cb_kwargs, context
 One request a crawl's Frontier admitted (its method, URL and body), with its Label and Payload: the work item one handler processes, which ends in exactly one outcome.
 _Avoid_: `Request` (the type or identifier is a page's network request), item, task, job
 
+**Crawl declaration**:
+A crawl written as data, with no handler in a program: its seeds, its Labels each with the links their pages follow and the fields they extract, the Datasets those fill, and its settings; the engine handles each request itself, and a code-free crawl's extraction is its one-Label shorthand.
+_Avoid_: spider definition, crawl spec, crawl file
+
 **Continuous crawl**:
 A crawl whose run does not end when its Frontier empties: it revisits each URL when its Revisit policy says and reads its sources again, until it is told to end.
 _Avoid_: recrawl, standing crawl, monitor, never-ending run

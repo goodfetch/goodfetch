@@ -16,7 +16,7 @@ use goodfetch_protocol::audit::RefusalReason;
 use goodfetch_protocol::jsonrpc::ProtocolFailure;
 use goodfetch_protocol::live_view::LiveViewScreen;
 use goodfetch_protocol::live_view::{
-    ENABLED, LIVE_VIEW_VIEWER_LIMIT, LiveViewEnd, LiveViewEngineMessage, LiveViewTier,
+    LIVE_VIEW_VIEWER_LIMIT, LiveViewEnd, LiveViewEngineMessage, LiveViewTier,
     LiveViewViewerLimitDetails, LiveViewViewerMessage, MAX_VIEWERS, TIER,
 };
 use goodfetch_protocol::page::SessionId;
@@ -40,10 +40,11 @@ const LINGER: Duration = Duration::from_secs(2);
 /// What a Daemon's Live view settings say, read as a channel opens.
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct Admission {
-    /// `live_view.enabled`.
-    pub(crate) enabled: bool,
-    /// `live_view.max_viewers`, its value and its layer.
-    pub(super) max_viewers: SettingLimit,
+    /// `live_view.max_viewers`.
+    pub(super) max_viewers: NonZeroU64,
+    /// `live_view.max_viewers` as a refusal names it: its value and its
+    /// layer.
+    pub(super) limit: SettingLimit,
     /// `live_view.tier`.
     pub(super) tiers: Tiers,
 }
@@ -52,7 +53,7 @@ impl Admission {
     /// What `resolved` says, or the catalog's defaults when the machine's
     /// settings could not be read.
     pub(crate) fn of(resolved: Option<&Resolved>) -> Self {
-        let max: NonZeroU64 = get_or_default(resolved, &MAX_VIEWERS);
+        let max_viewers: NonZeroU64 = get_or_default(resolved, &MAX_VIEWERS);
         let (layer, origin) = resolved
             .and_then(|resolved| resolved.effective(&MAX_VIEWERS))
             .map_or((SettingsLayer::Default, None), |effective| {
@@ -60,10 +61,10 @@ impl Admission {
             });
         let tier: &str = get_or_default(resolved, &TIER);
         Self {
-            enabled: get_or_default(resolved, &ENABLED),
-            max_viewers: SettingLimit {
+            max_viewers,
+            limit: SettingLimit {
                 key: MAX_VIEWERS.name.to_owned(),
-                value: max.get().into(),
+                value: max_viewers.get().into(),
                 layer,
                 origin,
             },
@@ -72,10 +73,6 @@ impl Admission {
                 _ => Tiers::Any,
             },
         }
-    }
-
-    fn max_viewers(&self) -> u64 {
-        self.max_viewers.value.as_u64().unwrap_or(1)
     }
 }
 
@@ -168,10 +165,12 @@ where
         Opening::Gone => return Ok(()),
     };
     let admission = &channel.admission;
-    let watched =
-        channel
-            .live_view
-            .watch(&session, screen, admission.max_viewers(), admission.tiers);
+    let watched = channel.live_view.watch(
+        &session,
+        screen,
+        admission.max_viewers.get(),
+        admission.tiers,
+    );
     let mut viewing = match watched {
         Ok(viewing) => viewing,
         Err(not_watched) => {
@@ -227,11 +226,10 @@ fn refusal(
             &LIVE_VIEW_VIEWER_LIMIT,
             format!(
                 "{} viewers watch Session `{}` already, as many as `live_view.max_viewers` allows",
-                admission.max_viewers(),
-                session.0
+                admission.max_viewers, session.0
             ),
             &LiveViewViewerLimitDetails {
-                limit: admission.max_viewers.clone(),
+                limit: admission.limit.clone(),
             },
         ),
         NotWatched::UnknownSession => CallError::protocol(

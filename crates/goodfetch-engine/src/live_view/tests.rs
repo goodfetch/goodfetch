@@ -7,6 +7,7 @@
 )]
 
 use std::collections::{BTreeMap, VecDeque};
+use std::num::NonZeroU64;
 use std::pin::Pin;
 use std::sync::{Arc, Mutex};
 use std::task::{Context, Poll};
@@ -26,8 +27,8 @@ use tokio_tungstenite::tungstenite::{Error, Message};
 
 use super::driver::{self, Frame};
 use super::{
-    Admission, Channel, FrameSize, FrameSource, LiveView, NotWatched, SourceFrame, Tiers,
-    VideoOutput, Viewing, WatchFailure, WatchedSession, WatchedSessions, Watching,
+    Admission, Channel, FrameSize, FrameSource, LiveView, NotWatched, PartyText, SourceFrame,
+    Tiers, VideoOutput, Viewing, WatchFailure, WatchedSession, WatchedSessions, Watching,
 };
 use crate::clock::Clock;
 use crate::mask::Masks;
@@ -373,9 +374,10 @@ fn the_capture_stops_once_the_last_viewer_left() {
 /// translation point maps into.
 #[rstest]
 #[case::page_gone(WatchFailure::PageGone, &["a stop", "a start p1 800x600"], None)]
-#[case::capture_refused(WatchFailure::CaptureRefused("no".to_owned()), &["a stop", "b start p2 800x600"], None)]
+#[case::capture_refused(WatchFailure::CaptureRefused(PartyText::new("no")), &["a stop", "b start p2 800x600"], None)]
 #[case::capture_timed_out(WatchFailure::CaptureTimedOut, &["a stop", "b start p2 800x600"], None)]
-#[case::unrecognized(WatchFailure::Unrecognized("odd".to_owned()), &["a stop", "b start p2 800x600"], None)]
+#[case::fell_behind(WatchFailure::FellBehind, &["a stop", "a start p2 800x600"], None)]
+#[case::unrecognized(WatchFailure::Unrecognized(PartyText::new("odd")), &["a stop", "b start p2 800x600"], None)]
 #[case::browser_gone(WatchFailure::BrowserGone, &["a stop"], Some(LiveViewEnd::CaptureLost))]
 #[case::viewer_gone(WatchFailure::ViewerGone, &["a stop"], Some(LiveViewEnd::CaptureLost))]
 fn a_failed_capture_shows_another_tab_takes_another_tier_or_ends(
@@ -402,6 +404,22 @@ fn a_failed_capture_shows_another_tab_takes_another_tier_or_ends(
     });
 }
 
+/// A party's text in a failure never reaches a log line or a message
+/// (ADR 0127).
+#[rstest]
+#[case::capture_refused(
+    WatchFailure::CaptureRefused(PartyText::new("cookie=secret")),
+    "the browser refused to capture: <13 bytes, redacted>"
+)]
+#[case::unrecognized(
+    WatchFailure::Unrecognized(PartyText::new("cookie=secret")),
+    "the capture failed: <13 bytes, redacted>"
+)]
+fn a_failure_formats_its_partys_text_redacted(#[case] failure: WatchFailure, #[case] shown: &str) {
+    assert_eq!(failure.to_string(), shown);
+    assert!(!format!("{failure:?}").contains("secret"), "{failure:?}");
+}
+
 #[test]
 fn a_page_gone_shows_the_next_tab_and_no_frame_of_it() {
     goodfetch_test_support::runtime().block_on(async {
@@ -425,7 +443,7 @@ fn the_last_tier_failing_loses_the_capture() {
     goodfetch_test_support::runtime().block_on(async {
         let watched = Watched::new(&[
             Start::Answers,
-            Start::Fails(WatchFailure::CaptureRefused("no".to_owned())),
+            Start::Fails(WatchFailure::CaptureRefused(PartyText::new("no"))),
         ]);
         let mut viewing = watched.viewer(screen(800, 600, 1.0));
         let mut output = Collected::default();
@@ -739,7 +757,8 @@ fn a_viewer_past_max_viewers_is_answered_live_view_viewer_limit() {
             origin: None,
         };
         let admission = Admission {
-            max_viewers: limit,
+            max_viewers: NonZeroU64::MIN,
+            limit,
             ..Admission::of(None)
         };
         let (socket, mut viewer) = socket();
@@ -758,10 +777,10 @@ fn a_viewer_past_max_viewers_is_answered_live_view_viewer_limit() {
 }
 
 #[test]
-fn the_settings_default_to_on_ten_viewers_and_any_tier() {
+fn the_settings_default_to_ten_viewers_and_any_tier() {
     let admission = Admission::of(None);
-    assert!(admission.enabled);
-    assert_eq!(admission.max_viewers.value, json!(10));
+    assert_eq!(admission.max_viewers.get(), 10);
+    assert_eq!(admission.limit.value, json!(10));
     assert_eq!(admission.tiers, Tiers::Any);
 }
 

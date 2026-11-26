@@ -5,6 +5,8 @@
 //! newest only; more viewers join up to `live_view.max_viewers`; and with
 //! `live_view.enabled` off no channel opens and nothing is captured. The
 //! channel is a column of the endpoint table, each refusal in the Audit log.
+//! A machine's Daemon, from `daemon start`, opens its own listener for the
+//! channels at `daemon.address` while the setting is on, and none off.
 #![expect(
     clippy::disallowed_types,
     reason = "a test opens its own WebSocket to the Daemon, outside the engine (ADR 0060)"
@@ -21,12 +23,15 @@ use data_encoding::BASE64;
 use goodfetch_protocol::live_view::CHANNEL_PATH;
 use goodfetch_test_client::DaemonClient;
 use goodfetch_test_support::{
-    DaemonEndpoint, Endpoint, EndpointRunner, Listener, ListenerKind, Open, TestEnv, browser_cache,
+    DaemonEndpoint, Endpoint, EndpointRunner, Listener, ListenerKind, Open, RuntimeFile, TestEnv,
+    browser_cache,
 };
+use rstest::rstest;
 use serde_json::{Value, json};
 use tungstenite::handshake::client::generate_key;
 use tungstenite::{Message, WebSocket};
 
+use crate::daemon::{StopsTheDaemon, json_of, runtime_file};
 use crate::daemon_run::{ANY_PORT, Foreground, opened, token};
 use crate::endpoint::audit_verifier;
 
@@ -412,6 +417,37 @@ fn with_the_live_view_off_no_channel_opens_and_nothing_is_captured() {
         ),
         (Some(404), false, false, true)
     );
+}
+
+/// A machine's Daemon, from `daemon start`, opens a listener at
+/// `daemon.address` for Live view channels alone while `live_view.enabled`
+/// is on: `daemon.status` names it and a viewer's handshake there opens.
+/// Off, it names none, as it opens none (the owner's decision of
+/// 2026-11-01, ADR 0049).
+///
+/// Covers: story:12-144, setting:live_view.enabled
+#[rstest]
+#[case::on("", Some(true))]
+#[case::off("live_view.enabled = false\n", None)]
+fn a_started_daemon_listens_for_live_view_channels_only_while_the_setting_is_on(
+    #[case] settings: &str,
+    #[case] opens: Option<bool>,
+) {
+    let env = TestEnv::new();
+    env.user_configuration(&format!(
+        "daemon.idle_timeout = 60000\ndaemon.address = \"{ANY_PORT}\"\n{settings}"
+    ));
+    let _stops = StopsTheDaemon::of(&env, COLLIE);
+    json_of(COLLIE.as_ref(), &env, &["daemon", "start", "--json"]);
+    let found = RuntimeFile::read(&runtime_file(&env)).unwrap();
+
+    let status = crate::daemon_client(&found).call(1, "daemon.status", &json!({}));
+    let listener = status["result"]["live_view"]
+        .as_str()
+        .map(|at| at.parse::<SocketAddr>().unwrap());
+    let opened = listener.map(|at| handshake(at).is_ok());
+
+    assert_eq!(opened, opens, "{status}");
 }
 
 /// The Live view channel, read as the endpoint table's column: it passes

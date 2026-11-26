@@ -150,7 +150,7 @@ impl LiveView {
     ) -> Self {
         Self(Arc::new(Inner {
             sessions,
-            owner: owner.child_for(OwnerKind::Connection),
+            owner: owner.child_for(OwnerKind::LiveView),
             clock,
             watches: Mutex::new(Watches::default()),
         }))
@@ -432,6 +432,11 @@ impl Feed {
         match failure {
             WatchFailure::PageGone => {
                 self.gone.insert(page);
+                None
+            }
+            // The loop starts the same page's capture again.
+            WatchFailure::FellBehind => {
+                tracing::debug!(%failure, "a Live view starts its capture again");
                 None
             }
             WatchFailure::CaptureRefused(_)

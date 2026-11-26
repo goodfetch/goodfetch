@@ -115,8 +115,8 @@ use crate::run::translated;
 use crate::runs::Runs;
 use crate::sdk_handlers;
 use crate::settings::{
-    Opening as SettingsOpening, Resolved, SettingsError, check_client_bounds, check_scope,
-    get_or_default,
+    MachineSettings, Opening as SettingsOpening, Resolved, SettingsError, check_client_bounds,
+    check_scope, get_or_default,
 };
 use crate::staging::AttemptStaging;
 use crate::tasks::{OwnerKind, TaskOwner};
@@ -275,9 +275,11 @@ struct Opening {
 
 impl Opening {
     /// The bounds of a Connection reached through `access` and starting
-    /// now, as `engine`'s settings set them; none on a listener that takes
-    /// no token, such as an Attached engine's stdio.
-    async fn of(access: &Access, engine: &EngineContext) -> Option<Self> {
+    /// now, as `engine`'s settings set them, with the read of them it was
+    /// set from, which a Live view channel it opens is admitted under;
+    /// none on a listener that takes no token, such as an Attached
+    /// engine's stdio.
+    async fn of(access: &Access, engine: &EngineContext) -> Option<(Self, Arc<MachineSettings>)> {
         if !access.guarded() {
             return None;
         }
@@ -290,12 +292,13 @@ impl Opening {
             .ok();
         let timeout: Duration = get_or_default(resolved, &TIMEOUT_HELLO);
         let max_size: u64 = get_or_default(resolved, &NETWORK_MAX_HELLO_SIZE);
-        Some(Self {
+        let opening = Self {
             deadline: engine.clock().now().checked_add(timeout),
             max_size: usize::try_from(max_size)
                 .map_or(MAX_MESSAGE_BYTES, |size| size.min(MAX_MESSAGE_BYTES)),
             live_view: get_or_default(resolved, &LIVE_VIEW_ENABLED),
-        })
+        };
+        Some((opening, Arc::clone(&machine)))
     }
 }
 
@@ -480,27 +483,30 @@ async fn carriage(
 }
 
 /// Serves the Live view channel `socket`, opened on `access`'s WebSocket
-/// within `opening`'s bounds, until it ends or its Daemon closes it; its
-/// refusal is recorded as the protocol's are.
+/// within `opening`'s bounds and admitted under the settings they were set
+/// from, until it ends or its Daemon closes it; its refusal is recorded as
+/// the protocol's are.
 async fn watch(
     socket: LiveViewSocket,
     access: &Access,
     masks: Masks,
-    opening: Option<Opening>,
+    opening: Option<(Opening, Arc<MachineSettings>)>,
     engine: &EngineContext,
 ) {
-    let (Some(daemon), Some(token)) = (access.daemon(), access.token()) else {
+    // A listener that takes a token has an opening.
+    let (Some(daemon), Some(token), Some((opening, machine))) =
+        (access.daemon(), access.token(), opening)
+    else {
         return;
     };
-    let machine = engine.settings().snapshot().await;
     let channel = live_view::Channel {
         live_view: daemon.live_view(),
         token: Arc::from(token),
         masks,
         clock: engine.clock(),
         admission: live_view::Admission::of(machine.resolved().ok()),
-        deadline: opening.and_then(|opening| opening.deadline),
-        max_open_size: opening.map_or(MAX_MESSAGE_BYTES, |opening| opening.max_size),
+        deadline: opening.deadline,
+        max_open_size: opening.max_size,
     };
     let closing = daemon.closing().clone();
     let served = live_view::serve(channel, socket, async move { closing.closed().await }).await;
@@ -581,7 +587,7 @@ pub(crate) async fn serve(
 ) {
     let metrics = dispatch.metrics.clone();
     let serving = async {
-        let opening = Opening::of(&access, &engine).await;
+        let (opening, machine) = Opening::of(&access, &engine).await.unzip();
         let carrying = carriage(connection, &access, &engine, opening);
         let clock = engine.clock();
         let carried = match opening.and_then(|opening| opening.deadline) {
@@ -601,7 +607,8 @@ pub(crate) async fn serve(
         let (reading, writing, listener) = match carried {
             Some(Way::Protocol(reading, writing, listener)) => (reading, writing, listener),
             Some(Way::LiveView(socket)) => {
-                return watch(*socket, &access, dispatch.masks.clone(), opening, &engine).await;
+                let opened = opening.zip(machine);
+                return watch(*socket, &access, dispatch.masks.clone(), opened, &engine).await;
             }
             None => return,
         };

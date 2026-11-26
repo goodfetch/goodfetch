@@ -40,7 +40,7 @@ fn on() -> serde_json::Value {
 /// `live_view.enabled` (ADRs 0031 and 0049).
 pub const ENABLED: Setting = Setting {
     name: "live_view.enabled",
-    description: "Whether a person may watch this machine's Sessions through a Daemon: on by default. A Daemon then accepts Live view channels on the loopback WebSocket of `daemon.address`, which it opens for them where nothing else did. Off, no channel opens, the Daemon listens there for none, and nothing is captured. Set in user configuration or an Operator policy only.",
+    description: "Whether a person may watch this machine's Sessions through a Daemon: on by default. A Daemon then accepts Live view channels on the loopback WebSocket of `daemon.address`, which it opens for them where nothing else did. Off, no channel opens, the Daemon listens there for none, and nothing is captured. A running Daemon reads it again for each channel, so turning it off refuses new viewers at once, while a listener it did not open at its start opens only at its next start, such as `daemon restart`. Set in user configuration or an Operator policy only.",
     kind: ValueKind::Boolean,
     default: on,
     clearable: false,

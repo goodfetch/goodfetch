@@ -162,7 +162,7 @@ details! {
     crate::hostile_input::PathUnsafeDetails => ErrorCode::PATH_UNSAFE,
     crate::key_value_store::ValueInvalidDetails => ErrorCode::VALUE_INVALID,
     crate::live_view::LiveViewViewerLimitDetails => ErrorCode::LIVE_VIEW_VIEWER_LIMIT,
-    crate::model::ModelUnavailableDetails =>ErrorCode::MODEL_UNAVAILABLE,
+    crate::model::ModelUnavailableDetails => ErrorCode::MODEL_UNAVAILABLE,
     crate::page::BodyNotFoundDetails => ErrorCode::BODY_NOT_FOUND,
     crate::page::BrowserLaunchFailedDetails => ErrorCode::BROWSER_LAUNCH_FAILED,
     crate::page::BrowserNeedsGuiSessionDetails => ErrorCode::BROWSER_NEEDS_GUI_SESSION,

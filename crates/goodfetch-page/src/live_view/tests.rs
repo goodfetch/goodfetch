@@ -7,10 +7,10 @@ use std::time::Duration;
 
 use goodfetch_cdp::generated::page::StartScreencastParams;
 use goodfetch_cdp::{
-    Connection, Driver, Failure, Framer, SessionId as TargetSession, Subscription,
+    Connection, Driver, Failure, Framer, SessionId as TargetSession, Subscription, SubscriptionEnd,
 };
 use goodfetch_engine::live_view::{
-    FrameSize, SourceFrame, WatchFailure, WatchedSession, WatchedSessions, Watching,
+    FrameSize, PartyText, SourceFrame, WatchFailure, WatchedSession, WatchedSessions, Watching,
 };
 use goodfetch_protocol::live_view::LiveViewTier;
 use goodfetch_protocol::page::{PageId, SessionId};
@@ -18,7 +18,7 @@ use rstest::rstest;
 use serde_json::{Value, json};
 use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _, DuplexStream, ReadHalf, WriteHalf};
 
-use super::{ScreencastCommand, ScreencastPage, WatchedTabs, watch_failure};
+use super::{ScreencastCommand, ScreencastPage, WatchedTabs, events_ended, watch_failure};
 
 /// The tab's session on the browser's connection.
 const TARGET: &str = "tab";
@@ -271,9 +271,9 @@ fn a_next_dropped_while_it_acknowledges_gives_the_frame_to_the_next() {
 #[case::its_session_is_gone("Session with given id not found", WatchFailure::PageGone)]
 #[case::the_browser_does_not_capture(
     "Screencast is not supported",
-    WatchFailure::CaptureRefused(
-        "the browser refused `Page.startScreencast` (-32000): <27 bytes, redacted>".to_owned()
-    )
+    WatchFailure::CaptureRefused(PartyText::new(
+        "the browser refused `Page.startScreencast` (-32000): <27 bytes, redacted>"
+    ))
 )]
 fn a_refused_start_is_the_failure_it_reads_as(
     #[case] message: &str,
@@ -305,22 +305,35 @@ fn a_refused_start_is_the_failure_it_reads_as(
 #[case::the_browser_is_gone(Failure::Disconnected, WatchFailure::BrowserGone)]
 #[case::the_lease_ended(
     Failure::Withheld { method: "Page.startScreencast" },
-    WatchFailure::CaptureRefused(
-        "`Page.startScreencast` was withheld: the lease of the page's work item ended".to_owned()
-    )
+    WatchFailure::CaptureRefused(PartyText::new(
+        "`Page.startScreencast` was withheld: the lease of the page's work item ended"
+    ))
 )]
 #[case::an_answer_too_long(
     Failure::TooLarge { method: "Page.screencastFrameAck" },
-    WatchFailure::Unrecognized(
+    WatchFailure::Unrecognized(PartyText::new(
         "the browser's answer to `Page.screencastFrameAck` is longer than one message the connection reads"
-            .to_owned()
-    )
+    ))
 )]
 fn a_failure_with_no_message_reads_by_its_kind(
     #[case] failure: Failure,
     #[case] expected: WatchFailure,
 ) {
     assert_eq!(watch_failure(&failure), expected);
+}
+
+/// Each way a tab's events end is the `WatchFailure` the Live view acts
+/// on: events fallen behind start the same capture again.
+#[rstest]
+#[case::the_tab_detached(Some(SubscriptionEnd::Detached), WatchFailure::PageGone)]
+#[case::its_events_fell_behind(Some(SubscriptionEnd::FellBehind), WatchFailure::FellBehind)]
+#[case::the_connection_ended(Some(SubscriptionEnd::Disconnected), WatchFailure::BrowserGone)]
+#[case::no_end_said(None, WatchFailure::BrowserGone)]
+fn an_end_of_the_tabs_events_reads_by_its_kind(
+    #[case] end: Option<SubscriptionEnd>,
+    #[case] expected: WatchFailure,
+) {
+    assert_eq!(events_ended(end), expected);
 }
 
 /// A browser gone while a frame is awaited ends the tier with

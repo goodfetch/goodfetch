@@ -23,7 +23,8 @@ use goodfetch_cdp::generated::page::{
 use goodfetch_cdp::{Failure, Refusal, Subscription, SubscriptionEnd};
 use goodfetch_counted_work::Row;
 use goodfetch_engine::live_view::{
-    FrameSize, FrameSource, SourceFrame, WatchFailure, WatchedSession, WatchedSessions, Watching,
+    FrameSize, FrameSource, PartyText, SourceFrame, WatchFailure, WatchedSession, WatchedSessions,
+    Watching,
 };
 use goodfetch_protocol::live_view::LiveViewTier;
 use goodfetch_protocol::page::{PageId, SessionId};
@@ -263,17 +264,21 @@ impl FrameSource for Screencast {
 async fn next_frame(events: &mut Subscription) -> Result<ScreencastFrameEvent, WatchFailure> {
     loop {
         let Some(event) = events.next().await else {
-            return Err(match events.ended() {
-                Some(SubscriptionEnd::Detached) => WatchFailure::PageGone,
-                Some(SubscriptionEnd::FellBehind) => WatchFailure::Unrecognized(
-                    "the page's events fell behind its screencast".to_owned(),
-                ),
-                _ => WatchFailure::BrowserGone,
-            });
+            return Err(events_ended(events.ended()));
         };
         if let Some(frame) = event.read::<ScreencastFrameEvent>() {
             return Ok(frame);
         }
+    }
+}
+
+/// The [`WatchFailure`] a tab's events ending by `end` is: events fallen
+/// behind pass, so the same page's capture starts again.
+fn events_ended(end: Option<SubscriptionEnd>) -> WatchFailure {
+    match end {
+        Some(SubscriptionEnd::Detached) => WatchFailure::PageGone,
+        Some(SubscriptionEnd::FellBehind) => WatchFailure::FellBehind,
+        _ => WatchFailure::BrowserGone,
     }
 }
 
@@ -286,10 +291,10 @@ fn watch_failure(failure: &Failure) -> WatchFailure {
             ..
         } => WatchFailure::PageGone,
         Failure::Refused { .. } | Failure::Withheld { .. } => {
-            WatchFailure::CaptureRefused(failure.to_string())
+            WatchFailure::CaptureRefused(PartyText::new(failure.to_string()))
         }
         Failure::TimedOut { .. } => WatchFailure::CaptureTimedOut,
         Failure::Disconnected => WatchFailure::BrowserGone,
-        _ => WatchFailure::Unrecognized(failure.to_string()),
+        _ => WatchFailure::Unrecognized(PartyText::new(failure.to_string())),
     }
 }

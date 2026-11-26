@@ -23,9 +23,11 @@ mod tests;
 use std::fmt;
 use std::pin::Pin;
 
-use goodfetch_protocol::live_view::{LiveViewScreen, LiveViewTier};
+use goodfetch_protocol::live_view::{ENABLED, LiveViewScreen, LiveViewTier};
 use goodfetch_protocol::page::{PageId, SessionId};
 use tokio::sync::watch;
+
+use crate::settings::{Settings, get_or_default};
 
 pub use channel::fuzz_viewer_message;
 pub(crate) use channel::{Admission, Channel, serve};
@@ -37,6 +39,13 @@ pub type Watching<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
 
 /// The longest side a frame is asked for, in device pixels.
 const LONGEST_SIDE: f64 = 8192.0;
+
+/// Whether `live_view.enabled` is on in `settings` as they read now: a
+/// hand edit of the files is seen at the next read.
+pub(crate) async fn enabled(settings: &Settings) -> bool {
+    let machine = settings.snapshot().await;
+    get_or_default(machine.resolved().ok(), &ENABLED)
+}
 
 /// The Sessions a Live view can watch, which the crate that drives them
 /// offers ([`Contribution::with_watched_sessions`](crate::composition::Contribution::with_watched_sessions)).
@@ -163,15 +172,43 @@ pub enum WatchFailure {
     /// The page shown is gone: the Session's next tab is shown instead.
     PageGone,
     /// The browser answered that it does not capture.
-    CaptureRefused(String),
+    CaptureRefused(PartyText),
     /// The browser answered nothing in time.
     CaptureTimedOut,
+    /// The capture's events fell behind it, a passing state: the same
+    /// page's capture starts again, on the same tier.
+    FellBehind,
     /// The browser is gone.
     BrowserGone,
     /// The viewer is gone.
     ViewerGone,
     /// A failure this engine does not know, as its source wrote it.
-    Unrecognized(String),
+    Unrecognized(PartyText),
+}
+
+/// A browser's, an encoder's or a transport's own text in a
+/// [`WatchFailure`], never matched on and redacted wherever it is
+/// formatted (ADR 0127): the browser may echo what it was given.
+#[derive(Clone, PartialEq, Eq)]
+pub struct PartyText(String);
+
+impl PartyText {
+    /// The text `text`, as its party wrote it.
+    pub fn new(text: impl Into<String>) -> Self {
+        Self(text.into())
+    }
+}
+
+impl fmt::Debug for PartyText {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(formatter, "PartyText(<{} bytes, redacted>)", self.0.len())
+    }
+}
+
+impl fmt::Display for PartyText {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(formatter, "<{} bytes, redacted>", self.0.len())
+    }
 }
 
 impl fmt::Display for WatchFailure {
@@ -182,9 +219,10 @@ impl fmt::Display for WatchFailure {
                 write!(formatter, "the browser refused to capture: {reason}")
             }
             Self::CaptureTimedOut => formatter.write_str("the browser did not answer in time"),
+            Self::FellBehind => formatter.write_str("the capture's events fell behind it"),
             Self::BrowserGone => formatter.write_str("the browser is gone"),
             Self::ViewerGone => formatter.write_str("the viewer is gone"),
-            Self::Unrecognized(failure) => formatter.write_str(failure),
+            Self::Unrecognized(failure) => write!(formatter, "the capture failed: {failure}"),
         }
     }
 }

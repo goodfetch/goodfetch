@@ -339,6 +339,8 @@ struct Shared {
     live_view: LiveView,
     /// Where its Live view channels open, if they do.
     live_view_at: Option<SocketAddr>,
+    /// What the engine gives every call, its settings among them.
+    engine: EngineContext,
     presence: watch::Sender<Presence>,
     runs: Runs,
     health: Health,
@@ -379,6 +381,7 @@ impl Shared {
             accounts: options.accounts.map(Arc::new),
             live_view: live_view.0,
             live_view_at: live_view.1,
+            engine: serving.engine.clone(),
             presence: watch::Sender::new(Presence::default()),
             runs: serving.runs.clone(),
             health,
@@ -564,6 +567,12 @@ impl DaemonSide for ConnectionSide {
         Box::pin(async {
             let shared = &self.shared;
             let presence = *shared.presence.borrow();
+            // Turned off since the Daemon started, its listener opens no
+            // channel, as each channel reads the setting again.
+            let live_view = match shared.live_view_at {
+                Some(at) if crate::live_view::enabled(shared.engine.settings()).await => Some(at),
+                _ => None,
+            };
             DaemonState {
                 product: shared.identity.product,
                 product_version: shared.identity.product_version.clone(),
@@ -575,7 +584,7 @@ impl DaemonSide for ConnectionSide {
                 idle_timeout: u64::try_from(shared.idle_timeout.as_millis()).unwrap_or(u64::MAX),
                 accounts: shared.accounts.is_some(),
                 heap: crate::heap::live(),
-                live_view: shared.live_view_at,
+                live_view,
             }
         })
     }

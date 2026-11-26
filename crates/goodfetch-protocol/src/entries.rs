@@ -2,19 +2,21 @@
 //! catalog, and what each Product's catalog holds, by the Product mark of
 //! where each entry is defined (ADRs 0095 and 0099).
 
+use serde_json::{Map, Value, json};
+
 use crate::catalog::{
-    Entries, ErrorCodeDefinition, KindPart, Operation, Product, SharedType, Yielding,
+    Entries, ErrorCodeDefinition, KindPart, Operation, Product, Setting, SharedType, Yielding,
 };
 use crate::{
     accounts, audit, block, browser_cache, checkpoint, connection, daemon, dns, download, effect,
     egress, engine, events, executables, foxhound, governor, hook, hostile_input, key_value_store,
-    log, model, needs_you, ops, page, plugin, politeness, recipe, response_cache, response_limits,
-    run, sample, schedule, schema_validator, secrets, security, settings, site_preferences, skills,
-    storage, tls, usage, versions,
+    log, model, needs_you, notifications, ops, page, plugin, politeness, recipe, response_cache,
+    response_limits, run, sample, schedule, schema_validator, secrets, security, settings,
+    site_preferences, skills, storage, tls, usage, versions,
 };
 
 /// Every module that defines entries.
-pub const MODULES: [&Entries; 68] = [
+pub const MODULES: [&Entries; 70] = [
     &connection::ENTRIES,
     &log::ENTRIES,
     &daemon::ENTRIES,
@@ -32,6 +34,7 @@ pub const MODULES: [&Entries; 68] = [
     &engine::ENTRIES,
     &events::ENTRIES,
     &needs_you::ENTRIES,
+    &notifications::ENTRIES,
     &page::ENTRIES,
     &page::proxy::ENTRIES,
     &page::access_mode::ENTRIES,
@@ -83,6 +86,7 @@ pub const MODULES: [&Entries; 68] = [
     &foxhound::erase::ENTRIES,
     &foxhound::block::ENTRIES,
     &foxhound::usage::ENTRIES,
+    &foxhound::notifications::ENTRIES,
 ];
 
 /// Every part a kind of Run adds to an entry's value (ADR 0102), which the
@@ -126,6 +130,60 @@ pub fn product_of_value(shared_type: SharedType, name: &str) -> Option<Product> 
     })
 }
 
+/// A setting's value split by Product (ADR 0095): what an engine of one
+/// Product applies, and the part only another Product honours.
+#[derive(Clone, Debug, PartialEq)]
+pub struct OthersPart {
+    /// The value without the other Product's part.
+    pub kept: Value,
+    /// The other Product's part, laid out as the value is.
+    pub theirs: Value,
+    /// The first name in that part, which a refusal names.
+    pub first: String,
+    /// The Product that honours it.
+    pub needs: Product,
+}
+
+/// The part of `value`, given for a key `setting` of `engine`'s, that only
+/// a Product `engine` lacks honours, when it names one: for
+/// `notifications.channels`, the events of such a Product each channel
+/// names. A name neither Product knows is kept, as a newer engine's (ADR
+/// 0079).
+pub fn others_part(setting: &Setting, value: &Value, engine: Product) -> Option<OthersPart> {
+    if setting.name != notifications::NOTIFICATIONS_CHANNELS.name {
+        return None;
+    }
+    let mut kept = value.clone();
+    let mut theirs = Map::new();
+    let mut first = None;
+    for (channel, entry) in kept.as_object_mut().into_iter().flatten() {
+        let Some(events) = entry.get_mut("events").and_then(Value::as_array_mut) else {
+            continue;
+        };
+        let mut aside = Vec::new();
+        events.retain(|event| {
+            let name = event.as_str().unwrap_or_default();
+            match product_of_value(SharedType::NotificationEvent, name) {
+                Some(needs) if !engine.contains(needs) => {
+                    first.get_or_insert_with(|| (name.to_owned(), needs));
+                    aside.push(event.clone());
+                    false
+                }
+                _ => true,
+            }
+        });
+        if !aside.is_empty() {
+            theirs.insert(channel.clone(), json!({ "events": aside }));
+        }
+    }
+    first.map(|(first, needs)| OthersPart {
+        kept,
+        theirs: Value::Object(theirs),
+        first,
+        needs,
+    })
+}
+
 /// The Error code named `name`, whichever module defines it; none for a
 /// code neither Product knows.
 pub fn error_code(name: &str) -> Option<&'static ErrorCodeDefinition> {
@@ -142,8 +200,73 @@ mod tests {
 
     use schemars::SchemaGenerator;
 
-    use super::{MODULES, operations_of};
-    use crate::catalog::{Product, ValueKind};
+    use serde_json::json;
+
+    use super::{MODULES, OthersPart, operations_of, others_part, product_of_value};
+    use crate::catalog::{Product, SharedType, ValueKind};
+    use crate::notifications::{NOTIFICATIONS_CHANNELS, NotificationEvent};
+
+    /// Each Notification event is a value of the catalog's open value
+    /// list, of Collie's or Foxhound's; a name neither knows is a newer
+    /// engine's (ADRs 0079 and 0095).
+    ///
+    /// Covers: story:11-265, setting:notifications.channels
+    #[test]
+    fn each_notification_event_is_in_the_catalog_with_its_product() {
+        let product = |name: &str| product_of_value(SharedType::NotificationEvent, name);
+
+        let collie: Vec<_> = NotificationEvent::COLLIE
+            .iter()
+            .map(|event| product(event.as_str()))
+            .collect();
+
+        assert_eq!(collie, vec![Some(Product::Collie); 18]);
+        assert_eq!(
+            [
+                "records_changed",
+                "sink_failed",
+                "dataset_schema_changed",
+                "run_paused"
+            ]
+            .map(product),
+            [
+                Some(Product::Foxhound),
+                Some(Product::Foxhound),
+                Some(Product::Foxhound),
+                None
+            ]
+        );
+    }
+
+    /// A Collie engine sets a channel's Foxhound events apart, naming the
+    /// first, and keeps the rest, a newer engine's name included; a
+    /// Foxhound engine keeps them all (ADR 0095).
+    ///
+    /// Covers: story:11-265, setting:notifications.channels
+    #[test]
+    fn a_channels_foxhound_events_are_set_apart_on_a_collie_engine() {
+        let value = json!({
+            "ops": { "events": ["run_failed", "sink_failed", "run_paused"] },
+            "pager": { "type": "slack" },
+        });
+
+        let collie = others_part(&NOTIFICATIONS_CHANNELS, &value, Product::Collie);
+        let foxhound = others_part(&NOTIFICATIONS_CHANNELS, &value, Product::Foxhound);
+
+        assert_eq!(
+            collie,
+            Some(OthersPart {
+                kept: json!({
+                    "ops": { "events": ["run_failed", "run_paused"] },
+                    "pager": { "type": "slack" },
+                }),
+                theirs: json!({ "ops": { "events": ["sink_failed"] } }),
+                first: "sink_failed".to_owned(),
+                needs: Product::Foxhound,
+            })
+        );
+        assert_eq!(foxhound, None);
+    }
 
     /// Adds to `found` the path of each module under `folder`, the module
     /// `module`, that defines `pub const ENTRIES`, as `module_path!()`

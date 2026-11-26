@@ -6,7 +6,9 @@
 use std::time::SystemTime;
 
 use goodfetch_protocol::catalog::Product;
+use goodfetch_protocol::notifications::NotificationEvent;
 use goodfetch_protocol::run::RunId;
+use goodfetch_protocol::schedule::ScheduleId;
 use url::Url;
 
 #[cfg(test)]
@@ -25,6 +27,7 @@ pub struct EventId(String);
 #[error(
     "an event ID is 1 to {EVENT_ID_MAX} ASCII letters, digits, `_` or `-`, so a webhook signs it unambiguously"
 )]
+#[non_exhaustive]
 pub struct EventIdInvalid;
 
 impl EventId {
@@ -56,13 +59,12 @@ impl EventId {
 pub struct Message {
     /// The event's ID.
     pub event_id: EventId,
-    /// The event's name, an open `snake_case` value of the catalog, such as
-    /// `run_failed`.
-    pub event: String,
+    /// The event's name, such as `run_failed`.
+    pub event: NotificationEvent,
     /// The Run it is about, if any.
     pub run_id: Option<RunId>,
     /// The Schedule it is about, if any.
-    pub schedule_id: Option<String>,
+    pub schedule_id: Option<ScheduleId>,
     /// The Product whose engine raised it.
     pub product: Product,
     /// Its title, in English.

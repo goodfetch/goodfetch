@@ -2596,6 +2596,24 @@ product = "foxhound"
 status = "active"
 
 [[story]]
+id = 1060
+title = "As a developer, I want `run.records(dataset, { after })` to follow the Run live as an iterator of `DatasetRecord` (`number`, `value`, `requestId`, `url`, `committedAt`), end once the Run ended and all were read, and never slow the crawl, so that a program reads its crawl's output as it grows (ADR 0103; CO-26)."
+milestone = "M2 Client surfaces"
+journey = false
+not_journey = "part"
+product = "foxhound"
+status = "active"
+
+[[story]]
+id = 1061
+title = "As a developer, I want `run.rejectedRecords(dataset, { after })` to read the rejection table with each Record's JSON, reason, Hook, request ID and URL, and the report to count dropped Records by reason, so that a Hook's drop and reject are visible (ADRs 0103, 0104)."
+milestone = "M2 Client surfaces"
+journey = false
+not_journey = "part"
+product = "foxhound"
+status = "active"
+
+[[story]]
 id = 1064
 title = "As a developer, I want `ctx.run` to reach the Key-value store with writes staged with the attempt and my own Run value's writes to commit at once, the docs naming the trap of a captured Run value (unfenced, written by every attempt, discarded ones included), so that a handler does not write state it cannot take back (ADR 0103; CO-26)."
 milestone = "M2 Client surfaces"
@@ -2607,6 +2625,15 @@ status = "active"
 [[story]]
 id = 1069
 title = "As a developer, I want to start a crawl declared as data, a `CrawlDeclaration` whose Labels follow links and extract fields into the Datasets it declares, from the SDKs, the CLI or MCP with no handler, so that a crawl someone reviewed runs as written (ADRs 0099, 0103; G8)."
+milestone = "M2 Client surfaces"
+journey = false
+not_journey = "part"
+product = "foxhound"
+status = "active"
+
+[[story]]
+id = 1070
+title = "As a developer, I want every Record I read to be a Dataset's own type, an unknown field kept (G3) and a native parse failure to end iteration with `record_invalid` carrying `number`, so that a schema drift stops the reader instead of corrupting it (ADRs 0082, 0103)."
 milestone = "M2 Client surfaces"
 journey = false
 not_journey = "part"

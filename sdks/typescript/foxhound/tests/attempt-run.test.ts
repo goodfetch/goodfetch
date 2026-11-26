@@ -66,7 +66,7 @@ describe("a handler's `ctx.run` on an Attached engine", () => {
 
       const run = await foxhound.startCrawl(shop, { seeds: [seed(start, listing)], settings });
       await run.finish();
-      const records: DatasetRecord[] = [];
+      const records: DatasetRecord<object>[] = [];
       for await (const record of run.records(products)) records.push(record);
       const names = [...tries.keys()];
       const stored = await Promise.all(

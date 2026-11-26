@@ -347,6 +347,15 @@ form = "opener"
 [[member]]
 package = "@goodfetch/foxhound"
 receiver = "CrawlRun"
+member = "rejectedRecords"
+entry = "run.rejected_records"
+only = "Python's and Rust's reads of the rejection table come in later parts of spec 611 (issue 1487)."
+words = ["rejected", "records"]
+form = "opener"
+
+[[member]]
+package = "@goodfetch/foxhound"
+receiver = "CrawlRun"
 member = "finish"
 entry = "run.finish"
 words = ["finish"]
@@ -2559,6 +2568,24 @@ form = "runtime"
 [[member]]
 package = "@goodfetch/collie-client/runtime"
 receiver = "(module)"
+member = "paged"
+entry = "none"
+reason = "Opens a Product's paged read, such as `run.rejected_records`, as a sequence's stream: a page asked while the program has credit left, each of its items handed in order."
+words = ["paged"]
+form = "runtime"
+
+[[member]]
+package = "@goodfetch/collie-client/runtime"
+receiver = "(module)"
+member = "FOLLOWED_VALUE"
+entry = "none"
+reason = "The method a `paged` read hands each item under, which a Product's sequence's `itemOf` reads."
+words = ["followed", "value"]
+form = "constant"
+
+[[member]]
+package = "@goodfetch/collie-client/runtime"
+receiver = "(module)"
 member = "RunHost"
 entry = "none"
 reason = "What a Run reaches its engine through: its Connection, which a Product's Run type is built on."
@@ -3090,6 +3117,26 @@ form = "type"
 
 [[member]]
 package = "@goodfetch/foxhound"
+receiver = "(module)"
+member = "RejectedRecordsOptions"
+entry = "none"
+reason = "What `CrawlRun.rejectedRecords()` takes: the number of the last entry a reader handled, and its signal."
+only = "Python's and Rust's reads of the rejection table come in later parts of spec 611 (issue 1487)."
+words = ["rejected", "records", "options"]
+form = "type"
+
+[[member]]
+package = "@goodfetch/foxhound"
+receiver = "(module)"
+member = "DatasetRecord"
+entry = "none"
+reason = "A committed Record as `CrawlRun.records()` reads it: the wire's Record with its value of the Dataset's own output type, parsed by its typed schema (ADR 0103, G3)."
+only = "Python's and Rust's Records read as their Dataset's own type come in later parts of spec 611 (issue 1487)."
+words = ["dataset", "record"]
+form = "type"
+
+[[member]]
+package = "@goodfetch/foxhound"
 receiver = "Dataset"
 member = "constructor"
 entry = "none"
@@ -3340,7 +3387,3 @@ reason = "Issue 1494 adds `seeds()`, `addSeed` and `addSeeds` to a running crawl
 [[unreached]]
 entries = ["run.outcomes", "run.failed_requests", "run.retry_failed"]
 reason = "Issue 1495 adds `outcomes`, `failedRequests` and `retryFailed`."
-
-[[unreached]]
-entries = ["run.rejected_records"]
-reason = "Issue 1489 adds `rejectedRecords` to a Run read through `openCrawlRun`."

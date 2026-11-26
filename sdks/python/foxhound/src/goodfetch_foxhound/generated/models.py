@@ -2894,6 +2894,12 @@ class RecordInvalidDetails(BaseModel):
     )
     dataset: str
     """The Dataset's name."""
+    number: Annotated[int | None, Field(ge=0)] = None
+    """
+    The Record's number in its Dataset when an SDK reading it from
+    `run.records` could not parse it, which `records` then holds at
+    position 0; absent when a push or a handler's answer is refused.
+    """
     records: list[InvalidRecord]
     """Each Record that does not hold, in position order, at least one."""
 

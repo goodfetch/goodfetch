@@ -28,6 +28,8 @@ import {
   idOfLocator,
   pageOf,
   resumable,
+  FOLLOWED_VALUE,
+  paged,
   Sequence,
   type ClientConnection,
   type CollieWireType,
@@ -47,11 +49,13 @@ import {
   isLinkPayload,
   payloadAndOptions,
   payloadOf,
+  readRecord,
   recordsRefused,
   requestOptions,
   type Crawl,
   type CrawlContext,
   type Dataset,
+  type DatasetRecord,
 } from "./crawl.ts";
 import {
   HandlerFailedError,
@@ -65,8 +69,10 @@ import {
   type CrawlRequestHandled,
   type CrawlRunProgress,
   type CrawlRunReport,
-  type DatasetRecord,
+  type DatasetRecord as WireDatasetRecord,
   type FoxhoundOperationTypes,
+  type RejectedRecord,
+  type RejectedRecords,
 } from "./generated/index.ts";
 import { foxhoundWire, type FoxhoundWireType } from "./generated/wire.ts";
 
@@ -85,9 +91,28 @@ export interface CrawlHost {
   forget(run: CrawlRun): void;
 }
 
+/**
+ * How many rejected Records `rejectedRecords()` may have read before the
+ * program has read any: no further page is asked once they are used, though
+ * one page, of up to the engine's page size, may hand more.
+ */
+const REJECTED_CREDITS = 64;
+/** How many rejected Records `rejectedRecords()` reads before it grants as many credits again. */
+const REJECTED_REGRANT = 32;
+
 /** What `records()` takes. */
 export interface RecordsOptions {
+  /** The number of the last Record a reader handled, read past; absent, from the first. */
+  readonly after?: number | undefined;
   /** Stops reading: the stream is cancelled and the iteration fails with the signal's reason. */
+  readonly signal?: AbortSignal | undefined;
+}
+
+/** What `rejectedRecords()` takes. */
+export interface RejectedRecordsOptions {
+  /** The number of the last entry a reader handled, read past; absent, from the first. */
+  readonly after?: number | undefined;
+  /** Stops reading: the reads are cancelled and the iteration fails with the signal's reason. */
   readonly signal?: AbortSignal | undefined;
 }
 
@@ -150,7 +175,11 @@ export class CrawlRun extends Run {
    * `dataset_unknown`.
    *
    * Reads `dataset`'s Records (ADR 0103), each as the engine streams it,
-   * and the iteration ends once the engine answers. Its stream is sent
+   * and the iteration ends once the engine answers. Each Record's value is
+   * the Dataset's own type, parsed by its typed schema with each top-level
+   * field the schema does not know kept; a Record the schema refuses ends
+   * the iteration with `record_invalid` naming its `number`, past which
+   * `after` resumes. Its stream is sent
    * when it is called (ADR 0081), and `break`,
    * `return()`, `close()`, `using` or releasing it unread cancel it at
    * once; after a remote Daemon's dropped link, it is sent again after
@@ -162,11 +191,15 @@ export class CrawlRun extends Run {
   records<I extends object, O>(
     dataset: Dataset<I, O>,
     options: RecordsOptions = {},
-  ): Sequence<DatasetRecord> {
+  ): Sequence<DatasetRecord<O>> {
     warnEntry(foxhoundOperations, "run.records");
     ensureRunOpen(this, "run.records");
     const connection = this.#crawlHost.connection;
-    const params = { run_id: this.id(), dataset: dataset.name };
+    const params = {
+      run_id: this.id(),
+      dataset: dataset.name,
+      ...(options.after === undefined ? {} : { after: options.after }),
+    };
     return new Sequence({
       open: (opened) =>
         resumable<number>((sent) => connection.stream("run.records", params, sent), opened, {
@@ -176,9 +209,72 @@ export class CrawlRun extends Run {
           },
           params: (last) => (last === undefined ? params : { ...params, after: last }),
         }),
-      itemOf: recordOf,
+      itemOf: (method, notification) => {
+        const record = recordOf(method, notification);
+        return record === undefined ? undefined : readRecord(dataset, record);
+      },
       credits: RECORD_CREDITS,
       regrant: RECORD_REGRANT,
+      signal: options.signal,
+    });
+  }
+
+  /**
+   * Reads one Dataset's rejection table from a crawl's committed state:
+   * each Record rejected rather than committed, numbered from 1 in commit
+   * order, with the Record as JSON, the reason, each issue's path, the Hook
+   * when one rejected it, and the request's ID and URL. It starts at the
+   * first entry, or after `after`, the number a reader last handled. While
+   * the Run is live and nothing follows, it waits for the next commit; a
+   * page says `ended` once the Run has ended, or has no live writer, and no
+   * entry follows. A reader never slows the Run. A Dataset the crawl does
+   * not declare fails with `dataset_unknown`.
+   *
+   * Reads `dataset`'s rejected Records (ADRs 0103, 0104) page after page,
+   * each Record's JSON as it was pushed, never parsed, and the iteration
+   * ends once a page says the table is read to its end. Its first page is
+   * asked when it is called (ADR 0081), each next one once the program has
+   * read on, and `break`, `return()`, `close()`, `using` or releasing it
+   * unread cancel the read at once. On a closed Run it throws `closed`,
+   * sending nothing.
+   *
+   * @experimental
+   */
+  rejectedRecords<I extends object, O>(
+    dataset: Dataset<I, O>,
+    options: RejectedRecordsOptions = {},
+  ): Sequence<RejectedRecord> {
+    warnEntry(foxhoundOperations, "run.rejected_records");
+    ensureRunOpen(this, "run.rejected_records");
+    const calls = this.#crawlHost.calls;
+    const runId = this.id();
+    let take: (() => RejectedRecord | undefined) | undefined;
+    return new Sequence({
+      open: (opened) => {
+        const reading = paged<RejectedRecords, RejectedRecord>(
+          {
+            read: async (read, signal) => {
+              ensureRunOpen(this, "run.rejected_records");
+              const after = read ?? options.after;
+              const params = {
+                runId,
+                dataset: dataset.name,
+                ...(after === undefined ? {} : { after }),
+              };
+              return calls.call("run.rejected_records", params, { signal });
+            },
+            position: (page) => page.next,
+            last: (page) => page.ended,
+            items: (page) => page.records,
+          },
+          opened,
+        );
+        take = reading.take;
+        return reading.stream;
+      },
+      itemOf: (method) => (method === FOLLOWED_VALUE ? take?.() : undefined),
+      credits: REJECTED_CREDITS,
+      regrant: REJECTED_REGRANT,
       signal: options.signal,
     });
   }
@@ -523,7 +619,7 @@ function recordNumberOf(params: unknown): number | undefined {
 }
 
 /** The Record a `$/record` notification carries; none for any other notification. */
-function recordOf(method: string, params: unknown): DatasetRecord | undefined {
+function recordOf(method: string, params: unknown): WireDatasetRecord | undefined {
   if (method !== "$/record" || typeof params !== "object" || params === null) return undefined;
   if (!("record" in params)) return undefined;
   const record = fromWire(
@@ -532,7 +628,7 @@ function recordOf(method: string, params: unknown): DatasetRecord | undefined {
     foxhoundWire.types,
   );
   // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- engine messages are not validated beyond `hello`'s protocol version (STYLE.md): a `$/record` carries a Dataset's Record, its declared fields in camelCase and its points in time read as `Date`s.
-  return record as DatasetRecord;
+  return record as WireDatasetRecord;
 }
 
 /**

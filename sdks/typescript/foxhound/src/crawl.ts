@@ -20,6 +20,7 @@ import type {
   CrawlRequestEnqueueLinksParams,
   CrawlStartParams,
   DatasetDeclaration,
+  DatasetRecord as WireDatasetRecord,
   Enqueued,
   EnqueuedLinks,
   HttpBody,
@@ -227,6 +228,108 @@ export function recordsRefused(
     fix: "Push Records its Dataset's schema accepts, made of JSON values only, each holding every field of its Dataset's key.",
     details: { dataset, records: refused },
   });
+}
+
+/**
+ * A committed Record of a Dataset read back (ADR 0103): its number, when and
+ * by which crawl request it was committed, and its value, of the Dataset's
+ * output type `O`.
+ */
+export interface DatasetRecord<O = WireDatasetRecord["value"]> extends Omit<
+  WireDatasetRecord,
+  "value"
+> {
+  /**
+   * The Record, parsed by its Dataset's typed schema with each top-level
+   * field the schema does not declare kept (G3); as JSON without one.
+   */
+  readonly value: O;
+}
+
+/**
+ * `record`, a committed Record of `dataset` as the engine sent it, read as
+ * the Dataset's own type: its typed schema's own parse gives its value, and
+ * a Record it refuses fails with `record_invalid` naming its number, since
+ * reading on would hide a drift of the schema (ADRs 0082, 0103). Without a
+ * typed schema the value stays the JSON it is.
+ */
+export function readRecord<I extends object, O>(
+  dataset: Dataset<I, O>,
+  record: WireDatasetRecord,
+): DatasetRecord<O> | Promise<DatasetRecord<O>> {
+  const schema = recordSchemas.get(dataset);
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- a Dataset with no schema reads its Records back as the JSON its handlers pushed, which `O` names.
+  if (schema === undefined) return record as DatasetRecord<O>;
+  return parsedRecord(dataset, schema, record);
+}
+
+async function parsedRecord<O>(
+  dataset: Dataset<object, unknown>,
+  schema: RecordSchema,
+  record: WireDatasetRecord,
+): Promise<DatasetRecord<O>> {
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- a committed Record is a JSON object: the engine stages nothing else.
+  const parsed = await parse(schema, record.value as JSONObject);
+  if ("issues" in parsed) throw recordUnreadable(dataset.name, record.number, parsed.issues);
+  // A top-level field the schema does not declare, which its parse may
+  // strip, is kept (G3); one it declares is left as its parse gave it, even
+  // dropped or renamed. A deeper field is its parse's: the schema's nested
+  // objects say how they treat theirs.
+  const value = isPlainObject(parsed.value)
+    ? { ...undeclaredFields(dataset, schema, record.value), ...parsed.value }
+    : parsed.value;
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- the Dataset's schema's own parse gave `value`, of its output type `O`.
+  return { ...record, value: value as O };
+}
+
+/**
+ * Each typed Dataset's top-level fields its schema declares by name, read
+ * once from its JSON Schema's `properties`; null when it declares none so.
+ */
+const declaredFields = new WeakMap<Dataset<object, unknown>, ReadonlySet<string> | null>();
+
+/** The top-level fields of `value`, a Record of `dataset`, that its schema does not declare. */
+function undeclaredFields(
+  dataset: Dataset<object, unknown>,
+  schema: RecordSchema,
+  value: WireDatasetRecord["value"],
+): Readonly<Record<string, unknown>> {
+  let declared = declaredFields.get(dataset);
+  if (declared === undefined) {
+    const { properties } = wireSchema(schema);
+    declared = isPlainObject(properties) ? new Set(Object.keys(properties)) : null;
+    declaredFields.set(dataset, declared);
+  }
+  if (declared === null) return value;
+  const known = declared;
+  return Object.fromEntries(Object.entries(value).filter(([field]) => !known.has(field)));
+}
+
+/** Whether `value` is an object literal's kind of object, whose fields a spread copies whole. */
+function isPlainObject(value: unknown): value is Readonly<Record<string, unknown>> {
+  if (typeof value !== "object" || value === null) return false;
+  const prototype: unknown = Object.getPrototypeOf(value);
+  return prototype === Object.prototype || prototype === null;
+}
+
+/** The `record_invalid` of the committed Record `number` of `dataset`, which its schema refuses. */
+function recordUnreadable(
+  dataset: string,
+  number: number,
+  issues: readonly SchemaIssue[],
+): RecordInvalidError {
+  const named = issues.map(({ path, message }) => `${path || "its root"}: ${message}`).join(", ");
+  return new RecordInvalidError(
+    `the Dataset ${dataset}'s Record ${String(number)} does not parse: ${named}`,
+    {
+      fix: "Read the Dataset with the schema its Records were pushed under, or resume past this Record with `after` set to its number.",
+      details: {
+        dataset,
+        records: [{ position: 0, issues: issues.map(({ path, message }) => ({ path, message })) }],
+        number,
+      },
+    },
+  );
 }
 
 /** What `context.enqueue` and `seed` take besides the URL, the Label and the Payload. */

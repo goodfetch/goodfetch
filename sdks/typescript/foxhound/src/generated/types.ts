@@ -3153,6 +3153,12 @@ export interface RecordInvalidDetails {
    */
   dataset: string;
   /**
+   * The Record's number in its Dataset when an SDK reading it from
+   * `run.records` could not parse it, which `records` then holds at
+   * position 0; absent when a push or a handler's answer is refused.
+   */
+  number?: number | null;
+  /**
    * Each Record that does not hold, in position order, at least one.
    */
   records: InvalidRecord[];

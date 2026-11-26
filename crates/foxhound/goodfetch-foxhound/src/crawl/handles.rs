@@ -365,6 +365,7 @@ fn record_refused(dataset: &str, error: &SchemaError) -> Error {
                     message: error.to_string(),
                 }],
             }],
+            number: None,
         },
     )
 }

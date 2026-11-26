@@ -434,7 +434,7 @@ pub const LENT_PAGE_ATTACHED: SharedTypeValue = kind(
 /// A `stealth` Session's Fingerprint method chosen.
 pub const FINGERPRINT_METHOD_CHOSEN: SharedTypeValue = kind(
     "fingerprint_method_chosen",
-    "A `stealth` Session opened with a Fingerprint method: the Session, the method, and whether it fell back to `basic` because no Goodfetch Chromium exists for the machine (ADR 0035).",
+    "A `stealth` Session opened with a Fingerprint method: the Session, the method, whether it fell back to `basic` because no Goodfetch Chromium exists for the machine (ADR 0035), and whether `stealth.allow_runtime` let its pages turn on the browser's `Runtime` domain.",
 );
 
 /// A certificate pinned on first use.

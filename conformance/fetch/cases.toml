@@ -131,7 +131,7 @@ covers = ["story:6-43", "setting:storage.critical_free"]
 # still holds it. The domain case clears `cache.test`, so it comes last.
 [[capability.case]]
 id = "discarding-a-run-deletes-its-cache-entries-and-no-other-runs"
-covers = ["story:6-45", "operation:run.discard"]
+covers = ["operation:run.discard"]
 
 [[capability.case]]
 id = "cache-verify-reports-an-entry-whose-body-was-tampered-with"

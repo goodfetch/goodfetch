@@ -382,7 +382,7 @@ const FETCH_CASES: [&str; 28] = [
 /// an entry whose body file was changed, and `cache.clear` of a partition
 /// or a domain deletes only what its filters keep.
 ///
-/// Covers: story:5-124, story:5-125, story:5-126, story:5-127, story:5-128, story:6-307, story:6-36, story:6-37, story:6-38, story:6-42, story:6-43, story:6-44, story:6-45
+/// Covers: story:5-124, story:5-125, story:5-126, story:5-127, story:5-128, story:6-307, story:6-36, story:6-37, story:6-38, story:6-42, story:6-43, story:6-44
 #[test]
 fn the_fetch_suite_is_proved_against_foxhounds_attached_engine() {
     let env = TestEnv::new();

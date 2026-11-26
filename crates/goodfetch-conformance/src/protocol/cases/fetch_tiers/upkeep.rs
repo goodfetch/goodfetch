@@ -10,13 +10,19 @@
 use std::path::Path;
 
 use goodfetch_protocol::response_cache::{CACHE_CLEAR, CACHE_STATS, CACHE_VERIFY};
-use goodfetch_protocol::run::RUN_DISCARD;
 use serde_json::{Value, json};
 
 use super::bounded::body_files;
-use super::cached::{HOST, crawl, is_answer, requests_for, settings};
+use super::cached::{HOST, crawl, crawl_seed, is_answer, requests_for, settings};
 use super::{Checks, Connection, Gone, Site};
 use crate::protocol::cases::consent::walls::major_of;
+use crate::protocol::cases::reset::discard as discarded_as;
+use crate::protocol::cases::routes::received;
+
+/// Another domain than the cache host, and its page the site sends fresh
+/// for an hour, the query naming the case that crawls it.
+const OTHER_HOST: &str = "scope.test";
+const OTHER_PAGE: &str = "/cached?upkeep=domain-clear";
 
 /// Crawls `path` under `revalidate` as the Run `run_id`, and answers
 /// whether it was handed the site's answer `answer`, the site having seen
@@ -39,21 +45,32 @@ fn crawled(
     Ok(is_answer(&markdown, answer, path) && requests_for(site, path).len() == requests)
 }
 
+/// Crawls [`OTHER_PAGE`] under `revalidate` as the Run `run_id`, and
+/// answers how many requests for it the site has received.
+fn crawled_elsewhere(
+    connection: &mut Connection,
+    site: &Site,
+    run_id: &str,
+    checks: &mut Checks,
+) -> Result<usize, Gone> {
+    let seed = json!({ "url": site.named_url(OTHER_HOST, OTHER_PAGE), "label": "page" });
+    let revalidate = settings(Some("revalidate"));
+    crawl_seed(connection, site, run_id, &seed, &revalidate, checks)?;
+    Ok(received(site, OTHER_HOST, OTHER_PAGE))
+}
+
 /// Asks `operation` with `params`, answering its result.
 fn asked(connection: &mut Connection, operation: &str, params: &Value) -> Result<Value, Gone> {
     let id = connection.request(operation, params)?;
     Ok(connection.answer(id)?.message["result"].clone())
 }
 
-/// Whether `damaged`, a list `cache.verify` answers, names `path` on the
-/// cache host as stored by the Run `run_id` in the public partition, its
-/// body `changed`.
-fn names_changed(damaged: &Value, path: &str, run_id: &str) -> bool {
+/// Whether `damaged`, a list `cache.verify` answers, names `url` as stored
+/// by the Run `run_id` in the public partition, its body `changed`.
+fn names_changed(damaged: &Value, url: &str, run_id: &str) -> bool {
     damaged.as_array().is_some_and(|damaged| {
         damaged.iter().any(|entry| {
-            entry["url"]
-                .as_str()
-                .is_some_and(|url| url.contains(HOST) && url.ends_with(path))
+            entry["url"] == json!(url)
                 && entry["run_id"] == json!(run_id)
                 && entry["partition"] == json!("public")
                 && entry["problem"] == json!("changed")
@@ -102,15 +119,7 @@ pub(super) fn discard(
         (1, 1),
         checks,
     )?;
-    let answer = asked(
-        connection,
-        RUN_DISCARD.name,
-        &json!({ "run_id": discarded }),
-    )?;
-    checks.check(
-        format!("`{}` answers the Run it discarded", RUN_DISCARD.name),
-        answer == json!({ "run_id": discarded }),
-    );
+    discarded_as(connection, discarded, checks)?;
     let again = crawled(
         connection,
         site,
@@ -165,7 +174,7 @@ pub(super) fn verify(
     let after = asked(connection, CACHE_VERIFY.name, &json!({}))?;
     checks.check(
         "`cache.verify` lists the page's entry, its Run and partition named, its body `changed`",
-        names_changed(&after["damaged"], path, run_id),
+        names_changed(&after["damaged"], &site.named_url(HOST, path), run_id),
     );
     checks.check(
         "`cache.verify` lists no other entry",
@@ -258,10 +267,12 @@ pub(super) fn partition_clear(
     Ok(())
 }
 
-/// A page of `cache.test` stored under `revalidate`: `cache.clear` of
-/// another domain, or of a subdomain of `cache.test`, deletes none of it
-/// and the page is still served; `cache.clear` of `cache.test` deletes it,
-/// with the host's other entries, and its next crawl reaches the site.
+/// A page of `cache.test` and one of another domain stored under
+/// `revalidate`: `cache.clear` of a domain holding nothing, or of a
+/// subdomain of `cache.test`, deletes none of them and the page is still
+/// served; `cache.clear` of `cache.test` deletes it, with the host's other
+/// entries, and its next crawl reaches the site, while the other domain's
+/// page is still served.
 pub(super) fn domain_clear(
     connection: &mut Connection,
     site: &Site,
@@ -275,6 +286,11 @@ pub(super) fn domain_clear(
         (1, 1),
         checks,
     )?;
+    let stored = crawled_elsewhere(connection, site, "conformance-cache-domain-other-1", checks)?;
+    checks.check(
+        format!("the page of `{OTHER_HOST}` reaches its site once"),
+        stored == 1,
+    );
     let subdomain = format!("sub.{HOST}");
     for domain in ["elsewhere.test", subdomain.as_str()] {
         let cleared = asked(connection, CACHE_CLEAR.name, &json!({ "domain": domain }))?;
@@ -308,6 +324,11 @@ pub(super) fn domain_clear(
     checks.check(
         "once cleared, the page's next crawl reaches the site",
         again,
+    );
+    let kept = crawled_elsewhere(connection, site, "conformance-cache-domain-other-2", checks)?;
+    checks.check(
+        format!("the page of `{OTHER_HOST}` is still served: its site saw no new request"),
+        kept == 1,
     );
     Ok(())
 }

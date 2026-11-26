@@ -50,6 +50,7 @@ pub mod hostile_input;
 pub mod http_client;
 mod info;
 pub mod installed;
+mod kept_by_the_daemon;
 pub mod key_value_store;
 pub mod known_certificates;
 pub mod lease;
@@ -118,7 +119,9 @@ pub use composition::{
 };
 pub use engine::{AttachedFailure, Dependencies, Engine};
 pub use engine_context::{CALLER, EngineContext};
+pub use forward::DaemonReach;
 pub use info::contribution;
+pub use kept_by_the_daemon::kept_by_the_daemon;
 pub use product::{Channel, Identity, Requested};
 pub use run_index::RunIndex;
 pub use stored_time::StoredTime;

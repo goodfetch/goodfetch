@@ -69,7 +69,7 @@ use goodfetch_engine::clock::Clock;
 use goodfetch_engine::entropy::Entropy;
 use goodfetch_engine::politeness::{
     Ending, Hold, KeyState, MemoryTables, PermitRule, Politeness, PolitenessError,
-    PolitenessTables, Step, Verdict, milliseconds, moment,
+    PolitenessTables, RECOVERY, Step, Verdict, milliseconds, moment,
 };
 use goodfetch_engine::settings::{Resolved, catalog_default};
 use goodfetch_protocol::catalog::Setting;
@@ -86,9 +86,6 @@ use serde_json::Value;
 mod pace;
 
 pub use pace::Pace;
-
-/// How long a lowered ceiling stays quiet before it grows back by one.
-pub(crate) const RECOVERY: Duration = Duration::from_secs(10);
 
 /// The table the rule keeps each domain key's shared state in.
 pub(crate) const TABLES: PolitenessTables = PolitenessTables {

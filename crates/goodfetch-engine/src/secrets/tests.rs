@@ -418,11 +418,13 @@ fn each_resolution_is_recorded_with_its_placeholder_reference_and_domain_never_i
 
 /// Covers: error:secret_domain_not_allowed
 #[rstest]
-#[case::a_bound_domain("shop.example", None)]
-#[case::a_subdomain_of_a_bound_domain("login.Shop.example", None)]
-#[case::another_domain("evil.example", Some("evil.example"))]
-#[case::a_domain_that_only_ends_alike("evilshop.example", Some("evilshop.example"))]
+#[case::a_bound_domain("shop.example", "shop.example", None)]
+#[case::a_subdomain_of_a_bound_domain("shop.example", "login.Shop.example", None)]
+#[case::another_domain("shop.example", "evil.example", Some("evil.example"))]
+#[case::a_domain_that_only_ends_alike("shop.example", "evilshop.example", Some("evilshop.example"))]
+#[case::any_domain_under_a_star("*", "evil.example", None)]
 fn a_value_goes_only_to_a_domain_its_binding_allows(
+    #[case] bound: &str,
     #[case] domain: &str,
     #[case] refused: Option<&str>,
 ) {
@@ -431,7 +433,7 @@ fn a_value_goes_only_to_a_domain_its_binding_allows(
         driver(&env, &[("SHOP_PASSWORD", "s3cr3t-value")])
             .for_run_with(Duration::from_secs(30), Redaction::On)
     });
-    let domains = vec!["shop.example".to_owned()];
+    let domains = vec![bound.to_owned()];
 
     let answer = goodfetch_test_support::runtime().block_on(secrets.resolve(
         &reference("env:SHOP_PASSWORD"),

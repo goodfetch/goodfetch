@@ -80,16 +80,12 @@ fn typed_details<'a>(layer: &'a Layer, code: &'a ErrorCode) -> Result<Option<Det
     } else {
         None
     };
-    let schema = layer
-        .definitions
-        .get(name)
-        .or_else(|| layer.collie_definitions.get(name))
-        .with_context(|| {
-            format!(
-                "`{}`'s details type `{name}` is no type of the layer",
-                code.name
-            )
-        })?;
+    let schema = layer.definition(name).with_context(|| {
+        format!(
+            "`{}`'s details type `{name}` is no type of the layer",
+            code.name
+        )
+    })?;
     let required = schema
         .get("required")
         .and_then(Value::as_array)

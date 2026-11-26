@@ -611,7 +611,7 @@ pub fn redirect_reached(
     method: &HttpMethod,
     body: Option<&[u8]>,
 ) -> rusqlite::Result<Hop> {
-    reach(connection, None, crawl_request, (url, method, body))
+    admit_reached(connection, None, crawl_request, (url, method, body))
 }
 
 /// Records a redirect chain's end as [`redirect_reached`] does, beside
@@ -625,21 +625,9 @@ pub fn admit_reached(
     connection: &Connection,
     unwritten: Option<&UnwrittenVisits>,
     crawl_request: &str,
-    hop: (&Url, &HttpMethod, Option<&[u8]>),
-) -> rusqlite::Result<Hop> {
-    reach(connection, unwritten, crawl_request, hop)
-}
-
-/// Records a redirect chain's end as [`redirect_reached`] does, beside
-/// `overlay`, the visits a batching writer has not committed, when it
-/// keeps them.
-fn reach(
-    connection: &Connection,
-    overlay: Option<&UnwrittenVisits>,
-    crawl_request: &str,
     (url, method, body): (&Url, &HttpMethod, Option<&[u8]>),
 ) -> rusqlite::Result<Hop> {
-    let mut holding = overlay.map(UnwrittenVisits::lock);
+    let mut holding = unwritten.map(UnwrittenVisits::lock);
     let reached = reached_identities(connection, url, method, body)?;
     let seen = seen(connection, &reached, None, holding.as_ref())?;
     if duplicate(&seen, crawl_request) {

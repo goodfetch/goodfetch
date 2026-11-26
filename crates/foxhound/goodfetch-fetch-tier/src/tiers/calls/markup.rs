@@ -99,10 +99,10 @@ pub(crate) fn shown(
 /// [`compile_selectors`] keeps.
 const SELECTORS: [&str; 2] = ["style", "link[rel]"];
 
-/// Compiles into the engine's cache on `work` the selectors [`shown`]
-/// matches beside its own, so that a Run compiles them before its first
-/// page, not on it (ADRs 0138 and 0140).
-pub(crate) fn compile_selectors(work: &CountedWork) {
+/// Compiles into the engine's cache on `work` the selectors a handler's
+/// served calls on a document tier match beside its own, so that a Run
+/// compiles them as its crawl starts, not on a page (ADRs 0138 and 0140).
+pub fn compile_selectors(work: &CountedWork) {
     for selector in SELECTORS {
         let _ = work.literal_selector(Row::PageSelectorCompilations, selector);
     }

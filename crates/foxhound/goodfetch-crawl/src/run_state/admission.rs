@@ -30,7 +30,7 @@ use rusqlite::Connection;
 
 use crate::invariants::Invariants;
 use crate::staging::{Answered, Staging};
-use crate::work_items::{self, Adding, CheckedSeed, Positions};
+use crate::work_items::{self, Adding, AttemptKey, CheckedSeed, Positions};
 
 /// A handler's enqueue as its call's task read it: its params, its Payload
 /// serialized once, and the base URL of the document it names, if any.
@@ -55,8 +55,10 @@ pub(crate) fn enqueue(
     document: Option<&Url>,
     work: &CountedWork,
 ) -> Answered<Enqueued> {
-    let Some((url, depth)) =
-        work_items::attempt(connection, &params.crawl_request_id, params.lease_epoch)?
+    let Some((url, depth)) = work_items::attempt(
+        connection,
+        AttemptKey::new(&params.crawl_request_id, params.lease_epoch),
+    )?
     else {
         return Ok(None);
     };
@@ -109,8 +111,11 @@ pub(crate) fn seed(
     attempt: Option<&SeedAttempt>,
 ) -> Answered<Enqueued> {
     if let Some(attempt) = attempt
-        && work_items::attempt(connection, &attempt.crawl_request_id, attempt.lease_epoch)?
-            .is_none()
+        && work_items::attempt(
+            connection,
+            AttemptKey::new(&attempt.crawl_request_id, attempt.lease_epoch),
+        )?
+        .is_none()
     {
         return Ok(None);
     }
@@ -292,8 +297,10 @@ pub(crate) fn links(
     batch: &LinksBatch,
 ) -> Answered<LinksAdmitted> {
     let params = &batch.request;
-    let Some((url, depth)) =
-        work_items::attempt(connection, &params.crawl_request_id, params.lease_epoch)?
+    let Some((url, depth)) = work_items::attempt(
+        connection,
+        AttemptKey::new(&params.crawl_request_id, params.lease_epoch),
+    )?
     else {
         return Ok(None);
     };

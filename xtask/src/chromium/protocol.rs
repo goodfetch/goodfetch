@@ -26,6 +26,7 @@ use quote::ToTokens as _;
 use serde::Deserialize;
 
 use crate::check::Finding;
+use crate::rust_source::{cfg_test_exactly, item_attributes, parse};
 
 /// The protocol JSON of the Goodfetch Chromium's build.
 const PROTOCOL: &str = "chromium/protocol.json";
@@ -422,7 +423,7 @@ fn driver_uses(root: &Path, bindings: &Bindings) -> Result<BTreeMap<Key, Use>> {
 fn driver_items(items: &[syn::Item]) -> Vec<&syn::Item> {
     let mut kept = Vec::new();
     for item in items {
-        if crate::modules::is_test_only(crate::modules::item_attributes(item)) {
+        if cfg_test_exactly(item_attributes(item)) {
             continue;
         }
         match item {
@@ -597,12 +598,6 @@ fn set_fields(body: TokenStream) -> BTreeSet<String> {
         })
         .map(|name| name.strip_prefix("r#").unwrap_or(&name).to_owned())
         .collect()
-}
-
-fn parse(path: &Path) -> Result<syn::File> {
-    let text =
-        std::fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?;
-    syn::parse_file(&text).with_context(|| format!("parsing {}", path.display()))
 }
 
 /// Every `.rs` file under `folder`, in a stable order.

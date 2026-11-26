@@ -19,7 +19,7 @@ use rusqlite::Connection;
 
 use crate::lease::{Commit, Committed};
 use crate::tier_choice::{self, Unit};
-use crate::work_items::{self, Again, Changed, Leased, Unsuccessful};
+use crate::work_items::{self, Again, AttemptKey, Changed, EndWrite, Leased, Unsuccessful};
 
 /// How a Record its Datasets refuse ends the attempt instead: the
 /// unsuccessful ending of its work item.
@@ -40,8 +40,7 @@ pub(crate) enum Ending {
     /// Run's domain policy `egress` and within its `invariants` (ADR 0093),
     /// each keyed under `keys` as it is added.
     Sitemap {
-        work_item: String,
-        lease_epoch: u64,
+        attempt: AttemptKey<String>,
         egress: Arc<Policy>,
         invariants: Arc<goodfetch_frontier::Invariants>,
         document: sitemap::Document,
@@ -112,16 +111,17 @@ impl Outcome {
         let mut changed = Changed::default();
         let ended = match ending {
             Ending::Commit { commit, refused } => {
-                let (work_item, lease_epoch) = commit.attempt();
-                let (work_item, ended_at) = (work_item.to_owned(), *commit.ended_at());
+                let (attempt, ended_at) = (commit.attempt().owned(), *commit.ended_at());
                 match commit.write(connection, &mut changed)? {
                     Some(Ok(committed)) => Ended::Committed(committed),
                     Some(Err(refusal)) => end(
-                        connection,
-                        (&work_item, lease_epoch),
+                        &mut EndWrite {
+                            connection,
+                            ended_at,
+                            changed: &mut changed,
+                        },
+                        attempt.borrowed(),
                         refused(refusal),
-                        ended_at,
-                        &mut changed,
                     )?,
                     None => Ended::LeaseLost,
                 }
@@ -132,15 +132,16 @@ impl Outcome {
                 unsuccessful,
                 ended_at,
             } => end(
-                connection,
-                (&work_item, lease_epoch),
+                &mut EndWrite {
+                    connection,
+                    ended_at,
+                    changed: &mut changed,
+                },
+                AttemptKey::new(&work_item, lease_epoch),
                 unsuccessful,
-                ended_at,
-                &mut changed,
             )?,
             Ending::Sitemap {
-                work_item,
-                lease_epoch,
+                attempt,
                 egress,
                 invariants,
                 document,
@@ -151,7 +152,7 @@ impl Outcome {
                     connection,
                     &invariants,
                     &egress,
-                    (&work_item, lease_epoch),
+                    (&attempt.work_item, attempt.lease_epoch),
                     &document,
                     (&keys, &work, &mut changed),
                 )?;
@@ -168,15 +169,12 @@ impl Outcome {
     }
 }
 
-/// Ends the attempt of `work_item` under `lease_epoch` `unsuccessful` at
-/// `ended_at`, as [`work_items::end`] does, its ending counted in
-/// `changed`.
+/// Ends `attempt` `unsuccessful` as `write` says, as [`work_items::end`]
+/// does.
 pub(crate) fn end(
-    connection: &Connection,
-    (work_item, lease_epoch): (&str, u64),
+    write: &mut EndWrite<'_>,
+    attempt: AttemptKey<&str>,
     unsuccessful: Unsuccessful,
-    ended_at: SystemTime,
-    changed: &mut Changed,
 ) -> rusqlite::Result<Ended> {
     let (recorded, again) = match &unsuccessful {
         Unsuccessful::Retried(failure) => (Some(failure.code.clone()), Again::Retried),
@@ -185,12 +183,12 @@ pub(crate) fn end(
         Unsuccessful::Released => (None, Again::Released),
     };
     let ended = work_items::end(
-        connection,
-        work_item,
-        lease_epoch,
+        write.connection,
+        attempt.work_item,
+        attempt.lease_epoch,
         unsuccessful,
-        ended_at,
-        changed,
+        write.ended_at,
+        write.changed,
     )?;
     Ok(Ended::Unsuccessful {
         ended,

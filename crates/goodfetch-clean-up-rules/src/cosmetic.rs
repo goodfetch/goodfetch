@@ -40,15 +40,10 @@ impl<'a> PageRules<'a> {
     /// The rules of the lists `choices` turn on, among `lists`, for the
     /// page at `url`.
     pub fn of(lists: &'a FilterLists, choices: &Choices, url: &str) -> Self {
-        let lists = [
-            (List::Ads, choices.ads, &lists.ads),
-            (List::Trackers, choices.trackers, &lists.trackers),
-            (List::Annoyances, choices.annoyances, &lists.annoyances),
-        ]
-        .into_iter()
-        .filter(|(_, on, _)| *on)
-        .map(|(list, _, engine)| (list, engine, engine.url_cosmetic_resources(url)))
-        .collect();
+        let lists = lists
+            .on(choices.lists())
+            .map(|(list, engine)| (list, engine, engine.url_cosmetic_resources(url)))
+            .collect();
         Self { lists }
     }
 

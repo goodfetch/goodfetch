@@ -19,7 +19,7 @@ use goodfetch_protocol::result_document::{
 };
 use goodfetch_test_support::{
     ATTACHED_RECORD, ATTACHED_SCRIPT, ProvingGround as LocalCopy, TestEnv, Tool,
-    browser_cache_in_home, tools,
+    browser_cache_in_home, cli, tools,
 };
 use serde_json::{Value, json};
 
@@ -651,6 +651,74 @@ fn the_fenced_copy_has_its_writes_refused_against_foxhound() {
                 "the-fenced-copy-has-its-checkpoints-and-exports-refused-where-the-destination-compares-and-sets",
                 CaseOutcome::Passed
             )]
+        ),
+        "{}",
+        serde_json::to_string_pretty(&document).unwrap()
+    );
+}
+
+/// Stops the major's Daemon that an Attached engine started for the calls
+/// the Daemon keeps, once the test ends.
+struct StopsTheDaemon<'env> {
+    env: &'env TestEnv,
+    executable: &'env Path,
+}
+
+impl Drop for StopsTheDaemon<'_> {
+    fn drop(&mut self) {
+        // Best effort: a Daemon that is not running leaves nothing to stop,
+        // and a Daemon still alive fails the test at the TestEnv's teardown.
+        let _ = cli(self.env, self.executable)
+            .args(["daemon", "stop"])
+            .run();
+    }
+}
+
+/// The Schedule store's cases pass against Collie's executable through the
+/// `schedule.*` operations only: as a Daemon, which keeps the store, and as
+/// an Attached engine, which forwards each call to the major's Daemon,
+/// starting it when none runs.
+///
+/// Covers: story:10-1, story:10-13
+#[rstest::rstest]
+fn the_schedule_store_is_proved_against_collies_attached_engine_and_daemon(
+    #[values(EngineMode::Attached, EngineMode::Daemon)] mode: EngineMode,
+) {
+    let env = TestEnv::new();
+    let copy = LocalCopy::start(&env, env.seed()).unwrap();
+    let proving_ground = ProvingGround::local(&copy.address().to_string());
+    let target = target(&env, Tool::Collie, mode);
+    let _stops = StopsTheDaemon {
+        env: &env,
+        executable: &target.executable,
+    };
+
+    let document =
+        run_protocol_suite(&ProtocolSuite::schedule(), &target, &proving_ground).unwrap();
+    crate::keep(
+        &document,
+        &format!("schedule-collie-{mode:?}").to_lowercase(),
+    );
+
+    assert_eq!(
+        (outcomes(&document), case_outcomes(&document)),
+        (
+            vec![("schedule", Outcome::Proved)],
+            vec![
+                (
+                    "a-create-answers-the-schedule-id-given-and-refuses-a-taken-one",
+                    CaseOutcome::Passed
+                ),
+                (
+                    "a-get-reads-the-schedule-as-it-was-defined",
+                    CaseOutcome::Passed
+                ),
+                ("a-list-holds-every-schedule-created", CaseOutcome::Passed),
+                (
+                    "a-delete-answers-whether-it-deleted-the-schedule",
+                    CaseOutcome::Passed
+                ),
+            ]
         ),
         "{}",
         serde_json::to_string_pretty(&document).unwrap()

@@ -1,10 +1,11 @@
-//! What a program's own tests build through the `test-util` feature, which
-//! builds test values alone, never a capability (ADRs 0087, 0099 and 0105):
-//! `Error::fake` is the error the engine would answer with a code, of the
-//! group and retryable flag the catalog gives it.
+//! What a program's own tests build through the `test-util` feature's
+//! `testing` kit, which builds test values alone, never a capability (ADRs
+//! 0087, 0099 and 0105): `Error::fake` is the error the engine would answer
+//! with a code, of the group and retryable flag the catalog gives it.
 //!
 //! Covers: story:11-1107
 
+use goodfetch_foxhound::testing::FakeError;
 use goodfetch_foxhound::{Error, ErrorCode, error_code};
 use goodfetch_protocol::catalog::ErrorGroup;
 

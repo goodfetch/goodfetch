@@ -3,7 +3,8 @@
 Each Error code only Foxhound carries has its generated class, under its
 group but for `attempt_ended`'s, and each event only Foxhound sends its
 payload type, so the catalog gains none without its counterpart here.
-TypeScript's `catalog.test.ts` of `@goodfetch/foxhound` is its twin.
+TypeScript's `catalog.test.ts` of `@goodfetch/foxhound` checks every code,
+Collie's too, against the classes Foxhound's Connection raises.
 """
 
 from __future__ import annotations

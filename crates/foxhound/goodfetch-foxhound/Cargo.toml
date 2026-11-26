@@ -19,10 +19,10 @@ executable = ["dep:clap", "dep:data-encoding", "dep:mimalloc", "dep:schemars", "
 # The program's OpenTelemetry context in each request it sends (ADR 0132),
 # read as Collie's SDK reads it, whose connection Foxhound's opens.
 opentelemetry = ["goodfetch-collie/opentelemetry"]
-# The values a program's own tests build (ADR 0105), `Error::fake` among
-# them, the client crate's: test values alone, never a capability (ADR
-# 0087).
-test-util = ["goodfetch-collie-client/test-util"]
+# The values a program's own tests build (ADR 0105),
+# `goodfetch_foxhound::testing`, whose `Error::fake` is the client crate's:
+# test values alone, never a capability (ADR 0087).
+test-util = []
 
 [dependencies]
 # Its own commands' flags (`crawl start`, `run export`).

@@ -8,12 +8,6 @@ license.workspace = true
 repository.workspace = true
 publish.workspace = true
 
-[features]
-# The values a program's own tests build (ADR 0105), `Error::fake` among
-# them: test values alone, never a capability (ADR 0087). Each SDK crate's
-# `test-util` turns it on.
-test-util = []
-
 # No SDK crate and no Foxhound crate (ADR 0095): `goodfetch-collie` and
 # `goodfetch-foxhound` take this one.
 [dependencies]

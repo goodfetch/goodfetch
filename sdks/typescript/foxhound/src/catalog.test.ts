@@ -1,8 +1,9 @@
 // Foxhound's catalog against this package (ADRs 0095 and 0099): each Error
-// code has its class under its group in the classes Foxhound's Connection
-// raises, and each event only Foxhound sends has its entry in the events
-// registry, so the catalog gains none without its counterpart here.
-// Python's `test_catalog.py` is its twin.
+// code, either Product's, has its class under its group in the classes
+// Foxhound's Connection raises, and each event only Foxhound sends has its
+// entry in the events registry, so the catalog gains none without its
+// counterpart here. Python's `test_catalog.py` checks the same for the
+// codes only Foxhound carries, the classes its package generates.
 import { readFileSync } from "node:fs";
 import { errorGroupClasses, type ErrorGroup } from "@goodfetch/collie-client";
 import { describe, expect, test } from "vitest";

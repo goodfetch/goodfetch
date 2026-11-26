@@ -198,10 +198,7 @@ impl Error {
                     chain.push_str(&next.to_string());
                     cause = next.source();
                 }
-                let (group, retryable) = entries::error_code(own.as_str())
-                    .map_or((ErrorGroup::Program, false), |defined| {
-                        (defined.group, defined.retryable)
-                    });
+                let (group, retryable) = catalogued(own).unwrap_or((ErrorGroup::Program, false));
                 let mut data = Map::new();
                 data.insert("exception_type".to_owned(), BOX_ERROR.into());
                 data.insert("exception_message".to_owned(), chain.clone().into());
@@ -291,37 +288,6 @@ impl Error {
         details: &impl Serialize,
     ) -> Self {
         Self::of_runtime(defined, what_failed, fix).with_details(details)
-    }
-
-    /// The error the engine would answer a call with, of `code` and
-    /// `message`, for a program's own tests (ADR 0105): its group and
-    /// retryable flag are those the catalog gives the code, either
-    /// Product's, and a code neither Product knows, as a newer engine's,
-    /// is `internal` and not retryable.
-    ///
-    /// ```
-    /// use goodfetch_collie_client::{Error, ErrorCode};
-    /// use goodfetch_protocol::catalog::ErrorGroup;
-    ///
-    /// let error = Error::fake(ErrorCode::NAVIGATION_FAILED, "the page never loaded");
-    /// assert_eq!((error.group(), error.retryable()), (ErrorGroup::Page, true));
-    /// ```
-    #[cfg(feature = "test-util")]
-    #[must_use]
-    pub fn fake(code: ErrorCode, message: impl Into<String>) -> Self {
-        let (group, retryable) = entries::error_code(code.as_str())
-            .map_or((ErrorGroup::Internal, false), |defined| {
-                (defined.group, defined.retryable)
-            });
-        Self(Box::new(Inner {
-            code,
-            group,
-            retryable,
-            message: message.into(),
-            data: Map::new(),
-            answered: true,
-            source: None,
-        }))
     }
 
     /// A call refused before it is sent, as the engine would refuse its
@@ -792,6 +758,13 @@ impl std::error::Error for Error {
             .as_deref()
             .map(|source| source as &(dyn std::error::Error + 'static))
     }
+}
+
+/// The group and retryable flag the catalog gives `code`, either
+/// Product's, or none for a code neither Product knows, as a newer
+/// engine's.
+pub(crate) fn catalogued(code: ErrorCode) -> Option<(ErrorGroup, bool)> {
+    entries::error_code(code.as_str()).map(|defined| (defined.group, defined.retryable))
 }
 
 /// C-SEND-SYNC and C-GOOD-ERR: an error crosses tasks and threads, and

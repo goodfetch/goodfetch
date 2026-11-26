@@ -1,6 +1,7 @@
 //! A Foxhound-only key in a Collie Run's settings (ADRs 0086 and 0087):
-//! Collie's crate names no such key, which the compile-fail case of the
-//! client crate shows, and a program that takes one from Foxhound's crate
+//! Collie's crate names no such key, which the client crate's compile-fail
+//! case shows with `politeness.domain.concurrency`, and a program that
+//! takes one, here `crawl.keep_url_fragment`, from Foxhound's crate
 //! has its Run refused when it opens, before the Run begins, with
 //! `not_in_product` on a Collie engine and `setting_not_applicable` on a
 //! Foxhound engine, whose crawls alone take the key.

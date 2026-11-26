@@ -32,6 +32,9 @@ pub const BUILT_IN_TYPES: [&str; 7] = [
 /// delivery.
 pub const WEBHOOK: &str = "webhook";
 
+/// The `type` of the `email` channel.
+const EMAIL: &str = "email";
+
 /// What a `webhook` channel's delivery carries in its `data`.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
@@ -315,7 +318,38 @@ impl ChannelSettings {
                 );
             }
         }
+        if settings.channel_type.as_deref() == Some(EMAIL) {
+            email_needs(settings.email.as_ref())?;
+        }
         Ok(settings)
+    }
+}
+
+/// Whether an `email` channel's keys name its provider, its addresses and
+/// what its provider sends with, or the first key it misses.
+fn email_needs(email: Option<&ChannelEmail>) -> Result<(), String> {
+    let missing = |key: &str, example: &str| {
+        Err(format!(
+            "an `email` channel names its `{key}`, such as {example}"
+        ))
+    };
+    let Some((email, provider)) = email.and_then(|email| Some((email, email.provider?))) else {
+        return missing("email.provider", "`smtp` or `ses`");
+    };
+    if email.to.as_ref().is_none_or(Vec::is_empty) {
+        return missing("email.to", "`[\"ops@example.com\"]`");
+    }
+    if email.from.is_none() {
+        return missing("email.from", "`goodfetch@example.com`");
+    }
+    match provider {
+        EmailProvider::Smtp if email.smtp.as_ref().is_none_or(|smtp| smtp.host.is_none()) => {
+            missing("email.smtp.host", "`smtp.example.com`")
+        }
+        EmailProvider::Ses if email.ses.as_ref().is_none_or(|ses| ses.region.is_none()) => {
+            missing("email.ses.region", "`eu-west-1`")
+        }
+        _ => Ok(()),
     }
 }
 

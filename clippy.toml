@@ -38,6 +38,12 @@ disallowed-methods = [
   { path = "wreq::ClientBuilder::build", reason = "a wreq client opens its own sockets: only the HTTP fetch tier's `wreq` transport builds one (ADR 0060)", allow-invalid = true },
   # So does a redis client: only the Politeness store opens one (ADRs 0053 and 0060).
   { path = "redis::Client::open", reason = "a redis client opens its own sockets: only the Politeness store opens one (ADRs 0053 and 0060)", allow-invalid = true },
+  # So does mail-send's client: the email channel speaks SMTP over the
+  # `NotificationEndpoint`'s connection, which applies egress (ADR 0060).
+  { path = "mail_send::SmtpClientBuilder::connect", reason = "mail-send opens its own sockets: the email channel speaks SMTP over the NotificationEndpoint's connection (ADR 0060)", allow-invalid = true },
+  { path = "mail_send::SmtpClientBuilder::connect_plain", reason = "mail-send opens its own sockets: the email channel speaks SMTP over the NotificationEndpoint's connection (ADR 0060)", allow-invalid = true },
+  { path = "mail_send::SmtpClient::connect", reason = "mail-send opens its own sockets: the email channel speaks SMTP over the NotificationEndpoint's connection (ADR 0060)", allow-invalid = true },
+  { path = "mail_send::SmtpClient::connect_using", reason = "mail-send opens its own sockets: the email channel speaks SMTP over the NotificationEndpoint's connection (ADR 0060)", allow-invalid = true },
   { path = "redis::sentinel::Sentinel::build", reason = "a redis client opens its own sockets: only the Politeness store opens one (ADRs 0053 and 0060)", allow-invalid = true },
   { path = "redis::sentinel::SentinelClient::build", reason = "a redis client opens its own sockets: only the Politeness store opens one (ADRs 0053 and 0060)", allow-invalid = true },
   { path = "redis::sentinel::SentinelClientBuilder::build", reason = "a redis client opens its own sockets: only the Politeness store opens one (ADRs 0053 and 0060)", allow-invalid = true },

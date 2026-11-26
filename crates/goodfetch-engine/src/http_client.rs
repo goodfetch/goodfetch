@@ -32,7 +32,9 @@
 //! to are judged under the Operator policy's `egress.no_private_endpoints`,
 //! and it takes no certificate exception, only the authorities trusted for
 //! its own domain and the client certificate listed for its own host
-//! (ADR 0042, issue 1648).
+//! (ADR 0042, issue 1648). An endpoint that speaks no HTTP, such as an
+//! email channel's SMTP server (issue 1388), gets the same judgement and
+//! trust as a bare connection, `EndpointSettings`' `connect` and `secure`.
 //!
 //! Size: one client, whose lookup, egress judgement, connection race, TLS
 //! and request all serve the same request on the same connection.
@@ -456,6 +458,18 @@ pub enum WholeFailure {
     },
 }
 
+impl WholeFailure {
+    /// The failure of an endpoint the policy allowed: a certificate's or a
+    /// client certificate's, else the network's.
+    fn of(failure: Failure) -> Self {
+        match failure {
+            Failure::CertificateInvalid(invalid) => Self::CertificateInvalid(invalid),
+            Failure::ClientCertificate(failure) => Self::ClientCertificate(failure),
+            Failure::ServerName | Failure::Network => Self::Network,
+        }
+    }
+}
+
 impl EndpointSettings {
     /// The settings `settings`, the machine's resolved ones, give, whose
     /// `tls.trusted_cas` files are read on `blocking` (issue 2106), with no
@@ -516,13 +530,7 @@ impl EndpointSettings {
             .await
             .map_err(|failure| match failure {
                 EndpointFailure::Refused(refused) => WholeFailure::Refused(refused),
-                EndpointFailure::Failed(Failure::CertificateInvalid(invalid)) => {
-                    WholeFailure::CertificateInvalid(invalid)
-                }
-                EndpointFailure::Failed(Failure::ClientCertificate(failure)) => {
-                    WholeFailure::ClientCertificate(failure)
-                }
-                EndpointFailure::Failed(_) => WholeFailure::Network,
+                EndpointFailure::Failed(failure) => WholeFailure::of(failure),
             })?;
         let limit = limit.min(usize::try_from(self.max_body_size).unwrap_or(usize::MAX));
         let mut body = Vec::new();
@@ -538,6 +546,83 @@ impl EndpointSettings {
         *response.status_mut() = answer.status;
         *response.headers_mut() = answer.headers;
         Ok(response)
+    }
+
+    /// A TCP connection to `host` on `port`, an endpoint of `kind` that
+    /// speaks no HTTP, such as an SMTP server, once the egress policy allows
+    /// it: the host judged before any lookup and every address it stands
+    /// for before any connection, which tries only those, raced under
+    /// RFC 8305. A refusal names `named`, the endpoint as its setting
+    /// writes it.
+    ///
+    /// # Errors
+    ///
+    /// [`WholeFailure::Refused`] when the policy refused the host or an
+    /// address; [`WholeFailure::Network`] when it has no address or none
+    /// connected.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future closes every attempt in flight.
+    pub(crate) async fn connect(
+        &self,
+        kind: ConfiguredKind,
+        named: &str,
+        host: &str,
+        port: u16,
+    ) -> Result<TcpStream, WholeFailure> {
+        let judged = Gate::Endpoint(self.policy)
+            .judge_host(host, named)
+            .map_err(WholeFailure::Refused)?;
+        let server = Server {
+            host: judged.lookup_name(),
+            port,
+            plain: true,
+        };
+        let found = addresses(&server, &self.resolve)
+            .await
+            .map_err(WholeFailure::of)?;
+        judged.addresses(&found).map_err(WholeFailure::Refused)?;
+        tracing::debug!(
+            kind = kind.classed().name,
+            "connecting to an Operator-configured endpoint"
+        );
+        race_to(judged.host(), port, &found, self.clock, self.delays)
+            .await
+            .map_err(|_| WholeFailure::Network)
+    }
+
+    /// TLS over `tcp`, a connection [`Self::connect`] opened to `host`,
+    /// offering no ALPN protocol: the host's certificate verified as an
+    /// HTTPS endpoint's is, and the client certificate listed for it
+    /// presented.
+    ///
+    /// # Errors
+    ///
+    /// [`WholeFailure`] when the certificate failed, the client certificate
+    /// cannot be presented, or the handshake broke.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future closes the connection.
+    pub(crate) async fn secure(
+        &self,
+        host: &str,
+        tcp: TcpStream,
+    ) -> Result<tokio_rustls::client::TlsStream<TcpStream>, WholeFailure> {
+        let server_name =
+            ServerName::try_from(host.to_owned()).map_err(|_| WholeFailure::Network)?;
+        let trust = self.trust().await;
+        let network = Network {
+            resolve: &self.resolve,
+            trust: &trust,
+            presenting: Some(&self.client_certificates),
+            clock: self.clock,
+            delays: self.delays,
+        };
+        handshake(server_name, host, tcp, &network, Alpn::Unnamed)
+            .await
+            .map_err(WholeFailure::of)
     }
 
     /// The trust of the endpoint's certificate: the authorities
@@ -597,7 +682,7 @@ type Connection = Pin<Box<dyn Future<Output = hyper::Result<()>> + Send>>;
     clippy::disallowed_types,
     reason = "the engine's own HTTP client opens its outbound sockets, which the Simulation never carries (ADR 0060)"
 )]
-type TcpStream = tokio::net::TcpStream;
+pub(crate) type TcpStream = tokio::net::TcpStream;
 
 /// An answer whose body is still arriving.
 pub struct Response {
@@ -750,19 +835,49 @@ async fn open_tls(
     let server_name =
         ServerName::try_from(server.host.to_owned()).map_err(|_| Failure::ServerName)?;
     let tcp = open(server, found, network).await?;
+    handshake(server_name, server.host, tcp, network, Alpn::Http1).await
+}
+
+/// What a TLS handshake offers in ALPN.
+#[derive(Clone, Copy)]
+enum Alpn {
+    /// HTTP/1.1 alone.
+    Http1,
+    /// Nothing: a protocol with no ALPN name, such as SMTP.
+    Unnamed,
+}
+
+/// The TLS handshake on `tcp` with `host`, named `server_name`, its
+/// certificate verified under the network's trust before anything is sent,
+/// presenting the client certificate listed for the host, whose key is
+/// resolved right before the handshake.
+///
+/// # Cancel safety
+///
+/// Dropping the future closes the connection.
+async fn handshake(
+    server_name: ServerName<'static>,
+    host: &str,
+    tcp: TcpStream,
+    network: &Network<'_>,
+    alpn: Alpn,
+) -> Result<tokio_rustls::client::TlsStream<TcpStream>, Failure> {
     let client = match network.presenting {
         Some(listed) => listed
-            .for_host(server.host)
+            .for_host(host)
             .await
             .map_err(Failure::ClientCertificate)?,
         None => None,
     };
-    let config = network.trust.client_config(network.clock, client);
+    let mut config = network.trust.client_config(network.clock, client);
+    if matches!(alpn, Alpn::Unnamed) {
+        config.alpn_protocols.clear();
+    }
     tokio_rustls::TlsConnector::from(Arc::new(config))
         .connect(server_name, tcp)
         .await
         .map_err(|error| {
-            tls::certificate_invalid(&error, server.host)
+            tls::certificate_invalid(&error, host)
                 .map_or(Failure::Network, Failure::CertificateInvalid)
         })
 }
@@ -773,19 +888,26 @@ async fn open(
     found: &[SocketAddr],
     network: &Network<'_>,
 ) -> Result<TcpStream, Failure> {
-    race_to(server.host, server.port, found, network)
-        .await
-        .map_err(|_| Failure::Network)
+    race_to(
+        server.host,
+        server.port,
+        found,
+        network.clock,
+        network.delays,
+    )
+    .await
+    .map_err(|_| Failure::Network)
 }
 
 /// Connects to one of `found`, the addresses of `name` on `port`, both
-/// families answered at once, raced under RFC 8305: it tries no other
-/// address.
+/// families answered at once, raced under RFC 8305 on `clock` with
+/// `delays`: it tries no other address.
 async fn race_to(
     name: &str,
     port: u16,
     found: &[SocketAddr],
-    network: &Network<'_>,
+    clock: Clock,
+    delays: Delays,
 ) -> Result<TcpStream, RaceError> {
     let of = |family: IpFamily| -> Result<Vec<IpAddr>, LookupError> {
         Ok(found
@@ -795,8 +917,8 @@ async fn race_to(
             .collect())
     };
     let race = Race {
-        clock: network.clock,
-        delays: network.delays,
+        clock,
+        delays,
         families: Families::Both,
     };
     race.connect(

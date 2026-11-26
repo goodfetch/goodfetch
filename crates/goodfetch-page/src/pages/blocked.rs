@@ -25,8 +25,8 @@ use serde_json::json;
 
 use crate::blocks::{Block, BlockClassifier};
 use crate::cdp::CdpPage;
+use crate::cdp::driver::PageDriver;
 use crate::consent_walls::Walls;
-use crate::driver::PageDriver;
 use crate::page_events::PageEvents;
 use crate::page_reads::Reads;
 use crate::proxy;

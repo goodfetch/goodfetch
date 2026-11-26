@@ -17,6 +17,10 @@ export type CollieWireType =
   | "BodyHandle"
   | "BodyUnavailableDetails"
   | "BrowserNotInstalledDetails"
+  | "CacheClearParams"
+  | "CacheDamage"
+  | "CacheStats"
+  | "CacheVerified"
   | "CatalogRunStartParams"
   | "CatalogTarget"
   | "CdpUrlNotBrowserDetails"
@@ -239,6 +243,10 @@ export const collieWire: Wire<keyof CollieOperationTypes & string, keyof CollieE
     "BodyHandle": { fields: { "run_id": "runId" } },
     "BodyUnavailableDetails": { fields: { "request_id": "requestId" } },
     "BrowserNotInstalledDetails": { fields: { "missing": ["missing", { type: "MissingBrowser" }] } },
+    "CacheClearParams": { fields: { "run_id": "runId" } },
+    "CacheDamage": { fields: { "body_sha256": "bodySha256", "run_id": "runId" } },
+    "CacheStats": { fields: { "body_bytes": "bodyBytes", "held_bytes": "heldBytes" } },
+    "CacheVerified": { fields: { "damaged": ["damaged", { items: { type: "CacheDamage" } }] } },
     "CatalogRunStartParams": { fields: { "limits": ["limits", { items: { type: "RunLimit" } }], "run_id": "runId", "target": ["target", { type: "CatalogTarget" }] } },
     "CatalogTarget": { fields: { "max_steps": "maxSteps" } },
     "CdpUrlNotBrowserDetails": { fields: { "browser_url": "browserURL" } },
@@ -397,7 +405,7 @@ export const collieWire: Wire<keyof CollieOperationTypes & string, keyof CollieE
     "RunReport": { fields: { "checkpoint": ["checkpoint", { type: "Checkpoint" }], "completeness_reasons": ["completenessReasons", { items: { type: "AxisReason" } }], "ended_at": ["endedAt", "time"], "nothing_done": ["nothingDone", { type: "NothingDone" }], "plan": ["plan", { type: "PlanReport" }], "plugins": ["plugins", { items: { type: "PluginRun" } }], "policy_version": "policyVersion", "recording": ["recording", { type: "RecordingReport" }], "run_id": "runId", "settings": ["settings", { items: { type: "ExplainedSetting" } }], "started_at": ["startedAt", "time"], "stop_reason": ["stopReason", { type: "StopReason" }], "uncertain_effects": ["uncertainEffects", { items: { type: "UncertainEffect" } }], "usage": ["usage", { type: "RunUsage" }], "verdict_reasons": ["verdictReasons", { items: { type: "AxisReason" } }] } },
     "RunResumeParams": { fields: { "run_id": "runId" } },
     "RunSetProgressMessageParams": { fields: { "run_id": "runId" } },
-    "RunStartParams": { fields: { "limits": ["limits", { items: { type: "RunLimit" } }], "run_id": "runId" } },
+    "RunStartParams": { fields: { "accept_plugin_change": "acceptPluginChange", "limits": ["limits", { items: { type: "RunLimit" } }], "run_id": "runId" } },
     "RunStarted": { fields: { "run_id": "runId", "started_as": "startedAs" } },
     "RunStartedAs": { fields: { "started_as": "startedAs" } },
     "RunStatePosition": { fields: { "journal_position": "journalPosition", "run_epoch": "runEpoch" } },
@@ -448,6 +456,7 @@ export const collieWire: Wire<keyof CollieOperationTypes & string, keyof CollieE
     "WebSocketFrame": { fields: { "page_id": "pageId", "web_socket_id": "webSocketId" } },
   },
   params: {
+    "cache.clear": { type: "CacheClearParams" },
     "catalog_run.start": { type: "CatalogRunStartParams" },
     "config.explain": { type: "ConfigExplainParams" },
     "connection.set_log_level": { type: "SetLogLevelParams" },
@@ -529,6 +538,8 @@ export const collieWire: Wire<keyof CollieOperationTypes & string, keyof CollieE
   results: {
     "audit.export": { type: "AuditExported" },
     "audit.verify": { type: "AuditVerified" },
+    "cache.stats": { type: "CacheStats" },
+    "cache.verify": { type: "CacheVerified" },
     "catalog_run.start": { type: "RunStarted" },
     "certs.list": { type: "CertsListed" },
     "config.explain": { type: "SettingsExplanation" },

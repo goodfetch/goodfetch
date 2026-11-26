@@ -132,6 +132,39 @@
       ]
     },
     {
+      "id": "command:cache.clear",
+      "kind": "command",
+      "area": 6,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "command:cache.stats",
+      "kind": "command",
+      "area": 6,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "command:cache.verify",
+      "kind": "command",
+      "area": 6,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "command:catalog-run.start",
       "kind": "command",
       "area": 11,
@@ -2413,6 +2446,17 @@
       ]
     },
     {
+      "id": "error:recording_invalid",
+      "kind": "error",
+      "area": 6,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "error:replay_not_allowed",
       "kind": "error",
       "area": 6,
@@ -2473,6 +2517,17 @@
       "milestone": null,
       "status": "active",
       "products": [
+        "foxhound"
+      ]
+    },
+    {
+      "id": "error:response_not_recorded",
+      "kind": "error",
+      "area": 6,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
         "foxhound"
       ]
     },
@@ -3717,6 +3772,39 @@
       "id": "operation:audit.verify",
       "kind": "operation",
       "area": 4,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "operation:cache.clear",
+      "kind": "operation",
+      "area": 6,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "operation:cache.stats",
+      "kind": "operation",
+      "area": 6,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "operation:cache.verify",
+      "kind": "operation",
+      "area": 6,
       "milestone": null,
       "status": "active",
       "products": [
@@ -14393,6 +14481,16 @@
     },
     {
       "id": "story:11-1064",
+      "kind": "story",
+      "area": 11,
+      "milestone": "M2 Client surfaces",
+      "status": "active",
+      "products": [
+        "foxhound"
+      ]
+    },
+    {
+      "id": "story:11-1069",
       "kind": "story",
       "area": 11,
       "milestone": "M2 Client surfaces",

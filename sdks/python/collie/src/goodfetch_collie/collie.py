@@ -202,6 +202,10 @@ class AsyncCollie(AsyncConnection):
         tags: Iterable[str] | None = None,
         limits: Limits | None = None,
         settings: RunSettings | None = None,
+        timeout: timedelta | NotGiven | None = not_given,
+        plan: str | None = None,
+        recording: Recording | None = None,
+        accept_plugin_change: Iterable[str] | None = None,
     ) -> AsyncRun:
         """Leaving the scope or `close()` stops the Run with a Checkpoint.
 
@@ -246,11 +250,32 @@ class AsyncCollie(AsyncConnection):
                 its Sessions and pages inherit (ADR 0083): a key left out
                 inherits, `None` clears one that can be cleared, and a
                 duration is a `timedelta`, sent in whole milliseconds.
+            timeout: How long the Run may last, as `timeout.run` for this
+                Run: its setting's value when left out, none for `None`; a
+                `timedelta` of zero or less raises `SettingInvalidError`
+                before anything is sent.
+            plan: The Plan file the Run follows, an input of the Run: a
+                start that names the Run again with another fails with
+                `run_conflict`.
+            recording: The Response recording the Run replays or records
+                (ADR 0105), an input of the Run, never a setting.
+            accept_plugin_change: Each Plugin whose change since the Run
+                last ran a resume accepts (ADR 0033).
+
+        A start whose task is cancelled once it is sent sends `$/cancel`
+        naming it, and the cancellation propagates.
         """
         warn_entry("run.start", EXPERIMENTAL_OPERATIONS, DEPRECATED_OPERATIONS)
         warn_deprecated_settings(settings, DEPRECATED_SETTINGS)
         return await self._connection.start(
-            run_id=run_id, tags=tags, limits=limits, settings=settings
+            run_id=run_id,
+            tags=tags,
+            limits=limits,
+            settings=settings,
+            timeout=timeout,
+            plan=plan,
+            recording=recording,
+            accept_plugin_change=accept_plugin_change,
         )
 
     async def start_recipe(
@@ -553,6 +578,10 @@ class Collie(Connection):
         tags: Iterable[str] | None = None,
         limits: Limits | None = None,
         settings: RunSettings | None = None,
+        timeout: timedelta | NotGiven | None = not_given,
+        plan: str | None = None,
+        recording: Recording | None = None,
+        accept_plugin_change: Iterable[str] | None = None,
     ) -> Run:
         """Leaving the scope or `close()` stops the Run with a Checkpoint.
 
@@ -597,6 +626,12 @@ class Collie(Connection):
                 its Sessions and pages inherit (ADR 0083): a key left out
                 inherits, `None` clears one that can be cleared, and a
                 duration is a `timedelta`, sent in whole milliseconds.
+            timeout: How long the Run may last, as `AsyncCollie.start`'s.
+            plan: The Plan file the Run follows, as `AsyncCollie.start`'s.
+            recording: The Response recording the Run replays or records,
+                as `AsyncCollie.start`'s.
+            accept_plugin_change: Each Plugin whose change a resume
+                accepts, as `AsyncCollie.start`'s.
         """
         warn_entry("run.start", EXPERIMENTAL_OPERATIONS, DEPRECATED_OPERATIONS)
         warn_deprecated_settings(settings, DEPRECATED_SETTINGS)
@@ -606,6 +641,12 @@ class Collie(Connection):
             tags=None if tags is None else list(tags),
             limits=limits,
             settings=settings,
+            timeout=timeout,
+            plan=plan,
+            recording=recording,
+            accept_plugin_change=(
+                None if accept_plugin_change is None else list(accept_plugin_change)
+            ),
         )
         try:
             run = self._loop.call(starting)

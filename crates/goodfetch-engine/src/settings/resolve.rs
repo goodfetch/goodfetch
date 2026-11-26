@@ -1255,6 +1255,37 @@ fn only_in(setting: &Setting, layer: SettingsLayer) -> Result<(), SettingsError>
     })
 }
 
+/// Refuses `nested`, settings nested by key that may hold only what a
+/// Recipe may set, such as those of a crawl declared as data (spec #611's
+/// #1514), unless each key, read as the Recipe layer reads it, meets its
+/// authority over the Recipe layer, from its catalog default.
+///
+/// # Errors
+///
+/// As [`Values::read`] for the Recipe layer; `setting_not_applicable` or
+/// `setting_locked` for a key a Recipe never sets, such as `proxy.server`.
+pub fn check_recipe_may_set(
+    nested: &serde_json::Map<String, Value>,
+    engine: Product,
+) -> Result<(), SettingsError> {
+    let layer = SettingsLayer::Recipe;
+    let declared = Values::read(layer, nested, engine)?;
+    for (name, value) in declared.applied() {
+        let Some(key) = keys::find(name) else {
+            continue;
+        };
+        let refused = |limit: SettingLimit, fix: String| SettingsError::Locked {
+            key: name.to_owned(),
+            layer,
+            limit,
+            fix,
+        };
+        let current = limit(name, keys::default_of(key.setting), SettingsLayer::Default);
+        authority(key, layer, value, Given::default(), &current, &refused)?;
+    }
+    Ok(())
+}
+
 /// The key's own authority over `layer` (ADR 0028 and its amendments), as
 /// `given` says who gave `value`: a Client acting for a model, or one whose
 /// value has only the run layer's authority, as a project configuration

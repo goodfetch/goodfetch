@@ -89,19 +89,20 @@ pub(crate) mod steps;
     reason = "the scenario's relay terminates, so it never asks whether a tunnel's ClientHello can be mirrored whole"
 )]
 pub(crate) mod terminate;
-#[path = "../src/driver/world.rs"]
+#[path = "../src/cdp/driver/world.rs"]
 mod world;
 
 use std::sync::Arc;
 use std::time::Duration;
 
 use goodfetch_cdp::generated::{fetch, network};
-use goodfetch_cdp::{Connection, Framer, NetError};
+use goodfetch_cdp::{Connection, Framer};
 use goodfetch_clean_up_rules::matching::Choices;
 use goodfetch_clean_up_rules::never_block::NeverBlock;
 use goodfetch_clean_up_rules::rules::FilterLists;
 use goodfetch_counted_work::CountedWork;
 use goodfetch_engine::egress::{Policy, RequestKind};
+use goodfetch_engine::net_error::NetError;
 use goodfetch_page::url_pattern::UrlPattern;
 use goodfetch_test_support::runtime;
 use requests::{ContinueRequest, Fulfill, Header, PausedId, RequestHeaders, kind_of};

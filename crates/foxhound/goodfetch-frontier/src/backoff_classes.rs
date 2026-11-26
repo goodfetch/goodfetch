@@ -20,7 +20,7 @@
 //!   its learned ceiling and backs no domain off (ADR 0053); its other
 //!   answers, a 407 or a proxy nothing answers on, do neither.
 
-use goodfetch_cdp::NetError;
+use goodfetch_engine::net_error::NetError;
 use goodfetch_page::{Party, ProxyAnswer, party};
 
 /// What a request met: a response, or a network error and no response.

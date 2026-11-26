@@ -6,8 +6,7 @@
 //! emits `close`, and its later calls raise `page_memory_exceeded`, which
 //! is retryable, as a crashed page's raise `page_crashed`.
 
-use goodfetch_cdp::generated::runtime::{GetHeapUsageParams, GetHeapUsageReturns};
-use goodfetch_engine::runs::Run;
+use goodfetch_engine::run_identity::RunIdentity;
 use goodfetch_engine::settings::{catalog_value, value_as};
 use goodfetch_protocol::governor::{BROWSER_PAGE_MEMORY_CAP, GovernorLevel};
 use goodfetch_protocol::page::PageId;
@@ -16,17 +15,19 @@ use goodfetch_protocol::settings::{SettingLimit, SettingsLayer};
 use super::life::Ending;
 use super::lifecycle::PageEffect;
 use super::{OpenPage, Sessions};
+use crate::browser_run::BrowserRun;
+use crate::cdp::CdpPage;
 
 impl Sessions {
     /// Ends each page of `run` past its memory cap at every sample that
     /// finds memory critical, until the Run stops.
-    pub(super) fn end_pages_past_their_cap(&self, run: &Run) {
+    pub(super) fn end_pages_past_their_cap(&self, run: &BrowserRun) {
         let sessions = self.clone();
-        let mut samples = run.governor().samples();
-        let stopping = run.cancellation().clone();
-        let limit = page_memory_cap(run);
-        let run_id = run.id().clone();
-        run.clone().spawn(async move {
+        let mut samples = run.governor.share().samples();
+        let stopping = run.identity.owner().child_token();
+        let limit = page_memory_cap(&run.identity);
+        let run_id = run.identity.id().clone();
+        run.identity.spawn(async move {
             loop {
                 tokio::select! {
                     () = stopping.cancelled() => return,
@@ -36,15 +37,14 @@ impl Sessions {
                     continue;
                 }
                 for (page_id, page) in sessions.index.pages_of(&run_id) {
-                    let Ok(heap) = page.driver.command(&GetHeapUsageParams {}).await else {
+                    let Ok(memory) = CdpPage::of(&page.driver).memory_held().await else {
                         continue;
                     };
-                    let memory = held(&heap);
                     let cap: u64 = value_as(&BROWSER_PAGE_MEMORY_CAP, &limit.value);
                     if memory > cap && page.life.past_cap() {
                         let ending = sessions.clone();
                         let limit = limit.clone();
-                        page.run.clone().spawn(async move {
+                        page.run.identity.clone().spawn(async move {
                             ending.end_past_cap(page_id, page, memory, limit).await;
                         });
                     }
@@ -78,8 +78,7 @@ impl Sessions {
                 // later calls raise `page_memory_exceeded` again.
                 match page.life.end(&Ending::Destroyed) {
                     Ok(effect) => {
-                        self.page_ended(&page_id, &page.run, &page.life, effect)
-                            .await;
+                        self.page_ended(&page.run, &page.life, effect).await;
                     }
                     Err(error) => tracing::error!(%error, "a page's end was refused"),
                 }
@@ -90,10 +89,11 @@ impl Sessions {
     }
 }
 
-/// `governor.browser.page_memory_cap` as `run`'s settings set it, with its
-/// layer.
-fn page_memory_cap(run: &Run) -> SettingLimit {
-    run.settings()
+/// `governor.browser.page_memory_cap` as the settings of the Run
+/// `identity` names set it, with its layer.
+fn page_memory_cap(identity: &RunIdentity) -> SettingLimit {
+    identity
+        .settings()
         .and_then(|settings| settings.resolved().effective(&BROWSER_PAGE_MEMORY_CAP))
         .map_or_else(
             || SettingLimit {
@@ -109,15 +109,4 @@ fn page_memory_cap(run: &Run) -> SettingLimit {
                 origin: effective.origin,
             },
         )
-}
-
-/// What a page holds, in bytes: its JavaScript heap, its embedder's heap
-/// and the buffers it holds.
-#[expect(
-    clippy::cast_possible_truncation,
-    clippy::cast_sign_loss,
-    reason = "the renderer reports byte counts as JSON numbers: whole, never negative, far below 2^53, and `as` saturates"
-)]
-fn held(heap: &GetHeapUsageReturns) -> u64 {
-    (heap.used_size + heap.embedder_heap_used_size + heap.backing_storage_size) as u64
 }

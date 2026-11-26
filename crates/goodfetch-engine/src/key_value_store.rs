@@ -39,7 +39,7 @@ use crate::run::{run_error, through_owner, unwritten};
 use crate::run_files::{self, FileKind};
 use crate::run_identity::RunIdentity;
 use crate::run_state::{RunState, RunStateTables};
-use crate::runs::{self, Run, RunError, RunReader};
+use crate::runs::{RunError, RunParts, RunReader};
 use crate::staging::{AttemptWrites, StagedKey, StagedWrite, Unstaged};
 
 /// The store's table, which every run file holds. A row holds JSON in
@@ -377,8 +377,8 @@ fn checked(key: String) -> Result<String, CallError> {
     }
 }
 
-/// The live Run `run_id`, whose writer a write goes through.
-async fn live(run_id: &RunId, context: &CallContext) -> Result<Run, CallError> {
+/// The parts of the live Run `run_id`, whose writer a write goes through.
+async fn live(run_id: &RunId, context: &CallContext) -> Result<RunParts, CallError> {
     context
         .runs()
         .live(run_id.clone())
@@ -604,7 +604,7 @@ async fn handle_set(
         return Ok(KeyValueStoreSet {});
     }
     let run = live(&params.run_id, &context).await?;
-    let (identity, state) = (runs::identity(&run), runs::state(&run));
+    let (identity, state) = (&run.identity, &run.state);
     let removed = state
         .write(move |connection| set(connection, &key, &value))
         .await
@@ -771,7 +771,7 @@ async fn handle_set_bytes(
         return Ok(KeyValueStoreSet {});
     }
     let run = live(&params.run_id, &context).await?;
-    let (identity, state) = (runs::identity(&run), runs::state(&run));
+    let (identity, state) = (&run.identity, &run.state);
     let removed = if bytes.len() > INLINE_MAX_BYTES {
         set_kept((identity, state), key, content_type, bytes, &context).await?
     } else {
@@ -815,7 +815,7 @@ async fn handle_delete(
         return Ok(KeyValueStoreDeleted { existed });
     }
     let run = live(&params.run_id, &context).await?;
-    let (identity, state) = (runs::identity(&run), runs::state(&run));
+    let (identity, state) = (&run.identity, &run.state);
     let removed = state
         .write(move |connection| delete(connection, &key))
         .await

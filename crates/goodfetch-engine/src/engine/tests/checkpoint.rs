@@ -37,7 +37,7 @@ use crate::composition::{CallContext, Contribution, Handler};
 use crate::engine::Engine;
 use crate::run::format_refusal;
 use crate::run_state::RunStateTables;
-use crate::runs::{self, EndedBy, Run, Start, Started};
+use crate::runs::{EndedBy, RunParts, Start, Started};
 use crate::transport::{self, Network};
 
 mod behind;
@@ -80,7 +80,7 @@ const NOTES: RunStateTables = RunStateTables {
 
 /// The Runs `test.keep` started, each held by a task of its own, which
 /// its stop ends, so its writer closes as a driver's does.
-type Kept = Arc<tokio::sync::Mutex<BTreeMap<String, Weak<Run>>>>;
+type Kept = Arc<tokio::sync::Mutex<BTreeMap<String, Weak<RunParts>>>>;
 
 fn keeping() -> Contribution {
     let kept = Kept::default();
@@ -129,14 +129,14 @@ fn keeping() -> Contribution {
                     let Started::New(run) = started else {
                         panic!("the Run began before");
                     };
-                    let identity = runs::identity(&run);
+                    let identity = &run.identity;
                     let run_id = identity.id().to_string();
                     let held = Arc::new(run.clone());
                     kept.lock()
                         .await
                         .insert(run_id.clone(), Arc::downgrade(&held));
                     identity.spawn(async move {
-                        runs::identity(&held).owner().cancelled().await;
+                        held.identity.owner().cancelled().await;
                     });
                     Ok::<Value, CallError>(json!({ "run_id": run_id }))
                 }
@@ -155,9 +155,9 @@ fn keeping() -> Contribution {
                         .map(drop)
                 };
                 if params["rides"] == json!(true) {
-                    runs::state(&run).write_deferred(note).await.unwrap();
+                    run.state.write_deferred(note).await.unwrap();
                 } else {
-                    runs::state(&run).write(note).await.unwrap();
+                    run.state.write(note).await.unwrap();
                 }
                 Ok::<Value, CallError>(json!({ "noted": value }))
             }

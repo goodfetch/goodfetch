@@ -49,8 +49,8 @@ use crate::call_error::{CallError, named};
 use crate::settings::{Resolved, RunSettings};
 
 /// The decoded size past which `network.max_decompression_ratio` applies:
-/// 1 MiB.
-const RATIO_APPLIES_PAST: u64 = 1024 * 1024;
+/// 1 MiB. A gzipped WARC file is judged by it too.
+pub(crate) const RATIO_APPLIES_PAST: u64 = 1024 * 1024;
 
 /// The deepest JSON the engine parses, whatever a [`Limits`] built in code
 /// says: the most `network.max_json_depth` takes, past which the parser,

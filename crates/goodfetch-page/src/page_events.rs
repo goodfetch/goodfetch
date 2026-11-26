@@ -85,6 +85,7 @@ use goodfetch_engine::clock::Clock;
 use goodfetch_engine::deadline::Deadline;
 use goodfetch_engine::events::Events;
 use goodfetch_engine::events::{Envelope, EventData};
+use goodfetch_engine::net_error::NetError;
 use goodfetch_engine::response_limits::{LimitExceeded, Limits};
 use goodfetch_engine::rpc::send_events;
 use goodfetch_engine::run_files::RunFiles;
@@ -123,12 +124,11 @@ use self::document::{Document, InFlight, UrlWaiter};
 use self::latest::Latest;
 use self::requests::Requests;
 use self::waiters::{Armed, answer_armed};
+use crate::cdp::driver::cdp_response::{cut_by, declared_length};
+use crate::cdp::driver::{PageDriver, browser_id, hop_id};
 use crate::cdp::{
-    CdpPage, FollowedEvent, FollowedEvents, LoadingFailed, NetError, RequestSent, SocketFrame,
-    TargetSession,
+    CdpPage, FollowedEvent, FollowedEvents, LoadingFailed, RequestSent, SocketFrame, TargetSession,
 };
-use crate::driver::cdp_response::{cut_by, declared_length};
-use crate::driver::{PageDriver, browser_id, hop_id};
 use crate::errors::events_lost;
 use crate::page_children::{Child, ChildKind, OnChild};
 use crate::page_value::{Kept, ObservedResponse, Observer};
@@ -228,7 +228,10 @@ pub(crate) struct PageEvents {
 }
 
 struct Shared {
-    page_id: PageId,
+    /// The Page ID of the request the page serves now, which its events
+    /// and errors name (ADR 0146): its request part's one cell, which
+    /// [`PageEvents::replace_request`] writes under `state`.
+    page_id: watch::Receiver<PageId>,
     driver: PageDriver,
     /// The primitives its events turn on and read bodies by.
     cdp: CdpPage,
@@ -253,6 +256,9 @@ struct Shared {
     /// Whether a `page.on` asked for `Runtime` and the browser has not
     /// answered yet: the page's calls wait while it is.
     arming: watch::Sender<bool>,
+    /// What a `page.on` that needs `Runtime` raises in its place, on a
+    /// `stealth` Session's page (#599's Q2).
+    runtime_refused: std::sync::OnceLock<CallError>,
     /// Whether its reader fell too far behind its target's events and
     /// stopped while the page was open: its calls on events then raise
     /// `page_events_lost`.
@@ -265,6 +271,11 @@ struct Shared {
 }
 
 impl Shared {
+    /// The Page ID of the request the page serves now.
+    fn page_id(&self) -> PageId {
+        self.page_id.borrow().clone()
+    }
+
     /// Starts `future` as one of the Run's tasks, in its span.
     fn spawn(&self, future: impl Future<Output = ()> + Send + 'static) {
         self.run.identity.spawn(future);
@@ -467,10 +478,10 @@ impl Listening {
             }
         }
         if self.overflowed.try_recv().is_ok() {
-            return Err(listener_fell_behind(&self.shared.page_id, self.event));
+            return Err(listener_fell_behind(&self.shared.page_id(), self.event));
         }
         if *self.shared.lost.borrow() {
-            return Err(events_lost(&self.shared.page_id));
+            return Err(events_lost(&self.shared.page_id()));
         }
         Ok(())
     }
@@ -524,11 +535,12 @@ async fn enable_runtime_on_frames(shared: &Shared) {
 }
 
 impl PageEvents {
-    /// Starts reading the events of the page `page_id`, which `driver`
-    /// drives for `run`, from now, publishing on `events`; its waiters wait
-    /// at most `wait`, and each response `observer` keeps is passed to it.
+    /// Starts reading the events of the page whose request's Page ID
+    /// `page_id` holds, which `driver` drives for `run`, from now,
+    /// publishing on `events`; its waiters wait at most `wait`, and each
+    /// response `observer` keeps is passed to it.
     pub(crate) fn start(
-        page_id: PageId,
+        page_id: watch::Receiver<PageId>,
         driver: PageDriver,
         run: RunPowers,
         events: Events,
@@ -556,6 +568,7 @@ impl PageEvents {
             gone: watch::Sender::new(false),
             closed: watch::Sender::new(false),
             arming: watch::Sender::new(false),
+            runtime_refused: std::sync::OnceLock::new(),
             lost: watch::Sender::new(false),
             document: watch::Sender::new(Document::blank()),
             observing: observer.map(|observer| {
@@ -662,12 +675,33 @@ impl PageEvents {
         Some((response, received, requested))
     }
 
+    /// Has each later `page.on` that needs `Runtime` raise `refused` in
+    /// place of turning it on; a page's first refusal stands.
+    pub(crate) fn refuse_runtime(&self, refused: CallError) {
+        let _ = self.shared.runtime_refused.set(refused);
+    }
+
     /// Arms a listener for `event` now: the event is published while it
     /// listens. When the event needs `Runtime` and no listener asked for it
-    /// yet, it is asked for now, which the Run's clock dates.
+    /// yet, it is asked for now, which the Run's clock dates, unless the
+    /// page refuses it: the listener then raises its refusal.
     pub(crate) fn listen(&self, event: PageEventName) -> Listening {
         let (queue, events) = mpsc::channel(LISTENER_LIMIT);
         let (overflowed, overflow) = oneshot::channel();
+        let needs_runtime = matches!(event, PageEventName::Console | PageEventName::PageError);
+        if let Some(refused) = self.shared.runtime_refused.get().filter(|_| needs_runtime) {
+            // Nothing listens, and `Runtime` stays off: the call raises it.
+            let (answer, armed) = oneshot::channel();
+            let _ = answer.send(Err(refused.clone()));
+            return Listening {
+                shared: Arc::clone(&self.shared),
+                event,
+                id: u64::MAX,
+                events,
+                overflowed: overflow,
+                armed: Some(armed),
+            };
+        }
         let mut state = lock(&self.shared.state);
         let id = state.next_listener;
         state.next_listener += 1;
@@ -679,8 +713,7 @@ impl PageEvents {
                 overflowed: Some(overflowed),
             });
         }
-        let runtime = matches!(event, PageEventName::Console | PageEventName::PageError)
-            && state.runtime_since.is_none();
+        let runtime = needs_runtime && state.runtime_since.is_none();
         if runtime {
             state.runtime_since = Some(millis_since_epoch(self.shared.clock.wall()));
             self.shared.arming.send_replace(true);
@@ -699,10 +732,11 @@ impl PageEvents {
     /// Sends `event`, the page's `page.crash` or `page.close`, to each call
     /// that listens to `name`.
     pub(crate) fn publish_end(&self, name: PageEventName, event: &'static Event) {
+        let mut state = lock(&self.shared.state);
         let fired = PageFired {
-            page_id: self.shared.page_id.clone(),
+            page_id: self.shared.page_id(),
         };
-        emit(&mut lock(&self.shared.state), name, event, &fired);
+        emit(&mut state, name, event, &fired);
     }
 
     /// Sends `event` with `data`, an event of the page the engine itself
@@ -727,6 +761,29 @@ impl PageEvents {
         // Closed first, so a listener armed from now arms nothing.
         self.shared.closed.send_replace(true);
         answer_every_waiter(&self.shared);
+    }
+
+    /// The page's request part was replaced: it serves the request `next`
+    /// now (ADR 0146), which `page_id`, the part's one cell, takes under
+    /// the page's state, so no listener of the earlier request's calls
+    /// hears an event naming `next`. Its events name `next` from now; each
+    /// listener of the earlier request's calls answers once it sent the
+    /// events it holds; each of its waits raises `closed`, as at a close,
+    /// and the bodies it kept go; and the mark that `Runtime` was asked for
+    /// goes with them, so a console call or exception from before the next
+    /// `page.on` that asks for it again is not passed on. `Runtime` stays
+    /// on in the browser until #2182's release turns it off.
+    pub(crate) fn replace_request(&self, page_id: &watch::Sender<PageId>, next: PageId) {
+        let mut state = lock(&self.shared.state);
+        state.listeners.clear();
+        state.waiters.clear();
+        state.request_waiters.clear();
+        state.response_waiters.clear();
+        state.url_waiters.clear();
+        state.kept = Latest::default();
+        state.requested = Latest::default();
+        state.runtime_since = None;
+        page_id.send_replace(next);
     }
 
     /// The wait until no `page.on` of the page sent before now is still
@@ -999,7 +1056,7 @@ fn observe(shared: &Arc<Shared>, response: &PageResponse, received: Option<u64>)
             .map(|(name, value)| (name.clone(), value.clone()))
             .collect();
         let passed = ObservedResponse {
-            page_id: &shared.page_id,
+            page_id: &shared.page_id(),
             url: &response.url,
             body_length: body.as_ref().map_or(0, Vec::len),
             status: response.status,
@@ -1058,7 +1115,7 @@ fn cut(url: &str, received: u64, expected: Option<u64>) -> CallError {
 /// `page_events_lost` once its reader lost its events while it was open.
 fn gone(shared: &Shared) -> CallError {
     if *shared.lost.borrow() {
-        return events_lost(&shared.page_id);
+        return events_lost(&shared.page_id());
     }
     CallError::new(
         &goodfetch_protocol::connection::CLOSED,
@@ -1153,7 +1210,7 @@ async fn read(mut followed: FollowedEvents, shared: Arc<Shared>) {
     let lost = followed.fell_behind() && !*closed.borrow();
     if lost {
         tracing::warn!(
-            page_id = %shared.page_id.0,
+            page_id = %shared.page_id().0,
             "the page's events fell too far behind and some are lost: its calls on events raise `page_events_lost`"
         );
         shared.lost.send_replace(true);
@@ -1346,7 +1403,7 @@ fn sent_request(
         answer_waiters(shared, state, request, response, None);
     }
     let request = PageRequest {
-        page_id: shared.page_id.clone(),
+        page_id: shared.page_id(),
         request_id: hop_id(sent.network_id(), chain.len()),
         url: sent.url().to_owned(),
         method: sent.method().to_owned(),
@@ -1449,7 +1506,7 @@ fn failed_request(shared: &Shared, state: &mut State, failed: &LoadingFailed, ho
 /// The events of sockets, of the main frame's document and of the
 /// `Runtime` domain.
 fn take_in_other(shared: &Shared, state: &mut State, event: FollowedEvent) {
-    let page_id = &shared.page_id;
+    let page_id = &shared.page_id();
     match event {
         FollowedEvent::SocketCreated { id, url } => {
             state.sockets.insert(id.clone(), url.clone());

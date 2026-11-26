@@ -1,10 +1,12 @@
 //! The interception's sides, without a browser: what a page's end takes
-//! out of its Session's, and where a handler's failure waits; and the
-//! headers step 7 sends a request on with when its Session signs.
+//! out of its Session's, what a replacement of its request part ends, and
+//! where a handler's failure waits; and the headers step 7 sends a request
+//! on with when its Session signs.
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
+use futures_util::FutureExt as _;
 use goodfetch_clean_up_rules::matching::ResourceKind;
 use goodfetch_clean_up_rules::never_block::NeverBlock;
 use goodfetch_engine::CallError;
@@ -12,15 +14,21 @@ use goodfetch_engine::egress::{Policy, RequestKind};
 use goodfetch_engine::entropy::Entropy;
 use goodfetch_engine::request_signing::RequestSigner;
 use goodfetch_protocol::connection::CLOSED;
+use goodfetch_protocol::jsonrpc::RequestId;
+use goodfetch_protocol::page::route::{RouteEnded, UrlMatcher};
 use goodfetch_protocol::page::{PageId, SessionId};
+use goodfetch_test_support::{TestEnv, runtime};
 use secrecy::SecretString;
 use serde_json::{Map, Value, json};
+use tokio::sync::watch;
 
 use super::navigations::PendingNavigation;
 use super::{
-    EngineRequests, Learned, LeftFailure, PageInterception, PageState, SessionInterception, steps,
+    EngineRequests, Interception, Learned, LeftFailure, PageInterception, PageState, Scope,
+    SessionInterception, steps,
 };
 use crate::cdp::{PausedId, RequestHeaders};
+use crate::live_run::LiveRun;
 use crate::page_value::Permit;
 
 /// The interception state of a page or a service worker of the Session
@@ -60,6 +68,16 @@ fn state_of(session: &SessionInterception, failure: Option<LeftFailure>) -> Page
 /// side is `session`, held as its start holds it once the browser paused
 /// its requests.
 pub(crate) fn hold_page(page: &PageId, session: &SessionInterception) -> PageInterception {
+    hold_serving(&watch::Sender::new(page.clone()).subscribe(), session)
+}
+
+/// The side of the interception of the page whose request's Page ID
+/// `page` holds, of the Session whose side is `session`, held as
+/// [`hold_page`] holds it.
+pub(crate) fn hold_serving(
+    page: &watch::Receiver<PageId>,
+    session: &SessionInterception,
+) -> PageInterception {
     let state = Arc::new(state_of(session, Some(LeftFailure::default())));
     PageInterception::joined(page, &state)
 }
@@ -99,6 +117,80 @@ fn a_page_that_closes_before_load_gives_back_its_navigations_permit() {
             held.state.pending.any(),
         ),
         (true, true, false)
+    );
+}
+
+/// A page's routes, the failure a handler left and its pending navigation
+/// belong to its request (ADR 0146): once its request part was replaced,
+/// the earlier request's route has ended, neither the failure its handler
+/// left nor one it leaves later reaches the next request's call, the
+/// navigation's permit is back, and the next request arms its own routes,
+/// the page's errors naming the next request's Page ID.
+#[test]
+fn a_replaced_request_ends_its_routes_and_leaves_no_failure_nor_navigation() {
+    let (page, session) = page_and_session();
+    let next = PageId("page-2".to_owned());
+    let cell = watch::Sender::new(page.clone());
+    let held = hold_serving(&cell.subscribe(), &session);
+    let matcher = UrlMatcher::Glob {
+        pattern: "**/*".to_owned(),
+    };
+    let failed = || CallError::new(&CLOSED, "the handler failed", &json!({}));
+
+    let replaced = runtime().block_on(async {
+        let env = TestEnv::new();
+        let (live, engine) = LiveRun::start(&env).await;
+        let arm = |call| {
+            Interception::arm(
+                Scope::Page(&held),
+                &matcher,
+                &live.client,
+                &RequestId::Number(call),
+            )
+        };
+        let earlier = arm(1).expect("the page holds routes");
+        let route = Arc::clone(&held.state.routes.latest_first()[0]);
+        held.state.leave(failed());
+        held.state.navigation.started("http://a.test/");
+        let released = Arc::new(AtomicBool::new(false));
+        let releasing = Arc::clone(&released);
+        held.state
+            .navigation
+            .hold(Permit::new(move || releasing.store(true, Ordering::SeqCst)));
+
+        // The request part's one cell names `next`, as the page's events
+        // write it, before the interception's replacement.
+        cell.send_replace(next.clone());
+        held.replace_request();
+
+        let replaced = (
+            matches!(earlier.ended().now_or_never(), Some(Ok(RouteEnded {}))),
+            route.fail(failed()),
+            held.take_failure().is_none(),
+            released.load(Ordering::SeqCst),
+            arm(2)
+                .ok()
+                .map(|_armed| held.state.routes.latest_first().len()),
+            {
+                held.close();
+                arm(3).err().and_then(|error| error.details().cloned())
+            },
+        );
+        drop(live);
+        engine.await;
+        replaced
+    });
+
+    assert_eq!(
+        replaced,
+        (
+            true,
+            false,
+            true,
+            true,
+            Some(1),
+            json!({ "page_id": next }).as_object().cloned(),
+        )
     );
 }
 

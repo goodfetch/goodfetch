@@ -3,8 +3,10 @@
 # Actions runs only the Release suite, so no required check can block a
 # merge: this command is the lock instead. In a clean checkout of the pull
 # request's head, which it first makes the merge of that head and the base's
-# tip when the head lacks it (ADR 0135's amendment of 2026-11-17), it runs one
-# gate and merges only when it passes.
+# tip when the head lacks it (ADR 0135's amendment of 2026-11-17), with what
+# `just codegen` writes on that merge and a conflict only in codegen's
+# folders settled (its note of 2026-11-26), it runs one gate and merges only
+# when it passes.
 # Which gate (ADR 0135's amendment of 2026-11-10, the owner's decision for
 # the refactor: quick per merge, the full gate once per finished spec; its
 # note of 2026-11-13: a spec is finished by the pull request that leaves none
@@ -238,13 +240,62 @@ JQ
   fi
 }
 
+# Prints the folders `xtask codegen` owns, one a line, as the checkout in the
+# current folder's xtask names them: codegen writes every file in them and
+# removes any other, so they hold its output alone.
+codegen_folders() {
+  cargo run --quiet --locked --bin xtask -- codegen --folders
+}
+
+# Prints each of the paths `$1` gives, one a line, that lies in none of the
+# folders `$2` gives, one a line.
+outside_folders() {
+  local path folder inside
+  while IFS= read -r path; do
+    [[ -n $path ]] || continue
+    inside=""
+    while IFS= read -r folder; do
+      if [[ -n $folder && $path == "$folder"/* ]]; then
+        inside=1
+        break
+      fi
+    done <<<"$2"
+    [[ -n $inside ]] || echo "$path"
+  done <<<"$1"
+}
+
+# Prints the tree `$1` with each path `$2` gives, one a line, as the base's
+# tip has it, or without it when the tip has none; fails on a path the tip
+# holds as anything but a file or a link. Settles conflicts in codegen's
+# folders, which `just codegen` then writes again (merge_the_bases_tip).
+take_the_bases_side() (
+  index=$(mktemp -d) || exit 1
+  trap 'rm -rf "$index"' EXIT
+  export GIT_INDEX_FILE=$index/index
+  git read-tree "$1" || exit 1
+  while IFS= read -r path; do
+    [[ -n $path ]] || continue
+    entry=$(git ls-tree "origin/$base" -- "$path") || exit 1
+    if [[ -z $entry ]]; then
+      git update-index --force-remove -- "$path" || exit 1
+      continue
+    fi
+    read -r mode type object _ <<<"$entry"
+    [[ $type == blob ]] || exit 1
+    git update-index --add --cacheinfo "$mode,$object,$path" || exit 1
+  done <<<"$2"
+  git write-tree
+)
+
 # Reads the pull request, its state, head, base, head branch and title, and
 # refuses one the gate cannot merge: closed, a draft, past the merge cap,
 # moved while it was read, whose merge would close other issues than its
-# `Closes` lines name, or in conflict with its base's tip. A head
-# without that tip leaves in `with_base` the tree of its merge with it, which
-# the gate commits and gates (merge_the_bases_tip); one that holds it leaves
-# it empty.
+# `Closes` lines name, or in conflict with its base's tip outside the
+# folders `xtask codegen` owns. A head without that tip leaves in
+# `with_base` the tree of its merge with it, which the gate commits,
+# regenerates and gates (merge_the_bases_tip), and in `settled` the paths
+# in codegen's folders whose conflict it settled with the base's side; one
+# that holds it leaves both empty.
 read_pull_request() {
   IFS=$'\t' read -r state draft head base branch title < <(
     gh pr view "$number" --json state,isDraft,headRefOid,baseRefName,headRefName,title \
@@ -271,12 +322,36 @@ read_pull_request() {
   # The gate tests what lands on the base: the head itself when it holds the
   # base's tip, else the merge of the two, so its verdict holds either way
   # (the owner's decision of 2026-11-17, ADR 0135).
+  # A conflict only in what `xtask codegen` writes is settled with the base's
+  # side, which the gate's `just codegen` then writes again; any other
+  # conflict is the author's to resolve (ADR 0135's note of 2026-11-26).
   with_base=""
+  settled=""
   if ! git merge-base --is-ancestor "origin/$base" "$head"; then
-    if ! with_base=$(git merge-tree --write-tree "$head" "origin/$base"); then
-      echo "error: pull request #$number conflicts with the tip of $base; merge $base into it and resolve the conflict" >&2
-      exit 1
-    fi
+    local merged status=0 folders outside
+    merged=$(git -c core.quotePath=false merge-tree --write-tree --name-only --no-messages "$head" "origin/$base") || status=$?
+    case $status in
+      0) with_base=${merged%%$'\n'*} ;;
+      1)
+        settled=${merged#*$'\n'}
+        if ! folders=$(codegen_folders); then
+          echo "error: \`xtask codegen --folders\` failed, so the gate cannot tell whether pull request #$number's conflict with the tip of $base is only in what codegen writes" >&2
+          exit 1
+        fi
+        outside=$(outside_folders "$settled" "$folders")
+        if [[ -n $outside ]] || ! with_base=$(take_the_bases_side "${merged%%$'\n'*}" "$settled"); then
+          echo "error: pull request #$number conflicts with the tip of $base; merge $base into it and resolve the conflict" >&2
+          [[ -z $outside ]] || echo "  ${outside//$'\n'/$'\n'  }" >&2
+          exit 1
+        fi
+        echo "Pull request #$number conflicts with the tip of $base only in what \`xtask codegen\` writes; the gate takes the tip's side there and writes it again:"
+        echo "  ${settled//$'\n'/$'\n'  }"
+        ;;
+      *)
+        echo "error: git could not merge pull request #$number with the tip of $base" >&2
+        exit 1
+        ;;
+    esac
   fi
 }
 # Before the lock and any wait, so a pull request the gate refuses is refused
@@ -324,7 +399,10 @@ while ahead=$(run_in_the_backstops_worktree "$$") && [[ -n $ahead ]]; do
   fi
   sleep 1
 done
-[[ -z $waiting_for ]] || read_pull_request
+# Called as a command of its own, so `set -e` holds in its body.
+if [[ -n $waiting_for ]]; then
+  read_pull_request
+fi
 
 here=$(cd "$(dirname "$0")" && pwd)
 # This checkout's compiler cache check, which the gate runs in its own.
@@ -366,22 +444,62 @@ echo "The gate's target/ is on $mount, with $free_gb GB free (at least $min_free
 
 # A head without its base's tip becomes the merge of the two, pushed to the
 # pull request's branch so the pull request's head is the commit the gate
-# tests and merges. The push only moves the branch forward: one that moved
-# since it was read refuses it. The pre-push hook's checks are the gate's own
-# first steps, so the push skips them.
+# tests and merges. Before the push, `just codegen` writes again on the merge
+# what `xtask codegen` writes, so a merge that settled a conflict there, or
+# whose two sides each changed what codegen reads, holds what the merged
+# sources give (ADR 0135's note of 2026-11-26); a merge whose regeneration
+# fails, or that settled a path its own codegen does not own, is refused. The
+# push only moves the branch forward: one that moved since it was read
+# refuses it. The pre-push hook's checks are the gate's own first steps, so
+# the push skips them.
 merge_the_bases_tip() {
-  local merge
+  local merge signed folders outside tree regenerated=""
+  signed="Signed-off-by: $(git config user.name) <$(git config user.email)>"
   merge=$(git commit-tree "$with_base" -p "$head" -p "origin/$base" \
-    -m "Merge branch '$base' into $branch" \
-    -m "Signed-off-by: $(git config user.name) <$(git config user.email)>")
+    -m "Merge branch '$base' into $branch" -m "$signed")
+  gate_worktree_checkout "$merge"
+  if [[ -n $settled ]]; then
+    if ! folders=$(cd "$worktree" && codegen_folders); then
+      echo "error: the merge's \`xtask codegen --folders\` failed, so the gate cannot tell whether pull request #$number's conflict with the tip of $base is only in what codegen writes" >&2
+      exit 1
+    fi
+    outside=$(outside_folders "$settled" "$folders")
+    if [[ -n $outside ]]; then
+      echo "error: pull request #$number conflicts with the tip of $base outside the folders the merge's \`xtask codegen\` owns; merge $base into it and resolve the conflict" >&2
+      echo "  ${outside//$'\n'/$'\n'  }" >&2
+      exit 1
+    fi
+  fi
+  if ! (cd "$worktree" && just codegen); then
+    echo "error: \`just codegen\` failed on the merge of pull request #$number and the tip of $base, so the gate merges nothing; merge $base into it and run \`just codegen\` there" >&2
+    exit 1
+  fi
+  # The recipe's cargo runs without `--locked`: a lock it rewrote is the
+  # author's to settle, never the gate's to commit.
+  if [[ -n $(cd "$worktree" && git status --porcelain -- Cargo.lock) ]]; then
+    echo "error: \`just codegen\` changed Cargo.lock on the merge of pull request #$number and the tip of $base, so the gate merges nothing; merge $base into it and update Cargo.lock there" >&2
+    exit 1
+  fi
+  tree=$(cd "$worktree" && git add --all && git write-tree)
+  if [[ $tree != "$with_base" ]]; then
+    merge=$(git commit-tree "$tree" -p "$head" -p "origin/$base" \
+      -m "Merge branch '$base' into $branch" \
+      -m "The gate wrote again what \`xtask codegen\` writes on this merge (ADR 0135's note of 2026-11-26)." \
+      -m "$signed")
+    regenerated=1
+  fi
   if ! git push --quiet --no-verify origin "$merge:refs/heads/$branch"; then
     echo "error: pull request #$number moved while it was read; run the command again" >&2
     exit 1
   fi
   echo "The head $head lacks the tip of $base: the gate merged it in as $merge and pushed that to $branch"
+  [[ -z $regenerated ]] || echo "The merge holds what \`just codegen\` wrote again on it"
   head=$merge
 }
-[[ -z $with_base ]] || merge_the_bases_tip
+# Called as a command of its own, so `set -e` holds in its body.
+if [[ -n $with_base ]]; then
+  merge_the_bases_tip
+fi
 
 gate_worktree_checkout "$head"
 

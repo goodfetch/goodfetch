@@ -127,8 +127,9 @@ pub(crate) enum Freshness {
 }
 
 /// The request headers that make a request the Session partition's
-/// (#795), never the public one.
-const CREDENTIALS: &[&str] = &["cookie", "authorization", "proxy-authorization"];
+/// (#795), never the public one, and that a Response recording's replay
+/// leaves out of a `Vary` match, since a replayed Run sends its own.
+pub(crate) const CREDENTIALS: &[&str] = &["cookie", "authorization", "proxy-authorization"];
 
 /// The validators a revalidation sends.
 const CONDITIONS: &[&str] = &["if-none-match", "if-modified-since"];
@@ -353,7 +354,7 @@ fn directives<'a>(
 }
 
 /// The first value of the header `name` in `headers`.
-fn first<'a>(headers: &'a [(String, String)], name: &str) -> Option<&'a str> {
+pub(crate) fn first<'a>(headers: &'a [(String, String)], name: &str) -> Option<&'a str> {
     headers
         .iter()
         .find(|(header, _)| header == name)

@@ -30,22 +30,25 @@
 //! its kind again. Stops and Checkpoints are announced on the event stream
 //! (RT-14).
 //!
-//! A Run's driver, such as Foxhound's crawl, holds a [`Run`]: its run
-//! state's writer, its clock, its cancellation, its tasks and its page
-//! bodies, and whether `run.finish` let it finish, which a keep-alive crawl
-//! waits for (RT-12). The program's own status line about its Run (RT-15)
-//! is kept in its run state, which a resume reads back, written into its
-//! Run index row and published as `run.progress`. A Run's progress (ADR
-//! 0102) changes as its registry and its driver change it, a Human pause
-//! beginning or ending included; a read follows it while this engine works
-//! the Run and reads run state otherwise, and a read of a Run another
-//! engine works goes to that engine, the owner the Run index names. On a Daemon, each Run belongs to the Connection that started it,
-//! whose end stops it (ADR 0078).
+//! A Run's driver, such as Foxhound's crawl, holds its [`RunParts`]: its
+//! identity, with its clock and its tasks, and one value per power, such
+//! as its run state's writer, its page bodies and its end, which says
+//! whether `run.finish` let it finish, which a keep-alive crawl waits for
+//! (RT-12). The registry keeps the rest of a live Run (ADR 0145). The
+//! program's own status line about its Run (RT-15) is kept in its run
+//! state, which a resume reads back, written into its Run index row and
+//! published as `run.progress`. A Run's progress (ADR 0102) changes as
+//! its registry and its driver change it, a Human pause beginning or
+//! ending included; a read follows it while this engine works the Run and
+//! reads run state otherwise, and a read of a Run another engine works
+//! goes to that engine, the owner the Run index names. On a Daemon, each
+//! Run belongs to the Connection that started it, whose end stops it
+//! (ADR 0078).
 //!
 //! Size: one registry actor, its handles and the commands it answers, kept
-//! whole so every change to a Run's state passes through one loop, and the
-//! `Run` handle with one free function per power, [`identity`], [`state`],
-//! [`charging`] and the others (ADR 0145). A Run's
+//! whole so every change to a Run's state passes through one loop, and
+//! [`RunParts`], the identity and the powers it hands a live Run's driver
+//! (ADR 0145). A Run's
 //! disk work runs beside that loop, which keeps each Run's calls in order
 //! meanwhile, `beside`'s; a start's or a resume's opening is `opening`'s. A Run's
 //! identity and the value that asks it to stop are `run_identity`'s; its
@@ -56,9 +59,9 @@
 //! `end`'s (ADR 0145). The record that
 //! a Run uses another Product's entry is a command of the registry's
 //! handle, [`Runs::uses`], and the two records a Run leaves in the Run
-//! index for "Needs you" are `run_index`'s, over its identity. The handle's
-//! own methods are only those the page crate still calls, each forwarding to
-//! a power; every other caller reaches a power through its free function.
+//! index for "Needs you" are `run_index`'s, over its identity. No caller
+//! outside the registry holds the Run itself: it holds its parts, and asks
+//! the registry, through [`Runs`], for anything else.
 
 use std::borrow::Cow;
 use std::collections::BTreeMap;
@@ -79,7 +82,6 @@ use goodfetch_protocol::connection::{ProductVersion, StoppedBy, Surface};
 use goodfetch_protocol::formats::Compatibility;
 use goodfetch_protocol::governor::RUN_SHARE;
 use goodfetch_protocol::jsonrpc::ErrorObject;
-use goodfetch_protocol::page::BodyHandle;
 use goodfetch_protocol::run::{
     AxisReason, Checkpoint, Completeness, EndingError, Lifecycle, LimitScope,
     MAX_PROGRESS_MESSAGE_CHARACTERS, NothingDone, Presence, ProgressMessage, RUN_IN_USE,
@@ -98,11 +100,9 @@ use goodfetch_protocol::settings::{ExplainedSetting, SettingsLayer, WeakenedSett
 use goodfetch_protocol::storage::{SampledFolder, StorageLevel};
 use goodfetch_protocol::usage::{LEDGER_READ_INTERVAL, Limit};
 use rusqlite::Connection;
-use secrecy::zeroize::Zeroizing;
 use serde_json::{Value, json};
 use tokio::sync::{mpsc, oneshot, watch};
 use tokio::time::Instant;
-use tokio_util::sync::CancellationToken;
 
 pub use self::clean_up::{Answering, Chosen, CleanUpVersions, Fallback, Holding, RulesContext};
 pub use self::end::RunEnd;
@@ -133,44 +133,40 @@ use self::takeover::TakeOver;
 use self::writer::{LockError, take_lock};
 use crate::CallError;
 use crate::admission::{self, Gates};
-use crate::audit::{AuditLog, Origin};
+use crate::audit::Origin;
 use crate::checkpoint::{self, CHECKPOINT_FILE, WriteError};
 use crate::clock::Clock;
 use crate::controls::Controls;
-use crate::endpoint::Refusals;
-use crate::engine_context::{CALLER, EngineContext};
+use crate::engine_context::EngineContext;
 use crate::entropy::{Entropy, RunEntropy};
 use crate::events::Events;
 use crate::governor::{
-    Filesystem, Governor, Held, LastResort, RunGovernor, RunShare, StorageSample, last_resort_run,
+    Filesystem, Governor, Held, LastResort, RunGovernor, StorageSample, last_resort_run,
 };
 use crate::home::RunStateLocation;
-use crate::known_certificates::KnownCertificates;
-use crate::lease::LeaseCheck;
-use crate::ledger::{Allowance, ChargeError, Charged, ChargingParts, RunCharging, StorageFailed};
+use crate::ledger::{ChargeError, Charged, ChargingParts, RunCharging, StorageFailed};
 use crate::local_addresses::{self, Rotation};
 use crate::mask::{Masks, Redaction, Scope};
 use crate::metrics::{FolderStorage, Metrics};
 use crate::plugin_kinds::run_plugins::RunPlugins;
 use crate::politeness::{
-    Holder, OnStorageFailures, Politeness, PolitenessError, PolitenessOptions, PolitenessTables,
-    RunPoliteness, RunPolitenessParts, SharedPoliteness, SharedPolitenessParts,
+    OnStorageFailures, PolitenessOptions, PolitenessTables, RunPoliteness, RunPolitenessParts,
+    SharedPoliteness, SharedPolitenessParts,
 };
-use crate::robots_txt::{Answer, Fetched, NotRead, OwnCopies};
+use crate::robots_txt::OwnCopies;
 use crate::run_files::{self, KeepError, KeptExport, RunFiles};
 use crate::run_identity::{self, RunIdentity, StopAsker};
 use crate::run_index::RunIndex;
-use crate::run_key::{KeyError, RunKey, Sealed, StoredKey};
+use crate::run_key::{KeyError, RunKey, StoredKey};
 use crate::run_state::install::InstallDatabase;
 use crate::run_state::{
     BatchSync, Durability, RUN_FILE, RunState, RunStateError, RunStateOptions, RunStateTables,
-    SecretColumn, Syncing,
+    Syncing,
 };
 use crate::run_trace::{self, RawCallLine};
-use crate::sandbox_probe::SandboxProbe;
 use crate::secrets::{Purpose, RunSecrets, SecretError, Secrets};
 use crate::settings::{Resolved, RunSettings, get_or_default};
-use crate::tasks::{OwnerKind, TaskOwner, TaskStarter};
+use crate::tasks::{OwnerKind, TaskOwner};
 use crate::trace::{self, Link, RawMark};
 use crate::transition;
 
@@ -308,8 +304,8 @@ pub struct Driving {
     /// The setting that says whether its Run trace keeps a Provenance log
     /// (ADR 0138); none when it always does.
     pub provenance_log: Option<&'static Setting>,
-    /// Whether its driver opens its Run's admission ([`Run::admission`])
-    /// before any of its tasks waits on the Run's Politeness, and serves
+    /// Whether its driver opens its Run's admission before any of its
+    /// tasks waits on the Run's Politeness, and serves
     /// that admission's jobs while the Run goes: a Politeness of the Run's
     /// own is then held by its admission rather than by an actor (#2171).
     pub admits: bool,
@@ -449,7 +445,7 @@ pub enum Resumed {
     /// It took the next run epoch of an interrupted Run, which goes on.
     New {
         /// The Run, boxed as the larger variant.
-        run: Box<Run>,
+        run: Box<RunParts>,
         /// Its kind, whose driver drives it.
         kind: RunKind,
         /// The Product it needs.
@@ -495,8 +491,8 @@ impl Resumed {
     reason = "a start answers once and its caller takes the Run out at once: boxing it would allocate on every start for no saving"
 )]
 pub enum Started {
-    /// It began a new Run, which its driver now drives.
-    New(Run),
+    /// It began a new Run, whose parts its driver now drives.
+    New(RunParts),
     /// Its Run ID names an interrupted Run of the same inputs, which the
     /// caller resumes as `run.resume` does (ADR 0102).
     Interrupted(RunId),
@@ -731,7 +727,7 @@ pub(crate) const LIMIT_MAY_BE_OVER_CHARGED: &str = "limit_may_be_over_charged";
 /// unclean end, when an earlier run epoch charged a Limit in writes a power
 /// cut could have taken: the reclaim then charged their Slices past its
 /// journal, so a Limit may be over-charged, never under-charged.
-async fn warn_over_charged(run: &Run) {
+async fn warn_over_charged(run: &LiveRun) {
     let epoch = run.state.epoch();
     let beyond = run
         .state
@@ -744,7 +740,7 @@ async fn warn_over_charged(run: &Run) {
         ),
         Ok(None) => return,
         Err(error) => {
-            tracing::warn!(%error, run_id = %run.id(), "whether the Run's Limits may be over-charged could not be read");
+            tracing::warn!(%error, run_id = %run.identity.id(), "whether the Run's Limits may be over-charged could not be read");
             return;
         }
     };
@@ -754,8 +750,8 @@ async fn warn_over_charged(run: &Run) {
         sessions: Vec::new(),
         folder: None,
     };
-    if let Err(error) = run.warn_once(warning).await {
-        tracing::warn!(%error, run_id = %run.id(), "the Run's possible over-charge could not be handed over");
+    if let Err(error) = run.shared.warnings.warn_once(warning).await {
+        tracing::warn!(%error, run_id = %run.identity.id(), "the Run's possible over-charge could not be handed over");
     }
 }
 
@@ -1129,7 +1125,7 @@ pub enum Ending {
     /// raising `error` (ADR 0102).
     Failed(EndingError),
     /// It reached the safe point a stop asked for: `stopped`, for the
-    /// reason [`Run::stopping`] gave.
+    /// reason [`RunIdentity::stopping`] gave.
     Stopped(StopReason),
 }
 
@@ -1245,7 +1241,7 @@ enum Command {
     Health(oneshot::Sender<RegistryHealth>),
     Folder(RunId, oneshot::Sender<PathBuf>),
     Governor(oneshot::Sender<Governor>),
-    Live(RunId, oneshot::Sender<Result<Run, RunError>>),
+    Live(RunId, oneshot::Sender<Result<RunParts, RunError>>),
     Checkpoint(
         RunId,
         Option<PathBuf>,
@@ -1477,9 +1473,10 @@ impl std::fmt::Debug for Runs {
     }
 }
 
-/// A live Run, as its driver holds it.
+/// What the registry keeps of a live Run to end it: no handle (ADR 0145),
+/// since its driver and the calls that name it take its [`RunParts`].
 #[derive(Clone)]
-pub struct Run {
+struct LiveRun {
     identity: RunIdentity,
     state: RunState,
     shared: Arc<Shared>,
@@ -1522,120 +1519,111 @@ struct Shared {
     send_window: RunSendWindow,
     /// Its process Plugins, each started as a call first names it, the
     /// Plugin kinds' module's (ADR 0145).
-    plugins: RunPlugins,
+    plugins: Arc<RunPlugins>,
 }
 
-/// The process Plugins of `run`, which start on its owner as its calls
-/// name them: a power of the Run its owner module holds (ADR 0145).
-pub fn plugins(run: &Run) -> &RunPlugins {
-    &run.shared.plugins
+/// A live Run as the registry hands it to its driver and to the calls that
+/// name it: its identity and each of its powers, each a value of its owner
+/// module (ADR 0145). It has no method: its holder moves the parts it uses
+/// into its domain's record of the Run, as the crawl's and the page
+/// crate's do.
+#[derive(Clone)]
+pub struct RunParts {
+    /// Which Run it is.
+    pub identity: RunIdentity,
+    /// Its run state's writer.
+    pub state: RunState,
+    /// Its charging, the ledger's charging module's.
+    pub charging: RunCharging,
+    /// Its Secrets and its data key.
+    pub keys: RunKeys,
+    /// Its Run report's warnings, and why it did nothing.
+    pub warnings: ReportWarnings,
+    /// Its end, with whether `run.finish` let it finish.
+    pub end: RunEnd,
+    /// Its part of the Resource governor.
+    pub governor: RunGovernor,
+    /// Its entropy.
+    pub entropy: RunEntropy,
+    /// Its progress (ADR 0102).
+    pub progress: Progress,
+    /// The Politeness it shares.
+    pub politeness: RunPoliteness,
+    /// Its own copies of the robots.txt files its program's navigation
+    /// read, one per origin (ADRs 0086 and 0098).
+    pub own_robots_txt: OwnCopies,
+    /// Its files, which store a page's body and keep a file.
+    pub files: RunFiles,
+    /// Its Run trace, whose one writer holds its files (ADR 0140's E5).
+    pub trace: run_trace::RunTrace,
+    /// Its send window, which its commands mark before they go out (ADR
+    /// 0106).
+    pub send_window: RunSendWindow,
+    /// Its process Plugins, each started as a call first names it.
+    pub plugins: Arc<RunPlugins>,
 }
 
-/// The Run trace of `run`, whose one writer every entry of the Run goes
-/// through (ADR 0140's E5): a power of the Run its owner module holds, so
-/// `Run` gains no method for it (ADR 0145).
-pub fn run_trace(run: &Run) -> &run_trace::RunTrace {
-    &run.shared.trace
+impl std::fmt::Debug for RunParts {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("RunParts")
+            .field("id", self.identity.id())
+            .finish_non_exhaustive()
+    }
 }
 
-/// The identity of `run` (ADR 0145), which a function takes in place of
-/// the handle: `Run` gains no method for it.
-pub fn identity(run: &Run) -> &RunIdentity {
-    &run.identity
+/// The parts of `run` the registry hands out.
+fn parts(run: &LiveRun) -> RunParts {
+    let shared = &run.shared;
+    RunParts {
+        identity: run.identity.clone(),
+        state: run.state.clone(),
+        charging: shared.charging.clone(),
+        keys: shared.keys.clone(),
+        warnings: shared.warnings.clone(),
+        end: shared.end.clone(),
+        governor: shared.governor.clone(),
+        entropy: shared.entropy.clone(),
+        progress: shared.progress.clone(),
+        politeness: shared.politeness.clone(),
+        own_robots_txt: shared.own_robots_txt.clone(),
+        files: shared.files.clone(),
+        trace: shared.trace.clone(),
+        send_window: shared.send_window.clone(),
+        plugins: Arc::clone(&shared.plugins),
+    }
 }
 
-/// The charging of `run`, which a function takes in place of the handle
-/// to charge, reserve and settle its Usage (ADR 0145): `Run` gains no
-/// method for it.
-pub fn charging(run: &Run) -> &RunCharging {
-    &run.shared.charging
-}
-
-/// The progress of `run` (ADR 0102), which a function takes in place of
-/// the handle to set a part of it or hold a Human pause in it (ADR 0145):
-/// `Run` gains no method for it.
-pub fn progress(run: &Run) -> &Progress {
-    &run.shared.progress
-}
-
-/// The Secrets and data key of `run`, which a function takes in place of
-/// the handle to resolve a Secret reference or to seal and open a secret
-/// column's field (ADR 0145): `Run` gains no method for it.
-pub fn keys(run: &Run) -> &RunKeys {
-    &run.shared.keys
-}
-
-/// The Run report's warnings of `run`, which a function takes in place of
-/// the handle to hand a warning over or record why the Run did nothing
-/// (ADR 0145): `Run` gains no method for it.
-pub fn warnings(run: &Run) -> &ReportWarnings {
-    &run.shared.warnings
-}
-
-/// The end of `run`, which a function takes in place of the handle to end
-/// it or wait until it is let finish (ADR 0145): `Run` gains no method for
-/// it.
-pub fn end(run: &Run) -> &RunEnd {
-    &run.shared.end
-}
-
-/// The send window of `run`, which a function takes in place of the
-/// handle to mark its declared Effects sent before a command goes out
-/// (ADRs 0106 and 0145): `Run` gains no other method for it.
-pub fn send_window(run: &Run) -> &RunSendWindow {
-    &run.shared.send_window
-}
-
-/// The part of the Resource governor of `run`, its share and the
-/// governor's last sample, which a function takes in place of the handle
-/// (ADR 0145): `Run` gains no method for it.
-pub fn governor(run: &Run) -> &RunGovernor {
-    &run.shared.governor
-}
-
-/// The entropy of `run`, which a function takes in place of the handle to
-/// fork an `Entropy` of its own (ADR 0145): `Run` gains no method for it.
-pub fn entropy(run: &Run) -> &RunEntropy {
-    &run.shared.entropy
-}
-
-/// The Politeness `run` shares, which a function takes in place of the
-/// handle (ADR 0145): `Run` gains no method for it.
-pub fn politeness(run: &Run) -> &RunPoliteness {
-    &run.shared.politeness
-}
-
-/// The own robots.txt copies of `run`, which a function takes in place of
-/// the handle (ADR 0145): `Run` gains no method for it.
-pub fn own_robots_txt(run: &Run) -> &OwnCopies {
-    &run.shared.own_robots_txt
-}
-
-/// The files of `run`, which a function takes in place of the handle to
-/// store a page's body or keep a file (ADR 0145): `Run` gains no method
-/// for it.
-pub fn files(run: &Run) -> &RunFiles {
-    &run.shared.files
-}
-
-/// The run state's writer of `run`, which a function takes in place of
-/// the handle to read or write its state (ADR 0145): `Run` gains no method
-/// for it.
-pub fn state(run: &Run) -> &RunState {
-    &run.state
+/// What a Run used so far, as its run `state` counted it, with each Limit
+/// its `charging` applies and what is left of it (ADR 0101): a function
+/// over the two powers, as ADR 0145's note of 2026-11-10 places it.
+///
+/// # Errors
+///
+/// `Refused` when the Usage ledger cannot be read, `State` when the run
+/// state cannot.
+///
+/// # Cancel safety
+///
+/// Dropping the future loses only the answer.
+pub async fn usage(charging: &RunCharging, state: &RunState) -> Result<RunUsage, ChargeError> {
+    let limits = charging.applied().await?;
+    Ok(state
+        .read(move |connection| report::usage(connection, limits))
+        .await?)
 }
 
 /// Asks `run` to stop at its next safe point for `reason`, such as the
 /// resource governor's `resources` (ADRs 0040 and 0122) or its engine's
 /// loss; the first reason asked stays.
-pub(crate) fn stop_at_safe_point(run: &Run, reason: StopReason) {
+fn stop_at_safe_point(run: &LiveRun, reason: StopReason) {
     run.shared.stop.at_safe_point(reason);
 }
 
 /// Starts the tasks that ask `run` to stop at its next safe point: once
 /// its `timeout` passes; and for a Run its program drives, which has
 /// nothing in flight in the engine, the one that then stops it.
-fn watch_safe_points(run: &Run, timeout: Option<Duration>, ended_by: EndedBy) {
+fn watch_safe_points(run: &LiveRun, timeout: Option<Duration>, ended_by: EndedBy) {
     // A commit its writer could not make stops it from its last
     // acknowledged one, as at `critical` (ADR 0122).
     stop_on_failures(
@@ -1667,389 +1655,12 @@ fn watch_safe_points(run: &Run, timeout: Option<Duration>, ended_by: EndedBy) {
     }
 }
 
-impl std::fmt::Debug for Run {
+impl std::fmt::Debug for LiveRun {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         formatter
-            .debug_struct("Run")
-            .field("id", self.id())
+            .debug_struct("LiveRun")
+            .field("id", self.identity.id())
             .finish_non_exhaustive()
-    }
-}
-
-impl Run {
-    /// Its Run ID.
-    pub fn id(&self) -> &RunId {
-        self.identity.id()
-    }
-
-    /// Its run state's writer.
-    pub fn state(&self) -> &RunState {
-        &self.state
-    }
-
-    /// The runtime's metrics, which what the Run runs records in (ADR
-    /// 0050).
-    pub fn metrics(&self) -> &Metrics {
-        self.identity.metrics()
-    }
-
-    /// Marks sent, synced, each of its declared Effects' bodies that runs
-    /// in the attempt `lease` names, or outside any attempt when it names
-    /// none or is `None`, before `command`, which may change a page or a
-    /// site, goes out (ADR 0106's window). The attempt is read only when
-    /// the Run has a body running, and nothing is marked when the
-    /// composition passes in no window.
-    ///
-    /// # Errors
-    ///
-    /// `run_state_unavailable` when the mark could not be written:
-    /// `command` must not go out.
-    ///
-    /// # Cancel safety
-    ///
-    /// Dropping its future before the write began marks nothing, and
-    /// `command` must then not go out. A drop once the write was queued
-    /// may leave the bodies `sent` in the journal while the engine still
-    /// holds them open: the next mark writes only those still `open`
-    /// there, so the first command stays the one recorded.
-    pub async fn sending(
-        &self,
-        lease: Option<&dyn LeaseCheck>,
-        command: &str,
-    ) -> Result<(), CallError> {
-        self.shared.send_window.sending(lease, command).await
-    }
-
-    /// Its share of the engine's Resource governor (ADR 0040), through
-    /// which it takes each HTTP fetch, browser page and model call it
-    /// runs, in turn with the other live Runs, up to its
-    /// `governor.run_share`.
-    pub fn governor(&self) -> &RunShare {
-        self.shared.governor.share()
-    }
-
-    /// Its folder, which holds its state and its Run trace.
-    pub fn folder(&self) -> &Path {
-        self.identity.folder()
-    }
-
-    /// The settings it was started with, when its start resolved them.
-    pub fn settings(&self) -> Option<&RunSettings> {
-        self.identity.settings()
-    }
-
-    /// What it resolves its Secret references through, holding every value
-    /// it resolved: [`RunKeys::secrets`].
-    pub fn secrets(&self) -> &RunSecrets {
-        self.shared.keys.secrets()
-    }
-
-    /// `plaintext` sealed under its data key: [`RunKeys::seal`].
-    ///
-    /// # Errors
-    ///
-    /// As [`RunKeys::seal`]'s.
-    ///
-    /// # Cancel safety
-    ///
-    /// As [`RunKeys::seal`]'s.
-    pub async fn seal(
-        &self,
-        column: &SecretColumn,
-        row: &str,
-        plaintext: &[u8],
-    ) -> Result<Sealed, RunKeyError> {
-        self.shared.keys.seal(column, row, plaintext).await
-    }
-
-    /// The plaintext of `sealed`: [`RunKeys::open`].
-    ///
-    /// # Errors
-    ///
-    /// As [`RunKeys::open`]'s.
-    ///
-    /// # Cancel safety
-    ///
-    /// As [`RunKeys::open`]'s.
-    pub async fn open(
-        &self,
-        column: &SecretColumn,
-        row: &str,
-        sealed: &Sealed,
-    ) -> Result<Zeroizing<Vec<u8>>, RunKeyError> {
-        self.shared.keys.open(column, row, sealed).await
-    }
-
-    /// The engine's clock.
-    pub fn clock(&self) -> Clock {
-        self.identity.clock()
-    }
-
-    /// The engine's sandbox probe, whose answer each browser launch reads.
-    pub fn sandbox_probe(&self) -> &SandboxProbe {
-        self.runs.engine.sandbox_probe()
-    }
-
-    /// Records in the Run index that the Run met a consent wall on the
-    /// registrable domain `domain` and left it, so "Needs you" offers the
-    /// domain for `consent.domains` (ADR 0048).
-    ///
-    /// # Errors
-    ///
-    /// When the Run index cannot be written.
-    ///
-    /// # Cancel safety
-    ///
-    /// Dropping the future after the write began still records it.
-    pub async fn record_consent_wall(&self, domain: String) -> Result<(), RunStateError> {
-        self.runs
-            .engine
-            .run_index()
-            .record_consent_wall(&self.identity, domain)
-            .await
-    }
-
-    /// An `Entropy` of its own for one of the Run's owners, such as its
-    /// driver, forked from the Run's, which the engine's forked when the
-    /// Run went live (ADR 0059).
-    ///
-    /// # Cancel safety
-    ///
-    /// Dropping the future loses only the answer.
-    pub async fn fork_entropy(&self) -> Entropy {
-        self.shared.entropy.fork().await
-    }
-
-    /// Cancelled when the Run stops at once, by an abort: its driver
-    /// abandons each attempt in flight.
-    pub fn cancellation(&self) -> &CancellationToken {
-        self.owner.token()
-    }
-
-    /// Answers once something asks the Run to stop at its next safe point,
-    /// such as its `timeout.run` passing, with the reason it stops for: its
-    /// driver then admits nothing new, lets each attempt in flight commit
-    /// or be abandoned under its lease, and ends it with
-    /// [`Ending::Stopped`].
-    ///
-    /// # Cancel safety
-    ///
-    /// Dropping the future loses nothing; a later call answers the same.
-    pub async fn stopping(&self) -> StopReason {
-        self.identity.stopping().await
-    }
-
-    /// Hands `warning` over to the Run's report: [`ReportWarnings::warn`].
-    ///
-    /// # Errors
-    ///
-    /// As [`ReportWarnings::warn`]'s.
-    ///
-    /// # Cancel safety
-    ///
-    /// As [`ReportWarnings::warn`]'s.
-    pub async fn warn(&self, warning: RunWarning) -> Result<(), RunStateError> {
-        self.shared.warnings.warn(warning).await
-    }
-
-    /// Hands `warning` over to the Run's report unless it holds one of the
-    /// same code for the same folder already: [`ReportWarnings::warn_once`].
-    ///
-    /// # Errors
-    ///
-    /// As [`ReportWarnings::warn_once`]'s.
-    ///
-    /// # Cancel safety
-    ///
-    /// As [`ReportWarnings::warn_once`]'s.
-    pub async fn warn_once(&self, warning: RunWarning) -> Result<(), RunStateError> {
-        self.shared.warnings.warn_once(warning).await
-    }
-
-    /// What the Run used so far, as its run state counted it, with each
-    /// Limit that applies to it and what is left of it (ADR 0101).
-    ///
-    /// # Errors
-    ///
-    /// `Refused` when the Usage ledger cannot be read, `State` when its run
-    /// state cannot.
-    ///
-    /// # Cancel safety
-    ///
-    /// Dropping the future loses only the answer.
-    pub async fn usage(&self) -> Result<RunUsage, ChargeError> {
-        let limits = self.shared.charging.applied().await?;
-        Ok(self
-            .state
-            .read(move |connection| report::usage(connection, limits))
-            .await?)
-    }
-
-    /// The Politeness its own code shares for keys outside admission, and
-    /// the holder its Permits name: [`RunPoliteness::open`].
-    ///
-    /// # Errors
-    ///
-    /// As [`RunPoliteness::open`].
-    ///
-    /// # Cancel safety
-    ///
-    /// As [`RunPoliteness::open`]'s.
-    pub async fn politeness(
-        &self,
-        settings: &Resolved,
-    ) -> Result<(Politeness, Holder), PolitenessError> {
-        self.shared.politeness.open(settings).await
-    }
-
-    /// The robots.txt at `location` as its own copies hold it:
-    /// [`OwnCopies::copy_or_fetch`], never the copy a crawl shares.
-    ///
-    /// # Errors
-    ///
-    /// As [`OwnCopies::copy_or_fetch`].
-    pub async fn own_robots_txt<Fut>(
-        &self,
-        location: &url::Url,
-        fetch: Fut,
-    ) -> Result<Arc<Fetched>, NotRead>
-    where
-        Fut: Future<Output = Result<Answer, NotRead>>,
-    {
-        self.shared
-            .own_robots_txt
-            .copy_or_fetch(location, fetch)
-            .await
-    }
-
-    /// The user's known-certificates store, where its exceptions pin
-    /// (ADR 0042).
-    pub fn known_certificates(&self) -> KnownCertificates {
-        self.runs.engine.known_certificates().clone()
-    }
-
-    /// The user's Audit log, which records its security events.
-    pub fn audit_log(&self) -> AuditLog {
-        self.runs.engine.audit().clone()
-    }
-
-    /// Where a listener it opens records its refusals: the user's Audit
-    /// log (`endpoint`).
-    pub fn refusals(&self) -> Refusals {
-        self.runs.engine.refusals()
-    }
-
-    /// The person it acts for, whose partition of the user's stores it
-    /// reads: the OS user until accounts exist (ADR 0102).
-    pub fn person(&self) -> &'static str {
-        CALLER
-    }
-
-    /// Its owner's starting side, whose tasks and blocking work stop with
-    /// the Run: cancelling, waiting for and stopping the owner stay the
-    /// Runs' registry's (ADR 0145's note of 2026-11-10).
-    pub fn owner(&self) -> &TaskStarter {
-        self.identity.owner()
-    }
-
-    /// Records `entry`, one Provenance entry of the Run, such as of one of
-    /// its pages or of a request a fetch tier sent for it, as a line of its
-    /// Run trace's Provenance log (ADR 0047), masked by its `Mask` and
-    /// written by its Run trace's writer ([`run_trace::RunTrace::provenance`]).
-    ///
-    /// # Errors
-    ///
-    /// When the file cannot be opened or written.
-    ///
-    /// # Cancel safety
-    ///
-    /// Dropping the future never stops a line being written once it was
-    /// sent to the writer.
-    pub async fn provenance(&self, entry: serde_json::Value) -> std::io::Result<()> {
-        self.shared.trace.provenance(entry).await
-    }
-
-    /// Starts `future` as one of the Run's tasks, in its span.
-    pub fn spawn<F>(&self, future: F)
-    where
-        F: Future<Output = ()> + Send + 'static,
-    {
-        self.identity.spawn(future);
-    }
-
-    /// Stores `bytes` as one of the Run's page bodies:
-    /// [`RunFiles::store_body`].
-    ///
-    /// # Errors
-    ///
-    /// As [`RunFiles::store_body`].
-    ///
-    /// # Cancel safety
-    ///
-    /// As [`RunFiles::store_body`]'s.
-    pub async fn store_body(&self, bytes: bytes::Bytes) -> std::io::Result<BodyHandle> {
-        self.shared.files.store_body(bytes).await
-    }
-
-    /// Charges `amount` of `usage_kind` against every Limit that holds the
-    /// Run, as [`RunCharging::charge`] does.
-    ///
-    /// # Errors
-    ///
-    /// As [`RunCharging::charge`].
-    ///
-    /// # Cancel safety
-    ///
-    /// As [`RunCharging::charge`]'s.
-    pub async fn charge(&self, usage_kind: &str, amount: u64) -> Result<(), ChargeError> {
-        self.shared.charging.charge(usage_kind, amount).await
-    }
-
-    /// Reserves ahead an amount of `usage_kind` the Run is about to use,
-    /// under `part` of the kind, as [`RunCharging::reserve_part`] does.
-    ///
-    /// # Errors
-    ///
-    /// As [`RunCharging::reserve_part`].
-    ///
-    /// # Cancel safety
-    ///
-    /// As [`RunCharging::reserve_part`]'s.
-    pub async fn reserve_part(
-        &self,
-        usage_kind: &str,
-        part: &str,
-        currency: Option<&str>,
-        cost: impl Fn(u64) -> u64 + Send + 'static,
-        wanted: u64,
-        least: u64,
-    ) -> Result<Option<Allowance>, ChargeError> {
-        self.shared
-            .charging
-            .reserve_part(usage_kind, part, currency, cost, wanted, least)
-            .await
-    }
-
-    /// Settles `allowance` at `used` of its amount and `cost` of its
-    /// price, as [`RunCharging::settle_part`] does.
-    ///
-    /// # Errors
-    ///
-    /// As [`RunCharging::settle_part`].
-    ///
-    /// # Cancel safety
-    ///
-    /// As [`RunCharging::settle_part`]'s.
-    pub async fn settle_part(
-        &self,
-        allowance: Allowance,
-        used: u64,
-        cost: u64,
-    ) -> Result<(), ChargeError> {
-        self.shared
-            .charging
-            .settle_part(allowance, used, cost)
-            .await
     }
 }
 
@@ -2203,7 +1814,7 @@ impl Runs {
         self.limits.connection(self.connection)
     }
 
-    /// The live Run of `run_id`, as its driver holds it.
+    /// The parts of the live Run `run_id`, as its driver holds them.
     ///
     /// # Errors
     ///
@@ -2212,7 +1823,7 @@ impl Runs {
     /// # Cancel safety
     ///
     /// Dropping the future loses only the answer.
-    pub async fn live(&self, run_id: RunId) -> Result<Run, RunError> {
+    pub async fn live(&self, run_id: RunId) -> Result<RunParts, RunError> {
         let (answer, answered) = oneshot::channel();
         self.commands
             .send(Command::Live(run_id, answer))
@@ -2317,15 +1928,15 @@ impl Runs {
         let started = self.start_reported(start).await;
         match &started {
             Ok(Started::New(run)) => {
+                let run_id = run.identity.id().clone();
                 if switched.unchains() {
-                    audit.unchain(run.id().clone());
+                    audit.unchain(run_id.clone());
                 }
-                let run_id = run.id().clone();
                 let now = self.limits.clock.timestamp();
                 let reported = switched.report(&audit, &run_id, now).await;
                 if let Err(error) = reported {
                     tracing::error!(
-                        run_id = %run.id(),
+                        %run_id,
                         %error,
                         "a security control the Run switched off could not be recorded in the Audit log"
                     );
@@ -2607,7 +2218,7 @@ impl Runs {
         }
     }
 
-    /// What the Run `run_id` used, as [`Run::usage`] gives it; an ended
+    /// What the Run `run_id` used, as [`usage`] gives it; an ended
     /// Run's report's.
     ///
     /// # Errors
@@ -2620,11 +2231,15 @@ impl Runs {
     /// Dropping the future loses only the answer.
     pub async fn usage(&self, run_id: RunId) -> Result<RunUsage, RunError> {
         match self.live(run_id.clone()).await {
-            Ok(run) => run.usage().await.map_err(|error| RunError::Unavailable {
-                folder: run.folder().to_owned(),
-                run_id,
-                error: error.to_string(),
-            }),
+            Ok(run) => {
+                usage(&run.charging, &run.state)
+                    .await
+                    .map_err(|error| RunError::Unavailable {
+                        folder: run.identity.folder().to_owned(),
+                        run_id,
+                        error: error.to_string(),
+                    })
+            }
             Err(RunError::NotFound(_)) => self.ended(run_id).await.map(|report| report.usage),
             Err(error) => Err(error),
         }
@@ -3460,11 +3075,11 @@ impl Ended {
     }
 }
 
-/// What the registry keeps of a live Run; its [`Run`] goes to its end once
-/// it ends, so the end is the last to hold its writer.
+/// What the registry keeps of a live Run; its [`LiveRun`] goes to its end
+/// once it ends, so the end is the last to hold its writer.
 struct Live {
     id: RunId,
-    run: Option<Run>,
+    run: Option<LiveRun>,
     /// Lets it finish, once `run.finish` does, for its end to read: set
     /// only here (ADR 0145).
     let_finish: watch::Sender<bool>,
@@ -3778,7 +3393,7 @@ async fn applied(
 /// Records each of `changed`, the settings a resume changed, in `run`'s
 /// Run trace (ADR 0102). A line that cannot be written is logged and the
 /// resume goes on: the run file already runs the Run under the changes.
-async fn trace_changes(run: &Run, changed: &[ChangedSetting]) {
+async fn trace_changes(run: &LiveRun, changed: &[ChangedSetting]) {
     for change in changed {
         if let Err(error) = run.shared.trace.setting_changed(change).await {
             tracing::warn!(
@@ -4055,7 +3670,7 @@ impl Registry {
                 .run
                 .as_ref()
                 .filter(|run| !run.identity.is_stopping())?;
-            Some(((live.id.clone(), run), run.governor().weight()))
+            Some(((live.id.clone(), run), run.shared.governor.share().weight()))
         });
         let Some((run_id, run)) = last_resort_run(candidates) else {
             return;
@@ -4154,10 +3769,10 @@ impl Registry {
                 // Once per folder, whichever run epoch met it first (ADR
                 // 0122): a resume's starts empty in memory.
                 let warning = storage_low(&storage);
-                let warned = run.clone();
-                run.spawn(async move {
-                    if let Err(error) = warned.warn_once(warning).await {
-                        tracing::warn!(%error, run_id = %warned.id(), "the Run's `storage_low` warning was not kept");
+                let (warnings, run_id) = (run.shared.warnings.clone(), run.identity.id().clone());
+                run.identity.spawn(async move {
+                    if let Err(error) = warnings.warn_once(warning).await {
+                        tracing::warn!(%error, %run_id, "the Run's `storage_low` warning was not kept");
                     }
                 });
             }
@@ -4265,7 +3880,7 @@ impl Registry {
             sessions: Vec::new(),
             folder: None,
         };
-        if let Err(error) = run.warn_once(warning).await {
+        if let Err(error) = run.shared.warnings.warn_once(warning).await {
             tracing::warn!(%error, %run_id, "the Run's `engine_panicked` warning was not kept");
         }
     }
@@ -4395,11 +4010,11 @@ impl Registry {
             .collect()
     }
 
-    /// The live Run `run_id`, once it has one.
-    fn live_run(&self, run_id: RunId) -> Result<Run, RunError> {
+    /// The parts of the live Run `run_id`, once it has one.
+    fn live_run(&self, run_id: RunId) -> Result<RunParts, RunError> {
         self.live
             .get(&run_id)
-            .and_then(|live| live.run.clone())
+            .and_then(|live| live.run.as_ref().map(parts))
             .ok_or(RunError::NotFound(run_id))
     }
 
@@ -4833,7 +4448,7 @@ impl Registry {
         connection: Option<ConnectionId>,
         settings: Option<RunSettings>,
         keys: Keys,
-    ) -> (Run, watch::Sender<bool>) {
+    ) -> (LiveRun, watch::Sender<bool>) {
         let folder = &self.folder(run_id);
         let epoch = state.epoch();
         let progress = self.progress(run_id, Progressing::live(epoch, Lifecycle::Running, None));
@@ -4908,7 +4523,7 @@ impl Registry {
             identity.clone(),
             state.clone(),
         );
-        let run = Run {
+        let run = LiveRun {
             shared: Arc::new(Shared {
                 stop,
                 end: RunEnd::new(
@@ -4940,14 +4555,14 @@ impl Registry {
 
     /// The process Plugins of the Run `run_id`, started as tasks of its
     /// `owner` (ADR 0145).
-    fn plugins(&self, run_id: &RunId, owner: &Arc<TaskOwner>) -> RunPlugins {
-        RunPlugins::new(
+    fn plugins(&self, run_id: &RunId, owner: &Arc<TaskOwner>) -> Arc<RunPlugins> {
+        Arc::new(RunPlugins::new(
             self.setup.engine.home(),
             self.setup.engine.places().cloned(),
             self.setup.product,
             run_id.clone(),
             (Arc::clone(owner), self.setup.engine.clock()),
-        )
+        ))
     }
 
     /// The progress of the live Run `run_id`, as `start` is, whose every
@@ -5497,12 +5112,12 @@ async fn announce_stop(events: &Events, run_id: &RunId, cause: &StopReason) {
 /// stops; one that fails is logged and the next is tried, and one onto
 /// a filesystem at the `low` storage level or worse is skipped, as the run
 /// file still holds the state (ADR 0122).
-async fn periodic_checkpoints(run: Run, interval: Duration) {
-    let clock = run.clock();
+async fn periodic_checkpoints(run: LiveRun, interval: Duration) {
+    let clock = run.identity.clock();
     loop {
         tokio::select! {
             biased;
-            () = run.cancellation().cancelled() => return,
+            () = run.owner.token().cancelled() => return,
             () = clock.sleep(interval) => {}
         }
         let low = run
@@ -5511,11 +5126,11 @@ async fn periodic_checkpoints(run: Run, interval: Duration) {
             .storage_level()
             .is_some_and(|level| level >= StorageLevel::Low);
         if low {
-            tracing::debug!(run_id = %run.id(), "a periodic Checkpoint was skipped: its filesystem is low on space");
+            tracing::debug!(run_id = %run.identity.id(), "a periodic Checkpoint was skipped: its filesystem is low on space");
             continue;
         }
-        if let Err(error) = run.runs.checkpoint(run.id().clone(), None).await {
-            tracing::warn!(%error, run_id = %run.id(), "a periodic Checkpoint was not written");
+        if let Err(error) = run.runs.checkpoint(run.identity.id().clone(), None).await {
+            tracing::warn!(%error, run_id = %run.identity.id(), "a periodic Checkpoint was not written");
             if let RunError::WriteFailed {
                 folder, message, ..
             } = &error
@@ -5526,8 +5141,8 @@ async fn periodic_checkpoints(run: Run, interval: Duration) {
                     sessions: Vec::new(),
                     folder: Some(folder.display().to_string()),
                 };
-                if let Err(error) = run.warn(warning).await {
-                    tracing::warn!(%error, run_id = %run.id(), "the warning of a failed periodic Checkpoint was not kept");
+                if let Err(error) = run.shared.warnings.warn(warning).await {
+                    tracing::warn!(%error, run_id = %run.identity.id(), "the warning of a failed periodic Checkpoint was not kept");
                 }
             }
         }
@@ -5667,8 +5282,8 @@ fn journal(
 /// it ends, by host and kind with the key each presented (ADR 0042):
 /// nothing when it reached no host through one. A failure to record is
 /// logged, and the Run ends all the same.
-async fn exceptions_used(run: &Run, clock: Clock) {
-    let used = run.secrets().exception_hosts().used().await;
+async fn exceptions_used(run: &LiveRun, clock: Clock) {
+    let used = run.shared.keys.secrets().exception_hosts().used().await;
     if used.is_empty() {
         return;
     }
@@ -5682,7 +5297,7 @@ async fn exceptions_used(run: &Run, clock: Clock) {
         actor: Actor::Engine,
         surface: None,
         layer: None,
-        run_id: Some(run.id().clone()),
+        run_id: Some(run.identity.id().clone()),
     };
     let recorded = run
         .runs
@@ -5696,7 +5311,7 @@ async fn exceptions_used(run: &Run, clock: Clock) {
         )
         .await;
     if let Err(error) = recorded {
-        tracing::warn!(run_id = %run.id(), %error, "the Audit log cannot record the certificate exceptions the Run used");
+        tracing::warn!(run_id = %run.identity.id(), %error, "the Audit log cannot record the certificate exceptions the Run used");
     }
 }
 
@@ -5751,7 +5366,7 @@ impl Recording {
     /// not record goes to the registry alone, its Run index row left as it
     /// was, as after a crash (ADR 0122).
     async fn end(self, closing: Closing) {
-        let run_id = closing.run.id().clone();
+        let run_id = closing.run.identity.id().clone();
         let ended = closing.end().await;
         let Some(report) = ended.report() else {
             if let Some(registry) = self.registry.upgrade() {
@@ -5790,8 +5405,13 @@ impl Recording {
 /// `run_state.key_reference` shows only once the Run holds its data key,
 /// when the host has answered it; before, the catalog's shows, since
 /// asking for it here would open the OS keychain (issue 2204).
-fn kept_settings(run: &Run) -> Option<Vec<ExplainedSetting>> {
-    let mut settings = run.settings()?.resolved().explain(&[], Vec::new()).settings;
+fn kept_settings(run: &LiveRun) -> Option<Vec<ExplainedSetting>> {
+    let mut settings = run
+        .identity
+        .settings()?
+        .resolved()
+        .explain(&[], Vec::new())
+        .settings;
     if run.shared.keys.holds_key()
         && let Some(known) = run.runs.engine.settings().known_host_defaults()
         && let Some(default) = settings.iter_mut().find(|explained| {
@@ -5806,7 +5426,7 @@ fn kept_settings(run: &Run) -> Option<Vec<ExplainedSetting>> {
 
 /// A Run on its way to its end.
 struct Closing {
-    run: Run,
+    run: LiveRun,
     writer: Arc<TaskOwner>,
     lock: Arc<File>,
     started_at: SystemTime,
@@ -5873,7 +5493,7 @@ impl Closing {
         let limits = run.shared.charging.give_back(&writer).await;
         exceptions_used(&run, clock).await;
         let facts = EndFacts {
-            run_id: run.id().clone(),
+            run_id: run.identity.id().clone(),
             lifecycle,
             stop_reason,
             started_at,
@@ -5887,10 +5507,10 @@ impl Closing {
             finished,
         };
         let state = run.state.clone();
-        let (run_id, folder) = (run.id().clone(), run.folder().to_owned());
+        let (run_id, folder) = (run.identity.id().clone(), run.identity.folder().to_owned());
         // The Run's values stay in the engine's masks until its report,
         // which its error and warnings may hold, is masked and kept.
-        let mask = run.secrets().mask().clone();
+        let mask = run.shared.keys.secrets().mask().clone();
         drop(run);
         let bare = report::masked(facts.bare(), mask.masks());
         let ended = state

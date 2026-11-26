@@ -68,6 +68,7 @@ pub mod pinned_download;
 pub mod plugin_gate;
 pub mod plugin_host;
 pub mod plugin_kinds;
+pub mod plugin_oci;
 pub mod plugin_store;
 pub mod politeness;
 mod product;

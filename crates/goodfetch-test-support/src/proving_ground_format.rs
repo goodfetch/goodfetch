@@ -29,8 +29,8 @@ pub use interface::{
     ProxyCredentials, ROUTES, ReceivedRequests, RequestTiming, Routes, ServeLine, ToolStatus,
 };
 pub(crate) use interface::{
-    BASE32_ALPHABET, CANARY_MARK, ENDPOINT_TOKEN_CANARY, SESSION_COOKIE_CANARY, TOTP_CANARY_DRAWN,
-    TOTP_CANARY_MARK, TYPED_PASSWORD_CANARY,
+    BASE32_ALPHABET, CANARY_MARK, ENDPOINT_TOKEN_CANARY, HEADER_VALUE_CANARY,
+    SESSION_COOKIE_CANARY, TOTP_CANARY_DRAWN, TOTP_CANARY_MARK, TYPED_PASSWORD_CANARY,
 };
 
 /// What a test submits to `POST /oracle` for one task: the tool's status

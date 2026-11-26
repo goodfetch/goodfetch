@@ -67,11 +67,11 @@
 # a Run another program started, by its Run ID, with no round trip (ADR 0102).
 # `key_value_store` is a Run's Key-value store, reached with no round trip,
 # whose values cross the wire through `schema` (ADRs 0081 and 0103).
+# `schedules` is a Connection's Schedules, reached with no round trip, and
+# the Schedule handles they answer (spec 589).
 # `testing` is the testing kit's shared part (ADR 0105): the options a
 # Product's test engine starts with, the settings it isolates it with, and
 # what every Product's test engine is.
-# `schedules` is a Connection's Schedules and the answer `create` gives,
-# the blocking face's with its own handle (spec 589).
 [modules]
 ai_work = ["error"]
 answer = []
@@ -82,21 +82,21 @@ connect_timeout = ["call", "error"]
 connection = ["call", "call_bounds", "connect_timeout", "error", "event_stream", "file_saving", "handler", "listener_queue", "logging", "published", "raw_call", "relink", "rpc", "sync", "trace_context", "transport"]
 connection_type = ["call", "error", "handlerless", "raw_call", "run", "run_view", "schedules"]
 error = []
-event_stream = ["error", "published", "rpc", "sync", "trace_context"]
+event_stream = ["error", "logging", "published", "rpc", "sync", "trace_context"]
 field_values = ["answer", "call", "error"]
 file_saving = ["error"]
 generated = ["answer", "call", "event_stream", "host", "markers", "response", "settings"]
-handler = ["error", "line", "opening_process", "sync", "write_queue"]
+handler = ["error", "line", "logging", "opening_process", "sync", "write_queue"]
 handlerless = ["call", "connection", "error", "generated", "limits", "markers", "settings"]
 key_value_store = ["call", "connection", "error", "generated", "host", "markers", "schema"]
-host =["call","connection", "error", "event_stream", "published", "raw_call", "sync"]
+host =["call", "connection", "error", "event_stream", "logging", "published", "raw_call", "sync"]
 limits = []
 line = []
 listener_queue = ["error"]
 logging = ["sync"]
 markers = ["logging", "sync"]
 opening_process = ["error"]
-published = ["error", "listener_queue", "rpc", "sync"]
+published = ["error", "listener_queue", "logging", "rpc", "sync"]
 raw_call = ["call", "error", "rpc"]
 relink = ["logging", "sync", "transport"]
 response = ["call", "connection", "error", "host"]
@@ -109,5 +109,5 @@ settings = ["call", "error", "markers"]
 sync = []
 testing = ["error", "settings"]
 trace_context = []
-transport = []
+transport = ["logging"]
 write_queue = ["sync"]

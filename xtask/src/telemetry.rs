@@ -15,12 +15,10 @@ use anyhow::{Context as _, Result};
 use serde::Deserialize;
 
 use crate::check::Finding;
+use crate::tree::CATALOG;
 
 /// The pnpm workspace's lockfile, the one in YAML.
 const PNPM_LOCKFILE: &str = "pnpm-lock.yaml";
-
-/// The settings catalog `xtask codegen` writes.
-const CATALOG: &str = "crates/goodfetch-protocol/generated/catalog.json";
 
 /// Words no setting key may hold: each names a way to report use.
 const TELEMETRY_WORDS: [&str; 6] = [

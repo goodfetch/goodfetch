@@ -4,12 +4,17 @@
 // or one it made when none was, `schedules.list` lists both,
 // `schedules.get` answers the handle of a held ID and fails an unknown one
 // with `schedule_not_found`, and a handle's `info()` reads what the store
-// holds and its `delete()` answers whether it deleted it.
+// holds and its `delete()` answers whether it deleted it. The store is the
+// major's Daemon's, to which the Attached engine forwards each call.
 import { Collie } from "@goodfetch/collie";
 import { failure, test } from "@goodfetch/test-support";
 import { describe, expect } from "vitest";
 
 describe("a Connection's Schedules on an Attached engine", () => {
+  // The store is the major's Daemon's: the Attached engine forwards each
+  // `schedule.*` call to the Daemon the setup starts, and stops.
+  test.override("withDaemon", true);
+
   test(
     "creates, lists, reads and deletes a Schedule, and fails an unknown ID with schedule_not_found",
     {

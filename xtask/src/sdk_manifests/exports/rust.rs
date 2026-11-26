@@ -24,27 +24,20 @@
 //!
 //! Each member carries its `///` lines as its doc text, and the marker
 //! `deprecated` when it carries `#[deprecated]`.
-#![expect(
-    clippy::disallowed_methods,
-    reason = "xtask is synchronous; the blocking-fs ban targets async crates (STYLE.md)"
-)]
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
-use anyhow::{Context as _, Result, bail};
-use syn::punctuated::Punctuated;
+use anyhow::Result;
 
-use super::Exported;
+use super::{DEPRECATED, Exported};
+use crate::rust_source::{self, Folders, parse, test_builds_only};
+use crate::sdk_manifests::CRATE;
 
-/// The receiver of an item at the crate's root.
-const CRATE: &str = "(crate)";
 /// The module the generator writes into, at any depth.
 const GENERATED: &str = "generated";
 /// How many `use`s and globs a name may go through to what it names.
 const HOPS: usize = 16;
-/// The attribute, and the marker, of a deprecated item.
-const DEPRECATED: &str = "deprecated";
 
 /// What a name names in a module.
 #[derive(Clone, PartialEq, Eq)]
@@ -124,10 +117,8 @@ struct Reached {
 struct Source<'a> {
     /// The file holding it.
     file: &'a Path,
-    /// The folder its child modules' files sit in.
-    children: PathBuf,
-    /// The folder a `#[path]` on one of its child modules is relative to.
-    path_base: PathBuf,
+    /// Where its child modules find their files.
+    folders: Folders,
 }
 
 struct Crate {
@@ -143,23 +134,16 @@ pub(super) fn exports(folder: &Path, name: &str) -> Result<Vec<Exported>> {
     let lib = source.join("lib.rs");
     let file = parse(&lib)?;
     let mut read = Crate {
-        source: source.clone(),
+        source,
         modules: Vec::new(),
         impls: Vec::new(),
     };
     let at = Source {
         file: &lib,
-        children: source.clone(),
-        path_base: source,
+        folders: Folders::root(&lib),
     };
     read.module(Vec::new(), None, false, &file.items, &at)?;
     Ok(read.exported(name))
-}
-
-fn parse(path: &Path) -> Result<syn::File> {
-    let text =
-        std::fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?;
-    syn::parse_file(&text).with_context(|| format!("parsing {}", path.display()))
 }
 
 fn is_public(visibility: &syn::Visibility) -> bool {
@@ -174,39 +158,6 @@ fn hidden(attributes: &[syn::Attribute]) -> bool {
                 .parse_args::<syn::Path>()
                 .is_ok_and(|path| path.is_ident("hidden"))
     })
-}
-
-/// Whether `attributes` hold a `#[cfg]` only a test build meets, as
-/// `cfg(test)` or `cfg(all(test, …))`.
-fn test_only(attributes: &[syn::Attribute]) -> bool {
-    attributes.iter().any(|attribute| {
-        attribute.path().is_ident("cfg")
-            && attribute
-                .parse_args::<syn::Meta>()
-                .is_ok_and(|predicate| needs_test(&predicate))
-    })
-}
-
-/// Whether the `cfg` predicate holds only when `test` does.
-fn needs_test(predicate: &syn::Meta) -> bool {
-    match predicate {
-        syn::Meta::Path(path) => path.is_ident("test"),
-        syn::Meta::List(list) => {
-            let Ok(nested) =
-                list.parse_args_with(Punctuated::<syn::Meta, syn::Token![,]>::parse_terminated)
-            else {
-                return false;
-            };
-            if list.path.is_ident("all") {
-                nested.iter().any(needs_test)
-            } else if list.path.is_ident("any") {
-                !nested.is_empty() && nested.iter().all(needs_test)
-            } else {
-                false
-            }
-        }
-        syn::Meta::NameValue(_) => false,
-    }
 }
 
 /// The doc text and markers `attributes` hold.
@@ -239,7 +190,7 @@ fn doc(attributes: &[syn::Attribute]) -> Doc {
 
 /// Whether what `attributes` mark is no one's: test-only or hidden.
 fn left_out(attributes: &[syn::Attribute]) -> bool {
-    test_only(attributes) || hidden(attributes)
+    test_builds_only(attributes) || hidden(attributes)
 }
 
 /// Each name a `use` tree brings in, with the path it names; a glob's name
@@ -300,7 +251,7 @@ impl Crate {
         });
         for item in items {
             match item {
-                syn::Item::Use(used) if !test_only(&used.attrs) => {
+                syn::Item::Use(used) if !test_builds_only(&used.attrs) => {
                     let public = is_public(&used.vis) && !hidden(&used.attrs);
                     let mut found = Vec::new();
                     use_tree(&used.tree, &mut Vec::new(), &mut found);
@@ -316,7 +267,7 @@ impl Crate {
                         }
                     }
                 }
-                syn::Item::Mod(child) if !test_only(&child.attrs) => {
+                syn::Item::Mod(child) if !test_builds_only(&child.attrs) => {
                     let public = is_public(&child.vis) && !hidden(&child.attrs);
                     let child_index = self.child(index, child, source)?;
                     self.modules[index]
@@ -324,7 +275,7 @@ impl Crate {
                         .insert(child.ident.to_string(), (child_index, public));
                 }
                 syn::Item::Impl(inherent) => self.impls.extend(inherent_impl(index, inherent)),
-                other if !test_only(item_attributes(other)) => {
+                other if !test_builds_only(item_attributes(other)) => {
                     if let Some((name, declared)) = declared(other) {
                         self.modules[index].items.insert(name, declared);
                     }
@@ -343,26 +294,24 @@ impl Crate {
         path.push(name.clone());
         let generated = self.modules[parent].generated || name == GENERATED;
         if let Some((_, items)) = &child.content {
-            let folder = source.children.join(&name);
             let inline = Source {
                 file: source.file,
-                children: folder.clone(),
-                path_base: folder,
+                folders: source.folders.inline(&name),
             };
             return self.module(path, Some(parent), generated, items, &inline);
         }
-        let (file, children) = module_file(child, source)?;
+        let found = rust_source::module_file(child, source.file, &source.folders)?;
         let generated = generated
-            || file
+            || found
+                .path
                 .strip_prefix(&self.source)
-                .unwrap_or(&file)
+                .unwrap_or(&found.path)
                 .components()
                 .any(|component| component.as_os_str() == GENERATED);
-        let parsed = parse(&file)?;
+        let parsed = parse(&found.path)?;
         let own = Source {
-            file: &file,
-            path_base: file.parent().map(Path::to_path_buf).unwrap_or_default(),
-            children,
+            file: &found.path,
+            folders: found.folders,
         };
         self.module(path, Some(parent), generated, &parsed.items, &own)
     }
@@ -594,60 +543,6 @@ fn inherent_impl(module: usize, inherent: &syn::ItemImpl) -> Option<Impl> {
             .map(|segment| segment.ident.to_string())
             .collect(),
         members,
-    })
-}
-
-/// The file of the module `child` declared without a body in `source`, and
-/// the folder its own modules' files sit in. A `#[path]` is relative to
-/// `source`'s path base, and the file it names holds its modules' files
-/// beside it, as `mod.rs` does; otherwise the file sits in `source`'s
-/// children folder.
-fn module_file(child: &syn::ItemMod, source: &Source<'_>) -> Result<(PathBuf, PathBuf)> {
-    let name = child.ident.to_string();
-    let beside = |found: &Path| found.parent().map(Path::to_path_buf).unwrap_or_default();
-    let missing = |at: &Path| {
-        format!(
-            "{}: module `{name}` has no file at {}",
-            source.file.display(),
-            at.display()
-        )
-    };
-    if let Some(named) = path_attribute(&child.attrs) {
-        let found = source.path_base.join(named);
-        if !found.is_file() {
-            bail!(missing(&found));
-        }
-        let folder = beside(&found);
-        return Ok((found, folder));
-    }
-    let flat = source.children.join(format!("{name}.rs"));
-    if flat.is_file() {
-        return Ok((flat, source.children.join(&name)));
-    }
-    let nested = source.children.join(&name).join("mod.rs");
-    if nested.is_file() {
-        let folder = beside(&nested);
-        return Ok((nested, folder));
-    }
-    bail!(missing(&flat))
-}
-
-/// The path a `#[path = "…"]` attribute names.
-fn path_attribute(attributes: &[syn::Attribute]) -> Option<String> {
-    attributes.iter().find_map(|attribute| {
-        let syn::Meta::NameValue(pair) = &attribute.meta else {
-            return None;
-        };
-        if !pair.path.is_ident("path") {
-            return None;
-        }
-        match &pair.value {
-            syn::Expr::Lit(syn::ExprLit {
-                lit: syn::Lit::Str(path),
-                ..
-            }) => Some(path.value()),
-            _ => None,
-        }
     })
 }
 

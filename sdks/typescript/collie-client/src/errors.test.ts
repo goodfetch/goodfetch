@@ -31,15 +31,28 @@ interface CatalogCode {
   readonly name: string;
   readonly group: ErrorGroup;
   readonly retryable: boolean;
+  readonly json_rpc_class: number;
 }
 
-// oxlint-disable-next-line typescript/no-unsafe-type-assertion -- the committed catalog file lists each Error code with its group and retryable flag.
-const catalog = JSON.parse(
-  readFileSync(
-    new URL("../../../../crates/goodfetch-protocol/generated/collie.json", import.meta.url),
-    "utf8",
-  ),
-) as { readonly error_codes: readonly CatalogCode[] };
+/** The Error codes of the committed catalog file of `product`. */
+function catalogOf(product: "collie" | "foxhound"): {
+  readonly error_codes: readonly CatalogCode[];
+} {
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- the committed catalog file lists each Error code with its group, wire class and retryable flag.
+  return JSON.parse(
+    readFileSync(
+      new URL(`../../../../crates/goodfetch-protocol/generated/${product}.json`, import.meta.url),
+      "utf8",
+    ),
+  ) as { readonly error_codes: readonly CatalogCode[] };
+}
+
+const catalog = catalogOf("collie");
+const collieCodes = new Set(catalog.error_codes.map(({ name }) => name));
+/** The Error codes only Foxhound carries (ADR 0095). */
+const foxhoundOnlyCodes = catalogOf("foxhound").error_codes.filter(
+  ({ name }) => !collieCodes.has(name),
+);
 
 /** The JSON-RPC error of a `setting_invalid` refusal carrying every common field. */
 const refusal = {
@@ -122,6 +135,38 @@ describe("errorOfReply", () => {
       retryable: true,
     });
   });
+
+  // ADRs 0079 and 0095: a program written for Collie that meets a Foxhound
+  // engine raises each code only Foxhound carries in its group's class, with
+  // the code and retryable flag the engine sent.
+  test(
+    "raises each code only Foxhound carries in its group's class, keeping its code and flag",
+    { tags: ["story:11-1143"] },
+    () => {
+      const raised = foxhoundOnlyCodes.map(({ name, group, retryable, json_rpc_class }) => {
+        const error = errorOfReply(
+          { code: json_rpc_class, message: `failed with ${name}`, data: { code: name, retryable } },
+          collieErrorClasses,
+        );
+        return {
+          isGroupClass: error instanceof errorGroupClasses[group],
+          code: error.code,
+          group: error.group,
+          retryable: error.retryable,
+        };
+      });
+
+      expect(foxhoundOnlyCodes).not.toEqual([]);
+      expect(raised).toEqual(
+        foxhoundOnlyCodes.map(({ name, group, retryable }) => ({
+          isGroupClass: true,
+          code: name,
+          group,
+          retryable,
+        })),
+      );
+    },
+  );
 
   test(
     "raises the code's class with the fields every error carries, leaving the code's own details",

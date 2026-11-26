@@ -377,11 +377,14 @@ mod tests {
     }
 
     /// Collie's operations, in the catalog's order.
-    const COLLIE: [&str; 99] = [
+    const COLLIE: [&str; 102] = [
         "connection.set_log_level",
         "daemon.status",
         "daemon.stop",
         "daemon.health",
+        "cache.stats",
+        "cache.clear",
+        "cache.verify",
         "certs.list",
         "certs.accept",
         "certs.forget",

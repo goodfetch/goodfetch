@@ -327,7 +327,7 @@ fn the_suite_runs_unchanged_against_collies_attached_engine_and_daemon(
 }
 
 /// The fetch suite's cases, in their order.
-const FETCH_CASES: [&str; 23] = [
+const FETCH_CASES: [&str; 28] = [
     "a-request-fetched-over-http-hands-its-handler-the-document-on-a-page",
     "a-cut-body-fails-its-attempt-with-response-truncated-and-never-reaches-the-handler",
     "a-body-its-connections-close-delimits-reaches-the-handler-whole",
@@ -351,6 +351,11 @@ const FETCH_CASES: [&str; 23] = [
     "past-cache-max-size-the-least-recently-used-entries-leave-and-the-bodies-kept-stay-within-it",
     "an-entry-older-than-cache-max-age-ceiling-is-served-in-no-mode",
     "at-the-low-storage-level-nothing-new-is-stored-and-what-is-held-is-served",
+    "at-the-critical-storage-level-no-run-starts-and-nothing-held-is-lost",
+    "discarding-a-run-deletes-its-cache-entries-and-no-other-runs",
+    "cache-verify-reports-an-entry-whose-body-was-tampered-with",
+    "cache-clear-of-a-partition-leaves-the-other-entries-served",
+    "cache-clear-of-a-domain-leaves-the-other-domains-entries-served",
 ];
 
 /// The fetch suite against Foxhound's Attached engine: a crawl request
@@ -369,10 +374,15 @@ const FETCH_CASES: [&str; 23] = [
 /// `off`, every request reaches the site. Under `replay` a `POST` is served
 /// again to the same JSON or form body in another order. Past
 /// `cache.max_size` the least recently used entries leave, past
-/// `cache.max_age_ceiling` an entry is served in no mode, and at the `low`
-/// storage level nothing new is stored while what is held is served.
+/// `cache.max_age_ceiling` an entry is served in no mode, at the `low`
+/// storage level nothing new is stored under `revalidate` or `replay`
+/// while what is held is served, and at `critical` no Run starts and
+/// what is held is served under `replay` once the level clears. A
+/// discarded Run's entries leave and no other Run's, `cache.verify` lists
+/// an entry whose body file was changed, and `cache.clear` of a partition
+/// or a domain deletes only what its filters keep.
 ///
-/// Covers: story:5-124, story:5-125, story:5-126, story:5-127, story:5-128, story:6-307, story:6-36, story:6-37, story:6-38, story:6-42, story:6-43
+/// Covers: story:5-124, story:5-125, story:5-126, story:5-127, story:5-128, story:6-307, story:6-36, story:6-37, story:6-38, story:6-42, story:6-43, story:6-44
 #[test]
 fn the_fetch_suite_is_proved_against_foxhounds_attached_engine() {
     let env = TestEnv::new();

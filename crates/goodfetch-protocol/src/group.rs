@@ -255,16 +255,19 @@ pub struct StoredGroup {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(extend("arrived_in" = "0.1"))]
     pub authority: Option<StoredAuthority>,
-    /// The highest lead epoch the Daemon has recorded.
+    /// The highest lead epoch the Daemon has recorded; none until it forms
+    /// or joins a group.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(extend("arrived_in" = "0.1"))]
-    pub lead_epoch: LeadEpoch,
+    pub lead_epoch: Option<LeadEpoch>,
     /// The join tokens minted and not yet redeemed, each by its SHA-256.
     #[schemars(extend("arrived_in" = "0.1"))]
     pub join_tokens: Vec<StoredJoinToken>,
 }
 
-/// The group's certificate authority, as its `authority` row holds it.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+/// The group's certificate authority, as its `authority` row holds it. Its
+/// `Debug` leaves the private key out.
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct StoredAuthority {
     /// Its certificate's common name.
     #[schemars(extend("arrived_in" = "0.1"))]
@@ -278,6 +281,18 @@ pub struct StoredAuthority {
     /// How many revocation lists it has signed, the last one's number.
     #[schemars(extend("arrived_in" = "0.1"))]
     pub lists_issued: u64,
+}
+
+impl std::fmt::Debug for StoredAuthority {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("StoredAuthority")
+            .field("name", &self.name)
+            .field("key", &"[REDACTED]")
+            .field("certificate", &self.certificate)
+            .field("lists_issued", &self.lists_issued)
+            .finish()
+    }
 }
 
 /// A join token, as its `join_tokens` row holds it.

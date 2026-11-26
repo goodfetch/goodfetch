@@ -32,27 +32,37 @@ fn group_init_forms_one_group_at_lead_epoch_one_and_refuses_a_second() {
     assert_eq!(again["error"]["data"]["code"], json!("group_exists"));
 }
 
-/// Covers: operation:group.token, error:not_lead_daemon
+/// Covers: error:not_lead_daemon
 #[test]
-fn group_token_is_minted_only_once_the_group_is_formed() {
+fn group_token_is_refused_before_a_group_is_formed() {
     let env = TestEnv::new();
     let engine = engine_with(Product::Collie, Some(crate::group::contribution()));
 
-    let (refused, formed, first, second) = attached_on(&engine, &env, |mut client| async move {
+    let refused = attached_on(&engine, &env, |mut client| async move {
         opened(&mut client).await;
-        let refused = called(&mut client, 1, "group.token").await;
-        let formed = called(&mut client, 2, "group.init").await;
-        let first = called(&mut client, 3, "group.token").await;
-        let second = called(&mut client, 4, "group.token").await;
-        (refused, formed, first, second)
+        called(&mut client, 1, "group.token").await
     });
 
     assert_eq!(refused["error"]["data"]["code"], json!("not_lead_daemon"));
-    let minted = &first["result"];
+}
+
+/// Covers: operation:group.token
+#[test]
+fn group_token_mints_a_thirty_minute_token_for_the_groups_authority() {
+    let env = TestEnv::new();
+    let engine = engine_with(Product::Collie, Some(crate::group::contribution()));
+
+    let (formed, minted) = attached_on(&engine, &env, |mut client| async move {
+        opened(&mut client).await;
+        let formed = called(&mut client, 1, "group.init").await;
+        let minted = called(&mut client, 2, "group.token").await;
+        (formed, minted)
+    });
+
+    let minted = &minted["result"];
     let token = minted["token"].as_str().unwrap();
     assert_eq!(token.len(), 64);
     assert!(token.bytes().all(|byte| byte.is_ascii_hexdigit()));
-    assert_ne!(minted["token"], second["result"]["token"]);
     assert_eq!(
         minted["expires_at"],
         json!(point_in_time::to_rfc3339(env.start_time() + Duration::from_mins(30)).unwrap())

@@ -67,8 +67,9 @@ pub(crate) static STORE: UserStoreKind = UserStoreKind::new(
     "group store",
 );
 
-/// Forms the group around `authority`, at lead epoch 1, unless the store
-/// keeps an authority already: the lead epoch it formed it at, or none.
+/// Forms the group around `authority`, at lead epoch 1, unless this Daemon
+/// is in a group already, formed or joined, which its recorded lead epoch
+/// shows: the lead epoch it formed it at, or none.
 ///
 /// # Errors
 ///
@@ -79,7 +80,10 @@ pub(crate) async fn form(
 ) -> Result<Option<LeadEpoch>, UserStoreError> {
     store
         .write(move |connection| {
-            if kept_authority(connection)?.is_some() {
+            let in_a_group = connection
+                .prepare_cached("SELECT 1 FROM lead_epoch")?
+                .exists([])?;
+            if in_a_group {
                 return Ok(None);
             }
             connection
@@ -95,10 +99,7 @@ pub(crate) async fn form(
                 ])?;
             let first = LeadEpoch::new(1);
             connection
-                .prepare_cached(
-                    "INSERT INTO lead_epoch (only, highest) VALUES (1, ?1)
-                     ON CONFLICT (only) DO UPDATE SET highest = max(highest, ?1)",
-                )?
+                .prepare_cached("INSERT INTO lead_epoch (only, highest) VALUES (1, ?1)")?
                 .execute([stored(first.get())?])?;
             Ok(Some(first))
         })

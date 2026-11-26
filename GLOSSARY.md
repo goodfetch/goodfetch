@@ -100,6 +100,10 @@ _Avoid_: member (alone), node, worker, replica
 A short-lived, single-use secret the Lead Daemon mints, which a Daemon presents to join a Daemon group and have its Group member certificate signed.
 _Avoid_: bootstrap token, invite
 
+**Group store**:
+The file of a Group member that holds the highest Lead epoch it has recorded and, on the Lead Daemon, the group's certificate authority and the digest of each Join token not yet redeemed, never a Join token itself.
+_Avoid_: cluster state, group database
+
 **Group backup**:
 A consistent copy of a Lead Daemon's stores from which another Group member can become the Lead Daemon.
 _Avoid_: snapshot, Checkpoint (which is a run's)

@@ -33,7 +33,7 @@ impl JoinToken {
     /// # Errors
     ///
     /// When the OS generator gives nothing.
-    pub fn mint(now: SystemTime) -> Result<Self, getrandom::Error> {
+    pub(crate) fn mint(now: SystemTime) -> Result<Self, getrandom::Error> {
         Ok(Self {
             token: SecretString::from(new_token()?),
             expires: now + JOIN_TOKEN_LIFETIME,
@@ -42,7 +42,7 @@ impl JoinToken {
 
     /// Its SHA-256 in lowercase hex, which the group store keeps in its
     /// place.
-    pub fn digest(&self) -> String {
+    pub(crate) fn digest(&self) -> String {
         digest(self.token.expose_secret())
     }
 }

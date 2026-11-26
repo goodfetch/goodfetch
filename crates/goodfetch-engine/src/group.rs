@@ -27,10 +27,11 @@ mod operations;
 mod peer_tls;
 mod store;
 
+pub(crate) use authority::KeptAuthority;
 pub use authority::{
     AUTHORITY_LIFETIME, AuthorityError, CERTIFICATE_LIFETIME, GroupAuthority,
     GroupMemberCertificate, GroupMemberKey, GroupMemberName, GroupMemberNameInvalid,
-    GroupMemberPublicKey, GroupMemberPublicKeyInvalid, KeptAuthority, RevocationList,
+    GroupMemberPublicKey, GroupMemberPublicKeyInvalid, RevocationList,
 };
 pub use join_tokens::{JOIN_TOKEN_LIFETIME, JoinToken, JoinTokenRefused};
 pub use operations::contribution;

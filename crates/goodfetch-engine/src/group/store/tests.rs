@@ -1,8 +1,17 @@
+//! The group store through its interface, on real SQLite in the test's
+//! folder: a group is formed once, a join token works once and expires, and
+//! no join token reaches the disk, only its digest.
+#![expect(
+    clippy::disallowed_methods,
+    reason = "a test reads the store's files as bytes; on no Shared path (ADR 0140)"
+)]
+
 use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 
 use goodfetch_protocol::group::LeadEpoch;
 use goodfetch_test_support::{TestEnv, runtime};
+use rstest::rstest;
 use secrecy::ExposeSecret;
 
 use super::{STORE, authority, form, record_token, redeem};
@@ -172,27 +181,34 @@ fn each_minted_token_is_its_own() {
     });
 }
 
-#[test]
-fn the_store_keeps_a_tokens_digest_never_the_token() {
+/// A canary: every file of the store, its WAL included, holds a join
+/// token's digest and never the token.
+#[rstest]
+#[case::kept_open(false)]
+#[case::closed(true)]
+fn no_join_token_reaches_the_disk(#[case] closed: bool) {
     let env = TestEnv::new();
     let store = store(&env);
-    runtime().block_on(async {
+    let minted = runtime().block_on(async {
         formed(&store).await;
-        let minted = recorded(&store).await;
-
-        let kept: Vec<String> = store
-            .read(Vec::new(), |connection| {
-                connection
-                    .prepare("SELECT digest FROM join_tokens")?
-                    .query_map([], |row| row.get(0))?
-                    .collect()
-            })
-            .await
-            .unwrap();
-
-        assert_eq!(kept, vec![minted.digest()]);
-        assert_ne!(kept[0], minted.token.expose_secret());
+        recorded(&store).await
     });
+    if closed {
+        drop(store);
+    }
+
+    let mut bytes = Vec::new();
+    for entry in std::fs::read_dir(env.home().join("0.1")).unwrap() {
+        bytes.extend(std::fs::read(entry.unwrap().path()).unwrap());
+    }
+
+    let holds = |needle: &str| {
+        bytes
+            .windows(needle.len())
+            .any(|window| window == needle.as_bytes())
+    };
+    assert!(!holds(minted.token.expose_secret()), "the token is on disk");
+    assert!(holds(&minted.digest()));
 }
 
 #[test]

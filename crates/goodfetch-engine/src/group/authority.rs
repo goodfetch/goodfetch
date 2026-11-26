@@ -218,16 +218,16 @@ pub struct GroupAuthority {
 /// What the Lead Daemon keeps of the group's certificate authority, from
 /// which [`GroupAuthority::restore`] makes it again.
 #[derive(Debug)]
-pub struct KeptAuthority {
+pub(crate) struct KeptAuthority {
     /// Its certificate's common name, which names it as the issuer of what
     /// it signs.
-    pub name: String,
+    pub(crate) name: String,
     /// Its private key, PKCS #8.
-    pub key: PrivatePkcs8KeyDer<'static>,
+    pub(crate) key: PrivatePkcs8KeyDer<'static>,
     /// Its certificate.
-    pub certificate: CertificateDer<'static>,
+    pub(crate) certificate: CertificateDer<'static>,
     /// The number of the last revocation list it issued.
-    pub lists_issued: u64,
+    pub(crate) lists_issued: u64,
 }
 
 impl std::fmt::Debug for GroupAuthority {
@@ -272,7 +272,7 @@ impl GroupAuthority {
     ///
     /// [`AuthorityError::Certificate`] when the kept key is no key rcgen
     /// reads.
-    pub fn restore(kept: KeptAuthority) -> Result<Self, AuthorityError> {
+    pub(crate) fn restore(kept: KeptAuthority) -> Result<Self, AuthorityError> {
         let key = KeyPair::try_from(&kept.key)?;
         Ok(Self {
             issuer: Issuer::new(issuer_params(&kept.name), key),
@@ -283,7 +283,7 @@ impl GroupAuthority {
     }
 
     /// What the Lead Daemon keeps of it.
-    pub fn kept(&self) -> KeptAuthority {
+    pub(crate) fn kept(&self) -> KeptAuthority {
         KeptAuthority {
             name: self.name.clone(),
             key: PrivatePkcs8KeyDer::from(self.issuer.key().serialize_der()),
@@ -300,7 +300,7 @@ impl GroupAuthority {
     /// The SHA-256 of its public key, which a Daemon that joins pins
     /// before it trusts the certificate the Lead Daemon shows, as
     /// `kubeadm join` pins its cluster's CA.
-    pub fn key_hash(&self) -> KeyHash {
+    pub(crate) fn key_hash(&self) -> KeyHash {
         KeyHash::of_public_key(&self.issuer.key().subject_public_key_info())
     }
 

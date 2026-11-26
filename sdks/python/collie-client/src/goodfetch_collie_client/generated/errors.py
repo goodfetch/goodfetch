@@ -81,6 +81,14 @@ class ArtifactUnavailableOfflineError(RefusedError):
         self.typed_details = details_of(ArtifactUnavailableOfflineDetails, self.details)
 
 
+class AuthorityKeyMismatchError(RefusedError):
+    """The Daemon at the Lead Daemon's address presented no certificate authority whose public key has the SHA-256 that `group join` pins, so the Daemon sent it nothing: the address leads elsewhere, or the key was copied wrong. Take the key `group token` answers on the Lead Daemon."""
+
+    def __init__(self, message: str, **fields: Unpack[ErrorFields]) -> None:
+        """Takes the message the engine rendered, and what it carries."""
+        super().__init__(message, code="authority_key_mismatch", group="refused", retryable=False, **fields)
+
+
 class BlockedError(PageError):
     """The site refused the document a navigation reached with a Block cause the engine cannot get past, such as a rate limit, an IP block or a challenge: raised by the call that waited for that navigation, or else by the page's next call. The Session stays open with its cookies, never replaced, and nothing waits on the site's `Retry-After`: the program decides whether to wait, open another Session or pause for a person. The details name the cause, the URL, the status and `retry_after`, the time the site asked for or `null`."""
 
@@ -565,6 +573,22 @@ class GroupExistsError(RefusedError):
         super().__init__(message, code="group_exists", group="refused", retryable=False, **fields)
 
 
+class GroupLeadUnreachableError(UnavailableError):
+    """Nothing answered at the Lead Daemon's peer address, or the peer link closed before its answer: check the address and that the Lead Daemon runs, then try again."""
+
+    def __init__(self, message: str, **fields: Unpack[ErrorFields]) -> None:
+        """Takes the message the engine rendered, and what it carries."""
+        super().__init__(message, code="group_lead_unreachable", group="unavailable", retryable=True, **fields)
+
+
+class GroupMemberExistsError(RefusedError):
+    """The Daemon group has a Group member of this name already, so the Daemon joins under another. The join token stays valid for it."""
+
+    def __init__(self, message: str, **fields: Unpack[ErrorFields]) -> None:
+        """Takes the message the engine rendered, and what it carries."""
+        super().__init__(message, code="group_member_exists", group="refused", retryable=False, **fields)
+
+
 class HeaderValueInvalidError(ProgramError):
     """A header value the engine would send holds a CR, an LF or a NUL, which could end the header and start another, so it is refused before it reaches the wire or the browser. The details name the header and the character, never the value. Remove the character from the value."""
 
@@ -587,6 +611,14 @@ class HookFailedError(ProgramError):
         """Takes the message the engine rendered, and what it carries."""
         super().__init__(message, code="hook_failed", group="program", retryable=True, **fields)
         self.typed_details = details_of(HookFailedDetails, self.details)
+
+
+class JoinTokenRefusedError(RefusedError):
+    """The Lead Daemon refused the join token: it minted no such token, or the token was used or is past its 30 minutes. Mint another with `group token` on the Lead Daemon and run `group join` with it."""
+
+    def __init__(self, message: str, **fields: Unpack[ErrorFields]) -> None:
+        """Takes the message the engine rendered, and what it carries."""
+        super().__init__(message, code="join_token_refused", group="refused", retryable=False, **fields)
 
 
 class LeadEpochStaleError(RefusedError):
@@ -1577,6 +1609,7 @@ ERROR_CLASSES: Final[Mapping[str, ErrorClass]] = {
     "address_family_unavailable": AddressFamilyUnavailableError,
     "artifact_download_failed": ArtifactDownloadFailedError,
     "artifact_unavailable_offline": ArtifactUnavailableOfflineError,
+    "authority_key_mismatch": AuthorityKeyMismatchError,
     "blocked": BlockedError,
     "body_not_found": BodyNotFoundError,
     "body_unavailable": BodyUnavailableError,
@@ -1622,8 +1655,11 @@ ERROR_CLASSES: Final[Mapping[str, ErrorClass]] = {
     "file_write_failed": FileWriteFailedError,
     "format_version_unsupported": FormatVersionUnsupportedError,
     "group_exists": GroupExistsError,
+    "group_lead_unreachable": GroupLeadUnreachableError,
+    "group_member_exists": GroupMemberExistsError,
     "header_value_invalid": HeaderValueInvalidError,
     "hook_failed": HookFailedError,
+    "join_token_refused": JoinTokenRefusedError,
     "lead_epoch_stale": LeadEpochStaleError,
     "limit_not_understood": LimitNotUnderstoodError,
     "limit_raise_refused": LimitRaiseRefusedError,

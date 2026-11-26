@@ -456,6 +456,17 @@
       ]
     },
     {
+      "id": "command:group.join",
+      "kind": "command",
+      "area": 3,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "command:group.token",
       "kind": "command",
       "area": 3,
@@ -1225,6 +1236,17 @@
       ]
     },
     {
+      "id": "error:authority_key_mismatch",
+      "kind": "error",
+      "area": null,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "error:blocked",
       "kind": "error",
       "area": 5,
@@ -1791,6 +1813,28 @@
       ]
     },
     {
+      "id": "error:group_lead_unreachable",
+      "kind": "error",
+      "area": null,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "error:group_member_exists",
+      "kind": "error",
+      "area": null,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "error:handler_failed",
       "kind": "error",
       "area": 3,
@@ -1876,6 +1920,17 @@
       "id": "error:internal",
       "kind": "error",
       "area": 3,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "error:join_token_refused",
+      "kind": "error",
+      "area": null,
       "milestone": null,
       "status": "active",
       "products": [
@@ -4131,6 +4186,17 @@
     },
     {
       "id": "operation:group.init",
+      "kind": "operation",
+      "area": 3,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "operation:group.join",
       "kind": "operation",
       "area": 3,
       "milestone": null,

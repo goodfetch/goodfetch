@@ -3160,6 +3160,7 @@ entries = [
   "engine.info",
   "events.subscribe",
   "group.init",
+  "group.join",
   "group.token",
   "needs_you.dismiss",
   "needs_you.list",

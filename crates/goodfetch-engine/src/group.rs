@@ -20,11 +20,19 @@
 //! revokes one through its revocation list. `group.init` forms the group
 //! and `group.token` mints a join token ([`contribution`]); the group store
 //! keeps both across restarts.
+//!
+//! `group.join` dials the Lead Daemon with no certificate, pinning the
+//! authority key it was given, and sends one `group.join` line, checked as
+//! a `hello` would be; the Lead Daemon redeems the token and answers the
+//! signed certificate. Forming or joining opens the Daemon's peer
+//! listener, which [`resume`] opens again when the Daemon restarts.
 
 mod authority;
+mod identity;
 mod join_tokens;
 mod operations;
 mod peer_tls;
+mod peering;
 mod store;
 
 pub(crate) use authority::KeptAuthority;
@@ -35,7 +43,8 @@ pub use authority::{
 };
 pub use join_tokens::{JOIN_TOKEN_LIFETIME, JoinToken, JoinTokenRefused};
 pub use operations::contribution;
-pub use peer_tls::{PeerIdentity, PeerTlsError, PeerTrust, accepting, connecting};
+pub use peer_tls::{PeerIdentity, PeerTlsError, PeerTrust, accepting, connecting, joining};
+pub(crate) use peering::resume;
 
 use goodfetch_protocol::catalog::{Product, ProtocolVersion};
 use goodfetch_protocol::connection::{
@@ -198,16 +207,9 @@ impl PeerLink {
                 ));
             }
         };
-        if hello.product != self.identity.product {
-            let (message, details) = self.identity.not_in_group_product(hello.product);
-            return refuse(CallError::new(&NOT_IN_PRODUCT, message, &details));
-        }
-        if let Some((message, details)) = version_refusal(hello.protocol_version) {
-            return refuse(CallError::new(
-                &PROTOCOL_VERSION_UNSUPPORTED,
-                message,
-                &details,
-            ));
+        if let Some(error) = opening_refusal(&self.identity, hello.product, hello.protocol_version)
+        {
+            return refuse(error);
         }
         if let Err(details) = epochs.admit(hello.lead_epoch) {
             return refuse(stale(&details));
@@ -277,6 +279,23 @@ fn stale(details: &LeadEpochStaleDetails) -> CallError {
         ),
         details,
     )
+}
+
+/// The refusal of a peer link's opening message, `hello` or `group.join`,
+/// from a Daemon of `product` speaking peer protocol `version`, checked in
+/// ADR 0095's order by the Daemon `identity`: its Product, then its
+/// version.
+fn opening_refusal(
+    identity: &Identity,
+    product: Product,
+    version: ProtocolVersion,
+) -> Option<CallError> {
+    if product != identity.product {
+        let (message, details) = identity.not_in_group_product(product);
+        return Some(CallError::new(&NOT_IN_PRODUCT, message, &details));
+    }
+    version_refusal(version)
+        .map(|(message, details)| CallError::new(&PROTOCOL_VERSION_UNSUPPORTED, message, &details))
 }
 
 /// The message and details of `protocol_version_unsupported` for a Group

@@ -9,7 +9,11 @@ use super::{Client, attached_on, engine_with, opened, owed, request};
 
 /// The reply to `method`, called alone on `client`.
 async fn called(client: &mut Client, id: i64, method: &str) -> Value {
-    client.send(&[request(id, method)]).await;
+    let mut call = request(id, method);
+    if method == "group.init" {
+        call["params"] = json!({ "name": "lead", "peer_address": "127.0.0.1:0" });
+    }
+    client.send(&[call]).await;
     owed(client).await.expect("the engine answers the call")
 }
 

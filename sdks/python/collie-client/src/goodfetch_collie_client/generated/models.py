@@ -1479,11 +1479,51 @@ class GovernorLevel(StrEnum):
 
 
 class GroupInitParams(BaseModel):
-    """What `group.init` takes: nothing."""
+    """
+    What `group.init` takes: the Lead Daemon's Group member name and where
+    its peer listener listens.
+    """
 
     model_config = ConfigDict(
         extra="forbid",
     )
+    name: str
+    """
+    The Lead Daemon's Group member name: one lowercase DNS label, such
+    as its host's or pod's name.
+    """
+    peer_address: str
+    """
+    The `host:port` its peer listener takes, which the Group members
+    dial; port 0 takes a free one, which the answer names.
+    """
+
+
+class GroupJoinParams(BaseModel):
+    """What `group.join` takes."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    authority_key: str
+    """
+    The SHA-256 of the group's certificate authority's public key, as
+    `group token` answered it: `sha256/` and its standard base64.
+    """
+    lead: str
+    """The `host:port` of the Lead Daemon's peer listener."""
+    name: str
+    """
+    The Group member name this Daemon takes: one lowercase DNS label,
+    such as its host's or pod's name.
+    """
+    peer_address: str
+    """
+    The `host:port` its own peer listener takes, which the other Group
+    members dial; port 0 takes a free one, which the answer names.
+    """
+    token: str
+    """The join token `group token` minted on the Lead Daemon."""
 
 
 class GroupTokenParams(BaseModel):
@@ -6799,6 +6839,26 @@ class GroupFormed(BaseModel):
     """
     lead_epoch: LeadEpoch
     """The group's lead epoch: 1, the first."""
+    peer_address: str
+    """The `host:port` the peer listener took, which `group join` dials."""
+
+
+class GroupJoined(BaseModel):
+    """What `group.join` answers."""
+
+    model_config = ConfigDict(
+        extra="allow",
+        arbitrary_types_allowed=True,
+    )
+    certificate_expires_at: PointInTime
+    """
+    When the Group member certificate the Lead Daemon signed stops
+    being valid, in RFC 3339, UTC; the Daemon renews it before.
+    """
+    lead_epoch: LeadEpoch
+    """The group's lead epoch."""
+    peer_address: str
+    """The `host:port` the peer listener took."""
 
 
 class HelloParams(BaseModel):

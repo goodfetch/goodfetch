@@ -51,6 +51,16 @@
     },
     {
       "arrived_in": "0.1",
+      "description": "The Daemon at the Lead Daemon's address presented no certificate authority whose public key has the SHA-256 that `group join` pins, so the Daemon sent it nothing: the address leads elsewhere, or the key was copied wrong. Take the key `group token` answers on the Lead Daemon.",
+      "exit_code": null,
+      "group": "refused",
+      "json_rpc_class": -32002,
+      "name": "authority_key_mismatch",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
       "description": "The site refused the document a navigation reached with a Block cause the engine cannot get past, such as a rate limit, an IP block or a challenge: raised by the call that waited for that navigation, or else by the page's next call. The Session stays open with its cookies, never replaced, and nothing waits on the site's `Retry-After`: the program decides whether to wait, open another Session or pause for a person. The details name the cause, the URL, the status and `retry_after`, the time the site asked for or `null`.",
       "details": {
         "$ref": "#/$defs/BlockedDetails"
@@ -676,6 +686,26 @@
     },
     {
       "arrived_in": "0.1",
+      "description": "Nothing answered at the Lead Daemon's peer address, or the peer link closed before its answer: check the address and that the Lead Daemon runs, then try again.",
+      "exit_code": null,
+      "group": "unavailable",
+      "json_rpc_class": -32006,
+      "name": "group_lead_unreachable",
+      "product": "collie",
+      "retryable": true
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "The Daemon group has a Group member of this name already, so the Daemon joins under another. The join token stays valid for it.",
+      "exit_code": null,
+      "group": "refused",
+      "json_rpc_class": -32002,
+      "name": "group_member_exists",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
       "description": "The program's handler failed with its own error, such as an exception; the attempt committed nothing. It is retried only when `crawl.retry.handler_failed` is on, since a bug fails the same way every time.",
       "details": {
         "$ref": "#/$defs/HandlerFailedDetails"
@@ -785,6 +815,16 @@
       "group": "internal",
       "json_rpc_class": -32007,
       "name": "internal",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "The Lead Daemon refused the join token: it minted no such token, or the token was used or is past its 30 minutes. Mint another with `group token` on the Lead Daemon and run `group join` with it.",
+      "exit_code": null,
+      "group": "refused",
+      "json_rpc_class": -32002,
+      "name": "join_token_refused",
       "product": "collie",
       "retryable": false
     },
@@ -3889,7 +3929,7 @@
       "cancellable": false,
       "class": "effect",
       "deprecated": null,
-      "description": "Forms a Daemon group with this Daemon as its Lead Daemon: makes the group's certificate authority from the OS generator, keeps it in the Daemon's group store at lead epoch 1, and answers the lead epoch and the SHA-256 of the authority's public key, which a Daemon that joins pins. A Daemon in a group already fails with `group_exists`. One store transaction: a cancel stops it only before it commits.",
+      "description": "Forms a Daemon group with this Daemon as its Lead Daemon: makes the group's certificate authority from the OS generator and signs this Daemon's own Group member certificate with it, keeps both in the Daemon's group store at lead epoch 1, listens for peer links at `peer_address`, and answers the lead epoch, the address the peer listener took and the SHA-256 of the authority's public key, which a Daemon that joins pins. A Daemon in a group already fails with `group_exists`. One store transaction: a cancel stops it only before it commits.",
       "events": [],
       "kind": "round_trip",
       "name": "group.init",
@@ -3900,6 +3940,25 @@
       "reach": "all_surfaces",
       "result": {
         "$ref": "#/$defs/GroupFormed"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": false,
+      "class": "effect",
+      "deprecated": null,
+      "description": "Joins this Daemon to the Daemon group whose Lead Daemon listens at `lead`: makes the Daemon's key from the OS generator, opens a peer link that checks the Lead Daemon's certificate authority against `authority_key`, sends the join token, the name and the public key, and keeps the certificate the Lead Daemon signs, then listens for peer links at `peer_address`. The token works once, so a refusal of anything but the token leaves it valid. A Daemon in a group already fails with `group_exists`; a token the Lead Daemon does not hold with `join_token_refused`; a name taken with `group_member_exists`; another authority with `authority_key_mismatch`; a Lead Daemon out of reach with `group_lead_unreachable`.",
+      "events": [],
+      "kind": "round_trip",
+      "name": "group.join",
+      "params": {
+        "$ref": "#/$defs/GroupJoinParams"
+      },
+      "product": "collie",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/GroupJoined"
       },
       "stability": "experimental"
     },

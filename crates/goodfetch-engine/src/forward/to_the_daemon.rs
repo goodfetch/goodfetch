@@ -87,7 +87,7 @@ impl ToTheDaemon for ThroughTheReach {
 
 /// The failure the Daemon answered, or answered before any call: its
 /// Error code with its details, or the protocol failure it names.
-fn answered_failure(failure: &ErrorObject) -> CallError {
+pub(crate) fn answered_failure(failure: &ErrorObject) -> CallError {
     let code = failure.data.code.as_str();
     if let Some(definition) = entries::error_code(code) {
         return CallError::new(definition, failure.message.clone(), &failure.data.details);

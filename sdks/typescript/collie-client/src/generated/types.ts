@@ -4828,14 +4828,82 @@ export interface GroupFormed {
    * The group's lead epoch: 1, the first.
    */
   leadEpoch: LeadEpoch;
+  /**
+   * The `host:port` the peer listener took, which `group join` dials.
+   */
+  peerAddress: string;
 }
 /**
- * What `group.init` takes: nothing.
+ * What `group.init` takes: the Lead Daemon's Group member name and where
+ * its peer listener listens.
  *
  * This interface was referenced by `CollieTypes`'s JSON-Schema
  * via the `definition` "GroupInitParams".
  */
-export interface GroupInitParams {}
+export interface GroupInitParams {
+  /**
+   * The Lead Daemon's Group member name: one lowercase DNS label, such
+   * as its host's or pod's name.
+   */
+  name: string;
+  /**
+   * The `host:port` its peer listener takes, which the Group members
+   * dial; port 0 takes a free one, which the answer names.
+   */
+  peerAddress: string;
+}
+/**
+ * What `group.join` takes.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "GroupJoinParams".
+ */
+export interface GroupJoinParams {
+  /**
+   * The SHA-256 of the group's certificate authority's public key, as
+   * `group token` answered it: `sha256/` and its standard base64.
+   */
+  authorityKey: string;
+  /**
+   * The `host:port` of the Lead Daemon's peer listener.
+   */
+  lead: string;
+  /**
+   * The Group member name this Daemon takes: one lowercase DNS label,
+   * such as its host's or pod's name.
+   */
+  name: string;
+  /**
+   * The `host:port` its own peer listener takes, which the other Group
+   * members dial; port 0 takes a free one, which the answer names.
+   */
+  peerAddress: string;
+  /**
+   * The join token `group token` minted on the Lead Daemon.
+   */
+  token: string;
+}
+/**
+ * What `group.join` answers.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "GroupJoined".
+ */
+export interface GroupJoined {
+  /**
+   * When the Group member certificate the Lead Daemon signed stops
+   * being valid, in RFC 3339, UTC; the Daemon renews it before.
+   */
+  certificateExpiresAt: PointInTime;
+  /**
+   * The group's lead epoch.
+   */
+  leadEpoch: LeadEpoch;
+  /**
+   * The `host:port` the peer listener took.
+   */
+  peerAddress: string;
+}
 /**
  * What `group.token` takes: nothing.
  *

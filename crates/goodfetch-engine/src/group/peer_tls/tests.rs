@@ -7,9 +7,10 @@ use crate::clock::Clock;
 use crate::group::authority::{
     GroupAuthority, GroupMemberCertificate, GroupMemberKey, GroupMemberName,
 };
+use crate::known_certificates::KeyHash;
 use crate::tls::certificate_failure;
 
-use super::{PeerIdentity, PeerTrust, accepting, connecting};
+use super::{PeerIdentity, PeerTrust, accepting, connecting, joining};
 
 fn signed_at() -> SystemTime {
     SystemTime::UNIX_EPOCH + Duration::from_hours(500_000)
@@ -252,4 +253,73 @@ fn a_group_member_answering_for_another_name_is_refused() {
             KnownCertificateFailure::NameMismatch
         )))
     );
+}
+
+/// A joining Daemon's handshake at [`signed_at`], pinning `pin`, with the
+/// Lead Daemon `lead`, which shows its certificate and the authority
+/// `shown` and trusts `trust`.
+fn join_hand_shake(
+    pin: KeyHash,
+    lead: &GroupMember,
+    shown: &GroupAuthority,
+    trust: &PeerTrust,
+) -> Result<(), Option<CertificateFailure>> {
+    goodfetch_test_support::runtime()
+        .block_on(async {
+            let clock = paused_at(signed_at());
+            let identity = PeerIdentity {
+                chain: vec![
+                    lead.certificate.certificate.clone(),
+                    shown.certificate().clone(),
+                ],
+                key: lead.key.private_key(),
+            };
+            let accepting = accepting(identity, trust, clock).unwrap();
+            crate::tls::tests::hand_shake(
+                joining(pin, clock),
+                accepting,
+                GroupMemberName::new("joining").unwrap().server_name(),
+            )
+        })
+        .map_err(|error| certificate_failure(&error))
+}
+
+#[test]
+fn a_joining_daemon_trusts_the_lead_its_pinned_authority_signed() {
+    let mut authority = GroupAuthority::create(signed_at()).unwrap();
+    let lead = GroupMember::signed(&authority, "lead");
+    let trust = trust(&mut authority, &[]);
+
+    let shaken = join_hand_shake(authority.key_hash(), &lead, &authority, &trust);
+
+    assert_eq!(shaken, Ok(()));
+}
+
+#[test]
+fn a_joining_daemon_refuses_a_lead_without_its_pinned_authority() {
+    let mut authority = GroupAuthority::create(signed_at()).unwrap();
+    let other = GroupAuthority::create(signed_at()).unwrap();
+    let lead = GroupMember::signed(&authority, "lead");
+    let trust = trust(&mut authority, &[]);
+
+    let shaken = join_hand_shake(other.key_hash(), &lead, &authority, &trust);
+
+    assert_eq!(
+        shaken,
+        Err(Some(CertificateFailure::Known(
+            KnownCertificateFailure::UnknownIssuer
+        )))
+    );
+}
+
+#[test]
+fn a_joining_daemon_refuses_a_lead_its_pinned_authority_did_not_sign() {
+    let mut theirs = GroupAuthority::create(signed_at()).unwrap();
+    let pinned = GroupAuthority::create(signed_at()).unwrap();
+    let lead = GroupMember::signed(&theirs, "lead");
+    let trust = trust(&mut theirs, &[]);
+
+    let shaken = join_hand_shake(pinned.key_hash(), &lead, &pinned, &trust);
+
+    assert!(shaken.is_err(), "{shaken:?}");
 }

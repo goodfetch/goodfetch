@@ -5,16 +5,30 @@
 //! The connecting side also checks that the accepting side's certificate
 //! carries the Group member name it dialled. TLS 1.3 only: both sides are
 //! Goodfetch.
+//!
+//! A Daemon that joins has no certificate yet: it opens its link with
+//! [`joining`], which presents none and trusts the Lead Daemon's
+//! certificate only when the chain it shows holds the authority whose
+//! public key it pinned and that authority signed it, as `kubeadm join`
+//! pins its cluster's authority. The accepting side lets such a link
+//! through, and the peer link answers it nothing but `group.join`.
 
 use std::sync::Arc;
 
-use rustls::client::WebPkiServerVerifier;
-use rustls::crypto::CryptoProvider;
-use rustls::pki_types::{CertificateDer, CertificateRevocationListDer, PrivateKeyDer};
-use rustls::server::{VerifierBuilderError, WebPkiClientVerifier};
-use rustls::{ClientConfig, RootCertStore, ServerConfig};
+use rustls::client::danger::{HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier};
+use rustls::client::{WebPkiServerVerifier, verify_server_cert_signed_by_trust_anchor};
+use rustls::crypto::{CryptoProvider, verify_tls12_signature, verify_tls13_signature};
+use rustls::pki_types::{
+    CertificateDer, CertificateRevocationListDer, PrivateKeyDer, ServerName, UnixTime,
+};
+use rustls::server::{ParsedCertificate, VerifierBuilderError, WebPkiClientVerifier};
+use rustls::{
+    CertificateError, ClientConfig, DigitallySignedStruct, RootCertStore, ServerConfig,
+    SignatureScheme,
+};
 
 use crate::clock::Clock;
+use crate::known_certificates::KeyHash;
 use crate::tls::OnClock;
 
 /// What a Group member trusts on the peer link: the group's certificate
@@ -62,8 +76,9 @@ pub enum PeerTlsError {
 }
 
 /// The configuration of the side that accepts peer links: it asks every
-/// connecting Group member for its certificate and refuses a connection
-/// without one.
+/// connecting Group member for its certificate and refuses one the
+/// group's authority did not sign; a link without one is a Daemon that
+/// joins, which it lets through for `group.join` alone.
 ///
 /// # Errors
 ///
@@ -77,6 +92,7 @@ pub fn accepting(
     let verifier =
         WebPkiClientVerifier::builder_with_provider(roots(trust)?, Arc::clone(&provider))
             .with_crls([trust.revocations.clone()])
+            .allow_unauthenticated()
             .build()?;
     ServerConfig::builder_with_details(provider, OnClock::shared(clock))
         .with_protocol_versions(&[&rustls::version::TLS13])
@@ -108,6 +124,100 @@ pub fn connecting(
         .with_webpki_verifier(verifier)
         .with_client_auth_cert(identity.chain, identity.key)
         .map_err(PeerTlsError::Identity)
+}
+
+/// The configuration of a Daemon that joins the group whose authority's
+/// public key hashes to `pin`: it presents no certificate, and trusts the
+/// Lead Daemon's when the chain it shows holds that authority and that
+/// authority signed it, at the engine's Clock. A chain without it fails
+/// the handshake as an unknown issuer.
+pub fn joining(pin: KeyHash, clock: Clock) -> ClientConfig {
+    let provider = provider();
+    ClientConfig::builder_with_details(Arc::clone(&provider), OnClock::shared(clock))
+        .with_protocol_versions(&[&rustls::version::TLS13])
+        .expect("invariant: ring supports TLS 1.3")
+        .dangerous()
+        .with_custom_certificate_verifier(Arc::new(Pinned { pin, provider }))
+        .with_no_client_auth()
+}
+
+/// The SHA-256 of `certificate`'s public key, which a Daemon that joins
+/// pins for the group's certificate authority; none when it is no
+/// certificate.
+pub(crate) fn key_hash_of(certificate: &CertificateDer<'_>) -> Option<KeyHash> {
+    ParsedCertificate::try_from(certificate)
+        .ok()
+        .map(|parsed| KeyHash::of_public_key(parsed.subject_public_key_info().as_ref()))
+}
+
+/// The verifier of a Daemon that joins: the authority it pinned, found in
+/// the chain the Lead Daemon shows, is its only root.
+#[derive(Debug)]
+struct Pinned {
+    pin: KeyHash,
+    provider: Arc<CryptoProvider>,
+}
+
+impl ServerCertVerifier for Pinned {
+    fn verify_server_cert(
+        &self,
+        end_entity: &CertificateDer<'_>,
+        intermediates: &[CertificateDer<'_>],
+        _: &ServerName<'_>,
+        _: &[u8],
+        now: UnixTime,
+    ) -> Result<ServerCertVerified, rustls::Error> {
+        let pinned = intermediates
+            .iter()
+            .find(|certificate| key_hash_of(certificate).as_ref() == Some(&self.pin))
+            .ok_or(rustls::Error::InvalidCertificate(
+                CertificateError::UnknownIssuer,
+            ))?;
+        let mut roots = RootCertStore::empty();
+        roots.add(pinned.clone().into_owned())?;
+        verify_server_cert_signed_by_trust_anchor(
+            &ParsedCertificate::try_from(end_entity)?,
+            &roots,
+            &[],
+            now,
+            self.provider.signature_verification_algorithms.all,
+        )?;
+        Ok(ServerCertVerified::assertion())
+    }
+
+    fn verify_tls12_signature(
+        &self,
+        message: &[u8],
+        certificate: &CertificateDer<'_>,
+        signature: &DigitallySignedStruct,
+    ) -> Result<HandshakeSignatureValid, rustls::Error> {
+        verify_tls12_signature(
+            message,
+            certificate,
+            signature,
+            &self.provider.signature_verification_algorithms,
+        )
+    }
+
+    fn verify_tls13_signature(
+        &self,
+        message: &[u8],
+        certificate: &CertificateDer<'_>,
+        signature: &DigitallySignedStruct,
+    ) -> Result<HandshakeSignatureValid, rustls::Error> {
+        verify_tls13_signature(
+            message,
+            certificate,
+            signature,
+            &self.provider.signature_verification_algorithms,
+        )
+    }
+
+    fn supported_verify_schemes(&self) -> Vec<SignatureScheme> {
+        self.provider
+            .signature_verification_algorithms
+            .supported_schemes()
+    }
 }
 
 fn provider() -> Arc<CryptoProvider> {

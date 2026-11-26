@@ -1792,24 +1792,27 @@ Calls the catalog's `group` operations
 Usage: goodfetch-foxhound group [OPTIONS] <COMMAND>
 
 Commands:
-  init   Forms a Daemon group with this Daemon as its Lead Daemon: makes the group's certificate authority from the OS generator, keeps it in the Daemon's group store at lead epoch 1, and answers the lead epoch and the SHA-256 of the authority's public key, which a Daemon that joins pins. A Daemon in a group already fails with `group_exists`. One store transaction: a cancel stops it only before it commits
+  init   Forms a Daemon group with this Daemon as its Lead Daemon: makes the group's certificate authority from the OS generator and signs this Daemon's own Group member certificate with it, keeps both in the Daemon's group store at lead epoch 1, listens for peer links at `peer_address`, and answers the lead epoch, the address the peer listener took and the SHA-256 of the authority's public key, which a Daemon that joins pins. A Daemon in a group already fails with `group_exists`. One store transaction: a cancel stops it only before it commits
   token  Mints a join token on the Lead Daemon: 32 bytes of the OS generator, which one Daemon presents once with `group join` within 30 minutes, together with the SHA-256 of the authority's public key it pins. The group store keeps only the token's SHA-256, so the answer is the one place it shows. A Daemon that is not a group's Lead Daemon fails with `not_lead_daemon`
+  join   Joins this Daemon to the Daemon group whose Lead Daemon listens at `lead`: makes the Daemon's key from the OS generator, opens a peer link that checks the Lead Daemon's certificate authority against `authority_key`, sends the join token, the name and the public key, and keeps the certificate the Lead Daemon signs, then listens for peer links at `peer_address`. The token works once, so a refusal of anything but the token leaves it valid. A Daemon in a group already fails with `group_exists`; a token the Lead Daemon does not hold with `join_token_refused`; a name taken with `group_member_exists`; another authority with `authority_key_mismatch`; a Lead Daemon out of reach with `group_lead_unreachable`
 
 Options:
       --color <WHEN>  When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
   -h, --help          Print help
 
 $ goodfetch-foxhound group init --help
-Forms a Daemon group with this Daemon as its Lead Daemon: makes the group's certificate authority from the OS generator, keeps it in the Daemon's group store at lead epoch 1, and answers the lead epoch and the SHA-256 of the authority's public key, which a Daemon that joins pins. A Daemon in a group already fails with `group_exists`. One store transaction: a cancel stops it only before it commits
+Forms a Daemon group with this Daemon as its Lead Daemon: makes the group's certificate authority from the OS generator and signs this Daemon's own Group member certificate with it, keeps both in the Daemon's group store at lead epoch 1, listens for peer links at `peer_address`, and answers the lead epoch, the address the peer listener took and the SHA-256 of the authority's public key, which a Daemon that joins pins. A Daemon in a group already fails with `group_exists`. One store transaction: a cancel stops it only before it commits
 
-Usage: goodfetch-foxhound group init [OPTIONS]
+Usage: goodfetch-foxhound group init [OPTIONS] --name <NAME> --peer-address <PEER_ADDRESS>
 
 Options:
-      --json          Prints the result as JSON
-      --attached      Runs the call on an Attached engine in this process, even when a Daemon runs
-      --daemon        Runs the call on the Daemon of the major, starting it if none runs; its refusal ends the command
-      --color <WHEN>  When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
-  -h, --help          Print help
+      --name <NAME>                  The Lead Daemon's Group member name: one lowercase DNS label, such as its host's or pod's name
+      --peer-address <PEER_ADDRESS>  The `host:port` its peer listener takes, which the Group members dial; port 0 takes a free one, which the answer names
+      --json                         Prints the result as JSON
+      --attached                     Runs the call on an Attached engine in this process, even when a Daemon runs
+      --daemon                       Runs the call on the Daemon of the major, starting it if none runs; its refusal ends the command
+      --color <WHEN>                 When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+  -h, --help                         Print help
 
 $ goodfetch-foxhound group token --help
 Mints a join token on the Lead Daemon: 32 bytes of the OS generator, which one Daemon presents once with `group join` within 30 minutes, together with the SHA-256 of the authority's public key it pins. The group store keeps only the token's SHA-256, so the answer is the one place it shows. A Daemon that is not a group's Lead Daemon fails with `not_lead_daemon`
@@ -1822,6 +1825,23 @@ Options:
       --daemon        Runs the call on the Daemon of the major, starting it if none runs; its refusal ends the command
       --color <WHEN>  When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
   -h, --help          Print help
+
+$ goodfetch-foxhound group join --help
+Joins this Daemon to the Daemon group whose Lead Daemon listens at `lead`: makes the Daemon's key from the OS generator, opens a peer link that checks the Lead Daemon's certificate authority against `authority_key`, sends the join token, the name and the public key, and keeps the certificate the Lead Daemon signs, then listens for peer links at `peer_address`. The token works once, so a refusal of anything but the token leaves it valid. A Daemon in a group already fails with `group_exists`; a token the Lead Daemon does not hold with `join_token_refused`; a name taken with `group_member_exists`; another authority with `authority_key_mismatch`; a Lead Daemon out of reach with `group_lead_unreachable`
+
+Usage: goodfetch-foxhound group join [OPTIONS] --authority-key <AUTHORITY_KEY> --lead <LEAD> --name <NAME> --peer-address <PEER_ADDRESS> --token <TOKEN>
+
+Options:
+      --authority-key <AUTHORITY_KEY>  The SHA-256 of the group's certificate authority's public key, as `group token` answered it: `sha256/` and its standard base64
+      --lead <LEAD>                    The `host:port` of the Lead Daemon's peer listener
+      --name <NAME>                    The Group member name this Daemon takes: one lowercase DNS label, such as its host's or pod's name
+      --peer-address <PEER_ADDRESS>    The `host:port` its own peer listener takes, which the other Group members dial; port 0 takes a free one, which the answer names
+      --token <TOKEN>                  The join token `group token` minted on the Lead Daemon
+      --json                           Prints the result as JSON
+      --attached                       Runs the call on an Attached engine in this process, even when a Daemon runs
+      --color <WHEN>                   When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+      --daemon                         Runs the call on the Daemon of the major, starting it if none runs; its refusal ends the command
+  -h, --help                           Print help
 
 $ goodfetch-foxhound crawl --help
 Calls the catalog's `crawl` operations

@@ -18,6 +18,11 @@
 //! back is fenced off. [`LEAD_EPOCH`] exchanges lead epochs, which a Daemon
 //! configured as Lead Daemon does with a majority of the Group members it
 //! last knew before it acts.
+//!
+//! A Daemon that joins has no certificate yet: it opens a peer link to the
+//! Lead Daemon without one, checks that the Lead Daemon's certificate
+//! authority has the public key [`GROUP_JOIN`] pins, and sends [`JOIN`] in
+//! place of `hello`, the only message such a link carries.
 
 use std::fmt;
 use std::time::SystemTime;
@@ -43,6 +48,10 @@ pub const HELLO: &str = "hello";
 
 /// The method that exchanges lead epochs.
 pub const LEAD_EPOCH: &str = "group.lead_epoch";
+
+/// The method a Daemon that joins sends the Lead Daemon, on a peer link it
+/// opens without a certificate, in place of [`HELLO`].
+pub const JOIN: &str = "group.join";
 
 /// A Daemon group's lead epoch (ADRs 0003 and 0055): each Lead Daemon
 /// promoted takes a higher one, and a Group member refuses a peer message
@@ -121,6 +130,63 @@ pub struct LeadEpochParams {
     pub lead_epoch: LeadEpoch,
 }
 
+/// What a Daemon that joins sends the Lead Daemon, the one message of a
+/// peer link it opens without a certificate: its join token, the name it
+/// takes and its public key, which the Lead Daemon signs a Group member
+/// certificate for, so no private key crosses the link.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
+pub struct PeerJoinParams {
+    /// The peer protocol version the Daemon that joins speaks.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub protocol_version: ProtocolVersion,
+    /// The Product it runs, which must be the group's.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub product: Product,
+    /// Its Product version.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub product_version: ProductVersion,
+    /// The join token `group token` minted.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub token: DaemonToken,
+    /// The Group member name it takes: one lowercase DNS label.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub name: String,
+    /// Its P-256 public key, an uncompressed SEC1 point in standard base64.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub public_key: String,
+    /// The `host:port` its own peer listener takes, which the other Group
+    /// members dial.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub peer_address: String,
+}
+
+/// What the Lead Daemon answers to a `group.join` it accepts.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
+pub struct PeerJoinResult {
+    /// The peer protocol version both speak from now on: the lower of the
+    /// two.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub protocol_version: ProtocolVersion,
+    /// The group's lead epoch.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub lead_epoch: LeadEpoch,
+    /// The Group member certificate signed for the public key, DER in
+    /// standard base64.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub certificate: String,
+    /// When that certificate stops being valid, in RFC 3339, UTC.
+    #[serde(with = "crate::point_in_time")]
+    #[schemars(with = "PointInTime", extend("arrived_in" = "0.1"))]
+    pub certificate_expires_at: SystemTime,
+    /// The group's certificate authority's certificate, DER in standard
+    /// base64.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub authority: String,
+    /// The authority's latest revocation list, DER in standard base64.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub revocations: String,
+}
+
 /// What a Group member answers to `group.lead_epoch`: the highest lead
 /// epoch it has recorded, the sender's included.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -172,10 +238,50 @@ pub const NOT_LEAD_DAEMON: ErrorCodeDefinition = ErrorCodeDefinition {
     arrived_in: ARRIVED_IN,
 };
 
+/// A join token the Lead Daemon does not hold: unknown, used or expired.
+pub const JOIN_TOKEN_REFUSED: ErrorCodeDefinition = ErrorCodeDefinition {
+    name: "join_token_refused",
+    description: "The Lead Daemon refused the join token: it minted no such token, or the token was used or is past its 30 minutes. Mint another with `group token` on the Lead Daemon and run `group join` with it.",
+    group: ErrorGroup::Refused,
+    retryable: false,
+    exit_code: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// `group.join` under a Group member name the group has already.
+pub const GROUP_MEMBER_EXISTS: ErrorCodeDefinition = ErrorCodeDefinition {
+    name: "group_member_exists",
+    description: "The Daemon group has a Group member of this name already, so the Daemon joins under another. The join token stays valid for it.",
+    group: ErrorGroup::Refused,
+    retryable: false,
+    exit_code: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// The Lead Daemon's certificate authority is not the one pinned.
+pub const AUTHORITY_KEY_MISMATCH: ErrorCodeDefinition = ErrorCodeDefinition {
+    name: "authority_key_mismatch",
+    description: "The Daemon at the Lead Daemon's address presented no certificate authority whose public key has the SHA-256 that `group join` pins, so the Daemon sent it nothing: the address leads elsewhere, or the key was copied wrong. Take the key `group token` answers on the Lead Daemon.",
+    group: ErrorGroup::Refused,
+    retryable: false,
+    exit_code: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// The Lead Daemon's peer listener cannot be reached.
+pub const GROUP_LEAD_UNREACHABLE: ErrorCodeDefinition = ErrorCodeDefinition {
+    name: "group_lead_unreachable",
+    description: "Nothing answered at the Lead Daemon's peer address, or the peer link closed before its answer: check the address and that the Lead Daemon runs, then try again.",
+    group: ErrorGroup::Unavailable,
+    retryable: true,
+    exit_code: None,
+    arrived_in: ARRIVED_IN,
+};
+
 /// `group.init`.
 pub const GROUP_INIT: Operation = Operation {
     name: "group.init",
-    description: "Forms a Daemon group with this Daemon as its Lead Daemon: makes the group's certificate authority from the OS generator, keeps it in the Daemon's group store at lead epoch 1, and answers the lead epoch and the SHA-256 of the authority's public key, which a Daemon that joins pins. A Daemon in a group already fails with `group_exists`. One store transaction: a cancel stops it only before it commits.",
+    description: "Forms a Daemon group with this Daemon as its Lead Daemon: makes the group's certificate authority from the OS generator and signs this Daemon's own Group member certificate with it, keeps both in the Daemon's group store at lead epoch 1, listens for peer links at `peer_address`, and answers the lead epoch, the address the peer listener took and the SHA-256 of the authority's public key, which a Daemon that joins pins. A Daemon in a group already fails with `group_exists`. One store transaction: a cancel stops it only before it commits.",
     class: OperationClass::Effect,
     kind: OperationKind::RoundTrip,
     reach: Reach::AllSurfaces,
@@ -208,10 +314,38 @@ pub const GROUP_TOKEN: Operation = Operation {
     arrived_in: ARRIVED_IN,
 };
 
-/// What `group.init` takes: nothing.
-#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+/// `group.join`.
+pub const GROUP_JOIN: Operation = Operation {
+    name: "group.join",
+    description: "Joins this Daemon to the Daemon group whose Lead Daemon listens at `lead`: makes the Daemon's key from the OS generator, opens a peer link that checks the Lead Daemon's certificate authority against `authority_key`, sends the join token, the name and the public key, and keeps the certificate the Lead Daemon signs, then listens for peer links at `peer_address`. The token works once, so a refusal of anything but the token leaves it valid. A Daemon in a group already fails with `group_exists`; a token the Lead Daemon does not hold with `join_token_refused`; a name taken with `group_member_exists`; another authority with `authority_key_mismatch`; a Lead Daemon out of reach with `group_lead_unreachable`.",
+    class: OperationClass::Effect,
+    kind: OperationKind::RoundTrip,
+    reach: Reach::AllSurfaces,
+    params: schema_of::<GroupJoinParams>,
+    result: schema_of::<GroupJoined>,
+    events: &[],
+    cancellable: false,
+    input: None,
+    bound: None,
+    stability: Stability::Experimental,
+    deprecated: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// What `group.init` takes: the Lead Daemon's Group member name and where
+/// its peer listener listens.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
-pub struct GroupInitParams {}
+pub struct GroupInitParams {
+    /// The Lead Daemon's Group member name: one lowercase DNS label, such
+    /// as its host's or pod's name.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub name: String,
+    /// The `host:port` its peer listener takes, which the Group members
+    /// dial; port 0 takes a free one, which the answer names.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub peer_address: String,
+}
 
 /// What `group.init` answers.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -219,10 +353,53 @@ pub struct GroupFormed {
     /// The group's lead epoch: 1, the first.
     #[schemars(extend("arrived_in" = "0.1"))]
     pub lead_epoch: LeadEpoch,
+    /// The `host:port` the peer listener took, which `group join` dials.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub peer_address: String,
     /// The SHA-256 of the group's certificate authority's public key, as
     /// `sha256/` and its standard base64.
     #[schemars(extend("arrived_in" = "0.1"))]
     pub authority_key: String,
+}
+
+/// What `group.join` takes.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct GroupJoinParams {
+    /// The `host:port` of the Lead Daemon's peer listener.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub lead: String,
+    /// The join token `group token` minted on the Lead Daemon.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub token: DaemonToken,
+    /// The SHA-256 of the group's certificate authority's public key, as
+    /// `group token` answered it: `sha256/` and its standard base64.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub authority_key: String,
+    /// The Group member name this Daemon takes: one lowercase DNS label,
+    /// such as its host's or pod's name.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub name: String,
+    /// The `host:port` its own peer listener takes, which the other Group
+    /// members dial; port 0 takes a free one, which the answer names.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub peer_address: String,
+}
+
+/// What `group.join` answers.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct GroupJoined {
+    /// The group's lead epoch.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub lead_epoch: LeadEpoch,
+    /// The `host:port` the peer listener took.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub peer_address: String,
+    /// When the Group member certificate the Lead Daemon signed stops
+    /// being valid, in RFC 3339, UTC; the Daemon renews it before.
+    #[serde(with = "crate::point_in_time")]
+    #[schemars(with = "PointInTime", extend("arrived_in" = "0.1"))]
+    pub certificate_expires_at: SystemTime,
 }
 
 /// What `group.token` takes: nothing.
@@ -263,6 +440,75 @@ pub struct StoredGroup {
     /// The join tokens minted and not yet redeemed, each by its SHA-256.
     #[schemars(extend("arrived_in" = "0.1"))]
     pub join_tokens: Vec<StoredJoinToken>,
+    /// This Daemon's own Group member identity; none until it forms or
+    /// joins a group.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub identity: Option<StoredIdentity>,
+    /// The Group members the Lead Daemon admitted, itself included; none
+    /// on any other Daemon.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub members: Vec<StoredMember>,
+}
+
+/// A Daemon's own Group member identity, as its `identity` row holds it.
+/// Its `Debug` leaves the private key out.
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct StoredIdentity {
+    /// Its Group member name.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub name: String,
+    /// Its private key, PKCS #8 DER in standard base64.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub key: String,
+    /// Its Group member certificate, DER in standard base64.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub certificate: String,
+    /// The group's certificate authority's certificate, DER in standard
+    /// base64.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub authority: String,
+    /// The authority's latest revocation list it holds, DER in standard
+    /// base64.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub revocations: String,
+    /// The `host:port` its peer listener takes.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub peer_address: String,
+    /// The `host:port` of the Lead Daemon's peer listener, its own on the
+    /// Lead Daemon.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub lead_address: String,
+}
+
+impl std::fmt::Debug for StoredIdentity {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("StoredIdentity")
+            .field("name", &self.name)
+            .field("key", &"[REDACTED]")
+            .field("certificate", &self.certificate)
+            .field("authority", &self.authority)
+            .field("revocations", &self.revocations)
+            .field("peer_address", &self.peer_address)
+            .field("lead_address", &self.lead_address)
+            .finish()
+    }
+}
+
+/// A Group member the Lead Daemon admitted, as its `members` row holds it.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct StoredMember {
+    /// Its Group member name.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub name: String,
+    /// The `host:port` of its peer listener.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub peer_address: String,
+    /// When it joined, in RFC 3339, UTC.
+    #[serde(with = "crate::point_in_time")]
+    #[schemars(with = "PointInTime", extend("arrived_in" = "0.1"))]
+    pub joined_at: SystemTime,
 }
 
 /// The group's certificate authority, as its `authority` row holds it. Its
@@ -310,10 +556,18 @@ pub struct StoredJoinToken {
 /// The operations and Error codes of Daemon groups.
 pub const ENTRIES: Entries = Entries {
     defined_in: module_path!(),
-    operations: &[GROUP_INIT, GROUP_TOKEN],
+    operations: &[GROUP_INIT, GROUP_TOKEN, GROUP_JOIN],
     events: &[],
     handler_requests: &[],
-    error_codes: &[LEAD_EPOCH_STALE, GROUP_EXISTS, NOT_LEAD_DAEMON],
+    error_codes: &[
+        LEAD_EPOCH_STALE,
+        GROUP_EXISTS,
+        NOT_LEAD_DAEMON,
+        JOIN_TOKEN_REFUSED,
+        GROUP_MEMBER_EXISTS,
+        AUTHORITY_KEY_MISMATCH,
+        GROUP_LEAD_UNREACHABLE,
+    ],
     plugin_kinds: &[],
     metrics: &[],
     settings: &[],

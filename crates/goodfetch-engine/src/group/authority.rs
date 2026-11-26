@@ -137,7 +137,12 @@ impl GroupMemberKey {
     /// Its private key, for the peer link's TLS; it never leaves the Group
     /// member.
     pub fn private_key(&self) -> PrivateKeyDer<'static> {
-        PrivatePkcs8KeyDer::from(self.0.serialize_der()).into()
+        self.kept().into()
+    }
+
+    /// Its private key as PKCS #8, as the group store keeps it.
+    pub(crate) fn kept(&self) -> PrivatePkcs8KeyDer<'static> {
+        PrivatePkcs8KeyDer::from(self.0.serialize_der())
     }
 }
 

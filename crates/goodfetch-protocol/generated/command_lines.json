@@ -457,6 +457,10 @@
           {
             "commands": [],
             "name": "token"
+          },
+          {
+            "commands": [],
+            "name": "join"
           }
         ],
         "name": "group"
@@ -962,6 +966,10 @@
           {
             "commands": [],
             "name": "token"
+          },
+          {
+            "commands": [],
+            "name": "join"
           }
         ],
         "name": "group"

@@ -41,7 +41,7 @@ mod tests;
 mod to_the_daemon;
 
 pub use to_the_daemon::DaemonReach;
-pub(crate) use to_the_daemon::ThroughTheReach;
+pub(crate) use to_the_daemon::{ThroughTheReach, answered_failure};
 
 /// How long the owner has to answer `hello`: a live owner answers at once.
 const HELLO_DEADLINE: Duration = Duration::from_secs(5);

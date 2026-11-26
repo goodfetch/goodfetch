@@ -62,6 +62,7 @@ fn with_source() -> Engine {
         .with(goodfetch_session_pool::contribution())
         .with(super::super::contribution(
             goodfetch_fetch_tier::FetchTiers::new(),
+            goodfetch_sink::Sinks::new(),
         ))
         .with(
             Contribution::new("goodfetch-crawl tests")

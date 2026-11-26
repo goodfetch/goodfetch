@@ -62,6 +62,7 @@ use goodfetch_protocol::run::{
     StartInput, StartedAs,
 };
 use goodfetch_protocol::settings::{RunOrigin, TIMEOUT_RUN};
+use goodfetch_sink::Sinks;
 
 use crate::code_free::{self, CodeFree, CodeFreeCrawl};
 use crate::crawl_run::CrawlRun;
@@ -89,8 +90,10 @@ use crate::work_items::{self, CheckedSeed};
 /// record of each per-page feature a Run switches off (ADR 0138). Its crawl
 /// requests are fetched on the tiers of `tiers` (spec #579), the value
 /// Foxhound's composition also hands Collie's pages, and which finds the
-/// Run of a raw call naming a page they serve (ADR 0099).
-pub fn contribution(tiers: FetchTiers) -> Contribution {
+/// Run of a raw call naming a page they serve (ADR 0099). Its crawls
+/// deliver their Records to the Sinks of `sinks` (ADR 0026), the value of
+/// Foxhound's composition.
+pub fn contribution(tiers: FetchTiers, sinks: Sinks) -> Contribution {
     let crawls = Crawls::default();
     let starting = tiers.clone();
     let serving = crawls.clone();
@@ -118,7 +121,7 @@ pub fn contribution(tiers: FetchTiers) -> Contribution {
                 params,
                 context,
                 crawls.clone(),
-                starting.clone(),
+                (starting.clone(), sinks),
                 redeclared.clone(),
                 pages.clone(),
             )
@@ -152,7 +155,7 @@ pub fn contribution(tiers: FetchTiers) -> Contribution {
                 let (redeclared, crawls, tiers) =
                     (redeclaring.clone(), resuming.clone(), tiers.clone());
                 Box::pin(async move {
-                    let run = CrawlRun::of(&run, &context);
+                    let run = CrawlRun::of(&run, &context, (sinks, settings.resolved()));
                     let hooks = redeclared.record(&run.identity, &run.state).await;
                     // Boxed: the resumed delivery's future is large.
                     Box::pin(delivery::resume(
@@ -240,7 +243,7 @@ async fn start(
     mut params: CrawlStartParams,
     context: CallContext,
     crawls: Crawls,
-    tiers: FetchTiers,
+    (tiers, sinks): (FetchTiers, Sinks),
     redeclared: Redeclared,
     pages: code_free::Pages,
 ) -> Result<RunStarted, CallError> {
@@ -258,6 +261,7 @@ async fn start(
     labels.sends_from_login_pools(settings.resolved())?;
     let datasets = pages.map_or_else(|| Datasets::declare(&params.datasets), Ok)?;
     FetchTiers::check(settings.resolved(), &labels.settings)?;
+    sinks.check(settings.resolved())?;
     let invariants = Invariants::of_settings(settings.resolved(), &params.labels, fragments)?;
     let egress = domain_policy(settings.resolved())?;
     let found = schema_unchanged(&context, run_id.as_ref(), &invariants, &datasets).await?;
@@ -307,7 +311,7 @@ async fn start(
         .map_err(start_error)?;
     match started {
         Started::New(run) => {
-            let run = CrawlRun::of(&run, &context);
+            let run = CrawlRun::of(&run, &context, (sinks, settings.resolved()));
             let started = RunStarted {
                 run_id: run.identity.id().clone(),
                 started_as: StartedAs::New,
@@ -317,7 +321,7 @@ async fn start(
             // Its Limits hold it before its driver sends a request; a
             // crawl they cannot hold ends `failed` rather than run unheld.
             if let Err(error) = limits.give(&started, &context).await {
-                run.end.end(delivery::failed(&run.identity, &error)).await;
+                run.end(delivery::failed(&run.identity, &error)).await;
                 return Err(error);
             }
             let code_free = CodeFree::of(crawl, &crawls, &tiers, &run.identity);

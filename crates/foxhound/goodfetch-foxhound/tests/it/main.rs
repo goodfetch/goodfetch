@@ -213,6 +213,7 @@ mod seeds;
 mod served_calls;
 mod service_manager;
 mod session_pool;
+mod sinks;
 mod site;
 mod sitemap;
 mod skill_install;

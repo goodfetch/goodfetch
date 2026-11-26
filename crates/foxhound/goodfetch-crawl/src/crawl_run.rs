@@ -18,9 +18,10 @@ use goodfetch_engine::robots_txt::OwnCopies;
 use goodfetch_engine::run_identity::RunIdentity;
 use goodfetch_engine::run_state::RunState;
 use goodfetch_engine::run_trace::RunTrace;
-use goodfetch_engine::runs::{Progress, ReportWarnings, RunEnd, RunKeys, RunParts};
+use goodfetch_engine::runs::{Ending, Progress, ReportWarnings, RunEnd, RunKeys, RunParts};
 use goodfetch_engine::settings::Resolved;
 use goodfetch_fetch_tier::BrowserRun;
+use goodfetch_sink::{Delivery, Sinks};
 
 /// A crawl's record of its live Run, which its delivery, its attempts and
 /// the calls that reach the live crawl share.
@@ -54,13 +55,22 @@ pub(crate) struct CrawlRun {
     /// The page crate's record of the Run, which the fetch tier's
     /// interfaces take.
     pub(crate) browser: Arc<BrowserRun>,
+    /// Its deliveries to the Sinks its settings name, which its end
+    /// finishes first.
+    sinks: Delivery,
 }
 
 impl CrawlRun {
     /// The record of the Run whose `parts` the registry handed the crawl
-    /// in `context`.
-    pub(crate) fn of(parts: &RunParts, context: &CallContext) -> Arc<Self> {
+    /// in `context`, delivering to the Sinks of `sinks` its `settings`
+    /// name.
+    pub(crate) fn of(
+        parts: &RunParts,
+        context: &CallContext,
+        (sinks, settings): (Sinks, &Resolved),
+    ) -> Arc<Self> {
         Arc::new(Self {
+            sinks: sinks.deliver(parts, settings),
             identity: parts.identity.clone(),
             state: parts.state.clone(),
             charging: parts.charging.clone(),
@@ -76,6 +86,18 @@ impl CrawlRun {
             gates: context.runs().admission_gates().cloned(),
             browser: BrowserRun::of(parts, context.engine()),
         })
+    }
+
+    /// Ends the Run as `ending` says, once its Sinks hold what its run
+    /// file committed (ADR 0026): [`RunEnd::end`] after
+    /// [`Delivery::finish`].
+    ///
+    /// # Cancel safety
+    ///
+    /// As [`Delivery::finish`]'s, then as [`RunEnd::end`]'s.
+    pub(crate) async fn end(&self, ending: Ending) {
+        self.sinks.finish().await;
+        self.end.end(ending).await;
     }
 
     /// The Run's admission under `settings`: [`admission::of_run`] over its

@@ -229,6 +229,8 @@ goodfetch-session-pool = { path = "crates/foxhound/goodfetch-session-pool" }
 # under `--cfg tokio_unstable`; a test adapter: only ever a dev-dependency
 # (ADRs 0060 and 0125).
 goodfetch-simulation = { path = "crates/goodfetch-simulation" }
+# Foxhound's Sinks; only crates under `crates/foxhound/` and `xtask` take it (ADR 0087).
+goodfetch-sink = { path = "crates/foxhound/goodfetch-sink" }
 # Foxhound's SQL tab, DuckDB's read path; only crates under `crates/foxhound/` and `xtask` take it (ADR 0087).
 goodfetch-sql-tab = { path = "crates/foxhound/goodfetch-sql-tab" }
 # The protocol-aware test helpers; only ever a dev-dependency (ADR 0062's note

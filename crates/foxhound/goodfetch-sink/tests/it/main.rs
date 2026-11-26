@@ -9,4 +9,5 @@
 
 mod conformance;
 mod faults;
+mod model;
 mod run_files;

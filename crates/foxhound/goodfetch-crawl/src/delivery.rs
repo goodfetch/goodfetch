@@ -261,7 +261,7 @@ pub(crate) async fn drive(
         // choice: the Run cannot go on.
         Err(error) => {
             tracing::error!(%error, run_id = %run.identity.id(), "the crawl's HTTP tier could not be built");
-            run.end.end(failed(&run.identity, &error)).await;
+            run.end(failed(&run.identity, &error)).await;
             crawls.close(run.identity.id()).await;
             return;
         }
@@ -709,7 +709,7 @@ pub(crate) fn failed(run: &RunIdentity, error: &dyn std::fmt::Display) -> Ending
 /// Ends the Run as `ending` says, once its admission gave back what it held.
 async fn end(run: &CrawlRun, admission: &mut Admission, ending: Ending) {
     admission.close().await;
-    run.end.end(ending).await;
+    run.end(ending).await;
 }
 
 /// The next key of the Run that a Permit given back woke, `None` for every
@@ -782,7 +782,7 @@ pub(crate) async fn resume(
     let (labels, choices, (code_free, datasets, invariants)) = match left {
         Err(error) => {
             tracing::error!(%error, run_id = %run.identity.id(), "the resumed crawl's work items could not be recovered");
-            run.end.end(failed(&run.identity, &error)).await;
+            run.end(failed(&run.identity, &error)).await;
             return;
         }
         Ok((0, labels)) => {
@@ -1676,7 +1676,7 @@ async fn opened(
         }
         Err(error) => {
             tracing::error!(%error, run_id = %run.identity.id(), "the crawl's admission could not open");
-            run.end.end(failed(&run.identity, &error)).await;
+            run.end(failed(&run.identity, &error)).await;
             None
         }
     }

@@ -2675,6 +2675,7 @@ dependencies = [
  "goodfetch-memory-site",
  "goodfetch-protocol",
  "goodfetch-session-pool",
+ "goodfetch-sink",
  "goodfetch-test-support",
  "goodfetch-workspace-hack",
  "icu_normalizer",
@@ -2953,6 +2954,7 @@ dependencies = [
  "goodfetch-protocol",
  "goodfetch-runtime",
  "goodfetch-session-pool",
+ "goodfetch-sink",
  "goodfetch-sql-tab",
  "goodfetch-test-client",
  "goodfetch-test-support",
@@ -3346,15 +3348,18 @@ name = "goodfetch-sink"
 version = "0.0.0"
 dependencies = [
  "goodfetch-dataset",
+ "goodfetch-engine",
  "goodfetch-protocol",
  "goodfetch-test-support",
  "goodfetch-workspace-hack",
  "jiff",
  "rstest",
  "rusqlite",
+ "secrecy",
  "serde_json",
  "tempfile",
  "thiserror 2.0.21",
+ "tokio",
  "tracing",
 ]
 

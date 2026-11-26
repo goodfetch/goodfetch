@@ -542,7 +542,7 @@ pub const SINKS: Setting = Setting {
     authority: Authority::Every,
     weakens: None,
     fixed_for_run: false,
-    unbuilt: Some("sinks"),
+    unbuilt: None,
     deprecated: None,
     arrived_in: ARRIVED_IN,
 };

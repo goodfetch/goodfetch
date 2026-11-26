@@ -3,12 +3,14 @@
 
 use goodfetch_engine::Composition;
 use goodfetch_fetch_tier::FetchTiers;
+use goodfetch_sink::Sinks;
 
 use crate::sample;
 
 /// What Foxhound's engine is composed of: everything Collie's is, its pages
 /// set by the fetch tiers' value (ADR 0087), then Foxhound's own
-/// contributions, its crawl fetching on those tiers.
+/// contributions, its crawl fetching on those tiers and delivering to the
+/// Sinks this engine has (ADR 0026).
 ///
 /// # Examples
 ///
@@ -40,7 +42,7 @@ pub fn composition_with(tiers: FetchTiers) -> Composition {
         .with(goodfetch_frontier::contribution())
         .with(goodfetch_session_pool::contribution())
         .with(goodfetch_dataset::contribution(goodfetch_crawl::url_of))
-        .with(goodfetch_crawl::contribution(tiers))
+        .with(goodfetch_crawl::contribution(tiers, Sinks::new()))
         .with(goodfetch_sql_tab::contribution())
 }
 

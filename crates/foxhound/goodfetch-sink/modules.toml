@@ -2,4 +2,6 @@
 [modules]
 contract = []
 driver = ["contract"]
+run = ["contract", "driver", "sqlite", "sync"]
 sqlite = ["contract"]
+sync = []

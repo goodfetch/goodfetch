@@ -11,13 +11,20 @@ publish.workspace = true
 [dependencies]
 # The committed Records a delivery reads, through the Dataset's own query.
 goodfetch-dataset.workspace = true
+# The Run a crawl's Sinks deliver from: its run file, its tasks and the
+# Secrets its Sinks' destinations resolve through.
+goodfetch-engine.workspace = true
 # The Guarantee class a probe reports, the protocol's own (ADR 0026).
 goodfetch-protocol.workspace = true
 # A Record's commit time, written RFC 3339 into the destination.
 jiff.workspace = true
 rusqlite.workspace = true
+# A destination's resolved Secret.
+secrecy.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
+# A Sink's driver opens once, whichever delivery reaches it first.
+tokio = { workspace = true, features = ["sync"] }
 tracing.workspace = true
 goodfetch-workspace-hack.workspace = true
 

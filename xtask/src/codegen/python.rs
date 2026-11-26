@@ -125,6 +125,7 @@ pub(super) const DATAMODEL_CODEGEN_OPTIONS: [&str; 19] = [
     "ruff-check",
 ];
 
+mod durations;
 mod enum_members;
 mod handle_classes;
 pub(super) mod model_defaults;
@@ -151,7 +152,9 @@ pub(super) fn generate(layer: &Layer) -> Result<Generated> {
         Product::Foxhound => Vec::new(),
     };
     let (mut input, _) = layer.generator_input(&format!("{}Types", layer.product.name()), |name| {
-        let path = points_in_time::client_type(name).map_or_else(
+        let client_type =
+            points_in_time::client_type(name).or_else(|| durations::client_type(name));
+        let path = client_type.map_or_else(
             || {
                 let module = if layer
                     .collie_definitions
@@ -170,6 +173,7 @@ pub(super) fn generate(layer: &Layer) -> Result<Generated> {
         ("customTypePath", path)
     });
     points_in_time::use_client_type(&mut input)?;
+    durations::use_client_type(&mut input);
     open_values::unknown_members(&mut input, Some(UNKNOWN_MEMBER_BASE))?;
     let open = open_values::python_input(
         &mut input,

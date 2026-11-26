@@ -8,7 +8,7 @@
 //! an interface defined here, such as a Run's driver and the tables it keeps
 //! in run state.
 
-mod accounts;
+pub mod accounts;
 pub mod admission;
 pub mod age_notice;
 mod attached;
@@ -39,6 +39,7 @@ pub mod entropy;
 pub mod events;
 pub mod executables;
 mod forward;
+pub mod framing;
 pub mod governor;
 pub mod happy_eyeballs;
 pub mod heap;
@@ -48,6 +49,7 @@ pub mod hostile_input;
 pub mod http_client;
 mod info;
 pub mod installed;
+mod kept_by_the_daemon;
 pub mod key_value_store;
 pub mod known_certificates;
 pub mod lease;
@@ -62,6 +64,9 @@ mod needs_you_operations;
 pub mod ops;
 pub mod otlp;
 pub mod pinned_download;
+pub mod plugin_host;
+pub mod plugin_kinds;
+pub mod plugin_store;
 pub mod politeness;
 mod product;
 pub mod recipe;
@@ -113,7 +118,9 @@ pub use composition::{
 };
 pub use engine::{AttachedFailure, Dependencies, Engine};
 pub use engine_context::{CALLER, EngineContext};
+pub use forward::DaemonReach;
 pub use info::contribution;
+pub use kept_by_the_daemon::kept_by_the_daemon;
 pub use product::{Channel, Identity, Requested};
 pub use run_index::RunIndex;
 pub use stored_time::StoredTime;

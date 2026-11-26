@@ -6,10 +6,14 @@ use goodfetch_test_support::refused_matches;
 use rstest::rstest;
 
 /// Each module that holds a transition table, by its path in the crate.
-const TABLES: [(&str, &str); 3] = [
+const TABLES: [(&str, &str); 4] = [
     ("runs::lifecycle", include_str!("../runs/lifecycle.rs")),
     ("effect::lifecycle", include_str!("../effect/lifecycle.rs")),
     ("transition::engine", include_str!("engine.rs")),
+    (
+        "plugin_host::lifecycle",
+        include_str!("../plugin_host/lifecycle.rs"),
+    ),
 ];
 
 /// Covers: story:3-151, story:3-152
@@ -17,6 +21,7 @@ const TABLES: [(&str, &str); 3] = [
 #[case::the_runs_table(TABLES[0])]
 #[case::the_effects_table(TABLES[1])]
 #[case::the_engines_table(TABLES[2])]
+#[case::the_plugin_instances_table(TABLES[3])]
 fn a_transition_table_matches_its_state_and_event_with_no_wildcard(
     #[case] (module, source): (&str, &str),
 ) {

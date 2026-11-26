@@ -29,11 +29,15 @@ pub enum CacheMode {
     /// GET and HEAD responses stored, a fresh one served with no request
     /// and a stale one revalidated under RFC 9111.
     Revalidate,
+    /// Every response stored, POST, PUT and PATCH included, keyed by its
+    /// request's canonical body, and served again with no request and no
+    /// revalidation: the development loop.
+    Replay,
 }
 
 impl CacheMode {
     /// Every value, in declaration order.
-    pub const ALL: [Self; 2] = [Self::Off, Self::Revalidate];
+    pub const ALL: [Self; 3] = [Self::Off, Self::Revalidate, Self::Replay];
 
     /// Its name in settings.
     pub fn as_str(self) -> &'static str {
@@ -46,9 +50,8 @@ impl CacheMode {
     }
 }
 
-/// The values of `cache.mode` this minor builds: `replay` joins them with
-/// the ticket that builds it (#794).
-pub const CACHE_MODES: &[&str] = &["off", "revalidate"];
+/// The values of `cache.mode`.
+pub const CACHE_MODES: &[&str] = &["off", "revalidate", "replay"];
 
 fn off() -> serde_json::Value {
     serde_json::Value::String("off".to_owned())
@@ -57,7 +60,7 @@ fn off() -> serde_json::Value {
 /// `cache.mode` (ADRs 0028 and 0046).
 pub const CACHE_MODE: Setting = Setting {
     name: "cache.mode",
-    description: "What the per-user Response cache does: `off` (the default) stores and serves nothing, so a run never serves a stale page silently; `revalidate` stores GET and HEAD responses sent with no cookie or credential, whose response sets no cookie and is not `private`, serves a fresh one with no request and revalidates a stale one with `ETag` and `Last-Modified` under RFC 9111, serving the stored body on a 304. The key is the method, the URL without its fragment and the request headers the response's `Vary` names; a `Vary: *` response is never stored. An engine that finds a cache written by a newer format runs without it, reading and writing nothing. When a site's service worker answers a request the Response cache must serve, set `browser.service_workers` to `block` (ADR 0121).",
+    description: "What the per-user Response cache does: `off` (the default) stores and serves nothing, so a run never serves a stale page silently; `revalidate` stores GET and HEAD responses sent with no cookie or credential, whose response sets no cookie and is not `private`, serves a fresh one with no request and revalidates a stale one with `ETag` and `Last-Modified` under RFC 9111, serving the stored body on a 304; `replay`, for development, stores every response to a request sent with no cookie or credential, which sets no cookie and is not `private`, whatever its method, status or freshness, and serves it again with no request and no revalidation. The key is the method, the URL without its fragment, the request headers the response's `Vary` names and, under `replay`, the SHA-256 of the request's canonical body: a JSON body with its object keys sorted, a form with its fields sorted by name and each name's values in their order, a body sent with no `Content-Type` read as JSON or a form by its bytes; a `Vary: *` response is never stored. A Schedule's target never sets `replay`. An engine that finds a cache written by a newer format runs without it, reading and writing nothing. When a site's service worker answers a request the Response cache must serve, set `browser.service_workers` to `block` (ADR 0121).",
     kind: ValueKind::Choice(CACHE_MODES),
     default: off,
     clearable: false,
@@ -83,7 +86,7 @@ pub const CACHE_MAX_SIZE: Setting = Setting {
     authority: Authority::Machine,
     weakens: None,
     fixed_for_run: false,
-    unbuilt: Some("response_cache_bounds"),
+    unbuilt: None,
     deprecated: None,
     arrived_in: ARRIVED_IN,
 };
@@ -102,7 +105,7 @@ pub const CACHE_MAX_AGE_CEILING: Setting = Setting {
     authority: Authority::Machine,
     weakens: None,
     fixed_for_run: false,
-    unbuilt: Some("response_cache_bounds"),
+    unbuilt: None,
     deprecated: None,
     arrived_in: ARRIVED_IN,
 };
@@ -154,6 +157,10 @@ pub struct ResponseCacheEntry {
     /// lower-case hex: the variant of the URL it answers.
     #[schemars(extend("arrived_in" = "0.1"))]
     pub vary_key: String,
+    /// The SHA-256 of the request's canonical body, as lower-case hex, for
+    /// an entry `replay` stored; empty for one `revalidate` stored.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub replay_key: String,
     /// The request headers the response's `Vary` names, and the request's
     /// `host`, as the request sent them: names in lower case.
     #[schemars(extend("arrived_in" = "0.1"))]

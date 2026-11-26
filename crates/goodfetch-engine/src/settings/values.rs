@@ -32,8 +32,12 @@ pub(crate) struct Given {
 /// What one layer sets.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Values {
-    pub(crate) applied: BTreeMap<&'static str, Value>,
-    pub(crate) others: BTreeMap<&'static str, Value>,
+    /// The keys the engine's Product honours. Seen by the settings
+    /// module's own tests, which set one directly.
+    pub(super) applied: BTreeMap<&'static str, Value>,
+    /// The keys only the other Product honours, kept aside in a
+    /// configuration file.
+    others: BTreeMap<&'static str, Value>,
     pub(crate) origin: Option<RunOrigin>,
     /// Whether a Client acting for a model gave them (ADR 0092).
     pub(crate) for_model: bool,
@@ -108,6 +112,39 @@ impl Values {
     /// The keys it sets and applies, in order.
     pub fn keys(&self) -> impl Iterator<Item = &'static str> + '_ {
         self.applied.keys().copied()
+    }
+
+    /// The value it sets for `key`, applied or the other Product's: the
+    /// applied one wins.
+    pub(crate) fn value(&self, key: &str) -> Option<&Value> {
+        self.applied.get(key).or_else(|| self.others.get(key))
+    }
+
+    /// Every key it sets, applied or the other Product's, in key order.
+    pub(crate) fn every_key(&self) -> Vec<&'static str> {
+        let mut keys: Vec<&'static str> = self
+            .applied
+            .keys()
+            .chain(self.others.keys())
+            .copied()
+            .collect();
+        keys.sort_unstable();
+        keys
+    }
+
+    /// The entries it sets and applies, in key order.
+    pub(crate) fn applied(&self) -> impl Iterator<Item = (&'static str, &Value)> + '_ {
+        self.applied.iter().map(|(key, value)| (*key, value))
+    }
+
+    /// The entries only the other Product honours, in key order.
+    pub(crate) fn others(&self) -> impl Iterator<Item = (&'static str, &Value)> + '_ {
+        self.others.iter().map(|(key, value)| (*key, value))
+    }
+
+    /// The entries it sets and applies, owned, in key order.
+    pub(crate) fn into_applied(self) -> impl Iterator<Item = (&'static str, Value)> {
+        self.applied.into_iter()
     }
 }
 

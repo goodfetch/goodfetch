@@ -15,5 +15,5 @@ fn the_setting_offers_every_mode_this_minor_builds_and_no_other() {
     };
     let modes: Vec<&str> = CacheMode::ALL.into_iter().map(CacheMode::as_str).collect();
     assert_eq!(values, modes.as_slice());
-    assert_eq!(CacheMode::parse("replay"), None);
+    assert_eq!(modes, ["off", "revalidate", "replay"]);
 }

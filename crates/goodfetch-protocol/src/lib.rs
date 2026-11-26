@@ -8,6 +8,7 @@
 //! every other surface from those.
 #![warn(missing_docs)]
 
+pub mod accounts;
 pub mod audit;
 pub mod block;
 pub mod browser_cache;

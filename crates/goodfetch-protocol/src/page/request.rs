@@ -50,12 +50,78 @@ pub struct PageRequestParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(extend("arrived_in" = "0.1"))]
     pub max_redirects: Option<u32>,
+    /// Headers whose value holds a Secret placeholder, set over the
+    /// browser's own and named in none of `headers`: the engine adds each
+    /// value at its interception, at every hop whose URL is on the
+    /// placeholder's bound domains, and fails the request with
+    /// `secret_domain_not_allowed` at a hop outside them (ADR 0092).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub secret_headers: Option<BTreeMap<String, SecretHeader>>,
+    /// Strings of its body, which is then JSON, that hold a Secret
+    /// placeholder's value, each set at its JSON Pointer by the engine at
+    /// its interception, checked as `secret_headers` are at every hop that
+    /// sends the body (ADR 0092).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub json_secrets: Option<Vec<JsonSecret>>,
+}
+
+/// A header value that holds a Secret placeholder (ADR 0092). The value
+/// the engine builds from the placeholder's is masked wherever the engine
+/// returns, sends or keeps it, its Base64 in `Basic` included.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(tag = "form", rename_all = "snake_case", deny_unknown_fields)]
+pub enum SecretHeader {
+    /// The placeholder's value after `prefix`, such as `Bearer `.
+    Value {
+        /// The Secret placeholder.
+        #[schemars(extend("arrived_in" = "0.1"))]
+        placeholder: String,
+        /// The text before the value; none when absent.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[schemars(extend("arrived_in" = "0.1"))]
+        prefix: Option<String>,
+    },
+    /// HTTP Basic authentication's credentials (RFC 7617): `Basic` and the
+    /// Base64 of `username`, a colon and the placeholder's value.
+    Basic {
+        /// The user ID, which holds no colon.
+        #[schemars(extend("arrived_in" = "0.1"))]
+        username: String,
+        /// The Secret placeholder whose value is the password.
+        #[schemars(extend("arrived_in" = "0.1"))]
+        placeholder: String,
+    },
+}
+
+impl SecretHeader {
+    /// Its Secret placeholder.
+    pub fn placeholder(&self) -> &str {
+        match self {
+            Self::Value { placeholder, .. } | Self::Basic { placeholder, .. } => placeholder,
+        }
+    }
+}
+
+/// A string of a JSON body that holds a Secret placeholder's value
+/// (ADR 0092).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct JsonSecret {
+    /// Where the string goes, as a JSON Pointer (RFC 6901): a member of an
+    /// object, added or replaced, or an element an array holds.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub pointer: String,
+    /// The Secret placeholder.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub placeholder: String,
 }
 
 /// `page.request`.
 pub const PAGE_REQUEST: Operation = Operation {
     name: "page.request",
-    description: "Sends a request from inside the page's Session's browser, with its cookies, through the browser-fetch tier and the page's interception (its domain policy, never its routes), from a context no service worker controls, and answers the response whatever its status, a 429 included; `response.body` reads its kept body, and raises `response_truncated` for one that broke off. A count of redirects above 19 is refused with `setting_invalid`, a chain past its count raises `too_many_redirects`, and a body whose content coding fails to decode `navigation_failed`.",
+    description: "Sends a request from inside the page's Session's browser, with its cookies, through the browser-fetch tier and the page's interception (its domain policy, never its routes), from a context no service worker controls, and answers the response whatever its status, a 429 included; `response.body` reads its kept body, and raises `response_truncated` for one that broke off. A count of redirects above 19 is refused with `setting_invalid`, a chain past its count raises `too_many_redirects`, and a body whose content coding fails to decode `navigation_failed`. A header value or a JSON body string may hold a Secret placeholder, whose value the engine adds at its interception after every page script and service worker: an unbound placeholder raises `secret_unbound`, a hop outside its bound domains `secret_domain_not_allowed`, and a header value holding a CR, an LF or a NUL `header_value_invalid`.",
     class: OperationClass::Effect,
     kind: OperationKind::RoundTrip,
     reach: Reach::SdkOnly,

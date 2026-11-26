@@ -77,6 +77,7 @@ use crate::compat;
 use crate::environment::Environment;
 use crate::features;
 use crate::product_version;
+use crate::tree::{self, PLUGIN_MANIFEST_SCHEMA, PLUGIN_PROTOCOL_SCHEMA, PROTOCOL_GENERATED};
 use emit::JOURNEY_FILES;
 use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::connection::ProductVersion;
@@ -90,24 +91,12 @@ pub(crate) use naming::{camel, pascal, rust_snake, rust_type, snake};
 pub(crate) const EXPERIMENTAL: &str =
     "Experimental: outside semver until it is promoted (ADR 0030).";
 
-/// Where `goodfetch-protocol`'s committed outputs live.
-const PROTOCOL_GENERATED: &str = "crates/goodfetch-protocol/generated";
-
 /// The digests of each outside generator's input and output, written with them.
 const DIGESTS: &str = "crates/goodfetch-protocol/generated/digests.json";
 
 /// The schema of every Journey file, written on its own from the bundle's
 /// `files` (ADR 0063).
 const JOURNEY_SCHEMA: &str = "journeys/journey.schema.json";
-
-/// The plugin protocol's types on their own, from the bundle's `plugin`, for
-/// Plugin authors (ADR 0033).
-const PLUGIN_PROTOCOL_SCHEMA: &str =
-    "crates/goodfetch-protocol/generated/plugin-protocol.schema.json";
-
-/// The schema of a Plugin's manifest, `goodfetch-plugin.json`, on its own.
-const PLUGIN_MANIFEST_SCHEMA: &str =
-    "crates/goodfetch-protocol/generated/plugin-manifest.schema.json";
 
 /// Each schema written on its own, and where the bundle holds it.
 const STANDALONE_SCHEMAS: [(&str, &[&str]); 3] = [
@@ -408,11 +397,8 @@ fn plan(cargo: &OsStr, root: &Path, executables: executables::Files) -> Result<P
     settle_daemon_address(&mut catalog, &version)?;
 
     let mut files = compat::refusals::files(&emitted.bundle)?;
-    files.insert(format!("{PROTOCOL_GENERATED}/bundle.json"), emitted.bundle);
-    files.insert(
-        format!("{PROTOCOL_GENERATED}/catalog.json"),
-        json_text(&catalog)?,
-    );
+    files.insert(tree::BUNDLE.to_owned(), emitted.bundle);
+    files.insert(tree::CATALOG.to_owned(), json_text(&catalog)?);
 
     let collie = projection::project(&catalog, &bundle, Product::Collie)?;
     let foxhound = projection::project(&catalog, &bundle, Product::Foxhound)?;
@@ -540,23 +526,12 @@ fn standalone(bundle: &Value, path: &[&str]) -> Result<Value> {
         .get("$defs")
         .and_then(Value::as_object)
         .context("the bundle has no `$defs`")?;
-    let reached = projection::reached(&Value::Object(root.clone()), definitions)?;
     let mut schema = Map::new();
     if let Some(draft) = bundle.get("$schema") {
         schema.insert("$schema".to_owned(), draft.clone());
     }
     schema.extend(root.clone());
-    schema.insert(
-        "$defs".to_owned(),
-        Value::Object(
-            definitions
-                .iter()
-                .filter(|(name, _)| reached.contains(name.as_str()))
-                .map(|(name, definition)| (name.clone(), definition.clone()))
-                .collect(),
-        ),
-    );
-    Ok(Value::Object(schema))
+    compat::standalone(Value::Object(schema), definitions)
 }
 
 /// The workspace's and Collie's `cargo deny` configurations, each rendered

@@ -10,10 +10,11 @@
 //!
 //! `T` comes from the key's value schema: `Duration` for a duration, `u64`
 //! for a whole number, `bool`, `String`, an enum of its own for a choice of
-//! words (`content::Extractor`, an array's items `…Item`, a map's values
+//! words (`fetch::Tier`, an array's items `…Item`, a map's values
 //! `…Entry`, and a name Rust's prelude takes `…Choice`, as
 //! `run_state::batch::SyncChoice`), the protocol's own type for a shape it
-//! defines once (`session.page_check`'s `PageCheck`), `Vec` and `BTreeMap`
+//! defines once (`session.page_check`'s `PageCheck`, `content.extractor`'s
+//! `ExtractorName`), `Vec` and `BTreeMap`
 //! of those, and `Option` for a nullable value. A key that can be cleared
 //! takes an `Option`, whose `None` sends null. A schema none of these spell
 //! fails the generation, naming its key, so no key takes untyped JSON.
@@ -28,6 +29,7 @@ use goodfetch_protocol::egress::LOCAL_ADDRESSES_SHAPE;
 use goodfetch_protocol::foxhound::fetch::SAMPLE_REFRESH_SHAPE;
 use goodfetch_protocol::foxhound::frontier::PATH_BUDGET_SHAPE;
 use goodfetch_protocol::foxhound::sink::SINK_SHAPE;
+use goodfetch_protocol::page::EXTRACTOR_NAME_SHAPE;
 use goodfetch_protocol::run::durability::BATCH_THRESHOLD_SHAPE;
 use goodfetch_protocol::secrets::placeholders::BOUND_PLACEHOLDER_SHAPE;
 use goodfetch_protocol::settings::page_check::PAGE_CHECK_SHAPE;
@@ -46,7 +48,11 @@ use super::{HEADER, Setter, comment};
 /// `ValueKind::Shape`), by the shape: rustc checks the path when the crate
 /// builds, and the shape's own `check` reads that type. A new shape a key
 /// takes fails the generation until it is listed here.
-const SHAPES: [(&ValueShape, &str); 9] = [
+const SHAPES: [(&ValueShape, &str); 10] = [
+    (
+        &EXTRACTOR_NAME_SHAPE,
+        "::goodfetch_protocol::page::ExtractorName",
+    ),
     (
         &LOCAL_ADDRESSES_SHAPE,
         "::goodfetch_protocol::egress::LocalAddresses",

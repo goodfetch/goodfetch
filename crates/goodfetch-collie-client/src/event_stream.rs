@@ -42,6 +42,7 @@ use serde_json::Value;
 use tokio::sync::{mpsc, oneshot};
 
 use crate::error::Error;
+use crate::logging;
 use crate::published::{CREDITS, Interest, Membership, Published, REGRANT, Received, Taken};
 use crate::rpc::{Heard, Outgoing, Sender};
 use crate::trace_context;
@@ -468,7 +469,7 @@ impl Flow {
                     match serde_json::from_value::<EventBatch>(params) {
                         Ok(batch) => batches.waiting.extend(batch.events),
                         Err(error) => tracing::debug!(
-                            target: "goodfetch::client",
+                            target: logging::CLIENT,
                             %error,
                             "a batch of events that is no batch"
                         ),

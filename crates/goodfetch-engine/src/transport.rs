@@ -342,27 +342,37 @@ fn activated_os(
 
 #[cfg(unix)]
 fn listen_os(socket: &Path) -> io::Result<(DaemonListener, DaemonEndpoint)> {
+    let listener = bind_private_unix(socket)?;
+    Ok((
+        DaemonListener(Listening::Unix(listener)),
+        DaemonEndpoint::Unix(socket.to_owned()),
+    ))
+}
+
+/// Binds a Unix socket at `path`, readable and writable by its owner alone,
+/// once a stale socket file there is removed: the Daemon's socket and the
+/// Politeness file's wake endpoint ([`wake::listen_wakes`]). It blocks on
+/// the file system.
+#[cfg(unix)]
+#[expect(
+    clippy::disallowed_types,
+    reason = "the transport module is the one place that opens sockets (ADR 0060)"
+)]
+fn bind_private_unix(path: &Path) -> io::Result<tokio::net::UnixListener> {
     use std::os::unix::fs::PermissionsExt as _;
     #[expect(
         clippy::disallowed_methods,
-        reason = "Network::listen blocks, and an async caller with an owner runs it on that owner's blocking work"
+        reason = "both callers run as blocking work: Network::listen on its async caller's owner, the wake listener on the tasks module's blocking policy"
     )]
-    let removed = std::fs::remove_file(socket);
+    let removed = std::fs::remove_file(path);
     match removed {
         Ok(()) => {}
         Err(error) if error.kind() == io::ErrorKind::NotFound => {}
         Err(error) => return Err(error),
     }
-    #[expect(
-        clippy::disallowed_types,
-        reason = "the transport module is the one place that opens sockets (ADR 0060)"
-    )]
-    let listener = tokio::net::UnixListener::bind(socket)?;
-    std::fs::set_permissions(socket, std::fs::Permissions::from_mode(0o600))?;
-    Ok((
-        DaemonListener(Listening::Unix(listener)),
-        DaemonEndpoint::Unix(socket.to_owned()),
-    ))
+    let listener = tokio::net::UnixListener::bind(path)?;
+    std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))?;
+    Ok(listener)
 }
 
 #[cfg(not(unix))]

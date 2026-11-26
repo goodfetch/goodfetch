@@ -13,7 +13,7 @@
 //! text or binary message then carries one JSON-RPC message, and each
 //! message the engine sends is one text message; the `hello` with its token
 //! still comes first. A message longer than
-//! [`MAX_MESSAGE_BYTES`](super::framing::MAX_MESSAGE_BYTES) ends in its
+//! [`MAX_MESSAGE_BYTES`](crate::framing::MAX_MESSAGE_BYTES) ends in its
 //! typed limit error, and the Connection then closes, since a WebSocket
 //! cannot skip it.
 
@@ -32,8 +32,8 @@ use tokio_tungstenite::tungstenite::http::{HeaderValue, StatusCode, header};
 use tokio_tungstenite::tungstenite::protocol::WebSocketConfig;
 use tokio_tungstenite::tungstenite::{Error, Message};
 
-use super::framing::{Frame, MAX_MESSAGE_BYTES};
 use crate::endpoint::{self, Authorities, Hosts, Origins, Refusal};
+use crate::framing::{Frame, MAX_MESSAGE_BYTES};
 use crate::transport::{ConnectionReader, ConnectionWriter};
 
 /// Why no WebSocket opened.

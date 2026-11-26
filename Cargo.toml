@@ -184,6 +184,9 @@ goodfetch-counted-work = { path = "crates/goodfetch-counted-work" }
 # The Encoding a document's own bytes declare, read as Chrome reads it (ADR
 # 0119), which the fetch tiers and Collie's client crate both read.
 goodfetch-encoding = { path = "crates/goodfetch-encoding" }
+# A `stealth` Session's Identity profile drawn from the population data
+# (ADR 0035), which the page crate narrows by the identity settings.
+goodfetch-identity-profile = { path = "crates/goodfetch-identity-profile" }
 # The operating-system part of a Saved file (ADR 0116), which the engine and
 # Collie's client crate both use.
 goodfetch-saved-file = { path = "crates/goodfetch-saved-file" }
@@ -326,6 +329,15 @@ p256 = { version = "0.14.0", default-features = false }
 rcgen = { version = "0.14.10", default-features = false }
 rustls = { version = "0.23.46", default-features = false }
 tokio-rustls = { version = "0.26.4", default-features = false }
+# The `email` Notification channel (ADR 0027, #1388): mail-builder writes the
+# message, a plain-text part and an HTML part; mail-send speaks SMTP over the
+# connection the engine's own client opens, so TLS and the Egress rules stay
+# the engine's. Without their default features: no DKIM, no CRAM-MD5 or
+# DIGEST-MD5, no aws-lc-rs, and no host name read for a Message-ID.
+# smtp-proto, mail-send's own parser, names the EHLO capabilities it reads.
+mail-builder = { version = "2.0.1", default-features = false }
+mail-send = { version = "0.7.0", default-features = false }
+smtp-proto = { version = "0.2.5", default-features = false }
 # The Proving ground's identity site verifies Web Bot Auth signatures with
 # Cloudflare's own verifier, as the lab's did with its npm package (#162).
 web-bot-auth = { version = "0.7.0", default-features = false }

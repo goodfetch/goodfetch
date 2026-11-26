@@ -163,6 +163,7 @@ details! {
     crate::hostile_input::PathUnsafeDetails => ErrorCode::PATH_UNSAFE,
     crate::key_value_store::ValueInvalidDetails => ErrorCode::VALUE_INVALID,
     crate::model::ModelUnavailableDetails => ErrorCode::MODEL_UNAVAILABLE,
+    crate::notifications::WebhookInvalidDetails => ErrorCode::WEBHOOK_INVALID,
     crate::page::BodyNotFoundDetails => ErrorCode::BODY_NOT_FOUND,
     crate::page::BrowserLaunchFailedDetails => ErrorCode::BROWSER_LAUNCH_FAILED,
     crate::page::BrowserNeedsGuiSessionDetails => ErrorCode::BROWSER_NEEDS_GUI_SESSION,

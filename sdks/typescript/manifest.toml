@@ -1846,6 +1846,44 @@ form = "read"
 [[member]]
 package = "@goodfetch/collie-client"
 receiver = "(module)"
+member = "verifyWebhook"
+entry = "none"
+reason = "Checks a `webhook` channel's delivery in the program that receives it, with no engine and no Connection (ADR 0027; issue 1391): its Standard Webhooks signature against the secrets given, its timestamp within 5 minutes, and its body, read as a Notification payload; `webhook_invalid` otherwise."
+words = ["verify", "webhook"]
+form = "read"
+
+[[member]]
+package = "@goodfetch/collie-client"
+receiver = "(module)"
+member = "VerifyWebhookOptions"
+entry = "none"
+reason = "What `verifyWebhook` takes beside the call, each left unset by default: a tolerance other than 5 minutes, the endpoint ID a `v2a` signature names, or the time to check the timestamp against."
+words = ["verify", "webhook", "options"]
+form = "type"
+
+[[member]]
+package = "@goodfetch/collie-client"
+receiver = "(module)"
+member = "WebhookBody"
+entry = "none"
+reason = "A delivery's body as `verifyWebhook` takes it, received and not yet parsed: text or bytes."
+only = "Rust takes the body as `&[u8]` and Python as `bytes` or `str`, which no named type wraps."
+words = ["webhook", "body"]
+form = "type"
+
+[[member]]
+package = "@goodfetch/collie-client"
+receiver = "(module)"
+member = "WebhookHeaders"
+entry = "none"
+reason = "A delivery's headers as `verifyWebhook` takes them: a `Headers`, or a record such as Node's."
+only = "Rust takes the headers as name and value pairs and Python as a mapping, which no named type wraps."
+words = ["webhook", "headers"]
+form = "type"
+
+[[member]]
+package = "@goodfetch/collie-client"
+receiver = "(module)"
 member = "StoredBytes"
 entry = "none"
 reason = "Bytes the Key-value store keeps, with their content type, as `key_value_store.get_bytes` answers them."

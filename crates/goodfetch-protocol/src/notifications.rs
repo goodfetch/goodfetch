@@ -7,8 +7,10 @@
 //! A destination's URL and every credential are Secret references, never
 //! the value itself.
 
-use schemars::JsonSchema;
+use std::borrow::Cow;
+
 use schemars::generate::SchemaSettings;
+use schemars::{JsonSchema, Schema, SchemaGenerator};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
@@ -16,9 +18,16 @@ use crate::catalog::{
     Authority, Entries, ProtocolVersion, Setting, SharedType, SharedTypeValue, ValueKind,
     ValueShape,
 };
-use crate::inline_value::open_value_type;
+use crate::inline_value::{open_schema, open_value_type};
 use crate::run::{Completeness, Lifecycle, RunAxes, Verdict};
 use crate::secret_reference::{REFERENCE_PATTERN, SecretReference};
+
+mod payload;
+
+pub use payload::{
+    FullNotification, NOTIFICATION_PAYLOAD_VERSION, NotificationData, NotificationPayload,
+    ThinNotification, WEBHOOK_INVALID, WebhookInvalidDetails, WebhookInvalidReason,
+};
 
 const ARRIVED_IN: ProtocolVersion = ProtocolVersion { major: 0, minor: 1 };
 
@@ -31,6 +40,9 @@ pub const BUILT_IN_TYPES: [&str; 7] = [
 /// The `type` of the `webhook` channel, which posts a Standard Webhooks
 /// delivery.
 pub const WEBHOOK: &str = "webhook";
+
+/// The `type` of the `email` channel.
+const EMAIL: &str = "email";
 
 /// What a `webhook` channel's delivery carries in its `data`.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -130,10 +142,20 @@ pub struct ChannelMailgun {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(extend("arrived_in" = "0.1"))]
     pub domain: Option<String>,
-    /// The region, `us` or `eu`.
+    /// The region its domain lives in: `us` when left out.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(extend("arrived_in" = "0.1"))]
-    pub region: Option<String>,
+    pub region: Option<MailgunRegion>,
+}
+
+/// The Mailgun region a sending domain lives in.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum MailgunRegion {
+    /// The United States, at `api.mailgun.net`.
+    Us,
+    /// The European Union, at `api.eu.mailgun.net`.
+    Eu,
 }
 
 /// An `email` channel's keys.
@@ -315,7 +337,59 @@ impl ChannelSettings {
                 );
             }
         }
+        if settings.channel_type.as_deref() == Some(EMAIL) {
+            email_needs(settings.email.as_ref())?;
+        }
         Ok(settings)
+    }
+}
+
+/// Whether an `email` channel's keys name its provider, its addresses and
+/// what its provider sends with, or the first key it misses.
+fn email_needs(email: Option<&ChannelEmail>) -> Result<(), String> {
+    let missing = |key: &str, example: &str| {
+        Err(format!(
+            "an `email` channel names its `{key}`, such as {example}"
+        ))
+    };
+    let Some((email, provider)) = email.and_then(|email| Some((email, email.provider?))) else {
+        return missing("email.provider", "`smtp`, `ses` or `resend`");
+    };
+    if email.to.as_ref().is_none_or(Vec::is_empty) {
+        return missing("email.to", "`[\"ops@example.com\"]`");
+    }
+    if email.from.is_none() {
+        return missing("email.from", "`goodfetch@example.com`");
+    }
+    match provider {
+        EmailProvider::Smtp if email.smtp.as_ref().is_none_or(|smtp| smtp.host.is_none()) => {
+            missing("email.smtp.host", "`smtp.example.com`")
+        }
+        EmailProvider::Ses if email.ses.as_ref().is_none_or(|ses| ses.region.is_none()) => {
+            missing("email.ses.region", "`eu-west-1`")
+        }
+        EmailProvider::Resend
+        | EmailProvider::Postmark
+        | EmailProvider::Sendgrid
+        | EmailProvider::Mailgun
+            if email.api_key.is_none() =>
+        {
+            missing("email.api_key", "`env:EMAIL_API_KEY`")
+        }
+        EmailProvider::Mailgun
+            if email
+                .mailgun
+                .as_ref()
+                .is_none_or(|mailgun| mailgun.domain.is_none()) =>
+        {
+            missing("email.mailgun.domain", "`mg.example.com`")
+        }
+        EmailProvider::Smtp
+        | EmailProvider::Ses
+        | EmailProvider::Resend
+        | EmailProvider::Postmark
+        | EmailProvider::Sendgrid
+        | EmailProvider::Mailgun => Ok(()),
     }
 }
 
@@ -470,6 +544,23 @@ collie_events! {
     QUARANTINED = "quarantined": "Code mode or a Plugin was quarantined.";
 }
 
+impl JsonSchema for NotificationEvent {
+    fn schema_name() -> Cow<'static, str> {
+        "NotificationEvent".into()
+    }
+
+    fn json_schema(_: &mut SchemaGenerator) -> Schema {
+        let values: Vec<(String, &str)> = EVENT_VALUES
+            .iter()
+            .map(|value| (value.name.to_owned(), value.description))
+            .collect();
+        open_schema(
+            "A Notification event's `snake_case` name: one of Collie's, or another Product's or a newer engine's, which a reader keeps as received.",
+            &values,
+        )
+    }
+}
+
 impl NotificationEvent {
     /// The attention set: the events a channel with no `events` receives
     /// (ADRs 0027 and 0029), what needs a person rather than what went
@@ -527,13 +618,14 @@ impl ChannelSettings {
     }
 }
 
-/// Notifications' entries: their settings and Collie's events.
+/// Notifications' entries: their settings, Collie's events and the error
+/// a verification helper raises.
 pub const ENTRIES: Entries = Entries {
     defined_in: module_path!(),
     operations: &[],
     events: &[],
     handler_requests: &[],
-    error_codes: &[],
+    error_codes: &[WEBHOOK_INVALID],
     plugin_kinds: &[],
     metrics: &[],
     settings: &[NOTIFICATIONS_CHANNELS],

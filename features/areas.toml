@@ -1462,6 +1462,20 @@ number = 11
 kind = "error"
 prefix = "connection_overloaded"
 
+# The Error code an SDK's webhook verification helper raises for a call
+# that is no verified delivery (ADR 0027; issue 1391).
+[[area]]
+number = 11
+kind = "error"
+prefix = "webhook_invalid"
+
+# The body of a `webhook` channel's delivery, which each SDK's verification
+# helper reads (ADRs 0027 and 0030; issue 1391).
+[[area]]
+number = 11
+kind = "format"
+prefix = "notification-payload"
+
 # A Client's own bounds on its transport, set in `connect()`'s own
 # `settings` (issue 2518).
 [[area]]

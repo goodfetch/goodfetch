@@ -22,6 +22,8 @@ pub(crate) enum Ecosystem {
     /// The sources Collie's block-detection rules are seeded from (ADR
     /// 0035).
     BlockDetectionRules,
+    /// The population data Identity profiles are drawn from (ADR 0035).
+    IdentityPopulation,
 }
 
 impl fmt::Display for Ecosystem {
@@ -33,6 +35,7 @@ impl fmt::Display for Ecosystem {
             Self::Chromium => "chromium",
             Self::CleanUpRules => "clean-up-rules",
             Self::BlockDetectionRules => "block-detection-rules",
+            Self::IdentityPopulation => "identity-population",
         })
     }
 }

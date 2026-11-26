@@ -77,6 +77,7 @@ fn file_formats() -> serde_json::Value {
             "hello_from": ["group_member"],
             "schema": { "$ref": "#/$defs/Message" },
         },
+        stored_format("notification-payload", "json", "frozen_major", "NotificationPayload"),
     ])
 }
 

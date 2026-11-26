@@ -1,0 +1,27 @@
+set = "identity-population"
+
+# The population a `stealth` Session's Identity profile is drawn from (ADR
+# 0035; spec #599, story 36): Apify's fingerprint-suite, whose networks
+# BrowserForge ships too. Each file is embedded as published, so each is
+# used `unmodified`; `candidates.rs` reads it.
+
+[[input]]
+name = "fingerprint-suite's fingerprint network"
+version = "7a6b52bf3180c6a5cf9fe8e507f0e050060a69fa"
+license = "Apache-2.0"
+source = "https://github.com/apify/fingerprint-suite/blob/7a6b52bf3180c6a5cf9fe8e507f0e050060a69fa/packages/fingerprint-generator/src/data_files/fingerprint-network-definition.zip"
+use = "unmodified"
+
+[[input]]
+name = "fingerprint-suite's header network"
+version = "7a6b52bf3180c6a5cf9fe8e507f0e050060a69fa"
+license = "Apache-2.0"
+source = "https://github.com/apify/fingerprint-suite/blob/7a6b52bf3180c6a5cf9fe8e507f0e050060a69fa/packages/header-generator/src/data_files/header-network-definition.zip"
+use = "unmodified"
+
+[[input]]
+name = "fingerprint-suite's header order"
+version = "7a6b52bf3180c6a5cf9fe8e507f0e050060a69fa"
+license = "Apache-2.0"
+source = "https://github.com/apify/fingerprint-suite/blob/7a6b52bf3180c6a5cf9fe8e507f0e050060a69fa/packages/header-generator/src/data_files/headers-order.json"
+use = "unmodified"

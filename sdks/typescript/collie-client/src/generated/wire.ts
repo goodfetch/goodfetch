@@ -66,6 +66,7 @@ export type CollieWireType =
   | "FileWriteFailedDetails"
   | "FillParams"
   | "FormatsParams"
+  | "FullNotification"
   | "GotoParams"
   | "GroupFormed"
   | "GroupInitParams"
@@ -117,6 +118,8 @@ export type CollieWireType =
   | "NotUnderstoodLimit"
   | "NotVerifiedDetails"
   | "NothingDone"
+  | "NotificationData"
+  | "NotificationPayload"
   | "PageBodyParams"
   | "PageCloseParams"
   | "PageCrashedDetails"
@@ -217,6 +220,7 @@ export type CollieWireType =
   | "StopReason"
   | "SystemInfo"
   | "Table"
+  | "ThinNotification"
   | "TierProvenance"
   | "TimeRange"
   | "TransformProvenance"
@@ -298,6 +302,7 @@ export const collieWire: Wire<keyof CollieOperationTypes & string, keyof CollieE
     "FileWriteFailedDetails": { fields: { "os_code": "osCode" } },
     "FillParams": { fields: { "locator": ["locator", { type: "Locator" }] } },
     "FormatsParams": { fields: { "page_id": "pageId" } },
+    "FullNotification": { fields: { "event_id": "eventId", "run_id": "runId", "schedule_id": "scheduleId" } },
     "GotoParams": { fields: { "page_id": "pageId", "wait_until": "waitUntil" } },
     "GroupFormed": { fields: { "authority_key": "authorityKey", "lead_epoch": "leadEpoch", "peer_address": "peerAddress" } },
     "GroupInitParams": { fields: { "peer_address": "peerAddress" } },
@@ -349,6 +354,8 @@ export const collieWire: Wire<keyof CollieOperationTypes & string, keyof CollieE
     "NotUnderstoodLimit": { fields: { "period": ["period", { type: "Period" }], "usage_kind": "usageKind" } },
     "NotVerifiedDetails": { fields: { "reasons": ["reasons", { items: { type: "AxisReason" } }] } },
     "NothingDone": { fields: { "ended_at": ["endedAt", "time"] } },
+    "NotificationData": { fields: { "event_id": "eventId", "run_id": "runId", "schedule_id": "scheduleId" } },
+    "NotificationPayload": { fields: { "data": ["data", { type: "NotificationData" }], "timestamp": ["timestamp", "time"] } },
     "PageBodyParams": { fields: { "run_id": "runId" } },
     "PageCloseParams": { fields: { "page_id": "pageId", "run_before_unload": "runBeforeUnload" } },
     "PageCrashedDetails": { fields: { "browser_exit": "browserExit" } },
@@ -449,6 +456,7 @@ export const collieWire: Wire<keyof CollieOperationTypes & string, keyof CollieE
     "StopReason": { union: { tag: "kind", known: ["abort", "pause", "migrate", "timeout", "drain", "limit", "limit_not_understood", "engine_lost", "engine_panicked", "resources"], path: { fields: { "period": ["period", { type: "Period" }], "resets_at": ["resetsAt", "time"], "usage_kind": "usageKind" } } } },
     "SystemInfo": { fields: { "concurrency": ["concurrency", { type: "Concurrency" }], "cpu": ["cpu", { type: "CpuReading" }], "last_resort": "lastResort", "memory": ["memory", { type: "MemoryReading" }], "pressure_source": "pressureSource" } },
     "Table": { fields: { "body_rows": "bodyRows", "header_rows": "headerRows" } },
+    "ThinNotification": { fields: { "event_id": "eventId", "run_id": "runId", "schedule_id": "scheduleId" } },
     "TierProvenance": { fields: { "calls_sent_on": "callsSentOn", "forced_by": "forcedBy" } },
     "TimeRange": { fields: { "from": ["from", "time"], "until": ["until", "time"] } },
     "TransformProvenance": { fields: { "anchor": ["anchor", "time"], "time_zone": "timeZone" } },

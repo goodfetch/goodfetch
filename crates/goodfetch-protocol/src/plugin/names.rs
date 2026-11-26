@@ -7,10 +7,9 @@
 
 use std::borrow::Cow;
 
-use schemars::{JsonSchema, Schema, SchemaGenerator, json_schema};
-use serde_json::{Value, json};
+use schemars::{JsonSchema, Schema, SchemaGenerator};
 
-use crate::inline_value::open_value_type;
+use crate::inline_value::{open_schema, open_value_type};
 
 open_value_type!(
     /// A Plugin kind's `snake_case` name, such as `hook` or `model`.
@@ -153,21 +152,4 @@ impl JsonSchema for HookStageName {
             &Self::COLLIE.map(|(stage, description)| (stage.as_str().to_owned(), description)),
         )
     }
-}
-
-/// An open enumeration's schema (ADR 0079): a `oneOf` of its known values,
-/// each a string constant with its description, marked `"open": true`, so
-/// each SDK keeps a value it does not know.
-fn open_schema(description: &str, values: &[(String, &str)]) -> Schema {
-    let values: Vec<Value> = values
-        .iter()
-        .map(|(value, description)| {
-            json!({ "type": "string", "const": value, "description": description })
-        })
-        .collect();
-    json_schema!({
-        "description": description,
-        "open": true,
-        "oneOf": values,
-    })
 }

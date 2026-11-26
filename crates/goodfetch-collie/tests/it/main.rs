@@ -80,6 +80,7 @@ mod init;
 mod install_docs;
 mod invalid_calls;
 mod journeys;
+mod key_value_store;
 #[cfg(unix)]
 mod launch;
 mod layout;

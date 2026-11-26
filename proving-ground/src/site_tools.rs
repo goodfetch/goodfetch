@@ -1,4 +1,4 @@
-//! The `site_tools` family on `site-tools.test`: a page whose script
+//! The `site-tools` family on `site-tools.test`: a page whose script
 //! registers WebMCP tools (AI-09), for the site-tools operations. It
 //! registers four, one of them read-only and answering the order the page
 //! holds, one that never answers and one whose input schema is only a `$ref`
@@ -17,7 +17,7 @@ use crate::task::{self, Entry, Expected, Kind, Record, Task};
 /// The host name the family is served on.
 pub(crate) const HOST: &str = "site-tools.test";
 
-const FAMILY: &str = "site_tools";
+const FAMILY: &str = "site-tools";
 
 /// The page that registers the tools.
 const PATH: &str = "/tools";

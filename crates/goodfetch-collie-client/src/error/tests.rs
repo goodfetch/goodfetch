@@ -7,8 +7,9 @@ use std::fmt;
 use std::time::Duration;
 
 use goodfetch_protocol::block::BlockCause;
-use goodfetch_protocol::catalog::ErrorGroup;
+use goodfetch_protocol::catalog::{ErrorGroup, Product};
 use goodfetch_protocol::checkpoint::PathNotWritableDetails;
+use goodfetch_protocol::entries::MODULES;
 use goodfetch_protocol::error_code::ErrorCode;
 use goodfetch_protocol::hook::HookFailedDetails;
 use goodfetch_protocol::jsonrpc::{ErrorData, ErrorObject};
@@ -194,6 +195,55 @@ fn a_code_this_program_does_not_know_stays_a_value_of_its_group() {
 
     assert_eq!(error.code().as_str(), "brand_new");
     assert_eq!(error.group(), ErrorGroup::Unavailable);
+}
+
+/// A program written for Collie that meets a Foxhound engine (ADRs 0079
+/// and 0095): each Error code only Foxhound carries reaches it as a value
+/// of the code's group, with the code and retryable flag the engine sent.
+/// Covers: story:11-1143
+#[test]
+fn each_code_only_foxhound_carries_reaches_a_collie_program_as_its_groups_value() {
+    let foxhounds: Vec<_> = MODULES
+        .into_iter()
+        .filter(|entries| Product::of_module(entries.defined_in) == Product::Foxhound)
+        .flat_map(|entries| entries.error_codes)
+        .collect();
+
+    let read: Vec<_> = foxhounds
+        .iter()
+        .map(|definition| {
+            let error = Error::answered(ErrorObject {
+                code: definition.group.json_rpc_class(),
+                message: format!("failed with {}", definition.name),
+                data: ErrorData {
+                    code: definition.name.to_owned(),
+                    retryable: definition.retryable,
+                    details: Map::new(),
+                },
+            });
+            (
+                error.code().as_str().to_owned(),
+                error.group(),
+                error.retryable(),
+            )
+        })
+        .collect();
+
+    assert!(
+        !foxhounds.is_empty(),
+        "Foxhound's catalog has its own codes"
+    );
+    let sent: Vec<_> = foxhounds
+        .iter()
+        .map(|definition| {
+            (
+                definition.name.to_owned(),
+                definition.group,
+                definition.retryable,
+            )
+        })
+        .collect();
+    assert_eq!(read, sent);
 }
 
 /// Covers: story:11-36, error:handler_failed

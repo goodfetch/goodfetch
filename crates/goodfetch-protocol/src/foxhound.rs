@@ -25,6 +25,7 @@ pub mod export;
 pub mod fetch;
 pub mod frontier;
 pub mod hook;
+pub mod notifications;
 pub mod outcomes;
 pub mod progress;
 pub mod provenance;

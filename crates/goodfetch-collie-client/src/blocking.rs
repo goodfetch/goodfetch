@@ -666,11 +666,42 @@ impl Start {
         Self(self.0.settings(settings), self.1)
     }
 
+    /// Bounds how long the Run may last, as [`crate::Start::timeout`]
+    /// does.
+    pub fn timeout(self, timeout: Duration) -> Self {
+        Self(self.0.timeout(timeout), self.1)
+    }
+
+    /// Lets the Run last as long as it takes, as
+    /// [`crate::Start::no_timeout`] does.
+    pub fn no_timeout(self) -> Self {
+        Self(self.0.no_timeout(), self.1)
+    }
+
+    /// Names the Plan file the Run follows, as [`crate::Start::plan`]
+    /// does.
+    pub fn plan(self, path: impl Into<String>) -> Self {
+        Self(self.0.plan(path), self.1)
+    }
+
+    /// Sets the Response recording the Run replays or records, as
+    /// [`crate::Start::recording`] does.
+    pub fn recording(self, recording: Recording) -> Self {
+        Self(self.0.recording(recording), self.1)
+    }
+
+    /// Accepts a change of the Plugin `name`, as
+    /// [`crate::Start::accept_plugin_change`] does.
+    pub fn accept_plugin_change(self, name: impl Into<String>) -> Self {
+        Self(self.0.accept_plugin_change(name), self.1)
+    }
+
     /// Starts the Run and blocks the calling thread until it is started.
     ///
     /// # Errors
     ///
-    /// What `run.start` fails with.
+    /// What `run.start` fails with, and `setting_invalid` for a zero
+    /// `timeout`, before anything is sent.
     pub fn send(self) -> Result<Run, Error> {
         let Self(start, connection) = self;
         let inner = connection.wait(start.into_future())?;

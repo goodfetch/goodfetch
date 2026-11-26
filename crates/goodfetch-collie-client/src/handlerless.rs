@@ -38,9 +38,10 @@ enum Target {
     Catalog(CatalogTarget),
 }
 
-/// How long a handler-less Run may last, as its start gives it.
+/// How long a Run may last, as its start gives it: a handler-less start's
+/// or [`crate::Start`]'s.
 #[derive(Debug, Clone, Copy)]
-enum RunTimeout {
+pub(crate) enum RunTimeout {
     /// As its `timeout.run` setting says: nothing sent.
     Setting,
     /// At most this long.
@@ -211,7 +212,7 @@ impl IntoFuture for HandlerlessStart {
     clippy::option_option,
     reason = "the params' field is absent, null or a number on the wire (ADR 0080)"
 )]
-fn wire_timeout(timeout: RunTimeout) -> Result<Option<Option<u64>>, Error> {
+pub(crate) fn wire_timeout(timeout: RunTimeout) -> Result<Option<Option<u64>>, Error> {
     match timeout {
         RunTimeout::Setting => Ok(None),
         RunTimeout::Unbounded => Ok(Some(None)),

@@ -83,6 +83,17 @@ impl Reference {
         self.index
     }
 
+    /// The Plugin's name: the repository's last segment after
+    /// `goodfetch-plugin-`, which its manifest must give.
+    #[must_use]
+    pub fn plugin(&self) -> &str {
+        self.repository
+            .rsplit('/')
+            .next()
+            .and_then(|last| last.strip_prefix(REPOSITORY_PREFIX))
+            .expect("invariant: a Reference's repository ends in `goodfetch-plugin-<name>`")
+    }
+
     /// The path, on the registry, of the manifest or index of digest
     /// `digest` in the repository.
     #[must_use]
@@ -369,7 +380,8 @@ struct RawManifest {
     layers: Vec<RawDescriptor>,
 }
 
-const INDEX: &str = "Plugin's image index";
+/// How a [`DocumentError`] names the image index.
+pub const INDEX: &str = "Plugin's image index";
 const MANIFEST: &str = "Plugin's image manifest";
 
 /// Reads `json` as the document `document` of shape `T`, at most

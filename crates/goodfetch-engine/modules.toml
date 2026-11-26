@@ -62,6 +62,7 @@ plugin_host = ["call_error", "children", "framing", "plugin_gate", "secrets", "s
 plugin_kinds = ["call_error", "clock", "deadline", "home", "plugin_gate", "plugin_host", "plugin_store", "sandbox_probe", "secrets", "settings", "tasks", "wire"]
 plugin_store = []
 plugin_bundle = ["hostile_input", "plugin_oci"]
+plugin_install = ["http_client", "pinned_download", "plugin_bundle", "plugin_oci", "plugin_store", "tasks"]
 plugin_oci = ["pinned_download"]
 pinned_download = ["clock", "dns", "egress", "happy_eyeballs", "http_client", "settings", "tasks", "tls"]
 rule_sources = ["clock", "egress", "http_client", "pinned_download", "settings", "tasks", "tls"]

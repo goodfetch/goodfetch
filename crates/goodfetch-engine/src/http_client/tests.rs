@@ -38,8 +38,10 @@ impl Destination {
 
 /// Each module that calls the HTTP client, with the kind of destination it
 /// connects to. A module that starts calling it joins here, with its kind.
-const CALLERS: [(&str, Destination); 6] = [
+const CALLERS: [(&str, Destination); 7] = [
     ("pinned_download", Destination::PinnedDownload),
+    // A Plugin's OCI artifact, every byte pinned by its index's digest.
+    ("plugin_install", Destination::PinnedDownload),
     (
         "notification_endpoint",
         Destination::Configured(ConfiguredKind::NotificationWebhook),

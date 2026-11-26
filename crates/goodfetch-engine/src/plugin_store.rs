@@ -7,13 +7,13 @@
 //! <home>/plugins/<name>/<version>/goodfetch-plugin.json
 //! ```
 //!
-//! This is the store's reader: it resolves a Plugin's name to its bundle
-//! and its manifest, read as any decoded input (ADR 0127), and lists the
-//! settings schemas the installed Plugins declare, which `config.explain`
-//! answers. Adding, updating
-//! and removing a Plugin (issues 889 and 928), the lockfile's digest and
-//! the approvals in Operator policy (issue 900) are theirs; until then a
-//! Plugin in the store is one the user put there.
+//! It resolves a Plugin's name to its bundle and its manifest, read as any
+//! decoded input (ADR 0127), lists the settings schemas the installed
+//! Plugins declare, which `config.explain` answers, and adds a Plugin
+//! `plugin add` unpacked into a staging folder beside it, moved into place
+//! whole (issue 889). Updating and removing a Plugin (issue 928), the
+//! lockfile's digest and the approvals in Operator policy (issue 900) are
+//! theirs.
 //!
 //! It reads the file system, so it blocks: call it from the tasks module's
 //! blocking policy, never on an async worker.
@@ -110,6 +110,24 @@ pub enum StoreError {
         /// The kind asked for.
         kind: PluginKindName,
     },
+    /// Its manifest's version would name another folder than one of the
+    /// Plugin's.
+    #[error("the Plugin `{name}`'s version `{version}` holds a path")]
+    Version {
+        /// The Plugin's name.
+        name: String,
+        /// The version its manifest gives.
+        version: String,
+    },
+    /// A version of the Plugin is installed already, which `plugin update`
+    /// replaces (issue 928).
+    #[error("the Plugin `{name}` is installed already, at version {version}")]
+    Installed {
+        /// The Plugin's name.
+        name: String,
+        /// The version installed.
+        version: String,
+    },
 }
 
 impl PluginStore {
@@ -171,6 +189,72 @@ impl PluginStore {
                 }
             })
             .collect())
+    }
+
+    /// A new, empty folder beside the store's, on its file system, for a
+    /// bundle to be unpacked into and then [`add`](Self::add)ed; it is
+    /// removed with all it still holds when dropped. Being outside the
+    /// store's folder, it is never read as a Plugin.
+    ///
+    /// # Errors
+    ///
+    /// The OS's error when the folder cannot be made.
+    pub fn staging(&self) -> io::Result<tempfile::TempDir> {
+        let beside = self.folder.parent().unwrap_or(&self.folder);
+        fs::create_dir_all(beside)?;
+        tempfile::Builder::new()
+            .prefix(".plugin-staging-")
+            .tempdir_in(beside)
+    }
+
+    /// Adds the Plugin `name` whose bundle is unpacked at `staged`, a
+    /// folder of [`staging`](Self::staging): its manifest is read, must name
+    /// `name` and a version that names one folder, and the folder is moved
+    /// whole to `<name>/<version>`, so the store never holds part of a
+    /// bundle.
+    ///
+    /// # Errors
+    ///
+    /// [`StoreError`] when `name` or the version holds a path, the manifest
+    /// cannot be read, is of a version this engine does not read or names
+    /// another Plugin, a version of the Plugin is installed already, or the
+    /// folder cannot be moved.
+    pub fn add(&self, name: &str, staged: &Path) -> Result<Installed, StoreError> {
+        if !is_one_folder(name) {
+            return Err(StoreError::Name(name.to_owned()));
+        }
+        let manifest = read_manifest(name, staged)?;
+        if manifest.name != name {
+            return Err(StoreError::Misnamed {
+                name: name.to_owned(),
+                named: manifest.name,
+            });
+        }
+        if !is_one_folder(&manifest.version) {
+            return Err(StoreError::Version {
+                name: name.to_owned(),
+                version: manifest.version,
+            });
+        }
+        match self.installed(name) {
+            Ok(installed) => {
+                return Err(StoreError::Installed {
+                    name: name.to_owned(),
+                    version: installed.manifest.version,
+                });
+            }
+            Err(StoreError::NotInstalled(_) | StoreError::Versions { versions: 0, .. }) => {}
+            Err(error) => return Err(error),
+        }
+        let unreadable = |source| StoreError::Unreadable {
+            name: name.to_owned(),
+            source,
+        };
+        let folder = self.folder.join(name);
+        fs::create_dir_all(&folder).map_err(unreadable)?;
+        let bundle = folder.join(&manifest.version);
+        fs::rename(staged, &bundle).map_err(unreadable)?;
+        Ok(Installed { bundle, manifest })
     }
 
     /// The installed Plugin `name`, of any kind.

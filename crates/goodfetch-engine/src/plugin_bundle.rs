@@ -416,7 +416,8 @@ fn assert_inside(folder: &Path, root: &Path) {
             if let Ok(resolved) = fs::canonicalize(&path) {
                 assert!(
                     resolved.starts_with(root),
-                    "a link leaves the bundle: {path:?}"
+                    "a link leaves the bundle: {}",
+                    path.display()
                 );
             }
         } else if metadata.is_dir() {

@@ -60,10 +60,13 @@ fn layer(media_type: &str, size: u64) -> Value {
 
 /// Covers: story:7-5
 #[rstest]
-#[case::at_a_port("localhost:5000/goodfetch-plugin-kettle")]
-#[case::nested("registry.example.com/team/tools/goodfetch-plugin-kettle")]
-#[case::separators("ghcr.io/a.b_c__d--e/goodfetch-plugin-kettle.v2")]
-fn a_reference_names_a_registry_a_repository_and_an_index_digest(#[case] name: &str) {
+#[case::at_a_port("localhost:5000/goodfetch-plugin-kettle", "kettle")]
+#[case::nested("registry.example.com/team/tools/goodfetch-plugin-kettle", "kettle")]
+#[case::separators("ghcr.io/a.b_c__d--e/goodfetch-plugin-kettle.v2", "kettle.v2")]
+fn a_reference_names_a_registry_a_repository_and_an_index_digest(
+    #[case] name: &str,
+    #[case] plugin: &str,
+) {
     let text = format!("{name}@{A}");
 
     let reference: Reference = text.parse().unwrap();
@@ -71,6 +74,7 @@ fn a_reference_names_a_registry_a_repository_and_an_index_digest(#[case] name: &
     let (registry, repository) = name.split_once('/').unwrap();
     assert_eq!(reference.registry(), registry);
     assert_eq!(reference.repository(), repository);
+    assert_eq!(reference.plugin(), plugin);
     assert_eq!(reference.index(), A.parse::<Digest>().unwrap());
     assert_eq!(reference.to_string(), text);
     assert_eq!(

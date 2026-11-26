@@ -81,6 +81,11 @@ tracing-opentelemetry.workspace = true
 # and `sentinel` and `cluster-async` reach a Sentinel deployment or a
 # Cluster.
 redis = { workspace = true, features = ["tokio-rustls-comp", "script", "sentinel", "cluster-async"] }
+# A Daemon group's certificate authority (ADR 0055): its certificate, its
+# Group members' and its revocation list, signed with keys from the OS
+# generator through ring; `time` gives their dates.
+rcgen = { workspace = true, features = ["ring"] }
+time.workspace = true
 # `hooks`: the commit hook the Usage ledger counts its transactions with (ADR 0140).
 rusqlite = { workspace = true, features = ["hooks"] }
 rustls = { workspace = true, features = ["ring", "std", "tls12"] }
@@ -170,7 +175,6 @@ goodfetch-test-support.workspace = true
 gungraun.workspace = true
 # The pinned downloads' HTTPS stand-in (tests/it/downloads.rs).
 hyper = { workspace = true, features = ["server"] }
-rcgen = { workspace = true, features = ["ring"] }
 insta.workspace = true
 # The masking benchmark's line ends (benches/scenarios.rs).
 memchr.workspace = true

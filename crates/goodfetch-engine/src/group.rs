@@ -13,8 +13,23 @@
 //! former Lead Daemon that comes back is fenced off; a refused `hello`
 //! closes the link.
 //!
-//! The lines come from the peer link's mutual TLS, which `transport` opens
-//! (ADR 0060); this module reads and writes lines only.
+//! The lines come from the peer link's mutual TLS (ADR 0060), whose
+//! configurations [`accepting`] and [`connecting`] make. The group's
+//! certificate authority, [`GroupAuthority`], signs each Group member's
+//! certificate for it once the member presents a [`JoinTokens`] token, and
+//! revokes one through its revocation list.
+
+mod authority;
+mod join_tokens;
+mod peer_tls;
+
+pub use authority::{
+    AUTHORITY_LIFETIME, AuthorityError, CERTIFICATE_LIFETIME, GroupAuthority,
+    GroupMemberCertificate, GroupMemberKey, GroupMemberName, GroupMemberNameInvalid,
+    GroupMemberPublicKey, GroupMemberPublicKeyInvalid,
+};
+pub use join_tokens::{JOIN_TOKEN_LIFETIME, JoinToken, JoinTokenRefused, JoinTokens};
+pub use peer_tls::{PeerIdentity, PeerTlsError, PeerTrust, accepting, connecting};
 
 use goodfetch_protocol::catalog::{Product, ProtocolVersion};
 use goodfetch_protocol::connection::{

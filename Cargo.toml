@@ -321,6 +321,7 @@ hyper-util = { version = "0.1.21", default-features = false }
 loona-hpack = { version = "0.4.3", default-features = false }
 # The Proving ground's certificate authority, made from its seed (ADR 0059):
 # rcgen writes the certificates, p256 derives the keys and signs (RFC 6979).
+# rcgen also writes a Daemon group's, signed with ring (ADR 0055).
 p256 = { version = "0.14.0", default-features = false }
 rcgen = { version = "0.14.10", default-features = false }
 rustls = { version = "0.23.46", default-features = false }
@@ -424,7 +425,7 @@ tempfile = { version = "3.27.0", default-features = false }
 ignore = { version = "0.4.35", default-features = false }
 thiserror = { version = "2.0.21", default-features = false, features = ["std"] }
 # rcgen's dates; the Proving ground's leaf certificates are dated from its
-# clock.
+# clock, and a Daemon group's from the engine's.
 time = { version = "0.3.55", default-features = false, features = ["std"] }
 tokio = { version = "1.53.3", default-features = false }
 tokio-util = { version = "0.7.20", default-features = false }

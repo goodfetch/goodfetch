@@ -96,6 +96,10 @@ _Avoid_: term, generation, fencing token (for the group's)
 Any Daemon of a Daemon group, the Lead Daemon included. Not the *member* role of a person on a shared Daemon.
 _Avoid_: member (alone), node, worker, replica
 
+**Join token**:
+A short-lived, single-use secret the Lead Daemon mints, which a Daemon presents to join a Daemon group and have its Group member certificate signed.
+_Avoid_: bootstrap token, invite
+
 **Group backup**:
 A consistent copy of a Lead Daemon's stores from which another Group member can become the Lead Daemon.
 _Avoid_: snapshot, Checkpoint (which is a run's)

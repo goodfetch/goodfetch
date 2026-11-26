@@ -74,15 +74,45 @@ fn without_credentials(url: &Url) -> Url {
     clean
 }
 
-/// `text` on one line, as a header holds it.
+/// `text` on one line, as a header holds it: each control character, a
+/// line break among them, a space.
 fn one_line(text: &str) -> String {
-    text.replace(['\r', '\n'], " ")
+    text.chars()
+        .map(|character| {
+            if character.is_control() {
+                ' '
+            } else {
+                character
+            }
+        })
+        .collect()
+}
+
+/// `text` as a part holds it: each control character but a line break and
+/// a tab a space. `mail-builder` writes a part's other control characters,
+/// NUL among them, as they come, which a message may not carry (RFC 5322,
+/// section 2.3); it turns each bare line feed into a line break.
+fn printable(text: &str) -> String {
+    text.replace("\r\n", "\n")
+        .chars()
+        .map(|character| {
+            if character.is_control() && !matches!(character, '\n' | '\t') {
+                ' '
+            } else {
+                character
+            }
+        })
+        .collect()
 }
 
 /// The plain-text part: the title, the text and the link, each a
 /// paragraph.
 fn text(message: &Message, link: Option<&Url>) -> String {
-    let mut part = format!("{}\r\n\r\n{}\r\n", message.title, message.text);
+    let mut part = format!(
+        "{}\r\n\r\n{}\r\n",
+        printable(&message.title),
+        printable(&message.text)
+    );
     if let Some(link) = link {
         let _ = write!(part, "\r\n{link}\r\n");
     }
@@ -95,8 +125,8 @@ fn text(message: &Message, link: Option<&Url>) -> String {
 fn html(message: &Message, link: Option<&Url>) -> String {
     let mut part = format!(
         "<!DOCTYPE html>\r\n<html>\r\n<body>\r\n<h1>\r\n{}\r\n</h1>\r\n<p>\r\n{}\r\n</p>\r\n",
-        escaped(&message.title),
-        escaped(&message.text)
+        escaped(&printable(&message.title)),
+        escaped(&printable(&message.text))
     );
     if let Some(link) = link {
         let link = escaped(link.as_str());

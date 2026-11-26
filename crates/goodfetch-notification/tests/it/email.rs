@@ -29,7 +29,7 @@ use goodfetch_protocol::notifications::{NotificationEvent, SmtpSecurity};
 use goodfetch_protocol::run::RunId;
 use goodfetch_protocol::schedule::ScheduleId;
 use goodfetch_protocol::settings::SettingsLayer;
-use goodfetch_test_support::TestEnv;
+use goodfetch_test_support::{Canaries, Output, SecretKind, TestEnv};
 use httpmock::MockServer;
 use rstest::rstest;
 use rustls::pki_types::{PrivateKeyDer, PrivatePkcs8KeyDer};
@@ -46,6 +46,15 @@ const OCCURRED_AT: u64 = 1_764_000_000;
 
 /// The password in the Notification's link, which no email carries.
 pub(crate) const LINK_PASSWORD: &str = "hunter2";
+
+/// The password the SMTP channel logs in with.
+const SMTP_PASSWORD: &str = "smtp-password";
+
+/// The secret access key SES requests are signed with.
+const SES_SECRET: &str = "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY";
+
+/// The reply the receiver never sends: it hangs up instead.
+const HANG_UP: &str = "(hangs up)";
 
 /// A runtime of real time: on a paused clock the channel's timeout would
 /// fire before a receiver on the same thread answers (TESTING.md, Time).
@@ -134,11 +143,11 @@ pub(crate) fn email(provider: Provider, clock: Clock) -> Email {
     .unwrap()
 }
 
-/// The login the SMTP channel gives.
-fn login() -> Login {
+/// The login the SMTP channel gives, with `password`.
+fn login(password: &str) -> Login {
     Login {
         username: SecretString::from("goodfetch".to_owned()),
-        password: SecretString::from("smtp-password".to_owned()),
+        password: SecretString::from(password.to_owned()),
     }
 }
 
@@ -167,6 +176,8 @@ enum Security {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Step {
     Greeting,
+    /// The `AUTH` mechanisms the `EHLO` reply offers.
+    Mechanisms,
     Auth,
     Mail,
     Rcpt,
@@ -182,21 +193,26 @@ struct Script {
 }
 
 impl Script {
-    fn reply(&self, step: Step) -> String {
+    /// The text scripted for `step`, else a success's.
+    fn scripted(&self, step: Step) -> &'static str {
         let scripted = self
             .replies
             .iter()
             .find(|(scripted, _)| *scripted == step)
             .map(|(_, reply)| *reply);
-        let reply = scripted.unwrap_or(match step {
+        scripted.unwrap_or(match step {
             Step::Greeting => "220 mail.test ESMTP ready",
+            Step::Mechanisms => "PLAIN",
             Step::Auth => "235 2.7.0 Authentication successful",
             Step::Mail => "250 2.1.0 Sender OK",
             Step::Rcpt => "250 2.1.5 Recipient OK",
             Step::Data => "354 Start mail input; end with <CRLF>.<CRLF>",
             Step::EndOfData => "250 2.0.0 Queued",
-        });
-        format!("{reply}\r\n")
+        })
+    }
+
+    fn reply(&self, step: Step) -> String {
+        format!("{}\r\n", self.scripted(step))
     }
 
     /// The `EHLO` reply, offering `STARTTLS` on a plain connection that
@@ -207,7 +223,8 @@ impl Script {
         } else {
             ""
         };
-        format!("250-mail.test\r\n250-AUTH PLAIN\r\n{start_tls}250 8BITMIME\r\n")
+        let mechanisms = self.scripted(Step::Mechanisms);
+        format!("250-mail.test\r\n250-AUTH {mechanisms}\r\n{start_tls}250 8BITMIME\r\n")
     }
 }
 
@@ -350,6 +367,9 @@ async fn converse<S: AsyncRead + AsyncWrite + Unpin>(
             }
             _ => "500 5.5.2 Command unrecognized\r\n".to_owned(),
         };
+        if reply.trim_end() == HANG_UP {
+            return None;
+        }
         stream.write_all(reply.as_bytes()).await.ok()?;
     }
 }
@@ -368,28 +388,33 @@ fn configuration(receiver: &Receiver, untrusted: bool) -> Value {
     })
 }
 
-/// The SMTP channel to the receiver, secured as `security`, logging in.
-fn smtp(receiver: &Receiver, security: SmtpSecurity, settings: &Resolved, clock: Clock) -> Email {
-    email(
-        Provider::Smtp(Smtp::new(
-            HOST,
-            Some(receiver.port),
-            security,
-            Some(login()),
-            endpoint(settings, clock),
-        )),
-        clock,
-    )
-}
-
 /// What sending `message()` over SMTP to a receiver of `script`, secured
 /// as `security`, came to, and what the receiver got.
 fn sent_over_smtp(script: Script, security: SmtpSecurity) -> (Result<(), Failure>, Seen) {
+    sent_over_smtp_with(script, security, SMTP_PASSWORD)
+}
+
+/// As [`sent_over_smtp`], logging in with `password`.
+fn sent_over_smtp_with(
+    script: Script,
+    security: SmtpSecurity,
+    password: &str,
+) -> (Result<(), Failure>, Seen) {
     let env = TestEnv::new();
     let runtime = runtime();
     let receiver = receiver(&runtime, &env, script);
     let settings = settings(json!({}), configuration(&receiver, false));
-    let channel = smtp(&receiver, security, &settings, Clock::system());
+    let clock = Clock::system();
+    let channel = email(
+        Provider::Smtp(Smtp::new(
+            HOST,
+            Some(receiver.port),
+            security,
+            Some(login(password)),
+            endpoint(&settings, clock),
+        )),
+        clock,
+    );
     let sent = runtime.block_on(channel.send(&message()));
     let seen = receiver.seen.lock().unwrap().clone();
     (sent.map_err(|failure| channel.map_failure(failure)), seen)
@@ -469,15 +494,24 @@ fn an_email_is_sent_with_both_parts_and_no_credential_in_its_link(
 #[case::greeting_refused(Security::StartTls, Step::Greeting, "554 5.7.1 No SMTP service here", ("rejected", false))]
 #[case::credentials_refused(Security::StartTls, Step::Auth, "535 5.7.8 Authentication credentials invalid", ("unauthorized", false))]
 #[case::mechanism_too_weak(Security::StartTls, Step::Auth, "534 5.7.9 Authentication mechanism is too weak", ("unauthorized", false))]
+#[case::encryption_required(Security::StartTls, Step::Auth, "538 5.7.11 Encryption required for requested authentication mechanism", ("unauthorized", false))]
 #[case::authentication_unavailable(Security::StartTls, Step::Auth, "454 4.7.0 Temporary authentication failure", ("server_error", true))]
+#[case::mechanism_unrecognized(Security::StartTls, Step::Auth, "504 5.5.4 Unrecognized authentication type", ("rejected", false))]
+#[case::no_shared_mechanism(Security::StartTls, Step::Mechanisms, "GSSAPI", ("unauthorized", false))]
 #[case::authentication_required(Security::StartTls, Step::Mail, "530 5.7.0 Authentication required", ("unauthorized", false))]
 #[case::sender_refused(Security::StartTls, Step::Mail, "553 5.1.8 Sender address rejected", ("rejected", false))]
+#[case::syntax_error(Security::StartTls, Step::Mail, "500 5.5.2 Syntax error", ("rejected", false))]
 #[case::command_refused(Security::StartTls, Step::Mail, "502 5.5.1 Command not implemented", ("rejected", false))]
+#[case::parameters_unrecognized(Security::StartTls, Step::Mail, "555 5.5.4 MAIL FROM parameters not recognized", ("rejected", false))]
 #[case::storage_short(Security::StartTls, Step::Mail, "452 4.3.1 Insufficient system storage", ("server_error", true))]
+#[case::connection_broken(Security::StartTls, Step::Mail, HANG_UP, ("unreachable", true))]
 #[case::mailbox_unknown(Security::StartTls, Step::Rcpt, "550 5.1.1 User unknown", ("gone", false))]
+#[case::null_mx(Security::StartTls, Step::Rcpt, "550 5.1.10 Recipient address has null MX", ("gone", false))]
 #[case::user_not_local(Security::StartTls, Step::Rcpt, "551 5.1.6 User not local", ("gone", false))]
 #[case::mailbox_refused(Security::StartTls, Step::Rcpt, "550 5.7.1 Relaying denied", ("rejected", false))]
+#[case::recipient_syntax(Security::StartTls, Step::Rcpt, "501 5.1.3 Bad recipient address syntax", ("rejected", false))]
 #[case::mailbox_busy(Security::StartTls, Step::Rcpt, "450 4.2.1 Mailbox busy", ("server_error", true))]
+#[case::bad_sequence(Security::StartTls, Step::Data, "503 5.5.1 Bad sequence of commands", ("rejected", false))]
 #[case::data_refused(Security::StartTls, Step::Data, "554 5.5.1 No valid recipients", ("rejected", false))]
 #[case::message_too_big(Security::StartTls, Step::EndOfData, "552 5.3.4 Message too big", ("rejected", false))]
 #[case::processing_error(Security::StartTls, Step::EndOfData, "451 4.3.0 Local error in processing", ("server_error", true))]
@@ -503,6 +537,56 @@ fn each_smtp_reply_maps_to_its_failure(
         (failure.name(), failure.is_transient()),
         (expected.0, expected.1)
     );
+}
+
+/// The login's password reaches the server only in the `AUTH` command:
+/// no other command and no message carries it, in any form the canary
+/// search knows.
+/// Covers: setting:notifications.channels
+#[test]
+fn the_smtp_password_goes_only_into_the_login() {
+    let mut canaries = Canaries::new(1388);
+    let canary = canaries.plant(SecretKind::SinkCredential);
+    let (id, password) = (canary.id().to_owned(), canary.value().to_owned());
+    canaries.record_planted(&id, "auth");
+
+    let (sent, seen) = sent_over_smtp_with(
+        Script {
+            security: Security::StartTls,
+            replies: Vec::new(),
+        },
+        SmtpSecurity::Starttls,
+        &password,
+    );
+
+    let (auth, commands): (Vec<_>, Vec<_>) = seen
+        .commands
+        .iter()
+        .partition(|command| command.starts_with("AUTH "));
+    let auth = auth.into_iter().cloned().collect::<Vec<_>>().join("\n");
+    let commands = commands.into_iter().cloned().collect::<Vec<_>>().join("\n");
+    let hits = canaries
+        .search(&[
+            Output::Bytes {
+                name: "auth",
+                bytes: auth.as_bytes(),
+            },
+            Output::Bytes {
+                name: "commands",
+                bytes: commands.as_bytes(),
+            },
+            Output::Bytes {
+                name: "data",
+                bytes: seen.data.as_bytes(),
+            },
+        ])
+        .unwrap();
+    let mut outputs = hits
+        .iter()
+        .map(|hit| hit.output.as_str())
+        .collect::<Vec<_>>();
+    outputs.dedup();
+    assert_eq!((sent, outputs), (Ok(()), vec!["auth"]));
 }
 
 /// A server nobody listens on, or one whose certificate is not trusted,
@@ -547,7 +631,7 @@ fn an_unreached_server_maps_to_its_failure(
             HOST,
             Some(port),
             SmtpSecurity::Tls,
-            Some(login()),
+            Some(login(SMTP_PASSWORD)),
             endpoint(&settings, Clock::system()),
         )),
         Clock::system(),
@@ -596,13 +680,12 @@ fn a_server_that_never_greets_times_out() {
     assert_eq!(failure, ("timeout", true, None));
 }
 
-/// The access key SES requests are signed with.
-fn credentials(access_key_id: &str) -> Credentials {
+/// The access key SES requests are signed with: `access_key_id`, and the
+/// secret `secret_access_key`.
+fn credentials(access_key_id: &str, secret_access_key: &str) -> Credentials {
     Credentials {
         access_key_id: access_key_id.to_owned(),
-        secret_access_key: SecretString::from(
-            "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY".to_owned(),
-        ),
+        secret_access_key: SecretString::from(secret_access_key.to_owned()),
         session_token: None,
     }
 }
@@ -659,13 +742,24 @@ pub(crate) fn stand_in(
 /// The SES channel posting to `server` in `eu-west-1`, signed by the
 /// access key `access_key_id`.
 fn ses(server: &MockServer, access_key_id: &str, clock: Clock) -> Email {
+    ses_at(
+        &server.base_url(),
+        credentials(access_key_id, SES_SECRET),
+        &settings(json!({}), json!({})),
+        clock,
+    )
+}
+
+/// The SES channel posting to `base` in `eu-west-1`, signed with
+/// `credentials`, reaching it as `settings` let it.
+fn ses_at(base: &str, credentials: Credentials, settings: &Resolved, clock: Clock) -> Email {
     email(
         Provider::Ses(
             Ses::new(
                 "eu-west-1",
-                Some(Url::parse(&server.base_url()).unwrap()),
-                credentials(access_key_id),
-                endpoint(&settings(json!({}), json!({})), clock),
+                Some(Url::parse(base).unwrap()),
+                credentials,
+                endpoint(settings, clock),
             )
             .unwrap(),
         ),
@@ -726,6 +820,153 @@ fn an_email_through_ses_is_a_signed_raw_message() {
     );
 }
 
+/// The raw message of the one `SendEmail` call SES received.
+fn raw_message(posted: &[Posted]) -> Vec<u8> {
+    let [request] = posted else {
+        panic!("one request, got {posted:?}")
+    };
+    let body: Value = serde_json::from_slice(&request.body).unwrap();
+    BASE64
+        .decode(
+            body["Content"]["Raw"]["Data"]
+                .as_str()
+                .unwrap_or_default()
+                .as_bytes(),
+        )
+        .unwrap()
+}
+
+/// The secret access key signs each SES request but never travels: no
+/// header and no body carries it, in any form the canary search knows.
+/// Covers: setting:notifications.channels
+#[test]
+fn the_ses_secret_key_is_never_sent() {
+    let mut canaries = Canaries::new(1388);
+    let secret = canaries
+        .plant(SecretKind::SinkCredential)
+        .value()
+        .to_owned();
+    let (server, posted) = stand_in(200, &[], r#"{"MessageId":"0102-abc"}"#);
+    let runtime = runtime();
+    let clock = Clock::system();
+    let channel = ses_at(
+        &server.base_url(),
+        credentials("AKIDEXAMPLE", &secret),
+        &settings(json!({}), json!({})),
+        clock,
+    );
+
+    let sent = runtime.block_on(channel.send(&message()));
+
+    let posted = posted.lock().unwrap().clone();
+    let headers = posted
+        .iter()
+        .flat_map(|request| &request.headers)
+        .map(|(name, value)| [name.as_str(), ": ", value.as_str(), "\n"].concat())
+        .collect::<String>();
+    let raw = raw_message(&posted);
+    let leaks = canaries
+        .leaks(&[
+            Output::Bytes {
+                name: "headers",
+                bytes: headers.as_bytes(),
+            },
+            Output::Bytes {
+                name: "body",
+                bytes: &posted[0].body,
+            },
+            Output::Bytes {
+                name: "raw message",
+                bytes: &raw,
+            },
+        ])
+        .unwrap();
+    assert_eq!(
+        (sent.map_err(|failure| channel.map_failure(failure)), leaks),
+        (Ok(()), Vec::new())
+    );
+}
+
+/// A title with CR, LF and NUL becomes one `Subject` header: no line of
+/// it starts a header of its own, and no NUL reaches the message.
+/// Covers: setting:notifications.channels
+#[test]
+fn a_hostile_title_stays_one_subject() {
+    let (server, posted) = stand_in(200, &[], r#"{"MessageId":"0102-abc"}"#);
+    let runtime = runtime();
+    let channel = ses(&server, "AKIDEXAMPLE", Clock::system());
+    let hostile = Message {
+        title: "Run failed\r\nBcc: attacker@example.com\r\n\r\nInjected body\0".to_owned(),
+        ..message()
+    };
+
+    let sent = runtime.block_on(channel.send(&hostile));
+
+    let raw = raw_message(&posted.lock().unwrap());
+    let raw = String::from_utf8(raw).unwrap();
+    let (head, _) = raw.split_once("\r\n\r\n").unwrap();
+    let names = head
+        .split("\r\n")
+        .filter(|line| !line.starts_with([' ', '\t']))
+        .filter_map(|line| line.split_once(':'))
+        .map(|(name, _)| name.to_ascii_lowercase())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        (
+            sent.map_err(|failure| channel.map_failure(failure)),
+            names.iter().filter(|name| *name == "subject").count(),
+            names.contains(&"bcc".to_owned()),
+            raw.contains('\0'),
+        ),
+        (Ok(()), 1, false, false)
+    );
+}
+
+/// An SES endpoint nobody listens on is `unreachable` and retried; one on
+/// a private address under `egress.no_private_endpoints` is refused before
+/// any request, `rejected` and not retried.
+/// Covers: setting:notifications.channels, setting:egress.no_private_endpoints
+#[rstest]
+#[case::closed_port("closed", ("unreachable", true, None))]
+#[case::private_endpoint("private", ("rejected", false, None))]
+fn an_unreached_ses_maps_to_its_failure(
+    #[case] reach: &str,
+    #[case] expected: (&str, bool, Option<Duration>),
+) {
+    let (server, posted) = stand_in(200, &[], "{}");
+    let closed = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let (base, policy) = if reach == "closed" {
+        (
+            format!("http://{}", closed.local_addr().unwrap()),
+            json!({}),
+        )
+    } else {
+        (
+            server.base_url(),
+            json!({ "egress": { "no_private_endpoints": true } }),
+        )
+    };
+    drop(closed);
+    let runtime = runtime();
+    let clock = Clock::system();
+    let channel = ses_at(
+        &base,
+        credentials("AKIDEXAMPLE", SES_SECRET),
+        &settings(policy, json!({})),
+        clock,
+    );
+
+    let failure = runtime.block_on(channel.send(&message())).unwrap_err();
+
+    assert_eq!(
+        (
+            summary(&channel.map_failure(failure)),
+            posted.lock().unwrap().len()
+        ),
+        (expected, 0)
+    );
+}
+
 /// The SES translation table: each answer the driver knows, by the error
 /// type SES names in its header or body, or by its status, maps to its
 /// failure, retried or not, with the wait a `Retry-After` asks for; an
@@ -738,6 +979,10 @@ fn an_email_through_ses_is_a_signed_raw_message() {
 #[case::access_denied(403, &[("x-amzn-ErrorType", "AccessDeniedException")], "{}", ("unauthorized", false, None))]
 #[case::unknown_access_key(403, &[("x-amzn-ErrorType", "UnrecognizedClientException")], "{}", ("unauthorized", false, None))]
 #[case::bad_signature(403, &[("x-amzn-ErrorType", "InvalidSignatureException")], "{}", ("unauthorized", false, None))]
+#[case::signature_mismatch(403, &[("x-amzn-ErrorType", "SignatureDoesNotMatch")], "{}", ("unauthorized", false, None))]
+#[case::incomplete_signature(403, &[("x-amzn-ErrorType", "IncompleteSignature")], "{}", ("unauthorized", false, None))]
+#[case::unknown_token(403, &[("x-amzn-ErrorType", "InvalidClientTokenId")], "{}", ("unauthorized", false, None))]
+#[case::missing_token(403, &[("x-amzn-ErrorType", "MissingAuthenticationTokenException")], "{}", ("unauthorized", false, None))]
 #[case::expired_token(403, &[("x-amzn-ErrorType", "ExpiredTokenException")], "{}", ("unauthorized", false, None))]
 #[case::account_suspended(400, &[("x-amzn-ErrorType", "AccountSuspendedException")], "{}", ("unauthorized", false, None))]
 #[case::sending_paused(400, &[("x-amzn-ErrorType", "SendingPausedException")], "{}", ("unauthorized", false, None))]
@@ -747,6 +992,10 @@ fn an_email_through_ses_is_a_signed_raw_message() {
 #[case::not_found(404, &[("x-amzn-ErrorType", "NotFoundException")], "{}", ("rejected", false, None))]
 #[case::internal_failure(500, &[("x-amzn-ErrorType", "InternalFailure")], "{}", ("server_error", true, None))]
 #[case::service_unavailable(503, &[], "", ("server_error", true, None))]
+#[case::unauthenticated_status(401, &[], "", ("unauthorized", false, None))]
+#[case::forbidden_status(403, &[], "", ("unauthorized", false, None))]
+#[case::request_timeout_status(408, &[], "", ("timeout", true, None))]
+#[case::too_many_requests_status(429, &[], "", ("rate_limited", true, None))]
 #[case::unknown_type(400, &[("x-amzn-ErrorType", "SomethingNewException")], "{}", ("unrecognized", true, None))]
 #[case::unknown_status(418, &[], "", ("unrecognized", true, None))]
 fn each_ses_answer_maps_to_its_failure(

@@ -350,6 +350,12 @@ struct Plan {
     externals: Vec<External>,
 }
 
+/// The folders `xtask codegen` owns: it writes every file in them and
+/// removes any other (`xtask codegen --folders` prints them).
+pub(crate) fn owned_folders() -> impl Iterator<Item = &'static str> {
+    Plan::owned_folders()
+}
+
 impl Plan {
     fn owned_folders() -> impl Iterator<Item = &'static str> {
         [
@@ -792,6 +798,12 @@ pub(crate) struct Arguments {
     /// generate, without running the TypeScript and Python generators.
     #[arg(long)]
     check: bool,
+    /// Prints the folders `xtask codegen` owns, one a line, and writes
+    /// nothing: it writes every file in them and removes any other, so a
+    /// merge's conflict there is settled by running it again (`just merge`,
+    /// ADR 0135's note of 2026-11-26).
+    #[arg(long, conflicts_with = "check")]
+    pub(crate) folders: bool,
     /// `json-schema-to-typescript`'s executable.
     #[arg(long, default_value = "node_modules/.bin/json2ts")]
     json2ts: PathBuf,

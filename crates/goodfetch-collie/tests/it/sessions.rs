@@ -464,7 +464,7 @@ fn a_session_opens_in_its_access_mode_only_where_its_browser_can_run_it() {
             naming(&answers[0], "cookie_header"),
             naming(&answers[1], "cdp_url"),
             naming(&answers[2], "WebKit"),
-            naming(&answers[3], "stealth"),
+            naming(&answers[3], "Goodfetch Chromium"),
         ),
         (
             refused_naming("setting_not_applicable", "browser.access_mode", Value::Null),
@@ -476,8 +476,8 @@ fn a_session_opens_in_its_access_mode_only_where_its_browser_can_run_it() {
             ),
             refused_naming(
                 "capability_unavailable",
-                "browser.access_mode",
-                json!("stealth")
+                "stealth.fingerprint_method",
+                json!("engine")
             ),
         )
     );

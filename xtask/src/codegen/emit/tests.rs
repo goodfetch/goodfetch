@@ -69,6 +69,14 @@ fn file_formats() -> serde_json::Value {
         stored_format("recipe-manifest", "toml", "default", "RecipeManifest"),
         stored_format("plugin-protocol", "transcript", "lower_minor", "Message"),
         stored_format("plugin-manifest", "json", "default", "PluginManifest"),
+        {
+            "name": "peer-protocol",
+            "version": "0.1",
+            "storage": "transcript",
+            "rule": "lower_minor",
+            "hello_from": ["group_member"],
+            "schema": { "$ref": "#/$defs/Message" },
+        },
     ])
 }
 

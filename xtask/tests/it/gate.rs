@@ -460,7 +460,7 @@ fn add_xtask(workspace: &Workspace, records: &Path) {
 }
 
 /// The steps of `plan` that run whatever a change reaches.
-const EVERY_RUN: [&str; 13] = [
+const EVERY_RUN: [&str; 14] = [
     "dco",
     "commit-messages",
     "floor-guard",
@@ -470,6 +470,7 @@ const EVERY_RUN: [&str; 13] = [
     "lint",
     "feature-combinations",
     "semver-checks",
+    "deslop-please",
     "fuzz-check",
     "proofs",
     "journeys-tasks",
@@ -672,10 +673,11 @@ fn a_result_for_another_head_or_a_changed_tree_is_refused() {
 }
 
 /// The checks a run on the tree of their green result reuses.
-const TREE_ONLY: [&str; 5] = [
+const TREE_ONLY: [&str; 6] = [
     "lint",
     "feature-combinations",
     "semver-checks",
+    "deslop-please",
     "fuzz-check",
     "proofs",
 ];
@@ -1402,7 +1404,7 @@ const HOSTED_OWNED_FULL: [&str; 8] = [
 /// Linux runner and `ci/linux.sh` skips on the Linux gate host, and the
 /// steps no 4-vCPU hosted job finishes within ADR 0061's 30-minute cap
 /// (#3382), and the Simulation, built under a cfg of its own (issue 359).
-const RUN_BY_THE_FULL_GATE: [&str; 16] = [
+const RUN_BY_THE_FULL_GATE: [&str; 17] = [
     "dco",
     "commit-messages",
     "floor-guard",
@@ -1418,6 +1420,7 @@ const RUN_BY_THE_FULL_GATE: [&str; 16] = [
     "windows",
     "feature-combinations",
     "semver-checks",
+    "deslop-please",
     "fuzz-check",
 ];
 

@@ -2218,6 +2218,18 @@ floor-guard base="origin/main" head="HEAD":
 copies-shrink:
     ci/copies.sh --shrink
 
+# The module structure check (ci/deslop-please.sh, ADR 0126's note of
+# 2026-11-26): a step of the full gate alone, and an implementer's at a spec's
+# end, before code-review, as it indexes the whole workspace again after any
+# change (about 6 minutes and 10 GB; seconds on a tree it indexed).
+deslop-please:
+    ci/tool.sh deslop-please ci/deslop-please.sh
+
+# Removes from ci/deslop-please.allow the module structure findings the tree
+# no longer holds, after a change that fixed one. It never adds a finding.
+deslop-please-shrink:
+    ci/deslop-please.sh --shrink
+
 # Runs the static checks against fixtures that each must fail (ADR 0062's bans
 # and the snapshot rules), proving the configurations refuse what they should.
 proofs:
